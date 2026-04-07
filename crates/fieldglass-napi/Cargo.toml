@@ -1,0 +1,19 @@
+[package]
+name = "fieldglass-napi"
+version = "0.1.0"
+edition = "2021"
+description = "Node.js bindings for Fieldglass via napi-rs"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+fieldglass-core = { path = "../fieldglass-core" }
+fieldglass-grib1 = { path = "../fieldglass-grib1" }
+fieldglass-grib2 = { path = "../fieldglass-grib2" }
+fieldglass-netcdf = { path = "../fieldglass-netcdf" }
+napi = { version = "2", features = ["napi6"] }
+napi-derive = "2"
+
+[build-dependencies]
+napi-build = "2"
