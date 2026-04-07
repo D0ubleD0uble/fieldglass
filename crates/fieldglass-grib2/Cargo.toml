@@ -1,0 +1,9 @@
+[package]
+name = "fieldglass-grib2"
+version = "0.1.0"
+edition = "2021"
+description = "GRIB edition 2 format reader — stub, implemented in Phase 4"
+
+[dependencies]
+fieldglass-core = { path = "../fieldglass-core" }
+serde = { version = "1", features = ["derive"] }

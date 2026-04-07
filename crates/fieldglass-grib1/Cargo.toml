@@ -1,0 +1,9 @@
+[package]
+name = "fieldglass-grib1"
+version = "0.1.0"
+edition = "2021"
+description = "GRIB edition 1 format reader implementing the Fieldglass core traits"
+
+[dependencies]
+fieldglass-core = { path = "../fieldglass-core" }
+serde = { version = "1", features = ["derive"] }

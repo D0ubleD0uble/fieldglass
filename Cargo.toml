@@ -1,0 +1,13 @@
+[workspace]
+members = [
+    "crates/fieldglass-core",
+    "crates/fieldglass-grib1",
+    "crates/fieldglass-grib2",
+    "crates/fieldglass-netcdf",
+    "crates/fieldglass-napi",
+]
+resolver = "2"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
