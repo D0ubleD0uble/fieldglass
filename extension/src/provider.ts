@@ -15,6 +15,12 @@ interface MessageMeta {
   forecastHours: number;
   originatingCentre: string;
   gridType: string | null;
+  gridNi: number | null;
+  gridNj: number | null;
+  latFirst: number | null;
+  lonFirst: number | null;
+  latLast: number | null;
+  lonLast: number | null;
   format: string;
 }
 
@@ -63,7 +69,13 @@ function renderHtml(format: string, filePath: string, messages?: MessageMeta[], 
   let bodyContent = "";
 
   if (messages && messages.length > 0) {
-    const rows = messages.map((m) => `
+    const fmt1 = (v: number | null) => v !== null ? v.toFixed(3) : "—";
+    const rows = messages.map((m) => {
+      const gridDims = (m.gridNi !== null && m.gridNj !== null)
+        ? `${m.gridNi}×${m.gridNj}` : "—";
+      const gridBounds = (m.latFirst !== null && m.lonFirst !== null)
+        ? `${fmt1(m.latFirst)},${fmt1(m.lonFirst)} → ${fmt1(m.latLast)},${fmt1(m.lonLast)}` : "—";
+      return `
       <tr>
         <td>${m.messageIndex}</td>
         <td>${m.parameterName}</td>
@@ -74,13 +86,18 @@ function renderHtml(format: string, filePath: string, messages?: MessageMeta[], 
         <td>${m.referenceTime}</td>
         <td>${m.forecastHours}h</td>
         <td>${m.originatingCentre}</td>
-      </tr>`).join("");
+        <td>${m.gridType ?? "—"}</td>
+        <td>${gridDims}</td>
+        <td>${gridBounds}</td>
+      </tr>`;
+    }).join("");
     bodyContent = `
     <table>
       <thead>
         <tr>
           <th>#</th><th>Parameter</th><th>Abbrev</th><th>Units</th>
-          <th>Level Type</th><th>Level</th><th>Reference Time</th><th>Fcst</th><th>Centre</th>
+          <th>Level Type</th><th>Level</th><th>Reference Time</th><th>Fcst</th>
+          <th>Centre</th><th>Grid</th><th>Size</th><th>Bounds (lat,lon)</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>

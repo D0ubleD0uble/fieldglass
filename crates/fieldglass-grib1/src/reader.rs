@@ -1,4 +1,5 @@
 use fieldglass_core::FieldglassError;
+use crate::gds::{parse_grid_description, GridDescription};
 use crate::is::{parse_indicator, IndicatorSection};
 use crate::pds::{parse_product_definition, ProductDefinition};
 
@@ -7,6 +8,7 @@ pub struct Grib1Message {
     pub byte_offset: usize,
     pub is: IndicatorSection,
     pub pds: ProductDefinition,
+    pub gds: Option<GridDescription>,
 }
 
 pub struct Grib1Reader {
@@ -60,11 +62,24 @@ fn scan_messages(data: &[u8]) -> Result<Vec<Grib1Message>, FieldglassError> {
         let pds_start = offset + 8;
         let pds = parse_product_definition(&data[pds_start..msg_end])?;
 
+        // GDS immediately follows the PDS when the has_gds flag is set.
+        let gds = if pds.has_gds {
+            let gds_start = pds_start + pds.section_len as usize;
+            if gds_start < msg_end {
+                Some(parse_grid_description(&data[gds_start..msg_end])?)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         messages.push(Grib1Message {
             message_index: messages.len(),
             byte_offset: offset,
             is,
             pds,
+            gds,
         });
 
         offset += msg_end - offset; // advance by total_length
