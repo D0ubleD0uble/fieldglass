@@ -3,7 +3,7 @@ import * as path from "path";
 
 // Loaded once on first use — avoids requiring at module load time so the
 // extension can activate even if the .node file is missing (e.g. wrong platform).
-let fieldglass: { detectBytes: (bytes: Buffer) => string } | undefined;
+let fieldglass: { detectBytes: (bytes: Uint8Array) => string } | undefined;
 
 function loadNative(): typeof fieldglass {
   if (fieldglass) {
@@ -37,7 +37,7 @@ const FORMAT_LABELS: Record<string, string> = {
   unknown: "Unknown",
 };
 
-function renderHtml(format: string, filePath: string, headerBytes?: Buffer): string {
+function renderHtml(format: string, filePath: string, headerBytes?: Uint8Array): string {
   const label = FORMAT_LABELS[format] ?? "Unknown";
   const filename = path.basename(filePath);
   const isKnown = format !== "unknown";
@@ -134,7 +134,7 @@ export class FieldglassEditorProvider
   ): Promise<void> {
     const native = loadNative();
     const fileData = await vscode.workspace.fs.readFile(document.uri);
-    const header = Buffer.from(fileData.slice(0, 32));
+    const header = fileData.slice(0, 32);
     const format = native ? native.detectBytes(header) : "unknown";
     console.log(`[Fieldglass] uri=${document.uri} format=${format} native=${!!native}`);
     const headerBytes = format === "unknown" ? header : undefined;

@@ -23,7 +23,7 @@ pub struct MessageMeta {
 /// Detect the format of a file from its raw bytes.
 /// Returns "grib1" | "grib2" | "netcdf" | "unknown".
 #[napi]
-pub fn detect_bytes(bytes: Vec<u8>) -> String {
+pub fn detect_bytes(bytes: napi::bindgen_prelude::Buffer) -> String {
     match detect_from_bytes(&bytes) {
         Format::Grib1 => "grib1".to_string(),
         Format::Grib2 => "grib2".to_string(),
