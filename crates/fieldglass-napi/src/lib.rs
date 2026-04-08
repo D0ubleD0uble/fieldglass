@@ -21,6 +21,12 @@ pub struct MessageMeta {
     pub forecast_hours: i32,
     pub originating_centre: String,
     pub grid_type: Option<String>,
+    pub grid_ni: Option<i32>,
+    pub grid_nj: Option<i32>,
+    pub lat_first: Option<f64>,
+    pub lon_first: Option<f64>,
+    pub lat_last: Option<f64>,
+    pub lon_last: Option<f64>,
     pub format: String,
 }
 
@@ -45,6 +51,25 @@ pub fn open_grib1(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<Vec<Mess
     let mut result = Vec::with_capacity(reader.messages.len());
     for msg in &reader.messages {
         let param = lookup_parameter(msg.pds.parameter_id, msg.pds.table_version);
+
+        let (grid_type, grid_ni, grid_nj, lat_first, lon_first, lat_last, lon_last) =
+            match &msg.gds {
+                Some(gds) => {
+                    let dims = gds.dimensions();
+                    let bounds = gds.bounds();
+                    (
+                        Some(gds.grid_type_name().to_string()),
+                        dims.map(|(ni, _)| ni as i32),
+                        dims.map(|(_, nj)| nj as i32),
+                        bounds.map(|(la1, _, _, _)| la1),
+                        bounds.map(|(_, lo1, _, _)| lo1),
+                        bounds.map(|(_, _, la2, _)| la2),
+                        bounds.map(|(_, _, _, lo2)| lo2),
+                    )
+                }
+                None => (None, None, None, None, None, None, None),
+            };
+
         result.push(MessageMeta {
             message_index: msg.message_index as i32,
             offset_bytes: msg.byte_offset as i32,
@@ -56,7 +81,13 @@ pub fn open_grib1(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<Vec<Mess
             reference_time: fieldglass_grib1::reference_time(&msg.pds),
             forecast_hours: fieldglass_grib1::forecast_hours(&msg.pds),
             originating_centre: lookup_centre(msg.pds.originating_centre).to_string(),
-            grid_type: None,
+            grid_type,
+            grid_ni,
+            grid_nj,
+            lat_first,
+            lon_first,
+            lat_last,
+            lon_last,
             format: "grib1".to_string(),
         });
     }
