@@ -2,6 +2,15 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "build-native",
+      "type": "shell",
+      "command": "npx napi build --platform --release",
+      "options": {
+        "cwd": "${workspaceFolder}/crates/fieldglass-napi"
+      },
+      "problemMatcher": []
+    },
+    {
       "label": "compile",
       "type": "npm",
       "script": "compile",
@@ -9,6 +18,12 @@
         "cwd": "${workspaceFolder}/extension"
       },
       "problemMatcher": "$tsc"
+    },
+    {
+      "label": "build",
+      "dependsOn": ["build-native", "compile"],
+      "dependsOrder": "parallel",
+      "problemMatcher": []
     }
   ]
 }
