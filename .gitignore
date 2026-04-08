@@ -3,3 +3,5 @@
 node_modules/
 extension/out/
 extension/.vscode-test/
+index.d.ts
+index.js

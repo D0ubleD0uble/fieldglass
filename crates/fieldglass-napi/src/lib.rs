@@ -1,5 +1,6 @@
 #![deny(clippy::all)]
 
+use fieldglass_core::{detect_format, Format};
 use napi_derive::napi;
 
 /// A single message's metadata, exposed to Node.js.
@@ -19,12 +20,22 @@ pub struct MessageMeta {
     pub format: String,
 }
 
+/// Detect the format of a meteorological data file from its extension.
+/// Returns "grib1" | "grib2" | "netcdf" | "unknown".
+#[napi]
+pub fn detect(file_path: String) -> String {
+    match detect_format(&file_path) {
+        Format::Grib1 => "grib1".to_string(),
+        Format::Grib2 => "grib2".to_string(),
+        Format::NetCdf => "netcdf".to_string(),
+        Format::Unknown => "unknown".to_string(),
+    }
+}
+
 /// Open a meteorological data file and return its message metadata.
-/// Format is auto-detected from magic bytes and extension.
+/// Format is auto-detected from extension. Returns empty vec until parsers are implemented.
 #[napi]
 pub fn open(file_path: String) -> napi::Result<Vec<MessageMeta>> {
-    // TODO: dispatch to correct format reader via fieldglass_core::detect_format
-    // and return parsed metadata for all messages.
     let _ = file_path;
     Ok(vec![])
 }
