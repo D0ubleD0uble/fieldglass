@@ -29,26 +29,28 @@ let fieldglass: {
   openGrib1: (bytes: Uint8Array) => MessageMeta[];
 } | undefined;
 
+function nativeBinaryName(): string {
+  const platform = process.platform;  // 'linux' | 'win32' | 'darwin'
+  const arch = process.arch;          // 'x64' | 'arm64'
+  const abi = platform === "linux" ? "-gnu"
+            : platform === "win32" ? "-msvc"
+            : "";                     // macOS has no ABI suffix
+  return `fieldglass.${platform}-${arch}${abi}.node`;
+}
+
 function loadNative(): typeof fieldglass {
   if (fieldglass) {
     return fieldglass;
   }
-  // During development the .node lives next to the napi crate.
-  // The path here will be updated when packaging for distribution.
-  const nodePath = path.join(
-    __dirname,
-    "..",
-    "..",
-    "crates",
-    "fieldglass-napi",
-    "fieldglass.linux-x64-gnu.node"
-  );
+  // Binaries live in extension/bin/ — populated by `napi build --output-dir`
+  // during development and bundled into the .vsix for distribution.
+  const nodePath = path.join(__dirname, "..", "bin", nativeBinaryName());
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     fieldglass = require(nodePath);
   } catch (err) {
     vscode.window.showErrorMessage(
-      `Fieldglass: failed to load native module from ${nodePath}: ${err}`
+      `Fieldglass: failed to load native module (${nativeBinaryName()}): ${err}`
     );
   }
   return fieldglass;

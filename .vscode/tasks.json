@@ -4,7 +4,7 @@
     {
       "label": "build-native",
       "type": "shell",
-      "command": "npx napi build --platform --release",
+      "command": "npx napi build --platform --release --output-dir ../../extension/bin",
       "options": {
         "cwd": "${workspaceFolder}/crates/fieldglass-napi"
       },

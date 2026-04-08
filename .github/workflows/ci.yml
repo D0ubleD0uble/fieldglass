@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  build-native:
+    name: Build native (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: fieldglass.linux-x64-gnu.node
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: fieldglass.win32-x64-msvc.node
+          - os: macos-13
+            target: x86_64-apple-darwin
+            artifact: fieldglass.darwin-x64.node
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact: fieldglass.darwin-arm64.node
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install napi-rs CLI
+        run: npm install
+        working-directory: crates/fieldglass-napi
+
+      - name: Build native module
+        run: npx napi build --platform --release --target ${{ matrix.target }} --output-dir ../../extension/bin
+        working-directory: crates/fieldglass-napi
+
+      - name: Upload native artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.target }}
+          path: extension/bin/${{ matrix.artifact }}
+
+  build-extension:
+    name: Build extension
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install
+        working-directory: extension
+
+      - name: Compile TypeScript
+        run: npm run compile
+        working-directory: extension

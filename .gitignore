@@ -1,7 +1,11 @@
 /target/
-*.node
 node_modules/
 extension/out/
 extension/.vscode-test/
+extension/bin/*.node
+extension/bin/*.js
+extension/bin/*.d.ts
+# napi-rs artifacts at crate root (generated during dev before bin/ was added)
+*.node
 index.d.ts
 index.js

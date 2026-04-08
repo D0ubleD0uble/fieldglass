@@ -1,0 +1,11 @@
+# TypeScript source — compiled output is in out/
+src/**
+tsconfig.json
+
+# Dev/test artefacts
+node_modules/**
+.vscode-test/**
+*.vsix
+
+# Source maps (comment out to keep them for easier debugging)
+out/**/*.map
