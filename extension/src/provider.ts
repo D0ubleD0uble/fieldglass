@@ -3,7 +3,7 @@ import * as path from "path";
 
 // Loaded once on first use — avoids requiring at module load time so the
 // extension can activate even if the .node file is missing (e.g. wrong platform).
-let fieldglass: { detect: (filePath: string) => string; readHeader: (filePath: string, count: number) => Buffer } | undefined;
+let fieldglass: { detectBytes: (bytes: Buffer) => string } | undefined;
 
 function loadNative(): typeof fieldglass {
   if (fieldglass) {
@@ -128,16 +128,17 @@ export class FieldglassEditorProvider
     return { uri, dispose: () => {} };
   }
 
-  public resolveCustomEditor(
+  public async resolveCustomEditor(
     document: vscode.CustomDocument,
     webviewPanel: vscode.WebviewPanel
-  ): void {
+  ): Promise<void> {
     const native = loadNative();
-    const filePath = document.uri.fsPath;
-    const format = native ? native.detect(filePath) : "unknown";
-    console.log(`[Fieldglass] path=${filePath} format=${format} native=${!!native}`);
-    const headerBytes = (native && format === "unknown") ? native.readHeader(filePath, 32) : undefined;
+    const fileData = await vscode.workspace.fs.readFile(document.uri);
+    const header = Buffer.from(fileData.slice(0, 32));
+    const format = native ? native.detectBytes(header) : "unknown";
+    console.log(`[Fieldglass] uri=${document.uri} format=${format} native=${!!native}`);
+    const headerBytes = format === "unknown" ? header : undefined;
     webviewPanel.webview.options = { enableScripts: false };
-    webviewPanel.webview.html = renderHtml(format, filePath, headerBytes);
+    webviewPanel.webview.html = renderHtml(format, document.uri.fsPath, headerBytes);
   }
 }
