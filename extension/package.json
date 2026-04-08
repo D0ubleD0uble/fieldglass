@@ -3,10 +3,16 @@
   "displayName": "Fieldglass",
   "description": "VS Code extension for reading and editing meteorological data files (GRIB1, GRIB2, NetCDF)",
   "version": "0.1.0",
+  "publisher": "fieldglass",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fieldglass/fieldglass"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
   "categories": ["Other"],
+  "keywords": ["grib", "grib1", "grib2", "netcdf", "meteorology", "weather", "forecast"],
   "activationEvents": [],
   "main": "./out/extension.js",
   "contributes": {
