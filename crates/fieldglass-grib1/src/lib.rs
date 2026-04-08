@@ -5,6 +5,6 @@ pub mod pds;
 pub mod reader;
 pub mod tables;
 
-pub use reader::open;
-pub use reader::Grib1Message;
-pub use reader::Grib1Reader;
+pub use is::IndicatorSection;
+pub use pds::ProductDefinition;
+pub use reader::{forecast_hours, level_value, reference_time, Grib1Message, Grib1Reader};
