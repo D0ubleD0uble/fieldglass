@@ -43,6 +43,12 @@
           { "filenamePattern": "*.netcdf" }
         ],
         "priority": "default"
+      },
+      {
+        "viewType": "fieldglass.viewer",
+        "displayName": "Fieldglass Viewer",
+        "selector": [{ "filenamePattern": "*" }],
+        "priority": "option"
       }
     ]
   },
