@@ -92,13 +92,15 @@ export class FieldglassEditorProvider
   implements vscode.CustomReadonlyEditorProvider
 {
   public static readonly viewType = "fieldglass.viewer";
+  public static readonly viewTypeAny = "fieldglass.viewer.any";
 
-  public static register(context: vscode.ExtensionContext): vscode.Disposable {
-    return vscode.window.registerCustomEditorProvider(
-      FieldglassEditorProvider.viewType,
-      new FieldglassEditorProvider(),
-      { supportsMultipleEditorsPerDocument: true }
-    );
+  public static register(context: vscode.ExtensionContext): vscode.Disposable[] {
+    const provider = new FieldglassEditorProvider();
+    const opts = { supportsMultipleEditorsPerDocument: true };
+    return [
+      vscode.window.registerCustomEditorProvider(FieldglassEditorProvider.viewType, provider, opts),
+      vscode.window.registerCustomEditorProvider(FieldglassEditorProvider.viewTypeAny, provider, opts),
+    ];
   }
 
   public openCustomDocument(uri: vscode.Uri): vscode.CustomDocument {
