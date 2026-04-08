@@ -6,3 +6,4 @@ description = "Format-agnostic traits and shared types for the Fieldglass data v
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
+thiserror = { workspace = true }

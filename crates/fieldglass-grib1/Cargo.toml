@@ -7,3 +7,4 @@ description = "GRIB edition 1 format reader implementing the Fieldglass core tra
 [dependencies]
 fieldglass-core = { path = "../fieldglass-core" }
 serde = { version = "1", features = ["derive"] }
+thiserror = { workspace = true }

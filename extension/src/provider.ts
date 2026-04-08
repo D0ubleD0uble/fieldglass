@@ -3,7 +3,25 @@ import * as path from "path";
 
 // Loaded once on first use — avoids requiring at module load time so the
 // extension can activate even if the .node file is missing (e.g. wrong platform).
-let fieldglass: { detectBytes: (bytes: Uint8Array) => string } | undefined;
+interface MessageMeta {
+  messageIndex: number;
+  offsetBytes: number;
+  parameterName: string;
+  parameterUnits: string;
+  parameterAbbreviation: string;
+  levelType: string;
+  levelValue: number;
+  referenceTime: string;
+  forecastHours: number;
+  originatingCentre: string;
+  gridType: string | null;
+  format: string;
+}
+
+let fieldglass: {
+  detectBytes: (bytes: Uint8Array) => string;
+  openGrib1: (bytes: Uint8Array) => MessageMeta[];
+} | undefined;
 
 function loadNative(): typeof fieldglass {
   if (fieldglass) {
@@ -37,25 +55,51 @@ const FORMAT_LABELS: Record<string, string> = {
   unknown: "Unknown",
 };
 
-function renderHtml(format: string, filePath: string, headerBytes?: Uint8Array): string {
+function renderHtml(format: string, filePath: string, messages?: MessageMeta[], headerBytes?: Uint8Array): string {
   const label = FORMAT_LABELS[format] ?? "Unknown";
   const filename = path.basename(filePath);
   const isKnown = format !== "unknown";
 
-  let headerSection = "";
-  if (!isKnown && headerBytes && headerBytes.length > 0) {
+  let bodyContent = "";
+
+  if (messages && messages.length > 0) {
+    const rows = messages.map((m) => `
+      <tr>
+        <td>${m.messageIndex}</td>
+        <td>${m.parameterName}</td>
+        <td>${m.parameterAbbreviation}</td>
+        <td>${m.parameterUnits}</td>
+        <td>${m.levelType}</td>
+        <td>${m.levelValue}</td>
+        <td>${m.referenceTime}</td>
+        <td>${m.forecastHours}h</td>
+        <td>${m.originatingCentre}</td>
+      </tr>`).join("");
+    bodyContent = `
+    <table>
+      <thead>
+        <tr>
+          <th>#</th><th>Parameter</th><th>Abbrev</th><th>Units</th>
+          <th>Level Type</th><th>Level</th><th>Reference Time</th><th>Fcst</th><th>Centre</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  } else if (!isKnown && headerBytes && headerBytes.length > 0) {
     const hex = Array.from(headerBytes)
       .map((b) => b.toString(16).padStart(2, "0"))
       .join(" ");
     const ascii = Array.from(headerBytes)
       .map((b) => (b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : "."))
       .join("");
-    headerSection = `
+    bodyContent = `
     <div class="header-dump">
       <div class="dump-label">First ${headerBytes.length} bytes</div>
       <code class="hex">${hex}</code>
       <code class="ascii">${ascii}</code>
     </div>`;
+  } else {
+    bodyContent = `<div class="status">No messages found.</div>`;
   }
 
   return `<!DOCTYPE html>
@@ -74,12 +118,6 @@ function renderHtml(format: string, filePath: string, headerBytes?: Uint8Array):
     }
     h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
     .subtitle { color: var(--vscode-descriptionForeground); font-size: 0.9rem; margin-bottom: 2rem; }
-    .card {
-      border: 1px solid var(--vscode-panel-border);
-      border-radius: 4px;
-      padding: 1.25rem 1.5rem;
-      max-width: 480px;
-    }
     .badge {
       display: inline-block;
       padding: 0.2rem 0.6rem;
@@ -91,6 +129,10 @@ function renderHtml(format: string, filePath: string, headerBytes?: Uint8Array):
       color: ${isKnown ? "var(--vscode-badge-foreground)" : "var(--vscode-inputValidation-warningForeground)"};
     }
     .status { font-size: 0.95rem; color: var(--vscode-descriptionForeground); }
+    table { border-collapse: collapse; font-size: 0.85rem; width: 100%; }
+    th, td { text-align: left; padding: 0.3rem 0.6rem; border-bottom: 1px solid var(--vscode-panel-border); white-space: nowrap; }
+    th { color: var(--vscode-descriptionForeground); font-weight: 600; }
+    tr:hover td { background: var(--vscode-list-hoverBackground); }
     .header-dump { margin-top: 1rem; }
     .dump-label { font-size: 0.8rem; color: var(--vscode-descriptionForeground); margin-bottom: 0.25rem; }
     code { display: block; font-family: var(--vscode-editor-font-family, monospace); font-size: 0.85rem; }
@@ -100,11 +142,8 @@ function renderHtml(format: string, filePath: string, headerBytes?: Uint8Array):
 <body>
   <h1>Fieldglass</h1>
   <div class="subtitle">${filename}</div>
-  <div class="card">
-    <div class="badge">${label}</div>
-    <div class="status">Parsing not yet implemented.</div>
-    ${headerSection}
-  </div>
+  <div class="badge">${label}</div>
+  ${bodyContent}
 </body>
 </html>`;
 }
@@ -137,8 +176,17 @@ export class FieldglassEditorProvider
     const header = fileData.slice(0, 32);
     const format = native ? native.detectBytes(header) : "unknown";
     console.log(`[Fieldglass] uri=${document.uri} format=${format} native=${!!native}`);
-    const headerBytes = format === "unknown" ? header : undefined;
+
+    let messages: MessageMeta[] | undefined;
+    let headerBytes: Uint8Array | undefined;
+
+    if (native && format === "grib1") {
+      messages = native.openGrib1(fileData);
+    } else if (format === "unknown") {
+      headerBytes = header;
+    }
+
     webviewPanel.webview.options = { enableScripts: false };
-    webviewPanel.webview.html = renderHtml(format, document.uri.fsPath, headerBytes);
+    webviewPanel.webview.html = renderHtml(format, document.uri.fsPath, messages, headerBytes);
   }
 }
