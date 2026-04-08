@@ -3,7 +3,7 @@ import * as path from "path";
 
 // Loaded once on first use — avoids requiring at module load time so the
 // extension can activate even if the .node file is missing (e.g. wrong platform).
-let fieldglass: { detect: (filePath: string) => string } | undefined;
+let fieldglass: { detect: (filePath: string) => string; readHeader: (filePath: string, count: number) => Buffer } | undefined;
 
 function loadNative(): typeof fieldglass {
   if (fieldglass) {
@@ -37,10 +37,26 @@ const FORMAT_LABELS: Record<string, string> = {
   unknown: "Unknown",
 };
 
-function renderHtml(format: string, filePath: string): string {
+function renderHtml(format: string, filePath: string, headerBytes?: Buffer): string {
   const label = FORMAT_LABELS[format] ?? "Unknown";
   const filename = path.basename(filePath);
   const isKnown = format !== "unknown";
+
+  let headerSection = "";
+  if (!isKnown && headerBytes && headerBytes.length > 0) {
+    const hex = Array.from(headerBytes)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join(" ");
+    const ascii = Array.from(headerBytes)
+      .map((b) => (b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : "."))
+      .join("");
+    headerSection = `
+    <div class="header-dump">
+      <div class="dump-label">First ${headerBytes.length} bytes</div>
+      <code class="hex">${hex}</code>
+      <code class="ascii">${ascii}</code>
+    </div>`;
+  }
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -75,6 +91,10 @@ function renderHtml(format: string, filePath: string): string {
       color: ${isKnown ? "var(--vscode-badge-foreground)" : "var(--vscode-inputValidation-warningForeground)"};
     }
     .status { font-size: 0.95rem; color: var(--vscode-descriptionForeground); }
+    .header-dump { margin-top: 1rem; }
+    .dump-label { font-size: 0.8rem; color: var(--vscode-descriptionForeground); margin-bottom: 0.25rem; }
+    code { display: block; font-family: var(--vscode-editor-font-family, monospace); font-size: 0.85rem; }
+    .ascii { color: var(--vscode-descriptionForeground); margin-top: 0.2rem; }
   </style>
 </head>
 <body>
@@ -83,6 +103,7 @@ function renderHtml(format: string, filePath: string): string {
   <div class="card">
     <div class="badge">${label}</div>
     <div class="status">Parsing not yet implemented.</div>
+    ${headerSection}
   </div>
 </body>
 </html>`;
@@ -112,8 +133,11 @@ export class FieldglassEditorProvider
     webviewPanel: vscode.WebviewPanel
   ): void {
     const native = loadNative();
-    const format = native ? native.detect(document.uri.fsPath) : "unknown";
+    const filePath = document.uri.fsPath;
+    const format = native ? native.detect(filePath) : "unknown";
+    console.log(`[Fieldglass] path=${filePath} format=${format} native=${!!native}`);
+    const headerBytes = (native && format === "unknown") ? native.readHeader(filePath, 32) : undefined;
     webviewPanel.webview.options = { enableScripts: false };
-    webviewPanel.webview.html = renderHtml(format, document.uri.fsPath);
+    webviewPanel.webview.html = renderHtml(format, filePath, headerBytes);
   }
 }
