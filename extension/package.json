@@ -45,7 +45,7 @@
         "priority": "default"
       },
       {
-        "viewType": "fieldglass.viewer",
+        "viewType": "fieldglass.viewer.any",
         "displayName": "Fieldglass Viewer",
         "selector": [{ "filenamePattern": "*" }],
         "priority": "option"
