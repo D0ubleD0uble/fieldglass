@@ -32,6 +32,20 @@ pub fn detect(file_path: String) -> String {
     }
 }
 
+/// Read the first `count` bytes of a file, returned as a Vec of byte values.
+#[napi]
+pub fn read_header(file_path: String, count: u32) -> napi::Result<Vec<u8>> {
+    use std::fs::File;
+    use std::io::Read;
+    let mut f = File::open(&file_path)
+        .map_err(|e| napi::Error::from_reason(format!("cannot open {file_path}: {e}")))?;
+    let mut buf = vec![0u8; count as usize];
+    let n = f.read(&mut buf)
+        .map_err(|e| napi::Error::from_reason(format!("read error: {e}")))?;
+    buf.truncate(n);
+    Ok(buf)
+}
+
 /// Open a meteorological data file and return its message metadata.
 /// Format is auto-detected from extension. Returns empty vec until parsers are implemented.
 #[napi]
