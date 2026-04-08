@@ -1,0 +1,59 @@
+{
+  "name": "fieldglass",
+  "displayName": "Fieldglass",
+  "description": "VS Code extension for reading and editing meteorological data files (GRIB1, GRIB2, NetCDF)",
+  "version": "0.1.0",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "fieldglass-grib1",
+        "aliases": ["GRIB1", "grib1"],
+        "extensions": [".grb", ".grib", ".grib1", ".grb1"]
+      },
+      {
+        "id": "fieldglass-grib2",
+        "aliases": ["GRIB2", "grib2"],
+        "extensions": [".grb2", ".grib2"]
+      },
+      {
+        "id": "fieldglass-netcdf",
+        "aliases": ["NetCDF", "netcdf"],
+        "extensions": [".nc", ".nc4", ".netcdf"]
+      }
+    ],
+    "customEditors": [
+      {
+        "viewType": "fieldglass.viewer",
+        "displayName": "Fieldglass Viewer",
+        "selector": [
+          { "filenamePattern": "*.grb" },
+          { "filenamePattern": "*.grib" },
+          { "filenamePattern": "*.grib1" },
+          { "filenamePattern": "*.grb1" },
+          { "filenamePattern": "*.grb2" },
+          { "filenamePattern": "*.grib2" },
+          { "filenamePattern": "*.nc" },
+          { "filenamePattern": "*.nc4" },
+          { "filenamePattern": "*.netcdf" }
+        ],
+        "priority": "default"
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "vscode:prepublish": "npm run compile"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.0"
+  }
+}
