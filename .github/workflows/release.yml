@@ -51,13 +51,11 @@ jobs:
 
       - name: Install napi-rs CLI
         run: npm install
-        working-directory: crates/fieldglass-napi
 
       - name: Build native module
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-        run: npx napi build --platform --release --target ${{ matrix.target }} --output-dir ../../extension/bin
-        working-directory: crates/fieldglass-napi
+        run: npx napi build --platform --release --target ${{ matrix.target }} --manifest-path crates/fieldglass-napi/Cargo.toml --output-dir extension/bin
 
       - name: Upload native artifact
         uses: actions/upload-artifact@v4
