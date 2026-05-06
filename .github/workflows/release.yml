@@ -55,7 +55,7 @@ jobs:
       - name: Build native module
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-        run: npx napi build --platform --release --target ${{ matrix.target }} --manifest-path crates/fieldglass-napi/Cargo.toml --output-dir extension/bin
+        run: npx napi build --platform --release --target ${{ matrix.target }} --manifest-path crates/fieldglass-napi/Cargo.toml --output-dir ${{ github.workspace }}/extension/bin
 
       - name: Upload native artifact
         uses: actions/upload-artifact@v4
