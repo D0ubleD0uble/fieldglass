@@ -16,9 +16,15 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             artifact: fieldglass.linux-x64-gnu.node
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            artifact: fieldglass.linux-arm64-gnu.node
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             artifact: fieldglass.win32-x64-msvc.node
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
+            artifact: fieldglass.win32-arm64-msvc.node
           - os: macos-13
             target: x86_64-apple-darwin
             artifact: fieldglass.darwin-x64.node
@@ -39,11 +45,17 @@ jobs:
         with:
           node-version: 22
 
+      - name: Install aarch64 Linux cross-linker
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+
       - name: Install napi-rs CLI
         run: npm install
         working-directory: crates/fieldglass-napi
 
       - name: Build native module
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
         run: npx napi build --platform --release --target ${{ matrix.target }} --output-dir ../../extension/bin
         working-directory: crates/fieldglass-napi
 
