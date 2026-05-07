@@ -27,6 +27,7 @@ interface MessageMeta {
 let fieldglass: {
   detectBytes: (bytes: Uint8Array) => string;
   openGrib1: (bytes: Uint8Array) => MessageMeta[];
+  decodeGrid: (bytes: Uint8Array, messageIndex: number) => Array<number | null>;
 } | undefined;
 
 function nativeBinaryName(): string {
