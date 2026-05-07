@@ -7,72 +7,39 @@ on:
 
 jobs:
   build-native:
-    name: Build native (${{ matrix.target }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            artifact: fieldglass.linux-x64-gnu.node
-          - os: ubuntu-latest
-            target: aarch64-unknown-linux-gnu
-            artifact: fieldglass.linux-arm64-gnu.node
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            artifact: fieldglass.win32-x64-msvc.node
-          - os: windows-latest
-            target: aarch64-pc-windows-msvc
-            artifact: fieldglass.win32-arm64-msvc.node
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            artifact: fieldglass.darwin-x64.node
-          - os: macos-latest
-            target: aarch64-apple-darwin
-            artifact: fieldglass.darwin-arm64.node
-
+    name: Build native (linux-x64 smoke test)
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: x86_64-unknown-linux-gnu
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
-
-      - name: Install aarch64 Linux cross-linker
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
 
       - name: Install napi-rs CLI
         run: npm install
 
       - name: Build native module
-        env:
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-        run: npx napi build --platform --release --target ${{ matrix.target }} --output-dir ${{ github.workspace }}/extension/bin
+        run: npx napi build --platform --release --target x86_64-unknown-linux-gnu --output-dir ${{ github.workspace }}/extension/bin
         working-directory: crates/fieldglass-napi
 
-      - name: Upload native artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: native-${{ matrix.target }}
-          path: extension/bin/${{ matrix.artifact }}
-          if-no-files-found: error
+      - name: Verify artifact exists
+        run: test -f extension/bin/fieldglass.linux-x64-gnu.node
 
   build-extension:
     name: Build extension
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
 
