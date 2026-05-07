@@ -42,6 +42,21 @@ pub fn detect_bytes(bytes: napi::bindgen_prelude::Buffer) -> String {
     }
 }
 
+/// Decode the grid values for one GRIB1 message. Returns one entry per grid
+/// point in scan order: a number for present points, `null` for points that
+/// are masked out by the message's Bit Map Section.
+#[napi]
+pub fn decode_grid(
+    bytes: napi::bindgen_prelude::Buffer,
+    message_index: u32,
+) -> napi::Result<Vec<Option<f64>>> {
+    let reader = Grib1Reader::from_bytes(bytes.to_vec())
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    reader
+        .decode_message_values(message_index as usize)
+        .map_err(|e| napi::Error::from_reason(e.to_string()))
+}
+
 /// Parse a GRIB1 file from raw bytes and return metadata for each message.
 #[napi]
 pub fn open_grib1(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<Vec<MessageMeta>> {

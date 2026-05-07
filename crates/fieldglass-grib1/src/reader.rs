@@ -1,4 +1,6 @@
 use fieldglass_core::FieldglassError;
+use crate::bds::{decode_values, parse_bds_header};
+use crate::bms::parse_bitmap;
 use crate::gds::{parse_grid_description, GridDescription};
 use crate::is::{parse_indicator, IndicatorSection};
 use crate::pds::{parse_product_definition, ProductDefinition};
@@ -9,6 +11,10 @@ pub struct Grib1Message {
     pub is: IndicatorSection,
     pub pds: ProductDefinition,
     pub gds: Option<GridDescription>,
+    /// Byte range of the Bit Map Section within the file, if one is present.
+    pub bms_range: Option<(usize, usize)>,
+    /// Byte range of the Binary Data Section within the file.
+    pub bds_range: (usize, usize),
 }
 
 pub struct Grib1Reader {
@@ -25,6 +31,43 @@ impl Grib1Reader {
 
     pub fn message_count(&self) -> usize {
         self.messages.len()
+    }
+
+    /// Decode the grid values for one message. Returns one entry per grid
+    /// point: `Some(value)` for present points, `None` for points masked out
+    /// by a Bit Map Section.
+    pub fn decode_message_values(
+        &self,
+        message_index: usize,
+    ) -> Result<Vec<Option<f64>>, FieldglassError> {
+        let msg = self.messages.get(message_index)
+            .ok_or(FieldglassError::OutOfRange)?;
+
+        // GDS dimensions are required to know how many points to expect.
+        let gds = msg.gds.as_ref().ok_or_else(|| FieldglassError::Parse(
+            "message has no GDS — predefined grids are not supported".to_string()
+        ))?;
+        let (ni, nj) = gds.dimensions().ok_or_else(|| FieldglassError::Parse(
+            "grid type has no declared dimensions".to_string()
+        ))?;
+        let expected_count = ni as usize * nj as usize;
+
+        let bitmap = match msg.bms_range {
+            Some((start, end)) => Some(parse_bitmap(&self.data[start..end], expected_count)?),
+            None => None,
+        };
+        let bitmap_bits = bitmap.as_ref().map(|b| b.bits.as_slice());
+
+        let (bds_start, bds_end) = msg.bds_range;
+        let bds_bytes = &self.data[bds_start..bds_end];
+        let header = parse_bds_header(bds_bytes)?;
+        decode_values(
+            bds_bytes,
+            &header,
+            msg.pds.decimal_scale_factor,
+            bitmap_bits,
+            expected_count,
+        )
     }
 }
 
@@ -58,21 +101,63 @@ fn scan_messages(data: &[u8]) -> Result<Vec<Grib1Message>, FieldglassError> {
             )));
         }
 
+        // Trailing 4-byte End Section "7777".
+        if &data[msg_end - 4..msg_end] != b"7777" {
+            return Err(FieldglassError::Parse(format!(
+                "Message at offset {offset} is missing trailing 7777 marker"
+            )));
+        }
+
         // PDS starts immediately after the 8-byte IS.
         let pds_start = offset + 8;
         let pds = parse_product_definition(&data[pds_start..msg_end])?;
 
         // GDS immediately follows the PDS when the has_gds flag is set.
+        let mut cursor = pds_start + pds.section_len as usize;
         let gds = if pds.has_gds {
-            let gds_start = pds_start + pds.section_len as usize;
-            if gds_start < msg_end {
-                Some(parse_grid_description(&data[gds_start..msg_end])?)
-            } else {
-                None
+            if cursor >= msg_end {
+                return Err(FieldglassError::Parse(
+                    "PDS claims a GDS follows but no bytes remain".to_string()
+                ));
             }
+            let gds = parse_grid_description(&data[cursor..msg_end])?;
+            // Advance the cursor by the GDS length.
+            let gds_len = u32::from_be_bytes([0, data[cursor], data[cursor + 1], data[cursor + 2]]) as usize;
+            cursor += gds_len;
+            Some(gds)
         } else {
             None
         };
+
+        // BMS, if present, immediately follows the GDS.
+        let bms_range = if pds.has_bms {
+            if cursor >= msg_end {
+                return Err(FieldglassError::Parse(
+                    "PDS claims a BMS follows but no bytes remain".to_string()
+                ));
+            }
+            let bms_len = u32::from_be_bytes([0, data[cursor], data[cursor + 1], data[cursor + 2]]) as usize;
+            let bms_end = cursor + bms_len;
+            if bms_end > msg_end {
+                return Err(FieldglassError::Parse(
+                    "BMS extends past end of message".to_string()
+                ));
+            }
+            let range = (cursor, bms_end);
+            cursor = bms_end;
+            Some(range)
+        } else {
+            None
+        };
+
+        // BDS occupies everything from `cursor` up to the End Section.
+        let bds_end = msg_end - 4;
+        if cursor >= bds_end {
+            return Err(FieldglassError::Parse(format!(
+                "No BDS bytes between section cursor {cursor} and ES at {bds_end}"
+            )));
+        }
+        let bds_range = (cursor, bds_end);
 
         messages.push(Grib1Message {
             message_index: messages.len(),
@@ -80,9 +165,11 @@ fn scan_messages(data: &[u8]) -> Result<Vec<Grib1Message>, FieldglassError> {
             is,
             pds,
             gds,
+            bms_range,
+            bds_range,
         });
 
-        offset += msg_end - offset; // advance by total_length
+        offset = msg_end; // advance to the next message
     }
 
     Ok(messages)
