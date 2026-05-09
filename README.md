@@ -1,12 +1,12 @@
 # Fieldglass
 
-A Visual Studio Code extension for viewing meteorological binary data files (GRIB1, GRIB2, NetCDF) directly in the editor. Built on a Rust native module with no Python dependencies.
+A Visual Studio Code extension for viewing meteorological binary data files (GRIB1, GRIB2, NetCDF) directly in the editor. Built on a Rust native module — installed extensions have **no Python runtime dependency**. (Python is only used by the dev tooling, not the shipped extension.)
 
 [Latest release](https://github.com/D0ubleD0uble/fieldglass/releases/latest)
 
 ## Status
 
-Phase 1 of the project is in progress: read-only metadata viewing for GRIB1, with grid-data decoding implemented in Rust but not yet visualized. GRIB2, NetCDF, metadata editing, and 2-D field rendering are on the roadmap. See [PLAN.md](PLAN.md) for the full phase breakdown.
+Phase 1 of the project is in progress: read-only metadata viewing for GRIB1. The GRIB1 Binary Data Section decoder (with bitmap-section support) is implemented at the Rust API level via `decode_grid`, but not yet wired into a 2-D visualization in the webview. GRIB2, NetCDF, metadata editing, and field rendering are on the roadmap. See [PLAN.md](PLAN.md) for the full phase breakdown.
 
 ## Feature matrix
 
@@ -74,8 +74,9 @@ Open any file with a supported extension. VS Code will use Fieldglass as the def
 
 ### Prerequisites
 
-- Rust (stable toolchain)
+- Rust (stable toolchain, edition 2024 — Rust 1.85 or newer)
 - Node.js 22 or newer
+- Python 3.10 or newer (only for the dev tooling — `pre-commit`, `semgrep`)
 - Visual Studio Code 1.85 or newer
 
 ### Repository layout
@@ -94,10 +95,11 @@ Open any file with a supported extension. VS Code will use Fieldglass as the def
 ```sh
 git clone git@github.com:D0ubleD0uble/fieldglass.git
 cd fieldglass
-npm install
+pipx install pre-commit              # or: pip install --user pre-commit
+npm install                          # installs @napi-rs/cli and activates git hooks
 ```
 
-The root `npm install` installs `@napi-rs/cli` (used to build the native module) and runs an `npm prepare` step that activates the repository's git hooks (see [Pre-commit hooks](#pre-commit-hooks) below).
+The root `npm install` installs `@napi-rs/cli` (used to build the native module) and runs an `npm prepare` step that activates the repository's git hooks (see [Pre-commit hooks](#pre-commit-hooks) below). If `pre-commit` isn't on `PATH` the prepare step prints a hint and continues; you can install it later and re-run `npm install`.
 
 ### Building the native module
 
@@ -155,7 +157,12 @@ The repository uses the [`pre-commit`](https://pre-commit.com/) framework. Its c
 One-time setup (per clone):
 
 ```sh
-pip install --user pre-commit          # or: pipx install pre-commit
+pipx install pre-commit                # preferred — works everywhere
+# or, on systems without pipx:
+pip install --user pre-commit          # may need --break-system-packages on PEP 668 distros
+# or, fully isolated venv:
+python3 -m venv ~/.venvs/fieldglass && ~/.venvs/fieldglass/bin/pip install pre-commit
+
 cd /path/to/fieldglass
 npm install                            # auto-runs `pre-commit install --hook-type pre-commit --hook-type pre-push`
 ```
@@ -185,9 +192,11 @@ The `pre-commit` job in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) i
 
 Three additional Tier-1 scanners run on every push and PR (results land in the repo's **Security** tab):
 
-- **[Semgrep](https://semgrep.dev/)** SAST in [`.github/workflows/semgrep.yml`](.github/workflows/semgrep.yml) — pattern-based security rules across Rust + TypeScript (`p/default`, `p/security-audit`, `p/owasp-top-ten`, `p/rust`, `p/typescript`, `p/secrets`). Same scan also runs locally on `git push`.
+- **[Semgrep](https://semgrep.dev/)** SAST in [`.github/workflows/semgrep.yml`](.github/workflows/semgrep.yml) — pattern-based security rules across Rust + TypeScript (`p/default`, `p/security-audit`, `p/owasp-top-ten`, `p/rust`, `p/typescript`, `p/secrets`). The same scan also runs locally on `git push`.
 - **[CodeQL](https://codeql.github.com/)** semantic analysis in [`.github/workflows/codeql.yml`](.github/workflows/codeql.yml) — JavaScript/TypeScript and Rust, with the `security-extended` query suite.
 - **[Dependabot](https://docs.github.com/en/code-security/dependabot)** in [`.github/dependabot.yml`](.github/dependabot.yml) — weekly version + security update PRs across `cargo`, `npm` (extension + root), and `github-actions`.
+
+The Semgrep and CodeQL workflows are gated on `github.event.repository.visibility == 'public'` because GitHub Code Scanning's SARIF upload requires either a public repo or GitHub Advanced Security. They sit dormant on private repos and self-activate the moment the repo is flipped public. Dependabot runs regardless of visibility.
 
 ## Adding a new GRIB1 metadata field
 
