@@ -18,8 +18,8 @@ pub struct ResolutionFlags {
 impl ResolutionFlags {
     fn from_byte(b: u8) -> Self {
         Self {
-            increments_given:    b & 0x80 != 0,
-            earth_oblate:        b & 0x40 != 0,
+            increments_given: b & 0x80 != 0,
+            earth_oblate: b & 0x40 != 0,
             uv_relative_to_grid: b & 0x08 != 0,
         }
     }
@@ -38,8 +38,8 @@ pub struct ScanningMode {
 impl ScanningMode {
     fn from_byte(b: u8) -> Self {
         Self {
-            i_negative:    b & 0x80 != 0,
-            j_positive:    b & 0x40 != 0,
+            i_negative: b & 0x80 != 0,
+            j_positive: b & 0x40 != 0,
             j_consecutive: b & 0x20 != 0,
         }
     }
@@ -135,42 +135,40 @@ pub enum GridDescription {
     PolarStereographic(PolarStereoGrid),
     LambertConformal(LambertGrid),
     /// Grid type present but not yet supported by this parser.
-    Unsupported { grid_type: u8 },
+    Unsupported {
+        grid_type: u8,
+    },
 }
 
 impl GridDescription {
     pub fn grid_type_name(&self) -> &'static str {
         match self {
-            Self::LatLon(_)           => "latlon",
-            Self::Gaussian(_)         => "gaussian",
+            Self::LatLon(_) => "latlon",
+            Self::Gaussian(_) => "gaussian",
             Self::PolarStereographic(_) => "polar_stereo",
             Self::LambertConformal(_) => "lambert",
-            Self::Unsupported { .. }  => "unsupported",
+            Self::Unsupported { .. } => "unsupported",
         }
     }
 
     /// Ni × Nj grid dimensions, if available.
     pub fn dimensions(&self) -> Option<(u32, u32)> {
         match self {
-            Self::LatLon(g)           => Some((g.ni, g.nj)),
-            Self::Gaussian(g)         => Some((g.ni, g.nj)),
+            Self::LatLon(g) => Some((g.ni, g.nj)),
+            Self::Gaussian(g) => Some((g.ni, g.nj)),
             Self::PolarStereographic(g) => Some((g.nx, g.ny)),
             Self::LambertConformal(g) => Some((g.nx, g.ny)),
-            Self::Unsupported { .. }  => None,
+            Self::Unsupported { .. } => None,
         }
     }
 
     /// Geographic bounds as (lat_first, lon_first, lat_last, lon_last), if available.
     pub fn bounds(&self) -> Option<(f64, f64, f64, f64)> {
         match self {
-            Self::LatLon(g) =>
-                Some((g.lat_first, g.lon_first, g.lat_last, g.lon_last)),
-            Self::Gaussian(g) =>
-                Some((g.lat_first, g.lon_first, g.lat_last, g.lon_last)),
-            Self::PolarStereographic(g) =>
-                Some((g.lat_first, g.lon_first, 0.0, 0.0)),
-            Self::LambertConformal(g) =>
-                Some((g.lat_first, g.lon_first, 0.0, 0.0)),
+            Self::LatLon(g) => Some((g.lat_first, g.lon_first, g.lat_last, g.lon_last)),
+            Self::Gaussian(g) => Some((g.lat_first, g.lon_first, g.lat_last, g.lon_last)),
+            Self::PolarStereographic(g) => Some((g.lat_first, g.lon_first, 0.0, 0.0)),
+            Self::LambertConformal(g) => Some((g.lat_first, g.lon_first, 0.0, 0.0)),
             Self::Unsupported { .. } => None,
         }
     }
@@ -201,10 +199,18 @@ pub fn parse_grid_description(bytes: &[u8]) -> Result<GridDescription, Fieldglas
     let grid_type = bytes[5];
 
     match grid_type {
-        0 => Ok(GridDescription::LatLon(parse_latlon(&bytes[..section_len])?)),
-        3 => Ok(GridDescription::LambertConformal(parse_lambert(&bytes[..section_len])?)),
-        4 => Ok(GridDescription::Gaussian(parse_gaussian(&bytes[..section_len])?)),
-        5 => Ok(GridDescription::PolarStereographic(parse_polar_stereo(&bytes[..section_len])?)),
+        0 => Ok(GridDescription::LatLon(parse_latlon(
+            &bytes[..section_len],
+        )?)),
+        3 => Ok(GridDescription::LambertConformal(parse_lambert(
+            &bytes[..section_len],
+        )?)),
+        4 => Ok(GridDescription::Gaussian(parse_gaussian(
+            &bytes[..section_len],
+        )?)),
+        5 => Ok(GridDescription::PolarStereographic(parse_polar_stereo(
+            &bytes[..section_len],
+        )?)),
         _ => Ok(GridDescription::Unsupported { grid_type }),
     }
 }
@@ -216,68 +222,68 @@ pub fn parse_grid_description(bytes: &[u8]) -> Result<GridDescription, Fieldglas
 fn parse_latlon(b: &[u8]) -> Result<LatLonGrid, FieldglassError> {
     require_len(b, 28, "LatLon GDS")?;
     Ok(LatLonGrid {
-        ni:               u16::from_be_bytes([b[6],  b[7]])  as u32,
-        nj:               u16::from_be_bytes([b[8],  b[9]])  as u32,
-        lat_first:        read_signed_magnitude_24(&b[10..13]) as f64 / 1000.0,
-        lon_first:        read_signed_magnitude_24(&b[13..16]) as f64 / 1000.0,
+        ni: u16::from_be_bytes([b[6], b[7]]) as u32,
+        nj: u16::from_be_bytes([b[8], b[9]]) as u32,
+        lat_first: read_signed_magnitude_24(&b[10..13]) as f64 / 1000.0,
+        lon_first: read_signed_magnitude_24(&b[13..16]) as f64 / 1000.0,
         resolution_flags: ResolutionFlags::from_byte(b[16]),
-        lat_last:         read_signed_magnitude_24(&b[17..20]) as f64 / 1000.0,
-        lon_last:         read_signed_magnitude_24(&b[20..23]) as f64 / 1000.0,
-        di:               u16::from_be_bytes([b[23], b[24]]) as f64 / 1000.0,
-        dj:               u16::from_be_bytes([b[25], b[26]]) as f64 / 1000.0,
-        scanning_mode:    ScanningMode::from_byte(b[27]),
+        lat_last: read_signed_magnitude_24(&b[17..20]) as f64 / 1000.0,
+        lon_last: read_signed_magnitude_24(&b[20..23]) as f64 / 1000.0,
+        di: u16::from_be_bytes([b[23], b[24]]) as f64 / 1000.0,
+        dj: u16::from_be_bytes([b[25], b[26]]) as f64 / 1000.0,
+        scanning_mode: ScanningMode::from_byte(b[27]),
     })
 }
 
 fn parse_gaussian(b: &[u8]) -> Result<GaussianGrid, FieldglassError> {
     require_len(b, 28, "Gaussian GDS")?;
     Ok(GaussianGrid {
-        ni:               u16::from_be_bytes([b[6],  b[7]])  as u32,
-        nj:               u16::from_be_bytes([b[8],  b[9]])  as u32,
-        lat_first:        read_signed_magnitude_24(&b[10..13]) as f64 / 1000.0,
-        lon_first:        read_signed_magnitude_24(&b[13..16]) as f64 / 1000.0,
+        ni: u16::from_be_bytes([b[6], b[7]]) as u32,
+        nj: u16::from_be_bytes([b[8], b[9]]) as u32,
+        lat_first: read_signed_magnitude_24(&b[10..13]) as f64 / 1000.0,
+        lon_first: read_signed_magnitude_24(&b[13..16]) as f64 / 1000.0,
         resolution_flags: ResolutionFlags::from_byte(b[16]),
-        lat_last:         read_signed_magnitude_24(&b[17..20]) as f64 / 1000.0,
-        lon_last:         read_signed_magnitude_24(&b[20..23]) as f64 / 1000.0,
-        di:               u16::from_be_bytes([b[23], b[24]]) as f64 / 1000.0,
-        n_gaussians:      u16::from_be_bytes([b[25], b[26]]),
-        scanning_mode:    ScanningMode::from_byte(b[27]),
+        lat_last: read_signed_magnitude_24(&b[17..20]) as f64 / 1000.0,
+        lon_last: read_signed_magnitude_24(&b[20..23]) as f64 / 1000.0,
+        di: u16::from_be_bytes([b[23], b[24]]) as f64 / 1000.0,
+        n_gaussians: u16::from_be_bytes([b[25], b[26]]),
+        scanning_mode: ScanningMode::from_byte(b[27]),
     })
 }
 
 fn parse_polar_stereo(b: &[u8]) -> Result<PolarStereoGrid, FieldglassError> {
     require_len(b, 28, "Polar Stereo GDS")?;
     Ok(PolarStereoGrid {
-        nx:               u16::from_be_bytes([b[6],  b[7]])  as u32,
-        ny:               u16::from_be_bytes([b[8],  b[9]])  as u32,
-        lat_first:        read_signed_magnitude_24(&b[10..13]) as f64 / 1000.0,
-        lon_first:        read_signed_magnitude_24(&b[13..16]) as f64 / 1000.0,
+        nx: u16::from_be_bytes([b[6], b[7]]) as u32,
+        ny: u16::from_be_bytes([b[8], b[9]]) as u32,
+        lat_first: read_signed_magnitude_24(&b[10..13]) as f64 / 1000.0,
+        lon_first: read_signed_magnitude_24(&b[13..16]) as f64 / 1000.0,
         resolution_flags: ResolutionFlags::from_byte(b[16]),
-        lov:              read_signed_magnitude_24(&b[17..20]) as f64 / 1000.0,
-        dx_m:             read_u24(&b[20..23]),
-        dy_m:             read_u24(&b[23..26]),
-        south_pole:       b[26] & 0x80 != 0,
-        scanning_mode:    ScanningMode::from_byte(b[27]),
+        lov: read_signed_magnitude_24(&b[17..20]) as f64 / 1000.0,
+        dx_m: read_u24(&b[20..23]),
+        dy_m: read_u24(&b[23..26]),
+        south_pole: b[26] & 0x80 != 0,
+        scanning_mode: ScanningMode::from_byte(b[27]),
     })
 }
 
 fn parse_lambert(b: &[u8]) -> Result<LambertGrid, FieldglassError> {
     require_len(b, 40, "Lambert GDS")?;
     Ok(LambertGrid {
-        nx:               u16::from_be_bytes([b[6],  b[7]])  as u32,
-        ny:               u16::from_be_bytes([b[8],  b[9]])  as u32,
-        lat_first:        read_signed_magnitude_24(&b[10..13]) as f64 / 1000.0,
-        lon_first:        read_signed_magnitude_24(&b[13..16]) as f64 / 1000.0,
+        nx: u16::from_be_bytes([b[6], b[7]]) as u32,
+        ny: u16::from_be_bytes([b[8], b[9]]) as u32,
+        lat_first: read_signed_magnitude_24(&b[10..13]) as f64 / 1000.0,
+        lon_first: read_signed_magnitude_24(&b[13..16]) as f64 / 1000.0,
         resolution_flags: ResolutionFlags::from_byte(b[16]),
-        lov:              read_signed_magnitude_24(&b[17..20]) as f64 / 1000.0,
-        dx_m:             read_u24(&b[20..23]),
-        dy_m:             read_u24(&b[23..26]),
-        south_pole:       b[26] & 0x80 != 0,
-        scanning_mode:    ScanningMode::from_byte(b[27]),
-        latin1:           read_signed_magnitude_24(&b[28..31]) as f64 / 1000.0,
-        latin2:           read_signed_magnitude_24(&b[31..34]) as f64 / 1000.0,
-        lat_south_pole:   read_signed_magnitude_24(&b[34..37]) as f64 / 1000.0,
-        lon_south_pole:   read_signed_magnitude_24(&b[37..40]) as f64 / 1000.0,
+        lov: read_signed_magnitude_24(&b[17..20]) as f64 / 1000.0,
+        dx_m: read_u24(&b[20..23]),
+        dy_m: read_u24(&b[23..26]),
+        south_pole: b[26] & 0x80 != 0,
+        scanning_mode: ScanningMode::from_byte(b[27]),
+        latin1: read_signed_magnitude_24(&b[28..31]) as f64 / 1000.0,
+        latin2: read_signed_magnitude_24(&b[31..34]) as f64 / 1000.0,
+        lat_south_pole: read_signed_magnitude_24(&b[34..37]) as f64 / 1000.0,
+        lon_south_pole: read_signed_magnitude_24(&b[37..40]) as f64 / 1000.0,
     })
 }
 
@@ -306,6 +312,17 @@ fn read_signed_magnitude_24(b: &[u8]) -> i32 {
     }
 }
 
+fn require_len(b: &[u8], min: usize, label: &str) -> Result<(), FieldglassError> {
+    if b.len() < min {
+        Err(FieldglassError::Parse(format!(
+            "{label} requires {min} bytes, got {}",
+            b.len()
+        )))
+    } else {
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod sign_magnitude_tests {
     use super::*;
@@ -326,16 +343,5 @@ mod sign_magnitude_tests {
     #[test]
     fn negative_zero_decodes_to_zero() {
         assert_eq!(read_signed_magnitude_24(&[0x80, 0x00, 0x00]), 0);
-    }
-}
-
-fn require_len(b: &[u8], min: usize, label: &str) -> Result<(), FieldglassError> {
-    if b.len() < min {
-        Err(FieldglassError::Parse(format!(
-            "{label} requires {min} bytes, got {}",
-            b.len()
-        )))
-    } else {
-        Ok(())
     }
 }

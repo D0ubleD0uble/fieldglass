@@ -14,13 +14,11 @@ pub struct Bitmap {
 /// Parse a Bit Map Section. `bytes` must begin at the BMS length octets.
 /// `expected_count` is the total number of grid points (from the GDS); the
 /// returned `bits` is truncated to that length.
-pub fn parse_bitmap(
-    bytes: &[u8],
-    expected_count: usize,
-) -> Result<Bitmap, FieldglassError> {
+pub fn parse_bitmap(bytes: &[u8], expected_count: usize) -> Result<Bitmap, FieldglassError> {
     if bytes.len() < 6 {
         return Err(FieldglassError::Parse(format!(
-            "BMS too short for header: {} bytes", bytes.len()
+            "BMS too short for header: {} bytes",
+            bytes.len()
         )));
     }
 
@@ -59,7 +57,11 @@ pub fn parse_bitmap(
         bits.push(byte & mask != 0);
     }
 
-    Ok(Bitmap { section_len, predefined_indicator, bits })
+    Ok(Bitmap {
+        section_len,
+        predefined_indicator,
+        bits,
+    })
 }
 
 #[cfg(test)]
@@ -69,9 +71,12 @@ mod tests {
     fn build_bms(unused_trailing: u8, bitmap: &[u8]) -> Vec<u8> {
         let len = (6 + bitmap.len()) as u32;
         let mut bytes = vec![
-            (len >> 16) as u8, (len >> 8) as u8, len as u8,
+            (len >> 16) as u8,
+            (len >> 8) as u8,
+            len as u8,
             unused_trailing,
-            0, 0, // predefined indicator = 0 (bitmap embedded)
+            0,
+            0, // predefined indicator = 0 (bitmap embedded)
         ];
         bytes.extend_from_slice(bitmap);
         bytes
@@ -82,7 +87,10 @@ mod tests {
         // 0b1010_1010 → present, missing, present, missing, …
         let bms = build_bms(0, &[0b1010_1010]);
         let bm = parse_bitmap(&bms, 8).unwrap();
-        assert_eq!(bm.bits, vec![true, false, true, false, true, false, true, false]);
+        assert_eq!(
+            bm.bits,
+            vec![true, false, true, false, true, false, true, false]
+        );
     }
 
     #[test]
@@ -104,7 +112,8 @@ mod tests {
     #[test]
     fn rejects_predefined_bitmap() {
         let mut bms = build_bms(0, &[0xFF]);
-        bms[4] = 0; bms[5] = 1; // non-zero predefined indicator
+        bms[4] = 0;
+        bms[5] = 1; // non-zero predefined indicator
         assert!(matches!(
             parse_bitmap(&bms, 8).unwrap_err(),
             FieldglassError::UnsupportedSection

@@ -1,10 +1,13 @@
 [package]
-name = "fieldglass-grib1"
-version = "0.1.0"
-edition = "2021"
+name        = "fieldglass-grib1"
 description = "GRIB edition 1 format reader implementing the Fieldglass core traits"
+version.workspace    = true
+edition.workspace    = true
+license.workspace    = true
+authors.workspace    = true
+repository.workspace = true
 
 [dependencies]
-fieldglass-core = { path = "../fieldglass-core" }
+fieldglass-core = { path = "../fieldglass-core", version = "0.1" }
 serde = { version = "1", features = ["derive"] }
 thiserror = { workspace = true }

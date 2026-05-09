@@ -1,0 +1,41 @@
+# cargo-deny policy. See https://embarkstudios.github.io/cargo-deny/ for the
+# full schema. Run with `cargo deny check`.
+
+[graph]
+all-features = true
+
+[advisories]
+# Use the default RustSec advisory database. Yanked crates are denied so
+# we notice and react if a dep we depend on disappears upstream.
+yanked = "deny"
+ignore = []
+
+[licenses]
+# Permissive licenses we accept in dependencies. Anything not on this list
+# fails the check, forcing a deliberate decision.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-DFS-2016",
+    "Unicode-3.0",
+    "Zlib",
+    "CC0-1.0",
+]
+confidence-threshold = 0.93
+
+[bans]
+# Warn (not deny) on duplicate versions — common in transitive deps and
+# usually fine, but worth flagging so the tree doesn't drift.
+multiple-versions = "warn"
+wildcards = "deny"
+deny = []
+
+[sources]
+# Only allow crates from crates.io and explicitly-trusted git sources.
+unknown-registry = "deny"
+unknown-git      = "deny"
+allow-registry   = ["https://github.com/rust-lang/crates.io-index"]

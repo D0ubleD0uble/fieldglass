@@ -3,9 +3,9 @@ pub mod error;
 pub mod metadata;
 pub mod reader;
 
+pub use detect::Format;
 pub use detect::detect_format;
 pub use detect::detect_from_bytes;
-pub use detect::Format;
 pub use error::FieldglassError;
 pub use metadata::GridDefinition;
 pub use metadata::Level;

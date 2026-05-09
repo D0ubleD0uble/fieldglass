@@ -1,8 +1,11 @@
 [package]
-name = "fieldglass-core"
-version = "0.1.0"
-edition = "2021"
+name        = "fieldglass-core"
 description = "Format-agnostic traits and shared types for the Fieldglass data viewer"
+version.workspace    = true
+edition.workspace    = true
+license.workspace    = true
+authors.workspace    = true
+repository.workspace = true
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

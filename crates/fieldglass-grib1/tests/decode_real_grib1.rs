@@ -37,7 +37,10 @@ fn decode_grid_matches_independent_reference() {
     assert_eq!(values.len(), 12_825);
 
     // No bitmap in this message: every point is present.
-    let present: Vec<f64> = values.into_iter().map(|v| v.expect("no missing values")).collect();
+    let present: Vec<f64> = values
+        .into_iter()
+        .map(|v| v.expect("no missing values"))
+        .collect();
 
     // Spot-check first / mid / last values against the reference decoder.
     let first = &present[..5];
@@ -71,7 +74,10 @@ fn decode_grid_matches_independent_reference() {
     let min = present.iter().cloned().fold(f64::INFINITY, f64::min);
     let max = present.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
     let sum: f64 = present.iter().sum();
-    assert!((min - 0.209_607_660_770_416_26).abs() < 1e-9, "min was {min}");
+    assert!(
+        (min - 0.209_607_660_770_416_26).abs() < 1e-9,
+        "min was {min}"
+    );
     assert!((max - 75.209_607_660_770_42).abs() < 1e-9, "max was {max}");
     assert!((sum - 284_436.968_249_380_6).abs() < 1e-3, "sum was {sum}");
 }

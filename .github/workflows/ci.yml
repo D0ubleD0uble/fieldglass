@@ -6,6 +6,46 @@ on:
   pull_request:
 
 jobs:
+  pre-commit:
+    name: Lint + test via pre-commit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Install extension deps (for tsc + npm audit hooks)
+        run: npm install
+        working-directory: extension
+
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+
+      - name: Set up Python (for pre-commit)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install pre-commit
+        run: pip install pre-commit
+
+      - name: Run pre-commit (commit-stage hooks)
+        run: pre-commit run --all-files --show-diff-on-failure
+
+      - name: Run pre-commit (push-stage hooks)
+        run: pre-commit run --all-files --hook-stage pre-push --show-diff-on-failure
+
   build-native:
     name: Build native (linux-x64 smoke test)
     runs-on: ubuntu-latest
