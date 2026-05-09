@@ -5,6 +5,11 @@
   "version": "0.1.0-beta.1",
   "publisher": "fieldglass",
   "license": "MIT OR Apache-2.0",
+  "icon": "icon.png",
+  "galleryBanner": {
+    "color": "#04274E",
+    "theme": "dark"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/D0ubleD0uble/fieldglass"
