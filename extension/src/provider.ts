@@ -45,7 +45,10 @@ function loadNative(): typeof fieldglass {
   }
   const nodePath = path.join(__dirname, "..", "bin", nativeBinaryName());
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    // The native module path is computed at runtime from process.platform /
+    // arch, so we must use require() rather than a static import. The path
+    // is built from a closed set of platform/arch tokens — never user input.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports, security/detect-non-literal-require
     fieldglass = require(nodePath);
   } catch (err) {
     console.error(`[Fieldglass] failed to load ${nodePath}:`, err);
@@ -362,6 +365,9 @@ function renderHtml(
   headerBytes: Uint8Array | undefined,
   editable: boolean
 ): string {
+  // FORMAT_LABELS is a closed Record<string, string>; `format` originates
+  // from native detect_bytes which returns one of a fixed set of tokens.
+  // eslint-disable-next-line security/detect-object-injection
   const label = FORMAT_LABELS[format] ?? "Unknown";
   const filename = path.basename(filePath);
   const isKnown = format !== "unknown";
