@@ -29,15 +29,14 @@ jobs:
         include:
           - language: javascript-typescript
             build-mode: none
+          # CodeQL's Rust extractor uses cargo metadata directly and only
+          # supports build-mode: none. autobuild is unsupported and the
+          # CodeQL CLI rejects it at `database init` with exit code 2.
           - language: rust
-            build-mode: autobuild
+            build-mode: none
 
     steps:
       - uses: actions/checkout@v6
-
-      - name: Set up Rust (for rust analysis only)
-        if: matrix.language == 'rust'
-        uses: dtolnay/rust-toolchain@stable
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
