@@ -2,22 +2,13 @@
 
 All notable changes to Fieldglass are documented here. The format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+Versioning follows the [VS Code pre-release convention](https://code.visualstudio.com/api/working-with-extensions/publishing-extension#prerelease-extensions): odd-minor versions (`0.1.x`, `0.3.x`, …) ship to the Marketplace pre-release channel; stable releases use the next even minor (`0.2.x`, `0.4.x`, …).
+
 ## [Unreleased]
 
-### Changed
+## [0.1.0] — 2026-05-09
 
-- CI: dropped the redundant `Build native (linux-x64 smoke test)` job. The native binary is already built (and now explicitly verified) inside `Build extension`.
-- CI: cache cargo builds with `Swatinem/rust-cache` and Node.js downloads via `actions/setup-node`'s built-in `cache: npm` to cut warm-cache CI time.
-- CI: switched `npm install` to `npm ci` in workflows so dependency installs respect the lockfile.
-- pre-commit: aligned the local Semgrep rule set with the CI workflow by adding `p/owasp-top-ten` and `p/github-actions`; added a root-level `npm audit` hook to cover `@napi-rs/cli`.
-
-### Added
-
-- `SECURITY.md` with the private vulnerability reporting workflow and scope.
-
-## [0.1.0-beta.1] — 2026-05-09
-
-First public beta. Read-only metadata viewer for GRIB1; GRIB2 and NetCDF detection only.
+First public release, on the Marketplace pre-release channel. Read-only metadata viewer for GRIB1; GRIB2 and NetCDF detection only.
 
 ### Added
 
@@ -30,7 +21,19 @@ First public beta. Read-only metadata viewer for GRIB1; GRIB2 and NetCDF detecti
 - **Pre-commit framework** orchestrating `cargo fmt`, `cargo clippy`, `tsc`, file-hygiene polish, `shellcheck`, `actionlint`, `gitleaks` on commit; `cargo test`, `cargo deny check`, `npm audit`, `semgrep` on push.
 - **CI security suite** — Semgrep SAST, CodeQL (JS/TS + Rust, `security-extended`), Dependabot across `cargo` / `npm` / `github-actions`. Semgrep + CodeQL are visibility-gated and self-activate on flipping the repo public.
 - **Test fixtures** for GRIB1 (CMC wind), GRIB2 (eccodes reduced Gaussian), and NetCDF (Unidata classic + HDF5 samples).
-- Dual licensing under **MIT OR Apache-2.0**.
+- **`SECURITY.md`** with the private vulnerability reporting workflow and scope.
+- **Per-platform Marketplace packaging** — release workflow now builds one `.vsix` per `(linux|win32|darwin)` × `(x64|arm64)` target so users only download the binary they need.
+- **`workflow_dispatch` dry-run** for the release workflow — manual runs build + package the matrix without publishing, so cross-build regressions can be caught before tagging.
+- Dual licensing under **MIT OR Apache-2.0**, including a Marketplace-friendly `extension/LICENSE.md` summary.
+
+### Changed
+
+- CI: dropped the redundant `Build native (linux-x64 smoke test)` job. The native binary is already built (and now explicitly verified) inside `Build extension`.
+- CI: cache cargo builds with `Swatinem/rust-cache` and Node.js downloads via `actions/setup-node`'s built-in `cache: npm` to cut warm-cache CI time.
+- CI: switched `npm install` to `npm ci` in workflows so dependency installs respect the lockfile.
+- pre-commit: aligned the local Semgrep rule set with the CI workflow by adding `p/owasp-top-ten` and `p/github-actions`; added a root-level `npm audit` hook to cover `@napi-rs/cli`.
+- Marketplace listing metadata: `bugs.url`, `preview: true` (Preview badge while pre-release), and a `Visualization` category for discoverability.
+- Versioning: dropped the `-beta.1` semver pre-release suffix in favour of the VS Code pre-release convention. The Marketplace rejects semver pre-release tags; future betas will be `0.1.1`, `0.1.2`, … with stable jumping to `0.2.0`.
 
 ### Notable display fixes
 
@@ -42,5 +45,5 @@ First public beta. Read-only metadata viewer for GRIB1; GRIB2 and NetCDF detecti
 
 See the README "Known limitations" section.
 
-[Unreleased]: https://github.com/D0ubleD0uble/fieldglass/compare/v0.1.0-beta.1...HEAD
-[0.1.0-beta.1]: https://github.com/D0ubleD0uble/fieldglass/releases/tag/v0.1.0-beta.1
+[Unreleased]: https://github.com/D0ubleD0uble/fieldglass/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/D0ubleD0uble/fieldglass/releases/tag/v0.1.0

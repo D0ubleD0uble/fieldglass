@@ -4,6 +4,13 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    # Manual trigger for dry-run smoke tests of the build + package matrix.
+    # The publish + GitHub Release jobs are gated on a tag ref, so manual
+    # runs build artefacts and stop short of touching the Marketplace.
+
+permissions:
+  contents: read
 
 jobs:
   build-native:
@@ -16,21 +23,27 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             artifact: fieldglass.linux-x64-gnu.node
+            vsce_target: linux-x64
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             artifact: fieldglass.linux-arm64-gnu.node
+            vsce_target: linux-arm64
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             artifact: fieldglass.win32-x64-msvc.node
+            vsce_target: win32-x64
           - os: windows-latest
             target: aarch64-pc-windows-msvc
             artifact: fieldglass.win32-arm64-msvc.node
+            vsce_target: win32-arm64
           - os: macos-latest
             target: x86_64-apple-darwin
             artifact: fieldglass.darwin-x64.node
+            vsce_target: darwin-x64
           - os: macos-latest
             target: aarch64-apple-darwin
             artifact: fieldglass.darwin-arm64.node
+            vsce_target: darwin-arm64
 
     steps:
       - uses: actions/checkout@v6
@@ -67,14 +80,24 @@ jobs:
       - name: Upload native artifact
         uses: actions/upload-artifact@v7
         with:
-          name: native-${{ matrix.target }}
+          name: native-${{ matrix.vsce_target }}
           path: extension/bin/${{ matrix.artifact }}
           if-no-files-found: error
 
   package:
-    name: Package .vsix
+    name: Package .vsix (${{ matrix.vsce_target }})
     needs: build-native
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        vsce_target:
+          - linux-x64
+          - linux-arm64
+          - win32-x64
+          - win32-arm64
+          - darwin-x64
+          - darwin-arm64
     steps:
       - uses: actions/checkout@v6
 
@@ -85,35 +108,77 @@ jobs:
           cache: npm
           cache-dependency-path: extension/package-lock.json
 
-      - name: Download all native artifacts
+      - name: Download native artifact for this target
         uses: actions/download-artifact@v8
         with:
-          pattern: native-*
+          name: native-${{ matrix.vsce_target }}
           path: extension/bin
-          merge-multiple: true
 
       - name: Install extension dependencies
         run: npm ci
         working-directory: extension
 
-      - name: Compile TypeScript
-        run: npm run compile
-        working-directory: extension
-
       - name: Install vsce
         run: npm install -g @vscode/vsce
 
-      - name: Package extension
-        run: vsce package --no-dependencies
+      - name: Package extension (--target ${{ matrix.vsce_target }} --pre-release)
+        run: |
+          mkdir -p ${{ github.workspace }}/dist
+          vsce package \
+            --target ${{ matrix.vsce_target }} \
+            --pre-release \
+            --no-dependencies \
+            --out ${{ github.workspace }}/dist/
         working-directory: extension
 
       - name: Upload .vsix
         uses: actions/upload-artifact@v7
         with:
-          name: fieldglass-vsix
-          path: extension/*.vsix
+          name: vsix-${{ matrix.vsce_target }}
+          path: dist/*.vsix
+          if-no-files-found: error
+
+  publish:
+    name: Publish to Marketplace + GitHub Release
+    needs: package
+    # Manual workflow_dispatch runs only build+package (dry run); only pushed
+    # tags trigger the actual publish + release.
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Download all .vsix artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: vsix-*
+          path: dist
+          merge-multiple: true
+
+      - name: Install vsce
+        run: npm install -g @vscode/vsce
+
+      - name: Publish to VS Marketplace (pre-release channel)
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          set -euo pipefail
+          args=()
+          for vsix in dist/*.vsix; do
+            args+=(--packagePath "$vsix")
+          done
+          vsce publish --pre-release "${args[@]}"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          files: extension/*.vsix
+          files: dist/*.vsix
+          prerelease: true
+          generate_release_notes: true
