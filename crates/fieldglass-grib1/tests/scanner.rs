@@ -60,7 +60,10 @@ fn pds_p1_offset_round_trips_through_byte_buffer() {
     let msg = &reader.messages[0];
     let off = msg.pds_p1_offset();
     let original_p1 = msg.pds.p1;
-    assert_eq!(FIXTURE[off], original_p1, "byte at offset must equal parsed p1");
+    assert_eq!(
+        FIXTURE[off], original_p1,
+        "byte at offset must equal parsed p1"
+    );
 
     let mut patched = FIXTURE.to_vec();
     patched[off] = original_p1.wrapping_add(7);

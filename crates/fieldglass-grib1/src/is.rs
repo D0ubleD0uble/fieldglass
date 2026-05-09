@@ -20,5 +20,8 @@ pub fn parse_indicator(bytes: &[u8]) -> Result<IndicatorSection, FieldglassError
     }
     let total_length = u32::from_be_bytes([0, bytes[4], bytes[5], bytes[6]]);
     let edition = bytes[7];
-    Ok(IndicatorSection { total_length, edition })
+    Ok(IndicatorSection {
+        total_length,
+        edition,
+    })
 }

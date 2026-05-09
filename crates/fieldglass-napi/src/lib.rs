@@ -1,9 +1,9 @@
 #![deny(clippy::all)]
 
-use fieldglass_core::{detect_from_bytes, Format};
+use fieldglass_core::{Format, detect_from_bytes};
 use fieldglass_grib1::{
-    tables::{lookup_centre, lookup_parameter},
     Grib1Reader,
+    tables::{lookup_centre, lookup_parameter},
 };
 use napi_derive::napi;
 
@@ -59,13 +59,12 @@ pub fn set_p1(
     let mut out = bytes.to_vec();
     let reader = Grib1Reader::from_bytes(out.clone())
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
-    let msg = reader
-        .messages
-        .get(message_index as usize)
-        .ok_or_else(|| napi::Error::from_reason(format!(
+    let msg = reader.messages.get(message_index as usize).ok_or_else(|| {
+        napi::Error::from_reason(format!(
             "message index {message_index} out of range (have {})",
             reader.messages.len()
-        )))?;
+        ))
+    })?;
     let off = msg.pds_p1_offset();
     out[off] = value as u8;
     Ok(out.into())
@@ -96,23 +95,23 @@ pub fn open_grib1(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<Vec<Mess
     for msg in &reader.messages {
         let param = lookup_parameter(msg.pds.parameter_id, msg.pds.table_version);
 
-        let (grid_type, grid_ni, grid_nj, lat_first, lon_first, lat_last, lon_last) =
-            match &msg.gds {
-                Some(gds) => {
-                    let dims = gds.dimensions();
-                    let bounds = gds.bounds();
-                    (
-                        Some(gds.grid_type_name().to_string()),
-                        dims.map(|(ni, _)| ni as i32),
-                        dims.map(|(_, nj)| nj as i32),
-                        bounds.map(|(la1, _, _, _)| la1),
-                        bounds.map(|(_, lo1, _, _)| lo1),
-                        bounds.map(|(_, _, la2, _)| la2),
-                        bounds.map(|(_, _, _, lo2)| lo2),
-                    )
-                }
-                None => (None, None, None, None, None, None, None),
-            };
+        let (grid_type, grid_ni, grid_nj, lat_first, lon_first, lat_last, lon_last) = match &msg.gds
+        {
+            Some(gds) => {
+                let dims = gds.dimensions();
+                let bounds = gds.bounds();
+                (
+                    Some(gds.grid_type_name().to_string()),
+                    dims.map(|(ni, _)| ni as i32),
+                    dims.map(|(_, nj)| nj as i32),
+                    bounds.map(|(la1, _, _, _)| la1),
+                    bounds.map(|(_, lo1, _, _)| lo1),
+                    bounds.map(|(_, _, la2, _)| la2),
+                    bounds.map(|(_, _, _, lo2)| lo2),
+                )
+            }
+            None => (None, None, None, None, None, None, None),
+        };
 
         result.push(MessageMeta {
             message_index: msg.message_index as i32,

@@ -51,12 +51,12 @@ pub fn parse_bds_header(bytes: &[u8]) -> Result<BdsHeader, FieldglassError> {
     Ok(BdsHeader {
         section_len,
         is_spherical_harmonic: flag & 0x80 != 0,
-        is_complex_packing:    flag & 0x40 != 0,
-        is_integer_data:       flag & 0x20 != 0,
-        has_extra_flags:       flag & 0x10 != 0,
-        unused_trailing_bits:  flag & 0x0F,
-        binary_scale_factor:   sign_magnitude_i16(u16::from_be_bytes([bytes[4], bytes[5]])),
-        reference_value:       ibm_float_to_f64(u32::from_be_bytes([
+        is_complex_packing: flag & 0x40 != 0,
+        is_integer_data: flag & 0x20 != 0,
+        has_extra_flags: flag & 0x10 != 0,
+        unused_trailing_bits: flag & 0x0F,
+        binary_scale_factor: sign_magnitude_i16(u16::from_be_bytes([bytes[4], bytes[5]])),
+        reference_value: ibm_float_to_f64(u32::from_be_bytes([
             bytes[6], bytes[7], bytes[8], bytes[9],
         ])),
         bits_per_value: bytes[10],
@@ -102,7 +102,8 @@ pub fn decode_values(
 
     if header.bits_per_value > 32 {
         return Err(FieldglassError::Parse(format!(
-            "BDS bits_per_value {} exceeds 32", header.bits_per_value
+            "BDS bits_per_value {} exceeds 32",
+            header.bits_per_value
         )));
     }
 
@@ -179,7 +180,11 @@ fn interleave_with_bitmap(
 /// High bit is sign, low 15 bits are magnitude.
 fn sign_magnitude_i16(raw: u16) -> i16 {
     let magnitude = (raw & 0x7FFF) as i16;
-    if raw & 0x8000 != 0 { -magnitude } else { magnitude }
+    if raw & 0x8000 != 0 {
+        -magnitude
+    } else {
+        magnitude
+    }
 }
 
 /// IBM System/360 single-precision float → f64.
@@ -209,7 +214,10 @@ struct BitReader<'a> {
 
 impl<'a> BitReader<'a> {
     fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes, bit_offset: 0 }
+        Self {
+            bytes,
+            bit_offset: 0,
+        }
     }
 
     fn read_bits(&mut self, n: u8) -> Result<u32, FieldglassError> {
@@ -342,7 +350,11 @@ mod tests {
         let mut bds = vec![0u8; BDS_DATA_OFFSET];
         bds.extend_from_slice(&[1, 2, 3, 4]);
         let section_len = bds.len() as u32;
-        bds[0..3].copy_from_slice(&[(section_len >> 16) as u8, (section_len >> 8) as u8, section_len as u8]);
+        bds[0..3].copy_from_slice(&[
+            (section_len >> 16) as u8,
+            (section_len >> 8) as u8,
+            section_len as u8,
+        ]);
         bds[10] = 8; // N
         let header = parse_bds_header(&bds).unwrap();
         let out = decode_values(&bds, &header, 0, None, 4).unwrap();
@@ -354,7 +366,11 @@ mod tests {
         let mut bds = vec![0u8; BDS_DATA_OFFSET];
         bds.extend_from_slice(&[7, 9]);
         let section_len = bds.len() as u32;
-        bds[0..3].copy_from_slice(&[(section_len >> 16) as u8, (section_len >> 8) as u8, section_len as u8]);
+        bds[0..3].copy_from_slice(&[
+            (section_len >> 16) as u8,
+            (section_len >> 8) as u8,
+            section_len as u8,
+        ]);
         bds[10] = 8;
         let header = parse_bds_header(&bds).unwrap();
         let bitmap = [true, false, true, false];

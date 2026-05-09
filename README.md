@@ -98,7 +98,7 @@ cd fieldglass
 npm install
 ```
 
-The root `npm install` installs `@napi-rs/cli`, which is invoked from the napi crate to produce the platform-specific `.node` binary.
+The root `npm install` installs `@napi-rs/cli` (used to build the native module) and runs an `npm prepare` step that activates the repository's git hooks (see [Pre-commit hooks](#pre-commit-hooks) below).
 
 ### Building the native module
 
@@ -143,14 +143,52 @@ cargo test -p fieldglass-grib1 parse_pds
 ### Linting
 
 ```sh
-cargo clippy --all-targets -- -D warnings
+cargo clippy --all-targets --workspace -- -D warnings
+cargo fmt --all -- --check
 ```
 
-The `fieldglass-napi` crate enables `#![deny(clippy::all)]`, so warnings there are hard errors.
+The `fieldglass-napi` crate also enables `#![deny(clippy::all)]`, so warnings there are hard errors regardless.
+
+### Pre-commit hooks
+
+The repository uses the [`pre-commit`](https://pre-commit.com/) framework. Its config is at [`.pre-commit-config.yaml`](.pre-commit-config.yaml). The framework auto-fetches and isolates the pinned versions of `shellcheck`, `actionlint`, `gitleaks`, and `semgrep`, so you only need `pre-commit` itself plus the Rust + Node toolchains.
+
+One-time setup (per clone):
+
+```sh
+pip install --user pre-commit          # or: pipx install pre-commit
+cd /path/to/fieldglass
+npm install                            # auto-runs `pre-commit install --hook-type pre-commit --hook-type pre-push`
+```
+
+Optional but recommended (the hooks gracefully report-and-fail if missing):
+
+```sh
+cargo install --locked cargo-deny      # advisory / license / source policy
+```
+
+What runs:
+
+| Stage | Hook | What it does |
+|---|---|---|
+| `pre-commit` | `cargo fmt --check`, `cargo clippy -- -D warnings`, `tsc --noEmit` | Fast lints — usually under 3 s on incremental builds. |
+| `pre-commit` | `check-yaml`, `check-json`, `check-toml`, `end-of-file-fixer`, `trailing-whitespace`, `check-merge-conflict`, `check-added-large-files` | File-hygiene polish. |
+| `pre-commit` | `shellcheck`, `actionlint`, `gitleaks` | Lint shell scripts, GitHub Actions YAML, and scan staged diff for secrets. |
+| `pre-push` | `cargo test --workspace`, `cargo deny check`, `npm audit --omit=dev`, `semgrep scan` | Slower correctness + security checks. |
+
+Bypass with `git commit --no-verify` / `git push --no-verify` when you really must — CI (below) runs the same checks at full strength regardless.
 
 ### Continuous integration
 
-Every push to `master` and every pull request runs a Linux x64 smoke test that builds the native module and compiles the TypeScript extension. Tagged versions matching `v*` trigger a release build that compiles the native module for all six supported targets, packages the `.vsix`, and publishes it to GitHub Releases.
+The `pre-commit` job in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) installs the same toolchain (Rust, Node, Python, `cargo-deny`) and runs `pre-commit run --all-files` for both the commit and push stages — so local hooks and CI run *exactly* the same checks, no drift. A second job builds the native module and compiles the extension as a smoke test. Tagged versions matching `v*` trigger a release build that compiles the native module for all six supported targets, packages the `.vsix`, and publishes it to GitHub Releases.
+
+### Security and static analysis
+
+Three additional Tier-1 scanners run on every push and PR (results land in the repo's **Security** tab):
+
+- **[Semgrep](https://semgrep.dev/)** SAST in [`.github/workflows/semgrep.yml`](.github/workflows/semgrep.yml) — pattern-based security rules across Rust + TypeScript (`p/default`, `p/security-audit`, `p/owasp-top-ten`, `p/rust`, `p/typescript`, `p/secrets`). Same scan also runs locally on `git push`.
+- **[CodeQL](https://codeql.github.com/)** semantic analysis in [`.github/workflows/codeql.yml`](.github/workflows/codeql.yml) — JavaScript/TypeScript and Rust, with the `security-extended` query suite.
+- **[Dependabot](https://docs.github.com/en/code-security/dependabot)** in [`.github/dependabot.yml`](.github/dependabot.yml) — weekly version + security update PRs across `cargo`, `npm` (extension + root), and `github-actions`.
 
 ## Adding a new GRIB1 metadata field
 
@@ -161,3 +199,14 @@ Every push to `master` and every pull request runs a Linux x64 smoke test that b
 5. Render it in the webview table in the same file.
 
 The napi-rs bindings automatically convert `snake_case` Rust field names to `camelCase` TypeScript fields.
+
+## License
+
+Fieldglass is dual-licensed under either of:
+
+- MIT License ([LICENSE-MIT](LICENSE-MIT) or <https://opensource.org/licenses/MIT>)
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or <https://www.apache.org/licenses/LICENSE-2.0>)
+
+at your option. This is the same dual-licensing convention used by most of the Rust ecosystem; downstream consumers can pick whichever fits their needs.
+
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in Fieldglass by you, as defined in the Apache-2.0 license, shall be dual-licensed as above, without any additional terms or conditions.

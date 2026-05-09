@@ -1,9 +1,9 @@
-use fieldglass_core::FieldglassError;
 use crate::bds::{decode_values, parse_bds_header};
 use crate::bms::parse_bitmap;
-use crate::gds::{parse_grid_description, GridDescription};
-use crate::is::{parse_indicator, IndicatorSection};
-use crate::pds::{parse_product_definition, ProductDefinition};
+use crate::gds::{GridDescription, parse_grid_description};
+use crate::is::{IndicatorSection, parse_indicator};
+use crate::pds::{ProductDefinition, parse_product_definition};
+use fieldglass_core::FieldglassError;
 
 pub struct Grib1Message {
     pub message_index: usize,
@@ -52,16 +52,20 @@ impl Grib1Reader {
         &self,
         message_index: usize,
     ) -> Result<Vec<Option<f64>>, FieldglassError> {
-        let msg = self.messages.get(message_index)
+        let msg = self
+            .messages
+            .get(message_index)
             .ok_or(FieldglassError::OutOfRange)?;
 
         // GDS dimensions are required to know how many points to expect.
-        let gds = msg.gds.as_ref().ok_or_else(|| FieldglassError::Parse(
-            "message has no GDS — predefined grids are not supported".to_string()
-        ))?;
-        let (ni, nj) = gds.dimensions().ok_or_else(|| FieldglassError::Parse(
-            "grid type has no declared dimensions".to_string()
-        ))?;
+        let gds = msg.gds.as_ref().ok_or_else(|| {
+            FieldglassError::Parse(
+                "message has no GDS — predefined grids are not supported".to_string(),
+            )
+        })?;
+        let (ni, nj) = gds.dimensions().ok_or_else(|| {
+            FieldglassError::Parse("grid type has no declared dimensions".to_string())
+        })?;
         let expected_count = ni as usize * nj as usize;
 
         let bitmap = match msg.bms_range {
@@ -129,12 +133,13 @@ fn scan_messages(data: &[u8]) -> Result<Vec<Grib1Message>, FieldglassError> {
         let gds = if pds.has_gds {
             if cursor >= msg_end {
                 return Err(FieldglassError::Parse(
-                    "PDS claims a GDS follows but no bytes remain".to_string()
+                    "PDS claims a GDS follows but no bytes remain".to_string(),
                 ));
             }
             let gds = parse_grid_description(&data[cursor..msg_end])?;
             // Advance the cursor by the GDS length.
-            let gds_len = u32::from_be_bytes([0, data[cursor], data[cursor + 1], data[cursor + 2]]) as usize;
+            let gds_len =
+                u32::from_be_bytes([0, data[cursor], data[cursor + 1], data[cursor + 2]]) as usize;
             cursor += gds_len;
             Some(gds)
         } else {
@@ -145,14 +150,15 @@ fn scan_messages(data: &[u8]) -> Result<Vec<Grib1Message>, FieldglassError> {
         let bms_range = if pds.has_bms {
             if cursor >= msg_end {
                 return Err(FieldglassError::Parse(
-                    "PDS claims a BMS follows but no bytes remain".to_string()
+                    "PDS claims a BMS follows but no bytes remain".to_string(),
                 ));
             }
-            let bms_len = u32::from_be_bytes([0, data[cursor], data[cursor + 1], data[cursor + 2]]) as usize;
+            let bms_len =
+                u32::from_be_bytes([0, data[cursor], data[cursor + 1], data[cursor + 2]]) as usize;
             let bms_end = cursor + bms_len;
             if bms_end > msg_end {
                 return Err(FieldglassError::Parse(
-                    "BMS extends past end of message".to_string()
+                    "BMS extends past end of message".to_string(),
                 ));
             }
             let range = (cursor, bms_end);
@@ -196,14 +202,14 @@ pub fn forecast_hours(pds: &ProductDefinition) -> i32 {
 
 fn p1_to_hours(time_unit: u8, p: i32) -> i32 {
     match time_unit {
-        0  => p / 60,
-        1  => p,
-        2  => p * 24,
+        0 => p / 60,
+        1 => p,
+        2 => p * 24,
         10 => p * 3,
         11 => p * 6,
         12 => p * 12,
         13 => (p as f64 / 3600.0).round() as i32,
-        _  => p,
+        _ => p,
     }
 }
 
@@ -231,7 +237,7 @@ pub fn forecast_display(pds: &ProductDefinition) -> String {
             format!("+{}h", p1_to_hours(pds.time_unit, combined))
         }
         51 => "climatological mean".to_string(),
-        _  => format!("+{h1}h"),
+        _ => format!("+{h1}h"),
     }
 }
 
@@ -240,11 +246,7 @@ pub fn reference_time(pds: &ProductDefinition) -> String {
     let year = (pds.century as i32 - 1) * 100 + pds.reference_year as i32;
     format!(
         "{:04}-{:02}-{:02}T{:02}:{:02}:00Z",
-        year,
-        pds.reference_month,
-        pds.reference_day,
-        pds.reference_hour,
-        pds.reference_minute,
+        year, pds.reference_month, pds.reference_day, pds.reference_hour, pds.reference_minute,
     )
 }
 
@@ -265,17 +267,17 @@ pub fn level_unit(level_type: u8) -> Option<&'static str> {
     match level_type {
         // Single-value types with direct units.
         100 | 115 | 116 | 121 | 141 => Some("hPa"),
-        103 | 105 | 160              => Some("m"),
-        111 | 112 | 125              => Some("cm"),
-        113 | 114                    => Some("K"),
-        126                          => Some("Pa"),
-        117                          => Some("PVU"),
-        107 | 108 | 128              => Some("σ"),
+        103 | 105 | 160 => Some("m"),
+        111 | 112 | 125 => Some("cm"),
+        113 | 114 => Some("K"),
+        126 => Some("Pa"),
+        117 => Some("PVU"),
+        107 | 108 | 128 => Some("σ"),
         // Layer types whose bounds are in their own units.
-        101                          => Some("kPa"),
-        104 | 106                    => Some("hm"),
+        101 => Some("kPa"),
+        104 | 106 => Some("hm"),
         // Dimensionless / surface / index types.
-        _                            => None,
+        _ => None,
     }
 }
 
@@ -290,9 +292,24 @@ pub fn level_value_str(pds: &ProductDefinition) -> String {
 
     match pds.level_type {
         // Fixed surfaces / whole-column types: value byte is meaningless.
-        1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
-        | 102 | 200 | 201 | 204 | 205 | 209
-        | 210..=221 | 241 | 242 => "—".to_string(),
+        1
+        | 2
+        | 3
+        | 4
+        | 5
+        | 6
+        | 7
+        | 8
+        | 9
+        | 102
+        | 200
+        | 201
+        | 204
+        | 205
+        | 209
+        | 210..=221
+        | 241
+        | 242 => "—".to_string(),
 
         // Single 16-bit value, integer.
         100 | 103 | 105 | 111 | 113 | 115 | 126 | 160 => format!("{combined}"),
@@ -308,11 +325,7 @@ pub fn level_value_str(pds: &ProductDefinition) -> String {
 
         // Layer types: lv1 / lv2 are independent bounds.
         101 | 104 | 106 | 110 | 112 | 116 | 120 => format!("{lv1} – {lv2}"),
-        108 => format!(
-            "{:.2} – {:.2}",
-            lv1 as f64 / 100.0,
-            lv2 as f64 / 100.0
-        ),
+        108 => format!("{:.2} – {:.2}", lv1 as f64 / 100.0, lv2 as f64 / 100.0),
         114 => format!("{} – {}", 475 - lv1, 475 - lv2),
         121 => format!("{} – {}", 1100 - lv1, 1100 - lv2),
         128 => format!(
@@ -334,7 +347,7 @@ pub fn level_type_str(pds: &ProductDefinition) -> String {
     let name = crate::tables::lookup_level_type(pds.level_type);
     match level_unit(pds.level_type) {
         Some(unit) => format!("({unit}) {name}"),
-        None       => name.to_string(),
+        None => name.to_string(),
     }
 }
 
@@ -404,7 +417,10 @@ mod level_display_tests {
         // Layer between 100 kPa and 85 kPa (1000 hPa – 850 hPa).
         let p = pds(101, 100, 85);
         assert_eq!(level_value_str(&p), "100 – 85");
-        assert_eq!(level_type_str(&p), "(kPa) Layer between two isobaric levels");
+        assert_eq!(
+            level_type_str(&p),
+            "(kPa) Layer between two isobaric levels"
+        );
     }
 
     #[test]

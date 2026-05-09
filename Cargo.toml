@@ -8,6 +8,13 @@ members = [
 ]
 resolver = "2"
 
+[workspace.package]
+version    = "0.1.0"
+edition    = "2024"
+license    = "MIT OR Apache-2.0"
+authors    = ["Cole Hinkel <colerhinkel@gmail.com>", "Fieldglass contributors"]
+repository = "https://github.com/D0ubleD0uble/fieldglass"
+
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
