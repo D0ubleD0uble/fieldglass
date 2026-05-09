@@ -29,6 +29,17 @@ Format-agnostic features:
 - Hex and ASCII fallback view for files whose contents are not a recognized format. ✅
 - Files without a recognized extension can still be opened through *Reopen Editor With… → Fieldglass Viewer*.
 
+## Known limitations
+
+This is a beta. Things to be aware of:
+
+- **No metadata editing in the viewer.** The Rust API has byte-level patching for the forecast period (P1) and the webview retains the full undo/redo wiring, but the editable affordance is hidden in beta until general PDS-field editing lands. For now Fieldglass is a read-only viewer.
+- **No 2-D field rendering.** GRIB1 grid values are decoded by the Rust API (`Grib1Reader::decode_message_values` / napi `decode_grid`) but not yet visualized in a webview canvas.
+- **GRIB2 and NetCDF: detection only.** Magic-byte detection works and routes the file to the viewer, but parsing isn't implemented yet — those messages will surface "no messages found." See [PLAN.md](PLAN.md) phases 4 and 5.
+- **GRIB1 GDS coverage:** Lat/Lon, Gaussian, Polar Stereographic, and Lambert Conformal grids are parsed. Reduced grids, rotated/oblique projections, and predefined grids (`grid_number != 255`) are not yet supported and will render as `unsupported`.
+- **Parameter table coverage:** WMO ON388 Table 2 (versions 1–3) only. ECMWF local tables (versions 128+) and other centre-specific extensions resolve as `Unknown`.
+- **Large files:** the extension reads the whole file into memory via `vscode.workspace.fs.readFile` to keep remote/virtual workspaces working. Multi-GB GRIB archives are not the target use case yet.
+
 ## Installation
 
 Pre-built binaries for all supported platforms are bundled inside a single `.vsix` package. The extension selects the correct binary at runtime based on the host platform and architecture.
@@ -215,6 +226,6 @@ Fieldglass is dual-licensed under either of:
 - MIT License ([LICENSE-MIT](LICENSE-MIT) or <https://opensource.org/licenses/MIT>)
 - Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or <https://www.apache.org/licenses/LICENSE-2.0>)
 
-at your option. This is the same dual-licensing convention used by most of the Rust ecosystem; downstream consumers can pick whichever fits their needs.
+at your option.
 
 Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in Fieldglass by you, as defined in the Apache-2.0 license, shall be dual-licensed as above, without any additional terms or conditions.

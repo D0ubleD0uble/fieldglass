@@ -44,7 +44,7 @@ dependencies = [
 
 [[package]]
 name = "fieldglass-core"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "serde",
  "thiserror",
@@ -52,7 +52,7 @@ dependencies = [
 
 [[package]]
 name = "fieldglass-grib1"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "fieldglass-core",
  "serde",
@@ -61,7 +61,7 @@ dependencies = [
 
 [[package]]
 name = "fieldglass-grib2"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "fieldglass-core",
  "serde",
@@ -69,7 +69,7 @@ dependencies = [
 
 [[package]]
 name = "fieldglass-napi"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "fieldglass-core",
  "fieldglass-grib1",
@@ -82,7 +82,7 @@ dependencies = [
 
 [[package]]
 name = "fieldglass-netcdf"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "fieldglass-core",
  "serde",

@@ -10,7 +10,7 @@ jobs:
     name: Lint + test via pre-commit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -18,7 +18,7 @@ jobs:
           components: clippy, rustfmt
 
       - name: Set up Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: 22
 
@@ -32,7 +32,7 @@ jobs:
           tool: cargo-deny
 
       - name: Set up Python (for pre-commit)
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
@@ -49,7 +49,7 @@ jobs:
     name: Build native (linux-x64 smoke test)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -57,7 +57,7 @@ jobs:
           targets: x86_64-unknown-linux-gnu
 
       - name: Set up Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: 22
 
@@ -75,17 +75,33 @@ jobs:
     name: Build extension
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
 
       - name: Set up Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: 22
 
-      - name: Install dependencies
+      - name: Install root deps (napi-rs CLI)
+        run: npm install
+
+      - name: Install extension deps
         run: npm install
         working-directory: extension
 
       - name: Compile TypeScript
         run: npm run compile
+        working-directory: extension
+
+      - name: Build native module (needed for extension tests)
+        run: npx napi build --platform --release --target x86_64-unknown-linux-gnu --output-dir ${{ github.workspace }}/extension/bin
+        working-directory: crates/fieldglass-napi
+
+      - name: Run extension tests (mocha + @vscode/test-electron, under xvfb)
+        run: xvfb-run -a npm test
         working-directory: extension
