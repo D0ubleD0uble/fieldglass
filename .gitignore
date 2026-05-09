@@ -9,3 +9,6 @@ extension/bin/*.d.ts
 *.node
 index.d.ts
 index.js
+
+# Local-only planning notes — kept on disk for the maintainer, not tracked.
+PLAN.md
