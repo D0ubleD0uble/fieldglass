@@ -17,6 +17,9 @@ jobs:
   semgrep:
     name: Semgrep SAST
     runs-on: ubuntu-latest
+    # SARIF upload to GitHub Code Scanning needs either a public repo or
+    # GitHub Advanced Security. Skip until the repo is public.
+    if: github.event.repository.visibility == 'public'
     container:
       image: semgrep/semgrep
     steps:
