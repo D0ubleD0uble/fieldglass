@@ -18,6 +18,13 @@ updates:
       interval: weekly
     open-pull-requests-limit: 5
     labels: [dependencies, javascript]
+    ignore:
+      # @types/vscode pins the API surface to the engines.vscode floor.
+      # Bumping it without bumping engines.vscode in lockstep would expose
+      # APIs that don't exist on users' runtime VS Code; doing both raises
+      # the minimum supported VS Code, which is a deliberate decision, not
+      # a Dependabot one. Skip these bumps and revisit manually.
+      - dependency-name: "@types/vscode"
 
   # Root package.json (only @napi-rs/cli).
   - package-ecosystem: npm
