@@ -15,8 +15,8 @@ fieldglass-core   = { path = "../fieldglass-core",   version = "=0.1.0-beta.1" }
 fieldglass-grib1  = { path = "../fieldglass-grib1",  version = "=0.1.0-beta.1" }
 fieldglass-grib2  = { path = "../fieldglass-grib2",  version = "=0.1.0-beta.1" }
 fieldglass-netcdf = { path = "../fieldglass-netcdf", version = "=0.1.0-beta.1" }
-napi = { version = "2", features = ["napi6"] }
-napi-derive = "2"
+napi = { version = "3", features = ["napi6"] }
+napi-derive = "3"
 
 [build-dependencies]
 napi-build = "2"

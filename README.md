@@ -6,7 +6,7 @@ A Visual Studio Code extension for viewing meteorological binary data files (GRI
 
 ## Status
 
-Phase 1 of the project is in progress: read-only metadata viewing for GRIB1. The GRIB1 Binary Data Section decoder (with bitmap-section support) is implemented at the Rust API level via `decode_grid`, but not yet wired into a 2-D visualization in the webview. GRIB2, NetCDF, metadata editing, and field rendering are on the roadmap. See [PLAN.md](PLAN.md) for the full phase breakdown.
+First public beta. Read-only metadata viewing for GRIB1 is in. The GRIB1 Binary Data Section decoder (with bitmap-section support) is implemented at the Rust API level via `decode_grid`, but not yet wired into a 2-D visualization in the webview. GRIB2 and NetCDF parsing, metadata editing, and field rendering are on the roadmap — see the [feature matrix](#feature-matrix) below for what works today.
 
 ## Feature matrix
 
@@ -35,7 +35,7 @@ This is a beta. Things to be aware of:
 
 - **No metadata editing in the viewer.** The Rust API has byte-level patching for the forecast period (P1) and the webview retains the full undo/redo wiring, but the editable affordance is hidden in beta until general PDS-field editing lands. For now Fieldglass is a read-only viewer.
 - **No 2-D field rendering.** GRIB1 grid values are decoded by the Rust API (`Grib1Reader::decode_message_values` / napi `decode_grid`) but not yet visualized in a webview canvas.
-- **GRIB2 and NetCDF: detection only.** Magic-byte detection works and routes the file to the viewer, but parsing isn't implemented yet — those messages will surface "no messages found." See [PLAN.md](PLAN.md) phases 4 and 5.
+- **GRIB2 and NetCDF: detection only.** Magic-byte detection works and routes the file to the viewer, but parsing isn't implemented yet — those files will surface "no messages found."
 - **GRIB1 GDS coverage:** Lat/Lon, Gaussian, Polar Stereographic, and Lambert Conformal grids are parsed. Reduced grids, rotated/oblique projections, and predefined grids (`grid_number != 255`) are not yet supported and will render as `unsupported`.
 - **Parameter table coverage:** WMO ON388 Table 2 (versions 1–3) only. ECMWF local tables (versions 128+) and other centre-specific extensions resolve as `Unknown`.
 - **Large files:** the extension reads the whole file into memory via `vscode.workspace.fs.readFile` to keep remote/virtual workspaces working. Multi-GB GRIB archives are not the target use case yet.

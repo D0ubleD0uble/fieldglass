@@ -9,8 +9,7 @@ labels: enhancement
 
 <!--
 One paragraph describing the feature. If it's tied to a specific format
-(GRIB1, GRIB2, NetCDF) or a specific phase of the roadmap (see PLAN.md),
-please mention that.
+(GRIB1, GRIB2, NetCDF), please mention that.
 -->
 
 ## What problem does it solve?
@@ -26,9 +25,10 @@ Other tools, manual workarounds, or related features that almost-but-not-quite
 fit. Helps us understand the shape of the gap.
 -->
 
-## Phase / scope
+## Scope
 
 <!--
-Optional but useful — does this fit somewhere on the roadmap in PLAN.md, or
-is it net-new scope? Honest "I don't know" is fine.
+Optional but useful — would this fit inside the existing read-only viewer,
+or does it require new infrastructure (editing UI, 2-D rendering, GRIB2/NetCDF
+parsers, …)? Honest "I don't know" is fine.
 -->

@@ -10,7 +10,7 @@
     "url": "https://github.com/D0ubleD0uble/fieldglass"
   },
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.118.0"
   },
   "categories": [
     "Other"
@@ -121,11 +121,11 @@
   },
   "devDependencies": {
     "@types/mocha": "^10.0.6",
-    "@types/node": "^22.0.0",
-    "@types/vscode": "^1.85.0",
+    "@types/node": "^25.0.0",
+    "@types/vscode": "^1.118.0",
     "@vscode/test-electron": "^2.4.1",
-    "glob": "^10.3.10",
-    "mocha": "^10.4.0",
-    "typescript": "^5.3.0"
+    "glob": "^13.0.0",
+    "mocha": "^11.0.0",
+    "typescript": "^6.0.0"
   }
 }

@@ -6,7 +6,7 @@ All notable changes to Fieldglass are documented here. The format roughly follow
 
 ## [0.1.0-beta.1] — 2026-05-09
 
-First public beta. Read-only metadata viewer for GRIB1; GRIB2 and NetCDF detection only. See [PLAN.md](PLAN.md) for the full phase roadmap.
+First public beta. Read-only metadata viewer for GRIB1; GRIB2 and NetCDF detection only.
 
 ### Added
 

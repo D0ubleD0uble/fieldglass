@@ -6,14 +6,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Fieldglass is a VS Code extension for viewing meteorological binary data formats (GRIB1, GRIB2, NetCDF). It is a Cargo workspace of Rust crates compiled into a Node.js native module via napi-rs, consumed by a TypeScript VS Code extension that registers a custom read-only editor for `.grb`, `.grib*`, `.nc*` files.
 
-`PLAN.md` is the source of truth for phased scope: Phase 1 GRIB1 metadata viewer (current), Phase 2 metadata editing, Phase 3 grid data visualization, Phase 4 GRIB2, Phase 5+ NetCDF.
+Current scope: read-only GRIB1 metadata viewer (Phase 1) plus GRIB1 BDS decoding at the Rust API level (Phase 3 prerequisite — not yet visualized in the webview). GRIB2/NetCDF parsing, metadata editing, and 2-D rendering remain. See the README's feature matrix and CHANGELOG for what's shipping.
 
 ## Architecture
 
 The system is layered so the parsing core has zero knowledge of Node.js or VS Code:
 
 - `crates/fieldglass-core` — format-agnostic types (`Metadata`, `Parameter`, `Level`, `GridDefinition`), the `FormatReader` / `DataMessage` traits, magic-byte format detection (`detect_from_bytes`), and `FieldglassError`. **All format crates depend on it; it depends on nothing else in the workspace.**
-- `crates/fieldglass-grib1` — full GRIB1 parser. Section-per-file: `is.rs` (Indicator), `pds.rs` (Product Definition), `gds.rs` (Grid Description), `bds.rs` (Binary Data — stub), plus `tables.rs` (WMO ON388 lookups for parameter/centre/level type) and `reader.rs` (top-level `Grib1Reader::from_bytes` that scans messages by walking IS total-length offsets).
+- `crates/fieldglass-grib1` — full GRIB1 parser. Section-per-file: `is.rs` (Indicator), `pds.rs` (Product Definition), `gds.rs` (Grid Description), `bds.rs` (Binary Data — implemented; values via `Grib1Reader::decode_message_values`), `bms.rs` (Bit Map Section), plus `tables.rs` (WMO ON388 lookups for parameter/centre/level type) and `reader.rs` (top-level `Grib1Reader::from_bytes` that scans messages by walking IS total-length offsets).
 - `crates/fieldglass-grib2`, `crates/fieldglass-netcdf` — stubs awaiting later phases.
 - `crates/fieldglass-napi` — `cdylib` exposing N-API functions (`detect_bytes`, `open_grib1`) and the flat `MessageMeta` struct that crosses the JS/Rust boundary. Keep this crate thin: format logic belongs in the format crates.
 - `extension/` — TypeScript VS Code extension. `provider.ts` registers `FieldglassEditorProvider` (a `CustomReadonlyEditorProvider`) for two view types: `fieldglass.viewer` (default for known extensions) and `fieldglass.viewer.any` (option-priority, matches `*` so users can open arbitrary files). It reads bytes via `vscode.workspace.fs.readFile` (NOT a native fs path — this matters for remote/virtual workspaces) and renders an HTML table in a webview with `enableScripts: false`.
@@ -45,9 +45,11 @@ cargo clippy --all-targets -- -D warnings     # lints (napi crate has #![deny(cl
 
 The native binary must be rebuilt and placed in `extension/bin/` whenever Rust code changes:
 
+Run the build from the napi crate's directory so napi-cli picks up its `package.json` (which sets `binaryName: "fieldglass"`); running it from `extension/` produces `index.<triple>.node` instead of `fieldglass.<triple>.node` and the loader can't find it:
+
 ```bash
-cd extension
-npx napi build --platform --release --output-dir bin --manifest-path ../crates/fieldglass-napi/Cargo.toml
+cd crates/fieldglass-napi
+npx napi build --platform --release --output-dir ../../extension/bin
 ```
 
 This produces e.g. `extension/bin/fieldglass.linux-x64-gnu.node` plus `extension/bin/index.d.ts` (TS types). To cross-compile for distribution, add `--target <triple>` and run once per platform.
