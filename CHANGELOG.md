@@ -6,6 +6,10 @@ Versioning follows the [VS Code pre-release convention](https://code.visualstudi
 
 ## [Unreleased]
 
+### Fixed
+
+- README feature matrix: replaced GitHub-only `$\color{red}{\textsf{Not yet}}$` LaTeX color hack with `🚧 Not yet` so the table renders correctly inside the VS Code Marketplace listing as well as on GitHub (#25).
+
 ## [0.1.0] — 2026-05-09
 
 First public release, on the Marketplace pre-release channel. Read-only metadata viewer for GRIB1; GRIB2 and NetCDF detection only.
