@@ -36,7 +36,7 @@ Open the repo in VS Code and press `F5` to launch an Extension Development Host 
 1. Fork the repo and create a feature branch from `master` (`git switch -c my-feature`).
 2. Make your change. The local pre-commit hook runs `cargo fmt`, `cargo clippy -- -D warnings`, `tsc --noEmit`, plus file-hygiene polish on every commit. The pre-push hook runs `cargo test --workspace`, `cargo deny check`, `npm audit`, and a `semgrep` SAST scan.
 3. Update [CHANGELOG.md](CHANGELOG.md) under the `## [Unreleased]` heading.
-4. Open the PR. CI runs the same checks; required statuses are `Lint + test via pre-commit`, `Build extension`, and `Build native (linux-x64 smoke test)`.
+4. Open the PR. CI runs the same checks; required statuses are `Lint + test via pre-commit`, `Build extension`, `Analyze (rust)`, `Analyze (javascript-typescript)`, and `Semgrep SAST`.
 
 A few project-specific patterns worth knowing:
 

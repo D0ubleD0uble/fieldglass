@@ -4,6 +4,17 @@ All notable changes to Fieldglass are documented here. The format roughly follow
 
 ## [Unreleased]
 
+### Changed
+
+- CI: dropped the redundant `Build native (linux-x64 smoke test)` job. The native binary is already built (and now explicitly verified) inside `Build extension`.
+- CI: cache cargo builds with `Swatinem/rust-cache` and Node.js downloads via `actions/setup-node`'s built-in `cache: npm` to cut warm-cache CI time.
+- CI: switched `npm install` to `npm ci` in workflows so dependency installs respect the lockfile.
+- pre-commit: aligned the local Semgrep rule set with the CI workflow by adding `p/owasp-top-ten` and `p/github-actions`; added a root-level `npm audit` hook to cover `@napi-rs/cli`.
+
+### Added
+
+- `SECURITY.md` with the private vulnerability reporting workflow and scope.
+
 ## [0.1.0-beta.1] — 2026-05-09
 
 First public beta. Read-only metadata viewer for GRIB1; GRIB2 and NetCDF detection only.

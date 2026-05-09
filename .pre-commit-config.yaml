@@ -63,6 +63,13 @@ repos:
         entry: bash -c 'cd extension && npm audit --omit=dev || echo "npm audit reported issues — review with npm audit"'
         pass_filenames: false
 
+      - id: npm-audit-root
+        name: npm audit --omit=dev (root)
+        stages: [pre-push]
+        language: system
+        entry: bash -c 'npm audit --omit=dev || echo "npm audit reported issues at the workspace root — review with npm audit"'
+        pass_filenames: false
+
   # ─── Auto-fetched pinned binaries — no manual install required
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
@@ -107,6 +114,8 @@ repos:
           - --error
           - --config=p/default
           - --config=p/security-audit
+          - --config=p/owasp-top-ten
           - --config=p/rust
           - --config=p/typescript
           - --config=p/secrets
+          - --config=p/github-actions
