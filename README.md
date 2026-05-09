@@ -12,7 +12,7 @@ A Visual Studio Code extension for viewing meteorological binary data files (GRI
 
 ## Status
 
-First public beta. Read-only metadata viewing for GRIB1 is in. The GRIB1 Binary Data Section decoder (with bitmap-section support) is implemented at the Rust API level via `decode_grid`, but not yet wired into a 2-D visualization in the webview. GRIB2 and NetCDF parsing, metadata editing, and field rendering are on the roadmap — see the [feature matrix](#feature-matrix) below for what works today.
+First public beta. Read-only metadata viewing for GRIB1 is in, and each message's decoded grid can now be rendered as a 2-D viridis-colored image directly in the webview (in grid coordinates — no map reprojection yet). GRIB2 and NetCDF parsing, metadata editing, and geographic reprojection are on the roadmap — see the [feature matrix](#feature-matrix) below for what works today.
 
 ## Feature matrix
 
@@ -28,7 +28,7 @@ First public beta. Read-only metadata viewing for GRIB1 is in. The GRIB1 Binary 
 | Tabular metadata viewer | ✅ | ❌ Not yet | ❌ Not yet |
 | Binary data section decoding (Rust API) | ✅ | ❌ Not yet | ❌ Not yet |
 | Metadata editing | ❌ Not yet | ❌ Not yet | ❌ Not yet |
-| 2-D grid rendering with colormap | ❌ Not yet | ❌ Not yet | ❌ Not yet |
+| 2-D grid rendering with colormap | ✅ | ❌ Not yet | ❌ Not yet |
 
 Format-agnostic features:
 
@@ -40,7 +40,7 @@ Format-agnostic features:
 This is a beta. Things to be aware of:
 
 - **No metadata editing in the viewer.** The Rust API has byte-level patching for the forecast period (P1) and the webview retains the full undo/redo wiring, but the editable affordance is hidden in beta until general PDS-field editing lands. For now Fieldglass is a read-only viewer.
-- **No 2-D field rendering.** GRIB1 grid values are decoded by the Rust API (`Grib1Reader::decode_message_values` / napi `decode_grid`) but not yet visualized in a webview canvas.
+- **GRIB1 2-D rendering is in grid coordinates only.** The webview renders each message's decoded grid with a viridis colormap, but the canvas axes are scan-order grid indices — there is no map reprojection, basemap, or coastline overlay yet. Polar stereographic and Lambert conformal grids therefore appear "stretched" relative to a true geographic projection.
 - **GRIB2 and NetCDF: detection only.** Magic-byte detection works and routes the file to the viewer, but parsing isn't implemented yet — those files will surface "no messages found."
 - **GRIB1 GDS coverage:** Lat/Lon, Gaussian, Polar Stereographic, and Lambert Conformal grids are parsed. Reduced grids, rotated/oblique projections, and predefined grids (`grid_number != 255`) are not yet supported and will render as `unsupported`.
 - **Parameter table coverage:** WMO ON388 Table 2 (versions 1–3) only. ECMWF local tables (versions 128+) and other centre-specific extensions resolve as `Unknown`.

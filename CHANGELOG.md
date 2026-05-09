@@ -6,6 +6,31 @@ Versioning follows the [VS Code pre-release convention](https://code.visualstudi
 
 ## [Unreleased]
 
+### Added
+
+- **GRIB1 2-D grid rendering in the webview.** Each metadata row now exposes a
+  per-message *Render* button that decodes the message via the existing napi
+  `decode_grid` and paints the values into a `<canvas>` using a baked-in
+  256-entry **viridis** colormap (no colormap library dependency). A vertical
+  colorbar shows the data min/max (computed from the grid itself, excluding
+  bitmap-masked points). Render is button-triggered for v1 — selecting a row
+  does not auto-decode — to keep the metadata-only path fast.
+- **Bitmap-masked points render as transparent (alpha = 0)** so missing data
+  reads as "no value" against the editor background. The render-pane legend
+  documents this policy.
+- **Webview Content-Security-Policy.** Scripts are now enabled (required to
+  request a render and paint a canvas) and the webview ships an explicit,
+  restrictive CSP: `default-src 'none'; script-src 'nonce-<per-page>';
+  style-src ${webview.cspSource} 'unsafe-inline'; img-src ${webview.cspSource}
+  blob: data:`. No `'unsafe-eval'`, no inline scripts without a nonce. The
+  policy and rationale are documented inline in `provider.ts`.
+
+### Changed
+
+- Render is performed in *grid coordinates* — no map reprojection is applied,
+  so polar stereographic and Lambert conformal grids show the data in scan
+  order. Geographic reprojection is tracked as a separate follow-up.
+
 ### Fixed
 
 - README feature matrix: replaced GitHub-only `$\color{red}{\textsf{Not yet}}$` LaTeX color hack with `❌ Not yet` so the table renders correctly inside the VS Code Marketplace listing as well as on GitHub (#25).

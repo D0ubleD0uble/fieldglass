@@ -1,6 +1,8 @@
 import * as vscode from "vscode";
 import * as path from "path";
 
+import { VIRIDIS_LUT } from "./render-helpers";
+
 interface MessageMeta {
   messageIndex: number;
   offsetBytes: number;
@@ -111,7 +113,12 @@ interface ReadyMessage {
   type: "ready";
 }
 
-type WebviewMessage = EditP1Message | ReadyMessage;
+interface DecodeGridMessage {
+  type: "decodeGrid";
+  messageIndex: number;
+}
+
+type WebviewMessage = EditP1Message | ReadyMessage | DecodeGridMessage;
 
 export class FieldglassEditorProvider
   implements vscode.CustomEditorProvider<FieldglassDocument>
@@ -174,7 +181,10 @@ export class FieldglassEditorProvider
     // single editable column.
     const editable = false;
 
-    panel.webview.options = { enableScripts: editable };
+    // Scripts must be enabled so the webview can request and paint a 2-D
+    // render of a message's decoded grid. The CSP set in renderHtml is the
+    // security boundary — see the comment there for the policy itself.
+    panel.webview.options = { enableScripts: true };
     panel.webview.html = renderHtml(
       panel.webview,
       format,
@@ -184,11 +194,9 @@ export class FieldglassEditorProvider
       editable
     );
 
-    if (editable) {
-      panel.webview.onDidReceiveMessage((msg: WebviewMessage) => {
-        this.handleWebviewMessage(document, panel, msg);
-      });
-    }
+    panel.webview.onDidReceiveMessage((msg: WebviewMessage) => {
+      this.handleWebviewMessage(document, panel, msg);
+    });
   }
 
   async saveCustomDocument(
@@ -251,7 +259,107 @@ export class FieldglassEditorProvider
       case "edit-p1":
         this.applyP1Edit(document, msg.messageIndex, msg.value);
         return;
+      case "decodeGrid":
+        this.handleDecodeGrid(document, panel, msg.messageIndex);
+        return;
     }
+  }
+
+  /** Decode one message's grid in Rust and post values + shape to the webview. */
+  private handleDecodeGrid(
+    document: FieldglassDocument,
+    panel: vscode.WebviewPanel,
+    messageIndex: number
+  ): void {
+    const native = loadNative();
+    if (!native) {
+      panel.webview.postMessage({
+        type: "gridError",
+        messageIndex,
+        error: `native module ${nativeBinaryName()} not loaded`,
+      });
+      return;
+    }
+    let messages: MessageMeta[];
+    try {
+      messages = native.openGrib1(document.bytes);
+    } catch (err) {
+      panel.webview.postMessage({
+        type: "gridError",
+        messageIndex,
+        error: `re-parse failed: ${err}`,
+      });
+      return;
+    }
+    // messageIndex originates from a webview-controlled message but is
+    // bounds-checked immediately below; messages is a plain Array.
+    // eslint-disable-next-line security/detect-object-injection
+    const meta = messages[messageIndex];
+    if (!meta) {
+      panel.webview.postMessage({
+        type: "gridError",
+        messageIndex,
+        error: `message ${messageIndex} out of range`,
+      });
+      return;
+    }
+    if (meta.gridNi === null || meta.gridNj === null) {
+      panel.webview.postMessage({
+        type: "gridError",
+        messageIndex,
+        error: "message has no grid dimensions (unsupported GDS)",
+      });
+      return;
+    }
+    let raw: Array<number | null>;
+    try {
+      raw = native.decodeGrid(document.bytes, messageIndex);
+    } catch (err) {
+      panel.webview.postMessage({
+        type: "gridError",
+        messageIndex,
+        error: `decode failed: ${err}`,
+      });
+      return;
+    }
+
+    // Convert the heterogeneous Array<number | null> coming back from napi
+    // into a Float64Array (NaN sentinel for masked) plus a parallel Uint8Array
+    // mask. This keeps the postMessage transfer compact (typed arrays
+    // structured-clone fast) and lets the webview paint without per-cell
+    // null checks. NaN is the sentinel because Float64Array can't hold null.
+    const total = raw.length;
+    const values = new Float64Array(total);
+    const bitmapMask = new Uint8Array(total);
+    let anyMasked = false;
+    // i is a strictly bounded counter; values/bitmapMask/raw are length
+    // `total`. The security plugin can't see the loop bound, so silence the
+    // generic-injection warning here.
+    /* eslint-disable security/detect-object-injection */
+    for (let i = 0; i < total; i++) {
+      const v = raw[i];
+      if (v === null) {
+        values[i] = Number.NaN;
+        bitmapMask[i] = 0;
+        anyMasked = true;
+      } else {
+        values[i] = v;
+        bitmapMask[i] = 1;
+      }
+    }
+    /* eslint-enable security/detect-object-injection */
+
+    const projectionSummary = describeProjection(meta);
+
+    panel.webview.postMessage({
+      type: "gridReady",
+      messageIndex,
+      values,
+      nx: meta.gridNi,
+      ny: meta.gridNj,
+      projectionSummary,
+      bitmapMask: anyMasked ? bitmapMask : undefined,
+    });
   }
 
   /** Public for tests; webview message handler also calls into this. */
@@ -341,6 +449,19 @@ export class FieldglassEditorProvider
 // HTML rendering
 // ---------------------------------------------------------------------------
 
+function describeProjection(meta: MessageMeta): string {
+  const dims = (meta.gridNi !== null && meta.gridNj !== null)
+    ? `${meta.gridNi}×${meta.gridNj}` : "?";
+  const type = meta.gridType ?? "unknown grid";
+  if (meta.latFirst !== null && meta.lonFirst !== null
+      && meta.latLast !== null && meta.lonLast !== null) {
+    const f = (v: number) => v.toFixed(2);
+    return `${type} ${dims} — ${f(meta.latFirst)},${f(meta.lonFirst)} → `
+         + `${f(meta.latLast)},${f(meta.lonLast)} (grid coordinates)`;
+  }
+  return `${type} ${dims} (grid coordinates)`;
+}
+
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, "&amp;")
@@ -385,6 +506,10 @@ function renderHtml(
       const fcstCell = editable
         ? `<input type="number" class="p1-input" data-message-index="${m.messageIndex}" min="0" max="255" step="1" value="${m.forecastHours}" />`
         : escapeHtml(m.forecastDisplay);
+      const canRender = m.gridNi !== null && m.gridNj !== null;
+      const renderCell = canRender
+        ? `<button type="button" class="render-btn" data-message-index="${m.messageIndex}">Render</button>`
+        : `<span class="render-na" title="Grid dimensions unknown">—</span>`;
       return `
       <tr>
         <td>${m.messageIndex}</td>
@@ -399,6 +524,7 @@ function renderHtml(
         <td>${gridDims}</td>
         <td>${gridBounds}</td>
         <td>${escapeHtml(m.originatingCentre)}</td>
+        <td>${renderCell}</td>
       </tr>`;
     }).join("");
     const fcstHeader = editable ? "Fcst (p1)" : "Fcst";
@@ -409,10 +535,30 @@ function renderHtml(
           <th>#</th><th>Parameter</th><th>Abbrev</th><th>Units</th>
           <th>Level</th><th>Level Type</th><th>Reference Time</th><th>${fcstHeader}</th>
           <th>Grid</th><th>Size</th><th>Bounds (lat,lon)</th><th>Centre</th>
+          <th>Render</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
-    </table>`;
+    </table>
+    <section id="render-pane" class="render-pane" hidden>
+      <h2 class="render-title">Grid render</h2>
+      <div class="render-meta" id="render-meta"></div>
+      <div class="render-status" id="render-status"></div>
+      <div class="render-area">
+        <canvas id="render-canvas" class="render-canvas"></canvas>
+        <div class="colorbar-wrap">
+          <canvas id="colorbar-canvas" class="colorbar-canvas" width="20" height="200"></canvas>
+          <div class="colorbar-labels">
+            <div class="cb-max" id="cb-max">—</div>
+            <div class="cb-min" id="cb-min">—</div>
+          </div>
+        </div>
+      </div>
+      <div class="render-legend">
+        Painted in grid coordinates (no map reprojection). Bitmap-masked
+        points render as transparent.
+      </div>
+    </section>`;
   } else if (!isKnown && headerBytes && headerBytes.length > 0) {
     const hex = Array.from(headerBytes)
       .map((b) => b.toString(16).padStart(2, "0"))
@@ -430,43 +576,192 @@ function renderHtml(
     bodyContent = `<div class="status">No messages found.</div>`;
   }
 
+  // Webview Content-Security-Policy. The CSP IS the security boundary that
+  // makes enabling scripts safe: it blocks every loader except the webview's
+  // own origin and a per-document nonce for our single inline script. No
+  // 'unsafe-inline' on script-src, no 'unsafe-eval' anywhere. Image sources
+  // include `blob:` and `data:` because the canvas-painted render may be
+  // exported via `toDataURL()` for save-image affordances later, and `data:`
+  // covers small inline tile previews. `style-src` keeps `'unsafe-inline'`
+  // only because VS Code-themed inline styles drive layout colors.
   const csp = [
     `default-src 'none'`,
+    `script-src 'nonce-${cspNonce}'`,
     `style-src ${webview.cspSource} 'unsafe-inline'`,
-    editable ? `script-src 'nonce-${cspNonce}'` : `script-src 'none'`,
+    `img-src ${webview.cspSource} blob: data:`,
   ].join("; ");
 
-  const script = editable ? `
+  // Embed the viridis LUT as a JSON literal once per page so the webview
+  // script can paint without reaching for any colormap library at runtime.
+  const lutJson = JSON.stringify(Array.from(VIRIDIS_LUT));
+
+  const script = `
     <script nonce="${cspNonce}">
-      const vscode = acquireVsCodeApi();
-      // Forecast-period inputs send an edit on commit (Enter / blur).
-      function attach() {
-        document.querySelectorAll('input.p1-input').forEach((el) => {
-          el.addEventListener('change', () => {
-            const idx = Number(el.getAttribute('data-message-index'));
-            const v = Number(el.value);
-            if (!Number.isFinite(v) || v < 0 || v > 255 || !Number.isInteger(v)) {
-              return; // ignore invalid; the host re-broadcast will reset us
+      (function () {
+        const vscode = acquireVsCodeApi();
+        const VIRIDIS = new Uint8ClampedArray(${lutJson});
+        const editable = ${editable ? "true" : "false"};
+
+        function paintGrid(values, bitmapMask, nx, ny, min, max) {
+          const total = nx * ny;
+          const span = max - min;
+          const denom = span > 0 ? span : 1;
+          const buf = new Uint8ClampedArray(total * 4);
+          for (let i = 0; i < total; i++) {
+            const v = values[i];
+            const masked = bitmapMask && bitmapMask[i] === 0;
+            const o = i * 4;
+            if (masked || !Number.isFinite(v)) {
+              buf[o] = 0; buf[o + 1] = 0; buf[o + 2] = 0; buf[o + 3] = 0;
+              continue;
             }
-            vscode.postMessage({ type: 'edit-p1', messageIndex: idx, value: v });
-          });
-        });
-      }
-      window.addEventListener('message', (event) => {
-        const msg = event.data;
-        if (msg && msg.type === 'update' && Array.isArray(msg.messages)) {
-          for (const m of msg.messages) {
-            const el = document.querySelector('input.p1-input[data-message-index="' + m.messageIndex + '"]');
-            if (el && document.activeElement !== el) {
-              el.value = String(m.forecastHours);
+            let t = span > 0 ? (v - min) / denom : 0;
+            if (t < 0) t = 0; else if (t > 1) t = 1;
+            const idx = Math.round(t * 255) * 3;
+            buf[o] = VIRIDIS[idx];
+            buf[o + 1] = VIRIDIS[idx + 1];
+            buf[o + 2] = VIRIDIS[idx + 2];
+            buf[o + 3] = 255;
+          }
+          return new ImageData(buf, nx, ny);
+        }
+
+        function paintColorbar(canvas) {
+          const ctx = canvas.getContext('2d');
+          if (!ctx) return;
+          const w = canvas.width, h = canvas.height;
+          const buf = new Uint8ClampedArray(w * h * 4);
+          for (let y = 0; y < h; y++) {
+            // top of bar = max, bottom = min
+            const t = 1 - y / Math.max(1, h - 1);
+            const idx = Math.round(t * 255) * 3;
+            for (let x = 0; x < w; x++) {
+              const o = (y * w + x) * 4;
+              buf[o] = VIRIDIS[idx];
+              buf[o + 1] = VIRIDIS[idx + 1];
+              buf[o + 2] = VIRIDIS[idx + 2];
+              buf[o + 3] = 255;
             }
           }
+          ctx.putImageData(new ImageData(buf, w, h), 0, 0);
         }
-      });
-      attach();
-      vscode.postMessage({ type: 'ready' });
+
+        function minMaxIgnoringMask(values, bitmapMask) {
+          let min = Infinity, max = -Infinity, seen = false;
+          for (let i = 0; i < values.length; i++) {
+            if (bitmapMask && bitmapMask[i] === 0) continue;
+            const v = values[i];
+            if (!Number.isFinite(v)) continue;
+            if (v < min) min = v;
+            if (v > max) max = v;
+            seen = true;
+          }
+          return seen ? { min, max } : null;
+        }
+
+        function setStatus(text) {
+          const el = document.getElementById('render-status');
+          if (el) el.textContent = text;
+        }
+
+        function showPane() {
+          const pane = document.getElementById('render-pane');
+          if (pane) pane.removeAttribute('hidden');
+        }
+
+        function handleGridReady(msg) {
+          showPane();
+          const canvas = document.getElementById('render-canvas');
+          const cb = document.getElementById('colorbar-canvas');
+          const meta = document.getElementById('render-meta');
+          const cbMin = document.getElementById('cb-min');
+          const cbMax = document.getElementById('cb-max');
+          if (!canvas || !cb) return;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) return;
+
+          const nx = msg.nx, ny = msg.ny;
+          canvas.width = nx;
+          canvas.height = ny;
+
+          const range = minMaxIgnoringMask(msg.values, msg.bitmapMask);
+          if (!range) {
+            setStatus('Message ' + msg.messageIndex + ' has no usable grid points (all masked or non-finite).');
+            ctx.clearRect(0, 0, nx, ny);
+            paintColorbar(cb);
+            cbMin.textContent = '—';
+            cbMax.textContent = '—';
+            if (meta) meta.textContent = msg.projectionSummary || '';
+            return;
+          }
+          const img = paintGrid(msg.values, msg.bitmapMask, nx, ny, range.min, range.max);
+          ctx.putImageData(img, 0, 0);
+          paintColorbar(cb);
+          cbMin.textContent = range.min.toPrecision(4);
+          cbMax.textContent = range.max.toPrecision(4);
+          const masked = msg.bitmapMask ? ' (transparent = bitmap-masked)' : '';
+          setStatus('Message ' + msg.messageIndex + ': ' + nx + '×' + ny
+                    + ', range ' + range.min.toPrecision(4) + ' … ' + range.max.toPrecision(4)
+                    + masked + '.');
+          if (meta) meta.textContent = msg.projectionSummary || '';
+        }
+
+        function handleGridError(msg) {
+          showPane();
+          setStatus('Render failed for message ' + msg.messageIndex + ': ' + msg.error);
+        }
+
+        function attach() {
+          document.querySelectorAll('button.render-btn').forEach((el) => {
+            el.addEventListener('click', () => {
+              const idx = Number(el.getAttribute('data-message-index'));
+              if (!Number.isFinite(idx)) return;
+              showPane();
+              setStatus('Decoding message ' + idx + '…');
+              vscode.postMessage({ type: 'decodeGrid', messageIndex: idx });
+            });
+          });
+          if (editable) {
+            // Forecast-period inputs send an edit on commit (Enter / blur).
+            document.querySelectorAll('input.p1-input').forEach((el) => {
+              el.addEventListener('change', () => {
+                const idx = Number(el.getAttribute('data-message-index'));
+                const v = Number(el.value);
+                if (!Number.isFinite(v) || v < 0 || v > 255 || !Number.isInteger(v)) {
+                  return;
+                }
+                vscode.postMessage({ type: 'edit-p1', messageIndex: idx, value: v });
+              });
+            });
+          }
+        }
+
+        window.addEventListener('message', (event) => {
+          const msg = event.data;
+          if (!msg || typeof msg.type !== 'string') return;
+          if (msg.type === 'gridReady') {
+            handleGridReady(msg);
+            return;
+          }
+          if (msg.type === 'gridError') {
+            handleGridError(msg);
+            return;
+          }
+          if (editable && msg.type === 'update' && Array.isArray(msg.messages)) {
+            for (const m of msg.messages) {
+              const el = document.querySelector('input.p1-input[data-message-index="' + m.messageIndex + '"]');
+              if (el && document.activeElement !== el) {
+                el.value = String(m.forecastHours);
+              }
+            }
+          }
+        });
+
+        attach();
+        vscode.postMessage({ type: 'ready' });
+      })();
     </script>
-  ` : "";
+  `;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -516,6 +811,67 @@ function renderHtml(
     input.p1-input:focus {
       outline: 1px solid var(--vscode-focusBorder);
       outline-offset: -1px;
+    }
+    button.render-btn {
+      background: var(--vscode-button-secondaryBackground, var(--vscode-button-background));
+      color: var(--vscode-button-secondaryForeground, var(--vscode-button-foreground));
+      border: 1px solid var(--vscode-button-border, transparent);
+      padding: 0.15rem 0.6rem;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: inherit;
+      border-radius: 2px;
+    }
+    button.render-btn:hover {
+      background: var(--vscode-button-secondaryHoverBackground, var(--vscode-button-hoverBackground));
+    }
+    button.render-btn:focus {
+      outline: 1px solid var(--vscode-focusBorder);
+      outline-offset: 1px;
+    }
+    .render-na { color: var(--vscode-descriptionForeground); }
+    .render-pane {
+      margin-top: 2rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--vscode-panel-border);
+    }
+    .render-title { font-size: 1.05rem; margin: 0 0 0.4rem 0; }
+    .render-meta { font-size: 0.85rem; color: var(--vscode-descriptionForeground); margin-bottom: 0.4rem; }
+    .render-status { font-size: 0.85rem; margin-bottom: 0.5rem; }
+    .render-area {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+    }
+    .render-canvas {
+      max-width: 100%;
+      height: auto;
+      image-rendering: pixelated;
+      background: var(--vscode-editor-background);
+      border: 1px solid var(--vscode-panel-border);
+    }
+    .colorbar-wrap {
+      display: flex;
+      align-items: stretch;
+      gap: 0.4rem;
+      height: 200px;
+    }
+    .colorbar-canvas {
+      width: 20px;
+      height: 200px;
+      border: 1px solid var(--vscode-panel-border);
+    }
+    .colorbar-labels {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      font-size: 0.75rem;
+      color: var(--vscode-descriptionForeground);
+    }
+    .render-legend {
+      margin-top: 0.5rem;
+      font-size: 0.75rem;
+      color: var(--vscode-descriptionForeground);
     }
   </style>
 </head>
