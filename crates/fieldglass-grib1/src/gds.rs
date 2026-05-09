@@ -345,3 +345,146 @@ mod sign_magnitude_tests {
         assert_eq!(read_signed_magnitude_24(&[0x80, 0x00, 0x00]), 0);
     }
 }
+
+#[cfg(test)]
+mod grid_variant_tests {
+    //! Synthetic full-GDS parse tests for the projection types we claim to
+    //! support. Each test hand-builds a byte array with known values and
+    //! asserts the parser surfaces them on the right struct. Catches
+    //! regressions where a byte offset or sign-magnitude conversion drifts
+    //! without any real fixture being in hand.
+
+    use super::*;
+
+    /// Encode an i32 as a 3-byte sign-and-magnitude (the GRIB1 lat/lon
+    /// convention; high bit = sign, low 23 bits = absolute value).
+    fn sm24(v: i32) -> [u8; 3] {
+        let mag = v.unsigned_abs();
+        assert!(mag < 0x80_0000, "magnitude {mag} too large for 24-bit");
+        let raw = if v < 0 { 0x80_0000 | mag } else { mag };
+        [(raw >> 16) as u8, (raw >> 8) as u8, raw as u8]
+    }
+
+    fn u24(v: u32) -> [u8; 3] {
+        assert!(v < 0x100_0000);
+        [(v >> 16) as u8, (v >> 8) as u8, v as u8]
+    }
+
+    fn u16be(v: u16) -> [u8; 2] {
+        v.to_be_bytes()
+    }
+
+    /// Build a GDS section byte array with a given grid_type, length, and
+    /// per-type body bytes. Returns the whole section (length-prefixed).
+    fn build_gds(grid_type: u8, body: &[u8]) -> Vec<u8> {
+        let len = (6 + body.len()) as u32;
+        let mut out = vec![
+            (len >> 16) as u8,
+            (len >> 8) as u8,
+            len as u8,
+            0, // NV
+            0, // PV / PL
+            grid_type,
+        ];
+        out.extend_from_slice(body);
+        out
+    }
+
+    #[test]
+    fn parses_lambert_conformal_gds() {
+        // Realistic continental-US Lambert grid: 601×401 points, origin
+        // 38.5° N / 126.0° W, two standard parallels at 38.5°, 13.545 km
+        // grid spacing, north pole projection.
+        let mut body = Vec::new();
+        body.extend(u16be(601)); // nx
+        body.extend(u16be(401)); // ny
+        body.extend(sm24(38_500)); // lat_first = 38.500°
+        body.extend(sm24(-126_000)); // lon_first = -126.000°
+        body.push(0xC0); // resolution flags: increments_given + earth_oblate
+        body.extend(sm24(-95_000)); // lov = -95.000°
+        body.extend(u24(13_545)); // dx_m = 13.545 km
+        body.extend(u24(13_545)); // dy_m = 13.545 km
+        body.push(0); // projection centre flag: north pole
+        body.push(0x40); // scanning mode: j_positive
+        body.extend(sm24(38_500)); // latin1
+        body.extend(sm24(38_500)); // latin2
+        body.extend(sm24(0)); // lat_south_pole
+        body.extend(sm24(0)); // lon_south_pole
+
+        let gds = build_gds(3, &body);
+        let parsed = parse_grid_description(&gds).expect("Lambert GDS parses");
+        let GridDescription::LambertConformal(g) = parsed else {
+            panic!("expected LambertConformal");
+        };
+        assert_eq!(g.nx, 601);
+        assert_eq!(g.ny, 401);
+        assert_eq!(g.lat_first, 38.500);
+        assert_eq!(g.lon_first, -126.000);
+        assert_eq!(g.lov, -95.000);
+        assert_eq!(g.dx_m, 13_545);
+        assert_eq!(g.dy_m, 13_545);
+        assert!(!g.south_pole);
+        assert_eq!(g.latin1, 38.500);
+        assert_eq!(g.latin2, 38.500);
+        assert!(g.resolution_flags.increments_given);
+        assert!(g.resolution_flags.earth_oblate);
+        assert!(g.scanning_mode.j_positive);
+    }
+
+    #[test]
+    fn parses_polar_stereographic_gds() {
+        // 800×800 northern-hemisphere polar stereographic, origin at the
+        // grid's south-east corner, 5 km resolution, orientation -80°.
+        let mut body = Vec::new();
+        body.extend(u16be(800)); // nx
+        body.extend(u16be(800)); // ny
+        body.extend(sm24(-20_826)); // lat_first
+        body.extend(sm24(-145_000)); // lon_first
+        body.push(0x88); // resolution + earth_oblate
+        body.extend(sm24(-80_000)); // lov
+        body.extend(u24(5_000)); // dx_m = 5 km
+        body.extend(u24(5_000)); // dy_m = 5 km
+        body.push(0x80); // projection centre: south pole on plane
+        body.push(0x40); // scanning mode
+
+        let gds = build_gds(5, &body);
+        let parsed = parse_grid_description(&gds).expect("polar stereo GDS parses");
+        let GridDescription::PolarStereographic(g) = parsed else {
+            panic!("expected PolarStereographic");
+        };
+        assert_eq!(g.nx, 800);
+        assert_eq!(g.ny, 800);
+        assert_eq!(g.lat_first, -20.826);
+        assert_eq!(g.lon_first, -145.000);
+        assert_eq!(g.lov, -80.000);
+        assert_eq!(g.dx_m, 5_000);
+        assert_eq!(g.dy_m, 5_000);
+        assert!(g.south_pole);
+    }
+
+    #[test]
+    fn unsupported_grid_type_surfaces_marker() {
+        // grid_type 50 isn't one we implement; parser should return the
+        // Unsupported variant carrying the offending byte rather than fail.
+        // Body bytes are irrelevant for the unsupported branch, but the
+        // section must still pass the length-prefix validation.
+        let body = vec![0u8; 22];
+        let gds = build_gds(50, &body);
+        let parsed = parse_grid_description(&gds).expect("unsupported parses cleanly");
+        let GridDescription::Unsupported { grid_type } = parsed else {
+            panic!("expected Unsupported variant");
+        };
+        assert_eq!(grid_type, 50);
+    }
+
+    #[test]
+    fn lambert_too_short_yields_parse_error() {
+        // Lambert needs 40 bytes; give it 28 (the LatLon size).
+        let body = vec![0u8; 22]; // 6 header + 22 body = 28 total
+        let gds = build_gds(3, &body);
+        let Err(err) = parse_grid_description(&gds) else {
+            panic!("short Lambert should error");
+        };
+        assert!(matches!(err, FieldglassError::Parse(_)));
+    }
+}

@@ -34,6 +34,13 @@ repos:
         entry: bash -c 'cd extension && npx --no-install tsc --noEmit'
         pass_filenames: false
 
+      - id: eslint-extension
+        name: eslint (extension)
+        language: system
+        files: ^extension/(src/.*\.ts|eslint\.config\.mjs|package\.json)$
+        entry: bash -c 'cd extension && npx --no-install eslint .'
+        pass_filenames: false
+
       # ── Pre-push (slower) hooks
       - id: cargo-test
         name: cargo test --workspace

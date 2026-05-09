@@ -65,7 +65,7 @@ jobs:
         working-directory: crates/fieldglass-napi
 
       - name: Upload native artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: native-${{ matrix.target }}
           path: extension/bin/${{ matrix.artifact }}
@@ -86,7 +86,7 @@ jobs:
           cache-dependency-path: extension/package-lock.json
 
       - name: Download all native artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           pattern: native-*
           path: extension/bin
@@ -108,7 +108,7 @@ jobs:
         working-directory: extension
 
       - name: Upload .vsix
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: fieldglass-vsix
           path: extension/*.vsix
