@@ -119,4 +119,59 @@ mod tests {
             FieldglassError::UnsupportedSection
         ));
     }
+
+    #[test]
+    fn parses_multi_byte_bitmap_in_scan_order() {
+        // 24 bits across 3 bytes: alternating present-byte / missing-byte / mixed.
+        // Verifies the i/8, 0x80 >> i%8 traversal works across byte boundaries.
+        let bms = build_bms(0, &[0xFF, 0x00, 0b1100_0011]);
+        let bm = parse_bitmap(&bms, 24).unwrap();
+        let expected: Vec<bool> = [true; 8]
+            .iter()
+            .copied()
+            .chain([false; 8].iter().copied())
+            .chain([true, true, false, false, false, false, true, true])
+            .collect();
+        assert_eq!(bm.bits, expected);
+    }
+
+    #[test]
+    fn all_missing_bitmap_yields_all_false() {
+        let bms = build_bms(0, &[0x00, 0x00]);
+        let bm = parse_bitmap(&bms, 16).unwrap();
+        assert_eq!(bm.bits.len(), 16);
+        assert!(bm.bits.iter().all(|b| !*b));
+    }
+
+    #[test]
+    fn expected_count_larger_than_bitmap_takes_what_is_available() {
+        // 8 bits of data, but caller claims 16 grid points. Implementation
+        // takes the minimum so we never index past the buffer; downstream
+        // decode_grid relies on this to surface the discrepancy as a length
+        // mismatch rather than as a panic.
+        let bms = build_bms(0, &[0xFF]);
+        let bm = parse_bitmap(&bms, 16).unwrap();
+        assert_eq!(bm.bits.len(), 8, "should clamp to available bitmap bits");
+        assert!(bm.bits.iter().all(|b| *b));
+    }
+
+    #[test]
+    fn rejects_section_too_short_for_header() {
+        let too_short = vec![0, 0, 5, 0]; // claims length 5 but no body
+        assert!(matches!(
+            parse_bitmap(&too_short, 0).unwrap_err(),
+            FieldglassError::Parse(_)
+        ));
+    }
+
+    #[test]
+    fn rejects_section_len_exceeding_buffer() {
+        // section_len declares 12 but only 8 bytes provided.
+        let mut bms = vec![0, 0, 12, 0, 0, 0];
+        bms.extend_from_slice(&[0xFF, 0xFF]); // 8 bytes total
+        assert!(matches!(
+            parse_bitmap(&bms, 16).unwrap_err(),
+            FieldglassError::Parse(_)
+        ));
+    }
 }
