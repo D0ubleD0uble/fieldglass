@@ -277,21 +277,21 @@ Pre-built binaries are attached to GitHub Releases. A `scripts/postinstall.js` d
 - [x] File associations for `.grb`, `.grib`, `.grib1`, `.grb1`, `.grb2`, `.grib2`, `.nc`, `.nc4`, `.netcdf`
 - [x] Language contributions for all three format families
 
-### Phase 1 — GRIB1 metadata reading
-- [ ] `fieldglass-core`: finalise `FormatReader`, `DataMessage`, `Metadata` traits
-- [ ] `fieldglass-grib1`: implement IS, PDS, GDS parsers; bundle parameter/level tables
-- [ ] `fieldglass-napi`: `open()` returns populated `Vec<MessageMeta>`
-- [ ] Extension: webview metadata table (replace static message with real data)
-- [ ] CI: cross-compile `.node` for all 6 targets
+### Phase 1 — GRIB1 metadata reading (complete)
+- [x] `fieldglass-core`: finalise `FormatReader`, `DataMessage`, `Metadata` traits
+- [x] `fieldglass-grib1`: implement IS, PDS, GDS parsers; bundle parameter/level tables
+- [x] `fieldglass-napi`: `open_grib1()` returns populated `Vec<MessageMeta>`
+- [x] Extension: webview metadata table (replace static message with real data)
+- [x] CI: cross-compile `.node` for all 6 targets
 
-### Phase 2 — Metadata editing
-- [ ] Upgrade to `CustomEditorProvider` with `CustomDocumentEditEvent`
-- [ ] `fieldglass-napi`: expose `set_metadata_field()` with byte-level patching
-- [ ] Undo/redo stack via VS Code document edit events
-- [ ] Webview form inputs for editable PDS fields
+### Phase 2 — Metadata editing (in progress — MVP vertical slice landed)
+- [x] Upgrade to `CustomEditorProvider` with `CustomDocumentEditEvent`
+- [x] Undo/redo stack via VS Code document edit events
+- [ ] `fieldglass-napi`: expose `set_metadata_field()` with byte-level patching *(only `set_p1` so far — proves the round-trip; generalise to other PDS fields next)*
+- [ ] Webview form inputs for editable PDS fields *(only the `p1`/forecast-period column is editable so far)*
 
 ### Phase 3 — Grid visualization
-- [ ] `fieldglass-grib1`: implement lazy BDS decoder
+- [x] `fieldglass-grib1`: implement lazy BDS decoder *(landed early — `Grib1Reader::decode_message_values`, plus BMS bitmap support, exposed via napi `decode_grid()`)*
 - [ ] `fieldglass-core`: `DataField` trait with lat/lon iterators
 - [ ] Webview Canvas/WebGL renderer for 2D grid fields
 - [ ] Colormap and legend controls

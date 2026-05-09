@@ -11,4 +11,7 @@ pub use bms::Bitmap;
 pub use gds::GridDescription;
 pub use is::IndicatorSection;
 pub use pds::ProductDefinition;
-pub use reader::{forecast_hours, level_value, reference_time, Grib1Message, Grib1Reader};
+pub use reader::{
+    forecast_display, forecast_hours, level_type_str, level_unit, level_value, level_value_str,
+    reference_time, Grib1Message, Grib1Reader,
+};

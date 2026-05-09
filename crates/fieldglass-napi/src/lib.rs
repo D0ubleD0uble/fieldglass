@@ -2,7 +2,7 @@
 
 use fieldglass_core::{detect_from_bytes, Format};
 use fieldglass_grib1::{
-    tables::{lookup_centre, lookup_level_type, lookup_parameter},
+    tables::{lookup_centre, lookup_parameter},
     Grib1Reader,
 };
 use napi_derive::napi;
@@ -15,10 +15,11 @@ pub struct MessageMeta {
     pub parameter_name: String,
     pub parameter_units: String,
     pub parameter_abbreviation: String,
+    pub level: String,
     pub level_type: String,
-    pub level_value: f64,
     pub reference_time: String,
     pub forecast_hours: i32,
+    pub forecast_display: String,
     pub originating_centre: String,
     pub grid_type: Option<String>,
     pub grid_ni: Option<i32>,
@@ -40,6 +41,34 @@ pub fn detect_bytes(bytes: napi::bindgen_prelude::Buffer) -> String {
         Format::NetCdf => "netcdf".to_string(),
         Format::Unknown => "unknown".to_string(),
     }
+}
+
+/// Patch the PDS `p1` (forecast period) octet of one message and return a new
+/// buffer containing the modified file bytes. Length is preserved.
+#[napi]
+pub fn set_p1(
+    bytes: napi::bindgen_prelude::Buffer,
+    message_index: u32,
+    value: u32,
+) -> napi::Result<napi::bindgen_prelude::Buffer> {
+    if value > u8::MAX as u32 {
+        return Err(napi::Error::from_reason(format!(
+            "p1 must fit in a u8 (0..=255), got {value}"
+        )));
+    }
+    let mut out = bytes.to_vec();
+    let reader = Grib1Reader::from_bytes(out.clone())
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let msg = reader
+        .messages
+        .get(message_index as usize)
+        .ok_or_else(|| napi::Error::from_reason(format!(
+            "message index {message_index} out of range (have {})",
+            reader.messages.len()
+        )))?;
+    let off = msg.pds_p1_offset();
+    out[off] = value as u8;
+    Ok(out.into())
 }
 
 /// Decode the grid values for one GRIB1 message. Returns one entry per grid
@@ -91,10 +120,11 @@ pub fn open_grib1(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<Vec<Mess
             parameter_name: param.name.to_string(),
             parameter_units: param.units.to_string(),
             parameter_abbreviation: param.abbreviation.to_string(),
-            level_type: lookup_level_type(msg.pds.level_type).to_string(),
-            level_value: fieldglass_grib1::level_value(&msg.pds),
+            level: fieldglass_grib1::level_value_str(&msg.pds),
+            level_type: fieldglass_grib1::level_type_str(&msg.pds),
             reference_time: fieldglass_grib1::reference_time(&msg.pds),
             forecast_hours: fieldglass_grib1::forecast_hours(&msg.pds),
+            forecast_display: fieldglass_grib1::forecast_display(&msg.pds),
             originating_centre: lookup_centre(msg.pds.originating_centre).to_string(),
             grid_type,
             grid_ni,

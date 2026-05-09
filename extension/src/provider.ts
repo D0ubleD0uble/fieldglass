@@ -1,18 +1,17 @@
 import * as vscode from "vscode";
 import * as path from "path";
 
-// Loaded once on first use — avoids requiring at module load time so the
-// extension can activate even if the .node file is missing (e.g. wrong platform).
 interface MessageMeta {
   messageIndex: number;
   offsetBytes: number;
   parameterName: string;
   parameterUnits: string;
   parameterAbbreviation: string;
+  level: string;
   levelType: string;
-  levelValue: number;
   referenceTime: string;
   forecastHours: number;
+  forecastDisplay: string;
   originatingCentre: string;
   gridType: string | null;
   gridNi: number | null;
@@ -28,14 +27,15 @@ let fieldglass: {
   detectBytes: (bytes: Uint8Array) => string;
   openGrib1: (bytes: Uint8Array) => MessageMeta[];
   decodeGrid: (bytes: Uint8Array, messageIndex: number) => Array<number | null>;
+  setP1: (bytes: Uint8Array, messageIndex: number, value: number) => Buffer;
 } | undefined;
 
 function nativeBinaryName(): string {
-  const platform = process.platform;  // 'linux' | 'win32' | 'darwin'
-  const arch = process.arch;          // 'x64' | 'arm64'
+  const platform = process.platform;
+  const arch = process.arch;
   const abi = platform === "linux" ? "-gnu"
             : platform === "win32" ? "-msvc"
-            : "";                     // macOS has no ABI suffix
+            : "";
   return `fieldglass.${platform}-${arch}${abi}.node`;
 }
 
@@ -43,13 +43,12 @@ function loadNative(): typeof fieldglass {
   if (fieldglass) {
     return fieldglass;
   }
-  // Binaries live in extension/bin/ — populated by `napi build --output-dir`
-  // during development and bundled into the .vsix for distribution.
   const nodePath = path.join(__dirname, "..", "bin", nativeBinaryName());
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     fieldglass = require(nodePath);
   } catch (err) {
+    console.error(`[Fieldglass] failed to load ${nodePath}:`, err);
     vscode.window.showErrorMessage(
       `Fieldglass: failed to load native module (${nativeBinaryName()}): ${err}`
     );
@@ -64,10 +63,305 @@ const FORMAT_LABELS: Record<string, string> = {
   unknown: "Unknown",
 };
 
-function renderHtml(format: string, filePath: string, messages?: MessageMeta[], headerBytes?: Uint8Array): string {
+// ---------------------------------------------------------------------------
+// Document
+// ---------------------------------------------------------------------------
+
+export class FieldglassDocument implements vscode.CustomDocument {
+  static async create(uri: vscode.Uri): Promise<FieldglassDocument> {
+    const bytes = await vscode.workspace.fs.readFile(uri);
+    return new FieldglassDocument(uri, bytes);
+  }
+
+  private _bytes: Uint8Array;
+
+  private constructor(public readonly uri: vscode.Uri, bytes: Uint8Array) {
+    this._bytes = bytes;
+  }
+
+  get bytes(): Uint8Array {
+    return this._bytes;
+  }
+
+  setBytes(bytes: Uint8Array): void {
+    this._bytes = bytes;
+  }
+
+  async revertFromDisk(): Promise<void> {
+    this._bytes = await vscode.workspace.fs.readFile(this.uri);
+  }
+
+  dispose(): void {}
+}
+
+// ---------------------------------------------------------------------------
+// Provider
+// ---------------------------------------------------------------------------
+
+interface EditP1Message {
+  type: "edit-p1";
+  messageIndex: number;
+  value: number;
+}
+
+interface ReadyMessage {
+  type: "ready";
+}
+
+type WebviewMessage = EditP1Message | ReadyMessage;
+
+export class FieldglassEditorProvider
+  implements vscode.CustomEditorProvider<FieldglassDocument>
+{
+  public static readonly viewType = "fieldglass.viewer";
+  public static readonly viewTypeAny = "fieldglass.viewer.any";
+
+  public static register(_context: vscode.ExtensionContext): {
+    provider: FieldglassEditorProvider;
+    disposables: vscode.Disposable[];
+  } {
+    const provider = new FieldglassEditorProvider();
+    const opts = { supportsMultipleEditorsPerDocument: true };
+    return {
+      provider,
+      disposables: [
+        vscode.window.registerCustomEditorProvider(FieldglassEditorProvider.viewType, provider, opts),
+        vscode.window.registerCustomEditorProvider(FieldglassEditorProvider.viewTypeAny, provider, opts),
+        provider._onDidChangeCustomDocument,
+      ],
+    };
+  }
+
+  private readonly _onDidChangeCustomDocument =
+    new vscode.EventEmitter<vscode.CustomDocumentEditEvent<FieldglassDocument>>();
+  public readonly onDidChangeCustomDocument = this._onDidChangeCustomDocument.event;
+
+  // All panels currently rendering each document, keyed by uri.toString().
+  private readonly _panelsByDoc = new Map<string, Set<vscode.WebviewPanel>>();
+
+  // -------------------------------------------------------------------------
+  // CustomEditorProvider lifecycle
+  // -------------------------------------------------------------------------
+
+  async openCustomDocument(
+    uri: vscode.Uri,
+    _openContext?: vscode.CustomDocumentOpenContext,
+    _token?: vscode.CancellationToken
+  ): Promise<FieldglassDocument> {
+    return FieldglassDocument.create(uri);
+  }
+
+  async resolveCustomEditor(
+    document: FieldglassDocument,
+    panel: vscode.WebviewPanel
+  ): Promise<void> {
+    this.trackPanel(document, panel);
+
+    const native = loadNative();
+    const header = document.bytes.slice(0, 32);
+    const format = native ? native.detectBytes(header) : "unknown";
+
+    const messages = (native && format === "grib1")
+      ? native.openGrib1(document.bytes)
+      : undefined;
+    const headerBytes = format === "unknown" ? header : undefined;
+    const editable = format === "grib1";
+
+    panel.webview.options = { enableScripts: editable };
+    panel.webview.html = renderHtml(
+      panel.webview,
+      format,
+      document.uri.fsPath,
+      messages,
+      headerBytes,
+      editable
+    );
+
+    if (editable) {
+      panel.webview.onDidReceiveMessage((msg: WebviewMessage) => {
+        this.handleWebviewMessage(document, panel, msg);
+      });
+    }
+  }
+
+  async saveCustomDocument(
+    document: FieldglassDocument,
+    _cancellation: vscode.CancellationToken
+  ): Promise<void> {
+    await vscode.workspace.fs.writeFile(document.uri, document.bytes);
+  }
+
+  async saveCustomDocumentAs(
+    document: FieldglassDocument,
+    destination: vscode.Uri,
+    _cancellation: vscode.CancellationToken
+  ): Promise<void> {
+    await vscode.workspace.fs.writeFile(destination, document.bytes);
+  }
+
+  async revertCustomDocument(
+    document: FieldglassDocument,
+    _cancellation: vscode.CancellationToken
+  ): Promise<void> {
+    await document.revertFromDisk();
+    this.broadcastUpdate(document);
+  }
+
+  async backupCustomDocument(
+    document: FieldglassDocument,
+    context: vscode.CustomDocumentBackupContext,
+    _cancellation: vscode.CancellationToken
+  ): Promise<vscode.CustomDocumentBackup> {
+    const dest = context.destination;
+    await vscode.workspace.fs.writeFile(dest, document.bytes);
+    return {
+      id: dest.toString(),
+      delete: async () => {
+        try {
+          await vscode.workspace.fs.delete(dest);
+        } catch {
+          // backup file may already be gone
+        }
+      },
+    };
+  }
+
+  // -------------------------------------------------------------------------
+  // Edit pipeline
+  // -------------------------------------------------------------------------
+
+  private handleWebviewMessage(
+    document: FieldglassDocument,
+    panel: vscode.WebviewPanel,
+    msg: WebviewMessage
+  ): void {
+    switch (msg.type) {
+      case "ready":
+        // Webview just finished mounting; push the current state so its
+        // inputs are guaranteed to reflect document.bytes.
+        this.postUpdate(panel, document);
+        return;
+      case "edit-p1":
+        this.applyP1Edit(document, msg.messageIndex, msg.value);
+        return;
+    }
+  }
+
+  /** Public for tests; webview message handler also calls into this. */
+  public applyP1Edit(
+    document: FieldglassDocument,
+    messageIndex: number,
+    value: number
+  ): void {
+    const native = loadNative();
+    if (!native) {
+      throw new Error(
+        `Fieldglass: native module ${nativeBinaryName()} could not be loaded`
+      );
+    }
+
+    const oldBytes = document.bytes;
+    let newBytes: Uint8Array;
+    try {
+      newBytes = native.setP1(oldBytes, messageIndex, value);
+    } catch (err) {
+      console.error("[Fieldglass] setP1 failed:", err);
+      vscode.window.showErrorMessage(`Fieldglass: failed to set p1: ${err}`);
+      // Re-broadcast the old state so the input snaps back.
+      this.broadcastUpdate(document);
+      return;
+    }
+
+    document.setBytes(newBytes);
+    this.broadcastUpdate(document);
+
+    this._onDidChangeCustomDocument.fire({
+      document,
+      label: `Edit forecast period (message ${messageIndex})`,
+      undo: () => {
+        document.setBytes(oldBytes);
+        this.broadcastUpdate(document);
+      },
+      redo: () => {
+        document.setBytes(newBytes);
+        this.broadcastUpdate(document);
+      },
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Panel tracking
+  // -------------------------------------------------------------------------
+
+  private trackPanel(document: FieldglassDocument, panel: vscode.WebviewPanel): void {
+    const key = document.uri.toString();
+    let set = this._panelsByDoc.get(key);
+    if (!set) {
+      set = new Set();
+      this._panelsByDoc.set(key, set);
+    }
+    set.add(panel);
+    panel.onDidDispose(() => {
+      const s = this._panelsByDoc.get(key);
+      if (s) {
+        s.delete(panel);
+        if (s.size === 0) this._panelsByDoc.delete(key);
+      }
+    });
+  }
+
+  private broadcastUpdate(document: FieldglassDocument): void {
+    const panels = this._panelsByDoc.get(document.uri.toString());
+    if (!panels) return;
+    for (const p of panels) {
+      this.postUpdate(p, document);
+    }
+  }
+
+  private postUpdate(panel: vscode.WebviewPanel, document: FieldglassDocument): void {
+    const native = loadNative();
+    if (!native) return;
+    try {
+      const messages = native.openGrib1(document.bytes);
+      panel.webview.postMessage({ type: "update", messages });
+    } catch (err) {
+      vscode.window.showErrorMessage(`Fieldglass: failed to re-parse after edit: ${err}`);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// HTML rendering
+// ---------------------------------------------------------------------------
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function nonce(): string {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  let s = "";
+  for (let i = 0; i < 32; i++) s += chars.charAt(Math.floor(Math.random() * chars.length));
+  return s;
+}
+
+function renderHtml(
+  webview: vscode.Webview,
+  format: string,
+  filePath: string,
+  messages: MessageMeta[] | undefined,
+  headerBytes: Uint8Array | undefined,
+  editable: boolean
+): string {
   const label = FORMAT_LABELS[format] ?? "Unknown";
   const filename = path.basename(filePath);
   const isKnown = format !== "unknown";
+  const cspNonce = nonce();
 
   let bodyContent = "";
 
@@ -78,29 +372,33 @@ function renderHtml(format: string, filePath: string, messages?: MessageMeta[], 
         ? `${m.gridNi}×${m.gridNj}` : "—";
       const gridBounds = (m.latFirst !== null && m.lonFirst !== null)
         ? `${fmt1(m.latFirst)},${fmt1(m.lonFirst)} → ${fmt1(m.latLast)},${fmt1(m.lonLast)}` : "—";
+      const fcstCell = editable
+        ? `<input type="number" class="p1-input" data-message-index="${m.messageIndex}" min="0" max="255" step="1" value="${m.forecastHours}" />`
+        : escapeHtml(m.forecastDisplay);
       return `
       <tr>
         <td>${m.messageIndex}</td>
-        <td>${m.parameterName}</td>
-        <td>${m.parameterAbbreviation}</td>
-        <td>${m.parameterUnits}</td>
-        <td>${m.levelType}</td>
-        <td>${m.levelValue}</td>
-        <td>${m.referenceTime}</td>
-        <td>${m.forecastHours}h</td>
-        <td>${m.originatingCentre}</td>
-        <td>${m.gridType ?? "—"}</td>
+        <td>${escapeHtml(m.parameterName)}</td>
+        <td>${escapeHtml(m.parameterAbbreviation)}</td>
+        <td>${escapeHtml(m.parameterUnits)}</td>
+        <td>${escapeHtml(m.level)}</td>
+        <td>${escapeHtml(m.levelType)}</td>
+        <td>${escapeHtml(m.referenceTime)}</td>
+        <td>${fcstCell}</td>
+        <td>${escapeHtml(m.gridType ?? "—")}</td>
         <td>${gridDims}</td>
         <td>${gridBounds}</td>
+        <td>${escapeHtml(m.originatingCentre)}</td>
       </tr>`;
     }).join("");
+    const fcstHeader = editable ? "Fcst (p1)" : "Fcst";
     bodyContent = `
     <table>
       <thead>
         <tr>
           <th>#</th><th>Parameter</th><th>Abbrev</th><th>Units</th>
-          <th>Level Type</th><th>Level</th><th>Reference Time</th><th>Fcst</th>
-          <th>Centre</th><th>Grid</th><th>Size</th><th>Bounds (lat,lon)</th>
+          <th>Level</th><th>Level Type</th><th>Reference Time</th><th>${fcstHeader}</th>
+          <th>Grid</th><th>Size</th><th>Bounds (lat,lon)</th><th>Centre</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
@@ -116,16 +414,55 @@ function renderHtml(format: string, filePath: string, messages?: MessageMeta[], 
     <div class="header-dump">
       <div class="dump-label">First ${headerBytes.length} bytes</div>
       <code class="hex">${hex}</code>
-      <code class="ascii">${ascii}</code>
+      <code class="ascii">${escapeHtml(ascii)}</code>
     </div>`;
   } else {
     bodyContent = `<div class="status">No messages found.</div>`;
   }
 
+  const csp = [
+    `default-src 'none'`,
+    `style-src ${webview.cspSource} 'unsafe-inline'`,
+    editable ? `script-src 'nonce-${cspNonce}'` : `script-src 'none'`,
+  ].join("; ");
+
+  const script = editable ? `
+    <script nonce="${cspNonce}">
+      const vscode = acquireVsCodeApi();
+      // Forecast-period inputs send an edit on commit (Enter / blur).
+      function attach() {
+        document.querySelectorAll('input.p1-input').forEach((el) => {
+          el.addEventListener('change', () => {
+            const idx = Number(el.getAttribute('data-message-index'));
+            const v = Number(el.value);
+            if (!Number.isFinite(v) || v < 0 || v > 255 || !Number.isInteger(v)) {
+              return; // ignore invalid; the host re-broadcast will reset us
+            }
+            vscode.postMessage({ type: 'edit-p1', messageIndex: idx, value: v });
+          });
+        });
+      }
+      window.addEventListener('message', (event) => {
+        const msg = event.data;
+        if (msg && msg.type === 'update' && Array.isArray(msg.messages)) {
+          for (const m of msg.messages) {
+            const el = document.querySelector('input.p1-input[data-message-index="' + m.messageIndex + '"]');
+            if (el && document.activeElement !== el) {
+              el.value = String(m.forecastHours);
+            }
+          }
+        }
+      });
+      attach();
+      vscode.postMessage({ type: 'ready' });
+    </script>
+  ` : "";
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="${csp}" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Fieldglass</title>
   <style>
@@ -157,56 +494,27 @@ function renderHtml(format: string, filePath: string, messages?: MessageMeta[], 
     .dump-label { font-size: 0.8rem; color: var(--vscode-descriptionForeground); margin-bottom: 0.25rem; }
     code { display: block; font-family: var(--vscode-editor-font-family, monospace); font-size: 0.85rem; }
     .ascii { color: var(--vscode-descriptionForeground); margin-top: 0.2rem; }
+    input.p1-input {
+      width: 4.5rem;
+      background: var(--vscode-input-background);
+      color: var(--vscode-input-foreground);
+      border: 1px solid var(--vscode-input-border, transparent);
+      padding: 0.1rem 0.3rem;
+      font-family: inherit;
+      font-size: inherit;
+    }
+    input.p1-input:focus {
+      outline: 1px solid var(--vscode-focusBorder);
+      outline-offset: -1px;
+    }
   </style>
 </head>
 <body>
   <h1>Fieldglass</h1>
-  <div class="subtitle">${filename}</div>
-  <div class="badge">${label}</div>
+  <div class="subtitle">${escapeHtml(filename)}</div>
+  <div class="badge">${escapeHtml(label)}</div>
   ${bodyContent}
+  ${script}
 </body>
 </html>`;
-}
-
-export class FieldglassEditorProvider
-  implements vscode.CustomReadonlyEditorProvider
-{
-  public static readonly viewType = "fieldglass.viewer";
-  public static readonly viewTypeAny = "fieldglass.viewer.any";
-
-  public static register(context: vscode.ExtensionContext): vscode.Disposable[] {
-    const provider = new FieldglassEditorProvider();
-    const opts = { supportsMultipleEditorsPerDocument: true };
-    return [
-      vscode.window.registerCustomEditorProvider(FieldglassEditorProvider.viewType, provider, opts),
-      vscode.window.registerCustomEditorProvider(FieldglassEditorProvider.viewTypeAny, provider, opts),
-    ];
-  }
-
-  public openCustomDocument(uri: vscode.Uri): vscode.CustomDocument {
-    return { uri, dispose: () => {} };
-  }
-
-  public async resolveCustomEditor(
-    document: vscode.CustomDocument,
-    webviewPanel: vscode.WebviewPanel
-  ): Promise<void> {
-    const native = loadNative();
-    const fileData = await vscode.workspace.fs.readFile(document.uri);
-    const header = fileData.slice(0, 32);
-    const format = native ? native.detectBytes(header) : "unknown";
-    console.log(`[Fieldglass] uri=${document.uri} format=${format} native=${!!native}`);
-
-    let messages: MessageMeta[] | undefined;
-    let headerBytes: Uint8Array | undefined;
-
-    if (native && format === "grib1") {
-      messages = native.openGrib1(fileData);
-    } else if (format === "unknown") {
-      headerBytes = header;
-    }
-
-    webviewPanel.webview.options = { enableScripts: false };
-    webviewPanel.webview.html = renderHtml(format, document.uri.fsPath, messages, headerBytes);
-  }
 }

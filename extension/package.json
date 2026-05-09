@@ -11,26 +11,57 @@
   "engines": {
     "vscode": "^1.85.0"
   },
-  "categories": ["Other"],
-  "keywords": ["grib", "grib1", "grib2", "netcdf", "meteorology", "weather", "forecast"],
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "grib",
+    "grib1",
+    "grib2",
+    "netcdf",
+    "meteorology",
+    "weather",
+    "forecast"
+  ],
   "activationEvents": [],
   "main": "./out/extension.js",
   "contributes": {
     "languages": [
       {
         "id": "fieldglass-grib1",
-        "aliases": ["GRIB1", "grib1"],
-        "extensions": [".grb", ".grib", ".grib1", ".grb1"]
+        "aliases": [
+          "GRIB1",
+          "grib1"
+        ],
+        "extensions": [
+          ".grb",
+          ".grib",
+          ".grib1",
+          ".grb1"
+        ]
       },
       {
         "id": "fieldglass-grib2",
-        "aliases": ["GRIB2", "grib2"],
-        "extensions": [".grb2", ".grib2"]
+        "aliases": [
+          "GRIB2",
+          "grib2"
+        ],
+        "extensions": [
+          ".grb2",
+          ".grib2"
+        ]
       },
       {
         "id": "fieldglass-netcdf",
-        "aliases": ["NetCDF", "netcdf"],
-        "extensions": [".nc", ".nc4", ".netcdf"]
+        "aliases": [
+          "NetCDF",
+          "netcdf"
+        ],
+        "extensions": [
+          ".nc",
+          ".nc4",
+          ".netcdf"
+        ]
       }
     ],
     "customEditors": [
@@ -38,22 +69,44 @@
         "viewType": "fieldglass.viewer",
         "displayName": "Fieldglass Viewer",
         "selector": [
-          { "filenamePattern": "*.grb" },
-          { "filenamePattern": "*.grib" },
-          { "filenamePattern": "*.grib1" },
-          { "filenamePattern": "*.grb1" },
-          { "filenamePattern": "*.grb2" },
-          { "filenamePattern": "*.grib2" },
-          { "filenamePattern": "*.nc" },
-          { "filenamePattern": "*.nc4" },
-          { "filenamePattern": "*.netcdf" }
+          {
+            "filenamePattern": "*.grb"
+          },
+          {
+            "filenamePattern": "*.grib"
+          },
+          {
+            "filenamePattern": "*.grib1"
+          },
+          {
+            "filenamePattern": "*.grb1"
+          },
+          {
+            "filenamePattern": "*.grb2"
+          },
+          {
+            "filenamePattern": "*.grib2"
+          },
+          {
+            "filenamePattern": "*.nc"
+          },
+          {
+            "filenamePattern": "*.nc4"
+          },
+          {
+            "filenamePattern": "*.netcdf"
+          }
         ],
         "priority": "default"
       },
       {
         "viewType": "fieldglass.viewer.any",
         "displayName": "Fieldglass Viewer",
-        "selector": [{ "filenamePattern": "*" }],
+        "selector": [
+          {
+            "filenamePattern": "*"
+          }
+        ],
         "priority": "option"
       }
     ]
@@ -61,11 +114,17 @@
   "scripts": {
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile",
+    "test": "node ./out/test/runTest.js",
     "vscode:prepublish": "npm run compile"
   },
   "devDependencies": {
+    "@types/mocha": "^10.0.6",
     "@types/node": "^22.0.0",
     "@types/vscode": "^1.85.0",
+    "@vscode/test-electron": "^2.4.1",
+    "glob": "^10.3.10",
+    "mocha": "^10.4.0",
     "typescript": "^5.3.0"
   }
 }

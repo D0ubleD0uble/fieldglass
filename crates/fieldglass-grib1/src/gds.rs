@@ -218,11 +218,11 @@ fn parse_latlon(b: &[u8]) -> Result<LatLonGrid, FieldglassError> {
     Ok(LatLonGrid {
         ni:               u16::from_be_bytes([b[6],  b[7]])  as u32,
         nj:               u16::from_be_bytes([b[8],  b[9]])  as u32,
-        lat_first:        read_i24(&b[10..13]) as f64 / 1000.0,
-        lon_first:        read_i24(&b[13..16]) as f64 / 1000.0,
+        lat_first:        read_signed_magnitude_24(&b[10..13]) as f64 / 1000.0,
+        lon_first:        read_signed_magnitude_24(&b[13..16]) as f64 / 1000.0,
         resolution_flags: ResolutionFlags::from_byte(b[16]),
-        lat_last:         read_i24(&b[17..20]) as f64 / 1000.0,
-        lon_last:         read_i24(&b[20..23]) as f64 / 1000.0,
+        lat_last:         read_signed_magnitude_24(&b[17..20]) as f64 / 1000.0,
+        lon_last:         read_signed_magnitude_24(&b[20..23]) as f64 / 1000.0,
         di:               u16::from_be_bytes([b[23], b[24]]) as f64 / 1000.0,
         dj:               u16::from_be_bytes([b[25], b[26]]) as f64 / 1000.0,
         scanning_mode:    ScanningMode::from_byte(b[27]),
@@ -234,11 +234,11 @@ fn parse_gaussian(b: &[u8]) -> Result<GaussianGrid, FieldglassError> {
     Ok(GaussianGrid {
         ni:               u16::from_be_bytes([b[6],  b[7]])  as u32,
         nj:               u16::from_be_bytes([b[8],  b[9]])  as u32,
-        lat_first:        read_i24(&b[10..13]) as f64 / 1000.0,
-        lon_first:        read_i24(&b[13..16]) as f64 / 1000.0,
+        lat_first:        read_signed_magnitude_24(&b[10..13]) as f64 / 1000.0,
+        lon_first:        read_signed_magnitude_24(&b[13..16]) as f64 / 1000.0,
         resolution_flags: ResolutionFlags::from_byte(b[16]),
-        lat_last:         read_i24(&b[17..20]) as f64 / 1000.0,
-        lon_last:         read_i24(&b[20..23]) as f64 / 1000.0,
+        lat_last:         read_signed_magnitude_24(&b[17..20]) as f64 / 1000.0,
+        lon_last:         read_signed_magnitude_24(&b[20..23]) as f64 / 1000.0,
         di:               u16::from_be_bytes([b[23], b[24]]) as f64 / 1000.0,
         n_gaussians:      u16::from_be_bytes([b[25], b[26]]),
         scanning_mode:    ScanningMode::from_byte(b[27]),
@@ -250,10 +250,10 @@ fn parse_polar_stereo(b: &[u8]) -> Result<PolarStereoGrid, FieldglassError> {
     Ok(PolarStereoGrid {
         nx:               u16::from_be_bytes([b[6],  b[7]])  as u32,
         ny:               u16::from_be_bytes([b[8],  b[9]])  as u32,
-        lat_first:        read_i24(&b[10..13]) as f64 / 1000.0,
-        lon_first:        read_i24(&b[13..16]) as f64 / 1000.0,
+        lat_first:        read_signed_magnitude_24(&b[10..13]) as f64 / 1000.0,
+        lon_first:        read_signed_magnitude_24(&b[13..16]) as f64 / 1000.0,
         resolution_flags: ResolutionFlags::from_byte(b[16]),
-        lov:              read_i24(&b[17..20]) as f64 / 1000.0,
+        lov:              read_signed_magnitude_24(&b[17..20]) as f64 / 1000.0,
         dx_m:             read_u24(&b[20..23]),
         dy_m:             read_u24(&b[23..26]),
         south_pole:       b[26] & 0x80 != 0,
@@ -266,18 +266,18 @@ fn parse_lambert(b: &[u8]) -> Result<LambertGrid, FieldglassError> {
     Ok(LambertGrid {
         nx:               u16::from_be_bytes([b[6],  b[7]])  as u32,
         ny:               u16::from_be_bytes([b[8],  b[9]])  as u32,
-        lat_first:        read_i24(&b[10..13]) as f64 / 1000.0,
-        lon_first:        read_i24(&b[13..16]) as f64 / 1000.0,
+        lat_first:        read_signed_magnitude_24(&b[10..13]) as f64 / 1000.0,
+        lon_first:        read_signed_magnitude_24(&b[13..16]) as f64 / 1000.0,
         resolution_flags: ResolutionFlags::from_byte(b[16]),
-        lov:              read_i24(&b[17..20]) as f64 / 1000.0,
+        lov:              read_signed_magnitude_24(&b[17..20]) as f64 / 1000.0,
         dx_m:             read_u24(&b[20..23]),
         dy_m:             read_u24(&b[23..26]),
         south_pole:       b[26] & 0x80 != 0,
         scanning_mode:    ScanningMode::from_byte(b[27]),
-        latin1:           read_i24(&b[28..31]) as f64 / 1000.0,
-        latin2:           read_i24(&b[31..34]) as f64 / 1000.0,
-        lat_south_pole:   read_i24(&b[34..37]) as f64 / 1000.0,
-        lon_south_pole:   read_i24(&b[37..40]) as f64 / 1000.0,
+        latin1:           read_signed_magnitude_24(&b[28..31]) as f64 / 1000.0,
+        latin2:           read_signed_magnitude_24(&b[31..34]) as f64 / 1000.0,
+        lat_south_pole:   read_signed_magnitude_24(&b[34..37]) as f64 / 1000.0,
+        lon_south_pole:   read_signed_magnitude_24(&b[37..40]) as f64 / 1000.0,
     })
 }
 
@@ -290,13 +290,42 @@ fn read_u24(b: &[u8]) -> u32 {
     u32::from_be_bytes([0, b[0], b[1], b[2]])
 }
 
-/// Read a 3-byte big-endian signed integer (sign-extend from bit 23).
-fn read_i24(b: &[u8]) -> i32 {
+/// Read a 3-byte big-endian sign-and-magnitude integer.
+/// GRIB1 latitude, longitude, and orientation values are encoded with bit 23
+/// as the sign flag (1 = negative) and bits 22..0 as the unsigned magnitude —
+/// this is NOT two's-complement. Decoding `0x815f90` (sign + 90000) as two's
+/// complement yields a bogus `-8298608`; sign-magnitude yields the correct
+/// `-90000`.
+fn read_signed_magnitude_24(b: &[u8]) -> i32 {
     let raw = read_u24(b);
+    let magnitude = (raw & 0x7f_ffff) as i32;
     if raw & 0x80_0000 != 0 {
-        raw as i32 | -0x100_0000i32
+        -magnitude
     } else {
-        raw as i32
+        magnitude
+    }
+}
+
+#[cfg(test)]
+mod sign_magnitude_tests {
+    use super::*;
+
+    #[test]
+    fn positive_90_degrees() {
+        // 90000 = 0x015f90.
+        assert_eq!(read_signed_magnitude_24(&[0x01, 0x5f, 0x90]), 90_000);
+    }
+
+    #[test]
+    fn negative_90_degrees() {
+        // sign bit + 90000 = 0x80 | 0x01 0x5f 0x90 → 0x815f90.
+        // Two's-complement decode would give -8298608 — make sure we don't.
+        assert_eq!(read_signed_magnitude_24(&[0x81, 0x5f, 0x90]), -90_000);
+    }
+
+    #[test]
+    fn negative_zero_decodes_to_zero() {
+        assert_eq!(read_signed_magnitude_24(&[0x80, 0x00, 0x00]), 0);
     }
 }
 

@@ -6,36 +6,29 @@ A Visual Studio Code extension for viewing meteorological binary data files (GRI
 
 ## Status
 
-Phase 1 of the project is in progress: read-only metadata viewing for GRIB1. GRIB2, NetCDF, metadata editing, and grid field rendering are on the roadmap. See [PLAN.md](PLAN.md) for the full phase breakdown.
+Phase 1 of the project is in progress: read-only metadata viewing for GRIB1, with grid-data decoding implemented in Rust but not yet visualized. GRIB2, NetCDF, metadata editing, and 2-D field rendering are on the roadmap. See [PLAN.md](PLAN.md) for the full phase breakdown.
 
-## Features
+## Feature matrix
 
-| Feature | Status |
-|---|---|
-| Format detection from magic bytes (GRIB1, GRIB2, NetCDF classic, NetCDF-4/HDF5) | Implemented |
-| File associations for `.grb`, `.grib`, `.grib1`, `.grb1`, `.grb2`, `.grib2`, `.nc`, `.nc4`, `.netcdf` | Implemented |
-| Optional viewer for files without a recognized extension | Implemented |
-| GRIB1 Indicator Section parsing | Implemented |
-| GRIB1 Product Definition Section parsing (parameter, level, reference time, forecast period) | Implemented |
-| GRIB1 Grid Description Section parsing (Latitude/Longitude, Gaussian, Polar Stereographic, Lambert Conformal) | Implemented |
-| WMO ON388 lookups for parameters, originating centres, and level types | Implemented |
-| Tabular metadata view for all messages in a GRIB1 file | Implemented |
-| Hex and ASCII fallback view for unrecognized files | Implemented |
-| GRIB1 Binary Data Section decoding | Planned |
-| Metadata editing with full undo and redo lifecycle | Planned |
-| Two-dimensional grid field rendering with colormap controls | Planned |
-| GRIB2 reader | Planned |
-| NetCDF reader | Planned |
+| Feature | GRIB1 | GRIB2 | NetCDF |
+|---|:---:|:---:|:---:|
+| Format detection from magic bytes | ✅ | ✅ | ✅ |
+| File-extension association (`.grb` / `.grib*` / `.nc*`) | ✅ | ✅ | ✅ |
+| Open via *Reopen Editor With…* for unrecognized files | ✅ | ✅ | ✅ |
+| Indicator / header section parsing | ✅ | $\color{red}{\textsf{Not yet}}$ | $\color{red}{\textsf{Not yet}}$ |
+| Per-message metadata (parameter, level, time, forecast period) | ✅ | $\color{red}{\textsf{Not yet}}$ | $\color{red}{\textsf{Not yet}}$ |
+| Grid description (lat/lon, Gaussian, polar stereo, Lambert) | ✅ | $\color{red}{\textsf{Not yet}}$ | $\color{red}{\textsf{Not yet}}$ |
+| WMO ON388 lookups (parameter, centre, level type) | ✅ | $\color{red}{\textsf{Not yet}}$ | n/a |
+| Tabular metadata viewer | ✅ | $\color{red}{\textsf{Not yet}}$ | $\color{red}{\textsf{Not yet}}$ |
+| Binary data section decoding (Rust API) | ✅ | $\color{red}{\textsf{Not yet}}$ | $\color{red}{\textsf{Not yet}}$ |
+| Forecast-period (P1) editing in the viewer | ✅ | $\color{red}{\textsf{Not yet}}$ | $\color{red}{\textsf{Not yet}}$ |
+| Other metadata editing (parameter, level, time, grid) | $\color{red}{\textsf{Not yet}}$ | $\color{red}{\textsf{Not yet}}$ | $\color{red}{\textsf{Not yet}}$ |
+| 2-D grid rendering with colormap | $\color{red}{\textsf{Not yet}}$ | $\color{red}{\textsf{Not yet}}$ | $\color{red}{\textsf{Not yet}}$ |
 
-## Supported file types
+Format-agnostic features:
 
-| Format | Extensions | Detection | Metadata view |
-|---|---|---|---|
-| GRIB Edition 1 | `.grb`, `.grib`, `.grib1`, `.grb1` | Yes | Yes |
-| GRIB Edition 2 | `.grb2`, `.grib2` | Yes | Not yet |
-| NetCDF (classic, 64-bit, NetCDF-4) | `.nc`, `.nc4`, `.netcdf` | Yes | Not yet |
-
-Files without a recognized extension can still be opened through the VS Code "Reopen Editor With..." command and selecting "Fieldglass Viewer".
+- Hex and ASCII fallback view for files whose contents are not a recognized format. ✅
+- Files without a recognized extension can still be opened through *Reopen Editor With… → Fieldglass Viewer*.
 
 ## Installation
 

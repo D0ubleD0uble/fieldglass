@@ -17,6 +17,18 @@ pub struct Grib1Message {
     pub bds_range: (usize, usize),
 }
 
+/// Byte index of the PDS `p1` (forecast period) octet within a GRIB1 message,
+/// counted from the start of the IS. The IS is 8 bytes; `p1` sits at PDS
+/// offset 18 (octet 19 in 1-indexed WMO terminology).
+pub const PDS_P1_OFFSET_FROM_MESSAGE_START: usize = 8 + 18;
+
+impl Grib1Message {
+    /// Absolute file-byte offset of the PDS `p1` octet for this message.
+    pub fn pds_p1_offset(&self) -> usize {
+        self.byte_offset + PDS_P1_OFFSET_FROM_MESSAGE_START
+    }
+}
+
 pub struct Grib1Reader {
     data: Vec<u8>,
     pub messages: Vec<Grib1Message>,
@@ -176,18 +188,50 @@ fn scan_messages(data: &[u8]) -> Result<Vec<Grib1Message>, FieldglassError> {
 }
 
 /// Convert the PDS time unit + P1 to a number of forecast hours.
-/// Uses WMO ON388 Table 4 time unit codes.
+/// Uses WMO ON388 Table 4 time unit codes. Ignores `time_range` — for a
+/// user-facing string that handles ranges/accumulations use [`forecast_display`].
 pub fn forecast_hours(pds: &ProductDefinition) -> i32 {
+    p1_to_hours(pds.time_unit, pds.p1 as i32)
+}
+
+fn p1_to_hours(time_unit: u8, p: i32) -> i32 {
+    match time_unit {
+        0  => p / 60,
+        1  => p,
+        2  => p * 24,
+        10 => p * 3,
+        11 => p * 6,
+        12 => p * 12,
+        13 => (p as f64 / 3600.0).round() as i32,
+        _  => p,
+    }
+}
+
+/// Format the PDS time information for display, branching on the time-range
+/// indicator (WMO ON388 Table 5) so accumulations and ranges show both bounds
+/// rather than collapsing to P1 only.
+pub fn forecast_display(pds: &ProductDefinition) -> String {
     let p1 = pds.p1 as i32;
-    match pds.time_unit {
-        0  => p1 / 60,           // minutes
-        1  => p1,                // hours
-        2  => p1 * 24,           // days
-        10 => p1 * 3,            // 3-hour periods
-        11 => p1 * 6,            // 6-hour periods
-        12 => p1 * 12,           // 12-hour periods
-        13 => (p1 as f64 / 3600.0).round() as i32, // seconds
-        _  => p1,                // fall back to raw P1
+    let p2 = pds.p2 as i32;
+    let h1 = p1_to_hours(pds.time_unit, p1);
+    let h2 = p1_to_hours(pds.time_unit, p2);
+
+    match pds.time_range {
+        0 => format!("+{h1}h"),
+        1 => "analysis".to_string(),
+        2 => format!("{h1}–{h2}h valid"),
+        3 => format!("{h1}–{h2}h average"),
+        4 => format!("{h1}–{h2}h accum"),
+        5 => format!("{h1}–{h2}h diff"),
+        6 => format!("−{h1} to −{h2}h average"),
+        7 => format!("−{h1} to +{h2}h average"),
+        // P1 occupies both P1 and P2 octets as a single 16-bit value.
+        10 => {
+            let combined = ((pds.p1 as u16) << 8 | pds.p2 as u16) as i32;
+            format!("+{}h", p1_to_hours(pds.time_unit, combined))
+        }
+        51 => "climatological mean".to_string(),
+        _  => format!("+{h1}h"),
     }
 }
 
@@ -205,7 +249,236 @@ pub fn reference_time(pds: &ProductDefinition) -> String {
 }
 
 /// Combined 16-bit level value (level_value_1 << 8 | level_value_2).
-/// Interpretation depends on level_type — see WMO ON388 Table 3.
+/// Only meaningful for level types whose value is encoded as a single 16-bit
+/// integer (e.g. 100 isobaric). For layer types (101, 104, 106, …) the two
+/// bytes are independent bounds and this function returns nonsense — callers
+/// that want a user-facing string should use [`level_value_str`].
 pub fn level_value(pds: &ProductDefinition) -> f64 {
     ((pds.level_value_1 as u16) << 8 | pds.level_value_2 as u16) as f64
+}
+
+/// Unit string for a given WMO ON388 Table 3 level type, if one applies to
+/// the level value encoded in the PDS. Returns `None` for surface / fixed
+/// levels where the value byte is meaningless and for level types whose
+/// "value" is a dimensionless index (model level, NAM level).
+pub fn level_unit(level_type: u8) -> Option<&'static str> {
+    match level_type {
+        // Single-value types with direct units.
+        100 | 115 | 116 | 121 | 141 => Some("hPa"),
+        103 | 105 | 160              => Some("m"),
+        111 | 112 | 125              => Some("cm"),
+        113 | 114                    => Some("K"),
+        126                          => Some("Pa"),
+        117                          => Some("PVU"),
+        107 | 108 | 128              => Some("σ"),
+        // Layer types whose bounds are in their own units.
+        101                          => Some("kPa"),
+        104 | 106                    => Some("hm"),
+        // Dimensionless / surface / index types.
+        _                            => None,
+    }
+}
+
+/// Format the PDS level value (without unit) for display. Returns `"—"` for
+/// fixed-surface / whole-column types where the value is meaningless, a
+/// `"<lo> – <hi>"` range for layer types, and a scalar otherwise. The unit
+/// belongs in the level-type column — see [`level_unit`].
+pub fn level_value_str(pds: &ProductDefinition) -> String {
+    let lv1 = pds.level_value_1 as i32;
+    let lv2 = pds.level_value_2 as i32;
+    let combined = ((pds.level_value_1 as u16) << 8 | pds.level_value_2 as u16) as i32;
+
+    match pds.level_type {
+        // Fixed surfaces / whole-column types: value byte is meaningless.
+        1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
+        | 102 | 200 | 201 | 204 | 205 | 209
+        | 210..=221 | 241 | 242 => "—".to_string(),
+
+        // Single 16-bit value, integer.
+        100 | 103 | 105 | 111 | 113 | 115 | 126 | 160 => format!("{combined}"),
+
+        // Single value with scaling.
+        125 => format!("{:.2}", combined as f64 / 100.0),
+        107 => format!("{:.4}", combined as f64 / 10000.0),
+        117 => format!("{:.3}", combined as f64 / 1000.0),
+
+        // Index-only level numbers.
+        109 => format!("{combined}"),
+        119 => format!("{combined}"),
+
+        // Layer types: lv1 / lv2 are independent bounds.
+        101 | 104 | 106 | 110 | 112 | 116 | 120 => format!("{lv1} – {lv2}"),
+        108 => format!(
+            "{:.2} – {:.2}",
+            lv1 as f64 / 100.0,
+            lv2 as f64 / 100.0
+        ),
+        114 => format!("{} – {}", 475 - lv1, 475 - lv2),
+        121 => format!("{} – {}", 1100 - lv1, 1100 - lv2),
+        128 => format!(
+            "{:.3} – {:.3}",
+            1.1 - lv1 as f64 * 0.001,
+            1.1 - lv2 as f64 * 0.001
+        ),
+        141 => format!("{lv1} – {}", 1100 - lv2),
+
+        _ => format!("{combined}"),
+    }
+}
+
+/// Format the level type as `"(<unit>) <name>"` when a unit applies, or just
+/// `"<name>"` for surface / dimensionless types. The unit prefix lets the row
+/// read naturally with the value column to its left, e.g. `200 (hPa) Isobaric
+/// level`.
+pub fn level_type_str(pds: &ProductDefinition) -> String {
+    let name = crate::tables::lookup_level_type(pds.level_type);
+    match level_unit(pds.level_type) {
+        Some(unit) => format!("({unit}) {name}"),
+        None       => name.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod level_display_tests {
+    use super::*;
+
+    fn pds(level_type: u8, lv1: u8, lv2: u8) -> ProductDefinition {
+        ProductDefinition {
+            section_len: 28,
+            table_version: 2,
+            originating_centre: 98,
+            generating_process: 0,
+            grid_number: 255,
+            has_gds: true,
+            has_bms: false,
+            parameter_id: 0,
+            level_type,
+            level_value_1: lv1,
+            level_value_2: lv2,
+            reference_year: 0,
+            reference_month: 1,
+            reference_day: 1,
+            reference_hour: 0,
+            reference_minute: 0,
+            time_unit: 1,
+            p1: 0,
+            p2: 0,
+            time_range: 0,
+            century: 21,
+            sub_centre: 0,
+            decimal_scale_factor: 0,
+        }
+    }
+
+    #[test]
+    fn isobaric_300_value_only() {
+        // 300 = 1*256 + 44
+        let p = pds(100, 1, 44);
+        assert_eq!(level_value_str(&p), "300");
+        assert_eq!(level_type_str(&p), "(hPa) Isobaric level");
+    }
+
+    #[test]
+    fn isobaric_50_low_byte() {
+        let p = pds(100, 0, 50);
+        assert_eq!(level_value_str(&p), "50");
+        assert_eq!(level_type_str(&p), "(hPa) Isobaric level");
+    }
+
+    #[test]
+    fn cloud_base_level_has_no_value_and_no_unit() {
+        let p = pds(1, 0, 0);
+        assert_eq!(level_value_str(&p), "—");
+        assert_eq!(level_type_str(&p), "Cloud base level");
+    }
+
+    #[test]
+    fn height_above_ground_2m() {
+        let p = pds(105, 0, 2);
+        assert_eq!(level_value_str(&p), "2");
+        assert_eq!(level_type_str(&p), "(m) Specified height above ground");
+    }
+
+    #[test]
+    fn isobaric_layer_uses_two_bounds() {
+        // Layer between 100 kPa and 85 kPa (1000 hPa – 850 hPa).
+        let p = pds(101, 100, 85);
+        assert_eq!(level_value_str(&p), "100 – 85");
+        assert_eq!(level_type_str(&p), "(kPa) Layer between two isobaric levels");
+    }
+
+    #[test]
+    fn potential_vorticity_2_pvu() {
+        let p = pds(117, 7, 208);
+        assert_eq!(level_value_str(&p), "2.000");
+        assert_eq!(level_type_str(&p), "(PVU) Potential vorticity surface");
+    }
+
+    #[test]
+    fn unknown_level_type_falls_back_to_raw_with_no_unit() {
+        let p = pds(250, 1, 0);
+        assert_eq!(level_value_str(&p), "256");
+        assert_eq!(level_type_str(&p), "Unknown level type");
+    }
+}
+
+#[cfg(test)]
+mod forecast_display_tests {
+    use super::*;
+
+    fn pds_time(time_unit: u8, time_range: u8, p1: u8, p2: u8) -> ProductDefinition {
+        ProductDefinition {
+            section_len: 28,
+            table_version: 2,
+            originating_centre: 98,
+            generating_process: 0,
+            grid_number: 255,
+            has_gds: true,
+            has_bms: false,
+            parameter_id: 0,
+            level_type: 1,
+            level_value_1: 0,
+            level_value_2: 0,
+            reference_year: 0,
+            reference_month: 1,
+            reference_day: 1,
+            reference_hour: 0,
+            reference_minute: 0,
+            time_unit,
+            p1,
+            p2,
+            time_range,
+            century: 21,
+            sub_centre: 0,
+            decimal_scale_factor: 0,
+        }
+    }
+
+    #[test]
+    fn plain_forecast_at_p1() {
+        // hours unit, tr=0 (forecast at ref+P1), p1=24
+        assert_eq!(forecast_display(&pds_time(1, 0, 24, 0)), "+24h");
+    }
+
+    #[test]
+    fn analysis_renders_word() {
+        assert_eq!(forecast_display(&pds_time(1, 1, 0, 0)), "analysis");
+    }
+
+    #[test]
+    fn accumulation_shows_both_bounds() {
+        // tr=4 accumulation, p1=0 to p2=24h
+        assert_eq!(forecast_display(&pds_time(1, 4, 0, 24)), "0–24h accum");
+    }
+
+    #[test]
+    fn average_range_shows_both_bounds() {
+        assert_eq!(forecast_display(&pds_time(1, 3, 6, 12)), "6–12h average");
+    }
+
+    #[test]
+    fn time_unit_days_converts_to_hours() {
+        // unit=2 (days), p1=1 → 24h
+        assert_eq!(forecast_display(&pds_time(2, 0, 1, 0)), "+24h");
+    }
 }
