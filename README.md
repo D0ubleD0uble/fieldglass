@@ -21,8 +21,7 @@ Phase 1 of the project is in progress: read-only metadata viewing for GRIB1, wit
 | WMO ON388 lookups (parameter, centre, level type) | ✅ | $\color{red}{\textsf{Not yet}}$ | n/a |
 | Tabular metadata viewer | ✅ | $\color{red}{\textsf{Not yet}}$ | $\color{red}{\textsf{Not yet}}$ |
 | Binary data section decoding (Rust API) | ✅ | $\color{red}{\textsf{Not yet}}$ | $\color{red}{\textsf{Not yet}}$ |
-| Forecast-period (P1) editing in the viewer | ✅ | $\color{red}{\textsf{Not yet}}$ | $\color{red}{\textsf{Not yet}}$ |
-| Other metadata editing (parameter, level, time, grid) | $\color{red}{\textsf{Not yet}}$ | $\color{red}{\textsf{Not yet}}$ | $\color{red}{\textsf{Not yet}}$ |
+| Metadata editing | $\color{red}{\textsf{Not yet}}$ | $\color{red}{\textsf{Not yet}}$ | $\color{red}{\textsf{Not yet}}$ |
 | 2-D grid rendering with colormap | $\color{red}{\textsf{Not yet}}$ | $\color{red}{\textsf{Not yet}}$ | $\color{red}{\textsf{Not yet}}$ |
 
 Format-agnostic features:

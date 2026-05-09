@@ -165,7 +165,11 @@ export class FieldglassEditorProvider
       ? native.openGrib1(document.bytes)
       : undefined;
     const headerBytes = format === "unknown" ? header : undefined;
-    const editable = format === "grib1";
+    // Editing wiring (set_p1, undo/redo, save, webview script + input) is kept
+    // intact for when general PDS field editing lands, but disabled at the
+    // entry point so beta users see a coherent read-only viewer instead of a
+    // single editable column.
+    const editable = false;
 
     panel.webview.options = { enableScripts: editable };
     panel.webview.html = renderHtml(
