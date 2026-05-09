@@ -2,6 +2,8 @@
 
 A Visual Studio Code extension for viewing meteorological binary data files (GRIB1, GRIB2, NetCDF) directly in the editor. Built on a Rust native module — installed extensions have **no Python runtime dependency**. (Python is only used by the dev tooling, not the shipped extension.)
 
+![Fieldglass viewer rendering a multi-message GRIB1 file](extension/media/screenshot.png)
+
 [Latest release](https://github.com/D0ubleD0uble/fieldglass/releases/latest)
 
 ## Status
