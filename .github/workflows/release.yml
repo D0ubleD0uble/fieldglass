@@ -78,7 +78,7 @@ jobs:
           node-version: 22
 
       - name: Download all native artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           pattern: native-*
           path: extension/bin
