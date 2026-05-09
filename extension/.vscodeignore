@@ -2,10 +2,21 @@
 src/**
 tsconfig.json
 
+# Compiled tests — only the production extension code ships
+out/test/**
+
 # Dev/test artefacts
 node_modules/**
 .vscode-test/**
 *.vsix
+
+# Build helpers and lint config — only used while developing/packaging
+scripts/**
+eslint.config.mjs
+.eslintrc*
+.gitignore
+.gitkeep
+**/.gitkeep
 
 # Source maps (comment out to keep them for easier debugging)
 out/**/*.map

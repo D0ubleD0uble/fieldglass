@@ -2,8 +2,9 @@
   "name": "fieldglass",
   "displayName": "Fieldglass",
   "description": "VS Code extension for viewing meteorological data files (GRIB1, GRIB2, NetCDF)",
-  "version": "0.1.0-beta.1",
+  "version": "0.1.0",
   "publisher": "fieldglass",
+  "preview": true,
   "license": "MIT OR Apache-2.0",
   "icon": "icon.png",
   "galleryBanner": {
@@ -14,10 +15,14 @@
     "type": "git",
     "url": "https://github.com/D0ubleD0uble/fieldglass"
   },
+  "bugs": {
+    "url": "https://github.com/D0ubleD0uble/fieldglass/issues"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
   "categories": [
+    "Visualization",
     "Other"
   ],
   "keywords": [
@@ -123,7 +128,7 @@
     "lint": "eslint .",
     "pretest": "npm run compile",
     "test": "node ./out/test/runTest.js",
-    "vscode:prepublish": "npm run compile"
+    "vscode:prepublish": "npm run compile && node scripts/copy-package-files.cjs"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.6",

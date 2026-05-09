@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Fieldglass is in beta (`0.1.0-beta.x`). Only the latest release on `master` receives security fixes. There are no maintained branches for older betas.
+Fieldglass is in pre-release (`0.1.x` on the VS Code Marketplace pre-release channel). Only the latest release on `master` receives security fixes. There are no maintained branches for earlier pre-release builds.
 
 ## Reporting a vulnerability
 
