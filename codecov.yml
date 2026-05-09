@@ -1,0 +1,45 @@
+# Codecov configuration. See https://docs.codecov.com/docs/codecov-yaml for
+# the full schema.
+
+coverage:
+  range: 60..90
+  round: down
+  precision: 1
+
+  status:
+    # Project-wide coverage. `auto` means "compare against the previous
+    # commit on the same branch"; threshold 1% allows small dips without
+    # failing the check (tests for stub crates can shift overall percent
+    # noticeably while real coverage holds).
+    project:
+      default:
+        target: auto
+        threshold: 1%
+        if_ci_failed: error
+    # Patch coverage — the diff in this PR.
+    patch:
+      default:
+        target: 70%
+        threshold: 5%
+        if_ci_failed: error
+
+comment:
+  layout: "diff, flags, files"
+  behavior: default
+  require_changes: false
+
+flag_management:
+  default_rules:
+    carryforward: true
+  individual_flags:
+    - name: rust
+      paths:
+        - crates/
+
+# The grib2 / netcdf stub crates currently contain only unimplemented! traps;
+# excluding them keeps overall coverage from being dragged down by code
+# whose absence is intentional. Re-evaluate when those parsers land.
+ignore:
+  - "crates/fieldglass-grib2/src/**"
+  - "crates/fieldglass-netcdf/src/**"
+  - "**/tests/**"
