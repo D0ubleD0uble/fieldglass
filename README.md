@@ -21,14 +21,14 @@ First public beta. Read-only metadata viewing for GRIB1 is in. The GRIB1 Binary 
 | Format detection from magic bytes | ✅ | ✅ | ✅ |
 | File-extension association (`.grb` / `.grib*` / `.nc*`) | ✅ | ✅ | ✅ |
 | Open via *Reopen Editor With…* for unrecognized files | ✅ | ✅ | ✅ |
-| Indicator / header section parsing | ✅ | 🚧 Not yet | 🚧 Not yet |
-| Per-message metadata (parameter, level, time, forecast period) | ✅ | 🚧 Not yet | 🚧 Not yet |
-| Grid description (lat/lon, Gaussian, polar stereo, Lambert) | ✅ | 🚧 Not yet | 🚧 Not yet |
-| WMO ON388 lookups (parameter, centre, level type) | ✅ | 🚧 Not yet | n/a |
-| Tabular metadata viewer | ✅ | 🚧 Not yet | 🚧 Not yet |
-| Binary data section decoding (Rust API) | ✅ | 🚧 Not yet | 🚧 Not yet |
-| Metadata editing | 🚧 Not yet | 🚧 Not yet | 🚧 Not yet |
-| 2-D grid rendering with colormap | 🚧 Not yet | 🚧 Not yet | 🚧 Not yet |
+| Indicator / header section parsing | ✅ | ❌ Not yet | ❌ Not yet |
+| Per-message metadata (parameter, level, time, forecast period) | ✅ | ❌ Not yet | ❌ Not yet |
+| Grid description (lat/lon, Gaussian, polar stereo, Lambert) | ✅ | ❌ Not yet | ❌ Not yet |
+| WMO ON388 lookups (parameter, centre, level type) | ✅ | ❌ Not yet | n/a |
+| Tabular metadata viewer | ✅ | ❌ Not yet | ❌ Not yet |
+| Binary data section decoding (Rust API) | ✅ | ❌ Not yet | ❌ Not yet |
+| Metadata editing | ❌ Not yet | ❌ Not yet | ❌ Not yet |
+| 2-D grid rendering with colormap | ❌ Not yet | ❌ Not yet | ❌ Not yet |
 
 Format-agnostic features:
 
