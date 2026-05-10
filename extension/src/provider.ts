@@ -21,11 +21,15 @@ interface MessageMeta {
   latLast: number | null;
   lonLast: number | null;
   format: string;
+  edition: number | null;
+  discipline: string | null;
+  totalLengthBytes: number | null;
 }
 
 let fieldglass: {
   detectBytes: (bytes: Uint8Array) => string;
   openGrib1: (bytes: Uint8Array) => MessageMeta[];
+  openGrib2: (bytes: Uint8Array) => MessageMeta[];
   decodeGrid: (bytes: Uint8Array, messageIndex: number) => Array<number | null>;
   setP1: (bytes: Uint8Array, messageIndex: number, value: number) => Buffer;
 } | undefined;
@@ -164,8 +168,12 @@ export class FieldglassEditorProvider
     const header = document.bytes.slice(0, 32);
     const format = native ? native.detectBytes(header) : "unknown";
 
-    const messages = (native && format === "grib1")
-      ? native.openGrib1(document.bytes)
+    const messages = native
+      ? (format === "grib1"
+        ? native.openGrib1(document.bytes)
+        : format === "grib2"
+        ? native.openGrib2(document.bytes)
+        : undefined)
       : undefined;
     const headerBytes = format === "unknown" ? header : undefined;
     // Editing wiring (set_p1, undo/redo, save, webview script + input) is kept

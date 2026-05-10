@@ -6,6 +6,10 @@ Versioning follows the [VS Code pre-release convention](https://code.visualstudi
 
 ## [Unreleased]
 
+### Added
+
+- **GRIB2 Indicator Section parsing** — `fieldglass-grib2` now parses Section 0 (16 bytes), enumerating messages by walking 64-bit total-length offsets and surfacing edition, discipline (WMO Code Table 0.0 lookup), and total length. New `open_grib2` napi function dispatches `.grb2` / `.grib2` files to the tabular viewer instead of the previous "no messages found" fallback. Sections 1–7 remain follow-ups.
+
 ## [0.1.0] — 2026-05-09
 
 First public release, on the Marketplace pre-release channel. Read-only metadata viewer for GRIB1; GRIB2 and NetCDF detection only.

@@ -21,7 +21,7 @@ First public beta. Read-only metadata viewing for GRIB1 is in. The GRIB1 Binary 
 | Format detection from magic bytes | ✅ | ✅ | ✅ |
 | File-extension association (`.grb` / `.grib*` / `.nc*`) | ✅ | ✅ | ✅ |
 | Open via *Reopen Editor With…* for unrecognized files | ✅ | ✅ | ✅ |
-| Indicator / header section parsing | ✅ | $\color{red}{\textsf{Not yet}}$ | $\color{red}{\textsf{Not yet}}$ |
+| Indicator / header section parsing | ✅ | ✅ | $\color{red}{\textsf{Not yet}}$ |
 | Per-message metadata (parameter, level, time, forecast period) | ✅ | $\color{red}{\textsf{Not yet}}$ | $\color{red}{\textsf{Not yet}}$ |
 | Grid description (lat/lon, Gaussian, polar stereo, Lambert) | ✅ | $\color{red}{\textsf{Not yet}}$ | $\color{red}{\textsf{Not yet}}$ |
 | WMO ON388 lookups (parameter, centre, level type) | ✅ | $\color{red}{\textsf{Not yet}}$ | n/a |
