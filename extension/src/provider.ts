@@ -368,11 +368,10 @@ export class FieldglassEditorProvider
       return;
     }
 
-    // Convert the heterogeneous Array<number | null> coming back from napi
-    // into a Float64Array (NaN sentinel for masked) plus a parallel Uint8Array
-    // mask. This keeps the postMessage transfer compact (typed arrays
-    // structured-clone fast) and lets the webview paint without per-cell
-    // null checks. NaN is the sentinel because Float64Array can't hold null.
+    // Repack napi's Array<number | null> into Float64Array (NaN = masked) +
+    // Uint8Array mask for cheap structured-clone transfer to the webview.
+    // TODO(perf): return the typed-array pair from Rust to skip this loop —
+    // see the matching TODO on decode_grid in fieldglass-napi/src/lib.rs.
     const total = raw.length;
     const values = new Float64Array(total);
     const bitmapMask = new Uint8Array(total);
