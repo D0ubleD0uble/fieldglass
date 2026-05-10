@@ -9,6 +9,7 @@
 
 use fieldglass_core::FieldglassError;
 use fieldglass_grib1::Grib1Reader;
+use fieldglass_grib1::bms::parse_bitmap;
 
 const FIXTURE: &[u8] = include_bytes!("fixtures/cmc_wind_300_2010052400_p012.grib");
 
@@ -96,6 +97,29 @@ fn wrong_grib_edition_byte_skips_message() {
         0,
         "GRIB1 reader should ignore edition-2 messages"
     );
+}
+
+/// BMS regression: an empty bitmap body with `unused_trailing > 0` previously
+/// underflowed `len*8 - unused_trailing`. Must now surface as a parse error.
+#[test]
+fn bms_empty_body_with_unused_trailing_returns_parse_error() {
+    // section_len = 6 → bitmap body is empty; unused_trailing = 5 underflows
+    // the naive total_bits computation.
+    let bms = vec![0u8, 0, 6, 5, 0, 0];
+    let err = parse_bitmap(&bms, 0).expect_err("empty body + nonzero trailing must error");
+    assert!(
+        matches!(err, FieldglassError::Parse(_)),
+        "expected Parse error, got {err:?}"
+    );
+}
+
+/// BMS regression: `unused_trailing` larger than 8 × body bytes also underflows.
+#[test]
+fn bms_unused_trailing_exceeds_body_returns_parse_error() {
+    // Body = 1 byte = 8 bits; trailing = 200 makes the subtraction underflow.
+    let bms = vec![0u8, 0, 7, 200, 0, 0, 0xFF];
+    let err = parse_bitmap(&bms, 8).expect_err("oversize trailing must error");
+    assert!(matches!(err, FieldglassError::Parse(_)));
 }
 
 #[test]

@@ -52,8 +52,18 @@ impl<'a> BitReader<'a> {
         if n == 0 {
             return Ok(0);
         }
-        let end_bit = self.bit_offset + n as usize;
-        if end_bit > self.bytes.len() * 8 {
+        // Use checked arithmetic so a near-`usize::MAX` bit_offset can't
+        // wrap into a small value and bypass the bounds check below.
+        let end_bit = self
+            .bit_offset
+            .checked_add(n as usize)
+            .ok_or_else(|| FieldglassError::Parse("bit reader offset overflow".into()))?;
+        let total_bits = self
+            .bytes
+            .len()
+            .checked_mul(8)
+            .ok_or_else(|| FieldglassError::Parse("bit reader length overflow".into()))?;
+        if end_bit > total_bits {
             return Err(FieldglassError::Parse(format!(
                 "bit reader exhausted at offset {} reading {n} bits",
                 self.bit_offset

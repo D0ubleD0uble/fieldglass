@@ -234,7 +234,15 @@ impl<'a> Parser<'a> {
     }
 
     fn need(&self, n: usize) -> Result<(), FieldglassError> {
-        if self.pos + n > self.bytes.len() {
+        // Use checked_add so an attacker-controlled `n` near usize::MAX
+        // can't wrap into a small value and silently pass the bound check.
+        let end = self.pos.checked_add(n).ok_or_else(|| {
+            FieldglassError::Parse(format!(
+                "NetCDF read length {n} at offset {} overflows usize",
+                self.pos
+            ))
+        })?;
+        if end > self.bytes.len() {
             return Err(FieldglassError::Parse(format!(
                 "truncated NetCDF header: needed {} bytes at offset {}, only {} remain",
                 n,
@@ -243,6 +251,17 @@ impl<'a> Parser<'a> {
             )));
         }
         Ok(())
+    }
+
+    /// Convert an attacker-controlled NON_NEG (u64) to usize, surfacing
+    /// truncation on 32-bit targets as a parse error rather than a silent
+    /// wrap.
+    fn nonneg_to_usize(n: u64, what: &str) -> Result<usize, FieldglassError> {
+        usize::try_from(n).map_err(|_| {
+            FieldglassError::Parse(format!(
+                "NetCDF {what} count {n} exceeds usize on this platform"
+            ))
+        })
     }
 
     fn read_u32_be(&mut self) -> Result<u32, FieldglassError> {
@@ -300,7 +319,7 @@ impl<'a> Parser<'a> {
                 "name length {n} exceeds file size"
             )));
         }
-        let raw = self.read_bytes_padded(n as usize)?;
+        let raw = self.read_bytes_padded(Self::nonneg_to_usize(n, "name length")?)?;
         Ok(String::from_utf8_lossy(raw).into_owned())
     }
 
@@ -351,7 +370,11 @@ impl<'a> Parser<'a> {
                 "dim_list count {count} exceeds file size"
             )));
         }
-        let mut dims = Vec::with_capacity(count as usize);
+        let count = Self::nonneg_to_usize(count, "dim_list")?;
+        // Don't `with_capacity(count)` — `count` is attacker-controlled and
+        // already file-size-bounded; let `Vec::push` grow geometrically so a
+        // huge declared count doesn't trigger a speculative oversize alloc.
+        let mut dims = Vec::new();
         for _ in 0..count {
             let name = self.read_name()?;
             let length = self.read_nonneg()?;
@@ -374,7 +397,8 @@ impl<'a> Parser<'a> {
                 "att_list count {count} exceeds file size"
             )));
         }
-        let mut atts = Vec::with_capacity(count as usize);
+        let count = Self::nonneg_to_usize(count, "att_list")?;
+        let mut atts = Vec::new();
         for _ in 0..count {
             atts.push(self.read_attribute()?);
         }
@@ -387,7 +411,8 @@ impl<'a> Parser<'a> {
         let nc_type = NcType::from_code(type_code, self.version)?;
         let nelems = self.read_nonneg()?;
 
-        let total_bytes = (nelems as usize)
+        let nelems_usize = Self::nonneg_to_usize(nelems, "attribute element count")?;
+        let total_bytes = nelems_usize
             .checked_mul(nc_type.element_size())
             .ok_or_else(|| {
                 FieldglassError::Parse(format!(
@@ -428,7 +453,8 @@ impl<'a> Parser<'a> {
                 "var_list count {count} exceeds file size"
             )));
         }
-        let mut vars = Vec::with_capacity(count as usize);
+        let count = Self::nonneg_to_usize(count, "var_list")?;
+        let mut vars = Vec::new();
         for _ in 0..count {
             vars.push(self.read_variable(num_dims)?);
         }
@@ -444,7 +470,8 @@ impl<'a> Parser<'a> {
                 "variable {name:?} declares {dimensionality} dimensions but file has only {num_dims}"
             )));
         }
-        let mut dim_ids = Vec::with_capacity(dimensionality as usize);
+        let dimensionality = Self::nonneg_to_usize(dimensionality, "variable dimensionality")?;
+        let mut dim_ids = Vec::with_capacity(dimensionality);
         for _ in 0..dimensionality {
             // `dimid` is `NON_NEG`: 4 bytes for CDF-1/2, 8 bytes for CDF-5
             // (matching what `libnetcdf` and PnetCDF write — verified against

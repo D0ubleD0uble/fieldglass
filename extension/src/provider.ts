@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import * as path from "path";
+import { randomBytes } from "crypto";
 
 import { VIRIDIS_LUT } from "./render-helpers";
 
@@ -299,9 +300,11 @@ export class FieldglassEditorProvider
         this.postUpdate(panel, document);
         return;
       case "edit-p1":
+        if (!isNonNegativeInt(msg.messageIndex) || !isNonNegativeInt(msg.value)) return;
         this.applyP1Edit(document, msg.messageIndex, msg.value);
         return;
       case "decodeGrid":
+        if (!isNonNegativeInt(msg.messageIndex)) return;
         this.handleDecodeGrid(document, panel, msg.messageIndex);
         return;
     }
@@ -524,6 +527,10 @@ export class FieldglassEditorProvider
 // HTML rendering
 // ---------------------------------------------------------------------------
 
+function isNonNegativeInt(n: unknown): n is number {
+  return typeof n === "number" && Number.isInteger(n) && n >= 0;
+}
+
 function describeProjection(meta: MessageMeta): string {
   const dims = (meta.gridNi !== null && meta.gridNj !== null)
     ? `${meta.gridNi}×${meta.gridNj}` : "?";
@@ -547,10 +554,12 @@ function escapeHtml(s: string): string {
 }
 
 function nonce(): string {
-  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  let s = "";
-  for (let i = 0; i < 32; i++) s += chars.charAt(Math.floor(Math.random() * chars.length));
-  return s;
+  // The nonce IS the security boundary that lets us safely run our own inline
+  // script under a strict CSP — see the renderHtml CSP comment. Math.random()
+  // is not a CSPRNG and would let a hostile injected element guess the value;
+  // use Node's crypto.randomBytes (16 bytes → 22 base64url chars, well above
+  // the unguessable bar).
+  return randomBytes(16).toString("base64").replace(/[^A-Za-z0-9]/g, "");
 }
 
 function renderDatasetBody(d: DatasetMeta): string {

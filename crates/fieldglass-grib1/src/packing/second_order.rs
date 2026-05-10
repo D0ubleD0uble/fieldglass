@@ -105,11 +105,27 @@ pub fn decode(
     let width_of_widths = bds[21];
     let width_of_lengths = bds[22];
 
-    let num_groups = coded_num_groups + 65536 * extra_values;
+    // num_groups derives from two attacker-controlled fields. Cap by
+    // expected_count: a well-formed BDS can't have more groups than grid
+    // points (each group covers ≥1 point), and rejecting earlier turns a
+    // hostile multi-billion `num_groups` into a parse error before any
+    // allocation is attempted.
+    let num_groups = coded_num_groups
+        .checked_add(65536usize.saturating_mul(extra_values))
+        .ok_or_else(|| {
+            FieldglassError::Parse(format!(
+                "BDS num_groups overflows usize (coded={coded_num_groups}, extra={extra_values})"
+            ))
+        })?;
     if num_groups == 0 {
         return Err(FieldglassError::Parse(
             "BDS reports zero groups for second-order packing".into(),
         ));
+    }
+    if num_groups > expected_count {
+        return Err(FieldglassError::Parse(format!(
+            "BDS reports {num_groups} groups but grid only has {expected_count} points"
+        )));
     }
     if n2 < n1 {
         return Err(FieldglassError::Parse(format!(
@@ -230,8 +246,24 @@ pub fn decode(
     // adding the per-group first-order reference to the per-point delta.
     let mut so_reader = BitReader::new(&bds[n2..]);
 
-    let total_second: usize = group_lengths.iter().map(|x| *x as usize).sum();
-    let total_decoded = total_second + order_of_spd as usize;
+    // group_lengths is attacker-controlled (each entry up to 2^32-1, up to
+    // expected_count entries). Use checked addition so a crafted input
+    // surfaces as a parse error instead of a wraparound or a multi-TiB
+    // allocation. expected_count caps the legitimate maximum.
+    let mut total_second: usize = 0;
+    for &gl in &group_lengths {
+        total_second = total_second.checked_add(gl as usize).ok_or_else(|| {
+            FieldglassError::Parse("BDS group_lengths sum overflows usize".into())
+        })?;
+    }
+    let total_decoded = total_second
+        .checked_add(order_of_spd as usize)
+        .ok_or_else(|| FieldglassError::Parse("BDS total decoded count overflows usize".into()))?;
+    if total_decoded > expected_count {
+        return Err(FieldglassError::Parse(format!(
+            "BDS group lengths sum {total_decoded} exceeds grid size {expected_count}"
+        )));
+    }
     let mut x: Vec<i64> = vec![0; total_decoded];
 
     // Decode the second-order section into x[orderOfSPD..]. eccodes does
@@ -253,7 +285,9 @@ pub fn decode(
         } else {
             for _ in 0..count {
                 let raw = so_reader.read_bits(w)? as i64;
-                x[n] = ref_val + raw;
+                // wrapping_add: ref_val and raw are attacker-controlled in
+                // adversarial inputs; eccodes' C wraps implicitly here.
+                x[n] = ref_val.wrapping_add(raw);
                 n += 1;
             }
         }
@@ -334,6 +368,12 @@ fn sign_magnitude_to_i64(raw: u32, width: u8) -> i64 {
 /// initialisations look strange (they re-use values that are about to be
 /// overwritten) but they directly mirror the C source so behaviour stays
 /// bit-for-bit identical to eccodes for the same input.
+///
+/// Arithmetic uses `wrapping_add` / `wrapping_sub`: eccodes' C is implicitly
+/// 2's-complement-on-overflow, and adversarial deltas can overflow `i64`
+/// over a multi-million-point grid. Wrapping keeps us bit-compatible with
+/// eccodes for legitimate inputs and turns hostile inputs into garbage
+/// values rather than panics.
 fn apply_spd_inverse(x: &mut [i64], order: u8, bias: i64) -> Result<(), FieldglassError> {
     match order {
         0 => Ok(()),
@@ -341,7 +381,7 @@ fn apply_spd_inverse(x: &mut [i64], order: u8, bias: i64) -> Result<(), Fieldgla
             // y = X[0]; for i=1..N: y += X[i] + bias; X[i] = y
             let mut y = x[0];
             for v in x.iter_mut().skip(1) {
-                y += *v + bias;
+                y = y.wrapping_add(v.wrapping_add(bias));
                 *v = y;
             }
             Ok(())
@@ -352,11 +392,11 @@ fn apply_spd_inverse(x: &mut [i64], order: u8, bias: i64) -> Result<(), Fieldgla
             if x.len() < 2 {
                 return Ok(());
             }
-            let mut y = x[1] - x[0];
+            let mut y = x[1].wrapping_sub(x[0]);
             let mut z = x[1];
             for v in x.iter_mut().skip(2) {
-                y += *v + bias;
-                z += y;
+                y = y.wrapping_add(v.wrapping_add(bias));
+                z = z.wrapping_add(y);
                 *v = z;
             }
             Ok(())
@@ -367,13 +407,13 @@ fn apply_spd_inverse(x: &mut [i64], order: u8, bias: i64) -> Result<(), Fieldgla
             if x.len() < 3 {
                 return Ok(());
             }
-            let mut y = x[2] - x[1];
-            let mut z = y - (x[1] - x[0]);
+            let mut y = x[2].wrapping_sub(x[1]);
+            let mut z = y.wrapping_sub(x[1].wrapping_sub(x[0]));
             let mut w = x[2];
             for v in x.iter_mut().skip(3) {
-                z += *v + bias;
-                y += z;
-                w += y;
+                z = z.wrapping_add(v.wrapping_add(bias));
+                y = y.wrapping_add(z);
+                w = w.wrapping_add(y);
                 *v = w;
             }
             Ok(())
@@ -430,6 +470,23 @@ mod tests {
         apply_spd_inverse(&mut seq, 1, 1).unwrap();
         // y starts at 10. y += 1+1=2 → 12; y += 2+1=3 → 15; y += 3+1=4 → 19.
         assert_eq!(seq, vec![10, 12, 15, 19]);
+    }
+
+    /// Regression: with adversarial SPD-1 input, the running accumulator can
+    /// exceed `i64::MAX`. The decoder used `+=` directly which would panic in
+    /// debug builds; we now use `wrapping_add`. Test that the call returns
+    /// without panicking — the actual reconstructed values are garbage in
+    /// this regime, which is fine for hostile input.
+    #[test]
+    fn spd_inverse_order1_does_not_panic_on_overflow() {
+        let mut seq = vec![i64::MAX, i64::MAX, i64::MAX, i64::MAX];
+        apply_spd_inverse(&mut seq, 1, i64::MAX).unwrap();
+    }
+
+    #[test]
+    fn spd_inverse_order3_does_not_panic_on_overflow() {
+        let mut seq = vec![i64::MIN, i64::MAX, i64::MIN, 0, 0, 0];
+        apply_spd_inverse(&mut seq, 3, i64::MIN).unwrap();
     }
 
     #[test]

@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 pub mod bds;
 pub mod bms;
 pub mod gds;

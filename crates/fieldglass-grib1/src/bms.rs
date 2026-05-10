@@ -50,7 +50,20 @@ pub fn parse_bitmap(bytes: &[u8], expected_count: usize) -> Result<Bitmap, Field
     }
 
     let bitmap_bytes = &bytes[6..section_len as usize];
-    let total_bits = bitmap_bytes.len() * 8 - unused_trailing as usize;
+    // unused_trailing is attacker-controlled (single octet, 0..=255) and
+    // bitmap_bytes can be empty when section_len==6, so the naive
+    // `len*8 - unused_trailing` underflows. Use checked arithmetic so a
+    // crafted file produces a parse error rather than a panic / wrap.
+    let total_bits = bitmap_bytes
+        .len()
+        .checked_mul(8)
+        .and_then(|t| t.checked_sub(unused_trailing as usize))
+        .ok_or_else(|| {
+            FieldglassError::Parse(format!(
+                "BMS unused_trailing {unused_trailing} exceeds bitmap body of {} bytes",
+                bitmap_bytes.len()
+            ))
+        })?;
     let take = total_bits.min(expected_count);
 
     let mut bits = Vec::with_capacity(take);
