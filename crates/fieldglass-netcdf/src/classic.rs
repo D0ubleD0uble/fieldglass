@@ -179,6 +179,17 @@ const NC_DIMENSION: u32 = 0x0A;
 const NC_VARIABLE: u32 = 0x0B;
 const NC_ATTRIBUTE: u32 = 0x0C;
 
+/// Hard cap on a variable's dimensionality. Real NetCDF variables top out
+/// at a few dozen dims; anything beyond this is corrupt or hostile.
+pub const MAX_VAR_DIMS: u64 = 4096;
+
+/// Convert an attacker-controlled NON_NEG (u64) to usize, surfacing 32-bit
+/// truncation as a parse error instead of a silent wrap.
+fn nonneg_to_usize(n: u64, what: &str) -> Result<usize, FieldglassError> {
+    usize::try_from(n)
+        .map_err(|_| FieldglassError::Parse(format!("NetCDF {what} count {n} exceeds usize")))
+}
+
 /// Parse a NetCDF classic header from the start of `bytes`. Stops walking
 /// after `var_list`; the rest of the file is variable data, which we ignore.
 pub fn parse_header(bytes: &[u8]) -> Result<ClassicHeader, FieldglassError> {
@@ -234,8 +245,7 @@ impl<'a> Parser<'a> {
     }
 
     fn need(&self, n: usize) -> Result<(), FieldglassError> {
-        // Use checked_add so an attacker-controlled `n` near usize::MAX
-        // can't wrap into a small value and silently pass the bound check.
+        // checked_add: hostile n near usize::MAX would wrap past the bounds check.
         let end = self.pos.checked_add(n).ok_or_else(|| {
             FieldglassError::Parse(format!(
                 "NetCDF read length {n} at offset {} overflows usize",
@@ -251,17 +261,6 @@ impl<'a> Parser<'a> {
             )));
         }
         Ok(())
-    }
-
-    /// Convert an attacker-controlled NON_NEG (u64) to usize, surfacing
-    /// truncation on 32-bit targets as a parse error rather than a silent
-    /// wrap.
-    fn nonneg_to_usize(n: u64, what: &str) -> Result<usize, FieldglassError> {
-        usize::try_from(n).map_err(|_| {
-            FieldglassError::Parse(format!(
-                "NetCDF {what} count {n} exceeds usize on this platform"
-            ))
-        })
     }
 
     fn read_u32_be(&mut self) -> Result<u32, FieldglassError> {
@@ -319,7 +318,7 @@ impl<'a> Parser<'a> {
                 "name length {n} exceeds file size"
             )));
         }
-        let raw = self.read_bytes_padded(Self::nonneg_to_usize(n, "name length")?)?;
+        let raw = self.read_bytes_padded(nonneg_to_usize(n, "name length")?)?;
         Ok(String::from_utf8_lossy(raw).into_owned())
     }
 
@@ -370,10 +369,8 @@ impl<'a> Parser<'a> {
                 "dim_list count {count} exceeds file size"
             )));
         }
-        let count = Self::nonneg_to_usize(count, "dim_list")?;
-        // Don't `with_capacity(count)` — `count` is attacker-controlled and
-        // already file-size-bounded; let `Vec::push` grow geometrically so a
-        // huge declared count doesn't trigger a speculative oversize alloc.
+        let count = nonneg_to_usize(count, "dim_list")?;
+        // No with_capacity — count is attacker-controlled; let push grow naturally.
         let mut dims = Vec::new();
         for _ in 0..count {
             let name = self.read_name()?;
@@ -397,7 +394,7 @@ impl<'a> Parser<'a> {
                 "att_list count {count} exceeds file size"
             )));
         }
-        let count = Self::nonneg_to_usize(count, "att_list")?;
+        let count = nonneg_to_usize(count, "att_list")?;
         let mut atts = Vec::new();
         for _ in 0..count {
             atts.push(self.read_attribute()?);
@@ -411,7 +408,7 @@ impl<'a> Parser<'a> {
         let nc_type = NcType::from_code(type_code, self.version)?;
         let nelems = self.read_nonneg()?;
 
-        let nelems_usize = Self::nonneg_to_usize(nelems, "attribute element count")?;
+        let nelems_usize = nonneg_to_usize(nelems, "attribute element count")?;
         let total_bytes = nelems_usize
             .checked_mul(nc_type.element_size())
             .ok_or_else(|| {
@@ -453,7 +450,7 @@ impl<'a> Parser<'a> {
                 "var_list count {count} exceeds file size"
             )));
         }
-        let count = Self::nonneg_to_usize(count, "var_list")?;
+        let count = nonneg_to_usize(count, "var_list")?;
         let mut vars = Vec::new();
         for _ in 0..count {
             vars.push(self.read_variable(num_dims)?);
@@ -464,15 +461,12 @@ impl<'a> Parser<'a> {
     fn read_variable(&mut self, num_dims: usize) -> Result<Variable, FieldglassError> {
         let name = self.read_name()?;
         let dimensionality = self.read_nonneg()?;
-        // Hard cap: no real NetCDF variable has more than a few dozen dims.
-        // Independent of `num_dims` because that is itself attacker-bounded.
-        const MAX_VAR_DIMS: u64 = 4096;
         if dimensionality > MAX_VAR_DIMS {
             return Err(FieldglassError::Parse(format!(
                 "variable {name:?} declares {dimensionality} dimensions, exceeds cap of {MAX_VAR_DIMS}"
             )));
         }
-        let dimensionality = Self::nonneg_to_usize(dimensionality, "variable dimensionality")?;
+        let dimensionality = nonneg_to_usize(dimensionality, "variable dimensionality")?;
         let mut dim_ids = Vec::with_capacity(dimensionality);
         for _ in 0..dimensionality {
             // `dimid` is `NON_NEG`: 4 bytes for CDF-1/2, 8 bytes for CDF-5

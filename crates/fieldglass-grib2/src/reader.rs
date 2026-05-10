@@ -10,3 +10,16 @@ pub struct Grib2Reader {
 pub fn open(_file_path: String) -> Result<Grib2Reader, FieldglassError> {
     Err(FieldglassError::UnsupportedFormat)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn open_returns_unsupported_format() {
+        assert!(matches!(
+            open("any.grib2".to_string()),
+            Err(FieldglassError::UnsupportedFormat)
+        ));
+    }
+}

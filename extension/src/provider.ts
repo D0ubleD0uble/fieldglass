@@ -554,11 +554,7 @@ function escapeHtml(s: string): string {
 }
 
 function nonce(): string {
-  // The nonce IS the security boundary that lets us safely run our own inline
-  // script under a strict CSP — see the renderHtml CSP comment. Math.random()
-  // is not a CSPRNG and would let a hostile injected element guess the value;
-  // use Node's crypto.randomBytes (16 bytes → 22 base64url chars, well above
-  // the unguessable bar).
+  // CSPRNG-derived nonce — the boundary that makes inline scripts safe.
   return randomBytes(16).toString("base64").replace(/[^A-Za-z0-9]/g, "");
 }
 

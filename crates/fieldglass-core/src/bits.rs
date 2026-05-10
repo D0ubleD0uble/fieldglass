@@ -20,6 +20,28 @@ pub fn sign_magnitude_i16(raw: u16) -> i16 {
     }
 }
 
+/// Sign-magnitude to signed integer for arbitrary widths up to 32 bits.
+/// The high bit of the `width`-bit field is the sign; the lower `width-1`
+/// bits are the magnitude. `width == 0` returns 0.
+pub fn sign_magnitude_to_i64(raw: u32, width: u8) -> i64 {
+    if width == 0 {
+        return 0;
+    }
+    let sign_bit = 1u32 << (width - 1);
+    let mag_mask = sign_bit - 1;
+    let mag = (raw & mag_mask) as i64;
+    if raw & sign_bit != 0 { -mag } else { mag }
+}
+
+/// Bytes needed to hold `count * bits_per_value` bits, rounded up. Returns
+/// `None` on `usize` overflow so callers can build a parse error with the
+/// field name they have on hand.
+pub fn bits_to_bytes(count: usize, bits_per_value: usize) -> Option<usize> {
+    count
+        .checked_mul(bits_per_value)
+        .map(|bits| bits.div_ceil(8))
+}
+
 /// IBM System/360 single-precision float → `f64`.
 /// Layout: sign (1) | characteristic (7, excess-64) | fraction (24), base 16.
 pub fn ibm_float_to_f64(raw: u32) -> f64 {
@@ -52,8 +74,7 @@ impl<'a> BitReader<'a> {
         if n == 0 {
             return Ok(0);
         }
-        // Use checked arithmetic so a near-`usize::MAX` bit_offset can't
-        // wrap into a small value and bypass the bounds check below.
+        // checked: bit_offset near usize::MAX would wrap past the bounds check.
         let end_bit = self
             .bit_offset
             .checked_add(n as usize)
@@ -129,6 +150,28 @@ mod tests {
     fn sign_magnitude_zero_signed() {
         // Negative zero is well-defined in sign-magnitude; we collapse it to 0.
         assert_eq!(sign_magnitude_i16(0x8000), 0);
+    }
+
+    #[test]
+    fn sign_magnitude_i64_basic() {
+        assert_eq!(sign_magnitude_to_i64(0b0_0101, 5), 5);
+        assert_eq!(sign_magnitude_to_i64(0b1_0101, 5), -5);
+        assert_eq!(sign_magnitude_to_i64((1 << 20) | 7, 21), -7);
+        assert_eq!(sign_magnitude_to_i64(0, 0), 0);
+    }
+
+    #[test]
+    fn bits_to_bytes_rounds_up() {
+        assert_eq!(bits_to_bytes(1, 1), Some(1));
+        assert_eq!(bits_to_bytes(8, 1), Some(1));
+        assert_eq!(bits_to_bytes(9, 1), Some(2));
+        assert_eq!(bits_to_bytes(0, 32), Some(0));
+        assert_eq!(bits_to_bytes(7, 8), Some(7));
+    }
+
+    #[test]
+    fn bits_to_bytes_overflow_returns_none() {
+        assert_eq!(bits_to_bytes(usize::MAX, 2), None);
     }
 
     #[test]

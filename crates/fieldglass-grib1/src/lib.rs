@@ -15,6 +15,6 @@ pub use gds::GridDescription;
 pub use is::IndicatorSection;
 pub use pds::ProductDefinition;
 pub use reader::{
-    Grib1Message, Grib1Reader, forecast_display, forecast_hours, level_type_str, level_unit,
-    level_value, level_value_str, reference_time,
+    Grib1Message, Grib1Reader, MAX_GRID_POINTS, forecast_display, forecast_hours, level_type_str,
+    level_unit, level_value, level_value_str, reference_time,
 };
