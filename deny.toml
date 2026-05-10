@@ -13,6 +13,12 @@ ignore = []
 [licenses]
 # Permissive licenses we accept in dependencies. Anything not on this list
 # fails the check, forcing a deliberate decision.
+#
+# `unused-allowed-license = "allow"` silences the
+# `license-not-encountered` warnings cargo-deny otherwise emits when this
+# allowlist contains licenses no current dependency uses — we keep them
+# intentionally so future deps that pick one don't fail the build.
+unused-allowed-license = "allow"
 allow = [
     "MIT",
     "Apache-2.0",

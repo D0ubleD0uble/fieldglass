@@ -12,7 +12,7 @@ A Visual Studio Code extension for viewing meteorological binary data files (GRI
 
 ## Status
 
-First public beta. Read-only metadata viewing for GRIB1 is in. The GRIB1 Binary Data Section decoder (with bitmap-section support) is implemented at the Rust API level via `decode_grid`, but not yet wired into a 2-D visualization in the webview. GRIB2 and NetCDF parsing, metadata editing, and field rendering are on the roadmap — see the [feature matrix](#feature-matrix) below for what works today.
+First public beta. Read-only metadata viewing for GRIB1 is in, and each message's decoded grid can now be rendered as a 2-D viridis-colored image directly in the webview (in grid coordinates — no map reprojection yet). GRIB2 and NetCDF parsing, metadata editing, and geographic reprojection are on the roadmap — see the [feature matrix](#feature-matrix) below for what works today.
 
 ## Feature matrix
 
@@ -28,19 +28,37 @@ First public beta. Read-only metadata viewing for GRIB1 is in. The GRIB1 Binary 
 | Tabular metadata viewer | ✅ | ❌ Not yet | ❌ Not yet |
 | Binary data section decoding (Rust API) | ✅ | ❌ Not yet | ❌ Not yet |
 | Metadata editing | ❌ Not yet | ❌ Not yet | ❌ Not yet |
-| 2-D grid rendering with colormap | ❌ Not yet | ❌ Not yet | ❌ Not yet |
+| 2-D grid rendering with colormap | ✅ | ❌ Not yet | ❌ Not yet |
 
 Format-agnostic features:
 
 - Hex and ASCII fallback view for files whose contents are not a recognized format. ✅
 - Files without a recognized extension can still be opened through *Reopen Editor With… → Fieldglass Viewer*.
 
+### GRIB1 packing modes
+
+A GRIB1 file's BDS (Binary Data Section) flag bits select one of several packing schemes. Decoding (and therefore 2-D rendering) covers only a subset today; metadata + format detection are independent of the packing mode and work on every file. For unsupported variants the decoder surfaces an error naming the eccodes-style `packingType` so you can match it against [eccodes' definitions](https://confluence.ecmwf.int/display/ECC/Documentation).
+
+| BDS packing | eccodes packingType | Decode | Notes |
+|---|---|:---:|---|
+| Simple grid-point packing | `grid_simple` | ✅ | The bulk of CMC, NCEP non-operational data, and pygrib sample sets. |
+| Constant field (`bits_per_value = 0`) | `grid_simple` | ✅ | Special case of simple packing. |
+| Second-order, no SPD | `grid_second_order_no_SPD` | ❌ Planned | |
+| Second-order, SPD-1 | `grid_second_order_SPD1` | ❌ Planned | |
+| Second-order, SPD-2 (ECMWF default) | `grid_second_order` | ✅ | Most common in ECMWF MARS-derived files. Cross-validated against eccodes 2.34. |
+| Second-order, SPD-3 | `grid_second_order_SPD3` | ❌ Planned | |
+| Second-order, row-by-row | `grid_second_order_row_by_row` | ❌ Planned | |
+| Second-order, constant width | `grid_second_order_constant_width` | ❌ Planned | |
+| Second-order, general (legacy) | `grid_second_order_general_grib1` | ❌ Planned | |
+| Spherical-harmonic coefficients | `spectral_simple` / `spectral_complex` | ❌ Planned | IFS analyses; needs an inverse Legendre transform. |
+| Matrix-of-values, IEEE float, JPEG/PNG, etc. | various | ❌ Planned | |
+
 ## Known limitations
 
 This is a beta. Things to be aware of:
 
 - **No metadata editing in the viewer.** The Rust API has byte-level patching for the forecast period (P1) and the webview retains the full undo/redo wiring, but the editable affordance is hidden in beta until general PDS-field editing lands. For now Fieldglass is a read-only viewer.
-- **No 2-D field rendering.** GRIB1 grid values are decoded by the Rust API (`Grib1Reader::decode_message_values` / napi `decode_grid`) but not yet visualized in a webview canvas.
+- **GRIB1 2-D rendering is in grid coordinates only.** The webview renders each message's decoded grid with a viridis colormap, but the canvas axes are scan-order grid indices — there is no map reprojection, basemap, or coastline overlay yet. Polar stereographic and Lambert conformal grids therefore appear "stretched" relative to a true geographic projection.
 - **GRIB2 and NetCDF: detection only.** Magic-byte detection works and routes the file to the viewer, but parsing isn't implemented yet — those files will surface "no messages found."
 - **GRIB1 GDS coverage:** Lat/Lon, Gaussian, Polar Stereographic, and Lambert Conformal grids are parsed. Reduced grids, rotated/oblique projections, and predefined grids (`grid_number != 255`) are not yet supported and will render as `unsupported`.
 - **Parameter table coverage:** WMO ON388 Table 2 (versions 1–3) only. ECMWF local tables (versions 128+) and other centre-specific extensions resolve as `Unknown`.

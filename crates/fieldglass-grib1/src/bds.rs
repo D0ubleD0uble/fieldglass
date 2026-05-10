@@ -1,4 +1,5 @@
 use fieldglass_core::FieldglassError;
+use fieldglass_core::bits::{ibm_float_to_f64, sign_magnitude_i16};
 
 /// Header of the Binary Data Section. Does not own the packed data.
 #[derive(Debug)]
@@ -18,8 +19,86 @@ pub struct BdsHeader {
     pub binary_scale_factor: i16,
     /// Reference value R, decoded from IBM single-precision float.
     pub reference_value: f64,
-    /// Bits per packed value N. Zero means a constant field.
+    /// Bits per packed value N. For simple packing this is the per-point
+    /// width; for complex packing this same octet (octet 11) is repurposed
+    /// as `widthOfFirstOrderValues`. Zero means a constant field.
     pub bits_per_value: u8,
+    /// Present when `is_complex_packing && has_extra_flags`. Holds N1 + the
+    /// extended flag byte (octets 12-14) so [`crate::packing`] decoders can
+    /// branch on the precise variant without re-parsing the section header.
+    pub complex_extended: Option<ComplexExtendedHeader>,
+}
+
+/// The 3-octet header that follows the standard 11-octet BDS header when
+/// `is_complex_packing && has_extra_flags`. See WMO Manual on Codes Vol I.2,
+/// "GRIB1 BDS extended flag" (mirrored in eccodes' `grib1/section.4.def`).
+#[derive(Debug, Clone, Copy)]
+pub struct ComplexExtendedHeader {
+    /// Octets 12-13. Byte offset (from start of BDS) to the first-order
+    /// packed reference values.
+    pub n1: u16,
+    /// Octet 14. Bit positions follow the WMO numbering — bit 1 is the MSB.
+    /// Use the named accessors below rather than touching this directly.
+    pub extended_flag: u8,
+}
+
+impl ComplexExtendedHeader {
+    /// Bit 2 (0x40). True = matrix of values per grid point.
+    pub fn matrix_of_values(self) -> bool {
+        self.extended_flag & 0x40 != 0
+    }
+    /// Bit 3 (0x20). True = secondary bitmap present.
+    pub fn secondary_bitmap_present(self) -> bool {
+        self.extended_flag & 0x20 != 0
+    }
+    /// Bit 4 (0x10). True = each group has a different width;
+    /// false = all groups share one constant width.
+    pub fn second_order_of_different_width(self) -> bool {
+        self.extended_flag & 0x10 != 0
+    }
+    /// Bit 5 (0x08). True = "general extended" second-order packing
+    /// (ECMWF's most common encoding).
+    pub fn general_extended_2ordr(self) -> bool {
+        self.extended_flag & 0x08 != 0
+    }
+    /// Bit 6 (0x04). True = boustrophedonic (zig-zag) row scan.
+    pub fn boustrophedonic(self) -> bool {
+        self.extended_flag & 0x04 != 0
+    }
+    /// Bit 7 (0x02). High bit of the 2-bit `orderOfSPD` field.
+    pub fn two_orders_of_spd(self) -> bool {
+        self.extended_flag & 0x02 != 0
+    }
+    /// Bit 8 (0x01). Low bit of the 2-bit `orderOfSPD` field.
+    pub fn plus_one_in_orders_of_spd(self) -> bool {
+        self.extended_flag & 0x01 != 0
+    }
+    /// Order of spatial differencing (0..=3). 0 = none, 1/2/3 = first/second/
+    /// third-order predictor encoding. ECMWF's default `grid_second_order`
+    /// variant uses order 2.
+    pub fn order_of_spd(self) -> u8 {
+        u8::from(self.plus_one_in_orders_of_spd()) + 2 * u8::from(self.two_orders_of_spd())
+    }
+    /// Map the extended-flag bits to eccodes' `packingType` label. Mirrors
+    /// the concept dispatch in `grib1/section.4.def` so error messages and
+    /// (future) decoders can route on the same name eccodes prints.
+    pub fn packing_type_label(self) -> &'static str {
+        match (
+            self.secondary_bitmap_present(),
+            self.second_order_of_different_width(),
+            self.general_extended_2ordr(),
+            self.order_of_spd(),
+        ) {
+            (false, true, true, 0) => "grid_second_order_no_SPD",
+            (false, true, true, 1) => "grid_second_order_SPD1",
+            (false, true, true, 2) => "grid_second_order",
+            (false, true, true, 3) => "grid_second_order_SPD3",
+            (false, true, false, _) => "grid_second_order_row_by_row",
+            (true, false, false, _) => "grid_second_order_constant_width",
+            (true, true, false, _) => "grid_second_order_general_grib1",
+            _ => "grid_second_order_unknown",
+        }
+    }
 }
 
 /// Offset (within the BDS) at which packed data values begin.
@@ -48,155 +127,73 @@ pub fn parse_bds_header(bytes: &[u8]) -> Result<BdsHeader, FieldglassError> {
     }
 
     let flag = bytes[3];
+    let is_spherical_harmonic = flag & 0x80 != 0;
+    let is_complex_packing = flag & 0x40 != 0;
+    let has_extra_flags = flag & 0x10 != 0;
+
+    // Octets 12-14 are only present (and meaningful) for complex packing
+    // with the extra-flags bit set. They are not used by spherical-harmonic
+    // packing, which has its own follow-on layout we don't decode today.
+    let complex_extended = if is_complex_packing && !is_spherical_harmonic && has_extra_flags {
+        if bytes.len() < 14 {
+            return Err(FieldglassError::Parse(format!(
+                "BDS complex extended header requires 14 bytes, got {}",
+                bytes.len()
+            )));
+        }
+        Some(ComplexExtendedHeader {
+            n1: u16::from_be_bytes([bytes[11], bytes[12]]),
+            extended_flag: bytes[13],
+        })
+    } else {
+        None
+    };
+
     Ok(BdsHeader {
         section_len,
-        is_spherical_harmonic: flag & 0x80 != 0,
-        is_complex_packing: flag & 0x40 != 0,
+        is_spherical_harmonic,
+        is_complex_packing,
         is_integer_data: flag & 0x20 != 0,
-        has_extra_flags: flag & 0x10 != 0,
+        has_extra_flags,
         unused_trailing_bits: flag & 0x0F,
         binary_scale_factor: sign_magnitude_i16(u16::from_be_bytes([bytes[4], bytes[5]])),
         reference_value: ibm_float_to_f64(u32::from_be_bytes([
             bytes[6], bytes[7], bytes[8], bytes[9],
         ])),
         bits_per_value: bytes[10],
+        complex_extended,
     })
 }
 
-/// Decode a simple-packed grid into floating-point values.
+/// Decode a BDS into floating-point values.
 ///
 /// `bds` is the full Binary Data Section starting at its length octets;
 /// `header` is the parsed header for `bds`; `decimal_scale` is the PDS
-/// `decimal_scale_factor` (D); `bitmap` is the BMS bitmap if one was present;
-/// `expected_count` is the total number of grid points (from the GDS).
+/// `decimal_scale_factor` (D); `bitmap` is the BMS bitmap if one was
+/// present; `expected_count` is the total number of grid points (from the
+/// GDS); `cols` is the GDS column count (used by complex/second-order
+/// decoders to undo boustrophedonic row-scan — simple packing ignores it).
 ///
-/// Returns one `Option<f64>` per grid point: `None` for points masked out by
-/// the bitmap, `Some(value)` otherwise. Complex / spherical-harmonic packing
-/// is rejected with `UnsupportedSection`.
+/// Returns one `Option<f64>` per grid point: `None` for points masked out
+/// by the bitmap, `Some(value)` otherwise. The actual decoding is
+/// delegated to a [`crate::packing::Grib1Packing`] implementation chosen
+/// by the BDS flag bits.
 pub fn decode_values(
     bds: &[u8],
     header: &BdsHeader,
     decimal_scale: i16,
     bitmap: Option<&[bool]>,
     expected_count: usize,
+    cols: usize,
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
-    if header.is_spherical_harmonic || header.is_complex_packing {
-        return Err(FieldglassError::UnsupportedSection);
-    }
-    if (bds.len() as u32) < header.section_len {
-        return Err(FieldglassError::Parse(format!(
-            "BDS body shorter than declared section_len {}",
-            header.section_len
-        )));
-    }
-
-    let d_scale = 10f64.powi(-(decimal_scale as i32));
-    let r = header.reference_value;
-    let two_pow_e = 2f64.powi(header.binary_scale_factor as i32);
-
-    // Constant field: every present grid point equals R / 10^D.
-    if header.bits_per_value == 0 {
-        let constant = r * d_scale;
-        return Ok(materialise_constant(constant, bitmap, expected_count));
-    }
-
-    if header.bits_per_value > 32 {
-        return Err(FieldglassError::Parse(format!(
-            "BDS bits_per_value {} exceeds 32",
-            header.bits_per_value
-        )));
-    }
-
-    let n = header.bits_per_value;
-    let packed_byte_len = header.section_len as usize - BDS_DATA_OFFSET;
-    let total_packed_bits = packed_byte_len
-        .saturating_mul(8)
-        .saturating_sub(header.unused_trailing_bits as usize);
-    let stored_count = total_packed_bits / n as usize;
-
-    let present_count = match bitmap {
-        Some(b) => b.iter().filter(|p| **p).count(),
-        None => expected_count,
-    };
-    if stored_count < present_count {
-        return Err(FieldglassError::Parse(format!(
-            "BDS holds {stored_count} values but {present_count} are required"
-        )));
-    }
-
-    let packed = &bds[BDS_DATA_OFFSET..header.section_len as usize];
-    let mut reader = BitReader::new(packed);
-    let mut decoded = Vec::with_capacity(present_count);
-    for _ in 0..present_count {
-        let x = reader.read_bits(n)?;
-        decoded.push((r + x as f64 * two_pow_e) * d_scale);
-    }
-
-    Ok(interleave_with_bitmap(decoded, bitmap, expected_count))
-}
-
-fn materialise_constant(
-    value: f64,
-    bitmap: Option<&[bool]>,
-    expected_count: usize,
-) -> Vec<Option<f64>> {
-    match bitmap {
-        Some(b) => b
-            .iter()
-            .take(expected_count)
-            .map(|present| if *present { Some(value) } else { None })
-            .collect(),
-        None => vec![Some(value); expected_count],
-    }
-}
-
-fn interleave_with_bitmap(
-    decoded: Vec<f64>,
-    bitmap: Option<&[bool]>,
-    expected_count: usize,
-) -> Vec<Option<f64>> {
-    match bitmap {
-        None => decoded.into_iter().map(Some).collect(),
-        Some(b) => {
-            let mut out = Vec::with_capacity(expected_count);
-            let mut iter = decoded.into_iter();
-            for present in b.iter().take(expected_count) {
-                if *present {
-                    out.push(iter.next());
-                } else {
-                    out.push(None);
-                }
-            }
-            out
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Numeric helpers
-// ---------------------------------------------------------------------------
-
-/// 16-bit sign-magnitude integer used by GRIB1 for the binary scale factor.
-/// High bit is sign, low 15 bits are magnitude.
-fn sign_magnitude_i16(raw: u16) -> i16 {
-    let magnitude = (raw & 0x7FFF) as i16;
-    if raw & 0x8000 != 0 {
-        -magnitude
-    } else {
-        magnitude
-    }
-}
-
-/// IBM System/360 single-precision float → f64.
-/// Layout: sign(1) | characteristic(7, excess-64) | fraction(24), base 16.
-fn ibm_float_to_f64(raw: u32) -> f64 {
-    if raw == 0 {
-        return 0.0;
-    }
-    let sign = if raw & 0x8000_0000 != 0 { -1.0 } else { 1.0 };
-    let characteristic = ((raw >> 24) & 0x7F) as i32;
-    let fraction = (raw & 0x00FF_FFFF) as f64 / (1u32 << 24) as f64;
-    sign * fraction * 16f64.powi(characteristic - 64)
+    crate::packing::decoder_for(header).decode(
+        bds,
+        header,
+        decimal_scale,
+        bitmap,
+        expected_count,
+        cols,
+    )
 }
 
 fn read_u24(b: &[u8]) -> u32 {
@@ -204,126 +201,14 @@ fn read_u24(b: &[u8]) -> u32 {
 }
 
 // ---------------------------------------------------------------------------
-// Bit reader (MSB first, suitable for GRIB packed integers up to 32 bits)
-// ---------------------------------------------------------------------------
-
-struct BitReader<'a> {
-    bytes: &'a [u8],
-    bit_offset: usize,
-}
-
-impl<'a> BitReader<'a> {
-    fn new(bytes: &'a [u8]) -> Self {
-        Self {
-            bytes,
-            bit_offset: 0,
-        }
-    }
-
-    fn read_bits(&mut self, n: u8) -> Result<u32, FieldglassError> {
-        if n == 0 {
-            return Ok(0);
-        }
-        let end_bit = self.bit_offset + n as usize;
-        if end_bit > self.bytes.len() * 8 {
-            return Err(FieldglassError::Parse(format!(
-                "BDS bit reader exhausted at offset {} reading {n} bits",
-                self.bit_offset
-            )));
-        }
-
-        let mut value: u64 = 0;
-        let mut bits_collected = 0u8;
-        let mut bit = self.bit_offset;
-        while bits_collected < n {
-            let byte_idx = bit / 8;
-            let bit_in_byte = bit % 8;
-            let take = (8 - bit_in_byte).min((n - bits_collected) as usize) as u8;
-            let shift = 8 - bit_in_byte - take as usize;
-            let mask = ((1u16 << take) - 1) as u8;
-            let chunk = (self.bytes[byte_idx] >> shift) & mask;
-            value = (value << take) | chunk as u64;
-            bits_collected += take;
-            bit += take as usize;
-        }
-        self.bit_offset = end_bit;
-        Ok(value as u32)
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Tests
+// Tests — exercise the public `decode_values` API end-to-end. Bit-utility
+// unit tests live alongside the utilities themselves in
+// `fieldglass_core::bits`.
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn ibm_float_zero() {
-        assert_eq!(ibm_float_to_f64(0x0000_0000), 0.0);
-    }
-
-    #[test]
-    fn ibm_float_one_half() {
-        // 0.5 = 0x40 80 00 00 in IBM single: char=64 → exp 0, fraction = 0x800000/2^24 = 0.5
-        assert!((ibm_float_to_f64(0x4080_0000) - 0.5).abs() < 1e-12);
-    }
-
-    #[test]
-    fn ibm_float_negative_one_half() {
-        assert!((ibm_float_to_f64(0xC080_0000) + 0.5).abs() < 1e-12);
-    }
-
-    #[test]
-    fn ibm_float_one() {
-        // 1.0 = 0x41 10 00 00: char=65 → exp 1, fraction = 0x100000/2^24 = 1/16, *16 = 1.0
-        assert!((ibm_float_to_f64(0x4110_0000) - 1.0).abs() < 1e-12);
-    }
-
-    #[test]
-    fn sign_magnitude_positive() {
-        assert_eq!(sign_magnitude_i16(0x0005), 5);
-    }
-
-    #[test]
-    fn sign_magnitude_negative() {
-        assert_eq!(sign_magnitude_i16(0x8005), -5);
-    }
-
-    #[test]
-    fn sign_magnitude_zero_signed() {
-        // Negative zero is well-defined in sign-magnitude; we collapse it to 0.
-        assert_eq!(sign_magnitude_i16(0x8000), 0);
-    }
-
-    #[test]
-    fn bit_reader_byte_aligned() {
-        let mut r = BitReader::new(&[0xAB, 0xCD]);
-        assert_eq!(r.read_bits(8).unwrap(), 0xAB);
-        assert_eq!(r.read_bits(8).unwrap(), 0xCD);
-    }
-
-    #[test]
-    fn bit_reader_unaligned() {
-        // 0b1010_0101_1100_0011 — read as 3,5,8 bits MSB-first.
-        let mut r = BitReader::new(&[0b1010_0101, 0b1100_0011]);
-        assert_eq!(r.read_bits(3).unwrap(), 0b101);
-        assert_eq!(r.read_bits(5).unwrap(), 0b00101);
-        assert_eq!(r.read_bits(8).unwrap(), 0b1100_0011);
-    }
-
-    #[test]
-    fn bit_reader_crosses_byte_boundary() {
-        let mut r = BitReader::new(&[0xFF, 0x00]);
-        assert_eq!(r.read_bits(12).unwrap(), 0xFF0);
-    }
-
-    #[test]
-    fn bit_reader_exhaustion() {
-        let mut r = BitReader::new(&[0x00]);
-        assert!(r.read_bits(9).is_err());
-    }
 
     #[test]
     fn decode_constant_field() {
@@ -338,9 +223,10 @@ mod tests {
             binary_scale_factor: 0,
             reference_value: 42.0,
             bits_per_value: 0,
+            complex_extended: None,
         };
         let bds = vec![0u8; BDS_DATA_OFFSET];
-        let out = decode_values(&bds, &header, 0, None, 4).unwrap();
+        let out = decode_values(&bds, &header, 0, None, 4, 0).unwrap();
         assert_eq!(out, vec![Some(42.0); 4]);
     }
 
@@ -357,7 +243,7 @@ mod tests {
         ]);
         bds[10] = 8; // N
         let header = parse_bds_header(&bds).unwrap();
-        let out = decode_values(&bds, &header, 0, None, 4).unwrap();
+        let out = decode_values(&bds, &header, 0, None, 4, 0).unwrap();
         assert_eq!(out, vec![Some(1.0), Some(2.0), Some(3.0), Some(4.0)]);
     }
 
@@ -374,7 +260,7 @@ mod tests {
         bds[10] = 8;
         let header = parse_bds_header(&bds).unwrap();
         let bitmap = [true, false, true, false];
-        let out = decode_values(&bds, &header, 0, Some(&bitmap), 4).unwrap();
+        let out = decode_values(&bds, &header, 0, Some(&bitmap), 4, 0).unwrap();
         assert_eq!(out, vec![Some(7.0), None, Some(9.0), None]);
     }
 
@@ -385,8 +271,23 @@ mod tests {
         bds[3] = 0x40; // complex packing flag
         let header = parse_bds_header(&bds).unwrap();
         assert!(matches!(
-            decode_values(&bds, &header, 0, None, 1).unwrap_err(),
-            FieldglassError::UnsupportedSection
+            decode_values(&bds, &header, 0, None, 1, 0).unwrap_err(),
+            FieldglassError::UnsupportedSection(_)
         ));
+    }
+
+    #[test]
+    fn rejects_spherical_harmonic_packing() {
+        let mut bds = vec![0u8; BDS_DATA_OFFSET];
+        bds[0..3].copy_from_slice(&[0, 0, BDS_DATA_OFFSET as u8]);
+        bds[3] = 0x80; // spherical-harmonic flag
+        let header = parse_bds_header(&bds).unwrap();
+        let err = decode_values(&bds, &header, 0, None, 1, 0).unwrap_err();
+        match err {
+            FieldglassError::UnsupportedSection(msg) => {
+                assert!(msg.contains("spherical-harmonic"), "msg = {msg:?}");
+            }
+            other => panic!("expected UnsupportedSection, got {other:?}"),
+        }
     }
 }

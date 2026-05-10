@@ -8,8 +8,8 @@ pub enum FieldglassError {
     InvalidMagic,
     #[error("unsupported format")]
     UnsupportedFormat,
-    #[error("unsupported section")]
-    UnsupportedSection,
+    #[error("unsupported section: {0}")]
+    UnsupportedSection(String),
     #[error("index out of range")]
     OutOfRange,
 }
