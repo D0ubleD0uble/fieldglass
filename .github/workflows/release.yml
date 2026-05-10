@@ -28,11 +28,11 @@ jobs:
             target: aarch64-unknown-linux-gnu
             artifact: fieldglass.linux-arm64-gnu.node
             vsce_target: linux-arm64
-          - os: windows-latest
+          - os: windows-2025-vs2026
             target: x86_64-pc-windows-msvc
             artifact: fieldglass.win32-x64-msvc.node
             vsce_target: win32-x64
-          - os: windows-latest
+          - os: windows-2025-vs2026
             target: aarch64-pc-windows-msvc
             artifact: fieldglass.win32-arm64-msvc.node
             vsce_target: win32-arm64

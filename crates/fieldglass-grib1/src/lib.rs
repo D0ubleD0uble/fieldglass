@@ -2,11 +2,12 @@ pub mod bds;
 pub mod bms;
 pub mod gds;
 pub mod is;
+pub mod packing;
 pub mod pds;
 pub mod reader;
 pub mod tables;
 
-pub use bds::{BDS_DATA_OFFSET, BdsHeader};
+pub use bds::{BDS_DATA_OFFSET, BdsHeader, ComplexExtendedHeader, parse_bds_header};
 pub use bms::Bitmap;
 pub use gds::GridDescription;
 pub use is::IndicatorSection;

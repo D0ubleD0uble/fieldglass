@@ -43,7 +43,10 @@ pub fn parse_bitmap(bytes: &[u8], expected_count: usize) -> Result<Bitmap, Field
     // bitmaps, so we surface this as unsupported rather than silently returning
     // an all-present mask.
     if predefined_indicator != 0 {
-        return Err(FieldglassError::UnsupportedSection);
+        return Err(FieldglassError::UnsupportedSection(format!(
+            "BMS references predefined bitmap id {predefined_indicator} \
+             (this build does not carry a registry of predefined bitmaps)"
+        )));
     }
 
     let bitmap_bytes = &bytes[6..section_len as usize];
@@ -116,7 +119,7 @@ mod tests {
         bms[5] = 1; // non-zero predefined indicator
         assert!(matches!(
             parse_bitmap(&bms, 8).unwrap_err(),
-            FieldglassError::UnsupportedSection
+            FieldglassError::UnsupportedSection(_)
         ));
     }
 
