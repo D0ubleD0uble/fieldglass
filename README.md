@@ -21,11 +21,11 @@ First public beta. Read-only metadata viewing for GRIB1 is in, and each message'
 | Format detection from magic bytes | ✅ | ✅ | ✅ |
 | File-extension association (`.grb` / `.grib*` / `.nc*`) | ✅ | ✅ | ✅ |
 | Open via *Reopen Editor With…* for unrecognized files | ✅ | ✅ | ✅ |
-| Indicator / header section parsing | ✅ | ❌ Not yet | ❌ Not yet |
-| Per-message metadata (parameter, level, time, forecast period) | ✅ | ❌ Not yet | ❌ Not yet |
+| Indicator / header section parsing | ✅ | ❌ Not yet | ✅ classic / 🚧 NetCDF-4 |
+| Per-message metadata (parameter, level, time, forecast period) | ✅ | ❌ Not yet | ✅ classic (dims / vars / attrs) |
 | Grid description (lat/lon, Gaussian, polar stereo, Lambert) | ✅ | ❌ Not yet | ❌ Not yet |
 | WMO ON388 lookups (parameter, centre, level type) | ✅ | ❌ Not yet | n/a |
-| Tabular metadata viewer | ✅ | ❌ Not yet | ❌ Not yet |
+| Tabular metadata viewer | ✅ | ❌ Not yet | ✅ classic / 🚧 NetCDF-4 |
 | Binary data section decoding (Rust API) | ✅ | ❌ Not yet | ❌ Not yet |
 | Metadata editing | ❌ Not yet | ❌ Not yet | ❌ Not yet |
 | 2-D grid rendering with colormap | ✅ | ❌ Not yet | ❌ Not yet |
@@ -59,7 +59,8 @@ This is a beta. Things to be aware of:
 
 - **No metadata editing in the viewer.** The Rust API has byte-level patching for the forecast period (P1) and the webview retains the full undo/redo wiring, but the editable affordance is hidden in beta until general PDS-field editing lands. For now Fieldglass is a read-only viewer.
 - **GRIB1 2-D rendering is in grid coordinates only.** The webview renders each message's decoded grid with a viridis colormap, but the canvas axes are scan-order grid indices — there is no map reprojection, basemap, or coastline overlay yet. Polar stereographic and Lambert conformal grids therefore appear "stretched" relative to a true geographic projection.
-- **GRIB2 and NetCDF: detection only.** Magic-byte detection works and routes the file to the viewer, but parsing isn't implemented yet — those files will surface "no messages found."
+- **GRIB2: detection only.** Magic-byte detection routes GRIB2 files to the viewer, but parsing isn't implemented yet — those files will surface "no messages found."
+- **NetCDF-4 / HDF5: header probe only.** Classic NetCDF (CDF-1 / CDF-2 / CDF-5) parses fully and renders dimensions, global attributes, and variables. NetCDF-4 / HDF5 files are validated and report the superblock version, but deep traversal (groups, datasets, attributes through the HDF5 object header tree) is a follow-up.
 - **GRIB1 GDS coverage:** Lat/Lon, Gaussian, Polar Stereographic, and Lambert Conformal grids are parsed. Reduced grids, rotated/oblique projections, and predefined grids (`grid_number != 255`) are not yet supported and will render as `unsupported`.
 - **Parameter table coverage:** WMO ON388 Table 2 (versions 1–3) only. ECMWF local tables (versions 128+) and other centre-specific extensions resolve as `Unknown`.
 - **Large files:** the extension reads the whole file into memory via `vscode.workspace.fs.readFile` to keep remote/virtual workspaces working. Multi-GB GRIB archives are not the target use case yet.

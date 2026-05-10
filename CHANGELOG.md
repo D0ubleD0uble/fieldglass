@@ -8,6 +8,10 @@ Versioning follows the [VS Code pre-release convention](https://code.visualstudi
 
 ### Added
 
+- **NetCDF classic header parser** — pure-Rust reader covering CDF-1 (32-bit offsets), CDF-2 (64-bit offsets), and CDF-5 (64-bit sizes / extended numeric types). Exposes dimensions (with the unlimited / record dim flagged), global attributes, and per-variable type / dim-refs / attributes via a new `NetcdfReader` and the napi `open_netcdf` entry point.
+- **HDF5 / NetCDF-4 detection + superblock probe** — files are validated, the superblock version is reported, and the metadata view surfaces a clear "deep parsing not yet implemented" notice. Deep HDF5 traversal is a deliberate scope cut tracked in a follow-up issue.
+- **NetCDF metadata view** — `.nc` / `.nc4` / `.netcdf` files now render their dimensions, global attributes, and variables instead of "no messages found." Long attribute values are truncated with the full text on hover.
+- **CDF-5 magic-byte detection** — `detect_from_bytes` now recognizes `CDF\x05` in addition to `CDF\x01` / `CDF\x02`.
 - **GRIB1 2-D grid rendering in a dedicated tab.** Clicking a metadata row
   expands an inline panel between that row and the next, exposing a
   per-message *Render* button. Pressing *Render* decodes the message via the
@@ -77,6 +81,13 @@ Versioning follows the [VS Code pre-release convention](https://code.visualstudi
   `grib_set -s decimalScaleFactor=-2` (eccodes 2.34.1).
 - README feature matrix: replaced GitHub-only `$\color{red}{\textsf{Not yet}}$` LaTeX color hack with `❌ Not yet` so the table renders correctly inside the VS Code Marketplace listing as well as on GitHub (#25).
 - Codecov badge in the README showed `unknown` because the coverage workflow's tokenless upload was being rejected (`Token required - not valid tokenless upload`) and silently swallowed by `fail_ci_if_error: false`. Switched the upload to OIDC (`use_oidc: true` plus `id-token: write` permission), which is the recommended tokenless path on `codecov-action@v5` for trusted runs (#24).
+- **NetCDF CDF-5 variable header: `dimid` now read as 8-byte `NON_NEG`** (the
+  CDF-5 width) instead of 4-byte. The previous code unconditionally read
+  4 bytes, then ran the rest of the parse 4 bytes off and tripped the
+  `att_list` ABSENT-with-non-zero-count guard partway through the var list.
+  Surfaced by the new ERSST CDF-5 fixture (real NOAA NCEI data re-encoded
+  by the canonical Unidata `netCDF4` library); unit tests in
+  `classic.rs` happened to use synthetic CDF-1 fixtures so missed it.
 
 ## [0.1.0] — 2026-05-09
 
