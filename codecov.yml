@@ -36,10 +36,12 @@ flag_management:
       paths:
         - crates/
 
-# The grib2 / netcdf stub crates currently contain only unimplemented! traps;
-# excluding them keeps overall coverage from being dragged down by code
-# whose absence is intentional. Re-evaluate when those parsers land.
+# `**/tests/**` is excluded because integration-test files exist to exercise
+# library code; counting their own lines as "uncovered" would dilute the
+# real signal. The grib2 stub exclusion has been lifted now that the crate
+# carries a real, tested Indicator-Section implementation. The netcdf stub
+# exclusion will be lifted in a follow-up so the coverage delta from that
+# crate doesn't get bundled with unrelated work.
 ignore:
-  - "crates/fieldglass-grib2/src/**"
   - "crates/fieldglass-netcdf/src/**"
   - "**/tests/**"
