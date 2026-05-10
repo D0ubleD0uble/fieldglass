@@ -29,6 +29,25 @@ Versioning follows the [VS Code pre-release convention](https://code.visualstudi
   blob: data:`. No `'unsafe-eval'`, no inline scripts without a nonce. The
   policy and rationale are documented inline in `provider.ts`.
 
+- **GRIB1 BDS complex / second-order packing variant detection.** When a
+  message uses complex packing (BDS flag bit 1 = 1), `BdsHeader` now
+  exposes a typed `complex_extended` struct with N1 + the seven
+  extended-flag bits (matrix-of-values, secondary-bitmap, group-width,
+  general-extended, boustrophedonic, two-orders-of-SPD, plus-one-in-SPD)
+  plus a derived `order_of_spd()` and `packing_type_label()` that mirrors
+  eccodes' `packingType` (`grid_second_order`, `grid_second_order_SPD3`,
+  `grid_second_order_row_by_row`, etc.). The `ComplexPacking` decoder
+  uses the label in its `UnsupportedSection` error so users can grep
+  their failing files against the eccodes documentation directly.
+- **GRIB1 packing-mode compatibility table** in the README, distinguishing
+  metadata coverage (every variant) from decode/render coverage (simple
+  packing only today).
+- **ECMWF GRIB1 test fixture** at
+  `crates/fieldglass-grib1/tests/fixtures/ecmwf_lfpw_msg0.grib1` (56 KB,
+  one message, `grid_second_order` SPD-2). Used by
+  `tests/decode_ecmwf_complex.rs` to pin the variant-detection wiring;
+  will become the oracle for the second-order decoder in a follow-up.
+
 ### Changed
 
 - Render is performed in *grid coordinates* — no map reprojection is applied,

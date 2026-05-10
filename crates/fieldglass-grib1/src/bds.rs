@@ -19,8 +19,86 @@ pub struct BdsHeader {
     pub binary_scale_factor: i16,
     /// Reference value R, decoded from IBM single-precision float.
     pub reference_value: f64,
-    /// Bits per packed value N. Zero means a constant field.
+    /// Bits per packed value N. For simple packing this is the per-point
+    /// width; for complex packing this same octet (octet 11) is repurposed
+    /// as `widthOfFirstOrderValues`. Zero means a constant field.
     pub bits_per_value: u8,
+    /// Present when `is_complex_packing && has_extra_flags`. Holds N1 + the
+    /// extended flag byte (octets 12-14) so [`crate::packing`] decoders can
+    /// branch on the precise variant without re-parsing the section header.
+    pub complex_extended: Option<ComplexExtendedHeader>,
+}
+
+/// The 3-octet header that follows the standard 11-octet BDS header when
+/// `is_complex_packing && has_extra_flags`. See WMO Manual on Codes Vol I.2,
+/// "GRIB1 BDS extended flag" (mirrored in eccodes' `grib1/section.4.def`).
+#[derive(Debug, Clone, Copy)]
+pub struct ComplexExtendedHeader {
+    /// Octets 12-13. Byte offset (from start of BDS) to the first-order
+    /// packed reference values.
+    pub n1: u16,
+    /// Octet 14. Bit positions follow the WMO numbering — bit 1 is the MSB.
+    /// Use the named accessors below rather than touching this directly.
+    pub extended_flag: u8,
+}
+
+impl ComplexExtendedHeader {
+    /// Bit 2 (0x40). True = matrix of values per grid point.
+    pub fn matrix_of_values(self) -> bool {
+        self.extended_flag & 0x40 != 0
+    }
+    /// Bit 3 (0x20). True = secondary bitmap present.
+    pub fn secondary_bitmap_present(self) -> bool {
+        self.extended_flag & 0x20 != 0
+    }
+    /// Bit 4 (0x10). True = each group has a different width;
+    /// false = all groups share one constant width.
+    pub fn second_order_of_different_width(self) -> bool {
+        self.extended_flag & 0x10 != 0
+    }
+    /// Bit 5 (0x08). True = "general extended" second-order packing
+    /// (ECMWF's most common encoding).
+    pub fn general_extended_2ordr(self) -> bool {
+        self.extended_flag & 0x08 != 0
+    }
+    /// Bit 6 (0x04). True = boustrophedonic (zig-zag) row scan.
+    pub fn boustrophedonic(self) -> bool {
+        self.extended_flag & 0x04 != 0
+    }
+    /// Bit 7 (0x02). High bit of the 2-bit `orderOfSPD` field.
+    pub fn two_orders_of_spd(self) -> bool {
+        self.extended_flag & 0x02 != 0
+    }
+    /// Bit 8 (0x01). Low bit of the 2-bit `orderOfSPD` field.
+    pub fn plus_one_in_orders_of_spd(self) -> bool {
+        self.extended_flag & 0x01 != 0
+    }
+    /// Order of spatial differencing (0..=3). 0 = none, 1/2/3 = first/second/
+    /// third-order predictor encoding. ECMWF's default `grid_second_order`
+    /// variant uses order 2.
+    pub fn order_of_spd(self) -> u8 {
+        u8::from(self.plus_one_in_orders_of_spd()) + 2 * u8::from(self.two_orders_of_spd())
+    }
+    /// Map the extended-flag bits to eccodes' `packingType` label. Mirrors
+    /// the concept dispatch in `grib1/section.4.def` so error messages and
+    /// (future) decoders can route on the same name eccodes prints.
+    pub fn packing_type_label(self) -> &'static str {
+        match (
+            self.secondary_bitmap_present(),
+            self.second_order_of_different_width(),
+            self.general_extended_2ordr(),
+            self.order_of_spd(),
+        ) {
+            (false, true, true, 0) => "grid_second_order_no_SPD",
+            (false, true, true, 1) => "grid_second_order_SPD1",
+            (false, true, true, 2) => "grid_second_order",
+            (false, true, true, 3) => "grid_second_order_SPD3",
+            (false, true, false, _) => "grid_second_order_row_by_row",
+            (true, false, false, _) => "grid_second_order_constant_width",
+            (true, true, false, _) => "grid_second_order_general_grib1",
+            _ => "grid_second_order_unknown",
+        }
+    }
 }
 
 /// Offset (within the BDS) at which packed data values begin.
@@ -49,18 +127,41 @@ pub fn parse_bds_header(bytes: &[u8]) -> Result<BdsHeader, FieldglassError> {
     }
 
     let flag = bytes[3];
+    let is_spherical_harmonic = flag & 0x80 != 0;
+    let is_complex_packing = flag & 0x40 != 0;
+    let has_extra_flags = flag & 0x10 != 0;
+
+    // Octets 12-14 are only present (and meaningful) for complex packing
+    // with the extra-flags bit set. They are not used by spherical-harmonic
+    // packing, which has its own follow-on layout we don't decode today.
+    let complex_extended = if is_complex_packing && !is_spherical_harmonic && has_extra_flags {
+        if bytes.len() < 14 {
+            return Err(FieldglassError::Parse(format!(
+                "BDS complex extended header requires 14 bytes, got {}",
+                bytes.len()
+            )));
+        }
+        Some(ComplexExtendedHeader {
+            n1: u16::from_be_bytes([bytes[11], bytes[12]]),
+            extended_flag: bytes[13],
+        })
+    } else {
+        None
+    };
+
     Ok(BdsHeader {
         section_len,
-        is_spherical_harmonic: flag & 0x80 != 0,
-        is_complex_packing: flag & 0x40 != 0,
+        is_spherical_harmonic,
+        is_complex_packing,
         is_integer_data: flag & 0x20 != 0,
-        has_extra_flags: flag & 0x10 != 0,
+        has_extra_flags,
         unused_trailing_bits: flag & 0x0F,
         binary_scale_factor: sign_magnitude_i16(u16::from_be_bytes([bytes[4], bytes[5]])),
         reference_value: ibm_float_to_f64(u32::from_be_bytes([
             bytes[6], bytes[7], bytes[8], bytes[9],
         ])),
         bits_per_value: bytes[10],
+        complex_extended,
     })
 }
 
@@ -116,6 +217,7 @@ mod tests {
             binary_scale_factor: 0,
             reference_value: 42.0,
             bits_per_value: 0,
+            complex_extended: None,
         };
         let bds = vec![0u8; BDS_DATA_OFFSET];
         let out = decode_values(&bds, &header, 0, None, 4).unwrap();

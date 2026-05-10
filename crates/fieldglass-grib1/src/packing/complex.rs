@@ -18,15 +18,23 @@ impl Grib1Packing for ComplexPacking {
     fn decode(
         &self,
         _bds: &[u8],
-        _header: &BdsHeader,
+        header: &BdsHeader,
         _decimal_scale: i16,
         _bitmap: Option<&[bool]>,
         _expected_count: usize,
     ) -> Result<Vec<Option<f64>>, FieldglassError> {
-        Err(FieldglassError::UnsupportedSection(
-            "BDS uses complex / second-order packing (not yet supported — \
-             only simple grid-point packing decodes today)"
-                .into(),
-        ))
+        // Use the parsed extended-flag bits to surface the eccodes-style
+        // packingType (e.g. `grid_second_order`, `grid_second_order_SPD3`)
+        // rather than a generic "complex packing" message. Lets users grep
+        // their failing files against eccodes' documentation directly.
+        let label = header
+            .complex_extended
+            .map(|c| c.packing_type_label())
+            .unwrap_or("complex (no extended header — likely WMO-strict second-order)");
+        Err(FieldglassError::UnsupportedSection(format!(
+            "BDS uses complex / second-order packing — variant `{label}`. \
+             Decoder not yet implemented; only simple grid-point packing \
+             decodes today."
+        )))
     }
 }

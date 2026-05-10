@@ -35,6 +35,24 @@ Format-agnostic features:
 - Hex and ASCII fallback view for files whose contents are not a recognized format. ✅
 - Files without a recognized extension can still be opened through *Reopen Editor With… → Fieldglass Viewer*.
 
+### GRIB1 packing modes
+
+A GRIB1 file's BDS (Binary Data Section) flag bits select one of several packing schemes. Decoding (and therefore 2-D rendering) covers only a subset today; metadata + format detection are independent of the packing mode and work on every file. For unsupported variants the decoder surfaces an error naming the eccodes-style `packingType` so you can match it against [eccodes' definitions](https://confluence.ecmwf.int/display/ECC/Documentation).
+
+| BDS packing | eccodes packingType | Decode | Notes |
+|---|---|:---:|---|
+| Simple grid-point packing | `grid_simple` | ✅ | The bulk of CMC, NCEP non-operational data, and pygrib sample sets. |
+| Constant field (`bits_per_value = 0`) | `grid_simple` | ✅ | Special case of simple packing. |
+| Second-order, no SPD | `grid_second_order_no_SPD` | ❌ Planned | |
+| Second-order, SPD-1 | `grid_second_order_SPD1` | ❌ Planned | |
+| Second-order, SPD-2 (ECMWF default) | `grid_second_order` | ❌ Planned | Most common in ECMWF MARS-derived files. |
+| Second-order, SPD-3 | `grid_second_order_SPD3` | ❌ Planned | |
+| Second-order, row-by-row | `grid_second_order_row_by_row` | ❌ Planned | |
+| Second-order, constant width | `grid_second_order_constant_width` | ❌ Planned | |
+| Second-order, general (legacy) | `grid_second_order_general_grib1` | ❌ Planned | |
+| Spherical-harmonic coefficients | `spectral_simple` / `spectral_complex` | ❌ Planned | IFS analyses; needs an inverse Legendre transform. |
+| Matrix-of-values, IEEE float, JPEG/PNG, etc. | various | ❌ Planned | |
+
 ## Known limitations
 
 This is a beta. Things to be aware of:
