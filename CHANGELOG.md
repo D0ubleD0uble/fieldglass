@@ -65,6 +65,16 @@ Versioning follows the [VS Code pre-release convention](https://code.visualstudi
 
 ### Fixed
 
+- **GRIB1 PDS decimal scale factor `D` decoded as sign-magnitude** (per WMO
+  spec) instead of two's-complement. Octet 27 high bit is the sign, low 15
+  bits are the magnitude — reading the pair as a plain `i16` turned small
+  negatives like `D = -2` (wire `0x8002`) into `-32766`, which silently
+  multiplied every decoded value by `10^32766` (→ `±inf`). Both shipped
+  fixtures happen to use `D = 0`, so the bug was invisible until
+  cross-checking real ECMWF surface fields against eccodes. End-to-end
+  regression in `tests/decode_ecmwf_complex.rs` patches the fixture's
+  PDS to `D = -2` and pins the result against
+  `grib_set -s decimalScaleFactor=-2` (eccodes 2.34.1).
 - README feature matrix: replaced GitHub-only `$\color{red}{\textsf{Not yet}}$` LaTeX color hack with `❌ Not yet` so the table renders correctly inside the VS Code Marketplace listing as well as on GitHub (#25).
 - Codecov badge in the README showed `unknown` because the coverage workflow's tokenless upload was being rejected (`Token required - not valid tokenless upload`) and silently swallowed by `fail_ci_if_error: false`. Switched the upload to OIDC (`use_oidc: true` plus `id-token: write` permission), which is the recommended tokenless path on `codecov-action@v5` for trusted runs (#24).
 

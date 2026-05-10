@@ -105,3 +105,73 @@ fn decode_matches_eccodes_oracle() {
         );
     }
 }
+
+/// End-to-end regression for the PDS sign-magnitude D fix.
+///
+/// The shipped fixture has decimal scale factor D = 0, so a buggy
+/// two's-complement read of octets 26-27 happens to round-trip. To exercise
+/// the sign-magnitude path through the whole decode pipeline we patch the
+/// PDS D bytes from `0x0000` to `0x8002` (sign bit + magnitude 2 → D = -2).
+///
+/// With the correct sign-magnitude decode, every decoded value is scaled by
+/// `10^(-D) = 10^2 = 100`. With the previous two's-complement decode, the
+/// parser would read D = -32766 and multiply by `10^32766` → `+inf`,
+/// silently corrupting every value.
+///
+/// Cross-checked against `grib_set -s decimalScaleFactor=-2` on the same
+/// fixture (eccodes 2.34.1): min/max/mean and the same anchored samples
+/// land at exactly 100× the original oracle values.
+#[test]
+fn pds_negative_d_propagates_sign_magnitude_through_decode() {
+    let mut bytes = FIXTURE.to_vec();
+    let grib_off = bytes
+        .windows(4)
+        .position(|w| w == b"GRIB")
+        .expect("fixture has GRIB magic");
+    let pds_start = grib_off + 8;
+    assert_eq!(bytes[pds_start + 26], 0x00);
+    assert_eq!(bytes[pds_start + 27], 0x00);
+    bytes[pds_start + 26] = 0x80;
+    bytes[pds_start + 27] = 0x02;
+
+    let reader = Grib1Reader::from_bytes(bytes).expect("patched fixture parses");
+    let values = reader
+        .decode_message_values(0)
+        .expect("second-order decode succeeds with negative D");
+    let present: Vec<f64> = values
+        .into_iter()
+        .map(|v| v.expect("no missing values"))
+        .collect();
+
+    let min = present.iter().cloned().fold(f64::INFINITY, f64::min);
+    let max = present.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let mean: f64 = present.iter().sum::<f64>() / present.len() as f64;
+
+    let tol = 1e-1;
+    assert!(
+        (min - 1_907_487.255_9).abs() < tol,
+        "min was {min}, expected 1_907_487.2559"
+    );
+    assert!(
+        (max - 2_071_755.859_4).abs() < tol,
+        "max was {max}, expected 2_071_755.8594"
+    );
+    assert!(
+        (mean - 2_021_671.813_569_104_5).abs() < tol,
+        "mean was {mean}, expected 2_021_671.8135"
+    );
+
+    let samples: &[(usize, f64)] = &[
+        (0, 1_908_070.849_6),
+        (240, 1_908_567.785_6),
+        (14_400, 2_056_340.466_3),
+        (29_039, 1_991_786.438_0),
+    ];
+    for (i, expected) in samples {
+        let got = present[*i];
+        assert!(
+            (got - expected).abs() < tol,
+            "values[{i}] was {got}, expected {expected} (tol {tol})"
+        );
+    }
+}
