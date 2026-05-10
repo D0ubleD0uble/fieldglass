@@ -60,6 +60,7 @@ Versioning follows the [VS Code pre-release convention](https://code.visualstudi
   one message, `grid_second_order` SPD-2). Used by
   `tests/decode_ecmwf_complex.rs` to pin the variant-detection wiring;
   will become the oracle for the second-order decoder in a follow-up.
+- **GRIB2 Indicator Section parsing** — `fieldglass-grib2` now parses Section 0 (16 bytes), enumerating messages by walking 64-bit total-length offsets and surfacing edition, discipline (WMO Code Table 0.0 lookup), and total length. New `open_grib2` napi function dispatches `.grb2` / `.grib2` files to the tabular viewer instead of the previous "no messages found" fallback. Sections 1–7 remain follow-ups.
 
 ### Changed
 
