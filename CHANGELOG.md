@@ -9,6 +9,7 @@ Versioning follows the [VS Code pre-release convention](https://code.visualstudi
 ### Fixed
 
 - README feature matrix: replaced GitHub-only `$\color{red}{\textsf{Not yet}}$` LaTeX color hack with `❌ Not yet` so the table renders correctly inside the VS Code Marketplace listing as well as on GitHub (#25).
+- Codecov badge in the README showed `unknown` because the coverage workflow's tokenless upload was being rejected (`Token required - not valid tokenless upload`) and silently swallowed by `fail_ci_if_error: false`. Switched the upload to OIDC (`use_oidc: true` plus `id-token: write` permission), which is the recommended tokenless path on `codecov-action@v5` for trusted runs (#24).
 
 ## [0.1.0] — 2026-05-09
 
