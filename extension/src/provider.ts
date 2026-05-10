@@ -351,15 +351,48 @@ export class FieldglassEditorProvider
 
     const projectionSummary = describeProjection(meta);
 
-    panel.webview.postMessage({
-      type: "gridReady",
-      messageIndex,
-      values,
-      nx: meta.gridNi,
-      ny: meta.gridNj,
-      projectionSummary,
-      bitmapMask: anyMasked ? bitmapMask : undefined,
+    this.openRenderPanel(meta, values, anyMasked ? bitmapMask : undefined, projectionSummary);
+
+    panel.webview.postMessage({ type: "renderOpened", messageIndex });
+  }
+
+  /**
+   * Pop a separate webview tab beside the table view that paints the decoded
+   * grid at full resolution. Each render gets its own tab so users can compare
+   * messages side-by-side.
+   */
+  private openRenderPanel(
+    meta: MessageMeta,
+    values: Float64Array,
+    bitmapMask: Uint8Array | undefined,
+    projectionSummary: string
+  ): void {
+    const title = `Render: msg ${meta.messageIndex}`
+      + (meta.parameterAbbreviation ? ` — ${meta.parameterAbbreviation}` : "");
+    const panel = vscode.window.createWebviewPanel(
+      "fieldglass.render",
+      title,
+      { viewColumn: vscode.ViewColumn.Beside, preserveFocus: false },
+      { enableScripts: true, retainContextWhenHidden: false }
+    );
+    panel.webview.html = renderImagePanelHtml(panel.webview, meta, projectionSummary);
+    // Wait for the new panel's script to mount before posting the typed
+    // arrays, otherwise the message fires before the listener is attached.
+    const sub = panel.webview.onDidReceiveMessage((m: { type?: string }) => {
+      if (m && m.type === "ready") {
+        panel.webview.postMessage({
+          type: "gridReady",
+          messageIndex: meta.messageIndex,
+          values,
+          nx: meta.gridNi,
+          ny: meta.gridNj,
+          projectionSummary,
+          bitmapMask,
+        });
+        sub.dispose();
+      }
     });
+    panel.onDidDispose(() => sub.dispose());
   }
 
   /** Public for tests; webview message handler also calls into this. */
@@ -498,6 +531,7 @@ function renderHtml(
 
   if (messages && messages.length > 0) {
     const fmt1 = (v: number | null) => v !== null ? v.toFixed(3) : "—";
+    const COLSPAN = 12;
     const rows = messages.map((m) => {
       const gridDims = (m.gridNi !== null && m.gridNj !== null)
         ? `${m.gridNi}×${m.gridNj}` : "—";
@@ -507,12 +541,19 @@ function renderHtml(
         ? `<input type="number" class="p1-input" data-message-index="${m.messageIndex}" min="0" max="255" step="1" value="${m.forecastHours}" />`
         : escapeHtml(m.forecastDisplay);
       const canRender = m.gridNi !== null && m.gridNj !== null;
-      const renderCell = canRender
-        ? `<button type="button" class="render-btn" data-message-index="${m.messageIndex}">Render</button>`
-        : `<span class="render-na" title="Grid dimensions unknown">—</span>`;
+      const idx = m.messageIndex;
+      const expansionInner = canRender
+        ? `<button type="button" class="render-btn" data-message-index="${idx}">Render</button>
+           <div class="render-status" id="status-${idx}"></div>
+           <div class="render-legend">
+             Opens the rendered grid in a new editor tab. Painted in grid
+             coordinates (no map reprojection); bitmap-masked points render
+             as transparent.
+           </div>`
+        : `<div class="render-na">Render not available — grid dimensions unknown for this message.</div>`;
       return `
-      <tr>
-        <td>${m.messageIndex}</td>
+      <tr class="msg-row" data-message-index="${idx}">
+        <td>${idx}</td>
         <td>${escapeHtml(m.parameterName)}</td>
         <td>${escapeHtml(m.parameterAbbreviation)}</td>
         <td>${escapeHtml(m.parameterUnits)}</td>
@@ -524,7 +565,11 @@ function renderHtml(
         <td>${gridDims}</td>
         <td>${gridBounds}</td>
         <td>${escapeHtml(m.originatingCentre)}</td>
-        <td>${renderCell}</td>
+      </tr>
+      <tr class="expand-row" id="expand-${idx}" hidden>
+        <td class="expand-cell" colspan="${COLSPAN}">
+          <div class="expand-content">${expansionInner}</div>
+        </td>
       </tr>`;
     }).join("");
     const fcstHeader = editable ? "Fcst (p1)" : "Fcst";
@@ -535,30 +580,10 @@ function renderHtml(
           <th>#</th><th>Parameter</th><th>Abbrev</th><th>Units</th>
           <th>Level</th><th>Level Type</th><th>Reference Time</th><th>${fcstHeader}</th>
           <th>Grid</th><th>Size</th><th>Bounds (lat,lon)</th><th>Centre</th>
-          <th>Render</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
-    </table>
-    <section id="render-pane" class="render-pane" hidden>
-      <h2 class="render-title">Grid render</h2>
-      <div class="render-meta" id="render-meta"></div>
-      <div class="render-status" id="render-status"></div>
-      <div class="render-area">
-        <canvas id="render-canvas" class="render-canvas"></canvas>
-        <div class="colorbar-wrap">
-          <canvas id="colorbar-canvas" class="colorbar-canvas" width="20" height="200"></canvas>
-          <div class="colorbar-labels">
-            <div class="cb-max" id="cb-max">—</div>
-            <div class="cb-min" id="cb-min">—</div>
-          </div>
-        </div>
-      </div>
-      <div class="render-legend">
-        Painted in grid coordinates (no map reprojection). Bitmap-masked
-        points render as transparent.
-      </div>
-    </section>`;
+    </table>`;
   } else if (!isKnown && headerBytes && headerBytes.length > 0) {
     const hex = Array.from(headerBytes)
       .map((b) => b.toString(16).padStart(2, "0"))
@@ -591,133 +616,55 @@ function renderHtml(
     `img-src ${webview.cspSource} blob: data:`,
   ].join("; ");
 
-  // Embed the viridis LUT as a JSON literal once per page so the webview
-  // script can paint without reaching for any colormap library at runtime.
-  const lutJson = JSON.stringify(Array.from(VIRIDIS_LUT));
-
   const script = `
     <script nonce="${cspNonce}">
       (function () {
         const vscode = acquireVsCodeApi();
-        const VIRIDIS = new Uint8ClampedArray(${lutJson});
         const editable = ${editable ? "true" : "false"};
 
-        function paintGrid(values, bitmapMask, nx, ny, min, max) {
-          const total = nx * ny;
-          const span = max - min;
-          const denom = span > 0 ? span : 1;
-          const buf = new Uint8ClampedArray(total * 4);
-          for (let i = 0; i < total; i++) {
-            const v = values[i];
-            const masked = bitmapMask && bitmapMask[i] === 0;
-            const o = i * 4;
-            if (masked || !Number.isFinite(v)) {
-              buf[o] = 0; buf[o + 1] = 0; buf[o + 2] = 0; buf[o + 3] = 0;
-              continue;
-            }
-            let t = span > 0 ? (v - min) / denom : 0;
-            if (t < 0) t = 0; else if (t > 1) t = 1;
-            const idx = Math.round(t * 255) * 3;
-            buf[o] = VIRIDIS[idx];
-            buf[o + 1] = VIRIDIS[idx + 1];
-            buf[o + 2] = VIRIDIS[idx + 2];
-            buf[o + 3] = 255;
-          }
-          return new ImageData(buf, nx, ny);
-        }
+        function statusElFor(idx) { return document.getElementById('status-' + idx); }
+        function expansionFor(idx) { return document.getElementById('expand-' + idx); }
+        function rowFor(idx) { return document.querySelector('tr.msg-row[data-message-index="' + idx + '"]'); }
 
-        function paintColorbar(canvas) {
-          const ctx = canvas.getContext('2d');
-          if (!ctx) return;
-          const w = canvas.width, h = canvas.height;
-          const buf = new Uint8ClampedArray(w * h * 4);
-          for (let y = 0; y < h; y++) {
-            // top of bar = max, bottom = min
-            const t = 1 - y / Math.max(1, h - 1);
-            const idx = Math.round(t * 255) * 3;
-            for (let x = 0; x < w; x++) {
-              const o = (y * w + x) * 4;
-              buf[o] = VIRIDIS[idx];
-              buf[o + 1] = VIRIDIS[idx + 1];
-              buf[o + 2] = VIRIDIS[idx + 2];
-              buf[o + 3] = 255;
-            }
-          }
-          ctx.putImageData(new ImageData(buf, w, h), 0, 0);
-        }
-
-        function minMaxIgnoringMask(values, bitmapMask) {
-          let min = Infinity, max = -Infinity, seen = false;
-          for (let i = 0; i < values.length; i++) {
-            if (bitmapMask && bitmapMask[i] === 0) continue;
-            const v = values[i];
-            if (!Number.isFinite(v)) continue;
-            if (v < min) min = v;
-            if (v > max) max = v;
-            seen = true;
-          }
-          return seen ? { min, max } : null;
-        }
-
-        function setStatus(text) {
-          const el = document.getElementById('render-status');
+        function setStatus(idx, text) {
+          const el = statusElFor(idx);
           if (el) el.textContent = text;
         }
 
-        function showPane() {
-          const pane = document.getElementById('render-pane');
-          if (pane) pane.removeAttribute('hidden');
+        function collapseAll() {
+          document.querySelectorAll('tr.expand-row').forEach((er) => er.setAttribute('hidden', ''));
+          document.querySelectorAll('tr.msg-row.selected').forEach((r) => r.classList.remove('selected'));
         }
 
-        function handleGridReady(msg) {
-          showPane();
-          const canvas = document.getElementById('render-canvas');
-          const cb = document.getElementById('colorbar-canvas');
-          const meta = document.getElementById('render-meta');
-          const cbMin = document.getElementById('cb-min');
-          const cbMax = document.getElementById('cb-max');
-          if (!canvas || !cb) return;
-          const ctx = canvas.getContext('2d');
-          if (!ctx) return;
-
-          const nx = msg.nx, ny = msg.ny;
-          canvas.width = nx;
-          canvas.height = ny;
-
-          const range = minMaxIgnoringMask(msg.values, msg.bitmapMask);
-          if (!range) {
-            setStatus('Message ' + msg.messageIndex + ' has no usable grid points (all masked or non-finite).');
-            ctx.clearRect(0, 0, nx, ny);
-            paintColorbar(cb);
-            cbMin.textContent = '—';
-            cbMax.textContent = '—';
-            if (meta) meta.textContent = msg.projectionSummary || '';
-            return;
+        function selectRow(idx) {
+          const expansion = expansionFor(idx);
+          const row = rowFor(idx);
+          if (!expansion || !row) return;
+          const isOpen = !expansion.hasAttribute('hidden');
+          collapseAll();
+          if (!isOpen) {
+            expansion.removeAttribute('hidden');
+            row.classList.add('selected');
           }
-          const img = paintGrid(msg.values, msg.bitmapMask, nx, ny, range.min, range.max);
-          ctx.putImageData(img, 0, 0);
-          paintColorbar(cb);
-          cbMin.textContent = range.min.toPrecision(4);
-          cbMax.textContent = range.max.toPrecision(4);
-          const masked = msg.bitmapMask ? ' (transparent = bitmap-masked)' : '';
-          setStatus('Message ' + msg.messageIndex + ': ' + nx + '×' + ny
-                    + ', range ' + range.min.toPrecision(4) + ' … ' + range.max.toPrecision(4)
-                    + masked + '.');
-          if (meta) meta.textContent = msg.projectionSummary || '';
-        }
-
-        function handleGridError(msg) {
-          showPane();
-          setStatus('Render failed for message ' + msg.messageIndex + ': ' + msg.error);
         }
 
         function attach() {
+          document.querySelectorAll('tr.msg-row').forEach((row) => {
+            row.addEventListener('click', (ev) => {
+              // Don't toggle when the click was on an interactive descendant
+              // (button, input) inside the expanded row.
+              const t = ev.target;
+              if (t && (t.closest && t.closest('button, input, a'))) return;
+              const idx = Number(row.getAttribute('data-message-index'));
+              if (Number.isFinite(idx)) selectRow(idx);
+            });
+          });
           document.querySelectorAll('button.render-btn').forEach((el) => {
-            el.addEventListener('click', () => {
+            el.addEventListener('click', (ev) => {
+              ev.stopPropagation();
               const idx = Number(el.getAttribute('data-message-index'));
               if (!Number.isFinite(idx)) return;
-              showPane();
-              setStatus('Decoding message ' + idx + '…');
+              setStatus(idx, 'Decoding message ' + idx + '…');
               vscode.postMessage({ type: 'decodeGrid', messageIndex: idx });
             });
           });
@@ -739,12 +686,12 @@ function renderHtml(
         window.addEventListener('message', (event) => {
           const msg = event.data;
           if (!msg || typeof msg.type !== 'string') return;
-          if (msg.type === 'gridReady') {
-            handleGridReady(msg);
+          if (msg.type === 'renderOpened') {
+            setStatus(msg.messageIndex, 'Opened render of message ' + msg.messageIndex + ' in a new tab.');
             return;
           }
           if (msg.type === 'gridError') {
-            handleGridError(msg);
+            setStatus(msg.messageIndex, 'Render failed: ' + msg.error);
             return;
           }
           if (editable && msg.type === 'update' && Array.isArray(msg.messages)) {
@@ -794,7 +741,24 @@ function renderHtml(
     table { border-collapse: collapse; font-size: 0.85rem; width: 100%; }
     th, td { text-align: left; padding: 0.3rem 0.6rem; border-bottom: 1px solid var(--vscode-panel-border); white-space: nowrap; }
     th { color: var(--vscode-descriptionForeground); font-weight: 600; }
-    tr:hover td { background: var(--vscode-list-hoverBackground); }
+    tr.msg-row { cursor: pointer; }
+    tr.msg-row:hover td { background: var(--vscode-list-hoverBackground); }
+    tr.msg-row.selected td {
+      background: var(--vscode-list-activeSelectionBackground);
+      color: var(--vscode-list-activeSelectionForeground);
+    }
+    tr.expand-row td.expand-cell {
+      background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+      padding: 0.75rem 1rem;
+      white-space: normal;
+    }
+    .expand-content {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.5rem;
+    }
+    button.render-btn { white-space: nowrap; }
     .header-dump { margin-top: 1rem; }
     .dump-label { font-size: 0.8rem; color: var(--vscode-descriptionForeground); margin-bottom: 0.25rem; }
     code { display: block; font-family: var(--vscode-editor-font-family, monospace); font-size: 0.85rem; }
@@ -829,36 +793,257 @@ function renderHtml(
       outline: 1px solid var(--vscode-focusBorder);
       outline-offset: 1px;
     }
-    .render-na { color: var(--vscode-descriptionForeground); }
-    .render-pane {
-      margin-top: 2rem;
-      padding-top: 1rem;
-      border-top: 1px solid var(--vscode-panel-border);
+    .render-na { color: var(--vscode-descriptionForeground); font-size: 0.85rem; }
+    .render-status { font-size: 0.85rem; min-height: 1.1em; }
+    .render-legend { font-size: 0.75rem; color: var(--vscode-descriptionForeground); }
+  </style>
+</head>
+<body>
+  <h1>Fieldglass</h1>
+  <div class="subtitle">${escapeHtml(filename)}</div>
+  <div class="badge">${escapeHtml(label)}</div>
+  ${bodyContent}
+  ${script}
+</body>
+</html>`;
+}
+
+/**
+ * HTML for the standalone render-panel webview. Receives `gridReady` once
+ * after the page mounts and paints the values into a single large canvas
+ * with a vertical viridis colorbar.
+ */
+function renderImagePanelHtml(
+  webview: vscode.Webview,
+  meta: MessageMeta,
+  projectionSummary: string
+): string {
+  const cspNonce = nonce();
+  const csp = [
+    `default-src 'none'`,
+    `script-src 'nonce-${cspNonce}'`,
+    `style-src ${webview.cspSource} 'unsafe-inline'`,
+    `img-src ${webview.cspSource} blob: data:`,
+  ].join("; ");
+  const lutJson = JSON.stringify(Array.from(VIRIDIS_LUT));
+  const titleLine = `Message ${meta.messageIndex}`
+    + (meta.parameterName ? ` — ${meta.parameterName}` : "")
+    + (meta.parameterUnits ? ` (${meta.parameterUnits})` : "");
+  const subLine = [meta.level, meta.referenceTime, meta.forecastDisplay]
+    .filter((s) => !!s).join(" · ");
+
+  const script = `
+    <script nonce="${cspNonce}">
+      (function () {
+        const vscode = acquireVsCodeApi();
+        const VIRIDIS = new Uint8ClampedArray(${lutJson});
+
+        // The most-recently-received decoded grid. Cached so the user can
+        // toggle viewing settings (flip-y, manual range) and re-paint without
+        // a round-trip back to the Rust decoder.
+        let lastPayload = null;
+        let autoRange = null;
+
+        function paintGrid(values, bitmapMask, nx, ny, min, max, flipY) {
+          const total = nx * ny;
+          const span = max - min;
+          const denom = span > 0 ? span : 1;
+          const buf = new Uint8ClampedArray(total * 4);
+          for (let i = 0; i < total; i++) {
+            const v = values[i];
+            const masked = bitmapMask && bitmapMask[i] === 0;
+            const row = (i / nx) | 0;
+            const col = i - row * nx;
+            const outIdx = flipY ? (ny - 1 - row) * nx + col : i;
+            const o = outIdx * 4;
+            if (masked || !Number.isFinite(v)) {
+              buf[o] = 0; buf[o + 1] = 0; buf[o + 2] = 0; buf[o + 3] = 0;
+              continue;
+            }
+            let t = span > 0 ? (v - min) / denom : 0;
+            if (t < 0) t = 0; else if (t > 1) t = 1;
+            const idx = Math.round(t * 255) * 3;
+            buf[o] = VIRIDIS[idx];
+            buf[o + 1] = VIRIDIS[idx + 1];
+            buf[o + 2] = VIRIDIS[idx + 2];
+            buf[o + 3] = 255;
+          }
+          return new ImageData(buf, nx, ny);
+        }
+
+        function paintColorbar(canvas) {
+          const ctx = canvas.getContext('2d');
+          if (!ctx) return;
+          const w = canvas.width, h = canvas.height;
+          const buf = new Uint8ClampedArray(w * h * 4);
+          for (let y = 0; y < h; y++) {
+            const t = 1 - y / Math.max(1, h - 1);
+            const idx = Math.round(t * 255) * 3;
+            for (let x = 0; x < w; x++) {
+              const o = (y * w + x) * 4;
+              buf[o] = VIRIDIS[idx];
+              buf[o + 1] = VIRIDIS[idx + 1];
+              buf[o + 2] = VIRIDIS[idx + 2];
+              buf[o + 3] = 255;
+            }
+          }
+          ctx.putImageData(new ImageData(buf, w, h), 0, 0);
+        }
+
+        function minMaxIgnoringMask(values, bitmapMask) {
+          let min = Infinity, max = -Infinity, seen = false;
+          for (let i = 0; i < values.length; i++) {
+            if (bitmapMask && bitmapMask[i] === 0) continue;
+            const v = values[i];
+            if (!Number.isFinite(v)) continue;
+            if (v < min) min = v;
+            if (v > max) max = v;
+            seen = true;
+          }
+          return seen ? { min, max } : null;
+        }
+
+        function setStatus(text) {
+          const el = document.getElementById('status');
+          if (el) el.textContent = text;
+        }
+
+        function handleGridReady(msg) {
+          lastPayload = msg;
+          autoRange = minMaxIgnoringMask(msg.values, msg.bitmapMask);
+          // Pre-fill the manual-range inputs with the auto values so the user
+          // can switch to Manual without first having to type something.
+          if (autoRange) {
+            const minIn = document.getElementById('range-min');
+            const maxIn = document.getElementById('range-max');
+            if (minIn && !minIn.value) minIn.value = autoRange.min.toPrecision(6);
+            if (maxIn && !maxIn.value) maxIn.value = autoRange.max.toPrecision(6);
+          }
+          repaint();
+        }
+
+        function currentRange() {
+          const mode = document.querySelector('input[name="range-mode"]:checked');
+          if (mode && mode.value === 'manual') {
+            const min = Number(document.getElementById('range-min').value);
+            const max = Number(document.getElementById('range-max').value);
+            if (Number.isFinite(min) && Number.isFinite(max) && max > min) {
+              return { min, max };
+            }
+            // Fall back to auto on invalid manual input rather than refusing
+            // to paint — the inputs flag themselves with :invalid via the
+            // browser's number validation.
+          }
+          return autoRange;
+        }
+
+        function repaint() {
+          if (!lastPayload) return;
+          const canvas = document.getElementById('canvas');
+          const cb = document.getElementById('cb');
+          const cbMin = document.getElementById('cb-min');
+          const cbMax = document.getElementById('cb-max');
+          if (!canvas || !cb) return;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) return;
+
+          const nx = lastPayload.nx, ny = lastPayload.ny;
+          canvas.width = nx;
+          canvas.height = ny;
+          paintColorbar(cb);
+
+          const range = currentRange();
+          if (!range) {
+            setStatus(nx + '×' + ny + ' — no usable grid points (all masked or non-finite).');
+            ctx.clearRect(0, 0, nx, ny);
+            cbMin.textContent = '—';
+            cbMax.textContent = '—';
+            return;
+          }
+          const flipY = !!document.getElementById('flip-y') && document.getElementById('flip-y').checked;
+          const img = paintGrid(
+            lastPayload.values, lastPayload.bitmapMask,
+            nx, ny, range.min, range.max, flipY
+          );
+          ctx.putImageData(img, 0, 0);
+          cbMin.textContent = range.min.toPrecision(4);
+          cbMax.textContent = range.max.toPrecision(4);
+          const masked = lastPayload.bitmapMask ? ' · transparent = bitmap-masked' : '';
+          const flipNote = flipY ? ' · y-flipped' : '';
+          setStatus(nx + '×' + ny + ' · range ' + range.min.toPrecision(4)
+                    + ' … ' + range.max.toPrecision(4) + masked + flipNote);
+        }
+
+        function attachControls() {
+          const flip = document.getElementById('flip-y');
+          if (flip) flip.addEventListener('change', repaint);
+          document.querySelectorAll('input[name="range-mode"]').forEach((el) => {
+            el.addEventListener('change', () => {
+              const manual = document.getElementById('range-manual-fields');
+              const isManual = el.value === 'manual' && el.checked;
+              if (manual) manual.toggleAttribute('hidden', !isManual);
+              repaint();
+            });
+          });
+          ['range-min', 'range-max'].forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('change', repaint);
+          });
+        }
+
+        window.addEventListener('message', (event) => {
+          const msg = event.data;
+          if (!msg || typeof msg.type !== 'string') return;
+          if (msg.type === 'gridReady') handleGridReady(msg);
+        });
+
+        attachControls();
+        vscode.postMessage({ type: 'ready' });
+      })();
+    </script>
+  `;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="${csp}" />
+  <title>Fieldglass render</title>
+  <style>
+    body {
+      font-family: var(--vscode-font-family);
+      color: var(--vscode-foreground);
+      background: var(--vscode-editor-background);
+      padding: 1.5rem;
+      margin: 0;
     }
-    .render-title { font-size: 1.05rem; margin: 0 0 0.4rem 0; }
-    .render-meta { font-size: 0.85rem; color: var(--vscode-descriptionForeground); margin-bottom: 0.4rem; }
-    .render-status { font-size: 0.85rem; margin-bottom: 0.5rem; }
+    h1 { font-size: 1.1rem; margin: 0 0 0.2rem 0; }
+    .subtitle { color: var(--vscode-descriptionForeground); font-size: 0.85rem; margin-bottom: 0.5rem; }
+    .projection { color: var(--vscode-descriptionForeground); font-size: 0.8rem; margin-bottom: 0.75rem; }
+    #status { font-size: 0.85rem; margin-bottom: 0.75rem; min-height: 1.1em; }
     .render-area {
       display: flex;
       align-items: flex-start;
       gap: 0.75rem;
     }
-    .render-canvas {
+    canvas#canvas {
       max-width: 100%;
       height: auto;
       image-rendering: pixelated;
       background: var(--vscode-editor-background);
       border: 1px solid var(--vscode-panel-border);
+      flex: 1 1 auto;
     }
     .colorbar-wrap {
       display: flex;
       align-items: stretch;
       gap: 0.4rem;
-      height: 200px;
+      height: 320px;
+      flex: 0 0 auto;
     }
-    .colorbar-canvas {
-      width: 20px;
-      height: 200px;
+    canvas#cb {
+      width: 24px;
+      height: 320px;
       border: 1px solid var(--vscode-panel-border);
     }
     .colorbar-labels {
@@ -868,18 +1053,76 @@ function renderHtml(
       font-size: 0.75rem;
       color: var(--vscode-descriptionForeground);
     }
-    .render-legend {
-      margin-top: 0.5rem;
+    .legend {
+      margin-top: 0.75rem;
       font-size: 0.75rem;
       color: var(--vscode-descriptionForeground);
+    }
+    .toolbar {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.75rem 1.25rem;
+      padding: 0.5rem 0.75rem;
+      margin-bottom: 0.75rem;
+      border: 1px solid var(--vscode-panel-border);
+      border-radius: 3px;
+      background: var(--vscode-editorWidget-background, transparent);
+      font-size: 0.85rem;
+    }
+    .toolbar fieldset {
+      display: flex; align-items: center; gap: 0.5rem;
+      border: none; padding: 0; margin: 0;
+    }
+    .toolbar legend {
+      padding: 0;
+      font-size: 0.8rem;
+      color: var(--vscode-descriptionForeground);
+    }
+    .toolbar label { display: inline-flex; align-items: center; gap: 0.25rem; }
+    .toolbar input[type="number"] {
+      width: 7rem;
+      background: var(--vscode-input-background);
+      color: var(--vscode-input-foreground);
+      border: 1px solid var(--vscode-input-border, transparent);
+      padding: 0.1rem 0.3rem;
+      font-family: inherit;
+      font-size: inherit;
+    }
+    .toolbar input[type="number"]:focus {
+      outline: 1px solid var(--vscode-focusBorder);
+      outline-offset: -1px;
     }
   </style>
 </head>
 <body>
-  <h1>Fieldglass</h1>
-  <div class="subtitle">${escapeHtml(filename)}</div>
-  <div class="badge">${escapeHtml(label)}</div>
-  ${bodyContent}
+  <h1>${escapeHtml(titleLine)}</h1>
+  <div class="subtitle">${escapeHtml(subLine)}</div>
+  <div class="projection">${escapeHtml(projectionSummary)}</div>
+  <div class="toolbar" role="toolbar" aria-label="Render settings">
+    <label><input type="checkbox" id="flip-y"> Flip Y axis</label>
+    <fieldset>
+      <legend>Range:</legend>
+      <label><input type="radio" name="range-mode" value="auto" checked> Auto</label>
+      <label><input type="radio" name="range-mode" value="manual"> Manual</label>
+      <span id="range-manual-fields" hidden>
+        <label>min <input type="number" id="range-min" step="any"></label>
+        <label>max <input type="number" id="range-max" step="any"></label>
+      </span>
+    </fieldset>
+  </div>
+  <div id="status">Painting…</div>
+  <div class="render-area">
+    <canvas id="canvas" width="320" height="320"></canvas>
+    <div class="colorbar-wrap">
+      <canvas id="cb" width="24" height="320"></canvas>
+      <div class="colorbar-labels">
+        <div id="cb-max">—</div>
+        <div id="cb-min">—</div>
+      </div>
+    </div>
+  </div>
+  <div class="legend">Painted in grid coordinates (no map reprojection). Bitmap-masked points render as transparent.</div>
   ${script}
 </body>
 </html>`;

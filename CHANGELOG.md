@@ -8,13 +8,17 @@ Versioning follows the [VS Code pre-release convention](https://code.visualstudi
 
 ### Added
 
-- **GRIB1 2-D grid rendering in the webview.** Each metadata row now exposes a
-  per-message *Render* button that decodes the message via the existing napi
-  `decode_grid` and paints the values into a `<canvas>` using a baked-in
-  256-entry **viridis** colormap (no colormap library dependency). A vertical
+- **GRIB1 2-D grid rendering in a dedicated tab.** Clicking a metadata row
+  expands an inline panel between that row and the next, exposing a
+  per-message *Render* button. Pressing *Render* decodes the message via the
+  existing napi `decode_grid` and opens a new editor tab beside the table
+  that paints the values into a `<canvas>` using a baked-in 256-entry
+  **viridis** colormap (no colormap library dependency). A vertical
   colorbar shows the data min/max (computed from the grid itself, excluding
-  bitmap-masked points). Render is button-triggered for v1 — selecting a row
-  does not auto-decode — to keep the metadata-only path fast.
+  bitmap-masked points). Each render gets its own tab so messages can be
+  compared side-by-side. Render is button-triggered — selecting a row only
+  expands the panel, it does not auto-decode — to keep the metadata-only
+  path fast.
 - **Bitmap-masked points render as transparent (alpha = 0)** so missing data
   reads as "no value" against the editor background. The render-pane legend
   documents this policy.
