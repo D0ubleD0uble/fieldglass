@@ -45,7 +45,7 @@ A GRIB1 file's BDS (Binary Data Section) flag bits select one of several packing
 | Constant field (`bits_per_value = 0`) | `grid_simple` | ✅ | Special case of simple packing. |
 | Second-order, no SPD | `grid_second_order_no_SPD` | ❌ Planned | |
 | Second-order, SPD-1 | `grid_second_order_SPD1` | ❌ Planned | |
-| Second-order, SPD-2 (ECMWF default) | `grid_second_order` | ❌ Planned | Most common in ECMWF MARS-derived files. |
+| Second-order, SPD-2 (ECMWF default) | `grid_second_order` | ✅ | Most common in ECMWF MARS-derived files. Cross-validated against eccodes 2.34. |
 | Second-order, SPD-3 | `grid_second_order_SPD3` | ❌ Planned | |
 | Second-order, row-by-row | `grid_second_order_row_by_row` | ❌ Planned | |
 | Second-order, constant width | `grid_second_order_constant_width` | ❌ Planned | |

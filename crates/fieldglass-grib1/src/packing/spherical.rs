@@ -21,6 +21,7 @@ impl Grib1Packing for SphericalPacking {
         _decimal_scale: i16,
         _bitmap: Option<&[bool]>,
         _expected_count: usize,
+        _cols: usize,
     ) -> Result<Vec<Option<f64>>, FieldglassError> {
         Err(FieldglassError::UnsupportedSection(
             "BDS uses spherical-harmonic coefficients (not yet supported — \

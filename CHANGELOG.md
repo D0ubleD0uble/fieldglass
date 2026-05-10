@@ -36,9 +36,18 @@ Versioning follows the [VS Code pre-release convention](https://code.visualstudi
   general-extended, boustrophedonic, two-orders-of-SPD, plus-one-in-SPD)
   plus a derived `order_of_spd()` and `packing_type_label()` that mirrors
   eccodes' `packingType` (`grid_second_order`, `grid_second_order_SPD3`,
-  `grid_second_order_row_by_row`, etc.). The `ComplexPacking` decoder
-  uses the label in its `UnsupportedSection` error so users can grep
-  their failing files against the eccodes documentation directly.
+  `grid_second_order_row_by_row`, etc.).
+- **GRIB1 `grid_second_order` decoder** for the general-extended family
+  (`secondOrderOfDifferentWidth=1`, `secondaryBitmapPresent=0`,
+  `generalExtended2ordr=1`). Lives at
+  `crates/fieldglass-grib1/src/packing/second_order.rs` and handles
+  `orderOfSPD ∈ 0..=3` plus boustrophedonic row-scan reordering. The
+  control flow mirrors `DataG1SecondOrderGeneralExtendedPacking::unpack`
+  in eccodes' source, with the byte-aligned section sizing rule from
+  `Spd::compute_byte_count` / `UnsignedBits::compute_byte_count`. Pinned
+  end-to-end against a `grib_get_data` snapshot of an ECMWF MARS-derived
+  fixture: 29,040 grid points, every anchored sample matches eccodes to
+  within 1e-3.
 - **GRIB1 packing-mode compatibility table** in the README, distinguishing
   metadata coverage (every variant) from decode/render coverage (simple
   packing only today).

@@ -171,23 +171,29 @@ pub fn parse_bds_header(bytes: &[u8]) -> Result<BdsHeader, FieldglassError> {
 /// `header` is the parsed header for `bds`; `decimal_scale` is the PDS
 /// `decimal_scale_factor` (D); `bitmap` is the BMS bitmap if one was
 /// present; `expected_count` is the total number of grid points (from the
-/// GDS).
+/// GDS); `cols` is the GDS column count (used by complex/second-order
+/// decoders to undo boustrophedonic row-scan — simple packing ignores it).
 ///
 /// Returns one `Option<f64>` per grid point: `None` for points masked out
 /// by the bitmap, `Some(value)` otherwise. The actual decoding is
 /// delegated to a [`crate::packing::Grib1Packing`] implementation chosen
-/// by the BDS flag bits — only simple grid-point packing is implemented
-/// today; complex/second-order and spherical-harmonic packings surface
-/// [`FieldglassError::UnsupportedSection`] with a message naming the
-/// specific packing mode.
+/// by the BDS flag bits.
 pub fn decode_values(
     bds: &[u8],
     header: &BdsHeader,
     decimal_scale: i16,
     bitmap: Option<&[bool]>,
     expected_count: usize,
+    cols: usize,
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
-    crate::packing::decoder_for(header).decode(bds, header, decimal_scale, bitmap, expected_count)
+    crate::packing::decoder_for(header).decode(
+        bds,
+        header,
+        decimal_scale,
+        bitmap,
+        expected_count,
+        cols,
+    )
 }
 
 fn read_u24(b: &[u8]) -> u32 {
@@ -220,7 +226,7 @@ mod tests {
             complex_extended: None,
         };
         let bds = vec![0u8; BDS_DATA_OFFSET];
-        let out = decode_values(&bds, &header, 0, None, 4).unwrap();
+        let out = decode_values(&bds, &header, 0, None, 4, 0).unwrap();
         assert_eq!(out, vec![Some(42.0); 4]);
     }
 
@@ -237,7 +243,7 @@ mod tests {
         ]);
         bds[10] = 8; // N
         let header = parse_bds_header(&bds).unwrap();
-        let out = decode_values(&bds, &header, 0, None, 4).unwrap();
+        let out = decode_values(&bds, &header, 0, None, 4, 0).unwrap();
         assert_eq!(out, vec![Some(1.0), Some(2.0), Some(3.0), Some(4.0)]);
     }
 
@@ -254,7 +260,7 @@ mod tests {
         bds[10] = 8;
         let header = parse_bds_header(&bds).unwrap();
         let bitmap = [true, false, true, false];
-        let out = decode_values(&bds, &header, 0, Some(&bitmap), 4).unwrap();
+        let out = decode_values(&bds, &header, 0, Some(&bitmap), 4, 0).unwrap();
         assert_eq!(out, vec![Some(7.0), None, Some(9.0), None]);
     }
 
@@ -265,7 +271,7 @@ mod tests {
         bds[3] = 0x40; // complex packing flag
         let header = parse_bds_header(&bds).unwrap();
         assert!(matches!(
-            decode_values(&bds, &header, 0, None, 1).unwrap_err(),
+            decode_values(&bds, &header, 0, None, 1, 0).unwrap_err(),
             FieldglassError::UnsupportedSection(_)
         ));
     }
@@ -276,7 +282,7 @@ mod tests {
         bds[0..3].copy_from_slice(&[0, 0, BDS_DATA_OFFSET as u8]);
         bds[3] = 0x80; // spherical-harmonic flag
         let header = parse_bds_header(&bds).unwrap();
-        let err = decode_values(&bds, &header, 0, None, 1).unwrap_err();
+        let err = decode_values(&bds, &header, 0, None, 1, 0).unwrap_err();
         match err {
             FieldglassError::UnsupportedSection(msg) => {
                 assert!(msg.contains("spherical-harmonic"), "msg = {msg:?}");

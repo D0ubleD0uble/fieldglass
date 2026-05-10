@@ -83,6 +83,7 @@ impl Grib1Reader {
             msg.pds.decimal_scale_factor,
             bitmap_bits,
             expected_count,
+            ni as usize,
         )
     }
 }

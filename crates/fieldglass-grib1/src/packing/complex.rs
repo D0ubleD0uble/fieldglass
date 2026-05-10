@@ -17,24 +17,53 @@ pub struct ComplexPacking;
 impl Grib1Packing for ComplexPacking {
     fn decode(
         &self,
-        _bds: &[u8],
+        bds: &[u8],
         header: &BdsHeader,
-        _decimal_scale: i16,
-        _bitmap: Option<&[bool]>,
-        _expected_count: usize,
+        decimal_scale: i16,
+        bitmap: Option<&[bool]>,
+        expected_count: usize,
+        cols: usize,
     ) -> Result<Vec<Option<f64>>, FieldglassError> {
-        // Use the parsed extended-flag bits to surface the eccodes-style
-        // packingType (e.g. `grid_second_order`, `grid_second_order_SPD3`)
-        // rather than a generic "complex packing" message. Lets users grep
-        // their failing files against eccodes' documentation directly.
-        let label = header
-            .complex_extended
-            .map(|c| c.packing_type_label())
-            .unwrap_or("complex (no extended header — likely WMO-strict second-order)");
+        let ext = header.complex_extended.ok_or_else(|| {
+            // Strict-WMO complex packing without the extra-flags octet
+            // is undocumented in eccodes' GRIB1 templates and not seen in
+            // any operational source we know of; surface it explicitly.
+            FieldglassError::UnsupportedSection(
+                "BDS uses complex packing without extra-flags octet — \
+                 layout undefined in eccodes' GRIB1 templates."
+                    .into(),
+            )
+        })?;
+
+        let label = ext.packing_type_label();
+
+        // Route the variants the second-order decoder handles. Today that's
+        // the general-extended (`generalExtended2ordr = 1`,
+        // `secondOrderOfDifferentWidth = 1`, `secondaryBitmapPresent = 0`)
+        // family — no SPD, SPD-1, SPD-2 (eccodes' canonical
+        // `grid_second_order`), and SPD-3. Other packings (matrix,
+        // secondary-bitmap, row-by-row, constant-width) return an
+        // unsupported error naming the eccodes packingType.
+        let supported_general_extended = !ext.matrix_of_values()
+            && !ext.secondary_bitmap_present()
+            && ext.second_order_of_different_width()
+            && ext.general_extended_2ordr();
+
+        if supported_general_extended {
+            return super::second_order::decode(
+                bds,
+                header,
+                decimal_scale,
+                bitmap,
+                expected_count,
+                cols,
+            );
+        }
+
         Err(FieldglassError::UnsupportedSection(format!(
             "BDS uses complex / second-order packing — variant `{label}`. \
-             Decoder not yet implemented; only simple grid-point packing \
-             decodes today."
+             Decoder for this variant is not yet implemented; only the \
+             general-extended `grid_second_order_*` family decodes today."
         )))
     }
 }

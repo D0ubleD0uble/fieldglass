@@ -18,14 +18,18 @@ use fieldglass_core::FieldglassError;
 use crate::bds::BdsHeader;
 
 pub mod complex;
+pub mod second_order;
 pub mod simple;
 pub mod spherical;
 
 /// A BDS packing decoder. Implementors take the full Binary Data Section
 /// (starting at its 3-byte length prefix), the parsed header, the PDS
-/// decimal scale factor, an optional per-point bitmap (from BMS), and the
-/// total grid-point count from the GDS, and return one `Option<f64>` per
-/// grid point — `None` for bitmap-masked points, `Some(value)` otherwise.
+/// decimal scale factor, an optional per-point bitmap (from BMS), the
+/// total grid-point count from the GDS, and the grid's column count
+/// `cols` (used by complex/second-order decoders to undo boustrophedonic
+/// row scanning — simple-packing impls ignore it). They return one
+/// `Option<f64>` per grid point — `None` for bitmap-masked points,
+/// `Some(value)` otherwise.
 pub trait Grib1Packing {
     fn decode(
         &self,
@@ -34,6 +38,7 @@ pub trait Grib1Packing {
         decimal_scale: i16,
         bitmap: Option<&[bool]>,
         expected_count: usize,
+        cols: usize,
     ) -> Result<Vec<Option<f64>>, FieldglassError>;
 }
 
