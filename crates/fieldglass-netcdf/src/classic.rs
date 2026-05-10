@@ -446,15 +446,16 @@ impl<'a> Parser<'a> {
         }
         let mut dim_ids = Vec::with_capacity(dimensionality as usize);
         for _ in 0..dimensionality {
-            let d = self.read_u32_be()?;
-            // dim ids are written as 4-byte BE integers regardless of CDF
-            // version; the spec is explicit on this.
-            if (d as usize) >= num_dims {
+            // `dimid` is `NON_NEG`: 4 bytes for CDF-1/2, 8 bytes for CDF-5
+            // (matching what `libnetcdf` and PnetCDF write — verified against
+            // a CDF-5 file produced by the canonical `netCDF4` Python writer).
+            let raw = self.read_nonneg()?;
+            if raw >= num_dims as u64 {
                 return Err(FieldglassError::Parse(format!(
-                    "variable {name:?} references dim id {d} but only {num_dims} dimensions exist"
+                    "variable {name:?} references dim id {raw} but only {num_dims} dimensions exist"
                 )));
             }
-            dim_ids.push(d);
+            dim_ids.push(raw as u32);
         }
         let attributes = self.read_att_list()?;
         let type_code = self.read_u32_be()?;
