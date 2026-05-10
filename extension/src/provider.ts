@@ -23,9 +23,40 @@ interface MessageMeta {
   format: string;
 }
 
+interface DimensionMeta {
+  name: string;
+  length: number;
+  isRecord: boolean;
+}
+
+interface AttributeMeta {
+  name: string;
+  ncType: string;
+  value: string;
+}
+
+interface VariableMeta {
+  name: string;
+  ncType: string;
+  dimensions: string[];
+  attributes: AttributeMeta[];
+}
+
+interface DatasetMeta {
+  backing: string;
+  backingLabel: string;
+  fullyParsed: boolean;
+  note?: string;
+  dimensions: DimensionMeta[];
+  globalAttributes: AttributeMeta[];
+  variables: VariableMeta[];
+  hdf5SuperblockVersion?: number;
+}
+
 let fieldglass: {
   detectBytes: (bytes: Uint8Array) => string;
   openGrib1: (bytes: Uint8Array) => MessageMeta[];
+  openNetcdf: (bytes: Uint8Array) => DatasetMeta;
   decodeGrid: (bytes: Uint8Array, messageIndex: number) => Array<number | null>;
   setP1: (bytes: Uint8Array, messageIndex: number, value: number) => Buffer;
 } | undefined;
@@ -167,6 +198,16 @@ export class FieldglassEditorProvider
     const messages = (native && format === "grib1")
       ? native.openGrib1(document.bytes)
       : undefined;
+    let dataset: DatasetMeta | undefined;
+    if (native && format === "netcdf") {
+      try {
+        dataset = native.openNetcdf(document.bytes);
+      } catch (err) {
+        console.error("[Fieldglass] openNetcdf failed:", err);
+        // Leave `dataset` undefined; the renderer will fall back to the
+        // "no messages found" status string with the format badge intact.
+      }
+    }
     const headerBytes = format === "unknown" ? header : undefined;
     // Editing wiring (set_p1, undo/redo, save, webview script + input) is kept
     // intact for when general PDS field editing lands, but disabled at the
@@ -180,6 +221,7 @@ export class FieldglassEditorProvider
       format,
       document.uri.fsPath,
       messages,
+      dataset,
       headerBytes,
       editable
     );
@@ -357,11 +399,102 @@ function nonce(): string {
   return s;
 }
 
+function renderDatasetBody(d: DatasetMeta): string {
+  // Long attribute strings are common in CF-Convention NetCDF files; truncate
+  // for the row view but keep the full text in the title attribute so users
+  // can hover to read it. Numeric attributes never hit this limit.
+  const ATTR_PREVIEW_LIMIT = 120;
+  const previewAttr = (s: string): string => {
+    if (s.length <= ATTR_PREVIEW_LIMIT) return escapeHtml(s);
+    return escapeHtml(s.slice(0, ATTR_PREVIEW_LIMIT)) + "…";
+  };
+
+  const sections: string[] = [];
+
+  if (!d.fullyParsed && d.note) {
+    const versionLine = d.hdf5SuperblockVersion !== undefined
+      ? `<div class="status">HDF5 superblock version: ${d.hdf5SuperblockVersion}</div>`
+      : "";
+    sections.push(`
+      <div class="netcdf-notice">
+        <div class="dump-label">${escapeHtml(d.backingLabel)}</div>
+        <div class="status">${escapeHtml(d.note)}</div>
+        ${versionLine}
+      </div>`);
+    return sections.join("\n");
+  }
+
+  sections.push(`<div class="dump-label">${escapeHtml(d.backingLabel)}</div>`);
+
+  if (d.dimensions.length > 0) {
+    const rows = d.dimensions.map((dim) => `
+      <tr>
+        <td>${escapeHtml(dim.name)}</td>
+        <td>${dim.isRecord ? "unlimited" : String(dim.length)}</td>
+        <td>${dim.isRecord ? "record" : "fixed"}</td>
+      </tr>`).join("");
+    sections.push(`
+      <h2>Dimensions</h2>
+      <table>
+        <thead><tr><th>Name</th><th>Length</th><th>Kind</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`);
+  }
+
+  if (d.globalAttributes.length > 0) {
+    const rows = d.globalAttributes.map((a) => `
+      <tr>
+        <td>${escapeHtml(a.name)}</td>
+        <td>${escapeHtml(a.ncType)}</td>
+        <td title="${escapeHtml(a.value)}">${previewAttr(a.value)}</td>
+      </tr>`).join("");
+    sections.push(`
+      <h2>Global attributes</h2>
+      <table>
+        <thead><tr><th>Name</th><th>Type</th><th>Value</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`);
+  }
+
+  if (d.variables.length > 0) {
+    const rows = d.variables.map((v) => {
+      const dims = v.dimensions.length > 0
+        ? v.dimensions.map(escapeHtml).join(", ")
+        : "—";
+      const attrPreview = v.attributes.length === 0
+        ? "—"
+        : v.attributes.slice(0, 3).map((a) =>
+            `${escapeHtml(a.name)}=${previewAttr(a.value)}`
+          ).join("; ") + (v.attributes.length > 3 ? `; +${v.attributes.length - 3} more` : "");
+      return `
+      <tr>
+        <td>${escapeHtml(v.name)}</td>
+        <td>${escapeHtml(v.ncType)}</td>
+        <td>${dims}</td>
+        <td>${attrPreview}</td>
+      </tr>`;
+    }).join("");
+    sections.push(`
+      <h2>Variables</h2>
+      <table>
+        <thead><tr><th>Name</th><th>Type</th><th>Dimensions</th><th>Attributes</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`);
+  }
+
+  if (d.dimensions.length === 0 && d.globalAttributes.length === 0 && d.variables.length === 0) {
+    sections.push(`<div class="status">Empty NetCDF dataset.</div>`);
+  }
+
+  return sections.join("\n");
+}
+
 function renderHtml(
   webview: vscode.Webview,
   format: string,
   filePath: string,
   messages: MessageMeta[] | undefined,
+  dataset: DatasetMeta | undefined,
   headerBytes: Uint8Array | undefined,
   editable: boolean
 ): string {
@@ -413,6 +546,8 @@ function renderHtml(
       </thead>
       <tbody>${rows}</tbody>
     </table>`;
+  } else if (dataset) {
+    bodyContent = renderDatasetBody(dataset);
   } else if (!isKnown && headerBytes && headerBytes.length > 0) {
     const hex = Array.from(headerBytes)
       .map((b) => b.toString(16).padStart(2, "0"))
@@ -484,6 +619,8 @@ function renderHtml(
       margin: 0;
     }
     h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
+    h2 { font-size: 1.05rem; margin-top: 1.5rem; margin-bottom: 0.4rem; color: var(--vscode-descriptionForeground); font-weight: 600; }
+    .netcdf-notice { margin-top: 1rem; }
     .subtitle { color: var(--vscode-descriptionForeground); font-size: 0.9rem; margin-bottom: 2rem; }
     .badge {
       display: inline-block;

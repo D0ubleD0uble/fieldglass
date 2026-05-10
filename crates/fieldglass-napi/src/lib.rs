@@ -5,6 +5,7 @@ use fieldglass_grib1::{
     Grib1Reader,
     tables::{lookup_centre, lookup_parameter},
 };
+use fieldglass_netcdf::{NetcdfBacking, NetcdfReader};
 use napi_derive::napi;
 
 /// A single message's metadata, exposed to Node.js.
@@ -136,4 +137,151 @@ pub fn open_grib1(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<Vec<Mess
         });
     }
     Ok(result)
+}
+
+// ---------------------------------------------------------------------------
+// NetCDF
+// ---------------------------------------------------------------------------
+
+/// One NetCDF dimension, flattened for the JS boundary.
+#[napi(object)]
+pub struct DimensionMeta {
+    pub name: String,
+    /// Length of the dimension. `0` is a valid display value for the
+    /// unlimited / record dimension (with `is_record == true`).
+    pub length: f64,
+    pub is_record: bool,
+}
+
+/// One NetCDF attribute (global or per-variable). `value` is already a
+/// human-readable string — UTF-8 for Char attributes, comma-separated decimal
+/// for numeric ones — so the provider can render it as-is.
+#[napi(object)]
+pub struct AttributeMeta {
+    pub name: String,
+    pub nc_type: String,
+    pub value: String,
+}
+
+/// One NetCDF variable, flattened for the JS boundary. `dimensions` lists
+/// resolved dimension names (in declared order) so the provider doesn't need
+/// to cross-reference dim ids itself.
+#[napi(object)]
+pub struct VariableMeta {
+    pub name: String,
+    pub nc_type: String,
+    pub dimensions: Vec<String>,
+    pub attributes: Vec<AttributeMeta>,
+}
+
+/// Top-level NetCDF dataset metadata. Covers what's exposable from the
+/// header alone; per-variable values are a separate decode step (out of
+/// scope for issue #29).
+#[napi(object)]
+pub struct DatasetMeta {
+    /// `"classic"` (CDF-1/2/5) or `"hdf5"` (NetCDF-4).
+    pub backing: String,
+    /// Human-readable label, e.g. `"NetCDF classic (CDF-1)"` or
+    /// `"NetCDF-4 / HDF5"`.
+    pub backing_label: String,
+    /// `true` if dimensions / variables / attributes are populated;
+    /// `false` for HDF5 today (deep parsing is a follow-up).
+    pub fully_parsed: bool,
+    /// Free-form note for the provider to surface when `fully_parsed` is
+    /// false — e.g. "NetCDF-4 / HDF5 deep parsing not yet implemented".
+    pub note: Option<String>,
+    pub dimensions: Vec<DimensionMeta>,
+    pub global_attributes: Vec<AttributeMeta>,
+    pub variables: Vec<VariableMeta>,
+    /// HDF5 superblock version, when applicable. `None` for classic files.
+    pub hdf5_superblock_version: Option<i32>,
+}
+
+/// Parse a NetCDF file from raw bytes and return the top-level dataset
+/// metadata. Errors only for files that are neither classic CDF nor HDF5;
+/// HDF5 files succeed with `fully_parsed = false`.
+#[napi]
+pub fn open_netcdf(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<DatasetMeta> {
+    let reader = NetcdfReader::from_bytes(bytes.to_vec())
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    Ok(dataset_meta_from(reader))
+}
+
+fn dataset_meta_from(reader: NetcdfReader) -> DatasetMeta {
+    let label = reader.backing.label().to_string();
+    match reader.backing {
+        NetcdfBacking::Classic(h) => {
+            let dim_names: Vec<String> = h.dimensions.iter().map(|d| d.name.clone()).collect();
+            let dimensions = h
+                .dimensions
+                .iter()
+                .map(|d| DimensionMeta {
+                    name: d.name.clone(),
+                    length: d.length as f64,
+                    is_record: d.is_record,
+                })
+                .collect();
+            let global_attributes = h
+                .global_attributes
+                .iter()
+                .map(|a| AttributeMeta {
+                    name: a.name.clone(),
+                    nc_type: a.nc_type.name().to_string(),
+                    value: a.value.clone(),
+                })
+                .collect();
+            let variables = h
+                .variables
+                .iter()
+                .map(|v| VariableMeta {
+                    name: v.name.clone(),
+                    nc_type: v.nc_type.name().to_string(),
+                    dimensions: v
+                        .dim_ids
+                        .iter()
+                        .map(|&id| {
+                            dim_names
+                                .get(id as usize)
+                                .cloned()
+                                .unwrap_or_else(|| format!("dim#{id}"))
+                        })
+                        .collect(),
+                    attributes: v
+                        .attributes
+                        .iter()
+                        .map(|a| AttributeMeta {
+                            name: a.name.clone(),
+                            nc_type: a.nc_type.name().to_string(),
+                            value: a.value.clone(),
+                        })
+                        .collect(),
+                })
+                .collect();
+            DatasetMeta {
+                backing: "classic".to_string(),
+                backing_label: label,
+                fully_parsed: true,
+                note: None,
+                dimensions,
+                global_attributes,
+                variables,
+                hdf5_superblock_version: None,
+            }
+        }
+        NetcdfBacking::Hdf5(probe) => DatasetMeta {
+            backing: "hdf5".to_string(),
+            backing_label: label,
+            fully_parsed: false,
+            note: Some(
+                "NetCDF-4 / HDF5 deep parsing is not yet implemented; \
+                 only the superblock has been validated. Classic NetCDF \
+                 (CDF-1 / CDF-2 / CDF-5) renders fully."
+                    .to_string(),
+            ),
+            dimensions: Vec::new(),
+            global_attributes: Vec::new(),
+            variables: Vec::new(),
+            hdf5_superblock_version: Some(probe.superblock_version as i32),
+        },
+    }
 }

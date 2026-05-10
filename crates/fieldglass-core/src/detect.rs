@@ -19,8 +19,8 @@ pub fn detect_from_bytes(bytes: &[u8]) -> Format {
             _ => Format::Unknown,
         };
     }
-    // NetCDF classic / 64-bit offset: "CDF\x01" or "CDF\x02"
-    if bytes.len() >= 4 && &bytes[0..3] == b"CDF" && (bytes[3] == 1 || bytes[3] == 2) {
+    // NetCDF classic / 64-bit offset / CDF-5: "CDF\x01", "CDF\x02", "CDF\x05"
+    if bytes.len() >= 4 && &bytes[0..3] == b"CDF" && matches!(bytes[3], 1 | 2 | 5) {
         return Format::NetCdf;
     }
     // NetCDF-4 / HDF5: "\x89HDF\r\n\x1a\n"

@@ -6,6 +6,13 @@ Versioning follows the [VS Code pre-release convention](https://code.visualstudi
 
 ## [Unreleased]
 
+### Added
+
+- **NetCDF classic header parser** — pure-Rust reader covering CDF-1 (32-bit offsets), CDF-2 (64-bit offsets), and CDF-5 (64-bit sizes / extended numeric types). Exposes dimensions (with the unlimited / record dim flagged), global attributes, and per-variable type / dim-refs / attributes via a new `NetcdfReader` and the napi `open_netcdf` entry point.
+- **HDF5 / NetCDF-4 detection + superblock probe** — files are validated, the superblock version is reported, and the metadata view surfaces a clear "deep parsing not yet implemented" notice. Deep HDF5 traversal is a deliberate scope cut tracked in a follow-up issue.
+- **NetCDF metadata view** — `.nc` / `.nc4` / `.netcdf` files now render their dimensions, global attributes, and variables instead of "no messages found." Long attribute values are truncated with the full text on hover.
+- **CDF-5 magic-byte detection** — `detect_from_bytes` now recognizes `CDF\x05` in addition to `CDF\x01` / `CDF\x02`.
+
 ## [0.1.0] — 2026-05-09
 
 First public release, on the Marketplace pre-release channel. Read-only metadata viewer for GRIB1; GRIB2 and NetCDF detection only.
