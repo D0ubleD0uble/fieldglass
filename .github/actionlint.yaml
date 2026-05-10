@@ -1,0 +1,8 @@
+# actionlint config — the GitHub-hosted runner database in upstream
+# actionlint lags behind new GitHub Actions runner image announcements,
+# so labels for newly-introduced images are listed here to suppress the
+# "unknown labels" error until upstream picks them up.
+self-hosted-runner:
+  labels:
+    # Announced 2026-05; replaces windows-latest/windows-2025 by 2026-05-12.
+    - windows-2025-vs2026
