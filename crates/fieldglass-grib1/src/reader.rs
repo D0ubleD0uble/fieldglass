@@ -29,6 +29,15 @@ impl Grib1Message {
     }
 }
 
+/// Hard cap on `ni * nj` accepted by `decode_message_values`. The largest
+/// real-world GRIB1 grids (e.g. ECMWF T1279 reduced gaussian, ~6.6M points;
+/// 0.05° global, ~25M points) sit comfortably below this; anything larger is
+/// almost certainly a corrupt or hostile GDS. The cap protects the napi
+/// worker from being driven into multi-GB allocations by a crafted file —
+/// `Vec<Option<f64>>` is 16 bytes per element, so 64M caps the worst-case
+/// allocation at ~1 GB.
+pub const MAX_GRID_POINTS: usize = 64 * 1024 * 1024;
+
 pub struct Grib1Reader {
     data: Vec<u8>,
     pub messages: Vec<Grib1Message>,
@@ -66,7 +75,18 @@ impl Grib1Reader {
         let (ni, nj) = gds.dimensions().ok_or_else(|| {
             FieldglassError::Parse("grid type has no declared dimensions".to_string())
         })?;
-        let expected_count = ni as usize * nj as usize;
+        // ni and nj come straight from the GDS (each ≤ u32::MAX), so their
+        // product can overflow u32 *and* exceed memory. checked_mul guards
+        // overflow on 32-bit; MAX_GRID_POINTS guards a hostile-but-valid
+        // GDS like ni=nj=65535 (~4.3B points → ~70 GB allocation).
+        let expected_count = (ni as usize).checked_mul(nj as usize).ok_or_else(|| {
+            FieldglassError::Parse(format!("grid dimensions {ni}×{nj} overflow usize"))
+        })?;
+        if expected_count > MAX_GRID_POINTS {
+            return Err(FieldglassError::Parse(format!(
+                "grid {ni}×{nj} = {expected_count} points exceeds cap of {MAX_GRID_POINTS}"
+            )));
+        }
 
         let bitmap = match msg.bms_range {
             Some((start, end)) => Some(parse_bitmap(&self.data[start..end], expected_count)?),

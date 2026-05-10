@@ -179,7 +179,7 @@ pub fn decode(
         }
         byte_cursor += 1;
         let spd_count = order_of_spd as usize + 1;
-        let spd_bytes = (spd_count * width_of_spd as usize).div_ceil(8);
+        let spd_bytes = bits_to_bytes(spd_count, width_of_spd as usize, "SPD")?;
         if bds_len < byte_cursor + spd_bytes {
             return Err(FieldglassError::Parse(
                 "BDS too short for SPD section".into(),
@@ -194,7 +194,7 @@ pub fn decode(
         byte_cursor += spd_bytes;
     }
 
-    let widths_bytes = (num_groups * width_of_widths as usize).div_ceil(8);
+    let widths_bytes = bits_to_bytes(num_groups, width_of_widths as usize, "groupWidths")?;
     if bds_len < byte_cursor + widths_bytes {
         return Err(FieldglassError::Parse(
             "BDS too short for groupWidths section".into(),
@@ -209,7 +209,7 @@ pub fn decode(
     }
     byte_cursor += widths_bytes;
 
-    let lengths_bytes = (num_groups * width_of_lengths as usize).div_ceil(8);
+    let lengths_bytes = bits_to_bytes(num_groups, width_of_lengths as usize, "groupLengths")?;
     if bds_len < byte_cursor + lengths_bytes {
         return Err(FieldglassError::Parse(
             "BDS too short for groupLengths section".into(),
@@ -344,6 +344,25 @@ pub fn decode(
         Some(b) => interleave_with_bitmap(scaled, b, expected_count),
     };
     Ok(result)
+}
+
+/// Compute the number of bytes needed to hold `count * bits_per_value` bits,
+/// rounded up to the nearest byte. Uses checked_mul so a 32-bit target with
+/// a hostile `count` can't wrap into a small value that bypasses the
+/// downstream bounds check.
+fn bits_to_bytes(
+    count: usize,
+    bits_per_value: usize,
+    what: &str,
+) -> Result<usize, FieldglassError> {
+    count
+        .checked_mul(bits_per_value)
+        .map(|bits| bits.div_ceil(8))
+        .ok_or_else(|| {
+            FieldglassError::Parse(format!(
+                "BDS {what} byte length overflows usize ({count} × {bits_per_value} bits)"
+            ))
+        })
 }
 
 /// Sign-magnitude to signed integer. The high bit of the `width`-bit field

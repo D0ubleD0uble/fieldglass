@@ -122,6 +122,34 @@ fn bms_unused_trailing_exceeds_body_returns_parse_error() {
     assert!(matches!(err, FieldglassError::Parse(_)));
 }
 
+/// Hostile-GDS regression: a well-formed message header that declares an
+/// absurd grid (`ni = nj = 65535`, ~4.3B points) must be rejected before
+/// `decode_message_values` allocates ~70 GB. Without the cap the napi worker
+/// would OOM the Node host on a single crafted file.
+#[test]
+fn hostile_grid_dimensions_rejected_by_cap() {
+    let mut buf = FIXTURE.to_vec();
+    // GDS starts at IS (8 bytes) + PDS section_len (3-byte big-endian at PDS
+    // offset 0). ni and nj are u16-BE at GDS offsets 6 and 8 (lat/lon and
+    // gaussian grids share this layout — see gds::parse_latlon).
+    let pds_len = u32::from_be_bytes([0, buf[8], buf[9], buf[10]]) as usize;
+    let gds_off = 8 + pds_len;
+    buf[gds_off + 6..gds_off + 8].copy_from_slice(&0xFFFFu16.to_be_bytes());
+    buf[gds_off + 8..gds_off + 10].copy_from_slice(&0xFFFFu16.to_be_bytes());
+
+    let reader = Grib1Reader::from_bytes(buf).expect("scan still succeeds");
+    let err = reader
+        .decode_message_values(0)
+        .expect_err("hostile dimensions must error");
+    let FieldglassError::Parse(msg) = err else {
+        panic!("expected Parse error, got {err:?}");
+    };
+    assert!(
+        msg.contains("exceeds cap"),
+        "error should mention the grid-points cap, got: {msg}"
+    );
+}
+
 #[test]
 fn decode_grid_for_out_of_range_index_returns_error() {
     let reader = Grib1Reader::from_bytes(FIXTURE.to_vec()).expect("fixture parses");

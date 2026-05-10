@@ -464,10 +464,12 @@ impl<'a> Parser<'a> {
     fn read_variable(&mut self, num_dims: usize) -> Result<Variable, FieldglassError> {
         let name = self.read_name()?;
         let dimensionality = self.read_nonneg()?;
-        if dimensionality > num_dims as u64 + 1024 {
-            // Defensive cap so a corrupt header can't trigger a huge allocation.
+        // Hard cap: no real NetCDF variable has more than a few dozen dims.
+        // Independent of `num_dims` because that is itself attacker-bounded.
+        const MAX_VAR_DIMS: u64 = 4096;
+        if dimensionality > MAX_VAR_DIMS {
             return Err(FieldglassError::Parse(format!(
-                "variable {name:?} declares {dimensionality} dimensions but file has only {num_dims}"
+                "variable {name:?} declares {dimensionality} dimensions, exceeds cap of {MAX_VAR_DIMS}"
             )));
         }
         let dimensionality = Self::nonneg_to_usize(dimensionality, "variable dimensionality")?;
