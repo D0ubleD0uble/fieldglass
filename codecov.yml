@@ -36,10 +36,17 @@ flag_management:
       paths:
         - crates/
 
-# The grib2 / netcdf stub crates currently contain only unimplemented! traps;
-# excluding them keeps overall coverage from being dragged down by code
-# whose absence is intentional. Re-evaluate when those parsers land.
+# Exclusions:
+#  - `**/tests/**`: integration-test files exist to exercise library code;
+#    counting their own lines as "uncovered" would dilute the real signal.
+#  - `crates/fieldglass-napi/src/**`: thin FFI shim — every function takes
+#    a `napi::Buffer` and returns napi-typed errors / objects, so it can
+#    only be exercised from a Node embedding. The JS side is what should
+#    be covered; Rust-side coverage of this crate would be permanently 0%.
+#  - `crates/fieldglass-netcdf/src/**`: stub-exclusion to be lifted in a
+#    follow-up; pulling it now would bundle an unrelated coverage delta
+#    with this PR.
 ignore:
-  - "crates/fieldglass-grib2/src/**"
+  - "crates/fieldglass-napi/src/**"
   - "crates/fieldglass-netcdf/src/**"
   - "**/tests/**"

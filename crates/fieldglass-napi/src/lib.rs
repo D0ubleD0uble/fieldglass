@@ -5,6 +5,7 @@ use fieldglass_grib1::{
     Grib1Reader,
     tables::{lookup_centre, lookup_parameter},
 };
+use fieldglass_grib2::{Grib2Reader, lookup_discipline};
 use fieldglass_netcdf::{NetcdfBacking, NetcdfReader};
 use napi_derive::napi;
 
@@ -30,6 +31,14 @@ pub struct MessageMeta {
     pub lat_last: Option<f64>,
     pub lon_last: Option<f64>,
     pub format: String,
+    /// GRIB edition number (1 or 2). Optional so older callers reading
+    /// historical fields stay source-compatible.
+    pub edition: Option<i32>,
+    /// GRIB2 discipline name (WMO Code Table 0.0). `None` for non-GRIB2.
+    pub discipline: Option<String>,
+    /// Total length of the message in bytes, surfaced for GRIB2 where the
+    /// 64-bit length is part of the IS metadata.
+    pub total_length_bytes: Option<f64>,
 }
 
 /// Detect the format of a file from its raw bytes.
@@ -134,6 +143,52 @@ pub fn open_grib1(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<Vec<Mess
             lat_last,
             lon_last,
             format: "grib1".to_string(),
+            edition: Some(1),
+            discipline: None,
+            total_length_bytes: Some(msg.is.total_length as f64),
+        });
+    }
+    Ok(result)
+}
+
+/// Parse a GRIB2 file from raw bytes and return Indicator-Section metadata
+/// for each message. Phase 4.0 only populates IS-level fields (edition,
+/// discipline, total length); other columns are placeholders until the
+/// per-section parsers land.
+#[napi]
+pub fn open_grib2(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<Vec<MessageMeta>> {
+    let reader = Grib2Reader::from_bytes(bytes.to_vec())
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+
+    let mut result = Vec::with_capacity(reader.messages.len());
+    for msg in &reader.messages {
+        result.push(MessageMeta {
+            message_index: msg.message_index as i32,
+            offset_bytes: msg.byte_offset as i32,
+            // Until per-section parsers land, surface the discipline string
+            // in the existing `parameter_name` column so the table renderer
+            // shows something meaningful per row without rendering-side
+            // changes. The structured discipline is also exposed below.
+            parameter_name: lookup_discipline(msg.is.discipline).to_string(),
+            parameter_units: String::new(),
+            parameter_abbreviation: String::new(),
+            level: "—".to_string(),
+            level_type: "—".to_string(),
+            reference_time: "—".to_string(),
+            forecast_hours: 0,
+            forecast_display: "—".to_string(),
+            originating_centre: format!("{} bytes", msg.is.total_length),
+            grid_type: None,
+            grid_ni: None,
+            grid_nj: None,
+            lat_first: None,
+            lon_first: None,
+            lat_last: None,
+            lon_last: None,
+            format: "grib2".to_string(),
+            edition: Some(i32::from(msg.is.edition)),
+            discipline: Some(lookup_discipline(msg.is.discipline).to_string()),
+            total_length_bytes: Some(msg.is.total_length as f64),
         });
     }
     Ok(result)
