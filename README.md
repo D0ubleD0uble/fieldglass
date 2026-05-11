@@ -21,11 +21,11 @@ First public beta. Read-only metadata viewing for GRIB1 is in, and each message'
 | Format detection from magic bytes | ✅ | ✅ | ✅ |
 | File-extension association (`.grb` / `.grib*` / `.nc*`) | ✅ | ✅ | ✅ |
 | Open via *Reopen Editor With…* for unrecognized files | ✅ | ✅ | ✅ |
-| Indicator / header section parsing | ✅ | ❌ Not yet | ✅ classic / 🚧 NetCDF-4 |
+| Indicator / header section parsing | ✅ | ✅ | ✅ classic / 🚧 NetCDF-4 |
 | Per-message metadata (parameter, level, time, forecast period) | ✅ | ❌ Not yet | ✅ classic (dims / vars / attrs) |
 | Grid description (lat/lon, Gaussian, polar stereo, Lambert) | ✅ | ❌ Not yet | ❌ Not yet |
 | WMO ON388 lookups (parameter, centre, level type) | ✅ | ❌ Not yet | n/a |
-| Tabular metadata viewer | ✅ | ❌ Not yet | ✅ classic / 🚧 NetCDF-4 |
+| Tabular metadata viewer | ✅ | ✅ (IS only) | ✅ classic / 🚧 NetCDF-4 |
 | Binary data section decoding (Rust API) | ✅ | ❌ Not yet | ❌ Not yet |
 | Metadata editing | ❌ Not yet | ❌ Not yet | ❌ Not yet |
 | 2-D grid rendering with colormap | ✅ | ❌ Not yet | ❌ Not yet |
