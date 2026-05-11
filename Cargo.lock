@@ -31,7 +31,7 @@ checksum = "400a21f1014a968ec518c7ccdf9b4a4ed0cac8c56ccb6d604f8b91f00110501e"
 
 [[package]]
 name = "fieldglass-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "thiserror",
@@ -39,7 +39,7 @@ dependencies = [
 
 [[package]]
 name = "fieldglass-grib1"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "fieldglass-core",
  "serde",
@@ -48,7 +48,7 @@ dependencies = [
 
 [[package]]
 name = "fieldglass-grib2"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "fieldglass-core",
  "serde",
@@ -56,7 +56,7 @@ dependencies = [
 
 [[package]]
 name = "fieldglass-napi"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "fieldglass-core",
  "fieldglass-grib1",
@@ -69,7 +69,7 @@ dependencies = [
 
 [[package]]
 name = "fieldglass-netcdf"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "fieldglass-core",
  "serde",

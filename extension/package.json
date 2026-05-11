@@ -2,7 +2,7 @@
   "name": "fieldglass",
   "displayName": "Fieldglass",
   "description": "VS Code extension for viewing meteorological data files (GRIB1, GRIB2, NetCDF)",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "fieldglass",
   "preview": true,
   "license": "MIT OR Apache-2.0",

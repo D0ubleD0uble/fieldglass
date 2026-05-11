@@ -1,6 +1,6 @@
 [package]
 name        = "fieldglass-netcdf"
-description = "NetCDF format reader — stub, implemented in Phase 5+"
+description = "NetCDF format reader — classic (CDF-1/2/5) header parser; HDF5 / NetCDF-4 superblock probe"
 version.workspace    = true
 edition.workspace    = true
 license.workspace    = true
@@ -8,5 +8,5 @@ authors.workspace    = true
 repository.workspace = true
 
 [dependencies]
-fieldglass-core = { path = "../fieldglass-core", version = "=0.1.0" }
+fieldglass-core = { path = "../fieldglass-core", version = "=0.1.1" }
 serde = { version = "1", features = ["derive"] }

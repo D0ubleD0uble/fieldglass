@@ -12,7 +12,7 @@ A Visual Studio Code extension for viewing meteorological binary data files (GRI
 
 ## Status
 
-First public beta. Read-only metadata viewing for GRIB1 is in. The GRIB1 Binary Data Section decoder (with bitmap-section support) is implemented at the Rust API level via `decode_grid`, but not yet wired into a 2-D visualization in the webview. GRIB2 and NetCDF parsing, metadata editing, and field rendering are on the roadmap — see the [feature matrix](#feature-matrix) below for what works today.
+First public beta. Read-only metadata viewing for GRIB1 is in, and each message's decoded grid can now be rendered as a 2-D viridis-colored image directly in the webview (in grid coordinates — no map reprojection yet). GRIB2 and NetCDF have shipped header-level parsing — GRIB2 enumerates messages from the Indicator Section, NetCDF classic (CDF-1/2/5) renders the full dimension / variable / global-attribute view. Per-message GRIB2 metadata, NetCDF-4 / HDF5 deep parsing, value decode for GRIB2 + NetCDF, metadata editing, and geographic reprojection are on the roadmap — see the [feature matrix](#feature-matrix) below for what works today.
 
 ## Feature matrix
 
@@ -21,27 +21,46 @@ First public beta. Read-only metadata viewing for GRIB1 is in. The GRIB1 Binary 
 | Format detection from magic bytes | ✅ | ✅ | ✅ |
 | File-extension association (`.grb` / `.grib*` / `.nc*`) | ✅ | ✅ | ✅ |
 | Open via *Reopen Editor With…* for unrecognized files | ✅ | ✅ | ✅ |
-| Indicator / header section parsing | ✅ | $\color{red}{\textsf{Not yet}}$ | $\color{red}{\textsf{Not yet}}$ |
-| Per-message metadata (parameter, level, time, forecast period) | ✅ | $\color{red}{\textsf{Not yet}}$ | $\color{red}{\textsf{Not yet}}$ |
-| Grid description (lat/lon, Gaussian, polar stereo, Lambert) | ✅ | $\color{red}{\textsf{Not yet}}$ | $\color{red}{\textsf{Not yet}}$ |
-| WMO ON388 lookups (parameter, centre, level type) | ✅ | $\color{red}{\textsf{Not yet}}$ | n/a |
-| Tabular metadata viewer | ✅ | $\color{red}{\textsf{Not yet}}$ | $\color{red}{\textsf{Not yet}}$ |
-| Binary data section decoding (Rust API) | ✅ | $\color{red}{\textsf{Not yet}}$ | $\color{red}{\textsf{Not yet}}$ |
-| Metadata editing | $\color{red}{\textsf{Not yet}}$ | $\color{red}{\textsf{Not yet}}$ | $\color{red}{\textsf{Not yet}}$ |
-| 2-D grid rendering with colormap | $\color{red}{\textsf{Not yet}}$ | $\color{red}{\textsf{Not yet}}$ | $\color{red}{\textsf{Not yet}}$ |
+| Indicator / header section parsing | ✅ | ✅ | ✅ classic / 🚧 NetCDF-4 |
+| Per-message metadata (parameter, level, time, forecast period) | ✅ | ❌ Not yet | ✅ classic (dims / vars / attrs) |
+| Grid description (lat/lon, Gaussian, polar stereo, Lambert) | ✅ | ❌ Not yet | ❌ Not yet |
+| WMO ON388 lookups (parameter, centre, level type) | ✅ | ❌ Not yet | n/a |
+| Tabular metadata viewer | ✅ | ✅ (IS only) | ✅ classic / 🚧 NetCDF-4 |
+| Binary data section decoding (Rust API) | ✅ | ❌ Not yet | ❌ Not yet |
+| Metadata editing | ❌ Not yet | ❌ Not yet | ❌ Not yet |
+| 2-D grid rendering with colormap | ✅ | ❌ Not yet | ❌ Not yet |
 
 Format-agnostic features:
 
 - Hex and ASCII fallback view for files whose contents are not a recognized format. ✅
 - Files without a recognized extension can still be opened through *Reopen Editor With… → Fieldglass Viewer*.
 
+### GRIB1 packing modes
+
+A GRIB1 file's BDS (Binary Data Section) flag bits select one of several packing schemes. Decoding (and therefore 2-D rendering) covers only a subset today; metadata + format detection are independent of the packing mode and work on every file. For unsupported variants the decoder surfaces an error naming the eccodes-style `packingType` so you can match it against [eccodes' definitions](https://confluence.ecmwf.int/display/ECC/Documentation).
+
+| BDS packing | eccodes packingType | Decode | Notes |
+|---|---|:---:|---|
+| Simple grid-point packing | `grid_simple` | ✅ | The bulk of CMC, NCEP non-operational data, and pygrib sample sets. |
+| Constant field (`bits_per_value = 0`) | `grid_simple` | ✅ | Special case of simple packing. |
+| Second-order, no SPD | `grid_second_order_no_SPD` | ❌ Planned | |
+| Second-order, SPD-1 | `grid_second_order_SPD1` | ❌ Planned | |
+| Second-order, SPD-2 (ECMWF default) | `grid_second_order` | ✅ | Most common in ECMWF MARS-derived files. Cross-validated against eccodes 2.34. |
+| Second-order, SPD-3 | `grid_second_order_SPD3` | ❌ Planned | |
+| Second-order, row-by-row | `grid_second_order_row_by_row` | ❌ Planned | |
+| Second-order, constant width | `grid_second_order_constant_width` | ❌ Planned | |
+| Second-order, general (legacy) | `grid_second_order_general_grib1` | ❌ Planned | |
+| Spherical-harmonic coefficients | `spectral_simple` / `spectral_complex` | ❌ Planned | IFS analyses; needs an inverse Legendre transform. |
+| Matrix-of-values, IEEE float, JPEG/PNG, etc. | various | ❌ Planned | |
+
 ## Known limitations
 
 This is a beta. Things to be aware of:
 
 - **No metadata editing in the viewer.** The Rust API has byte-level patching for the forecast period (P1) and the webview retains the full undo/redo wiring, but the editable affordance is hidden in beta until general PDS-field editing lands. For now Fieldglass is a read-only viewer.
-- **No 2-D field rendering.** GRIB1 grid values are decoded by the Rust API (`Grib1Reader::decode_message_values` / napi `decode_grid`) but not yet visualized in a webview canvas.
-- **GRIB2 and NetCDF: detection only.** Magic-byte detection works and routes the file to the viewer, but parsing isn't implemented yet — those files will surface "no messages found."
+- **GRIB1 2-D rendering is in grid coordinates only.** The webview renders each message's decoded grid with a viridis colormap, but the canvas axes are scan-order grid indices — there is no map reprojection, basemap, or coastline overlay yet. Polar stereographic and Lambert conformal grids therefore appear "stretched" relative to a true geographic projection.
+- **GRIB2: Indicator Section only.** `.grb2` / `.grib2` files are parsed far enough to enumerate messages and surface edition + discipline + total length per message. Sections 1–7 (identification, grid, product definition, data) are not yet decoded — per-message parameter / level / time / values come in follow-ups.
+- **NetCDF-4 / HDF5: header probe only.** Classic NetCDF (CDF-1 / CDF-2 / CDF-5) parses fully and renders dimensions, global attributes, and variables. NetCDF-4 / HDF5 files are validated and report the superblock version, but deep traversal (groups, datasets, attributes through the HDF5 object header tree) is a follow-up.
 - **GRIB1 GDS coverage:** Lat/Lon, Gaussian, Polar Stereographic, and Lambert Conformal grids are parsed. Reduced grids, rotated/oblique projections, and predefined grids (`grid_number != 255`) are not yet supported and will render as `unsupported`.
 - **Parameter table coverage:** WMO ON388 Table 2 (versions 1–3) only. ECMWF local tables (versions 128+) and other centre-specific extensions resolve as `Unknown`.
 - **Large files:** the extension reads the whole file into memory via `vscode.workspace.fs.readFile` to keep remote/virtual workspaces working. Multi-GB GRIB archives are not the target use case yet.
@@ -102,8 +121,8 @@ Open any file with a supported extension. VS Code will use Fieldglass as the def
 |---|---|
 | `crates/fieldglass-core` | Format-agnostic traits and shared metadata types. |
 | `crates/fieldglass-grib1` | GRIB1 parser, organized by section (`is.rs`, `pds.rs`, `gds.rs`, `bds.rs`) and WMO table lookups (`tables.rs`). |
-| `crates/fieldglass-grib2` | GRIB2 reader stub. |
-| `crates/fieldglass-netcdf` | NetCDF reader stub. |
+| `crates/fieldglass-grib2` | GRIB2 reader — Indicator Section parsing + message enumeration. Sections 1–7 are follow-ups. |
+| `crates/fieldglass-netcdf` | NetCDF reader — full classic (CDF-1/2/5) header parser; HDF5 / NetCDF-4 superblock probe with deep traversal as a follow-up. |
 | `crates/fieldglass-napi` | Node.js bindings exposed via napi-rs. The only crate that knows about Node. |
 | `extension/` | TypeScript VS Code extension. Registers a custom read-only editor and renders a webview. |
 

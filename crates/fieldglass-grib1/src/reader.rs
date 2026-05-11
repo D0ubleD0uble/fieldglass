@@ -29,6 +29,11 @@ impl Grib1Message {
     }
 }
 
+/// Hard cap on `ni * nj` for `decode_message_values`. Real grids top out
+/// around 25M points; the cap bounds the worst-case `Vec<Option<f64>>`
+/// allocation at ~1 GB (16 bytes/element).
+pub const MAX_GRID_POINTS: usize = 64 * 1024 * 1024;
+
 pub struct Grib1Reader {
     data: Vec<u8>,
     pub messages: Vec<Grib1Message>,
@@ -57,7 +62,6 @@ impl Grib1Reader {
             .get(message_index)
             .ok_or(FieldglassError::OutOfRange)?;
 
-        // GDS dimensions are required to know how many points to expect.
         let gds = msg.gds.as_ref().ok_or_else(|| {
             FieldglassError::Parse(
                 "message has no GDS — predefined grids are not supported".to_string(),
@@ -66,7 +70,15 @@ impl Grib1Reader {
         let (ni, nj) = gds.dimensions().ok_or_else(|| {
             FieldglassError::Parse("grid type has no declared dimensions".to_string())
         })?;
-        let expected_count = ni as usize * nj as usize;
+        // checked_mul guards 32-bit usize overflow; MAX_GRID_POINTS guards OOM.
+        let expected_count = (ni as usize).checked_mul(nj as usize).ok_or_else(|| {
+            FieldglassError::Parse(format!("grid dimensions {ni}×{nj} overflow usize"))
+        })?;
+        if expected_count > MAX_GRID_POINTS {
+            return Err(FieldglassError::Parse(format!(
+                "grid {ni}×{nj} = {expected_count} points exceeds cap of {MAX_GRID_POINTS}"
+            )));
+        }
 
         let bitmap = match msg.bms_range {
             Some((start, end)) => Some(parse_bitmap(&self.data[start..end], expected_count)?),
@@ -83,6 +95,7 @@ impl Grib1Reader {
             msg.pds.decimal_scale_factor,
             bitmap_bits,
             expected_count,
+            ni as usize,
         )
     }
 }
