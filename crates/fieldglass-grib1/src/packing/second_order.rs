@@ -51,7 +51,10 @@
 //! 7. If boustrophedonicOrdering is set, reverse alternate rows (cols is
 //!    needed for this — eccodes uses numberOfColumns from the GDS).
 
-use fieldglass_core::{FieldglassError, bits::BitReader};
+use fieldglass_core::{
+    FieldglassError,
+    bits::{BitReader, bits_to_bytes, sign_magnitude_to_i64},
+};
 
 use crate::bds::BdsHeader;
 
@@ -105,11 +108,24 @@ pub fn decode(
     let width_of_widths = bds[21];
     let width_of_lengths = bds[22];
 
-    let num_groups = coded_num_groups + 65536 * extra_values;
+    // Each group covers ≥1 point, so num_groups can't legitimately exceed
+    // expected_count — bounds the per-group alloc below.
+    let num_groups = coded_num_groups
+        .checked_add(65536usize.saturating_mul(extra_values))
+        .ok_or_else(|| {
+            FieldglassError::Parse(format!(
+                "BDS num_groups overflows usize (coded={coded_num_groups}, extra={extra_values})"
+            ))
+        })?;
     if num_groups == 0 {
         return Err(FieldglassError::Parse(
             "BDS reports zero groups for second-order packing".into(),
         ));
+    }
+    if num_groups > expected_count {
+        return Err(FieldglassError::Parse(format!(
+            "BDS reports {num_groups} groups but grid only has {expected_count} points"
+        )));
     }
     if n2 < n1 {
         return Err(FieldglassError::Parse(format!(
@@ -129,12 +145,8 @@ pub fn decode(
         )));
     }
 
-    // The SPD, group-widths, and group-lengths sections are each
-    // byte-aligned blocks: each occupies `(bits + 7) / 8` bytes of space,
-    // with bit-padding at the end if the value count doesn't fall on a
-    // byte boundary. This matches eccodes' `Spd::compute_byte_count` and
-    // `UnsignedBits::compute_byte_count`. We track a byte cursor and
-    // create a fresh BitReader at each section's byte boundary.
+    // SPD, group-widths, and group-lengths are byte-aligned blocks of
+    // ceil(count*width/8) bytes each (matches eccodes Spd/UnsignedBits).
     if width_of_widths > 32 {
         return Err(FieldglassError::Parse(format!(
             "BDS widthOfWidths={width_of_widths} > 32"
@@ -163,7 +175,11 @@ pub fn decode(
         }
         byte_cursor += 1;
         let spd_count = order_of_spd as usize + 1;
-        let spd_bytes = (spd_count * width_of_spd as usize).div_ceil(8);
+        let spd_bytes = bits_to_bytes(spd_count, width_of_spd as usize).ok_or_else(|| {
+            FieldglassError::Parse(format!(
+                "BDS SPD byte length overflows ({spd_count}×{width_of_spd} bits)"
+            ))
+        })?;
         if bds_len < byte_cursor + spd_bytes {
             return Err(FieldglassError::Parse(
                 "BDS too short for SPD section".into(),
@@ -178,7 +194,11 @@ pub fn decode(
         byte_cursor += spd_bytes;
     }
 
-    let widths_bytes = (num_groups * width_of_widths as usize).div_ceil(8);
+    let widths_bytes = bits_to_bytes(num_groups, width_of_widths as usize).ok_or_else(|| {
+        FieldglassError::Parse(format!(
+            "BDS groupWidths byte length overflows ({num_groups}×{width_of_widths} bits)"
+        ))
+    })?;
     if bds_len < byte_cursor + widths_bytes {
         return Err(FieldglassError::Parse(
             "BDS too short for groupWidths section".into(),
@@ -193,7 +213,11 @@ pub fn decode(
     }
     byte_cursor += widths_bytes;
 
-    let lengths_bytes = (num_groups * width_of_lengths as usize).div_ceil(8);
+    let lengths_bytes = bits_to_bytes(num_groups, width_of_lengths as usize).ok_or_else(|| {
+        FieldglassError::Parse(format!(
+            "BDS groupLengths byte length overflows ({num_groups}×{width_of_lengths} bits)"
+        ))
+    })?;
     if bds_len < byte_cursor + lengths_bytes {
         return Err(FieldglassError::Parse(
             "BDS too short for groupLengths section".into(),
@@ -207,10 +231,12 @@ pub fn decode(
         }
     }
     byte_cursor += lengths_bytes;
-    debug_assert!(
-        byte_cursor <= n1,
-        "groupLengths overflowed N1 boundary: cursor={byte_cursor}, n1={n1}"
-    );
+    // n1 comes from the wire; runtime check, not debug-only.
+    if byte_cursor > n1 {
+        return Err(FieldglassError::Parse(format!(
+            "BDS groupLengths overflows N1 boundary (cursor={byte_cursor}, n1={n1})"
+        )));
+    }
 
     // First-order reference values start at byte N1, byte-aligned. Padding
     // between the group-descriptor stream and N1 is discarded silently.
@@ -226,26 +252,33 @@ pub fn decode(
         first_order.push(fo_reader.read_bits(width_of_first_order)?);
     }
 
-    // Second-order packed values start at byte N2. Decode each group by
-    // adding the per-group first-order reference to the per-point delta.
     let mut so_reader = BitReader::new(&bds[n2..]);
 
-    let total_second: usize = group_lengths.iter().map(|x| *x as usize).sum();
-    let total_decoded = total_second + order_of_spd as usize;
+    // checked sum: each group_length is u32, up to 2^32-1.
+    let mut total_second: usize = 0;
+    for &gl in &group_lengths {
+        total_second = total_second.checked_add(gl as usize).ok_or_else(|| {
+            FieldglassError::Parse("BDS group_lengths sum overflows usize".into())
+        })?;
+    }
+    let total_decoded = total_second
+        .checked_add(order_of_spd as usize)
+        .ok_or_else(|| FieldglassError::Parse("BDS total decoded count overflows usize".into()))?;
+    if total_decoded > expected_count {
+        return Err(FieldglassError::Parse(format!(
+            "BDS group lengths sum {total_decoded} exceeds grid size {expected_count}"
+        )));
+    }
     let mut x: Vec<i64> = vec![0; total_decoded];
 
-    // Decode the second-order section into x[orderOfSPD..]. eccodes does
-    // exactly this layout: SPD slots at the start are filled later, after
-    // the second-order pass. See DataG1SecondOrderGeneralExtendedPacking::
-    // unpack().
+    // SPD slots [0..order_of_spd] are filled below; second-order fills the rest.
     let mut n = order_of_spd as usize;
     for g in 0..num_groups {
         let w = group_widths[g];
         let count = group_lengths[g] as usize;
         let ref_val = first_order[g] as i64;
         if w == 0 {
-            // Zero-width group: every point equals the group's first-order
-            // reference value (no per-point delta encoded).
+            // Zero-width group: every point equals the first-order reference.
             for _ in 0..count {
                 x[n] = ref_val;
                 n += 1;
@@ -253,21 +286,20 @@ pub fn decode(
         } else {
             for _ in 0..count {
                 let raw = so_reader.read_bits(w)? as i64;
-                x[n] = ref_val + raw;
+                // wrapping_add matches eccodes' implicit 2's-complement C.
+                x[n] = ref_val.wrapping_add(raw);
                 n += 1;
             }
         }
     }
     debug_assert_eq!(n, total_decoded);
 
-    // Plant the SPD seeds at the start of x, then apply the inverse SPD
-    // recurrence using eccodes' running-accumulator algorithm (with bias).
     for (i, &seed) in spd_seeds.iter().enumerate() {
         x[i] = seed;
     }
     apply_spd_inverse(&mut x, order_of_spd, bias)?;
 
-    // Convert decoded integers to floats: u_final = (R + u·2^E) / 10^D.
+    // u_final = (R + u·2^E) / 10^D
     let two_pow_e = 2f64.powi(header.binary_scale_factor as i32);
     let d_scale = 10f64.powi(-(decimal_scale as i32));
     let r = header.reference_value;
@@ -277,12 +309,8 @@ pub fn decode(
         .map(|v| (r + (*v as f64) * two_pow_e) * d_scale)
         .collect();
 
-    // Boustrophedonic reorder: row 0 is left-to-right as stored, row 1 is
-    // right-to-left, etc. Undo by reversing odd-indexed rows in place.
-    // eccodes performs this BEFORE bitmap interleave when a bitmap is
-    // present (the bitmap maps to the storage stream, not the grid). Our
-    // current scope handles only the no-bitmap case; reordering before
-    // bitmap-interleave keeps the code path correct for both.
+    // Undo boustrophedonic ordering (odd rows stored right-to-left). Must
+    // happen before bitmap interleave — the bitmap maps the storage stream.
     if ext.boustrophedonic() && cols > 0 {
         let n = scaled.len();
         let rows = n / cols;
@@ -293,9 +321,6 @@ pub fn decode(
         }
     }
 
-    // Apply bitmap interleave if present. For no-bitmap files (our ECMWF
-    // fixture), `scaled.len()` already equals `expected_count` and we just
-    // wrap in `Some(_)`.
     let result = match bitmap {
         None => {
             if scaled.len() != expected_count {
@@ -312,28 +337,12 @@ pub fn decode(
     Ok(result)
 }
 
-/// Sign-magnitude to signed integer. The high bit of the `width`-bit field
-/// is the sign; the lower `width-1` bits are the magnitude.
-fn sign_magnitude_to_i64(raw: u32, width: u8) -> i64 {
-    if width == 0 {
-        return 0;
-    }
-    let sign_bit = 1u32 << (width - 1);
-    let mag_mask = sign_bit - 1;
-    let mag = (raw & mag_mask) as i64;
-    if raw & sign_bit != 0 { -mag } else { mag }
-}
-
-/// Apply inverse spatial differencing of order k in place, matching
-/// eccodes' running-accumulator approach. Seeds occupy `x[0..k]`; the
-/// remaining slots hold the second-order decoded values plus a constant
-/// `bias` that's added at every reconstruction step.
-///
-/// Translated literally from `DataG1SecondOrderGeneralExtendedPacking::
-/// unpack()`'s switch on `orderOfSPD`. The `let y = …; let z = …`
-/// initialisations look strange (they re-use values that are about to be
-/// overwritten) but they directly mirror the C source so behaviour stays
-/// bit-for-bit identical to eccodes for the same input.
+/// Inverse spatial differencing of order k in place, mirroring
+/// `DataG1SecondOrderGeneralExtendedPacking::unpack()`. Seeds in `x[0..k]`;
+/// recurrence reconstructs the rest with `bias` added each step. The y/z/w
+/// init dance re-uses values about to be overwritten — kept in this shape
+/// to stay bit-identical to eccodes. Wrapping arithmetic matches eccodes'
+/// implicit 2's-complement and avoids overflow panics on extreme inputs.
 fn apply_spd_inverse(x: &mut [i64], order: u8, bias: i64) -> Result<(), FieldglassError> {
     match order {
         0 => Ok(()),
@@ -341,7 +350,7 @@ fn apply_spd_inverse(x: &mut [i64], order: u8, bias: i64) -> Result<(), Fieldgla
             // y = X[0]; for i=1..N: y += X[i] + bias; X[i] = y
             let mut y = x[0];
             for v in x.iter_mut().skip(1) {
-                y += *v + bias;
+                y = y.wrapping_add(v.wrapping_add(bias));
                 *v = y;
             }
             Ok(())
@@ -352,11 +361,11 @@ fn apply_spd_inverse(x: &mut [i64], order: u8, bias: i64) -> Result<(), Fieldgla
             if x.len() < 2 {
                 return Ok(());
             }
-            let mut y = x[1] - x[0];
+            let mut y = x[1].wrapping_sub(x[0]);
             let mut z = x[1];
             for v in x.iter_mut().skip(2) {
-                y += *v + bias;
-                z += y;
+                y = y.wrapping_add(v.wrapping_add(bias));
+                z = z.wrapping_add(y);
                 *v = z;
             }
             Ok(())
@@ -367,13 +376,13 @@ fn apply_spd_inverse(x: &mut [i64], order: u8, bias: i64) -> Result<(), Fieldgla
             if x.len() < 3 {
                 return Ok(());
             }
-            let mut y = x[2] - x[1];
-            let mut z = y - (x[1] - x[0]);
+            let mut y = x[2].wrapping_sub(x[1]);
+            let mut z = y.wrapping_sub(x[1].wrapping_sub(x[0]));
             let mut w = x[2];
             for v in x.iter_mut().skip(3) {
-                z += *v + bias;
-                y += z;
-                w += y;
+                z = z.wrapping_add(v.wrapping_add(bias));
+                y = y.wrapping_add(z);
+                w = w.wrapping_add(y);
                 *v = w;
             }
             Ok(())
@@ -406,17 +415,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn sign_magnitude_basic() {
-        assert_eq!(sign_magnitude_to_i64(0b0_0000_0101, 5), 5);
-        // Top bit set in a 5-bit field: 0b1_0101 → sign=1, mag=0b0101=5 → -5.
-        assert_eq!(sign_magnitude_to_i64(0b0001_0101, 5), -5);
-        // 21-bit field, like the SPD width in the ECMWF fixture.
-        assert_eq!(sign_magnitude_to_i64(0, 21), 0);
-        assert_eq!(sign_magnitude_to_i64((1 << 20) | 7, 21), -7);
-        assert_eq!(sign_magnitude_to_i64(7, 21), 7);
-    }
-
-    #[test]
     fn spd_inverse_order1_is_cumulative_sum_with_bias() {
         // Order-1 reconstructs running sum y starting at X[0], adding
         // X[i] + bias at each step. With bias=0 it's a plain cumulative
@@ -430,6 +428,23 @@ mod tests {
         apply_spd_inverse(&mut seq, 1, 1).unwrap();
         // y starts at 10. y += 1+1=2 → 12; y += 2+1=3 → 15; y += 3+1=4 → 19.
         assert_eq!(seq, vec![10, 12, 15, 19]);
+    }
+
+    // Overflow regression: pre-fix, plain `+=` would panic in debug.
+    // Values are unspecified at the i64 boundary; just verify the loop
+    // ran (tail slot mutated from its sentinel) without panicking.
+    #[test]
+    fn spd_inverse_order1_does_not_panic_on_overflow() {
+        let mut seq = vec![i64::MAX, 1, 2, 0];
+        apply_spd_inverse(&mut seq, 1, i64::MAX).unwrap();
+        assert_ne!(seq[3], 0, "tail slot must be reconstructed");
+    }
+
+    #[test]
+    fn spd_inverse_order3_does_not_panic_on_overflow() {
+        let mut seq = vec![i64::MIN, i64::MAX, i64::MIN, 1, 2, 0];
+        apply_spd_inverse(&mut seq, 3, i64::MIN).unwrap();
+        assert_ne!(seq[5], 0, "tail slot must be reconstructed");
     }
 
     #[test]

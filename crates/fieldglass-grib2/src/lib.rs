@@ -4,6 +4,8 @@
 //! Sections 1–7 (IDS / LUS / GDS / PDS / DRS / BMS / DS) and per-section
 //! decoding are tracked under separate issues.
 
+#![forbid(unsafe_code)]
+
 pub mod is;
 pub mod reader;
 pub mod tables;

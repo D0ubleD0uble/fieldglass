@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import * as path from "path";
+import { randomBytes } from "crypto";
 
 import { VIRIDIS_LUT } from "./render-helpers";
 
@@ -307,9 +308,11 @@ export class FieldglassEditorProvider
         this.postUpdate(panel, document);
         return;
       case "edit-p1":
+        if (!isNonNegativeInt(msg.messageIndex) || !isNonNegativeInt(msg.value)) return;
         this.applyP1Edit(document, msg.messageIndex, msg.value);
         return;
       case "decodeGrid":
+        if (!isNonNegativeInt(msg.messageIndex)) return;
         this.handleDecodeGrid(document, panel, msg.messageIndex);
         return;
     }
@@ -373,11 +376,10 @@ export class FieldglassEditorProvider
       return;
     }
 
-    // Convert the heterogeneous Array<number | null> coming back from napi
-    // into a Float64Array (NaN sentinel for masked) plus a parallel Uint8Array
-    // mask. This keeps the postMessage transfer compact (typed arrays
-    // structured-clone fast) and lets the webview paint without per-cell
-    // null checks. NaN is the sentinel because Float64Array can't hold null.
+    // Repack napi's Array<number | null> into Float64Array (NaN = masked) +
+    // Uint8Array mask for cheap structured-clone transfer to the webview.
+    // TODO(perf): return the typed-array pair from Rust to skip this loop —
+    // see the matching TODO on decode_grid in fieldglass-napi/src/lib.rs.
     const total = raw.length;
     const values = new Float64Array(total);
     const bitmapMask = new Uint8Array(total);
@@ -532,6 +534,10 @@ export class FieldglassEditorProvider
 // HTML rendering
 // ---------------------------------------------------------------------------
 
+function isNonNegativeInt(n: unknown): n is number {
+  return typeof n === "number" && Number.isInteger(n) && n >= 0;
+}
+
 function describeProjection(meta: MessageMeta): string {
   const dims = (meta.gridNi !== null && meta.gridNj !== null)
     ? `${meta.gridNi}×${meta.gridNj}` : "?";
@@ -555,10 +561,8 @@ function escapeHtml(s: string): string {
 }
 
 function nonce(): string {
-  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  let s = "";
-  for (let i = 0; i < 32; i++) s += chars.charAt(Math.floor(Math.random() * chars.length));
-  return s;
+  // CSPRNG-derived nonce — the boundary that makes inline scripts safe.
+  return randomBytes(16).toString("base64").replace(/[^A-Za-z0-9]/g, "");
 }
 
 function renderDatasetBody(d: DatasetMeta): string {

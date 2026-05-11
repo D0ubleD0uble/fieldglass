@@ -179,6 +179,17 @@ const NC_DIMENSION: u32 = 0x0A;
 const NC_VARIABLE: u32 = 0x0B;
 const NC_ATTRIBUTE: u32 = 0x0C;
 
+/// Hard cap on a variable's dimensionality. Real NetCDF variables top out
+/// at a few dozen dims; anything beyond this is treated as corrupt.
+pub const MAX_VAR_DIMS: u64 = 4096;
+
+/// Convert a NON_NEG (u64) read from the wire to usize, surfacing 32-bit
+/// truncation as a parse error instead of a silent wrap.
+fn nonneg_to_usize(n: u64, what: &str) -> Result<usize, FieldglassError> {
+    usize::try_from(n)
+        .map_err(|_| FieldglassError::Parse(format!("NetCDF {what} count {n} exceeds usize")))
+}
+
 /// Parse a NetCDF classic header from the start of `bytes`. Stops walking
 /// after `var_list`; the rest of the file is variable data, which we ignore.
 pub fn parse_header(bytes: &[u8]) -> Result<ClassicHeader, FieldglassError> {
@@ -234,7 +245,14 @@ impl<'a> Parser<'a> {
     }
 
     fn need(&self, n: usize) -> Result<(), FieldglassError> {
-        if self.pos + n > self.bytes.len() {
+        // checked_add: an n near usize::MAX would wrap past the bounds check.
+        let end = self.pos.checked_add(n).ok_or_else(|| {
+            FieldglassError::Parse(format!(
+                "NetCDF read length {n} at offset {} overflows usize",
+                self.pos
+            ))
+        })?;
+        if end > self.bytes.len() {
             return Err(FieldglassError::Parse(format!(
                 "truncated NetCDF header: needed {} bytes at offset {}, only {} remain",
                 n,
@@ -300,7 +318,7 @@ impl<'a> Parser<'a> {
                 "name length {n} exceeds file size"
             )));
         }
-        let raw = self.read_bytes_padded(n as usize)?;
+        let raw = self.read_bytes_padded(nonneg_to_usize(n, "name length")?)?;
         Ok(String::from_utf8_lossy(raw).into_owned())
     }
 
@@ -351,7 +369,9 @@ impl<'a> Parser<'a> {
                 "dim_list count {count} exceeds file size"
             )));
         }
-        let mut dims = Vec::with_capacity(count as usize);
+        let count = nonneg_to_usize(count, "dim_list")?;
+        // No with_capacity — count is wire-derived; let push grow naturally.
+        let mut dims = Vec::new();
         for _ in 0..count {
             let name = self.read_name()?;
             let length = self.read_nonneg()?;
@@ -374,7 +394,8 @@ impl<'a> Parser<'a> {
                 "att_list count {count} exceeds file size"
             )));
         }
-        let mut atts = Vec::with_capacity(count as usize);
+        let count = nonneg_to_usize(count, "att_list")?;
+        let mut atts = Vec::new();
         for _ in 0..count {
             atts.push(self.read_attribute()?);
         }
@@ -387,7 +408,8 @@ impl<'a> Parser<'a> {
         let nc_type = NcType::from_code(type_code, self.version)?;
         let nelems = self.read_nonneg()?;
 
-        let total_bytes = (nelems as usize)
+        let nelems_usize = nonneg_to_usize(nelems, "attribute element count")?;
+        let total_bytes = nelems_usize
             .checked_mul(nc_type.element_size())
             .ok_or_else(|| {
                 FieldglassError::Parse(format!(
@@ -428,7 +450,8 @@ impl<'a> Parser<'a> {
                 "var_list count {count} exceeds file size"
             )));
         }
-        let mut vars = Vec::with_capacity(count as usize);
+        let count = nonneg_to_usize(count, "var_list")?;
+        let mut vars = Vec::new();
         for _ in 0..count {
             vars.push(self.read_variable(num_dims)?);
         }
@@ -438,13 +461,13 @@ impl<'a> Parser<'a> {
     fn read_variable(&mut self, num_dims: usize) -> Result<Variable, FieldglassError> {
         let name = self.read_name()?;
         let dimensionality = self.read_nonneg()?;
-        if dimensionality > num_dims as u64 + 1024 {
-            // Defensive cap so a corrupt header can't trigger a huge allocation.
+        if dimensionality > MAX_VAR_DIMS {
             return Err(FieldglassError::Parse(format!(
-                "variable {name:?} declares {dimensionality} dimensions but file has only {num_dims}"
+                "variable {name:?} declares {dimensionality} dimensions, exceeds cap of {MAX_VAR_DIMS}"
             )));
         }
-        let mut dim_ids = Vec::with_capacity(dimensionality as usize);
+        let dimensionality = nonneg_to_usize(dimensionality, "variable dimensionality")?;
+        let mut dim_ids = Vec::with_capacity(dimensionality);
         for _ in 0..dimensionality {
             // `dimid` is `NON_NEG`: 4 bytes for CDF-1/2, 8 bytes for CDF-5
             // (matching what `libnetcdf` and PnetCDF write — verified against

@@ -3,6 +3,8 @@
 //! enough to confirm the format. See the per-module docs for what's parsed
 //! and what's deferred.
 
+#![forbid(unsafe_code)]
+
 pub mod classic;
 pub mod hdf5;
 pub mod reader;

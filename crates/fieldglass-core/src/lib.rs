@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 pub mod bits;
 pub mod detect;
 pub mod error;

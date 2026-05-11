@@ -83,6 +83,11 @@ pub fn set_p1(
 /// Decode the grid values for one GRIB1 message. Returns one entry per grid
 /// point in scan order: a number for present points, `null` for points that
 /// are masked out by the message's Bit Map Section.
+//
+// TODO(perf): every call here (and in set_p1, open_grib1) clones the full
+// file buffer and re-parses every message. Hold a Grib1Reader across napi
+// calls via a handle table; also return Float64Array + Uint8Array directly
+// instead of Vec<Option<f64>> to avoid the boxed-Array round trip.
 #[napi]
 pub fn decode_grid(
     bytes: napi::bindgen_prelude::Buffer,
