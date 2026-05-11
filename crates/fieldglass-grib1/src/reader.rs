@@ -31,8 +31,7 @@ impl Grib1Message {
 
 /// Hard cap on `ni * nj` for `decode_message_values`. Real grids top out
 /// around 25M points; the cap bounds the worst-case `Vec<Option<f64>>`
-/// allocation at ~1 GB (16 bytes/element) so a hostile GDS can't OOM the
-/// napi worker.
+/// allocation at ~1 GB (16 bytes/element).
 pub const MAX_GRID_POINTS: usize = 64 * 1024 * 1024;
 
 pub struct Grib1Reader {

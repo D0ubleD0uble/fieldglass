@@ -1,11 +1,12 @@
-//! Smoke tests for hostile / malformed inputs. The reader must surface a
-//! structured `FieldglassError::Parse` (or return zero messages) for these —
-//! never panic and never silently misinterpret garbage as valid data.
+//! Smoke tests for malformed / out-of-spec inputs. The reader must surface
+//! a structured `FieldglassError::Parse` (or return zero messages) for
+//! these — never panic and never silently misinterpret garbage as valid
+//! data.
 //!
 //! These cover the failure modes most likely to arrive over the VS Code
-//! `workspace.fs.readFile` API in the wild: truncated downloads, files of the
-//! wrong format, files with `GRIB` substrings inside binary payloads, empty
-//! buffers, and length-field mismatches.
+//! `workspace.fs.readFile` API in the wild: truncated downloads, files of
+//! the wrong format, files with `GRIB` substrings inside binary payloads,
+//! empty buffers, and length-field mismatches.
 
 use fieldglass_core::FieldglassError;
 use fieldglass_grib1::Grib1Reader;
@@ -122,12 +123,11 @@ fn bms_unused_trailing_exceeds_body_returns_parse_error() {
     assert!(matches!(err, FieldglassError::Parse(_)));
 }
 
-/// Hostile-GDS regression: a well-formed message header that declares an
-/// absurd grid (`ni = nj = 65535`, ~4.3B points) must be rejected before
-/// `decode_message_values` allocates ~70 GB. Without the cap the napi worker
-/// would OOM the Node host on a single crafted file.
+/// Out-of-spec GDS regression: a header that declares `ni = nj = 65535`
+/// (~4.3B points) must be rejected by `decode_message_values` before the
+/// allocation runs.
 #[test]
-fn hostile_grid_dimensions_rejected_by_cap() {
+fn oversized_grid_dimensions_rejected_by_cap() {
     let mut buf = FIXTURE.to_vec();
     // GDS starts at IS (8 bytes) + PDS section_len (3-byte big-endian at PDS
     // offset 0). ni and nj are u16-BE at GDS offsets 6 and 8 (lat/lon and
@@ -140,7 +140,7 @@ fn hostile_grid_dimensions_rejected_by_cap() {
     let reader = Grib1Reader::from_bytes(buf).expect("scan still succeeds");
     let err = reader
         .decode_message_values(0)
-        .expect_err("hostile dimensions must error");
+        .expect_err("oversized dimensions must error");
     let FieldglassError::Parse(msg) = err else {
         panic!("expected Parse error, got {err:?}");
     };

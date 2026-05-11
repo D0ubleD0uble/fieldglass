@@ -109,7 +109,7 @@ pub fn decode(
     let width_of_lengths = bds[22];
 
     // Each group covers ≥1 point, so num_groups can't legitimately exceed
-    // expected_count — caps a hostile multi-billion value before alloc.
+    // expected_count — bounds the per-group alloc below.
     let num_groups = coded_num_groups
         .checked_add(65536usize.saturating_mul(extra_values))
         .ok_or_else(|| {
@@ -231,8 +231,8 @@ pub fn decode(
         }
     }
     byte_cursor += lengths_bytes;
+    // n1 comes from the wire; runtime check, not debug-only.
     if byte_cursor > n1 {
-        // n1 is attacker-controlled; check at runtime, not just in debug.
         return Err(FieldglassError::Parse(format!(
             "BDS groupLengths overflows N1 boundary (cursor={byte_cursor}, n1={n1})"
         )));
@@ -254,7 +254,7 @@ pub fn decode(
 
     let mut so_reader = BitReader::new(&bds[n2..]);
 
-    // checked sum: group lengths are attacker-controlled (each up to 2^32-1).
+    // checked sum: each group_length is u32, up to 2^32-1.
     let mut total_second: usize = 0;
     for &gl in &group_lengths {
         total_second = total_second.checked_add(gl as usize).ok_or_else(|| {
@@ -342,7 +342,7 @@ pub fn decode(
 /// recurrence reconstructs the rest with `bias` added each step. The y/z/w
 /// init dance re-uses values about to be overwritten — kept in this shape
 /// to stay bit-identical to eccodes. Wrapping arithmetic matches eccodes'
-/// implicit 2's-complement and prevents panics on adversarial deltas.
+/// implicit 2's-complement and avoids overflow panics on extreme inputs.
 fn apply_spd_inverse(x: &mut [i64], order: u8, bias: i64) -> Result<(), FieldglassError> {
     match order {
         0 => Ok(()),
@@ -430,8 +430,8 @@ mod tests {
         assert_eq!(seq, vec![10, 12, 15, 19]);
     }
 
-    // Hostile-input regression: pre-fix, `+=` would panic in debug. The
-    // values are garbage for adversarial input — we just verify the loop
+    // Overflow regression: pre-fix, plain `+=` would panic in debug.
+    // Values are unspecified at the i64 boundary; just verify the loop
     // ran (tail slot mutated from its sentinel) without panicking.
     #[test]
     fn spd_inverse_order1_does_not_panic_on_overflow() {

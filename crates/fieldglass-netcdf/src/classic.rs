@@ -180,10 +180,10 @@ const NC_VARIABLE: u32 = 0x0B;
 const NC_ATTRIBUTE: u32 = 0x0C;
 
 /// Hard cap on a variable's dimensionality. Real NetCDF variables top out
-/// at a few dozen dims; anything beyond this is corrupt or hostile.
+/// at a few dozen dims; anything beyond this is treated as corrupt.
 pub const MAX_VAR_DIMS: u64 = 4096;
 
-/// Convert an attacker-controlled NON_NEG (u64) to usize, surfacing 32-bit
+/// Convert a NON_NEG (u64) read from the wire to usize, surfacing 32-bit
 /// truncation as a parse error instead of a silent wrap.
 fn nonneg_to_usize(n: u64, what: &str) -> Result<usize, FieldglassError> {
     usize::try_from(n)
@@ -245,7 +245,7 @@ impl<'a> Parser<'a> {
     }
 
     fn need(&self, n: usize) -> Result<(), FieldglassError> {
-        // checked_add: hostile n near usize::MAX would wrap past the bounds check.
+        // checked_add: an n near usize::MAX would wrap past the bounds check.
         let end = self.pos.checked_add(n).ok_or_else(|| {
             FieldglassError::Parse(format!(
                 "NetCDF read length {n} at offset {} overflows usize",
@@ -370,7 +370,7 @@ impl<'a> Parser<'a> {
             )));
         }
         let count = nonneg_to_usize(count, "dim_list")?;
-        // No with_capacity — count is attacker-controlled; let push grow naturally.
+        // No with_capacity — count is wire-derived; let push grow naturally.
         let mut dims = Vec::new();
         for _ in 0..count {
             let name = self.read_name()?;
