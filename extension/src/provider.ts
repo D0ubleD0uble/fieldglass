@@ -428,8 +428,10 @@ export class FieldglassEditorProvider
       { enableScripts: true, retainContextWhenHidden: false }
     );
     panel.webview.html = renderImagePanelHtml(panel.webview, meta, projectionSummary);
-    // Wait for the new panel's script to mount before posting the typed
-    // arrays, otherwise the message fires before the listener is attached.
+    // Respond to every `ready` for the panel's lifetime: the webview is
+    // created with retainContextWhenHidden=false, so VS Code tears down the
+    // DOM/JS context when the tab is hidden and the script re-mounts on
+    // return. Each remount posts a fresh `ready` and expects the grid back.
     const sub = panel.webview.onDidReceiveMessage((m: { type?: string }) => {
       if (m && m.type === "ready") {
         panel.webview.postMessage({
@@ -441,7 +443,6 @@ export class FieldglassEditorProvider
           projectionSummary,
           bitmapMask,
         });
-        sub.dispose();
       }
     });
     panel.onDidDispose(() => sub.dispose());
@@ -978,7 +979,15 @@ function renderImagePanelHtml(
   const titleLine = `Message ${meta.messageIndex}`
     + (meta.parameterName ? ` — ${meta.parameterName}` : "")
     + (meta.parameterUnits ? ` (${meta.parameterUnits})` : "");
-  const subLine = [meta.level, meta.referenceTime, meta.forecastDisplay]
+  // `level` is the bare value ("300", "—", "100 – 85"); `levelType` carries
+  // the unit and surface name ("(hPa) Isobaric level", "Cloud base level").
+  // Together they read naturally as "300 (hPa) Isobaric level". For surface
+  // types whose value is meaningless (level === "—") only the levelType is
+  // informative, so drop the placeholder.
+  const levelDescription = meta.level && meta.level !== "—"
+    ? [meta.level, meta.levelType].filter((s) => !!s).join(" ")
+    : meta.levelType;
+  const subLine = [levelDescription, meta.referenceTime, meta.forecastDisplay]
     .filter((s) => !!s).join(" · ");
 
   const script = `
