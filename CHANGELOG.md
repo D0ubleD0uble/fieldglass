@@ -6,6 +6,10 @@ Versioning follows the [VS Code pre-release convention](https://code.visualstudi
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-05-10
+
+Second pre-release. GRIB2 and NetCDF move from "magic-byte detection only" to header-parsed metadata viewers; GRIB1 gains 2-D grid rendering and second-order packing decode for the ECMWF default (SPD-2).
+
 ### Added
 
 - **NetCDF classic header parser** — pure-Rust reader covering CDF-1 (32-bit offsets), CDF-2 (64-bit offsets), and CDF-5 (64-bit sizes / extended numeric types). Exposes dimensions (with the unlimited / record dim flagged), global attributes, and per-variable type / dim-refs / attributes via a new `NetcdfReader` and the napi `open_netcdf` entry point.
@@ -129,5 +133,6 @@ First public release, on the Marketplace pre-release channel. Read-only metadata
 
 See the README "Known limitations" section.
 
-[Unreleased]: https://github.com/D0ubleD0uble/fieldglass/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/D0ubleD0uble/fieldglass/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/D0ubleD0uble/fieldglass/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/D0ubleD0uble/fieldglass/releases/tag/v0.1.0
