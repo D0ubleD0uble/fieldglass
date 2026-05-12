@@ -5,7 +5,9 @@ use fieldglass_grib1::{
     Grib1Reader,
     tables::{lookup_centre, lookup_parameter},
 };
-use fieldglass_grib2::{Grib2Reader, lookup_discipline};
+use fieldglass_grib2::{
+    Grib2Reader, lookup_centre as lookup_grib2_centre, lookup_discipline, lookup_production_status,
+};
 use fieldglass_netcdf::{NetcdfBacking, NetcdfReader};
 use napi_derive::napi;
 
@@ -39,6 +41,12 @@ pub struct MessageMeta {
     /// Total length of the message in bytes, surfaced for GRIB2 where the
     /// 64-bit length is part of the IS metadata.
     pub total_length_bytes: Option<f64>,
+    /// Human-readable production status (WMO Code Table 1.3). `None` for
+    /// formats that don't carry the field.
+    pub production_status: Option<String>,
+    /// Human-readable processed-data type (WMO Code Table 1.4). `None` for
+    /// formats that don't carry the field.
+    pub data_type: Option<String>,
 }
 
 /// Detect the format of a file from its raw bytes.
@@ -151,14 +159,16 @@ pub fn open_grib1(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<Vec<Mess
             edition: Some(1),
             discipline: None,
             total_length_bytes: Some(msg.is.total_length as f64),
+            production_status: None,
+            data_type: None,
         });
     }
     Ok(result)
 }
 
-/// Parse a GRIB2 file from raw bytes and return Indicator-Section metadata
-/// for each message. Phase 4.0 only populates IS-level fields (edition,
-/// discipline, total length); other columns are placeholders until the
+/// Parse a GRIB2 file from raw bytes and return per-message metadata.
+/// Currently surfaces §0 + §1 fields (edition, discipline, centre, ref-time,
+/// production status, data type); §3+ columns remain placeholders until the
 /// per-section parsers land.
 #[napi]
 pub fn open_grib2(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<Vec<MessageMeta>> {
@@ -167,22 +177,25 @@ pub fn open_grib2(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<Vec<Mess
 
     let mut result = Vec::with_capacity(reader.messages.len());
     for msg in &reader.messages {
+        let centre = lookup_grib2_centre(msg.ids.centre)
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("Centre {}", msg.ids.centre));
         result.push(MessageMeta {
             message_index: msg.message_index as i32,
             offset_bytes: msg.byte_offset as i32,
-            // Until per-section parsers land, surface the discipline string
-            // in the existing `parameter_name` column so the table renderer
-            // shows something meaningful per row without rendering-side
-            // changes. The structured discipline is also exposed below.
+            // Until §4 PDS lands, surface the discipline string in the
+            // existing `parameter_name` column so the table renderer shows
+            // something meaningful per row. The structured discipline is also
+            // exposed in the `discipline` field below.
             parameter_name: lookup_discipline(msg.is.discipline).to_string(),
             parameter_units: String::new(),
             parameter_abbreviation: String::new(),
             level: "—".to_string(),
             level_type: "—".to_string(),
-            reference_time: "—".to_string(),
+            reference_time: msg.ids.reference_time_iso8601(),
             forecast_hours: 0,
             forecast_display: "—".to_string(),
-            originating_centre: format!("{} bytes", msg.is.total_length),
+            originating_centre: centre,
             grid_type: None,
             grid_ni: None,
             grid_nj: None,
@@ -194,6 +207,10 @@ pub fn open_grib2(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<Vec<Mess
             edition: Some(i32::from(msg.is.edition)),
             discipline: Some(lookup_discipline(msg.is.discipline).to_string()),
             total_length_bytes: Some(msg.is.total_length as f64),
+            production_status: Some(
+                lookup_production_status(msg.ids.production_status).to_string(),
+            ),
+            data_type: Some(fieldglass_grib2::lookup_data_type(msg.ids.data_type).to_string()),
         });
     }
     Ok(result)

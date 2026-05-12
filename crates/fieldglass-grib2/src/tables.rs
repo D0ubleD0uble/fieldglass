@@ -23,6 +23,94 @@ pub fn lookup_discipline(discipline: u8) -> &'static str {
     }
 }
 
+/// Look up an originating/generating centre (WMO Common Code Table C-1).
+///
+/// Subset of the full WMO list — the centres most commonly seen in publicly
+/// distributed GRIB2 products. Codes in the C-1 table are 16-bit on the
+/// wire even though the WMO assignments below 256 are stable across
+/// editions. Returns `None` for unknown codes; callers should fall back to
+/// rendering the numeric id.
+pub fn lookup_centre(centre: u16) -> Option<&'static str> {
+    let name = match centre {
+        7 => "US National Weather Service - NCEP",
+        8 => "US NWS Telecommunications Gateway",
+        9 => "US National Weather Service - Other",
+        34 => "Tokyo (RSMC) - JMA",
+        38 => "Beijing (RSMC) - CMA",
+        40 => "Seoul - KMA",
+        46 => "INPE",
+        54 => "Montreal (RSMC) - CMC",
+        58 => "Fleet Numerical Meteorology and Oceanography Center",
+        59 => "NOAA Forecast Systems Laboratory",
+        60 => "NCAR",
+        74 => "UK Met Office - Exeter (RSMC)",
+        78 => "Offenbach (RSMC) - DWD",
+        80 => "Rome (RSMC)",
+        82 => "Norrköping - SMHI",
+        85 => "Toulouse (RSMC) - Météo-France",
+        86 => "Helsinki - FMI",
+        88 => "Oslo - MET Norway",
+        94 => "Copenhagen - DMI",
+        97 => "European Space Agency (ESA)",
+        98 => "European Centre for Medium-Range Weather Forecasts (ECMWF)",
+        173 => "NASA",
+        _ => return None,
+    };
+    Some(name)
+}
+
+/// Significance of reference time (WMO Code Table 1.2).
+pub fn lookup_reference_time_significance(value: u8) -> &'static str {
+    match value {
+        0 => "Analysis",
+        1 => "Start of forecast",
+        2 => "Verifying time of forecast",
+        3 => "Observation time",
+        255 => "Missing",
+        _ => "Unknown",
+    }
+}
+
+/// Production status of processed data (WMO Code Table 1.3).
+pub fn lookup_production_status(value: u8) -> &'static str {
+    match value {
+        0 => "Operational products",
+        1 => "Operational test products",
+        2 => "Research products",
+        3 => "Re-analysis products",
+        4 => "TIGGE",
+        5 => "TIGGE test",
+        6 => "S2S operational products",
+        7 => "S2S test products",
+        8 => "UERRA",
+        9 => "UERRA test",
+        10 => "Climate Data Record",
+        11 => "Climate projections",
+        12 => "Climate Forecast System Reanalysis",
+        13 => "Climate Forecast System Reforecasts",
+        255 => "Missing",
+        _ => "Unknown",
+    }
+}
+
+/// Type of processed data (WMO Code Table 1.4).
+pub fn lookup_data_type(value: u8) -> &'static str {
+    match value {
+        0 => "Analysis products",
+        1 => "Forecast products",
+        2 => "Analysis and forecast products",
+        3 => "Control forecast products",
+        4 => "Perturbed forecast products",
+        5 => "Control and perturbed forecast products",
+        6 => "Processed satellite observations",
+        7 => "Processed radar observations",
+        8 => "Event probability",
+        192..=254 => "Reserved for local use",
+        255 => "Missing",
+        _ => "Unknown",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -45,5 +133,146 @@ mod tests {
     #[test]
     fn missing_sentinel() {
         assert_eq!(lookup_discipline(255), "Missing");
+    }
+
+    #[test]
+    fn known_centres() {
+        assert_eq!(
+            lookup_centre(98),
+            Some("European Centre for Medium-Range Weather Forecasts (ECMWF)")
+        );
+        assert_eq!(lookup_centre(7), Some("US National Weather Service - NCEP"));
+    }
+
+    #[test]
+    fn unknown_centre_returns_none() {
+        assert_eq!(lookup_centre(0xFFFE), None);
+    }
+
+    #[test]
+    fn reference_time_significance_table() {
+        assert_eq!(lookup_reference_time_significance(0), "Analysis");
+        assert_eq!(lookup_reference_time_significance(1), "Start of forecast");
+        assert_eq!(lookup_reference_time_significance(255), "Missing");
+        assert_eq!(lookup_reference_time_significance(99), "Unknown");
+    }
+
+    #[test]
+    fn production_status_table() {
+        assert_eq!(lookup_production_status(0), "Operational products");
+        assert_eq!(lookup_production_status(3), "Re-analysis products");
+        assert_eq!(lookup_production_status(255), "Missing");
+        assert_eq!(lookup_production_status(99), "Unknown");
+    }
+
+    #[test]
+    fn data_type_table() {
+        assert_eq!(lookup_data_type(1), "Forecast products");
+        assert_eq!(lookup_data_type(2), "Analysis and forecast products");
+        assert_eq!(lookup_data_type(200), "Reserved for local use");
+        assert_eq!(lookup_data_type(255), "Missing");
+        assert_eq!(lookup_data_type(99), "Unknown");
+    }
+
+    /// Pin every centre arm we curated. Each arm is a constant mapping with
+    /// no logic — the value of this test is catching accidental edits to the
+    /// centre IDs (e.g. swapping 78 and 80 during a refactor).
+    #[test]
+    fn centre_lookup_pins_curated_ids() {
+        for (id, expected) in [
+            (7u16, "US National Weather Service - NCEP"),
+            (8, "US NWS Telecommunications Gateway"),
+            (9, "US National Weather Service - Other"),
+            (34, "Tokyo (RSMC) - JMA"),
+            (38, "Beijing (RSMC) - CMA"),
+            (40, "Seoul - KMA"),
+            (46, "INPE"),
+            (54, "Montreal (RSMC) - CMC"),
+            (58, "Fleet Numerical Meteorology and Oceanography Center"),
+            (59, "NOAA Forecast Systems Laboratory"),
+            (60, "NCAR"),
+            (74, "UK Met Office - Exeter (RSMC)"),
+            (78, "Offenbach (RSMC) - DWD"),
+            (80, "Rome (RSMC)"),
+            (82, "Norrköping - SMHI"),
+            (85, "Toulouse (RSMC) - Météo-France"),
+            (86, "Helsinki - FMI"),
+            (88, "Oslo - MET Norway"),
+            (94, "Copenhagen - DMI"),
+            (97, "European Space Agency (ESA)"),
+            (
+                98,
+                "European Centre for Medium-Range Weather Forecasts (ECMWF)",
+            ),
+            (173, "NASA"),
+        ] {
+            assert_eq!(lookup_centre(id), Some(expected), "centre {id}");
+        }
+    }
+
+    #[test]
+    fn discipline_lookup_pins_all_arms() {
+        for (id, expected) in [
+            (0u8, "Meteorological products"),
+            (1, "Hydrological products"),
+            (2, "Land surface products"),
+            (3, "Satellite remote sensing products"),
+            (4, "Space weather products"),
+            (10, "Oceanographic products"),
+            (20, "Health and socioeconomic impacts"),
+        ] {
+            assert_eq!(lookup_discipline(id), expected, "discipline {id}");
+        }
+    }
+
+    #[test]
+    fn reference_time_significance_pins_all_arms() {
+        for (id, expected) in [
+            (0u8, "Analysis"),
+            (1, "Start of forecast"),
+            (2, "Verifying time of forecast"),
+            (3, "Observation time"),
+        ] {
+            assert_eq!(lookup_reference_time_significance(id), expected);
+        }
+    }
+
+    #[test]
+    fn production_status_pins_all_arms() {
+        for (id, expected) in [
+            (0u8, "Operational products"),
+            (1, "Operational test products"),
+            (2, "Research products"),
+            (3, "Re-analysis products"),
+            (4, "TIGGE"),
+            (5, "TIGGE test"),
+            (6, "S2S operational products"),
+            (7, "S2S test products"),
+            (8, "UERRA"),
+            (9, "UERRA test"),
+            (10, "Climate Data Record"),
+            (11, "Climate projections"),
+            (12, "Climate Forecast System Reanalysis"),
+            (13, "Climate Forecast System Reforecasts"),
+        ] {
+            assert_eq!(lookup_production_status(id), expected, "status {id}");
+        }
+    }
+
+    #[test]
+    fn data_type_pins_all_arms() {
+        for (id, expected) in [
+            (0u8, "Analysis products"),
+            (1, "Forecast products"),
+            (2, "Analysis and forecast products"),
+            (3, "Control forecast products"),
+            (4, "Perturbed forecast products"),
+            (5, "Control and perturbed forecast products"),
+            (6, "Processed satellite observations"),
+            (7, "Processed radar observations"),
+            (8, "Event probability"),
+        ] {
+            assert_eq!(lookup_data_type(id), expected, "data_type {id}");
+        }
     }
 }
