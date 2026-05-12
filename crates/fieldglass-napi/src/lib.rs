@@ -167,9 +167,10 @@ pub fn open_grib1(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<Vec<Mess
 }
 
 /// Parse a GRIB2 file from raw bytes and return per-message metadata.
-/// Currently surfaces §0 + §1 fields (edition, discipline, centre, ref-time,
-/// production status, data type); §3+ columns remain placeholders until the
-/// per-section parsers land.
+/// Currently surfaces §0 + §1 + §3 fields (edition, discipline, centre,
+/// ref-time, production status, data type, grid template, dimensions,
+/// corner coords); §4+ columns remain placeholders until the per-section
+/// parsers land.
 #[napi]
 pub fn open_grib2(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<Vec<MessageMeta>> {
     let reader = Grib2Reader::from_bytes(bytes.to_vec())
@@ -180,6 +181,8 @@ pub fn open_grib2(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<Vec<Mess
         let centre = lookup_grib2_centre(msg.ids.centre)
             .map(str::to_string)
             .unwrap_or_else(|| format!("Centre {}", msg.ids.centre));
+        let dims = msg.gds.dimensions();
+        let bounds = msg.gds.bounds();
         result.push(MessageMeta {
             message_index: msg.message_index as i32,
             offset_bytes: msg.byte_offset as i32,
@@ -196,13 +199,13 @@ pub fn open_grib2(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<Vec<Mess
             forecast_hours: 0,
             forecast_display: "—".to_string(),
             originating_centre: centre,
-            grid_type: None,
-            grid_ni: None,
-            grid_nj: None,
-            lat_first: None,
-            lon_first: None,
-            lat_last: None,
-            lon_last: None,
+            grid_type: Some(msg.gds.template_name()),
+            grid_ni: dims.map(|(ni, _)| ni as i32),
+            grid_nj: dims.map(|(_, nj)| nj as i32),
+            lat_first: bounds.map(|(la1, _, _, _)| la1),
+            lon_first: bounds.map(|(_, lo1, _, _)| lo1),
+            lat_last: bounds.map(|(_, _, la2, _)| la2),
+            lon_last: bounds.map(|(_, _, _, lo2)| lo2),
             format: "grib2".to_string(),
             edition: Some(i32::from(msg.is.edition)),
             discipline: Some(lookup_discipline(msg.is.discipline).to_string()),

@@ -93,6 +93,46 @@ pub fn lookup_production_status(value: u8) -> &'static str {
     }
 }
 
+/// Grid definition template number (WMO Code Table 3.1) — short label.
+pub fn lookup_grid_template(template: u16) -> &'static str {
+    match template {
+        0 => "Latitude/longitude",
+        1 => "Rotated latitude/longitude",
+        2 => "Stretched latitude/longitude",
+        3 => "Stretched and rotated latitude/longitude",
+        10 => "Mercator",
+        20 => "Polar stereographic",
+        30 => "Lambert conformal",
+        31 => "Albers equal area",
+        40 => "Gaussian latitude/longitude",
+        41 => "Rotated Gaussian latitude/longitude",
+        50 => "Spherical harmonic coefficients",
+        90 => "Space view perspective",
+        100 => "Triangular grid (icosahedral)",
+        110 => "Equatorial azimuthal equidistant",
+        120 => "Azimuth-range projection",
+        140 => "Lambert azimuthal equal area",
+        _ => "Unknown grid template",
+    }
+}
+
+/// Shape of the reference Earth (WMO Code Table 3.2).
+pub fn lookup_earth_shape(shape: u8) -> &'static str {
+    match shape {
+        0 => "Spherical (radius 6 367 470.0 m)",
+        1 => "Spherical (custom radius)",
+        2 => "Oblate spheroid (IAU 1965)",
+        3 => "Oblate spheroid (custom axes)",
+        4 => "Oblate spheroid (IAG-GRS80)",
+        5 => "Oblate spheroid (WGS84)",
+        6 => "Spherical (radius 6 371 229.0 m)",
+        7 => "Oblate spheroid (custom axes, m)",
+        8 => "Spherical (radius 6 371 200.0 m, derived)",
+        9 => "Oblate spheroid (OSGB 1936 / Airy)",
+        _ => "Unknown earth shape",
+    }
+}
+
 /// Type of processed data (WMO Code Table 1.4).
 pub fn lookup_data_type(value: u8) -> &'static str {
     match value {

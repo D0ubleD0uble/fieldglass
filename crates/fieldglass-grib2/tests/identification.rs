@@ -87,43 +87,61 @@ fn fixture_includes_local_use_section() {
 // the §2-absent branch and the IDS-related error paths.
 // ---------------------------------------------------------------------------
 
-/// Build a minimal valid GRIB2 message: IS + IDS + (optionally) §3 sentinel +
-/// ES. Returns the message bytes. The §3 sentinel is just a 5-byte section
-/// header advertising section 3 — the reader is supposed to leave it alone
-/// since LUS handling stops at "is the next byte section 2?".
-fn build_message(include_section3_after_ids: bool) -> Vec<u8> {
+/// Build a minimal valid GRIB2 message: IS + IDS + minimal §3 GDS + ES.
+/// `include_lus` controls whether a tiny empty §2 LUS is inserted between
+/// the IDS and the GDS, exercising the LUS-present and LUS-absent reader
+/// paths off a single helper.
+fn build_message(include_lus: bool) -> Vec<u8> {
     let ids_len: u32 = 21;
-    let s3_len: u32 = if include_section3_after_ids { 5 } else { 0 };
-    let total_len: u64 = 16 + ids_len as u64 + s3_len as u64 + 4; // IS + IDS + §3? + ES
+    let lus_len: u32 = if include_lus { 5 } else { 0 };
+    let gds_len: u32 = 72; // §3 template 3.0 — 5-byte header + 67-byte body
+    let total_len: u64 = 16 + ids_len as u64 + lus_len as u64 + gds_len as u64 + 4;
 
     let mut buf = Vec::with_capacity(total_len as usize);
     // IS
     buf.extend_from_slice(b"GRIB");
-    buf.extend_from_slice(&[0, 0]); // reserved
+    buf.extend_from_slice(&[0, 0]);
     buf.push(0); // discipline
     buf.push(2); // edition
     buf.extend_from_slice(&total_len.to_be_bytes());
-    // IDS — 21 bytes, section number 1
+    // IDS
     buf.extend_from_slice(&ids_len.to_be_bytes());
-    buf.push(1); // section number
-    buf.extend_from_slice(&98u16.to_be_bytes()); // centre = ECMWF
-    buf.extend_from_slice(&0u16.to_be_bytes()); // sub-centre
-    buf.push(5); // master tables
-    buf.push(0); // local tables
-    buf.push(1); // ref-time significance
-    buf.extend_from_slice(&2024u16.to_be_bytes()); // year
-    buf.push(1); // month
-    buf.push(1); // day
-    buf.push(0); // hour
-    buf.push(0); // minute
-    buf.push(0); // second
-    buf.push(0); // production status
-    buf.push(1); // data type
-    if include_section3_after_ids {
-        // 5-byte section header advertising §3.
+    buf.push(1);
+    buf.extend_from_slice(&98u16.to_be_bytes());
+    buf.extend_from_slice(&0u16.to_be_bytes());
+    buf.push(5);
+    buf.push(0);
+    buf.push(1);
+    buf.extend_from_slice(&2024u16.to_be_bytes());
+    buf.push(1);
+    buf.push(1);
+    buf.push(0);
+    buf.push(0);
+    buf.push(0);
+    buf.push(0);
+    buf.push(1);
+    if include_lus {
+        // Empty §2.
         buf.extend_from_slice(&5u32.to_be_bytes());
-        buf.push(3);
+        buf.push(2);
     }
+    // §3 GDS — template 3.0, 1-point lat/lon at the equator/prime meridian.
+    buf.extend_from_slice(&gds_len.to_be_bytes());
+    buf.push(3); // section number
+    buf.push(0); // source
+    buf.extend_from_slice(&1u32.to_be_bytes()); // num data points
+    buf.push(0); // optional list octet size
+    buf.push(0); // interp
+    buf.extend_from_slice(&0u16.to_be_bytes()); // template = 3.0
+    // Template 3.0 payload (58 bytes).
+    let mut payload = vec![0u8; 58];
+    payload[0] = 6; // shape_of_earth
+    payload[16..20].copy_from_slice(&1u32.to_be_bytes()); // Ni
+    payload[20..24].copy_from_slice(&1u32.to_be_bytes()); // Nj
+    // La1, Lo1, La2, Lo2 left at 0.
+    payload[49..53].copy_from_slice(&1_000_000u32.to_be_bytes()); // Di = 1°
+    payload[53..57].copy_from_slice(&1_000_000u32.to_be_bytes()); // Dj
+    buf.extend_from_slice(&payload);
     buf.extend_from_slice(b"7777");
     assert_eq!(buf.len() as u64, total_len);
     buf
@@ -132,12 +150,22 @@ fn build_message(include_section3_after_ids: bool) -> Vec<u8> {
 #[test]
 fn message_without_lus_parses_with_none_range() {
     // Real GRIB2 messages frequently omit §2; the reader must not require it.
-    let bytes = build_message(true);
+    let bytes = build_message(false);
     let reader = Grib2Reader::from_bytes(bytes).expect("parse synthetic message");
     let msg = &reader.messages[0];
     assert!(msg.lus_range.is_none());
     assert_eq!(msg.ids.centre, 98);
     assert_eq!(msg.ids.year, 2024);
+    assert_eq!(msg.gds.template_number, 0);
+}
+
+#[test]
+fn message_with_lus_parses_both_lus_and_gds() {
+    let bytes = build_message(true);
+    let reader = Grib2Reader::from_bytes(bytes).expect("parse synthetic message");
+    let msg = &reader.messages[0];
+    assert!(msg.lus_range.is_some());
+    assert_eq!(msg.gds.template_number, 0);
 }
 
 #[test]
