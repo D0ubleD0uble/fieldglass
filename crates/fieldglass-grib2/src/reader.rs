@@ -90,13 +90,11 @@ fn scan_messages(data: &[u8]) -> Result<Vec<Grib2Message>, FieldglassError> {
             )));
         }
 
-        // §1 IDS — always immediately follows §0.
+        // §1 IDS — always immediately follows §0. The earlier "impossibly
+        // small length" guard ensures at least END_SECTION_LEN bytes follow
+        // the IS, so a malformed-but-non-empty section header here will
+        // surface from parse_section_header with a coherent error.
         let ids_offset = offset + INDICATOR_SECTION_LEN;
-        if ids_offset >= msg_end {
-            return Err(FieldglassError::Parse(format!(
-                "Message at offset {offset} is too short to contain an IDS"
-            )));
-        }
         let ids_header = parse_section_header(&data[ids_offset..msg_end])?;
         if ids_header.number != IDS_SECTION_NUMBER {
             return Err(FieldglassError::Parse(format!(

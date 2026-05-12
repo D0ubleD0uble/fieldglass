@@ -173,4 +173,106 @@ mod tests {
         assert_eq!(lookup_data_type(255), "Missing");
         assert_eq!(lookup_data_type(99), "Unknown");
     }
+
+    /// Pin every centre arm we curated. Each arm is a constant mapping with
+    /// no logic — the value of this test is catching accidental edits to the
+    /// centre IDs (e.g. swapping 78 and 80 during a refactor).
+    #[test]
+    fn centre_lookup_pins_curated_ids() {
+        for (id, expected) in [
+            (7u16, "US National Weather Service - NCEP"),
+            (8, "US NWS Telecommunications Gateway"),
+            (9, "US National Weather Service - Other"),
+            (34, "Tokyo (RSMC) - JMA"),
+            (38, "Beijing (RSMC) - CMA"),
+            (40, "Seoul - KMA"),
+            (46, "INPE"),
+            (54, "Montreal (RSMC) - CMC"),
+            (58, "Fleet Numerical Meteorology and Oceanography Center"),
+            (59, "NOAA Forecast Systems Laboratory"),
+            (60, "NCAR"),
+            (74, "UK Met Office - Exeter (RSMC)"),
+            (78, "Offenbach (RSMC) - DWD"),
+            (80, "Rome (RSMC)"),
+            (82, "Norrköping - SMHI"),
+            (85, "Toulouse (RSMC) - Météo-France"),
+            (86, "Helsinki - FMI"),
+            (88, "Oslo - MET Norway"),
+            (94, "Copenhagen - DMI"),
+            (97, "European Space Agency (ESA)"),
+            (
+                98,
+                "European Centre for Medium-Range Weather Forecasts (ECMWF)",
+            ),
+            (173, "NASA"),
+        ] {
+            assert_eq!(lookup_centre(id), Some(expected), "centre {id}");
+        }
+    }
+
+    #[test]
+    fn discipline_lookup_pins_all_arms() {
+        for (id, expected) in [
+            (0u8, "Meteorological products"),
+            (1, "Hydrological products"),
+            (2, "Land surface products"),
+            (3, "Satellite remote sensing products"),
+            (4, "Space weather products"),
+            (10, "Oceanographic products"),
+            (20, "Health and socioeconomic impacts"),
+        ] {
+            assert_eq!(lookup_discipline(id), expected, "discipline {id}");
+        }
+    }
+
+    #[test]
+    fn reference_time_significance_pins_all_arms() {
+        for (id, expected) in [
+            (0u8, "Analysis"),
+            (1, "Start of forecast"),
+            (2, "Verifying time of forecast"),
+            (3, "Observation time"),
+        ] {
+            assert_eq!(lookup_reference_time_significance(id), expected);
+        }
+    }
+
+    #[test]
+    fn production_status_pins_all_arms() {
+        for (id, expected) in [
+            (0u8, "Operational products"),
+            (1, "Operational test products"),
+            (2, "Research products"),
+            (3, "Re-analysis products"),
+            (4, "TIGGE"),
+            (5, "TIGGE test"),
+            (6, "S2S operational products"),
+            (7, "S2S test products"),
+            (8, "UERRA"),
+            (9, "UERRA test"),
+            (10, "Climate Data Record"),
+            (11, "Climate projections"),
+            (12, "Climate Forecast System Reanalysis"),
+            (13, "Climate Forecast System Reforecasts"),
+        ] {
+            assert_eq!(lookup_production_status(id), expected, "status {id}");
+        }
+    }
+
+    #[test]
+    fn data_type_pins_all_arms() {
+        for (id, expected) in [
+            (0u8, "Analysis products"),
+            (1, "Forecast products"),
+            (2, "Analysis and forecast products"),
+            (3, "Control forecast products"),
+            (4, "Perturbed forecast products"),
+            (5, "Control and perturbed forecast products"),
+            (6, "Processed satellite observations"),
+            (7, "Processed radar observations"),
+            (8, "Event probability"),
+        ] {
+            assert_eq!(lookup_data_type(id), expected, "data_type {id}");
+        }
+    }
 }
