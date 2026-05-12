@@ -27,6 +27,8 @@ interface MessageMeta {
   edition: number | null;
   discipline: string | null;
   totalLengthBytes: number | null;
+  productionStatus: string | null;
+  dataType: string | null;
 }
 
 interface DimensionMeta {
@@ -539,6 +541,17 @@ function isNonNegativeInt(n: unknown): n is number {
   return typeof n === "number" && Number.isInteger(n) && n >= 0;
 }
 
+/// Compose the "Centre" table cell: centre name plus, when available, the
+/// GRIB2 production status (Code Table 1.3) so operational vs. research
+/// products are visible at a glance without adding another column.
+function formatCentreCell(m: MessageMeta): string {
+  const status = m.productionStatus;
+  if (status && status !== "Missing" && status !== "Unknown") {
+    return `${m.originatingCentre} · ${status}`;
+  }
+  return m.originatingCentre;
+}
+
 function describeProjection(meta: MessageMeta): string {
   const dims = (meta.gridNi !== null && meta.gridNj !== null)
     ? `${meta.gridNi}×${meta.gridNj}` : "?";
@@ -710,7 +723,7 @@ function renderHtml(
         <td>${escapeHtml(m.gridType ?? "—")}</td>
         <td>${gridDims}</td>
         <td>${gridBounds}</td>
-        <td>${escapeHtml(m.originatingCentre)}</td>
+        <td>${escapeHtml(formatCentreCell(m))}</td>
       </tr>
       <tr class="expand-row" id="expand-${idx}" hidden>
         <td class="expand-cell" colspan="${COLSPAN}">

@@ -6,6 +6,15 @@ Versioning follows the [VS Code pre-release convention](https://code.visualstudi
 
 ## [Unreleased]
 
+### Added
+- GRIB2 §1 Identification Section parsing — exposes originating centre, sub-centre, master/local table versions, reference time, production status, and processed-data type per message.
+- GRIB2 §2 Local Use Section parsing — surfaces the byte range so centre-specific decoders can pick up the opaque payload later.
+- WMO Code Table 1.2 / 1.3 / 1.4 lookups (reference-time significance, production status, processed-data type) and a subset of Common Code Table C-1 (originating centres) in `fieldglass-grib2`.
+- Reference time and originating centre now populate per-message rows in the GRIB2 metadata viewer; the production status is shown alongside the centre when present.
+
+### Changed
+- `MessageMeta` (napi) gains optional `productionStatus` / `dataType` fields; existing GRIB1 callers see them as `null`.
+
 ## [0.1.1] — 2026-05-10
 
 Second pre-release. GRIB2 and NetCDF move from "magic-byte detection only" to header-parsed metadata viewers; GRIB1 gains 2-D grid rendering and second-order packing decode for the ECMWF default (SPD-2).

@@ -1,20 +1,29 @@
 //! GRIB edition 2 reader.
 //!
-//! Phase 4.0 scope: Indicator Section parsing and message enumeration only.
-//! Sections 1–7 (IDS / LUS / GDS / PDS / DRS / BMS / DS) and per-section
-//! decoding are tracked under separate issues.
+//! Current scope: Indicator (§0), Identification (§1), and Local Use (§2)
+//! parsing + message enumeration. Sections 3–7 (GDS / PDS / DRS / BMS / DS)
+//! are tracked under separate issues.
 
 #![forbid(unsafe_code)]
 
+pub mod ids;
 pub mod is;
+pub mod lus;
 pub mod reader;
+pub mod section;
 pub mod tables;
 
+pub use ids::{IDS_MIN_LEN, IDS_SECTION_NUMBER, IdentificationSection, parse_identification};
 pub use is::{
     END_SECTION_LEN, GRIB2_EDITION, INDICATOR_SECTION_LEN, IndicatorSection, parse_indicator,
 };
+pub use lus::{LUS_SECTION_NUMBER, LocalUseSection, parse_local_use};
 pub use reader::{Grib2Message, Grib2Reader};
-pub use tables::lookup_discipline;
+pub use section::{SECTION_HEADER_LEN, SectionHeader, parse_section_header};
+pub use tables::{
+    lookup_centre, lookup_data_type, lookup_discipline, lookup_production_status,
+    lookup_reference_time_significance,
+};
 
 use fieldglass_core::{DataMessage, FormatReader, GridDefinition, Level, Metadata, Parameter};
 
