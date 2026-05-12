@@ -1,3 +1,4 @@
+use crate::gds::{GDS_SECTION_NUMBER, GridDefinitionSection, parse_grid_definition_with_header};
 use crate::ids::{IDS_SECTION_NUMBER, IdentificationSection, parse_identification_with_header};
 use crate::is::{
     END_SECTION_LEN, GRIB2_EDITION, INDICATOR_SECTION_LEN, IndicatorSection, parse_indicator,
@@ -6,8 +7,8 @@ use crate::lus::{LUS_SECTION_NUMBER, parse_local_use_with_header};
 use crate::section::parse_section_header;
 use fieldglass_core::FieldglassError;
 
-/// Parsed metadata for a single GRIB2 message. Currently surfaces §0–§2;
-/// §3–§7 are populated as later issues land.
+/// Parsed metadata for a single GRIB2 message. Currently surfaces §0–§3;
+/// §4–§7 are populated as later issues land.
 #[derive(Debug, Clone, Copy)]
 pub struct Grib2Message {
     /// Zero-based index of this message within the parent file.
@@ -21,6 +22,8 @@ pub struct Grib2Message {
     /// Byte range of the Local Use Section (Section 2) within the file, if
     /// present. The section is optional per WMO spec.
     pub lus_range: Option<(usize, usize)>,
+    /// Parsed Grid Definition Section (Section 3) — required by spec.
+    pub gds: GridDefinitionSection,
 }
 
 /// Top-level reader for a GRIB2 file. Owns the underlying bytes and a
@@ -107,19 +110,32 @@ fn scan_messages(data: &[u8]) -> Result<Vec<Grib2Message>, FieldglassError> {
         let after_ids = ids_offset + ids_header.length as usize;
 
         // §2 LUS is optional; peek the next header and consume it only if it
-        // claims to be section 2. Anything else (§3 GDS, §7 DS, …) is left
-        // for later issues to walk.
-        let lus_range = if after_ids + crate::section::SECTION_HEADER_LEN <= msg_end {
-            let next = parse_section_header(&data[after_ids..msg_end])?;
+        // claims to be section 2. Anything else (typically §3 GDS) is left
+        // for the GDS step below.
+        let mut cursor = after_ids;
+        let lus_range = {
+            let next = parse_section_header(&data[cursor..msg_end])?;
             if next.number == LUS_SECTION_NUMBER {
-                let lus = parse_local_use_with_header(&data[after_ids..msg_end], next)?;
-                Some((after_ids, after_ids + lus.section_length as usize))
+                let lus = parse_local_use_with_header(&data[cursor..msg_end], next)?;
+                let end = cursor + lus.section_length as usize;
+                let range = (cursor, end);
+                cursor = end;
+                Some(range)
             } else {
                 None
             }
-        } else {
-            None
         };
+
+        // §3 GDS — required by the WMO spec in every message.
+        let gds_header = parse_section_header(&data[cursor..msg_end])?;
+        if gds_header.number != GDS_SECTION_NUMBER {
+            return Err(FieldglassError::Parse(format!(
+                "Message at offset {offset}: expected GDS (section {GDS_SECTION_NUMBER}), \
+                 got section {}",
+                gds_header.number
+            )));
+        }
+        let gds = parse_grid_definition_with_header(&data[cursor..msg_end], gds_header)?;
 
         messages.push(Grib2Message {
             message_index: messages.len(),
@@ -127,6 +143,7 @@ fn scan_messages(data: &[u8]) -> Result<Vec<Grib2Message>, FieldglassError> {
             is,
             ids,
             lus_range,
+            gds,
         });
 
         offset = msg_end; // advance to the next message
