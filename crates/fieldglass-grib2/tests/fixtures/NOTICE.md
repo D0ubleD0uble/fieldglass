@@ -17,6 +17,17 @@ message of NCEP GFS output, GDS template **3.0** (regular latitude/longitude),
 government work and in the public domain; the eccodes corpus redistribution
 is under Apache 2.0.
 
+## `regular_latlon_surface.grib2`
+
+Sourced verbatim from the public ECMWF eccodes test data corpus
+(<https://sites.ecmwf.int/repository/eccodes/test-data/data/regular_latlon_surface.grib2>).
+Single message of 2-metre temperature on a coarse 16×31 regular lat/lon
+grid, GDS template **3.0**, PDS template **4.0**, **DRS template 5.0
+(simple packing)**, R ≈ 270 K. Used by the §5–§7 decode tests as a
+small, fully simple-packed end-to-end fixture (gfs_c255 uses complex
+packing 5.3, eta_lambert / reduced_gaussian use 5.0 but at larger
+grids). eccodes is released under the Apache 2.0 license.
+
 ## `eta_lambert_msg0.grib2`
 
 First GRIB2 message extracted from `eta.grb` in the

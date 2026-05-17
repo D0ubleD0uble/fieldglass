@@ -96,7 +96,18 @@ fn build_message(include_lus: bool) -> Vec<u8> {
     let lus_len: u32 = if include_lus { 5 } else { 0 };
     let gds_len: u32 = 72; // §3 template 3.0 — 5-byte header + 67-byte body
     let pds_len: u32 = 34; // §4 template 4.0 — 9-byte header + 25-byte payload
-    let total_len: u64 = 16 + ids_len as u64 + lus_len as u64 + gds_len as u64 + pds_len as u64 + 4;
+    let drs_len: u32 = 21; // §5 template 5.0 — 11-byte header + 10-byte payload
+    let bms_len: u32 = 6; // §6 — 5-byte header + 1-byte indicator (255 = no bitmap)
+    let ds_len: u32 = 6; // §7 — 5-byte header + 1 dummy byte (1-point grid, 8 bits/value)
+    let total_len: u64 = 16
+        + ids_len as u64
+        + lus_len as u64
+        + gds_len as u64
+        + pds_len as u64
+        + drs_len as u64
+        + bms_len as u64
+        + ds_len as u64
+        + 4;
 
     let mut buf = Vec::with_capacity(total_len as usize);
     // IS
@@ -149,6 +160,24 @@ fn build_message(include_lus: bool) -> Vec<u8> {
     buf.extend_from_slice(&0u16.to_be_bytes()); // NV
     buf.extend_from_slice(&0u16.to_be_bytes()); // template 4.0
     buf.extend_from_slice(&[0u8; 25]); // horizontal common
+    // §5 DRS — template 5.0, R=0, E=0, D=0, 8 bits/value.
+    buf.extend_from_slice(&drs_len.to_be_bytes());
+    buf.push(5); // section number
+    buf.extend_from_slice(&1u32.to_be_bytes()); // num data points
+    buf.extend_from_slice(&0u16.to_be_bytes()); // template 5.0
+    buf.extend_from_slice(&0.0_f32.to_be_bytes()); // R
+    buf.extend_from_slice(&0u16.to_be_bytes()); // E
+    buf.extend_from_slice(&0u16.to_be_bytes()); // D
+    buf.push(8); // bits per value
+    buf.push(0); // original field type
+    // §6 BMS — indicator 255 = no bitmap.
+    buf.extend_from_slice(&bms_len.to_be_bytes());
+    buf.push(6); // section number
+    buf.push(255); // no bitmap
+    // §7 DS — 1 byte of packed data (one 8-bit value = 0).
+    buf.extend_from_slice(&ds_len.to_be_bytes());
+    buf.push(7); // section number
+    buf.push(0); // packed value X = 0 → decoded value = R + 0 = 0
     buf.extend_from_slice(b"7777");
     assert_eq!(buf.len() as u64, total_len);
     buf

@@ -15,9 +15,15 @@ Versioning follows the [VS Code pre-release convention](https://code.visualstudi
 - Reference time, originating centre, grid type / dimensions / corner coordinates, and now parameter name + units + level + forecast time populate per-message rows in the GRIB2 metadata viewer.
 - Two new GRIB2 fixtures: `gfs_c255_latlon.grib2` (NCEP GFS, template 3.0) and `eta_lambert_msg0.grib2` (NOAA Eta, template 3.30) — see `crates/fieldglass-grib2/tests/fixtures/NOTICE.md` for provenance.
 
+- GRIB2 §5 Data Representation Section parsing for template 5.0 (simple packing): reference value (IEEE float), binary scale factor `E`, decimal scale factor `D`, bits per value, and original-field type. Other templates surface as `unsupported(5.N)`.
+- GRIB2 §6 Bit-Map Section parsing — indicator byte (inline / no bitmap / reuse-previous / predefined) and inline-bitmap unpack into `Vec<bool>`. Reuse-previous and predefined indicators are surfaced as `UnsupportedSection` errors with the code in the message.
+- GRIB2 §7 Data Section parsing + simple-packing decoder. `Grib2Reader::decode_message_values` returns `Vec<Option<f64>>` mirroring the GRIB1 API; constant-field (`bits_per_value == 0`) and bitmap-aware decoding are both covered.
+- napi `decode_grid` now dispatches by magic-byte detection so the existing 2-D render pipeline picks up GRIB2 messages with no UI changes — simple-packed messages render end-to-end.
+- New fixture `regular_latlon_surface.grib2` (1.2 KiB ECMWF 2-m temperature on a 16×31 lat/lon grid) for the simple-packing decode integration test.
+
 ### Changed
 - `MessageMeta` (napi) gains optional `productionStatus` / `dataType` fields; existing GRIB1 callers see them as `null`.
-- GRIB2 `Grib2Message` gains required `gds: GridDefinitionSection` and `pds: ProductDefinitionSection` fields. `Grib2Reader::from_bytes` now validates that every message contains both a §3 GDS and a §4 PDS, matching the WMO spec.
+- GRIB2 `Grib2Message` now carries every section through §7: required `gds: GridDefinitionSection`, `pds: ProductDefinitionSection`, `drs: DataRepresentationSection` plus byte ranges for §6 BMS and §7 DS. `Grib2Reader::from_bytes` validates the full §0–§7 walk per the WMO spec.
 
 ## [0.1.1] — 2026-05-10
 

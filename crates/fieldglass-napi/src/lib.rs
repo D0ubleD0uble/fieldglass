@@ -90,12 +90,16 @@ pub fn set_p1(
     Ok(out.into())
 }
 
-/// Decode the grid values for one GRIB1 message. Returns one entry per grid
+/// Decode the grid values for one GRIB message. Returns one entry per grid
 /// point in scan order: a number for present points, `null` for points that
 /// are masked out by the message's Bit Map Section.
+///
+/// Format dispatch is by magic-byte detection: GRIB1 vs GRIB2 readers run
+/// the same shape end-to-end, so the JS render pipeline doesn't need to
+/// branch on edition.
 //
 // TODO(perf): every call here (and in set_p1, open_grib1) clones the full
-// file buffer and re-parses every message. Hold a Grib1Reader across napi
+// file buffer and re-parses every message. Hold a reader across napi
 // calls via a handle table; also return Float64Array + Uint8Array directly
 // instead of Vec<Option<f64>> to avoid the boxed-Array round trip.
 #[napi]
@@ -103,11 +107,29 @@ pub fn decode_grid(
     bytes: napi::bindgen_prelude::Buffer,
     message_index: u32,
 ) -> napi::Result<Vec<Option<f64>>> {
-    let reader = Grib1Reader::from_bytes(bytes.to_vec())
-        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
-    reader
-        .decode_message_values(message_index as usize)
-        .map_err(|e| napi::Error::from_reason(e.to_string()))
+    let raw = bytes.to_vec();
+    match detect_from_bytes(&raw) {
+        Format::Grib1 => {
+            let reader = Grib1Reader::from_bytes(raw)
+                .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+            reader
+                .decode_message_values(message_index as usize)
+                .map_err(|e| napi::Error::from_reason(e.to_string()))
+        }
+        Format::Grib2 => {
+            let reader = Grib2Reader::from_bytes(raw)
+                .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+            reader
+                .decode_message_values(message_index as usize)
+                .map_err(|e| napi::Error::from_reason(e.to_string()))
+        }
+        Format::NetCdf => Err(napi::Error::from_reason(
+            "decode_grid only supports GRIB1 / GRIB2, got netcdf".to_string(),
+        )),
+        Format::Unknown => Err(napi::Error::from_reason(
+            "decode_grid: unrecognised format".to_string(),
+        )),
+    }
 }
 
 /// Parse a GRIB1 file from raw bytes and return metadata for each message.
