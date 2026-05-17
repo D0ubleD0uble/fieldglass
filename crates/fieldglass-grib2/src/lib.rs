@@ -1,9 +1,9 @@
 //! GRIB edition 2 reader.
 //!
-//! Current scope: Indicator (§0), Identification (§1), Local Use (§2), and
-//! Grid Definition (§3 — templates 3.0 / 3.30 / 3.40) parsing + message
-//! enumeration. Sections 4–7 (PDS / DRS / BMS / DS) are tracked under
-//! separate issues.
+//! Current scope: Indicator (§0), Identification (§1), Local Use (§2),
+//! Grid Definition (§3 — templates 3.0 / 3.30 / 3.40), and Product Definition
+//! (§4 — templates 4.0 / 4.8 / 4.11) parsing + message enumeration. Sections
+//! 5–7 (DRS / BMS / DS) are tracked under separate issues.
 
 #![forbid(unsafe_code)]
 
@@ -11,6 +11,7 @@ pub mod gds;
 pub mod ids;
 pub mod is;
 pub mod lus;
+pub mod pds;
 pub mod reader;
 pub mod section;
 pub mod tables;
@@ -24,11 +25,18 @@ pub use is::{
     END_SECTION_LEN, GRIB2_EDITION, INDICATOR_SECTION_LEN, IndicatorSection, parse_indicator,
 };
 pub use lus::{LUS_SECTION_NUMBER, LocalUseSection, parse_local_use};
+pub use pds::{
+    FixedSurface, HorizontalProductCommon, PDS_SECTION_NUMBER, ProductDefinitionSection,
+    ProductTemplate, StatisticalProcessing, Template40, Template48, Template411, TimeRangeSpec,
+    parse_product_definition,
+};
 pub use reader::{Grib2Message, Grib2Reader};
 pub use section::{SECTION_HEADER_LEN, SectionHeader, parse_section_header};
 pub use tables::{
-    lookup_centre, lookup_data_type, lookup_discipline, lookup_earth_shape, lookup_grid_template,
-    lookup_production_status, lookup_reference_time_significance,
+    lookup_centre, lookup_data_type, lookup_discipline, lookup_earth_shape, lookup_ensemble_type,
+    lookup_fixed_surface, lookup_generating_process_type, lookup_grid_template, lookup_parameter,
+    lookup_production_status, lookup_reference_time_significance, lookup_statistical_process,
+    lookup_time_range_unit,
 };
 
 use fieldglass_core::{DataMessage, FormatReader, GridDefinition, Level, Metadata, Parameter};

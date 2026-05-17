@@ -10,13 +10,14 @@ Versioning follows the [VS Code pre-release convention](https://code.visualstudi
 - GRIB2 §1 Identification Section parsing — exposes originating centre, sub-centre, master/local table versions, reference time, production status, and processed-data type per message.
 - GRIB2 §2 Local Use Section parsing — surfaces the byte range so centre-specific decoders can pick up the opaque payload later.
 - GRIB2 §3 Grid Definition Section parsing for templates 3.0 (regular lat/lon), 3.30 (Lambert Conformal), and 3.40 (Gaussian lat/lon — both regular and reduced). Other templates surface as `unsupported(3.N)` so file enumeration still works.
-- WMO Code Table 1.2 / 1.3 / 1.4 / 3.1 / 3.2 lookups (reference-time significance, production status, processed-data type, grid template, earth shape) and a subset of Common Code Table C-1 (originating centres) in `fieldglass-grib2`.
-- Reference time, originating centre, grid type / dimensions / corner coordinates now populate per-message rows in the GRIB2 metadata viewer.
+- GRIB2 §4 Product Definition Section parsing for templates 4.0 (analysis or forecast at a horizontal level/layer at a point in time), 4.8 (average / accumulation / extreme values over a time interval), and 4.11 (individual ensemble forecast over a time interval). Other templates surface as `unsupported(4.N)`.
+- WMO Code Table 1.2 / 1.3 / 1.4 / 3.1 / 3.2 / 4.3 / 4.4 / 4.5 / 4.6 / 4.10 lookups (reference-time significance, production status, processed-data type, grid template, earth shape, generating-process type, time-range unit, fixed surface, ensemble type, statistical processing) plus a curated subset of Code Tables 4.1/4.2 (parameter triples by discipline + category) and Common Code Table C-1 (originating centres) in `fieldglass-grib2`.
+- Reference time, originating centre, grid type / dimensions / corner coordinates, and now parameter name + units + level + forecast time populate per-message rows in the GRIB2 metadata viewer.
 - Two new GRIB2 fixtures: `gfs_c255_latlon.grib2` (NCEP GFS, template 3.0) and `eta_lambert_msg0.grib2` (NOAA Eta, template 3.30) — see `crates/fieldglass-grib2/tests/fixtures/NOTICE.md` for provenance.
 
 ### Changed
 - `MessageMeta` (napi) gains optional `productionStatus` / `dataType` fields; existing GRIB1 callers see them as `null`.
-- GRIB2 `Grib2Message` gains a required `gds: GridDefinitionSection` field. `Grib2Reader::from_bytes` now validates that every message contains a §3 GDS, matching the WMO spec.
+- GRIB2 `Grib2Message` gains required `gds: GridDefinitionSection` and `pds: ProductDefinitionSection` fields. `Grib2Reader::from_bytes` now validates that every message contains both a §3 GDS and a §4 PDS, matching the WMO spec.
 
 ## [0.1.1] — 2026-05-10
 
