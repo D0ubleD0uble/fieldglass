@@ -133,6 +133,214 @@ pub fn lookup_earth_shape(shape: u8) -> &'static str {
     }
 }
 
+/// Generating-process type (WMO Code Table 4.3).
+pub fn lookup_generating_process_type(value: u8) -> &'static str {
+    match value {
+        0 => "Analysis",
+        1 => "Initialization",
+        2 => "Forecast",
+        3 => "Bias-corrected forecast",
+        4 => "Ensemble forecast",
+        5 => "Probability forecast",
+        6 => "Forecast error",
+        7 => "Analysis error",
+        8 => "Observation",
+        9 => "Climatological",
+        10 => "Probability-weighted forecast",
+        11 => "Bias-corrected ensemble forecast",
+        12 => "Post-processed analysis",
+        13 => "Post-processed forecast",
+        14 => "Nowcast",
+        15 => "Hindcast",
+        16 => "Physical retrieval",
+        17 => "Regression analysis",
+        18 => "Difference between two forecasts",
+        192..=254 => "Reserved for local use",
+        255 => "Missing",
+        _ => "Unknown generating process",
+    }
+}
+
+/// Indicator of unit of time range (WMO Code Table 4.4) — short label.
+pub fn lookup_time_range_unit(value: u8) -> &'static str {
+    match value {
+        0 => "Minute",
+        1 => "Hour",
+        2 => "Day",
+        3 => "Month",
+        4 => "Year",
+        5 => "Decade (10 years)",
+        6 => "Normal (30 years)",
+        7 => "Century",
+        10 => "3 hours",
+        11 => "6 hours",
+        12 => "12 hours",
+        13 => "Second",
+        255 => "Missing",
+        _ => "Unknown time-range unit",
+    }
+}
+
+/// Type of fixed surface (WMO Code Table 4.5) — short label covering the
+/// surface types commonly emitted by NCEP / ECMWF / DWD. Unrecognised codes
+/// fall back to `"Unknown fixed surface"` so callers can render the numeric
+/// type with the same shape as other tables.
+pub fn lookup_fixed_surface(value: u8) -> &'static str {
+    match value {
+        1 => "Ground or water surface",
+        2 => "Cloud base level",
+        3 => "Cloud top level",
+        4 => "Level of 0°C isotherm",
+        5 => "Level of adiabatic condensation lifted from the surface",
+        6 => "Maximum wind level",
+        7 => "Tropopause",
+        8 => "Nominal top of the atmosphere",
+        9 => "Sea bottom",
+        20 => "Isothermal level (K)",
+        100 => "Isobaric surface (Pa)",
+        101 => "Mean sea level",
+        102 => "Specific altitude above mean sea level (m)",
+        103 => "Specified height above ground (m)",
+        104 => "Sigma level",
+        105 => "Hybrid level",
+        106 => "Depth below land surface (m)",
+        107 => "Isentropic (theta) level (K)",
+        108 => "Level at specified pressure difference from ground (Pa)",
+        109 => "Potential vorticity surface (10⁻⁶ K m² kg⁻¹ s⁻¹)",
+        117 => "Mixed-layer depth",
+        160 => "Depth below sea level (m)",
+        200 => "Entire atmosphere as a single layer",
+        201 => "Entire ocean as a single layer",
+        // 192..=254 is the local-use range — NCEP uses several codes here
+        // (e.g. 242 "Convective cloud bottom level"). We don't try to
+        // enumerate centre extensions; surface them as the WMO range label.
+        192..=254 => "Reserved for local use",
+        255 => "Missing",
+        _ => "Unknown fixed surface",
+    }
+}
+
+/// Type of ensemble forecast (WMO Code Table 4.6).
+pub fn lookup_ensemble_type(value: u8) -> &'static str {
+    match value {
+        0 => "Unperturbed high-resolution control forecast",
+        1 => "Unperturbed low-resolution control forecast",
+        2 => "Negatively perturbed forecast",
+        3 => "Positively perturbed forecast",
+        4 => "Multi-model forecast",
+        192..=254 => "Reserved for local use",
+        255 => "Missing",
+        _ => "Unknown ensemble type",
+    }
+}
+
+/// Statistical process applied to derive a field over a time interval
+/// (WMO Code Table 4.10).
+pub fn lookup_statistical_process(value: u8) -> &'static str {
+    match value {
+        0 => "Average",
+        1 => "Accumulation",
+        2 => "Maximum",
+        3 => "Minimum",
+        4 => "Difference (end minus start)",
+        5 => "Root mean square",
+        6 => "Standard deviation",
+        7 => "Covariance",
+        8 => "Difference (start minus end)",
+        9 => "Ratio",
+        10 => "Standardized anomaly",
+        11 => "Summation",
+        12 => "Confidence index",
+        13 => "Quality indicator",
+        192..=254 => "Reserved for local use",
+        255 => "Missing",
+        _ => "Unknown statistical process",
+    }
+}
+
+/// Look up a GRIB2 parameter by `(discipline, category, number)` and return
+/// `(short_name, long_name, units)` for the curated subset.
+///
+/// Covers the parameters routinely emitted by NCEP GFS, ECMWF, and the
+/// reanalysis archives — temperature, moisture, momentum, mass, and the
+/// common derived radar / land-surface fields. Unrecognised triples return
+/// `None`; callers should render the numeric triple as a fallback.
+pub fn lookup_parameter(
+    discipline: u8,
+    category: u8,
+    number: u8,
+) -> Option<(&'static str, &'static str, &'static str)> {
+    let entry = match (discipline, category, number) {
+        // Discipline 0 — Meteorological products
+        // Category 0: Temperature
+        (0, 0, 0) => ("TMP", "Temperature", "K"),
+        (0, 0, 1) => ("VTMP", "Virtual temperature", "K"),
+        (0, 0, 2) => ("POT", "Potential temperature", "K"),
+        (0, 0, 3) => ("EPOT", "Pseudo-adiabatic potential temperature", "K"),
+        (0, 0, 4) => ("TMAX", "Maximum temperature", "K"),
+        (0, 0, 5) => ("TMIN", "Minimum temperature", "K"),
+        (0, 0, 6) => ("DPT", "Dew-point temperature", "K"),
+        (0, 0, 7) => ("DEPR", "Dew-point depression", "K"),
+        (0, 0, 8) => ("LAPR", "Lapse rate", "K m⁻¹"),
+        (0, 0, 17) => ("SKINT", "Skin temperature", "K"),
+
+        // Category 1: Moisture
+        (0, 1, 0) => ("SPFH", "Specific humidity", "kg kg⁻¹"),
+        (0, 1, 1) => ("RH", "Relative humidity", "%"),
+        (0, 1, 2) => ("MIXR", "Humidity mixing ratio", "kg kg⁻¹"),
+        (0, 1, 3) => ("PWAT", "Precipitable water", "kg m⁻²"),
+        (0, 1, 7) => ("PRATE", "Precipitation rate", "kg m⁻² s⁻¹"),
+        (0, 1, 8) => ("APCP", "Total precipitation", "kg m⁻²"),
+        (0, 1, 9) => ("NCPCP", "Large-scale precipitation (non-conv.)", "kg m⁻²"),
+        (0, 1, 10) => ("ACPCP", "Convective precipitation", "kg m⁻²"),
+        (0, 1, 11) => ("SNOD", "Snow depth", "m"),
+        (0, 1, 13) => (
+            "WEASD",
+            "Water equivalent of accumulated snow depth",
+            "kg m⁻²",
+        ),
+        (0, 1, 22) => ("CLWMR", "Cloud mixing ratio", "kg kg⁻¹"),
+
+        // Category 2: Momentum
+        (0, 2, 0) => ("WDIR", "Wind direction (from which blowing)", "° true"),
+        (0, 2, 1) => ("WIND", "Wind speed", "m s⁻¹"),
+        (0, 2, 2) => ("UGRD", "U-component of wind", "m s⁻¹"),
+        (0, 2, 3) => ("VGRD", "V-component of wind", "m s⁻¹"),
+        (0, 2, 8) => ("VVEL", "Vertical velocity (pressure)", "Pa s⁻¹"),
+        (0, 2, 9) => ("DZDT", "Vertical velocity (geometric)", "m s⁻¹"),
+        (0, 2, 10) => ("ABSV", "Absolute vorticity", "s⁻¹"),
+
+        // Category 3: Mass
+        (0, 3, 0) => ("PRES", "Pressure", "Pa"),
+        (0, 3, 1) => ("PRMSL", "Pressure reduced to MSL", "Pa"),
+        (0, 3, 2) => ("PTEND", "Pressure tendency", "Pa s⁻¹"),
+        (0, 3, 5) => ("HGT", "Geopotential height", "gpm"),
+        (0, 3, 6) => ("DIST", "Geometric height", "m"),
+        (0, 3, 9) => ("DEN", "Density", "kg m⁻³"),
+
+        // Category 6: Cloud
+        (0, 6, 1) => ("TCDC", "Total cloud cover", "%"),
+        (0, 6, 3) => ("LCDC", "Low cloud cover", "%"),
+        (0, 6, 4) => ("MCDC", "Medium cloud cover", "%"),
+        (0, 6, 5) => ("HCDC", "High cloud cover", "%"),
+
+        // Category 7: Thermodynamic stability
+        (0, 7, 6) => ("CAPE", "Convective available potential energy", "J kg⁻¹"),
+        (0, 7, 7) => ("CIN", "Convective inhibition", "J kg⁻¹"),
+
+        // Discipline 2 — Land surface
+        (2, 0, 0) => ("LAND", "Land cover (0=sea, 1=land)", "proportion"),
+        (2, 0, 5) => ("SOILM", "Soil moisture content", "kg m⁻²"),
+
+        // Discipline 10 — Oceanographic
+        (10, 0, 3) => ("WVHGT", "Significant height of combined wind+swell", "m"),
+        (10, 1, 2) => ("SST", "Sea surface temperature", "K"),
+
+        _ => return None,
+    };
+    Some(entry)
+}
+
 /// Type of processed data (WMO Code Table 1.4).
 pub fn lookup_data_type(value: u8) -> &'static str {
     match value {
@@ -314,5 +522,101 @@ mod tests {
         ] {
             assert_eq!(lookup_data_type(id), expected, "data_type {id}");
         }
+    }
+
+    #[test]
+    fn generating_process_type_table() {
+        assert_eq!(lookup_generating_process_type(0), "Analysis");
+        assert_eq!(lookup_generating_process_type(2), "Forecast");
+        assert_eq!(lookup_generating_process_type(4), "Ensemble forecast");
+        assert_eq!(
+            lookup_generating_process_type(200),
+            "Reserved for local use"
+        );
+        assert_eq!(lookup_generating_process_type(255), "Missing");
+        assert_eq!(
+            lookup_generating_process_type(99),
+            "Unknown generating process"
+        );
+    }
+
+    #[test]
+    fn time_range_unit_table() {
+        assert_eq!(lookup_time_range_unit(0), "Minute");
+        assert_eq!(lookup_time_range_unit(1), "Hour");
+        assert_eq!(lookup_time_range_unit(11), "6 hours");
+        assert_eq!(lookup_time_range_unit(13), "Second");
+        assert_eq!(lookup_time_range_unit(255), "Missing");
+        assert_eq!(lookup_time_range_unit(99), "Unknown time-range unit");
+    }
+
+    #[test]
+    fn fixed_surface_table_covers_common_codes() {
+        for (id, expected) in [
+            (1u8, "Ground or water surface"),
+            (100, "Isobaric surface (Pa)"),
+            (101, "Mean sea level"),
+            (103, "Specified height above ground (m)"),
+            (200, "Entire atmosphere as a single layer"),
+            (242, "Reserved for local use"),
+            (255, "Missing"),
+        ] {
+            assert_eq!(lookup_fixed_surface(id), expected, "surface {id}");
+        }
+        // 190 falls outside both the curated list and the local-use range.
+        assert_eq!(lookup_fixed_surface(190), "Unknown fixed surface");
+    }
+
+    #[test]
+    fn ensemble_type_table() {
+        assert_eq!(
+            lookup_ensemble_type(0),
+            "Unperturbed high-resolution control forecast"
+        );
+        assert_eq!(lookup_ensemble_type(3), "Positively perturbed forecast");
+        assert_eq!(lookup_ensemble_type(200), "Reserved for local use");
+        assert_eq!(lookup_ensemble_type(255), "Missing");
+        assert_eq!(lookup_ensemble_type(99), "Unknown ensemble type");
+    }
+
+    #[test]
+    fn statistical_process_table() {
+        assert_eq!(lookup_statistical_process(0), "Average");
+        assert_eq!(lookup_statistical_process(1), "Accumulation");
+        assert_eq!(lookup_statistical_process(2), "Maximum");
+        assert_eq!(lookup_statistical_process(11), "Summation");
+        assert_eq!(lookup_statistical_process(200), "Reserved for local use");
+        assert_eq!(lookup_statistical_process(255), "Missing");
+        assert_eq!(
+            lookup_statistical_process(99),
+            "Unknown statistical process"
+        );
+    }
+
+    #[test]
+    fn parameter_lookup_hits_common_ncep_triples() {
+        assert_eq!(lookup_parameter(0, 0, 0), Some(("TMP", "Temperature", "K")));
+        assert_eq!(
+            lookup_parameter(0, 1, 8),
+            Some(("APCP", "Total precipitation", "kg m⁻²"))
+        );
+        assert_eq!(
+            lookup_parameter(0, 2, 2),
+            Some(("UGRD", "U-component of wind", "m s⁻¹"))
+        );
+        assert_eq!(
+            lookup_parameter(0, 3, 5),
+            Some(("HGT", "Geopotential height", "gpm"))
+        );
+        assert_eq!(
+            lookup_parameter(10, 1, 2),
+            Some(("SST", "Sea surface temperature", "K"))
+        );
+    }
+
+    #[test]
+    fn parameter_lookup_misses_return_none() {
+        assert_eq!(lookup_parameter(0, 0, 250), None);
+        assert_eq!(lookup_parameter(255, 0, 0), None);
     }
 }

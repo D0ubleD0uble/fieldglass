@@ -4,12 +4,15 @@ use crate::is::{
     END_SECTION_LEN, GRIB2_EDITION, INDICATOR_SECTION_LEN, IndicatorSection, parse_indicator,
 };
 use crate::lus::{LUS_SECTION_NUMBER, parse_local_use_with_header};
+use crate::pds::{
+    PDS_SECTION_NUMBER, ProductDefinitionSection, parse_product_definition_with_header,
+};
 use crate::section::parse_section_header;
 use fieldglass_core::FieldglassError;
 
-/// Parsed metadata for a single GRIB2 message. Currently surfaces §0–§3;
-/// §4–§7 are populated as later issues land.
-#[derive(Debug, Clone, Copy)]
+/// Parsed metadata for a single GRIB2 message. Currently surfaces §0–§4;
+/// §5–§7 are populated as later issues land.
+#[derive(Debug, Clone)]
 pub struct Grib2Message {
     /// Zero-based index of this message within the parent file.
     pub message_index: usize,
@@ -24,6 +27,8 @@ pub struct Grib2Message {
     pub lus_range: Option<(usize, usize)>,
     /// Parsed Grid Definition Section (Section 3) — required by spec.
     pub gds: GridDefinitionSection,
+    /// Parsed Product Definition Section (Section 4) — required by spec.
+    pub pds: ProductDefinitionSection,
 }
 
 /// Top-level reader for a GRIB2 file. Owns the underlying bytes and a
@@ -136,6 +141,18 @@ fn scan_messages(data: &[u8]) -> Result<Vec<Grib2Message>, FieldglassError> {
             )));
         }
         let gds = parse_grid_definition_with_header(&data[cursor..msg_end], gds_header)?;
+        cursor += gds_header.length as usize;
+
+        // §4 PDS — required by the WMO spec in every message.
+        let pds_header = parse_section_header(&data[cursor..msg_end])?;
+        if pds_header.number != PDS_SECTION_NUMBER {
+            return Err(FieldglassError::Parse(format!(
+                "Message at offset {offset}: expected PDS (section {PDS_SECTION_NUMBER}), \
+                 got section {}",
+                pds_header.number
+            )));
+        }
+        let pds = parse_product_definition_with_header(&data[cursor..msg_end], pds_header)?;
 
         messages.push(Grib2Message {
             message_index: messages.len(),
@@ -144,6 +161,7 @@ fn scan_messages(data: &[u8]) -> Result<Vec<Grib2Message>, FieldglassError> {
             ids,
             lus_range,
             gds,
+            pds,
         });
 
         offset = msg_end; // advance to the next message

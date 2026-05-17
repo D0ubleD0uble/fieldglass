@@ -87,15 +87,16 @@ fn fixture_includes_local_use_section() {
 // the §2-absent branch and the IDS-related error paths.
 // ---------------------------------------------------------------------------
 
-/// Build a minimal valid GRIB2 message: IS + IDS + minimal §3 GDS + ES.
-/// `include_lus` controls whether a tiny empty §2 LUS is inserted between
-/// the IDS and the GDS, exercising the LUS-present and LUS-absent reader
-/// paths off a single helper.
+/// Build a minimal valid GRIB2 message: IS + IDS + minimal §3 GDS + minimal
+/// §4 PDS + ES. `include_lus` controls whether a tiny empty §2 LUS is
+/// inserted between the IDS and the GDS, exercising the LUS-present and
+/// LUS-absent reader paths off a single helper.
 fn build_message(include_lus: bool) -> Vec<u8> {
     let ids_len: u32 = 21;
     let lus_len: u32 = if include_lus { 5 } else { 0 };
     let gds_len: u32 = 72; // §3 template 3.0 — 5-byte header + 67-byte body
-    let total_len: u64 = 16 + ids_len as u64 + lus_len as u64 + gds_len as u64 + 4;
+    let pds_len: u32 = 34; // §4 template 4.0 — 9-byte header + 25-byte payload
+    let total_len: u64 = 16 + ids_len as u64 + lus_len as u64 + gds_len as u64 + pds_len as u64 + 4;
 
     let mut buf = Vec::with_capacity(total_len as usize);
     // IS
@@ -142,6 +143,12 @@ fn build_message(include_lus: bool) -> Vec<u8> {
     payload[49..53].copy_from_slice(&1_000_000u32.to_be_bytes()); // Di = 1°
     payload[53..57].copy_from_slice(&1_000_000u32.to_be_bytes()); // Dj
     buf.extend_from_slice(&payload);
+    // §4 PDS — template 4.0 with an all-zero horizontal common block.
+    buf.extend_from_slice(&pds_len.to_be_bytes());
+    buf.push(4); // section number
+    buf.extend_from_slice(&0u16.to_be_bytes()); // NV
+    buf.extend_from_slice(&0u16.to_be_bytes()); // template 4.0
+    buf.extend_from_slice(&[0u8; 25]); // horizontal common
     buf.extend_from_slice(b"7777");
     assert_eq!(buf.len() as u64, total_len);
     buf

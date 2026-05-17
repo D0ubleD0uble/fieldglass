@@ -6,7 +6,9 @@ use fieldglass_grib1::{
     tables::{lookup_centre, lookup_parameter},
 };
 use fieldglass_grib2::{
-    Grib2Reader, lookup_centre as lookup_grib2_centre, lookup_discipline, lookup_production_status,
+    Grib2Reader, HorizontalProductCommon, ProductDefinitionSection,
+    lookup_centre as lookup_grib2_centre, lookup_discipline, lookup_fixed_surface,
+    lookup_parameter as lookup_grib2_parameter, lookup_production_status, lookup_time_range_unit,
 };
 use fieldglass_netcdf::{NetcdfBacking, NetcdfReader};
 use napi_derive::napi;
@@ -166,11 +168,115 @@ pub fn open_grib1(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<Vec<Mess
     Ok(result)
 }
 
+/// Render the §4 product fields into the flat (`parameter_*`, `level`,
+/// `forecast_*`) shape the JS layer consumes. Splitting the rendering out
+/// of [`open_grib2`] keeps the loop body short and lets future templates
+/// reuse the same projection.
+fn grib2_product_fields(discipline: u8, pds: &ProductDefinitionSection) -> Grib2ProductFields {
+    let Some(common) = pds.common() else {
+        return Grib2ProductFields::placeholder();
+    };
+    let (abbreviation, name, units) = match lookup_grib2_parameter(
+        discipline,
+        common.parameter_category,
+        common.parameter_number,
+    ) {
+        Some((abbr, long, units)) => (abbr.to_string(), long.to_string(), units.to_string()),
+        None => (
+            String::new(),
+            format!(
+                "Parameter {}/{}/{}",
+                discipline, common.parameter_category, common.parameter_number
+            ),
+            String::new(),
+        ),
+    };
+
+    let level_type = lookup_fixed_surface(common.first_surface.surface_type).to_string();
+    let level = render_level(common);
+
+    let (forecast_hours, forecast_display) = render_forecast(common);
+
+    Grib2ProductFields {
+        parameter_name: name,
+        parameter_units: units,
+        parameter_abbreviation: abbreviation,
+        level,
+        level_type,
+        forecast_hours,
+        forecast_display,
+    }
+}
+
+struct Grib2ProductFields {
+    parameter_name: String,
+    parameter_units: String,
+    parameter_abbreviation: String,
+    level: String,
+    level_type: String,
+    forecast_hours: i32,
+    forecast_display: String,
+}
+
+impl Grib2ProductFields {
+    fn placeholder() -> Self {
+        Self {
+            parameter_name: String::new(),
+            parameter_units: String::new(),
+            parameter_abbreviation: String::new(),
+            level: "—".to_string(),
+            level_type: "—".to_string(),
+            forecast_hours: 0,
+            forecast_display: "—".to_string(),
+        }
+    }
+}
+
+/// Render the first fixed surface as a human-readable level string. Falls
+/// back to `"—"` when the surface is the WMO "missing" sentinel; otherwise
+/// shows the decoded float with the surface label as a unit hint.
+fn render_level(common: &HorizontalProductCommon) -> String {
+    let surface = &common.first_surface;
+    if surface.is_missing() {
+        return "—".to_string();
+    }
+    match surface.value() {
+        Some(v) => format!("{v}"),
+        None => lookup_fixed_surface(surface.surface_type).to_string(),
+    }
+}
+
+/// Render forecast time as `(hours_as_i32, display_string)`. Hours are
+/// normalised for the common units (minute / hour / day) so the existing
+/// `forecast_hours` column stays meaningful for sorting; the display string
+/// preserves the original unit when the value can't be coerced.
+fn render_forecast(common: &HorizontalProductCommon) -> (i32, String) {
+    let unit_label = lookup_time_range_unit(common.forecast_time_unit);
+    let raw = common.forecast_time;
+    let hours = match common.forecast_time_unit {
+        0 => Some(raw / 60), // minute
+        1 => Some(raw),      // hour
+        2 => Some(raw * 24), // day
+        10 => Some(raw * 3),
+        11 => Some(raw * 6),
+        12 => Some(raw * 12),
+        13 => Some(raw / 3600), // second
+        _ => None,
+    };
+    let display = match (hours, common.forecast_time_unit) {
+        (Some(h), 1) => format!("+{h}h"),
+        (Some(_), _) => format!("+{raw} {unit_label}"),
+        (None, _) => format!("+{raw} {unit_label}"),
+    };
+    let hours_i32 = hours.and_then(|h| i32::try_from(h).ok()).unwrap_or(0);
+    (hours_i32, display)
+}
+
 /// Parse a GRIB2 file from raw bytes and return per-message metadata.
-/// Currently surfaces §0 + §1 + §3 fields (edition, discipline, centre,
-/// ref-time, production status, data type, grid template, dimensions,
-/// corner coords); §4+ columns remain placeholders until the per-section
-/// parsers land.
+/// Surfaces §0 + §1 + §3 + §4 fields (edition, discipline, centre, ref-time,
+/// parameter triple, level + level type, forecast time, production status,
+/// data type, grid template, dimensions, corner coords); §5+ columns remain
+/// placeholders until the data-representation / data parsers land.
 #[napi]
 pub fn open_grib2(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<Vec<MessageMeta>> {
     let reader = Grib2Reader::from_bytes(bytes.to_vec())
@@ -183,21 +289,18 @@ pub fn open_grib2(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<Vec<Mess
             .unwrap_or_else(|| format!("Centre {}", msg.ids.centre));
         let dims = msg.gds.dimensions();
         let bounds = msg.gds.bounds();
+        let product = grib2_product_fields(msg.is.discipline, &msg.pds);
         result.push(MessageMeta {
             message_index: msg.message_index as i32,
             offset_bytes: msg.byte_offset as i32,
-            // Until §4 PDS lands, surface the discipline string in the
-            // existing `parameter_name` column so the table renderer shows
-            // something meaningful per row. The structured discipline is also
-            // exposed in the `discipline` field below.
-            parameter_name: lookup_discipline(msg.is.discipline).to_string(),
-            parameter_units: String::new(),
-            parameter_abbreviation: String::new(),
-            level: "—".to_string(),
-            level_type: "—".to_string(),
+            parameter_name: product.parameter_name,
+            parameter_units: product.parameter_units,
+            parameter_abbreviation: product.parameter_abbreviation,
+            level: product.level,
+            level_type: product.level_type,
             reference_time: msg.ids.reference_time_iso8601(),
-            forecast_hours: 0,
-            forecast_display: "—".to_string(),
+            forecast_hours: product.forecast_hours,
+            forecast_display: product.forecast_display,
             originating_centre: centre,
             grid_type: Some(msg.gds.template_name()),
             grid_ni: dims.map(|(ni, _)| ni as i32),
