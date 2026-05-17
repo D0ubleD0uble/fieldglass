@@ -49,6 +49,33 @@ pub struct MessageMeta {
     /// Human-readable processed-data type (WMO Code Table 1.4). `None` for
     /// formats that don't carry the field.
     pub data_type: Option<String>,
+    // -------------------------------------------------------------------
+    // Lambert Conformal projection parameters (only populated for Lambert
+    // grids; `None` for every other grid type). The renderer uses these to
+    // run an inverse-projection warp from output (lat, lon) → source grid
+    // sample. Naming matches WMO §3.30 / GRIB1 GDS conventions.
+    // -------------------------------------------------------------------
+    /// Latitude at which Dx and Dy are specified, in degrees. GRIB2 §3.30
+    /// carries this explicitly; for GRIB1 it is mirrored from `latin1` (the
+    /// historical convention).
+    pub lambert_lad: Option<f64>,
+    /// Orientation longitude (the meridian parallel to the y-axis), degrees.
+    pub lambert_lov: Option<f64>,
+    /// Grid spacing in metres along x at the latitude of true scale.
+    pub lambert_dx_metres: Option<f64>,
+    /// Grid spacing in metres along y at the latitude of true scale.
+    pub lambert_dy_metres: Option<f64>,
+    /// First standard parallel, degrees.
+    pub lambert_latin1: Option<f64>,
+    /// Second standard parallel, degrees.
+    pub lambert_latin2: Option<f64>,
+    // -------------------------------------------------------------------
+    // Gaussian projection parameter (only populated for Gaussian grids).
+    // -------------------------------------------------------------------
+    /// Number of parallels between a pole and the equator (the "N" in the
+    /// Gaussian grid spec). Needed to reconstruct row latitudes via the
+    /// Gauss–Legendre quadrature nodes during reprojection.
+    pub gaussian_n_parallels: Option<i32>,
 }
 
 /// Detect the format of a file from its raw bytes.
@@ -160,6 +187,24 @@ pub fn open_grib1(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<Vec<Mess
             None => (None, None, None, None, None, None, None),
         };
 
+        // Surface the projection parameters needed by the renderer's
+        // reprojection warp. Only populated for the matching grid types;
+        // other shapes pass through as `None`.
+        let lambert = match &msg.gds {
+            Some(fieldglass_grib1::GridDescription::LambertConformal(g)) => Some(g),
+            _ => None,
+        };
+        let lambert_lad = lambert.map(|g| g.latin1); // GRIB1 has no separate LaD; convention mirrors latin1
+        let lambert_lov = lambert.map(|g| g.lov);
+        let lambert_dx_metres = lambert.map(|g| g.dx_m as f64);
+        let lambert_dy_metres = lambert.map(|g| g.dy_m as f64);
+        let lambert_latin1 = lambert.map(|g| g.latin1);
+        let lambert_latin2 = lambert.map(|g| g.latin2);
+        let gaussian_n_parallels = match &msg.gds {
+            Some(fieldglass_grib1::GridDescription::Gaussian(g)) => Some(g.n_gaussians as i32),
+            _ => None,
+        };
+
         result.push(MessageMeta {
             message_index: msg.message_index as i32,
             offset_bytes: msg.byte_offset as i32,
@@ -185,6 +230,13 @@ pub fn open_grib1(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<Vec<Mess
             total_length_bytes: Some(msg.is.total_length as f64),
             production_status: None,
             data_type: None,
+            lambert_lad,
+            lambert_lov,
+            lambert_dx_metres,
+            lambert_dy_metres,
+            lambert_latin1,
+            lambert_latin2,
+            gaussian_n_parallels,
         });
     }
     Ok(result)
@@ -312,6 +364,24 @@ pub fn open_grib2(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<Vec<Mess
         let dims = msg.gds.dimensions();
         let bounds = msg.gds.bounds();
         let product = grib2_product_fields(msg.is.discipline, &msg.pds);
+
+        // Surface the projection parameters needed by the renderer's
+        // reprojection warp. Only populated for the matching templates.
+        let lambert = match &msg.gds.template {
+            fieldglass_grib2::GridTemplate::Lambert(t) => Some(t),
+            _ => None,
+        };
+        let lambert_lad = lambert.map(|t| t.lad);
+        let lambert_lov = lambert.map(|t| t.lov);
+        let lambert_dx_metres = lambert.map(|t| t.dx_metres);
+        let lambert_dy_metres = lambert.map(|t| t.dy_metres);
+        let lambert_latin1 = lambert.map(|t| t.latin1);
+        let lambert_latin2 = lambert.map(|t| t.latin2);
+        let gaussian_n_parallels = match &msg.gds.template {
+            fieldglass_grib2::GridTemplate::Gaussian(t) => Some(t.n_parallels as i32),
+            _ => None,
+        };
+
         result.push(MessageMeta {
             message_index: msg.message_index as i32,
             offset_bytes: msg.byte_offset as i32,
@@ -339,6 +409,13 @@ pub fn open_grib2(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<Vec<Mess
                 lookup_production_status(msg.ids.production_status).to_string(),
             ),
             data_type: Some(fieldglass_grib2::lookup_data_type(msg.ids.data_type).to_string()),
+            lambert_lad,
+            lambert_lov,
+            lambert_dx_metres,
+            lambert_dy_metres,
+            lambert_latin1,
+            lambert_latin2,
+            gaussian_n_parallels,
         });
     }
     Ok(result)

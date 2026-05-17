@@ -29,6 +29,17 @@ interface MessageMeta {
   totalLengthBytes: number | null;
   productionStatus: string | null;
   dataType: string | null;
+  // -------------------------------------------------------------------
+  // Projection parameters surfaced for the render-panel reprojection
+  // warp. Only populated for the matching grid types; null otherwise.
+  // -------------------------------------------------------------------
+  lambertLad: number | null;
+  lambertLov: number | null;
+  lambertDxMetres: number | null;
+  lambertDyMetres: number | null;
+  lambertLatin1: number | null;
+  lambertLatin2: number | null;
+  gaussianNParallels: number | null;
 }
 
 interface DimensionMeta {
