@@ -22,13 +22,13 @@ First public beta. Read-only metadata viewing for GRIB1 is in, and each message'
 | File-extension association (`.grb` / `.grib*` / `.nc*`) | ✅ | ✅ | ✅ |
 | Open via *Reopen Editor With…* for unrecognized files | ✅ | ✅ | ✅ |
 | Indicator / header section parsing | ✅ | ✅ | ✅ classic / 🚧 NetCDF-4 |
-| Per-message metadata (parameter, level, time, forecast period) | ✅ | 🚧 §0–§3 (centre, ref-time, status, grid) | ✅ classic (dims / vars / attrs) |
+| Per-message metadata (parameter, level, time, forecast period) | ✅ | ✅ (§0–§4) | ✅ classic (dims / vars / attrs) |
 | Grid description (lat/lon, Gaussian, polar stereo, Lambert) | ✅ | 🚧 lat/lon (3.0), Lambert (3.30), Gaussian (3.40) | ❌ Not yet |
-| WMO ON388 lookups (parameter, centre, level type) | ✅ | 🚧 Tables 0.0 / 1.2 / 1.3 / 1.4 / 3.1 / 3.2 + centres (subset) | n/a |
-| Tabular metadata viewer | ✅ | ✅ (§0–§3) | ✅ classic / 🚧 NetCDF-4 |
-| Binary data section decoding (Rust API) | ✅ | ❌ Not yet | ❌ Not yet |
+| WMO ON388 lookups (parameter, centre, level type) | ✅ | 🚧 Tables 0.0 / 1.2 / 1.3 / 1.4 / 3.1 / 3.2 / 4.1 / 4.2 / 4.3 / 4.4 / 4.5 / 4.6 / 4.10 + centres (subset) | n/a |
+| Tabular metadata viewer | ✅ | ✅ (§0–§4) | ✅ classic / 🚧 NetCDF-4 |
+| Binary data section decoding (Rust API) | ✅ | 🚧 simple packing (5.0); 5.2 / 5.3 / 5.4 / 5.40 / 5.41 / 5.42 follow-up | ❌ Not yet |
 | Metadata editing | ❌ Not yet | ❌ Not yet | ❌ Not yet |
-| 2-D grid rendering with colormap | ✅ | ❌ Not yet | ❌ Not yet |
+| 2-D grid rendering with colormap | ✅ | 🚧 simple-packed messages only | ❌ Not yet |
 
 Format-agnostic features:
 
@@ -59,7 +59,7 @@ This is a beta. Things to be aware of:
 
 - **No metadata editing in the viewer.** The Rust API has byte-level patching for the forecast period (P1) and the webview retains the full undo/redo wiring, but the editable affordance is hidden in beta until general PDS-field editing lands. For now Fieldglass is a read-only viewer.
 - **GRIB1 2-D rendering is in grid coordinates only.** The webview renders each message's decoded grid with a viridis colormap, but the canvas axes are scan-order grid indices — there is no map reprojection, basemap, or coastline overlay yet. Polar stereographic and Lambert conformal grids therefore appear "stretched" relative to a true geographic projection.
-- **GRIB2: §0–§3 only.** `.grb2` / `.grib2` files enumerate messages and surface edition, discipline, total length, originating centre, reference time, production status, data type, and grid geometry (templates 3.0 / 3.30 / 3.40 — regular lat/lon, Lambert Conformal, regular and reduced Gaussian). Sections 4–7 (product definition, data) are not yet decoded — per-message parameter / level / values come in follow-ups.
+- **GRIB2: full §0–§7 parsing, simple-packed value decode.** `.grb2` / `.grib2` files enumerate messages and surface edition, discipline, total length, originating centre, reference time, production status, data type, parameter name + level + forecast time, and grid geometry (templates 3.0 / 3.30 / 3.40 — regular lat/lon, Lambert Conformal, regular and reduced Gaussian). Value decoding works for **simple packing** (DRS template 5.0); complex packing (5.2 / 5.3), IEEE (5.4), JPEG 2000 (5.40), PNG (5.41), and CCSDS (5.42) are tracked under separate issues — those messages still parse to the section level but `decode_message_values` returns an `UnsupportedSection` error naming the template.
 - **NetCDF-4 / HDF5: header probe only.** Classic NetCDF (CDF-1 / CDF-2 / CDF-5) parses fully and renders dimensions, global attributes, and variables. NetCDF-4 / HDF5 files are validated and report the superblock version, but deep traversal (groups, datasets, attributes through the HDF5 object header tree) is a follow-up.
 - **GRIB1 GDS coverage:** Lat/Lon, Gaussian, Polar Stereographic, and Lambert Conformal grids are parsed. Reduced grids, rotated/oblique projections, and predefined grids (`grid_number != 255`) are not yet supported and will render as `unsupported`.
 - **Parameter table coverage:** WMO ON388 Table 2 (versions 1–3) only. ECMWF local tables (versions 128+) and other centre-specific extensions resolve as `Unknown`.
@@ -121,7 +121,7 @@ Open any file with a supported extension. VS Code will use Fieldglass as the def
 |---|---|
 | `crates/fieldglass-core` | Format-agnostic traits and shared metadata types. |
 | `crates/fieldglass-grib1` | GRIB1 parser, organized by section (`is.rs`, `pds.rs`, `gds.rs`, `bds.rs`) and WMO table lookups (`tables.rs`). |
-| `crates/fieldglass-grib2` | GRIB2 reader — §0 Indicator + §1 Identification + §2 Local Use + §3 Grid Definition (templates 3.0, 3.30, 3.40) parsing and message enumeration. Sections 4–7 are follow-ups. |
+| `crates/fieldglass-grib2` | GRIB2 reader — full §0–§7 parsing, message enumeration, and value decoding for **simple packing** (DRS template 5.0). Grid templates 3.0 / 3.30 / 3.40; product templates 4.0 / 4.8 / 4.11. Complex / JPEG 2000 / PNG / CCSDS packings are tracked under separate issues. |
 | `crates/fieldglass-netcdf` | NetCDF reader — full classic (CDF-1/2/5) header parser; HDF5 / NetCDF-4 superblock probe with deep traversal as a follow-up. |
 | `crates/fieldglass-napi` | Node.js bindings exposed via napi-rs. The only crate that knows about Node. |
 | `extension/` | TypeScript VS Code extension. Registers a custom read-only editor and renders a webview. |

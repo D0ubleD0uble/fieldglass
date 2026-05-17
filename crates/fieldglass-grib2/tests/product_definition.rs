@@ -123,11 +123,23 @@ fn push_be(buf: &mut Vec<u8>, v: u64, width: usize) {
 /// Build a minimal IS + IDS + §3 GDS prefix for a synthesized message,
 /// returning the buffer with the cursor positioned where §4 PDS goes.
 /// `pds_len` lets the caller pre-allocate the IS total-length field
-/// correctly; the PDS bytes are appended by the caller before "7777".
+/// correctly; the PDS bytes are appended by the caller, then this helper's
+/// companion [`append_minimal_drs_bms_ds`] tail finishes the message
+/// before the caller writes "7777".
 fn build_message_prefix(pds_len: u32) -> Vec<u8> {
     let ids_len: u32 = 21;
     let gds_len: u32 = 72;
-    let total_len: u64 = 16 + ids_len as u64 + gds_len as u64 + pds_len as u64 + 4;
+    let drs_len: u32 = 21;
+    let bms_len: u32 = 6;
+    let ds_len: u32 = 6;
+    let total_len: u64 = 16
+        + ids_len as u64
+        + gds_len as u64
+        + pds_len as u64
+        + drs_len as u64
+        + bms_len as u64
+        + ds_len as u64
+        + 4;
     let mut buf = Vec::with_capacity(total_len as usize);
 
     // IS (16 bytes): GRIB | reserved | discipline=0 | edition=2 | total_length(8)
@@ -173,6 +185,32 @@ fn build_message_prefix(pds_len: u32) -> Vec<u8> {
     buf
 }
 
+/// Append the minimal §5/§6/§7 trio that a synthesized GRIB2 message needs
+/// to satisfy `Grib2Reader::from_bytes`. The DRS declares simple packing
+/// (template 5.0), the BMS declares "no bitmap", and the DS carries one
+/// 8-bit packed value of 0 for the 1-point grid built by
+/// [`build_message_prefix`].
+fn append_minimal_drs_bms_ds(buf: &mut Vec<u8>) {
+    // §5 DRS — template 5.0, R=0, E=0, D=0, 8 bits/value.
+    push_be(buf, 21, 4);
+    buf.push(5);
+    push_be(buf, 1, 4); // num data points
+    push_be(buf, 0, 2); // template 5.0
+    buf.extend_from_slice(&0.0_f32.to_be_bytes()); // R
+    push_be(buf, 0, 2); // E
+    push_be(buf, 0, 2); // D
+    buf.push(8); // bits per value
+    buf.push(0); // original field type
+    // §6 BMS — indicator 255 = no bitmap.
+    push_be(buf, 6, 4);
+    buf.push(6);
+    buf.push(255);
+    // §7 DS — 1 byte = one 8-bit value (X = 0 → decoded value = 0).
+    push_be(buf, 6, 4);
+    buf.push(7);
+    buf.push(0);
+}
+
 #[test]
 fn template_4_8_round_trips_via_full_reader() {
     // §4 template 4.8: 6-hour total-precipitation (APCP) accumulation, end
@@ -207,6 +245,7 @@ fn template_4_8_round_trips_via_full_reader() {
 
     let mut bytes = build_message_prefix(pds.len() as u32);
     bytes.extend_from_slice(&pds);
+    append_minimal_drs_bms_ds(&mut bytes);
     bytes.extend_from_slice(b"7777");
 
     let reader = Grib2Reader::from_bytes(bytes).expect("end-to-end parse");
@@ -278,6 +317,7 @@ fn template_4_11_round_trips_via_full_reader() {
 
     let mut bytes = build_message_prefix(pds.len() as u32);
     bytes.extend_from_slice(&pds);
+    append_minimal_drs_bms_ds(&mut bytes);
     bytes.extend_from_slice(b"7777");
 
     let reader = Grib2Reader::from_bytes(bytes).expect("end-to-end parse");

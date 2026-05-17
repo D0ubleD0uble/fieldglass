@@ -1,12 +1,17 @@
 //! GRIB edition 2 reader.
 //!
-//! Current scope: Indicator (§0), Identification (§1), Local Use (§2),
-//! Grid Definition (§3 — templates 3.0 / 3.30 / 3.40), and Product Definition
-//! (§4 — templates 4.0 / 4.8 / 4.11) parsing + message enumeration. Sections
-//! 5–7 (DRS / BMS / DS) are tracked under separate issues.
+//! Current scope: full §0–§7 parsing for the message metadata, plus value
+//! decoding for **simple packing** (DRS template 5.0). Complex packing
+//! (5.2 / 5.3), IEEE 5.4, JPEG 2000 5.40, PNG 5.41, and CCSDS 5.42 are
+//! tracked under separate issues — those messages parse to the section
+//! level but `decode_message_values` returns
+//! [`fieldglass_core::FieldglassError::UnsupportedSection`].
 
 #![forbid(unsafe_code)]
 
+pub mod bms;
+pub mod drs;
+pub mod ds;
 pub mod gds;
 pub mod ids;
 pub mod is;
@@ -16,6 +21,15 @@ pub mod reader;
 pub mod section;
 pub mod tables;
 
+pub use bms::{
+    BMS_INDICATOR_NONE, BMS_INDICATOR_PRESENT, BMS_INDICATOR_PREVIOUS, BMS_SECTION_NUMBER,
+    BitMapSection, parse_bit_map,
+};
+pub use drs::{
+    DRS_SECTION_NUMBER, DataRepresentationSection, DataRepresentationTemplate,
+    SimplePackingTemplate, parse_data_representation,
+};
+pub use ds::{DS_SECTION_NUMBER, decode_values};
 pub use gds::{
     GDS_SECTION_NUMBER, GaussianTemplate, GridDefinitionSection, GridTemplate, LambertTemplate,
     LatLonTemplate, parse_grid_definition,

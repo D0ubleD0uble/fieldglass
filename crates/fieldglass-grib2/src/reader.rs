@@ -1,3 +1,8 @@
+use crate::bms::{BMS_SECTION_NUMBER, parse_bit_map_with_header};
+use crate::drs::{
+    DRS_SECTION_NUMBER, DataRepresentationSection, parse_data_representation_with_header,
+};
+use crate::ds::{DS_SECTION_NUMBER, decode_values, parse_data_section_body};
 use crate::gds::{GDS_SECTION_NUMBER, GridDefinitionSection, parse_grid_definition_with_header};
 use crate::ids::{IDS_SECTION_NUMBER, IdentificationSection, parse_identification_with_header};
 use crate::is::{
@@ -10,8 +15,14 @@ use crate::pds::{
 use crate::section::parse_section_header;
 use fieldglass_core::FieldglassError;
 
-/// Parsed metadata for a single GRIB2 message. Currently surfaces §0–§4;
-/// §5–§7 are populated as later issues land.
+/// Hard cap on `ni · nj` for `decode_message_values`. Real grids top out
+/// around 10⁷ points; this guards against pathological inputs that would
+/// otherwise allocate gigabytes. Matches the GRIB1 reader's cap.
+const MAX_GRID_POINTS: usize = 200_000_000;
+
+/// Parsed metadata for a single GRIB2 message. Surfaces §0–§5 inline (the
+/// fixed-size fields); §6 (BMS) and §7 (DS) live behind byte ranges so the
+/// reader doesn't eagerly decode payloads.
 #[derive(Debug, Clone)]
 pub struct Grib2Message {
     /// Zero-based index of this message within the parent file.
@@ -29,6 +40,14 @@ pub struct Grib2Message {
     pub gds: GridDefinitionSection,
     /// Parsed Product Definition Section (Section 4) — required by spec.
     pub pds: ProductDefinitionSection,
+    /// Parsed Data Representation Section (Section 5) — required by spec.
+    pub drs: DataRepresentationSection,
+    /// Byte range of the Bit-Map Section (Section 6) within the file.
+    /// Required by spec; presence of an inline bitmap is signalled by §6's
+    /// own indicator byte (0=inline, 255=none).
+    pub bms_range: (usize, usize),
+    /// Byte range of the Data Section (Section 7) within the file.
+    pub ds_range: (usize, usize),
 }
 
 /// Top-level reader for a GRIB2 file. Owns the underlying bytes and a
@@ -51,6 +70,57 @@ impl Grib2Reader {
 
     pub fn message_count(&self) -> usize {
         self.messages.len()
+    }
+
+    /// Decode the grid values for one message, mirroring the GRIB1 reader's
+    /// API. Returns one entry per grid point: `Some(value)` for present
+    /// points, `None` for points masked out by §6.
+    ///
+    /// Currently supports DRS template 5.0 (simple packing). Other packing
+    /// templates return [`FieldglassError::UnsupportedSection`].
+    pub fn decode_message_values(
+        &self,
+        message_index: usize,
+    ) -> Result<Vec<Option<f64>>, FieldglassError> {
+        let msg = self
+            .messages
+            .get(message_index)
+            .ok_or(FieldglassError::OutOfRange)?;
+
+        let (ni, nj) = msg.gds.dimensions().ok_or_else(|| {
+            FieldglassError::Parse(
+                "grid template has no declared dimensions — reduced grids \
+                 are not yet supported for decode"
+                    .to_string(),
+            )
+        })?;
+        // checked_mul guards 32-bit usize overflow; MAX_GRID_POINTS guards OOM.
+        let expected_count = (ni as usize).checked_mul(nj as usize).ok_or_else(|| {
+            FieldglassError::Parse(format!("grid dimensions {ni}×{nj} overflow usize"))
+        })?;
+        if expected_count > MAX_GRID_POINTS {
+            return Err(FieldglassError::Parse(format!(
+                "grid {ni}×{nj} = {expected_count} points exceeds cap of {MAX_GRID_POINTS}"
+            )));
+        }
+
+        // §6 BMS — decode the bitmap once (or skip it when indicator == 255).
+        let (bms_start, bms_end) = msg.bms_range;
+        let bms_header = parse_section_header(&self.data[bms_start..bms_end])?;
+        let bms =
+            parse_bit_map_with_header(&self.data[bms_start..bms_end], bms_header, expected_count)?;
+        let bitmap = if bms.has_inline_bitmap() {
+            Some(bms.bitmap.as_slice())
+        } else {
+            None
+        };
+
+        // §7 DS — strip the section header, hand the packed bytes to the
+        // packing decoder selected by §5.
+        let (ds_start, ds_end) = msg.ds_range;
+        let ds_header = parse_section_header(&self.data[ds_start..ds_end])?;
+        let ds_payload = parse_data_section_body(&self.data[ds_start..ds_end], ds_header)?;
+        decode_values(ds_payload, msg.drs.template, bitmap, expected_count)
     }
 }
 
@@ -153,6 +223,47 @@ fn scan_messages(data: &[u8]) -> Result<Vec<Grib2Message>, FieldglassError> {
             )));
         }
         let pds = parse_product_definition_with_header(&data[cursor..msg_end], pds_header)?;
+        cursor += pds_header.length as usize;
+
+        // §5 DRS — required by the WMO spec in every message.
+        let drs_header = parse_section_header(&data[cursor..msg_end])?;
+        if drs_header.number != DRS_SECTION_NUMBER {
+            return Err(FieldglassError::Parse(format!(
+                "Message at offset {offset}: expected DRS (section {DRS_SECTION_NUMBER}), \
+                 got section {}",
+                drs_header.number
+            )));
+        }
+        let drs = parse_data_representation_with_header(&data[cursor..msg_end], drs_header)?;
+        cursor += drs_header.length as usize;
+
+        // §6 BMS — required by spec (its "indicator" byte signals
+        // bitmap-present vs no-bitmap; we just record the byte range here
+        // and defer body parsing to decode time).
+        let bms_header = parse_section_header(&data[cursor..msg_end])?;
+        if bms_header.number != BMS_SECTION_NUMBER {
+            return Err(FieldglassError::Parse(format!(
+                "Message at offset {offset}: expected BMS (section {BMS_SECTION_NUMBER}), \
+                 got section {}",
+                bms_header.number
+            )));
+        }
+        let bms_end_in_file = cursor + bms_header.length as usize;
+        let bms_range = (cursor, bms_end_in_file);
+        cursor = bms_end_in_file;
+
+        // §7 DS — required by spec. Same lazy treatment as §6: record the
+        // byte range, decode on demand.
+        let ds_header = parse_section_header(&data[cursor..msg_end])?;
+        if ds_header.number != DS_SECTION_NUMBER {
+            return Err(FieldglassError::Parse(format!(
+                "Message at offset {offset}: expected DS (section {DS_SECTION_NUMBER}), \
+                 got section {}",
+                ds_header.number
+            )));
+        }
+        let ds_end_in_file = cursor + ds_header.length as usize;
+        let ds_range = (cursor, ds_end_in_file);
 
         messages.push(Grib2Message {
             message_index: messages.len(),
@@ -162,6 +273,9 @@ fn scan_messages(data: &[u8]) -> Result<Vec<Grib2Message>, FieldglassError> {
             lus_range,
             gds,
             pds,
+            drs,
+            bms_range,
+            ds_range,
         });
 
         offset = msg_end; // advance to the next message

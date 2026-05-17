@@ -96,7 +96,18 @@ fn build_message(include_lus: bool) -> Vec<u8> {
     let lus_len: u32 = if include_lus { 5 } else { 0 };
     let gds_len: u32 = 72; // §3 template 3.0 — 5-byte header + 67-byte body
     let pds_len: u32 = 34; // §4 template 4.0 — 9-byte header + 25-byte payload
-    let total_len: u64 = 16 + ids_len as u64 + lus_len as u64 + gds_len as u64 + pds_len as u64 + 4;
+    let drs_len: u32 = 21; // §5 template 5.0 — 11-byte header + 10-byte payload
+    let bms_len: u32 = 6; // §6 — 5-byte header + 1-byte indicator (255 = no bitmap)
+    let ds_len: u32 = 6; // §7 — 5-byte header + 1 dummy byte (1-point grid, 8 bits/value)
+    let total_len: u64 = 16
+        + ids_len as u64
+        + lus_len as u64
+        + gds_len as u64
+        + pds_len as u64
+        + drs_len as u64
+        + bms_len as u64
+        + ds_len as u64
+        + 4;
 
     let mut buf = Vec::with_capacity(total_len as usize);
     // IS
@@ -149,6 +160,24 @@ fn build_message(include_lus: bool) -> Vec<u8> {
     buf.extend_from_slice(&0u16.to_be_bytes()); // NV
     buf.extend_from_slice(&0u16.to_be_bytes()); // template 4.0
     buf.extend_from_slice(&[0u8; 25]); // horizontal common
+    // §5 DRS — template 5.0, R=0, E=0, D=0, 8 bits/value.
+    buf.extend_from_slice(&drs_len.to_be_bytes());
+    buf.push(5); // section number
+    buf.extend_from_slice(&1u32.to_be_bytes()); // num data points
+    buf.extend_from_slice(&0u16.to_be_bytes()); // template 5.0
+    buf.extend_from_slice(&0.0_f32.to_be_bytes()); // R
+    buf.extend_from_slice(&0u16.to_be_bytes()); // E
+    buf.extend_from_slice(&0u16.to_be_bytes()); // D
+    buf.push(8); // bits per value
+    buf.push(0); // original field type
+    // §6 BMS — indicator 255 = no bitmap.
+    buf.extend_from_slice(&bms_len.to_be_bytes());
+    buf.push(6); // section number
+    buf.push(255); // no bitmap
+    // §7 DS — 1 byte of packed data (one 8-bit value = 0).
+    buf.extend_from_slice(&ds_len.to_be_bytes());
+    buf.push(7); // section number
+    buf.push(0); // packed value X = 0 → decoded value = R + 0 = 0
     buf.extend_from_slice(b"7777");
     assert_eq!(buf.len() as u64, total_len);
     buf
@@ -220,6 +249,81 @@ fn wrong_section_in_place_of_pds_rejected() {
     };
     let s = err.to_string();
     assert!(s.contains("expected PDS"), "error mentions PDS, got: {s}");
+}
+
+#[test]
+fn wrong_section_in_place_of_drs_rejected() {
+    // §5 is required after §4. Flip the DRS section-number byte to claim
+    // it's §6 — the walker must reject with a §5-specific error.
+    let mut bytes = build_message(false);
+    // §5 starts at IS (16) + IDS (21) + GDS (72) + PDS (34) = 143; its
+    // section-number byte is at offset 143 + 4 = 147.
+    bytes[147] = 6;
+    let err = match Grib2Reader::from_bytes(bytes) {
+        Ok(_) => panic!("wrong §5 must error"),
+        Err(e) => e,
+    };
+    let s = err.to_string();
+    assert!(s.contains("expected DRS"), "error mentions DRS, got: {s}");
+}
+
+#[test]
+fn wrong_section_in_place_of_bms_rejected() {
+    // §6 is required after §5. Flip the BMS section-number byte to claim
+    // it's §7 — the walker must reject with a §6-specific error.
+    let mut bytes = build_message(false);
+    // §6 starts at IS (16) + IDS (21) + GDS (72) + PDS (34) + DRS (21) = 164;
+    // its section-number byte is at offset 164 + 4 = 168.
+    bytes[168] = 7;
+    let err = match Grib2Reader::from_bytes(bytes) {
+        Ok(_) => panic!("wrong §6 must error"),
+        Err(e) => e,
+    };
+    let s = err.to_string();
+    assert!(s.contains("expected BMS"), "error mentions BMS, got: {s}");
+}
+
+#[test]
+fn wrong_section_in_place_of_ds_rejected() {
+    // §7 is required after §6. Flip the DS section-number byte to claim
+    // it's the End Section (8) — the walker must reject with a §7-specific
+    // error.
+    let mut bytes = build_message(false);
+    // §7 starts at IS (16) + IDS (21) + GDS (72) + PDS (34) + DRS (21) + BMS (6) = 170;
+    // its section-number byte is at offset 170 + 4 = 174.
+    bytes[174] = 8;
+    let err = match Grib2Reader::from_bytes(bytes) {
+        Ok(_) => panic!("wrong §7 must error"),
+        Err(e) => e,
+    };
+    let s = err.to_string();
+    assert!(s.contains("expected DS"), "error mentions DS, got: {s}");
+}
+
+#[test]
+fn impossibly_small_total_length_rejected() {
+    // Hand-craft an IS with total_length below INDICATOR_SECTION_LEN +
+    // END_SECTION_LEN (= 16 + 4 = 20). The walker must reject before any
+    // section-header parsing — there's literally no room for §1 + ES.
+    let total_len: u64 = 19;
+    let mut bytes = Vec::with_capacity(20);
+    bytes.extend_from_slice(b"GRIB");
+    bytes.extend_from_slice(&[0, 0]);
+    bytes.push(0); // discipline
+    bytes.push(2); // edition
+    bytes.extend_from_slice(&total_len.to_be_bytes());
+    // Pad to 20 bytes so the walker reaches the length check rather than
+    // bailing on a short buffer.
+    bytes.extend_from_slice(b"7777");
+    let err = match Grib2Reader::from_bytes(bytes) {
+        Ok(_) => panic!("impossibly small length must error"),
+        Err(e) => e,
+    };
+    let s = err.to_string();
+    assert!(
+        s.contains("impossibly small length"),
+        "error names impossibly-small length, got: {s}",
+    );
 }
 
 #[test]
