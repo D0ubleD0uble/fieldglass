@@ -10,3 +10,6 @@ repository.workspace = true
 [dependencies]
 fieldglass-core = { path = "../fieldglass-core", version = "=0.1.1" }
 serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = { workspace = true }

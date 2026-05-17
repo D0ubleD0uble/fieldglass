@@ -177,6 +177,31 @@ cargo test -p fieldglass-grib1
 cargo test -p fieldglass-grib1 parse_pds
 ```
 
+#### eccodes reference snapshots
+
+`fieldglass-grib2` cross-checks every bundled GRIB2 fixture against the
+[`eccodes`](https://confluence.ecmwf.int/display/ECC) reference implementation
+via JSON snapshots. The snapshots live next to each fixture as
+`tests/fixtures/{name}.grib2.eccodes.ref.json` and are checked into git, so
+the test (`crates/fieldglass-grib2/tests/eccodes_reference.rs`) has zero
+runtime dependencies — it just compares our parser output to the stored
+JSON, one curated WMO key at a time.
+
+You only need `eccodes` when **regenerating** the snapshots, typically after
+adding a fixture or upgrading the reference. Install it via your package
+manager (Debian/Ubuntu: `apt install libeccodes-tools`; macOS:
+`brew install eccodes`), then run:
+
+```sh
+python3 tools/regenerate-eccodes-snapshots.py
+```
+
+The script invokes `grib_dump -j` per fixture, filters down to the curated
+subset of keys in `CURATED_KEYS`, and rewrites each snapshot. The diff is
+human-reviewable in PRs. To grow coverage to a new WMO key, add it to both
+`CURATED_KEYS` (in the script) and the dispatch match in
+`tests/eccodes_reference.rs::assert_message_matches`, then re-run the script.
+
 ### Linting
 
 ```sh

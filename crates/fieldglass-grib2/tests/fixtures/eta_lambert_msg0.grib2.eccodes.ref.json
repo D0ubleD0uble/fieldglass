@@ -1,0 +1,30 @@
+{
+  "messages": [
+    {
+      "discipline": 0,
+      "editionNumber": 2,
+      "centre": 7,
+      "subCentre": 0,
+      "significanceOfReferenceTime": 1,
+      "dataDate": 20041208,
+      "dataTime": 1200,
+      "productionStatusOfProcessedData": 0,
+      "typeOfProcessedData": 1,
+      "gridDefinitionTemplateNumber": 30,
+      "shapeOfTheEarth": 6,
+      "numberOfDataPoints": 6045,
+      "latitudeOfFirstGridPointInDegrees": 12.19,
+      "longitudeOfFirstGridPointInDegrees": 226.541,
+      "productDefinitionTemplateNumber": 0,
+      "parameterCategory": 3,
+      "parameterNumber": 192,
+      "typeOfGeneratingProcess": 2,
+      "indicatorOfUnitOfTimeRange": 1,
+      "forecastTime": 24,
+      "typeOfFirstFixedSurface": 101,
+      "scaleFactorOfFirstFixedSurface": 0,
+      "scaledValueOfFirstFixedSurface": 0,
+      "bitMapIndicator": 255
+    }
+  ]
+}
