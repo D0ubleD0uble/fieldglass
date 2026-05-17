@@ -252,6 +252,81 @@ fn wrong_section_in_place_of_pds_rejected() {
 }
 
 #[test]
+fn wrong_section_in_place_of_drs_rejected() {
+    // §5 is required after §4. Flip the DRS section-number byte to claim
+    // it's §6 — the walker must reject with a §5-specific error.
+    let mut bytes = build_message(false);
+    // §5 starts at IS (16) + IDS (21) + GDS (72) + PDS (34) = 143; its
+    // section-number byte is at offset 143 + 4 = 147.
+    bytes[147] = 6;
+    let err = match Grib2Reader::from_bytes(bytes) {
+        Ok(_) => panic!("wrong §5 must error"),
+        Err(e) => e,
+    };
+    let s = err.to_string();
+    assert!(s.contains("expected DRS"), "error mentions DRS, got: {s}");
+}
+
+#[test]
+fn wrong_section_in_place_of_bms_rejected() {
+    // §6 is required after §5. Flip the BMS section-number byte to claim
+    // it's §7 — the walker must reject with a §6-specific error.
+    let mut bytes = build_message(false);
+    // §6 starts at IS (16) + IDS (21) + GDS (72) + PDS (34) + DRS (21) = 164;
+    // its section-number byte is at offset 164 + 4 = 168.
+    bytes[168] = 7;
+    let err = match Grib2Reader::from_bytes(bytes) {
+        Ok(_) => panic!("wrong §6 must error"),
+        Err(e) => e,
+    };
+    let s = err.to_string();
+    assert!(s.contains("expected BMS"), "error mentions BMS, got: {s}");
+}
+
+#[test]
+fn wrong_section_in_place_of_ds_rejected() {
+    // §7 is required after §6. Flip the DS section-number byte to claim
+    // it's the End Section (8) — the walker must reject with a §7-specific
+    // error.
+    let mut bytes = build_message(false);
+    // §7 starts at IS (16) + IDS (21) + GDS (72) + PDS (34) + DRS (21) + BMS (6) = 170;
+    // its section-number byte is at offset 170 + 4 = 174.
+    bytes[174] = 8;
+    let err = match Grib2Reader::from_bytes(bytes) {
+        Ok(_) => panic!("wrong §7 must error"),
+        Err(e) => e,
+    };
+    let s = err.to_string();
+    assert!(s.contains("expected DS"), "error mentions DS, got: {s}");
+}
+
+#[test]
+fn impossibly_small_total_length_rejected() {
+    // Hand-craft an IS with total_length below INDICATOR_SECTION_LEN +
+    // END_SECTION_LEN (= 16 + 4 = 20). The walker must reject before any
+    // section-header parsing — there's literally no room for §1 + ES.
+    let total_len: u64 = 19;
+    let mut bytes = Vec::with_capacity(20);
+    bytes.extend_from_slice(b"GRIB");
+    bytes.extend_from_slice(&[0, 0]);
+    bytes.push(0); // discipline
+    bytes.push(2); // edition
+    bytes.extend_from_slice(&total_len.to_be_bytes());
+    // Pad to 20 bytes so the walker reaches the length check rather than
+    // bailing on a short buffer.
+    bytes.extend_from_slice(b"7777");
+    let err = match Grib2Reader::from_bytes(bytes) {
+        Ok(_) => panic!("impossibly small length must error"),
+        Err(e) => e,
+    };
+    let s = err.to_string();
+    assert!(
+        s.contains("impossibly small length"),
+        "error names impossibly-small length, got: {s}",
+    );
+}
+
+#[test]
 fn message_with_no_room_for_ids_rejected() {
     // Hand-crafted IS that declares total_length = IS_LEN + ES_LEN, so only
     // 4 bytes remain after the IS — too few for even a section header. The

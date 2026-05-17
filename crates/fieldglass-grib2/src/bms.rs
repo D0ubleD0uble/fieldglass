@@ -235,6 +235,35 @@ mod tests {
     }
 
     #[test]
+    fn rejects_section_length_below_minimum() {
+        // Section header says length = 5 (just the 5-byte preamble), below
+        // the 6-byte BMS minimum that includes the indicator octet.
+        let mut buf: Vec<u8> = Vec::new();
+        buf.extend_from_slice(&5u32.to_be_bytes());
+        buf.push(BMS_SECTION_NUMBER);
+        let err = parse_bit_map(&buf, 1024).expect_err("must reject");
+        assert!(
+            err.to_string().contains("BMS section length"),
+            "error names BMS length shortfall, got: {err}",
+        );
+    }
+
+    #[test]
+    fn rejects_bytes_shorter_than_declared_length() {
+        // Declare length 100 but provide only 6 bytes — the bounds check
+        // must reject before reading the indicator.
+        let mut buf: Vec<u8> = Vec::new();
+        buf.extend_from_slice(&100u32.to_be_bytes());
+        buf.push(BMS_SECTION_NUMBER);
+        buf.push(BMS_INDICATOR_NONE);
+        let err = parse_bit_map(&buf, 1024).expect_err("must reject");
+        assert!(
+            err.to_string().contains("BMS declares length"),
+            "error names declared-length overshoot, got: {err}",
+        );
+    }
+
+    #[test]
     fn drops_pad_bits_in_last_byte() {
         // 10-bit bitmap encoded in 2 bytes — only the first 10 bits matter,
         // the remaining 6 pad bits should be ignored.

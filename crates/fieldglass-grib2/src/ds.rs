@@ -307,4 +307,37 @@ mod tests {
         let header = parse_section_header(&buf).unwrap();
         assert!(parse_data_section_body(&buf, header).is_err());
     }
+
+    #[test]
+    fn parse_data_section_body_rejects_length_below_header() {
+        // Section header parser refuses a declared length below the 5-byte
+        // preamble, so the §7-specific length check is only reachable when
+        // we hand-build a `SectionHeader` with a too-small length. This pins
+        // the defensive guard in `parse_data_section_body`.
+        let buf = [0u8; 5];
+        let header = SectionHeader {
+            length: 4,
+            number: DS_SECTION_NUMBER,
+        };
+        let err = parse_data_section_body(&buf, header).expect_err("must reject");
+        assert!(
+            err.to_string().contains("DS section length"),
+            "error names DS length shortfall, got: {err}",
+        );
+    }
+
+    #[test]
+    fn parse_data_section_body_rejects_length_exceeding_buffer() {
+        // Declared length is fine on its own but the supplied buffer is
+        // shorter — the bounds check must reject before we slice the body.
+        let mut buf: Vec<u8> = Vec::new();
+        buf.extend_from_slice(&100u32.to_be_bytes());
+        buf.push(DS_SECTION_NUMBER);
+        let header = parse_section_header(&buf).unwrap();
+        let err = parse_data_section_body(&buf, header).expect_err("must reject");
+        assert!(
+            err.to_string().contains("DS declares length"),
+            "error names declared-length overshoot, got: {err}",
+        );
+    }
 }
