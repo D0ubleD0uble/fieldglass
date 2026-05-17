@@ -756,6 +756,48 @@ mod tests {
     }
 
     #[test]
+    fn rejects_4_0_when_horizontal_common_truncated() {
+        // §4 with a declared section length that just covers the header (9
+        // bytes) plus 10 of the 25 octets in the horizontal-common block.
+        // `parse_horizontal_common` must reject the short payload.
+        let payload_len = 10usize;
+        let section_len = 9 + payload_len;
+        let mut buf: Vec<u8> = Vec::new();
+        push_be(&mut buf, section_len as u64, 4);
+        buf.push(PDS_SECTION_NUMBER);
+        push_be(&mut buf, 0, 2); // NV
+        push_be(&mut buf, 0, 2); // template 4.0
+        buf.extend_from_slice(&[0u8; 10]); // ten bytes of "common", far short of 25
+        let err = parse_product_definition(&buf).expect_err("must reject");
+        let s = err.to_string();
+        assert!(
+            s.contains("horizontal common block needs"),
+            "error names horizontal-common shortfall, got: {s}",
+        );
+    }
+
+    #[test]
+    fn rejects_4_8_when_stats_header_missing() {
+        // §4 template 4.8 with declared section length covering only the
+        // horizontal-common block — no room for the 12-byte stats header.
+        // `parse_statistics` must reject before reading the end-year.
+        let payload_len = HORIZONTAL_CORE_LEN; // common only, no stats
+        let section_len = 9 + payload_len;
+        let mut buf: Vec<u8> = Vec::new();
+        push_be(&mut buf, section_len as u64, 4);
+        buf.push(PDS_SECTION_NUMBER);
+        push_be(&mut buf, 0, 2); // NV
+        push_be(&mut buf, 8, 2); // template 4.8
+        buf.extend_from_slice(&[0u8; HORIZONTAL_CORE_LEN]);
+        let err = parse_product_definition(&buf).expect_err("must reject");
+        let s = err.to_string();
+        assert!(
+            s.contains("stats block needs"),
+            "error names stats-header shortfall, got: {s}",
+        );
+    }
+
+    #[test]
     fn unsupported_template_round_trips_with_label() {
         let mut bytes = build_pds_4_0();
         // Template number lives at section octets 8–9 = bytes 7–8.

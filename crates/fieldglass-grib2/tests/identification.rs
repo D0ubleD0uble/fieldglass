@@ -190,6 +190,39 @@ fn wrong_section_after_is_rejected() {
 }
 
 #[test]
+fn wrong_section_in_place_of_gds_rejected() {
+    // §3 is required immediately after §1/§2. Flip the GDS section-number
+    // byte to claim it's actually §4 — the walker must reject it with a
+    // §3-specific error rather than mis-classifying the section.
+    let mut bytes = build_message(false);
+    // §3 starts at IS_LEN (16) + IDS_LEN (21) = 37; its section-number byte
+    // is at offset 37 + 4 = 41.
+    bytes[41] = 4;
+    let err = match Grib2Reader::from_bytes(bytes) {
+        Ok(_) => panic!("wrong §3 must error"),
+        Err(e) => e,
+    };
+    let s = err.to_string();
+    assert!(s.contains("expected GDS"), "error mentions GDS, got: {s}");
+}
+
+#[test]
+fn wrong_section_in_place_of_pds_rejected() {
+    // §4 is required after §3. Flip the PDS section-number byte to claim
+    // it's §5 — the walker must reject with a §4-specific error.
+    let mut bytes = build_message(false);
+    // §4 starts at IS_LEN (16) + IDS_LEN (21) + GDS_LEN (72) = 109; its
+    // section-number byte is at offset 109 + 4 = 113.
+    bytes[113] = 5;
+    let err = match Grib2Reader::from_bytes(bytes) {
+        Ok(_) => panic!("wrong §4 must error"),
+        Err(e) => e,
+    };
+    let s = err.to_string();
+    assert!(s.contains("expected PDS"), "error mentions PDS, got: {s}");
+}
+
+#[test]
 fn message_with_no_room_for_ids_rejected() {
     // Hand-crafted IS that declares total_length = IS_LEN + ES_LEN, so only
     // 4 bytes remain after the IS — too few for even a section header. The

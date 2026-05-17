@@ -619,4 +619,227 @@ mod tests {
         assert_eq!(lookup_parameter(0, 0, 250), None);
         assert_eq!(lookup_parameter(255, 0, 0), None);
     }
+
+    // -----------------------------------------------------------------------
+    // Pin-every-arm coverage for the §4 lookup tables. Matches the precedent
+    // set by `centre_lookup_pins_curated_ids` — these tests have no logic, so
+    // their entire value is catching accidental edits to the WMO IDs during
+    // a refactor (e.g. swapping arms 11 and 12 of stat-process when adding
+    // a new code).
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn generating_process_type_pins_all_arms() {
+        for (id, expected) in [
+            (0u8, "Analysis"),
+            (1, "Initialization"),
+            (2, "Forecast"),
+            (3, "Bias-corrected forecast"),
+            (4, "Ensemble forecast"),
+            (5, "Probability forecast"),
+            (6, "Forecast error"),
+            (7, "Analysis error"),
+            (8, "Observation"),
+            (9, "Climatological"),
+            (10, "Probability-weighted forecast"),
+            (11, "Bias-corrected ensemble forecast"),
+            (12, "Post-processed analysis"),
+            (13, "Post-processed forecast"),
+            (14, "Nowcast"),
+            (15, "Hindcast"),
+            (16, "Physical retrieval"),
+            (17, "Regression analysis"),
+            (18, "Difference between two forecasts"),
+        ] {
+            assert_eq!(
+                lookup_generating_process_type(id),
+                expected,
+                "generating process {id}"
+            );
+        }
+    }
+
+    #[test]
+    fn time_range_unit_pins_all_arms() {
+        for (id, expected) in [
+            (0u8, "Minute"),
+            (1, "Hour"),
+            (2, "Day"),
+            (3, "Month"),
+            (4, "Year"),
+            (5, "Decade (10 years)"),
+            (6, "Normal (30 years)"),
+            (7, "Century"),
+            (10, "3 hours"),
+            (11, "6 hours"),
+            (12, "12 hours"),
+            (13, "Second"),
+        ] {
+            assert_eq!(lookup_time_range_unit(id), expected, "time-range unit {id}");
+        }
+    }
+
+    #[test]
+    fn fixed_surface_pins_all_arms() {
+        for (id, expected) in [
+            (1u8, "Ground or water surface"),
+            (2, "Cloud base level"),
+            (3, "Cloud top level"),
+            (4, "Level of 0°C isotherm"),
+            (5, "Level of adiabatic condensation lifted from the surface"),
+            (6, "Maximum wind level"),
+            (7, "Tropopause"),
+            (8, "Nominal top of the atmosphere"),
+            (9, "Sea bottom"),
+            (20, "Isothermal level (K)"),
+            (100, "Isobaric surface (Pa)"),
+            (101, "Mean sea level"),
+            (102, "Specific altitude above mean sea level (m)"),
+            (103, "Specified height above ground (m)"),
+            (104, "Sigma level"),
+            (105, "Hybrid level"),
+            (106, "Depth below land surface (m)"),
+            (107, "Isentropic (theta) level (K)"),
+            (
+                108,
+                "Level at specified pressure difference from ground (Pa)",
+            ),
+            (109, "Potential vorticity surface (10⁻⁶ K m² kg⁻¹ s⁻¹)"),
+            (117, "Mixed-layer depth"),
+            (160, "Depth below sea level (m)"),
+            (200, "Entire atmosphere as a single layer"),
+            (201, "Entire ocean as a single layer"),
+        ] {
+            assert_eq!(lookup_fixed_surface(id), expected, "fixed surface {id}");
+        }
+    }
+
+    #[test]
+    fn ensemble_type_pins_all_arms() {
+        for (id, expected) in [
+            (0u8, "Unperturbed high-resolution control forecast"),
+            (1, "Unperturbed low-resolution control forecast"),
+            (2, "Negatively perturbed forecast"),
+            (3, "Positively perturbed forecast"),
+            (4, "Multi-model forecast"),
+        ] {
+            assert_eq!(lookup_ensemble_type(id), expected, "ensemble type {id}");
+        }
+    }
+
+    #[test]
+    fn statistical_process_pins_all_arms() {
+        for (id, expected) in [
+            (0u8, "Average"),
+            (1, "Accumulation"),
+            (2, "Maximum"),
+            (3, "Minimum"),
+            (4, "Difference (end minus start)"),
+            (5, "Root mean square"),
+            (6, "Standard deviation"),
+            (7, "Covariance"),
+            (8, "Difference (start minus end)"),
+            (9, "Ratio"),
+            (10, "Standardized anomaly"),
+            (11, "Summation"),
+            (12, "Confidence index"),
+            (13, "Quality indicator"),
+        ] {
+            assert_eq!(
+                lookup_statistical_process(id),
+                expected,
+                "stat process {id}"
+            );
+        }
+    }
+
+    #[test]
+    fn parameter_pins_all_curated_triples() {
+        for ((d, c, n), expected) in [
+            // Discipline 0 — Meteorological
+            ((0u8, 0u8, 0u8), ("TMP", "Temperature", "K")),
+            ((0, 0, 1), ("VTMP", "Virtual temperature", "K")),
+            ((0, 0, 2), ("POT", "Potential temperature", "K")),
+            (
+                (0, 0, 3),
+                ("EPOT", "Pseudo-adiabatic potential temperature", "K"),
+            ),
+            ((0, 0, 4), ("TMAX", "Maximum temperature", "K")),
+            ((0, 0, 5), ("TMIN", "Minimum temperature", "K")),
+            ((0, 0, 6), ("DPT", "Dew-point temperature", "K")),
+            ((0, 0, 7), ("DEPR", "Dew-point depression", "K")),
+            ((0, 0, 8), ("LAPR", "Lapse rate", "K m⁻¹")),
+            ((0, 0, 17), ("SKINT", "Skin temperature", "K")),
+            ((0, 1, 0), ("SPFH", "Specific humidity", "kg kg⁻¹")),
+            ((0, 1, 1), ("RH", "Relative humidity", "%")),
+            ((0, 1, 2), ("MIXR", "Humidity mixing ratio", "kg kg⁻¹")),
+            ((0, 1, 3), ("PWAT", "Precipitable water", "kg m⁻²")),
+            ((0, 1, 7), ("PRATE", "Precipitation rate", "kg m⁻² s⁻¹")),
+            ((0, 1, 8), ("APCP", "Total precipitation", "kg m⁻²")),
+            (
+                (0, 1, 9),
+                ("NCPCP", "Large-scale precipitation (non-conv.)", "kg m⁻²"),
+            ),
+            ((0, 1, 10), ("ACPCP", "Convective precipitation", "kg m⁻²")),
+            ((0, 1, 11), ("SNOD", "Snow depth", "m")),
+            (
+                (0, 1, 13),
+                (
+                    "WEASD",
+                    "Water equivalent of accumulated snow depth",
+                    "kg m⁻²",
+                ),
+            ),
+            ((0, 1, 22), ("CLWMR", "Cloud mixing ratio", "kg kg⁻¹")),
+            (
+                (0, 2, 0),
+                ("WDIR", "Wind direction (from which blowing)", "° true"),
+            ),
+            ((0, 2, 1), ("WIND", "Wind speed", "m s⁻¹")),
+            ((0, 2, 2), ("UGRD", "U-component of wind", "m s⁻¹")),
+            ((0, 2, 3), ("VGRD", "V-component of wind", "m s⁻¹")),
+            (
+                (0, 2, 8),
+                ("VVEL", "Vertical velocity (pressure)", "Pa s⁻¹"),
+            ),
+            (
+                (0, 2, 9),
+                ("DZDT", "Vertical velocity (geometric)", "m s⁻¹"),
+            ),
+            ((0, 2, 10), ("ABSV", "Absolute vorticity", "s⁻¹")),
+            ((0, 3, 0), ("PRES", "Pressure", "Pa")),
+            ((0, 3, 1), ("PRMSL", "Pressure reduced to MSL", "Pa")),
+            ((0, 3, 2), ("PTEND", "Pressure tendency", "Pa s⁻¹")),
+            ((0, 3, 5), ("HGT", "Geopotential height", "gpm")),
+            ((0, 3, 6), ("DIST", "Geometric height", "m")),
+            ((0, 3, 9), ("DEN", "Density", "kg m⁻³")),
+            ((0, 6, 1), ("TCDC", "Total cloud cover", "%")),
+            ((0, 6, 3), ("LCDC", "Low cloud cover", "%")),
+            ((0, 6, 4), ("MCDC", "Medium cloud cover", "%")),
+            ((0, 6, 5), ("HCDC", "High cloud cover", "%")),
+            (
+                (0, 7, 6),
+                ("CAPE", "Convective available potential energy", "J kg⁻¹"),
+            ),
+            ((0, 7, 7), ("CIN", "Convective inhibition", "J kg⁻¹")),
+            // Discipline 2 — Land surface
+            (
+                (2, 0, 0),
+                ("LAND", "Land cover (0=sea, 1=land)", "proportion"),
+            ),
+            ((2, 0, 5), ("SOILM", "Soil moisture content", "kg m⁻²")),
+            // Discipline 10 — Oceanographic
+            (
+                (10, 0, 3),
+                ("WVHGT", "Significant height of combined wind+swell", "m"),
+            ),
+            ((10, 1, 2), ("SST", "Sea surface temperature", "K")),
+        ] {
+            assert_eq!(
+                lookup_parameter(d, c, n),
+                Some(expected),
+                "parameter ({d}/{c}/{n})"
+            );
+        }
+    }
 }
