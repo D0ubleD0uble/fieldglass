@@ -41,8 +41,8 @@ Open the repo in VS Code and press `F5` to launch an Extension Development Host 
 A few project-specific patterns worth knowing:
 
 - `crates/fieldglass-core` must remain free of format-specific imports and free of `napi` types. Format crates depend on it; it depends on nothing else.
-- WMO ON388 lookup tables live in `crates/fieldglass-grib1/src/tables.rs` and are the single source of truth for parameter / centre / level-type names. Add to the tables rather than hardcoding strings at the napi or TypeScript layer.
-- The data flow for adding a new metadata field is: parse it in the relevant section module → expose it on the section struct → populate `MessageMeta` in `crates/fieldglass-napi/src/lib.rs` → add the camelCase field on the `MessageMeta` interface in `extension/src/provider.ts` → render it in the webview table. napi-rs auto-converts `snake_case` Rust field names to `camelCase` in the generated TS bindings.
+- WMO lookup tables live in `crates/fieldglass-grib1/src/tables.rs` (GRIB1, WMO ON388) and `crates/fieldglass-grib2/src/tables.rs` (GRIB2, WMO FM 92 Code Tables 0.0 / 1.x / 3.x / 4.x). They're the single source of truth for parameter / centre / level / process names — add to the tables rather than hardcoding strings at the napi or TypeScript layer.
+- The data flow for adding a new metadata field is the same across editions: parse it in the relevant section module (GRIB1 `is/pds/gds/bds.rs`, GRIB2 `is/ids/lus/gds/pds/drs/bms/ds.rs`) → expose it on the section struct → populate `MessageMeta` in `crates/fieldglass-napi/src/lib.rs` (both `open_grib1` and `open_grib2` produce the same shape) → add the camelCase field on the `MessageMeta` interface in `extension/src/provider.ts` → render it in the webview table. napi-rs auto-converts `snake_case` Rust field names to `camelCase` in the generated TS bindings.
 
 ## Code of conduct
 
