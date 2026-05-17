@@ -1,6 +1,6 @@
 [package]
 name        = "fieldglass-grib2"
-description = "GRIB edition 2 format reader — Indicator Section parsing + message enumeration"
+description = "GRIB edition 2 format reader — full §0–§7 parsing and simple-packing (DRS 5.0) value decode"
 version.workspace    = true
 edition.workspace    = true
 license.workspace    = true

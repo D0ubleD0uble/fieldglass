@@ -259,15 +259,19 @@ Three additional Tier-1 scanners run on every push and PR (results land in the r
 
 The Semgrep and CodeQL workflows are gated on `github.event.repository.visibility == 'public'` because GitHub Code Scanning's SARIF upload requires either a public repo or GitHub Advanced Security. They sit dormant on private repos and self-activate the moment the repo is flipped public. Dependabot runs regardless of visibility.
 
-## Adding a new GRIB1 metadata field
+## Adding a new GRIB metadata field
 
-1. Parse the field in the relevant section module under `crates/fieldglass-grib1/src/`.
+The same flow applies to either edition — only the source section module differs.
+
+1. Parse the field in the relevant section module:
+   - GRIB1 → `crates/fieldglass-grib1/src/{is,pds,gds,bds}.rs`
+   - GRIB2 → `crates/fieldglass-grib2/src/{is,ids,lus,gds,pds,drs,bms,ds}.rs`
 2. Expose the value on the section struct.
-3. Populate it on `MessageMeta` in `crates/fieldglass-napi/src/lib.rs`.
+3. Populate it on `MessageMeta` in `crates/fieldglass-napi/src/lib.rs` (both `open_grib1` and `open_grib2` produce the same `MessageMeta` shape, so a new field usually lands in both paths).
 4. Add the corresponding camelCase field to the `MessageMeta` interface in `extension/src/provider.ts`.
 5. Render it in the webview table in the same file.
 
-The napi-rs bindings automatically convert `snake_case` Rust field names to `camelCase` TypeScript fields.
+WMO ON388 / FM 92 lookup tables live in `crates/fieldglass-grib1/src/tables.rs` (GRIB1) and `crates/fieldglass-grib2/src/tables.rs` (GRIB2) — extend the tables there rather than hardcoding strings at the napi or TypeScript layer. The napi-rs bindings automatically convert `snake_case` Rust field names to `camelCase` TypeScript fields.
 
 ## License
 
