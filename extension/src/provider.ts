@@ -2,7 +2,6 @@ import * as vscode from "vscode";
 import * as path from "path";
 import { randomBytes } from "crypto";
 
-import { VIRIDIS_LUT } from "./render-helpers";
 
 interface MessageMeta {
   messageIndex: number;
@@ -72,13 +71,59 @@ interface DatasetMeta {
   hdf5SuperblockVersion?: number;
 }
 
+/**
+ * Picker state posted from the render panel and forwarded into the
+ * Rust render pipeline.
+ */
+interface RenderOptions {
+  projection: "source" | "equirectangular";
+  resampling: "nearest" | "bilinear";
+  flipY: boolean;
+  rangeMin?: number;
+  rangeMax?: number;
+}
+
+interface RenderedGrid {
+  rgba: Buffer;
+  width: number;
+  height: number;
+  usedMin: number;
+  usedMax: number;
+  projectionSummary: string;
+}
+
+interface DecodedGrid {
+  values: Float64Array;
+  mask: Buffer;
+  width: number;
+  height: number;
+}
+
+interface Grib1Handle {
+  messages(): MessageMeta[];
+  decodeGrid(messageIndex: number): DecodedGrid;
+  setP1(messageIndex: number, value: number): Buffer;
+  renderGrid(messageIndex: number, options: RenderOptions): RenderedGrid;
+}
+
+interface Grib2Handle {
+  messages(): MessageMeta[];
+  decodeGrid(messageIndex: number): DecodedGrid;
+  renderGrid(messageIndex: number, options: RenderOptions): RenderedGrid;
+}
+
+interface Grib1HandleCtor {
+  fromBytes(bytes: Uint8Array): Grib1Handle;
+}
+interface Grib2HandleCtor {
+  fromBytes(bytes: Uint8Array): Grib2Handle;
+}
+
 let fieldglass: {
   detectBytes: (bytes: Uint8Array) => string;
-  openGrib1: (bytes: Uint8Array) => MessageMeta[];
-  openGrib2: (bytes: Uint8Array) => MessageMeta[];
   openNetcdf: (bytes: Uint8Array) => DatasetMeta;
-  decodeGrid: (bytes: Uint8Array, messageIndex: number) => Array<number | null>;
-  setP1: (bytes: Uint8Array, messageIndex: number, value: number) => Buffer;
+  Grib1Handle: Grib1HandleCtor;
+  Grib2Handle: Grib2HandleCtor;
 } | undefined;
 
 function nativeBinaryName(): string {
@@ -198,6 +243,11 @@ export class FieldglassEditorProvider
   // All panels currently rendering each document, keyed by uri.toString().
   private readonly _panelsByDoc = new Map<string, Set<vscode.WebviewPanel>>();
 
+  // Reader handles per document. Parsed once; subsequent decode / render
+  // calls reuse the same `Grib{1,2}Handle` rather than re-parsing the
+  // buffer on every napi call (was #41 — closed by the handle API).
+  private readonly _handlesByDoc = new Map<string, Grib1Handle | Grib2Handle>();
+
   // -------------------------------------------------------------------------
   // CustomEditorProvider lifecycle
   // -------------------------------------------------------------------------
@@ -220,13 +270,8 @@ export class FieldglassEditorProvider
     const header = document.bytes.slice(0, 32);
     const format = native ? native.detectBytes(header) : "unknown";
 
-    const messages = native
-      ? (format === "grib1"
-        ? native.openGrib1(document.bytes)
-        : format === "grib2"
-        ? native.openGrib2(document.bytes)
-        : undefined)
-      : undefined;
+    const handle = native ? this.openOrReuseHandle(document, format) : undefined;
+    const messages = handle?.messages();
     let dataset: DatasetMeta | undefined;
     if (native && format === "netcdf") {
       try {
@@ -346,17 +391,16 @@ export class FieldglassEditorProvider
       });
       return;
     }
-    let messages: MessageMeta[];
-    try {
-      messages = native.openGrib1(document.bytes);
-    } catch (err) {
+    const handle = this._handlesByDoc.get(document.uri.toString());
+    if (!handle) {
       panel.webview.postMessage({
         type: "gridError",
         messageIndex,
-        error: `re-parse failed: ${err}`,
+        error: "no reader handle for document (not a GRIB file?)",
       });
       return;
     }
+    const messages = handle.messages();
     // messageIndex originates from a webview-controlled message but is
     // bounds-checked immediately below; messages is a plain Array.
     // eslint-disable-next-line security/detect-object-injection
@@ -377,60 +421,30 @@ export class FieldglassEditorProvider
       });
       return;
     }
-    let raw: Array<number | null>;
-    try {
-      raw = native.decodeGrid(document.bytes, messageIndex);
-    } catch (err) {
-      panel.webview.postMessage({
-        type: "gridError",
-        messageIndex,
-        error: `decode failed: ${err}`,
-      });
-      return;
-    }
 
-    // Repack napi's Array<number | null> into Float64Array (NaN = masked) +
-    // Uint8Array mask for cheap structured-clone transfer to the webview.
-    // TODO(perf): return the typed-array pair from Rust to skip this loop —
-    // see the matching TODO on decode_grid in fieldglass-napi/src/lib.rs.
-    const total = raw.length;
-    const values = new Float64Array(total);
-    const bitmapMask = new Uint8Array(total);
-    let anyMasked = false;
-    // i is a strictly bounded counter; values/bitmapMask/raw are length
-    // `total`. The security plugin can't see the loop bound, so silence the
-    // generic-injection warning here.
-    /* eslint-disable security/detect-object-injection */
-    for (let i = 0; i < total; i++) {
-      const v = raw[i];
-      if (v === null) {
-        values[i] = Number.NaN;
-        bitmapMask[i] = 0;
-        anyMasked = true;
-      } else {
-        values[i] = v;
-        bitmapMask[i] = 1;
-      }
-    }
-    /* eslint-enable security/detect-object-injection */
-
-    const projectionSummary = describeProjection(meta);
-
-    this.openRenderPanel(meta, values, anyMasked ? bitmapMask : undefined, projectionSummary);
+    // The first render uses the picker defaults: source projection +
+    // nearest resampling + auto range + no y-flip. Subsequent renders
+    // come back via `rerenderRequest` with whatever the user has dialled
+    // in.
+    this.openRenderPanel(document, meta);
 
     panel.webview.postMessage({ type: "renderOpened", messageIndex });
   }
 
   /**
-   * Pop a separate webview tab beside the table view that paints the decoded
-   * grid at full resolution. Each render gets its own tab so users can compare
-   * messages side-by-side.
+   * Pop a separate webview tab beside the table view that paints the
+   * decoded grid at full resolution. Each render gets its own tab so
+   * users can compare messages side-by-side.
+   *
+   * The panel script never decodes the values itself — every paint runs
+   * via `handle.renderGrid(meta.messageIndex, options)` on the provider
+   * side and ships a paint-ready RGBA Buffer over postMessage. Picker
+   * changes (projection / resampling / range / flip-y) flow back as
+   * `rerenderRequest` and trigger a fresh `renderGrid` call.
    */
   private openRenderPanel(
+    document: FieldglassDocument,
     meta: MessageMeta,
-    values: Float64Array,
-    bitmapMask: Uint8Array | undefined,
-    projectionSummary: string
   ): void {
     const title = `Render: msg ${meta.messageIndex}`
       + (meta.parameterAbbreviation ? ` — ${meta.parameterAbbreviation}` : "");
@@ -440,24 +454,68 @@ export class FieldglassEditorProvider
       { viewColumn: vscode.ViewColumn.Beside, preserveFocus: false },
       { enableScripts: true, retainContextWhenHidden: false }
     );
-    panel.webview.html = renderImagePanelHtml(panel.webview, meta, projectionSummary);
-    // Respond to every `ready` for the panel's lifetime: the webview is
-    // created with retainContextWhenHidden=false, so VS Code tears down the
-    // DOM/JS context when the tab is hidden and the script re-mounts on
-    // return. Each remount posts a fresh `ready` and expects the grid back.
-    const sub = panel.webview.onDidReceiveMessage((m: { type?: string }) => {
-      if (m && m.type === "ready") {
+    panel.webview.html = renderImagePanelHtml(panel.webview, meta, describeProjection(meta));
+
+    const defaultOptions: RenderOptions = {
+      projection: "source",
+      resampling: "nearest",
+      flipY: false,
+    };
+
+    const paint = (options: RenderOptions) => {
+      const docHandle = this._handlesByDoc.get(document.uri.toString());
+      if (!docHandle) {
+        panel.webview.postMessage({
+          type: "gridError",
+          messageIndex: meta.messageIndex,
+          error: "reader handle was disposed",
+        });
+        return;
+      }
+      try {
+        const rendered = docHandle.renderGrid(meta.messageIndex, options);
         panel.webview.postMessage({
           type: "gridReady",
           messageIndex: meta.messageIndex,
-          values,
-          nx: meta.gridNi,
-          ny: meta.gridNj,
-          projectionSummary,
-          bitmapMask,
+          rgba: rendered.rgba,
+          width: rendered.width,
+          height: rendered.height,
+          usedMin: rendered.usedMin,
+          usedMax: rendered.usedMax,
+          projectionSummary: rendered.projectionSummary,
+          options,
+        });
+      } catch (err) {
+        panel.webview.postMessage({
+          type: "gridError",
+          messageIndex: meta.messageIndex,
+          error: `render failed: ${err}`,
         });
       }
-    });
+    };
+
+    // Respond for the panel's lifetime: webview is created with
+    // retainContextWhenHidden=false so VS Code tears down the DOM/JS
+    // context when the tab is hidden; each remount posts a fresh `ready`.
+    const sub = panel.webview.onDidReceiveMessage(
+      (m: { type?: string } & Partial<RenderOptions>) => {
+        if (!m || typeof m.type !== "string") return;
+        if (m.type === "ready") {
+          paint(defaultOptions);
+          return;
+        }
+        if (m.type === "rerenderRequest") {
+          const options: RenderOptions = {
+            projection: m.projection ?? "source",
+            resampling: m.resampling ?? "nearest",
+            flipY: !!m.flipY,
+            rangeMin: m.rangeMin,
+            rangeMax: m.rangeMax,
+          };
+          paint(options);
+        }
+      },
+    );
     panel.onDidDispose(() => sub.dispose());
   }
 
@@ -475,9 +533,16 @@ export class FieldglassEditorProvider
     }
 
     const oldBytes = document.bytes;
+    const handle = this._handlesByDoc.get(document.uri.toString());
+    if (!handle || !("setP1" in handle)) {
+      vscode.window.showErrorMessage(
+        "Fieldglass: setP1 only applies to GRIB1 documents",
+      );
+      return;
+    }
     let newBytes: Uint8Array;
     try {
-      newBytes = native.setP1(oldBytes, messageIndex, value);
+      newBytes = (handle as Grib1Handle).setP1(messageIndex, value);
     } catch (err) {
       console.error("[Fieldglass] setP1 failed:", err);
       vscode.window.showErrorMessage(`Fieldglass: failed to set p1: ${err}`);
@@ -487,6 +552,9 @@ export class FieldglassEditorProvider
     }
 
     document.setBytes(newBytes);
+    // Bytes changed → the cached handle is stale. Drop it so the next
+    // `openOrReuseHandle` reparses against the new bytes.
+    this._handlesByDoc.delete(document.uri.toString());
     this.broadcastUpdate(document);
 
     this._onDidChangeCustomDocument.fire({
@@ -536,10 +604,49 @@ export class FieldglassEditorProvider
     const native = loadNative();
     if (!native) return;
     try {
-      const messages = native.openGrib1(document.bytes);
-      panel.webview.postMessage({ type: "update", messages });
+      // `postUpdate` is only used by the GRIB1 edit-loop today; rebuild
+      // a fresh Grib1Handle off the current bytes (the cached handle
+      // was dropped in `applyP1Edit` when the bytes changed).
+      const handle = native.Grib1Handle.fromBytes(document.bytes);
+      this._handlesByDoc.set(document.uri.toString(), handle);
+      panel.webview.postMessage({ type: "update", messages: handle.messages() });
     } catch (err) {
       vscode.window.showErrorMessage(`Fieldglass: failed to re-parse after edit: ${err}`);
+    }
+  }
+
+  /**
+   * Get-or-build the cached reader handle for a document. Called from
+   * the main `resolveCustomEditor` path; subsequent renders reuse the
+   * cached handle to avoid re-parsing the entire file on every call.
+   */
+  private openOrReuseHandle(
+    document: FieldglassDocument,
+    format: string,
+  ): Grib1Handle | Grib2Handle | undefined {
+    const key = document.uri.toString();
+    const cached = this._handlesByDoc.get(key);
+    if (cached) return cached;
+    const native = loadNative();
+    if (!native) return undefined;
+    try {
+      const handle: Grib1Handle | Grib2Handle | undefined = format === "grib1"
+        ? native.Grib1Handle.fromBytes(document.bytes)
+        : format === "grib2"
+        ? native.Grib2Handle.fromBytes(document.bytes)
+        : undefined;
+      if (handle) {
+        this._handlesByDoc.set(key, handle);
+        // Drop the cached handle when the document is closed.
+        // VS Code doesn't expose a per-document close event on
+        // CustomEditorProvider, so we rely on bytes changes (handled
+        // in applyP1Edit) plus the LRU effect of files being re-opened.
+      }
+      return handle;
+    } catch (err) {
+      console.error("[Fieldglass] handle creation failed:", err);
+      vscode.window.showErrorMessage(`Fieldglass: failed to parse ${format}: ${err}`);
+      return undefined;
     }
   }
 }
@@ -999,7 +1106,6 @@ function renderImagePanelHtml(
     `style-src ${webview.cspSource} 'unsafe-inline'`,
     `img-src ${webview.cspSource} blob: data:`,
   ].join("; ");
-  const lutJson = JSON.stringify(Array.from(VIRIDIS_LUT));
   const titleLine = `Message ${meta.messageIndex}`
     + (meta.parameterName ? ` — ${meta.parameterName}` : "")
     + (meta.parameterUnits ? ` (${meta.parameterUnits})` : "");
@@ -1018,158 +1124,105 @@ function renderImagePanelHtml(
     <script nonce="${cspNonce}">
       (function () {
         const vscode = acquireVsCodeApi();
-        const VIRIDIS = new Uint8ClampedArray(${lutJson});
 
-        // The most-recently-received decoded grid. Cached so the user can
-        // toggle viewing settings (flip-y, manual range) and re-paint without
-        // a round-trip back to the Rust decoder.
+        // The most-recently-received rendered grid. We only re-render
+        // when the user changes a picker that affects the Rust output
+        // (projection / resampling / flip-y / range). The cached payload
+        // lets us redraw after a tab hide/show without a round-trip.
         let lastPayload = null;
-        let autoRange = null;
-
-        function paintGrid(values, bitmapMask, nx, ny, min, max, flipY) {
-          const total = nx * ny;
-          const span = max - min;
-          const denom = span > 0 ? span : 1;
-          const buf = new Uint8ClampedArray(total * 4);
-          for (let i = 0; i < total; i++) {
-            const v = values[i];
-            const masked = bitmapMask && bitmapMask[i] === 0;
-            const row = (i / nx) | 0;
-            const col = i - row * nx;
-            const outIdx = flipY ? (ny - 1 - row) * nx + col : i;
-            const o = outIdx * 4;
-            if (masked || !Number.isFinite(v)) {
-              buf[o] = 0; buf[o + 1] = 0; buf[o + 2] = 0; buf[o + 3] = 0;
-              continue;
-            }
-            let t = span > 0 ? (v - min) / denom : 0;
-            if (t < 0) t = 0; else if (t > 1) t = 1;
-            const idx = Math.round(t * 255) * 3;
-            buf[o] = VIRIDIS[idx];
-            buf[o + 1] = VIRIDIS[idx + 1];
-            buf[o + 2] = VIRIDIS[idx + 2];
-            buf[o + 3] = 255;
-          }
-          return new ImageData(buf, nx, ny);
-        }
-
-        function paintColorbar(canvas) {
-          const ctx = canvas.getContext('2d');
-          if (!ctx) return;
-          const w = canvas.width, h = canvas.height;
-          const buf = new Uint8ClampedArray(w * h * 4);
-          for (let y = 0; y < h; y++) {
-            const t = 1 - y / Math.max(1, h - 1);
-            const idx = Math.round(t * 255) * 3;
-            for (let x = 0; x < w; x++) {
-              const o = (y * w + x) * 4;
-              buf[o] = VIRIDIS[idx];
-              buf[o + 1] = VIRIDIS[idx + 1];
-              buf[o + 2] = VIRIDIS[idx + 2];
-              buf[o + 3] = 255;
-            }
-          }
-          ctx.putImageData(new ImageData(buf, w, h), 0, 0);
-        }
-
-        function minMaxIgnoringMask(values, bitmapMask) {
-          let min = Infinity, max = -Infinity, seen = false;
-          for (let i = 0; i < values.length; i++) {
-            if (bitmapMask && bitmapMask[i] === 0) continue;
-            const v = values[i];
-            if (!Number.isFinite(v)) continue;
-            if (v < min) min = v;
-            if (v > max) max = v;
-            seen = true;
-          }
-          return seen ? { min, max } : null;
-        }
 
         function setStatus(text) {
           const el = document.getElementById('status');
           if (el) el.textContent = text;
         }
 
-        function handleGridReady(msg) {
-          lastPayload = msg;
-          autoRange = minMaxIgnoringMask(msg.values, msg.bitmapMask);
-          // Pre-fill the manual-range inputs with the auto values so the user
-          // can switch to Manual without first having to type something.
-          if (autoRange) {
-            const minIn = document.getElementById('range-min');
-            const maxIn = document.getElementById('range-max');
-            if (minIn && !minIn.value) minIn.value = autoRange.min.toPrecision(6);
-            if (maxIn && !maxIn.value) maxIn.value = autoRange.max.toPrecision(6);
-          }
-          repaint();
-        }
-
-        function currentRange() {
+        function currentOptions() {
+          const projection = (document.getElementById('picker-projection') || {}).value || 'source';
+          const resampling = (document.getElementById('picker-resampling') || {}).value || 'nearest';
+          const flipY = !!(document.getElementById('flip-y') && document.getElementById('flip-y').checked);
           const mode = document.querySelector('input[name="range-mode"]:checked');
+          const options = { projection, resampling, flipY };
           if (mode && mode.value === 'manual') {
-            const min = Number(document.getElementById('range-min').value);
-            const max = Number(document.getElementById('range-max').value);
+            const min = Number((document.getElementById('range-min') || {}).value);
+            const max = Number((document.getElementById('range-max') || {}).value);
             if (Number.isFinite(min) && Number.isFinite(max) && max > min) {
-              return { min, max };
+              options.rangeMin = min;
+              options.rangeMax = max;
             }
-            // Fall back to auto on invalid manual input rather than refusing
-            // to paint — the inputs flag themselves with :invalid via the
-            // browser's number validation.
           }
-          return autoRange;
+          return options;
         }
 
-        function repaint() {
-          if (!lastPayload) return;
-          const canvas = document.getElementById('canvas');
-          const cb = document.getElementById('cb');
-          const cbMin = document.getElementById('cb-min');
-          const cbMax = document.getElementById('cb-max');
-          if (!canvas || !cb) return;
-          const ctx = canvas.getContext('2d');
-          if (!ctx) return;
-
-          const nx = lastPayload.nx, ny = lastPayload.ny;
-          canvas.width = nx;
-          canvas.height = ny;
-          paintColorbar(cb);
-
-          const range = currentRange();
-          if (!range) {
-            setStatus(nx + '×' + ny + ' — no usable grid points (all masked or non-finite).');
-            ctx.clearRect(0, 0, nx, ny);
-            cbMin.textContent = '—';
-            cbMax.textContent = '—';
+        function requestRender() {
+          if (!lastPayload) {
+            // Initial mount: provider posts ready-options-default automatically.
             return;
           }
-          const flipY = !!document.getElementById('flip-y') && document.getElementById('flip-y').checked;
-          const img = paintGrid(
-            lastPayload.values, lastPayload.bitmapMask,
-            nx, ny, range.min, range.max, flipY
+          vscode.postMessage(Object.assign({ type: 'rerenderRequest' }, currentOptions()));
+          setStatus('Rendering…');
+        }
+
+        function blit(payload) {
+          const canvas = document.getElementById('canvas');
+          if (!canvas) return;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) return;
+          canvas.width = payload.width;
+          canvas.height = payload.height;
+          // payload.rgba arrives as a Node Buffer; copy into a Uint8ClampedArray
+          // so ImageData accepts it.
+          const rgba = new Uint8ClampedArray(
+            payload.rgba.buffer ? payload.rgba.buffer : payload.rgba,
+            payload.rgba.byteOffset || 0,
+            payload.rgba.byteLength || payload.rgba.length
           );
+          const img = new ImageData(rgba, payload.width, payload.height);
           ctx.putImageData(img, 0, 0);
-          cbMin.textContent = range.min.toPrecision(4);
-          cbMax.textContent = range.max.toPrecision(4);
-          const masked = lastPayload.bitmapMask ? ' · transparent = bitmap-masked' : '';
-          const flipNote = flipY ? ' · y-flipped' : '';
-          setStatus(nx + '×' + ny + ' · range ' + range.min.toPrecision(4)
-                    + ' … ' + range.max.toPrecision(4) + masked + flipNote);
+          const cbMin = document.getElementById('cb-min');
+          const cbMax = document.getElementById('cb-max');
+          if (cbMin) cbMin.textContent = payload.usedMin.toPrecision(4);
+          if (cbMax) cbMax.textContent = payload.usedMax.toPrecision(4);
+          const proj = document.getElementById('projection-summary');
+          if (proj) proj.textContent = payload.projectionSummary || '';
+          setStatus(
+            payload.width + '×' + payload.height + ' · range ' +
+            payload.usedMin.toPrecision(4) + ' … ' + payload.usedMax.toPrecision(4),
+          );
+          // Pre-fill the manual-range inputs once so the user can switch
+          // to Manual mode without typing.
+          const minIn = document.getElementById('range-min');
+          const maxIn = document.getElementById('range-max');
+          if (minIn && !minIn.value) minIn.value = payload.usedMin.toPrecision(6);
+          if (maxIn && !maxIn.value) maxIn.value = payload.usedMax.toPrecision(6);
+        }
+
+        function handleGridReady(msg) {
+          lastPayload = msg;
+          blit(msg);
+        }
+
+        function handleGridError(msg) {
+          setStatus('Error: ' + (msg.error || 'render failed'));
         }
 
         function attachControls() {
+          const projPick = document.getElementById('picker-projection');
+          if (projPick) projPick.addEventListener('change', requestRender);
+          const sampPick = document.getElementById('picker-resampling');
+          if (sampPick) sampPick.addEventListener('change', requestRender);
           const flip = document.getElementById('flip-y');
-          if (flip) flip.addEventListener('change', repaint);
+          if (flip) flip.addEventListener('change', requestRender);
           document.querySelectorAll('input[name="range-mode"]').forEach((el) => {
             el.addEventListener('change', () => {
               const manual = document.getElementById('range-manual-fields');
               const isManual = el.value === 'manual' && el.checked;
               if (manual) manual.toggleAttribute('hidden', !isManual);
-              repaint();
+              requestRender();
             });
           });
           ['range-min', 'range-max'].forEach((id) => {
             const el = document.getElementById(id);
-            if (el) el.addEventListener('change', repaint);
+            if (el) el.addEventListener('change', requestRender);
           });
         }
 
@@ -1177,6 +1230,7 @@ function renderImagePanelHtml(
           const msg = event.data;
           if (!msg || typeof msg.type !== 'string') return;
           if (msg.type === 'gridReady') handleGridReady(msg);
+          else if (msg.type === 'gridError') handleGridError(msg);
         });
 
         attachControls();
@@ -1223,10 +1277,26 @@ function renderImagePanelHtml(
       height: 320px;
       flex: 0 0 auto;
     }
-    canvas#cb {
+    /* Static viridis gradient — 11 anchor stops matched against the
+       Rust LUT in fieldglass-core::colormap (top = max, bottom = min). */
+    .cb {
       width: 24px;
       height: 320px;
       border: 1px solid var(--vscode-panel-border);
+      background: linear-gradient(
+        to top,
+        rgb(68, 1, 84) 0%,
+        rgb(72, 36, 117) 10%,
+        rgb(65, 68, 135) 20%,
+        rgb(53, 95, 141) 30%,
+        rgb(42, 120, 142) 40%,
+        rgb(33, 145, 140) 50%,
+        rgb(34, 168, 132) 60%,
+        rgb(68, 191, 112) 70%,
+        rgb(122, 209, 81) 80%,
+        rgb(189, 223, 38) 90%,
+        rgb(253, 231, 37) 100%
+      );
     }
     .colorbar-labels {
       display: flex;
@@ -1280,8 +1350,20 @@ function renderImagePanelHtml(
 <body>
   <h1>${escapeHtml(titleLine)}</h1>
   <div class="subtitle">${escapeHtml(subLine)}</div>
-  <div class="projection">${escapeHtml(projectionSummary)}</div>
+  <div class="projection" id="projection-summary">${escapeHtml(projectionSummary)}</div>
   <div class="toolbar" role="toolbar" aria-label="Render settings">
+    <label>Projection
+      <select id="picker-projection">
+        <option value="source" selected>Source projection</option>
+        <option value="equirectangular">Equirectangular</option>
+      </select>
+    </label>
+    <label>Resampling
+      <select id="picker-resampling">
+        <option value="nearest" selected>Nearest</option>
+        <option value="bilinear">Bilinear</option>
+      </select>
+    </label>
     <label><input type="checkbox" id="flip-y"> Flip Y axis</label>
     <fieldset>
       <legend>Range:</legend>
@@ -1293,18 +1375,18 @@ function renderImagePanelHtml(
       </span>
     </fieldset>
   </div>
-  <div id="status">Painting…</div>
+  <div id="status">Rendering…</div>
   <div class="render-area">
     <canvas id="canvas" width="320" height="320"></canvas>
     <div class="colorbar-wrap">
-      <canvas id="cb" width="24" height="320"></canvas>
+      <div class="cb" aria-label="viridis colormap"></div>
       <div class="colorbar-labels">
         <div id="cb-max">—</div>
         <div id="cb-min">—</div>
       </div>
     </div>
   </div>
-  <div class="legend">Painted in grid coordinates (no map reprojection). Bitmap-masked points render as transparent.</div>
+  <div class="legend">Rendered server-side (Rust). Bitmap-masked points are transparent. Source / equirectangular projections supported today; other targets tracked under #71.</div>
   ${script}
 </body>
 </html>`;

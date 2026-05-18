@@ -97,79 +97,8 @@ pub fn detect_bytes(bytes: napi::bindgen_prelude::Buffer) -> String {
     }
 }
 
-/// Patch the PDS `p1` (forecast period) octet of one message and return a new
-/// buffer containing the modified file bytes. Length is preserved.
-#[napi]
-pub fn set_p1(
-    bytes: napi::bindgen_prelude::Buffer,
-    message_index: u32,
-    value: u32,
-) -> napi::Result<napi::bindgen_prelude::Buffer> {
-    if value > u8::MAX as u32 {
-        return Err(napi::Error::from_reason(format!(
-            "p1 must fit in a u8 (0..=255), got {value}"
-        )));
-    }
-    let mut out = bytes.to_vec();
-    let reader = Grib1Reader::from_bytes(out.clone())
-        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
-    let msg = reader.messages.get(message_index as usize).ok_or_else(|| {
-        napi::Error::from_reason(format!(
-            "message index {message_index} out of range (have {})",
-            reader.messages.len()
-        ))
-    })?;
-    let off = msg.pds_p1_offset();
-    out[off] = value as u8;
-    Ok(out.into())
-}
-
-/// Decode the grid values for one GRIB message. Returns one entry per grid
-/// point in scan order: a number for present points, `null` for points that
-/// are masked out by the message's Bit Map Section.
-///
-/// Format dispatch is by magic-byte detection: GRIB1 vs GRIB2 readers run
-/// the same shape end-to-end, so the JS render pipeline doesn't need to
-/// branch on edition.
-//
-// TODO(perf): every call here (and in set_p1, open_grib1) clones the full
-// file buffer and re-parses every message. Hold a reader across napi
-// calls via a handle table; also return Float64Array + Uint8Array directly
-// instead of Vec<Option<f64>> to avoid the boxed-Array round trip.
-#[napi]
-pub fn decode_grid(
-    bytes: napi::bindgen_prelude::Buffer,
-    message_index: u32,
-) -> napi::Result<Vec<Option<f64>>> {
-    let raw = bytes.to_vec();
-    match detect_from_bytes(&raw) {
-        Format::Grib1 => {
-            let reader = Grib1Reader::from_bytes(raw)
-                .map_err(|e| napi::Error::from_reason(e.to_string()))?;
-            reader
-                .decode_message_values(message_index as usize)
-                .map_err(|e| napi::Error::from_reason(e.to_string()))
-        }
-        Format::Grib2 => {
-            let reader = Grib2Reader::from_bytes(raw)
-                .map_err(|e| napi::Error::from_reason(e.to_string()))?;
-            reader
-                .decode_message_values(message_index as usize)
-                .map_err(|e| napi::Error::from_reason(e.to_string()))
-        }
-        Format::NetCdf => Err(napi::Error::from_reason(
-            "decode_grid only supports GRIB1 / GRIB2, got netcdf".to_string(),
-        )),
-        Format::Unknown => Err(napi::Error::from_reason(
-            "decode_grid: unrecognised format".to_string(),
-        )),
-    }
-}
-
-/// Parse a GRIB1 file from raw bytes and return metadata for each message.
-/// Build the `MessageMeta` payload for a single GRIB1 message. Shared by
-/// the legacy [`open_grib1`] entry and the new [`Grib1Handle::messages`]
-/// method so both produce identical JS shapes.
+/// Build the `MessageMeta` payload for a single GRIB1 message. Used by
+/// [`Grib1Handle::messages`].
 fn build_grib1_message_meta(msg: &fieldglass_grib1::Grib1Message) -> MessageMeta {
     let param = lookup_parameter(msg.pds.parameter_id, msg.pds.table_version);
     let (grid_type, grid_ni, grid_nj, lat_first, lon_first, lat_last, lon_last) = match &msg.gds {
@@ -235,17 +164,6 @@ fn build_grib1_message_meta(msg: &fieldglass_grib1::Grib1Message) -> MessageMeta
         lambert_latin2,
         gaussian_n_parallels,
     }
-}
-
-#[napi]
-pub fn open_grib1(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<Vec<MessageMeta>> {
-    let reader = Grib1Reader::from_bytes(bytes.to_vec())
-        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
-    Ok(reader
-        .messages
-        .iter()
-        .map(build_grib1_message_meta)
-        .collect())
 }
 
 /// Render the §4 product fields into the flat (`parameter_*`, `level`,
@@ -415,17 +333,6 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
         lambert_latin2,
         gaussian_n_parallels,
     }
-}
-
-#[napi]
-pub fn open_grib2(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<Vec<MessageMeta>> {
-    let reader = Grib2Reader::from_bytes(bytes.to_vec())
-        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
-    Ok(reader
-        .messages
-        .iter()
-        .map(build_grib2_message_meta)
-        .collect())
 }
 
 // ---------------------------------------------------------------------------
