@@ -48,7 +48,7 @@ Fieldglass uses a release-candidate branching model: feature work accumulates on
    ```
    CI runs the same checks regardless of base; required statuses are `Lint + test via pre-commit`, `Build extension`, `Analyze (rust)`, `Analyze (javascript-typescript)`, and `Semgrep SAST`.
 
-At release time a `release/X.Y.Z-prep` branch off the RC bumps versions and promotes the `## [Unreleased]` heading; that prep PR merges into the RC, then the RC is promoted to `master` in one merge and tagged `vX.Y.Z`.
+At release time a `release/X.Y.Z-prep` branch off the RC bumps versions and promotes the `## [Unreleased]` heading; that prep PR merges into the RC, then the RC is promoted to `master` in one merge and tagged `vX.Y.Z`. The full operational checklist (pre-deploy gates, dry-run dispatch, tag commands, post-release verification) lives in [RELEASING.md](RELEASING.md).
 
 A few project-specific patterns worth knowing:
 
