@@ -412,6 +412,59 @@ mod tests {
     }
 
     #[test]
+    fn gaussian_inverse_returns_none_outside_lat_range() {
+        let p = GaussianParams {
+            ni: 128,
+            nj: 64,
+            lat_first: 87.8638,
+            lon_first: 0.0,
+            lat_last: -87.8638,
+            lon_last: 357.188,
+            n_parallels: 32,
+        };
+        // Lat outside the [-87.86, 87.86] band.
+        assert!(gaussian_inverse(&p, 95.0, 0.0).is_none());
+        // Lon outside the [0, 357.188] band even after wrap normalisation —
+        // pass a far-away value and force a tiny longitude range.
+        let narrow = GaussianParams {
+            lon_first: 100.0,
+            lon_last: 110.0,
+            ..p
+        };
+        assert!(gaussian_inverse(&narrow, 0.0, 200.0).is_none());
+    }
+
+    #[test]
+    fn gaussian_inverse_handles_south_to_north_ordering() {
+        // Some producers list rows south-to-north (`lat_first < lat_last`).
+        // Verify the inverse map still locates rows correctly.
+        let p = GaussianParams {
+            ni: 128,
+            nj: 64,
+            lat_first: -87.8638,
+            lon_first: 0.0,
+            lat_last: 87.8638,
+            lon_last: 357.188,
+            n_parallels: 32,
+        };
+        let idx = gaussian_inverse(&p, -87.8638, 0.0).expect("southernmost");
+        assert!(near(idx.j, 0.0, 1e-3), "south-to-north start at j=0");
+        let idx = gaussian_inverse(&p, 87.8638, 0.0).expect("northernmost");
+        assert!(near(idx.j, 63.0, 1e-3), "north end at j=last");
+        // An equator-ish lat lands mid-grid.
+        let mid = gaussian_inverse(&p, 0.0, 180.0).expect("mid");
+        assert!(mid.j >= 31.0 && mid.j <= 32.0);
+    }
+
+    #[test]
+    fn gaussian_latitudes_cache_hits_on_second_call() {
+        // Force a fresh N value so we hit the build path then the cache.
+        let _ = gaussian_latitudes(96);
+        let cached = gaussian_latitudes(96);
+        assert_eq!(cached.len(), 192);
+    }
+
+    #[test]
     fn gaussian_inverse_boundary_clamps() {
         let p = GaussianParams {
             ni: 128,

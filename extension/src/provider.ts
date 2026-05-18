@@ -533,8 +533,21 @@ export class FieldglassEditorProvider
     }
 
     const oldBytes = document.bytes;
-    const handle = this._handlesByDoc.get(document.uri.toString());
-    if (!handle || !("setP1" in handle)) {
+    // Try the cached handle first; fall back to a transient handle so
+    // callers that haven't been through `resolveCustomEditor` (e.g.
+    // unit tests that drive `applyP1Edit` directly off
+    // `openCustomDocument`) still work.
+    let handle = this._handlesByDoc.get(document.uri.toString());
+    if (!handle) {
+      try {
+        handle = native.Grib1Handle.fromBytes(document.bytes);
+      } catch (err) {
+        console.error("[Fieldglass] setP1 lazy handle init failed:", err);
+        vscode.window.showErrorMessage(`Fieldglass: failed to parse GRIB1: ${err}`);
+        return;
+      }
+    }
+    if (!("setP1" in handle)) {
       vscode.window.showErrorMessage(
         "Fieldglass: setP1 only applies to GRIB1 documents",
       );

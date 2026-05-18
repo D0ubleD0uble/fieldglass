@@ -309,6 +309,49 @@ mod tests {
     }
 
     #[test]
+    fn single_row_or_column_targets_render_without_panic() {
+        // width == 1 / height == 1 exercise the dLat / dLon zero-spacing
+        // branches that the multi-pixel cases skip.
+        let (p, cell) = indexed_latlon_source(LatLonParams {
+            ni: 5,
+            nj: 5,
+            lat_first: 50.0,
+            lon_first: 100.0,
+            lat_last: 10.0,
+            lon_last: 140.0,
+        });
+        let source = make_source(&p, &cell);
+        let single_row = warp_to_equirectangular(
+            &source,
+            &TargetRaster {
+                width: 4,
+                height: 1,
+                lat_max: 30.0,
+                lat_min: 30.0,
+                lon_min: 100.0,
+                lon_max: 140.0,
+            },
+            Resampling::Nearest,
+        );
+        assert_eq!(single_row.height, 1);
+        assert!(single_row.mask.contains(&1));
+        let single_col = warp_to_equirectangular(
+            &source,
+            &TargetRaster {
+                width: 1,
+                height: 4,
+                lat_max: 50.0,
+                lat_min: 10.0,
+                lon_min: 120.0,
+                lon_max: 120.0,
+            },
+            Resampling::Nearest,
+        );
+        assert_eq!(single_col.width, 1);
+        assert!(single_col.mask.contains(&1));
+    }
+
+    #[test]
     fn degenerate_target_returns_empty_mask() {
         let (p, cell) = indexed_latlon_source(LatLonParams {
             ni: 5,

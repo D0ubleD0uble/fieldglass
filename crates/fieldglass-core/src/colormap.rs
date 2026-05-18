@@ -233,6 +233,36 @@ mod tests {
     }
 
     #[test]
+    fn paint_grid_rgba_returns_empty_for_zero_dims() {
+        let out = paint_grid_rgba(&[], None, 0, 10, 0.0, 1.0, false);
+        assert!(out.is_empty());
+        let out = paint_grid_rgba(&[], None, 10, 0, 0.0, 1.0, false);
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn paint_colorbar_rgba_emits_proper_dimensions() {
+        let out = paint_colorbar_rgba(24, 320);
+        assert_eq!(out.len(), 24 * 320 * 4);
+        // Every pixel should be opaque (alpha = 255).
+        for chunk in out.chunks(4) {
+            assert_eq!(chunk[3], 255);
+        }
+        // Top row should be near the viridis "max" colour (bright yellow);
+        // bottom row near the "min" (dark purple).
+        let top_idx = 24 / 2 * 4; // a sample mid-x in the top row
+        let bot_idx = (319 * 24 + 24 / 2) * 4;
+        assert!(out[top_idx] > 200, "top should be bright (yellow R high)");
+        assert!(out[bot_idx + 2] > 50, "bottom should be purple-ish");
+    }
+
+    #[test]
+    fn paint_colorbar_rgba_returns_empty_for_zero_dims() {
+        assert!(paint_colorbar_rgba(0, 10).is_empty());
+        assert!(paint_colorbar_rgba(10, 0).is_empty());
+    }
+
+    #[test]
     fn paint_grid_rgba_flip_y_inverts_rows() {
         let values = vec![1.0, 2.0, 3.0, 4.0];
         let unflipped = paint_grid_rgba(&values, None, 2, 2, 1.0, 4.0, false);
