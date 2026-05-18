@@ -1,11 +1,13 @@
 #![forbid(unsafe_code)]
 
 pub mod bits;
+pub mod colormap;
 pub mod detect;
 pub mod error;
 pub mod metadata;
 pub mod projection;
 pub mod reader;
+pub mod warp;
 
 pub use detect::Format;
 pub use detect::detect_format;
