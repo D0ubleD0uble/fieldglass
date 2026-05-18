@@ -179,6 +179,24 @@ cargo test -p fieldglass-grib1
 cargo test -p fieldglass-grib1 parse_pds
 ```
 
+#### Extension integration tests
+
+The TypeScript side has a small `@vscode/test-electron` suite that boots a
+real VS Code extension host and exercises the editor + render-panel paths
+end-to-end. The render-panel tests in particular round-trip a real
+`gridReady` payload through `webview.postMessage` so the wire format
+between the extension host and the webview is exercised under the same
+serializer as production. Coverage spans all three primary file formats
+(GRIB1 / GRIB2 render, NetCDF metadata) plus a regression test for the
+Buffer-vs-Uint8Array wire-format constraint.
+
+```sh
+cd extension
+npm test
+```
+
+Tests require a display; CI runs them under `xvfb-run -a npm test`.
+
 #### eccodes reference snapshots
 
 `fieldglass-grib2` cross-checks every bundled GRIB2 fixture against the

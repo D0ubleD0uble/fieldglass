@@ -8,6 +8,6 @@ authors.workspace    = true
 repository.workspace = true
 
 [dependencies]
-fieldglass-core = { path = "../fieldglass-core", version = "=0.1.1" }
+fieldglass-core = { path = "../fieldglass-core", version = "=0.1.2" }
 serde = { version = "1", features = ["derive"] }
 thiserror = { workspace = true }
