@@ -230,11 +230,6 @@ export function renderImagePanelHtml(
       font-size: 0.75rem;
       color: var(--vscode-descriptionForeground);
     }
-    .legend {
-      margin-top: 0.75rem;
-      font-size: 0.75rem;
-      color: var(--vscode-descriptionForeground);
-    }
     .toolbar {
       display: flex;
       align-items: center;
@@ -311,7 +306,6 @@ export function renderImagePanelHtml(
       </div>
     </div>
   </div>
-  <div class="legend">Rendered server-side (Rust). Bitmap-masked points are transparent. Source / equirectangular projections supported today; other targets tracked under #71.</div>
   ${script}
 </body>
 </html>`;

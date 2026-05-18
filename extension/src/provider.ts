@@ -9,6 +9,7 @@ import {
   type Grib1Handle,
   type Grib2Handle,
   type MessageMeta,
+  type RenderedGrid,
   type RenderOptions,
 } from "./native";
 import { renderImagePanelHtml } from "./render-panel";
@@ -332,17 +333,9 @@ export class FieldglassEditorProvider
       }
       try {
         const rendered = docHandle.renderGrid(meta.messageIndex, options);
-        panel.webview.postMessage({
-          type: "gridReady",
-          messageIndex: meta.messageIndex,
-          rgba: rendered.rgba,
-          width: rendered.width,
-          height: rendered.height,
-          usedMin: rendered.usedMin,
-          usedMax: rendered.usedMax,
-          projectionSummary: rendered.projectionSummary,
-          options,
-        });
+        panel.webview.postMessage(
+          buildGridReadyMessage(rendered, meta, options),
+        );
       } catch (err) {
         panel.webview.postMessage({
           type: "gridError",
@@ -556,6 +549,60 @@ export class FieldglassEditorProvider
       return undefined;
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Render-panel wire payload
+// ---------------------------------------------------------------------------
+
+export interface GridReadyMessage {
+  type: "gridReady";
+  messageIndex: number;
+  rgba: Uint8Array;
+  width: number;
+  height: number;
+  usedMin: number;
+  usedMax: number;
+  projectionSummary: string;
+  options: RenderOptions;
+}
+
+/**
+ * Compose the `gridReady` payload posted to the render panel's webview.
+ *
+ * napi hands back `rendered.rgba` as a Node `Buffer`, whose
+ * `constructor.name === "Buffer"`. VS Code's webview serializer
+ * (`extHostWebviewMessaging.ts::getTypedArrayType`) only recognises the
+ * standard TypedArray constructor names (`Uint8Array`, `Float64Array`,
+ * …) and silently falls back to default JSON for anything else —
+ * `Buffer.prototype.toJSON` emits `{type:"Buffer", data:[…]}`, which the
+ * webview script then fails to blit (`new ImageData` throws on length 0).
+ *
+ * Wrapping as a plain `Uint8Array` view makes the serializer ship the
+ * bytes as a binary reference, and the webview revives it as a real
+ * `Uint8Array` on the other side. Pinned by `render.test.ts`.
+ */
+export function buildGridReadyMessage(
+  rendered: RenderedGrid,
+  meta: MessageMeta,
+  options: RenderOptions,
+): GridReadyMessage {
+  const rgbaView = new Uint8Array(
+    rendered.rgba.buffer,
+    rendered.rgba.byteOffset,
+    rendered.rgba.byteLength,
+  );
+  return {
+    type: "gridReady",
+    messageIndex: meta.messageIndex,
+    rgba: rgbaView,
+    width: rendered.width,
+    height: rendered.height,
+    usedMin: rendered.usedMin,
+    usedMax: rendered.usedMax,
+    projectionSummary: rendered.projectionSummary,
+    options,
+  };
 }
 
 // ---------------------------------------------------------------------------

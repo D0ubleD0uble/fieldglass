@@ -935,7 +935,17 @@ fn paint_source(
             values[i] = f64::NAN;
         }
     }
-    Ok((values, mask, ni, nj, source_projection_summary(meta)))
+    // Right-hand side names the actual source projection (e.g. "latlon",
+    // "lambert", "polar_stereo") so the picker caption reads
+    // `source: latlon 240×121 → latlon (no reprojection)`, mirroring the
+    // equirectangular shape but making it explicit *what* the source
+    // projection is rather than just labelling it "source projection".
+    let kind = meta.grid_type.as_deref().unwrap_or("unknown");
+    let summary = format!(
+        "{} → {kind} (no reprojection)",
+        source_projection_summary(meta),
+    );
+    Ok((values, mask, ni, nj, summary))
 }
 
 /// Dispatch warp setup to the right per-template helper. Each helper
