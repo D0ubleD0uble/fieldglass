@@ -11,6 +11,12 @@
 //! 255 of the upstream 256-entry table — small interpolation drift between
 //! anchors is acceptable since this is a viewer, not a reference plotter.
 //!
+//! **Anchor stops are duplicated on the webview side as the
+//! `.cb` element's CSS `linear-gradient` (see
+//! `extension/src/provider.ts::renderImagePanelHtml`). If you change the
+//! anchors here, update the CSS gradient stops to match — they have to
+//! line up or the legend strip and the painted grid drift.
+//!
 //! Output format: RGBA bytes (`[r, g, b, a, r, g, b, a, …]`), one byte per
 //! channel. Masked / non-finite pixels paint as fully transparent (alpha
 //! = 0) so the editor background shows through.
@@ -117,6 +123,20 @@ pub fn paint_grid_rgba(
     if total == 0 {
         return Vec::new();
     }
+    debug_assert_eq!(
+        values.len(),
+        total,
+        "paint_grid_rgba: values.len()={} != width*height={total}; trailing pixels would silently render as transparent",
+        values.len(),
+    );
+    if let Some(m) = mask {
+        debug_assert_eq!(
+            m.len(),
+            total,
+            "paint_grid_rgba: mask.len()={} != width*height={total}",
+            m.len(),
+        );
+    }
     let mut out = vec![0u8; total * 4];
     let span = max - min;
     let denom = if span > 0.0 { span } else { 1.0 };
@@ -144,31 +164,6 @@ pub fn paint_grid_rgba(
         out[o + 1] = lut[idx * 3 + 1];
         out[o + 2] = lut[idx * 3 + 2];
         out[o + 3] = 255;
-    }
-    out
-}
-
-/// Paint a horizontal-strip colorbar (top = max, bottom = min) into a
-/// fresh RGBA byte buffer of the supplied dimensions. Used by the
-/// render-panel sidebar legend.
-pub fn paint_colorbar_rgba(width: u32, height: u32) -> Vec<u8> {
-    let w = width as usize;
-    let h = height as usize;
-    if w == 0 || h == 0 {
-        return Vec::new();
-    }
-    let mut out = vec![0u8; w * h * 4];
-    let lut = viridis_lut();
-    for y in 0..h {
-        let t = 1.0 - (y as f64 / (h.max(2) - 1).max(1) as f64);
-        let idx = (t.clamp(0.0, 1.0) * 255.0).round() as usize;
-        for x in 0..w {
-            let o = (y * w + x) * 4;
-            out[o] = lut[idx * 3];
-            out[o + 1] = lut[idx * 3 + 1];
-            out[o + 2] = lut[idx * 3 + 2];
-            out[o + 3] = 255;
-        }
     }
     out
 }
@@ -238,28 +233,6 @@ mod tests {
         assert!(out.is_empty());
         let out = paint_grid_rgba(&[], None, 10, 0, 0.0, 1.0, false);
         assert!(out.is_empty());
-    }
-
-    #[test]
-    fn paint_colorbar_rgba_emits_proper_dimensions() {
-        let out = paint_colorbar_rgba(24, 320);
-        assert_eq!(out.len(), 24 * 320 * 4);
-        // Every pixel should be opaque (alpha = 255).
-        for chunk in out.chunks(4) {
-            assert_eq!(chunk[3], 255);
-        }
-        // Top row should be near the viridis "max" colour (bright yellow);
-        // bottom row near the "min" (dark purple).
-        let top_idx = 24 / 2 * 4; // a sample mid-x in the top row
-        let bot_idx = (319 * 24 + 24 / 2) * 4;
-        assert!(out[top_idx] > 200, "top should be bright (yellow R high)");
-        assert!(out[bot_idx + 2] > 50, "bottom should be purple-ish");
-    }
-
-    #[test]
-    fn paint_colorbar_rgba_returns_empty_for_zero_dims() {
-        assert!(paint_colorbar_rgba(0, 10).is_empty());
-        assert!(paint_colorbar_rgba(10, 0).is_empty());
     }
 
     #[test]

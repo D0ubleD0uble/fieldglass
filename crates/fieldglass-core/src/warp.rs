@@ -132,20 +132,28 @@ fn sample_source(source: &SourceGrid<'_>, idx: GridIndex, method: Resampling) ->
             (source.sample)(i, j)
         }
         Resampling::Bilinear => {
-            // Floor and ceil with clamps. If any of the 4 corners is
-            // masked we conservatively mask the output — mixing a real
-            // value with a fill is worse than reporting "no value here".
+            // Floor + clamp the lower corner. The upper corner saturates
+            // at the source-grid edge — letting `i1` exceed `ni - 1` would
+            // mask the right column, and the same for `j1` and the bottom
+            // row, producing a 1-pixel transparent border. At the edge
+            // `fi` (or `fj`) is 0 anyway so the saturated column
+            // contributes nothing to the weighted sum.
+            //
+            // Off-grid points (negative or far past the edge) should
+            // already be `None` from the inverse map; the clamp here is
+            // defensive against accumulated float error pushing `idx.i`
+            // a hair past `ni - 1`.
             let i0_f = idx.i.floor();
             let j0_f = idx.j.floor();
             let i0 = i0_f as i64;
             let j0 = j0_f as i64;
-            if i0 < 0 || j0 < 0 || i0 + 1 >= ni || j0 + 1 >= nj {
+            if i0 < 0 || j0 < 0 || i0 >= ni || j0 >= nj {
                 return None;
             }
             let i0u = i0 as usize;
             let j0u = j0 as usize;
-            let i1 = i0u + 1;
-            let j1 = j0u + 1;
+            let i1 = (i0u + 1).min((ni as usize).saturating_sub(1));
+            let j1 = (j0u + 1).min((nj as usize).saturating_sub(1));
             let v00 = (source.sample)(i0u, j0u)?;
             let v01 = (source.sample)(i1, j0u)?;
             let v10 = (source.sample)(i0u, j1)?;
@@ -280,6 +288,51 @@ mod tests {
         // Pixel (0, 1) at lat=45, lon=100 sits halfway between (0,0)=0
         // and (0,1)=100 → expected 50.
         assert!(near(out.values[9], 50.0, 1e-6));
+    }
+
+    #[test]
+    fn bilinear_renders_source_right_and_bottom_edges() {
+        // Regression: an earlier bilinear path rejected pixels whose
+        // floor-corner sat on the last source column/row because the
+        // 4-neighbour stencil would have walked off the grid. The fix
+        // saturates the upper neighbour at `ni-1`/`nj-1` — fi/fj are 0
+        // at the edge so the saturated column contributes nothing.
+        let (p, cell) = indexed_latlon_source(LatLonParams {
+            ni: 4,
+            nj: 4,
+            lat_first: 30.0,
+            lon_first: 0.0,
+            lat_last: 0.0,
+            lon_last: 30.0,
+        });
+        let source = make_source(&p, &cell);
+        // Target identical to source extents: the rightmost column at
+        // x = 3 and bottom row at y = 3 must both render present.
+        let out = warp_to_equirectangular(
+            &source,
+            &TargetRaster {
+                width: 4,
+                height: 4,
+                lat_max: 30.0,
+                lat_min: 0.0,
+                lon_min: 0.0,
+                lon_max: 30.0,
+            },
+            Resampling::Bilinear,
+        );
+        for j in 0..4 {
+            let right = (j * 4 + 3) as usize;
+            assert_eq!(out.mask[right], 1, "right-edge pixel j={j} masked");
+        }
+        for i in 0..4 {
+            let bottom = (3 * 4 + i) as usize;
+            assert_eq!(out.mask[bottom], 1, "bottom-edge pixel i={i} masked");
+        }
+        // Corner value should equal the source corner exactly.
+        assert!(
+            near(out.values[15], 303.0, 1e-9),
+            "BR corner = src[3][3]=303"
+        );
     }
 
     #[test]
