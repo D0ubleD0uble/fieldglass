@@ -4,6 +4,7 @@ pub mod bits;
 pub mod detect;
 pub mod error;
 pub mod metadata;
+pub mod projection;
 pub mod reader;
 
 pub use detect::Format;
