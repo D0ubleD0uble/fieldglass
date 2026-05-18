@@ -505,9 +505,19 @@ export class FieldglassEditorProvider
           return;
         }
         if (m.type === "rerenderRequest") {
+          // Clamp webview-controlled strings to the closed set the Rust
+          // side accepts. The native validation in `ResolvedOptions::parse`
+          // would reject typos with an explicit error, but we'd rather
+          // never round-trip an invalid value at all — a stale webview
+          // script with a typo silently snapping to "source" is the
+          // expected behaviour, not an error popup.
+          const projection: RenderOptions["projection"] =
+            m.projection === "equirectangular" ? "equirectangular" : "source";
+          const resampling: RenderOptions["resampling"] =
+            m.resampling === "bilinear" ? "bilinear" : "nearest";
           const options: RenderOptions = {
-            projection: m.projection ?? "source",
-            resampling: m.resampling ?? "nearest",
+            projection,
+            resampling,
             flipY: !!m.flipY,
             rangeMin: m.rangeMin,
             rangeMax: m.rangeMax,
@@ -600,7 +610,14 @@ export class FieldglassEditorProvider
       const s = this._panelsByDoc.get(key);
       if (s) {
         s.delete(panel);
-        if (s.size === 0) this._panelsByDoc.delete(key);
+        if (s.size === 0) {
+          // Last panel for this document closed — drop the reader handle
+          // so we don't leak the parsed bytes + per-message decode cache
+          // for every file the user has ever opened in this session.
+          // The handle will be rebuilt on the next `resolveCustomEditor`.
+          this._panelsByDoc.delete(key);
+          this._handlesByDoc.delete(key);
+        }
       }
     });
   }
