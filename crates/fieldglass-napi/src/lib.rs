@@ -802,6 +802,7 @@ fn decoded_grid_from(raw: &[Option<f64>], width: u32, height: u32) -> DecodedGri
 /// Validated picker state. Lifts `RenderOptions`'s loose strings into a
 /// closed enum so the rest of the pipeline can pattern-match without
 /// silently falling to defaults on a typo.
+#[cfg_attr(test, derive(Debug))]
 struct ResolvedOptions {
     projection: TargetProjection,
     resampling: Resampling,
@@ -810,6 +811,7 @@ struct ResolvedOptions {
     range_max: Option<f64>,
 }
 
+#[cfg_attr(test, derive(Debug))]
 enum TargetProjection {
     Source,
     Equirectangular,
@@ -1104,4 +1106,50 @@ fn grid_nj(meta: &MessageMeta) -> napi::Result<u32> {
 
 fn require_f64(value: Option<f64>, name: &str) -> napi::Result<f64> {
     value.ok_or_else(|| napi::Error::from_reason(format!("missing {name}")))
+}
+
+#[cfg(test)]
+mod resolved_options_tests {
+    use super::*;
+
+    fn opts(projection: &str, resampling: &str) -> RenderOptions {
+        RenderOptions {
+            projection: projection.to_string(),
+            resampling: resampling.to_string(),
+            flip_y: false,
+            range_min: None,
+            range_max: None,
+        }
+    }
+
+    #[test]
+    fn parses_valid_combinations() {
+        let r = ResolvedOptions::parse(&opts("source", "nearest")).expect("source/nearest");
+        assert!(matches!(r.projection, TargetProjection::Source));
+        assert_eq!(r.resampling, Resampling::Nearest);
+
+        let r = ResolvedOptions::parse(&opts("equirectangular", "bilinear")).expect("eqr/bilinear");
+        assert!(matches!(r.projection, TargetProjection::Equirectangular));
+        assert_eq!(r.resampling, Resampling::Bilinear);
+    }
+
+    #[test]
+    fn rejects_unknown_projection() {
+        let err = ResolvedOptions::parse(&opts("orthographic", "nearest"))
+            .expect_err("unknown projection must error");
+        assert!(
+            err.to_string().contains("unknown projection"),
+            "error names the field, got: {err}"
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_resampling() {
+        let err = ResolvedOptions::parse(&opts("source", "bicubic"))
+            .expect_err("unknown resampling must error");
+        assert!(
+            err.to_string().contains("unknown resampling"),
+            "error names the field, got: {err}"
+        );
+    }
 }

@@ -23,6 +23,11 @@ use std::f64::consts::PI;
 /// (spherical, R = 6 371 229 m) is the GRIB default; other shapes resolve
 /// to nearby radii and the projection error is negligible at the scales
 /// Fieldglass renders.
+///
+/// TODO: §3 GDS carries the actual `shape_of_earth` (and for oblate
+/// spheroids: custom radius / axis lengths). Plumb that through
+/// `LambertParams` / `GaussianParams` once we get a fixture whose
+/// projection error against eccodes is visible at pixel scale.
 const EARTH_RADIUS_M: f64 = 6_371_229.0;
 
 const DEG2RAD: f64 = PI / 180.0;
@@ -153,87 +158,12 @@ pub fn gaussian_latitudes(n_parallels: u32) -> Vec<f64> {
     lats_deg
 }
 
+/// Inverse map for a Gaussian source grid. **Builds a transient
+/// [`GaussianProjector`] per call** — for warp loops use
+/// [`GaussianProjector::new`] once outside the loop and call
+/// [`GaussianProjector::inverse`] inside it.
 pub fn gaussian_inverse(p: &GaussianParams, lat: f64, lon: f64) -> Option<GridIndex> {
-    let min_lat = p.lat_first.min(p.lat_last);
-    let max_lat = p.lat_first.max(p.lat_last);
-    if !(min_lat..=max_lat).contains(&lat) {
-        return None;
-    }
-    let mut norm_lon = lon;
-    let min_lon = p.lon_first.min(p.lon_last);
-    let max_lon = p.lon_first.max(p.lon_last);
-    while norm_lon < min_lon {
-        norm_lon += 360.0;
-    }
-    while norm_lon > max_lon {
-        norm_lon -= 360.0;
-    }
-    if !(min_lon..=max_lon).contains(&norm_lon) {
-        return None;
-    }
-
-    let ew = (p.lon_last - p.lon_first) / (p.ni as f64 - 1.0);
-    let i = (norm_lon - p.lon_first) / ew;
-
-    // Latitude: find the bracketing Gaussian rows and linearly
-    // interpolate the fractional index between them.
-    let lats = gaussian_latitudes(p.n_parallels);
-    let north_to_south = p.lat_first > p.lat_last;
-    let row_lats: Vec<f64> = if north_to_south {
-        lats
-    } else {
-        let mut v = lats;
-        v.reverse();
-        v
-    };
-    // Clamp boundary latitudes — the GRIB-declared `lat_first` / `lat_last`
-    // may be rounded to fewer decimal places than our Gauss–Legendre
-    // computation, so a literal "lat == lat_first" caller would otherwise
-    // fall through and trip the `None` return at row 0.
-    const BOUND_EPS: f64 = 1e-3;
-    let last_row = row_lats.len() - 1;
-    if north_to_south {
-        if lat >= row_lats[0] - BOUND_EPS {
-            return Some(GridIndex { i, j: 0.0 });
-        }
-        if lat <= row_lats[last_row] + BOUND_EPS {
-            return Some(GridIndex {
-                i,
-                j: last_row as f64,
-            });
-        }
-    } else {
-        if lat <= row_lats[0] + BOUND_EPS {
-            return Some(GridIndex { i, j: 0.0 });
-        }
-        if lat >= row_lats[last_row] - BOUND_EPS {
-            return Some(GridIndex {
-                i,
-                j: last_row as f64,
-            });
-        }
-    }
-    for row in 0..last_row {
-        let hi = row_lats[row];
-        let lo = row_lats[row + 1];
-        let inside = if north_to_south {
-            lat <= hi && lat >= lo
-        } else {
-            lat >= hi && lat <= lo
-        };
-        if inside {
-            let span = hi - lo;
-            if span == 0.0 {
-                return Some(GridIndex { i, j: row as f64 });
-            }
-            let frac = (hi - lat) / span;
-            return Some(GridIndex {
-                i,
-                j: row as f64 + frac,
-            });
-        }
-    }
-    None
+    GaussianProjector::new(*p).inverse(lat, lon)
 }
 
 /// Precomputed inverse map for a Gaussian source grid. Holds the cached
@@ -263,7 +193,17 @@ impl GaussianProjector {
     }
 
     pub fn inverse(&self, lat: f64, lon: f64) -> Option<GridIndex> {
+        if !lat.is_finite() || !lon.is_finite() {
+            return None;
+        }
         let p = &self.params;
+        if p.ni < 2 || p.nj < 2 {
+            // Degenerate dimensions — the longitude interpolation step
+            // would divide by zero, and the latitude bracket has no
+            // useful row span. Real Gaussian grids always have N ≥ 1
+            // parallels (and thus nj ≥ 2 rows); guard anyway.
+            return None;
+        }
         let min_lat = p.lat_first.min(p.lat_last);
         let max_lat = p.lat_first.max(p.lat_last);
         if !(min_lat..=max_lat).contains(&lat) {
@@ -280,9 +220,6 @@ impl GaussianProjector {
             }
             shifted
         };
-        if p.ni < 2 {
-            return None;
-        }
         let ew = (p.lon_last - p.lon_first) / (p.ni as f64 - 1.0);
         let i = (norm_lon - p.lon_first) / ew;
 
@@ -458,7 +395,21 @@ impl LambertProjector {
     /// Returns `None` when the projected coordinates fall outside the
     /// `ni × nj` grid extent.
     pub fn inverse(&self, lat: f64, lon: f64) -> Option<GridIndex> {
+        if !lat.is_finite() || !lon.is_finite() {
+            return None;
+        }
+        if self.params.ni < 2
+            || self.params.nj < 2
+            || self.params.dx_metres == 0.0
+            || self.params.dy_metres == 0.0
+        {
+            return None;
+        }
         let (x, y) = lambert_forward_with(&self.constants, self.params.lov, lat, lon);
+        if !x.is_finite() || !y.is_finite() {
+            // Forward map hit a pole singularity. See `lambert_forward`.
+            return None;
+        }
         let i = (x - self.origin.0) / self.params.dx_metres;
         let j = (y - self.origin.1) / self.params.dy_metres;
         if i < 0.0 || i > self.params.ni as f64 - 1.0 || j < 0.0 || j > self.params.nj as f64 - 1.0
@@ -693,6 +644,53 @@ mod tests {
         let p = lambert_params();
         assert!(lambert_inverse(&p, 70.0, -100.0).is_none(), "north");
         assert!(lambert_inverse(&p, 0.0, 0.0).is_none(), "southeast");
+    }
+
+    #[test]
+    fn lambert_inverse_rejects_nonfinite_and_degenerate_dims() {
+        let p = lambert_params();
+        assert!(lambert_inverse(&p, f64::NAN, -100.0).is_none(), "NaN lat");
+        assert!(
+            lambert_inverse(&p, 40.0, f64::INFINITY).is_none(),
+            "inf lon"
+        );
+        let degenerate = LambertParams { ni: 1, ..p };
+        assert!(
+            lambert_inverse(&degenerate, 40.0, -100.0).is_none(),
+            "ni < 2"
+        );
+        let zero_dx = LambertParams {
+            dx_metres: 0.0,
+            ..p
+        };
+        assert!(
+            lambert_inverse(&zero_dx, 40.0, -100.0).is_none(),
+            "dx_metres = 0 must not divide"
+        );
+    }
+
+    #[test]
+    fn latlon_inverse_rejects_nonfinite_and_degenerate_dims() {
+        let p = latlon_params();
+        assert!(latlon_inverse(&p, f64::NAN, 120.0).is_none());
+        assert!(latlon_inverse(&p, 30.0, f64::INFINITY).is_none());
+        let degenerate = LatLonParams { nj: 1, ..p };
+        assert!(latlon_inverse(&degenerate, 30.0, 120.0).is_none());
+    }
+
+    #[test]
+    fn gaussian_inverse_rejects_nonfinite() {
+        let p = GaussianParams {
+            ni: 128,
+            nj: 64,
+            lat_first: 87.8638,
+            lon_first: 0.0,
+            lat_last: -87.8638,
+            lon_last: 357.188,
+            n_parallels: 32,
+        };
+        assert!(gaussian_inverse(&p, f64::NAN, 0.0).is_none());
+        assert!(gaussian_inverse(&p, 0.0, f64::INFINITY).is_none());
     }
 
     #[test]
