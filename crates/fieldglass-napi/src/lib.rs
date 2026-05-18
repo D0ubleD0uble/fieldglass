@@ -1,10 +1,10 @@
 #![deny(clippy::all)]
 
 use fieldglass_core::{
-    Format, GaussianParams, LambertParams, LatLonParams, Resampling, SourceGrid, TargetRaster,
+    Format, GaussianParams, GaussianProjector, LambertParams, LambertProjector, LatLonParams,
+    Resampling, SourceGrid, TargetRaster,
     colormap::{min_max_ignoring_mask, paint_grid_rgba},
-    detect_from_bytes, gaussian_inverse, lambert_forward, lambert_inverse, lambert_inverse_xy,
-    latlon_inverse,
+    detect_from_bytes, latlon_inverse,
     projection::GridIndex,
     warp::warp_to_equirectangular,
 };
@@ -19,6 +19,7 @@ use fieldglass_grib2::{
 };
 use fieldglass_netcdf::{NetcdfBacking, NetcdfReader};
 use napi_derive::napi;
+use std::sync::Mutex;
 
 /// A single message's metadata, exposed to Node.js.
 #[napi(object)]
@@ -533,10 +534,21 @@ pub struct DecodedGrid {
 
 /// Persistent GRIB1 reader handle held across napi calls. Replaces the
 /// `open_grib1` → buffer-clone → re-parse round-trip per call.
+///
+/// `bytes` is kept around because [`Self::set_p1`] hands a freshly-edited
+/// buffer back to the JS caller; [`Grib2Handle`] doesn't need this because
+/// GRIB2 has no edit path yet (general PDS-field editing is the metadata-
+/// editing track, separate from this PR). The asymmetry is intentional —
+/// not an oversight.
+///
+/// `decoded` caches per-message decode output (raw `Vec<Option<f64>>`)
+/// so repeat `render_grid` calls with different `RenderOptions` skip the
+/// bit-unpack + bitmap-merge step every time the user wiggles a picker.
 #[napi]
 pub struct Grib1Handle {
     bytes: Vec<u8>,
     reader: Grib1Reader,
+    decoded: Mutex<std::collections::HashMap<u32, std::sync::Arc<Vec<Option<f64>>>>>,
 }
 
 #[napi]
@@ -551,6 +563,7 @@ impl Grib1Handle {
         Ok(Self {
             bytes: owned,
             reader,
+            decoded: Mutex::new(std::collections::HashMap::new()),
         })
     }
 
@@ -568,12 +581,9 @@ impl Grib1Handle {
     /// `mask[k] == 0` rather than checking for NaN.
     #[napi]
     pub fn decode_grid(&self, message_index: u32) -> napi::Result<DecodedGrid> {
-        let raw = self
-            .reader
-            .decode_message_values(message_index as usize)
-            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        let raw = self.cached_decode(message_index)?;
         let (width, height) = grib1_dimensions(&self.reader, message_index as usize)?;
-        Ok(decoded_grid_from(raw, width, height))
+        Ok(decoded_grid_from(&raw, width, height))
     }
 
     /// Patch the PDS `p1` (forecast period) octet of one message and
@@ -623,18 +633,51 @@ impl Grib1Handle {
             .ok_or_else(|| {
                 napi::Error::from_reason(format!("message index {message_index} out of range"))
             })?;
+        let raw = self.cached_decode(message_index)?;
+        render_with_options(&meta, raw.as_ref(), &options)
+    }
+}
+
+impl Grib1Handle {
+    /// Get-or-build the decoded values for `message_index`. The cache is
+    /// invalidated implicitly when the handle is dropped (which happens
+    /// in `provider.ts` as soon as the document bytes change via setP1
+    /// or the document closes), so we never have to worry about it
+    /// going stale.
+    fn cached_decode(&self, message_index: u32) -> napi::Result<std::sync::Arc<Vec<Option<f64>>>> {
+        if let Some(hit) = self
+            .decoded
+            .lock()
+            .expect("decode cache mutex poisoned")
+            .get(&message_index)
+        {
+            return Ok(std::sync::Arc::clone(hit));
+        }
         let raw = self
             .reader
             .decode_message_values(message_index as usize)
             .map_err(|e| napi::Error::from_reason(e.to_string()))?;
-        render_with_options(&meta, raw, &options)
+        let arc = std::sync::Arc::new(raw);
+        self.decoded
+            .lock()
+            .expect("decode cache mutex poisoned")
+            .insert(message_index, std::sync::Arc::clone(&arc));
+        Ok(arc)
     }
 }
 
 /// Persistent GRIB2 reader handle, sibling to [`Grib1Handle`].
+///
+/// Unlike `Grib1Handle`, this struct doesn't store the original bytes —
+/// GRIB2 has no in-place edit path yet (the metadata-editing track is a
+/// separate workstream). The `decoded` cache mirrors `Grib1Handle`'s
+/// rationale: subsequent `render_grid` calls with different
+/// `RenderOptions` re-paint without re-running the bit-unpack +
+/// bitmap-merge step.
 #[napi]
 pub struct Grib2Handle {
     reader: Grib2Reader,
+    decoded: Mutex<std::collections::HashMap<u32, std::sync::Arc<Vec<Option<f64>>>>>,
 }
 
 #[napi]
@@ -643,7 +686,10 @@ impl Grib2Handle {
     pub fn from_bytes(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<Self> {
         let reader = Grib2Reader::from_bytes(bytes.to_vec())
             .map_err(|e| napi::Error::from_reason(e.to_string()))?;
-        Ok(Self { reader })
+        Ok(Self {
+            reader,
+            decoded: Mutex::new(std::collections::HashMap::new()),
+        })
     }
 
     #[napi]
@@ -657,10 +703,7 @@ impl Grib2Handle {
 
     #[napi]
     pub fn decode_grid(&self, message_index: u32) -> napi::Result<DecodedGrid> {
-        let raw = self
-            .reader
-            .decode_message_values(message_index as usize)
-            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        let raw = self.cached_decode(message_index)?;
         let msg = self
             .reader
             .messages
@@ -669,7 +712,7 @@ impl Grib2Handle {
         let (ni, nj) = msg.gds.dimensions().ok_or_else(|| {
             napi::Error::from_reason("grid has no declared dimensions".to_string())
         })?;
-        Ok(decoded_grid_from(raw, ni, nj))
+        Ok(decoded_grid_from(&raw, ni, nj))
     }
 
     #[napi]
@@ -686,11 +729,31 @@ impl Grib2Handle {
             .ok_or_else(|| {
                 napi::Error::from_reason(format!("message index {message_index} out of range"))
             })?;
+        let raw = self.cached_decode(message_index)?;
+        render_with_options(&meta, raw.as_ref(), &options)
+    }
+}
+
+impl Grib2Handle {
+    fn cached_decode(&self, message_index: u32) -> napi::Result<std::sync::Arc<Vec<Option<f64>>>> {
+        if let Some(hit) = self
+            .decoded
+            .lock()
+            .expect("decode cache mutex poisoned")
+            .get(&message_index)
+        {
+            return Ok(std::sync::Arc::clone(hit));
+        }
         let raw = self
             .reader
             .decode_message_values(message_index as usize)
             .map_err(|e| napi::Error::from_reason(e.to_string()))?;
-        render_with_options(&meta, raw, &options)
+        let arc = std::sync::Arc::new(raw);
+        self.decoded
+            .lock()
+            .expect("decode cache mutex poisoned")
+            .insert(message_index, std::sync::Arc::clone(&arc));
+        Ok(arc)
     }
 }
 
@@ -709,14 +772,14 @@ fn grib1_dimensions(reader: &Grib1Reader, message_index: usize) -> napi::Result<
 /// Repack the decoder's `Vec<Option<f64>>` into the typed-array pair
 /// the JS side expects. NaN encodes missing in `values`; the explicit
 /// `mask` byte is the source of truth for "present vs absent".
-fn decoded_grid_from(raw: Vec<Option<f64>>, width: u32, height: u32) -> DecodedGrid {
+fn decoded_grid_from(raw: &[Option<f64>], width: u32, height: u32) -> DecodedGrid {
     let n = raw.len();
     let mut values = vec![0.0f64; n];
     let mut mask = vec![0u8; n];
-    for (i, v) in raw.into_iter().enumerate() {
+    for (i, v) in raw.iter().enumerate() {
         match v {
             Some(x) => {
-                values[i] = x;
+                values[i] = *x;
                 mask[i] = 1;
             }
             None => {
@@ -736,40 +799,64 @@ fn decoded_grid_from(raw: Vec<Option<f64>>, width: u32, height: u32) -> DecodedG
 /// Drive the warp + colormap pipeline for a single message. Returns the
 /// paint-ready RGBA buffer plus the (min, max) actually used + a
 /// human-readable summary of the source→target projection chain.
+/// Validated picker state. Lifts `RenderOptions`'s loose strings into a
+/// closed enum so the rest of the pipeline can pattern-match without
+/// silently falling to defaults on a typo.
+struct ResolvedOptions {
+    projection: TargetProjection,
+    resampling: Resampling,
+    flip_y: bool,
+    range_min: Option<f64>,
+    range_max: Option<f64>,
+}
+
+enum TargetProjection {
+    Source,
+    Equirectangular,
+}
+
+impl ResolvedOptions {
+    fn parse(options: &RenderOptions) -> napi::Result<Self> {
+        let projection = match options.projection.as_str() {
+            "source" => TargetProjection::Source,
+            "equirectangular" => TargetProjection::Equirectangular,
+            other => {
+                return Err(napi::Error::from_reason(format!(
+                    "unknown projection {other:?} (expected \"source\" or \"equirectangular\")"
+                )));
+            }
+        };
+        let resampling = match options.resampling.as_str() {
+            "nearest" => Resampling::Nearest,
+            "bilinear" => Resampling::Bilinear,
+            other => {
+                return Err(napi::Error::from_reason(format!(
+                    "unknown resampling {other:?} (expected \"nearest\" or \"bilinear\")"
+                )));
+            }
+        };
+        Ok(Self {
+            projection,
+            resampling,
+            flip_y: options.flip_y,
+            range_min: options.range_min,
+            range_max: options.range_max,
+        })
+    }
+}
+
 fn render_with_options(
     meta: &MessageMeta,
-    raw: Vec<Option<f64>>,
+    raw: &[Option<f64>],
     options: &RenderOptions,
 ) -> napi::Result<RenderedGrid> {
-    let source_summary = source_projection_summary(meta);
-    let (values, mask, width, height, summary) = match options.projection.as_str() {
-        "equirectangular" => warp_message(meta, &raw, &options.resampling)?,
-        // Default + explicit "source" both render the source grid unchanged.
-        _ => {
-            let ni = meta
-                .grid_ni
-                .ok_or_else(|| napi::Error::from_reason("grid has no Ni".to_string()))?
-                as u32;
-            let nj = meta
-                .grid_nj
-                .ok_or_else(|| napi::Error::from_reason("grid has no Nj".to_string()))?
-                as u32;
-            let n = (ni as usize) * (nj as usize);
-            let mut values = vec![0.0f64; n];
-            let mut mask = vec![0u8; n];
-            for (i, v) in raw.iter().enumerate().take(n) {
-                if let Some(x) = v {
-                    values[i] = *x;
-                    mask[i] = 1;
-                } else {
-                    values[i] = f64::NAN;
-                }
-            }
-            (values, mask, ni, nj, source_summary)
-        }
+    let resolved = ResolvedOptions::parse(options)?;
+    let (values, mask, width, height, summary) = match resolved.projection {
+        TargetProjection::Source => paint_source(meta, raw)?,
+        TargetProjection::Equirectangular => warp_message(meta, raw, resolved.resampling)?,
     };
 
-    let (used_min, used_max) = match (options.range_min, options.range_max) {
+    let (used_min, used_max) = match (resolved.range_min, resolved.range_max) {
         (Some(min), Some(max)) if max > min => (min, max),
         _ => min_max_ignoring_mask(values.iter().enumerate().map(|(i, &v)| {
             if mask.get(i).copied().unwrap_or(0) == 0 {
@@ -788,7 +875,7 @@ fn render_with_options(
         height,
         used_min,
         used_max,
-        options.flip_y,
+        resolved.flip_y,
     );
 
     Ok(RenderedGrid {
@@ -810,28 +897,46 @@ fn source_projection_summary(meta: &MessageMeta) -> String {
     format!("source: {kind} {dims}")
 }
 
-/// Run the equirectangular warp for a message: build the per-grid-type
-/// inverse-map, compute target lat/lon bounds, and call into
-/// [`warp_to_equirectangular`]. Returns `(values, mask, width, height,
-/// summary)` ready to feed into the colormap step.
+/// Source-projection paint: paint the decoded values into a buffer the
+/// same shape as the source grid. NaN encodes masked cells.
 #[allow(clippy::type_complexity)]
-fn warp_message(
+fn paint_source(
     meta: &MessageMeta,
     raw: &[Option<f64>],
-    resampling: &str,
 ) -> napi::Result<(Vec<f64>, Vec<u8>, u32, u32, String)> {
-    let kind = meta.grid_type.as_deref().unwrap_or("");
     let ni = meta
         .grid_ni
         .ok_or_else(|| napi::Error::from_reason("grid has no Ni".to_string()))? as u32;
     let nj = meta
         .grid_nj
         .ok_or_else(|| napi::Error::from_reason("grid has no Nj".to_string()))? as u32;
+    let n = (ni as usize) * (nj as usize);
+    let mut values = vec![0.0f64; n];
+    let mut mask = vec![0u8; n];
+    for (i, v) in raw.iter().enumerate().take(n) {
+        if let Some(x) = v {
+            values[i] = *x;
+            mask[i] = 1;
+        } else {
+            values[i] = f64::NAN;
+        }
+    }
+    Ok((values, mask, ni, nj, source_projection_summary(meta)))
+}
 
-    let resample = match resampling {
-        "bilinear" => Resampling::Bilinear,
-        _ => Resampling::Nearest,
-    };
+/// Dispatch warp setup to the right per-template helper. Each helper
+/// builds the inverse closure (using a projector with precomputed state)
+/// and the equirectangular target bounds; the shared finisher then runs
+/// the warp itself.
+#[allow(clippy::type_complexity)]
+fn warp_message(
+    meta: &MessageMeta,
+    raw: &[Option<f64>],
+    resampling: Resampling,
+) -> napi::Result<(Vec<f64>, Vec<u8>, u32, u32, String)> {
+    let kind = meta.grid_type.as_deref().unwrap_or("");
+    let ni = grid_ni(meta)?;
+    let nj = grid_nj(meta)?;
 
     let sample = |i: usize, j: usize| -> Option<f64> {
         let k = j * ni as usize + i;
@@ -839,153 +944,16 @@ fn warp_message(
     };
     let sample_ref: &dyn Fn(usize, usize) -> Option<f64> = &sample;
 
-    let (target, inverse_boxed): (TargetRaster, Box<dyn Fn(f64, f64) -> Option<GridIndex>>) =
-        match kind {
-            "latlon" => {
-                let p = LatLonParams {
-                    ni,
-                    nj,
-                    lat_first: meta
-                        .lat_first
-                        .ok_or_else(|| napi::Error::from_reason("missing latFirst".to_string()))?,
-                    lon_first: meta
-                        .lon_first
-                        .ok_or_else(|| napi::Error::from_reason("missing lonFirst".to_string()))?,
-                    lat_last: meta
-                        .lat_last
-                        .ok_or_else(|| napi::Error::from_reason("missing latLast".to_string()))?,
-                    lon_last: meta
-                        .lon_last
-                        .ok_or_else(|| napi::Error::from_reason("missing lonLast".to_string()))?,
-                };
-                (
-                    TargetRaster {
-                        width: ni,
-                        height: nj,
-                        lat_max: p.lat_first.max(p.lat_last),
-                        lat_min: p.lat_first.min(p.lat_last),
-                        lon_min: p.lon_first.min(p.lon_last),
-                        lon_max: p.lon_first.max(p.lon_last),
-                    },
-                    Box::new(move |lat, lon| latlon_inverse(&p, lat, lon)),
-                )
-            }
-            "gaussian" => {
-                let n_parallels = meta.gaussian_n_parallels.ok_or_else(|| {
-                    napi::Error::from_reason("missing gaussianNParallels".to_string())
-                })? as u32;
-                let p = GaussianParams {
-                    ni,
-                    nj,
-                    lat_first: meta
-                        .lat_first
-                        .ok_or_else(|| napi::Error::from_reason("missing latFirst".to_string()))?,
-                    lon_first: meta
-                        .lon_first
-                        .ok_or_else(|| napi::Error::from_reason("missing lonFirst".to_string()))?,
-                    lat_last: meta
-                        .lat_last
-                        .ok_or_else(|| napi::Error::from_reason("missing latLast".to_string()))?,
-                    lon_last: meta
-                        .lon_last
-                        .ok_or_else(|| napi::Error::from_reason("missing lonLast".to_string()))?,
-                    n_parallels,
-                };
-                (
-                    TargetRaster {
-                        width: ni,
-                        height: nj,
-                        lat_max: p.lat_first.max(p.lat_last),
-                        lat_min: p.lat_first.min(p.lat_last),
-                        lon_min: p.lon_first.min(p.lon_last),
-                        lon_max: p.lon_first.max(p.lon_last),
-                    },
-                    Box::new(move |lat, lon| gaussian_inverse(&p, lat, lon)),
-                )
-            }
-            "lambert" => {
-                let p = LambertParams {
-                    ni,
-                    nj,
-                    lat_first: meta
-                        .lat_first
-                        .ok_or_else(|| napi::Error::from_reason("missing latFirst".to_string()))?,
-                    lon_first: meta
-                        .lon_first
-                        .ok_or_else(|| napi::Error::from_reason("missing lonFirst".to_string()))?,
-                    lad: meta.lambert_lad.ok_or_else(|| {
-                        napi::Error::from_reason("missing lambertLad".to_string())
-                    })?,
-                    lov: meta.lambert_lov.ok_or_else(|| {
-                        napi::Error::from_reason("missing lambertLov".to_string())
-                    })?,
-                    dx_metres: meta.lambert_dx_metres.ok_or_else(|| {
-                        napi::Error::from_reason("missing lambertDxMetres".to_string())
-                    })?,
-                    dy_metres: meta.lambert_dy_metres.ok_or_else(|| {
-                        napi::Error::from_reason("missing lambertDyMetres".to_string())
-                    })?,
-                    latin1: meta.lambert_latin1.ok_or_else(|| {
-                        napi::Error::from_reason("missing lambertLatin1".to_string())
-                    })?,
-                    latin2: meta.lambert_latin2.ok_or_else(|| {
-                        napi::Error::from_reason("missing lambertLatin2".to_string())
-                    })?,
-                };
-                // Lambert target bounds = bounding box of the four
-                // forward-projected grid corners.
-                let origin = lambert_forward(&p, p.lat_first, p.lon_first);
-                let corners = [
-                    origin,
-                    (origin.0 + (ni as f64 - 1.0) * p.dx_metres, origin.1),
-                    (origin.0, origin.1 + (nj as f64 - 1.0) * p.dy_metres),
-                    (
-                        origin.0 + (ni as f64 - 1.0) * p.dx_metres,
-                        origin.1 + (nj as f64 - 1.0) * p.dy_metres,
-                    ),
-                ];
-                let latlons: Vec<(f64, f64)> = corners
-                    .iter()
-                    .map(|(x, y)| lambert_inverse_xy(&p, *x, *y))
-                    .collect();
-                let (mut lat_min, mut lat_max, mut lon_min, mut lon_max) = (
-                    f64::INFINITY,
-                    f64::NEG_INFINITY,
-                    f64::INFINITY,
-                    f64::NEG_INFINITY,
-                );
-                for (lat, lon) in latlons {
-                    if lat < lat_min {
-                        lat_min = lat;
-                    }
-                    if lat > lat_max {
-                        lat_max = lat;
-                    }
-                    if lon < lon_min {
-                        lon_min = lon;
-                    }
-                    if lon > lon_max {
-                        lon_max = lon;
-                    }
-                }
-                (
-                    TargetRaster {
-                        width: ni,
-                        height: nj,
-                        lat_max,
-                        lat_min,
-                        lon_min,
-                        lon_max,
-                    },
-                    Box::new(move |lat, lon| lambert_inverse(&p, lat, lon)),
-                )
-            }
-            other => {
-                return Err(napi::Error::from_reason(format!(
-                    "reprojection not yet supported for grid type {other:?}"
-                )));
-            }
-        };
+    let (target, inverse_boxed) = match kind {
+        "latlon" => latlon_warp_setup(meta, ni, nj)?,
+        "gaussian" => gaussian_warp_setup(meta, ni, nj)?,
+        "lambert" => lambert_warp_setup(meta, ni, nj)?,
+        other => {
+            return Err(napi::Error::from_reason(format!(
+                "reprojection not yet supported for grid type {other:?}"
+            )));
+        }
+    };
 
     let inverse_ref: &dyn Fn(f64, f64) -> Option<GridIndex> = inverse_boxed.as_ref();
     let source = SourceGrid {
@@ -994,11 +962,14 @@ fn warp_message(
         sample: sample_ref,
         inverse_at: inverse_ref,
     };
-    let warped = warp_to_equirectangular(&source, &target, resample);
+    let warped = warp_to_equirectangular(&source, &target, resampling);
+    let resample_label = match resampling {
+        Resampling::Nearest => "nearest",
+        Resampling::Bilinear => "bilinear",
+    };
     let summary = format!(
-        "{} → equirectangular ({})",
+        "{} → equirectangular ({resample_label})",
         source_projection_summary(meta),
-        resampling
     );
     Ok((
         warped.values,
@@ -1007,4 +978,130 @@ fn warp_message(
         warped.height,
         summary,
     ))
+}
+
+// --- Per-template warp-setup helpers ---------------------------------------
+
+type WarpSetup = (TargetRaster, Box<dyn Fn(f64, f64) -> Option<GridIndex>>);
+
+fn latlon_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
+    let p = LatLonParams {
+        ni,
+        nj,
+        lat_first: require_f64(meta.lat_first, "latFirst")?,
+        lon_first: require_f64(meta.lon_first, "lonFirst")?,
+        lat_last: require_f64(meta.lat_last, "latLast")?,
+        lon_last: require_f64(meta.lon_last, "lonLast")?,
+    };
+    let target = TargetRaster {
+        width: ni,
+        height: nj,
+        lat_max: p.lat_first.max(p.lat_last),
+        lat_min: p.lat_first.min(p.lat_last),
+        lon_min: p.lon_first.min(p.lon_last),
+        lon_max: p.lon_first.max(p.lon_last),
+    };
+    let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
+        Box::new(move |lat, lon| latlon_inverse(&p, lat, lon));
+    Ok((target, inverse))
+}
+
+fn gaussian_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
+    let n_parallels = meta
+        .gaussian_n_parallels
+        .ok_or_else(|| napi::Error::from_reason("missing gaussianNParallels".to_string()))?
+        as u32;
+    let p = GaussianParams {
+        ni,
+        nj,
+        lat_first: require_f64(meta.lat_first, "latFirst")?,
+        lon_first: require_f64(meta.lon_first, "lonFirst")?,
+        lat_last: require_f64(meta.lat_last, "latLast")?,
+        lon_last: require_f64(meta.lon_last, "lonLast")?,
+        n_parallels,
+    };
+    let target = TargetRaster {
+        width: ni,
+        height: nj,
+        lat_max: p.lat_first.max(p.lat_last),
+        lat_min: p.lat_first.min(p.lat_last),
+        lon_min: p.lon_first.min(p.lon_last),
+        lon_max: p.lon_first.max(p.lon_last),
+    };
+    // `GaussianProjector` caches the row-ordered Gauss-Legendre lats
+    // once; the inverse closure reuses it for every pixel.
+    let projector = GaussianProjector::new(p);
+    let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
+        Box::new(move |lat, lon| projector.inverse(lat, lon));
+    Ok((target, inverse))
+}
+
+fn lambert_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
+    let p = LambertParams {
+        ni,
+        nj,
+        lat_first: require_f64(meta.lat_first, "latFirst")?,
+        lon_first: require_f64(meta.lon_first, "lonFirst")?,
+        lad: require_f64(meta.lambert_lad, "lambertLad")?,
+        lov: require_f64(meta.lambert_lov, "lambertLov")?,
+        dx_metres: require_f64(meta.lambert_dx_metres, "lambertDxMetres")?,
+        dy_metres: require_f64(meta.lambert_dy_metres, "lambertDyMetres")?,
+        latin1: require_f64(meta.lambert_latin1, "lambertLatin1")?,
+        latin2: require_f64(meta.lambert_latin2, "lambertLatin2")?,
+    };
+
+    // `LambertProjector` precomputes the cone constants + origin once.
+    let projector = LambertProjector::new(p);
+    // Target bounds = bounding box of the four forward-projected grid
+    // corners.
+    let origin = projector.origin();
+    let corners = [
+        origin,
+        (origin.0 + (ni as f64 - 1.0) * p.dx_metres, origin.1),
+        (origin.0, origin.1 + (nj as f64 - 1.0) * p.dy_metres),
+        (
+            origin.0 + (ni as f64 - 1.0) * p.dx_metres,
+            origin.1 + (nj as f64 - 1.0) * p.dy_metres,
+        ),
+    ];
+    let (mut lat_min, mut lat_max, mut lon_min, mut lon_max) = (
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+    );
+    for (x, y) in corners {
+        let (lat, lon) = projector.inverse_xy(x, y);
+        lat_min = lat_min.min(lat);
+        lat_max = lat_max.max(lat);
+        lon_min = lon_min.min(lon);
+        lon_max = lon_max.max(lon);
+    }
+    let target = TargetRaster {
+        width: ni,
+        height: nj,
+        lat_max,
+        lat_min,
+        lon_min,
+        lon_max,
+    };
+    let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
+        Box::new(move |lat, lon| projector.inverse(lat, lon));
+    Ok((target, inverse))
+}
+
+fn grid_ni(meta: &MessageMeta) -> napi::Result<u32> {
+    meta.grid_ni
+        .ok_or_else(|| napi::Error::from_reason("grid has no Ni".to_string()))
+        .map(|n| n as u32)
+}
+
+fn grid_nj(meta: &MessageMeta) -> napi::Result<u32> {
+    meta.grid_nj
+        .ok_or_else(|| napi::Error::from_reason("grid has no Nj".to_string()))
+        .map(|n| n as u32)
+}
+
+fn require_f64(value: Option<f64>, name: &str) -> napi::Result<f64> {
+    value.ok_or_else(|| napi::Error::from_reason(format!("missing {name}")))
 }
