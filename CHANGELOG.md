@@ -6,7 +6,12 @@ Versioning follows the [VS Code pre-release convention](https://code.visualstudi
 
 ## [Unreleased]
 
+## [0.1.2] — 2026-05-17
+
+Third pre-release. GRIB2 moves from "header-only" to full §0–§7 parsing plus simple-packing value decode; the render panel gains a projection picker, a Rust-side render pipeline (reader handles, paint-ready RGBA, viridis colormap entirely in Rust), and a webview wire-format fix that restores the canvas painting end-to-end.
+
 ### Added
+
 - GRIB2 §1 Identification Section parsing — exposes originating centre, sub-centre, master/local table versions, reference time, production status, and processed-data type per message.
 - GRIB2 §2 Local Use Section parsing — surfaces the byte range so centre-specific decoders can pick up the opaque payload later.
 - GRIB2 §3 Grid Definition Section parsing for templates 3.0 (regular lat/lon), 3.30 (Lambert Conformal), and 3.40 (Gaussian lat/lon — both regular and reduced). Other templates surface as `unsupported(3.N)` so file enumeration still works.
@@ -21,10 +26,22 @@ Versioning follows the [VS Code pre-release convention](https://code.visualstudi
 - GRIB2 §7 Data Section parsing + simple-packing decoder. `Grib2Reader::decode_message_values` returns `Vec<Option<f64>>` mirroring the GRIB1 API; constant-field (`bits_per_value == 0`) and bitmap-aware decoding are both covered.
 - napi `decode_grid` now dispatches by magic-byte detection so the existing 2-D render pipeline picks up GRIB2 messages with no UI changes — simple-packed messages render end-to-end.
 - New fixture `regular_latlon_surface.grib2` (1.2 KiB ECMWF 2-m temperature on a 16×31 lat/lon grid) for the simple-packing decode integration test.
+- **Render-panel reprojection picker.** The 2-D render now exposes two pickers — projection target (`Source projection` / `Equirectangular`) and resampling (`Nearest` / `Bilinear`) — and warps lat/lon, Gaussian, and Lambert source grids through their native projection into a north-up equirectangular canvas when chosen. Bilinear masks cells whose 4-neighbour stencil includes a bitmap-masked source point.
+- **Rust-side render pipeline (closes #41 + the structural half of #45).** Reader handles (`Grib1Handle` / `Grib2Handle`) are now persistent across napi calls: parse once, reuse for every subsequent decode / render / metadata call. The provider stores one handle per document; `decodeGrid` returns `(Float64Array, Uint8Array)` directly (no boxed `Array<number | null>` repack), and the new `renderGrid` composes decode + warp + viridis colormap entirely in Rust, returning a paint-ready RGBA `Buffer` the webview blits to canvas via `putImageData`. The TS-side colormap LUT + paint loop is gone — they live in `fieldglass-core::colormap` now.
+- New modules `crates/fieldglass-core/src/{projection,warp,colormap}.rs` — projection math (lat/lon, Gaussian via Gauss-Legendre nodes, Lambert Conformal per Snyder USGS PP-1395), inverse-warp pipeline with bilinear/nearest resampling, and viridis colormap painting. 25 new unit tests covering Gauss-Legendre node accuracy, Lambert round-trip, bilinear edge cases, colormap clamps, and flip-y row inversion.
+- New napi structs `RenderOptions`, `RenderedGrid`, `DecodedGrid` + handle classes `Grib1Handle` / `Grib2Handle` replacing the standalone `openGrib1` / `openGrib2` / `decodeGrid` / `setP1` entries.
+- **Render-panel integration tests** in `extension/src/test/suite/render.test.ts` — pin the wire contract that the `gridReady` payload depends on (Uint8Array survives `webview.postMessage`; raw Node Buffer does not), cover the full render-pipeline path through `Grib1Handle.renderGrid` + `Grib2Handle.renderGrid` for GRIB1 (`cmc_wind_300_2010052400_p012.grib`) and GRIB2 (`regular_latlon_surface.grib2`) fixtures, and pin `openNetcdf` against the classic NetCDF (`netcdf_classic_dummy.nc`) DatasetMeta contract — one regression test per user-visible file format.
 
 ### Changed
 - `MessageMeta` (napi) gains optional `productionStatus` / `dataType` fields; existing GRIB1 callers see them as `null`.
 - GRIB2 `Grib2Message` now carries every section through §7: required `gds: GridDefinitionSection`, `pds: ProductDefinitionSection`, `drs: DataRepresentationSection` plus byte ranges for §6 BMS and §7 DS. `Grib2Reader::from_bytes` validates the full §0–§7 walk per the WMO spec.
+- Render-panel projection caption now names the source projection explicitly. The picker readouts read `source: latlon 240×121 → latlon (no reprojection)` (source projection) or `source: latlon 240×121 → equirectangular (nearest)` (equirectangular), so the right-hand side of the arrow always tells you the target — for the default picker that's the actual source projection (`latlon`, `lambert`, `gaussian`, etc.) rather than the generic "source projection".
+
+### Removed
+- Webview legend caption beneath the render canvas (`"Rendered server-side (Rust). …"`) — implementation detail; not user-facing information.
+
+### Fixed
+- **Render canvas was blank after #73.** `Grib{1,2}Handle.renderGrid` returns RGBA as a napi `Buffer`; when posted via `webview.postMessage`, VS Code's serializer (`extHostWebviewMessaging.ts::getTypedArrayType`) switches on `value.constructor.name` and only accepts the standard TypedArray names. Node `Buffer` (whose `constructor.name === "Buffer"`) is not on that list, so the bytes silently fell back to `Buffer.prototype.toJSON()` and the webview received `{type:"Buffer", data:[…]}` — a plain object, not a typed array. The panel script's `new Uint8ClampedArray(payload.rgba.buffer ?? payload.rgba, …)` then produced a zero-length array, and `new ImageData(rgba, w, h)` threw silently (no `try/catch` on the blit), leaving status stuck at `"Rendering…"` and the canvas blank. `Grib1Handle.renderGrid` and `Grib2Handle.renderGrid` were both affected; every grid type was affected (the temperature messages in `ecmwf_lfpw.grib1` that surfaced the bug were just what the user happened to click). Fixed by wrapping the napi `Buffer` as a plain `Uint8Array` view (`new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength)`) in the new exported `buildGridReadyMessage` helper in `provider.ts`, which sets `constructor.name === "Uint8Array"` so the VS Code serializer ships it as a binary reference and the webview revives it as a real Uint8Array. Pinned by `render.test.ts`'s round-trip tests.
 
 ## [0.1.1] — 2026-05-10
 
@@ -153,6 +170,7 @@ First public release, on the Marketplace pre-release channel. Read-only metadata
 
 See the README "Known limitations" section.
 
-[Unreleased]: https://github.com/D0ubleD0uble/fieldglass/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/D0ubleD0uble/fieldglass/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/D0ubleD0uble/fieldglass/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/D0ubleD0uble/fieldglass/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/D0ubleD0uble/fieldglass/releases/tag/v0.1.0

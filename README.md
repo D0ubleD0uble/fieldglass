@@ -29,6 +29,8 @@ First public beta. Read-only metadata viewing for GRIB1 is in, and each message'
 | Binary data section decoding (Rust API) | ✅ | 🚧 simple packing (5.0); 5.2 / 5.3 / 5.4 / 5.40 / 5.41 / 5.42 follow-up | ❌ Not yet |
 | Metadata editing | ❌ Not yet | ❌ Not yet | ❌ Not yet |
 | 2-D grid rendering with colormap | ✅ | 🚧 simple-packed messages only | ❌ Not yet |
+| Render-panel projection picker (source / equirectangular) | ✅ | ✅ (for simple-packed messages) | n/a |
+| Resampling picker (nearest / bilinear) | ✅ | ✅ | n/a |
 
 Format-agnostic features:
 
@@ -58,7 +60,7 @@ A GRIB1 file's BDS (Binary Data Section) flag bits select one of several packing
 This is a beta. Things to be aware of:
 
 - **No metadata editing in the viewer.** The Rust API has byte-level patching for the forecast period (P1) and the webview retains the full undo/redo wiring, but the editable affordance is hidden in beta until general PDS-field editing lands. For now Fieldglass is a read-only viewer.
-- **GRIB1 2-D rendering is in grid coordinates only.** The webview renders each message's decoded grid with a viridis colormap, but the canvas axes are scan-order grid indices — there is no map reprojection, basemap, or coastline overlay yet. Polar stereographic and Lambert conformal grids therefore appear "stretched" relative to a true geographic projection.
+- **2-D rendering offers limited target projections.** The render panel includes a projection picker with two targets today: `Source projection` (paints the source grid unchanged — Lambert / Gaussian / polar stereo grids appear in their native shape) and `Equirectangular` (inverse-warps through the source projection into a north-up lat/lon canvas). Web Mercator, orthographic, and polar stereographic targets are tracked under issue #71; coastline / country-outline overlay under #72. Lat/lon, Gaussian, and Lambert source grids can be warped; polar stereographic source grids cannot yet because the §3 template parser is still under #70.
 - **GRIB2: full §0–§7 parsing, simple-packed value decode.** `.grb2` / `.grib2` files enumerate messages and surface edition, discipline, total length, originating centre, reference time, production status, data type, parameter name + level + forecast time, and grid geometry (templates 3.0 / 3.30 / 3.40 — regular lat/lon, Lambert Conformal, regular and reduced Gaussian). Value decoding works for **simple packing** (DRS template 5.0); complex packing (5.2 / 5.3), IEEE (5.4), JPEG 2000 (5.40), PNG (5.41), and CCSDS (5.42) are tracked under separate issues — those messages still parse to the section level but `decode_message_values` returns an `UnsupportedSection` error naming the template.
 - **NetCDF-4 / HDF5: header probe only.** Classic NetCDF (CDF-1 / CDF-2 / CDF-5) parses fully and renders dimensions, global attributes, and variables. NetCDF-4 / HDF5 files are validated and report the superblock version, but deep traversal (groups, datasets, attributes through the HDF5 object header tree) is a follow-up.
 - **GRIB1 GDS coverage:** Lat/Lon, Gaussian, Polar Stereographic, and Lambert Conformal grids are parsed. Reduced grids, rotated/oblique projections, and predefined grids (`grid_number != 255`) are not yet supported and will render as `unsupported`.
@@ -177,6 +179,24 @@ cargo test -p fieldglass-grib1
 cargo test -p fieldglass-grib1 parse_pds
 ```
 
+#### Extension integration tests
+
+The TypeScript side has a small `@vscode/test-electron` suite that boots a
+real VS Code extension host and exercises the editor + render-panel paths
+end-to-end. The render-panel tests in particular round-trip a real
+`gridReady` payload through `webview.postMessage` so the wire format
+between the extension host and the webview is exercised under the same
+serializer as production. Coverage spans all three primary file formats
+(GRIB1 / GRIB2 render, NetCDF metadata) plus a regression test for the
+Buffer-vs-Uint8Array wire-format constraint.
+
+```sh
+cd extension
+npm test
+```
+
+Tests require a display; CI runs them under `xvfb-run -a npm test`.
+
 #### eccodes reference snapshots
 
 `fieldglass-grib2` cross-checks every bundled GRIB2 fixture against the
@@ -259,15 +279,19 @@ Three additional Tier-1 scanners run on every push and PR (results land in the r
 
 The Semgrep and CodeQL workflows are gated on `github.event.repository.visibility == 'public'` because GitHub Code Scanning's SARIF upload requires either a public repo or GitHub Advanced Security. They sit dormant on private repos and self-activate the moment the repo is flipped public. Dependabot runs regardless of visibility.
 
-## Adding a new GRIB1 metadata field
+## Adding a new GRIB metadata field
 
-1. Parse the field in the relevant section module under `crates/fieldglass-grib1/src/`.
+The same flow applies to either edition — only the source section module differs.
+
+1. Parse the field in the relevant section module:
+   - GRIB1 → `crates/fieldglass-grib1/src/{is,pds,gds,bds}.rs`
+   - GRIB2 → `crates/fieldglass-grib2/src/{is,ids,lus,gds,pds,drs,bms,ds}.rs`
 2. Expose the value on the section struct.
-3. Populate it on `MessageMeta` in `crates/fieldglass-napi/src/lib.rs`.
+3. Populate it on `MessageMeta` in `crates/fieldglass-napi/src/lib.rs` (both `open_grib1` and `open_grib2` produce the same `MessageMeta` shape, so a new field usually lands in both paths).
 4. Add the corresponding camelCase field to the `MessageMeta` interface in `extension/src/provider.ts`.
 5. Render it in the webview table in the same file.
 
-The napi-rs bindings automatically convert `snake_case` Rust field names to `camelCase` TypeScript fields.
+WMO ON388 / FM 92 lookup tables live in `crates/fieldglass-grib1/src/tables.rs` (GRIB1) and `crates/fieldglass-grib2/src/tables.rs` (GRIB2) — extend the tables there rather than hardcoding strings at the napi or TypeScript layer. The napi-rs bindings automatically convert `snake_case` Rust field names to `camelCase` TypeScript fields.
 
 ## License
 
