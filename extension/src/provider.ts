@@ -363,7 +363,7 @@ export class FieldglassEditorProvider
       case "ready":
         // Webview just finished mounting; push the current state so its
         // inputs are guaranteed to reflect document.bytes.
-        this.postUpdate(panel, document);
+        this.postCurrentMessages(panel, document);
         return;
       case "edit-p1":
         if (!isNonNegativeInt(msg.messageIndex) || !isNonNegativeInt(msg.value)) return;
@@ -622,26 +622,45 @@ export class FieldglassEditorProvider
     });
   }
 
+  /** Re-parse the document and push fresh messages to every panel
+   *  bound to it. Rebuilds the cached handle exactly once per broadcast
+   *  — earlier shape was O(panels) reparses on every edit. */
   private broadcastUpdate(document: FieldglassDocument): void {
     const panels = this._panelsByDoc.get(document.uri.toString());
-    if (!panels) return;
+    if (!panels || panels.size === 0) return;
+    const messages = this.reparseAndCache(document);
+    if (!messages) return;
     for (const p of panels) {
-      this.postUpdate(p, document);
+      p.webview.postMessage({ type: "update", messages });
     }
   }
 
-  private postUpdate(panel: vscode.WebviewPanel, document: FieldglassDocument): void {
+  /** Send the current document state to a single panel (used by the
+   *  `ready` mount handshake). Same reparse-and-cache shape as
+   *  [`broadcastUpdate`]; if the cached handle is still good (no
+   *  intervening edits) we reuse it. */
+  private postCurrentMessages(
+    panel: vscode.WebviewPanel,
+    document: FieldglassDocument,
+  ): void {
+    const cached = this._handlesByDoc.get(document.uri.toString());
+    const messages = cached
+      ? cached.messages()
+      : this.reparseAndCache(document);
+    if (!messages) return;
+    panel.webview.postMessage({ type: "update", messages });
+  }
+
+  private reparseAndCache(document: FieldglassDocument): MessageMeta[] | undefined {
     const native = loadNative();
-    if (!native) return;
+    if (!native) return undefined;
     try {
-      // `postUpdate` is only used by the GRIB1 edit-loop today; rebuild
-      // a fresh Grib1Handle off the current bytes (the cached handle
-      // was dropped in `applyP1Edit` when the bytes changed).
       const handle = native.Grib1Handle.fromBytes(document.bytes);
       this._handlesByDoc.set(document.uri.toString(), handle);
-      panel.webview.postMessage({ type: "update", messages: handle.messages() });
+      return handle.messages();
     } catch (err) {
       vscode.window.showErrorMessage(`Fieldglass: failed to re-parse after edit: ${err}`);
+      return undefined;
     }
   }
 

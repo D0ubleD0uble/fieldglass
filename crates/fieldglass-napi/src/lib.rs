@@ -524,6 +524,11 @@ pub struct RenderedGrid {
 /// Decoded grid values + presence mask returned by the handle-based
 /// `decode_grid`. `values[k]` is the decoded value at scan-order index
 /// `k`; `mask[k]` is `1` when present and `0` when bitmap-masked.
+///
+/// Not consumed by the render panel today — `render_grid` returns
+/// paint-ready RGBA instead. Kept on the napi surface for future
+/// "export raw values" consumers (e.g. a notebook-style data probe);
+/// the JS code path is dormant.
 #[napi(object)]
 pub struct DecodedGrid {
     pub values: napi::bindgen_prelude::Float64Array,
@@ -544,6 +549,13 @@ pub struct DecodedGrid {
 /// `decoded` caches per-message decode output (raw `Vec<Option<f64>>`)
 /// so repeat `render_grid` calls with different `RenderOptions` skip the
 /// bit-unpack + bitmap-merge step every time the user wiggles a picker.
+///
+/// The cache is wrapped in a `Mutex` not because we expect contention
+/// — napi-rs runs class methods on the Node main thread — but because
+/// `#[napi]` requires the class to be `Send`. `RefCell` would be the
+/// natural single-threaded fit but its `!Send` rules it out. Lock /
+/// unlock overhead at zero contention is negligible (single atomic
+/// CAS per render).
 #[napi]
 pub struct Grib1Handle {
     bytes: Vec<u8>,
