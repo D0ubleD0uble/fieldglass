@@ -1357,6 +1357,101 @@ mod polar_stereo_warp_tests {
     }
 
     #[test]
+    fn warps_south_polar_stereo_to_equirectangular() {
+        // Mirror the CMC tile into the southern hemisphere: south-pole
+        // projection, negative lat_first. Exercises the `sign = -1` branch
+        // through the full warp_message → polar_stereo_warp_setup path,
+        // not just the projection-level round-trip tests.
+        let meta = MessageMeta {
+            lat_first: Some(-11.43),
+            polar_stereo_south_pole: Some(true),
+            ..cmc_polar_meta()
+        };
+        let raw: Vec<Option<f64>> = vec![Some(1.0); 135 * 95];
+        let (values, mask, w, h, summary) =
+            warp_message(&meta, &raw, Resampling::Nearest).expect("south-polar warp");
+
+        assert_eq!(w, 135);
+        assert_eq!(h, 95);
+        let present_count = mask.iter().filter(|&&m| m == 1).count();
+        assert!(
+            present_count > 0,
+            "south-polar warp produced an entirely empty mask"
+        );
+        for (i, &m) in mask.iter().enumerate() {
+            if m == 1 {
+                assert_eq!(values[i], 1.0, "present pixel {i} should be 1.0");
+            }
+        }
+        assert!(summary.contains("polar_stereo") && summary.contains("equirectangular"));
+    }
+
+    #[test]
+    fn warps_hemispheric_grid_with_pole_inside() {
+        // A synthetic hemispheric grid whose projected extent surrounds the
+        // pole (same geometry as the projection-level
+        // `polar_stereo_pole_inside_grid_detection` test). Two things this
+        // pins that the regional CMC test does not:
+        //   1. negative `dy_metres` (south-scanning) is handled by the warp
+        //      setup, not just the projector unit test;
+        //   2. the 360°-longitude / pole-clamp override path in
+        //      polar_stereo_warp_setup is reachable through warp_message
+        //      and produces a fully-covered raster instead of a thin
+        //      four-corner sliver.
+        let meta = MessageMeta {
+            grid_ni: Some(4),
+            grid_nj: Some(4),
+            lat_first: Some(50.8),
+            lon_first: Some(-135.0),
+            polar_stereo_lov: Some(0.0),
+            polar_stereo_dx_metres: Some(2_000_000.0),
+            polar_stereo_dy_metres: Some(-2_000_000.0),
+            polar_stereo_south_pole: Some(false),
+            ..cmc_polar_meta()
+        };
+        let raw: Vec<Option<f64>> = vec![Some(1.0); 4 * 4];
+        let (_values, mask, w, h, _summary) =
+            warp_message(&meta, &raw, Resampling::Nearest).expect("hemispheric warp");
+
+        assert_eq!((w, h), (4, 4));
+        // With the pole inside the grid the target spans the full hemisphere,
+        // so a clear majority of the 4×4 output pixels resolve to a source
+        // sample rather than the handful a four-corner bbox would cover.
+        let present_count = mask.iter().filter(|&&m| m == 1).count();
+        assert!(
+            present_count >= 8,
+            "pole-inside grid should fill most of the raster, got {present_count}/16 present"
+        );
+    }
+
+    #[test]
+    fn warps_grid_with_pole_exactly_on_origin() {
+        // lat_first = 90° puts the first scanned point at the pole, so the
+        // projected grid origin is exactly (0, 0). `pole_inside_grid` uses
+        // inclusive bounds, so this edge case must still take the
+        // 360°-longitude override and warp without panicking.
+        let meta = MessageMeta {
+            grid_ni: Some(4),
+            grid_nj: Some(4),
+            lat_first: Some(90.0),
+            lon_first: Some(0.0),
+            polar_stereo_lov: Some(0.0),
+            polar_stereo_dx_metres: Some(2_000_000.0),
+            polar_stereo_dy_metres: Some(2_000_000.0),
+            polar_stereo_south_pole: Some(false),
+            ..cmc_polar_meta()
+        };
+        let raw: Vec<Option<f64>> = vec![Some(1.0); 4 * 4];
+        let (_values, mask, w, h, _summary) =
+            warp_message(&meta, &raw, Resampling::Nearest).expect("pole-on-origin warp");
+        assert_eq!((w, h), (4, 4));
+        assert!(
+            mask.contains(&1),
+            "pole-on-origin grid should still resolve some pixels"
+        );
+    }
+
+    #[test]
     fn polar_stereo_warp_errors_without_required_fields() {
         // Missing polarStereoLov — warp setup must surface a clear error
         // naming the field rather than silently falling back to a default.
