@@ -2,7 +2,7 @@
 
 use fieldglass_core::{
     Format, GaussianParams, GaussianProjector, LambertParams, LambertProjector, LatLonParams,
-    Resampling, SourceGrid, TargetRaster,
+    PolarStereoParams, PolarStereoProjector, Resampling, SourceGrid, TargetRaster,
     colormap::{min_max_ignoring_mask, paint_grid_rgba},
     detect_from_bytes, latlon_inverse,
     projection::GridIndex,
@@ -84,6 +84,22 @@ pub struct MessageMeta {
     /// Gaussian grid spec). Needed to reconstruct row latitudes via the
     /// Gauss–Legendre quadrature nodes during reprojection.
     pub gaussian_n_parallels: Option<i32>,
+    // -------------------------------------------------------------------
+    // Polar stereographic projection parameters (only populated for polar
+    // stereographic grids; `None` for every other grid type). GRIB1 fixes
+    // the latitude of true scale at 60° implicitly — see `PolarStereoParams`
+    // — so the only on-the-wire fields are `lov`, the grid spacing in metres
+    // along x and y, and the pole-orientation flag.
+    // -------------------------------------------------------------------
+    /// Orientation longitude (`LoV`) — meridian parallel to the y-axis,
+    /// degrees.
+    pub polar_stereo_lov: Option<f64>,
+    /// Grid spacing in metres along x at the 60° latitude of true scale.
+    pub polar_stereo_dx_metres: Option<f64>,
+    /// Grid spacing in metres along y at the 60° latitude of true scale.
+    pub polar_stereo_dy_metres: Option<f64>,
+    /// `true` ⇒ south-pole projection, `false` ⇒ north-pole.
+    pub polar_stereo_south_pole: Option<bool>,
 }
 
 /// Detect the format of a file from its raw bytes.
@@ -132,6 +148,14 @@ fn build_grib1_message_meta(msg: &fieldglass_grib1::Grib1Message) -> MessageMeta
         Some(fieldglass_grib1::GridDescription::Gaussian(g)) => Some(g.n_gaussians as i32),
         _ => None,
     };
+    let polar_stereo = match &msg.gds {
+        Some(fieldglass_grib1::GridDescription::PolarStereographic(g)) => Some(g),
+        _ => None,
+    };
+    let polar_stereo_lov = polar_stereo.map(|g| g.lov);
+    let polar_stereo_dx_metres = polar_stereo.map(|g| g.dx_m as f64);
+    let polar_stereo_dy_metres = polar_stereo.map(|g| g.dy_m as f64);
+    let polar_stereo_south_pole = polar_stereo.map(|g| g.south_pole);
     MessageMeta {
         message_index: msg.message_index as i32,
         offset_bytes: msg.byte_offset as i32,
@@ -164,6 +188,10 @@ fn build_grib1_message_meta(msg: &fieldglass_grib1::Grib1Message) -> MessageMeta
         lambert_latin1,
         lambert_latin2,
         gaussian_n_parallels,
+        polar_stereo_lov,
+        polar_stereo_dx_metres,
+        polar_stereo_dy_metres,
+        polar_stereo_south_pole,
     }
 }
 
@@ -333,6 +361,12 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
         lambert_latin1,
         lambert_latin2,
         gaussian_n_parallels,
+        // GRIB2 §3.20 polar stereo template parsing is tracked under #70 —
+        // once it lands these get populated from the parsed template.
+        polar_stereo_lov: None,
+        polar_stereo_dx_metres: None,
+        polar_stereo_dy_metres: None,
+        polar_stereo_south_pole: None,
     }
 }
 
@@ -972,6 +1006,7 @@ fn warp_message(
         "latlon" => latlon_warp_setup(meta, ni, nj)?,
         "gaussian" => gaussian_warp_setup(meta, ni, nj)?,
         "lambert" => lambert_warp_setup(meta, ni, nj)?,
+        "polar_stereo" => polar_stereo_warp_setup(meta, ni, nj)?,
         other => {
             return Err(napi::Error::from_reason(format!(
                 "reprojection not yet supported for grid type {other:?}"
@@ -1114,6 +1149,72 @@ fn lambert_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<Warp
     Ok((target, inverse))
 }
 
+fn polar_stereo_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
+    let p = PolarStereoParams {
+        ni,
+        nj,
+        lat_first: require_f64(meta.lat_first, "latFirst")?,
+        lon_first: require_f64(meta.lon_first, "lonFirst")?,
+        lov: require_f64(meta.polar_stereo_lov, "polarStereoLov")?,
+        dx_metres: require_f64(meta.polar_stereo_dx_metres, "polarStereoDxMetres")?,
+        dy_metres: require_f64(meta.polar_stereo_dy_metres, "polarStereoDyMetres")?,
+        south_pole: meta
+            .polar_stereo_south_pole
+            .ok_or_else(|| napi::Error::from_reason("missing polarStereoSouthPole".to_string()))?,
+    };
+
+    let projector = PolarStereoProjector::new(p);
+    let pole_inside = projector.pole_inside_grid();
+    // Compute the equirectangular bbox by inverse-projecting the four
+    // forward-projected corners (same shape as `lambert_warp_setup`). When
+    // the projection pole falls inside the grid, every meridian is
+    // represented and the four-corner bbox is wrong: we override longitude
+    // to the full 360° and clamp latitude to the relevant pole.
+    let origin = projector.origin();
+    let corners = [
+        origin,
+        (origin.0 + (ni as f64 - 1.0) * p.dx_metres, origin.1),
+        (origin.0, origin.1 + (nj as f64 - 1.0) * p.dy_metres),
+        (
+            origin.0 + (ni as f64 - 1.0) * p.dx_metres,
+            origin.1 + (nj as f64 - 1.0) * p.dy_metres,
+        ),
+    ];
+    let (mut lat_min, mut lat_max, mut lon_min, mut lon_max) = (
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+    );
+    for (x, y) in corners {
+        let (lat, lon) = projector.inverse_xy(x, y);
+        lat_min = lat_min.min(lat);
+        lat_max = lat_max.max(lat);
+        lon_min = lon_min.min(lon);
+        lon_max = lon_max.max(lon);
+    }
+    if pole_inside {
+        lon_min = -180.0;
+        lon_max = 180.0;
+        if p.south_pole {
+            lat_min = -90.0;
+        } else {
+            lat_max = 90.0;
+        }
+    }
+    let target = TargetRaster {
+        width: ni,
+        height: nj,
+        lat_max,
+        lat_min,
+        lon_min,
+        lon_max,
+    };
+    let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
+        Box::new(move |lat, lon| projector.inverse(lat, lon));
+    Ok((target, inverse))
+}
+
 fn grid_ni(meta: &MessageMeta) -> napi::Result<u32> {
     meta.grid_ni
         .ok_or_else(|| napi::Error::from_reason("grid has no Ni".to_string()))
@@ -1172,6 +1273,103 @@ mod resolved_options_tests {
         assert!(
             err.to_string().contains("unknown resampling"),
             "error names the field, got: {err}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod polar_stereo_warp_tests {
+    use super::*;
+
+    /// MessageMeta mirroring the `cmc_wind_300_2010052400_p012.grib`
+    /// fixture: 135×95 polar-stereographic, 60 km at 60°N, north-polar.
+    /// Only the fields warp_message actually consults are filled — every
+    /// other Option-typed slot is left `None` to keep the synthetic
+    /// minimal.
+    fn cmc_polar_meta() -> MessageMeta {
+        MessageMeta {
+            message_index: 0,
+            offset_bytes: 0,
+            parameter_name: String::new(),
+            parameter_units: String::new(),
+            parameter_abbreviation: String::new(),
+            level: String::new(),
+            level_type: String::new(),
+            reference_time: String::new(),
+            forecast_hours: 0,
+            forecast_display: String::new(),
+            originating_centre: String::new(),
+            grid_type: Some("polar_stereo".to_string()),
+            grid_ni: Some(135),
+            grid_nj: Some(95),
+            lat_first: Some(11.43),
+            lon_first: Some(-110.27),
+            lat_last: None,
+            lon_last: None,
+            format: "grib1".to_string(),
+            edition: Some(1),
+            discipline: None,
+            total_length_bytes: None,
+            production_status: None,
+            data_type: None,
+            lambert_lad: None,
+            lambert_lov: None,
+            lambert_dx_metres: None,
+            lambert_dy_metres: None,
+            lambert_latin1: None,
+            lambert_latin2: None,
+            gaussian_n_parallels: None,
+            polar_stereo_lov: Some(247.0),
+            polar_stereo_dx_metres: Some(60_000.0),
+            polar_stereo_dy_metres: Some(60_000.0),
+            polar_stereo_south_pole: Some(false),
+        }
+    }
+
+    #[test]
+    fn warps_polar_stereo_to_equirectangular() {
+        let meta = cmc_polar_meta();
+        // Synthetic uniform field — we're testing the warp geometry, not
+        // value transport. Every present output pixel should read back
+        // exactly 1.0.
+        let raw: Vec<Option<f64>> = vec![Some(1.0); 135 * 95];
+        let (values, mask, w, h, summary) =
+            warp_message(&meta, &raw, Resampling::Nearest).expect("warp");
+
+        assert_eq!(w, 135);
+        assert_eq!(h, 95);
+        let present_count = mask.iter().filter(|&&m| m == 1).count();
+        assert!(
+            present_count > 0,
+            "polar-stereo warp produced an entirely empty mask — \
+             either the inverse map rejects every pixel or warp_setup \
+             returned bad bounds"
+        );
+        for (i, &m) in mask.iter().enumerate() {
+            if m == 1 {
+                assert_eq!(values[i], 1.0, "present pixel {i} should be 1.0");
+            }
+        }
+        assert!(
+            summary.contains("polar_stereo") && summary.contains("equirectangular"),
+            "summary should name source kind + target, got: {summary}"
+        );
+    }
+
+    #[test]
+    fn polar_stereo_warp_errors_without_required_fields() {
+        // Missing polarStereoLov — warp setup must surface a clear error
+        // naming the field rather than silently falling back to a default.
+        let bad = MessageMeta {
+            polar_stereo_lov: None,
+            ..cmc_polar_meta()
+        };
+        let raw: Vec<Option<f64>> = vec![Some(1.0); 135 * 95];
+        let err =
+            warp_message(&bad, &raw, Resampling::Nearest).expect_err("missing lov must error");
+        assert!(
+            err.to_string().contains("polarStereoLov"),
+            "error should name the missing field, got: {err}"
         );
     }
 }

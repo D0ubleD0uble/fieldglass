@@ -14,6 +14,10 @@
 //! - Gauss–Legendre quadrature nodes for Gaussian grid latitudes —
 //!   Press et al., "Numerical Recipes", §4.6. Newton-Raphson on the
 //!   Legendre polynomial seeded with Chebyshev points.
+//! - Polar stereographic — Snyder, PP-1395 §21 (sphere, polar aspect),
+//!   eqs 21-33/21-34 (forward) and 20-14/20-17 (inverse). GRIB1 fixes the
+//!   latitude of true scale at 60°, so the scale factor at the pole
+//!   `k₀ = (1 + sin 60°)/2 ≈ 0.93301270…` is a constant of the projection.
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -439,6 +443,191 @@ impl LambertProjector {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Polar Stereographic (GRIB1 grid_type 5, GRIB2 template 3.20)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PolarStereoParams {
+    pub ni: u32,
+    pub nj: u32,
+    /// Latitude of the grid origin (first scanned point), degrees.
+    pub lat_first: f64,
+    /// Longitude of the grid origin (first scanned point), degrees.
+    pub lon_first: f64,
+    /// Orientation longitude (`LoV`) — meridian parallel to the y-axis,
+    /// degrees.
+    pub lov: f64,
+    /// Grid spacing in metres along x at the latitude of true scale.
+    pub dx_metres: f64,
+    /// Grid spacing in metres along y at the latitude of true scale.
+    pub dy_metres: f64,
+    /// `true` ⇒ south-pole projection; `false` ⇒ north-pole. GRIB1 carries
+    /// this in the projection-centre flag; GRIB2 in §3.20 octet 17 bit 2.
+    pub south_pole: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct PolarStereoConstants {
+    /// `2 · R · k₀` where `k₀ = (1 + sin 60°)/2` — GRIB fixes the latitude
+    /// of true scale at 60° so this is a constant of the projection. The
+    /// product is what every forward/inverse formula actually consumes.
+    two_r_k0: f64,
+    sign: f64,
+}
+
+fn polar_stereo_constants(south_pole: bool) -> PolarStereoConstants {
+    let k0 = (1.0 + (60.0_f64 * DEG2RAD).sin()) / 2.0;
+    PolarStereoConstants {
+        two_r_k0: 2.0 * EARTH_RADIUS_M * k0,
+        sign: if south_pole { -1.0 } else { 1.0 },
+    }
+}
+
+/// Forward polar stereographic: `(lat, lon)` in degrees → `(x, y)` in
+/// metres, in a coordinate system centred on the projection pole with the
+/// y-axis along `lov`.
+///
+/// Undefined at the *opposite* pole (`tan` → ∞); GRIB grids never reach it,
+/// but pathological callers will see `±inf` / `NaN`.
+///
+/// **Recomputes constants per call.** For warp loops use [`PolarStereoProjector`].
+pub fn polar_stereo_forward(p: &PolarStereoParams, lat: f64, lon: f64) -> (f64, f64) {
+    polar_stereo_forward_with(&polar_stereo_constants(p.south_pole), p.lov, lat, lon)
+}
+
+fn polar_stereo_forward_with(k: &PolarStereoConstants, lov: f64, lat: f64, lon: f64) -> (f64, f64) {
+    let lat_r = lat * DEG2RAD;
+    let d_lon = (lon - lov) * DEG2RAD;
+    // Snyder 21-33 (north) / 21-34 (south). For south-polar, `sign = -1`
+    // flips the latitude argument so the same `tan(π/4 - φ_s/2)` form
+    // works after substituting `φ_s = -lat`.
+    let rho = k.two_r_k0 * (PI / 4.0 - k.sign * lat_r / 2.0).tan();
+    let x = rho * d_lon.sin();
+    let y = -k.sign * rho * d_lon.cos();
+    (x, y)
+}
+
+/// Inverse polar stereographic: `(x, y)` in metres → `(lat, lon)` in
+/// degrees. Returns `(NaN, lov)` when `(x, y) == (0, 0)` (the projection
+/// pole), where longitude is undefined.
+pub fn polar_stereo_inverse_xy(p: &PolarStereoParams, x: f64, y: f64) -> (f64, f64) {
+    polar_stereo_inverse_xy_with(&polar_stereo_constants(p.south_pole), p.lov, x, y)
+}
+
+fn polar_stereo_inverse_xy_with(k: &PolarStereoConstants, lov: f64, x: f64, y: f64) -> (f64, f64) {
+    let rho = (x * x + y * y).sqrt();
+    if rho == 0.0 {
+        // At the pole every meridian converges; longitude is undefined.
+        // Return lov as a convention so warp setup that hits this case
+        // doesn't NaN-pollute downstream min/max.
+        return (k.sign * 90.0, lov);
+    }
+    let c = 2.0 * (rho / k.two_r_k0).atan();
+    let lat = k.sign * (PI / 2.0 - c) * RAD2DEG;
+    // Snyder 20-16: λ = λ₀ + atan2(x, -y) for north-polar; flip the y-sign
+    // for south-polar (same `sign` flip used in the forward direction).
+    let lon = lov + x.atan2(-k.sign * y) * RAD2DEG;
+    (lat, lon)
+}
+
+/// Inverse warp: `(lat, lon)` → fractional source grid index. **Recomputes
+/// constants and the grid origin per call** — for warp loops use
+/// [`PolarStereoProjector`].
+pub fn polar_stereo_inverse(p: &PolarStereoParams, lat: f64, lon: f64) -> Option<GridIndex> {
+    PolarStereoProjector::new(*p).inverse(lat, lon)
+}
+
+/// Precomputed inverse map for a polar stereographic grid. Owns the
+/// pole-scale constant and the forward-projected grid origin — both
+/// invariant across every output pixel of a warp.
+pub struct PolarStereoProjector {
+    pub params: PolarStereoParams,
+    constants: PolarStereoConstants,
+    origin: (f64, f64),
+}
+
+impl PolarStereoProjector {
+    pub fn new(params: PolarStereoParams) -> Self {
+        let constants = polar_stereo_constants(params.south_pole);
+        let origin =
+            polar_stereo_forward_with(&constants, params.lov, params.lat_first, params.lon_first);
+        Self {
+            params,
+            constants,
+            origin,
+        }
+    }
+
+    pub fn inverse(&self, lat: f64, lon: f64) -> Option<GridIndex> {
+        if !lat.is_finite() || !lon.is_finite() {
+            return None;
+        }
+        if self.params.ni < 2
+            || self.params.nj < 2
+            || self.params.dx_metres == 0.0
+            || self.params.dy_metres == 0.0
+        {
+            return None;
+        }
+        // Reject points on the wrong hemisphere — forward-projecting them
+        // would hit the `tan` singularity at the antipodal pole and yield
+        // ±inf, which then maps to a bogus grid index after the
+        // origin-relative division.
+        if self.params.south_pole {
+            if lat > 0.0 {
+                return None;
+            }
+        } else if lat < 0.0 {
+            return None;
+        }
+        let (x, y) = polar_stereo_forward_with(&self.constants, self.params.lov, lat, lon);
+        if !x.is_finite() || !y.is_finite() {
+            return None;
+        }
+        let i = (x - self.origin.0) / self.params.dx_metres;
+        let j = (y - self.origin.1) / self.params.dy_metres;
+        if i < 0.0 || i > self.params.ni as f64 - 1.0 || j < 0.0 || j > self.params.nj as f64 - 1.0
+        {
+            return None;
+        }
+        Some(GridIndex { i, j })
+    }
+
+    pub fn forward(&self, lat: f64, lon: f64) -> (f64, f64) {
+        polar_stereo_forward_with(&self.constants, self.params.lov, lat, lon)
+    }
+
+    pub fn inverse_xy(&self, x: f64, y: f64) -> (f64, f64) {
+        polar_stereo_inverse_xy_with(&self.constants, self.params.lov, x, y)
+    }
+
+    pub fn origin(&self) -> (f64, f64) {
+        self.origin
+    }
+
+    /// `true` when the projection pole (origin in projected metres) falls
+    /// inside the grid extent. Warp setup uses this to detect the case
+    /// where every meridian is represented in the grid and the
+    /// equirectangular target should span the full 360° of longitude.
+    pub fn pole_inside_grid(&self) -> bool {
+        let (ox, oy) = self.origin;
+        let max_x = ox + (self.params.ni as f64 - 1.0) * self.params.dx_metres;
+        let max_y = oy + (self.params.nj as f64 - 1.0) * self.params.dy_metres;
+        let (x_min, x_max) = if ox <= max_x {
+            (ox, max_x)
+        } else {
+            (max_x, ox)
+        };
+        let (y_min, y_max) = if oy <= max_y {
+            (oy, max_y)
+        } else {
+            (max_y, oy)
+        };
+        x_min <= 0.0 && 0.0 <= x_max && y_min <= 0.0 && 0.0 <= y_max
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -691,6 +880,166 @@ mod tests {
         };
         assert!(gaussian_inverse(&p, f64::NAN, 0.0).is_none());
         assert!(gaussian_inverse(&p, 0.0, f64::INFINITY).is_none());
+    }
+
+    // -----------------------------------------------------------------
+    // Polar Stereographic
+    // -----------------------------------------------------------------
+
+    /// CMC regional model grid (135×95, 60 km at 60°N, lon_first ≈ −110°,
+    /// lov = 247°). Matches the `cmc_wind_300_2010052400_p012.grib`
+    /// fixture used by the GRIB1 integration tests.
+    fn cmc_polar_params() -> PolarStereoParams {
+        PolarStereoParams {
+            ni: 135,
+            nj: 95,
+            lat_first: 11.43,
+            lon_first: -110.27,
+            lov: 247.0,
+            dx_metres: 60_000.0,
+            dy_metres: 60_000.0,
+            south_pole: false,
+        }
+    }
+
+    #[test]
+    fn polar_stereo_forward_inverse_round_trip_north() {
+        let p = cmc_polar_params();
+        for (lat, lon) in [(45.0, -90.0), (60.0, 0.0), (80.0, 100.0)] {
+            let (x, y) = polar_stereo_forward(&p, lat, lon);
+            let (lat_back, lon_back) = polar_stereo_inverse_xy(&p, x, y);
+            assert!(near(lat_back, lat, 1e-7), "lat {lat} → {lat_back}");
+            // Normalise to [-180, 180] before comparing — atan2 returns
+            // (-π, π] and the test inputs are in that range too.
+            let lon_back = ((lon_back + 180.0).rem_euclid(360.0)) - 180.0;
+            let lon_norm = ((lon + 180.0).rem_euclid(360.0)) - 180.0;
+            assert!(near(lon_back, lon_norm, 1e-7), "lon {lon} → {lon_back}");
+        }
+    }
+
+    #[test]
+    fn polar_stereo_forward_inverse_round_trip_south() {
+        let p = PolarStereoParams {
+            south_pole: true,
+            lat_first: -11.43,
+            ..cmc_polar_params()
+        };
+        for (lat, lon) in [(-45.0, -90.0), (-60.0, 0.0), (-80.0, 100.0)] {
+            let (x, y) = polar_stereo_forward(&p, lat, lon);
+            let (lat_back, lon_back) = polar_stereo_inverse_xy(&p, x, y);
+            assert!(near(lat_back, lat, 1e-7), "lat {lat} → {lat_back}");
+            let lon_back = ((lon_back + 180.0).rem_euclid(360.0)) - 180.0;
+            let lon_norm = ((lon + 180.0).rem_euclid(360.0)) - 180.0;
+            assert!(near(lon_back, lon_norm, 1e-7), "lon {lon} → {lon_back}");
+        }
+    }
+
+    #[test]
+    fn polar_stereo_north_pole_projects_to_origin() {
+        let p = cmc_polar_params();
+        let (x, y) = polar_stereo_forward(&p, 90.0, 0.0);
+        assert!(near(x, 0.0, 1e-6));
+        assert!(near(y, 0.0, 1e-6));
+    }
+
+    #[test]
+    fn polar_stereo_south_pole_projects_to_origin() {
+        let p = PolarStereoParams {
+            south_pole: true,
+            ..cmc_polar_params()
+        };
+        let (x, y) = polar_stereo_forward(&p, -90.0, 0.0);
+        assert!(near(x, 0.0, 1e-6));
+        assert!(near(y, 0.0, 1e-6));
+    }
+
+    #[test]
+    fn polar_stereo_inverse_maps_first_corner_to_zero() {
+        let p = cmc_polar_params();
+        let idx = polar_stereo_inverse(&p, p.lat_first, p.lon_first).expect("corner");
+        assert!(near(idx.i, 0.0, 1e-6));
+        assert!(near(idx.j, 0.0, 1e-6));
+    }
+
+    #[test]
+    fn polar_stereo_inverse_rejects_wrong_hemisphere() {
+        let p = cmc_polar_params();
+        assert!(
+            polar_stereo_inverse(&p, -45.0, 0.0).is_none(),
+            "north grid + south lat"
+        );
+        let south = PolarStereoParams {
+            south_pole: true,
+            lat_first: -11.43,
+            ..p
+        };
+        assert!(
+            polar_stereo_inverse(&south, 45.0, 0.0).is_none(),
+            "south grid + north lat"
+        );
+    }
+
+    #[test]
+    fn polar_stereo_inverse_rejects_off_grid_points() {
+        let p = cmc_polar_params();
+        // A point in Antarctica is on the wrong hemisphere for a north-polar
+        // grid; a tropical point near the equator is on the right hemisphere
+        // but well outside the 135×95 box around the pole.
+        assert!(polar_stereo_inverse(&p, 5.0, 0.0).is_none());
+    }
+
+    #[test]
+    fn polar_stereo_inverse_rejects_nonfinite_and_degenerate_dims() {
+        let p = cmc_polar_params();
+        assert!(polar_stereo_inverse(&p, f64::NAN, 0.0).is_none());
+        assert!(polar_stereo_inverse(&p, 60.0, f64::INFINITY).is_none());
+        let degenerate = PolarStereoParams { ni: 1, ..p };
+        assert!(polar_stereo_inverse(&degenerate, 60.0, 0.0).is_none());
+        let zero_dx = PolarStereoParams {
+            dx_metres: 0.0,
+            ..p
+        };
+        assert!(polar_stereo_inverse(&zero_dx, 60.0, 0.0).is_none());
+    }
+
+    #[test]
+    fn polar_stereo_pole_inside_grid_detection() {
+        // CMC is a regional tile NE of the pole, not a hemispheric grid —
+        // its projected box doesn't actually contain (0,0).
+        let cmc = PolarStereoProjector::new(cmc_polar_params());
+        assert!(
+            !cmc.pole_inside_grid(),
+            "CMC regional tile excludes the pole"
+        );
+
+        // A synthetic hemispheric grid whose NW corner sits at d_lon = -135°
+        // from `lov`, at a southern-enough latitude that the projected origin
+        // lands at roughly (-3e6, +3e6) metres. Scanning east + south at 2 Mm
+        // step over 4×4 cells crosses the pole at (0, 0).
+        let hemispheric = PolarStereoParams {
+            ni: 4,
+            nj: 4,
+            lat_first: 50.8,
+            lon_first: -135.0,
+            lov: 0.0,
+            dx_metres: 2_000_000.0,
+            dy_metres: -2_000_000.0,
+            south_pole: false,
+        };
+        let projector = PolarStereoProjector::new(hemispheric);
+        assert!(
+            projector.pole_inside_grid(),
+            "hemispheric grid origin {:?} should bracket the pole",
+            projector.origin()
+        );
+    }
+
+    #[test]
+    fn polar_stereo_inverse_xy_origin_returns_pole_with_lov() {
+        let p = cmc_polar_params();
+        let (lat, lon) = polar_stereo_inverse_xy(&p, 0.0, 0.0);
+        assert!(near(lat, 90.0, 1e-9));
+        assert!(near(lon, p.lov, 1e-9));
     }
 
     #[test]

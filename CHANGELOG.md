@@ -6,6 +6,10 @@ Versioning follows the [VS Code pre-release convention](https://code.visualstudi
 
 ## [Unreleased]
 
+### Added
+
+- **GRIB1 polar stereographic source grids now reproject into equirectangular.** The render panel's `Equirectangular` target now supports `polar_stereo` source grids in addition to lat/lon, Gaussian, and Lambert. Closes the GRIB1 half of #45. New `PolarStereoParams` / `PolarStereoProjector` in `fieldglass-core::projection` implement the sphere polar-aspect formulas (Snyder USGS PP-1395 §21, true scale fixed at 60° per GRIB convention) with both north- and south-pole orientations. The napi `MessageMeta` surface gains `polarStereoLov` / `polarStereoDxMetres` / `polarStereoDyMetres` / `polarStereoSouthPole` fields populated from the GRIB1 §3 GDS. Warp setup detects when the projection pole falls inside the grid extent and expands the equirectangular bounds to the full 360° of longitude (clamping latitude to the relevant pole) so hemispheric grids render correctly. GRIB2 §3.20 polar stereographic templates remain pending the §3 template-coverage track under #70.
+
 ## [0.1.2] — 2026-05-17
 
 Third pre-release. GRIB2 moves from "header-only" to full §0–§7 parsing plus simple-packing value decode; the render panel gains a projection picker, a Rust-side render pipeline (reader handles, paint-ready RGBA, viridis colormap entirely in Rust), and a webview wire-format fix that restores the canvas painting end-to-end.

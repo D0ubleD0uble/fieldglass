@@ -19,8 +19,9 @@ pub use metadata::Metadata;
 pub use metadata::Parameter;
 pub use projection::{
     GaussianParams, GaussianProjector, GridIndex, LambertParams, LambertProjector, LatLonParams,
-    gaussian_inverse, gaussian_latitudes, lambert_forward, lambert_inverse, lambert_inverse_xy,
-    latlon_inverse,
+    PolarStereoParams, PolarStereoProjector, gaussian_inverse, gaussian_latitudes, lambert_forward,
+    lambert_inverse, lambert_inverse_xy, latlon_inverse, polar_stereo_forward,
+    polar_stereo_inverse, polar_stereo_inverse_xy,
 };
 pub use reader::DataMessage;
 pub use reader::FormatReader;
