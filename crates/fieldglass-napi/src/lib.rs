@@ -1229,25 +1229,15 @@ fn warp_message(
             let (lat_min, lat_max, lon_min, lon_max) =
                 resolve_box_extent(bbox_thunk, bounds_override);
             let merc = WebMercator::new(ni, nj, lat_min, lat_max, lon_min, lon_max);
-            let used = (merc.lat_min, merc.lat_max, merc.lon_min, merc.lon_max);
+            let used = merc.extent();
             (warp(&source, &merc, resampling), Some(used))
         }
         WarpTarget::Orthographic { lat0, lon0 } => {
-            let ortho = Orthographic {
-                width: ni,
-                height: nj,
-                lat0,
-                lon0,
-            };
+            let ortho = Orthographic::new(ni, nj, lat0, lon0);
             (warp(&source, &ortho, resampling), None)
         }
         WarpTarget::PolarStereographic { south_pole, lon0 } => {
-            let ps = PolarStereographic {
-                width: ni,
-                height: nj,
-                south_pole,
-                lon0,
-            };
+            let ps = PolarStereographic::new(ni, nj, south_pole, lon0);
             (warp(&source, &ps, resampling), None)
         }
     };

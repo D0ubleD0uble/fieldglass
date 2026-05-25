@@ -241,17 +241,18 @@ fn mercator_lat(y: f64) -> f64 {
 /// diverges at the poles.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct WebMercator {
-    pub width: u32,
-    pub height: u32,
-    pub lat_min: f64,
-    pub lat_max: f64,
-    pub lon_min: f64,
-    pub lon_max: f64,
+    width: u32,
+    height: u32,
+    lat_min: f64,
+    lat_max: f64,
+    lon_min: f64,
+    lon_max: f64,
 }
 
 impl WebMercator {
     /// Build a Web Mercator target, clamping the latitude extent into the
-    /// projection's valid band so the Y transform stays finite.
+    /// projection's valid band so the Y transform stays finite. Fields are
+    /// private so the clamp can't be bypassed with a struct literal.
     pub fn new(
         width: u32,
         height: u32,
@@ -268,6 +269,13 @@ impl WebMercator {
             lon_min,
             lon_max,
         }
+    }
+
+    /// The clamped lat/lon-box extent actually rendered, as
+    /// `(lat_min, lat_max, lon_min, lon_max)` — echoed back so a UI can
+    /// pre-fill the manual-bounds inputs with the post-clamp band.
+    pub fn extent(&self) -> (f64, f64, f64, f64) {
+        (self.lat_min, self.lat_max, self.lon_min, self.lon_max)
     }
 }
 
@@ -317,10 +325,25 @@ impl PreparedTarget for WebMercatorPrepared {
 /// `None`. Inverse map per Snyder, PP-1395 §20 (sphere), eqs 20-14/20-18.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Orthographic {
-    pub width: u32,
-    pub height: u32,
-    pub lat0: f64,
-    pub lon0: f64,
+    width: u32,
+    height: u32,
+    lat0: f64,
+    lon0: f64,
+}
+
+impl Orthographic {
+    /// Build an orthographic target centred on `(lat0, lon0)`. `lat0` is
+    /// clamped to `[-90, 90]` so the centre trig stays well-defined; any
+    /// `lon0` is fine (the inverse normalises longitude downstream). Fields
+    /// are private so the clamp can't be bypassed with a struct literal.
+    pub fn new(width: u32, height: u32, lat0: f64, lon0: f64) -> Self {
+        Self {
+            width,
+            height,
+            lat0: lat0.clamp(-90.0, 90.0),
+            lon0,
+        }
+    }
 }
 
 /// Hoisted orthographic map: the projection-centre trig (`sin φ₀`,
@@ -392,12 +415,27 @@ impl PreparedTarget for OrthographicPrepared {
 /// PP-1395 §21, sphere, polar aspect).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PolarStereographic {
-    pub width: u32,
-    pub height: u32,
+    width: u32,
+    height: u32,
     /// `true` ⇒ south-pole-centred; `false` ⇒ north-pole-centred.
-    pub south_pole: bool,
+    south_pole: bool,
     /// Orientation longitude pointing toward the bottom edge, degrees.
-    pub lon0: f64,
+    lon0: f64,
+}
+
+impl PolarStereographic {
+    /// Build a polar stereographic target centred on the chosen pole.
+    /// `lon0` orients the meridian toward the bottom edge; any value is
+    /// fine. Fields are private to keep construction symmetric with the
+    /// other targets (validated, single entry point).
+    pub fn new(width: u32, height: u32, south_pole: bool, lon0: f64) -> Self {
+        Self {
+            width,
+            height,
+            south_pole,
+            lon0,
+        }
+    }
 }
 
 /// Hoisted polar stereographic map: the hemisphere `sign`, orientation
@@ -773,15 +811,11 @@ mod tests {
         // Poles are outside Web Mercator's domain — `new` must pull the
         // extent into the valid band rather than producing infinite Y.
         let t = WebMercator::new(4, 4, -90.0, 90.0, -180.0, 180.0);
+        let (lat_min, lat_max, ..) = t.extent();
+        assert!(lat_max < 85.06 && lat_max > 85.05, "clamped max {lat_max}");
         assert!(
-            t.lat_max < 85.06 && t.lat_max > 85.05,
-            "clamped max {}",
-            t.lat_max
-        );
-        assert!(
-            t.lat_min > -85.06 && t.lat_min < -85.05,
-            "clamped min {}",
-            t.lat_min
+            lat_min > -85.06 && lat_min < -85.05,
+            "clamped min {lat_min}"
         );
         // Every pixel must produce a finite (lat, lon).
         for py in 0..4 {
@@ -844,26 +878,26 @@ mod tests {
     #[test]
     fn orthographic_centre_pixel_is_projection_centre() {
         // Odd dims so a pixel lands exactly on the disc centre.
-        let t = Orthographic {
-            width: 5,
-            height: 5,
-            lat0: 30.0,
-            lon0: -45.0,
-        };
+        let t = Orthographic::new(5, 5, 30.0, -45.0);
         let (lat, lon) = t.pixel_to_lonlat(2, 2).expect("centre on disc");
         assert!(near(lat, 30.0, 1e-9), "centre lat {lat}");
         assert!(near(lon, -45.0, 1e-9), "centre lon {lon}");
     }
 
     #[test]
+    fn orthographic_new_clamps_centre_latitude() {
+        // An out-of-range centre latitude is pulled to the pole rather than
+        // feeding a nonsensical value into the centre trig. Centre pixel of an
+        // odd raster sits exactly at the (clamped) centre.
+        let t = Orthographic::new(3, 3, 120.0, 10.0);
+        let (lat, _) = t.pixel_to_lonlat(1, 1).expect("centre");
+        assert!(near(lat, 90.0, 1e-9), "clamped centre lat {lat}");
+    }
+
+    #[test]
     fn orthographic_corners_are_off_disc() {
         // The square's corners sit at radius √2 > 1 — the back of the globe.
-        let t = Orthographic {
-            width: 8,
-            height: 8,
-            lat0: 0.0,
-            lon0: 0.0,
-        };
+        let t = Orthographic::new(8, 8, 0.0, 0.0);
         assert!(t.pixel_to_lonlat(0, 0).is_none(), "TL corner off-disc");
         assert!(t.pixel_to_lonlat(7, 7).is_none(), "BR corner off-disc");
         // An interior pixel near the disc centre is on the globe.
@@ -878,12 +912,8 @@ mod tests {
         // Forward-project a few points on the visible hemisphere into the
         // unit disc, convert to the nearest pixel of a fine raster, and
         // confirm the inverse lands back near the original (lat, lon).
-        let t = Orthographic {
-            width: 1001,
-            height: 1001,
-            lat0: 40.0,
-            lon0: 10.0,
-        };
+        let t = Orthographic::new(1001, 1001, 40.0, 10.0);
+        let (w, h) = t.dims();
         let (lat0, lon0) = (40.0_f64.to_radians(), 10.0_f64.to_radians());
         for (lat_d, lon_d) in [(40.0_f64, 10.0_f64), (55.0, 25.0), (20.0, -10.0)] {
             let (lat, lon) = (lat_d.to_radians(), lon_d.to_radians());
@@ -891,8 +921,8 @@ mod tests {
             let x = lat.cos() * (lon - lon0).sin();
             let y = lat0.cos() * lat.sin() - lat0.sin() * lat.cos() * (lon - lon0).cos();
             // Disc → pixel (north-up): invert `pixel_unit_coord`.
-            let px = ((x + 1.0) / 2.0 * (t.width as f64 - 1.0)).round() as u32;
-            let py = ((1.0 - y) / 2.0 * (t.height as f64 - 1.0)).round() as u32;
+            let px = ((x + 1.0) / 2.0 * (w as f64 - 1.0)).round() as u32;
+            let py = ((1.0 - y) / 2.0 * (h as f64 - 1.0)).round() as u32;
             let (rlat, rlon) = t.pixel_to_lonlat(px, py).expect("on disc");
             assert!(near(rlat, lat_d, 0.1), "lat {lat_d} → {rlat}");
             assert!(near(rlon, lon_d, 0.1), "lon {lon_d} → {rlon}");
@@ -901,30 +931,17 @@ mod tests {
 
     #[test]
     fn polar_stereographic_centre_is_the_pole() {
-        let north = PolarStereographic {
-            width: 5,
-            height: 5,
-            south_pole: false,
-            lon0: 0.0,
-        };
+        let north = PolarStereographic::new(5, 5, false, 0.0);
         let (lat, _) = north.pixel_to_lonlat(2, 2).expect("pole");
         assert!(near(lat, 90.0, 1e-9), "north centre lat {lat}");
-        let south = PolarStereographic {
-            south_pole: true,
-            ..north
-        };
+        let south = PolarStereographic::new(5, 5, true, 0.0);
         let (lat, _) = south.pixel_to_lonlat(2, 2).expect("pole");
         assert!(near(lat, -90.0, 1e-9), "south centre lat {lat}");
     }
 
     #[test]
     fn polar_stereographic_rim_is_the_equator_and_beyond_is_none() {
-        let t = PolarStereographic {
-            width: 101,
-            height: 101,
-            south_pole: false,
-            lon0: 0.0,
-        };
+        let t = PolarStereographic::new(101, 101, false, 0.0);
         // Rightmost-centre pixel sits on the disc rim → equator (lat ≈ 0).
         let (lat, _) = t.pixel_to_lonlat(100, 50).expect("rim on disc");
         assert!(near(lat, 0.0, 1e-6), "rim lat {lat}");
@@ -945,12 +962,7 @@ mod tests {
             lon_last: 180.0,
         });
         let source = make_source(&p, &cell);
-        let target = PolarStereographic {
-            width: 32,
-            height: 32,
-            south_pole: false,
-            lon0: 0.0,
-        };
+        let target = PolarStereographic::new(32, 32, false, 0.0);
         let out = warp(&source, &target, Resampling::Nearest);
         let present = out.mask.iter().filter(|&&m| m == 1).count();
         assert!(
