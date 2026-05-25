@@ -84,6 +84,15 @@ pub struct WarpedRaster {
 /// valid domain (e.g. the back hemisphere of an orthographic globe, or
 /// the corners of a polar-stereographic disc), which the warp leaves
 /// masked. Row `0` is the north / top edge by convention.
+///
+/// **Inverse-only, by design.** The warp is the only consumer today and it
+/// only ever needs pixel → `(lat, lon)`, so the forward map `(lat, lon)` →
+/// pixel is intentionally absent rather than carried unused. The coastline /
+/// graticule overlay (#72) is the first consumer that *will* need the
+/// forward direction — to project polyline vertices onto the warped raster —
+/// and should extend this trait with a `lonlat_to_pixel` (returning `None`
+/// off the visible disc) at that point, shaped to that consumer's batching
+/// needs rather than guessed at here.
 pub trait TargetProjection {
     /// The loop-invariant precomputed form, built once per warp.
     type Prepared: PreparedTarget;
@@ -228,7 +237,7 @@ fn mercator_lat(y: f64) -> f64 {
 /// Web Mercator target. Longitude is linear across the output width (as in
 /// equirectangular); latitude is linear in the Mercator Y coordinate, so
 /// rows bunch toward the poles the way every web-map tile does. The `lat`
-/// extent is clamped to `±`[`WEB_MERCATOR_MAX_LAT`] — the projection
+/// extent is clamped to the `±85.0511°` valid band — the projection
 /// diverges at the poles.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct WebMercator {
