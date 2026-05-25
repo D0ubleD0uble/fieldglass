@@ -26,6 +26,13 @@ const RAD2DEG: f64 = 180.0 / PI;
 /// of `x`. Targets clamp their `lat` extent to this band.
 const WEB_MERCATOR_MAX_LAT: f64 = 85.051_128_779_806_59;
 
+/// Stereographic radius of the equator on the unit sphere: `ρ =
+/// 2·tan(π/4 - φ/2)` gives `ρ = 2` at `φ = 0`. The polar-stereographic
+/// target maps its disc rim to this radius so the equator lands on the
+/// rim, and inverts the same constant to recover latitude — the two uses
+/// are the same number and must move together.
+const POLAR_STEREO_EQUATOR_RHO: f64 = 2.0;
+
 /// Resampling method when warping into the output raster.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Resampling {
@@ -467,16 +474,16 @@ impl TargetProjection for PolarStereographic {
 
 impl PreparedTarget for PolarStereographicPrepared {
     fn pixel_to_lonlat(&self, px: u32, py: u32) -> Option<(f64, f64)> {
-        // Disc scaled so the equator (ρ = 2) sits at the rim.
-        let x = pixel_unit_coord(px, self.width) * 2.0;
-        let y = -pixel_unit_coord(py, self.height) * 2.0;
+        // Disc scaled so the equator sits at the rim (ρ = the equator radius).
+        let x = pixel_unit_coord(px, self.width) * POLAR_STEREO_EQUATOR_RHO;
+        let y = -pixel_unit_coord(py, self.height) * POLAR_STEREO_EQUATOR_RHO;
         let rho = (x * x + y * y).sqrt();
         let sign = self.sign;
         if rho == 0.0 {
             return Some((sign * 90.0, self.lon0));
         }
-        // ρ = 2·tan(c/2) ⇒ c = 2·atan(ρ/2); latitude = pole − c.
-        let c = 2.0 * (rho / 2.0).atan();
+        // ρ = ρ_eq·tan(c/2) ⇒ c = 2·atan(ρ/ρ_eq); latitude = pole − c.
+        let c = 2.0 * (rho / POLAR_STEREO_EQUATOR_RHO).atan();
         let lat = sign * (PI / 2.0 - c) * RAD2DEG;
         if sign > 0.0 && lat < 0.0 || sign < 0.0 && lat > 0.0 {
             return None; // Past the equator — the far hemisphere.
@@ -947,6 +954,25 @@ mod tests {
         assert!(near(lat, 0.0, 1e-6), "rim lat {lat}");
         // The square's corner is past the rim (far hemisphere) → None.
         assert!(t.pixel_to_lonlat(0, 0).is_none(), "corner past equator");
+    }
+
+    #[test]
+    fn polar_stereographic_lon0_is_a_pure_rotation() {
+        // `lon0` orients the disc by rotating every output longitude by a
+        // constant offset, leaving latitude untouched. Guards the otherwise
+        // preset-pinned orientation parameter (presets only ever pass 0).
+        const L: f64 = 30.0;
+        for south_pole in [false, true] {
+            let base = PolarStereographic::new(101, 101, south_pole, 0.0);
+            let rotated = PolarStereographic::new(101, 101, south_pole, L);
+            for (px, py) in [(50u32, 30u32), (70, 60), (40, 80)] {
+                let (lat0, lon0) = base.pixel_to_lonlat(px, py).expect("on disc");
+                let (lat1, lon1) = rotated.pixel_to_lonlat(px, py).expect("on disc");
+                assert!(near(lat0, lat1, 1e-9), "lat must be unaffected by lon0");
+                let delta = ((lon1 - lon0 + 180.0).rem_euclid(360.0)) - 180.0;
+                assert!(near(delta, L, 1e-6), "south_pole={south_pole} Δlon {delta}");
+            }
+        }
     }
 
     #[test]

@@ -877,7 +877,7 @@ fn decoded_grid_from(raw: &[Option<f64>], width: u32, height: u32) -> DecodedGri
 /// silently falling to defaults on a typo.
 #[cfg_attr(test, derive(Debug))]
 struct ResolvedOptions {
-    projection: TargetProjection,
+    projection: TargetKind,
     resampling: Resampling,
     flip_y: bool,
     range_min: Option<f64>,
@@ -885,8 +885,12 @@ struct ResolvedOptions {
     bounds: Option<RenderBounds>,
 }
 
+/// What the picker's `projection` string resolved to. Named `TargetKind`
+/// rather than `TargetProjection` to avoid colliding with the core
+/// `fieldglass_core::TargetProjection` *trait* — this is the napi-side
+/// dispatch enum, not the per-target math.
 #[cfg_attr(test, derive(Debug))]
-enum TargetProjection {
+enum TargetKind {
     /// Paint the source grid unchanged (no warp).
     Source,
     /// Inverse-warp into one of the geographic targets.
@@ -933,13 +937,11 @@ impl ResolvedOptions {
     fn parse(options: &RenderOptions) -> napi::Result<Self> {
         let preset = options.projection_preset.as_deref();
         let projection = match options.projection.as_str() {
-            "source" => TargetProjection::Source,
-            "equirectangular" => TargetProjection::Warp(WarpTarget::Equirectangular),
-            "web_mercator" => TargetProjection::Warp(WarpTarget::WebMercator),
-            "orthographic" => TargetProjection::Warp(orthographic_from_preset(preset)),
-            "polar_stereographic" => {
-                TargetProjection::Warp(polar_stereographic_from_preset(preset))
-            }
+            "source" => TargetKind::Source,
+            "equirectangular" => TargetKind::Warp(WarpTarget::Equirectangular),
+            "web_mercator" => TargetKind::Warp(WarpTarget::WebMercator),
+            "orthographic" => TargetKind::Warp(orthographic_from_preset(preset)),
+            "polar_stereographic" => TargetKind::Warp(polar_stereographic_from_preset(preset)),
             other => {
                 return Err(napi::Error::from_reason(format!(
                     "unknown projection {other:?} (expected \"source\", \"equirectangular\", \
@@ -1012,8 +1014,8 @@ fn render_with_options(
 ) -> napi::Result<RenderedGrid> {
     let resolved = ResolvedOptions::parse(options)?;
     let (values, mask, width, height, used_bounds, summary) = match resolved.projection {
-        TargetProjection::Source => paint_source(meta, raw)?,
-        TargetProjection::Warp(target) => {
+        TargetKind::Source => paint_source(meta, raw)?,
+        TargetKind::Warp(target) => {
             warp_message(meta, raw, target, resolved.resampling, resolved.bounds)?
         }
     };
@@ -1474,33 +1476,33 @@ mod resolved_options_tests {
     #[test]
     fn parses_valid_combinations() {
         let r = ResolvedOptions::parse(&opts("source", "nearest")).expect("source/nearest");
-        assert!(matches!(r.projection, TargetProjection::Source));
+        assert!(matches!(r.projection, TargetKind::Source));
         assert_eq!(r.resampling, Resampling::Nearest);
 
         let r = ResolvedOptions::parse(&opts("equirectangular", "bilinear")).expect("eqr/bilinear");
         assert!(matches!(
             r.projection,
-            TargetProjection::Warp(WarpTarget::Equirectangular)
+            TargetKind::Warp(WarpTarget::Equirectangular)
         ));
         assert_eq!(r.resampling, Resampling::Bilinear);
 
         let r = ResolvedOptions::parse(&opts("web_mercator", "nearest")).expect("merc/nearest");
         assert!(matches!(
             r.projection,
-            TargetProjection::Warp(WarpTarget::WebMercator)
+            TargetKind::Warp(WarpTarget::WebMercator)
         ));
 
         // Azimuthal targets resolve their preset into concrete parameters.
         let r = ResolvedOptions::parse(&opts("orthographic", "nearest")).expect("ortho/nearest");
         assert!(matches!(
             r.projection,
-            TargetProjection::Warp(WarpTarget::Orthographic { lat0, lon0 }) if lat0 == 0.0 && lon0 == 0.0
+            TargetKind::Warp(WarpTarget::Orthographic { lat0, lon0 }) if lat0 == 0.0 && lon0 == 0.0
         ));
         let r =
             ResolvedOptions::parse(&opts("polar_stereographic", "nearest")).expect("polar/nearest");
         assert!(matches!(
             r.projection,
-            TargetProjection::Warp(WarpTarget::PolarStereographic {
+            TargetKind::Warp(WarpTarget::PolarStereographic {
                 south_pole: false,
                 ..
             })
@@ -1513,18 +1515,18 @@ mod resolved_options_tests {
         o.projection_preset = Some("pacific".to_string());
         assert!(matches!(
             ResolvedOptions::parse(&o).unwrap().projection,
-            TargetProjection::Warp(WarpTarget::Orthographic { lat0, lon0 }) if lat0 == 0.0 && lon0 == 180.0
+            TargetKind::Warp(WarpTarget::Orthographic { lat0, lon0 }) if lat0 == 0.0 && lon0 == 180.0
         ));
         o.projection_preset = Some("north_pole".to_string());
         assert!(matches!(
             ResolvedOptions::parse(&o).unwrap().projection,
-            TargetProjection::Warp(WarpTarget::Orthographic { lat0, .. }) if lat0 == 90.0
+            TargetKind::Warp(WarpTarget::Orthographic { lat0, .. }) if lat0 == 90.0
         ));
         // Unknown preset falls back to the Atlantic default.
         o.projection_preset = Some("nonsense".to_string());
         assert!(matches!(
             ResolvedOptions::parse(&o).unwrap().projection,
-            TargetProjection::Warp(WarpTarget::Orthographic { lat0, lon0 }) if lat0 == 0.0 && lon0 == 0.0
+            TargetKind::Warp(WarpTarget::Orthographic { lat0, lon0 }) if lat0 == 0.0 && lon0 == 0.0
         ));
     }
 
@@ -1534,7 +1536,7 @@ mod resolved_options_tests {
         o.projection_preset = Some("south".to_string());
         assert!(matches!(
             ResolvedOptions::parse(&o).unwrap().projection,
-            TargetProjection::Warp(WarpTarget::PolarStereographic {
+            TargetKind::Warp(WarpTarget::PolarStereographic {
                 south_pole: true,
                 ..
             })
