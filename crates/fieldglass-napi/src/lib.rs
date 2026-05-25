@@ -1163,12 +1163,6 @@ impl WarpTarget {
             WarpTarget::PolarStereographic { .. } => "polar stereographic",
         }
     }
-
-    /// `true` for the lat/lon-box targets — the only ones that accept a
-    /// manual lat/lon window and report a geographic extent.
-    fn is_lonlat_box(self) -> bool {
-        matches!(self, WarpTarget::Equirectangular | WarpTarget::WebMercator)
-    }
 }
 
 #[allow(clippy::type_complexity)]
@@ -1189,7 +1183,7 @@ fn warp_message(
     };
     let sample_ref: &dyn Fn(usize, usize) -> Option<f64> = &sample;
 
-    let (mut target, inverse_boxed) = match kind {
+    let (inverse_boxed, bbox_thunk) = match kind {
         "latlon" => latlon_warp_setup(meta, ni, nj)?,
         "gaussian" => gaussian_warp_setup(meta, ni, nj)?,
         "lambert" => lambert_warp_setup(meta, ni, nj)?,
@@ -1201,17 +1195,6 @@ fn warp_message(
         }
     };
 
-    // Apply the caller's window over the computed default extent. The inverse
-    // closure is independent of the target raster, so swapping bounds just
-    // re-samples the same source through a different output window. Only the
-    // lat/lon-box targets take a window; the azimuthal targets ignore it.
-    if let (Some(b), true) = (bounds_override, target_kind.is_lonlat_box()) {
-        target.lat_min = b.lat_min;
-        target.lat_max = b.lat_max;
-        target.lon_min = b.lon_min;
-        target.lon_max = b.lon_max;
-    }
-
     let inverse_ref: &dyn Fn(f64, f64) -> Option<GridIndex> = inverse_boxed.as_ref();
     let source = SourceGrid {
         ni,
@@ -1221,35 +1204,38 @@ fn warp_message(
     };
     // Every target samples the same source through the same inverse map and
     // output dims; they differ only in the pixel→(lat, lon) distribution. The
-    // lat/lon-box targets echo their geographic extent (Web Mercator's is
-    // clamped to the Mercator band); the azimuthal targets fit a disc to the
-    // raster and have no box extent to report.
+    // lat/lon-box targets resolve a geographic extent (the lazy `bbox_thunk`,
+    // possibly windowed) and echo it back; the azimuthal targets fit a disc to
+    // the raster, so they never invoke the thunk — skipping the perimeter-walk
+    // bbox for planar sources — and report no box extent.
     let (warped, used_bounds) = match target_kind {
         WarpTarget::Equirectangular => {
-            let used = (
-                target.lat_min,
-                target.lat_max,
-                target.lon_min,
-                target.lon_max,
-            );
-            (warp(&source, &target, resampling), Some(used))
+            let (lat_min, lat_max, lon_min, lon_max) =
+                resolve_box_extent(bbox_thunk, bounds_override);
+            let target = TargetRaster {
+                width: ni,
+                height: nj,
+                lat_max,
+                lat_min,
+                lon_min,
+                lon_max,
+            };
+            (
+                warp(&source, &target, resampling),
+                Some((lat_min, lat_max, lon_min, lon_max)),
+            )
         }
         WarpTarget::WebMercator => {
-            let merc = WebMercator::new(
-                target.width,
-                target.height,
-                target.lat_min,
-                target.lat_max,
-                target.lon_min,
-                target.lon_max,
-            );
+            let (lat_min, lat_max, lon_min, lon_max) =
+                resolve_box_extent(bbox_thunk, bounds_override);
+            let merc = WebMercator::new(ni, nj, lat_min, lat_max, lon_min, lon_max);
             let used = (merc.lat_min, merc.lat_max, merc.lon_min, merc.lon_max);
             (warp(&source, &merc, resampling), Some(used))
         }
         WarpTarget::Orthographic { lat0, lon0 } => {
             let ortho = Orthographic {
-                width: target.width,
-                height: target.height,
+                width: ni,
+                height: nj,
                 lat0,
                 lon0,
             };
@@ -1257,8 +1243,8 @@ fn warp_message(
         }
         WarpTarget::PolarStereographic { south_pole, lon0 } => {
             let ps = PolarStereographic {
-                width: target.width,
-                height: target.height,
+                width: ni,
+                height: nj,
                 south_pole,
                 lon0,
             };
@@ -1286,7 +1272,29 @@ fn warp_message(
 
 // --- Per-template warp-setup helpers ---------------------------------------
 
-type WarpSetup = (TargetRaster, Box<dyn Fn(f64, f64) -> Option<GridIndex>>);
+/// Lazily computes the source grid's `(lat_min, lat_max, lon_min, lon_max)`
+/// extent. Deferred behind a thunk because the planar sources (Lambert,
+/// polar stereographic) derive it from a 512-point-per-edge perimeter walk
+/// that the azimuthal targets don't need — only the lat/lon-box targets
+/// invoke it.
+type BboxThunk = Box<dyn FnOnce() -> (f64, f64, f64, f64)>;
+
+/// `(inverse map, lazy lat/lon-box extent)`. The inverse closure owns a
+/// projector with its constants precomputed once; the bbox thunk builds its
+/// own throwaway projector only if a lat/lon-box target calls it.
+type WarpSetup = (Box<dyn Fn(f64, f64) -> Option<GridIndex>>, BboxThunk);
+
+/// Resolve the lat/lon-box extent for a box target: the source bbox from the
+/// thunk, replaced wholesale by the caller's manual window when present.
+fn resolve_box_extent(
+    bbox: BboxThunk,
+    bounds_override: Option<RenderBounds>,
+) -> (f64, f64, f64, f64) {
+    match bounds_override {
+        Some(b) => (b.lat_min, b.lat_max, b.lon_min, b.lon_max),
+        None => bbox(),
+    }
+}
 
 fn latlon_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
     let p = LatLonParams {
@@ -1297,17 +1305,17 @@ fn latlon_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpS
         lat_last: require_f64(meta.lat_last, "latLast")?,
         lon_last: require_f64(meta.lon_last, "lonLast")?,
     };
-    let target = TargetRaster {
-        width: ni,
-        height: nj,
-        lat_max: p.lat_first.max(p.lat_last),
-        lat_min: p.lat_first.min(p.lat_last),
-        lon_min: p.lon_first.min(p.lon_last),
-        lon_max: p.lon_first.max(p.lon_last),
-    };
     let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
         Box::new(move |lat, lon| latlon_inverse(&p, lat, lon));
-    Ok((target, inverse))
+    let bbox: BboxThunk = Box::new(move || {
+        (
+            p.lat_first.min(p.lat_last),
+            p.lat_first.max(p.lat_last),
+            p.lon_first.min(p.lon_last),
+            p.lon_first.max(p.lon_last),
+        )
+    });
+    Ok((inverse, bbox))
 }
 
 fn gaussian_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
@@ -1324,20 +1332,20 @@ fn gaussian_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<War
         lon_last: require_f64(meta.lon_last, "lonLast")?,
         n_parallels,
     };
-    let target = TargetRaster {
-        width: ni,
-        height: nj,
-        lat_max: p.lat_first.max(p.lat_last),
-        lat_min: p.lat_first.min(p.lat_last),
-        lon_min: p.lon_first.min(p.lon_last),
-        lon_max: p.lon_first.max(p.lon_last),
-    };
     // `GaussianProjector` caches the row-ordered Gauss-Legendre lats
     // once; the inverse closure reuses it for every pixel.
     let projector = GaussianProjector::new(p);
     let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
         Box::new(move |lat, lon| projector.inverse(lat, lon));
-    Ok((target, inverse))
+    let bbox: BboxThunk = Box::new(move || {
+        (
+            p.lat_first.min(p.lat_last),
+            p.lat_first.max(p.lat_last),
+            p.lon_first.min(p.lon_last),
+            p.lon_first.max(p.lon_last),
+        )
+    });
+    Ok((inverse, bbox))
 }
 
 fn lambert_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
@@ -1354,22 +1362,15 @@ fn lambert_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<Warp
         latin2: require_f64(meta.lambert_latin2, "lambertLatin2")?,
     };
 
-    // `LambertProjector` precomputes the cone constants + origin once.
+    // `LambertProjector` precomputes the cone constants + origin once for the
+    // inverse closure. The bbox thunk builds its own throwaway projector only
+    // when a box target needs the antimeridian-aware perimeter bbox (see
+    // `PlanarGridProjector::lonlat_bbox`).
     let projector = LambertProjector::new(p);
-    // Target bounds = antimeridian-aware bounding box of the four grid
-    // corners in lat/lon (see `PlanarGridProjector::lonlat_bbox`).
-    let (lat_min, lat_max, lon_min, lon_max) = projector.lonlat_bbox();
-    let target = TargetRaster {
-        width: ni,
-        height: nj,
-        lat_max,
-        lat_min,
-        lon_min,
-        lon_max,
-    };
     let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
         Box::new(move |lat, lon| projector.inverse(lat, lon));
-    Ok((target, inverse))
+    let bbox: BboxThunk = Box::new(move || LambertProjector::new(p).lonlat_bbox());
+    Ok((inverse, bbox))
 }
 
 fn polar_stereo_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
@@ -1387,33 +1388,29 @@ fn polar_stereo_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result
     };
 
     let projector = PolarStereoProjector::new(p);
-    let pole_inside = projector.pole_inside_grid();
-    // Antimeridian-aware bbox of the four grid corners (same shape as
-    // `lambert_warp_setup`). When the projection pole falls inside the grid,
-    // every meridian is represented and the four-corner bbox is wrong: we
-    // override longitude to the full 360° and clamp latitude to the relevant
-    // pole.
-    let (mut lat_min, mut lat_max, mut lon_min, mut lon_max) = projector.lonlat_bbox();
-    if pole_inside {
-        lon_min = -180.0;
-        lon_max = 180.0;
-        if p.south_pole {
-            lat_min = -90.0;
-        } else {
-            lat_max = 90.0;
-        }
-    }
-    let target = TargetRaster {
-        width: ni,
-        height: nj,
-        lat_max,
-        lat_min,
-        lon_min,
-        lon_max,
-    };
     let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
         Box::new(move |lat, lon| projector.inverse(lat, lon));
-    Ok((target, inverse))
+    // Antimeridian-aware bbox of the four grid corners (same shape as
+    // `lambert_warp_setup`). When the projection pole falls inside the grid,
+    // every meridian is represented and the four-corner bbox is wrong: override
+    // longitude to the full 360° and clamp latitude to the relevant pole. Built
+    // lazily — only a box target invokes it.
+    let bbox: BboxThunk = Box::new(move || {
+        let projector = PolarStereoProjector::new(p);
+        let pole_inside = projector.pole_inside_grid();
+        let (mut lat_min, mut lat_max, mut lon_min, mut lon_max) = projector.lonlat_bbox();
+        if pole_inside {
+            lon_min = -180.0;
+            lon_max = 180.0;
+            if p.south_pole {
+                lat_min = -90.0;
+            } else {
+                lat_max = 90.0;
+            }
+        }
+        (lat_min, lat_max, lon_min, lon_max)
+    });
+    Ok((inverse, bbox))
 }
 
 fn grid_ni(meta: &MessageMeta) -> napi::Result<u32> {
