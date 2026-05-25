@@ -75,6 +75,25 @@ export function renderImagePanelHtml(
               options.rangeMax = max;
             }
           }
+          // Manual extent only applies to the equirectangular target. Send all
+          // four edges or none; the Rust side validates and falls back to the
+          // computed bounds for a partial/inverted box.
+          const bmode = document.querySelector('input[name="bounds-mode"]:checked');
+          if (projection === 'equirectangular' && bmode && bmode.value === 'manual') {
+            const laMin = Number((document.getElementById('bounds-lat-min') || {}).value);
+            const laMax = Number((document.getElementById('bounds-lat-max') || {}).value);
+            const loMin = Number((document.getElementById('bounds-lon-min') || {}).value);
+            const loMax = Number((document.getElementById('bounds-lon-max') || {}).value);
+            if (
+              Number.isFinite(laMin) && Number.isFinite(laMax) && laMax > laMin &&
+              Number.isFinite(loMin) && Number.isFinite(loMax) && loMax > loMin
+            ) {
+              options.boundsLatMin = laMin;
+              options.boundsLatMax = laMax;
+              options.boundsLonMin = loMin;
+              options.boundsLonMax = loMax;
+            }
+          }
           return options;
         }
 
@@ -119,6 +138,19 @@ export function renderImagePanelHtml(
           const maxIn = document.getElementById('range-max');
           if (minIn && !minIn.value) minIn.value = payload.usedMin.toPrecision(6);
           if (maxIn && !maxIn.value) maxIn.value = payload.usedMax.toPrecision(6);
+          // Pre-fill the manual-bounds inputs from the extent Rust actually
+          // used (only present for the equirectangular target). The empty
+          // guard means we never clobber a value the user has typed.
+          if (payload.usedLatMin !== undefined && payload.usedLatMin !== null) {
+            const fillBound = (id, v) => {
+              const el = document.getElementById(id);
+              if (el && !el.value) el.value = Number(v).toFixed(3);
+            };
+            fillBound('bounds-lat-min', payload.usedLatMin);
+            fillBound('bounds-lat-max', payload.usedLatMax);
+            fillBound('bounds-lon-min', payload.usedLonMin);
+            fillBound('bounds-lon-max', payload.usedLonMax);
+          }
         }
 
         function handleGridReady(msg) {
@@ -146,6 +178,18 @@ export function renderImagePanelHtml(
             });
           });
           ['range-min', 'range-max'].forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('change', requestRender);
+          });
+          document.querySelectorAll('input[name="bounds-mode"]').forEach((el) => {
+            el.addEventListener('change', () => {
+              const manual = document.getElementById('bounds-manual-fields');
+              const isManual = el.value === 'manual' && el.checked;
+              if (manual) manual.toggleAttribute('hidden', !isManual);
+              requestRender();
+            });
+          });
+          ['bounds-lat-min', 'bounds-lat-max', 'bounds-lon-min', 'bounds-lon-max'].forEach((id) => {
             const el = document.getElementById(id);
             if (el) el.addEventListener('change', requestRender);
           });
@@ -292,6 +336,17 @@ export function renderImagePanelHtml(
       <span id="range-manual-fields" hidden>
         <label>min <input type="number" id="range-min" step="any"></label>
         <label>max <input type="number" id="range-max" step="any"></label>
+      </span>
+    </fieldset>
+    <fieldset>
+      <legend>Bounds:</legend>
+      <label><input type="radio" name="bounds-mode" value="auto" checked> Auto</label>
+      <label><input type="radio" name="bounds-mode" value="manual"> Manual</label>
+      <span id="bounds-manual-fields" hidden>
+        <label>lat min <input type="number" id="bounds-lat-min" step="any"></label>
+        <label>lat max <input type="number" id="bounds-lat-max" step="any"></label>
+        <label>lon min <input type="number" id="bounds-lon-min" step="any"></label>
+        <label>lon max <input type="number" id="bounds-lon-max" step="any"></label>
       </span>
     </fieldset>
   </div>

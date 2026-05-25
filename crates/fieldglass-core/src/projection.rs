@@ -628,6 +628,125 @@ impl PolarStereoProjector {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Planar grids (Lambert, polar stereographic): shared corner geometry
+// ---------------------------------------------------------------------------
+
+/// A projection whose source grid lies on a plane in metres — a fixed origin
+/// at the first scanned point and constant `(dx, dy)` spacing. Lambert
+/// conformal and polar stereographic both qualify; lat/lon and Gaussian grids
+/// are already geographic and don't.
+///
+/// Implementors supply four cheap accessors; the trait derives the grid
+/// corners from them. This is the one geometry shared by every planar warp
+/// setup (target-bbox derivation) and by GRIB `bounds()` reporting, which
+/// otherwise reimplement `origin + (n-1)·d` per projection.
+pub trait PlanarGridProjector {
+    /// Grid origin (first scanned point) in projected metres.
+    fn grid_origin(&self) -> (f64, f64);
+    /// `(ni, nj)` grid dimensions in points.
+    fn grid_dims(&self) -> (u32, u32);
+    /// `(dx, dy)` spacing in metres at the latitude of true scale.
+    fn grid_spacing(&self) -> (f64, f64);
+    /// Inverse-project projected metres back to `(lat, lon)` in degrees.
+    fn inverse_lonlat(&self, x: f64, y: f64) -> (f64, f64);
+
+    /// The four grid corners in projected metres, ordered: origin, far-x
+    /// edge, far-y edge, opposite corner.
+    fn grid_corners_xy(&self) -> [(f64, f64); 4] {
+        let (ox, oy) = self.grid_origin();
+        let (ni, nj) = self.grid_dims();
+        let (dx, dy) = self.grid_spacing();
+        let ex = (ni as f64 - 1.0) * dx;
+        let ey = (nj as f64 - 1.0) * dy;
+        [(ox, oy), (ox + ex, oy), (ox, oy + ey), (ox + ex, oy + ey)]
+    }
+
+    /// The four grid corners as `(lat, lon)` in degrees. Longitudes are
+    /// returned as the inverse produces them (may fall outside [-180, 180]);
+    /// callers that need a normalised value should wrap it themselves.
+    fn grid_corners_lonlat(&self) -> [(f64, f64); 4] {
+        self.grid_corners_xy()
+            .map(|(x, y)| self.inverse_lonlat(x, y))
+    }
+
+    /// `(lat, lon)` of the last scanned grid point — the corner diagonally
+    /// opposite the origin. Same longitude caveat as [`Self::grid_corners_lonlat`].
+    fn last_grid_point_lonlat(&self) -> (f64, f64) {
+        self.grid_corners_lonlat()[3]
+    }
+
+    /// Axis-aligned lat/lon bounding box of the four grid corners, returned
+    /// as `(lat_min, lat_max, lon_min, lon_max)`.
+    ///
+    /// Longitudes are *unwrapped* relative to the first corner before the
+    /// min/max so a grid straddling the ±180° antimeridian yields a tight,
+    /// continuous span (e.g. `-183..-32`) instead of the spurious near-global
+    /// box that naive min/max produces when corners sit on both sides of the
+    /// dateline. The returned `lon_min` may be `< -180` (or `lon_max > 180`):
+    /// that is intentional — the warp consumes it through periodic trig, and
+    /// callers that need a display value can wrap it.
+    ///
+    /// The unwrap references a single corner, so it resolves spans up to 180°
+    /// of longitude. Grids whose azimuthal extent exceeds that necessarily
+    /// surround the projection pole; detect that with
+    /// [`PolarStereoProjector::pole_inside_grid`] and override to the full
+    /// 360° rather than relying on this box.
+    fn lonlat_bbox(&self) -> (f64, f64, f64, f64) {
+        let corners = self.grid_corners_lonlat();
+        let lon_ref = corners[0].1;
+        let mut lat_min = f64::INFINITY;
+        let mut lat_max = f64::NEG_INFINITY;
+        let mut lon_min = f64::INFINITY;
+        let mut lon_max = f64::NEG_INFINITY;
+        for (lat, lon) in corners {
+            lat_min = lat_min.min(lat);
+            lat_max = lat_max.max(lat);
+            let unwrapped = lon_ref + (((lon - lon_ref) + 180.0).rem_euclid(360.0) - 180.0);
+            lon_min = lon_min.min(unwrapped);
+            lon_max = lon_max.max(unwrapped);
+        }
+        // The raw inverse returns longitudes in `(lov-180, lov+180]`, so the
+        // unwrapped interval can sit far from zero (e.g. 177..328 for lov=249).
+        // Recenter it on [-180, 180] by shifting a whole number of turns so the
+        // midpoint is in range — preserves the (possibly antimeridian-spanning)
+        // span while keeping the reported bounds human-sensible.
+        let mid = (lon_min + lon_max) / 2.0;
+        let shift = ((mid + 180.0).rem_euclid(360.0) - 180.0) - mid;
+        (lat_min, lat_max, lon_min + shift, lon_max + shift)
+    }
+}
+
+impl PlanarGridProjector for LambertProjector {
+    fn grid_origin(&self) -> (f64, f64) {
+        self.origin
+    }
+    fn grid_dims(&self) -> (u32, u32) {
+        (self.params.ni, self.params.nj)
+    }
+    fn grid_spacing(&self) -> (f64, f64) {
+        (self.params.dx_metres, self.params.dy_metres)
+    }
+    fn inverse_lonlat(&self, x: f64, y: f64) -> (f64, f64) {
+        self.inverse_xy(x, y)
+    }
+}
+
+impl PlanarGridProjector for PolarStereoProjector {
+    fn grid_origin(&self) -> (f64, f64) {
+        self.origin
+    }
+    fn grid_dims(&self) -> (u32, u32) {
+        (self.params.ni, self.params.nj)
+    }
+    fn grid_spacing(&self) -> (f64, f64) {
+        (self.params.dx_metres, self.params.dy_metres)
+    }
+    fn inverse_lonlat(&self, x: f64, y: f64) -> (f64, f64) {
+        self.inverse_xy(x, y)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1055,5 +1174,59 @@ mod tests {
         // the bare projection (no false-easting / false-northing).
         assert!(near(x, 0.0, 1.0));
         assert!(near(y, 0.0, 1.0));
+    }
+
+    #[test]
+    fn lonlat_bbox_unwraps_antimeridian_crossing_grid() {
+        // The real CMC fixture (lov=249) has its `+y` corner at +177.2° while
+        // the other three are negative — the grid straddles the dateline.
+        // Naive min/max would give a ~312°-wide box; unwrapping must yield a
+        // tight, continuous span instead.
+        let proj = PolarStereoProjector::new(PolarStereoParams {
+            ni: 135,
+            nj: 95,
+            lat_first: 27.203,
+            lon_first: -135.213,
+            lov: 249.0,
+            dx_metres: 60_000.0,
+            dy_metres: 60_000.0,
+            south_pole: false,
+        });
+        let (lat_min, lat_max, lon_min, lon_max) = proj.lonlat_bbox();
+        assert!(near(lat_min, 19.945, 1e-2), "lat_min {lat_min}");
+        assert!(near(lat_max, 60.476, 1e-2), "lat_max {lat_max}");
+        // +177.2° unwraps to ≈ -182.8°, giving a continuous ~151° span rather
+        // than the spurious 312° box.
+        assert!(near(lon_min, -182.805, 1e-2), "lon_min {lon_min}");
+        assert!(near(lon_max, -31.933, 1e-2), "lon_max {lon_max}");
+        assert!(lon_max - lon_min < 180.0, "span should be tight");
+    }
+
+    #[test]
+    fn lonlat_bbox_non_crossing_grid_matches_naive_minmax() {
+        // CONUS Lambert grid: all corners well clear of the dateline, so the
+        // unwrap is a no-op and the box is the plain min/max of the corners.
+        let proj = LambertProjector::new(LambertParams {
+            ni: 601,
+            nj: 401,
+            lat_first: 38.5,
+            lon_first: -126.0,
+            lad: 38.5,
+            lov: -95.0,
+            dx_metres: 13_545.0,
+            dy_metres: 13_545.0,
+            latin1: 38.5,
+            latin2: 38.5,
+        });
+        let corners = proj.grid_corners_lonlat();
+        let (lat_min, lat_max, lon_min, lon_max) = proj.lonlat_bbox();
+        let naive_lon_min = corners.iter().map(|c| c.1).fold(f64::INFINITY, f64::min);
+        let naive_lon_max = corners
+            .iter()
+            .map(|c| c.1)
+            .fold(f64::NEG_INFINITY, f64::max);
+        assert!(near(lon_min, naive_lon_min, 1e-9), "lon_min {lon_min}");
+        assert!(near(lon_max, naive_lon_max, 1e-9), "lon_max {lon_max}");
+        assert!(lat_min < lat_max);
     }
 }

@@ -2,7 +2,8 @@
 
 use fieldglass_core::{
     Format, GaussianParams, GaussianProjector, LambertParams, LambertProjector, LatLonParams,
-    PolarStereoParams, PolarStereoProjector, Resampling, SourceGrid, TargetRaster,
+    PlanarGridProjector, PolarStereoParams, PolarStereoProjector, Resampling, SourceGrid,
+    TargetRaster,
     colormap::{min_max_ignoring_mask, paint_grid_rgba},
     detect_from_bytes, latlon_inverse,
     projection::GridIndex,
@@ -534,6 +535,17 @@ pub struct RenderOptions {
     /// computed min/max over the present cells.
     pub range_min: Option<f64>,
     pub range_max: Option<f64>,
+    /// Manual equirectangular extent override (degrees). Only consulted for
+    /// the `"equirectangular"` target. When all four are `Some` and form a
+    /// valid box (`lat_max > lat_min`, `lon_max > lon_min`) the warp renders
+    /// that window; otherwise it falls back to the computed source-grid bounds
+    /// (echoed back in [`RenderedGrid`] so a UI can pre-fill these inputs).
+    /// `lon_min`/`lon_max` may lie outside [-180, 180] to describe a window
+    /// that crosses the antimeridian.
+    pub bounds_lat_min: Option<f64>,
+    pub bounds_lat_max: Option<f64>,
+    pub bounds_lon_min: Option<f64>,
+    pub bounds_lon_max: Option<f64>,
 }
 
 /// Output of [`Grib1Handle::render_grid`] / [`Grib2Handle::render_grid`].
@@ -550,6 +562,15 @@ pub struct RenderedGrid {
     /// switches to manual mode.
     pub used_min: f64,
     pub used_max: f64,
+    /// Equirectangular extent actually rendered (degrees), echoed back so the
+    /// webview can pre-fill the manual-bounds inputs. `None` for the
+    /// source-projection target, which has no geographic extent. `lonMin`/
+    /// `lonMax` may fall outside [-180, 180] for an antimeridian-spanning
+    /// window — pass them back verbatim to reproduce the same view.
+    pub used_lat_min: Option<f64>,
+    pub used_lat_max: Option<f64>,
+    pub used_lon_min: Option<f64>,
+    pub used_lon_max: Option<f64>,
     /// Human-readable summary of the source→target projection chain,
     /// e.g. `"lambert → equirectangular (nearest)"`.
     pub projection_summary: String,
@@ -855,12 +876,49 @@ struct ResolvedOptions {
     flip_y: bool,
     range_min: Option<f64>,
     range_max: Option<f64>,
+    bounds: Option<RenderBounds>,
 }
 
 #[cfg_attr(test, derive(Debug))]
 enum TargetProjection {
     Source,
     Equirectangular,
+}
+
+/// A validated equirectangular render window. Only constructed when the
+/// caller supplied all four edges and they form a non-degenerate box.
+#[derive(Clone, Copy)]
+#[cfg_attr(test, derive(Debug, PartialEq))]
+struct RenderBounds {
+    lat_min: f64,
+    lat_max: f64,
+    lon_min: f64,
+    lon_max: f64,
+}
+
+impl RenderBounds {
+    /// Build from the four optional `RenderOptions` fields. Returns `None`
+    /// unless every edge is present and the box is non-degenerate — a
+    /// partially-filled or inverted box silently falls back to the computed
+    /// bounds, mirroring the manual-range behaviour.
+    fn from_options(o: &RenderOptions) -> Option<Self> {
+        let (lat_min, lat_max, lon_min, lon_max) = (
+            o.bounds_lat_min?,
+            o.bounds_lat_max?,
+            o.bounds_lon_min?,
+            o.bounds_lon_max?,
+        );
+        if lat_max > lat_min && lon_max > lon_min {
+            Some(Self {
+                lat_min,
+                lat_max,
+                lon_min,
+                lon_max,
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl ResolvedOptions {
@@ -889,9 +947,23 @@ impl ResolvedOptions {
             flip_y: options.flip_y,
             range_min: options.range_min,
             range_max: options.range_max,
+            bounds: RenderBounds::from_options(options),
         })
     }
 }
+
+/// Output of a projection stage (`paint_source` / `warp_message`):
+/// `(values, mask, width, height, geographic_bounds, summary)`. The bounds
+/// are `(lat_min, lat_max, lon_min, lon_max)` for the equirectangular target,
+/// or `None` for source projection (no geographic extent).
+type ProjectionStage = (
+    Vec<f64>,
+    Vec<u8>,
+    u32,
+    u32,
+    Option<(f64, f64, f64, f64)>,
+    String,
+);
 
 fn render_with_options(
     meta: &MessageMeta,
@@ -899,9 +971,11 @@ fn render_with_options(
     options: &RenderOptions,
 ) -> napi::Result<RenderedGrid> {
     let resolved = ResolvedOptions::parse(options)?;
-    let (values, mask, width, height, summary) = match resolved.projection {
+    let (values, mask, width, height, used_bounds, summary) = match resolved.projection {
         TargetProjection::Source => paint_source(meta, raw)?,
-        TargetProjection::Equirectangular => warp_message(meta, raw, resolved.resampling)?,
+        TargetProjection::Equirectangular => {
+            warp_message(meta, raw, resolved.resampling, resolved.bounds)?
+        }
     };
 
     let (used_min, used_max) = match (resolved.range_min, resolved.range_max) {
@@ -926,12 +1000,23 @@ fn render_with_options(
         resolved.flip_y,
     );
 
+    let (used_lat_min, used_lat_max, used_lon_min, used_lon_max) = match used_bounds {
+        Some((la_min, la_max, lo_min, lo_max)) => {
+            (Some(la_min), Some(la_max), Some(lo_min), Some(lo_max))
+        }
+        None => (None, None, None, None),
+    };
+
     Ok(RenderedGrid {
         rgba: rgba.into(),
         width: width as i32,
         height: height as i32,
         used_min,
         used_max,
+        used_lat_min,
+        used_lat_max,
+        used_lon_min,
+        used_lon_max,
         projection_summary: summary,
     })
 }
@@ -948,10 +1033,7 @@ fn source_projection_summary(meta: &MessageMeta) -> String {
 /// Source-projection paint: paint the decoded values into a buffer the
 /// same shape as the source grid. NaN encodes masked cells.
 #[allow(clippy::type_complexity)]
-fn paint_source(
-    meta: &MessageMeta,
-    raw: &[Option<f64>],
-) -> napi::Result<(Vec<f64>, Vec<u8>, u32, u32, String)> {
+fn paint_source(meta: &MessageMeta, raw: &[Option<f64>]) -> napi::Result<ProjectionStage> {
     let ni = meta
         .grid_ni
         .ok_or_else(|| napi::Error::from_reason("grid has no Ni".to_string()))? as u32;
@@ -979,19 +1061,25 @@ fn paint_source(
         "{} → {kind} (no reprojection)",
         source_projection_summary(meta),
     );
-    Ok((values, mask, ni, nj, summary))
+    // No geographic extent for the source-projection target.
+    Ok((values, mask, ni, nj, None, summary))
 }
 
 /// Dispatch warp setup to the right per-template helper. Each helper
 /// builds the inverse closure (using a projector with precomputed state)
 /// and the equirectangular target bounds; the shared finisher then runs
 /// the warp itself.
+///
+/// `bounds_override`, when present, replaces the computed source-grid extent
+/// so the caller can render an arbitrary equirectangular window. The bounds
+/// actually used are returned (last tuple element) for echo-back.
 #[allow(clippy::type_complexity)]
 fn warp_message(
     meta: &MessageMeta,
     raw: &[Option<f64>],
     resampling: Resampling,
-) -> napi::Result<(Vec<f64>, Vec<u8>, u32, u32, String)> {
+    bounds_override: Option<RenderBounds>,
+) -> napi::Result<ProjectionStage> {
     let kind = meta.grid_type.as_deref().unwrap_or("");
     let ni = grid_ni(meta)?;
     let nj = grid_nj(meta)?;
@@ -1002,7 +1090,7 @@ fn warp_message(
     };
     let sample_ref: &dyn Fn(usize, usize) -> Option<f64> = &sample;
 
-    let (target, inverse_boxed) = match kind {
+    let (mut target, inverse_boxed) = match kind {
         "latlon" => latlon_warp_setup(meta, ni, nj)?,
         "gaussian" => gaussian_warp_setup(meta, ni, nj)?,
         "lambert" => lambert_warp_setup(meta, ni, nj)?,
@@ -1013,6 +1101,16 @@ fn warp_message(
             )));
         }
     };
+
+    // Apply the caller's window over the computed default extent. The inverse
+    // closure is independent of the target raster, so swapping bounds just
+    // re-samples the same source through a different output window.
+    if let Some(b) = bounds_override {
+        target.lat_min = b.lat_min;
+        target.lat_max = b.lat_max;
+        target.lon_min = b.lon_min;
+        target.lon_max = b.lon_max;
+    }
 
     let inverse_ref: &dyn Fn(f64, f64) -> Option<GridIndex> = inverse_boxed.as_ref();
     let source = SourceGrid {
@@ -1030,11 +1128,18 @@ fn warp_message(
         "{} → equirectangular ({resample_label})",
         source_projection_summary(meta),
     );
+    let used_bounds = Some((
+        target.lat_min,
+        target.lat_max,
+        target.lon_min,
+        target.lon_max,
+    ));
     Ok((
         warped.values,
         warped.mask,
         warped.width,
         warped.height,
+        used_bounds,
         summary,
     ))
 }
@@ -1111,31 +1216,9 @@ fn lambert_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<Warp
 
     // `LambertProjector` precomputes the cone constants + origin once.
     let projector = LambertProjector::new(p);
-    // Target bounds = bounding box of the four forward-projected grid
-    // corners.
-    let origin = projector.origin();
-    let corners = [
-        origin,
-        (origin.0 + (ni as f64 - 1.0) * p.dx_metres, origin.1),
-        (origin.0, origin.1 + (nj as f64 - 1.0) * p.dy_metres),
-        (
-            origin.0 + (ni as f64 - 1.0) * p.dx_metres,
-            origin.1 + (nj as f64 - 1.0) * p.dy_metres,
-        ),
-    ];
-    let (mut lat_min, mut lat_max, mut lon_min, mut lon_max) = (
-        f64::INFINITY,
-        f64::NEG_INFINITY,
-        f64::INFINITY,
-        f64::NEG_INFINITY,
-    );
-    for (x, y) in corners {
-        let (lat, lon) = projector.inverse_xy(x, y);
-        lat_min = lat_min.min(lat);
-        lat_max = lat_max.max(lat);
-        lon_min = lon_min.min(lon);
-        lon_max = lon_max.max(lon);
-    }
+    // Target bounds = antimeridian-aware bounding box of the four grid
+    // corners in lat/lon (see `PlanarGridProjector::lonlat_bbox`).
+    let (lat_min, lat_max, lon_min, lon_max) = projector.lonlat_bbox();
     let target = TargetRaster {
         width: ni,
         height: nj,
@@ -1165,34 +1248,12 @@ fn polar_stereo_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result
 
     let projector = PolarStereoProjector::new(p);
     let pole_inside = projector.pole_inside_grid();
-    // Compute the equirectangular bbox by inverse-projecting the four
-    // forward-projected corners (same shape as `lambert_warp_setup`). When
-    // the projection pole falls inside the grid, every meridian is
-    // represented and the four-corner bbox is wrong: we override longitude
-    // to the full 360° and clamp latitude to the relevant pole.
-    let origin = projector.origin();
-    let corners = [
-        origin,
-        (origin.0 + (ni as f64 - 1.0) * p.dx_metres, origin.1),
-        (origin.0, origin.1 + (nj as f64 - 1.0) * p.dy_metres),
-        (
-            origin.0 + (ni as f64 - 1.0) * p.dx_metres,
-            origin.1 + (nj as f64 - 1.0) * p.dy_metres,
-        ),
-    ];
-    let (mut lat_min, mut lat_max, mut lon_min, mut lon_max) = (
-        f64::INFINITY,
-        f64::NEG_INFINITY,
-        f64::INFINITY,
-        f64::NEG_INFINITY,
-    );
-    for (x, y) in corners {
-        let (lat, lon) = projector.inverse_xy(x, y);
-        lat_min = lat_min.min(lat);
-        lat_max = lat_max.max(lat);
-        lon_min = lon_min.min(lon);
-        lon_max = lon_max.max(lon);
-    }
+    // Antimeridian-aware bbox of the four grid corners (same shape as
+    // `lambert_warp_setup`). When the projection pole falls inside the grid,
+    // every meridian is represented and the four-corner bbox is wrong: we
+    // override longitude to the full 360° and clamp latitude to the relevant
+    // pole.
+    let (mut lat_min, mut lat_max, mut lon_min, mut lon_max) = projector.lonlat_bbox();
     if pole_inside {
         lon_min = -180.0;
         lon_max = 180.0;
@@ -1242,7 +1303,44 @@ mod resolved_options_tests {
             flip_y: false,
             range_min: None,
             range_max: None,
+            bounds_lat_min: None,
+            bounds_lat_max: None,
+            bounds_lon_min: None,
+            bounds_lon_max: None,
         }
+    }
+
+    #[test]
+    fn bounds_parse_requires_all_four_edges_and_valid_box() {
+        // Complete, valid box → Some.
+        let mut o = opts("equirectangular", "nearest");
+        o.bounds_lat_min = Some(10.0);
+        o.bounds_lat_max = Some(50.0);
+        o.bounds_lon_min = Some(-120.0);
+        o.bounds_lon_max = Some(-40.0);
+        assert_eq!(
+            ResolvedOptions::parse(&o).unwrap().bounds,
+            Some(RenderBounds {
+                lat_min: 10.0,
+                lat_max: 50.0,
+                lon_min: -120.0,
+                lon_max: -40.0,
+            })
+        );
+
+        // Antimeridian window: lon_min < -180 is allowed (lon_max > lon_min).
+        o.bounds_lon_min = Some(-183.0);
+        o.bounds_lon_max = Some(-32.0);
+        assert!(ResolvedOptions::parse(&o).unwrap().bounds.is_some());
+
+        // Partial box → None (silent fallback to computed bounds).
+        o.bounds_lon_max = None;
+        assert!(ResolvedOptions::parse(&o).unwrap().bounds.is_none());
+
+        // Inverted box → None.
+        o.bounds_lon_min = Some(50.0);
+        o.bounds_lon_max = Some(-50.0);
+        assert!(ResolvedOptions::parse(&o).unwrap().bounds.is_none());
     }
 
     #[test]
@@ -1333,8 +1431,8 @@ mod polar_stereo_warp_tests {
         // value transport. Every present output pixel should read back
         // exactly 1.0.
         let raw: Vec<Option<f64>> = vec![Some(1.0); 135 * 95];
-        let (values, mask, w, h, summary) =
-            warp_message(&meta, &raw, Resampling::Nearest).expect("warp");
+        let (values, mask, w, h, _bounds, summary) =
+            warp_message(&meta, &raw, Resampling::Nearest, None).expect("warp");
 
         assert_eq!(w, 135);
         assert_eq!(h, 95);
@@ -1368,8 +1466,8 @@ mod polar_stereo_warp_tests {
             ..cmc_polar_meta()
         };
         let raw: Vec<Option<f64>> = vec![Some(1.0); 135 * 95];
-        let (values, mask, w, h, summary) =
-            warp_message(&meta, &raw, Resampling::Nearest).expect("south-polar warp");
+        let (values, mask, w, h, _bounds, summary) =
+            warp_message(&meta, &raw, Resampling::Nearest, None).expect("south-polar warp");
 
         assert_eq!(w, 135);
         assert_eq!(h, 95);
@@ -1410,8 +1508,8 @@ mod polar_stereo_warp_tests {
             ..cmc_polar_meta()
         };
         let raw: Vec<Option<f64>> = vec![Some(1.0); 4 * 4];
-        let (_values, mask, w, h, _summary) =
-            warp_message(&meta, &raw, Resampling::Nearest).expect("hemispheric warp");
+        let (_values, mask, w, h, _bounds, _summary) =
+            warp_message(&meta, &raw, Resampling::Nearest, None).expect("hemispheric warp");
 
         assert_eq!((w, h), (4, 4));
         // With the pole inside the grid the target spans the full hemisphere,
@@ -1442,8 +1540,8 @@ mod polar_stereo_warp_tests {
             ..cmc_polar_meta()
         };
         let raw: Vec<Option<f64>> = vec![Some(1.0); 4 * 4];
-        let (_values, mask, w, h, _summary) =
-            warp_message(&meta, &raw, Resampling::Nearest).expect("pole-on-origin warp");
+        let (_values, mask, w, h, _bounds, _summary) =
+            warp_message(&meta, &raw, Resampling::Nearest, None).expect("pole-on-origin warp");
         assert_eq!((w, h), (4, 4));
         assert!(
             mask.contains(&1),
@@ -1460,11 +1558,38 @@ mod polar_stereo_warp_tests {
             ..cmc_polar_meta()
         };
         let raw: Vec<Option<f64>> = vec![Some(1.0); 135 * 95];
-        let err =
-            warp_message(&bad, &raw, Resampling::Nearest).expect_err("missing lov must error");
+        let err = warp_message(&bad, &raw, Resampling::Nearest, None)
+            .expect_err("missing lov must error");
         assert!(
             err.to_string().contains("polarStereoLov"),
             "error should name the missing field, got: {err}"
+        );
+    }
+
+    #[test]
+    fn bounds_override_replaces_computed_extent_and_echoes_back() {
+        let meta = cmc_polar_meta();
+        let raw: Vec<Option<f64>> = vec![Some(1.0); 135 * 95];
+
+        // Default: no override → echoed bounds are the computed source extent.
+        let (.., default_bounds, _) =
+            warp_message(&meta, &raw, Resampling::Nearest, None).expect("default warp");
+        let default_bounds = default_bounds.expect("equirectangular has bounds");
+
+        // Explicit window → that window is rendered and echoed back verbatim.
+        let window = RenderBounds {
+            lat_min: 30.0,
+            lat_max: 60.0,
+            lon_min: -140.0,
+            lon_max: -60.0,
+        };
+        let (_v, _m, _w, _h, used, _s) =
+            warp_message(&meta, &raw, Resampling::Nearest, Some(window)).expect("windowed warp");
+        assert_eq!(used, Some((30.0, 60.0, -140.0, -60.0)));
+        assert_ne!(
+            used.unwrap(),
+            default_bounds,
+            "override should differ from the computed default"
         );
     }
 }
