@@ -309,6 +309,37 @@ suite("Render pipeline", () => {
     assert.ok(src.usedLatMin === undefined || src.usedLatMin === null);
   });
 
+  test("GRIB1 web mercator: renders, echoes bounds clamped to the Mercator band", () => {
+    const native = loadNative();
+    assert.ok(native, "native module must load");
+    const bytes = fs.readFileSync(fixturePath("cmc_wind_300_2010052400_p012.grib"));
+    const handle = native.Grib1Handle.fromBytes(bytes);
+
+    const merc = handle.renderGrid(0, {
+      projection: "web_mercator",
+      resampling: "nearest",
+      flipY: false,
+    });
+
+    // Web Mercator is a warped lat/lon target, so it echoes geographic bounds.
+    assert.ok(
+      merc.usedLatMin !== undefined && merc.usedLatMin !== null,
+      "web mercator render must echo geographic bounds",
+    );
+    // The CMC top edge bows to ~80.6°N, beyond Mercator's ~85.05° limit it
+    // stays — but the clamp must keep the extent inside the valid band.
+    assert.ok(
+      (merc.usedLatMax as number) <= 85.06 && (merc.usedLatMin as number) >= -85.06,
+      `lat extent must be clamped to the Mercator band, got ${merc.usedLatMin}..${merc.usedLatMax}`,
+    );
+    assert.ok(
+      /web mercator/.test(merc.projectionSummary),
+      `summary should name the target, got: ${merc.projectionSummary}`,
+    );
+    // The RGBA buffer is the source-dim raster, fully populated.
+    assert.strictEqual(merc.rgba.length, merc.width * merc.height * 4);
+  });
+
   test("GRIB2: renderGrid output post-wrap reaches the webview intact", async () => {
     const native = loadNative();
     assert.ok(native, "native module must load");

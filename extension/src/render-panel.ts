@@ -75,11 +75,13 @@ export function renderImagePanelHtml(
               options.rangeMax = max;
             }
           }
-          // Manual extent only applies to the equirectangular target. Send all
-          // four edges or none; the Rust side validates and falls back to the
-          // computed bounds for a partial/inverted box.
+          // Manual extent applies to the warped lat/lon targets
+          // (equirectangular + Web Mercator), which both render a lat/lon
+          // window. Send all four edges or none; the Rust side validates and
+          // falls back to the computed bounds for a partial/inverted box.
           const bmode = document.querySelector('input[name="bounds-mode"]:checked');
-          if (projection === 'equirectangular' && bmode && bmode.value === 'manual') {
+          const warpsLatLon = projection === 'equirectangular' || projection === 'web_mercator';
+          if (warpsLatLon && bmode && bmode.value === 'manual') {
             const laMin = Number((document.getElementById('bounds-lat-min') || {}).value);
             const laMax = Number((document.getElementById('bounds-lat-max') || {}).value);
             const loMin = Number((document.getElementById('bounds-lon-min') || {}).value);
@@ -139,8 +141,9 @@ export function renderImagePanelHtml(
           if (minIn && !minIn.value) minIn.value = payload.usedMin.toPrecision(6);
           if (maxIn && !maxIn.value) maxIn.value = payload.usedMax.toPrecision(6);
           // Pre-fill the manual-bounds inputs from the extent Rust actually
-          // used (only present for the equirectangular target). The empty
-          // guard means we never clobber a value the user has typed.
+          // used (present for the warped lat/lon targets — equirectangular and
+          // Web Mercator). The empty guard means we never clobber a value the
+          // user has typed.
           if (payload.usedLatMin !== undefined && payload.usedLatMin !== null) {
             const fillBound = (id, v) => {
               const el = document.getElementById(id);
@@ -320,6 +323,7 @@ export function renderImagePanelHtml(
       <select id="picker-projection">
         <option value="source" selected>Source projection</option>
         <option value="equirectangular">Equirectangular</option>
+        <option value="web_mercator">Web Mercator</option>
       </select>
     </label>
     <label>Resampling

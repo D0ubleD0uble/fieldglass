@@ -7,13 +7,24 @@
 //! the output pixel grid, ask the source where each `(lat, lon)` lives,
 //! and sample.
 //!
-//! "Equirectangular" is the only target supported here today — picker
-//! UX in #45 defaults to source-projection (no warp) and equirectangular
-//! (this code). Web Mercator / ortho / polar-stereo targets are tracked
-//! under #71 and slot in by writing a different pixel-to-`(lat, lon)`
-//! conversion ahead of the inverse map.
+//! Each target projection implements [`TargetProjection`]: the one thing
+//! that varies between targets is how an output pixel maps back to the
+//! `(lat, lon)` we hand to the source inverse map. [`warp`] is generic
+//! over that trait; [`warp_to_equirectangular`] is the original
+//! lat/lon-box entry retained as a thin wrapper. Web Mercator / ortho /
+//! polar-stereo targets (#71) add their own [`TargetProjection`] impls.
 
 use crate::projection::GridIndex;
+use std::f64::consts::PI;
+
+const DEG2RAD: f64 = PI / 180.0;
+const RAD2DEG: f64 = 180.0 / PI;
+
+/// The latitude beyond which Web Mercator's `ln(tan(...))` diverges. The
+/// de-facto web-map clamp (Snyder; OSM/Google tile convention) yields a
+/// square world at `±85.0511…°` — `2·atan(eⁿ) - 90°` for one full turn
+/// of `x`. Targets clamp their `lat` extent to this band.
+const WEB_MERCATOR_MAX_LAT: f64 = 85.051_128_779_806_59;
 
 /// Resampling method when warping into the output raster.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,43 +75,52 @@ pub struct WarpedRaster {
     pub height: u32,
 }
 
-/// Walk the target pixel grid, inverse-map each output `(lat, lon)`
-/// into the source, and sample. Returns a row-major Vec of the warped
-/// values plus a presence mask.
-pub fn warp_to_equirectangular(
+/// A render target: the geographic `(lat, lon)` that each output pixel
+/// represents. This is the *inverse* of the target projection's forward
+/// map — the warp walks pixels and asks where each one lives so it can
+/// sample the source there.
+///
+/// `pixel_to_lonlat` returns `None` for pixels outside the projection's
+/// valid domain (e.g. the back hemisphere of an orthographic globe, or
+/// the corners of a polar-stereographic disc), which the warp leaves
+/// masked. Row `0` is the north / top edge by convention.
+pub trait TargetProjection {
+    /// Output raster dimensions in pixels.
+    fn dims(&self) -> (u32, u32);
+    /// Geographic `(lat, lon)` in degrees for output pixel `(px, py)`, or
+    /// `None` when the pixel lies outside the projection domain.
+    fn pixel_to_lonlat(&self, px: u32, py: u32) -> Option<(f64, f64)>;
+}
+
+/// Walk the target pixel grid, map each pixel to `(lat, lon)`, inverse-map
+/// that into the source, and sample. Returns a row-major Vec of the warped
+/// values plus a presence mask (`1` present, `0` off-grid / masked / outside
+/// the target's projection domain).
+pub fn warp<T: TargetProjection>(
     source: &SourceGrid<'_>,
-    target: &TargetRaster,
+    target: &T,
     method: Resampling,
 ) -> WarpedRaster {
-    let width = target.width as usize;
-    let height = target.height as usize;
+    let (w, h) = target.dims();
+    let width = w as usize;
+    let height = h as usize;
     let mut values = vec![0.0f64; width * height];
     let mut mask = vec![0u8; width * height];
     if width == 0 || height == 0 {
         return WarpedRaster {
             values,
             mask,
-            width: target.width,
-            height: target.height,
+            width: w,
+            height: h,
         };
     }
 
-    let d_lat = if height == 1 {
-        0.0
-    } else {
-        (target.lat_min - target.lat_max) / (height as f64 - 1.0)
-    };
-    let d_lon = if width == 1 {
-        0.0
-    } else {
-        (target.lon_max - target.lon_min) / (width as f64 - 1.0)
-    };
-
-    for py in 0..height {
-        let lat = target.lat_max + py as f64 * d_lat;
-        for px in 0..width {
-            let lon = target.lon_min + px as f64 * d_lon;
-            let out = py * width + px;
+    for py in 0..h {
+        for px in 0..w {
+            let out = py as usize * width + px as usize;
+            let Some((lat, lon)) = target.pixel_to_lonlat(px, py) else {
+                continue;
+            };
             let Some(idx) = (source.inverse_at)(lat, lon) else {
                 continue;
             };
@@ -114,8 +134,118 @@ pub fn warp_to_equirectangular(
     WarpedRaster {
         values,
         mask,
-        width: target.width,
-        height: target.height,
+        width: w,
+        height: h,
+    }
+}
+
+impl TargetProjection for TargetRaster {
+    fn dims(&self) -> (u32, u32) {
+        (self.width, self.height)
+    }
+
+    fn pixel_to_lonlat(&self, px: u32, py: u32) -> Option<(f64, f64)> {
+        let d_lat = if self.height <= 1 {
+            0.0
+        } else {
+            (self.lat_min - self.lat_max) / (self.height as f64 - 1.0)
+        };
+        let d_lon = if self.width <= 1 {
+            0.0
+        } else {
+            (self.lon_max - self.lon_min) / (self.width as f64 - 1.0)
+        };
+        let lat = self.lat_max + py as f64 * d_lat;
+        let lon = self.lon_min + px as f64 * d_lon;
+        Some((lat, lon))
+    }
+}
+
+/// Walk the target pixel grid, inverse-map each output `(lat, lon)`
+/// into the source, and sample. Thin wrapper over [`warp`] for the
+/// equirectangular (lat/lon-box) target.
+pub fn warp_to_equirectangular(
+    source: &SourceGrid<'_>,
+    target: &TargetRaster,
+    method: Resampling,
+) -> WarpedRaster {
+    warp(source, target, method)
+}
+
+/// Spherical Web Mercator (EPSG:3857) Y coordinate for a latitude, in
+/// the dimensionless `R = 1` system: `y = ln(tan(π/4 + φ/2))`. Only the
+/// *ratio* of Y values matters for pixel interpolation, so the radius
+/// cancels and we never carry one.
+fn mercator_y(lat_deg: f64) -> f64 {
+    let lat = lat_deg * DEG2RAD;
+    (PI / 4.0 + lat / 2.0).tan().ln()
+}
+
+/// Inverse of [`mercator_y`]: `φ = 2·atan(eʸ) - π/2`.
+fn mercator_lat(y: f64) -> f64 {
+    (2.0 * y.exp().atan() - PI / 2.0) * RAD2DEG
+}
+
+/// Web Mercator target. Longitude is linear across the output width (as in
+/// equirectangular); latitude is linear in the Mercator Y coordinate, so
+/// rows bunch toward the poles the way every web-map tile does. The `lat`
+/// extent is clamped to `±`[`WEB_MERCATOR_MAX_LAT`] — the projection
+/// diverges at the poles.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WebMercator {
+    pub width: u32,
+    pub height: u32,
+    pub lat_min: f64,
+    pub lat_max: f64,
+    pub lon_min: f64,
+    pub lon_max: f64,
+}
+
+impl WebMercator {
+    /// Build a Web Mercator target, clamping the latitude extent into the
+    /// projection's valid band so the Y transform stays finite.
+    pub fn new(
+        width: u32,
+        height: u32,
+        lat_min: f64,
+        lat_max: f64,
+        lon_min: f64,
+        lon_max: f64,
+    ) -> Self {
+        Self {
+            width,
+            height,
+            lat_min: lat_min.clamp(-WEB_MERCATOR_MAX_LAT, WEB_MERCATOR_MAX_LAT),
+            lat_max: lat_max.clamp(-WEB_MERCATOR_MAX_LAT, WEB_MERCATOR_MAX_LAT),
+            lon_min,
+            lon_max,
+        }
+    }
+}
+
+impl TargetProjection for WebMercator {
+    fn dims(&self) -> (u32, u32) {
+        (self.width, self.height)
+    }
+
+    fn pixel_to_lonlat(&self, px: u32, py: u32) -> Option<(f64, f64)> {
+        // Row 0 is the north edge → `y_max`; rows step linearly down to
+        // `y_min` at the bottom.
+        let y_max = mercator_y(self.lat_max);
+        let y_min = mercator_y(self.lat_min);
+        let d_y = if self.height <= 1 {
+            0.0
+        } else {
+            (y_min - y_max) / (self.height as f64 - 1.0)
+        };
+        let d_lon = if self.width <= 1 {
+            0.0
+        } else {
+            (self.lon_max - self.lon_min) / (self.width as f64 - 1.0)
+        };
+        let lat = mercator_lat(y_max + py as f64 * d_y);
+        let lon = self.lon_min + px as f64 * d_lon;
+        Some((lat, lon))
     }
 }
 
@@ -408,6 +538,116 @@ mod tests {
         );
         assert_eq!(single_col.width, 1);
         assert!(single_col.mask.contains(&1));
+    }
+
+    #[test]
+    fn mercator_y_round_trips_latitude() {
+        for lat in [-80.0, -45.0, 0.0, 30.0, 60.0, 85.0] {
+            let back = mercator_lat(mercator_y(lat));
+            assert!(near(back, lat, 1e-9), "lat {lat} → {back}");
+        }
+        // Equator maps to Y = 0.
+        assert!(near(mercator_y(0.0), 0.0, 1e-12));
+    }
+
+    #[test]
+    fn web_mercator_clamps_latitude_band() {
+        // Poles are outside Web Mercator's domain — `new` must pull the
+        // extent into the valid band rather than producing infinite Y.
+        let t = WebMercator::new(4, 4, -90.0, 90.0, -180.0, 180.0);
+        assert!(
+            t.lat_max < 85.06 && t.lat_max > 85.05,
+            "clamped max {}",
+            t.lat_max
+        );
+        assert!(
+            t.lat_min > -85.06 && t.lat_min < -85.05,
+            "clamped min {}",
+            t.lat_min
+        );
+        // Every pixel must produce a finite (lat, lon).
+        for py in 0..4 {
+            for px in 0..4 {
+                let (lat, lon) = t.pixel_to_lonlat(px, py).expect("in domain");
+                assert!(lat.is_finite() && lon.is_finite());
+            }
+        }
+    }
+
+    #[test]
+    fn web_mercator_rows_bunch_toward_poles() {
+        // For a symmetric band the centre row sits at the equator and the
+        // latitude step grows away from it — the defining property of
+        // Mercator vs equirectangular's constant step.
+        let t = WebMercator::new(1, 5, -80.0, 80.0, 0.0, 0.0);
+        let lats: Vec<f64> = (0..5)
+            .map(|py| t.pixel_to_lonlat(0, py).unwrap().0)
+            .collect();
+        assert!(
+            near(lats[2], 0.0, 1e-9),
+            "centre row at equator, got {}",
+            lats[2]
+        );
+        // Top edge is north (row 0 = lat_max).
+        assert!(lats[0] > lats[4], "row 0 should be the northern edge");
+        // A fixed pixel step covers *less* latitude near the poles — that
+        // pole-ward stretch is exactly why Mercator inflates polar areas.
+        let outer = lats[0] - lats[1];
+        let inner = lats[1] - lats[2];
+        assert!(
+            outer < inner,
+            "pole-ward step {outer} should be smaller than equator step {inner}"
+        );
+    }
+
+    #[test]
+    fn web_mercator_warps_indexed_source() {
+        // A Mercator target spanning the source's lat/lon box should sample
+        // the source everywhere it overlaps and produce a non-empty mask.
+        let (p, cell) = indexed_latlon_source(LatLonParams {
+            ni: 5,
+            nj: 5,
+            lat_first: 60.0,
+            lon_first: -20.0,
+            lat_last: -60.0,
+            lon_last: 20.0,
+        });
+        let source = make_source(&p, &cell);
+        let target = WebMercator::new(16, 16, -60.0, 60.0, -20.0, 20.0);
+        let out = warp(&source, &target, Resampling::Bilinear);
+        assert_eq!(out.width, 16);
+        assert_eq!(out.height, 16);
+        let present = out.mask.iter().filter(|&&m| m == 1).count();
+        assert!(present > 0, "mercator warp produced an empty mask");
+        // Corners of the box are at the source corners → present.
+        assert_eq!(out.mask[0], 1, "top-left present");
+    }
+
+    #[test]
+    fn generic_warp_matches_equirectangular_wrapper() {
+        // `warp_to_equirectangular` is now a thin wrapper over `warp` with a
+        // `TargetRaster` target — they must produce byte-identical output.
+        let (p, cell) = indexed_latlon_source(LatLonParams {
+            ni: 5,
+            nj: 5,
+            lat_first: 50.0,
+            lon_first: 100.0,
+            lat_last: 10.0,
+            lon_last: 140.0,
+        });
+        let source = make_source(&p, &cell);
+        let target = TargetRaster {
+            width: 7,
+            height: 7,
+            lat_max: 50.0,
+            lat_min: 10.0,
+            lon_min: 100.0,
+            lon_max: 140.0,
+        };
+        let via_wrapper = warp_to_equirectangular(&source, &target, Resampling::Bilinear);
+        let via_generic = warp(&source, &target, Resampling::Bilinear);
+        assert_eq!(via_wrapper.mask, via_generic.mask);
+        assert_eq!(via_wrapper.values, via_generic.values);
     }
 
     #[test]

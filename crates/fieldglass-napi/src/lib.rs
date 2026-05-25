@@ -3,11 +3,11 @@
 use fieldglass_core::{
     Format, GaussianParams, GaussianProjector, LambertParams, LambertProjector, LatLonParams,
     PlanarGridProjector, PolarStereoParams, PolarStereoProjector, Resampling, SourceGrid,
-    TargetRaster,
+    TargetRaster, WebMercator,
     colormap::{min_max_ignoring_mask, paint_grid_rgba},
     detect_from_bytes, latlon_inverse,
     projection::GridIndex,
-    warp::warp_to_equirectangular,
+    warp::warp,
 };
 use fieldglass_grib1::{
     Grib1Reader,
@@ -883,6 +883,7 @@ struct ResolvedOptions {
 enum TargetProjection {
     Source,
     Equirectangular,
+    WebMercator,
 }
 
 /// A validated equirectangular render window. Only constructed when the
@@ -926,9 +927,11 @@ impl ResolvedOptions {
         let projection = match options.projection.as_str() {
             "source" => TargetProjection::Source,
             "equirectangular" => TargetProjection::Equirectangular,
+            "web_mercator" => TargetProjection::WebMercator,
             other => {
                 return Err(napi::Error::from_reason(format!(
-                    "unknown projection {other:?} (expected \"source\" or \"equirectangular\")"
+                    "unknown projection {other:?} \
+                     (expected \"source\", \"equirectangular\", or \"web_mercator\")"
                 )));
             }
         };
@@ -973,9 +976,20 @@ fn render_with_options(
     let resolved = ResolvedOptions::parse(options)?;
     let (values, mask, width, height, used_bounds, summary) = match resolved.projection {
         TargetProjection::Source => paint_source(meta, raw)?,
-        TargetProjection::Equirectangular => {
-            warp_message(meta, raw, resolved.resampling, resolved.bounds)?
-        }
+        TargetProjection::Equirectangular => warp_message(
+            meta,
+            raw,
+            WarpTarget::Equirectangular,
+            resolved.resampling,
+            resolved.bounds,
+        )?,
+        TargetProjection::WebMercator => warp_message(
+            meta,
+            raw,
+            WarpTarget::WebMercator,
+            resolved.resampling,
+            resolved.bounds,
+        )?,
     };
 
     let (used_min, used_max) = match (resolved.range_min, resolved.range_max) {
@@ -1090,10 +1104,31 @@ fn paint_source(meta: &MessageMeta, raw: &[Option<f64>]) -> napi::Result<Project
 /// Revisit — derive output dims from the extent and a target degrees-per-pixel
 /// (capped to bound memory) — only if a real fixture shows aliasing or stretch
 /// that's objectionable at pixel scale.
+/// Which lat/lon → pixel target projection the warp paints into. Both
+/// targets share the same source inverse map and computed bbox; they
+/// differ only in how output rows are distributed (linear in latitude vs
+/// linear in Mercator Y).
+#[derive(Clone, Copy)]
+#[cfg_attr(test, derive(Debug, PartialEq))]
+enum WarpTarget {
+    Equirectangular,
+    WebMercator,
+}
+
+impl WarpTarget {
+    fn label(self) -> &'static str {
+        match self {
+            WarpTarget::Equirectangular => "equirectangular",
+            WarpTarget::WebMercator => "web mercator",
+        }
+    }
+}
+
 #[allow(clippy::type_complexity)]
 fn warp_message(
     meta: &MessageMeta,
     raw: &[Option<f64>],
+    target_kind: WarpTarget,
     resampling: Resampling,
     bounds_override: Option<RenderBounds>,
 ) -> napi::Result<ProjectionStage> {
@@ -1136,21 +1171,43 @@ fn warp_message(
         sample: sample_ref,
         inverse_at: inverse_ref,
     };
-    let warped = warp_to_equirectangular(&source, &target, resampling);
+    // Both targets sample the same source through the same bbox; the only
+    // difference is the pixel→(lat, lon) distribution. Web Mercator clamps
+    // its latitude extent into the projection's valid band, so the bounds
+    // we echo back come from the constructed target rather than `target`.
+    let (warped, used_bounds) = match target_kind {
+        WarpTarget::Equirectangular => {
+            let used = (
+                target.lat_min,
+                target.lat_max,
+                target.lon_min,
+                target.lon_max,
+            );
+            (warp(&source, &target, resampling), used)
+        }
+        WarpTarget::WebMercator => {
+            let merc = WebMercator::new(
+                target.width,
+                target.height,
+                target.lat_min,
+                target.lat_max,
+                target.lon_min,
+                target.lon_max,
+            );
+            let used = (merc.lat_min, merc.lat_max, merc.lon_min, merc.lon_max);
+            (warp(&source, &merc, resampling), used)
+        }
+    };
     let resample_label = match resampling {
         Resampling::Nearest => "nearest",
         Resampling::Bilinear => "bilinear",
     };
     let summary = format!(
-        "{} → equirectangular ({resample_label})",
+        "{} → {} ({resample_label})",
         source_projection_summary(meta),
+        target_kind.label(),
     );
-    let used_bounds = Some((
-        target.lat_min,
-        target.lat_max,
-        target.lon_min,
-        target.lon_max,
-    ));
+    let used_bounds = Some(used_bounds);
     Ok((
         warped.values,
         warped.mask,
@@ -1369,6 +1426,9 @@ mod resolved_options_tests {
         let r = ResolvedOptions::parse(&opts("equirectangular", "bilinear")).expect("eqr/bilinear");
         assert!(matches!(r.projection, TargetProjection::Equirectangular));
         assert_eq!(r.resampling, Resampling::Bilinear);
+
+        let r = ResolvedOptions::parse(&opts("web_mercator", "nearest")).expect("merc/nearest");
+        assert!(matches!(r.projection, TargetProjection::WebMercator));
     }
 
     #[test]
@@ -1448,8 +1508,14 @@ mod polar_stereo_warp_tests {
         // value transport. Every present output pixel should read back
         // exactly 1.0.
         let raw: Vec<Option<f64>> = vec![Some(1.0); 135 * 95];
-        let (values, mask, w, h, _bounds, summary) =
-            warp_message(&meta, &raw, Resampling::Nearest, None).expect("warp");
+        let (values, mask, w, h, _bounds, summary) = warp_message(
+            &meta,
+            &raw,
+            WarpTarget::Equirectangular,
+            Resampling::Nearest,
+            None,
+        )
+        .expect("warp");
 
         assert_eq!(w, 135);
         assert_eq!(h, 95);
@@ -1472,6 +1538,43 @@ mod polar_stereo_warp_tests {
     }
 
     #[test]
+    fn warps_polar_stereo_to_web_mercator() {
+        // The Web Mercator target shares the polar-stereo source inverse map
+        // and bbox; it just distributes rows in Mercator Y. Verify the path
+        // produces a non-empty mask, transports values, clamps the latitude
+        // extent into the Mercator band, and names the target in the summary.
+        let meta = cmc_polar_meta();
+        let raw: Vec<Option<f64>> = vec![Some(1.0); 135 * 95];
+        let (values, mask, w, h, bounds, summary) = warp_message(
+            &meta,
+            &raw,
+            WarpTarget::WebMercator,
+            Resampling::Nearest,
+            None,
+        )
+        .expect("mercator warp");
+
+        assert_eq!(w, 135);
+        assert_eq!(h, 95);
+        let present_count = mask.iter().filter(|&&m| m == 1).count();
+        assert!(present_count > 0, "mercator warp produced an empty mask");
+        for (i, &m) in mask.iter().enumerate() {
+            if m == 1 {
+                assert_eq!(values[i], 1.0, "present pixel {i} should be 1.0");
+            }
+        }
+        let (lat_min, lat_max, _, _) = bounds.expect("web mercator has bounds");
+        assert!(
+            lat_min >= -85.06 && lat_max <= 85.06,
+            "lat extent must be clamped to the Mercator band, got {lat_min}..{lat_max}"
+        );
+        assert!(
+            summary.contains("polar_stereo") && summary.contains("web mercator"),
+            "summary should name source kind + target, got: {summary}"
+        );
+    }
+
+    #[test]
     fn warps_south_polar_stereo_to_equirectangular() {
         // Mirror the CMC tile into the southern hemisphere: south-pole
         // projection, negative lat_first. Exercises the `sign = -1` branch
@@ -1483,8 +1586,14 @@ mod polar_stereo_warp_tests {
             ..cmc_polar_meta()
         };
         let raw: Vec<Option<f64>> = vec![Some(1.0); 135 * 95];
-        let (values, mask, w, h, _bounds, summary) =
-            warp_message(&meta, &raw, Resampling::Nearest, None).expect("south-polar warp");
+        let (values, mask, w, h, _bounds, summary) = warp_message(
+            &meta,
+            &raw,
+            WarpTarget::Equirectangular,
+            Resampling::Nearest,
+            None,
+        )
+        .expect("south-polar warp");
 
         assert_eq!(w, 135);
         assert_eq!(h, 95);
@@ -1525,8 +1634,14 @@ mod polar_stereo_warp_tests {
             ..cmc_polar_meta()
         };
         let raw: Vec<Option<f64>> = vec![Some(1.0); 4 * 4];
-        let (_values, mask, w, h, _bounds, _summary) =
-            warp_message(&meta, &raw, Resampling::Nearest, None).expect("hemispheric warp");
+        let (_values, mask, w, h, _bounds, _summary) = warp_message(
+            &meta,
+            &raw,
+            WarpTarget::Equirectangular,
+            Resampling::Nearest,
+            None,
+        )
+        .expect("hemispheric warp");
 
         assert_eq!((w, h), (4, 4));
         // With the pole inside the grid the target spans the full hemisphere,
@@ -1557,8 +1672,14 @@ mod polar_stereo_warp_tests {
             ..cmc_polar_meta()
         };
         let raw: Vec<Option<f64>> = vec![Some(1.0); 4 * 4];
-        let (_values, mask, w, h, _bounds, _summary) =
-            warp_message(&meta, &raw, Resampling::Nearest, None).expect("pole-on-origin warp");
+        let (_values, mask, w, h, _bounds, _summary) = warp_message(
+            &meta,
+            &raw,
+            WarpTarget::Equirectangular,
+            Resampling::Nearest,
+            None,
+        )
+        .expect("pole-on-origin warp");
         assert_eq!((w, h), (4, 4));
         assert!(
             mask.contains(&1),
@@ -1575,8 +1696,14 @@ mod polar_stereo_warp_tests {
             ..cmc_polar_meta()
         };
         let raw: Vec<Option<f64>> = vec![Some(1.0); 135 * 95];
-        let err = warp_message(&bad, &raw, Resampling::Nearest, None)
-            .expect_err("missing lov must error");
+        let err = warp_message(
+            &bad,
+            &raw,
+            WarpTarget::Equirectangular,
+            Resampling::Nearest,
+            None,
+        )
+        .expect_err("missing lov must error");
         assert!(
             err.to_string().contains("polarStereoLov"),
             "error should name the missing field, got: {err}"
@@ -1589,8 +1716,14 @@ mod polar_stereo_warp_tests {
         let raw: Vec<Option<f64>> = vec![Some(1.0); 135 * 95];
 
         // Default: no override → echoed bounds are the computed source extent.
-        let (.., default_bounds, _) =
-            warp_message(&meta, &raw, Resampling::Nearest, None).expect("default warp");
+        let (.., default_bounds, _) = warp_message(
+            &meta,
+            &raw,
+            WarpTarget::Equirectangular,
+            Resampling::Nearest,
+            None,
+        )
+        .expect("default warp");
         let default_bounds = default_bounds.expect("equirectangular has bounds");
 
         // Explicit window → that window is rendered and echoed back verbatim.
@@ -1600,8 +1733,14 @@ mod polar_stereo_warp_tests {
             lon_min: -140.0,
             lon_max: -60.0,
         };
-        let (_v, _m, _w, _h, used, _s) =
-            warp_message(&meta, &raw, Resampling::Nearest, Some(window)).expect("windowed warp");
+        let (_v, _m, _w, _h, used, _s) = warp_message(
+            &meta,
+            &raw,
+            WarpTarget::Equirectangular,
+            Resampling::Nearest,
+            Some(window),
+        )
+        .expect("windowed warp");
         assert_eq!(used, Some((30.0, 60.0, -140.0, -60.0)));
         assert_ne!(
             used.unwrap(),
