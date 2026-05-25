@@ -255,6 +255,60 @@ suite("Render pipeline", () => {
     });
   });
 
+  test("GRIB1 equirectangular: antimeridian-tight bounds echoed + manual override honored", () => {
+    const native = loadNative();
+    assert.ok(native, "native module must load");
+    const bytes = fs.readFileSync(fixturePath("cmc_wind_300_2010052400_p012.grib"));
+    const handle = native.Grib1Handle.fromBytes(bytes);
+
+    const eqr: RenderOptions = {
+      projection: "equirectangular",
+      resampling: "nearest",
+      flipY: false,
+    };
+    const auto = handle.renderGrid(0, eqr);
+
+    // The equirectangular target echoes its geographic extent back...
+    assert.ok(
+      auto.usedLatMin !== undefined && auto.usedLatMin !== null,
+      "equirectangular render must echo geographic bounds",
+    );
+    // ...and the dateline-crossing CMC grid resolves to a tight longitude
+    // span (<180°), not the spurious ~312° box naive min/max would produce.
+    const lonSpan = (auto.usedLonMax as number) - (auto.usedLonMin as number);
+    assert.ok(lonSpan > 0 && lonSpan < 180, `expected tight lon span (<180°), got ${lonSpan}`);
+    // The top edge bows toward the pole to ~80.6°N — well above the highest
+    // corner (60.5°N). A four-corner box would report the corner value, so
+    // this guards the perimeter-sampling fix end-to-end.
+    assert.ok(
+      (auto.usedLatMax as number) > 75,
+      `lat_max should follow the edge toward the pole, got ${auto.usedLatMax}`,
+    );
+
+    // A manual window is rendered and echoed back verbatim (including a value
+    // the user could have typed for an antimeridian view).
+    const windowed = handle.renderGrid(0, {
+      ...eqr,
+      boundsLatMin: 30,
+      boundsLatMax: 60,
+      boundsLonMin: -140,
+      boundsLonMax: -60,
+    });
+    assert.strictEqual(windowed.usedLatMin, 30);
+    assert.strictEqual(windowed.usedLatMax, 60);
+    assert.strictEqual(windowed.usedLonMin, -140);
+    assert.strictEqual(windowed.usedLonMax, -60);
+
+    // A partial/invalid box silently falls back to the computed extent.
+    const partial = handle.renderGrid(0, { ...eqr, boundsLatMin: 30 });
+    assert.strictEqual(partial.usedLatMin, auto.usedLatMin);
+    assert.strictEqual(partial.usedLonMin, auto.usedLonMin);
+
+    // Source projection has no geographic extent.
+    const src = handle.renderGrid(0, defaultRenderOptions());
+    assert.ok(src.usedLatMin === undefined || src.usedLatMin === null);
+  });
+
   test("GRIB2: renderGrid output post-wrap reaches the webview intact", async () => {
     const native = loadNative();
     assert.ok(native, "native module must load");

@@ -372,6 +372,13 @@ export class FieldglassEditorProvider
             flipY: !!m.flipY,
             rangeMin: m.rangeMin,
             rangeMax: m.rangeMax,
+            // Pass the manual extent through untouched; the Rust side
+            // validates the box and falls back to the computed bounds when it
+            // is partial or inverted.
+            boundsLatMin: m.boundsLatMin,
+            boundsLatMax: m.boundsLatMax,
+            boundsLonMin: m.boundsLonMin,
+            boundsLonMax: m.boundsLonMax,
           };
           paint(options);
         }
@@ -563,6 +570,12 @@ export interface GridReadyMessage {
   height: number;
   usedMin: number;
   usedMax: number;
+  /** Equirectangular extent actually rendered, echoed so the panel can
+   *  pre-fill the manual-bounds inputs. Undefined for source projection. */
+  usedLatMin?: number;
+  usedLatMax?: number;
+  usedLonMin?: number;
+  usedLonMax?: number;
   projectionSummary: string;
   options: RenderOptions;
 }
@@ -600,6 +613,10 @@ export function buildGridReadyMessage(
     height: rendered.height,
     usedMin: rendered.usedMin,
     usedMax: rendered.usedMax,
+    usedLatMin: rendered.usedLatMin,
+    usedLatMax: rendered.usedLatMax,
+    usedLonMin: rendered.usedLonMin,
+    usedLonMax: rendered.usedLonMax,
     projectionSummary: rendered.projectionSummary,
     options,
   };

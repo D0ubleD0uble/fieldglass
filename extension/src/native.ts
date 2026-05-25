@@ -95,6 +95,15 @@ export interface RenderOptions {
   flipY: boolean;
   rangeMin?: number;
   rangeMax?: number;
+  /** Manual equirectangular extent override (degrees). Only consulted for the
+   *  "equirectangular" projection. Pass all four to render that window;
+   *  partial/inverted boxes fall back to the computed source bounds. lonMin/
+   *  lonMax may sit outside [-180, 180] to describe an antimeridian-crossing
+   *  window — pass back the echoed values verbatim to reproduce a view. */
+  boundsLatMin?: number;
+  boundsLatMax?: number;
+  boundsLonMin?: number;
+  boundsLonMax?: number;
 }
 
 export interface RenderedGrid {
@@ -103,6 +112,13 @@ export interface RenderedGrid {
   height: number;
   usedMin: number;
   usedMax: number;
+  /** Equirectangular extent actually rendered (degrees), echoed back so the
+   *  panel can pre-fill the manual-bounds inputs. Undefined for the
+   *  source-projection target (no geographic extent). */
+  usedLatMin?: number;
+  usedLatMax?: number;
+  usedLonMin?: number;
+  usedLonMax?: number;
   projectionSummary: string;
 }
 

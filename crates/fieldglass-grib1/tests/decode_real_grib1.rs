@@ -26,6 +26,18 @@ fn parses_one_message_with_polar_stereo_grid() {
     let gds = msg.gds.as_ref().expect("GDS present");
     assert_eq!(gds.grid_type_name(), "polar_stereo");
     assert_eq!(gds.dimensions(), Some((135, 95)));
+
+    // GRIB1 polar-stereographic GDS carries only the first grid point; the
+    // opposite corner is derived from the projection. `bounds()` must return
+    // that derived corner, not the old (0, 0) placeholder.
+    let (la1, lo1, la2, lo2) = gds.bounds().expect("polar stereo has bounds");
+    assert!((la1 - 27.203).abs() < 1e-3, "lat_first: {la1}");
+    assert!((lo1 - (-135.213)).abs() < 1e-3, "lon_first: {lo1}");
+    // Last point ≈ (43.097°N, -31.933°E), normalised to (-180, 180]. The key
+    // guarantee is that it is a real northern-hemisphere corner, not the old
+    // (0, 0) placeholder.
+    assert!((la2 - 43.097).abs() < 1e-2, "lat_last: {la2}");
+    assert!((lo2 - (-31.933)).abs() < 1e-2, "lon_last: {lo2}");
 }
 
 #[test]
