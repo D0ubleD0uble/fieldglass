@@ -1073,6 +1073,23 @@ fn paint_source(meta: &MessageMeta, raw: &[Option<f64>]) -> napi::Result<Project
 /// `bounds_override`, when present, replaces the computed source-grid extent
 /// so the caller can render an arbitrary equirectangular window. The bounds
 /// actually used are returned (last tuple element) for echo-back.
+///
+/// LIMITATION (warp output resolution): every setup sizes the output raster to
+/// the source dims (`width = ni`, `height = nj`) and the warp samples it
+/// uniformly in degrees across the lat/lon bbox. A *projected* source grid's
+/// degrees-per-cell varies across the tile — meridians converge poleward — so
+/// no single uniform output resolution matches it everywhere: the equator side
+/// of a polar grid is downsampled (nearest aliases; bilinear blurs) while the
+/// pole side is upsampled (one source cell magnified across several pixels).
+/// Aspect isn't preserved either, so degrees-per-pixel differs between axes.
+/// This is a deliberate fidelity/perf tradeoff — it keeps the RGBA buffer at a
+/// predictable size and spends roughly one output pixel per source cell. The
+/// manual-bounds window doubles as a zoom (the fixed pixel budget over a
+/// smaller extent recovers detail down to the source resolution), which covers
+/// the common "I need detail in this region" case without another knob.
+/// Revisit — derive output dims from the extent and a target degrees-per-pixel
+/// (capped to bound memory) — only if a real fixture shows aliasing or stretch
+/// that's objectionable at pixel scale.
 #[allow(clippy::type_complexity)]
 fn warp_message(
     meta: &MessageMeta,
