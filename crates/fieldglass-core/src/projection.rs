@@ -676,16 +676,27 @@ pub trait PlanarGridProjector {
         self.grid_corners_lonlat()[3]
     }
 
-    /// Axis-aligned lat/lon bounding box of the four grid corners, returned
-    /// as `(lat_min, lat_max, lon_min, lon_max)`.
+    /// Axis-aligned lat/lon bounding box of the grid, returned as
+    /// `(lat_min, lat_max, lon_min, lon_max)`.
+    ///
+    /// The box is taken over a dense sample of the grid **perimeter**, not
+    /// just the four corners. A planar grid edge is a straight line in
+    /// projected metres but a *curve* in lat/lon, and its lat/lon extrema
+    /// generally fall in the interior of an edge — the classic case is the
+    /// point of an edge closest to the projection pole, which maximises
+    /// latitude and sits nowhere near a corner. Sampling only the corners
+    /// badly underestimates the extent (e.g. the CMC polar grid: corners cap
+    /// at 60°N while the top edge reaches ~80.6°N). Interior grid points can't
+    /// exceed the perimeter's lat/lon range for a pole-exterior grid, so the
+    /// boundary walk is sufficient.
     ///
     /// Longitudes are *unwrapped* relative to the first corner before the
     /// min/max so a grid straddling the ±180° antimeridian yields a tight,
-    /// continuous span (e.g. `-183..-32`) instead of the spurious near-global
-    /// box that naive min/max produces when corners sit on both sides of the
-    /// dateline. The returned `lon_min` may be `< -180` (or `lon_max > 180`):
-    /// that is intentional — the warp consumes it through periodic trig, and
-    /// callers that need a display value can wrap it.
+    /// continuous span instead of the spurious near-global box that naive
+    /// min/max produces. The result is then recentered so its midpoint lies in
+    /// [-180, 180]; `lon_min` may still be `< -180` (or `lon_max > 180`) to
+    /// describe a dateline-spanning window — intentional, since the warp
+    /// consumes it through periodic trig.
     ///
     /// The unwrap references a single corner, so it resolves spans up to 180°
     /// of longitude. Grids whose azimuthal extent exceeds that necessarily
@@ -693,19 +704,39 @@ pub trait PlanarGridProjector {
     /// [`PolarStereoProjector::pole_inside_grid`] and override to the full
     /// 360° rather than relying on this box.
     fn lonlat_bbox(&self) -> (f64, f64, f64, f64) {
-        let corners = self.grid_corners_lonlat();
-        let lon_ref = corners[0].1;
+        // Subdivisions per edge. 512 puts samples ~16 km apart on an 8000 km
+        // edge — fine enough to pin the closest-to-pole latitude to ~0.03°
+        // while staying a trivial ~2k inverse projections regardless of grid
+        // size.
+        const PER_EDGE: u32 = 512;
+
+        let (ox, oy) = self.grid_origin();
+        let (ni, nj) = self.grid_dims();
+        let (dx, dy) = self.grid_spacing();
+        let ex = (ni as f64 - 1.0) * dx;
+        let ey = (nj as f64 - 1.0) * dy;
+        let lon_ref = self.inverse_lonlat(ox, oy).1;
+
         let mut lat_min = f64::INFINITY;
         let mut lat_max = f64::NEG_INFINITY;
         let mut lon_min = f64::INFINITY;
         let mut lon_max = f64::NEG_INFINITY;
-        for (lat, lon) in corners {
+        let mut visit = |x: f64, y: f64| {
+            let (lat, lon) = self.inverse_lonlat(x, y);
             lat_min = lat_min.min(lat);
             lat_max = lat_max.max(lat);
             let unwrapped = lon_ref + (((lon - lon_ref) + 180.0).rem_euclid(360.0) - 180.0);
             lon_min = lon_min.min(unwrapped);
             lon_max = lon_max.max(unwrapped);
+        };
+        for k in 0..=PER_EDGE {
+            let t = k as f64 / PER_EDGE as f64;
+            visit(ox + t * ex, oy); // bottom edge (j = 0)
+            visit(ox + t * ex, oy + ey); // top edge (j = nj-1)
+            visit(ox, oy + t * ey); // left edge (i = 0)
+            visit(ox + ex, oy + t * ey); // right edge (i = ni-1)
         }
+
         // The raw inverse returns longitudes in `(lov-180, lov+180]`, so the
         // unwrapped interval can sit far from zero (e.g. 177..328 for lov=249).
         // Recenter it on [-180, 180] by shifting a whole number of turns so the
@@ -1194,7 +1225,9 @@ mod tests {
         });
         let (lat_min, lat_max, lon_min, lon_max) = proj.lonlat_bbox();
         assert!(near(lat_min, 19.945, 1e-2), "lat_min {lat_min}");
-        assert!(near(lat_max, 60.476, 1e-2), "lat_max {lat_max}");
+        // The top edge bows toward the pole and reaches ~80.6°N — far above
+        // the highest corner (60.5°N). Perimeter sampling must catch this.
+        assert!(near(lat_max, 80.593, 5e-2), "lat_max {lat_max}");
         // +177.2° unwraps to ≈ -182.8°, giving a continuous ~151° span rather
         // than the spurious 312° box.
         assert!(near(lon_min, -182.805, 1e-2), "lon_min {lon_min}");
@@ -1203,9 +1236,42 @@ mod tests {
     }
 
     #[test]
-    fn lonlat_bbox_non_crossing_grid_matches_naive_minmax() {
+    fn lonlat_bbox_lat_max_comes_from_edge_not_corner() {
+        // Regression guard for the four-corner underestimate: the CMC grid's
+        // corners top out at 60.5°N, but the boundary reaches ~80.6°N. A
+        // corner-only box would report the former.
+        let proj = PolarStereoProjector::new(PolarStereoParams {
+            ni: 135,
+            nj: 95,
+            lat_first: 27.203,
+            lon_first: -135.213,
+            lov: 249.0,
+            dx_metres: 60_000.0,
+            dy_metres: 60_000.0,
+            south_pole: false,
+        });
+        let corner_lat_max = proj
+            .grid_corners_lonlat()
+            .iter()
+            .map(|c| c.0)
+            .fold(f64::NEG_INFINITY, f64::max);
+        let (_, lat_max, ..) = proj.lonlat_bbox();
+        assert!(
+            near(corner_lat_max, 60.476, 1e-2),
+            "corner cap {corner_lat_max}"
+        );
+        assert!(
+            lat_max > corner_lat_max + 15.0,
+            "perimeter lat_max ({lat_max}) must clear the corner cap ({corner_lat_max})"
+        );
+    }
+
+    #[test]
+    fn lonlat_bbox_non_crossing_grid_encloses_corners() {
         // CONUS Lambert grid: all corners well clear of the dateline, so the
-        // unwrap is a no-op and the box is the plain min/max of the corners.
+        // longitude unwrap is a no-op. The box must enclose every corner — and,
+        // because edges bow, may extend beyond them in latitude (this grid's
+        // boundary reaches ~83°N, above any corner).
         let proj = LambertProjector::new(LambertParams {
             ni: 601,
             nj: 401,
@@ -1220,13 +1286,21 @@ mod tests {
         });
         let corners = proj.grid_corners_lonlat();
         let (lat_min, lat_max, lon_min, lon_max) = proj.lonlat_bbox();
-        let naive_lon_min = corners.iter().map(|c| c.1).fold(f64::INFINITY, f64::min);
-        let naive_lon_max = corners
+        for (lat, lon) in corners {
+            assert!(
+                lat_min - 1e-6 <= lat && lat <= lat_max + 1e-6,
+                "lat {lat} outside box"
+            );
+            assert!(
+                lon_min - 1e-6 <= lon && lon <= lon_max + 1e-6,
+                "lon {lon} outside box"
+            );
+        }
+        // Edge bow lifts lat_max above the top corners.
+        let corner_lat_max = corners
             .iter()
-            .map(|c| c.1)
+            .map(|c| c.0)
             .fold(f64::NEG_INFINITY, f64::max);
-        assert!(near(lon_min, naive_lon_min, 1e-9), "lon_min {lon_min}");
-        assert!(near(lon_max, naive_lon_max, 1e-9), "lon_max {lon_max}");
-        assert!(lat_min < lat_max);
+        assert!(lat_max > corner_lat_max, "edge should bow above corner lat");
     }
 }

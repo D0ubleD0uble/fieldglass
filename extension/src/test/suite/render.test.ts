@@ -277,6 +277,13 @@ suite("Render pipeline", () => {
     // span (<180°), not the spurious ~312° box naive min/max would produce.
     const lonSpan = (auto.usedLonMax as number) - (auto.usedLonMin as number);
     assert.ok(lonSpan > 0 && lonSpan < 180, `expected tight lon span (<180°), got ${lonSpan}`);
+    // The top edge bows toward the pole to ~80.6°N — well above the highest
+    // corner (60.5°N). A four-corner box would report the corner value, so
+    // this guards the perimeter-sampling fix end-to-end.
+    assert.ok(
+      (auto.usedLatMax as number) > 75,
+      `lat_max should follow the edge toward the pole, got ${auto.usedLatMax}`,
+    );
 
     // A manual window is rendered and echoed back verbatim (including a value
     // the user could have typed for an antimeridian view).
