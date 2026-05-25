@@ -90,7 +90,17 @@ export interface DatasetMeta {
 /** Picker state posted from the render panel and forwarded into the
  *  Rust render pipeline. */
 export interface RenderOptions {
-  projection: "source" | "equirectangular" | "web_mercator";
+  projection:
+    | "source"
+    | "equirectangular"
+    | "web_mercator"
+    | "orthographic"
+    | "polar_stereographic";
+  /** Preset for the parameterised targets. "orthographic" reads a centre
+   *  preset ("atlantic" (default), "pacific", "north_pole", "south_pole");
+   *  "polar_stereographic" reads a hemisphere preset ("north" (default),
+   *  "south"). Ignored by the lat/lon-box targets. */
+  projectionPreset?: string;
   resampling: "nearest" | "bilinear";
   flipY: boolean;
   rangeMin?: number;

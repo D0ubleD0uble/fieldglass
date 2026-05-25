@@ -2,8 +2,8 @@
 
 use fieldglass_core::{
     Format, GaussianParams, GaussianProjector, LambertParams, LambertProjector, LatLonParams,
-    PlanarGridProjector, PolarStereoParams, PolarStereoProjector, Resampling, SourceGrid,
-    TargetRaster, WebMercator,
+    Orthographic, PlanarGridProjector, PolarStereoParams, PolarStereoProjector, PolarStereographic,
+    Resampling, SourceGrid, TargetRaster, WebMercator,
     colormap::{min_max_ignoring_mask, paint_grid_rgba},
     detect_from_bytes, latlon_inverse,
     projection::GridIndex,
@@ -529,6 +529,12 @@ fn dataset_meta_from(reader: NetcdfReader) -> DatasetMeta {
 #[napi(object)]
 pub struct RenderOptions {
     pub projection: String,
+    /// Preset selector for the parameterised targets. `"orthographic"` reads
+    /// a centre preset (`"atlantic"` (0°N 0°E, default), `"pacific"`,
+    /// `"north_pole"`, `"south_pole"`); `"polar_stereographic"` reads a
+    /// hemisphere preset (`"north"` (default), `"south"`). Ignored by the
+    /// lat/lon-box targets. `None`/unknown falls back to the default.
+    pub projection_preset: Option<String>,
     pub resampling: String,
     pub flip_y: bool,
     /// Manual range override. When either is `None` the renderer uses the
@@ -881,9 +887,10 @@ struct ResolvedOptions {
 
 #[cfg_attr(test, derive(Debug))]
 enum TargetProjection {
+    /// Paint the source grid unchanged (no warp).
     Source,
-    Equirectangular,
-    WebMercator,
+    /// Inverse-warp into one of the geographic targets.
+    Warp(WarpTarget),
 }
 
 /// A validated equirectangular render window. Only constructed when the
@@ -924,14 +931,19 @@ impl RenderBounds {
 
 impl ResolvedOptions {
     fn parse(options: &RenderOptions) -> napi::Result<Self> {
+        let preset = options.projection_preset.as_deref();
         let projection = match options.projection.as_str() {
             "source" => TargetProjection::Source,
-            "equirectangular" => TargetProjection::Equirectangular,
-            "web_mercator" => TargetProjection::WebMercator,
+            "equirectangular" => TargetProjection::Warp(WarpTarget::Equirectangular),
+            "web_mercator" => TargetProjection::Warp(WarpTarget::WebMercator),
+            "orthographic" => TargetProjection::Warp(orthographic_from_preset(preset)),
+            "polar_stereographic" => {
+                TargetProjection::Warp(polar_stereographic_from_preset(preset))
+            }
             other => {
                 return Err(napi::Error::from_reason(format!(
-                    "unknown projection {other:?} \
-                     (expected \"source\", \"equirectangular\", or \"web_mercator\")"
+                    "unknown projection {other:?} (expected \"source\", \"equirectangular\", \
+                     \"web_mercator\", \"orthographic\", or \"polar_stereographic\")"
                 )));
             }
         };
@@ -952,6 +964,31 @@ impl ResolvedOptions {
             range_max: options.range_max,
             bounds: RenderBounds::from_options(options),
         })
+    }
+}
+
+/// Resolve an orthographic centre preset into `(lat0, lon0)`. The issue's
+/// non-goals call for a small preset list rather than free-form lat0/lon0
+/// inputs; unknown/`None` defaults to the Atlantic view (0°N 0°E).
+fn orthographic_from_preset(preset: Option<&str>) -> WarpTarget {
+    let (lat0, lon0) = match preset {
+        Some("pacific") => (0.0, 180.0),
+        Some("north_pole") => (90.0, 0.0),
+        Some("south_pole") => (-90.0, 0.0),
+        // "atlantic" / None / unknown
+        _ => (0.0, 0.0),
+    };
+    WarpTarget::Orthographic { lat0, lon0 }
+}
+
+/// Resolve a polar-stereographic hemisphere preset. Defaults to the
+/// north-pole aspect; `lon0` (orientation toward the bottom edge) stays at
+/// 0° — the free-form orientation knob is a non-goal for #71.
+fn polar_stereographic_from_preset(preset: Option<&str>) -> WarpTarget {
+    let south_pole = matches!(preset, Some("south"));
+    WarpTarget::PolarStereographic {
+        south_pole,
+        lon0: 0.0,
     }
 }
 
@@ -976,20 +1013,9 @@ fn render_with_options(
     let resolved = ResolvedOptions::parse(options)?;
     let (values, mask, width, height, used_bounds, summary) = match resolved.projection {
         TargetProjection::Source => paint_source(meta, raw)?,
-        TargetProjection::Equirectangular => warp_message(
-            meta,
-            raw,
-            WarpTarget::Equirectangular,
-            resolved.resampling,
-            resolved.bounds,
-        )?,
-        TargetProjection::WebMercator => warp_message(
-            meta,
-            raw,
-            WarpTarget::WebMercator,
-            resolved.resampling,
-            resolved.bounds,
-        )?,
+        TargetProjection::Warp(target) => {
+            warp_message(meta, raw, target, resolved.resampling, resolved.bounds)?
+        }
     };
 
     let (used_min, used_max) = match (resolved.range_min, resolved.range_max) {
@@ -1111,8 +1137,21 @@ fn paint_source(meta: &MessageMeta, raw: &[Option<f64>]) -> napi::Result<Project
 #[derive(Clone, Copy)]
 #[cfg_attr(test, derive(Debug, PartialEq))]
 enum WarpTarget {
+    /// Lat/lon-box targets: rows linear in latitude (equirectangular) or in
+    /// Mercator Y (web mercator). These honour a manual lat/lon window and
+    /// echo their geographic extent back.
     Equirectangular,
     WebMercator,
+    /// Azimuthal targets parameterised by a centre / hemisphere preset. They
+    /// fit a disc to the raster and have no lat/lon-box extent to echo.
+    Orthographic {
+        lat0: f64,
+        lon0: f64,
+    },
+    PolarStereographic {
+        south_pole: bool,
+        lon0: f64,
+    },
 }
 
 impl WarpTarget {
@@ -1120,7 +1159,15 @@ impl WarpTarget {
         match self {
             WarpTarget::Equirectangular => "equirectangular",
             WarpTarget::WebMercator => "web mercator",
+            WarpTarget::Orthographic { .. } => "orthographic",
+            WarpTarget::PolarStereographic { .. } => "polar stereographic",
         }
+    }
+
+    /// `true` for the lat/lon-box targets — the only ones that accept a
+    /// manual lat/lon window and report a geographic extent.
+    fn is_lonlat_box(self) -> bool {
+        matches!(self, WarpTarget::Equirectangular | WarpTarget::WebMercator)
     }
 }
 
@@ -1156,8 +1203,9 @@ fn warp_message(
 
     // Apply the caller's window over the computed default extent. The inverse
     // closure is independent of the target raster, so swapping bounds just
-    // re-samples the same source through a different output window.
-    if let Some(b) = bounds_override {
+    // re-samples the same source through a different output window. Only the
+    // lat/lon-box targets take a window; the azimuthal targets ignore it.
+    if let (Some(b), true) = (bounds_override, target_kind.is_lonlat_box()) {
         target.lat_min = b.lat_min;
         target.lat_max = b.lat_max;
         target.lon_min = b.lon_min;
@@ -1171,10 +1219,11 @@ fn warp_message(
         sample: sample_ref,
         inverse_at: inverse_ref,
     };
-    // Both targets sample the same source through the same bbox; the only
-    // difference is the pixel→(lat, lon) distribution. Web Mercator clamps
-    // its latitude extent into the projection's valid band, so the bounds
-    // we echo back come from the constructed target rather than `target`.
+    // Every target samples the same source through the same inverse map and
+    // output dims; they differ only in the pixel→(lat, lon) distribution. The
+    // lat/lon-box targets echo their geographic extent (Web Mercator's is
+    // clamped to the Mercator band); the azimuthal targets fit a disc to the
+    // raster and have no box extent to report.
     let (warped, used_bounds) = match target_kind {
         WarpTarget::Equirectangular => {
             let used = (
@@ -1183,7 +1232,7 @@ fn warp_message(
                 target.lon_min,
                 target.lon_max,
             );
-            (warp(&source, &target, resampling), used)
+            (warp(&source, &target, resampling), Some(used))
         }
         WarpTarget::WebMercator => {
             let merc = WebMercator::new(
@@ -1195,7 +1244,25 @@ fn warp_message(
                 target.lon_max,
             );
             let used = (merc.lat_min, merc.lat_max, merc.lon_min, merc.lon_max);
-            (warp(&source, &merc, resampling), used)
+            (warp(&source, &merc, resampling), Some(used))
+        }
+        WarpTarget::Orthographic { lat0, lon0 } => {
+            let ortho = Orthographic {
+                width: target.width,
+                height: target.height,
+                lat0,
+                lon0,
+            };
+            (warp(&source, &ortho, resampling), None)
+        }
+        WarpTarget::PolarStereographic { south_pole, lon0 } => {
+            let ps = PolarStereographic {
+                width: target.width,
+                height: target.height,
+                south_pole,
+                lon0,
+            };
+            (warp(&source, &ps, resampling), None)
         }
     };
     let resample_label = match resampling {
@@ -1207,7 +1274,6 @@ fn warp_message(
         source_projection_summary(meta),
         target_kind.label(),
     );
-    let used_bounds = Some(used_bounds);
     Ok((
         warped.values,
         warped.mask,
@@ -1373,6 +1439,7 @@ mod resolved_options_tests {
     fn opts(projection: &str, resampling: &str) -> RenderOptions {
         RenderOptions {
             projection: projection.to_string(),
+            projection_preset: None,
             resampling: resampling.to_string(),
             flip_y: false,
             range_min: None,
@@ -1424,16 +1491,72 @@ mod resolved_options_tests {
         assert_eq!(r.resampling, Resampling::Nearest);
 
         let r = ResolvedOptions::parse(&opts("equirectangular", "bilinear")).expect("eqr/bilinear");
-        assert!(matches!(r.projection, TargetProjection::Equirectangular));
+        assert!(matches!(
+            r.projection,
+            TargetProjection::Warp(WarpTarget::Equirectangular)
+        ));
         assert_eq!(r.resampling, Resampling::Bilinear);
 
         let r = ResolvedOptions::parse(&opts("web_mercator", "nearest")).expect("merc/nearest");
-        assert!(matches!(r.projection, TargetProjection::WebMercator));
+        assert!(matches!(
+            r.projection,
+            TargetProjection::Warp(WarpTarget::WebMercator)
+        ));
+
+        // Azimuthal targets resolve their preset into concrete parameters.
+        let r = ResolvedOptions::parse(&opts("orthographic", "nearest")).expect("ortho/nearest");
+        assert!(matches!(
+            r.projection,
+            TargetProjection::Warp(WarpTarget::Orthographic { lat0, lon0 }) if lat0 == 0.0 && lon0 == 0.0
+        ));
+        let r =
+            ResolvedOptions::parse(&opts("polar_stereographic", "nearest")).expect("polar/nearest");
+        assert!(matches!(
+            r.projection,
+            TargetProjection::Warp(WarpTarget::PolarStereographic {
+                south_pole: false,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn orthographic_preset_selects_centre() {
+        let mut o = opts("orthographic", "nearest");
+        o.projection_preset = Some("pacific".to_string());
+        assert!(matches!(
+            ResolvedOptions::parse(&o).unwrap().projection,
+            TargetProjection::Warp(WarpTarget::Orthographic { lat0, lon0 }) if lat0 == 0.0 && lon0 == 180.0
+        ));
+        o.projection_preset = Some("north_pole".to_string());
+        assert!(matches!(
+            ResolvedOptions::parse(&o).unwrap().projection,
+            TargetProjection::Warp(WarpTarget::Orthographic { lat0, .. }) if lat0 == 90.0
+        ));
+        // Unknown preset falls back to the Atlantic default.
+        o.projection_preset = Some("nonsense".to_string());
+        assert!(matches!(
+            ResolvedOptions::parse(&o).unwrap().projection,
+            TargetProjection::Warp(WarpTarget::Orthographic { lat0, lon0 }) if lat0 == 0.0 && lon0 == 0.0
+        ));
+    }
+
+    #[test]
+    fn polar_stereographic_preset_selects_hemisphere() {
+        let mut o = opts("polar_stereographic", "nearest");
+        o.projection_preset = Some("south".to_string());
+        assert!(matches!(
+            ResolvedOptions::parse(&o).unwrap().projection,
+            TargetProjection::Warp(WarpTarget::PolarStereographic {
+                south_pole: true,
+                ..
+            })
+        ));
     }
 
     #[test]
     fn rejects_unknown_projection() {
-        let err = ResolvedOptions::parse(&opts("orthographic", "nearest"))
+        let err = ResolvedOptions::parse(&opts("mollweide", "nearest"))
             .expect_err("unknown projection must error");
         assert!(
             err.to_string().contains("unknown projection"),
@@ -1572,6 +1695,50 @@ mod polar_stereo_warp_tests {
             summary.contains("polar_stereo") && summary.contains("web mercator"),
             "summary should name source kind + target, got: {summary}"
         );
+    }
+
+    #[test]
+    fn warps_polar_stereo_to_azimuthal_targets() {
+        // The orthographic and polar-stereographic *targets* fit a disc to the
+        // raster: they share the source inverse map but report no lat/lon-box
+        // extent. Verify both produce a non-empty mask and the right summary,
+        // and that bounds come back `None`.
+        let meta = cmc_polar_meta();
+        let raw: Vec<Option<f64>> = vec![Some(1.0); 135 * 95];
+
+        for (target, name) in [
+            (
+                WarpTarget::Orthographic {
+                    lat0: 90.0,
+                    lon0: 0.0,
+                },
+                "orthographic",
+            ),
+            (
+                WarpTarget::PolarStereographic {
+                    south_pole: false,
+                    lon0: 0.0,
+                },
+                "polar stereographic",
+            ),
+        ] {
+            let (values, mask, w, h, bounds, summary) =
+                warp_message(&meta, &raw, target, Resampling::Nearest, None)
+                    .unwrap_or_else(|e| panic!("{name} warp failed: {e}"));
+            assert_eq!((w, h), (135, 95));
+            let present = mask.iter().filter(|&&m| m == 1).count();
+            assert!(present > 0, "{name} target produced an empty mask");
+            for (i, &m) in mask.iter().enumerate() {
+                if m == 1 {
+                    assert_eq!(values[i], 1.0, "{name} present pixel {i} should be 1.0");
+                }
+            }
+            assert!(bounds.is_none(), "{name} target has no lat/lon-box extent");
+            assert!(
+                summary.contains("polar_stereo") && summary.contains(name),
+                "{name} summary should name source + target, got: {summary}"
+            );
+        }
     }
 
     #[test]

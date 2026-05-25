@@ -26,6 +26,6 @@ pub use projection::{
 pub use reader::DataMessage;
 pub use reader::FormatReader;
 pub use warp::{
-    Resampling, SourceGrid, TargetProjection, TargetRaster, WarpedRaster, WebMercator, warp,
-    warp_to_equirectangular,
+    Orthographic, PolarStereographic, Resampling, SourceGrid, TargetProjection, TargetRaster,
+    WarpedRaster, WebMercator, warp, warp_to_equirectangular,
 };

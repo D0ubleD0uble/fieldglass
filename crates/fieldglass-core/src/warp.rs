@@ -1,5 +1,5 @@
 //! Inverse-warp pipeline: paint a source GRIB grid into a target
-//! equirectangular raster.
+//! projection raster.
 //!
 //! The caller provides a [`SourceGrid`] (raw values + a per-grid-type
 //! `inverse_at` closure from [`crate::projection`]) and a [`TargetRaster`]
@@ -246,6 +246,103 @@ impl TargetProjection for WebMercator {
         let lat = mercator_lat(y_max + py as f64 * d_y);
         let lon = self.lon_min + px as f64 * d_lon;
         Some((lat, lon))
+    }
+}
+
+/// Orthographic ("globe view") target centred on `(lat0, lon0)`. The
+/// visible hemisphere is fitted to the output raster as the unit disc:
+/// the centre pixel is `(lat0, lon0)`, the disc rim is the great circle
+/// 90° away, and pixels in the square's corners (outside the disc) are
+/// `None`. Inverse map per Snyder, PP-1395 §20 (sphere), eqs 20-14/20-18.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Orthographic {
+    pub width: u32,
+    pub height: u32,
+    pub lat0: f64,
+    pub lon0: f64,
+}
+
+impl TargetProjection for Orthographic {
+    fn dims(&self) -> (u32, u32) {
+        (self.width, self.height)
+    }
+
+    fn pixel_to_lonlat(&self, px: u32, py: u32) -> Option<(f64, f64)> {
+        // Map the pixel into the unit disc, north-up: x ∈ [-1, 1] L→R,
+        // y ∈ [1, -1] T→B. A 1-px axis degenerates to its centre (0).
+        let x = pixel_unit_coord(px, self.width);
+        let y = -pixel_unit_coord(py, self.height);
+        let rho = (x * x + y * y).sqrt();
+        if rho > 1.0 {
+            return None; // Outside the globe disc — the back of the sphere.
+        }
+        let lat0 = self.lat0 * DEG2RAD;
+        if rho == 0.0 {
+            return Some((self.lat0, self.lon0));
+        }
+        // ρ = sin c for the unit sphere, so c = asin(ρ).
+        let c = rho.asin();
+        let (sin_c, cos_c) = (c.sin(), c.cos());
+        let lat = (cos_c * lat0.sin() + y * sin_c * lat0.cos() / rho).asin();
+        let lon = self.lon0 * DEG2RAD
+            + (x * sin_c).atan2(rho * cos_c * lat0.cos() - y * sin_c * lat0.sin());
+        Some((lat * RAD2DEG, lon * RAD2DEG))
+    }
+}
+
+/// Polar stereographic target centred on a pole — the conformal,
+/// true-shape view for high-latitude fields. The pole sits at the disc
+/// centre and the opposite-side cutoff (the equator) maps to the disc
+/// rim; pixels beyond the rim (the far hemisphere) are `None`. `lon0`
+/// orients the meridian pointing toward the bottom of the raster.
+///
+/// Forward `ρ = 2·tan(π/4 - φ_signed/2)` on the unit sphere puts the
+/// equator at `ρ = 2`, so the raster's unit disc is scaled by 2 (Snyder,
+/// PP-1395 §21, sphere, polar aspect).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PolarStereographic {
+    pub width: u32,
+    pub height: u32,
+    /// `true` ⇒ south-pole-centred; `false` ⇒ north-pole-centred.
+    pub south_pole: bool,
+    /// Orientation longitude pointing toward the bottom edge, degrees.
+    pub lon0: f64,
+}
+
+impl TargetProjection for PolarStereographic {
+    fn dims(&self) -> (u32, u32) {
+        (self.width, self.height)
+    }
+
+    fn pixel_to_lonlat(&self, px: u32, py: u32) -> Option<(f64, f64)> {
+        // Disc scaled so the equator (ρ = 2) sits at the rim.
+        let x = pixel_unit_coord(px, self.width) * 2.0;
+        let y = -pixel_unit_coord(py, self.height) * 2.0;
+        let rho = (x * x + y * y).sqrt();
+        let sign = if self.south_pole { -1.0 } else { 1.0 };
+        if rho == 0.0 {
+            return Some((sign * 90.0, self.lon0));
+        }
+        // ρ = 2·tan(c/2) ⇒ c = 2·atan(ρ/2); latitude = pole − c.
+        let c = 2.0 * (rho / 2.0).atan();
+        let lat = sign * (PI / 2.0 - c) * RAD2DEG;
+        if sign > 0.0 && lat < 0.0 || sign < 0.0 && lat > 0.0 {
+            return None; // Past the equator — the far hemisphere.
+        }
+        // North: λ = lon0 + atan2(x, -y); the south aspect flips y.
+        let lon = self.lon0 + x.atan2(-sign * y) * RAD2DEG;
+        Some((lat, lon))
+    }
+}
+
+/// Map a pixel index to a `[-1, 1]` coordinate across `n` pixels, north/
+/// west-up. A single-pixel axis collapses to its centre (`0.0`) rather
+/// than dividing by zero.
+fn pixel_unit_coord(px: u32, n: u32) -> f64 {
+    if n <= 1 {
+        0.0
+    } else {
+        (px as f64 / (n as f64 - 1.0)) * 2.0 - 1.0
     }
 }
 
@@ -621,6 +718,124 @@ mod tests {
         assert!(present > 0, "mercator warp produced an empty mask");
         // Corners of the box are at the source corners → present.
         assert_eq!(out.mask[0], 1, "top-left present");
+    }
+
+    #[test]
+    fn orthographic_centre_pixel_is_projection_centre() {
+        // Odd dims so a pixel lands exactly on the disc centre.
+        let t = Orthographic {
+            width: 5,
+            height: 5,
+            lat0: 30.0,
+            lon0: -45.0,
+        };
+        let (lat, lon) = t.pixel_to_lonlat(2, 2).expect("centre on disc");
+        assert!(near(lat, 30.0, 1e-9), "centre lat {lat}");
+        assert!(near(lon, -45.0, 1e-9), "centre lon {lon}");
+    }
+
+    #[test]
+    fn orthographic_corners_are_off_disc() {
+        // The square's corners sit at radius √2 > 1 — the back of the globe.
+        let t = Orthographic {
+            width: 8,
+            height: 8,
+            lat0: 0.0,
+            lon0: 0.0,
+        };
+        assert!(t.pixel_to_lonlat(0, 0).is_none(), "TL corner off-disc");
+        assert!(t.pixel_to_lonlat(7, 7).is_none(), "BR corner off-disc");
+        // An interior pixel near the disc centre is on the globe.
+        assert!(
+            t.pixel_to_lonlat(3, 3).is_some(),
+            "near-centre pixel on disc"
+        );
+    }
+
+    #[test]
+    fn orthographic_round_trips_visible_hemisphere() {
+        // Forward-project a few points on the visible hemisphere into the
+        // unit disc, convert to the nearest pixel of a fine raster, and
+        // confirm the inverse lands back near the original (lat, lon).
+        let t = Orthographic {
+            width: 1001,
+            height: 1001,
+            lat0: 40.0,
+            lon0: 10.0,
+        };
+        let (lat0, lon0) = (40.0_f64.to_radians(), 10.0_f64.to_radians());
+        for (lat_d, lon_d) in [(40.0_f64, 10.0_f64), (55.0, 25.0), (20.0, -10.0)] {
+            let (lat, lon) = (lat_d.to_radians(), lon_d.to_radians());
+            // Snyder 20-3/20-4 forward (R = 1).
+            let x = lat.cos() * (lon - lon0).sin();
+            let y = lat0.cos() * lat.sin() - lat0.sin() * lat.cos() * (lon - lon0).cos();
+            // Disc → pixel (north-up): invert `pixel_unit_coord`.
+            let px = ((x + 1.0) / 2.0 * (t.width as f64 - 1.0)).round() as u32;
+            let py = ((1.0 - y) / 2.0 * (t.height as f64 - 1.0)).round() as u32;
+            let (rlat, rlon) = t.pixel_to_lonlat(px, py).expect("on disc");
+            assert!(near(rlat, lat_d, 0.1), "lat {lat_d} → {rlat}");
+            assert!(near(rlon, lon_d, 0.1), "lon {lon_d} → {rlon}");
+        }
+    }
+
+    #[test]
+    fn polar_stereographic_centre_is_the_pole() {
+        let north = PolarStereographic {
+            width: 5,
+            height: 5,
+            south_pole: false,
+            lon0: 0.0,
+        };
+        let (lat, _) = north.pixel_to_lonlat(2, 2).expect("pole");
+        assert!(near(lat, 90.0, 1e-9), "north centre lat {lat}");
+        let south = PolarStereographic {
+            south_pole: true,
+            ..north
+        };
+        let (lat, _) = south.pixel_to_lonlat(2, 2).expect("pole");
+        assert!(near(lat, -90.0, 1e-9), "south centre lat {lat}");
+    }
+
+    #[test]
+    fn polar_stereographic_rim_is_the_equator_and_beyond_is_none() {
+        let t = PolarStereographic {
+            width: 101,
+            height: 101,
+            south_pole: false,
+            lon0: 0.0,
+        };
+        // Rightmost-centre pixel sits on the disc rim → equator (lat ≈ 0).
+        let (lat, _) = t.pixel_to_lonlat(100, 50).expect("rim on disc");
+        assert!(near(lat, 0.0, 1e-6), "rim lat {lat}");
+        // The square's corner is past the rim (far hemisphere) → None.
+        assert!(t.pixel_to_lonlat(0, 0).is_none(), "corner past equator");
+    }
+
+    #[test]
+    fn polar_stereographic_warps_indexed_source() {
+        // A north-pole disc over a source covering 0..80°N should sample a
+        // non-empty region.
+        let (p, cell) = indexed_latlon_source(LatLonParams {
+            ni: 9,
+            nj: 9,
+            lat_first: 80.0,
+            lon_first: -180.0,
+            lat_last: 0.0,
+            lon_last: 180.0,
+        });
+        let source = make_source(&p, &cell);
+        let target = PolarStereographic {
+            width: 32,
+            height: 32,
+            south_pole: false,
+            lon0: 0.0,
+        };
+        let out = warp(&source, &target, Resampling::Nearest);
+        let present = out.mask.iter().filter(|&&m| m == 1).count();
+        assert!(
+            present > 0,
+            "polar-stereo target warp produced an empty mask"
+        );
     }
 
     #[test]

@@ -67,6 +67,13 @@ export function renderImagePanelHtml(
           const flipY = !!(document.getElementById('flip-y') && document.getElementById('flip-y').checked);
           const mode = document.querySelector('input[name="range-mode"]:checked');
           const options = { projection, resampling, flipY };
+          // The azimuthal targets read a centre / hemisphere preset; the
+          // lat/lon-box targets ignore it.
+          if (projection === 'orthographic') {
+            options.projectionPreset = (document.getElementById('picker-preset-ortho') || {}).value;
+          } else if (projection === 'polar_stereographic') {
+            options.projectionPreset = (document.getElementById('picker-preset-polar') || {}).value;
+          }
           if (mode && mode.value === 'manual') {
             const min = Number((document.getElementById('range-min') || {}).value);
             const max = Number((document.getElementById('range-max') || {}).value);
@@ -165,9 +172,24 @@ export function renderImagePanelHtml(
           setStatus('Error: ' + (msg.error || 'render failed'));
         }
 
+        // Show the centre/hemisphere preset selector that matches the active
+        // projection, and hide the others.
+        function syncPresetVisibility() {
+          const projection = (document.getElementById('picker-projection') || {}).value || 'source';
+          const ortho = document.getElementById('preset-ortho');
+          const polar = document.getElementById('preset-polar');
+          if (ortho) ortho.toggleAttribute('hidden', projection !== 'orthographic');
+          if (polar) polar.toggleAttribute('hidden', projection !== 'polar_stereographic');
+        }
+
         function attachControls() {
           const projPick = document.getElementById('picker-projection');
-          if (projPick) projPick.addEventListener('change', requestRender);
+          if (projPick) projPick.addEventListener('change', () => { syncPresetVisibility(); requestRender(); });
+          ['picker-preset-ortho', 'picker-preset-polar'].forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('change', requestRender);
+          });
+          syncPresetVisibility();
           const sampPick = document.getElementById('picker-resampling');
           if (sampPick) sampPick.addEventListener('change', requestRender);
           const flip = document.getElementById('flip-y');
@@ -324,6 +346,22 @@ export function renderImagePanelHtml(
         <option value="source" selected>Source projection</option>
         <option value="equirectangular">Equirectangular</option>
         <option value="web_mercator">Web Mercator</option>
+        <option value="orthographic">Orthographic</option>
+        <option value="polar_stereographic">Polar stereographic</option>
+      </select>
+    </label>
+    <label id="preset-ortho" hidden>Centre
+      <select id="picker-preset-ortho">
+        <option value="atlantic" selected>Atlantic (0°N 0°E)</option>
+        <option value="pacific">Pacific (0°N 180°E)</option>
+        <option value="north_pole">North pole</option>
+        <option value="south_pole">South pole</option>
+      </select>
+    </label>
+    <label id="preset-polar" hidden>Hemisphere
+      <select id="picker-preset-polar">
+        <option value="north" selected>North</option>
+        <option value="south">South</option>
       </select>
     </label>
     <label>Resampling

@@ -340,6 +340,37 @@ suite("Render pipeline", () => {
     assert.strictEqual(merc.rgba.length, merc.width * merc.height * 4);
   });
 
+  test("GRIB1 azimuthal targets: orthographic + polar stereographic render via presets", () => {
+    const native = loadNative();
+    assert.ok(native, "native module must load");
+    const bytes = fs.readFileSync(fixturePath("cmc_wind_300_2010052400_p012.grib"));
+    const handle = native.Grib1Handle.fromBytes(bytes);
+
+    const ortho = handle.renderGrid(0, {
+      projection: "orthographic",
+      projectionPreset: "north_pole",
+      resampling: "nearest",
+      flipY: false,
+    });
+    // Azimuthal targets fit a disc to the raster — no lat/lon-box extent.
+    assert.ok(
+      ortho.usedLatMin === undefined || ortho.usedLatMin === null,
+      "orthographic target has no geographic box extent",
+    );
+    assert.ok(/orthographic/.test(ortho.projectionSummary), ortho.projectionSummary);
+    assert.strictEqual(ortho.rgba.length, ortho.width * ortho.height * 4);
+
+    const polar = handle.renderGrid(0, {
+      projection: "polar_stereographic",
+      projectionPreset: "north",
+      resampling: "nearest",
+      flipY: false,
+    });
+    assert.ok(polar.usedLatMin === undefined || polar.usedLatMin === null);
+    assert.ok(/polar stereographic/.test(polar.projectionSummary), polar.projectionSummary);
+    assert.strictEqual(polar.rgba.length, polar.width * polar.height * 4);
+  });
+
   test("GRIB2: renderGrid output post-wrap reaches the webview intact", async () => {
     const native = loadNative();
     assert.ok(native, "native module must load");
