@@ -85,8 +85,31 @@ pub struct WarpedRaster {
 /// the corners of a polar-stereographic disc), which the warp leaves
 /// masked. Row `0` is the north / top edge by convention.
 pub trait TargetProjection {
+    /// The loop-invariant precomputed form, built once per warp.
+    type Prepared: PreparedTarget;
+
     /// Output raster dimensions in pixels.
     fn dims(&self) -> (u32, u32);
+
+    /// Hoist every per-raster-constant quantity (Mercator Y of the extent,
+    /// projection-centre trig, etc.) out of the per-pixel map. [`warp`]
+    /// calls this once before the loop, mirroring the source-side
+    /// `Projector` pattern in [`crate::projection`] (build once, call per
+    /// pixel).
+    fn prepare(&self) -> Self::Prepared;
+
+    /// Convenience one-off lookup that re-runs [`Self::prepare`] each call.
+    /// Handy for tests and single-point queries; on a hot path call
+    /// `prepare` once and reuse the [`PreparedTarget`].
+    fn pixel_to_lonlat(&self, px: u32, py: u32) -> Option<(f64, f64)> {
+        self.prepare().pixel_to_lonlat(px, py)
+    }
+}
+
+/// The precomputed per-pixel map of a [`TargetProjection`], with all
+/// raster-invariant work already hoisted out. `Copy` so [`warp`] can hold
+/// it cheaply across the loop.
+pub trait PreparedTarget: Copy {
     /// Geographic `(lat, lon)` in degrees for output pixel `(px, py)`, or
     /// `None` when the pixel lies outside the projection domain.
     fn pixel_to_lonlat(&self, px: u32, py: u32) -> Option<(f64, f64)>;
@@ -115,10 +138,13 @@ pub fn warp<T: TargetProjection>(
         };
     }
 
+    // Hoist the raster-invariant projection setup once; the inner loop then
+    // only does the genuinely per-pixel arithmetic.
+    let prepared = target.prepare();
     for py in 0..h {
         for px in 0..w {
             let out = py as usize * width + px as usize;
-            let Some((lat, lon)) = target.pixel_to_lonlat(px, py) else {
+            let Some((lat, lon)) = prepared.pixel_to_lonlat(px, py) else {
                 continue;
             };
             let Some(idx) = (source.inverse_at)(lat, lon) else {
@@ -139,24 +165,37 @@ pub fn warp<T: TargetProjection>(
     }
 }
 
+/// Hoisted equirectangular map: row 0 at `lat_max`, stepping by `d_lat`
+/// (negative, north-up) and `d_lon` per pixel.
+#[derive(Debug, Clone, Copy)]
+pub struct EquirectPrepared {
+    lat_max: f64,
+    d_lat: f64,
+    lon_min: f64,
+    d_lon: f64,
+}
+
 impl TargetProjection for TargetRaster {
+    type Prepared = EquirectPrepared;
+
     fn dims(&self) -> (u32, u32) {
         (self.width, self.height)
     }
 
+    fn prepare(&self) -> EquirectPrepared {
+        EquirectPrepared {
+            lat_max: self.lat_max,
+            d_lat: span_step(self.lat_min - self.lat_max, self.height),
+            lon_min: self.lon_min,
+            d_lon: span_step(self.lon_max - self.lon_min, self.width),
+        }
+    }
+}
+
+impl PreparedTarget for EquirectPrepared {
     fn pixel_to_lonlat(&self, px: u32, py: u32) -> Option<(f64, f64)> {
-        let d_lat = if self.height <= 1 {
-            0.0
-        } else {
-            (self.lat_min - self.lat_max) / (self.height as f64 - 1.0)
-        };
-        let d_lon = if self.width <= 1 {
-            0.0
-        } else {
-            (self.lon_max - self.lon_min) / (self.width as f64 - 1.0)
-        };
-        let lat = self.lat_max + py as f64 * d_lat;
-        let lon = self.lon_min + px as f64 * d_lon;
+        let lat = self.lat_max + py as f64 * self.d_lat;
+        let lon = self.lon_min + px as f64 * self.d_lon;
         Some((lat, lon))
     }
 }
@@ -223,28 +262,41 @@ impl WebMercator {
     }
 }
 
+/// Hoisted Web Mercator map: row 0 at Mercator `y_max`, stepping by `d_y`
+/// in Mercator Y (so latitude bunches poleward) and `d_lon` per pixel.
+#[derive(Debug, Clone, Copy)]
+pub struct WebMercatorPrepared {
+    y_max: f64,
+    d_y: f64,
+    lon_min: f64,
+    d_lon: f64,
+}
+
 impl TargetProjection for WebMercator {
+    type Prepared = WebMercatorPrepared;
+
     fn dims(&self) -> (u32, u32) {
         (self.width, self.height)
     }
 
-    fn pixel_to_lonlat(&self, px: u32, py: u32) -> Option<(f64, f64)> {
+    fn prepare(&self) -> WebMercatorPrepared {
         // Row 0 is the north edge → `y_max`; rows step linearly down to
         // `y_min` at the bottom.
         let y_max = mercator_y(self.lat_max);
         let y_min = mercator_y(self.lat_min);
-        let d_y = if self.height <= 1 {
-            0.0
-        } else {
-            (y_min - y_max) / (self.height as f64 - 1.0)
-        };
-        let d_lon = if self.width <= 1 {
-            0.0
-        } else {
-            (self.lon_max - self.lon_min) / (self.width as f64 - 1.0)
-        };
-        let lat = mercator_lat(y_max + py as f64 * d_y);
-        let lon = self.lon_min + px as f64 * d_lon;
+        WebMercatorPrepared {
+            y_max,
+            d_y: span_step(y_min - y_max, self.height),
+            lon_min: self.lon_min,
+            d_lon: span_step(self.lon_max - self.lon_min, self.width),
+        }
+    }
+}
+
+impl PreparedTarget for WebMercatorPrepared {
+    fn pixel_to_lonlat(&self, px: u32, py: u32) -> Option<(f64, f64)> {
+        let lat = mercator_lat(self.y_max + py as f64 * self.d_y);
+        let lon = self.lon_min + px as f64 * self.d_lon;
         Some((lat, lon))
     }
 }
@@ -262,11 +314,42 @@ pub struct Orthographic {
     pub lon0: f64,
 }
 
+/// Hoisted orthographic map: the projection-centre trig (`sin φ₀`,
+/// `cos φ₀`, `λ₀`) and the raster dims needed to place each pixel on the
+/// unit disc.
+#[derive(Debug, Clone, Copy)]
+pub struct OrthographicPrepared {
+    width: u32,
+    height: u32,
+    lat0: f64,
+    lon0: f64,
+    sin_lat0: f64,
+    cos_lat0: f64,
+    lon0_rad: f64,
+}
+
 impl TargetProjection for Orthographic {
+    type Prepared = OrthographicPrepared;
+
     fn dims(&self) -> (u32, u32) {
         (self.width, self.height)
     }
 
+    fn prepare(&self) -> OrthographicPrepared {
+        let lat0_rad = self.lat0 * DEG2RAD;
+        OrthographicPrepared {
+            width: self.width,
+            height: self.height,
+            lat0: self.lat0,
+            lon0: self.lon0,
+            sin_lat0: lat0_rad.sin(),
+            cos_lat0: lat0_rad.cos(),
+            lon0_rad: self.lon0 * DEG2RAD,
+        }
+    }
+}
+
+impl PreparedTarget for OrthographicPrepared {
     fn pixel_to_lonlat(&self, px: u32, py: u32) -> Option<(f64, f64)> {
         // Map the pixel into the unit disc, north-up: x ∈ [-1, 1] L→R,
         // y ∈ [1, -1] T→B. A 1-px axis degenerates to its centre (0).
@@ -276,16 +359,15 @@ impl TargetProjection for Orthographic {
         if rho > 1.0 {
             return None; // Outside the globe disc — the back of the sphere.
         }
-        let lat0 = self.lat0 * DEG2RAD;
         if rho == 0.0 {
             return Some((self.lat0, self.lon0));
         }
         // ρ = sin c for the unit sphere, so c = asin(ρ).
         let c = rho.asin();
         let (sin_c, cos_c) = (c.sin(), c.cos());
-        let lat = (cos_c * lat0.sin() + y * sin_c * lat0.cos() / rho).asin();
-        let lon = self.lon0 * DEG2RAD
-            + (x * sin_c).atan2(rho * cos_c * lat0.cos() - y * sin_c * lat0.sin());
+        let lat = (cos_c * self.sin_lat0 + y * sin_c * self.cos_lat0 / rho).asin();
+        let lon = self.lon0_rad
+            + (x * sin_c).atan2(rho * cos_c * self.cos_lat0 - y * sin_c * self.sin_lat0);
         Some((lat * RAD2DEG, lon * RAD2DEG))
     }
 }
@@ -309,17 +391,40 @@ pub struct PolarStereographic {
     pub lon0: f64,
 }
 
+/// Hoisted polar stereographic map: the hemisphere `sign`, orientation
+/// `lon0`, and the raster dims needed to place each pixel on the disc.
+#[derive(Debug, Clone, Copy)]
+pub struct PolarStereographicPrepared {
+    width: u32,
+    height: u32,
+    sign: f64,
+    lon0: f64,
+}
+
 impl TargetProjection for PolarStereographic {
+    type Prepared = PolarStereographicPrepared;
+
     fn dims(&self) -> (u32, u32) {
         (self.width, self.height)
     }
 
+    fn prepare(&self) -> PolarStereographicPrepared {
+        PolarStereographicPrepared {
+            width: self.width,
+            height: self.height,
+            sign: if self.south_pole { -1.0 } else { 1.0 },
+            lon0: self.lon0,
+        }
+    }
+}
+
+impl PreparedTarget for PolarStereographicPrepared {
     fn pixel_to_lonlat(&self, px: u32, py: u32) -> Option<(f64, f64)> {
         // Disc scaled so the equator (ρ = 2) sits at the rim.
         let x = pixel_unit_coord(px, self.width) * 2.0;
         let y = -pixel_unit_coord(py, self.height) * 2.0;
         let rho = (x * x + y * y).sqrt();
-        let sign = if self.south_pole { -1.0 } else { 1.0 };
+        let sign = self.sign;
         if rho == 0.0 {
             return Some((sign * 90.0, self.lon0));
         }
@@ -333,6 +438,13 @@ impl TargetProjection for PolarStereographic {
         let lon = self.lon0 + x.atan2(-sign * y) * RAD2DEG;
         Some((lat, lon))
     }
+}
+
+/// Per-pixel step that spreads `span` evenly across `n` pixels (`span /
+/// (n - 1)`). A single-pixel axis collapses to a zero step rather than
+/// dividing by zero.
+fn span_step(span: f64, n: u32) -> f64 {
+    if n <= 1 { 0.0 } else { span / (n as f64 - 1.0) }
 }
 
 /// Map a pixel index to a `[-1, 1]` coordinate across `n` pixels, north/
