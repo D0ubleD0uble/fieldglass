@@ -166,9 +166,11 @@ export function renderImagePanelHtml(
         function handleGridReady(msg) {
           lastPayload = msg;
           blit(msg);
-          // The raster geometry just changed — reproject any active overlay so
-          // its pixel coordinates match the new image.
-          requestOverlay();
+          // Reproject the overlay only when the raster *geometry* changed
+          // (projection / preset / flip-y / bounds). A range- or resampling-
+          // only render leaves the geometry — and the existing overlay — valid,
+          // so we skip the round-trip.
+          if (overlayKey() !== lastOverlayKey) requestOverlay();
         }
 
         function handleGridError(msg) {
@@ -180,12 +182,30 @@ export function renderImagePanelHtml(
         // redraw on resize without another round-trip. Cleared when all layers
         // are toggled off.
         let lastOverlay = null;
+        // Monotonic request id: a reply for an older projection is ignored so
+        // it can't be drawn against a newer raster (transient misalignment when
+        // switching projections quickly).
+        let overlaySeq = 0;
+        // The geometry-affecting options behind the current overlay. A render
+        // that changes only range/resampling leaves this unchanged, so we skip
+        // a redundant reprojection round-trip.
+        let lastOverlayKey = null;
 
         function overlayState() {
           return {
             coastlines: !!(document.getElementById('overlay-coastlines') || {}).checked,
             graticule: !!(document.getElementById('overlay-graticule') || {}).checked,
           };
+        }
+
+        // Only projection / preset / flip-y / bounds move the overlay's pixel
+        // geometry; resampling and range do not.
+        function overlayKey() {
+          const o = currentOptions();
+          return JSON.stringify([
+            o.projection, o.projectionPreset, !!o.flipY,
+            o.boundsLatMin, o.boundsLatMax, o.boundsLonMin, o.boundsLonMax,
+          ]);
         }
 
         function clearOverlay() {
@@ -199,13 +219,16 @@ export function renderImagePanelHtml(
         // options. Geometry-only on the Rust side — never re-decodes.
         function requestOverlay() {
           if (!lastPayload) return;
+          lastOverlayKey = overlayKey();
           const state = overlayState();
           if (!state.coastlines && !state.graticule) {
             clearOverlay();
             return;
           }
+          overlaySeq += 1;
           vscode.postMessage({
             type: 'overlayRequest',
+            seq: overlaySeq,
             options: currentOptions(),
             coastlines: state.coastlines,
             graticule: state.graticule,
@@ -214,6 +237,9 @@ export function renderImagePanelHtml(
         }
 
         function handleOverlayReady(msg) {
+          // Drop a stale reply (an earlier projection) so it can't be drawn
+          // against the current raster.
+          if (msg.seq !== overlaySeq) return;
           lastOverlay = msg;
           drawOverlay();
         }
@@ -228,9 +254,12 @@ export function renderImagePanelHtml(
           const ctx = o && o.getContext('2d');
           if (!img || !o || !ctx || !lastPayload) return;
           const dpr = window.devicePixelRatio || 1;
-          const rect = img.getBoundingClientRect();
-          o.width = Math.max(1, Math.round(rect.width * dpr));
-          o.height = Math.max(1, Math.round(rect.height * dpr));
+          // Size the backing store to the overlay's *content* box (the canvas
+          // bitmap fills the content box, inside its border) so a raster pixel
+          // maps exactly onto the same spot as the image's content box — no
+          // ~1px border offset. clientWidth/Height exclude the border.
+          o.width = Math.max(1, Math.round(o.clientWidth * dpr));
+          o.height = Math.max(1, Math.round(o.clientHeight * dpr));
           ctx.clearRect(0, 0, o.width, o.height);
           if (!lastOverlay || !lastOverlay.layers || !lastPayload.width) return;
           const sx = o.width / lastPayload.width;
@@ -248,8 +277,9 @@ export function renderImagePanelHtml(
             ctx.strokeStyle = style.color;
             ctx.lineWidth = style.width * dpr;
             ctx.beginPath();
-            const xy = layer.xy;
-            const segs = layer.segLengths;
+            // Tolerate either typed arrays or plain arrays from the serializer.
+            const xy = layer.xy || [];
+            const segs = layer.segLengths || [];
             let p = 0;
             for (let s = 0; s < segs.length; s++) {
               const n = segs[s];

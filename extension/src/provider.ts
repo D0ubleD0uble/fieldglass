@@ -346,13 +346,11 @@ export class FieldglassEditorProvider
       }
     };
 
-    // Respond for the panel's lifetime: webview is created with
-    // retainContextWhenHidden=false so VS Code tears down the DOM/JS
-    // context when the tab is hidden; each remount posts a fresh `ready`.
     // Project the requested overlay layers (coastline / graticule) onto the
     // raster for the current options and post the pixel-space runs back. The
     // forward projection runs in Rust (`projectOverlay`); this never decodes
-    // values, so toggling the overlay never re-decodes the grid.
+    // values, so toggling the overlay never re-decodes the grid. `seq` is
+    // echoed verbatim so the webview can drop a reply for a superseded request.
     const projectOverlay = (req: OverlayRequest) => {
       const docHandle = this._handlesByDoc.get(document.uri.toString());
       if (!docHandle) return;
@@ -373,6 +371,7 @@ export class FieldglassEditorProvider
         panel.webview.postMessage({
           type: "overlayReady",
           messageIndex: meta.messageIndex,
+          seq: req.seq,
           layers,
         });
       } catch (err) {
@@ -384,6 +383,9 @@ export class FieldglassEditorProvider
       }
     };
 
+    // Respond for the panel's lifetime: webview is created with
+    // retainContextWhenHidden=false so VS Code tears down the DOM/JS
+    // context when the tab is hidden; each remount posts a fresh `ready`.
     const sub = panel.webview.onDidReceiveMessage(
       (m: ({ type?: string } & Partial<RenderOptions>) | OverlayRequest) => {
         if (!m || typeof m.type !== "string") return;
@@ -602,6 +604,9 @@ export interface GridReadyMessage {
  *  pixel, plus which layers to project. */
 export interface OverlayRequest {
   type: "overlayRequest";
+  /** Monotonic request id, echoed back in `overlayReady` so the webview can
+   *  discard a reply that a newer request has superseded. */
+  seq?: number;
   options?: Partial<RenderOptions>;
   coastlines?: boolean;
   graticule?: boolean;

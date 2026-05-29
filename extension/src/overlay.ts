@@ -46,25 +46,38 @@ export function loadCoastline(): OverlayGeometry {
   return coastlineCache;
 }
 
-/** Flatten GeoJSON-order `[lon, lat, …]` lines into the `[lat, lon, …]`
- *  contract shape. */
-export function flattenLonLatLines(lines: number[][]): OverlayGeometry {
+/** Flatten lines into the `OverlayGeometry` contract shape. When `swapPairs`
+ *  is set, each line is read as `(lon, lat)` pairs and emitted swapped to
+ *  `(lat, lon)` (GeoJSON → contract order); otherwise it is copied verbatim
+ *  (already `[lat, lon, …]`). */
+function flattenLines(lines: number[][], swapPairs: boolean): OverlayGeometry {
   const flat: number[] = [];
   const ringLengths: number[] = [];
   for (const line of lines) {
     ringLengths.push(line.length / 2);
-    // Walk the line as (lon, lat) pairs and emit them swapped to (lat, lon).
-    let lon: number | null = null;
-    for (const value of line) {
-      if (lon === null) {
-        lon = value;
-      } else {
-        flat.push(value, lon); // value is lat → emit (lat, lon)
-        lon = null;
+    if (swapPairs) {
+      let lon: number | null = null;
+      for (const value of line) {
+        if (lon === null) {
+          lon = value;
+        } else {
+          flat.push(value, lon); // value is lat → emit (lat, lon)
+          lon = null;
+        }
+      }
+    } else {
+      for (const value of line) {
+        flat.push(value);
       }
     }
   }
   return { latlon: Float64Array.from(flat), ringLengths: Uint32Array.from(ringLengths) };
+}
+
+/** Flatten GeoJSON-order `[lon, lat, …]` lines into the `[lat, lon, …]`
+ *  contract shape. */
+export function flattenLonLatLines(lines: number[][]): OverlayGeometry {
+  return flattenLines(lines, true);
 }
 
 const GRATICULE_DEFAULT_SPACING = 30;
@@ -102,18 +115,5 @@ export function buildGraticule(spacingDeg: number): OverlayGeometry {
     lines.push(line);
   }
 
-  return flattenLatLonLines(lines);
-}
-
-/** Flatten already-`[lat, lon, …]`-ordered lines into `OverlayGeometry`. */
-function flattenLatLonLines(lines: number[][]): OverlayGeometry {
-  const flat: number[] = [];
-  const ringLengths: number[] = [];
-  for (const line of lines) {
-    ringLengths.push(line.length / 2);
-    for (const value of line) {
-      flat.push(value);
-    }
-  }
-  return { latlon: Float64Array.from(flat), ringLengths: Uint32Array.from(ringLengths) };
+  return flattenLines(lines, false);
 }
