@@ -49,29 +49,39 @@ pub fn project_polylines<P: PreparedTarget>(
     if width == 0 || height == 0 {
         return out;
     }
+    let (w, h) = (width as f64, height as f64);
     // Consecutive vertices farther apart than this in x are treated as an
     // antimeridian wrap (box targets) rather than a real edge: split there.
     // The azimuthal targets never wrap, and their dense vertices stay well
     // under this bound, so a single threshold serves both.
-    let wrap_threshold = width as f64 / 2.0;
-    let y_top = (height - 1) as f64;
+    let wrap_threshold = w / 2.0;
+    let y_top = h - 1.0;
+    // A run is kept only if at least one vertex lands within one raster of the
+    // viewport. This culls polylines that project far off-canvas (e.g. the
+    // whole far side of the world behind a small regional window) so we don't
+    // marshal and stroke thousands of invisible points; the one-raster margin
+    // keeps segments that merely clip the edge between two sampled vertices.
+    let on_screen = |x: f64, y: f64| x >= -w && x <= 2.0 * w && y >= -h && y <= 2.0 * h;
 
     let mut cursor = 0usize; // Index into `latlon`, in floats (2 per vertex).
     let mut run: Vec<f64> = Vec::new();
 
-    let flush = |run: &mut Vec<f64>, out: &mut ProjectedPolylines| {
-        // Two floats per vertex; a run needs ≥ 2 vertices to stroke.
-        if run.len() >= 4 {
+    let flush = |run: &mut Vec<f64>, visible: &mut bool, out: &mut ProjectedPolylines| {
+        // Two floats per vertex; a run needs ≥ 2 vertices to stroke and at
+        // least one on/near the viewport to be worth keeping.
+        if run.len() >= 4 && *visible {
             out.seg_lengths.push((run.len() / 2) as u32);
             out.xy.append(run);
         } else {
             run.clear();
         }
+        *visible = false;
     };
 
     for &len in ring_lengths {
         run.clear();
         let mut prev_x: Option<f64> = None;
+        let mut visible = false;
         for _ in 0..len {
             // Guard against a ring_lengths total that overruns latlon.
             let Some(&lat) = latlon.get(cursor) else {
@@ -82,8 +92,11 @@ pub fn project_polylines<P: PreparedTarget>(
 
             match prepared.lonlat_to_pixel(lat, lon) {
                 None => {
-                    // Left the visible domain — end the current run.
-                    flush(&mut run, &mut out);
+                    // Left the visible domain — end the current run. (Both
+                    // azimuthal domains are a convex hemisphere, so a straight
+                    // chord between two *visible* vertices always stays on the
+                    // disc — no extra mid-segment check is needed.)
+                    flush(&mut run, &mut visible, &mut out);
                     prev_x = None;
                 }
                 Some((x, mut y)) => {
@@ -94,15 +107,16 @@ pub fn project_polylines<P: PreparedTarget>(
                         && (x - px).abs() > wrap_threshold
                     {
                         // Antimeridian wrap — break before this vertex.
-                        flush(&mut run, &mut out);
+                        flush(&mut run, &mut visible, &mut out);
                     }
                     run.push(x);
                     run.push(y);
+                    visible |= on_screen(x, y);
                     prev_x = Some(x);
                 }
             }
         }
-        flush(&mut run, &mut out);
+        flush(&mut run, &mut visible, &mut out);
     }
     out
 }
@@ -178,6 +192,31 @@ mod tests {
         // The off-disc vertex splits the ring; the back side is dropped.
         // Front run #1 = 2 verts (lon -10, 0); front run #2 = 2 verts (lon 10, 20).
         assert_eq!(out.seg_lengths, vec![2, 2]);
+    }
+
+    #[test]
+    fn culls_runs_that_project_far_outside_a_regional_window() {
+        // A narrow North-America window; a polyline over Asia projects many
+        // raster-widths off to the side and must be culled, not marshalled.
+        let prep = TargetRaster {
+            width: 80,
+            height: 40,
+            lat_max: 50.0,
+            lat_min: 30.0,
+            lon_min: -120.0,
+            lon_max: -100.0,
+        }
+        .prepare();
+        let asia = [35.0, 100.0, 36.0, 101.0, 37.0, 102.0];
+        let culled = project_polylines(&prep, 80, 40, false, &asia, &[3]);
+        assert!(
+            culled.xy.is_empty() && culled.seg_lengths.is_empty(),
+            "off-window polyline should be culled"
+        );
+        // A polyline inside the window is still kept.
+        let here = [40.0, -110.0, 41.0, -109.0, 42.0, -108.0];
+        let kept = project_polylines(&prep, 80, 40, false, &here, &[3]);
+        assert_eq!(kept.seg_lengths, vec![3]);
     }
 
     #[test]
