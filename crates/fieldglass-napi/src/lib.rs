@@ -1235,11 +1235,17 @@ fn warp_message(
             (warp(&source, &merc, resampling), Some(used))
         }
         WarpTarget::Orthographic { lat0, lon0 } => {
-            let ortho = Orthographic::new(ni, nj, lat0, lon0);
+            // Azimuthal discs fit a circle to the raster, so the output must be
+            // square — rendering into the source's (usually non-square) dims
+            // would stretch the globe into an ellipse. Side = the larger source
+            // axis so neither axis is downsampled relative to the source.
+            let side = ni.max(nj);
+            let ortho = Orthographic::new(side, side, lat0, lon0);
             (warp(&source, &ortho, resampling), None)
         }
         WarpTarget::PolarStereographic { south_pole, lon0 } => {
-            let ps = PolarStereographic::new(ni, nj, south_pole, lon0);
+            let side = ni.max(nj);
+            let ps = PolarStereographic::new(side, side, south_pole, lon0);
             (warp(&source, &ps, resampling), None)
         }
     };
@@ -1714,7 +1720,10 @@ mod polar_stereo_warp_tests {
             let (values, mask, w, h, bounds, summary) =
                 warp_message(&meta, &raw, target, Resampling::Nearest, None)
                     .unwrap_or_else(|e| panic!("{name} warp failed: {e}"));
-            assert_eq!((w, h), (135, 95));
+            // Azimuthal discs render into a square raster (side = the larger
+            // source axis) so the globe stays circular rather than stretching
+            // into an ellipse on the 135×95 source.
+            assert_eq!((w, h), (135, 135));
             let present = mask.iter().filter(|&&m| m == 1).count();
             assert!(present > 0, "{name} target produced an empty mask");
             for (i, &m) in mask.iter().enumerate() {
