@@ -129,6 +129,23 @@ pub trait PreparedTarget: Copy {
     /// Geographic `(lat, lon)` in degrees for output pixel `(px, py)`, or
     /// `None` when the pixel lies outside the projection domain.
     fn pixel_to_lonlat(&self, px: u32, py: u32) -> Option<(f64, f64)>;
+
+    /// Forward map: fractional output pixel `(x, y)` for a geographic
+    /// `(lat, lon)` in degrees — the inverse of [`Self::pixel_to_lonlat`].
+    /// Used by the coastline / graticule overlay (#72) to place polyline
+    /// vertices onto the warped raster.
+    ///
+    /// Returns `None` only for points outside the projection's *visible*
+    /// domain — the back hemisphere of an orthographic globe, or the far
+    /// hemisphere past a polar-stereographic disc's equator rim. The
+    /// lat/lon-box targets (equirectangular, Web Mercator) have no such
+    /// geometric cutoff, so they always return `Some`, even for pixels that
+    /// fall outside the raster; the caller clips those rectangularly (the
+    /// canvas does, in practice) and splits runs at the antimeridian seam
+    /// using the returned pixel coordinates. Longitude is normalised into
+    /// the target's window so an antimeridian-crossing extent projects
+    /// correctly.
+    fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)>;
 }
 
 /// Walk the target pixel grid, map each pixel to `(lat, lon)`, inverse-map
@@ -213,6 +230,15 @@ impl PreparedTarget for EquirectPrepared {
         let lat = self.lat_max + py as f64 * self.d_lat;
         let lon = self.lon_min + px as f64 * self.d_lon;
         Some((lat, lon))
+    }
+
+    fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)> {
+        let py = if self.d_lat == 0.0 {
+            0.0
+        } else {
+            (lat - self.lat_max) / self.d_lat
+        };
+        Some((lon_to_px(lon, self.lon_min, self.d_lon), py))
     }
 }
 
@@ -323,6 +349,19 @@ impl PreparedTarget for WebMercatorPrepared {
         let lon = self.lon_min + px as f64 * self.d_lon;
         Some((lat, lon))
     }
+
+    fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)> {
+        let y = mercator_y(lat);
+        if !y.is_finite() {
+            return None; // A pole — outside Web Mercator's finite Y range.
+        }
+        let py = if self.d_y == 0.0 {
+            0.0
+        } else {
+            (y - self.y_max) / self.d_y
+        };
+        Some((lon_to_px(lon, self.lon_min, self.d_lon), py))
+    }
 }
 
 /// Orthographic ("globe view") target centred on `(lat0, lon0)`. The
@@ -409,6 +448,29 @@ impl PreparedTarget for OrthographicPrepared {
             + (x * sin_c).atan2(rho * cos_c * self.cos_lat0 - y * sin_c * self.sin_lat0);
         Some((lat * RAD2DEG, lon * RAD2DEG))
     }
+
+    fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)> {
+        // Snyder PP-1395 §20 forward (sphere, R = 1), eqs 20-3/20-4. `cos_c`
+        // is the cosine of the angular distance from the centre; the visible
+        // hemisphere is `cos_c >= 0` (the rim sits at `cos_c = 0`).
+        let phi = lat * DEG2RAD;
+        let dlon = lon * DEG2RAD - self.lon0_rad;
+        let (sin_phi, cos_phi) = (phi.sin(), phi.cos());
+        let cos_c = self.sin_lat0 * sin_phi + self.cos_lat0 * cos_phi * dlon.cos();
+        // The rim (great circle 90° from centre) has `cos_c == 0` in exact
+        // arithmetic; a small negative tolerance keeps rim points — which
+        // `pixel_to_lonlat` maps as visible — on the disc despite float error.
+        if cos_c < -1e-9 {
+            return None; // Back of the globe.
+        }
+        let x = cos_phi * dlon.sin();
+        let y = self.cos_lat0 * sin_phi - self.sin_lat0 * cos_phi * dlon.cos();
+        // Invert `pixel_unit_coord`, north-up (y points up → row 0 at top).
+        Some((
+            unit_coord_to_pixel(x, self.width),
+            unit_coord_to_pixel(-y, self.height),
+        ))
+    }
 }
 
 /// Polar stereographic target centred on a pole — the conformal,
@@ -492,6 +554,26 @@ impl PreparedTarget for PolarStereographicPrepared {
         let lon = self.lon0 + x.atan2(-sign * y) * RAD2DEG;
         Some((lat, lon))
     }
+
+    fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)> {
+        let sign = self.sign;
+        let lat_signed = sign * lat; // Latitude measured from the disc's pole.
+        if lat_signed < 0.0 {
+            return None; // Past the equator rim — the far hemisphere.
+        }
+        // Colatitude from the pole; forward ρ = ρ_eq·tan(c/2) (Snyder §21).
+        let c = (PI / 2.0 - lat_signed * DEG2RAD) / 2.0;
+        let rho = POLAR_STEREO_EQUATOR_RHO * c.tan();
+        // Invert the disc bearing: lon - lon0 = atan2(x, -sign·y).
+        let theta = (lon - self.lon0) * DEG2RAD;
+        let x = rho * theta.sin();
+        let y = -sign * rho * theta.cos();
+        // Disc coords are scaled by ρ_eq; undo it, then invert the pixel map.
+        Some((
+            unit_coord_to_pixel(x / POLAR_STEREO_EQUATOR_RHO, self.width),
+            unit_coord_to_pixel(-y / POLAR_STEREO_EQUATOR_RHO, self.height),
+        ))
+    }
 }
 
 /// Per-pixel step that spreads `span` evenly across `n` pixels (`span /
@@ -509,6 +591,30 @@ fn pixel_unit_coord(px: u32, n: u32) -> f64 {
         0.0
     } else {
         (px as f64 / (n as f64 - 1.0)) * 2.0 - 1.0
+    }
+}
+
+/// Inverse of [`pixel_unit_coord`]: a `[-1, 1]` unit coordinate back to a
+/// fractional pixel index across `n` pixels. A single-pixel axis collapses
+/// to pixel `0`.
+fn unit_coord_to_pixel(u: f64, n: u32) -> f64 {
+    if n <= 1 {
+        0.0
+    } else {
+        (u + 1.0) / 2.0 * (n as f64 - 1.0)
+    }
+}
+
+/// Fractional pixel-x for a longitude in a `lon_min`-anchored linear window,
+/// normalising the longitude into `[lon_min, lon_min + 360)` so an
+/// antimeridian-crossing window (or a `[-180, 180]` coastline vertex against
+/// a `[0, 360]` window) projects continuously. A zero-width window collapses
+/// to pixel `0`.
+fn lon_to_px(lon: f64, lon_min: f64, d_lon: f64) -> f64 {
+    if d_lon == 0.0 {
+        0.0
+    } else {
+        (lon - lon_min).rem_euclid(360.0) / d_lon
     }
 }
 
@@ -994,6 +1100,92 @@ mod tests {
         assert!(
             present > 0,
             "polar-stereo target warp produced an empty mask"
+        );
+    }
+
+    /// pixel → (lat, lon) → pixel must land back on the original pixel for
+    /// every prepared target: `lonlat_to_pixel` is the inverse of
+    /// `pixel_to_lonlat`. Only visited pixels that `pixel_to_lonlat` maps
+    /// (on-disc for the azimuthal targets).
+    fn assert_pixel_round_trip<P: PreparedTarget>(prep: &P, w: u32, h: u32) {
+        for py in 0..h {
+            for px in 0..w {
+                if let Some((lat, lon)) = prep.pixel_to_lonlat(px, py) {
+                    let (rx, ry) = prep
+                        .lonlat_to_pixel(lat, lon)
+                        .unwrap_or_else(|| panic!("({px},{py}) → ({lat},{lon}) → None"));
+                    assert!(
+                        near(rx, px as f64, 1e-6) && near(ry, py as f64, 1e-6),
+                        "({px},{py}) round-tripped to ({rx},{ry})"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn equirectangular_forward_inverts_pixel_map() {
+        let prep = TargetRaster {
+            width: 13,
+            height: 11,
+            lat_max: 60.0,
+            lat_min: -30.0,
+            lon_min: -45.0,
+            lon_max: 75.0,
+        }
+        .prepare();
+        assert_pixel_round_trip(&prep, 13, 11);
+    }
+
+    #[test]
+    fn web_mercator_forward_inverts_pixel_map() {
+        let prep = WebMercator::new(13, 11, -70.0, 70.0, -20.0, 40.0).prepare();
+        assert_pixel_round_trip(&prep, 13, 11);
+    }
+
+    #[test]
+    fn orthographic_forward_inverts_and_rejects_back_hemisphere() {
+        let t = Orthographic::new(21, 21, 35.0, -10.0);
+        let prep = t.prepare();
+        assert_pixel_round_trip(&prep, 21, 21);
+        // The antipode of the centre is on the far side → None.
+        assert!(
+            prep.lonlat_to_pixel(-35.0, 170.0).is_none(),
+            "antipode must be off the visible hemisphere"
+        );
+    }
+
+    #[test]
+    fn polar_stereographic_forward_inverts_and_rejects_far_hemisphere() {
+        for south_pole in [false, true] {
+            let prep = PolarStereographic::new(21, 21, south_pole, 25.0).prepare();
+            assert_pixel_round_trip(&prep, 21, 21);
+            // A point in the opposite hemisphere is past the equator rim.
+            let far_lat = if south_pole { 45.0 } else { -45.0 };
+            assert!(
+                prep.lonlat_to_pixel(far_lat, 0.0).is_none(),
+                "south_pole={south_pole}: opposite hemisphere must be None"
+            );
+        }
+    }
+
+    #[test]
+    fn equirectangular_forward_normalises_longitude_across_seam() {
+        // A 0..360 window: a coastline vertex at lon = -170 (≡ 190) must land
+        // near the right edge, not at a negative pixel.
+        let prep = TargetRaster {
+            width: 361,
+            height: 2,
+            lat_max: 1.0,
+            lat_min: -1.0,
+            lon_min: 0.0,
+            lon_max: 360.0,
+        }
+        .prepare();
+        let (px, _) = prep.lonlat_to_pixel(0.0, -170.0).unwrap();
+        assert!(
+            near(px, 190.0, 1e-6),
+            "lon -170 in [0,360] window → px {px}"
         );
     }
 
