@@ -26,6 +26,7 @@ import * as vscode from "vscode";
 
 import {
   buildGridReadyMessage,
+  resolveRerenderOptions,
   type GridReadyMessage,
 } from "../../provider";
 import { loadNative, type RenderOptions } from "../../native";
@@ -405,5 +406,70 @@ suite("Render pipeline", () => {
       "separate workstream; classic should not regress)");
     assert.ok(dataset.dimensions.length > 0, "expected at least one dimension");
     assert.ok(dataset.variables.length > 0, "expected at least one variable");
+  });
+});
+
+suite("rerenderRequest option clamp", () => {
+  // `resolveRerenderOptions` is the provider-side glue between the picker and
+  // the native render. The #71 regression lived here: the clamp predated the
+  // new targets and snapped everything except "equirectangular" back to
+  // "source", so Web Mercator / orthographic / polar-stereographic and their
+  // presets silently did nothing. These pin the clamp so adding a picker
+  // option without wiring it through here fails loudly.
+
+  test("every picker projection survives the clamp", () => {
+    const pickerProjections: ReadonlyArray<RenderOptions["projection"]> = [
+      "source",
+      "equirectangular",
+      "web_mercator",
+      "orthographic",
+      "polar_stereographic",
+    ];
+    for (const projection of pickerProjections) {
+      assert.strictEqual(
+        resolveRerenderOptions({ projection }).projection,
+        projection,
+        `${projection} must pass through, not snap to source`,
+      );
+    }
+  });
+
+  test("forwards the azimuthal centre/hemisphere preset untouched", () => {
+    const ortho = resolveRerenderOptions({
+      projection: "orthographic",
+      projectionPreset: "north_pole",
+    });
+    assert.strictEqual(ortho.projectionPreset, "north_pole");
+
+    const polar = resolveRerenderOptions({
+      projection: "polar_stereographic",
+      projectionPreset: "south",
+    });
+    assert.strictEqual(polar.projectionPreset, "south");
+  });
+
+  test("unknown projection / resampling snap to their defaults", () => {
+    const r = resolveRerenderOptions({
+      projection: "mollweide" as RenderOptions["projection"],
+      resampling: "lanczos" as RenderOptions["resampling"],
+    });
+    assert.strictEqual(r.projection, "source");
+    assert.strictEqual(r.resampling, "nearest");
+  });
+
+  test("bilinear resampling is preserved; manual bounds pass through", () => {
+    const r = resolveRerenderOptions({
+      projection: "web_mercator",
+      resampling: "bilinear",
+      boundsLatMin: 10,
+      boundsLatMax: 60,
+      boundsLonMin: -140,
+      boundsLonMax: -60,
+    });
+    assert.strictEqual(r.resampling, "bilinear");
+    assert.deepStrictEqual(
+      [r.boundsLatMin, r.boundsLatMax, r.boundsLonMin, r.boundsLonMax],
+      [10, 60, -140, -60],
+    );
   });
 });

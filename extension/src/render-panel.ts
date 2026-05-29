@@ -321,6 +321,10 @@ export function renderImagePanelHtml(
       color: var(--vscode-descriptionForeground);
     }
     .toolbar label { display: inline-flex; align-items: center; gap: 0.25rem; }
+    /* The rule above sets display, out-specifying the UA stylesheet's hidden
+       rule (display:none); without this the preset selectors never hide when
+       syncPresetVisibility toggles them off. */
+    .toolbar label[hidden] { display: none; }
     .toolbar input[type="number"] {
       width: 7rem;
       background: var(--vscode-input-background);
@@ -350,7 +354,7 @@ export function renderImagePanelHtml(
         <option value="polar_stereographic">Polar stereographic</option>
       </select>
     </label>
-    <label id="preset-ortho" hidden>Centre
+    <label id="preset-ortho" hidden>Center
       <select id="picker-preset-ortho">
         <option value="atlantic" selected>Atlantic (0°N 0°E)</option>
         <option value="pacific">Pacific (0°N 180°E)</option>

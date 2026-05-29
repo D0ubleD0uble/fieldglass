@@ -356,31 +356,7 @@ export class FieldglassEditorProvider
           return;
         }
         if (m.type === "rerenderRequest") {
-          // Clamp webview-controlled strings to the closed set the Rust
-          // side accepts. The native validation in `ResolvedOptions::parse`
-          // would reject typos with an explicit error, but we'd rather
-          // never round-trip an invalid value at all — a stale webview
-          // script with a typo silently snapping to "source" is the
-          // expected behaviour, not an error popup.
-          const projection: RenderOptions["projection"] =
-            m.projection === "equirectangular" ? "equirectangular" : "source";
-          const resampling: RenderOptions["resampling"] =
-            m.resampling === "bilinear" ? "bilinear" : "nearest";
-          const options: RenderOptions = {
-            projection,
-            resampling,
-            flipY: !!m.flipY,
-            rangeMin: m.rangeMin,
-            rangeMax: m.rangeMax,
-            // Pass the manual extent through untouched; the Rust side
-            // validates the box and falls back to the computed bounds when it
-            // is partial or inverted.
-            boundsLatMin: m.boundsLatMin,
-            boundsLatMax: m.boundsLatMax,
-            boundsLonMin: m.boundsLonMin,
-            boundsLonMax: m.boundsLonMax,
-          };
-          paint(options);
+          paint(resolveRerenderOptions(m));
         }
       },
     );
@@ -595,6 +571,52 @@ export interface GridReadyMessage {
  * bytes as a binary reference, and the webview revives it as a real
  * `Uint8Array` on the other side. Pinned by `render.test.ts`.
  */
+/** The closed set of projection strings the picker can emit and the Rust
+ *  side accepts. Pinned by `resolveRerenderOptions` so adding a target to
+ *  the picker without listing it here can't silently snap back to `source`. */
+const PROJECTIONS: ReadonlyArray<RenderOptions["projection"]> = [
+  "source",
+  "equirectangular",
+  "web_mercator",
+  "orthographic",
+  "polar_stereographic",
+];
+
+/**
+ * Resolve a `rerenderRequest` message from the webview into validated
+ * `RenderOptions`. Webview-controlled enum strings are clamped to the closed
+ * set the Rust side accepts: an unknown/typo'd `projection` or `resampling`
+ * silently snaps to its default (`source` / `nearest`) rather than
+ * round-tripping a value `ResolvedOptions::parse` would reject with an error
+ * popup. `projectionPreset` and the manual lat/lon extent pass through
+ * untouched — native validates them and falls back to its own defaults on a
+ * partial/inverted box or unknown preset.
+ *
+ * Pinned by `render.test.ts`: every projection the picker offers must survive
+ * this clamp. The original two-value clamp here (source/equirectangular) was
+ * the #71 regression where the new targets and presets silently did nothing.
+ */
+export function resolveRerenderOptions(m: Partial<RenderOptions>): RenderOptions {
+  const projection: RenderOptions["projection"] =
+    m.projection !== undefined && PROJECTIONS.includes(m.projection)
+      ? m.projection
+      : "source";
+  const resampling: RenderOptions["resampling"] =
+    m.resampling === "bilinear" ? "bilinear" : "nearest";
+  return {
+    projection,
+    projectionPreset: m.projectionPreset,
+    resampling,
+    flipY: !!m.flipY,
+    rangeMin: m.rangeMin,
+    rangeMax: m.rangeMax,
+    boundsLatMin: m.boundsLatMin,
+    boundsLatMax: m.boundsLatMax,
+    boundsLonMin: m.boundsLonMin,
+    boundsLonMax: m.boundsLonMax,
+  };
+}
+
 export function buildGridReadyMessage(
   rendered: RenderedGrid,
   meta: MessageMeta,
