@@ -166,10 +166,102 @@ export function renderImagePanelHtml(
         function handleGridReady(msg) {
           lastPayload = msg;
           blit(msg);
+          // The raster geometry just changed — reproject any active overlay so
+          // its pixel coordinates match the new image.
+          requestOverlay();
         }
 
         function handleGridError(msg) {
           setStatus('Error: ' + (msg.error || 'render failed'));
+        }
+
+        // --- Overlay layer (coastlines / graticule) --------------------------
+        // The most-recently-received projected overlay geometry, kept so we can
+        // redraw on resize without another round-trip. Cleared when all layers
+        // are toggled off.
+        let lastOverlay = null;
+
+        function overlayState() {
+          return {
+            coastlines: !!(document.getElementById('overlay-coastlines') || {}).checked,
+            graticule: !!(document.getElementById('overlay-graticule') || {}).checked,
+          };
+        }
+
+        function clearOverlay() {
+          lastOverlay = null;
+          const o = document.getElementById('overlay');
+          const ctx = o && o.getContext('2d');
+          if (ctx) ctx.clearRect(0, 0, o.width, o.height);
+        }
+
+        // Ask the provider to project the enabled layers for the current
+        // options. Geometry-only on the Rust side — never re-decodes.
+        function requestOverlay() {
+          if (!lastPayload) return;
+          const state = overlayState();
+          if (!state.coastlines && !state.graticule) {
+            clearOverlay();
+            return;
+          }
+          vscode.postMessage({
+            type: 'overlayRequest',
+            options: currentOptions(),
+            coastlines: state.coastlines,
+            graticule: state.graticule,
+            graticuleSpacing: Number((document.getElementById('graticule-spacing') || {}).value) || 30,
+          });
+        }
+
+        function handleOverlayReady(msg) {
+          lastOverlay = msg;
+          drawOverlay();
+        }
+
+        // Stroke the projected runs onto the overlay canvas. The overlay's
+        // backing store is sized to the image's *displayed* pixels (× DPR) so
+        // lines stay crisp instead of inheriting the image's pixelated upscale;
+        // raster-space coordinates from Rust are scaled to that size here.
+        function drawOverlay() {
+          const img = document.getElementById('canvas');
+          const o = document.getElementById('overlay');
+          const ctx = o && o.getContext('2d');
+          if (!img || !o || !ctx || !lastPayload) return;
+          const dpr = window.devicePixelRatio || 1;
+          const rect = img.getBoundingClientRect();
+          o.width = Math.max(1, Math.round(rect.width * dpr));
+          o.height = Math.max(1, Math.round(rect.height * dpr));
+          ctx.clearRect(0, 0, o.width, o.height);
+          if (!lastOverlay || !lastOverlay.layers || !lastPayload.width) return;
+          const sx = o.width / lastPayload.width;
+          const sy = o.height / lastPayload.height;
+          const fg = (getComputedStyle(document.documentElement)
+            .getPropertyValue('--vscode-foreground') || '#ffffff').trim() || '#ffffff';
+          const styles = {
+            coastline: { color: fg, width: 1.1 },
+            graticule: { color: fg, width: 0.6, alpha: 0.35 },
+          };
+          for (const layer of lastOverlay.layers) {
+            const style = styles[layer.name] || styles.coastline;
+            ctx.save();
+            ctx.globalAlpha = style.alpha || 1;
+            ctx.strokeStyle = style.color;
+            ctx.lineWidth = style.width * dpr;
+            ctx.beginPath();
+            const xy = layer.xy;
+            const segs = layer.segLengths;
+            let p = 0;
+            for (let s = 0; s < segs.length; s++) {
+              const n = segs[s];
+              for (let v = 0; v < n; v++) {
+                const x = xy[p++] * sx;
+                const y = xy[p++] * sy;
+                if (v === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+              }
+            }
+            ctx.stroke();
+            ctx.restore();
+          }
         }
 
         // Show the centre/hemisphere preset selector that matches the active
@@ -218,6 +310,23 @@ export function renderImagePanelHtml(
             const el = document.getElementById(id);
             if (el) el.addEventListener('change', requestRender);
           });
+          // Overlay toggles never re-render the image — they only reproject the
+          // vector layer, so the image paint is untouched when toggling.
+          const coast = document.getElementById('overlay-coastlines');
+          if (coast) coast.addEventListener('change', requestOverlay);
+          const grat = document.getElementById('overlay-graticule');
+          if (grat) {
+            grat.addEventListener('change', () => {
+              const label = document.getElementById('graticule-spacing-label');
+              if (label) label.toggleAttribute('hidden', !grat.checked);
+              requestOverlay();
+            });
+          }
+          const spacing = document.getElementById('graticule-spacing');
+          if (spacing) spacing.addEventListener('change', requestOverlay);
+          // Keep the overlay aligned + crisp as the panel (and the displayed
+          // image size) resizes.
+          window.addEventListener('resize', drawOverlay);
         }
 
         window.addEventListener('message', (event) => {
@@ -225,6 +334,7 @@ export function renderImagePanelHtml(
           if (!msg || typeof msg.type !== 'string') return;
           if (msg.type === 'gridReady') handleGridReady(msg);
           else if (msg.type === 'gridError') handleGridError(msg);
+          else if (msg.type === 'overlayReady') handleOverlayReady(msg);
         });
 
         attachControls();
@@ -256,6 +366,10 @@ export function renderImagePanelHtml(
       align-items: flex-start;
       gap: 0.75rem;
     }
+    /* The image canvas and the vector overlay share one positioned box so the
+       overlay sits exactly on top. The image is pixel-upscaled; the overlay is
+       a crisp vector layer drawn at display resolution (see drawOverlay). */
+    .canvas-wrap { position: relative; flex: 1 1 auto; display: flex; }
     canvas#canvas {
       max-width: 100%;
       height: auto;
@@ -263,6 +377,16 @@ export function renderImagePanelHtml(
       background: var(--vscode-editor-background);
       border: 1px solid var(--vscode-panel-border);
       flex: 1 1 auto;
+    }
+    canvas#overlay {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      box-sizing: border-box;
+      border: 1px solid transparent;
+      pointer-events: none;
     }
     .colorbar-wrap {
       display: flex;
@@ -395,10 +519,20 @@ export function renderImagePanelHtml(
         <label>lon max <input type="number" id="bounds-lon-max" step="any"></label>
       </span>
     </fieldset>
+    <fieldset>
+      <legend>Overlay:</legend>
+      <label><input type="checkbox" id="overlay-coastlines"> Coastlines</label>
+      <label><input type="checkbox" id="overlay-graticule"> Graticule</label>
+      <label id="graticule-spacing-label" hidden>spacing
+        <input type="number" id="graticule-spacing" value="30" min="5" max="90" step="5"></label>
+    </fieldset>
   </div>
   <div id="status">Rendering…</div>
   <div class="render-area">
-    <canvas id="canvas" width="320" height="320"></canvas>
+    <div class="canvas-wrap">
+      <canvas id="canvas" width="320" height="320"></canvas>
+      <canvas id="overlay"></canvas>
+    </div>
     <div class="colorbar-wrap">
       <div class="cb" aria-label="viridis colormap"></div>
       <div class="colorbar-labels">

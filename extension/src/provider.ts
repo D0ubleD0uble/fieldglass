@@ -12,6 +12,7 @@ import {
   type RenderedGrid,
   type RenderOptions,
 } from "./native";
+import { buildGraticule, loadCoastline, type OverlayGeometry } from "./overlay";
 import { renderImagePanelHtml } from "./render-panel";
 
 const FORMAT_LABELS: Record<string, string> = {
@@ -348,15 +349,54 @@ export class FieldglassEditorProvider
     // Respond for the panel's lifetime: webview is created with
     // retainContextWhenHidden=false so VS Code tears down the DOM/JS
     // context when the tab is hidden; each remount posts a fresh `ready`.
+    // Project the requested overlay layers (coastline / graticule) onto the
+    // raster for the current options and post the pixel-space runs back. The
+    // forward projection runs in Rust (`projectOverlay`); this never decodes
+    // values, so toggling the overlay never re-decodes the grid.
+    const projectOverlay = (req: OverlayRequest) => {
+      const docHandle = this._handlesByDoc.get(document.uri.toString());
+      if (!docHandle) return;
+      const options = resolveRerenderOptions(req.options ?? {});
+      const layers: OverlayLayerPayload[] = [];
+      const project = (name: string, geom: OverlayGeometry) => {
+        const projected = docHandle.projectOverlay(
+          meta.messageIndex,
+          options,
+          geom.latlon,
+          geom.ringLengths,
+        );
+        layers.push({ name, xy: projected.xy, segLengths: projected.segLengths });
+      };
+      try {
+        if (req.coastlines) project("coastline", loadCoastline());
+        if (req.graticule) project("graticule", buildGraticule(Number(req.graticuleSpacing)));
+        panel.webview.postMessage({
+          type: "overlayReady",
+          messageIndex: meta.messageIndex,
+          layers,
+        });
+      } catch (err) {
+        panel.webview.postMessage({
+          type: "gridError",
+          messageIndex: meta.messageIndex,
+          error: `overlay projection failed: ${err}`,
+        });
+      }
+    };
+
     const sub = panel.webview.onDidReceiveMessage(
-      (m: { type?: string } & Partial<RenderOptions>) => {
+      (m: ({ type?: string } & Partial<RenderOptions>) | OverlayRequest) => {
         if (!m || typeof m.type !== "string") return;
         if (m.type === "ready") {
           paint(defaultOptions);
           return;
         }
         if (m.type === "rerenderRequest") {
-          paint(resolveRerenderOptions(m));
+          paint(resolveRerenderOptions(m as Partial<RenderOptions>));
+          return;
+        }
+        if (m.type === "overlayRequest") {
+          projectOverlay(m as OverlayRequest);
         }
       },
     );
@@ -554,6 +594,26 @@ export interface GridReadyMessage {
   usedLonMax?: number;
   projectionSummary: string;
   options: RenderOptions;
+}
+
+/** `overlayRequest` posted by the render panel when an overlay layer is
+ *  toggled on or the underlying raster changes. Carries the same render
+ *  options the image was painted with so the projection matches pixel-for-
+ *  pixel, plus which layers to project. */
+export interface OverlayRequest {
+  type: "overlayRequest";
+  options?: Partial<RenderOptions>;
+  coastlines?: boolean;
+  graticule?: boolean;
+  graticuleSpacing?: number;
+}
+
+/** One projected overlay layer in the `overlayReady` payload — pixel-space
+ *  runs ready for the webview to stroke. */
+export interface OverlayLayerPayload {
+  name: string;
+  xy: Float64Array;
+  segLengths: Uint32Array;
 }
 
 /**

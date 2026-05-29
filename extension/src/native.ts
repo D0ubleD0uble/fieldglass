@@ -142,17 +142,40 @@ export interface DecodedGrid {
   height: number;
 }
 
+/** Geographic polylines projected into the warped raster's pixel space for
+ *  the overlay layer (coastline / graticule / future user shapes). `xy` is
+ *  flat `[x0, y0, x1, y1, …]` in output pixel coordinates (post-flipY,
+ *  identical to the rendered raster); `segLengths` gives the vertex count of
+ *  each visible run, so `sum(segLengths) * 2 === xy.length`. Empty for the
+ *  source projection (no geographic forward map). */
+export interface ProjectedOverlay {
+  xy: Float64Array;
+  segLengths: Uint32Array;
+}
+
 export interface Grib1Handle {
   messages(): MessageMeta[];
   decodeGrid(messageIndex: number): DecodedGrid;
   setP1(messageIndex: number, value: number): Buffer;
   renderGrid(messageIndex: number, options: RenderOptions): RenderedGrid;
+  projectOverlay(
+    messageIndex: number,
+    options: RenderOptions,
+    latlon: Float64Array,
+    ringLengths: Uint32Array,
+  ): ProjectedOverlay;
 }
 
 export interface Grib2Handle {
   messages(): MessageMeta[];
   decodeGrid(messageIndex: number): DecodedGrid;
   renderGrid(messageIndex: number, options: RenderOptions): RenderedGrid;
+  projectOverlay(
+    messageIndex: number,
+    options: RenderOptions,
+    latlon: Float64Array,
+    ringLengths: Uint32Array,
+  ): ProjectedOverlay;
 }
 
 export interface Grib1HandleCtor {

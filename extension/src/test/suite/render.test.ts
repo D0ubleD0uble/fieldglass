@@ -30,6 +30,7 @@ import {
   type GridReadyMessage,
 } from "../../provider";
 import { loadNative, type RenderOptions } from "../../native";
+import { buildGraticule, flattenLonLatLines, loadCoastline } from "../../overlay";
 
 const EXT_ID = "fieldglass.fieldglass";
 
@@ -471,5 +472,71 @@ suite("rerenderRequest option clamp", () => {
       [r.boundsLatMin, r.boundsLatMax, r.boundsLonMin, r.boundsLonMax],
       [10, 60, -140, -60],
     );
+  });
+});
+
+suite("overlay geometry", () => {
+  // overlay.ts produces only geographic (lat, lon) polylines — the projection
+  // into pixels lives in Rust. These pin the flat-array contract shape every
+  // layer hands to `projectOverlay`.
+
+  test("flattenLonLatLines swaps to lat,lon order and counts rings", () => {
+    // Input is GeoJSON-order [lon, lat, …]; output must be [lat, lon, …].
+    const g = flattenLonLatLines([[10, 20, 11, 21]]);
+    assert.deepStrictEqual(Array.from(g.latlon), [20, 10, 21, 11]);
+    assert.deepStrictEqual(Array.from(g.ringLengths), [2]);
+  });
+
+  test("buildGraticule yields in-range lat,lon lines with a consistent shape", () => {
+    const g = buildGraticule(30);
+    assert.ok(g.ringLengths.length > 0, "graticule has lines");
+    const total = Array.from(g.ringLengths).reduce((a, b) => a + b, 0);
+    assert.strictEqual(total * 2, g.latlon.length, "ringLengths must cover every vertex");
+    for (let i = 0; i < g.latlon.length; i += 2) {
+      assert.ok(g.latlon[i] >= -90 - 1e-9 && g.latlon[i] <= 90 + 1e-9, "lat in range");
+      assert.ok(g.latlon[i + 1] >= -180 - 1e-9 && g.latlon[i + 1] <= 180 + 1e-9, "lon in range");
+    }
+  });
+
+  test("loadCoastline parses the bundled asset into flat lat,lon", () => {
+    const c = loadCoastline();
+    assert.ok(c.ringLengths.length > 0, "coastline has polylines");
+    const total = Array.from(c.ringLengths).reduce((a, b) => a + b, 0);
+    assert.strictEqual(total * 2, c.latlon.length);
+  });
+});
+
+suite("overlay projection (native)", () => {
+  // The forward projection runs in Rust via `projectOverlay`. These pin the
+  // additive napi contract: a well-formed ProjectedOverlay whose segLengths
+  // account for every xy pair, and an empty result for the source projection.
+
+  function grib1Handle() {
+    const native = loadNative();
+    assert.ok(native, "native module must load");
+    const bytes = fs.readFileSync(fixturePath("cmc_wind_300_2010052400_p012.grib"));
+    return native.Grib1Handle.fromBytes(bytes);
+  }
+
+  test("projectOverlay maps coastline into the warped raster's pixel space", () => {
+    const handle = grib1Handle();
+    const coast = loadCoastline();
+    const eqr: RenderOptions = {
+      projection: "equirectangular",
+      resampling: "nearest",
+      flipY: false,
+    };
+    const out = handle.projectOverlay(0, eqr, coast.latlon, coast.ringLengths);
+    const total = Array.from(out.segLengths).reduce((a, b) => a + b, 0);
+    assert.strictEqual(total * 2, out.xy.length, "segLengths must account for every xy pair");
+    assert.ok(out.xy.length > 0, "coastline should project to a non-empty geometry");
+  });
+
+  test("source projection yields an empty overlay (no geographic forward map)", () => {
+    const handle = grib1Handle();
+    const g = buildGraticule(30);
+    const out = handle.projectOverlay(0, defaultRenderOptions(), g.latlon, g.ringLengths);
+    assert.strictEqual(out.xy.length, 0);
+    assert.strictEqual(out.segLengths.length, 0);
   });
 });
