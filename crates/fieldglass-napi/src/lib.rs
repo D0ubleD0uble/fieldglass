@@ -3,11 +3,11 @@
 use fieldglass_core::{
     Format, GaussianParams, GaussianProjector, LambertParams, LambertProjector, LatLonParams,
     Orthographic, PlanarGridProjector, PolarStereoParams, PolarStereoProjector, PolarStereographic,
-    Resampling, SourceGrid, TargetRaster, WebMercator,
+    ProjectedPolylines, Resampling, SourceGrid, TargetRaster, WebMercator,
     colormap::{min_max_ignoring_mask, paint_grid_rgba},
-    detect_from_bytes, latlon_inverse,
+    detect_from_bytes, latlon_inverse, project_polylines,
     projection::GridIndex,
-    warp::warp,
+    warp::{TargetProjection, WarpedRaster, warp},
 };
 use fieldglass_grib1::{
     Grib1Reader,
@@ -582,6 +582,30 @@ pub struct RenderedGrid {
     pub projection_summary: String,
 }
 
+/// Projected overlay geometry returned by `project_overlay` — coastline /
+/// graticule / user-shape polylines mapped into the warped raster's pixel
+/// space, ready for the webview to stroke on its overlay canvas.
+///
+/// `xy` is flat `[x0, y0, x1, y1, …]` in output pixel coordinates (post-flipY,
+/// identical to the rendered raster); `seg_lengths` gives the vertex count of
+/// each visible run after clipping/splitting, so
+/// `seg_lengths.iter().sum::<u32>() * 2 == xy.len()`. Empty for the source
+/// projection (no geographic forward map).
+#[napi(object)]
+pub struct ProjectedOverlay {
+    pub xy: napi::bindgen_prelude::Float64Array,
+    pub seg_lengths: napi::bindgen_prelude::Uint32Array,
+}
+
+impl ProjectedOverlay {
+    fn from_polylines(p: ProjectedPolylines) -> Self {
+        Self {
+            xy: p.xy.into(),
+            seg_lengths: p.seg_lengths.into(),
+        }
+    }
+}
+
 /// Decoded grid values + presence mask returned by the handle-based
 /// `decode_grid`. `values[k]` is the decoded value at scan-order index
 /// `k`; `mask[k]` is `1` when present and `0` when bitmap-masked.
@@ -709,6 +733,30 @@ impl Grib1Handle {
         let raw = self.cached_decode(message_index)?;
         render_with_options(&meta, raw.as_ref(), &options)
     }
+
+    /// Project geographic polylines (coastline / graticule / user shapes)
+    /// onto the same raster `render_grid` produces for these `options`,
+    /// returning pixel-space runs for the overlay layer (#72). Geometry-only:
+    /// it never decodes values, so toggling the overlay never re-decodes.
+    #[napi]
+    pub fn project_overlay(
+        &self,
+        message_index: u32,
+        options: RenderOptions,
+        latlon: napi::bindgen_prelude::Float64Array,
+        ring_lengths: napi::bindgen_prelude::Uint32Array,
+    ) -> napi::Result<ProjectedOverlay> {
+        let meta = self
+            .reader
+            .messages
+            .get(message_index as usize)
+            .map(build_grib1_message_meta)
+            .ok_or_else(|| {
+                napi::Error::from_reason(format!("message index {message_index} out of range"))
+            })?;
+        project_overlay_impl(&meta, &options, latlon.as_ref(), ring_lengths.as_ref())
+            .map(ProjectedOverlay::from_polylines)
+    }
 }
 
 impl Grib1Handle {
@@ -804,6 +852,28 @@ impl Grib2Handle {
             })?;
         let raw = self.cached_decode(message_index)?;
         render_with_options(&meta, raw.as_ref(), &options)
+    }
+
+    /// Project geographic polylines onto the same raster `render_grid`
+    /// produces for these `options` (#72). Sibling to [`Grib1Handle::project_overlay`].
+    #[napi]
+    pub fn project_overlay(
+        &self,
+        message_index: u32,
+        options: RenderOptions,
+        latlon: napi::bindgen_prelude::Float64Array,
+        ring_lengths: napi::bindgen_prelude::Uint32Array,
+    ) -> napi::Result<ProjectedOverlay> {
+        let meta = self
+            .reader
+            .messages
+            .get(message_index as usize)
+            .map(build_grib2_message_meta)
+            .ok_or_else(|| {
+                napi::Error::from_reason(format!("message index {message_index} out of range"))
+            })?;
+        project_overlay_impl(&meta, &options, latlon.as_ref(), ring_lengths.as_ref())
+            .map(ProjectedOverlay::from_polylines)
     }
 }
 
@@ -1175,7 +1245,6 @@ fn warp_message(
     resampling: Resampling,
     bounds_override: Option<RenderBounds>,
 ) -> napi::Result<ProjectionStage> {
-    let kind = meta.grid_type.as_deref().unwrap_or("");
     let ni = grid_ni(meta)?;
     let nj = grid_nj(meta)?;
 
@@ -1185,17 +1254,7 @@ fn warp_message(
     };
     let sample_ref: &dyn Fn(usize, usize) -> Option<f64> = &sample;
 
-    let (inverse_boxed, bbox_thunk) = match kind {
-        "latlon" => latlon_warp_setup(meta, ni, nj)?,
-        "gaussian" => gaussian_warp_setup(meta, ni, nj)?,
-        "lambert" => lambert_warp_setup(meta, ni, nj)?,
-        "polar_stereo" => polar_stereo_warp_setup(meta, ni, nj)?,
-        other => {
-            return Err(napi::Error::from_reason(format!(
-                "reprojection not yet supported for grid type {other:?}"
-            )));
-        }
-    };
+    let (inverse_boxed, bbox_thunk) = warp_setup_for(meta, ni, nj)?;
 
     let inverse_ref: &dyn Fn(f64, f64) -> Option<GridIndex> = inverse_boxed.as_ref();
     let source = SourceGrid {
@@ -1204,51 +1263,10 @@ fn warp_message(
         sample: sample_ref,
         inverse_at: inverse_ref,
     };
-    // Every target samples the same source through the same inverse map and
-    // output dims; they differ only in the pixel→(lat, lon) distribution. The
-    // lat/lon-box targets resolve a geographic extent (the lazy `bbox_thunk`,
-    // possibly windowed) and echo it back; the azimuthal targets fit a disc to
-    // the raster, so they never invoke the thunk — skipping the perimeter-walk
-    // bbox for planar sources — and report no box extent.
-    let (warped, used_bounds) = match target_kind {
-        WarpTarget::Equirectangular => {
-            let (lat_min, lat_max, lon_min, lon_max) =
-                resolve_box_extent(bbox_thunk, bounds_override);
-            let target = TargetRaster {
-                width: ni,
-                height: nj,
-                lat_max,
-                lat_min,
-                lon_min,
-                lon_max,
-            };
-            (
-                warp(&source, &target, resampling),
-                Some((lat_min, lat_max, lon_min, lon_max)),
-            )
-        }
-        WarpTarget::WebMercator => {
-            let (lat_min, lat_max, lon_min, lon_max) =
-                resolve_box_extent(bbox_thunk, bounds_override);
-            let merc = WebMercator::new(ni, nj, lat_min, lat_max, lon_min, lon_max);
-            let used = merc.extent();
-            (warp(&source, &merc, resampling), Some(used))
-        }
-        WarpTarget::Orthographic { lat0, lon0 } => {
-            // Azimuthal discs fit a circle to the raster, so the output must be
-            // square — rendering into the source's (usually non-square) dims
-            // would stretch the globe into an ellipse. Side = the larger source
-            // axis so neither axis is downsampled relative to the source.
-            let side = ni.max(nj);
-            let ortho = Orthographic::new(side, side, lat0, lon0);
-            (warp(&source, &ortho, resampling), None)
-        }
-        WarpTarget::PolarStereographic { south_pole, lon0 } => {
-            let side = ni.max(nj);
-            let ps = PolarStereographic::new(side, side, south_pole, lon0);
-            (warp(&source, &ps, resampling), None)
-        }
-    };
+    // Construct the concrete target (shared with the overlay-projection path so
+    // both paint into byte-identical geometry), then warp the source into it.
+    let (built, used_bounds) = build_warp_target(target_kind, ni, nj, bbox_thunk, bounds_override);
+    let warped = built.warp(&source, resampling);
     let resample_label = match resampling {
         Resampling::Nearest => "nearest",
         Resampling::Bilinear => "bilinear",
@@ -1266,6 +1284,159 @@ fn warp_message(
         used_bounds,
         summary,
     ))
+}
+
+/// A concrete, constructed render target — the same value the warp paints
+/// into and the overlay projects polylines onto. Centralising construction
+/// here guarantees `render_grid` and `project_overlay` agree on the exact
+/// raster (dims, clamped Mercator band, azimuthal disc side) pixel-for-pixel.
+enum BuiltTarget {
+    Equirect(TargetRaster),
+    Mercator(WebMercator),
+    Ortho(Orthographic),
+    Polar(PolarStereographic),
+}
+
+impl BuiltTarget {
+    fn dims(&self) -> (u32, u32) {
+        match self {
+            BuiltTarget::Equirect(t) => t.dims(),
+            BuiltTarget::Mercator(t) => t.dims(),
+            BuiltTarget::Ortho(t) => t.dims(),
+            BuiltTarget::Polar(t) => t.dims(),
+        }
+    }
+
+    fn warp(&self, source: &SourceGrid<'_>, resampling: Resampling) -> WarpedRaster {
+        match self {
+            BuiltTarget::Equirect(t) => warp(source, t, resampling),
+            BuiltTarget::Mercator(t) => warp(source, t, resampling),
+            BuiltTarget::Ortho(t) => warp(source, t, resampling),
+            BuiltTarget::Polar(t) => warp(source, t, resampling),
+        }
+    }
+
+    /// Project geographic `(lat, lon)` rings onto this target's pixel space,
+    /// applying `flip_y` to match a vertically-flipped render.
+    fn project(&self, flip_y: bool, latlon: &[f64], ring_lengths: &[u32]) -> ProjectedPolylines {
+        let (w, h) = self.dims();
+        match self {
+            BuiltTarget::Equirect(t) => {
+                project_polylines(&t.prepare(), w, h, flip_y, latlon, ring_lengths)
+            }
+            BuiltTarget::Mercator(t) => {
+                project_polylines(&t.prepare(), w, h, flip_y, latlon, ring_lengths)
+            }
+            BuiltTarget::Ortho(t) => {
+                project_polylines(&t.prepare(), w, h, flip_y, latlon, ring_lengths)
+            }
+            BuiltTarget::Polar(t) => {
+                project_polylines(&t.prepare(), w, h, flip_y, latlon, ring_lengths)
+            }
+        }
+    }
+}
+
+/// Build the concrete [`BuiltTarget`] for a warp, returning the geographic
+/// extent actually used for the lat/lon-box targets (echoed back to the UI)
+/// or `None` for the azimuthal targets.
+///
+/// The lat/lon-box targets resolve a geographic extent (the lazy `bbox_thunk`,
+/// possibly replaced by a manual window); the azimuthal targets fit a disc to
+/// the raster, so they never invoke the thunk — skipping the perimeter-walk
+/// bbox for planar sources — and report no box extent. Output dims size to the
+/// source grid for the box targets; the azimuthal discs use a square raster
+/// (`side = max(ni, nj)`) so the globe stays circular rather than elliptical.
+fn build_warp_target(
+    target_kind: WarpTarget,
+    ni: u32,
+    nj: u32,
+    bbox_thunk: BboxThunk,
+    bounds_override: Option<RenderBounds>,
+) -> (BuiltTarget, Option<(f64, f64, f64, f64)>) {
+    match target_kind {
+        WarpTarget::Equirectangular => {
+            let (lat_min, lat_max, lon_min, lon_max) =
+                resolve_box_extent(bbox_thunk, bounds_override);
+            let target = TargetRaster {
+                width: ni,
+                height: nj,
+                lat_max,
+                lat_min,
+                lon_min,
+                lon_max,
+            };
+            (
+                BuiltTarget::Equirect(target),
+                Some((lat_min, lat_max, lon_min, lon_max)),
+            )
+        }
+        WarpTarget::WebMercator => {
+            let (lat_min, lat_max, lon_min, lon_max) =
+                resolve_box_extent(bbox_thunk, bounds_override);
+            let merc = WebMercator::new(ni, nj, lat_min, lat_max, lon_min, lon_max);
+            let used = merc.extent();
+            (BuiltTarget::Mercator(merc), Some(used))
+        }
+        WarpTarget::Orthographic { lat0, lon0 } => {
+            let side = ni.max(nj);
+            (
+                BuiltTarget::Ortho(Orthographic::new(side, side, lat0, lon0)),
+                None,
+            )
+        }
+        WarpTarget::PolarStereographic { south_pole, lon0 } => {
+            let side = ni.max(nj);
+            (
+                BuiltTarget::Polar(PolarStereographic::new(side, side, south_pole, lon0)),
+                None,
+            )
+        }
+    }
+}
+
+/// Dispatch to the per-grid-type warp setup, returning the source inverse map
+/// and the lazy lat/lon-box extent thunk. Shared by the warp (`warp_message`)
+/// and the overlay projection (`project_overlay`) so both derive identical
+/// target geometry from the same source parameters.
+fn warp_setup_for(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
+    match meta.grid_type.as_deref().unwrap_or("") {
+        "latlon" => latlon_warp_setup(meta, ni, nj),
+        "gaussian" => gaussian_warp_setup(meta, ni, nj),
+        "lambert" => lambert_warp_setup(meta, ni, nj),
+        "polar_stereo" => polar_stereo_warp_setup(meta, ni, nj),
+        other => Err(napi::Error::from_reason(format!(
+            "reprojection not yet supported for grid type {other:?}"
+        ))),
+    }
+}
+
+/// Project geographic `(lat, lon)` polylines onto the warped raster for a
+/// message, producing pixel-space runs for the render panel's overlay layer
+/// (#72). Geometry-only: it rebuilds the *same* target the warp paints into
+/// (via [`build_warp_target`]) but never decodes or samples values.
+///
+/// `latlon` is flat `[lat, lon, …]`; `ring_lengths[k]` is the vertex count of
+/// input ring `k`. The `"source"` projection has no geographic forward map, so
+/// it returns an empty result. See [`fieldglass_core::project_polylines`] for
+/// the run-splitting (visibility / antimeridian) rules.
+fn project_overlay_impl(
+    meta: &MessageMeta,
+    options: &RenderOptions,
+    latlon: &[f64],
+    ring_lengths: &[u32],
+) -> napi::Result<ProjectedPolylines> {
+    let resolved = ResolvedOptions::parse(options)?;
+    let target_kind = match resolved.projection {
+        // No geographic forward map for the source grid's own projection.
+        TargetKind::Source => return Ok(ProjectedPolylines::default()),
+        TargetKind::Warp(target) => target,
+    };
+    let ni = grid_ni(meta)?;
+    let nj = grid_nj(meta)?;
+    let (_inverse, bbox_thunk) = warp_setup_for(meta, ni, nj)?;
+    let (built, _used_bounds) = build_warp_target(target_kind, ni, nj, bbox_thunk, resolved.bounds);
+    Ok(built.project(resolved.flip_y, latlon, ring_lengths))
 }
 
 // --- Per-template warp-setup helpers ---------------------------------------
@@ -1912,5 +2083,139 @@ mod polar_stereo_warp_tests {
             default_bounds,
             "override should differ from the computed default"
         );
+    }
+}
+
+#[cfg(test)]
+mod overlay_projection_tests {
+    use super::*;
+
+    /// A global 1°-resolution lat/lon grid (361×181, lat 90..-90, lon
+    /// -180..180). Under the equirectangular target a vertex projects to a
+    /// predictable pixel: `px = lon + 180`, `py = 90 - lat`.
+    fn global_latlon_meta() -> MessageMeta {
+        MessageMeta {
+            message_index: 0,
+            offset_bytes: 0,
+            parameter_name: String::new(),
+            parameter_units: String::new(),
+            parameter_abbreviation: String::new(),
+            level: String::new(),
+            level_type: String::new(),
+            reference_time: String::new(),
+            forecast_hours: 0,
+            forecast_display: String::new(),
+            originating_centre: String::new(),
+            grid_type: Some("latlon".to_string()),
+            grid_ni: Some(361),
+            grid_nj: Some(181),
+            lat_first: Some(90.0),
+            lon_first: Some(-180.0),
+            lat_last: Some(-90.0),
+            lon_last: Some(180.0),
+            format: "grib1".to_string(),
+            edition: Some(1),
+            discipline: None,
+            total_length_bytes: None,
+            production_status: None,
+            data_type: None,
+            lambert_lad: None,
+            lambert_lov: None,
+            lambert_dx_metres: None,
+            lambert_dy_metres: None,
+            lambert_latin1: None,
+            lambert_latin2: None,
+            gaussian_n_parallels: None,
+            polar_stereo_lov: None,
+            polar_stereo_dx_metres: None,
+            polar_stereo_dy_metres: None,
+            polar_stereo_south_pole: None,
+        }
+    }
+
+    fn overlay_opts(projection: &str) -> RenderOptions {
+        RenderOptions {
+            projection: projection.to_string(),
+            projection_preset: None,
+            resampling: "nearest".to_string(),
+            flip_y: false,
+            range_min: None,
+            range_max: None,
+            bounds_lat_min: None,
+            bounds_lat_max: None,
+            bounds_lon_min: None,
+            bounds_lon_max: None,
+        }
+    }
+
+    #[test]
+    fn source_projection_has_no_overlay() {
+        // The source grid's own projection exposes no geographic forward map,
+        // so the overlay is unavailable there — an empty result, not an error.
+        let out = project_overlay_impl(
+            &global_latlon_meta(),
+            &overlay_opts("source"),
+            &[0.0, 0.0, 10.0, 10.0],
+            &[2],
+        )
+        .expect("source overlay");
+        assert!(out.xy.is_empty() && out.seg_lengths.is_empty());
+    }
+
+    #[test]
+    fn equirectangular_projects_to_predictable_pixels() {
+        let out = project_overlay_impl(
+            &global_latlon_meta(),
+            &overlay_opts("equirectangular"),
+            &[45.0, 0.0, 45.0, 10.0], // (lat 45, lon 0), (lat 45, lon 10)
+            &[2],
+        )
+        .expect("equirect overlay");
+        assert_eq!(out.seg_lengths, vec![2]);
+        assert_eq!(out.xy.len(), 4);
+        // px = lon + 180, py = 90 - lat.
+        assert!((out.xy[0] - 180.0).abs() < 1e-6, "lon 0 → px {}", out.xy[0]);
+        assert!((out.xy[1] - 45.0).abs() < 1e-6, "lat 45 → py {}", out.xy[1]);
+        assert!(
+            (out.xy[2] - 190.0).abs() < 1e-6,
+            "lon 10 → px {}",
+            out.xy[2]
+        );
+    }
+
+    #[test]
+    fn flip_y_mirrors_overlay_rows() {
+        let mut o = overlay_opts("equirectangular");
+        o.flip_y = true;
+        let out = project_overlay_impl(&global_latlon_meta(), &o, &[45.0, 0.0, 45.0, 10.0], &[2])
+            .expect("flipped overlay");
+        // height = nj = 181 → py flips to (181 - 1) - 45 = 135.
+        assert!((out.xy[1] - 135.0).abs() < 1e-6, "flipped py {}", out.xy[1]);
+        assert!((out.xy[0] - 180.0).abs() < 1e-6, "x unaffected by flip");
+    }
+
+    #[test]
+    fn output_shape_invariant_holds() {
+        // sum(seg_lengths) * 2 == xy.len() for every projection.
+        for projection in [
+            "equirectangular",
+            "web_mercator",
+            "orthographic",
+            "polar_stereographic",
+        ] {
+            let out = project_overlay_impl(
+                &global_latlon_meta(),
+                &overlay_opts(projection),
+                &[80.0, 0.0, 81.0, 1.0, 82.0, 2.0],
+                &[3],
+            )
+            .unwrap_or_else(|e| panic!("{projection} overlay: {e}"));
+            let total: u32 = out.seg_lengths.iter().copied().sum();
+            assert_eq!(
+                total as usize * 2,
+                out.xy.len(),
+                "{projection}: seg_lengths must account for every xy pair"
+            );
+        }
     }
 }
