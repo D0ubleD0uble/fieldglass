@@ -26,6 +26,7 @@ import * as vscode from "vscode";
 
 import {
   buildGridReadyMessage,
+  resolveRerenderOptions,
   type GridReadyMessage,
 } from "../../provider";
 import { loadNative, type RenderOptions } from "../../native";
@@ -309,6 +310,68 @@ suite("Render pipeline", () => {
     assert.ok(src.usedLatMin === undefined || src.usedLatMin === null);
   });
 
+  test("GRIB1 web mercator: renders, echoes bounds clamped to the Mercator band", () => {
+    const native = loadNative();
+    assert.ok(native, "native module must load");
+    const bytes = fs.readFileSync(fixturePath("cmc_wind_300_2010052400_p012.grib"));
+    const handle = native.Grib1Handle.fromBytes(bytes);
+
+    const merc = handle.renderGrid(0, {
+      projection: "web_mercator",
+      resampling: "nearest",
+      flipY: false,
+    });
+
+    // Web Mercator is a warped lat/lon target, so it echoes geographic bounds.
+    assert.ok(
+      merc.usedLatMin !== undefined && merc.usedLatMin !== null,
+      "web mercator render must echo geographic bounds",
+    );
+    // The CMC top edge bows to ~80.6°N, beyond Mercator's ~85.05° limit it
+    // stays — but the clamp must keep the extent inside the valid band.
+    assert.ok(
+      (merc.usedLatMax as number) <= 85.06 && (merc.usedLatMin as number) >= -85.06,
+      `lat extent must be clamped to the Mercator band, got ${merc.usedLatMin}..${merc.usedLatMax}`,
+    );
+    assert.ok(
+      /web mercator/.test(merc.projectionSummary),
+      `summary should name the target, got: ${merc.projectionSummary}`,
+    );
+    // The RGBA buffer is the source-dim raster, fully populated.
+    assert.strictEqual(merc.rgba.length, merc.width * merc.height * 4);
+  });
+
+  test("GRIB1 azimuthal targets: orthographic + polar stereographic render via presets", () => {
+    const native = loadNative();
+    assert.ok(native, "native module must load");
+    const bytes = fs.readFileSync(fixturePath("cmc_wind_300_2010052400_p012.grib"));
+    const handle = native.Grib1Handle.fromBytes(bytes);
+
+    const ortho = handle.renderGrid(0, {
+      projection: "orthographic",
+      projectionPreset: "north_pole",
+      resampling: "nearest",
+      flipY: false,
+    });
+    // Azimuthal targets fit a disc to the raster — no lat/lon-box extent.
+    assert.ok(
+      ortho.usedLatMin === undefined || ortho.usedLatMin === null,
+      "orthographic target has no geographic box extent",
+    );
+    assert.ok(/orthographic/.test(ortho.projectionSummary), ortho.projectionSummary);
+    assert.strictEqual(ortho.rgba.length, ortho.width * ortho.height * 4);
+
+    const polar = handle.renderGrid(0, {
+      projection: "polar_stereographic",
+      projectionPreset: "north",
+      resampling: "nearest",
+      flipY: false,
+    });
+    assert.ok(polar.usedLatMin === undefined || polar.usedLatMin === null);
+    assert.ok(/polar stereographic/.test(polar.projectionSummary), polar.projectionSummary);
+    assert.strictEqual(polar.rgba.length, polar.width * polar.height * 4);
+  });
+
   test("GRIB2: renderGrid output post-wrap reaches the webview intact", async () => {
     const native = loadNative();
     assert.ok(native, "native module must load");
@@ -343,5 +406,70 @@ suite("Render pipeline", () => {
       "separate workstream; classic should not regress)");
     assert.ok(dataset.dimensions.length > 0, "expected at least one dimension");
     assert.ok(dataset.variables.length > 0, "expected at least one variable");
+  });
+});
+
+suite("rerenderRequest option clamp", () => {
+  // `resolveRerenderOptions` is the provider-side glue between the picker and
+  // the native render. The #71 regression lived here: the clamp predated the
+  // new targets and snapped everything except "equirectangular" back to
+  // "source", so Web Mercator / orthographic / polar-stereographic and their
+  // presets silently did nothing. These pin the clamp so adding a picker
+  // option without wiring it through here fails loudly.
+
+  test("every picker projection survives the clamp", () => {
+    const pickerProjections: ReadonlyArray<RenderOptions["projection"]> = [
+      "source",
+      "equirectangular",
+      "web_mercator",
+      "orthographic",
+      "polar_stereographic",
+    ];
+    for (const projection of pickerProjections) {
+      assert.strictEqual(
+        resolveRerenderOptions({ projection }).projection,
+        projection,
+        `${projection} must pass through, not snap to source`,
+      );
+    }
+  });
+
+  test("forwards the azimuthal centre/hemisphere preset untouched", () => {
+    const ortho = resolveRerenderOptions({
+      projection: "orthographic",
+      projectionPreset: "north_pole",
+    });
+    assert.strictEqual(ortho.projectionPreset, "north_pole");
+
+    const polar = resolveRerenderOptions({
+      projection: "polar_stereographic",
+      projectionPreset: "south",
+    });
+    assert.strictEqual(polar.projectionPreset, "south");
+  });
+
+  test("unknown projection / resampling snap to their defaults", () => {
+    const r = resolveRerenderOptions({
+      projection: "mollweide" as RenderOptions["projection"],
+      resampling: "lanczos" as RenderOptions["resampling"],
+    });
+    assert.strictEqual(r.projection, "source");
+    assert.strictEqual(r.resampling, "nearest");
+  });
+
+  test("bilinear resampling is preserved; manual bounds pass through", () => {
+    const r = resolveRerenderOptions({
+      projection: "web_mercator",
+      resampling: "bilinear",
+      boundsLatMin: 10,
+      boundsLatMax: 60,
+      boundsLonMin: -140,
+      boundsLonMax: -60,
+    });
+    assert.strictEqual(r.resampling, "bilinear");
+    assert.deepStrictEqual(
+      [r.boundsLatMin, r.boundsLatMax, r.boundsLonMin, r.boundsLonMax],
+      [10, 60, -140, -60],
+    );
   });
 });

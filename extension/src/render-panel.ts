@@ -67,6 +67,13 @@ export function renderImagePanelHtml(
           const flipY = !!(document.getElementById('flip-y') && document.getElementById('flip-y').checked);
           const mode = document.querySelector('input[name="range-mode"]:checked');
           const options = { projection, resampling, flipY };
+          // The azimuthal targets read a centre / hemisphere preset; the
+          // lat/lon-box targets ignore it.
+          if (projection === 'orthographic') {
+            options.projectionPreset = (document.getElementById('picker-preset-ortho') || {}).value;
+          } else if (projection === 'polar_stereographic') {
+            options.projectionPreset = (document.getElementById('picker-preset-polar') || {}).value;
+          }
           if (mode && mode.value === 'manual') {
             const min = Number((document.getElementById('range-min') || {}).value);
             const max = Number((document.getElementById('range-max') || {}).value);
@@ -75,11 +82,13 @@ export function renderImagePanelHtml(
               options.rangeMax = max;
             }
           }
-          // Manual extent only applies to the equirectangular target. Send all
-          // four edges or none; the Rust side validates and falls back to the
-          // computed bounds for a partial/inverted box.
+          // Manual extent applies to the warped lat/lon targets
+          // (equirectangular + Web Mercator), which both render a lat/lon
+          // window. Send all four edges or none; the Rust side validates and
+          // falls back to the computed bounds for a partial/inverted box.
           const bmode = document.querySelector('input[name="bounds-mode"]:checked');
-          if (projection === 'equirectangular' && bmode && bmode.value === 'manual') {
+          const warpsLatLon = projection === 'equirectangular' || projection === 'web_mercator';
+          if (warpsLatLon && bmode && bmode.value === 'manual') {
             const laMin = Number((document.getElementById('bounds-lat-min') || {}).value);
             const laMax = Number((document.getElementById('bounds-lat-max') || {}).value);
             const loMin = Number((document.getElementById('bounds-lon-min') || {}).value);
@@ -139,8 +148,9 @@ export function renderImagePanelHtml(
           if (minIn && !minIn.value) minIn.value = payload.usedMin.toPrecision(6);
           if (maxIn && !maxIn.value) maxIn.value = payload.usedMax.toPrecision(6);
           // Pre-fill the manual-bounds inputs from the extent Rust actually
-          // used (only present for the equirectangular target). The empty
-          // guard means we never clobber a value the user has typed.
+          // used (present for the warped lat/lon targets — equirectangular and
+          // Web Mercator). The empty guard means we never clobber a value the
+          // user has typed.
           if (payload.usedLatMin !== undefined && payload.usedLatMin !== null) {
             const fillBound = (id, v) => {
               const el = document.getElementById(id);
@@ -162,9 +172,24 @@ export function renderImagePanelHtml(
           setStatus('Error: ' + (msg.error || 'render failed'));
         }
 
+        // Show the centre/hemisphere preset selector that matches the active
+        // projection, and hide the others.
+        function syncPresetVisibility() {
+          const projection = (document.getElementById('picker-projection') || {}).value || 'source';
+          const ortho = document.getElementById('preset-ortho');
+          const polar = document.getElementById('preset-polar');
+          if (ortho) ortho.toggleAttribute('hidden', projection !== 'orthographic');
+          if (polar) polar.toggleAttribute('hidden', projection !== 'polar_stereographic');
+        }
+
         function attachControls() {
           const projPick = document.getElementById('picker-projection');
-          if (projPick) projPick.addEventListener('change', requestRender);
+          if (projPick) projPick.addEventListener('change', () => { syncPresetVisibility(); requestRender(); });
+          ['picker-preset-ortho', 'picker-preset-polar'].forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('change', requestRender);
+          });
+          syncPresetVisibility();
           const sampPick = document.getElementById('picker-resampling');
           if (sampPick) sampPick.addEventListener('change', requestRender);
           const flip = document.getElementById('flip-y');
@@ -296,6 +321,10 @@ export function renderImagePanelHtml(
       color: var(--vscode-descriptionForeground);
     }
     .toolbar label { display: inline-flex; align-items: center; gap: 0.25rem; }
+    /* The rule above sets display, out-specifying the UA stylesheet's hidden
+       rule (display:none); without this the preset selectors never hide when
+       syncPresetVisibility toggles them off. */
+    .toolbar label[hidden] { display: none; }
     .toolbar input[type="number"] {
       width: 7rem;
       background: var(--vscode-input-background);
@@ -320,6 +349,23 @@ export function renderImagePanelHtml(
       <select id="picker-projection">
         <option value="source" selected>Source projection</option>
         <option value="equirectangular">Equirectangular</option>
+        <option value="web_mercator">Web Mercator</option>
+        <option value="orthographic">Orthographic</option>
+        <option value="polar_stereographic">Polar stereographic</option>
+      </select>
+    </label>
+    <label id="preset-ortho" hidden>Center
+      <select id="picker-preset-ortho">
+        <option value="atlantic" selected>Atlantic (0°N 0°E)</option>
+        <option value="pacific">Pacific (0°N 180°E)</option>
+        <option value="north_pole">North pole</option>
+        <option value="south_pole">South pole</option>
+      </select>
+    </label>
+    <label id="preset-polar" hidden>Hemisphere
+      <select id="picker-preset-polar">
+        <option value="north" selected>North</option>
+        <option value="south">South</option>
       </select>
     </label>
     <label>Resampling

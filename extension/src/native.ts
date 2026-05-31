@@ -90,16 +90,28 @@ export interface DatasetMeta {
 /** Picker state posted from the render panel and forwarded into the
  *  Rust render pipeline. */
 export interface RenderOptions {
-  projection: "source" | "equirectangular";
+  projection:
+    | "source"
+    | "equirectangular"
+    | "web_mercator"
+    | "orthographic"
+    | "polar_stereographic";
+  /** Preset for the parameterised targets. "orthographic" reads a centre
+   *  preset ("atlantic" (default), "pacific", "north_pole", "south_pole");
+   *  "polar_stereographic" reads a hemisphere preset ("north" (default),
+   *  "south"). Ignored by the lat/lon-box targets. */
+  projectionPreset?: string;
   resampling: "nearest" | "bilinear";
   flipY: boolean;
   rangeMin?: number;
   rangeMax?: number;
-  /** Manual equirectangular extent override (degrees). Only consulted for the
-   *  "equirectangular" projection. Pass all four to render that window;
-   *  partial/inverted boxes fall back to the computed source bounds. lonMin/
-   *  lonMax may sit outside [-180, 180] to describe an antimeridian-crossing
-   *  window — pass back the echoed values verbatim to reproduce a view. */
+  /** Manual lat/lon extent override (degrees). Consulted for the warped
+   *  lat/lon targets — "equirectangular" and "web_mercator". Pass all four to
+   *  render that window; partial/inverted boxes fall back to the computed
+   *  source bounds. lonMin/lonMax may sit outside [-180, 180] to describe an
+   *  antimeridian-crossing window — pass back the echoed values verbatim to
+   *  reproduce a view. For web_mercator the latitude extent is clamped to the
+   *  projection's valid band (~±85.05°). */
   boundsLatMin?: number;
   boundsLatMax?: number;
   boundsLonMin?: number;
@@ -112,8 +124,9 @@ export interface RenderedGrid {
   height: number;
   usedMin: number;
   usedMax: number;
-  /** Equirectangular extent actually rendered (degrees), echoed back so the
-   *  panel can pre-fill the manual-bounds inputs. Undefined for the
+  /** Geographic extent actually rendered (degrees), echoed back so the
+   *  panel can pre-fill the manual-bounds inputs. Present for the warped
+   *  lat/lon targets (equirectangular, web_mercator); undefined for the
    *  source-projection target (no geographic extent). */
   usedLatMin?: number;
   usedLatMax?: number;
