@@ -530,8 +530,9 @@ fn dataset_meta_from(reader: NetcdfReader) -> DatasetMeta {
 pub struct RenderOptions {
     pub projection: String,
     /// Preset selector for the parameterised targets. `"orthographic"` reads
-    /// a centre preset (`"atlantic"` (0°N 0°E, default), `"pacific"`,
-    /// `"north_pole"`, `"south_pole"`); `"polar_stereographic"` reads a
+    /// a centre preset (`"atlantic"` (0°N 0°E, default), `"indian"` (0°N 90°E),
+    /// `"pacific"` (0°N 180°E), `"americas"` (0°N 270°E), `"north_pole"`,
+    /// `"south_pole"`); `"polar_stereographic"` reads a
     /// hemisphere preset (`"north"` (default), `"south"`). Ignored by the
     /// lat/lon-box targets. `None`/unknown falls back to the default.
     pub projection_preset: Option<String>,
@@ -1044,7 +1045,9 @@ impl ResolvedOptions {
 /// inputs; unknown/`None` defaults to the Atlantic view (0°N 0°E).
 fn orthographic_from_preset(preset: Option<&str>) -> WarpTarget {
     let (lat0, lon0) = match preset {
+        Some("indian") => (0.0, 90.0),
         Some("pacific") => (0.0, 180.0),
+        Some("americas") => (0.0, 270.0),
         Some("north_pole") => (90.0, 0.0),
         Some("south_pole") => (-90.0, 0.0),
         // "atlantic" / None / unknown
@@ -1705,6 +1708,16 @@ mod resolved_options_tests {
         assert!(matches!(
             ResolvedOptions::parse(&o).unwrap().projection,
             TargetKind::Warp(WarpTarget::Orthographic { lat0, lon0 }) if lat0 == 0.0 && lon0 == 180.0
+        ));
+        o.projection_preset = Some("indian".to_string());
+        assert!(matches!(
+            ResolvedOptions::parse(&o).unwrap().projection,
+            TargetKind::Warp(WarpTarget::Orthographic { lat0, lon0 }) if lat0 == 0.0 && lon0 == 90.0
+        ));
+        o.projection_preset = Some("americas".to_string());
+        assert!(matches!(
+            ResolvedOptions::parse(&o).unwrap().projection,
+            TargetKind::Warp(WarpTarget::Orthographic { lat0, lon0 }) if lat0 == 0.0 && lon0 == 270.0
         ));
         o.projection_preset = Some("north_pole".to_string());
         assert!(matches!(

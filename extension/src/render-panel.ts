@@ -531,7 +531,9 @@ export function renderImagePanelHtml(
       <label id="preset-ortho" hidden>Center
         <select id="picker-preset-ortho">
           <option value="atlantic" selected>Atlantic (0°N 0°E)</option>
+          <option value="indian">Indian Ocean (0°N 90°E)</option>
           <option value="pacific">Pacific (0°N 180°E)</option>
+          <option value="americas">Americas (0°N 270°E)</option>
           <option value="north_pole">North pole</option>
           <option value="south_pole">South pole</option>
         </select>

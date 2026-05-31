@@ -97,8 +97,9 @@ export interface RenderOptions {
     | "orthographic"
     | "polar_stereographic";
   /** Preset for the parameterised targets. "orthographic" reads a centre
-   *  preset ("atlantic" (default), "pacific", "north_pole", "south_pole");
-   *  "polar_stereographic" reads a hemisphere preset ("north" (default),
+   *  preset ("atlantic" (default), "indian", "pacific", "americas",
+   *  "north_pole", "south_pole"); "polar_stereographic" reads a hemisphere
+   *  preset ("north" (default),
    *  "south"). Ignored by the lat/lon-box targets. */
   projectionPreset?: string;
   resampling: "nearest" | "bilinear";
