@@ -348,7 +348,9 @@ export function renderImagePanelHtml(
           if (grat) {
             grat.addEventListener('change', () => {
               const label = document.getElementById('graticule-spacing-label');
-              if (label) label.toggleAttribute('hidden', !grat.checked);
+              // visibility toggle (not display) so the field's box stays
+              // reserved — showing it never grows the toolbar row.
+              if (label) label.classList.toggle('spacing-hidden', !grat.checked);
               requestOverlay();
             });
           }
@@ -453,11 +455,17 @@ export function renderImagePanelHtml(
       font-size: 0.75rem;
       color: var(--vscode-descriptionForeground);
     }
+    /* The toolbar stacks its control groups vertically: the projection pickers
+       on the first row, then one row each for Color Range, Bounds, and Overlay.
+       Giving every group its own row is what keeps the layout stable — a group's
+       Manual inputs (the Bounds row alone has four lat/lon fields) expand into
+       that row's own free width and at worst wrap within it, so they never
+       reshuffle the other groups the way a single shared wrap-row did. */
     .toolbar {
       display: flex;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 0.75rem 1.25rem;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.5rem;
       padding: 0.5rem 0.75rem;
       margin-bottom: 0.75rem;
       border: 1px solid var(--vscode-panel-border);
@@ -465,8 +473,14 @@ export function renderImagePanelHtml(
       background: var(--vscode-editorWidget-background, transparent);
       font-size: 0.85rem;
     }
+    /* One row of the toolbar: lay its controls out horizontally, wrapping
+       within the row only when the window is too narrow to hold them. */
+    .toolbar-row {
+      display: flex; align-items: center; flex-wrap: wrap;
+      gap: 0.5rem 1.25rem;
+    }
     .toolbar fieldset {
-      display: flex; align-items: center; gap: 0.5rem;
+      display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem;
       border: none; padding: 0; margin: 0;
     }
     .toolbar legend {
@@ -479,6 +493,11 @@ export function renderImagePanelHtml(
        rule (display:none); without this the preset selectors never hide when
        syncPresetVisibility toggles them off. */
     .toolbar label[hidden] { display: none; }
+    /* The graticule-spacing field hides without reflowing: visibility:hidden
+       keeps its box in the toolbar's flow, so toggling Graticule on/off can't
+       grow the toolbar and shove the canvas down (it also drops the field out
+       of the tab order while hidden). */
+    #graticule-spacing-label.spacing-hidden { visibility: hidden; }
     .toolbar input[type="number"] {
       width: 7rem;
       background: var(--vscode-input-background);
@@ -499,38 +518,40 @@ export function renderImagePanelHtml(
   <div class="subtitle">${escapeHtml(subLine)}</div>
   <div class="projection" id="projection-summary">${escapeHtml(projectionSummary)}</div>
   <div class="toolbar" role="toolbar" aria-label="Render settings">
-    <label>Projection
-      <select id="picker-projection">
-        <option value="source" selected>Source projection</option>
-        <option value="equirectangular">Equirectangular</option>
-        <option value="web_mercator">Web Mercator</option>
-        <option value="orthographic">Orthographic</option>
-        <option value="polar_stereographic">Polar stereographic</option>
-      </select>
-    </label>
-    <label id="preset-ortho" hidden>Center
-      <select id="picker-preset-ortho">
-        <option value="atlantic" selected>Atlantic (0°N 0°E)</option>
-        <option value="pacific">Pacific (0°N 180°E)</option>
-        <option value="north_pole">North pole</option>
-        <option value="south_pole">South pole</option>
-      </select>
-    </label>
-    <label id="preset-polar" hidden>Hemisphere
-      <select id="picker-preset-polar">
-        <option value="north" selected>North</option>
-        <option value="south">South</option>
-      </select>
-    </label>
-    <label>Resampling
-      <select id="picker-resampling">
-        <option value="nearest" selected>Nearest</option>
-        <option value="bilinear">Bilinear</option>
-      </select>
-    </label>
-    <label><input type="checkbox" id="flip-y"> Flip Y axis</label>
+    <div class="toolbar-row">
+      <label>Projection
+        <select id="picker-projection">
+          <option value="source" selected>Source projection</option>
+          <option value="equirectangular">Equirectangular</option>
+          <option value="web_mercator">Web Mercator</option>
+          <option value="orthographic">Orthographic</option>
+          <option value="polar_stereographic">Polar stereographic</option>
+        </select>
+      </label>
+      <label id="preset-ortho" hidden>Center
+        <select id="picker-preset-ortho">
+          <option value="atlantic" selected>Atlantic (0°N 0°E)</option>
+          <option value="pacific">Pacific (0°N 180°E)</option>
+          <option value="north_pole">North pole</option>
+          <option value="south_pole">South pole</option>
+        </select>
+      </label>
+      <label id="preset-polar" hidden>Hemisphere
+        <select id="picker-preset-polar">
+          <option value="north" selected>North</option>
+          <option value="south">South</option>
+        </select>
+      </label>
+      <label>Resampling
+        <select id="picker-resampling">
+          <option value="nearest" selected>Nearest</option>
+          <option value="bilinear">Bilinear</option>
+        </select>
+      </label>
+      <label><input type="checkbox" id="flip-y"> Flip Y axis</label>
+    </div>
     <fieldset>
-      <legend>Range:</legend>
+      <legend>Color Range:</legend>
       <label><input type="radio" name="range-mode" value="auto" checked> Auto</label>
       <label><input type="radio" name="range-mode" value="manual"> Manual</label>
       <span id="range-manual-fields" hidden>
@@ -553,7 +574,7 @@ export function renderImagePanelHtml(
       <legend>Overlay:</legend>
       <label><input type="checkbox" id="overlay-coastlines"> Coastlines</label>
       <label><input type="checkbox" id="overlay-graticule"> Graticule</label>
-      <label id="graticule-spacing-label" hidden>spacing
+      <label id="graticule-spacing-label" class="spacing-hidden">spacing
         <input type="number" id="graticule-spacing" value="30" min="5" max="90" step="5"></label>
     </fieldset>
   </div>
