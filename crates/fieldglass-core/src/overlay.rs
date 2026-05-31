@@ -20,7 +20,46 @@
 //! `(lat, lon)` rings. The render contract (`RenderOptions`/`RenderedGrid`)
 //! is untouched; this is an additive, geometry-only path.
 
+use crate::projection::GridIndex;
 use crate::warp::PreparedTarget;
+
+/// Overlay forward map for the **source projection** — the unwarped grid shown
+/// as-is. `paint_source` lays source grid point `(i, j)` straight into output
+/// pixel `(i, j)`, so the warp's own inverse map (geographic `(lat, lon)` →
+/// fractional grid index) *is* the forward pixel map here. Wrapping it as a
+/// [`PreparedTarget`] lets the overlay layer (#72) project coastlines /
+/// graticule onto the source projection too — reusing [`project_polylines`]'s
+/// visibility + antimeridian-seam splitting unchanged, and working for every
+/// grid type (latlon, gaussian, lambert, polar stereographic) since each
+/// already supplies an inverse map.
+///
+/// Holds a borrowed inverse closure — a shared reference, hence `Copy`; the
+/// borrow only needs to outlive the synchronous `project_polylines` call.
+#[derive(Clone, Copy)]
+pub struct SourceOverlayTarget<'a> {
+    inverse: &'a dyn Fn(f64, f64) -> Option<GridIndex>,
+}
+
+impl<'a> SourceOverlayTarget<'a> {
+    /// Wrap the warp's inverse map (`lat, lon →` fractional grid index) as the
+    /// source projection's overlay forward map.
+    pub fn new(inverse: &'a dyn Fn(f64, f64) -> Option<GridIndex>) -> Self {
+        Self { inverse }
+    }
+}
+
+impl PreparedTarget for SourceOverlayTarget<'_> {
+    /// Unused by the overlay path — [`project_polylines`] only calls
+    /// `lonlat_to_pixel`. The source raster's pixel → lonlat is the grid's own
+    /// geolocation, out of scope for overlay projection.
+    fn pixel_to_lonlat(&self, _px: u32, _py: u32) -> Option<(f64, f64)> {
+        None
+    }
+
+    fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)> {
+        (self.inverse)(lat, lon).map(|GridIndex { i, j }| (i, j))
+    }
+}
 
 /// Projected overlay geometry in output pixel space. `xy` is flat
 /// `[x0, y0, x1, y1, …]`; `seg_lengths` gives the vertex count of each
@@ -224,6 +263,37 @@ mod tests {
         let prep = global_equirect(361, 181);
         let out = project_polylines(&prep, 361, 181, false, &[0.0, 0.0], &[1]);
         assert!(out.xy.is_empty() && out.seg_lengths.is_empty());
+    }
+
+    #[test]
+    fn source_target_projects_through_the_inverse_map() {
+        use crate::projection::{LatLonParams, latlon_inverse};
+        // A global 1° lat/lon grid: 361×181, north-up. Its inverse lands a
+        // point at px = lon + 180, py = 90 - lat — exactly the source raster's
+        // grid-index → pixel identity.
+        let p = LatLonParams {
+            ni: 361,
+            nj: 181,
+            lat_first: 90.0,
+            lon_first: -180.0,
+            lat_last: -90.0,
+            lon_last: 180.0,
+        };
+        let inverse = move |lat: f64, lon: f64| latlon_inverse(&p, lat, lon);
+        let target = SourceOverlayTarget::new(&inverse);
+        let out = project_polylines(&target, 361, 181, false, &[45.0, 0.0, 45.0, 10.0], &[2]);
+        assert_eq!(out.seg_lengths, vec![2]);
+        assert!((out.xy[0] - 180.0).abs() < 1e-6, "lon 0 → px {}", out.xy[0]);
+        assert!((out.xy[1] - 45.0).abs() < 1e-6, "lat 45 → py {}", out.xy[1]);
+        assert!(
+            (out.xy[2] - 190.0).abs() < 1e-6,
+            "lon 10 → px {}",
+            out.xy[2]
+        );
+        // A vertex off the grid (past the pole) inverts to None and breaks the
+        // run; the lone remaining vertex is dropped.
+        let off = project_polylines(&target, 361, 181, false, &[45.0, 0.0, 95.0, 0.0], &[2]);
+        assert!(off.xy.is_empty(), "vertex past the pole leaves the grid");
     }
 
     #[test]

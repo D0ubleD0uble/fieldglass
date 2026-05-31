@@ -3,7 +3,7 @@
 use fieldglass_core::{
     Format, GaussianParams, GaussianProjector, LambertParams, LambertProjector, LatLonParams,
     Orthographic, PlanarGridProjector, PolarStereoParams, PolarStereoProjector, PolarStereographic,
-    ProjectedPolylines, Resampling, SourceGrid, TargetRaster, WebMercator,
+    ProjectedPolylines, Resampling, SourceGrid, SourceOverlayTarget, TargetRaster, WebMercator,
     colormap::{min_max_ignoring_mask, paint_grid_rgba},
     detect_from_bytes, latlon_inverse, project_polylines,
     projection::GridIndex,
@@ -589,8 +589,8 @@ pub struct RenderedGrid {
 /// `xy` is flat `[x0, y0, x1, y1, …]` in output pixel coordinates (post-flipY,
 /// identical to the rendered raster); `seg_lengths` gives the vertex count of
 /// each visible run after clipping/splitting, so
-/// `seg_lengths.iter().sum::<u32>() * 2 == xy.len()`. Empty for the source
-/// projection (no geographic forward map).
+/// `seg_lengths.iter().sum::<u32>() * 2 == xy.len()`. May be empty when no run
+/// survives clipping (every vertex projects off the visible domain).
 #[napi(object)]
 pub struct ProjectedOverlay {
     pub xy: napi::bindgen_prelude::Float64Array,
@@ -1417,9 +1417,13 @@ fn warp_setup_for(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetu
 /// (via [`build_warp_target`]) but never decodes or samples values.
 ///
 /// `latlon` is flat `[lat, lon, …]`; `ring_lengths[k]` is the vertex count of
-/// input ring `k`. The `"source"` projection has no geographic forward map, so
-/// it returns an empty result. See [`fieldglass_core::project_polylines`] for
-/// the run-splitting (visibility / antimeridian) rules.
+/// input ring `k`. See [`fieldglass_core::project_polylines`] for the
+/// run-splitting (visibility / antimeridian) rules.
+///
+/// The `"source"` projection paints grid point `(i, j)` at pixel `(i, j)`, so
+/// the warp's own inverse map (lat/lon → fractional grid index) doubles as its
+/// forward pixel map — the overlay projects straight through it
+/// ([`SourceOverlayTarget`]), no separate geographic forward projection needed.
 fn project_overlay_impl(
     meta: &MessageMeta,
     options: &RenderOptions,
@@ -1427,16 +1431,24 @@ fn project_overlay_impl(
     ring_lengths: &[u32],
 ) -> napi::Result<ProjectedPolylines> {
     let resolved = ResolvedOptions::parse(options)?;
-    let target_kind = match resolved.projection {
-        // No geographic forward map for the source grid's own projection.
-        TargetKind::Source => return Ok(ProjectedPolylines::default()),
-        TargetKind::Warp(target) => target,
-    };
     let ni = grid_ni(meta)?;
     let nj = grid_nj(meta)?;
-    let (_inverse, bbox_thunk) = warp_setup_for(meta, ni, nj)?;
-    let (built, _used_bounds) = build_warp_target(target_kind, ni, nj, bbox_thunk, resolved.bounds);
-    Ok(built.project(resolved.flip_y, latlon, ring_lengths))
+    let (inverse, bbox_thunk) = warp_setup_for(meta, ni, nj)?;
+    match resolved.projection {
+        TargetKind::Source => Ok(project_polylines(
+            &SourceOverlayTarget::new(inverse.as_ref()),
+            ni,
+            nj,
+            resolved.flip_y,
+            latlon,
+            ring_lengths,
+        )),
+        TargetKind::Warp(target_kind) => {
+            let (built, _used_bounds) =
+                build_warp_target(target_kind, ni, nj, bbox_thunk, resolved.bounds);
+            Ok(built.project(resolved.flip_y, latlon, ring_lengths))
+        }
+    }
 }
 
 // --- Per-template warp-setup helpers ---------------------------------------
@@ -2149,17 +2161,26 @@ mod overlay_projection_tests {
     }
 
     #[test]
-    fn source_projection_has_no_overlay() {
-        // The source grid's own projection exposes no geographic forward map,
-        // so the overlay is unavailable there — an empty result, not an error.
+    fn source_projection_projects_through_the_inverse_map() {
+        // The source raster paints grid point (i, j) at pixel (i, j), so the
+        // overlay projects through the grid's own inverse map. For this global
+        // 1° lat/lon grid that lands at px = lon + 180, py = 90 - lat —
+        // matching the equirectangular target's pixels.
         let out = project_overlay_impl(
             &global_latlon_meta(),
             &overlay_opts("source"),
-            &[0.0, 0.0, 10.0, 10.0],
+            &[45.0, 0.0, 45.0, 10.0],
             &[2],
         )
         .expect("source overlay");
-        assert!(out.xy.is_empty() && out.seg_lengths.is_empty());
+        assert_eq!(out.seg_lengths, vec![2]);
+        assert!((out.xy[0] - 180.0).abs() < 1e-6, "lon 0 → px {}", out.xy[0]);
+        assert!((out.xy[1] - 45.0).abs() < 1e-6, "lat 45 → py {}", out.xy[1]);
+        assert!(
+            (out.xy[2] - 190.0).abs() < 1e-6,
+            "lon 10 → px {}",
+            out.xy[2]
+        );
     }
 
     #[test]
@@ -2198,6 +2219,7 @@ mod overlay_projection_tests {
     fn output_shape_invariant_holds() {
         // sum(seg_lengths) * 2 == xy.len() for every projection.
         for projection in [
+            "source",
             "equirectangular",
             "web_mercator",
             "orthographic",

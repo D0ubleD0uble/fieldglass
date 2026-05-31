@@ -146,8 +146,8 @@ export interface DecodedGrid {
  *  the overlay layer (coastline / graticule / future user shapes). `xy` is
  *  flat `[x0, y0, x1, y1, …]` in output pixel coordinates (post-flipY,
  *  identical to the rendered raster); `segLengths` gives the vertex count of
- *  each visible run, so `sum(segLengths) * 2 === xy.length`. Empty for the
- *  source projection (no geographic forward map). */
+ *  each visible run, so `sum(segLengths) * 2 === xy.length`. May be empty when
+ *  no run survives clipping (every vertex projects off the visible domain). */
 export interface ProjectedOverlay {
   xy: Float64Array;
   segLengths: Uint32Array;

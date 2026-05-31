@@ -509,7 +509,8 @@ suite("overlay geometry", () => {
 suite("overlay projection (native)", () => {
   // The forward projection runs in Rust via `projectOverlay`. These pin the
   // additive napi contract: a well-formed ProjectedOverlay whose segLengths
-  // account for every xy pair, and an empty result for the source projection.
+  // account for every xy pair, for both a warped target and the source
+  // projection (which maps through the grid's own inverse).
 
   function grib1Handle() {
     const native = loadNative();
@@ -532,11 +533,15 @@ suite("overlay projection (native)", () => {
     assert.ok(out.xy.length > 0, "coastline should project to a non-empty geometry");
   });
 
-  test("source projection yields an empty overlay (no geographic forward map)", () => {
+  test("source projection projects the overlay through the grid's inverse map", () => {
+    // The source raster paints grid point (i, j) at pixel (i, j), so the
+    // overlay maps through the grid's own inverse — coastlines/graticule show
+    // on the source projection too, not only the warped targets.
     const handle = grib1Handle();
-    const g = buildGraticule(30);
-    const out = handle.projectOverlay(0, defaultRenderOptions(), g.latlon, g.ringLengths);
-    assert.strictEqual(out.xy.length, 0);
-    assert.strictEqual(out.segLengths.length, 0);
+    const coast = loadCoastline();
+    const out = handle.projectOverlay(0, defaultRenderOptions(), coast.latlon, coast.ringLengths);
+    const total = Array.from(out.segLengths).reduce((a, b) => a + b, 0);
+    assert.strictEqual(total * 2, out.xy.length, "segLengths must account for every xy pair");
+    assert.ok(out.xy.length > 0, "coastline should project onto the source raster");
   });
 });
