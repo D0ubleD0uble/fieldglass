@@ -294,24 +294,31 @@ export function renderImagePanelHtml(
           }
         }
 
-        // Show the centre/hemisphere preset selector that matches the active
-        // projection, and hide the others.
-        function syncPresetVisibility() {
+        // Show only the controls the active projection actually uses: the
+        // matching centre/hemisphere preset selector, and the Bounds (manual
+        // lat/lon window) control — which applies to the lat/lon-box targets
+        // only. The azimuthal targets frame themselves by preset and ignore a
+        // bounds rectangle, and the source projection has no window either, so
+        // showing Bounds there would be an inert, misleading control.
+        function syncProjectionControls() {
           const projection = (document.getElementById('picker-projection') || {}).value || 'source';
           const ortho = document.getElementById('preset-ortho');
           const polar = document.getElementById('preset-polar');
           if (ortho) ortho.toggleAttribute('hidden', projection !== 'orthographic');
           if (polar) polar.toggleAttribute('hidden', projection !== 'polar_stereographic');
+          const bounds = document.getElementById('bounds-fieldset');
+          const warpsLatLon = projection === 'equirectangular' || projection === 'web_mercator';
+          if (bounds) bounds.toggleAttribute('hidden', !warpsLatLon);
         }
 
         function attachControls() {
           const projPick = document.getElementById('picker-projection');
-          if (projPick) projPick.addEventListener('change', () => { syncPresetVisibility(); requestRender(); });
+          if (projPick) projPick.addEventListener('change', () => { syncProjectionControls(); requestRender(); });
           ['picker-preset-ortho', 'picker-preset-polar'].forEach((id) => {
             const el = document.getElementById(id);
             if (el) el.addEventListener('change', requestRender);
           });
-          syncPresetVisibility();
+          syncProjectionControls();
           const sampPick = document.getElementById('picker-resampling');
           if (sampPick) sampPick.addEventListener('change', requestRender);
           const flip = document.getElementById('flip-y');
@@ -483,6 +490,10 @@ export function renderImagePanelHtml(
       display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem;
       border: none; padding: 0; margin: 0;
     }
+    /* The fieldset display:flex rule above out-specifies the UA hidden rule, so
+       restore it explicitly — the Bounds row hides for projections without a
+       manual lat/lon window (see syncProjectionControls). */
+    .toolbar fieldset[hidden] { display: none; }
     .toolbar legend {
       padding: 0;
       font-size: 0.8rem;
@@ -491,7 +502,7 @@ export function renderImagePanelHtml(
     .toolbar label { display: inline-flex; align-items: center; gap: 0.25rem; }
     /* The rule above sets display, out-specifying the UA stylesheet's hidden
        rule (display:none); without this the preset selectors never hide when
-       syncPresetVisibility toggles them off. */
+       syncProjectionControls toggles them off. */
     .toolbar label[hidden] { display: none; }
     /* The graticule-spacing field hides without reflowing: visibility:hidden
        keeps its box in the toolbar's flow, so toggling Graticule on/off can't
@@ -561,7 +572,7 @@ export function renderImagePanelHtml(
         <label>max <input type="number" id="range-max" step="any"></label>
       </span>
     </fieldset>
-    <fieldset>
+    <fieldset id="bounds-fieldset" hidden>
       <legend>Bounds:</legend>
       <label><input type="radio" name="bounds-mode" value="auto" checked> Auto</label>
       <label><input type="radio" name="bounds-mode" value="manual"> Manual</label>
