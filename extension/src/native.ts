@@ -97,8 +97,9 @@ export interface RenderOptions {
     | "orthographic"
     | "polar_stereographic";
   /** Preset for the parameterised targets. "orthographic" reads a centre
-   *  preset ("atlantic" (default), "pacific", "north_pole", "south_pole");
-   *  "polar_stereographic" reads a hemisphere preset ("north" (default),
+   *  preset ("atlantic" (default), "indian", "pacific", "americas",
+   *  "north_pole", "south_pole"); "polar_stereographic" reads a hemisphere
+   *  preset ("north" (default),
    *  "south"). Ignored by the lat/lon-box targets. */
   projectionPreset?: string;
   resampling: "nearest" | "bilinear";
@@ -142,17 +143,40 @@ export interface DecodedGrid {
   height: number;
 }
 
+/** Geographic polylines projected into the warped raster's pixel space for
+ *  the overlay layer (coastline / graticule / future user shapes). `xy` is
+ *  flat `[x0, y0, x1, y1, …]` in output pixel coordinates (post-flipY,
+ *  identical to the rendered raster); `segLengths` gives the vertex count of
+ *  each visible run, so `sum(segLengths) * 2 === xy.length`. May be empty when
+ *  no run survives clipping (every vertex projects off the visible domain). */
+export interface ProjectedOverlay {
+  xy: Float64Array;
+  segLengths: Uint32Array;
+}
+
 export interface Grib1Handle {
   messages(): MessageMeta[];
   decodeGrid(messageIndex: number): DecodedGrid;
   setP1(messageIndex: number, value: number): Buffer;
   renderGrid(messageIndex: number, options: RenderOptions): RenderedGrid;
+  projectOverlay(
+    messageIndex: number,
+    options: RenderOptions,
+    latlon: Float64Array,
+    ringLengths: Uint32Array,
+  ): ProjectedOverlay;
 }
 
 export interface Grib2Handle {
   messages(): MessageMeta[];
   decodeGrid(messageIndex: number): DecodedGrid;
   renderGrid(messageIndex: number, options: RenderOptions): RenderedGrid;
+  projectOverlay(
+    messageIndex: number,
+    options: RenderOptions,
+    latlon: Float64Array,
+    ringLengths: Uint32Array,
+  ): ProjectedOverlay;
 }
 
 export interface Grib1HandleCtor {

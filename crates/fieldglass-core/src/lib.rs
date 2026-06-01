@@ -5,6 +5,7 @@ pub mod colormap;
 pub mod detect;
 pub mod error;
 pub mod metadata;
+pub mod overlay;
 pub mod projection;
 pub mod reader;
 pub mod warp;
@@ -17,6 +18,7 @@ pub use metadata::GridDefinition;
 pub use metadata::Level;
 pub use metadata::Metadata;
 pub use metadata::Parameter;
+pub use overlay::{ProjectedPolylines, SourceOverlayTarget, project_polylines};
 pub use projection::{
     GaussianParams, GaussianProjector, GridIndex, LambertParams, LambertProjector, LatLonParams,
     PlanarGridProjector, PolarStereoParams, PolarStereoProjector, gaussian_inverse,
@@ -26,6 +28,6 @@ pub use projection::{
 pub use reader::DataMessage;
 pub use reader::FormatReader;
 pub use warp::{
-    Orthographic, PolarStereographic, PreparedTarget, Resampling, SourceGrid, TargetProjection,
-    TargetRaster, WarpedRaster, WebMercator, warp, warp_to_equirectangular,
+    ForwardMap, Orthographic, PolarStereographic, PreparedTarget, Resampling, SourceGrid,
+    TargetProjection, TargetRaster, WarpedRaster, WebMercator, warp, warp_to_equirectangular,
 };

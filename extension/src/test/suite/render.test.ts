@@ -29,7 +29,9 @@ import {
   resolveRerenderOptions,
   type GridReadyMessage,
 } from "../../provider";
-import { loadNative, type RenderOptions } from "../../native";
+import { loadNative, type MessageMeta, type RenderOptions } from "../../native";
+import { buildGraticule, flattenLonLatLines, loadCoastline } from "../../overlay";
+import { renderImagePanelHtml } from "../../render-panel";
 
 const EXT_ID = "fieldglass.fieldglass";
 
@@ -471,5 +473,169 @@ suite("rerenderRequest option clamp", () => {
       [r.boundsLatMin, r.boundsLatMax, r.boundsLonMin, r.boundsLonMax],
       [10, 60, -140, -60],
     );
+  });
+});
+
+suite("overlay geometry", () => {
+  // overlay.ts produces only geographic (lat, lon) polylines — the projection
+  // into pixels lives in Rust. These pin the flat-array contract shape every
+  // layer hands to `projectOverlay`.
+
+  test("flattenLonLatLines swaps to lat,lon order and counts rings", () => {
+    // Input is GeoJSON-order [lon, lat, …]; output must be [lat, lon, …].
+    const g = flattenLonLatLines([[10, 20, 11, 21]]);
+    assert.deepStrictEqual(Array.from(g.latlon), [20, 10, 21, 11]);
+    assert.deepStrictEqual(Array.from(g.ringLengths), [2]);
+  });
+
+  test("buildGraticule yields in-range lat,lon lines with a consistent shape", () => {
+    const g = buildGraticule(30);
+    assert.ok(g.ringLengths.length > 0, "graticule has lines");
+    const total = Array.from(g.ringLengths).reduce((a, b) => a + b, 0);
+    assert.strictEqual(total * 2, g.latlon.length, "ringLengths must cover every vertex");
+    for (let i = 0; i < g.latlon.length; i += 2) {
+      assert.ok(g.latlon[i] >= -90 - 1e-9 && g.latlon[i] <= 90 + 1e-9, "lat in range");
+      assert.ok(g.latlon[i + 1] >= -180 - 1e-9 && g.latlon[i + 1] <= 180 + 1e-9, "lon in range");
+    }
+  });
+
+  test("buildGraticule emits no duplicate meridian at the antimeridian", () => {
+    // A meridian is a constant-longitude line; +180 and -180 are the same line.
+    // The loop excludes +180 so the antimeridian (-180) is stroked once. Walk
+    // each line and collect its constant longitude; no two meridians may share
+    // one, and +180 must never appear.
+    const g = buildGraticule(30);
+    const meridianLons = new Set<number>();
+    let p = 0;
+    for (const len of Array.from(g.ringLengths)) {
+      const firstLon = g.latlon[p * 2 + 1];
+      let constantLon = true;
+      for (let v = 0; v < len; v++) {
+        if (g.latlon[(p + v) * 2 + 1] !== firstLon) {
+          constantLon = false;
+          break;
+        }
+      }
+      if (constantLon) {
+        assert.ok(firstLon < 180 - 1e-9, `meridian at +180 must be excluded, got ${firstLon}`);
+        assert.ok(!meridianLons.has(firstLon), `duplicate meridian at lon ${firstLon}`);
+        meridianLons.add(firstLon);
+      }
+      p += len;
+    }
+  });
+
+  test("loadCoastline parses the bundled asset into flat lat,lon", () => {
+    const c = loadCoastline();
+    assert.ok(c.ringLengths.length > 0, "coastline has polylines");
+    const total = Array.from(c.ringLengths).reduce((a, b) => a + b, 0);
+    assert.strictEqual(total * 2, c.latlon.length);
+  });
+});
+
+suite("render-panel HTML", () => {
+  // The webview's orthographic preset <select> values are the contract with
+  // Rust's `orthographic_from_preset`, which recognises exactly this set and
+  // silently falls back to Atlantic for anything else. Pin the picker so it
+  // can't drift away from the recognised presets unnoticed.
+
+  function fakeMeta(): MessageMeta {
+    return {
+      messageIndex: 0,
+      offsetBytes: 0,
+      parameterName: "",
+      parameterUnits: "",
+      parameterAbbreviation: "",
+      level: "",
+      levelType: "",
+      referenceTime: "",
+      forecastHours: 0,
+      forecastDisplay: "",
+      originatingCentre: "",
+      gridType: null,
+      gridNi: null,
+      gridNj: null,
+      latFirst: null,
+      lonFirst: null,
+      latLast: null,
+      lonLast: null,
+      format: "grib1",
+      edition: null,
+      discipline: null,
+      totalLengthBytes: null,
+      productionStatus: null,
+      dataType: null,
+      lambertLad: null,
+      lambertLov: null,
+      lambertDxMetres: null,
+      lambertDyMetres: null,
+      lambertLatin1: null,
+      lambertLatin2: null,
+      gaussianNParallels: null,
+    };
+  }
+
+  test("orthographic preset picker matches the Rust-recognised preset set", () => {
+    const html = renderImagePanelHtml(
+      { cspSource: "" } as unknown as vscode.Webview,
+      fakeMeta(),
+      "summary",
+    );
+    // Isolate the <select id="picker-preset-ortho"> … </select> block, then
+    // pull every <option value="…"> within it.
+    const selectMatch = /<select id="picker-preset-ortho">([\s\S]*?)<\/select>/.exec(html);
+    assert.ok(selectMatch, "picker-preset-ortho select must exist in the HTML");
+    const values: string[] = [];
+    const optionRe = /<option value="([^"]*)"/g;
+    let m: RegExpExecArray | null;
+    while ((m = optionRe.exec(selectMatch[1])) !== null) {
+      values.push(m[1]);
+    }
+    assert.deepStrictEqual(
+      values,
+      ["atlantic", "indian", "pacific", "americas", "north_pole", "south_pole"],
+      "ortho preset picker must match Rust's orthographic_from_preset set " +
+        "(an unknown value silently falls back to Atlantic)",
+    );
+  });
+});
+
+suite("overlay projection (native)", () => {
+  // The forward projection runs in Rust via `projectOverlay`. These pin the
+  // additive napi contract: a well-formed ProjectedOverlay whose segLengths
+  // account for every xy pair, for both a warped target and the source
+  // projection (which maps through the grid's own inverse).
+
+  function grib1Handle() {
+    const native = loadNative();
+    assert.ok(native, "native module must load");
+    const bytes = fs.readFileSync(fixturePath("cmc_wind_300_2010052400_p012.grib"));
+    return native.Grib1Handle.fromBytes(bytes);
+  }
+
+  test("projectOverlay maps coastline into the warped raster's pixel space", () => {
+    const handle = grib1Handle();
+    const coast = loadCoastline();
+    const eqr: RenderOptions = {
+      projection: "equirectangular",
+      resampling: "nearest",
+      flipY: false,
+    };
+    const out = handle.projectOverlay(0, eqr, coast.latlon, coast.ringLengths);
+    const total = Array.from(out.segLengths).reduce((a, b) => a + b, 0);
+    assert.strictEqual(total * 2, out.xy.length, "segLengths must account for every xy pair");
+    assert.ok(out.xy.length > 0, "coastline should project to a non-empty geometry");
+  });
+
+  test("source projection projects the overlay through the grid's inverse map", () => {
+    // The source raster paints grid point (i, j) at pixel (i, j), so the
+    // overlay maps through the grid's own inverse — coastlines/graticule show
+    // on the source projection too, not only the warped targets.
+    const handle = grib1Handle();
+    const coast = loadCoastline();
+    const out = handle.projectOverlay(0, defaultRenderOptions(), coast.latlon, coast.ringLengths);
+    const total = Array.from(out.segLengths).reduce((a, b) => a + b, 0);
+    assert.strictEqual(total * 2, out.xy.length, "segLengths must account for every xy pair");
+    assert.ok(out.xy.length > 0, "coastline should project onto the source raster");
   });
 });
