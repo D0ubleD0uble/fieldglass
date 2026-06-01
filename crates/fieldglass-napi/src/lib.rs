@@ -1320,21 +1320,23 @@ impl BuiltTarget {
     }
 
     /// Project geographic `(lat, lon)` rings onto this target's pixel space,
-    /// applying `flip_y` to match a vertically-flipped render.
+    /// applying `flip_y` to match a vertically-flipped render. The lat/lon-box
+    /// targets split runs at the antimeridian seam; the azimuthal targets have
+    /// no seam (`wraps_antimeridian = false`) and break only off the disc.
     fn project(&self, flip_y: bool, latlon: &[f64], ring_lengths: &[u32]) -> ProjectedPolylines {
         let (w, h) = self.dims();
         match self {
             BuiltTarget::Equirect(t) => {
-                project_polylines(&t.prepare(), w, h, flip_y, latlon, ring_lengths)
+                project_polylines(&t.prepare(), w, h, flip_y, true, latlon, ring_lengths)
             }
             BuiltTarget::Mercator(t) => {
-                project_polylines(&t.prepare(), w, h, flip_y, latlon, ring_lengths)
+                project_polylines(&t.prepare(), w, h, flip_y, true, latlon, ring_lengths)
             }
             BuiltTarget::Ortho(t) => {
-                project_polylines(&t.prepare(), w, h, flip_y, latlon, ring_lengths)
+                project_polylines(&t.prepare(), w, h, flip_y, false, latlon, ring_lengths)
             }
             BuiltTarget::Polar(t) => {
-                project_polylines(&t.prepare(), w, h, flip_y, latlon, ring_lengths)
+                project_polylines(&t.prepare(), w, h, flip_y, false, latlon, ring_lengths)
             }
         }
     }
@@ -1438,11 +1440,16 @@ fn project_overlay_impl(
     let nj = grid_nj(meta)?;
     let (inverse, bbox_thunk) = warp_setup_for(meta, ni, nj)?;
     match resolved.projection {
+        // A source grid can wrap longitude (a global grid's seam, or the cut
+        // meridian of a projected grid), so split at a raster-width jump like
+        // the box targets; on a regional grid, out-of-coverage vertices invert
+        // to `None` and break runs there instead.
         TargetKind::Source => Ok(project_polylines(
             &SourceOverlayTarget::new(inverse.as_ref()),
             ni,
             nj,
             resolved.flip_y,
+            true,
             latlon,
             ring_lengths,
         )),
@@ -1813,6 +1820,32 @@ mod polar_stereo_warp_tests {
             polar_stereo_dy_metres: Some(60_000.0),
             polar_stereo_south_pole: Some(false),
         }
+    }
+
+    #[test]
+    fn source_overlay_projects_onto_a_polar_stereo_grid() {
+        // #72: the source-projection overlay must work for *projected* grids,
+        // not just regular lat/lon — it reuses the grid's own inverse map. A
+        // short polyline over North America (inside the CMC polar grid)
+        // projects to a non-empty, shape-consistent run.
+        let opts = RenderOptions {
+            projection: "source".to_string(),
+            projection_preset: None,
+            resampling: "nearest".to_string(),
+            flip_y: false,
+            range_min: None,
+            range_max: None,
+            bounds_lat_min: None,
+            bounds_lat_max: None,
+            bounds_lon_min: None,
+            bounds_lon_max: None,
+        };
+        let latlon = [40.0, -100.0, 41.0, -99.0, 42.0, -98.0];
+        let out = project_overlay_impl(&cmc_polar_meta(), &opts, &latlon, &[3])
+            .expect("source overlay on polar grid");
+        let total: u32 = out.seg_lengths.iter().copied().sum();
+        assert_eq!(total as usize * 2, out.xy.len(), "shape invariant");
+        assert!(!out.xy.is_empty(), "polyline over the grid should project");
     }
 
     #[test]

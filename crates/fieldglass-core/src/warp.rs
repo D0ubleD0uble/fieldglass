@@ -122,30 +122,35 @@ pub trait TargetProjection {
     }
 }
 
+/// Forward geographic→pixel map: fractional output pixel `(x, y)` for a
+/// geographic `(lat, lon)` in degrees. Implemented by every prepared target
+/// (as the inverse of [`PreparedTarget::pixel_to_lonlat`]) and by the
+/// source-projection overlay map ([`crate::overlay::SourceOverlayTarget`]);
+/// consumed by [`crate::overlay::project_polylines`] to place coastline /
+/// graticule vertices onto a raster (#72). Split out from [`PreparedTarget`]
+/// so a forward-only map need not invent a `pixel_to_lonlat` it cannot serve.
+///
+/// Returns `None` only for points outside the projection's *visible* domain —
+/// the back hemisphere of an orthographic globe, or the far hemisphere past a
+/// polar-stereographic disc's equator rim. The lat/lon-box targets
+/// (equirectangular, Web Mercator) have no such geometric cutoff, so they
+/// always return `Some`, even for pixels outside the raster; the caller clips
+/// those rectangularly (the canvas does, in practice) and splits runs at the
+/// antimeridian seam. Each box target maps `lon` to the ±360 representative
+/// nearest its window centre, so a vertex just outside an edge projects to a
+/// pixel just past that edge (continuous) rather than wrapping to the far side.
+pub trait ForwardMap {
+    fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)>;
+}
+
 /// The precomputed per-pixel map of a [`TargetProjection`], with all
 /// raster-invariant work already hoisted out. `Copy` so [`warp`] can hold
-/// it cheaply across the loop.
-pub trait PreparedTarget: Copy {
+/// it cheaply across the loop; also a [`ForwardMap`] (the inverse direction)
+/// for the overlay layer.
+pub trait PreparedTarget: ForwardMap + Copy {
     /// Geographic `(lat, lon)` in degrees for output pixel `(px, py)`, or
     /// `None` when the pixel lies outside the projection domain.
     fn pixel_to_lonlat(&self, px: u32, py: u32) -> Option<(f64, f64)>;
-
-    /// Forward map: fractional output pixel `(x, y)` for a geographic
-    /// `(lat, lon)` in degrees — the inverse of [`Self::pixel_to_lonlat`].
-    /// Used by the coastline / graticule overlay (#72) to place polyline
-    /// vertices onto the warped raster.
-    ///
-    /// Returns `None` only for points outside the projection's *visible*
-    /// domain — the back hemisphere of an orthographic globe, or the far
-    /// hemisphere past a polar-stereographic disc's equator rim. The
-    /// lat/lon-box targets (equirectangular, Web Mercator) have no such
-    /// geometric cutoff, so they always return `Some`, even for pixels that
-    /// fall outside the raster; the caller clips those rectangularly (the
-    /// canvas does, in practice) and splits runs at the antimeridian seam
-    /// using the returned pixel coordinates. Longitude is normalised into
-    /// the target's window so an antimeridian-crossing extent projects
-    /// correctly.
-    fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)>;
 }
 
 /// Walk the target pixel grid, map each pixel to `(lat, lon)`, inverse-map
@@ -205,6 +210,7 @@ pub struct EquirectPrepared {
     lat_max: f64,
     d_lat: f64,
     lon_min: f64,
+    lon_mid: f64,
     d_lon: f64,
 }
 
@@ -220,8 +226,20 @@ impl TargetProjection for TargetRaster {
             lat_max: self.lat_max,
             d_lat: span_step(self.lat_min - self.lat_max, self.height),
             lon_min: self.lon_min,
+            lon_mid: (self.lon_min + self.lon_max) / 2.0,
             d_lon: span_step(self.lon_max - self.lon_min, self.width),
         }
+    }
+}
+
+impl ForwardMap for EquirectPrepared {
+    fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)> {
+        let py = if self.d_lat == 0.0 {
+            0.0
+        } else {
+            (lat - self.lat_max) / self.d_lat
+        };
+        Some((lon_to_px(lon, self.lon_min, self.lon_mid, self.d_lon), py))
     }
 }
 
@@ -230,15 +248,6 @@ impl PreparedTarget for EquirectPrepared {
         let lat = self.lat_max + py as f64 * self.d_lat;
         let lon = self.lon_min + px as f64 * self.d_lon;
         Some((lat, lon))
-    }
-
-    fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)> {
-        let py = if self.d_lat == 0.0 {
-            0.0
-        } else {
-            (lat - self.lat_max) / self.d_lat
-        };
-        Some((lon_to_px(lon, self.lon_min, self.d_lon), py))
     }
 }
 
@@ -319,6 +328,7 @@ pub struct WebMercatorPrepared {
     y_max: f64,
     d_y: f64,
     lon_min: f64,
+    lon_mid: f64,
     d_lon: f64,
 }
 
@@ -338,18 +348,13 @@ impl TargetProjection for WebMercator {
             y_max,
             d_y: span_step(y_min - y_max, self.height),
             lon_min: self.lon_min,
+            lon_mid: (self.lon_min + self.lon_max) / 2.0,
             d_lon: span_step(self.lon_max - self.lon_min, self.width),
         }
     }
 }
 
-impl PreparedTarget for WebMercatorPrepared {
-    fn pixel_to_lonlat(&self, px: u32, py: u32) -> Option<(f64, f64)> {
-        let lat = mercator_lat(self.y_max + py as f64 * self.d_y);
-        let lon = self.lon_min + px as f64 * self.d_lon;
-        Some((lat, lon))
-    }
-
+impl ForwardMap for WebMercatorPrepared {
     fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)> {
         let y = mercator_y(lat);
         if !y.is_finite() {
@@ -360,7 +365,15 @@ impl PreparedTarget for WebMercatorPrepared {
         } else {
             (y - self.y_max) / self.d_y
         };
-        Some((lon_to_px(lon, self.lon_min, self.d_lon), py))
+        Some((lon_to_px(lon, self.lon_min, self.lon_mid, self.d_lon), py))
+    }
+}
+
+impl PreparedTarget for WebMercatorPrepared {
+    fn pixel_to_lonlat(&self, px: u32, py: u32) -> Option<(f64, f64)> {
+        let lat = mercator_lat(self.y_max + py as f64 * self.d_y);
+        let lon = self.lon_min + px as f64 * self.d_lon;
+        Some((lat, lon))
     }
 }
 
@@ -427,28 +440,7 @@ impl TargetProjection for Orthographic {
     }
 }
 
-impl PreparedTarget for OrthographicPrepared {
-    fn pixel_to_lonlat(&self, px: u32, py: u32) -> Option<(f64, f64)> {
-        // Map the pixel into the unit disc, north-up: x ∈ [-1, 1] L→R,
-        // y ∈ [1, -1] T→B. A 1-px axis degenerates to its centre (0).
-        let x = pixel_unit_coord(px, self.width);
-        let y = -pixel_unit_coord(py, self.height);
-        let rho = (x * x + y * y).sqrt();
-        if rho > 1.0 {
-            return None; // Outside the globe disc — the back of the sphere.
-        }
-        if rho == 0.0 {
-            return Some((self.lat0, self.lon0));
-        }
-        // ρ = sin c for the unit sphere, so c = asin(ρ).
-        let c = rho.asin();
-        let (sin_c, cos_c) = (c.sin(), c.cos());
-        let lat = (cos_c * self.sin_lat0 + y * sin_c * self.cos_lat0 / rho).asin();
-        let lon = self.lon0_rad
-            + (x * sin_c).atan2(rho * cos_c * self.cos_lat0 - y * sin_c * self.sin_lat0);
-        Some((lat * RAD2DEG, lon * RAD2DEG))
-    }
-
+impl ForwardMap for OrthographicPrepared {
     fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)> {
         // Snyder PP-1395 §20 forward (sphere, R = 1), eqs 20-3/20-4. `cos_c`
         // is the cosine of the angular distance from the centre; the visible
@@ -470,6 +462,29 @@ impl PreparedTarget for OrthographicPrepared {
             unit_coord_to_pixel(x, self.width),
             unit_coord_to_pixel(-y, self.height),
         ))
+    }
+}
+
+impl PreparedTarget for OrthographicPrepared {
+    fn pixel_to_lonlat(&self, px: u32, py: u32) -> Option<(f64, f64)> {
+        // Map the pixel into the unit disc, north-up: x ∈ [-1, 1] L→R,
+        // y ∈ [1, -1] T→B. A 1-px axis degenerates to its centre (0).
+        let x = pixel_unit_coord(px, self.width);
+        let y = -pixel_unit_coord(py, self.height);
+        let rho = (x * x + y * y).sqrt();
+        if rho > 1.0 {
+            return None; // Outside the globe disc — the back of the sphere.
+        }
+        if rho == 0.0 {
+            return Some((self.lat0, self.lon0));
+        }
+        // ρ = sin c for the unit sphere, so c = asin(ρ).
+        let c = rho.asin();
+        let (sin_c, cos_c) = (c.sin(), c.cos());
+        let lat = (cos_c * self.sin_lat0 + y * sin_c * self.cos_lat0 / rho).asin();
+        let lon = self.lon0_rad
+            + (x * sin_c).atan2(rho * cos_c * self.cos_lat0 - y * sin_c * self.sin_lat0);
+        Some((lat * RAD2DEG, lon * RAD2DEG))
     }
 }
 
@@ -534,6 +549,28 @@ impl TargetProjection for PolarStereographic {
     }
 }
 
+impl ForwardMap for PolarStereographicPrepared {
+    fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)> {
+        let sign = self.sign;
+        let lat_signed = sign * lat; // Latitude measured from the disc's pole.
+        if lat_signed < 0.0 {
+            return None; // Past the equator rim — the far hemisphere.
+        }
+        // Colatitude from the pole; forward ρ = ρ_eq·tan(c/2) (Snyder §21).
+        let c = (PI / 2.0 - lat_signed * DEG2RAD) / 2.0;
+        let rho = POLAR_STEREO_EQUATOR_RHO * c.tan();
+        // Invert the disc bearing: lon - lon0 = atan2(x, -sign·y).
+        let theta = (lon - self.lon0) * DEG2RAD;
+        let x = rho * theta.sin();
+        let y = -sign * rho * theta.cos();
+        // Disc coords are scaled by ρ_eq; undo it, then invert the pixel map.
+        Some((
+            unit_coord_to_pixel(x / POLAR_STEREO_EQUATOR_RHO, self.width),
+            unit_coord_to_pixel(-y / POLAR_STEREO_EQUATOR_RHO, self.height),
+        ))
+    }
+}
+
 impl PreparedTarget for PolarStereographicPrepared {
     fn pixel_to_lonlat(&self, px: u32, py: u32) -> Option<(f64, f64)> {
         // Disc scaled so the equator sits at the rim (ρ = the equator radius).
@@ -553,26 +590,6 @@ impl PreparedTarget for PolarStereographicPrepared {
         // North: λ = lon0 + atan2(x, -y); the south aspect flips y.
         let lon = self.lon0 + x.atan2(-sign * y) * RAD2DEG;
         Some((lat, lon))
-    }
-
-    fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)> {
-        let sign = self.sign;
-        let lat_signed = sign * lat; // Latitude measured from the disc's pole.
-        if lat_signed < 0.0 {
-            return None; // Past the equator rim — the far hemisphere.
-        }
-        // Colatitude from the pole; forward ρ = ρ_eq·tan(c/2) (Snyder §21).
-        let c = (PI / 2.0 - lat_signed * DEG2RAD) / 2.0;
-        let rho = POLAR_STEREO_EQUATOR_RHO * c.tan();
-        // Invert the disc bearing: lon - lon0 = atan2(x, -sign·y).
-        let theta = (lon - self.lon0) * DEG2RAD;
-        let x = rho * theta.sin();
-        let y = -sign * rho * theta.cos();
-        // Disc coords are scaled by ρ_eq; undo it, then invert the pixel map.
-        Some((
-            unit_coord_to_pixel(x / POLAR_STEREO_EQUATOR_RHO, self.width),
-            unit_coord_to_pixel(-y / POLAR_STEREO_EQUATOR_RHO, self.height),
-        ))
     }
 }
 
@@ -605,17 +622,25 @@ fn unit_coord_to_pixel(u: f64, n: u32) -> f64 {
     }
 }
 
-/// Fractional pixel-x for a longitude in a `lon_min`-anchored linear window,
-/// normalising the longitude into `[lon_min, lon_min + 360)` so an
-/// antimeridian-crossing window (or a `[-180, 180]` coastline vertex against
-/// a `[0, 360]` window) projects continuously. A zero-width window collapses
-/// to pixel `0`.
-fn lon_to_px(lon: f64, lon_min: f64, d_lon: f64) -> f64 {
+/// Fractional pixel-x for a longitude in a `lon_min`-anchored linear window
+/// whose centre longitude is `lon_mid`. The longitude is shifted by whichever
+/// multiple of 360° puts it nearest `lon_mid`, so a vertex just *outside* an
+/// edge of a sub-global window projects to a pixel just past that edge
+/// (continuous, possibly negative or `> width`) instead of wrapping to the far
+/// side of the window and tripping the overlay's antimeridian-seam split.
+///
+/// A point ~180° from `lon_mid` still lands ~half the window-width away, so a
+/// genuine seam crossing (a polyline jumping the antimeridian opposite the
+/// window) keeps its large pixel jump and is split as before. A full-globe
+/// window (`lon_max - lon_min == 360`) reduces to the obvious linear map. A
+/// zero-width window collapses to pixel `0`.
+fn lon_to_px(lon: f64, lon_min: f64, lon_mid: f64, d_lon: f64) -> f64 {
     if d_lon == 0.0 {
-        0.0
-    } else {
-        (lon - lon_min).rem_euclid(360.0) / d_lon
+        return 0.0;
     }
+    let centered = lon - lon_mid;
+    let nearest = centered - 360.0 * (centered / 360.0).round();
+    (lon_mid + nearest - lon_min) / d_lon
 }
 
 /// Pull a value from the source grid at fractional `(i, j)` using the
