@@ -61,6 +61,14 @@ export function renderImagePanelHtml(
           if (el) el.textContent = text;
         }
 
+        // The warped lat/lon targets (equirectangular + Web Mercator) both
+        // render a lat/lon window: they accept a manual bounds box and show the
+        // Bounds control. Keep the rule in one place so the two gates can't
+        // drift.
+        function warpsLatLon(projection) {
+          return projection === 'equirectangular' || projection === 'web_mercator';
+        }
+
         function currentOptions() {
           const projection = (document.getElementById('picker-projection') || {}).value || 'source';
           const resampling = (document.getElementById('picker-resampling') || {}).value || 'nearest';
@@ -87,8 +95,7 @@ export function renderImagePanelHtml(
           // window. Send all four edges or none; the Rust side validates and
           // falls back to the computed bounds for a partial/inverted box.
           const bmode = document.querySelector('input[name="bounds-mode"]:checked');
-          const warpsLatLon = projection === 'equirectangular' || projection === 'web_mercator';
-          if (warpsLatLon && bmode && bmode.value === 'manual') {
+          if (warpsLatLon(projection) && bmode && bmode.value === 'manual') {
             const laMin = Number((document.getElementById('bounds-lat-min') || {}).value);
             const laMax = Number((document.getElementById('bounds-lat-max') || {}).value);
             const loMin = Number((document.getElementById('bounds-lon-min') || {}).value);
@@ -170,7 +177,13 @@ export function renderImagePanelHtml(
           // (projection / preset / flip-y / bounds). A range- or resampling-
           // only render leaves the geometry — and the existing overlay — valid,
           // so we skip the round-trip.
-          if (overlayKey() !== lastOverlayKey) requestOverlay();
+          if (overlayKey() !== lastOverlayKey) {
+            // Wipe the stale strokes immediately so the previous projection's
+            // lines don't linger over the new raster while the async reproject
+            // is in flight.
+            clearOverlay();
+            requestOverlay();
+          }
         }
 
         function handleGridError(msg) {
@@ -190,6 +203,26 @@ export function renderImagePanelHtml(
         // that changes only range/resampling leaves this unchanged, so we skip
         // a redundant reprojection round-trip.
         let lastOverlayKey = null;
+        // The themed foreground colour for overlay strokes, read from CSS once
+        // and cached — drawOverlay fires on every resize tick, so we avoid the
+        // repeated getComputedStyle reflow. (A theme switch mid-session keeps
+        // the first-read colour; acceptable for a thin vector overlay.)
+        let overlayFg = null;
+        let overlayStyles = null;
+
+        // Lazily compute + cache the overlay stroke styles from the themed
+        // foreground colour.
+        function overlayStrokeStyles() {
+          if (!overlayStyles) {
+            overlayFg = (getComputedStyle(document.documentElement)
+              .getPropertyValue('--vscode-foreground') || '#ffffff').trim() || '#ffffff';
+            overlayStyles = {
+              coastline: { color: overlayFg, width: 1.1 },
+              graticule: { color: overlayFg, width: 0.6, alpha: 0.35 },
+            };
+          }
+          return overlayStyles;
+        }
 
         function overlayState() {
           return {
@@ -232,7 +265,8 @@ export function renderImagePanelHtml(
             options: currentOptions(),
             coastlines: state.coastlines,
             graticule: state.graticule,
-            graticuleSpacing: Number((document.getElementById('graticule-spacing') || {}).value) || 30,
+            graticuleSpacing: Math.min(90, Math.max(5,
+              Number((document.getElementById('graticule-spacing') || {}).value) || 30)),
           });
         }
 
@@ -249,10 +283,9 @@ export function renderImagePanelHtml(
         // lines stay crisp instead of inheriting the image's pixelated upscale;
         // raster-space coordinates from Rust are scaled to that size here.
         function drawOverlay() {
-          const img = document.getElementById('canvas');
           const o = document.getElementById('overlay');
           const ctx = o && o.getContext('2d');
-          if (!img || !o || !ctx || !lastPayload) return;
+          if (!o || !ctx || !lastPayload) return;
           const dpr = window.devicePixelRatio || 1;
           // Size the backing store to the overlay's *content* box (the canvas
           // bitmap fills the content box, inside its border) so a raster pixel
@@ -264,12 +297,7 @@ export function renderImagePanelHtml(
           if (!lastOverlay || !lastOverlay.layers || !lastPayload.width) return;
           const sx = o.width / lastPayload.width;
           const sy = o.height / lastPayload.height;
-          const fg = (getComputedStyle(document.documentElement)
-            .getPropertyValue('--vscode-foreground') || '#ffffff').trim() || '#ffffff';
-          const styles = {
-            coastline: { color: fg, width: 1.1 },
-            graticule: { color: fg, width: 0.6, alpha: 0.35 },
-          };
+          const styles = overlayStrokeStyles();
           for (const layer of lastOverlay.layers) {
             const style = styles[layer.name] || styles.coastline;
             ctx.save();
@@ -307,8 +335,7 @@ export function renderImagePanelHtml(
           if (ortho) ortho.toggleAttribute('hidden', projection !== 'orthographic');
           if (polar) polar.toggleAttribute('hidden', projection !== 'polar_stereographic');
           const bounds = document.getElementById('bounds-fieldset');
-          const warpsLatLon = projection === 'equirectangular' || projection === 'web_mercator';
-          if (bounds) bounds.toggleAttribute('hidden', !warpsLatLon);
+          if (bounds) bounds.toggleAttribute('hidden', !warpsLatLon(projection));
         }
 
         function attachControls() {

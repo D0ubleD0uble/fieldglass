@@ -94,25 +94,34 @@ const GRATICULE_SAMPLE_STEP = 2;
  */
 export function buildGraticule(spacingDeg: number): OverlayGeometry {
   const spacing =
-    Number.isFinite(spacingDeg) && spacingDeg > 0 ? spacingDeg : GRATICULE_DEFAULT_SPACING;
+    Number.isFinite(spacingDeg) && spacingDeg > 0
+      ? Math.min(spacingDeg, 90)
+      : GRATICULE_DEFAULT_SPACING;
   const lines: number[][] = [];
 
-  // Meridians: a vertical line at each longitude, sampled in latitude.
-  for (let lon = -180; lon <= 180 + 1e-9; lon += spacing) {
+  // Meridians: a vertical line at each longitude, sampled in latitude. The
+  // upper bound excludes +180 so the antimeridian (already drawn at -180)
+  // isn't stroked twice when `spacing` divides 360.
+  for (let lon = -180; lon < 180 - 1e-9; lon += spacing) {
     const line: number[] = [];
     for (let lat = -90; lat <= 90 + 1e-9; lat += GRATICULE_SAMPLE_STEP) {
       line.push(lat, lon);
     }
     lines.push(line);
   }
-  // Parallels: a horizontal line at each latitude (skipping ±90), sampled in
-  // longitude.
-  for (let lat = -90 + spacing; lat <= 90 - spacing + 1e-9; lat += spacing) {
-    const line: number[] = [];
-    for (let lon = -180; lon <= 180 + 1e-9; lon += GRATICULE_SAMPLE_STEP) {
-      line.push(lat, lon);
+  // Parallels: a horizontal line at each latitude, sampled in longitude. Built
+  // symmetrically about the equator (0 and ±k·spacing) so the spacing reads the
+  // same north and south regardless of whether it divides 90; the poles are
+  // skipped since a parallel there degenerates to a point.
+  for (let lat = 0; lat < 90 - 1e-9; lat += spacing) {
+    const lats = lat === 0 ? [0] : [lat, -lat];
+    for (const parallelLat of lats) {
+      const line: number[] = [];
+      for (let lon = -180; lon <= 180 + 1e-9; lon += GRATICULE_SAMPLE_STEP) {
+        line.push(parallelLat, lon);
+      }
+      lines.push(line);
     }
-    lines.push(line);
   }
 
   return flattenLines(lines, false);

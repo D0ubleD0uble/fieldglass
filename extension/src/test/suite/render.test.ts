@@ -29,8 +29,9 @@ import {
   resolveRerenderOptions,
   type GridReadyMessage,
 } from "../../provider";
-import { loadNative, type RenderOptions } from "../../native";
+import { loadNative, type MessageMeta, type RenderOptions } from "../../native";
 import { buildGraticule, flattenLonLatLines, loadCoastline } from "../../overlay";
+import { renderImagePanelHtml } from "../../render-panel";
 
 const EXT_ID = "fieldglass.fieldglass";
 
@@ -498,11 +499,104 @@ suite("overlay geometry", () => {
     }
   });
 
+  test("buildGraticule emits no duplicate meridian at the antimeridian", () => {
+    // A meridian is a constant-longitude line; +180 and -180 are the same line.
+    // The loop excludes +180 so the antimeridian (-180) is stroked once. Walk
+    // each line and collect its constant longitude; no two meridians may share
+    // one, and +180 must never appear.
+    const g = buildGraticule(30);
+    const meridianLons = new Set<number>();
+    let p = 0;
+    for (const len of Array.from(g.ringLengths)) {
+      const firstLon = g.latlon[p * 2 + 1];
+      let constantLon = true;
+      for (let v = 0; v < len; v++) {
+        if (g.latlon[(p + v) * 2 + 1] !== firstLon) {
+          constantLon = false;
+          break;
+        }
+      }
+      if (constantLon) {
+        assert.ok(firstLon < 180 - 1e-9, `meridian at +180 must be excluded, got ${firstLon}`);
+        assert.ok(!meridianLons.has(firstLon), `duplicate meridian at lon ${firstLon}`);
+        meridianLons.add(firstLon);
+      }
+      p += len;
+    }
+  });
+
   test("loadCoastline parses the bundled asset into flat lat,lon", () => {
     const c = loadCoastline();
     assert.ok(c.ringLengths.length > 0, "coastline has polylines");
     const total = Array.from(c.ringLengths).reduce((a, b) => a + b, 0);
     assert.strictEqual(total * 2, c.latlon.length);
+  });
+});
+
+suite("render-panel HTML", () => {
+  // The webview's orthographic preset <select> values are the contract with
+  // Rust's `orthographic_from_preset`, which recognises exactly this set and
+  // silently falls back to Atlantic for anything else. Pin the picker so it
+  // can't drift away from the recognised presets unnoticed.
+
+  function fakeMeta(): MessageMeta {
+    return {
+      messageIndex: 0,
+      offsetBytes: 0,
+      parameterName: "",
+      parameterUnits: "",
+      parameterAbbreviation: "",
+      level: "",
+      levelType: "",
+      referenceTime: "",
+      forecastHours: 0,
+      forecastDisplay: "",
+      originatingCentre: "",
+      gridType: null,
+      gridNi: null,
+      gridNj: null,
+      latFirst: null,
+      lonFirst: null,
+      latLast: null,
+      lonLast: null,
+      format: "grib1",
+      edition: null,
+      discipline: null,
+      totalLengthBytes: null,
+      productionStatus: null,
+      dataType: null,
+      lambertLad: null,
+      lambertLov: null,
+      lambertDxMetres: null,
+      lambertDyMetres: null,
+      lambertLatin1: null,
+      lambertLatin2: null,
+      gaussianNParallels: null,
+    };
+  }
+
+  test("orthographic preset picker matches the Rust-recognised preset set", () => {
+    const html = renderImagePanelHtml(
+      { cspSource: "" } as unknown as vscode.Webview,
+      fakeMeta(),
+      "summary",
+    );
+    // Isolate the <select id="picker-preset-ortho"> … </select> block, then
+    // pull every <option value="…"> within it.
+    const selectMatch = /<select id="picker-preset-ortho">([\s\S]*?)<\/select>/.exec(html);
+    assert.ok(selectMatch, "picker-preset-ortho select must exist in the HTML");
+    const values: string[] = [];
+    const optionRe = /<option value="([^"]*)"/g;
+    let m: RegExpExecArray | null;
+    while ((m = optionRe.exec(selectMatch[1])) !== null) {
+      values.push(m[1]);
+    }
+    assert.deepStrictEqual(
+      values,
+      ["atlantic", "indian", "pacific", "americas", "north_pole", "south_pole"],
+      "ortho preset picker must match Rust's orthographic_from_preset set " +
+        "(an unknown value silently falls back to Atlantic)",
+    );
   });
 });
 
