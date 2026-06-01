@@ -175,3 +175,91 @@ fn pds_negative_d_propagates_sign_magnitude_through_decode() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// orderOfSPD = 3 (`grid_second_order_SPD3`)
+// ---------------------------------------------------------------------------
+//
+// Fixture: the LFPW message above re-encoded by eccodes 2.34.1 into the
+// third-order spatial-differencing variant
+// (`grib_set -r -s boustrophedonicOrdering=0,packingType=grid_second_order`
+// then orderOfSPD=3), which keeps the same decoded field but exercises the
+// orderOfSPD=3 read path (three SPD seeds + bias). Pinned against the eccodes
+// `grib_get_data` snapshot in `ecmwf_spd3_msg0_expected.json`. See NOTICE.md
+// for provenance. (eccodes cannot re-encode the no_SPD / SPD1 siblings — it
+// errors with "array too small" — so those two general-extended orders, while
+// already handled by the same decoder, await a real-world fixture.)
+
+const SPD3_FIXTURE: &[u8] = include_bytes!("fixtures/ecmwf_spd3_msg0.grib1");
+
+#[test]
+fn spd3_header_reports_order_three() {
+    let reader = Grib1Reader::from_bytes(SPD3_FIXTURE.to_vec()).expect("fixture parses");
+    let msg = &reader.messages[0];
+    let (bds_start, bds_end) = msg.bds_range;
+    let bds = parse_bds_header(&SPD3_FIXTURE[bds_start..bds_end]).expect("BDS header parses");
+
+    let ext = bds
+        .complex_extended
+        .as_ref()
+        .expect("complex_extended populated");
+    assert!(!ext.secondary_bitmap_present());
+    assert!(ext.second_order_of_different_width());
+    assert!(ext.general_extended_2ordr());
+    assert!(
+        !ext.boustrophedonic(),
+        "re-encoded with boustrophedonic off"
+    );
+    assert_eq!(ext.order_of_spd(), 3);
+    assert_eq!(ext.packing_type_label(), "grid_second_order_SPD3");
+}
+
+#[test]
+fn decode_spd3_matches_eccodes_oracle() {
+    let reader = Grib1Reader::from_bytes(SPD3_FIXTURE.to_vec()).expect("fixture parses");
+    let present: Vec<f64> = reader
+        .decode_message_values(0)
+        .expect("order-3 second-order decode succeeds")
+        .into_iter()
+        .map(|v| v.expect("no missing values"))
+        .collect();
+
+    // From `tests/fixtures/ecmwf_spd3_msg0_expected.json` (same field as the
+    // SPD-2 fixture — eccodes re-packed identical values at orderOfSPD=3).
+    assert_eq!(present.len(), 29_040);
+    let min = present.iter().cloned().fold(f64::INFINITY, f64::min);
+    let max = present.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let mean: f64 = present.iter().sum::<f64>() / present.len() as f64;
+
+    let tol = 1e-3;
+    assert!((min - 19_074.872_559).abs() < tol, "min was {min}");
+    assert!((max - 20_717.558_594).abs() < tol, "max was {max}");
+    assert!(
+        (mean - 20_216.718_135_690_968).abs() < tol,
+        "mean was {mean}"
+    );
+
+    let samples: &[(usize, f64)] = &[
+        (0, 19_080.708_496),
+        (1, 19_080.708_496),
+        (119, 19_080.708_496),
+        (120, 19_080.708_496),
+        (121, 19_080.708_496),
+        (240, 19_085.677_856),
+        (1_000, 19_124.872_559),
+        (14_400, 20_563.404_663),
+        (14_520, 20_522.094_849),
+        (14_640, 20_564.169_189),
+        (20_000, 20_621.075_439),
+        (28_800, 19_917.864_38),
+        (28_919, 19_917.864_38),
+        (29_039, 19_917.864_38),
+    ];
+    for (i, expected) in samples {
+        let got = present[*i];
+        assert!(
+            (got - expected).abs() < tol,
+            "values[{i}] was {got}, expected {expected} (tol {tol})"
+        );
+    }
+}

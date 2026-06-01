@@ -28,3 +28,23 @@ Decoder oracle: counts, min/max/mean, and 12 anchored sample values dumped
 from the fixture above by `grib_get_data` (eccodes 2.34.1) on
 2026-05-09. Tolerance for value comparison is recorded in the file
 itself.
+
+## `ecmwf_spd3_msg0.grib1` + `ecmwf_spd3_msg0_expected.json`
+
+`ecmwf_lfpw_msg0.grib1` re-encoded by eccodes 2.34.1 into the third-order
+spatial-differencing variant (`grid_second_order_SPD3`):
+
+```
+grib_set -r -s boustrophedonicOrdering=0,packingType=grid_second_order in.grib1 tmp
+# orderOfSPD is read-only; the SPD3 packingType encodes order 3 directly:
+grib_set -r -s boustrophedonicOrdering=0,packingType=grid_second_order_SPD3 in.grib1 ecmwf_spd3_msg0.grib1
+```
+
+The decoded field is identical to the SPD-2 fixture (same values, re-packed
+at a different SPD order); the `.json` is its `grib_get_data` oracle. This
+exercises the `orderOfSPD = 3` read path (three SPD seeds + bias). Boustrophedonic
+ordering is turned off because eccodes' encoder mis-counts points when
+re-packing this boustrophedonic source. eccodes 2.34.1 refuses to *encode* the
+`no_SPD` / `SPD1` orders ("array too small") and the `row_by_row` /
+`constant_width` / `general_grib1` layouts ("not implemented"), so fixtures for
+those await real-world sample files.
