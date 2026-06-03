@@ -8,11 +8,11 @@
 //!
 //! This is the only packing supported today.
 
-use fieldglass_core::{FieldglassError, bits::BitReader};
+use fieldglass_core::FieldglassError;
 
 use crate::bds::{BDS_DATA_OFFSET, BdsHeader};
 
-use super::Grib1Packing;
+use super::{Grib1Packing, interleave_with_bitmap, present_count, unpack_simple_values};
 
 pub struct SimplePacking;
 
@@ -57,24 +57,15 @@ impl Grib1Packing for SimplePacking {
             .saturating_sub(header.unused_trailing_bits as usize);
         let stored_count = total_packed_bits / n as usize;
 
-        let present_count = match bitmap {
-            Some(b) => b.iter().filter(|p| **p).count(),
-            None => expected_count,
-        };
-        if stored_count < present_count {
+        let present = present_count(bitmap, expected_count);
+        if stored_count < present {
             return Err(FieldglassError::Parse(format!(
-                "BDS holds {stored_count} values but {present_count} are required"
+                "BDS holds {stored_count} values but {present} are required"
             )));
         }
 
         let packed = &bds[BDS_DATA_OFFSET..header.section_len as usize];
-        let mut reader = BitReader::new(packed);
-        let mut decoded = Vec::with_capacity(present_count);
-        for _ in 0..present_count {
-            let x = reader.read_bits(n)?;
-            decoded.push((r + x as f64 * two_pow_e) * d_scale);
-        }
-
+        let decoded = unpack_simple_values(packed, n, r, two_pow_e, d_scale, present)?;
         Ok(interleave_with_bitmap(decoded, bitmap, expected_count))
     }
 }
@@ -91,27 +82,5 @@ fn materialise_constant(
             .map(|present| if *present { Some(value) } else { None })
             .collect(),
         None => vec![Some(value); expected_count],
-    }
-}
-
-fn interleave_with_bitmap(
-    decoded: Vec<f64>,
-    bitmap: Option<&[bool]>,
-    expected_count: usize,
-) -> Vec<Option<f64>> {
-    match bitmap {
-        None => decoded.into_iter().map(Some).collect(),
-        Some(b) => {
-            let mut out = Vec::with_capacity(expected_count);
-            let mut iter = decoded.into_iter();
-            for present in b.iter().take(expected_count) {
-                if *present {
-                    out.push(iter.next());
-                } else {
-                    out.push(None);
-                }
-            }
-            out
-        }
     }
 }

@@ -1,0 +1,19 @@
+{
+  "count": 12825,
+  "missing_count": 0,
+  "min": 0.209608,
+  "max": 75.20961,
+  "mean": 22.178321080582965,
+  "samples": {
+    "0": 5.459608,
+    "1": 5.709608,
+    "2": 5.959608,
+    "100": 11.959608,
+    "1000": 45.959606,
+    "6000": 60.709606,
+    "12000": 36.709606,
+    "12824": 11.709608
+  },
+  "tolerance_absolute": 0.001,
+  "source": "eccodes 2.34.1 grib_get_data. Oracle for grid_ieee precision=1 (32-bit IEEE) re-encoded from cmc_wind_300_2010052400_p012.grib. Provenance in NOTICE.md."
+}

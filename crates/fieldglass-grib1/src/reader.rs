@@ -1,7 +1,8 @@
-use crate::bds::{decode_values, parse_bds_header};
-use crate::bms::parse_bitmap;
+use crate::bds::{BdsHeader, decode_values, parse_bds_header};
+use crate::bms::{Bitmap, parse_bitmap};
 use crate::gds::{GridDescription, parse_grid_description};
 use crate::is::{IndicatorSection, parse_indicator};
+use crate::packing::matrix::decode_matrix_of_values;
 use crate::pds::{ProductDefinition, parse_product_definition};
 use fieldglass_core::FieldglassError;
 
@@ -15,6 +16,26 @@ pub struct Grib1Message {
     pub bms_range: Option<(usize, usize)>,
     /// Byte range of the Binary Data Section within the file.
     pub bds_range: (usize, usize),
+}
+
+/// A decoded matrix-of-values field (`grid_simple_matrix` with
+/// `matrixOfValues = 1`): an `nr × nc` matrix at every grid point rather than a
+/// single value. `values` is `ni · nj · nr · nc` long, grid-point major in scan
+/// order with each point's `nr·nc` matrix cells stored consecutively; `None`
+/// marks a bitmap-masked cell or grid point. Such a field is not a single
+/// renderable 2-D panel, which is why it has its own decode entry rather than
+/// flowing through [`Grib1Reader::decode_message_values`].
+pub struct MatrixField {
+    /// Grid columns (points per row).
+    pub ni: usize,
+    /// Grid rows.
+    pub nj: usize,
+    /// First matrix dimension.
+    pub nr: usize,
+    /// Second matrix dimension.
+    pub nc: usize,
+    /// Flattened values, length `ni·nj·nr·nc`.
+    pub values: Vec<Option<f64>>,
 }
 
 /// Byte index of the PDS `p1` (forecast period) octet within a GRIB1 message,
@@ -50,13 +71,13 @@ impl Grib1Reader {
         self.messages.len()
     }
 
-    /// Decode the grid values for one message. Returns one entry per grid
-    /// point: `Some(value)` for present points, `None` for points masked out
-    /// by a Bit Map Section.
-    pub fn decode_message_values(
-        &self,
-        message_index: usize,
-    ) -> Result<Vec<Option<f64>>, FieldglassError> {
+    /// Shared decode preamble for [`Self::decode_message_values`] and
+    /// [`Self::decode_matrix_message`]: resolve the message, its grid
+    /// dimensions and point count (overflow- and `MAX_GRID_POINTS`-checked),
+    /// parse the BMS bitmap if present, and parse the BDS header. Returns the
+    /// borrowed BDS bytes alongside the owned bitmap so the caller can hand a
+    /// `&[bool]` slice to the packing decoder.
+    fn decode_inputs(&self, message_index: usize) -> Result<DecodeInputs<'_>, FieldglassError> {
         let msg = self
             .messages
             .get(message_index)
@@ -84,19 +105,84 @@ impl Grib1Reader {
             Some((start, end)) => Some(parse_bitmap(&self.data[start..end], expected_count)?),
             None => None,
         };
-        let bitmap_bits = bitmap.as_ref().map(|b| b.bits.as_slice());
 
         let (bds_start, bds_end) = msg.bds_range;
         let bds_bytes = &self.data[bds_start..bds_end];
         let header = parse_bds_header(bds_bytes)?;
-        decode_values(
-            bds_bytes,
-            &header,
-            msg.pds.decimal_scale_factor,
-            bitmap_bits,
+
+        Ok(DecodeInputs {
+            ni: ni as usize,
+            nj: nj as usize,
             expected_count,
-            ni as usize,
+            decimal_scale: msg.pds.decimal_scale_factor,
+            bitmap,
+            bds_bytes,
+            header,
+        })
+    }
+
+    /// Decode the grid values for one message. Returns one entry per grid
+    /// point: `Some(value)` for present points, `None` for points masked out
+    /// by a Bit Map Section.
+    pub fn decode_message_values(
+        &self,
+        message_index: usize,
+    ) -> Result<Vec<Option<f64>>, FieldglassError> {
+        let inputs = self.decode_inputs(message_index)?;
+        decode_values(
+            inputs.bds_bytes,
+            &inputs.header,
+            inputs.decimal_scale,
+            inputs.bitmap_bits(),
+            inputs.expected_count,
+            inputs.ni,
         )
+    }
+
+    /// Decode a `grid_simple_matrix` message that carries an `nr × nc` matrix at
+    /// every grid point (`matrixOfValues = 1`). Returns a [`MatrixField`] whose
+    /// `values` is `ni·nj·nr·nc` long. Use [`Grib1Reader::decode_message_values`]
+    /// for scalar fields — this errors if the message is not a true
+    /// matrix-of-values field.
+    pub fn decode_matrix_message(
+        &self,
+        message_index: usize,
+    ) -> Result<MatrixField, FieldglassError> {
+        let inputs = self.decode_inputs(message_index)?;
+        let matrix = decode_matrix_of_values(
+            inputs.bds_bytes,
+            &inputs.header,
+            inputs.decimal_scale,
+            inputs.bitmap_bits(),
+            inputs.expected_count,
+        )?;
+        Ok(MatrixField {
+            ni: inputs.ni,
+            nj: inputs.nj,
+            nr: matrix.nr,
+            nc: matrix.nc,
+            values: matrix.values,
+        })
+    }
+}
+
+/// Inputs resolved by [`Grib1Reader::decode_inputs`] and shared by both decode
+/// entry points. Borrows the BDS bytes from the reader; owns the parsed bitmap
+/// and BDS header.
+struct DecodeInputs<'a> {
+    ni: usize,
+    nj: usize,
+    expected_count: usize,
+    decimal_scale: i16,
+    bitmap: Option<Bitmap>,
+    bds_bytes: &'a [u8],
+    header: BdsHeader,
+}
+
+impl DecodeInputs<'_> {
+    /// The per-point presence bits, if a Bit Map Section was present.
+    fn bitmap_bits(&self) -> Option<&[bool]> {
+        self.bitmap.as_ref().map(|b| b.bits.as_slice())
     }
 }
 

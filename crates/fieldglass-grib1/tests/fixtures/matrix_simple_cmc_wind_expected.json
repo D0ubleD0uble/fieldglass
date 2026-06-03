@@ -1,0 +1,19 @@
+{
+  "count": 12825,
+  "missing_count": 0,
+  "min": 0.209608,
+  "max": 75.209608,
+  "mean": 22.178321111257148,
+  "samples": {
+    "0": 5.459608,
+    "1": 5.709608,
+    "2": 5.959608,
+    "100": 11.959608,
+    "1000": 45.959608,
+    "6000": 60.709608,
+    "12000": 36.709608,
+    "12824": 11.709608
+  },
+  "tolerance_absolute": 0.001,
+  "source": "eccodes 2.34.1 grib_get_data. Oracle for grid_simple_matrix with matrixOfValues=0 (simple-packed body behind the matrix header) re-encoded from cmc_wind_300_2010052400_p012.grib. Provenance in NOTICE.md."
+}
