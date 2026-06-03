@@ -1,0 +1,20 @@
+{
+  "count": 29040,
+  "missing_count": 0,
+  "min": 0.0,
+  "max": 5981.0,
+  "mean": 2988.318181818182,
+  "samples": {
+    "0": 0.0,
+    "199": 0.0,
+    "200": 50.0,
+    "201": 51.0,
+    "231": 81.0,
+    "232": 50.0,
+    "483": 77.0,
+    "484": 100.0,
+    "29039": 5977.0
+  },
+  "tolerance_absolute": 0.001,
+  "source": "eccodes 2.34.1 grib_get_data. Oracle for a hand-built grid_second_order_general_grib1 (variable-length groups via secondary bitmap: 120 groups alternating length 200/284; even groups zero-width=firstOrder g*50, odd groups width-5 residual offset%32). Provenance in NOTICE.md."
+}

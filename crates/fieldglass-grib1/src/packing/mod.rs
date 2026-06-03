@@ -19,6 +19,7 @@ use crate::bds::BdsHeader;
 
 pub mod complex;
 pub mod second_order;
+pub mod second_order_classic;
 pub mod simple;
 pub mod spherical;
 

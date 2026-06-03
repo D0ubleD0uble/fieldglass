@@ -95,3 +95,32 @@ eccodes 2.34.1 *decodes* both (the encode refusal is encoder-only), so the
 fields are also exactly hand-computable. The PDS/GDS metadata is inherited from
 the geopotential source and does not describe these synthetic fields — only the
 decode path is under test.
+
+## `hand_second_order_{row_by_row,constant_width,general_grib1}.grib1` (+ `_expected.json`)
+
+Hand-assembled BDS streams for the three "classic" (pre-ECMWF-extended) WMO
+second-order packings — which eccodes 2.34 refuses to *encode* ("not
+implemented") but still *decodes* — spliced onto the same 240×121 IS/PDS/GDS.
+Built to the wire layout in eccodes'
+`grib1/data.grid_second_order_{row_by_row,constant_width,general_grib1}.def`
+and the matching `DataG1SecondOrder*Packing::unpack` reference sources (WMO
+No. 306 Vol I.2 FM 92 GRIB1; ECMWF
+<https://codes.ecmwf.int/grib/format/grib1/packing/3/>). These have **no SPD**;
+the grid is split into groups, each expanded to `firstOrderValues[g] + residual`
+(or a run of `firstOrderValues[g]` when the group width is 0).
+
+- **row_by_row** (`secondaryBitmapPresent = 0`, `secondOrderOfDifferentWidth = 1`):
+  one group per row (implied bitmap), per-row widths in `groupWidths[121]`. Even
+  rows are zero-width (every point = `r*10`), odd rows width-4 (`r*10 + c%16`).
+- **constant_width** (`secondaryBitmapPresent = 1`, `secondOrderOfDifferentWidth = 0`):
+  an explicit secondary bitmap (1 bit per point marks each group start) and a
+  single shared `groupWidth = 4`. 121 groups of 240, `firstOrderValues` g*100,
+  residual `n%16` ⇒ `value[n] = (n/240)*100 + n%16`.
+- **general_grib1** (`secondaryBitmapPresent = 1`, `secondOrderOfDifferentWidth = 1`):
+  variable-length groups delimited by the secondary bitmap, plus per-group
+  widths. 120 groups alternating length 200/284 (sum 29040); even groups
+  zero-width (`firstOrderValues` g*50), odd groups width-5 (residual = within-group
+  offset %32).
+
+All three are pinned to `grib_get_data` oracles and are exactly hand-computable;
+again only the decode path is under test, not the inherited geopotential metadata.
