@@ -1,5 +1,5 @@
-use crate::bds::{decode_values, parse_bds_header};
-use crate::bms::parse_bitmap;
+use crate::bds::{BdsHeader, decode_values, parse_bds_header};
+use crate::bms::{Bitmap, parse_bitmap};
 use crate::gds::{GridDescription, parse_grid_description};
 use crate::is::{IndicatorSection, parse_indicator};
 use crate::packing::matrix::decode_matrix_of_values;
@@ -71,13 +71,13 @@ impl Grib1Reader {
         self.messages.len()
     }
 
-    /// Decode the grid values for one message. Returns one entry per grid
-    /// point: `Some(value)` for present points, `None` for points masked out
-    /// by a Bit Map Section.
-    pub fn decode_message_values(
-        &self,
-        message_index: usize,
-    ) -> Result<Vec<Option<f64>>, FieldglassError> {
+    /// Shared decode preamble for [`Self::decode_message_values`] and
+    /// [`Self::decode_matrix_message`]: resolve the message, its grid
+    /// dimensions and point count (overflow- and `MAX_GRID_POINTS`-checked),
+    /// parse the BMS bitmap if present, and parse the BDS header. Returns the
+    /// borrowed BDS bytes alongside the owned bitmap so the caller can hand a
+    /// `&[bool]` slice to the packing decoder.
+    fn decode_inputs(&self, message_index: usize) -> Result<DecodeInputs<'_>, FieldglassError> {
         let msg = self
             .messages
             .get(message_index)
@@ -105,18 +105,37 @@ impl Grib1Reader {
             Some((start, end)) => Some(parse_bitmap(&self.data[start..end], expected_count)?),
             None => None,
         };
-        let bitmap_bits = bitmap.as_ref().map(|b| b.bits.as_slice());
 
         let (bds_start, bds_end) = msg.bds_range;
         let bds_bytes = &self.data[bds_start..bds_end];
         let header = parse_bds_header(bds_bytes)?;
-        decode_values(
-            bds_bytes,
-            &header,
-            msg.pds.decimal_scale_factor,
-            bitmap_bits,
+
+        Ok(DecodeInputs {
+            ni: ni as usize,
+            nj: nj as usize,
             expected_count,
-            ni as usize,
+            decimal_scale: msg.pds.decimal_scale_factor,
+            bitmap,
+            bds_bytes,
+            header,
+        })
+    }
+
+    /// Decode the grid values for one message. Returns one entry per grid
+    /// point: `Some(value)` for present points, `None` for points masked out
+    /// by a Bit Map Section.
+    pub fn decode_message_values(
+        &self,
+        message_index: usize,
+    ) -> Result<Vec<Option<f64>>, FieldglassError> {
+        let inputs = self.decode_inputs(message_index)?;
+        decode_values(
+            inputs.bds_bytes,
+            &inputs.header,
+            inputs.decimal_scale,
+            inputs.bitmap_bits(),
+            inputs.expected_count,
+            inputs.ni,
         )
     }
 
@@ -129,51 +148,41 @@ impl Grib1Reader {
         &self,
         message_index: usize,
     ) -> Result<MatrixField, FieldglassError> {
-        let msg = self
-            .messages
-            .get(message_index)
-            .ok_or(FieldglassError::OutOfRange)?;
-
-        let gds = msg.gds.as_ref().ok_or_else(|| {
-            FieldglassError::Parse(
-                "message has no GDS — predefined grids are not supported".to_string(),
-            )
-        })?;
-        let (ni, nj) = gds.dimensions().ok_or_else(|| {
-            FieldglassError::Parse("grid type has no declared dimensions".to_string())
-        })?;
-        let expected_count = (ni as usize).checked_mul(nj as usize).ok_or_else(|| {
-            FieldglassError::Parse(format!("grid dimensions {ni}×{nj} overflow usize"))
-        })?;
-        if expected_count > MAX_GRID_POINTS {
-            return Err(FieldglassError::Parse(format!(
-                "grid {ni}×{nj} = {expected_count} points exceeds cap of {MAX_GRID_POINTS}"
-            )));
-        }
-
-        let bitmap = match msg.bms_range {
-            Some((start, end)) => Some(parse_bitmap(&self.data[start..end], expected_count)?),
-            None => None,
-        };
-        let bitmap_bits = bitmap.as_ref().map(|b| b.bits.as_slice());
-
-        let (bds_start, bds_end) = msg.bds_range;
-        let bds_bytes = &self.data[bds_start..bds_end];
-        let header = parse_bds_header(bds_bytes)?;
+        let inputs = self.decode_inputs(message_index)?;
         let matrix = decode_matrix_of_values(
-            bds_bytes,
-            &header,
-            msg.pds.decimal_scale_factor,
-            bitmap_bits,
-            expected_count,
+            inputs.bds_bytes,
+            &inputs.header,
+            inputs.decimal_scale,
+            inputs.bitmap_bits(),
+            inputs.expected_count,
         )?;
         Ok(MatrixField {
-            ni: ni as usize,
-            nj: nj as usize,
+            ni: inputs.ni,
+            nj: inputs.nj,
             nr: matrix.nr,
             nc: matrix.nc,
             values: matrix.values,
         })
+    }
+}
+
+/// Inputs resolved by [`Grib1Reader::decode_inputs`] and shared by both decode
+/// entry points. Borrows the BDS bytes from the reader; owns the parsed bitmap
+/// and BDS header.
+struct DecodeInputs<'a> {
+    ni: usize,
+    nj: usize,
+    expected_count: usize,
+    decimal_scale: i16,
+    bitmap: Option<Bitmap>,
+    bds_bytes: &'a [u8],
+    header: BdsHeader,
+}
+
+impl DecodeInputs<'_> {
+    /// The per-point presence bits, if a Bit Map Section was present.
+    fn bitmap_bits(&self) -> Option<&[bool]> {
+        self.bitmap.as_ref().map(|b| b.bits.as_slice())
     }
 }
 

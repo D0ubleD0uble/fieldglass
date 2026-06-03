@@ -94,15 +94,20 @@ impl MatrixHeader {
     }
 }
 
-/// Parse the matrix sub-header from a full BDS slice. `bds` starts at the BDS
-/// length octets.
-fn parse_matrix_header(bds: &[u8]) -> Result<MatrixHeader, FieldglassError> {
-    if bds.len() < MATRIX_HEADER_FIXED_END {
+/// Parse the matrix sub-header from a BDS slice. `bds` starts at the BDS length
+/// octets; `section_len` is the BDS's declared length. All offsets are bounded
+/// by `section_len` (not by `bds.len()`, which may run past the declared
+/// section), so callers can slice `[..section_len]` without a `start > end`
+/// panic. Callers must ensure `bds.len() >= section_len` beforehand.
+fn parse_matrix_header(bds: &[u8], section_len: usize) -> Result<MatrixHeader, FieldglassError> {
+    if section_len < MATRIX_HEADER_FIXED_END {
         return Err(FieldglassError::Parse(format!(
-            "grid_simple_matrix header requires {MATRIX_HEADER_FIXED_END} bytes, got {}",
-            bds.len()
+            "grid_simple_matrix section_len {section_len} below matrix-header minimum \
+             {MATRIX_HEADER_FIXED_END}"
         )));
     }
+    // `bds.len() >= section_len >= MATRIX_HEADER_FIXED_END` (caller invariant),
+    // so octets 11..24 are in range.
     let packed_data_begins = u16::from_be_bytes([bds[11], bds[12]]);
     let extended_flag = bds[13];
     let nr = u16::from_be_bytes([bds[14], bds[15]]);
@@ -111,9 +116,10 @@ fn parse_matrix_header(bds: &[u8]) -> Result<MatrixHeader, FieldglassError> {
     let nc2 = bds[21];
 
     let data_offset = MATRIX_HEADER_FIXED_END + COEF_WIDTH * (nc1 as usize + nc2 as usize);
-    if bds.len() < data_offset {
+    if section_len < data_offset {
         return Err(FieldglassError::Parse(format!(
-            "grid_simple_matrix coefficient arrays (NC1={nc1}, NC2={nc2}) overrun the section"
+            "grid_simple_matrix coefficient arrays (NC1={nc1}, NC2={nc2}) overrun the \
+             {section_len}-octet section"
         )));
     }
 
@@ -144,7 +150,7 @@ impl Grib1Packing for MatrixPacking {
                 "grid_simple_matrix BDS shorter than declared section_len {section_len}"
             )));
         }
-        let matrix = parse_matrix_header(bds)?;
+        let matrix = parse_matrix_header(bds, section_len)?;
 
         if matrix.matrix_of_values() {
             // A genuine NR×NC matrix at every grid point yields `NR·NC` values
@@ -242,13 +248,33 @@ pub(crate) fn decode_matrix_of_values(
     bitmap: Option<&[bool]>,
     expected_count: usize,
 ) -> Result<MatrixValues, FieldglassError> {
+    // Confirm the message is actually grid_simple_matrix before reading the
+    // matrix sub-header. Other packings repurpose octets 11–24 differently —
+    // notably general-extended second-order packing, whose complex-context
+    // extendedFlag bit 0x08 (`generalExtended2ordr`) collides with this
+    // context's `matrixOfValues` mask — so without this guard a non-matrix
+    // message could be silently mis-read as a matrix. The flag combination is
+    // the same one `decoder_for` routes to `MatrixPacking`.
+    if header.is_spherical_harmonic
+        || header.is_complex_packing
+        || header.is_integer_data
+        || !header.has_extra_flags
+    {
+        return Err(FieldglassError::Parse(
+            "message is not grid_simple_matrix packing (BDS flags: expected \
+             complexPacking=0, integerPointValues=0, additionalFlagPresent=1); \
+             decode_matrix_message only applies to matrix-of-values fields."
+                .into(),
+        ));
+    }
+
     let section_len = header.section_len as usize;
     if bds.len() < section_len {
         return Err(FieldglassError::Parse(format!(
             "grid_simple_matrix BDS shorter than declared section_len {section_len}"
         )));
     }
-    let matrix = parse_matrix_header(bds)?;
+    let matrix = parse_matrix_header(bds, section_len)?;
     if !matrix.matrix_of_values() {
         return Err(FieldglassError::Parse(
             "grid_simple_matrix message has matrixOfValues = 0 (a scalar field); \
@@ -409,5 +435,47 @@ mod tests {
                 Some(300.0), // point 2, cell 1 (secondary 1)
             ]
         );
+    }
+
+    /// A declared section shorter than the coefficient arrays must error, not
+    /// drive a `&bds[data_offset..section_len]` slice with `start > end`.
+    #[test]
+    fn parse_rejects_data_offset_past_section() {
+        // NC1 = 4 ⇒ data_offset = 24 + 4·4 = 40, past a 24-octet section. The
+        // backing slice is longer (as it can be when the IS span exceeds the
+        // declared BDS length), so only the section_len bound catches it.
+        let mut bds = vec![0u8; 64];
+        bds[19] = 4; // NC1
+        let err = parse_matrix_header(&bds, 24).unwrap_err();
+        assert!(matches!(err, FieldglassError::Parse(_)), "got {err:?}");
+    }
+
+    #[test]
+    fn parse_rejects_section_below_fixed_header() {
+        let bds = vec![0u8; 64];
+        let err = parse_matrix_header(&bds, 20).unwrap_err();
+        assert!(matches!(err, FieldglassError::Parse(_)), "got {err:?}");
+    }
+
+    /// `decode_matrix_of_values` must reject a non-matrix message up front —
+    /// e.g. complex/second-order packing, whose complex-context extendedFlag
+    /// bit 0x08 would otherwise be misread as `matrixOfValues`.
+    #[test]
+    fn decode_rejects_non_matrix_packing() {
+        let header = BdsHeader {
+            section_len: 32,
+            is_spherical_harmonic: false,
+            is_complex_packing: true, // second-order, not grid_simple_matrix
+            is_integer_data: false,
+            has_extra_flags: true,
+            unused_trailing_bits: 0,
+            binary_scale_factor: 0,
+            reference_value: 0.0,
+            bits_per_value: 8,
+            complex_extended: None,
+        };
+        let bds = vec![0u8; 32];
+        let err = decode_matrix_of_values(&bds, &header, 0, None, 4).unwrap_err();
+        assert!(matches!(err, FieldglassError::Parse(_)), "got {err:?}");
     }
 }
