@@ -1,0 +1,17 @@
+{
+  "count": 29040,
+  "missing_count": 0,
+  "min": 0.0,
+  "max": 29039.0,
+  "mean": 14519.5,
+  "samples": {
+    "0": 0.0,
+    "1": 1.0,
+    "2": 2.0,
+    "99": 99.0,
+    "1000": 1000.0,
+    "29039": 29039.0
+  },
+  "tolerance_absolute": 0.001,
+  "source": "eccodes 2.34.1 grib_get_data. Oracle for a hand-built grid_second_order_SPD1 (orderOfSPD=1) stream: seed=0, bias=0, one zero-width group (firstOrderValues=1) -> order-1 cumulative sum yields the ramp 0..29039. Provenance/construction in NOTICE.md."
+}

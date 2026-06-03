@@ -37,33 +37,63 @@ impl Grib1Packing for ComplexPacking {
 
         let label = ext.packing_type_label();
 
-        // Route the variants the second-order decoder handles. Today that's
-        // the general-extended (`generalExtended2ordr = 1`,
-        // `secondOrderOfDifferentWidth = 1`, `secondaryBitmapPresent = 0`)
-        // family — no SPD, SPD-1, SPD-2 (eccodes' canonical
-        // `grid_second_order`), and SPD-3. Other packings (matrix,
-        // secondary-bitmap, row-by-row, constant-width) return an
-        // unsupported error naming the eccodes packingType.
-        let supported_general_extended = !ext.matrix_of_values()
-            && !ext.secondary_bitmap_present()
-            && ext.second_order_of_different_width()
-            && ext.general_extended_2ordr();
+        // Matrix-of-values packing puts a matrix at every grid point; none of
+        // our second-order decoders handle it. Reject it explicitly before the
+        // packingType dispatch (which ignores the matrix bit).
+        if ext.matrix_of_values() {
+            return Err(FieldglassError::UnsupportedSection(format!(
+                "BDS uses complex / second-order packing — variant `{label}` \
+                 with matrixOfValues set, which is not supported."
+            )));
+        }
 
-        if supported_general_extended {
-            return super::second_order::decode(
+        // Dispatch on the eccodes packingType label (derived from the same
+        // extended-flag bits eccodes uses in `grib1/section.4.def`). The
+        // general-extended (`generalExtended2ordr = 1`) family — no SPD,
+        // SPD-1/2/3 — goes to `second_order`; the three classic WMO layouts go
+        // to `second_order_classic`.
+        match label {
+            "grid_second_order_no_SPD"
+            | "grid_second_order_SPD1"
+            | "grid_second_order"
+            | "grid_second_order_SPD3" => super::second_order::decode(
                 bds,
                 header,
                 decimal_scale,
                 bitmap,
                 expected_count,
                 cols,
-            );
+            ),
+            "grid_second_order_row_by_row" => super::second_order_classic::decode_row_by_row(
+                bds,
+                header,
+                decimal_scale,
+                bitmap,
+                expected_count,
+                cols,
+            ),
+            "grid_second_order_constant_width" => {
+                super::second_order_classic::decode_constant_width(
+                    bds,
+                    header,
+                    decimal_scale,
+                    bitmap,
+                    expected_count,
+                    cols,
+                )
+            }
+            "grid_second_order_general_grib1" => super::second_order_classic::decode_general(
+                bds,
+                header,
+                decimal_scale,
+                bitmap,
+                expected_count,
+                cols,
+            ),
+            _ => Err(FieldglassError::UnsupportedSection(format!(
+                "BDS uses complex / second-order packing — variant `{label}`. \
+                 Decoder for this variant is not yet implemented."
+            ))),
         }
-
-        Err(FieldglassError::UnsupportedSection(format!(
-            "BDS uses complex / second-order packing — variant `{label}`. \
-             Decoder for this variant is not yet implemented; only the \
-             general-extended `grid_second_order_*` family decodes today."
-        )))
     }
 }
