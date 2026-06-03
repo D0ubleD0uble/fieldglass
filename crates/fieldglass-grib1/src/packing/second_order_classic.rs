@@ -60,69 +60,44 @@ use fieldglass_core::{
 
 use crate::bds::BdsHeader;
 
-/// Shared scaling + boustrophedonic-undo + bitmap-interleave tail, identical
-/// to the general-extended decoder's. `x` is the reconstructed integer grid in
-/// storage order; the result is one `Option<f64>` per grid point.
-fn finalize(
-    x: Vec<i64>,
-    header: &BdsHeader,
-    decimal_scale: i16,
-    boustrophedonic: bool,
-    cols: usize,
-    bitmap: Option<&[bool]>,
-    expected_count: usize,
-) -> Result<Vec<Option<f64>>, FieldglassError> {
-    let two_pow_e = 2f64.powi(header.binary_scale_factor as i32);
-    let d_scale = 10f64.powi(-(decimal_scale as i32));
-    let r = header.reference_value;
+/// Byte offset within the BDS where the group descriptors begin (octet 22,
+/// 1-indexed), i.e. just past the 21-byte classic second-order header. For
+/// constant_width this holds one `groupWidth` octet; for row_by_row and
+/// general_grib1 it holds `numberOfGroups` per-group width octets.
+const GROUP_DESCRIPTORS_START: usize = 21;
 
-    let mut scaled: Vec<f64> = x
-        .iter()
-        .map(|v| (r + (*v as f64) * two_pow_e) * d_scale)
-        .collect();
+/// Maximum supported bit width for any packed field (eccodes' `long` widths
+/// never exceed this for GRIB1, and it bounds our per-value reads).
+const MAX_BIT_WIDTH: u8 = 32;
 
-    // Undo boustrophedonic ordering (odd rows stored right-to-left) before the
-    // bitmap interleave, which maps the storage stream.
-    if boustrophedonic && cols > 0 {
-        let n = scaled.len();
-        let rows = n / cols;
-        for row in (1..rows).step_by(2) {
-            let start = row * cols;
-            let end = start + cols;
-            scaled[start..end].reverse();
-        }
+/// Reject a bit width wider than [`MAX_BIT_WIDTH`], naming the offending field.
+fn check_width(width: u8, what: &str) -> Result<(), FieldglassError> {
+    if width > MAX_BIT_WIDTH {
+        return Err(FieldglassError::Parse(format!(
+            "BDS {what}={width} > {MAX_BIT_WIDTH}"
+        )));
     }
-
-    let result = match bitmap {
-        None => {
-            if scaled.len() != expected_count {
-                return Err(FieldglassError::Parse(format!(
-                    "second-order decoded {} values but {} expected",
-                    scaled.len(),
-                    expected_count
-                )));
-            }
-            scaled.into_iter().map(Some).collect()
-        }
-        Some(b) => {
-            let mut out = Vec::with_capacity(expected_count);
-            let mut iter = scaled.into_iter();
-            for present in b.iter().take(expected_count) {
-                out.push(if *present { iter.next() } else { None });
-            }
-            out
-        }
-    };
-    Ok(result)
+    Ok(())
 }
 
-/// Parse the shared header fields (numberOfGroups, P2, widthOfFirstOrder) and
-/// validate the common bounds. Returns `(num_groups, p2, width_of_first)`.
+/// The header fields shared by all three classic second-order layouts, parsed
+/// and bounds-checked once by [`common_header`].
+struct ClassicHeader {
+    /// `codedNumberOfFirstOrderPackedValues + 65536·extraValues`.
+    num_groups: usize,
+    /// `numberOfSecondOrderPackedValues` (octets 19-20).
+    p2: usize,
+    /// `widthOfFirstOrderValues` (the octet-11 bits-per-value field).
+    width_of_first: u8,
+}
+
+/// Parse and validate the header fields common to every classic second-order
+/// layout (numberOfGroups, P2, widthOfFirstOrderValues).
 fn common_header(
     bds: &[u8],
     header: &BdsHeader,
     expected_count: usize,
-) -> Result<(usize, usize, u8), FieldglassError> {
+) -> Result<ClassicHeader, FieldglassError> {
     let bds_len = header.section_len as usize;
     if bds.len() < bds_len {
         return Err(FieldglassError::Parse(format!(
@@ -151,12 +126,12 @@ fn common_header(
         )));
     }
     let width_of_first = header.bits_per_value;
-    if width_of_first > 32 {
-        return Err(FieldglassError::Parse(format!(
-            "BDS widthOfFirstOrderValues={width_of_first} > 32"
-        )));
-    }
-    Ok((num_groups, p2, width_of_first))
+    check_width(width_of_first, "widthOfFirstOrderValues")?;
+    Ok(ClassicHeader {
+        num_groups,
+        p2,
+        width_of_first,
+    })
 }
 
 /// Read `count` unsigned values of `width` bits from `bds[start..]` as a
@@ -173,17 +148,61 @@ fn read_block(
             "BDS {what} byte length overflows ({count}×{width} bits)"
         ))
     })?;
-    if bds.len() < start + nbytes {
-        return Err(FieldglassError::Parse(format!(
-            "BDS too short for {what} section"
-        )));
-    }
-    let mut reader = BitReader::new(&bds[start..start + nbytes]);
+    let end = start
+        .checked_add(nbytes)
+        .ok_or_else(|| FieldglassError::Parse(format!("BDS {what} offset overflows usize")))?;
+    let slot = bds
+        .get(start..end)
+        .ok_or_else(|| FieldglassError::Parse(format!("BDS too short for {what} section")))?;
+    let mut reader = BitReader::new(slot);
     let mut out = Vec::with_capacity(count);
     for _ in 0..count {
         out.push(reader.read_bits(width)?);
     }
-    Ok((out, start + nbytes))
+    Ok((out, end))
+}
+
+/// Read the `numberOfGroups` per-group width octets at [`GROUP_DESCRIPTORS_START`]
+/// (row_by_row / general_grib1), validating each width and returning the slice
+/// plus the byte offset just past it (= `offsetBeforeData`).
+fn read_group_widths<'a>(
+    bds: &'a [u8],
+    num_groups: usize,
+    what: &str,
+) -> Result<(&'a [u8], usize), FieldglassError> {
+    let end = GROUP_DESCRIPTORS_START
+        .checked_add(num_groups)
+        .ok_or_else(|| {
+            FieldglassError::Parse(format!("BDS {what} groupWidths offset overflows"))
+        })?;
+    let widths = bds
+        .get(GROUP_DESCRIPTORS_START..end)
+        .ok_or_else(|| FieldglassError::Parse(format!("BDS too short for {what} groupWidths")))?;
+    for &w in widths {
+        check_width(w, &format!("{what} groupWidth"))?;
+    }
+    Ok((widths, end))
+}
+
+/// Expand one group into `x`: a zero-width group is a run of `len` copies of
+/// its first-order reference; otherwise read `len` residuals at `width` bits
+/// from `so` and add the reference to each (the WMO run-length scheme).
+fn expand_group(
+    x: &mut Vec<i64>,
+    so: &mut BitReader,
+    width: u8,
+    len: usize,
+    ref_val: i64,
+) -> Result<(), FieldglassError> {
+    if width == 0 {
+        x.resize(x.len() + len, ref_val);
+    } else {
+        for _ in 0..len {
+            let raw = so.read_bits(width)? as i64;
+            x.push(ref_val.wrapping_add(raw));
+        }
+    }
+    Ok(())
 }
 
 /// `grid_second_order_row_by_row` (implied secondary bitmap: one group per
@@ -200,8 +219,12 @@ pub fn decode_row_by_row(
     let ext = header.complex_extended.ok_or_else(|| {
         FieldglassError::Parse("row_by_row decoder without complex_extended".into())
     })?;
-    let (num_groups, _p2, width_of_first) = common_header(bds, header, expected_count)?;
-    let bds_len = header.section_len as usize;
+    let ClassicHeader {
+        num_groups,
+        width_of_first,
+        // P2 is unused here: the point count is derived from rows × cols.
+        ..
+    } = common_header(bds, header, expected_count)?;
 
     // One group per row ⇒ numberOfGroups rows of `cols` points each.
     if cols == 0 {
@@ -215,25 +238,10 @@ pub fn decode_row_by_row(
         )));
     }
 
-    // groupWidths: numberOfGroups octets starting at byte 21.
-    let gw_start = 21usize;
-    if bds_len < gw_start + num_groups {
-        return Err(FieldglassError::Parse(
-            "BDS too short for row_by_row groupWidths".into(),
-        ));
-    }
-    let group_widths = &bds[gw_start..gw_start + num_groups];
-    for &w in group_widths {
-        if w > 32 {
-            return Err(FieldglassError::Parse(format!(
-                "row_by_row groupWidth={w} > 32"
-            )));
-        }
-    }
+    let (group_widths, fo_start) = read_group_widths(bds, num_groups, "row_by_row")?;
 
     // offsetBeforeData = 21 + numberOfGroups: first-order values, then the
     // per-group second-order residual stream.
-    let fo_start = gw_start + num_groups;
     let (first_order, x_start) = read_block(
         bds,
         fo_start,
@@ -244,22 +252,11 @@ pub fn decode_row_by_row(
 
     let mut so = BitReader::new(&bds[x_start..]);
     let mut x: Vec<i64> = Vec::with_capacity(expected_count);
-    for g in 0..num_groups {
-        let w = group_widths[g];
-        let ref_val = first_order[g] as i64;
-        if w == 0 {
-            for _ in 0..cols {
-                x.push(ref_val);
-            }
-        } else {
-            for _ in 0..cols {
-                let raw = so.read_bits(w)? as i64;
-                x.push(ref_val.wrapping_add(raw));
-            }
-        }
+    for (&w, &ref_raw) in group_widths.iter().zip(&first_order) {
+        expand_group(&mut x, &mut so, w, cols, ref_raw as i64)?;
     }
 
-    finalize(
+    super::finalize_second_order(
         x,
         header,
         decimal_scale,
@@ -284,7 +281,11 @@ pub fn decode_constant_width(
     let ext = header.complex_extended.ok_or_else(|| {
         FieldglassError::Parse("constant_width decoder without complex_extended".into())
     })?;
-    let (num_groups, p2, width_of_first) = common_header(bds, header, expected_count)?;
+    let ClassicHeader {
+        num_groups,
+        p2,
+        width_of_first,
+    } = common_header(bds, header, expected_count)?;
 
     // numberOfSecondOrderPackedValues is the full point count for this packing.
     if p2 != expected_count {
@@ -293,17 +294,15 @@ pub fn decode_constant_width(
         )));
     }
 
-    // Single shared group width at octet 22 (byte 21).
-    let group_width = bds[21];
-    if group_width > 32 {
-        return Err(FieldglassError::Parse(format!(
-            "constant_width groupWidth={group_width} > 32"
-        )));
-    }
+    // A single shared group width occupies the one descriptor octet (octet 22).
+    let group_width = bds[GROUP_DESCRIPTORS_START];
+    check_width(group_width, "constant_width groupWidth")?;
 
     // offsetBeforeData = byte 22: secondary bitmap (P2 × 1 bit, byte-aligned),
-    // then first-order values, then the second-order residual stream.
-    let (sec_bitmap, after_sec) = read_block(bds, 22, p2, 1, "secondaryBitmap")?;
+    // then first-order values, then a flat second-order residual stream (one
+    // residual per point, since the width is constant — no per-group lengths).
+    let data_start = GROUP_DESCRIPTORS_START + 1;
+    let (sec_bitmap, after_sec) = read_block(bds, data_start, p2, 1, "secondaryBitmap")?;
     let (first_order, after_fo) = read_block(
         bds,
         after_sec,
@@ -318,18 +317,18 @@ pub fn decode_constant_width(
         Vec::new()
     };
 
-    // Walk the points: each 1 bit advances to the next group's first-order
-    // reference. (eccodes uses 0 when the group index runs out of range —
-    // ECC-1703 — so mirror that rather than erroring.)
+    // Walk the points, mirroring eccodes' `i += secondaryBitmap[n]`: the group
+    // index starts at -1 and each 1 bit advances it to the next group's
+    // first-order reference. eccodes uses 0 when the index runs out of range
+    // (ECC-1703), so mirror that rather than erroring.
     let mut x: Vec<i64> = Vec::with_capacity(p2);
-    let mut g: isize = -1;
+    let mut group: isize = -1;
     for (n, &bit) in sec_bitmap.iter().enumerate() {
-        g += bit as isize;
-        let ref_val = if g >= 0 && (g as usize) < num_groups {
-            first_order[g as usize] as i64
-        } else {
-            0
-        };
+        group += bit as isize;
+        let ref_val = usize::try_from(group)
+            .ok()
+            .and_then(|g| first_order.get(g))
+            .map_or(0, |&fo| fo as i64);
         let val = if group_width > 0 {
             ref_val.wrapping_add(deltas[n] as i64)
         } else {
@@ -338,7 +337,7 @@ pub fn decode_constant_width(
         x.push(val);
     }
 
-    finalize(
+    super::finalize_second_order(
         x,
         header,
         decimal_scale,
@@ -366,8 +365,11 @@ pub fn decode_general(
     let ext = header.complex_extended.ok_or_else(|| {
         FieldglassError::Parse("general_grib1 decoder without complex_extended".into())
     })?;
-    let (num_groups, p2, width_of_first) = common_header(bds, header, expected_count)?;
-    let bds_len = header.section_len as usize;
+    let ClassicHeader {
+        num_groups,
+        p2,
+        width_of_first,
+    } = common_header(bds, header, expected_count)?;
 
     if p2 != expected_count {
         return Err(FieldglassError::Parse(format!(
@@ -375,25 +377,10 @@ pub fn decode_general(
         )));
     }
 
-    // groupWidths: numberOfGroups octets starting at byte 21.
-    let gw_start = 21usize;
-    if bds_len < gw_start + num_groups {
-        return Err(FieldglassError::Parse(
-            "BDS too short for general_grib1 groupWidths".into(),
-        ));
-    }
-    let group_widths = &bds[gw_start..gw_start + num_groups];
-    for &w in group_widths {
-        if w > 32 {
-            return Err(FieldglassError::Parse(format!(
-                "general_grib1 groupWidth={w} > 32"
-            )));
-        }
-    }
+    let (group_widths, off) = read_group_widths(bds, num_groups, "general_grib1")?;
 
     // offsetBeforeData = 21 + numberOfGroups: secondary bitmap, first-order
     // values, then the per-group residual stream.
-    let off = gw_start + num_groups;
     let (sec_bitmap, after_sec) = read_block(bds, off, p2, 1, "secondaryBitmap")?;
     let (first_order, x_start) = read_block(
         bds,
@@ -425,29 +412,13 @@ pub fn decode_general(
 
     let mut so = BitReader::new(&bds[x_start..]);
     let mut x: Vec<i64> = Vec::with_capacity(p2);
-    for g in 0..num_groups {
-        let start = starts[g];
-        let end = if g + 1 < num_groups {
-            starts[g + 1]
-        } else {
-            p2
-        };
+    for (g, &start) in starts.iter().enumerate() {
+        let end = starts.get(g + 1).copied().unwrap_or(p2);
         let len = end - start;
-        let w = group_widths[g];
-        let ref_val = first_order[g] as i64;
-        if w == 0 {
-            for _ in 0..len {
-                x.push(ref_val);
-            }
-        } else {
-            for _ in 0..len {
-                let raw = so.read_bits(w)? as i64;
-                x.push(ref_val.wrapping_add(raw));
-            }
-        }
+        expand_group(&mut x, &mut so, group_widths[g], len, first_order[g] as i64)?;
     }
 
-    finalize(
+    super::finalize_second_order(
         x,
         header,
         decimal_scale,

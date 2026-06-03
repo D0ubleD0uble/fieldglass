@@ -299,42 +299,17 @@ pub fn decode(
     }
     apply_spd_inverse(&mut x, order_of_spd, bias)?;
 
-    // u_final = (R + u·2^E) / 10^D
-    let two_pow_e = 2f64.powi(header.binary_scale_factor as i32);
-    let d_scale = 10f64.powi(-(decimal_scale as i32));
-    let r = header.reference_value;
-
-    let mut scaled: Vec<f64> = x
-        .iter()
-        .map(|v| (r + (*v as f64) * two_pow_e) * d_scale)
-        .collect();
-
-    // Undo boustrophedonic ordering (odd rows stored right-to-left). Must
-    // happen before bitmap interleave — the bitmap maps the storage stream.
-    if ext.boustrophedonic() && cols > 0 {
-        let n = scaled.len();
-        let rows = n / cols;
-        for row in (1..rows).step_by(2) {
-            let start = row * cols;
-            let end = start + cols;
-            scaled[start..end].reverse();
-        }
-    }
-
-    let result = match bitmap {
-        None => {
-            if scaled.len() != expected_count {
-                return Err(FieldglassError::Parse(format!(
-                    "second-order decoded {} values but {} expected",
-                    scaled.len(),
-                    expected_count
-                )));
-            }
-            scaled.into_iter().map(Some).collect()
-        }
-        Some(b) => interleave_with_bitmap(scaled, b, expected_count),
-    };
-    Ok(result)
+    // Scale (R + u·2^E) / 10^D, undo boustrophedonic ordering, interleave the
+    // bitmap — shared with the classic second-order decoders.
+    super::finalize_second_order(
+        x,
+        header,
+        decimal_scale,
+        ext.boustrophedonic(),
+        cols,
+        bitmap,
+        expected_count,
+    )
 }
 
 /// Inverse spatial differencing of order k in place, mirroring
@@ -391,23 +366,6 @@ fn apply_spd_inverse(x: &mut [i64], order: u8, bias: i64) -> Result<(), Fieldgla
             "unsupported SPD order {order}"
         ))),
     }
-}
-
-fn interleave_with_bitmap(
-    scaled: Vec<f64>,
-    bitmap: &[bool],
-    expected_count: usize,
-) -> Vec<Option<f64>> {
-    let mut out = Vec::with_capacity(expected_count);
-    let mut iter = scaled.into_iter();
-    for present in bitmap.iter().take(expected_count) {
-        if *present {
-            out.push(iter.next());
-        } else {
-            out.push(None);
-        }
-    }
-    out
 }
 
 #[cfg(test)]
