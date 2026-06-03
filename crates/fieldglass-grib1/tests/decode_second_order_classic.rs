@@ -30,7 +30,7 @@ const NJ: usize = 121; // rows
 const ROW_BY_ROW_FIXTURE: &[u8] = include_bytes!("fixtures/hand_second_order_row_by_row.grib1");
 
 fn expected_row_by_row(r: usize, c: usize) -> f64 {
-    (r * 10 + if r % 2 == 1 { c % 16 } else { 0 }) as f64
+    (r * 10 + if r.is_multiple_of(2) { 0 } else { c % 16 }) as f64
 }
 
 #[test]
@@ -143,11 +143,11 @@ fn expected_general(n: usize) -> f64 {
     let mut start = 0usize;
     let mut g = 0usize;
     loop {
-        let len = if g % 2 == 0 { 200 } else { 284 };
+        let len = if g.is_multiple_of(2) { 200 } else { 284 };
         if n < start + len {
             let off = n - start;
             let base = g * 50;
-            return (base + if g % 2 == 1 { off % 32 } else { 0 }) as f64;
+            return (base + if g.is_multiple_of(2) { 0 } else { off % 32 }) as f64;
         }
         start += len;
         g += 1;
