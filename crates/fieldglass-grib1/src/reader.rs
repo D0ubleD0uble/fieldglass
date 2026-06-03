@@ -2,6 +2,7 @@ use crate::bds::{decode_values, parse_bds_header};
 use crate::bms::parse_bitmap;
 use crate::gds::{GridDescription, parse_grid_description};
 use crate::is::{IndicatorSection, parse_indicator};
+use crate::packing::matrix::decode_matrix_of_values;
 use crate::pds::{ProductDefinition, parse_product_definition};
 use fieldglass_core::FieldglassError;
 
@@ -15,6 +16,26 @@ pub struct Grib1Message {
     pub bms_range: Option<(usize, usize)>,
     /// Byte range of the Binary Data Section within the file.
     pub bds_range: (usize, usize),
+}
+
+/// A decoded matrix-of-values field (`grid_simple_matrix` with
+/// `matrixOfValues = 1`): an `nr × nc` matrix at every grid point rather than a
+/// single value. `values` is `ni · nj · nr · nc` long, grid-point major in scan
+/// order with each point's `nr·nc` matrix cells stored consecutively; `None`
+/// marks a bitmap-masked cell or grid point. Such a field is not a single
+/// renderable 2-D panel, which is why it has its own decode entry rather than
+/// flowing through [`Grib1Reader::decode_message_values`].
+pub struct MatrixField {
+    /// Grid columns (points per row).
+    pub ni: usize,
+    /// Grid rows.
+    pub nj: usize,
+    /// First matrix dimension.
+    pub nr: usize,
+    /// Second matrix dimension.
+    pub nc: usize,
+    /// Flattened values, length `ni·nj·nr·nc`.
+    pub values: Vec<Option<f64>>,
 }
 
 /// Byte index of the PDS `p1` (forecast period) octet within a GRIB1 message,
@@ -97,6 +118,62 @@ impl Grib1Reader {
             expected_count,
             ni as usize,
         )
+    }
+
+    /// Decode a `grid_simple_matrix` message that carries an `nr × nc` matrix at
+    /// every grid point (`matrixOfValues = 1`). Returns a [`MatrixField`] whose
+    /// `values` is `ni·nj·nr·nc` long. Use [`Grib1Reader::decode_message_values`]
+    /// for scalar fields — this errors if the message is not a true
+    /// matrix-of-values field.
+    pub fn decode_matrix_message(
+        &self,
+        message_index: usize,
+    ) -> Result<MatrixField, FieldglassError> {
+        let msg = self
+            .messages
+            .get(message_index)
+            .ok_or(FieldglassError::OutOfRange)?;
+
+        let gds = msg.gds.as_ref().ok_or_else(|| {
+            FieldglassError::Parse(
+                "message has no GDS — predefined grids are not supported".to_string(),
+            )
+        })?;
+        let (ni, nj) = gds.dimensions().ok_or_else(|| {
+            FieldglassError::Parse("grid type has no declared dimensions".to_string())
+        })?;
+        let expected_count = (ni as usize).checked_mul(nj as usize).ok_or_else(|| {
+            FieldglassError::Parse(format!("grid dimensions {ni}×{nj} overflow usize"))
+        })?;
+        if expected_count > MAX_GRID_POINTS {
+            return Err(FieldglassError::Parse(format!(
+                "grid {ni}×{nj} = {expected_count} points exceeds cap of {MAX_GRID_POINTS}"
+            )));
+        }
+
+        let bitmap = match msg.bms_range {
+            Some((start, end)) => Some(parse_bitmap(&self.data[start..end], expected_count)?),
+            None => None,
+        };
+        let bitmap_bits = bitmap.as_ref().map(|b| b.bits.as_slice());
+
+        let (bds_start, bds_end) = msg.bds_range;
+        let bds_bytes = &self.data[bds_start..bds_end];
+        let header = parse_bds_header(bds_bytes)?;
+        let matrix = decode_matrix_of_values(
+            bds_bytes,
+            &header,
+            msg.pds.decimal_scale_factor,
+            bitmap_bits,
+            expected_count,
+        )?;
+        Ok(MatrixField {
+            ni: ni as usize,
+            nj: nj as usize,
+            nr: matrix.nr,
+            nc: matrix.nc,
+            values: matrix.values,
+        })
     }
 }
 

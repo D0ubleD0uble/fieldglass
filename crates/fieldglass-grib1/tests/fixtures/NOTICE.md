@@ -124,3 +124,66 @@ the grid is split into groups, each expanded to `firstOrderValues[g] + residual`
 
 All three are pinned to `grib_get_data` oracles and are exactly hand-computable;
 again only the decode path is under test, not the inherited geopotential metadata.
+
+## `ieee32_cmc_wind.grib1` / `ieee64_cmc_wind.grib1` (+ `_expected.json`)
+
+`cmc_wind_300_2010052400_p012.grib` re-encoded by eccodes 2.34.1 into the
+`grid_ieee` raw IEEE-754 float packing, at both precisions:
+
+```
+grib_set -r -s packingType=grid_ieee,precision=1 cmc_wind_300_2010052400_p012.grib ieee32_cmc_wind.grib1
+grib_set -r -s packingType=grid_ieee,precision=2 cmc_wind_300_2010052400_p012.grib ieee64_cmc_wind.grib1
+```
+
+`grid_ieee` stores values verbatim as big-endian IEEE floats (precision 1 →
+32-bit, 2 → 64-bit), no reference/scale transform; the BDS header gains a
+`precision` octet (octet 12) and the stream begins at octet 13. The
+`_expected.json` files are the `grib_get_data` oracle (counts, min/max/mean, and
+anchored samples). The 32-bit oracle carries f32 rounding, so the test tolerance
+is `1e-3`. eccodes returns `GRIB_NOT_IMPLEMENTED` for precision 3 (128-bit), and
+so do we. See eccodes `grib1/data.grid_ieee.def` + `DataRawPacking`.
+
+## `matrix_simple_cmc_wind.grib1` (+ `_expected.json`)
+
+`cmc_wind_300_2010052400_p012.grib` re-encoded as `packingType=grid_simple_matrix`:
+
+```
+grib_set -r -s packingType=grid_simple_matrix cmc_wind_300_2010052400_p012.grib matrix_simple_cmc_wind.grib1
+```
+
+eccodes emits the `matrixOfValues = 0` form — a plain simple-packed body behind
+the 13-octet matrix sub-header (`octetAtWichPackedDataBegins`, `extendedFlag`,
+`NR`, `NC`, `NC1`, `NC2`, the coordinate flags) — so the decoded field equals the
+original. `_expected.json` is its `grib_get_data` oracle. See eccodes
+`grib1/data.grid_simple_matrix.def`.
+
+## `hand_matrix_of_values.grib1`
+
+A hand-assembled `grid_simple_matrix` message with `matrixOfValues = 1` — a true
+`NR×NC` matrix at every grid point. **eccodes 2.34.1 can neither encode nor
+decode this variant**: `grib_set packingType=grid_simple_matrix` only ever
+produces the `matrixOfValues = 0` form, and feeding it a real matrix message
+makes the `data_g1secondary_bitmap` accessor abort (`m <= secondary_len`
+assertion). So there is no `grib_get_data` oracle; the decoder is validated
+against eccodes' `grib1/data.grid_simple_matrix.def` + `DataG1SecondaryBitmap` /
+`data_apply_bitmap` accessor sources and a hand-computed expectation.
+
+Construction (a small Python builder; IS/PDS/GDS reused from the eccodes
+`regular_ll_sfc_grib1.tmpl` sample shrunk to 16×31 = 496 points):
+
+- Section 1 (PDS) `section1Flags` set to `0xC0` (GDS + BMS present).
+- A primary BMS marking all 496 grid points present.
+- BDS section 4, `grid_simple_matrix`, octet-4 flag `0x10`
+  (`additionalFlagPresent`), `bitsPerValue = 8`, `referenceValue = 0`,
+  `binaryScaleFactor = 0`, `decimalScaleFactor = 0`.
+- `octetAtWichPackedDataBegins` (octets 12–13) = `N` = 496 (number of present
+  grid points); `extendedFlag` (octet 14) = `0x0C`
+  (`matrixOfValues | secondaryBitmapPresent`); `NR = 1`, `NC = 2` (datum size 2);
+  `NC1 = NC2 = 0` (no coordinate coefficients).
+- Secondary bitmaps: `N · NR·NC = 992` bits, all set (every matrix cell present).
+- Coded values: 992 simple-packed 8-bit integers, value `k = k % 256`.
+
+With nothing masked and `R/E/D = 0`, decoded matrix value at flat index `k`
+equals `k % 256` — exactly hand-computable. The bitmap-masked code paths
+(absent grid points, clear secondary bits) are covered by unit tests on
+`expand_matrix` in `src/packing/matrix.rs`.
