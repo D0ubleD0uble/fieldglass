@@ -145,8 +145,18 @@ fn build_grib1_message_meta(msg: &fieldglass_grib1::Grib1Message) -> MessageMeta
     };
     let lambert_lad = lambert.map(|g| g.latin1);
     let lambert_lov = lambert.map(|g| g.lov);
-    let lambert_dx_metres = lambert.map(|g| g.dx_m as f64);
-    let lambert_dy_metres = lambert.map(|g| g.dy_m as f64);
+    // GRIB1 stores Dx/Dy as unsigned magnitudes; bake the scan sign in so the
+    // Lambert warp walks the grid's actual scan (see `signed_grid_increments`).
+    let lambert_inc = lambert.map(|g| {
+        signed_grid_increments(
+            g.dx_m as f64,
+            g.dy_m as f64,
+            g.scanning_mode.i_negative,
+            g.scanning_mode.j_positive,
+        )
+    });
+    let lambert_dx_metres = lambert_inc.map(|(dx, _)| dx);
+    let lambert_dy_metres = lambert_inc.map(|(_, dy)| dy);
     let lambert_latin1 = lambert.map(|g| g.latin1);
     let lambert_latin2 = lambert.map(|g| g.latin2);
     let gaussian_n_parallels = match &msg.gds {
@@ -163,7 +173,7 @@ fn build_grib1_message_meta(msg: &fieldglass_grib1::Grib1Message) -> MessageMeta
     // GRIB1 stores Dx/Dy as unsigned magnitudes (`read_u24`); bake the
     // scanning-mode sign in so the warp walks the grid's actual scan.
     let polar_stereo_inc = polar_stereo.map(|g| {
-        signed_polar_increments(
+        signed_grid_increments(
             g.dx_m as f64,
             g.dy_m as f64,
             g.scanning_mode.i_negative,
@@ -317,15 +327,16 @@ fn render_forecast(common: &HorizontalProductCommon) -> (i32, String) {
     (hours_i32, display)
 }
 
-/// Apply the GRIB scanning-mode sign to polar-stereographic grid spacings.
+/// Apply the GRIB scanning-mode sign to a planar projection's grid spacings.
 ///
 /// Both GRIB1 and GRIB2 store Dx/Dy as unsigned magnitudes and carry the scan
-/// direction in separate flags. [`PolarStereoProjector`] maps a point to a grid
-/// index by `i = (x - origin_x) / dx`, `j = (y - origin_y) / dy` in the
-/// LoV-oriented projection plane, so the increment sign *is* the scan
-/// direction: `i` runs −x when it scans negatively, and `j` runs −y (north→
-/// south) unless it scans positively. Default-scan grids keep positive values.
-fn signed_polar_increments(
+/// direction in separate flags. The planar projectors (`PolarStereoProjector`,
+/// `LambertProjector`) map a point to a grid index by `i = (x - origin_x) / dx`,
+/// `j = (y - origin_y) / dy` in the LoV-oriented projection plane, so the
+/// increment sign *is* the scan direction: `i` runs −x when it scans negatively,
+/// and `j` runs −y (north→south) unless it scans positively. Default-scan grids
+/// keep positive values.
+fn signed_grid_increments(
     dx: f64,
     dy: f64,
     i_scans_negatively: bool,
@@ -365,8 +376,18 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
     };
     let lambert_lad = lambert.map(|t| t.lad);
     let lambert_lov = lambert.map(|t| t.lov);
-    let lambert_dx_metres = lambert.map(|t| t.dx_metres);
-    let lambert_dy_metres = lambert.map(|t| t.dy_metres);
+    // GRIB2 §3.30 stores Dx/Dy as unsigned magnitudes; bake the scan sign in
+    // so the Lambert warp walks the grid's actual scan.
+    let lambert_inc = lambert.map(|t| {
+        signed_grid_increments(
+            t.dx_metres,
+            t.dy_metres,
+            t.scanning_mode & 0x80 != 0,
+            t.scanning_mode & 0x40 != 0,
+        )
+    });
+    let lambert_dx_metres = lambert_inc.map(|(dx, _)| dx);
+    let lambert_dy_metres = lambert_inc.map(|(_, dy)| dy);
     let lambert_latin1 = lambert.map(|t| t.latin1);
     let lambert_latin2 = lambert.map(|t| t.latin2);
     let gaussian_n_parallels = match &msg.gds.template {
@@ -381,7 +402,7 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
     // lives in the scanning-mode flags. Bake the sign in so the projector's
     // origin-relative index advances along the grid's actual scan.
     let polar_stereo_inc = polar_stereo.map(|t| {
-        signed_polar_increments(
+        signed_grid_increments(
             t.dx_metres,
             t.dy_metres,
             t.scanning_mode & 0x80 != 0,
@@ -2219,25 +2240,25 @@ mod polar_stereo_warp_tests {
     }
 
     #[test]
-    fn signed_polar_increments_encode_scan_direction() {
+    fn signed_grid_increments_encode_scan_direction() {
         // Default scan (i: W→E, j: S→N) keeps positive magnitudes.
         assert_eq!(
-            signed_polar_increments(5000.0, 5000.0, false, true),
+            signed_grid_increments(5000.0, 5000.0, false, true),
             (5000.0, 5000.0)
         );
         // j scans north→south ⇒ dy negative.
         assert_eq!(
-            signed_polar_increments(5000.0, 5000.0, false, false),
+            signed_grid_increments(5000.0, 5000.0, false, false),
             (5000.0, -5000.0)
         );
         // i scans east→west ⇒ dx negative.
         assert_eq!(
-            signed_polar_increments(5000.0, 5000.0, true, true),
+            signed_grid_increments(5000.0, 5000.0, true, true),
             (-5000.0, 5000.0)
         );
         // Operates on magnitude, so it is idempotent on already-signed input.
         assert_eq!(
-            signed_polar_increments(-5000.0, -5000.0, false, true),
+            signed_grid_increments(-5000.0, -5000.0, false, true),
             (5000.0, 5000.0)
         );
     }

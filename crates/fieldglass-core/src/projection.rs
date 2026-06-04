@@ -1163,6 +1163,56 @@ mod tests {
     }
 
     #[test]
+    fn lambert_inverse_honours_north_to_south_scan() {
+        // A Lambert grid scanning north→south (jScansPositively = 0): row 0 is
+        // the northernmost row. The napi builder encodes that as a negative dy,
+        // and the projector's j must advance southward — identical mechanism to
+        // the polar-stereo case, since both map `j = (y - origin_y) / dy` in the
+        // LoV plane.
+        let base = LambertParams {
+            ni: 50,
+            nj: 50,
+            lat_first: 50.0,
+            lon_first: -100.0,
+            lad: 40.0,
+            lov: -100.0,
+            dx_metres: 20_000.0,
+            dy_metres: -20_000.0, // north→south scan
+            latin1: 40.0,
+            latin2: 40.0,
+        };
+        let proj = LambertProjector::new(base);
+        // First scanned point (on the central meridian) → index (0, 0).
+        let origin = proj.inverse(50.0, -100.0).expect("origin resolves");
+        assert!(
+            origin.i.abs() < 1e-6 && origin.j.abs() < 1e-6,
+            "origin {origin:?}"
+        );
+        // A point 5° south of the first row lies several rows into the grid.
+        let south = proj
+            .inverse(45.0, -100.0)
+            .expect("southward point resolves");
+        assert!(
+            south.j > 0.0,
+            "north→south scan must increase j going south, got j={}",
+            south.j
+        );
+
+        // Regression guard: the unsigned magnitude (positive dy) drops the
+        // southward point to negative j and rejects it.
+        let unsigned = LambertParams {
+            dy_metres: 20_000.0,
+            ..base
+        };
+        assert!(
+            LambertProjector::new(unsigned)
+                .inverse(45.0, -100.0)
+                .is_none(),
+            "positive (unsigned) dy mis-maps the southward point to negative j"
+        );
+    }
+
+    #[test]
     fn polar_stereo_north_pole_projects_to_origin() {
         let p = cmc_polar_params();
         let (x, y) = polar_stereo_forward(&p, 90.0, 0.0);
