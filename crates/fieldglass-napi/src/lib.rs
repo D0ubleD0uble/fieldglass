@@ -105,6 +105,49 @@ pub struct MessageMeta {
     pub polar_stereo_dy_metres: Option<f64>,
     /// `true` ⇒ south-pole projection, `false` ⇒ north-pole.
     pub polar_stereo_south_pole: Option<bool>,
+    /// Human-readable data-packing method for this message — the GRIB1 BDS
+    /// packing or GRIB2 §5 data-representation template, mapped to a friendly
+    /// label (e.g. "Second-order (SPD-2)", "Simple grid-point"). `None` when
+    /// the section can't be parsed.
+    pub packing: Option<String>,
+}
+
+/// Map an eccodes-style `packingType` (GRIB1) or §5 template name (GRIB2) to a
+/// friendly label for the message table. Falls back to the raw identifier for
+/// anything unmapped so a new variant still shows *something* meaningful.
+fn friendly_packing(label: &str) -> String {
+    let mapped = match label {
+        "grid_simple" | "simple" => "Simple grid-point",
+        "grid_ieee" => "IEEE float",
+        "grid_simple_matrix" => "Matrix of values",
+        "grid_second_order" => "Second-order (SPD-2)",
+        "grid_second_order_no_SPD" => "Second-order (no SPD)",
+        "grid_second_order_SPD1" => "Second-order (SPD-1)",
+        "grid_second_order_SPD3" => "Second-order (SPD-3)",
+        "grid_second_order_row_by_row" => "Second-order (row-by-row)",
+        "grid_second_order_constant_width" => "Second-order (constant width)",
+        "grid_second_order_general_grib1" => "Second-order (general)",
+        "grid_second_order_unknown" => "Second-order",
+        "spectral" => "Spherical harmonic",
+        // GRIB2 unsupported(5.N) templates: name the scheme behind the number.
+        other => {
+            if let Some(n) = other
+                .strip_prefix("unsupported(5.")
+                .and_then(|s| s.strip_suffix(')'))
+            {
+                return match n {
+                    "2" | "3" => format!("Complex packing (5.{n})"),
+                    "4" => "IEEE float (5.4)".to_string(),
+                    "40" => "JPEG 2000 (5.40)".to_string(),
+                    "41" => "PNG (5.41)".to_string(),
+                    "42" => "CCSDS (5.42)".to_string(),
+                    _ => format!("Unsupported (5.{n})"),
+                };
+            }
+            return other.to_string();
+        }
+    };
+    mapped.to_string()
 }
 
 /// Detect the format of a file from its raw bytes.
@@ -121,7 +164,10 @@ pub fn detect_bytes(bytes: napi::bindgen_prelude::Buffer) -> String {
 
 /// Build the `MessageMeta` payload for a single GRIB1 message. Used by
 /// [`Grib1Handle::messages`].
-fn build_grib1_message_meta(msg: &fieldglass_grib1::Grib1Message) -> MessageMeta {
+fn build_grib1_message_meta(
+    msg: &fieldglass_grib1::Grib1Message,
+    packing: Option<String>,
+) -> MessageMeta {
     let param = lookup_parameter(msg.pds.parameter_id, msg.pds.table_version);
     let (grid_type, grid_ni, grid_nj, lat_first, lon_first, lat_last, lon_last) = match &msg.gds {
         Some(gds) => {
@@ -220,6 +266,7 @@ fn build_grib1_message_meta(msg: &fieldglass_grib1::Grib1Message) -> MessageMeta
         polar_stereo_dx_metres,
         polar_stereo_dy_metres,
         polar_stereo_south_pole,
+        packing,
     }
 }
 
@@ -447,6 +494,7 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
         polar_stereo_dx_metres: polar_stereo_inc.map(|(dx, _)| dx),
         polar_stereo_dy_metres: polar_stereo_inc.map(|(_, dy)| dy),
         polar_stereo_south_pole: polar_stereo.map(|t| t.south_pole),
+        packing: Some(friendly_packing(&msg.drs.template_name())),
     }
 }
 
@@ -749,7 +797,13 @@ impl Grib1Handle {
         self.reader
             .messages
             .iter()
-            .map(build_grib1_message_meta)
+            .map(|msg| {
+                let packing = self
+                    .reader
+                    .packing_label(msg.message_index)
+                    .map(friendly_packing);
+                build_grib1_message_meta(msg, packing)
+            })
             .collect()
     }
 
@@ -806,7 +860,13 @@ impl Grib1Handle {
             .reader
             .messages
             .get(message_index as usize)
-            .map(build_grib1_message_meta)
+            .map(|msg| {
+                let packing = self
+                    .reader
+                    .packing_label(message_index as usize)
+                    .map(friendly_packing);
+                build_grib1_message_meta(msg, packing)
+            })
             .ok_or_else(|| {
                 napi::Error::from_reason(format!("message index {message_index} out of range"))
             })?;
@@ -830,7 +890,13 @@ impl Grib1Handle {
             .reader
             .messages
             .get(message_index as usize)
-            .map(build_grib1_message_meta)
+            .map(|msg| {
+                let packing = self
+                    .reader
+                    .packing_label(message_index as usize)
+                    .map(friendly_packing);
+                build_grib1_message_meta(msg, packing)
+            })
             .ok_or_else(|| {
                 napi::Error::from_reason(format!("message index {message_index} out of range"))
             })?;
@@ -1915,6 +1981,7 @@ mod polar_stereo_warp_tests {
             polar_stereo_dx_metres: Some(60_000.0),
             polar_stereo_dy_metres: Some(60_000.0),
             polar_stereo_south_pole: Some(false),
+            packing: None,
         }
     }
 
@@ -2293,6 +2360,57 @@ mod polar_stereo_warp_tests {
 }
 
 #[cfg(test)]
+mod friendly_packing_tests {
+    use super::friendly_packing;
+
+    #[test]
+    fn maps_grib1_and_grib2_labels_to_friendly_names() {
+        assert_eq!(friendly_packing("grid_simple"), "Simple grid-point");
+        assert_eq!(friendly_packing("simple"), "Simple grid-point");
+        assert_eq!(friendly_packing("grid_ieee"), "IEEE float");
+        assert_eq!(friendly_packing("grid_simple_matrix"), "Matrix of values");
+        assert_eq!(
+            friendly_packing("grid_second_order"),
+            "Second-order (SPD-2)"
+        );
+        assert_eq!(
+            friendly_packing("grid_second_order_SPD3"),
+            "Second-order (SPD-3)"
+        );
+        assert_eq!(
+            friendly_packing("grid_second_order_row_by_row"),
+            "Second-order (row-by-row)"
+        );
+        assert_eq!(friendly_packing("spectral"), "Spherical harmonic");
+    }
+
+    #[test]
+    fn names_the_scheme_behind_grib2_unsupported_templates() {
+        assert_eq!(
+            friendly_packing("unsupported(5.2)"),
+            "Complex packing (5.2)"
+        );
+        assert_eq!(
+            friendly_packing("unsupported(5.3)"),
+            "Complex packing (5.3)"
+        );
+        assert_eq!(friendly_packing("unsupported(5.4)"), "IEEE float (5.4)");
+        assert_eq!(friendly_packing("unsupported(5.40)"), "JPEG 2000 (5.40)");
+        assert_eq!(friendly_packing("unsupported(5.41)"), "PNG (5.41)");
+        assert_eq!(friendly_packing("unsupported(5.42)"), "CCSDS (5.42)");
+        assert_eq!(friendly_packing("unsupported(5.99)"), "Unsupported (5.99)");
+    }
+
+    #[test]
+    fn falls_back_to_the_raw_identifier_when_unmapped() {
+        assert_eq!(
+            friendly_packing("some_future_packing"),
+            "some_future_packing"
+        );
+    }
+}
+
+#[cfg(test)]
 mod overlay_projection_tests {
     use super::*;
 
@@ -2337,6 +2455,7 @@ mod overlay_projection_tests {
             polar_stereo_dx_metres: None,
             polar_stereo_dy_metres: None,
             polar_stereo_south_pole: None,
+            packing: None,
         }
     }
 

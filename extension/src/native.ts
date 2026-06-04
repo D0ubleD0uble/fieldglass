@@ -51,6 +51,9 @@ export interface MessageMeta {
   lambertLatin1: number | null;
   lambertLatin2: number | null;
   gaussianNParallels: number | null;
+  /** Human-readable data-packing method (GRIB1 BDS packing / GRIB2 §5
+   *  data-representation template), e.g. "Second-order (SPD-2)". */
+  packing: string | null;
 }
 
 export interface DimensionMeta {

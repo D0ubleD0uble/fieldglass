@@ -71,6 +71,18 @@ impl Grib1Reader {
         self.messages.len()
     }
 
+    /// eccodes-style `packingType` label for one message's BDS, or `None` if
+    /// the index is out of range or the BDS header can't be parsed. This is
+    /// metadata only — it parses the 11-byte BDS header and never decodes
+    /// values, so it stays cheap to call for every message in a file.
+    pub fn packing_label(&self, message_index: usize) -> Option<&'static str> {
+        let (start, end) = self.messages.get(message_index)?.bds_range;
+        let bytes = self.data.get(start..end)?;
+        parse_bds_header(bytes)
+            .ok()
+            .map(|header| header.packing_type_label())
+    }
+
     /// Shared decode preamble for [`Self::decode_message_values`] and
     /// [`Self::decode_matrix_message`]: resolve the message, its grid
     /// dimensions and point count (overflow- and `MAX_GRID_POINTS`-checked),
