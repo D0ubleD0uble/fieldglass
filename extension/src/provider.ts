@@ -375,9 +375,13 @@ export class FieldglassEditorProvider
           layers,
         });
       } catch (err) {
+        // Correlate the failure with the in-flight request (`seq`) so the
+        // panel can resolve it and re-arm the overlay, rather than dead-ending
+        // with an advanced `overlaySeq`/`lastOverlayKey` and a blank overlay.
         panel.webview.postMessage({
-          type: "gridError",
+          type: "overlayError",
           messageIndex: meta.messageIndex,
+          seq: req.seq,
           error: `overlay projection failed: ${err}`,
         });
       }

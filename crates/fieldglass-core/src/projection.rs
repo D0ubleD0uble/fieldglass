@@ -703,19 +703,19 @@ pub trait PlanarGridProjector {
     /// exceed the perimeter's lat/lon range for a pole-exterior grid, so the
     /// boundary walk is sufficient.
     ///
-    /// Longitudes are *unwrapped* relative to the first corner before the
-    /// min/max so a grid straddling the ±180° antimeridian yields a tight,
-    /// continuous span instead of the spurious near-global box that naive
-    /// min/max produces. The result is then recentered so its midpoint lies in
-    /// [-180, 180]; `lon_min` may still be `< -180` (or `lon_max > 180`) to
-    /// describe a dateline-spanning window — intentional, since the warp
-    /// consumes it through periodic trig.
+    /// The longitude extent is the **minimum enclosing arc** of the perimeter
+    /// samples, found as the complement of the largest empty gap between
+    /// adjacent (sorted, wrapped) sample longitudes. This yields a tight,
+    /// continuous span for a grid straddling the ±180° antimeridian and, unlike
+    /// a single-reference unwrap, stays correct for grids whose azimuthal
+    /// extent exceeds 180° (e.g. a wide Lambert tile). The result is recentered
+    /// so its midpoint lies in [-180, 180]; `lon_min` may still be `< -180` (or
+    /// `lon_max > 180`) to describe a dateline-spanning window — intentional,
+    /// since the warp consumes it through periodic trig.
     ///
-    /// The unwrap references a single corner, so it resolves spans up to 180°
-    /// of longitude. Grids whose azimuthal extent exceeds that necessarily
-    /// surround the projection pole; detect that with
-    /// [`PolarStereoProjector::pole_inside_grid`] and override to the full
-    /// 360° rather than relying on this box.
+    /// A grid that fully *surrounds* the projection pole has no empty gap, so
+    /// this arc degenerates; detect that with
+    /// [`PolarStereoProjector::pole_inside_grid`] and override to the full 360°.
     fn lonlat_bbox(&self) -> (f64, f64, f64, f64) {
         // Subdivisions per edge. 512 puts samples ~16 km apart on an 8000 km
         // edge — fine enough to pin the closest-to-pole latitude to ~0.03°
@@ -728,19 +728,15 @@ pub trait PlanarGridProjector {
         let (dx, dy) = self.grid_spacing();
         let ex = (ni as f64 - 1.0) * dx;
         let ey = (nj as f64 - 1.0) * dy;
-        let lon_ref = self.inverse_lonlat(ox, oy).1;
 
         let mut lat_min = f64::INFINITY;
         let mut lat_max = f64::NEG_INFINITY;
-        let mut lon_min = f64::INFINITY;
-        let mut lon_max = f64::NEG_INFINITY;
+        let mut lons: Vec<f64> = Vec::with_capacity(4 * (PER_EDGE as usize + 1));
         let mut visit = |x: f64, y: f64| {
             let (lat, lon) = self.inverse_lonlat(x, y);
             lat_min = lat_min.min(lat);
             lat_max = lat_max.max(lat);
-            let unwrapped = lon_ref + (((lon - lon_ref) + 180.0).rem_euclid(360.0) - 180.0);
-            lon_min = lon_min.min(unwrapped);
-            lon_max = lon_max.max(unwrapped);
+            lons.push(lon.rem_euclid(360.0));
         };
         for k in 0..=PER_EDGE {
             let t = k as f64 / PER_EDGE as f64;
@@ -750,9 +746,30 @@ pub trait PlanarGridProjector {
             visit(ox + ex, oy + t * ey); // right edge (i = ni-1)
         }
 
-        // The raw inverse returns longitudes in `(lov-180, lov+180]`, so the
-        // unwrapped interval can sit far from zero (e.g. 177..328 for lov=249).
-        // Recenter it on [-180, 180] by shifting a whole number of turns so the
+        // Largest empty gap between adjacent wrapped longitudes (including the
+        // wrap-around gap from the last sample back to the first). The enclosing
+        // arc is everything *except* that gap.
+        lons.sort_by(|a, b| a.partial_cmp(b).expect("longitudes are finite"));
+        let n = lons.len();
+        let mut gap_start = 0usize; // index just after the largest gap
+        let mut max_gap = lons[0] + 360.0 - lons[n - 1]; // wrap-around gap
+        for i in 1..n {
+            let gap = lons[i] - lons[i - 1];
+            if gap > max_gap {
+                max_gap = gap;
+                gap_start = i;
+            }
+        }
+        // The arc runs from the sample after the gap to the one before it,
+        // adding a turn when the arc crosses 360° (interior gap).
+        let lon_min = lons[gap_start];
+        let lon_max = if gap_start == 0 {
+            lons[n - 1]
+        } else {
+            lons[gap_start - 1] + 360.0
+        };
+
+        // Recenter on [-180, 180] by shifting a whole number of turns so the
         // midpoint is in range — preserves the (possibly antimeridian-spanning)
         // span while keeping the reported bounds human-sensible.
         let mid = (lon_min + lon_max) / 2.0;
@@ -1099,6 +1116,53 @@ mod tests {
     }
 
     #[test]
+    fn polar_stereo_inverse_honours_north_to_south_scan() {
+        // A north-polar grid scanning north→south (jScansPositively = 0): row 0
+        // is the northernmost row, successive rows step south. The napi builder
+        // encodes that as a *negative* dy; the projector's j must then advance
+        // southward. (See `signed_polar_increments` in the napi crate.)
+        let base = PolarStereoParams {
+            ni: 10,
+            nj: 10,
+            lat_first: 80.0,
+            lon_first: 0.0,
+            lov: 0.0,
+            lad: 60.0,
+            dx_metres: 50_000.0,
+            dy_metres: -50_000.0, // north→south scan
+            south_pole: false,
+        };
+        let proj = PolarStereoProjector::new(base);
+        // The first scanned point is the projection origin → index (0, 0).
+        let origin = proj.inverse(80.0, 0.0).expect("origin resolves");
+        assert!(
+            origin.i.abs() < 1e-6 && origin.j.abs() < 1e-6,
+            "origin {origin:?}"
+        );
+        // A point ~2° south of the first row lies several rows *into* the grid.
+        let south = proj.inverse(78.0, 0.0).expect("southward point resolves");
+        assert!(
+            south.j > 0.0,
+            "north→south scan must increase j going south, got j={}",
+            south.j
+        );
+
+        // Regression guard: the pre-fix code fed the unsigned magnitude
+        // (positive dy), which maps the same southward point to negative j and
+        // drops it from the grid entirely.
+        let unsigned = PolarStereoParams {
+            dy_metres: 50_000.0,
+            ..base
+        };
+        assert!(
+            PolarStereoProjector::new(unsigned)
+                .inverse(78.0, 0.0)
+                .is_none(),
+            "positive (unsigned) dy mis-maps the southward point to negative j"
+        );
+    }
+
+    #[test]
     fn polar_stereo_north_pole_projects_to_origin() {
         let p = cmc_polar_params();
         let (x, y) = polar_stereo_forward(&p, 90.0, 0.0);
@@ -1347,5 +1411,37 @@ mod tests {
             .map(|c| c.0)
             .fold(f64::NEG_INFINITY, f64::max);
         assert!(lat_max > corner_lat_max, "edge should bow above corner lat");
+    }
+
+    #[test]
+    fn lonlat_bbox_resolves_spans_wider_than_180_degrees() {
+        // A synthetic projector whose perimeter sweeps 270° of longitude at a
+        // constant latitude — wider than a single-reference unwrap can resolve.
+        // The old code mis-bounded this (reporting a near-360° span); the
+        // minimum-enclosing-arc must return the true ~270° window.
+        struct WideMock;
+        impl PlanarGridProjector for WideMock {
+            fn grid_origin(&self) -> (f64, f64) {
+                (0.0, 0.0)
+            }
+            fn grid_dims(&self) -> (u32, u32) {
+                (271, 1)
+            }
+            fn grid_spacing(&self) -> (f64, f64) {
+                (1.0, 1.0)
+            }
+            // Treat the plane x-coordinate directly as longitude (0..=270).
+            fn inverse_lonlat(&self, x: f64, _y: f64) -> (f64, f64) {
+                (12.0, x)
+            }
+        }
+
+        let (lat_min, lat_max, lon_min, lon_max) = WideMock.lonlat_bbox();
+        assert!((lat_min - 12.0).abs() < 1e-9 && (lat_max - 12.0).abs() < 1e-9);
+        let span = lon_max - lon_min;
+        assert!(
+            (span - 270.0).abs() < 1.0,
+            "expected a tight ~270° span, got {span} ([{lon_min}, {lon_max}])"
+        );
     }
 }

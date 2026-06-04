@@ -638,4 +638,26 @@ suite("overlay projection (native)", () => {
     assert.strictEqual(total * 2, out.xy.length, "segLengths must account for every xy pair");
     assert.ok(out.xy.length > 0, "coastline should project onto the source raster");
   });
+
+  test("projectOverlay throws on an unrenderable target so the panel can recover", () => {
+    // A Web Mercator window lying entirely poleward of the ±85.05° cutoff is
+    // rejected by the warp setup. projectOverlay must surface that as a thrown
+    // error (the provider reports it as a seq-tagged `overlayError`, which the
+    // panel handles by re-arming the overlay instead of dead-ending it).
+    const handle = grib1Handle();
+    const coast = loadCoastline();
+    const opts: RenderOptions = {
+      projection: "web_mercator",
+      resampling: "nearest",
+      flipY: false,
+      boundsLatMin: 86,
+      boundsLatMax: 88,
+      boundsLonMin: -10,
+      boundsLonMax: 10,
+    };
+    assert.throws(
+      () => handle.projectOverlay(0, opts, coast.latlon, coast.ringLengths),
+      /Web Mercator/,
+    );
+  });
 });

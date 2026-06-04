@@ -481,7 +481,12 @@ impl PreparedTarget for OrthographicPrepared {
         // ρ = sin c for the unit sphere, so c = asin(ρ).
         let c = rho.asin();
         let (sin_c, cos_c) = (c.sin(), c.cos());
-        let lat = (cos_c * self.sin_lat0 + y * sin_c * self.cos_lat0 / rho).asin();
+        // The bracket is sin(latitude) and is analytically in [-1, 1]; clamp
+        // before asin so a rim pixel whose rounding lands one ULP past 1.0
+        // can never produce a NaN latitude.
+        let lat = (cos_c * self.sin_lat0 + y * sin_c * self.cos_lat0 / rho)
+            .clamp(-1.0, 1.0)
+            .asin();
         let lon = self.lon0_rad
             + (x * sin_c).atan2(rho * cos_c * self.cos_lat0 - y * sin_c * self.sin_lat0);
         Some((lat * RAD2DEG, lon * RAD2DEG))
@@ -1043,6 +1048,29 @@ mod tests {
             t.pixel_to_lonlat(3, 3).is_some(),
             "near-centre pixel on disc"
         );
+    }
+
+    #[test]
+    fn orthographic_inverse_never_yields_nan_at_the_rim() {
+        // The inverse latitude is asin() of a bracket that is analytically
+        // sin(latitude) ∈ [-1, 1]; a rim pixel whose rounding pushes it one
+        // ULP past 1.0 would otherwise NaN. Sweep every pixel across a range
+        // of centre latitudes and assert all on-disc results stay finite.
+        for &lat0 in &[0.0, 12.5, 23.5, 45.0, 60.0, 84.0, 89.0, 90.0, -67.0, -89.0] {
+            for &n in &[15, 16, 31, 64, 257] {
+                let t = Orthographic::new(n, n, lat0, 0.0);
+                for py in 0..n {
+                    for px in 0..n {
+                        if let Some((lat, lon)) = t.pixel_to_lonlat(px, py) {
+                            assert!(
+                                lat.is_finite() && lon.is_finite(),
+                                "NaN at ({px},{py}) n={n} lat0={lat0}: ({lat}, {lon})"
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]
