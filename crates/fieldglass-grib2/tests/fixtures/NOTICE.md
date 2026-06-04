@@ -1,5 +1,21 @@
 # Test fixture provenance
 
+## `rotated_latlon_surface.grib2`
+
+Copied verbatim from the eccodes distribution's encoding samples
+(`samples/rotated_ll_sfc_grib2.tmpl`). Single message, GDS template **3.1**
+(rotated latitude/longitude) on a 16×31 grid with a rotated southern pole,
+centre 98 (ECMWF). A constant 2-m temperature field (DRS 5.0, bitsPerValue 0).
+eccodes and its samples are released under the Apache 2.0 license.
+
+## `polar_stereographic_surface.grib2`
+
+Copied verbatim from the eccodes distribution's encoding samples
+(`samples/polar_stereographic_sfc_grib2.tmpl`). Single message, GDS template
+**3.20** (polar stereographic) on a 16×31 grid, centre 98 (ECMWF). A constant
+field (DRS 5.0, bitsPerValue 0). eccodes and its samples are released under
+the Apache 2.0 license.
+
 ## `reduced_gaussian_pressure_level.grib2`
 
 Sourced from the public ECMWF eccodes test data corpus

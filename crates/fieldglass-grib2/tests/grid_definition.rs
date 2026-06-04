@@ -6,6 +6,8 @@ use fieldglass_grib2::{Grib2Reader, GridTemplate, lookup_earth_shape, lookup_gri
 const GFS_LATLON: &[u8] = include_bytes!("fixtures/gfs_c255_latlon.grib2");
 const ETA_LAMBERT: &[u8] = include_bytes!("fixtures/eta_lambert_msg0.grib2");
 const ECMWF_GAUSSIAN: &[u8] = include_bytes!("fixtures/reduced_gaussian_pressure_level.grib2");
+const ROTATED_LATLON: &[u8] = include_bytes!("fixtures/rotated_latlon_surface.grib2");
+const POLAR_STEREO: &[u8] = include_bytes!("fixtures/polar_stereographic_surface.grib2");
 
 #[test]
 fn gfs_latlon_decodes_template_3_0() {
@@ -97,4 +99,58 @@ fn ecmwf_gaussian_decodes_template_3_40_reduced() {
     assert!(msg.gds.bounds().is_some());
     assert_eq!(msg.gds.template_name(), "gaussian");
     assert_eq!(lookup_grid_template(40), "Gaussian latitude/longitude");
+}
+
+#[test]
+fn rotated_latlon_decodes_template_3_1() {
+    let reader = Grib2Reader::from_bytes(ROTATED_LATLON.to_vec()).expect("parse");
+    let msg = &reader.messages[0];
+
+    assert_eq!(msg.gds.template_number, 1);
+    assert_eq!(msg.gds.num_data_points, 16 * 31);
+
+    let t = match msg.gds.template {
+        GridTemplate::RotatedLatLon(t) => t,
+        other => panic!("expected RotatedLatLon, got {other:?}"),
+    };
+    assert_eq!(t.shape_of_earth, 6);
+    assert_eq!((t.ni, t.nj), (16, 31));
+    assert!((t.la1 - 60.0).abs() < 1e-9);
+    assert!((t.lo1 - 0.0).abs() < 1e-9);
+    assert!((t.la2 - 0.0).abs() < 1e-9);
+    assert!((t.lo2 - 30.0).abs() < 1e-9);
+    assert_eq!(t.di, Some(2.0));
+    assert_eq!(t.dj, Some(2.0));
+
+    assert_eq!(msg.gds.dimensions(), Some((16, 31)));
+    assert_eq!(msg.gds.template_name(), "rotated_latlon");
+    assert_eq!(lookup_grid_template(1), "Rotated latitude/longitude");
+    assert_eq!(
+        lookup_earth_shape(t.shape_of_earth),
+        "Spherical (radius 6 371 229.0 m)"
+    );
+}
+
+#[test]
+fn polar_stereographic_decodes_template_3_20() {
+    let reader = Grib2Reader::from_bytes(POLAR_STEREO.to_vec()).expect("parse");
+    let msg = &reader.messages[0];
+
+    assert_eq!(msg.gds.template_number, 20);
+    assert_eq!(msg.gds.num_data_points, 16 * 31);
+
+    let t = match msg.gds.template {
+        GridTemplate::PolarStereographic(t) => t,
+        other => panic!("expected PolarStereographic, got {other:?}"),
+    };
+    assert_eq!(t.shape_of_earth, 6);
+    assert_eq!((t.nx, t.ny), (16, 31));
+    assert!((t.la1 - 60.0).abs() < 1e-9);
+    assert!((t.lo1 - 0.0).abs() < 1e-9);
+    // Sample template carries a north-pole projection (flag bit 1 clear).
+    assert!(!t.south_pole);
+
+    assert_eq!(msg.gds.dimensions(), Some((16, 31)));
+    assert_eq!(msg.gds.template_name(), "polar_stereo");
+    assert_eq!(lookup_grid_template(20), "Polar stereographic");
 }
