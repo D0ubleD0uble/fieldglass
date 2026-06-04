@@ -95,9 +95,13 @@ pub struct MessageMeta {
     /// Orientation longitude (`LoV`) — meridian parallel to the y-axis,
     /// degrees.
     pub polar_stereo_lov: Option<f64>,
-    /// Grid spacing in metres along x at the 60° latitude of true scale.
+    /// Latitude of true scale (`LaD`), degrees — the parallel at which the
+    /// grid spacings are specified. GRIB1 fixes this at ±60°; GRIB2 §3.20
+    /// carries it explicitly.
+    pub polar_stereo_lad: Option<f64>,
+    /// Grid spacing in metres along x at the latitude of true scale.
     pub polar_stereo_dx_metres: Option<f64>,
-    /// Grid spacing in metres along y at the 60° latitude of true scale.
+    /// Grid spacing in metres along y at the latitude of true scale.
     pub polar_stereo_dy_metres: Option<f64>,
     /// `true` ⇒ south-pole projection, `false` ⇒ north-pole.
     pub polar_stereo_south_pole: Option<bool>,
@@ -154,6 +158,8 @@ fn build_grib1_message_meta(msg: &fieldglass_grib1::Grib1Message) -> MessageMeta
         _ => None,
     };
     let polar_stereo_lov = polar_stereo.map(|g| g.lov);
+    // GRIB1 has no LaD field — its latitude of true scale is fixed at ±60°.
+    let polar_stereo_lad = polar_stereo.map(|_| 60.0);
     let polar_stereo_dx_metres = polar_stereo.map(|g| g.dx_m as f64);
     let polar_stereo_dy_metres = polar_stereo.map(|g| g.dy_m as f64);
     let polar_stereo_south_pole = polar_stereo.map(|g| g.south_pole);
@@ -190,6 +196,7 @@ fn build_grib1_message_meta(msg: &fieldglass_grib1::Grib1Message) -> MessageMeta
         lambert_latin2,
         gaussian_n_parallels,
         polar_stereo_lov,
+        polar_stereo_lad,
         polar_stereo_dx_metres,
         polar_stereo_dy_metres,
         polar_stereo_south_pole,
@@ -329,6 +336,10 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
         fieldglass_grib2::GridTemplate::Gaussian(t) => Some(t.n_parallels as i32),
         _ => None,
     };
+    let polar_stereo = match &msg.gds.template {
+        fieldglass_grib2::GridTemplate::PolarStereographic(t) => Some(t),
+        _ => None,
+    };
 
     MessageMeta {
         message_index: msg.message_index as i32,
@@ -362,12 +373,11 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
         lambert_latin1,
         lambert_latin2,
         gaussian_n_parallels,
-        // GRIB2 §3.20 polar stereo template parsing is tracked under #70 —
-        // once it lands these get populated from the parsed template.
-        polar_stereo_lov: None,
-        polar_stereo_dx_metres: None,
-        polar_stereo_dy_metres: None,
-        polar_stereo_south_pole: None,
+        polar_stereo_lov: polar_stereo.map(|t| t.lov),
+        polar_stereo_lad: polar_stereo.map(|t| t.lad),
+        polar_stereo_dx_metres: polar_stereo.map(|t| t.dx_metres),
+        polar_stereo_dy_metres: polar_stereo.map(|t| t.dy_metres),
+        polar_stereo_south_pole: polar_stereo.map(|t| t.south_pole),
     }
 }
 
@@ -1571,6 +1581,7 @@ fn polar_stereo_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result
         lat_first: require_f64(meta.lat_first, "latFirst")?,
         lon_first: require_f64(meta.lon_first, "lonFirst")?,
         lov: require_f64(meta.polar_stereo_lov, "polarStereoLov")?,
+        lad: require_f64(meta.polar_stereo_lad, "polarStereoLad")?,
         dx_metres: require_f64(meta.polar_stereo_dx_metres, "polarStereoDxMetres")?,
         dy_metres: require_f64(meta.polar_stereo_dy_metres, "polarStereoDyMetres")?,
         south_pole: meta
@@ -1816,6 +1827,7 @@ mod polar_stereo_warp_tests {
             lambert_latin2: None,
             gaussian_n_parallels: None,
             polar_stereo_lov: Some(247.0),
+            polar_stereo_lad: Some(60.0),
             polar_stereo_dx_metres: Some(60_000.0),
             polar_stereo_dy_metres: Some(60_000.0),
             polar_stereo_south_pole: Some(false),
@@ -2185,6 +2197,7 @@ mod overlay_projection_tests {
             lambert_latin2: None,
             gaussian_n_parallels: None,
             polar_stereo_lov: None,
+            polar_stereo_lad: None,
             polar_stereo_dx_metres: None,
             polar_stereo_dy_metres: None,
             polar_stereo_south_pole: None,

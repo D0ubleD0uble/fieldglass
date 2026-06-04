@@ -15,9 +15,10 @@
 //!   Press et al., "Numerical Recipes", §4.6. Newton-Raphson on the
 //!   Legendre polynomial seeded with Chebyshev points.
 //! - Polar stereographic — Snyder, PP-1395 §21 (sphere, polar aspect),
-//!   eqs 21-33/21-34 (forward) and 20-14/20-17 (inverse). GRIB1 fixes the
-//!   latitude of true scale at 60°, so the scale factor at the pole
-//!   `k₀ = (1 + sin 60°)/2 ≈ 0.93301270…` is a constant of the projection.
+//!   eqs 21-33/21-34 (forward) and 20-14/20-17 (inverse). The pole scale
+//!   factor `k₀ = (1 + sin|LaD|)/2` follows the latitude of true scale
+//!   `LaD`: GRIB1 fixes it at ±60° (`k₀ ≈ 0.93301270…`), while GRIB2 §3.20
+//!   carries `LaD` explicitly (e.g. true scale at the pole → `k₀ = 1`).
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -458,6 +459,11 @@ pub struct PolarStereoParams {
     /// Orientation longitude (`LoV`) — meridian parallel to the y-axis,
     /// degrees.
     pub lov: f64,
+    /// Latitude of true scale (`LaD`) — the parallel at which `dx_metres` /
+    /// `dy_metres` are specified, degrees. GRIB1 fixes this at ±60°; GRIB2
+    /// §3.20 carries it explicitly, so grids whose true scale is at the pole
+    /// (90°) or another parallel scale correctly.
+    pub lad: f64,
     /// Grid spacing in metres along x at the latitude of true scale.
     pub dx_metres: f64,
     /// Grid spacing in metres along y at the latitude of true scale.
@@ -469,15 +475,17 @@ pub struct PolarStereoParams {
 
 #[derive(Debug, Clone, Copy)]
 pub struct PolarStereoConstants {
-    /// `2 · R · k₀` where `k₀ = (1 + sin 60°)/2` — GRIB fixes the latitude
-    /// of true scale at 60° so this is a constant of the projection. The
-    /// product is what every forward/inverse formula actually consumes.
+    /// `2 · R · k₀` where `k₀ = (1 + sin|LaD|)/2` is the pole scale factor for
+    /// a projection whose latitude of true scale is `LaD` (Snyder PP-1395,
+    /// eq. 21-15). The product is what every forward/inverse formula consumes.
     two_r_k0: f64,
     sign: f64,
 }
 
-fn polar_stereo_constants(south_pole: bool) -> PolarStereoConstants {
-    let k0 = (1.0 + (60.0_f64 * DEG2RAD).sin()) / 2.0;
+fn polar_stereo_constants(lad: f64, south_pole: bool) -> PolarStereoConstants {
+    // The pole scale factor depends on the magnitude of the latitude of true
+    // scale; the hemisphere is handled separately by `sign`.
+    let k0 = (1.0 + (lad.abs() * DEG2RAD).sin()) / 2.0;
     PolarStereoConstants {
         two_r_k0: 2.0 * EARTH_RADIUS_M * k0,
         sign: if south_pole { -1.0 } else { 1.0 },
@@ -493,7 +501,12 @@ fn polar_stereo_constants(south_pole: bool) -> PolarStereoConstants {
 ///
 /// **Recomputes constants per call.** For warp loops use [`PolarStereoProjector`].
 pub fn polar_stereo_forward(p: &PolarStereoParams, lat: f64, lon: f64) -> (f64, f64) {
-    polar_stereo_forward_with(&polar_stereo_constants(p.south_pole), p.lov, lat, lon)
+    polar_stereo_forward_with(
+        &polar_stereo_constants(p.lad, p.south_pole),
+        p.lov,
+        lat,
+        lon,
+    )
 }
 
 fn polar_stereo_forward_with(k: &PolarStereoConstants, lov: f64, lat: f64, lon: f64) -> (f64, f64) {
@@ -512,7 +525,7 @@ fn polar_stereo_forward_with(k: &PolarStereoConstants, lov: f64, lat: f64, lon: 
 /// degrees. Returns `(NaN, lov)` when `(x, y) == (0, 0)` (the projection
 /// pole), where longitude is undefined.
 pub fn polar_stereo_inverse_xy(p: &PolarStereoParams, x: f64, y: f64) -> (f64, f64) {
-    polar_stereo_inverse_xy_with(&polar_stereo_constants(p.south_pole), p.lov, x, y)
+    polar_stereo_inverse_xy_with(&polar_stereo_constants(p.lad, p.south_pole), p.lov, x, y)
 }
 
 fn polar_stereo_inverse_xy_with(k: &PolarStereoConstants, lov: f64, x: f64, y: f64) -> (f64, f64) {
@@ -549,7 +562,7 @@ pub struct PolarStereoProjector {
 
 impl PolarStereoProjector {
     pub fn new(params: PolarStereoParams) -> Self {
-        let constants = polar_stereo_constants(params.south_pole);
+        let constants = polar_stereo_constants(params.lad, params.south_pole);
         let origin =
             polar_stereo_forward_with(&constants, params.lov, params.lat_first, params.lon_first);
         Self {
@@ -1046,6 +1059,7 @@ mod tests {
             lat_first: 11.43,
             lon_first: -110.27,
             lov: 247.0,
+            lad: 60.0,
             dx_metres: 60_000.0,
             dy_metres: 60_000.0,
             south_pole: false,
@@ -1090,6 +1104,34 @@ mod tests {
         let (x, y) = polar_stereo_forward(&p, 90.0, 0.0);
         assert!(near(x, 0.0, 1e-6));
         assert!(near(y, 0.0, 1e-6));
+    }
+
+    /// GRIB2 §3.20 carries a variable latitude of true scale (`LaD`); the
+    /// pole scale factor `k₀ = (1 + sin|LaD|)/2` must follow it. A grid with
+    /// true scale at the pole (LaD = 90°, k₀ = 1) projects to a radius
+    /// `1/k₀(60°) = 1.07180…×` larger than the same point under the GRIB1
+    /// fixed-60° convention (Snyder PP-1395, eq. 21-15).
+    #[test]
+    fn polar_stereo_lad_drives_pole_scale_factor() {
+        let at_60 = cmc_polar_params(); // lad = 60.0
+        let at_90 = PolarStereoParams {
+            lad: 90.0,
+            ..cmc_polar_params()
+        };
+        let (x60, y60) = polar_stereo_forward(&at_60, 45.0, 247.0);
+        let (x90, y90) = polar_stereo_forward(&at_90, 45.0, 247.0);
+        let rho60 = (x60 * x60 + y60 * y60).sqrt();
+        let rho90 = (x90 * x90 + y90 * y90).sqrt();
+        let k0_60 = (1.0 + (60.0_f64 * DEG2RAD).sin()) / 2.0;
+        assert!(
+            near(rho90 / rho60, 1.0 / k0_60, 1e-9),
+            "LaD=90 vs 60 ratio {} ≠ {}",
+            rho90 / rho60,
+            1.0 / k0_60
+        );
+        // Sanity: the two are genuinely different (regression guard against a
+        // hardcoded constant silently ignoring LaD).
+        assert!((rho90 - rho60).abs() > 1.0, "LaD ignored — radii identical");
     }
 
     #[test]
@@ -1172,6 +1214,7 @@ mod tests {
             lat_first: 50.8,
             lon_first: -135.0,
             lov: 0.0,
+            lad: 60.0,
             dx_metres: 2_000_000.0,
             dy_metres: -2_000_000.0,
             south_pole: false,
@@ -1219,6 +1262,7 @@ mod tests {
             lat_first: 27.203,
             lon_first: -135.213,
             lov: 249.0,
+            lad: 60.0,
             dx_metres: 60_000.0,
             dy_metres: 60_000.0,
             south_pole: false,
@@ -1246,6 +1290,7 @@ mod tests {
             lat_first: 27.203,
             lon_first: -135.213,
             lov: 249.0,
+            lad: 60.0,
             dx_metres: 60_000.0,
             dy_metres: 60_000.0,
             south_pole: false,

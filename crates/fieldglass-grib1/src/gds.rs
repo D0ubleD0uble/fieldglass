@@ -117,6 +117,9 @@ impl PolarStereoGrid {
             lat_first: self.lat_first,
             lon_first: self.lon_first,
             lov: self.lov,
+            // GRIB1 polar stereo fixes the latitude of true scale at ±60°
+            // (there is no LaD field); the projector takes the magnitude.
+            lad: 60.0,
             dx_metres: self.dx_m as f64,
             dy_metres: self.dy_m as f64,
             south_pole: self.south_pole,
@@ -634,6 +637,7 @@ mod grid_variant_tests {
             lat_first: g.lat_first,
             lon_first: g.lon_first,
             lov: g.lov,
+            lad: 60.0,
             dx_metres: g.dx_m as f64,
             dy_metres: g.dy_m as f64,
             south_pole: g.south_pole,

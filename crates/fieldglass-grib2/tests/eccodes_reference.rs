@@ -78,8 +78,14 @@ fn assert_message_matches(
             }
             "shapeOfTheEarth" => match &msg.gds.template {
                 GridTemplate::LatLon(t) => check_u64(key, expected, t.shape_of_earth as u64),
+                GridTemplate::RotatedLatLon(t) => check_u64(key, expected, t.shape_of_earth as u64),
+                GridTemplate::Mercator(t) => check_u64(key, expected, t.shape_of_earth as u64),
+                GridTemplate::PolarStereographic(t) => {
+                    check_u64(key, expected, t.shape_of_earth as u64)
+                }
                 GridTemplate::Lambert(t) => check_u64(key, expected, t.shape_of_earth as u64),
                 GridTemplate::Gaussian(t) => check_u64(key, expected, t.shape_of_earth as u64),
+                GridTemplate::SpaceView(t) => check_u64(key, expected, t.shape_of_earth as u64),
                 GridTemplate::Unsupported(_) => true, // can't check
             },
             "numberOfDataPoints" => check_u64(key, expected, msg.gds.num_data_points as u64),
@@ -104,16 +110,22 @@ fn assert_message_matches(
             },
             "latitudeOfLastGridPointInDegrees" => match &msg.gds.template {
                 GridTemplate::LatLon(t) => check_f64(key, expected, t.la2),
+                GridTemplate::RotatedLatLon(t) => check_f64(key, expected, t.la2),
                 GridTemplate::Gaussian(t) => check_f64(key, expected, t.la2),
                 _ => true,
             },
             "longitudeOfLastGridPointInDegrees" => match &msg.gds.template {
                 GridTemplate::LatLon(t) => check_f64(key, expected, t.lo2),
+                GridTemplate::RotatedLatLon(t) => check_f64(key, expected, t.lo2),
                 GridTemplate::Gaussian(t) => check_f64(key, expected, t.lo2),
                 _ => true,
             },
             "iDirectionIncrementInDegrees" => match &msg.gds.template {
                 GridTemplate::LatLon(t) => match t.di {
+                    Some(di) => check_f64(key, expected, di),
+                    None => true,
+                },
+                GridTemplate::RotatedLatLon(t) => match t.di {
                     Some(di) => check_f64(key, expected, di),
                     None => true,
                 },
@@ -125,6 +137,10 @@ fn assert_message_matches(
             },
             "jDirectionIncrementInDegrees" => match &msg.gds.template {
                 GridTemplate::LatLon(t) => match t.dj {
+                    Some(dj) => check_f64(key, expected, dj),
+                    None => true,
+                },
+                GridTemplate::RotatedLatLon(t) => match t.dj {
                     Some(dj) => check_f64(key, expected, dj),
                     None => true,
                 },
@@ -303,5 +319,21 @@ fn reduced_gaussian_pressure_level_matches_eccodes() {
     assert_fixture_matches_snapshot(
         "reduced_gaussian_pressure_level.grib2",
         include_bytes!("fixtures/reduced_gaussian_pressure_level.grib2"),
+    );
+}
+
+#[test]
+fn rotated_latlon_surface_matches_eccodes() {
+    assert_fixture_matches_snapshot(
+        "rotated_latlon_surface.grib2",
+        include_bytes!("fixtures/rotated_latlon_surface.grib2"),
+    );
+}
+
+#[test]
+fn polar_stereographic_surface_matches_eccodes() {
+    assert_fixture_matches_snapshot(
+        "polar_stereographic_surface.grib2",
+        include_bytes!("fixtures/polar_stereographic_surface.grib2"),
     );
 }
