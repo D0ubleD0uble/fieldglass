@@ -190,6 +190,16 @@ export function renderImagePanelHtml(
           setStatus('Error: ' + (msg.error || 'render failed'));
         }
 
+        // An overlay projection failed on the provider side. Resolve the
+        // in-flight request and re-arm the overlay key so the next render
+        // retries the overlay instead of leaving it permanently blank.
+        function handleOverlayError(msg) {
+          if (msg.seq !== overlaySeq) return; // stale: a newer request superseded it
+          lastOverlayKey = null;
+          clearOverlay();
+          setStatus('Overlay error: ' + (msg.error || 'projection failed'));
+        }
+
         // --- Overlay layer (coastlines / graticule) --------------------------
         // The most-recently-received projected overlay geometry, kept so we can
         // redraw on resize without another round-trip. Cleared when all layers
@@ -401,6 +411,7 @@ export function renderImagePanelHtml(
           if (msg.type === 'gridReady') handleGridReady(msg);
           else if (msg.type === 'gridError') handleGridError(msg);
           else if (msg.type === 'overlayReady') handleOverlayReady(msg);
+          else if (msg.type === 'overlayError') handleOverlayError(msg);
         });
 
         attachControls();

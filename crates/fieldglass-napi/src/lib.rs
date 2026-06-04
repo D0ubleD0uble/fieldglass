@@ -145,8 +145,18 @@ fn build_grib1_message_meta(msg: &fieldglass_grib1::Grib1Message) -> MessageMeta
     };
     let lambert_lad = lambert.map(|g| g.latin1);
     let lambert_lov = lambert.map(|g| g.lov);
-    let lambert_dx_metres = lambert.map(|g| g.dx_m as f64);
-    let lambert_dy_metres = lambert.map(|g| g.dy_m as f64);
+    // GRIB1 stores Dx/Dy as unsigned magnitudes; bake the scan sign in so the
+    // Lambert warp walks the grid's actual scan (see `signed_grid_increments`).
+    let lambert_inc = lambert.map(|g| {
+        signed_grid_increments(
+            g.dx_m as f64,
+            g.dy_m as f64,
+            g.scanning_mode.i_negative,
+            g.scanning_mode.j_positive,
+        )
+    });
+    let lambert_dx_metres = lambert_inc.map(|(dx, _)| dx);
+    let lambert_dy_metres = lambert_inc.map(|(_, dy)| dy);
     let lambert_latin1 = lambert.map(|g| g.latin1);
     let lambert_latin2 = lambert.map(|g| g.latin2);
     let gaussian_n_parallels = match &msg.gds {
@@ -160,8 +170,18 @@ fn build_grib1_message_meta(msg: &fieldglass_grib1::Grib1Message) -> MessageMeta
     let polar_stereo_lov = polar_stereo.map(|g| g.lov);
     // GRIB1 has no LaD field — its latitude of true scale is fixed at ±60°.
     let polar_stereo_lad = polar_stereo.map(|_| 60.0);
-    let polar_stereo_dx_metres = polar_stereo.map(|g| g.dx_m as f64);
-    let polar_stereo_dy_metres = polar_stereo.map(|g| g.dy_m as f64);
+    // GRIB1 stores Dx/Dy as unsigned magnitudes (`read_u24`); bake the
+    // scanning-mode sign in so the warp walks the grid's actual scan.
+    let polar_stereo_inc = polar_stereo.map(|g| {
+        signed_grid_increments(
+            g.dx_m as f64,
+            g.dy_m as f64,
+            g.scanning_mode.i_negative,
+            g.scanning_mode.j_positive,
+        )
+    });
+    let polar_stereo_dx_metres = polar_stereo_inc.map(|(dx, _)| dx);
+    let polar_stereo_dy_metres = polar_stereo_inc.map(|(_, dy)| dy);
     let polar_stereo_south_pole = polar_stereo.map(|g| g.south_pole);
     MessageMeta {
         message_index: msg.message_index as i32,
@@ -307,6 +327,34 @@ fn render_forecast(common: &HorizontalProductCommon) -> (i32, String) {
     (hours_i32, display)
 }
 
+/// Apply the GRIB scanning-mode sign to a planar projection's grid spacings.
+///
+/// Both GRIB1 and GRIB2 store Dx/Dy as unsigned magnitudes and carry the scan
+/// direction in separate flags. The planar projectors (`PolarStereoProjector`,
+/// `LambertProjector`) map a point to a grid index by `i = (x - origin_x) / dx`,
+/// `j = (y - origin_y) / dy` in the LoV-oriented projection plane, so the
+/// increment sign *is* the scan direction: `i` runs −x when it scans negatively,
+/// and `j` runs −y (north→south) unless it scans positively. Default-scan grids
+/// keep positive values.
+fn signed_grid_increments(
+    dx: f64,
+    dy: f64,
+    i_scans_negatively: bool,
+    j_scans_positively: bool,
+) -> (f64, f64) {
+    let sdx = if i_scans_negatively {
+        -dx.abs()
+    } else {
+        dx.abs()
+    };
+    let sdy = if j_scans_positively {
+        dy.abs()
+    } else {
+        -dy.abs()
+    };
+    (sdx, sdy)
+}
+
 /// Parse a GRIB2 file from raw bytes and return per-message metadata.
 /// Surfaces §0 + §1 + §3 + §4 fields (edition, discipline, centre, ref-time,
 /// parameter triple, level + level type, forecast time, production status,
@@ -328,8 +376,18 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
     };
     let lambert_lad = lambert.map(|t| t.lad);
     let lambert_lov = lambert.map(|t| t.lov);
-    let lambert_dx_metres = lambert.map(|t| t.dx_metres);
-    let lambert_dy_metres = lambert.map(|t| t.dy_metres);
+    // GRIB2 §3.30 stores Dx/Dy as unsigned magnitudes; bake the scan sign in
+    // so the Lambert warp walks the grid's actual scan.
+    let lambert_inc = lambert.map(|t| {
+        signed_grid_increments(
+            t.dx_metres,
+            t.dy_metres,
+            t.scanning_mode & 0x80 != 0,
+            t.scanning_mode & 0x40 != 0,
+        )
+    });
+    let lambert_dx_metres = lambert_inc.map(|(dx, _)| dx);
+    let lambert_dy_metres = lambert_inc.map(|(_, dy)| dy);
     let lambert_latin1 = lambert.map(|t| t.latin1);
     let lambert_latin2 = lambert.map(|t| t.latin2);
     let gaussian_n_parallels = match &msg.gds.template {
@@ -340,6 +398,17 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
         fieldglass_grib2::GridTemplate::PolarStereographic(t) => Some(t),
         _ => None,
     };
+    // GRIB2 §3.20 stores Dx/Dy as unsigned magnitudes; the scan direction
+    // lives in the scanning-mode flags. Bake the sign in so the projector's
+    // origin-relative index advances along the grid's actual scan.
+    let polar_stereo_inc = polar_stereo.map(|t| {
+        signed_grid_increments(
+            t.dx_metres,
+            t.dy_metres,
+            t.scanning_mode & 0x80 != 0,
+            t.scanning_mode & 0x40 != 0,
+        )
+    });
 
     MessageMeta {
         message_index: msg.message_index as i32,
@@ -375,8 +444,8 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
         gaussian_n_parallels,
         polar_stereo_lov: polar_stereo.map(|t| t.lov),
         polar_stereo_lad: polar_stereo.map(|t| t.lad),
-        polar_stereo_dx_metres: polar_stereo.map(|t| t.dx_metres),
-        polar_stereo_dy_metres: polar_stereo.map(|t| t.dy_metres),
+        polar_stereo_dx_metres: polar_stereo_inc.map(|(dx, _)| dx),
+        polar_stereo_dy_metres: polar_stereo_inc.map(|(_, dy)| dy),
         polar_stereo_south_pole: polar_stereo.map(|t| t.south_pole),
     }
 }
@@ -1278,7 +1347,7 @@ fn warp_message(
     };
     // Construct the concrete target (shared with the overlay-projection path so
     // both paint into byte-identical geometry), then warp the source into it.
-    let (built, used_bounds) = build_warp_target(target_kind, ni, nj, bbox_thunk, bounds_override);
+    let (built, used_bounds) = build_warp_target(target_kind, ni, nj, bbox_thunk, bounds_override)?;
     let warped = built.warp(&source, resampling);
     let resample_label = match resampling {
         Resampling::Nearest => "nearest",
@@ -1352,6 +1421,10 @@ impl BuiltTarget {
     }
 }
 
+/// `(BuiltTarget, used extent)` — the concrete warp target plus the lat/lon
+/// box it actually rendered (`None` for the azimuthal targets).
+type BuiltWarpTarget = (BuiltTarget, Option<(f64, f64, f64, f64)>);
+
 /// Build the concrete [`BuiltTarget`] for a warp, returning the geographic
 /// extent actually used for the lat/lon-box targets (echoed back to the UI)
 /// or `None` for the azimuthal targets.
@@ -1368,7 +1441,7 @@ fn build_warp_target(
     nj: u32,
     bbox_thunk: BboxThunk,
     bounds_override: Option<RenderBounds>,
-) -> (BuiltTarget, Option<(f64, f64, f64, f64)>) {
+) -> napi::Result<BuiltWarpTarget> {
     match target_kind {
         WarpTarget::Equirectangular => {
             let (lat_min, lat_max, lon_min, lon_max) =
@@ -1381,31 +1454,42 @@ fn build_warp_target(
                 lon_min,
                 lon_max,
             };
-            (
+            Ok((
                 BuiltTarget::Equirect(target),
                 Some((lat_min, lat_max, lon_min, lon_max)),
-            )
+            ))
         }
         WarpTarget::WebMercator => {
             let (lat_min, lat_max, lon_min, lon_max) =
                 resolve_box_extent(bbox_thunk, bounds_override);
             let merc = WebMercator::new(ni, nj, lat_min, lat_max, lon_min, lon_max);
+            let (used_lat_min, used_lat_max, _, _) = merc.extent();
+            // A lat band lying entirely outside the ±85.0511° Web Mercator
+            // cutoff clamps to a single edge, collapsing the Y span to zero and
+            // smearing every row to one latitude. Reject it rather than emit a
+            // degenerate single-row raster.
+            if used_lat_max - used_lat_min <= f64::EPSILON {
+                return Err(napi::Error::from_reason(format!(
+                    "Web Mercator latitude band [{lat_min}, {lat_max}] lies outside the \
+                     renderable ±85.0511° range",
+                )));
+            }
             let used = merc.extent();
-            (BuiltTarget::Mercator(merc), Some(used))
+            Ok((BuiltTarget::Mercator(merc), Some(used)))
         }
         WarpTarget::Orthographic { lat0, lon0 } => {
             let side = ni.max(nj);
-            (
+            Ok((
                 BuiltTarget::Ortho(Orthographic::new(side, side, lat0, lon0)),
                 None,
-            )
+            ))
         }
         WarpTarget::PolarStereographic { south_pole, lon0 } => {
             let side = ni.max(nj);
-            (
+            Ok((
                 BuiltTarget::Polar(PolarStereographic::new(side, side, south_pole, lon0)),
                 None,
-            )
+            ))
         }
     }
 }
@@ -1465,7 +1549,7 @@ fn project_overlay_impl(
         )),
         TargetKind::Warp(target_kind) => {
             let (built, _used_bounds) =
-                build_warp_target(target_kind, ni, nj, bbox_thunk, resolved.bounds);
+                build_warp_target(target_kind, ni, nj, bbox_thunk, resolved.bounds)?;
             Ok(built.project(resolved.flip_y, latlon, ring_lengths))
         }
     }
@@ -2152,6 +2236,58 @@ mod polar_stereo_warp_tests {
             used.unwrap(),
             default_bounds,
             "override should differ from the computed default"
+        );
+    }
+
+    #[test]
+    fn signed_grid_increments_encode_scan_direction() {
+        // Default scan (i: W→E, j: S→N) keeps positive magnitudes.
+        assert_eq!(
+            signed_grid_increments(5000.0, 5000.0, false, true),
+            (5000.0, 5000.0)
+        );
+        // j scans north→south ⇒ dy negative.
+        assert_eq!(
+            signed_grid_increments(5000.0, 5000.0, false, false),
+            (5000.0, -5000.0)
+        );
+        // i scans east→west ⇒ dx negative.
+        assert_eq!(
+            signed_grid_increments(5000.0, 5000.0, true, true),
+            (-5000.0, 5000.0)
+        );
+        // Operates on magnitude, so it is idempotent on already-signed input.
+        assert_eq!(
+            signed_grid_increments(-5000.0, -5000.0, false, true),
+            (5000.0, 5000.0)
+        );
+    }
+
+    #[test]
+    fn web_mercator_band_outside_clamp_is_rejected() {
+        // A manual latitude band lying entirely poleward of the ±85.0511°
+        // Web Mercator cutoff clamps to a single edge (zero Y span), which
+        // would smear every row to one latitude. It must be rejected instead.
+        let meta = cmc_polar_meta();
+        let raw = vec![Some(1.0); 135 * 95];
+        let band = RenderBounds {
+            lat_min: 86.0,
+            lat_max: 88.0,
+            lon_min: -10.0,
+            lon_max: 10.0,
+        };
+        let err = warp_message(
+            &meta,
+            &raw,
+            WarpTarget::WebMercator,
+            Resampling::Nearest,
+            Some(band),
+        )
+        .expect_err("a lat band entirely outside ±85.05° must be rejected");
+        assert!(
+            err.reason.contains("Web Mercator"),
+            "expected a Web-Mercator-band error, got: {}",
+            err.reason
         );
     }
 }
