@@ -101,6 +101,32 @@ impl ComplexExtendedHeader {
     }
 }
 
+impl BdsHeader {
+    /// eccodes-style `packingType` identifier for this BDS, covering every
+    /// variant [`crate::packing::decoder_for`] dispatches on. Mirrors that
+    /// dispatch order exactly, so the label names the decoder that will run.
+    /// Surfaced as metadata (the friendly form ships in the message table) and
+    /// kept in step with the README GRIB1 packing-modes table.
+    pub fn packing_type_label(&self) -> &'static str {
+        if self.is_spherical_harmonic {
+            return "spectral";
+        }
+        if self.is_complex_packing {
+            return match self.complex_extended {
+                Some(ext) => ext.packing_type_label(),
+                None => "grid_second_order",
+            };
+        }
+        if self.has_extra_flags {
+            if self.is_integer_data {
+                return "grid_ieee";
+            }
+            return "grid_simple_matrix";
+        }
+        "grid_simple"
+    }
+}
+
 /// Offset (within the BDS) at which packed data values begin.
 pub const BDS_DATA_OFFSET: usize = 11;
 

@@ -193,6 +193,7 @@ suite("Render pipeline", () => {
       lambertLatin1: null,
       lambertLatin2: null,
       gaussianNParallels: null,
+      packing: null,
     };
     const options = defaultRenderOptions();
     const message: GridReadyMessage = buildGridReadyMessage(
@@ -572,6 +573,7 @@ suite("render-panel HTML", () => {
       lambertLatin1: null,
       lambertLatin2: null,
       gaussianNParallels: null,
+      packing: null,
     };
   }
 

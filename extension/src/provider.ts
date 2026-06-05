@@ -856,7 +856,7 @@ function renderHtml(
 
   if (messages && messages.length > 0) {
     const fmt1 = (v: number | null) => v !== null ? v.toFixed(3) : "—";
-    const COLSPAN = 12;
+    const COLSPAN = 13;
     const rows = messages.map((m) => {
       const gridDims = (m.gridNi !== null && m.gridNj !== null)
         ? `${m.gridNi}×${m.gridNj}` : "—";
@@ -890,6 +890,7 @@ function renderHtml(
         <td>${gridDims}</td>
         <td>${gridBounds}</td>
         <td>${escapeHtml(formatCentreCell(m))}</td>
+        <td>${escapeHtml(m.packing ?? "—")}</td>
       </tr>
       <tr class="expand-row" id="expand-${idx}" hidden>
         <td class="expand-cell" colspan="${COLSPAN}">
@@ -904,7 +905,7 @@ function renderHtml(
         <tr>
           <th>#</th><th>Parameter</th><th>Abbrev</th><th>Units</th>
           <th>Level</th><th>Level Type</th><th>Reference Time</th><th>${fcstHeader}</th>
-          <th>Grid</th><th>Size</th><th>Bounds (lat,lon)</th><th>Centre</th>
+          <th>Grid</th><th>Size</th><th>Bounds (lat,lon)</th><th>Centre</th><th>Packing</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
