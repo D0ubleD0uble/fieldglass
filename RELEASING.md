@@ -40,7 +40,16 @@ Bump versions in lockstep:
 
 Promote the CHANGELOG: rename `## [Unreleased]` to `## [X.Y.Z] — YYYY-MM-DD`
 (today's date), update the `[Unreleased]` / `[X.Y.Z]` link references at the
-bottom of the file, and review entries one more time for accuracy.
+bottom of the file, and review entries one more time for accuracy. The
+`## [X.Y.Z]` section becomes the GitHub Release body verbatim (the publish
+workflow extracts it by heading — see §4), so make sure it reads as user-facing
+release notes.
+
+Reconcile the README with what shipped: walk the entries you just promoted and
+update any capability statement they contradict — the feature matrix, the
+`GRIB2 …` / **Known limitations** bullets, the per-crate table, and the packing
+tables. The README ships inside the `.vsix` and drives the Marketplace listing,
+so a stale capability list goes out to users.
 
 Run the local gates before pushing:
 
@@ -110,8 +119,10 @@ The tag push triggers `release.yml`'s publish path:
 - builds all six native targets
 - packages six platform-specific `.vsix` files
 - publishes to the VS Code Marketplace
-- creates the GitHub Release with the `.vsix` files attached and release
-  notes drawn from CHANGELOG.md
+- creates the GitHub Release with the `.vsix` files attached and the release
+  notes taken from this version's `## [X.Y.Z]` section of CHANGELOG.md (the
+  workflow's *Extract release notes* step pulls that section by heading — not
+  GitHub's auto-generated commit list)
 
 Watch the run:
 
@@ -133,6 +144,7 @@ gh run watch
 - **Dry-run native build fails on one target** — usually a toolchain drift (windows-arm64 has been the recurring culprit). Fix in a new PR on the release branch; rerun the dry-run; do not tag until it's green.
 - **Tag pushed but publish fails partway** — the GitHub Release will be missing assets. Re-run the failed job from the Actions UI; the workflow is idempotent for the platform builds.
 - **A regression slips past CI** — if it's caught after publish but before users adopt, the cleanest fix is a hotfix release (`vX.Y.Z+1`) from a fresh prep PR. Don't retag.
+- **Cutting an even-minor *stable* release** — `release.yml` is wired for the pre-release channel only: it hardcodes `vsce package --pre-release`, `vsce publish --pre-release`, and `prerelease: true` on the GitHub Release. The stable jump (`0.2.0`, `0.4.0`, …) needs those gated on the minor's parity **before** tagging — otherwise an even-minor tag still publishes to the pre-release channel. Don't tag a stable minor until the workflow is updated.
 
 ## What lives where
 

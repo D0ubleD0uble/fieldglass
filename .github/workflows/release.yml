@@ -176,9 +176,26 @@ jobs:
           done
           vsce publish --pre-release "${args[@]}"
 
+      # Use the curated CHANGELOG section for this version as the release body,
+      # not GitHub's auto-generated commit list. The tag is vX.Y.Z; the
+      # matching heading is "## [X.Y.Z]".
+      - name: Extract release notes from CHANGELOG
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          awk -v ver="$version" '
+            $0 ~ "^## \\[" ver "\\]" { capture = 1; next }
+            capture && /^## \[/    { exit }
+            capture                { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "::error::No CHANGELOG.md section found for version $version" >&2
+            exit 1
+          fi
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
           files: dist/*.vsix
           prerelease: true
-          generate_release_notes: true
+          body_path: release-notes.md
