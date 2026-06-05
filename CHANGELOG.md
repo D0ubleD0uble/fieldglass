@@ -6,6 +6,8 @@ Versioning follows the [VS Code pre-release convention](https://code.visualstudi
 
 ## [Unreleased]
 
+## [0.1.3] — 2026-06-04
+
 ### Added
 
 - **The message table now shows each message's data-packing method.** A new "Packing" column surfaces how every message's values are stored — the GRIB1 BDS packing or GRIB2 §5 data-representation template — mapped to a friendly label (e.g. "Second-order (SPD-2)", "IEEE float", "Simple grid-point", "Matrix of values"). `MessageMeta` gains a `packing` field, populated in Rust: GRIB1 from a new `BdsHeader::packing_type_label()` (mirroring the `fieldglass-grib1::packing::decoder_for` dispatch, exposed per message via `Grib1Reader::packing_label()`), GRIB2 from the existing `DataRepresentationSection::template_name()`. The label is parsed from the section header only — it never decodes values — so listing it for every message in a file stays cheap, and unsupported GRIB2 templates name the scheme behind the number (e.g. "JPEG 2000 (5.40)"). The GRIB1 label is cross-checked against the eccodes `packingType` for one fixture per variant.
@@ -197,7 +199,8 @@ First public release, on the Marketplace pre-release channel. Read-only metadata
 
 See the README "Known limitations" section.
 
-[Unreleased]: https://github.com/D0ubleD0uble/fieldglass/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/D0ubleD0uble/fieldglass/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/D0ubleD0uble/fieldglass/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/D0ubleD0uble/fieldglass/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/D0ubleD0uble/fieldglass/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/D0ubleD0uble/fieldglass/releases/tag/v0.1.0
