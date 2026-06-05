@@ -101,6 +101,32 @@ impl ComplexExtendedHeader {
     }
 }
 
+impl BdsHeader {
+    /// eccodes-style `packingType` identifier for this BDS, covering every
+    /// variant [`crate::packing::decoder_for`] dispatches on. Mirrors that
+    /// dispatch order exactly, so the label names the decoder that will run.
+    /// Surfaced as metadata (the friendly form ships in the message table) and
+    /// kept in step with the README GRIB1 packing-modes table.
+    pub fn packing_type_label(&self) -> &'static str {
+        if self.is_spherical_harmonic {
+            return "spectral";
+        }
+        if self.is_complex_packing {
+            return match self.complex_extended {
+                Some(ext) => ext.packing_type_label(),
+                None => "grid_second_order",
+            };
+        }
+        if self.has_extra_flags {
+            if self.is_integer_data {
+                return "grid_ieee";
+            }
+            return "grid_simple_matrix";
+        }
+        "grid_simple"
+    }
+}
+
 /// Offset (within the BDS) at which packed data values begin.
 pub const BDS_DATA_OFFSET: usize = 11;
 
@@ -209,6 +235,44 @@ fn read_u24(b: &[u8]) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A real `grid_second_order_row_by_row` BDS (240×121, no bit-map) that
+    /// decodes correctly on its own — reused here to prove that *adding* a
+    /// masking bit-map is rejected rather than silently misdecoded.
+    const ROW_BY_ROW: &[u8] =
+        include_bytes!("../tests/fixtures/hand_second_order_row_by_row.grib1");
+
+    #[test]
+    fn second_order_packing_with_masking_bitmap_is_rejected() {
+        use crate::reader::Grib1Reader;
+        let reader = Grib1Reader::from_bytes(ROW_BY_ROW.to_vec()).expect("fixture parses");
+        let (s, e) = reader.messages[0].bds_range;
+        let bds = &ROW_BY_ROW[s..e];
+        let header = parse_bds_header(bds).expect("BDS header parses");
+        let (ni, nj) = (240usize, 121usize);
+        let expected = ni * nj;
+
+        // Baseline: with no bit-map this exact BDS decodes the full grid.
+        assert!(
+            decode_values(bds, &header, 0, None, expected, ni).is_ok(),
+            "row_by_row BDS should decode without a bit-map"
+        );
+
+        // Inject a BMS bit-map that masks the final point. Pre-fix, the
+        // row_by_row decoder still read `cols` residuals per row and produced a
+        // full-length, value-shifted result (silent misdecode). It must now be
+        // rejected with a clear error instead.
+        let mut bitmap = vec![true; expected];
+        *bitmap.last_mut().unwrap() = false;
+        let err = decode_values(bds, &header, 0, Some(&bitmap), expected, ni)
+            .expect_err("second-order packing + masking bit-map must be rejected");
+        match err {
+            FieldglassError::UnsupportedSection(msg) => {
+                assert!(msg.contains("bit-map"), "unexpected message: {msg}");
+            }
+            other => panic!("expected UnsupportedSection, got {other:?}"),
+        }
+    }
 
     #[test]
     fn decode_constant_field() {

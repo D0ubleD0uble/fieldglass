@@ -1,0 +1,17 @@
+{
+  "count": 29040,
+  "missing_count": 0,
+  "min": 100.0,
+  "max": 200.0,
+  "mean": 150.0,
+  "samples": {
+    "0": 100.0,
+    "1": 100.0,
+    "14519": 100.0,
+    "14520": 200.0,
+    "14521": 200.0,
+    "29039": 200.0
+  },
+  "tolerance_absolute": 0.001,
+  "source": "eccodes 2.34.1 grib_get_data. Oracle for a hand-built grid_second_order_no_SPD (orderOfSPD=0) stream: two zero-width groups (firstOrderValues 100, 200). Provenance/construction in NOTICE.md."
+}

@@ -1,5 +1,13 @@
 # Dependabot config — automatic dep update PRs.
 # https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+#
+# Grouping: each ecosystem collapses its weekly minor/patch bumps into a small
+# number of grouped PRs (dev vs prod) instead of one PR per dependency. This
+# cuts the rebase churn that branch protection's "up to date" rule otherwise
+# forces on every wave, and keeps version-locked package sets (e.g. the
+# typescript-eslint plugin + parser) in a single PR so they never conflict on
+# the shared lockfile. Major bumps are intentionally left out of the groups so
+# they arrive as individual PRs for deliberate review.
 version: 2
 
 updates:
@@ -10,6 +18,13 @@ updates:
       interval: weekly
     open-pull-requests-limit: 5
     labels: [dependencies, rust]
+    groups:
+      cargo-prod:
+        dependency-type: production
+        update-types: [minor, patch]
+      cargo-dev:
+        dependency-type: development
+        update-types: [minor, patch]
 
   # VS Code extension (TypeScript / Node.js).
   - package-ecosystem: npm
@@ -18,6 +33,13 @@ updates:
       interval: weekly
     open-pull-requests-limit: 5
     labels: [dependencies, javascript]
+    groups:
+      npm-extension-prod:
+        dependency-type: production
+        update-types: [minor, patch]
+      npm-extension-dev:
+        dependency-type: development
+        update-types: [minor, patch]
     ignore:
       # @types/vscode pins the API surface to the engines.vscode floor.
       # Bumping it without bumping engines.vscode in lockstep would expose
@@ -33,6 +55,10 @@ updates:
       interval: weekly
     open-pull-requests-limit: 3
     labels: [dependencies, javascript]
+    groups:
+      npm-root-dev:
+        dependency-type: development
+        update-types: [minor, patch]
 
   # GitHub Actions workflows themselves.
   - package-ecosystem: github-actions
@@ -41,3 +67,7 @@ updates:
       interval: weekly
     open-pull-requests-limit: 5
     labels: [dependencies, github-actions]
+    groups:
+      github-actions:
+        patterns: ["*"]
+        update-types: [minor, patch]

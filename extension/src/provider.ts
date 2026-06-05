@@ -12,6 +12,7 @@ import {
   type RenderedGrid,
   type RenderOptions,
 } from "./native";
+import { buildGraticule, loadCoastline, type OverlayGeometry } from "./overlay";
 import { renderImagePanelHtml } from "./render-panel";
 
 const FORMAT_LABELS: Record<string, string> = {
@@ -345,35 +346,63 @@ export class FieldglassEditorProvider
       }
     };
 
+    // Project the requested overlay layers (coastline / graticule) onto the
+    // raster for the current options and post the pixel-space runs back. The
+    // forward projection runs in Rust (`projectOverlay`); this never decodes
+    // values, so toggling the overlay never re-decodes the grid. `seq` is
+    // echoed verbatim so the webview can drop a reply for a superseded request.
+    const projectOverlay = (req: OverlayRequest) => {
+      const docHandle = this._handlesByDoc.get(document.uri.toString());
+      if (!docHandle) return;
+      const options = resolveRerenderOptions(req.options ?? {});
+      const layers: OverlayLayerPayload[] = [];
+      const project = (name: string, geom: OverlayGeometry) => {
+        const projected = docHandle.projectOverlay(
+          meta.messageIndex,
+          options,
+          geom.latlon,
+          geom.ringLengths,
+        );
+        layers.push({ name, xy: projected.xy, segLengths: projected.segLengths });
+      };
+      try {
+        if (req.coastlines) project("coastline", loadCoastline());
+        if (req.graticule) project("graticule", buildGraticule(Number(req.graticuleSpacing)));
+        panel.webview.postMessage({
+          type: "overlayReady",
+          messageIndex: meta.messageIndex,
+          seq: req.seq,
+          layers,
+        });
+      } catch (err) {
+        // Correlate the failure with the in-flight request (`seq`) so the
+        // panel can resolve it and re-arm the overlay, rather than dead-ending
+        // with an advanced `overlaySeq`/`lastOverlayKey` and a blank overlay.
+        panel.webview.postMessage({
+          type: "overlayError",
+          messageIndex: meta.messageIndex,
+          seq: req.seq,
+          error: `overlay projection failed: ${err}`,
+        });
+      }
+    };
+
     // Respond for the panel's lifetime: webview is created with
     // retainContextWhenHidden=false so VS Code tears down the DOM/JS
     // context when the tab is hidden; each remount posts a fresh `ready`.
     const sub = panel.webview.onDidReceiveMessage(
-      (m: { type?: string } & Partial<RenderOptions>) => {
+      (m: ({ type?: string } & Partial<RenderOptions>) | OverlayRequest) => {
         if (!m || typeof m.type !== "string") return;
         if (m.type === "ready") {
           paint(defaultOptions);
           return;
         }
         if (m.type === "rerenderRequest") {
-          // Clamp webview-controlled strings to the closed set the Rust
-          // side accepts. The native validation in `ResolvedOptions::parse`
-          // would reject typos with an explicit error, but we'd rather
-          // never round-trip an invalid value at all — a stale webview
-          // script with a typo silently snapping to "source" is the
-          // expected behaviour, not an error popup.
-          const projection: RenderOptions["projection"] =
-            m.projection === "equirectangular" ? "equirectangular" : "source";
-          const resampling: RenderOptions["resampling"] =
-            m.resampling === "bilinear" ? "bilinear" : "nearest";
-          const options: RenderOptions = {
-            projection,
-            resampling,
-            flipY: !!m.flipY,
-            rangeMin: m.rangeMin,
-            rangeMax: m.rangeMax,
-          };
-          paint(options);
+          paint(resolveRerenderOptions(m as Partial<RenderOptions>));
+          return;
+        }
+        if (m.type === "overlayRequest") {
+          projectOverlay(m as OverlayRequest);
         }
       },
     );
@@ -563,8 +592,37 @@ export interface GridReadyMessage {
   height: number;
   usedMin: number;
   usedMax: number;
+  /** Equirectangular extent actually rendered, echoed so the panel can
+   *  pre-fill the manual-bounds inputs. Undefined for source projection. */
+  usedLatMin?: number;
+  usedLatMax?: number;
+  usedLonMin?: number;
+  usedLonMax?: number;
   projectionSummary: string;
   options: RenderOptions;
+}
+
+/** `overlayRequest` posted by the render panel when an overlay layer is
+ *  toggled on or the underlying raster changes. Carries the same render
+ *  options the image was painted with so the projection matches pixel-for-
+ *  pixel, plus which layers to project. */
+export interface OverlayRequest {
+  type: "overlayRequest";
+  /** Monotonic request id, echoed back in `overlayReady` so the webview can
+   *  discard a reply that a newer request has superseded. */
+  seq?: number;
+  options?: Partial<RenderOptions>;
+  coastlines?: boolean;
+  graticule?: boolean;
+  graticuleSpacing?: number;
+}
+
+/** One projected overlay layer in the `overlayReady` payload — pixel-space
+ *  runs ready for the webview to stroke. */
+export interface OverlayLayerPayload {
+  name: string;
+  xy: Float64Array;
+  segLengths: Uint32Array;
 }
 
 /**
@@ -582,6 +640,52 @@ export interface GridReadyMessage {
  * bytes as a binary reference, and the webview revives it as a real
  * `Uint8Array` on the other side. Pinned by `render.test.ts`.
  */
+/** The closed set of projection strings the picker can emit and the Rust
+ *  side accepts. Pinned by `resolveRerenderOptions` so adding a target to
+ *  the picker without listing it here can't silently snap back to `source`. */
+const PROJECTIONS: ReadonlyArray<RenderOptions["projection"]> = [
+  "source",
+  "equirectangular",
+  "web_mercator",
+  "orthographic",
+  "polar_stereographic",
+];
+
+/**
+ * Resolve a `rerenderRequest` message from the webview into validated
+ * `RenderOptions`. Webview-controlled enum strings are clamped to the closed
+ * set the Rust side accepts: an unknown/typo'd `projection` or `resampling`
+ * silently snaps to its default (`source` / `nearest`) rather than
+ * round-tripping a value `ResolvedOptions::parse` would reject with an error
+ * popup. `projectionPreset` and the manual lat/lon extent pass through
+ * untouched — native validates them and falls back to its own defaults on a
+ * partial/inverted box or unknown preset.
+ *
+ * Pinned by `render.test.ts`: every projection the picker offers must survive
+ * this clamp. The original two-value clamp here (source/equirectangular) was
+ * the #71 regression where the new targets and presets silently did nothing.
+ */
+export function resolveRerenderOptions(m: Partial<RenderOptions>): RenderOptions {
+  const projection: RenderOptions["projection"] =
+    m.projection !== undefined && PROJECTIONS.includes(m.projection)
+      ? m.projection
+      : "source";
+  const resampling: RenderOptions["resampling"] =
+    m.resampling === "bilinear" ? "bilinear" : "nearest";
+  return {
+    projection,
+    projectionPreset: m.projectionPreset,
+    resampling,
+    flipY: !!m.flipY,
+    rangeMin: m.rangeMin,
+    rangeMax: m.rangeMax,
+    boundsLatMin: m.boundsLatMin,
+    boundsLatMax: m.boundsLatMax,
+    boundsLonMin: m.boundsLonMin,
+    boundsLonMax: m.boundsLonMax,
+  };
+}
+
 export function buildGridReadyMessage(
   rendered: RenderedGrid,
   meta: MessageMeta,
@@ -600,6 +704,10 @@ export function buildGridReadyMessage(
     height: rendered.height,
     usedMin: rendered.usedMin,
     usedMax: rendered.usedMax,
+    usedLatMin: rendered.usedLatMin,
+    usedLatMax: rendered.usedLatMax,
+    usedLonMin: rendered.usedLonMin,
+    usedLonMax: rendered.usedLonMax,
     projectionSummary: rendered.projectionSummary,
     options,
   };
@@ -613,7 +721,7 @@ function isNonNegativeInt(n: unknown): n is number {
   return typeof n === "number" && Number.isInteger(n) && n >= 0;
 }
 
-/// Compose the "Centre" table cell: centre name plus, when available, the
+/// Compose the "Center" table cell: centre name plus, when available, the
 /// GRIB2 production status (Code Table 1.3) so operational vs. research
 /// products are visible at a glance without adding another column.
 function formatCentreCell(m: MessageMeta): string {
@@ -748,7 +856,7 @@ function renderHtml(
 
   if (messages && messages.length > 0) {
     const fmt1 = (v: number | null) => v !== null ? v.toFixed(3) : "—";
-    const COLSPAN = 12;
+    const COLSPAN = 13;
     const rows = messages.map((m) => {
       const gridDims = (m.gridNi !== null && m.gridNj !== null)
         ? `${m.gridNi}×${m.gridNj}` : "—";
@@ -781,6 +889,7 @@ function renderHtml(
         <td>${escapeHtml(m.gridType ?? "—")}</td>
         <td>${gridDims}</td>
         <td>${gridBounds}</td>
+        <td>${escapeHtml(m.packing ?? "—")}</td>
         <td>${escapeHtml(formatCentreCell(m))}</td>
       </tr>
       <tr class="expand-row" id="expand-${idx}" hidden>
@@ -796,7 +905,7 @@ function renderHtml(
         <tr>
           <th>#</th><th>Parameter</th><th>Abbrev</th><th>Units</th>
           <th>Level</th><th>Level Type</th><th>Reference Time</th><th>${fcstHeader}</th>
-          <th>Grid</th><th>Size</th><th>Bounds (lat,lon)</th><th>Centre</th>
+          <th>Grid</th><th>Size</th><th>Bounds (lat,lon)</th><th>Packing</th><th>Center</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>

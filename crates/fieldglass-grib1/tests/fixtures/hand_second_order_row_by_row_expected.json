@@ -1,0 +1,22 @@
+{
+  "count": 29040,
+  "missing_count": 0,
+  "min": 0.0,
+  "max": 1205.0,
+  "mean": 603.7190082644628,
+  "samples": {
+    "0": 0.0,
+    "1": 0.0,
+    "2": 0.0,
+    "239": 0.0,
+    "240": 10.0,
+    "241": 11.0,
+    "242": 12.0,
+    "479": 25.0,
+    "480": 20.0,
+    "28800": 1200.0,
+    "29039": 1200.0
+  },
+  "tolerance_absolute": 0.001,
+  "source": "eccodes 2.34.1 grib_get_data. Oracle for a hand-built grid_second_order_row_by_row (one group per row, per-row widths; even rows zero-width=firstOrder, odd rows width-4 residual c%16). Provenance in NOTICE.md."
+}

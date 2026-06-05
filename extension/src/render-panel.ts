@@ -61,18 +61,53 @@ export function renderImagePanelHtml(
           if (el) el.textContent = text;
         }
 
+        // The warped lat/lon targets (equirectangular + Web Mercator) both
+        // render a lat/lon window: they accept a manual bounds box and show the
+        // Bounds control. Keep the rule in one place so the two gates can't
+        // drift.
+        function warpsLatLon(projection) {
+          return projection === 'equirectangular' || projection === 'web_mercator';
+        }
+
         function currentOptions() {
           const projection = (document.getElementById('picker-projection') || {}).value || 'source';
           const resampling = (document.getElementById('picker-resampling') || {}).value || 'nearest';
           const flipY = !!(document.getElementById('flip-y') && document.getElementById('flip-y').checked);
           const mode = document.querySelector('input[name="range-mode"]:checked');
           const options = { projection, resampling, flipY };
+          // The azimuthal targets read a centre / hemisphere preset; the
+          // lat/lon-box targets ignore it.
+          if (projection === 'orthographic') {
+            options.projectionPreset = (document.getElementById('picker-preset-ortho') || {}).value;
+          } else if (projection === 'polar_stereographic') {
+            options.projectionPreset = (document.getElementById('picker-preset-polar') || {}).value;
+          }
           if (mode && mode.value === 'manual') {
             const min = Number((document.getElementById('range-min') || {}).value);
             const max = Number((document.getElementById('range-max') || {}).value);
             if (Number.isFinite(min) && Number.isFinite(max) && max > min) {
               options.rangeMin = min;
               options.rangeMax = max;
+            }
+          }
+          // Manual extent applies to the warped lat/lon targets
+          // (equirectangular + Web Mercator), which both render a lat/lon
+          // window. Send all four edges or none; the Rust side validates and
+          // falls back to the computed bounds for a partial/inverted box.
+          const bmode = document.querySelector('input[name="bounds-mode"]:checked');
+          if (warpsLatLon(projection) && bmode && bmode.value === 'manual') {
+            const laMin = Number((document.getElementById('bounds-lat-min') || {}).value);
+            const laMax = Number((document.getElementById('bounds-lat-max') || {}).value);
+            const loMin = Number((document.getElementById('bounds-lon-min') || {}).value);
+            const loMax = Number((document.getElementById('bounds-lon-max') || {}).value);
+            if (
+              Number.isFinite(laMin) && Number.isFinite(laMax) && laMax > laMin &&
+              Number.isFinite(loMin) && Number.isFinite(loMax) && loMax > loMin
+            ) {
+              options.boundsLatMin = laMin;
+              options.boundsLatMax = laMax;
+              options.boundsLonMin = loMin;
+              options.boundsLonMax = loMax;
             }
           }
           return options;
@@ -119,20 +154,208 @@ export function renderImagePanelHtml(
           const maxIn = document.getElementById('range-max');
           if (minIn && !minIn.value) minIn.value = payload.usedMin.toPrecision(6);
           if (maxIn && !maxIn.value) maxIn.value = payload.usedMax.toPrecision(6);
+          // Pre-fill the manual-bounds inputs from the extent Rust actually
+          // used (present for the warped lat/lon targets — equirectangular and
+          // Web Mercator). The empty guard means we never clobber a value the
+          // user has typed.
+          if (payload.usedLatMin !== undefined && payload.usedLatMin !== null) {
+            const fillBound = (id, v) => {
+              const el = document.getElementById(id);
+              if (el && !el.value) el.value = Number(v).toFixed(3);
+            };
+            fillBound('bounds-lat-min', payload.usedLatMin);
+            fillBound('bounds-lat-max', payload.usedLatMax);
+            fillBound('bounds-lon-min', payload.usedLonMin);
+            fillBound('bounds-lon-max', payload.usedLonMax);
+          }
         }
 
         function handleGridReady(msg) {
           lastPayload = msg;
           blit(msg);
+          // Reproject the overlay only when the raster *geometry* changed
+          // (projection / preset / flip-y / bounds). A range- or resampling-
+          // only render leaves the geometry — and the existing overlay — valid,
+          // so we skip the round-trip.
+          if (overlayKey() !== lastOverlayKey) {
+            // Wipe the stale strokes immediately so the previous projection's
+            // lines don't linger over the new raster while the async reproject
+            // is in flight.
+            clearOverlay();
+            requestOverlay();
+          }
         }
 
         function handleGridError(msg) {
           setStatus('Error: ' + (msg.error || 'render failed'));
         }
 
+        // An overlay projection failed on the provider side. Resolve the
+        // in-flight request and re-arm the overlay key so the next render
+        // retries the overlay instead of leaving it permanently blank.
+        function handleOverlayError(msg) {
+          if (msg.seq !== overlaySeq) return; // stale: a newer request superseded it
+          lastOverlayKey = null;
+          clearOverlay();
+          setStatus('Overlay error: ' + (msg.error || 'projection failed'));
+        }
+
+        // --- Overlay layer (coastlines / graticule) --------------------------
+        // The most-recently-received projected overlay geometry, kept so we can
+        // redraw on resize without another round-trip. Cleared when all layers
+        // are toggled off.
+        let lastOverlay = null;
+        // Monotonic request id: a reply for an older projection is ignored so
+        // it can't be drawn against a newer raster (transient misalignment when
+        // switching projections quickly).
+        let overlaySeq = 0;
+        // The geometry-affecting options behind the current overlay. A render
+        // that changes only range/resampling leaves this unchanged, so we skip
+        // a redundant reprojection round-trip.
+        let lastOverlayKey = null;
+        // The themed foreground colour for overlay strokes, read from CSS once
+        // and cached — drawOverlay fires on every resize tick, so we avoid the
+        // repeated getComputedStyle reflow. (A theme switch mid-session keeps
+        // the first-read colour; acceptable for a thin vector overlay.)
+        let overlayFg = null;
+        let overlayStyles = null;
+
+        // Lazily compute + cache the overlay stroke styles from the themed
+        // foreground colour.
+        function overlayStrokeStyles() {
+          if (!overlayStyles) {
+            overlayFg = (getComputedStyle(document.documentElement)
+              .getPropertyValue('--vscode-foreground') || '#ffffff').trim() || '#ffffff';
+            overlayStyles = {
+              coastline: { color: overlayFg, width: 1.1 },
+              graticule: { color: overlayFg, width: 0.6, alpha: 0.35 },
+            };
+          }
+          return overlayStyles;
+        }
+
+        function overlayState() {
+          return {
+            coastlines: !!(document.getElementById('overlay-coastlines') || {}).checked,
+            graticule: !!(document.getElementById('overlay-graticule') || {}).checked,
+          };
+        }
+
+        // Only projection / preset / flip-y / bounds move the overlay's pixel
+        // geometry; resampling and range do not.
+        function overlayKey() {
+          const o = currentOptions();
+          return JSON.stringify([
+            o.projection, o.projectionPreset, !!o.flipY,
+            o.boundsLatMin, o.boundsLatMax, o.boundsLonMin, o.boundsLonMax,
+          ]);
+        }
+
+        function clearOverlay() {
+          lastOverlay = null;
+          const o = document.getElementById('overlay');
+          const ctx = o && o.getContext('2d');
+          if (ctx) ctx.clearRect(0, 0, o.width, o.height);
+        }
+
+        // Ask the provider to project the enabled layers for the current
+        // options. Geometry-only on the Rust side — never re-decodes.
+        function requestOverlay() {
+          if (!lastPayload) return;
+          lastOverlayKey = overlayKey();
+          const state = overlayState();
+          if (!state.coastlines && !state.graticule) {
+            clearOverlay();
+            return;
+          }
+          overlaySeq += 1;
+          vscode.postMessage({
+            type: 'overlayRequest',
+            seq: overlaySeq,
+            options: currentOptions(),
+            coastlines: state.coastlines,
+            graticule: state.graticule,
+            graticuleSpacing: Math.min(90, Math.max(5,
+              Number((document.getElementById('graticule-spacing') || {}).value) || 30)),
+          });
+        }
+
+        function handleOverlayReady(msg) {
+          // Drop a stale reply (an earlier projection) so it can't be drawn
+          // against the current raster.
+          if (msg.seq !== overlaySeq) return;
+          lastOverlay = msg;
+          drawOverlay();
+        }
+
+        // Stroke the projected runs onto the overlay canvas. The overlay's
+        // backing store is sized to the image's *displayed* pixels (× DPR) so
+        // lines stay crisp instead of inheriting the image's pixelated upscale;
+        // raster-space coordinates from Rust are scaled to that size here.
+        function drawOverlay() {
+          const o = document.getElementById('overlay');
+          const ctx = o && o.getContext('2d');
+          if (!o || !ctx || !lastPayload) return;
+          const dpr = window.devicePixelRatio || 1;
+          // Size the backing store to the overlay's *content* box (the canvas
+          // bitmap fills the content box, inside its border) so a raster pixel
+          // maps exactly onto the same spot as the image's content box — no
+          // ~1px border offset. clientWidth/Height exclude the border.
+          o.width = Math.max(1, Math.round(o.clientWidth * dpr));
+          o.height = Math.max(1, Math.round(o.clientHeight * dpr));
+          ctx.clearRect(0, 0, o.width, o.height);
+          if (!lastOverlay || !lastOverlay.layers || !lastPayload.width) return;
+          const sx = o.width / lastPayload.width;
+          const sy = o.height / lastPayload.height;
+          const styles = overlayStrokeStyles();
+          for (const layer of lastOverlay.layers) {
+            const style = styles[layer.name] || styles.coastline;
+            ctx.save();
+            ctx.globalAlpha = style.alpha || 1;
+            ctx.strokeStyle = style.color;
+            ctx.lineWidth = style.width * dpr;
+            ctx.beginPath();
+            // Tolerate either typed arrays or plain arrays from the serializer.
+            const xy = layer.xy || [];
+            const segs = layer.segLengths || [];
+            let p = 0;
+            for (let s = 0; s < segs.length; s++) {
+              const n = segs[s];
+              for (let v = 0; v < n; v++) {
+                const x = xy[p++] * sx;
+                const y = xy[p++] * sy;
+                if (v === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+              }
+            }
+            ctx.stroke();
+            ctx.restore();
+          }
+        }
+
+        // Show only the controls the active projection actually uses: the
+        // matching centre/hemisphere preset selector, and the Bounds (manual
+        // lat/lon window) control — which applies to the lat/lon-box targets
+        // only. The azimuthal targets frame themselves by preset and ignore a
+        // bounds rectangle, and the source projection has no window either, so
+        // showing Bounds there would be an inert, misleading control.
+        function syncProjectionControls() {
+          const projection = (document.getElementById('picker-projection') || {}).value || 'source';
+          const ortho = document.getElementById('preset-ortho');
+          const polar = document.getElementById('preset-polar');
+          if (ortho) ortho.toggleAttribute('hidden', projection !== 'orthographic');
+          if (polar) polar.toggleAttribute('hidden', projection !== 'polar_stereographic');
+          const bounds = document.getElementById('bounds-fieldset');
+          if (bounds) bounds.toggleAttribute('hidden', !warpsLatLon(projection));
+        }
+
         function attachControls() {
           const projPick = document.getElementById('picker-projection');
-          if (projPick) projPick.addEventListener('change', requestRender);
+          if (projPick) projPick.addEventListener('change', () => { syncProjectionControls(); requestRender(); });
+          ['picker-preset-ortho', 'picker-preset-polar'].forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('change', requestRender);
+          });
+          syncProjectionControls();
           const sampPick = document.getElementById('picker-resampling');
           if (sampPick) sampPick.addEventListener('change', requestRender);
           const flip = document.getElementById('flip-y');
@@ -149,6 +372,37 @@ export function renderImagePanelHtml(
             const el = document.getElementById(id);
             if (el) el.addEventListener('change', requestRender);
           });
+          document.querySelectorAll('input[name="bounds-mode"]').forEach((el) => {
+            el.addEventListener('change', () => {
+              const manual = document.getElementById('bounds-manual-fields');
+              const isManual = el.value === 'manual' && el.checked;
+              if (manual) manual.toggleAttribute('hidden', !isManual);
+              requestRender();
+            });
+          });
+          ['bounds-lat-min', 'bounds-lat-max', 'bounds-lon-min', 'bounds-lon-max'].forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('change', requestRender);
+          });
+          // Overlay toggles never re-render the image — they only reproject the
+          // vector layer, so the image paint is untouched when toggling.
+          const coast = document.getElementById('overlay-coastlines');
+          if (coast) coast.addEventListener('change', requestOverlay);
+          const grat = document.getElementById('overlay-graticule');
+          if (grat) {
+            grat.addEventListener('change', () => {
+              const label = document.getElementById('graticule-spacing-label');
+              // visibility toggle (not display) so the field's box stays
+              // reserved — showing it never grows the toolbar row.
+              if (label) label.classList.toggle('spacing-hidden', !grat.checked);
+              requestOverlay();
+            });
+          }
+          const spacing = document.getElementById('graticule-spacing');
+          if (spacing) spacing.addEventListener('change', requestOverlay);
+          // Keep the overlay aligned + crisp as the panel (and the displayed
+          // image size) resizes.
+          window.addEventListener('resize', drawOverlay);
         }
 
         window.addEventListener('message', (event) => {
@@ -156,6 +410,8 @@ export function renderImagePanelHtml(
           if (!msg || typeof msg.type !== 'string') return;
           if (msg.type === 'gridReady') handleGridReady(msg);
           else if (msg.type === 'gridError') handleGridError(msg);
+          else if (msg.type === 'overlayReady') handleOverlayReady(msg);
+          else if (msg.type === 'overlayError') handleOverlayError(msg);
         });
 
         attachControls();
@@ -181,12 +437,17 @@ export function renderImagePanelHtml(
     h1 { font-size: 1.1rem; margin: 0 0 0.2rem 0; }
     .subtitle { color: var(--vscode-descriptionForeground); font-size: 0.85rem; margin-bottom: 0.5rem; }
     .projection { color: var(--vscode-descriptionForeground); font-size: 0.8rem; margin-bottom: 0.75rem; }
+    .picker-note { display: block; color: var(--vscode-descriptionForeground); font-size: 0.8rem; margin-top: 0.25rem; }
     #status { font-size: 0.85rem; margin-bottom: 0.75rem; min-height: 1.1em; }
     .render-area {
       display: flex;
       align-items: flex-start;
       gap: 0.75rem;
     }
+    /* The image canvas and the vector overlay share one positioned box so the
+       overlay sits exactly on top. The image is pixel-upscaled; the overlay is
+       a crisp vector layer drawn at display resolution (see drawOverlay). */
+    .canvas-wrap { position: relative; flex: 1 1 auto; display: flex; }
     canvas#canvas {
       max-width: 100%;
       height: auto;
@@ -194,6 +455,16 @@ export function renderImagePanelHtml(
       background: var(--vscode-editor-background);
       border: 1px solid var(--vscode-panel-border);
       flex: 1 1 auto;
+    }
+    canvas#overlay {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      box-sizing: border-box;
+      border: 1px solid transparent;
+      pointer-events: none;
     }
     .colorbar-wrap {
       display: flex;
@@ -230,11 +501,17 @@ export function renderImagePanelHtml(
       font-size: 0.75rem;
       color: var(--vscode-descriptionForeground);
     }
+    /* The toolbar stacks its control groups vertically: the projection pickers
+       on the first row, then one row each for Color Range, Bounds, and Overlay.
+       Giving every group its own row is what keeps the layout stable — a group's
+       Manual inputs (the Bounds row alone has four lat/lon fields) expand into
+       that row's own free width and at worst wrap within it, so they never
+       reshuffle the other groups the way a single shared wrap-row did. */
     .toolbar {
       display: flex;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 0.75rem 1.25rem;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.5rem;
       padding: 0.5rem 0.75rem;
       margin-bottom: 0.75rem;
       border: 1px solid var(--vscode-panel-border);
@@ -242,16 +519,35 @@ export function renderImagePanelHtml(
       background: var(--vscode-editorWidget-background, transparent);
       font-size: 0.85rem;
     }
+    /* One row of the toolbar: lay its controls out horizontally, wrapping
+       within the row only when the window is too narrow to hold them. */
+    .toolbar-row {
+      display: flex; align-items: center; flex-wrap: wrap;
+      gap: 0.5rem 1.25rem;
+    }
     .toolbar fieldset {
-      display: flex; align-items: center; gap: 0.5rem;
+      display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem;
       border: none; padding: 0; margin: 0;
     }
+    /* The fieldset display:flex rule above out-specifies the UA hidden rule, so
+       restore it explicitly — the Bounds row hides for projections without a
+       manual lat/lon window (see syncProjectionControls). */
+    .toolbar fieldset[hidden] { display: none; }
     .toolbar legend {
       padding: 0;
       font-size: 0.8rem;
       color: var(--vscode-descriptionForeground);
     }
     .toolbar label { display: inline-flex; align-items: center; gap: 0.25rem; }
+    /* The rule above sets display, out-specifying the UA stylesheet's hidden
+       rule (display:none); without this the preset selectors never hide when
+       syncProjectionControls toggles them off. */
+    .toolbar label[hidden] { display: none; }
+    /* The graticule-spacing field hides without reflowing: visibility:hidden
+       keeps its box in the toolbar's flow, so toggling Graticule on/off can't
+       grow the toolbar and shove the canvas down (it also drops the field out
+       of the tab order while hidden). */
+    #graticule-spacing-label.spacing-hidden { visibility: hidden; }
     .toolbar input[type="number"] {
       width: 7rem;
       background: var(--vscode-input-background);
@@ -272,21 +568,47 @@ export function renderImagePanelHtml(
   <div class="subtitle">${escapeHtml(subLine)}</div>
   <div class="projection" id="projection-summary">${escapeHtml(projectionSummary)}</div>
   <div class="toolbar" role="toolbar" aria-label="Render settings">
-    <label>Projection
-      <select id="picker-projection">
-        <option value="source" selected>Source projection</option>
-        <option value="equirectangular">Equirectangular</option>
-      </select>
-    </label>
-    <label>Resampling
-      <select id="picker-resampling">
-        <option value="nearest" selected>Nearest</option>
-        <option value="bilinear">Bilinear</option>
-      </select>
-    </label>
-    <label><input type="checkbox" id="flip-y"> Flip Y axis</label>
+    <div class="toolbar-row">
+      <label>Projection
+        <select id="picker-projection">
+          <option value="source" selected>Source projection</option>
+${meta.reprojectable
+          ? `          <option value="equirectangular">Equirectangular</option>
+          <option value="web_mercator">Web Mercator</option>
+          <option value="orthographic">Orthographic</option>
+          <option value="polar_stereographic">Polar stereographic</option>`
+          : ""}
+        </select>
+${meta.reprojectable
+        ? ""
+        : `        <span class="picker-note">Reprojection isn't available for ${escapeHtml(meta.gridType ?? "this")} grids yet.</span>`}
+      </label>
+      <label id="preset-ortho" hidden>Center
+        <select id="picker-preset-ortho">
+          <option value="atlantic" selected>Atlantic (0°N 0°E)</option>
+          <option value="indian">Indian Ocean (0°N 90°E)</option>
+          <option value="pacific">Pacific (0°N 180°E)</option>
+          <option value="americas">Americas (0°N 270°E)</option>
+          <option value="north_pole">North pole</option>
+          <option value="south_pole">South pole</option>
+        </select>
+      </label>
+      <label id="preset-polar" hidden>Hemisphere
+        <select id="picker-preset-polar">
+          <option value="north" selected>North</option>
+          <option value="south">South</option>
+        </select>
+      </label>
+      <label>Resampling
+        <select id="picker-resampling">
+          <option value="nearest" selected>Nearest</option>
+          <option value="bilinear">Bilinear</option>
+        </select>
+      </label>
+      <label><input type="checkbox" id="flip-y"> Flip Y axis</label>
+    </div>
     <fieldset>
-      <legend>Range:</legend>
+      <legend>Color Range:</legend>
       <label><input type="radio" name="range-mode" value="auto" checked> Auto</label>
       <label><input type="radio" name="range-mode" value="manual"> Manual</label>
       <span id="range-manual-fields" hidden>
@@ -294,10 +616,31 @@ export function renderImagePanelHtml(
         <label>max <input type="number" id="range-max" step="any"></label>
       </span>
     </fieldset>
+    <fieldset id="bounds-fieldset" hidden>
+      <legend>Bounds:</legend>
+      <label><input type="radio" name="bounds-mode" value="auto" checked> Auto</label>
+      <label><input type="radio" name="bounds-mode" value="manual"> Manual</label>
+      <span id="bounds-manual-fields" hidden>
+        <label>lat min <input type="number" id="bounds-lat-min" step="any"></label>
+        <label>lat max <input type="number" id="bounds-lat-max" step="any"></label>
+        <label>lon min <input type="number" id="bounds-lon-min" step="any"></label>
+        <label>lon max <input type="number" id="bounds-lon-max" step="any"></label>
+      </span>
+    </fieldset>
+    <fieldset>
+      <legend>Overlay:</legend>
+      <label><input type="checkbox" id="overlay-coastlines"> Coastlines</label>
+      <label><input type="checkbox" id="overlay-graticule"> Graticule</label>
+      <label id="graticule-spacing-label" class="spacing-hidden">spacing
+        <input type="number" id="graticule-spacing" value="30" min="5" max="90" step="5"></label>
+    </fieldset>
   </div>
   <div id="status">Rendering…</div>
   <div class="render-area">
-    <canvas id="canvas" width="320" height="320"></canvas>
+    <div class="canvas-wrap">
+      <canvas id="canvas" width="320" height="320"></canvas>
+      <canvas id="overlay"></canvas>
+    </div>
     <div class="colorbar-wrap">
       <div class="cb" aria-label="viridis colormap"></div>
       <div class="colorbar-labels">

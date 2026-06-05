@@ -1,0 +1,20 @@
+{
+  "count": 29040,
+  "missing_count": 0,
+  "min": 0.0,
+  "max": 12015.0,
+  "mean": 6007.5,
+  "samples": {
+    "0": 0.0,
+    "1": 1.0,
+    "15": 15.0,
+    "16": 0.0,
+    "239": 15.0,
+    "240": 100.0,
+    "241": 101.0,
+    "28800": 12000.0,
+    "29039": 12015.0
+  },
+  "tolerance_absolute": 0.001,
+  "source": "eccodes 2.34.1 grib_get_data. Oracle for a hand-built grid_second_order_constant_width (explicit secondary bitmap, 121 groups of 240, single groupWidth=4; value[n]=(n//240)*100 + n%16). Provenance in NOTICE.md."
+}

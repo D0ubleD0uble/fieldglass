@@ -51,6 +51,13 @@ export interface MessageMeta {
   lambertLatin1: number | null;
   lambertLatin2: number | null;
   gaussianNParallels: number | null;
+  /** Human-readable data-packing method (GRIB1 BDS packing / GRIB2 §5
+   *  data-representation template), e.g. "Second-order (SPD-2)". */
+  packing: string | null;
+  /** Whether this grid supports reprojection (the non-source projection
+   *  targets). False for grid types without a warp yet (e.g. rotated lat/lon)
+   *  or with a degenerate Dx/Dy; the panel hides those options when false. */
+  reprojectable: boolean;
 }
 
 export interface DimensionMeta {
@@ -90,11 +97,33 @@ export interface DatasetMeta {
 /** Picker state posted from the render panel and forwarded into the
  *  Rust render pipeline. */
 export interface RenderOptions {
-  projection: "source" | "equirectangular";
+  projection:
+    | "source"
+    | "equirectangular"
+    | "web_mercator"
+    | "orthographic"
+    | "polar_stereographic";
+  /** Preset for the parameterised targets. "orthographic" reads a centre
+   *  preset ("atlantic" (default), "indian", "pacific", "americas",
+   *  "north_pole", "south_pole"); "polar_stereographic" reads a hemisphere
+   *  preset ("north" (default),
+   *  "south"). Ignored by the lat/lon-box targets. */
+  projectionPreset?: string;
   resampling: "nearest" | "bilinear";
   flipY: boolean;
   rangeMin?: number;
   rangeMax?: number;
+  /** Manual lat/lon extent override (degrees). Consulted for the warped
+   *  lat/lon targets — "equirectangular" and "web_mercator". Pass all four to
+   *  render that window; partial/inverted boxes fall back to the computed
+   *  source bounds. lonMin/lonMax may sit outside [-180, 180] to describe an
+   *  antimeridian-crossing window — pass back the echoed values verbatim to
+   *  reproduce a view. For web_mercator the latitude extent is clamped to the
+   *  projection's valid band (~±85.05°). */
+  boundsLatMin?: number;
+  boundsLatMax?: number;
+  boundsLonMin?: number;
+  boundsLonMax?: number;
 }
 
 export interface RenderedGrid {
@@ -103,6 +132,14 @@ export interface RenderedGrid {
   height: number;
   usedMin: number;
   usedMax: number;
+  /** Geographic extent actually rendered (degrees), echoed back so the
+   *  panel can pre-fill the manual-bounds inputs. Present for the warped
+   *  lat/lon targets (equirectangular, web_mercator); undefined for the
+   *  source-projection target (no geographic extent). */
+  usedLatMin?: number;
+  usedLatMax?: number;
+  usedLonMin?: number;
+  usedLonMax?: number;
   projectionSummary: string;
 }
 
@@ -113,17 +150,40 @@ export interface DecodedGrid {
   height: number;
 }
 
+/** Geographic polylines projected into the warped raster's pixel space for
+ *  the overlay layer (coastline / graticule / future user shapes). `xy` is
+ *  flat `[x0, y0, x1, y1, …]` in output pixel coordinates (post-flipY,
+ *  identical to the rendered raster); `segLengths` gives the vertex count of
+ *  each visible run, so `sum(segLengths) * 2 === xy.length`. May be empty when
+ *  no run survives clipping (every vertex projects off the visible domain). */
+export interface ProjectedOverlay {
+  xy: Float64Array;
+  segLengths: Uint32Array;
+}
+
 export interface Grib1Handle {
   messages(): MessageMeta[];
   decodeGrid(messageIndex: number): DecodedGrid;
   setP1(messageIndex: number, value: number): Buffer;
   renderGrid(messageIndex: number, options: RenderOptions): RenderedGrid;
+  projectOverlay(
+    messageIndex: number,
+    options: RenderOptions,
+    latlon: Float64Array,
+    ringLengths: Uint32Array,
+  ): ProjectedOverlay;
 }
 
 export interface Grib2Handle {
   messages(): MessageMeta[];
   decodeGrid(messageIndex: number): DecodedGrid;
   renderGrid(messageIndex: number, options: RenderOptions): RenderedGrid;
+  projectOverlay(
+    messageIndex: number,
+    options: RenderOptions,
+    latlon: Float64Array,
+    ringLengths: Uint32Array,
+  ): ProjectedOverlay;
 }
 
 export interface Grib1HandleCtor {

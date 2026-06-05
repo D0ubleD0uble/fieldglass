@@ -1,4 +1,7 @@
-use fieldglass_core::FieldglassError;
+use fieldglass_core::{
+    FieldglassError, LambertParams, LambertProjector, PlanarGridProjector, PolarStereoParams,
+    PolarStereoProjector,
+};
 
 // ---------------------------------------------------------------------------
 // Flag bytes
@@ -99,6 +102,36 @@ pub struct PolarStereoGrid {
     pub scanning_mode: ScanningMode,
 }
 
+impl PolarStereoGrid {
+    /// Geographic `(lat, lon)` of the last scanned grid point — the corner
+    /// diagonally opposite the origin.
+    ///
+    /// GRIB1 polar-stereographic GDS encodes only the first point (La1/Lo1);
+    /// unlike a lat/lon grid there is no La2/Lo2 to read. The opposite corner
+    /// is recovered by forward-projecting the origin to plane metres, stepping
+    /// `(Nx-1)·Dx` / `(Ny-1)·Dy`, and inverse-projecting back to lat/lon.
+    fn last_point(&self) -> (f64, f64) {
+        let projector = PolarStereoProjector::new(PolarStereoParams {
+            ni: self.nx,
+            nj: self.ny,
+            lat_first: self.lat_first,
+            lon_first: self.lon_first,
+            lov: self.lov,
+            // GRIB1 polar stereo fixes the latitude of true scale at ±60°
+            // (there is no LaD field); the projector takes the magnitude.
+            lad: 60.0,
+            dx_metres: self.dx_m as f64,
+            dy_metres: self.dy_m as f64,
+            south_pole: self.south_pole,
+        });
+        let (lat, lon) = projector.last_grid_point_lonlat();
+        // The inverse is `lov + atan2(..)` and can land outside [-180, 180]
+        // (e.g. lov=247 yields ~328°); normalise so the reported corner is
+        // consistent with the first point's longitude convention.
+        (lat, normalise_longitude(lon))
+    }
+}
+
 /// Grid type 3 — Lambert Conformal (conic or bi-polar).
 pub struct LambertGrid {
     pub nx: u32,
@@ -123,6 +156,32 @@ pub struct LambertGrid {
     pub lon_south_pole: f64,
     pub resolution_flags: ResolutionFlags,
     pub scanning_mode: ScanningMode,
+}
+
+impl LambertGrid {
+    /// Geographic `(lat, lon)` of the last scanned grid point — the corner
+    /// diagonally opposite the origin.
+    ///
+    /// Like polar stereographic, a GRIB1 Lambert GDS encodes only the first
+    /// point; the opposite corner is recovered from the projection. `LaD`
+    /// (latitude of true scale) is taken as the first standard parallel,
+    /// matching how the warp path builds [`LambertParams`].
+    fn last_point(&self) -> (f64, f64) {
+        let projector = LambertProjector::new(LambertParams {
+            ni: self.nx,
+            nj: self.ny,
+            lat_first: self.lat_first,
+            lon_first: self.lon_first,
+            lad: self.latin1,
+            lov: self.lov,
+            dx_metres: self.dx_m as f64,
+            dy_metres: self.dy_m as f64,
+            latin1: self.latin1,
+            latin2: self.latin2,
+        });
+        let (lat, lon) = projector.last_grid_point_lonlat();
+        (lat, normalise_longitude(lon))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -167,8 +226,14 @@ impl GridDescription {
         match self {
             Self::LatLon(g) => Some((g.lat_first, g.lon_first, g.lat_last, g.lon_last)),
             Self::Gaussian(g) => Some((g.lat_first, g.lon_first, g.lat_last, g.lon_last)),
-            Self::PolarStereographic(g) => Some((g.lat_first, g.lon_first, 0.0, 0.0)),
-            Self::LambertConformal(g) => Some((g.lat_first, g.lon_first, 0.0, 0.0)),
+            Self::PolarStereographic(g) => {
+                let (lat_last, lon_last) = g.last_point();
+                Some((g.lat_first, g.lon_first, lat_last, lon_last))
+            }
+            Self::LambertConformal(g) => {
+                let (lat_last, lon_last) = g.last_point();
+                Some((g.lat_first, g.lon_first, lat_last, lon_last))
+            }
             Self::Unsupported { .. } => None,
         }
     }
@@ -312,6 +377,13 @@ fn read_signed_magnitude_24(b: &[u8]) -> i32 {
     }
 }
 
+/// Wrap a longitude in degrees into the half-open range (-180, 180].
+fn normalise_longitude(lon: f64) -> f64 {
+    let wrapped = (lon + 180.0).rem_euclid(360.0) - 180.0;
+    // rem_euclid maps exactly 180 to -180; prefer +180 as the upper bound.
+    if wrapped == -180.0 { 180.0 } else { wrapped }
+}
+
 fn require_len(b: &[u8], min: usize, label: &str) -> Result<(), FieldglassError> {
     if b.len() < min {
         Err(FieldglassError::Parse(format!(
@@ -432,6 +504,63 @@ mod grid_variant_tests {
     }
 
     #[test]
+    fn lambert_bounds_compute_opposite_corner() {
+        // Same CONUS Lambert grid as above. A GRIB1 Lambert GDS carries no
+        // La2/Lo2, so `bounds()` must derive the last grid point from the
+        // projection instead of returning the (0, 0) placeholder.
+        let mut body = Vec::new();
+        body.extend(u16be(601));
+        body.extend(u16be(401));
+        body.extend(sm24(38_500)); // lat_first
+        body.extend(sm24(-126_000)); // lon_first
+        body.push(0xC0);
+        body.extend(sm24(-95_000)); // lov
+        body.extend(u24(13_545)); // dx_m
+        body.extend(u24(13_545)); // dy_m
+        body.push(0); // north pole
+        body.push(0x40);
+        body.extend(sm24(38_500)); // latin1
+        body.extend(sm24(38_500)); // latin2
+        body.extend(sm24(0));
+        body.extend(sm24(0));
+
+        let parsed = parse_grid_description(&build_gds(3, &body)).expect("parses");
+        let (la1, lo1, la2, lo2) = parsed.bounds().expect("Lambert has bounds");
+        assert_eq!((la1, lo1), (38.500, -126.000), "first point unchanged");
+        assert!(
+            (la2, lo2) != (0.0, 0.0),
+            "last point should be computed, got the placeholder"
+        );
+        // The grid is ~8000 km wide, so its opposite corner ≈ (57.248°N,
+        // 15.284°E) — well east of the prime meridian, normalised to
+        // (-180, 180]. The point is that it is a real corner, not (0, 0).
+        assert!((la2 - 57.248).abs() < 1e-2, "lat_last: {la2}");
+        assert!((lo2 - 15.284).abs() < 1e-2, "lon_last: {lo2}");
+
+        // Round-trip: forward-projecting the corner reproduces the far grid
+        // point's plane coordinates.
+        let GridDescription::LambertConformal(g) = parsed else {
+            unreachable!("parsed as Lambert above");
+        };
+        let projector = LambertProjector::new(LambertParams {
+            ni: g.nx,
+            nj: g.ny,
+            lat_first: g.lat_first,
+            lon_first: g.lon_first,
+            lad: g.latin1,
+            lov: g.lov,
+            dx_metres: g.dx_m as f64,
+            dy_metres: g.dy_m as f64,
+            latin1: g.latin1,
+            latin2: g.latin2,
+        });
+        let (ox, oy) = projector.origin();
+        let (x, y) = projector.forward(la2, lo2);
+        assert!((x - (ox + 600.0 * 13_545.0)).abs() < 1e-3, "x metres: {x}");
+        assert!((y - (oy + 400.0 * 13_545.0)).abs() < 1e-3, "y metres: {y}");
+    }
+
+    #[test]
     fn parses_polar_stereographic_gds() {
         // 800×800 northern-hemisphere polar stereographic, origin at the
         // grid's south-east corner, 5 km resolution, orientation -80°.
@@ -460,6 +589,63 @@ mod grid_variant_tests {
         assert_eq!(g.dx_m, 5_000);
         assert_eq!(g.dy_m, 5_000);
         assert!(g.south_pole);
+    }
+
+    #[test]
+    fn polar_stereo_bounds_compute_opposite_corner() {
+        // GRIB1 polar-stereographic GDS carries no La2/Lo2, so `bounds()`
+        // must derive the last grid point from the projection rather than
+        // returning a (0, 0) placeholder. Verify the derived corner is a
+        // real, distinct lat/lon and round-trips back to grid index
+        // (nx-1, ny-1) through the same projector.
+        let mut body = Vec::new();
+        body.extend(u16be(800)); // nx
+        body.extend(u16be(800)); // ny
+        body.extend(sm24(-20_826)); // lat_first
+        body.extend(sm24(-145_000)); // lon_first
+        body.push(0x88);
+        body.extend(sm24(-80_000)); // lov
+        body.extend(u24(5_000)); // dx_m
+        body.extend(u24(5_000)); // dy_m
+        body.push(0x80); // south pole on plane
+        body.push(0x40);
+
+        let parsed = parse_grid_description(&build_gds(5, &body)).expect("parses");
+        let (la1, lo1, la2, lo2) = parsed.bounds().expect("polar stereo has bounds");
+        assert_eq!((la1, lo1), (-20.826, -145.000), "first point unchanged");
+        // No longer the (0, 0) sentinel.
+        assert!(
+            (la2, lo2) != (0.0, 0.0),
+            "last point should be computed, got the placeholder"
+        );
+        assert!(
+            (-90.0..=0.0).contains(&la2),
+            "south-polar lat in range: {la2}"
+        );
+        assert!((-180.0..=180.0).contains(&lo2), "lon in range: {lo2}");
+
+        // Round-trip: forward-projecting the derived corner reproduces the
+        // far grid point's plane coordinates, (nx-1)·Dx / (ny-1)·Dy from the
+        // origin. (Going through `inverse()` instead would skim the index
+        // upper bound and get rejected on a floating-point hair.)
+        let GridDescription::PolarStereographic(g) = parsed else {
+            unreachable!("parsed as polar stereo above");
+        };
+        let projector = PolarStereoProjector::new(PolarStereoParams {
+            ni: g.nx,
+            nj: g.ny,
+            lat_first: g.lat_first,
+            lon_first: g.lon_first,
+            lov: g.lov,
+            lad: 60.0,
+            dx_metres: g.dx_m as f64,
+            dy_metres: g.dy_m as f64,
+            south_pole: g.south_pole,
+        });
+        let (ox, oy) = projector.origin();
+        let (x, y) = projector.forward(la2, lo2);
+        assert!((x - (ox + 799.0 * 5_000.0)).abs() < 1e-3, "x metres: {x}");
+        assert!((y - (oy + 799.0 * 5_000.0)).abs() < 1e-3, "y metres: {y}");
     }
 
     #[test]

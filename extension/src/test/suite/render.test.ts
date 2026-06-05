@@ -26,9 +26,12 @@ import * as vscode from "vscode";
 
 import {
   buildGridReadyMessage,
+  resolveRerenderOptions,
   type GridReadyMessage,
 } from "../../provider";
-import { loadNative, type RenderOptions } from "../../native";
+import { loadNative, type MessageMeta, type RenderOptions } from "../../native";
+import { buildGraticule, flattenLonLatLines, loadCoastline } from "../../overlay";
+import { renderImagePanelHtml } from "../../render-panel";
 
 const EXT_ID = "fieldglass.fieldglass";
 
@@ -190,6 +193,8 @@ suite("Render pipeline", () => {
       lambertLatin1: null,
       lambertLatin2: null,
       gaussianNParallels: null,
+      packing: null,
+      reprojectable: true,
     };
     const options = defaultRenderOptions();
     const message: GridReadyMessage = buildGridReadyMessage(
@@ -255,6 +260,122 @@ suite("Render pipeline", () => {
     });
   });
 
+  test("GRIB1 equirectangular: antimeridian-tight bounds echoed + manual override honored", () => {
+    const native = loadNative();
+    assert.ok(native, "native module must load");
+    const bytes = fs.readFileSync(fixturePath("cmc_wind_300_2010052400_p012.grib"));
+    const handle = native.Grib1Handle.fromBytes(bytes);
+
+    const eqr: RenderOptions = {
+      projection: "equirectangular",
+      resampling: "nearest",
+      flipY: false,
+    };
+    const auto = handle.renderGrid(0, eqr);
+
+    // The equirectangular target echoes its geographic extent back...
+    assert.ok(
+      auto.usedLatMin !== undefined && auto.usedLatMin !== null,
+      "equirectangular render must echo geographic bounds",
+    );
+    // ...and the dateline-crossing CMC grid resolves to a tight longitude
+    // span (<180°), not the spurious ~312° box naive min/max would produce.
+    const lonSpan = (auto.usedLonMax as number) - (auto.usedLonMin as number);
+    assert.ok(lonSpan > 0 && lonSpan < 180, `expected tight lon span (<180°), got ${lonSpan}`);
+    // The top edge bows toward the pole to ~80.6°N — well above the highest
+    // corner (60.5°N). A four-corner box would report the corner value, so
+    // this guards the perimeter-sampling fix end-to-end.
+    assert.ok(
+      (auto.usedLatMax as number) > 75,
+      `lat_max should follow the edge toward the pole, got ${auto.usedLatMax}`,
+    );
+
+    // A manual window is rendered and echoed back verbatim (including a value
+    // the user could have typed for an antimeridian view).
+    const windowed = handle.renderGrid(0, {
+      ...eqr,
+      boundsLatMin: 30,
+      boundsLatMax: 60,
+      boundsLonMin: -140,
+      boundsLonMax: -60,
+    });
+    assert.strictEqual(windowed.usedLatMin, 30);
+    assert.strictEqual(windowed.usedLatMax, 60);
+    assert.strictEqual(windowed.usedLonMin, -140);
+    assert.strictEqual(windowed.usedLonMax, -60);
+
+    // A partial/invalid box silently falls back to the computed extent.
+    const partial = handle.renderGrid(0, { ...eqr, boundsLatMin: 30 });
+    assert.strictEqual(partial.usedLatMin, auto.usedLatMin);
+    assert.strictEqual(partial.usedLonMin, auto.usedLonMin);
+
+    // Source projection has no geographic extent.
+    const src = handle.renderGrid(0, defaultRenderOptions());
+    assert.ok(src.usedLatMin === undefined || src.usedLatMin === null);
+  });
+
+  test("GRIB1 web mercator: renders, echoes bounds clamped to the Mercator band", () => {
+    const native = loadNative();
+    assert.ok(native, "native module must load");
+    const bytes = fs.readFileSync(fixturePath("cmc_wind_300_2010052400_p012.grib"));
+    const handle = native.Grib1Handle.fromBytes(bytes);
+
+    const merc = handle.renderGrid(0, {
+      projection: "web_mercator",
+      resampling: "nearest",
+      flipY: false,
+    });
+
+    // Web Mercator is a warped lat/lon target, so it echoes geographic bounds.
+    assert.ok(
+      merc.usedLatMin !== undefined && merc.usedLatMin !== null,
+      "web mercator render must echo geographic bounds",
+    );
+    // The CMC top edge bows to ~80.6°N, beyond Mercator's ~85.05° limit it
+    // stays — but the clamp must keep the extent inside the valid band.
+    assert.ok(
+      (merc.usedLatMax as number) <= 85.06 && (merc.usedLatMin as number) >= -85.06,
+      `lat extent must be clamped to the Mercator band, got ${merc.usedLatMin}..${merc.usedLatMax}`,
+    );
+    assert.ok(
+      /web mercator/.test(merc.projectionSummary),
+      `summary should name the target, got: ${merc.projectionSummary}`,
+    );
+    // The RGBA buffer is the source-dim raster, fully populated.
+    assert.strictEqual(merc.rgba.length, merc.width * merc.height * 4);
+  });
+
+  test("GRIB1 azimuthal targets: orthographic + polar stereographic render via presets", () => {
+    const native = loadNative();
+    assert.ok(native, "native module must load");
+    const bytes = fs.readFileSync(fixturePath("cmc_wind_300_2010052400_p012.grib"));
+    const handle = native.Grib1Handle.fromBytes(bytes);
+
+    const ortho = handle.renderGrid(0, {
+      projection: "orthographic",
+      projectionPreset: "north_pole",
+      resampling: "nearest",
+      flipY: false,
+    });
+    // Azimuthal targets fit a disc to the raster — no lat/lon-box extent.
+    assert.ok(
+      ortho.usedLatMin === undefined || ortho.usedLatMin === null,
+      "orthographic target has no geographic box extent",
+    );
+    assert.ok(/orthographic/.test(ortho.projectionSummary), ortho.projectionSummary);
+    assert.strictEqual(ortho.rgba.length, ortho.width * ortho.height * 4);
+
+    const polar = handle.renderGrid(0, {
+      projection: "polar_stereographic",
+      projectionPreset: "north",
+      resampling: "nearest",
+      flipY: false,
+    });
+    assert.ok(polar.usedLatMin === undefined || polar.usedLatMin === null);
+    assert.ok(/polar stereographic/.test(polar.projectionSummary), polar.projectionSummary);
+    assert.strictEqual(polar.rgba.length, polar.width * polar.height * 4);
+  });
+
   test("GRIB2: renderGrid output post-wrap reaches the webview intact", async () => {
     const native = loadNative();
     assert.ok(native, "native module must load");
@@ -289,5 +410,258 @@ suite("Render pipeline", () => {
       "separate workstream; classic should not regress)");
     assert.ok(dataset.dimensions.length > 0, "expected at least one dimension");
     assert.ok(dataset.variables.length > 0, "expected at least one variable");
+  });
+});
+
+suite("rerenderRequest option clamp", () => {
+  // `resolveRerenderOptions` is the provider-side glue between the picker and
+  // the native render. The #71 regression lived here: the clamp predated the
+  // new targets and snapped everything except "equirectangular" back to
+  // "source", so Web Mercator / orthographic / polar-stereographic and their
+  // presets silently did nothing. These pin the clamp so adding a picker
+  // option without wiring it through here fails loudly.
+
+  test("every picker projection survives the clamp", () => {
+    const pickerProjections: ReadonlyArray<RenderOptions["projection"]> = [
+      "source",
+      "equirectangular",
+      "web_mercator",
+      "orthographic",
+      "polar_stereographic",
+    ];
+    for (const projection of pickerProjections) {
+      assert.strictEqual(
+        resolveRerenderOptions({ projection }).projection,
+        projection,
+        `${projection} must pass through, not snap to source`,
+      );
+    }
+  });
+
+  test("forwards the azimuthal centre/hemisphere preset untouched", () => {
+    const ortho = resolveRerenderOptions({
+      projection: "orthographic",
+      projectionPreset: "north_pole",
+    });
+    assert.strictEqual(ortho.projectionPreset, "north_pole");
+
+    const polar = resolveRerenderOptions({
+      projection: "polar_stereographic",
+      projectionPreset: "south",
+    });
+    assert.strictEqual(polar.projectionPreset, "south");
+  });
+
+  test("unknown projection / resampling snap to their defaults", () => {
+    const r = resolveRerenderOptions({
+      projection: "mollweide" as RenderOptions["projection"],
+      resampling: "lanczos" as RenderOptions["resampling"],
+    });
+    assert.strictEqual(r.projection, "source");
+    assert.strictEqual(r.resampling, "nearest");
+  });
+
+  test("bilinear resampling is preserved; manual bounds pass through", () => {
+    const r = resolveRerenderOptions({
+      projection: "web_mercator",
+      resampling: "bilinear",
+      boundsLatMin: 10,
+      boundsLatMax: 60,
+      boundsLonMin: -140,
+      boundsLonMax: -60,
+    });
+    assert.strictEqual(r.resampling, "bilinear");
+    assert.deepStrictEqual(
+      [r.boundsLatMin, r.boundsLatMax, r.boundsLonMin, r.boundsLonMax],
+      [10, 60, -140, -60],
+    );
+  });
+});
+
+suite("overlay geometry", () => {
+  // overlay.ts produces only geographic (lat, lon) polylines — the projection
+  // into pixels lives in Rust. These pin the flat-array contract shape every
+  // layer hands to `projectOverlay`.
+
+  test("flattenLonLatLines swaps to lat,lon order and counts rings", () => {
+    // Input is GeoJSON-order [lon, lat, …]; output must be [lat, lon, …].
+    const g = flattenLonLatLines([[10, 20, 11, 21]]);
+    assert.deepStrictEqual(Array.from(g.latlon), [20, 10, 21, 11]);
+    assert.deepStrictEqual(Array.from(g.ringLengths), [2]);
+  });
+
+  test("buildGraticule yields in-range lat,lon lines with a consistent shape", () => {
+    const g = buildGraticule(30);
+    assert.ok(g.ringLengths.length > 0, "graticule has lines");
+    const total = Array.from(g.ringLengths).reduce((a, b) => a + b, 0);
+    assert.strictEqual(total * 2, g.latlon.length, "ringLengths must cover every vertex");
+    for (let i = 0; i < g.latlon.length; i += 2) {
+      assert.ok(g.latlon[i] >= -90 - 1e-9 && g.latlon[i] <= 90 + 1e-9, "lat in range");
+      assert.ok(g.latlon[i + 1] >= -180 - 1e-9 && g.latlon[i + 1] <= 180 + 1e-9, "lon in range");
+    }
+  });
+
+  test("buildGraticule emits no duplicate meridian at the antimeridian", () => {
+    // A meridian is a constant-longitude line; +180 and -180 are the same line.
+    // The loop excludes +180 so the antimeridian (-180) is stroked once. Walk
+    // each line and collect its constant longitude; no two meridians may share
+    // one, and +180 must never appear.
+    const g = buildGraticule(30);
+    const meridianLons = new Set<number>();
+    let p = 0;
+    for (const len of Array.from(g.ringLengths)) {
+      const firstLon = g.latlon[p * 2 + 1];
+      let constantLon = true;
+      for (let v = 0; v < len; v++) {
+        if (g.latlon[(p + v) * 2 + 1] !== firstLon) {
+          constantLon = false;
+          break;
+        }
+      }
+      if (constantLon) {
+        assert.ok(firstLon < 180 - 1e-9, `meridian at +180 must be excluded, got ${firstLon}`);
+        assert.ok(!meridianLons.has(firstLon), `duplicate meridian at lon ${firstLon}`);
+        meridianLons.add(firstLon);
+      }
+      p += len;
+    }
+  });
+
+  test("loadCoastline parses the bundled asset into flat lat,lon", () => {
+    const c = loadCoastline();
+    assert.ok(c.ringLengths.length > 0, "coastline has polylines");
+    const total = Array.from(c.ringLengths).reduce((a, b) => a + b, 0);
+    assert.strictEqual(total * 2, c.latlon.length);
+  });
+});
+
+suite("render-panel HTML", () => {
+  // The webview's orthographic preset <select> values are the contract with
+  // Rust's `orthographic_from_preset`, which recognises exactly this set and
+  // silently falls back to Atlantic for anything else. Pin the picker so it
+  // can't drift away from the recognised presets unnoticed.
+
+  function fakeMeta(): MessageMeta {
+    return {
+      messageIndex: 0,
+      offsetBytes: 0,
+      parameterName: "",
+      parameterUnits: "",
+      parameterAbbreviation: "",
+      level: "",
+      levelType: "",
+      referenceTime: "",
+      forecastHours: 0,
+      forecastDisplay: "",
+      originatingCentre: "",
+      gridType: null,
+      gridNi: null,
+      gridNj: null,
+      latFirst: null,
+      lonFirst: null,
+      latLast: null,
+      lonLast: null,
+      format: "grib1",
+      edition: null,
+      discipline: null,
+      totalLengthBytes: null,
+      productionStatus: null,
+      dataType: null,
+      lambertLad: null,
+      lambertLov: null,
+      lambertDxMetres: null,
+      lambertDyMetres: null,
+      lambertLatin1: null,
+      lambertLatin2: null,
+      gaussianNParallels: null,
+      packing: null,
+      reprojectable: true,
+    };
+  }
+
+  test("orthographic preset picker matches the Rust-recognised preset set", () => {
+    const html = renderImagePanelHtml(
+      { cspSource: "" } as unknown as vscode.Webview,
+      fakeMeta(),
+      "summary",
+    );
+    // Isolate the <select id="picker-preset-ortho"> … </select> block, then
+    // pull every <option value="…"> within it.
+    const selectMatch = /<select id="picker-preset-ortho">([\s\S]*?)<\/select>/.exec(html);
+    assert.ok(selectMatch, "picker-preset-ortho select must exist in the HTML");
+    const values: string[] = [];
+    const optionRe = /<option value="([^"]*)"/g;
+    let m: RegExpExecArray | null;
+    while ((m = optionRe.exec(selectMatch[1])) !== null) {
+      values.push(m[1]);
+    }
+    assert.deepStrictEqual(
+      values,
+      ["atlantic", "indian", "pacific", "americas", "north_pole", "south_pole"],
+      "ortho preset picker must match Rust's orthographic_from_preset set " +
+        "(an unknown value silently falls back to Atlantic)",
+    );
+  });
+});
+
+suite("overlay projection (native)", () => {
+  // The forward projection runs in Rust via `projectOverlay`. These pin the
+  // additive napi contract: a well-formed ProjectedOverlay whose segLengths
+  // account for every xy pair, for both a warped target and the source
+  // projection (which maps through the grid's own inverse).
+
+  function grib1Handle() {
+    const native = loadNative();
+    assert.ok(native, "native module must load");
+    const bytes = fs.readFileSync(fixturePath("cmc_wind_300_2010052400_p012.grib"));
+    return native.Grib1Handle.fromBytes(bytes);
+  }
+
+  test("projectOverlay maps coastline into the warped raster's pixel space", () => {
+    const handle = grib1Handle();
+    const coast = loadCoastline();
+    const eqr: RenderOptions = {
+      projection: "equirectangular",
+      resampling: "nearest",
+      flipY: false,
+    };
+    const out = handle.projectOverlay(0, eqr, coast.latlon, coast.ringLengths);
+    const total = Array.from(out.segLengths).reduce((a, b) => a + b, 0);
+    assert.strictEqual(total * 2, out.xy.length, "segLengths must account for every xy pair");
+    assert.ok(out.xy.length > 0, "coastline should project to a non-empty geometry");
+  });
+
+  test("source projection projects the overlay through the grid's inverse map", () => {
+    // The source raster paints grid point (i, j) at pixel (i, j), so the
+    // overlay maps through the grid's own inverse — coastlines/graticule show
+    // on the source projection too, not only the warped targets.
+    const handle = grib1Handle();
+    const coast = loadCoastline();
+    const out = handle.projectOverlay(0, defaultRenderOptions(), coast.latlon, coast.ringLengths);
+    const total = Array.from(out.segLengths).reduce((a, b) => a + b, 0);
+    assert.strictEqual(total * 2, out.xy.length, "segLengths must account for every xy pair");
+    assert.ok(out.xy.length > 0, "coastline should project onto the source raster");
+  });
+
+  test("projectOverlay throws on an unrenderable target so the panel can recover", () => {
+    // A Web Mercator window lying entirely poleward of the ±85.05° cutoff is
+    // rejected by the warp setup. projectOverlay must surface that as a thrown
+    // error (the provider reports it as a seq-tagged `overlayError`, which the
+    // panel handles by re-arming the overlay instead of dead-ending it).
+    const handle = grib1Handle();
+    const coast = loadCoastline();
+    const opts: RenderOptions = {
+      projection: "web_mercator",
+      resampling: "nearest",
+      flipY: false,
+      boundsLatMin: 86,
+      boundsLatMax: 88,
+      boundsLonMin: -10,
+      boundsLonMax: 10,
+    };
+    assert.throws(
+      () => handle.projectOverlay(0, opts, coast.latlon, coast.ringLengths),
+      /Web Mercator/,
+    );
   });
 });

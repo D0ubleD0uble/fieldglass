@@ -14,6 +14,11 @@
 //! - Gauss–Legendre quadrature nodes for Gaussian grid latitudes —
 //!   Press et al., "Numerical Recipes", §4.6. Newton-Raphson on the
 //!   Legendre polynomial seeded with Chebyshev points.
+//! - Polar stereographic — Snyder, PP-1395 §21 (sphere, polar aspect),
+//!   eqs 21-33/21-34 (forward) and 20-14/20-17 (inverse). The pole scale
+//!   factor `k₀ = (1 + sin|LaD|)/2` follows the latitude of true scale
+//!   `LaD`: GRIB1 fixes it at ±60° (`k₀ ≈ 0.93301270…`), while GRIB2 §3.20
+//!   carries `LaD` explicitly (e.g. true scale at the pole → `k₀ = 1`).
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -338,7 +343,16 @@ pub fn lambert_forward(p: &LambertParams, lat: f64, lon: f64) -> (f64, f64) {
 
 fn lambert_forward_with(k: &LambertConstants, lov: f64, lat: f64, lon: f64) -> (f64, f64) {
     let lat_r = lat * DEG2RAD;
-    let d_lon = (lon - lov) * DEG2RAD;
+    // Wrap (lon − lov) into [-180, 180] *before* scaling by the cone constant.
+    // Unlike the polar projector — whose `d_lon` only ever reaches `sin`/`cos`
+    // and is therefore 360°-periodic — Lambert multiplies the difference by the
+    // cone constant `n` before the trig, so an unwrapped 360° offset (e.g. a
+    // query longitude in [-180, 180] against a `LoV` carried in [0, 360), as
+    // NCEP/Eta files store it) shifts the cone angle by `n·360°` and throws the
+    // point far outside the grid — which is why `equirectangular` rendered blank
+    // for the Eta Lambert grid. The inverse-index path (`LambertProjector::
+    // inverse`) routes through this forward map, so fixing it here is enough.
+    let d_lon = ((lon - lov + 180.0).rem_euclid(360.0) - 180.0) * DEG2RAD;
     let rho = k.earth_r * k.f_const / (PI / 4.0 + lat_r / 2.0).tan().powf(k.n);
     let x = rho * (k.n * d_lon).sin();
     let y = k.rho0 - rho * (k.n * d_lon).cos();
@@ -436,6 +450,370 @@ impl LambertProjector {
     /// non-origin corners.
     pub fn origin(&self) -> (f64, f64) {
         self.origin
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Polar Stereographic (GRIB1 grid_type 5, GRIB2 template 3.20)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PolarStereoParams {
+    pub ni: u32,
+    pub nj: u32,
+    /// Latitude of the grid origin (first scanned point), degrees.
+    pub lat_first: f64,
+    /// Longitude of the grid origin (first scanned point), degrees.
+    pub lon_first: f64,
+    /// Orientation longitude (`LoV`) — meridian parallel to the y-axis,
+    /// degrees.
+    pub lov: f64,
+    /// Latitude of true scale (`LaD`) — the parallel at which `dx_metres` /
+    /// `dy_metres` are specified, degrees. GRIB1 fixes this at ±60°; GRIB2
+    /// §3.20 carries it explicitly, so grids whose true scale is at the pole
+    /// (90°) or another parallel scale correctly.
+    pub lad: f64,
+    /// Grid spacing in metres along x at the latitude of true scale.
+    pub dx_metres: f64,
+    /// Grid spacing in metres along y at the latitude of true scale.
+    pub dy_metres: f64,
+    /// `true` ⇒ south-pole projection; `false` ⇒ north-pole. GRIB1 carries
+    /// this in the projection-centre flag; GRIB2 in §3.20 octet 17 bit 2.
+    pub south_pole: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct PolarStereoConstants {
+    /// `2 · R · k₀` where `k₀ = (1 + sin|LaD|)/2` is the pole scale factor for
+    /// a projection whose latitude of true scale is `LaD` (Snyder PP-1395,
+    /// eq. 21-15). The product is what every forward/inverse formula consumes.
+    two_r_k0: f64,
+    sign: f64,
+}
+
+fn polar_stereo_constants(lad: f64, south_pole: bool) -> PolarStereoConstants {
+    // The pole scale factor depends on the magnitude of the latitude of true
+    // scale; the hemisphere is handled separately by `sign`.
+    let k0 = (1.0 + (lad.abs() * DEG2RAD).sin()) / 2.0;
+    PolarStereoConstants {
+        two_r_k0: 2.0 * EARTH_RADIUS_M * k0,
+        sign: if south_pole { -1.0 } else { 1.0 },
+    }
+}
+
+/// Forward polar stereographic: `(lat, lon)` in degrees → `(x, y)` in
+/// metres, in a coordinate system centred on the projection pole with the
+/// y-axis along `lov`.
+///
+/// Undefined at the *opposite* pole (`tan` → ∞); GRIB grids never reach it,
+/// but pathological callers will see `±inf` / `NaN`.
+///
+/// **Recomputes constants per call.** For warp loops use [`PolarStereoProjector`].
+pub fn polar_stereo_forward(p: &PolarStereoParams, lat: f64, lon: f64) -> (f64, f64) {
+    polar_stereo_forward_with(
+        &polar_stereo_constants(p.lad, p.south_pole),
+        p.lov,
+        lat,
+        lon,
+    )
+}
+
+fn polar_stereo_forward_with(k: &PolarStereoConstants, lov: f64, lat: f64, lon: f64) -> (f64, f64) {
+    let lat_r = lat * DEG2RAD;
+    let d_lon = (lon - lov) * DEG2RAD;
+    // Snyder 21-33 (north) / 21-34 (south). For south-polar, `sign = -1`
+    // flips the latitude argument so the same `tan(π/4 - φ_s/2)` form
+    // works after substituting `φ_s = -lat`.
+    let rho = k.two_r_k0 * (PI / 4.0 - k.sign * lat_r / 2.0).tan();
+    let x = rho * d_lon.sin();
+    let y = -k.sign * rho * d_lon.cos();
+    (x, y)
+}
+
+/// Inverse polar stereographic: `(x, y)` in metres → `(lat, lon)` in
+/// degrees. Returns `(NaN, lov)` when `(x, y) == (0, 0)` (the projection
+/// pole), where longitude is undefined.
+pub fn polar_stereo_inverse_xy(p: &PolarStereoParams, x: f64, y: f64) -> (f64, f64) {
+    polar_stereo_inverse_xy_with(&polar_stereo_constants(p.lad, p.south_pole), p.lov, x, y)
+}
+
+fn polar_stereo_inverse_xy_with(k: &PolarStereoConstants, lov: f64, x: f64, y: f64) -> (f64, f64) {
+    let rho = (x * x + y * y).sqrt();
+    if rho == 0.0 {
+        // At the pole every meridian converges; longitude is undefined.
+        // Return lov as a convention so warp setup that hits this case
+        // doesn't NaN-pollute downstream min/max.
+        return (k.sign * 90.0, lov);
+    }
+    let c = 2.0 * (rho / k.two_r_k0).atan();
+    let lat = k.sign * (PI / 2.0 - c) * RAD2DEG;
+    // Snyder 20-16: λ = λ₀ + atan2(x, -y) for north-polar; flip the y-sign
+    // for south-polar (same `sign` flip used in the forward direction).
+    let lon = lov + x.atan2(-k.sign * y) * RAD2DEG;
+    (lat, lon)
+}
+
+/// Inverse warp: `(lat, lon)` → fractional source grid index. **Recomputes
+/// constants and the grid origin per call** — for warp loops use
+/// [`PolarStereoProjector`].
+pub fn polar_stereo_inverse(p: &PolarStereoParams, lat: f64, lon: f64) -> Option<GridIndex> {
+    PolarStereoProjector::new(*p).inverse(lat, lon)
+}
+
+/// Precomputed inverse map for a polar stereographic grid. Owns the
+/// pole-scale constant and the forward-projected grid origin — both
+/// invariant across every output pixel of a warp.
+pub struct PolarStereoProjector {
+    pub params: PolarStereoParams,
+    constants: PolarStereoConstants,
+    origin: (f64, f64),
+}
+
+impl PolarStereoProjector {
+    pub fn new(params: PolarStereoParams) -> Self {
+        let constants = polar_stereo_constants(params.lad, params.south_pole);
+        let origin =
+            polar_stereo_forward_with(&constants, params.lov, params.lat_first, params.lon_first);
+        Self {
+            params,
+            constants,
+            origin,
+        }
+    }
+
+    pub fn inverse(&self, lat: f64, lon: f64) -> Option<GridIndex> {
+        if !lat.is_finite() || !lon.is_finite() {
+            return None;
+        }
+        if self.params.ni < 2
+            || self.params.nj < 2
+            || self.params.dx_metres == 0.0
+            || self.params.dy_metres == 0.0
+        {
+            return None;
+        }
+        // Reject points on the wrong hemisphere — forward-projecting them
+        // would hit the `tan` singularity at the antipodal pole and yield
+        // ±inf, which then maps to a bogus grid index after the
+        // origin-relative division.
+        if self.params.south_pole {
+            if lat > 0.0 {
+                return None;
+            }
+        } else if lat < 0.0 {
+            return None;
+        }
+        let (x, y) = polar_stereo_forward_with(&self.constants, self.params.lov, lat, lon);
+        if !x.is_finite() || !y.is_finite() {
+            return None;
+        }
+        let i = (x - self.origin.0) / self.params.dx_metres;
+        let j = (y - self.origin.1) / self.params.dy_metres;
+        if i < 0.0 || i > self.params.ni as f64 - 1.0 || j < 0.0 || j > self.params.nj as f64 - 1.0
+        {
+            return None;
+        }
+        Some(GridIndex { i, j })
+    }
+
+    pub fn forward(&self, lat: f64, lon: f64) -> (f64, f64) {
+        polar_stereo_forward_with(&self.constants, self.params.lov, lat, lon)
+    }
+
+    pub fn inverse_xy(&self, x: f64, y: f64) -> (f64, f64) {
+        polar_stereo_inverse_xy_with(&self.constants, self.params.lov, x, y)
+    }
+
+    pub fn origin(&self) -> (f64, f64) {
+        self.origin
+    }
+
+    /// `true` when the projection pole (origin in projected metres) falls
+    /// inside the grid extent. Warp setup uses this to detect the case
+    /// where every meridian is represented in the grid and the
+    /// equirectangular target should span the full 360° of longitude.
+    pub fn pole_inside_grid(&self) -> bool {
+        let (ox, oy) = self.origin;
+        let max_x = ox + (self.params.ni as f64 - 1.0) * self.params.dx_metres;
+        let max_y = oy + (self.params.nj as f64 - 1.0) * self.params.dy_metres;
+        let (x_min, x_max) = if ox <= max_x {
+            (ox, max_x)
+        } else {
+            (max_x, ox)
+        };
+        let (y_min, y_max) = if oy <= max_y {
+            (oy, max_y)
+        } else {
+            (max_y, oy)
+        };
+        x_min <= 0.0 && 0.0 <= x_max && y_min <= 0.0 && 0.0 <= y_max
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Planar grids (Lambert, polar stereographic): shared corner geometry
+// ---------------------------------------------------------------------------
+
+/// A projection whose source grid lies on a plane in metres — a fixed origin
+/// at the first scanned point and constant `(dx, dy)` spacing. Lambert
+/// conformal and polar stereographic both qualify; lat/lon and Gaussian grids
+/// are already geographic and don't.
+///
+/// Implementors supply four cheap accessors; the trait derives the grid
+/// corners from them. This is the one geometry shared by every planar warp
+/// setup (target-bbox derivation) and by GRIB `bounds()` reporting, which
+/// otherwise reimplement `origin + (n-1)·d` per projection.
+pub trait PlanarGridProjector {
+    /// Grid origin (first scanned point) in projected metres.
+    fn grid_origin(&self) -> (f64, f64);
+    /// `(ni, nj)` grid dimensions in points.
+    fn grid_dims(&self) -> (u32, u32);
+    /// `(dx, dy)` spacing in metres at the latitude of true scale.
+    fn grid_spacing(&self) -> (f64, f64);
+    /// Inverse-project projected metres back to `(lat, lon)` in degrees.
+    fn inverse_lonlat(&self, x: f64, y: f64) -> (f64, f64);
+
+    /// The four grid corners in projected metres, ordered: origin, far-x
+    /// edge, far-y edge, opposite corner.
+    fn grid_corners_xy(&self) -> [(f64, f64); 4] {
+        let (ox, oy) = self.grid_origin();
+        let (ni, nj) = self.grid_dims();
+        let (dx, dy) = self.grid_spacing();
+        let ex = (ni as f64 - 1.0) * dx;
+        let ey = (nj as f64 - 1.0) * dy;
+        [(ox, oy), (ox + ex, oy), (ox, oy + ey), (ox + ex, oy + ey)]
+    }
+
+    /// The four grid corners as `(lat, lon)` in degrees. Longitudes are
+    /// returned as the inverse produces them (may fall outside [-180, 180]);
+    /// callers that need a normalised value should wrap it themselves.
+    fn grid_corners_lonlat(&self) -> [(f64, f64); 4] {
+        self.grid_corners_xy()
+            .map(|(x, y)| self.inverse_lonlat(x, y))
+    }
+
+    /// `(lat, lon)` of the last scanned grid point — the corner diagonally
+    /// opposite the origin. Same longitude caveat as [`Self::grid_corners_lonlat`].
+    fn last_grid_point_lonlat(&self) -> (f64, f64) {
+        self.grid_corners_lonlat()[3]
+    }
+
+    /// Axis-aligned lat/lon bounding box of the grid, returned as
+    /// `(lat_min, lat_max, lon_min, lon_max)`.
+    ///
+    /// The box is taken over a dense sample of the grid **perimeter**, not
+    /// just the four corners. A planar grid edge is a straight line in
+    /// projected metres but a *curve* in lat/lon, and its lat/lon extrema
+    /// generally fall in the interior of an edge — the classic case is the
+    /// point of an edge closest to the projection pole, which maximises
+    /// latitude and sits nowhere near a corner. Sampling only the corners
+    /// badly underestimates the extent (e.g. the CMC polar grid: corners cap
+    /// at 60°N while the top edge reaches ~80.6°N). Interior grid points can't
+    /// exceed the perimeter's lat/lon range for a pole-exterior grid, so the
+    /// boundary walk is sufficient.
+    ///
+    /// The longitude extent is the **minimum enclosing arc** of the perimeter
+    /// samples, found as the complement of the largest empty gap between
+    /// adjacent (sorted, wrapped) sample longitudes. This yields a tight,
+    /// continuous span for a grid straddling the ±180° antimeridian and, unlike
+    /// a single-reference unwrap, stays correct for grids whose azimuthal
+    /// extent exceeds 180° (e.g. a wide Lambert tile). The result is recentered
+    /// so its midpoint lies in [-180, 180]; `lon_min` may still be `< -180` (or
+    /// `lon_max > 180`) to describe a dateline-spanning window — intentional,
+    /// since the warp consumes it through periodic trig.
+    ///
+    /// A grid that fully *surrounds* the projection pole has no empty gap, so
+    /// this arc degenerates; detect that with
+    /// [`PolarStereoProjector::pole_inside_grid`] and override to the full 360°.
+    fn lonlat_bbox(&self) -> (f64, f64, f64, f64) {
+        // Subdivisions per edge. 512 puts samples ~16 km apart on an 8000 km
+        // edge — fine enough to pin the closest-to-pole latitude to ~0.03°
+        // while staying a trivial ~2k inverse projections regardless of grid
+        // size.
+        const PER_EDGE: u32 = 512;
+
+        let (ox, oy) = self.grid_origin();
+        let (ni, nj) = self.grid_dims();
+        let (dx, dy) = self.grid_spacing();
+        let ex = (ni as f64 - 1.0) * dx;
+        let ey = (nj as f64 - 1.0) * dy;
+
+        let mut lat_min = f64::INFINITY;
+        let mut lat_max = f64::NEG_INFINITY;
+        let mut lons: Vec<f64> = Vec::with_capacity(4 * (PER_EDGE as usize + 1));
+        let mut visit = |x: f64, y: f64| {
+            let (lat, lon) = self.inverse_lonlat(x, y);
+            lat_min = lat_min.min(lat);
+            lat_max = lat_max.max(lat);
+            lons.push(lon.rem_euclid(360.0));
+        };
+        for k in 0..=PER_EDGE {
+            let t = k as f64 / PER_EDGE as f64;
+            visit(ox + t * ex, oy); // bottom edge (j = 0)
+            visit(ox + t * ex, oy + ey); // top edge (j = nj-1)
+            visit(ox, oy + t * ey); // left edge (i = 0)
+            visit(ox + ex, oy + t * ey); // right edge (i = ni-1)
+        }
+
+        // Largest empty gap between adjacent wrapped longitudes (including the
+        // wrap-around gap from the last sample back to the first). The enclosing
+        // arc is everything *except* that gap.
+        lons.sort_by(|a, b| a.partial_cmp(b).expect("longitudes are finite"));
+        let n = lons.len();
+        let mut gap_start = 0usize; // index just after the largest gap
+        let mut max_gap = lons[0] + 360.0 - lons[n - 1]; // wrap-around gap
+        for i in 1..n {
+            let gap = lons[i] - lons[i - 1];
+            if gap > max_gap {
+                max_gap = gap;
+                gap_start = i;
+            }
+        }
+        // The arc runs from the sample after the gap to the one before it,
+        // adding a turn when the arc crosses 360° (interior gap).
+        let lon_min = lons[gap_start];
+        let lon_max = if gap_start == 0 {
+            lons[n - 1]
+        } else {
+            lons[gap_start - 1] + 360.0
+        };
+
+        // Recenter on [-180, 180] by shifting a whole number of turns so the
+        // midpoint is in range — preserves the (possibly antimeridian-spanning)
+        // span while keeping the reported bounds human-sensible.
+        let mid = (lon_min + lon_max) / 2.0;
+        let shift = ((mid + 180.0).rem_euclid(360.0) - 180.0) - mid;
+        (lat_min, lat_max, lon_min + shift, lon_max + shift)
+    }
+}
+
+impl PlanarGridProjector for LambertProjector {
+    fn grid_origin(&self) -> (f64, f64) {
+        self.origin
+    }
+    fn grid_dims(&self) -> (u32, u32) {
+        (self.params.ni, self.params.nj)
+    }
+    fn grid_spacing(&self) -> (f64, f64) {
+        (self.params.dx_metres, self.params.dy_metres)
+    }
+    fn inverse_lonlat(&self, x: f64, y: f64) -> (f64, f64) {
+        self.inverse_xy(x, y)
+    }
+}
+
+impl PlanarGridProjector for PolarStereoProjector {
+    fn grid_origin(&self) -> (f64, f64) {
+        self.origin
+    }
+    fn grid_dims(&self) -> (u32, u32) {
+        (self.params.ni, self.params.nj)
+    }
+    fn grid_spacing(&self) -> (f64, f64) {
+        (self.params.dx_metres, self.params.dy_metres)
+    }
+    fn inverse_lonlat(&self, x: f64, y: f64) -> (f64, f64) {
+        self.inverse_xy(x, y)
     }
 }
 
@@ -632,6 +1010,37 @@ mod tests {
     }
 
     #[test]
+    fn lambert_handles_0_360_lov_convention() {
+        // Eta-style grid: LoV + Lo1 carried in [0, 360) (265°E / 226.541°E), as
+        // NCEP files store them, rather than the ±180 form `lambert_params`
+        // uses. Regression for the cone-angle wrap bug that rendered such grids
+        // blank under equirectangular reprojection.
+        let p = LambertParams {
+            lov: 265.0,
+            lon_first: 226.541,
+            ..lambert_params()
+        };
+        // The forward map must be invariant to a 360° shift in the query
+        // longitude (the fix wraps `lon − lov` before scaling by the cone
+        // constant; without it the two differ by n·360°).
+        let f_pm180 = lambert_forward(&p, 40.0, -95.0);
+        let f_0_360 = lambert_forward(&p, 40.0, 265.0);
+        assert!(
+            near(f_pm180.0, f_0_360.0, 1e-6),
+            "x invariant to +360 shift"
+        );
+        assert!(
+            near(f_pm180.1, f_0_360.1, 1e-6),
+            "y invariant to +360 shift"
+        );
+        // And a ±180 query longitude (what the equirectangular target feeds in)
+        // resolves to an in-grid index instead of falling off the grid.
+        let idx = lambert_inverse(&p, 40.0, -95.0).expect("on-grid point on the LoV meridian");
+        assert!(idx.i >= 0.0 && idx.i <= (p.ni as f64 - 1.0));
+        assert!(idx.j >= 0.0 && idx.j <= (p.nj as f64 - 1.0));
+    }
+
+    #[test]
     fn lambert_inverse_maps_first_corner_to_zero() {
         let p = lambert_params();
         let idx = lambert_inverse(&p, p.lat_first, p.lon_first).expect("corner");
@@ -693,6 +1102,293 @@ mod tests {
         assert!(gaussian_inverse(&p, 0.0, f64::INFINITY).is_none());
     }
 
+    // -----------------------------------------------------------------
+    // Polar Stereographic
+    // -----------------------------------------------------------------
+
+    /// CMC regional model grid (135×95, 60 km at 60°N, lon_first ≈ −110°,
+    /// lov = 247°). Matches the `cmc_wind_300_2010052400_p012.grib`
+    /// fixture used by the GRIB1 integration tests.
+    fn cmc_polar_params() -> PolarStereoParams {
+        PolarStereoParams {
+            ni: 135,
+            nj: 95,
+            lat_first: 11.43,
+            lon_first: -110.27,
+            lov: 247.0,
+            lad: 60.0,
+            dx_metres: 60_000.0,
+            dy_metres: 60_000.0,
+            south_pole: false,
+        }
+    }
+
+    #[test]
+    fn polar_stereo_forward_inverse_round_trip_north() {
+        let p = cmc_polar_params();
+        for (lat, lon) in [(45.0, -90.0), (60.0, 0.0), (80.0, 100.0)] {
+            let (x, y) = polar_stereo_forward(&p, lat, lon);
+            let (lat_back, lon_back) = polar_stereo_inverse_xy(&p, x, y);
+            assert!(near(lat_back, lat, 1e-7), "lat {lat} → {lat_back}");
+            // Normalise to [-180, 180] before comparing — atan2 returns
+            // (-π, π] and the test inputs are in that range too.
+            let lon_back = ((lon_back + 180.0).rem_euclid(360.0)) - 180.0;
+            let lon_norm = ((lon + 180.0).rem_euclid(360.0)) - 180.0;
+            assert!(near(lon_back, lon_norm, 1e-7), "lon {lon} → {lon_back}");
+        }
+    }
+
+    #[test]
+    fn polar_stereo_forward_inverse_round_trip_south() {
+        let p = PolarStereoParams {
+            south_pole: true,
+            lat_first: -11.43,
+            ..cmc_polar_params()
+        };
+        for (lat, lon) in [(-45.0, -90.0), (-60.0, 0.0), (-80.0, 100.0)] {
+            let (x, y) = polar_stereo_forward(&p, lat, lon);
+            let (lat_back, lon_back) = polar_stereo_inverse_xy(&p, x, y);
+            assert!(near(lat_back, lat, 1e-7), "lat {lat} → {lat_back}");
+            let lon_back = ((lon_back + 180.0).rem_euclid(360.0)) - 180.0;
+            let lon_norm = ((lon + 180.0).rem_euclid(360.0)) - 180.0;
+            assert!(near(lon_back, lon_norm, 1e-7), "lon {lon} → {lon_back}");
+        }
+    }
+
+    #[test]
+    fn polar_stereo_inverse_honours_north_to_south_scan() {
+        // A north-polar grid scanning north→south (jScansPositively = 0): row 0
+        // is the northernmost row, successive rows step south. The napi builder
+        // encodes that as a *negative* dy; the projector's j must then advance
+        // southward. (See `signed_polar_increments` in the napi crate.)
+        let base = PolarStereoParams {
+            ni: 10,
+            nj: 10,
+            lat_first: 80.0,
+            lon_first: 0.0,
+            lov: 0.0,
+            lad: 60.0,
+            dx_metres: 50_000.0,
+            dy_metres: -50_000.0, // north→south scan
+            south_pole: false,
+        };
+        let proj = PolarStereoProjector::new(base);
+        // The first scanned point is the projection origin → index (0, 0).
+        let origin = proj.inverse(80.0, 0.0).expect("origin resolves");
+        assert!(
+            origin.i.abs() < 1e-6 && origin.j.abs() < 1e-6,
+            "origin {origin:?}"
+        );
+        // A point ~2° south of the first row lies several rows *into* the grid.
+        let south = proj.inverse(78.0, 0.0).expect("southward point resolves");
+        assert!(
+            south.j > 0.0,
+            "north→south scan must increase j going south, got j={}",
+            south.j
+        );
+
+        // Regression guard: the pre-fix code fed the unsigned magnitude
+        // (positive dy), which maps the same southward point to negative j and
+        // drops it from the grid entirely.
+        let unsigned = PolarStereoParams {
+            dy_metres: 50_000.0,
+            ..base
+        };
+        assert!(
+            PolarStereoProjector::new(unsigned)
+                .inverse(78.0, 0.0)
+                .is_none(),
+            "positive (unsigned) dy mis-maps the southward point to negative j"
+        );
+    }
+
+    #[test]
+    fn lambert_inverse_honours_north_to_south_scan() {
+        // A Lambert grid scanning north→south (jScansPositively = 0): row 0 is
+        // the northernmost row. The napi builder encodes that as a negative dy,
+        // and the projector's j must advance southward — identical mechanism to
+        // the polar-stereo case, since both map `j = (y - origin_y) / dy` in the
+        // LoV plane.
+        let base = LambertParams {
+            ni: 50,
+            nj: 50,
+            lat_first: 50.0,
+            lon_first: -100.0,
+            lad: 40.0,
+            lov: -100.0,
+            dx_metres: 20_000.0,
+            dy_metres: -20_000.0, // north→south scan
+            latin1: 40.0,
+            latin2: 40.0,
+        };
+        let proj = LambertProjector::new(base);
+        // First scanned point (on the central meridian) → index (0, 0).
+        let origin = proj.inverse(50.0, -100.0).expect("origin resolves");
+        assert!(
+            origin.i.abs() < 1e-6 && origin.j.abs() < 1e-6,
+            "origin {origin:?}"
+        );
+        // A point 5° south of the first row lies several rows into the grid.
+        let south = proj
+            .inverse(45.0, -100.0)
+            .expect("southward point resolves");
+        assert!(
+            south.j > 0.0,
+            "north→south scan must increase j going south, got j={}",
+            south.j
+        );
+
+        // Regression guard: the unsigned magnitude (positive dy) drops the
+        // southward point to negative j and rejects it.
+        let unsigned = LambertParams {
+            dy_metres: 20_000.0,
+            ..base
+        };
+        assert!(
+            LambertProjector::new(unsigned)
+                .inverse(45.0, -100.0)
+                .is_none(),
+            "positive (unsigned) dy mis-maps the southward point to negative j"
+        );
+    }
+
+    #[test]
+    fn polar_stereo_north_pole_projects_to_origin() {
+        let p = cmc_polar_params();
+        let (x, y) = polar_stereo_forward(&p, 90.0, 0.0);
+        assert!(near(x, 0.0, 1e-6));
+        assert!(near(y, 0.0, 1e-6));
+    }
+
+    /// GRIB2 §3.20 carries a variable latitude of true scale (`LaD`); the
+    /// pole scale factor `k₀ = (1 + sin|LaD|)/2` must follow it. A grid with
+    /// true scale at the pole (LaD = 90°, k₀ = 1) projects to a radius
+    /// `1/k₀(60°) = 1.07180…×` larger than the same point under the GRIB1
+    /// fixed-60° convention (Snyder PP-1395, eq. 21-15).
+    #[test]
+    fn polar_stereo_lad_drives_pole_scale_factor() {
+        let at_60 = cmc_polar_params(); // lad = 60.0
+        let at_90 = PolarStereoParams {
+            lad: 90.0,
+            ..cmc_polar_params()
+        };
+        let (x60, y60) = polar_stereo_forward(&at_60, 45.0, 247.0);
+        let (x90, y90) = polar_stereo_forward(&at_90, 45.0, 247.0);
+        let rho60 = (x60 * x60 + y60 * y60).sqrt();
+        let rho90 = (x90 * x90 + y90 * y90).sqrt();
+        let k0_60 = (1.0 + (60.0_f64 * DEG2RAD).sin()) / 2.0;
+        assert!(
+            near(rho90 / rho60, 1.0 / k0_60, 1e-9),
+            "LaD=90 vs 60 ratio {} ≠ {}",
+            rho90 / rho60,
+            1.0 / k0_60
+        );
+        // Sanity: the two are genuinely different (regression guard against a
+        // hardcoded constant silently ignoring LaD).
+        assert!((rho90 - rho60).abs() > 1.0, "LaD ignored — radii identical");
+    }
+
+    #[test]
+    fn polar_stereo_south_pole_projects_to_origin() {
+        let p = PolarStereoParams {
+            south_pole: true,
+            ..cmc_polar_params()
+        };
+        let (x, y) = polar_stereo_forward(&p, -90.0, 0.0);
+        assert!(near(x, 0.0, 1e-6));
+        assert!(near(y, 0.0, 1e-6));
+    }
+
+    #[test]
+    fn polar_stereo_inverse_maps_first_corner_to_zero() {
+        let p = cmc_polar_params();
+        let idx = polar_stereo_inverse(&p, p.lat_first, p.lon_first).expect("corner");
+        assert!(near(idx.i, 0.0, 1e-6));
+        assert!(near(idx.j, 0.0, 1e-6));
+    }
+
+    #[test]
+    fn polar_stereo_inverse_rejects_wrong_hemisphere() {
+        let p = cmc_polar_params();
+        assert!(
+            polar_stereo_inverse(&p, -45.0, 0.0).is_none(),
+            "north grid + south lat"
+        );
+        let south = PolarStereoParams {
+            south_pole: true,
+            lat_first: -11.43,
+            ..p
+        };
+        assert!(
+            polar_stereo_inverse(&south, 45.0, 0.0).is_none(),
+            "south grid + north lat"
+        );
+    }
+
+    #[test]
+    fn polar_stereo_inverse_rejects_off_grid_points() {
+        let p = cmc_polar_params();
+        // A point in Antarctica is on the wrong hemisphere for a north-polar
+        // grid; a tropical point near the equator is on the right hemisphere
+        // but well outside the 135×95 box around the pole.
+        assert!(polar_stereo_inverse(&p, 5.0, 0.0).is_none());
+    }
+
+    #[test]
+    fn polar_stereo_inverse_rejects_nonfinite_and_degenerate_dims() {
+        let p = cmc_polar_params();
+        assert!(polar_stereo_inverse(&p, f64::NAN, 0.0).is_none());
+        assert!(polar_stereo_inverse(&p, 60.0, f64::INFINITY).is_none());
+        let degenerate = PolarStereoParams { ni: 1, ..p };
+        assert!(polar_stereo_inverse(&degenerate, 60.0, 0.0).is_none());
+        let zero_dx = PolarStereoParams {
+            dx_metres: 0.0,
+            ..p
+        };
+        assert!(polar_stereo_inverse(&zero_dx, 60.0, 0.0).is_none());
+    }
+
+    #[test]
+    fn polar_stereo_pole_inside_grid_detection() {
+        // CMC is a regional tile NE of the pole, not a hemispheric grid —
+        // its projected box doesn't actually contain (0,0).
+        let cmc = PolarStereoProjector::new(cmc_polar_params());
+        assert!(
+            !cmc.pole_inside_grid(),
+            "CMC regional tile excludes the pole"
+        );
+
+        // A synthetic hemispheric grid whose NW corner sits at d_lon = -135°
+        // from `lov`, at a southern-enough latitude that the projected origin
+        // lands at roughly (-3e6, +3e6) metres. Scanning east + south at 2 Mm
+        // step over 4×4 cells crosses the pole at (0, 0).
+        let hemispheric = PolarStereoParams {
+            ni: 4,
+            nj: 4,
+            lat_first: 50.8,
+            lon_first: -135.0,
+            lov: 0.0,
+            lad: 60.0,
+            dx_metres: 2_000_000.0,
+            dy_metres: -2_000_000.0,
+            south_pole: false,
+        };
+        let projector = PolarStereoProjector::new(hemispheric);
+        assert!(
+            projector.pole_inside_grid(),
+            "hemispheric grid origin {:?} should bracket the pole",
+            projector.origin()
+        );
+    }
+
+    #[test]
+    fn polar_stereo_inverse_xy_origin_returns_pole_with_lov() {
+        let p = cmc_polar_params();
+        let (lat, lon) = polar_stereo_inverse_xy(&p, 0.0, 0.0);
+        assert!(near(lat, 90.0, 1e-9));
+        assert!(near(lon, p.lov, 1e-9));
+    }
+
     #[test]
     fn lambert_tangent_cone_at_origin() {
         let p = LambertParams {
@@ -706,5 +1402,136 @@ mod tests {
         // the bare projection (no false-easting / false-northing).
         assert!(near(x, 0.0, 1.0));
         assert!(near(y, 0.0, 1.0));
+    }
+
+    #[test]
+    fn lonlat_bbox_unwraps_antimeridian_crossing_grid() {
+        // The real CMC fixture (lov=249) has its `+y` corner at +177.2° while
+        // the other three are negative — the grid straddles the dateline.
+        // Naive min/max would give a ~312°-wide box; unwrapping must yield a
+        // tight, continuous span instead.
+        let proj = PolarStereoProjector::new(PolarStereoParams {
+            ni: 135,
+            nj: 95,
+            lat_first: 27.203,
+            lon_first: -135.213,
+            lov: 249.0,
+            lad: 60.0,
+            dx_metres: 60_000.0,
+            dy_metres: 60_000.0,
+            south_pole: false,
+        });
+        let (lat_min, lat_max, lon_min, lon_max) = proj.lonlat_bbox();
+        assert!(near(lat_min, 19.945, 1e-2), "lat_min {lat_min}");
+        // The top edge bows toward the pole and reaches ~80.6°N — far above
+        // the highest corner (60.5°N). Perimeter sampling must catch this.
+        assert!(near(lat_max, 80.593, 5e-2), "lat_max {lat_max}");
+        // +177.2° unwraps to ≈ -182.8°, giving a continuous ~151° span rather
+        // than the spurious 312° box.
+        assert!(near(lon_min, -182.805, 1e-2), "lon_min {lon_min}");
+        assert!(near(lon_max, -31.933, 1e-2), "lon_max {lon_max}");
+        assert!(lon_max - lon_min < 180.0, "span should be tight");
+    }
+
+    #[test]
+    fn lonlat_bbox_lat_max_comes_from_edge_not_corner() {
+        // Regression guard for the four-corner underestimate: the CMC grid's
+        // corners top out at 60.5°N, but the boundary reaches ~80.6°N. A
+        // corner-only box would report the former.
+        let proj = PolarStereoProjector::new(PolarStereoParams {
+            ni: 135,
+            nj: 95,
+            lat_first: 27.203,
+            lon_first: -135.213,
+            lov: 249.0,
+            lad: 60.0,
+            dx_metres: 60_000.0,
+            dy_metres: 60_000.0,
+            south_pole: false,
+        });
+        let corner_lat_max = proj
+            .grid_corners_lonlat()
+            .iter()
+            .map(|c| c.0)
+            .fold(f64::NEG_INFINITY, f64::max);
+        let (_, lat_max, ..) = proj.lonlat_bbox();
+        assert!(
+            near(corner_lat_max, 60.476, 1e-2),
+            "corner cap {corner_lat_max}"
+        );
+        assert!(
+            lat_max > corner_lat_max + 15.0,
+            "perimeter lat_max ({lat_max}) must clear the corner cap ({corner_lat_max})"
+        );
+    }
+
+    #[test]
+    fn lonlat_bbox_non_crossing_grid_encloses_corners() {
+        // CONUS Lambert grid: all corners well clear of the dateline, so the
+        // longitude unwrap is a no-op. The box must enclose every corner — and,
+        // because edges bow, may extend beyond them in latitude (this grid's
+        // boundary reaches ~83°N, above any corner).
+        let proj = LambertProjector::new(LambertParams {
+            ni: 601,
+            nj: 401,
+            lat_first: 38.5,
+            lon_first: -126.0,
+            lad: 38.5,
+            lov: -95.0,
+            dx_metres: 13_545.0,
+            dy_metres: 13_545.0,
+            latin1: 38.5,
+            latin2: 38.5,
+        });
+        let corners = proj.grid_corners_lonlat();
+        let (lat_min, lat_max, lon_min, lon_max) = proj.lonlat_bbox();
+        for (lat, lon) in corners {
+            assert!(
+                lat_min - 1e-6 <= lat && lat <= lat_max + 1e-6,
+                "lat {lat} outside box"
+            );
+            assert!(
+                lon_min - 1e-6 <= lon && lon <= lon_max + 1e-6,
+                "lon {lon} outside box"
+            );
+        }
+        // Edge bow lifts lat_max above the top corners.
+        let corner_lat_max = corners
+            .iter()
+            .map(|c| c.0)
+            .fold(f64::NEG_INFINITY, f64::max);
+        assert!(lat_max > corner_lat_max, "edge should bow above corner lat");
+    }
+
+    #[test]
+    fn lonlat_bbox_resolves_spans_wider_than_180_degrees() {
+        // A synthetic projector whose perimeter sweeps 270° of longitude at a
+        // constant latitude — wider than a single-reference unwrap can resolve.
+        // The old code mis-bounded this (reporting a near-360° span); the
+        // minimum-enclosing-arc must return the true ~270° window.
+        struct WideMock;
+        impl PlanarGridProjector for WideMock {
+            fn grid_origin(&self) -> (f64, f64) {
+                (0.0, 0.0)
+            }
+            fn grid_dims(&self) -> (u32, u32) {
+                (271, 1)
+            }
+            fn grid_spacing(&self) -> (f64, f64) {
+                (1.0, 1.0)
+            }
+            // Treat the plane x-coordinate directly as longitude (0..=270).
+            fn inverse_lonlat(&self, x: f64, _y: f64) -> (f64, f64) {
+                (12.0, x)
+            }
+        }
+
+        let (lat_min, lat_max, lon_min, lon_max) = WideMock.lonlat_bbox();
+        assert!((lat_min - 12.0).abs() < 1e-9 && (lat_max - 12.0).abs() < 1e-9);
+        let span = lon_max - lon_min;
+        assert!(
+            (span - 270.0).abs() < 1.0,
+            "expected a tight ~270° span, got {span} ([{lon_min}, {lon_max}])"
+        );
     }
 }
