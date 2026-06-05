@@ -194,6 +194,7 @@ suite("Render pipeline", () => {
       lambertLatin2: null,
       gaussianNParallels: null,
       packing: null,
+      reprojectable: true,
     };
     const options = defaultRenderOptions();
     const message: GridReadyMessage = buildGridReadyMessage(
@@ -574,6 +575,7 @@ suite("render-panel HTML", () => {
       lambertLatin2: null,
       gaussianNParallels: null,
       packing: null,
+      reprojectable: true,
     };
   }
 

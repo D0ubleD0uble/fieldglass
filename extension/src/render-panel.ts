@@ -437,6 +437,7 @@ export function renderImagePanelHtml(
     h1 { font-size: 1.1rem; margin: 0 0 0.2rem 0; }
     .subtitle { color: var(--vscode-descriptionForeground); font-size: 0.85rem; margin-bottom: 0.5rem; }
     .projection { color: var(--vscode-descriptionForeground); font-size: 0.8rem; margin-bottom: 0.75rem; }
+    .picker-note { display: block; color: var(--vscode-descriptionForeground); font-size: 0.8rem; margin-top: 0.25rem; }
     #status { font-size: 0.85rem; margin-bottom: 0.75rem; min-height: 1.1em; }
     .render-area {
       display: flex;
@@ -571,11 +572,16 @@ export function renderImagePanelHtml(
       <label>Projection
         <select id="picker-projection">
           <option value="source" selected>Source projection</option>
-          <option value="equirectangular">Equirectangular</option>
+${meta.reprojectable
+          ? `          <option value="equirectangular">Equirectangular</option>
           <option value="web_mercator">Web Mercator</option>
           <option value="orthographic">Orthographic</option>
-          <option value="polar_stereographic">Polar stereographic</option>
+          <option value="polar_stereographic">Polar stereographic</option>`
+          : ""}
         </select>
+${meta.reprojectable
+        ? ""
+        : `        <span class="picker-note">Reprojection isn't available for ${escapeHtml(meta.gridType ?? "this")} grids yet.</span>`}
       </label>
       <label id="preset-ortho" hidden>Center
         <select id="picker-preset-ortho">

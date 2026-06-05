@@ -343,7 +343,16 @@ pub fn lambert_forward(p: &LambertParams, lat: f64, lon: f64) -> (f64, f64) {
 
 fn lambert_forward_with(k: &LambertConstants, lov: f64, lat: f64, lon: f64) -> (f64, f64) {
     let lat_r = lat * DEG2RAD;
-    let d_lon = (lon - lov) * DEG2RAD;
+    // Wrap (lon − lov) into [-180, 180] *before* scaling by the cone constant.
+    // Unlike the polar projector — whose `d_lon` only ever reaches `sin`/`cos`
+    // and is therefore 360°-periodic — Lambert multiplies the difference by the
+    // cone constant `n` before the trig, so an unwrapped 360° offset (e.g. a
+    // query longitude in [-180, 180] against a `LoV` carried in [0, 360), as
+    // NCEP/Eta files store it) shifts the cone angle by `n·360°` and throws the
+    // point far outside the grid — which is why `equirectangular` rendered blank
+    // for the Eta Lambert grid. The inverse-index path (`LambertProjector::
+    // inverse`) routes through this forward map, so fixing it here is enough.
+    let d_lon = ((lon - lov + 180.0).rem_euclid(360.0) - 180.0) * DEG2RAD;
     let rho = k.earth_r * k.f_const / (PI / 4.0 + lat_r / 2.0).tan().powf(k.n);
     let x = rho * (k.n * d_lon).sin();
     let y = k.rho0 - rho * (k.n * d_lon).cos();
@@ -998,6 +1007,37 @@ mod tests {
         let (lat, lon) = lambert_inverse_xy(&p, x, y);
         assert!(near(lat, 40.0, 1e-6));
         assert!(near(lon, -100.0, 1e-6));
+    }
+
+    #[test]
+    fn lambert_handles_0_360_lov_convention() {
+        // Eta-style grid: LoV + Lo1 carried in [0, 360) (265°E / 226.541°E), as
+        // NCEP files store them, rather than the ±180 form `lambert_params`
+        // uses. Regression for the cone-angle wrap bug that rendered such grids
+        // blank under equirectangular reprojection.
+        let p = LambertParams {
+            lov: 265.0,
+            lon_first: 226.541,
+            ..lambert_params()
+        };
+        // The forward map must be invariant to a 360° shift in the query
+        // longitude (the fix wraps `lon − lov` before scaling by the cone
+        // constant; without it the two differ by n·360°).
+        let f_pm180 = lambert_forward(&p, 40.0, -95.0);
+        let f_0_360 = lambert_forward(&p, 40.0, 265.0);
+        assert!(
+            near(f_pm180.0, f_0_360.0, 1e-6),
+            "x invariant to +360 shift"
+        );
+        assert!(
+            near(f_pm180.1, f_0_360.1, 1e-6),
+            "y invariant to +360 shift"
+        );
+        // And a ±180 query longitude (what the equirectangular target feeds in)
+        // resolves to an in-grid index instead of falling off the grid.
+        let idx = lambert_inverse(&p, 40.0, -95.0).expect("on-grid point on the LoV meridian");
+        assert!(idx.i >= 0.0 && idx.i <= (p.ni as f64 - 1.0));
+        assert!(idx.j >= 0.0 && idx.j <= (p.nj as f64 - 1.0));
     }
 
     #[test]
