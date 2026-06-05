@@ -110,6 +110,32 @@ pub struct MessageMeta {
     /// label (e.g. "Second-order (SPD-2)", "Simple grid-point"). `None` when
     /// the section can't be parsed.
     pub packing: Option<String>,
+    /// Whether this message's grid can be reprojected (the render panel's
+    /// non-source projection targets). Mirrors [`warp_setup_for`]: only
+    /// lat/lon, Gaussian, Lambert, and polar-stereographic source grids
+    /// reproject, and the two planar projections additionally need a non-zero
+    /// grid spacing (some sample files carry Dx = Dy = 0). The webview hides
+    /// the reprojection options when this is `false`.
+    pub reprojectable: bool,
+}
+
+/// Whether a grid can feed the warp pipeline's non-source targets. Mirrors the
+/// dispatch in [`warp_setup_for`] — lat/lon and Gaussian always qualify; the
+/// planar projections (Lambert, polar stereographic) also require a non-zero
+/// grid spacing, since a degenerate Dx/Dy collapses every grid point onto one
+/// location and the reprojection would render blank.
+fn grid_is_reprojectable(
+    grid_type: Option<&str>,
+    planar_dx: Option<f64>,
+    planar_dy: Option<f64>,
+) -> bool {
+    match grid_type {
+        Some("latlon") | Some("gaussian") => true,
+        Some("lambert") | Some("polar_stereo") => {
+            matches!((planar_dx, planar_dy), (Some(dx), Some(dy)) if dx != 0.0 && dy != 0.0)
+        }
+        _ => false,
+    }
 }
 
 /// Map an eccodes-style `packingType` (GRIB1) or §5 template name (GRIB2) to a
@@ -229,6 +255,11 @@ fn build_grib1_message_meta(
     let polar_stereo_dx_metres = polar_stereo_inc.map(|(dx, _)| dx);
     let polar_stereo_dy_metres = polar_stereo_inc.map(|(_, dy)| dy);
     let polar_stereo_south_pole = polar_stereo.map(|g| g.south_pole);
+    let reprojectable = grid_is_reprojectable(
+        grid_type.as_deref(),
+        polar_stereo_dx_metres.or(lambert_dx_metres),
+        polar_stereo_dy_metres.or(lambert_dy_metres),
+    );
     MessageMeta {
         message_index: msg.message_index as i32,
         offset_bytes: msg.byte_offset as i32,
@@ -267,6 +298,7 @@ fn build_grib1_message_meta(
         polar_stereo_dy_metres,
         polar_stereo_south_pole,
         packing,
+        reprojectable,
     }
 }
 
@@ -457,6 +489,13 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
         )
     });
 
+    let grid_type = msg.gds.template_name();
+    let reprojectable = grid_is_reprojectable(
+        Some(grid_type.as_str()),
+        polar_stereo_inc.map(|(dx, _)| dx).or(lambert_dx_metres),
+        polar_stereo_inc.map(|(_, dy)| dy).or(lambert_dy_metres),
+    );
+
     MessageMeta {
         message_index: msg.message_index as i32,
         offset_bytes: msg.byte_offset as i32,
@@ -469,7 +508,7 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
         forecast_hours: product.forecast_hours,
         forecast_display: product.forecast_display,
         originating_centre: centre,
-        grid_type: Some(msg.gds.template_name()),
+        grid_type: Some(grid_type),
         grid_ni: dims.map(|(ni, _)| ni as i32),
         grid_nj: dims.map(|(_, nj)| nj as i32),
         lat_first: bounds.map(|(la1, _, _, _)| la1),
@@ -495,6 +534,7 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
         polar_stereo_dy_metres: polar_stereo_inc.map(|(_, dy)| dy),
         polar_stereo_south_pole: polar_stereo.map(|t| t.south_pole),
         packing: Some(friendly_packing(&msg.drs.template_name())),
+        reprojectable,
     }
 }
 
@@ -1707,8 +1747,8 @@ fn lambert_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<Warp
         lon_first: require_f64(meta.lon_first, "lonFirst")?,
         lad: require_f64(meta.lambert_lad, "lambertLad")?,
         lov: require_f64(meta.lambert_lov, "lambertLov")?,
-        dx_metres: require_f64(meta.lambert_dx_metres, "lambertDxMetres")?,
-        dy_metres: require_f64(meta.lambert_dy_metres, "lambertDyMetres")?,
+        dx_metres: require_nonzero_spacing(meta.lambert_dx_metres, "lambertDxMetres")?,
+        dy_metres: require_nonzero_spacing(meta.lambert_dy_metres, "lambertDyMetres")?,
         latin1: require_f64(meta.lambert_latin1, "lambertLatin1")?,
         latin2: require_f64(meta.lambert_latin2, "lambertLatin2")?,
     };
@@ -1732,8 +1772,8 @@ fn polar_stereo_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result
         lon_first: require_f64(meta.lon_first, "lonFirst")?,
         lov: require_f64(meta.polar_stereo_lov, "polarStereoLov")?,
         lad: require_f64(meta.polar_stereo_lad, "polarStereoLad")?,
-        dx_metres: require_f64(meta.polar_stereo_dx_metres, "polarStereoDxMetres")?,
-        dy_metres: require_f64(meta.polar_stereo_dy_metres, "polarStereoDyMetres")?,
+        dx_metres: require_nonzero_spacing(meta.polar_stereo_dx_metres, "polarStereoDxMetres")?,
+        dy_metres: require_nonzero_spacing(meta.polar_stereo_dy_metres, "polarStereoDyMetres")?,
         south_pole: meta
             .polar_stereo_south_pole
             .ok_or_else(|| napi::Error::from_reason("missing polarStereoSouthPole".to_string()))?,
@@ -1779,6 +1819,21 @@ fn grid_nj(meta: &MessageMeta) -> napi::Result<u32> {
 
 fn require_f64(value: Option<f64>, name: &str) -> napi::Result<f64> {
     value.ok_or_else(|| napi::Error::from_reason(format!("missing {name}")))
+}
+
+/// Like [`require_f64`] but also rejects a zero grid spacing. Some sample GRIB2
+/// files (e.g. eccodes' `polar_stereographic.grib2`) carry `Dx = Dy = 0`, which
+/// collapses every grid point onto one location and would reproject to a blank
+/// raster; surface a clear error instead. The webview also gates these grids
+/// out of the picker via `MessageMeta.reprojectable`, so this is the belt-and-
+/// braces guard for direct napi callers.
+fn require_nonzero_spacing(value: Option<f64>, name: &str) -> napi::Result<f64> {
+    match require_f64(value, name)? {
+        v if v != 0.0 => Ok(v),
+        _ => Err(napi::Error::from_reason(format!(
+            "{name} is zero — this grid has no spatial extent and cannot be reprojected"
+        ))),
+    }
 }
 
 #[cfg(test)]
@@ -1982,6 +2037,7 @@ mod polar_stereo_warp_tests {
             polar_stereo_dy_metres: Some(60_000.0),
             polar_stereo_south_pole: Some(false),
             packing: None,
+            reprojectable: true,
         }
     }
 
@@ -2360,6 +2416,50 @@ mod polar_stereo_warp_tests {
 }
 
 #[cfg(test)]
+mod reprojectable_tests {
+    use super::grid_is_reprojectable;
+
+    #[test]
+    fn latlon_and_gaussian_are_always_reprojectable() {
+        assert!(grid_is_reprojectable(Some("latlon"), None, None));
+        assert!(grid_is_reprojectable(Some("gaussian"), None, None));
+    }
+
+    #[test]
+    fn planar_grids_need_nonzero_spacing() {
+        // Real spacing → reprojectable.
+        assert!(grid_is_reprojectable(
+            Some("lambert"),
+            Some(81_271.0),
+            Some(81_271.0)
+        ));
+        assert!(grid_is_reprojectable(
+            Some("polar_stereo"),
+            Some(60_000.0),
+            Some(60_000.0)
+        ));
+        // Degenerate Dx/Dy (eccodes' polar_stereographic sample) → not.
+        assert!(!grid_is_reprojectable(
+            Some("polar_stereo"),
+            Some(0.0),
+            Some(0.0)
+        ));
+        assert!(!grid_is_reprojectable(Some("lambert"), None, None));
+    }
+
+    #[test]
+    fn unsupported_grid_types_are_not_reprojectable() {
+        assert!(!grid_is_reprojectable(Some("rotated_latlon"), None, None));
+        assert!(!grid_is_reprojectable(
+            Some("mercator"),
+            Some(1.0),
+            Some(1.0)
+        ));
+        assert!(!grid_is_reprojectable(None, None, None));
+    }
+}
+
+#[cfg(test)]
 mod friendly_packing_tests {
     use super::friendly_packing;
 
@@ -2456,6 +2556,7 @@ mod overlay_projection_tests {
             polar_stereo_dy_metres: None,
             polar_stereo_south_pole: None,
             packing: None,
+            reprojectable: true,
         }
     }
 

@@ -54,6 +54,10 @@ export interface MessageMeta {
   /** Human-readable data-packing method (GRIB1 BDS packing / GRIB2 §5
    *  data-representation template), e.g. "Second-order (SPD-2)". */
   packing: string | null;
+  /** Whether this grid supports reprojection (the non-source projection
+   *  targets). False for grid types without a warp yet (e.g. rotated lat/lon)
+   *  or with a degenerate Dx/Dy; the panel hides those options when false. */
+  reprojectable: boolean;
 }
 
 export interface DimensionMeta {
