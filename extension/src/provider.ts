@@ -721,7 +721,7 @@ function isNonNegativeInt(n: unknown): n is number {
   return typeof n === "number" && Number.isInteger(n) && n >= 0;
 }
 
-/// Compose the "Centre" table cell: centre name plus, when available, the
+/// Compose the "Center" table cell: centre name plus, when available, the
 /// GRIB2 production status (Code Table 1.3) so operational vs. research
 /// products are visible at a glance without adding another column.
 function formatCentreCell(m: MessageMeta): string {
@@ -889,8 +889,8 @@ function renderHtml(
         <td>${escapeHtml(m.gridType ?? "—")}</td>
         <td>${gridDims}</td>
         <td>${gridBounds}</td>
-        <td>${escapeHtml(formatCentreCell(m))}</td>
         <td>${escapeHtml(m.packing ?? "—")}</td>
+        <td>${escapeHtml(formatCentreCell(m))}</td>
       </tr>
       <tr class="expand-row" id="expand-${idx}" hidden>
         <td class="expand-cell" colspan="${COLSPAN}">
@@ -905,7 +905,7 @@ function renderHtml(
         <tr>
           <th>#</th><th>Parameter</th><th>Abbrev</th><th>Units</th>
           <th>Level</th><th>Level Type</th><th>Reference Time</th><th>${fcstHeader}</th>
-          <th>Grid</th><th>Size</th><th>Bounds (lat,lon)</th><th>Centre</th><th>Packing</th>
+          <th>Grid</th><th>Size</th><th>Bounds (lat,lon)</th><th>Packing</th><th>Center</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
