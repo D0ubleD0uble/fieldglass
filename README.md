@@ -12,7 +12,7 @@ A Visual Studio Code extension for viewing meteorological data files (GRIB1, GRI
 
 ## Status
 
-This is an early public release (beta). For GRIB1, you can read every message's metadata and render its grid as a 2-D color image, either in the grid's own coordinates or reprojected onto a map. Five projection targets are available (source, equirectangular, Web Mercator, orthographic, and polar stereographic), and you can overlay coastlines and a latitude/longitude grid. GRIB2 reads metadata for every message and renders values for simple-packed messages. NetCDF reads the full structure of classic files (CDF-1/2/5): dimensions, variables, and global attributes. Still to come: value decode for more GRIB2 packings and for NetCDF, deep NetCDF-4 / HDF5 parsing, and metadata editing. The [feature matrix](#feature-matrix) below shows exactly what works today.
+This is an early public release (beta). For GRIB1, you can read every message's metadata and render its grid as a 2-D color image, either in the grid's own coordinates or reprojected onto a map. Five projection targets are available (source, equirectangular, Web Mercator, orthographic, and polar stereographic), and you can overlay coastlines and a latitude/longitude grid. GRIB2 reads metadata for every message and renders values for the packings it can decode. NetCDF reads the full structure of classic files (CDF-1/2/5): dimensions, variables, and global attributes. Still to come: value decode for more GRIB2 packings and for NetCDF, deep NetCDF-4 / HDF5 parsing, and metadata editing. The [feature matrix](#feature-matrix) below shows exactly what works today.
 
 ## Feature matrix
 
@@ -26,11 +26,11 @@ This is an early public release (beta). For GRIB1, you can read every message's 
 | Grid description (lat/lon, Gaussian, polar stereo, Lambert) | ✅ | 🚧 lat/lon (3.0), rotated lat/lon (3.1), Mercator (3.10), polar stereo (3.20), Lambert (3.30), Gaussian (3.40), space view (3.90) | ❌ Not yet |
 | WMO ON388 lookups (parameter, centre, level type) | ✅ | 🚧 Tables 0.0 / 1.2 / 1.3 / 1.4 / 3.1 / 3.2 / 4.1 / 4.2 / 4.3 / 4.4 / 4.5 / 4.6 / 4.10 + centres (subset) | n/a |
 | Tabular metadata viewer | ✅ | ✅ (§0–§4) | ✅ classic / 🚧 NetCDF-4 |
-| Binary data section decoding (Rust API) | ✅ | 🚧 simple packing (5.0), IEEE float (5.4); 5.2 / 5.3 / 5.40 / 5.41 / 5.42 follow-up | ❌ Not yet |
+| Binary data section decoding (Rust API) | ✅ | 🚧 partial — see [GRIB2 packing modes](#grib2-packing-modes) | ❌ Not yet |
 | Metadata editing | ❌ Not yet | ❌ Not yet | ❌ Not yet |
-| 2-D grid rendering with colormap | ✅ | 🚧 simple-packed messages only | ❌ Not yet |
-| Render-panel projection picker (5 targets) | ✅ | ✅ (simple-packed messages) | n/a |
-| Coastline + lat/lon grid overlay | ✅ | ✅ (simple-packed messages) | n/a |
+| 2-D grid rendering with colormap | ✅ | 🚧 any decodable message (see decoding row) | ❌ Not yet |
+| Render-panel projection picker (5 targets) | ✅ | ✅ (any decodable message) | n/a |
+| Coastline + lat/lon grid overlay | ✅ | ✅ (any decodable message) | n/a |
 | Resampling picker (nearest / bilinear) | ✅ | ✅ | n/a |
 
 Format-agnostic features:
@@ -59,13 +59,32 @@ A GRIB1 file's BDS (Binary Data Section) flag bits select one of several packing
 | Spherical-harmonic coefficients | `spectral_simple` / `spectral_complex` | ❌ Planned | IFS analyses; needs an inverse Legendre transform. |
 | JPEG 2000 / PNG | `grid_jpeg` / `grid_png` | ❌ n/a | Not defined for GRIB1 edition 1 (eccodes' `packingType` concept lists them only to avoid set-failures); no encoder and no obtainable fixture. Common in GRIB2, tracked there. |
 
+### GRIB2 packing modes
+
+A GRIB2 message's §5 Data Representation Section selects a packing template. Decoding (and therefore 2-D rendering, reprojection, and overlays — all of which run on the decoded field, not the packing) covers a growing subset; metadata and format detection work on every message regardless. An undecodable template returns an `UnsupportedSection` error naming it, so it never mis-decodes.
+
+<!-- SINGLE SOURCE OF TRUTH for GRIB2 decode status. When a template starts
+     (or stops) decoding, update THIS table and the CHANGELOG [Unreleased]
+     section — nothing else in the README enumerates GRIB2 packings, so those
+     two edits keep the whole document accurate. -->
+
+| DRS template | eccodes packingType | Decode | Notes |
+|---|---|:---:|---|
+| 5.0 — simple grid-point | `grid_simple` | ✅ | The common case for NCEP / ECMWF fields. Constant fields (`bits_per_value = 0`) included. Cross-validated against eccodes 2.34. |
+| 5.4 — IEEE floating point | `grid_ieee` | ✅ | Values stored verbatim as big-endian floats; 32-bit (`precision = 1`) and 64-bit (`precision = 2`). Cross-validated against eccodes 2.34. 128-bit (`precision = 3`) is unsupported, as in eccodes. |
+| 5.2 — complex | `grid_complex` | ❌ | Group-split packing; tracked in [#107](https://github.com/D0ubleD0uble/fieldglass/issues/107). |
+| 5.3 — complex + spatial differencing | `grid_complex_spatial_differencing` | ❌ | Complex packing with spatial differencing (common in GFS); tracked in [#109](https://github.com/D0ubleD0uble/fieldglass/issues/109). |
+| 5.40 — JPEG 2000 | `grid_jpeg` | ❌ | Compressed; decoder strategy under research ([#111](https://github.com/D0ubleD0uble/fieldglass/issues/111)), tracked in [#116](https://github.com/D0ubleD0uble/fieldglass/issues/116). |
+| 5.41 — PNG | `grid_png` | ❌ | Compressed; tracked in [#118](https://github.com/D0ubleD0uble/fieldglass/issues/118). |
+| 5.42 — CCSDS / AEC | `grid_ccsds` | ❌ | Compressed (libaec); tracked in [#117](https://github.com/D0ubleD0uble/fieldglass/issues/117). |
+
 ## Known limitations
 
 This is a beta. Things to be aware of:
 
 - **No metadata editing in the viewer.** The Rust API has byte-level patching for the forecast period (P1) and the webview retains the full undo/redo wiring, but the editable affordance is hidden in beta until general PDS-field editing lands. For now Fieldglass is a read-only viewer.
 - **The globe-style projections use fixed presets.** The projection picker offers five targets: source (the grid in its native shape), equirectangular, Web Mercator, orthographic, and polar stereographic, plus an optional coastline and lat/lon grid overlay. GRIB1 lat/lon, Gaussian, Lambert, and polar stereographic grids, and GRIB2 polar stereographic (§3.20) grids, all reproject into the flat (lat/lon-box) targets. The two globe-style targets (orthographic and polar stereographic) are framed by a fixed center or hemisphere preset rather than free-form numbers; arbitrary projection centers are a follow-up.
-- **GRIB2: full §0–§7 parsing, simple-packed value decode.** `.grb2` / `.grib2` files enumerate messages and show edition, discipline, total length, originating centre, reference time, production status, data type, parameter name, level, forecast time, and grid geometry (templates 3.0 / 3.1 / 3.10 / 3.20 / 3.30 / 3.40 / 3.90: regular lat/lon, rotated lat/lon, Mercator, polar stereographic, Lambert Conformal, regular and reduced Gaussian, and space-view perspective). Value decoding works for **simple packing** (DRS template 5.0) and **IEEE floating point** (template 5.4: 32-bit and 64-bit, cross-validated against eccodes 2.34). Complex packing (5.2 / 5.3), JPEG 2000 (5.40), PNG (5.41), and CCSDS (5.42) are tracked under separate issues; those messages still parse to the section level, but `decode_message_values` returns an `UnsupportedSection` error naming the template.
+- **GRIB2: full §0–§7 parsing, value decode for several packings.** `.grb2` / `.grib2` files enumerate messages and show edition, discipline, total length, originating centre, reference time, production status, data type, parameter name, level, forecast time, and grid geometry (templates 3.0 / 3.1 / 3.10 / 3.20 / 3.30 / 3.40 / 3.90: regular lat/lon, rotated lat/lon, Mercator, polar stereographic, Lambert Conformal, regular and reduced Gaussian, and space-view perspective). Value decoding covers a growing subset of §5 packing templates — see the [GRIB2 packing modes](#grib2-packing-modes) table for the current status. A message whose template isn't decoded yet still parses to the section level; `decode_message_values` returns an `UnsupportedSection` error naming the template rather than mis-decoding.
 - **NetCDF-4 / HDF5: header probe only.** Classic NetCDF (CDF-1 / CDF-2 / CDF-5) parses fully and renders dimensions, global attributes, and variables. NetCDF-4 / HDF5 files are validated and report the superblock version, but deep traversal (groups, datasets, attributes through the HDF5 object header tree) is a follow-up.
 - **GRIB1 GDS coverage:** Lat/Lon, Gaussian, Polar Stereographic, and Lambert Conformal grids are parsed. Reduced grids, rotated/oblique projections, and predefined grids (`grid_number != 255`) are not yet supported and will render as `unsupported`.
 - **Parameter table coverage:** WMO ON388 Table 2 (versions 1–3) only. ECMWF local tables (versions 128+) and other centre-specific extensions resolve as `Unknown`.
@@ -127,7 +146,7 @@ Open any file with a supported extension. VS Code will use Fieldglass as the def
 |---|---|
 | `crates/fieldglass-core` | Format-agnostic traits and shared metadata types. |
 | `crates/fieldglass-grib1` | GRIB1 parser, organized by section (`is.rs`, `pds.rs`, `gds.rs`, `bds.rs`) and WMO table lookups (`tables.rs`). |
-| `crates/fieldglass-grib2` | GRIB2 reader — full §0–§7 parsing, message enumeration, and value decoding for **simple packing** (DRS template 5.0) and **IEEE floating point** (template 5.4). Grid templates 3.0 / 3.1 / 3.10 / 3.20 / 3.30 / 3.40 / 3.90; product templates 4.0 / 4.8 / 4.11. Complex / JPEG 2000 / PNG / CCSDS packings are tracked under separate issues. |
+| `crates/fieldglass-grib2` | GRIB2 reader — full §0–§7 parsing, message enumeration, and value decoding for the §5 packing templates listed in the [GRIB2 packing modes](#grib2-packing-modes) table. Grid templates 3.0 / 3.1 / 3.10 / 3.20 / 3.30 / 3.40 / 3.90; product templates 4.0 / 4.8 / 4.11. |
 | `crates/fieldglass-netcdf` | NetCDF reader — full classic (CDF-1/2/5) header parser; HDF5 / NetCDF-4 superblock probe with deep traversal as a follow-up. |
 | `crates/fieldglass-napi` | Node.js bindings exposed via napi-rs. The only crate that knows about Node. |
 | `extension/` | TypeScript VS Code extension. Registers a custom read-only editor and renders a webview. |
