@@ -9,6 +9,7 @@ Versioning follows the [VS Code pre-release convention](https://code.visualstudi
 ### Added
 
 - **GRIB2 now decodes IEEE floating-point packing.** Data-representation template 5.4 stores each value as a plain big-endian float; both 32-bit and 64-bit decode, and both are checked against eccodes. (128-bit is not supported, which matches eccodes.) This is the GRIB2 counterpart to the GRIB1 IEEE packing already shipped. Closes #110.
+- **ECMWF GRIB1 fields now show real parameter names.** Fieldglass recognises ECMWF local parameter tables 128 and 129 (originating centre 98), so IFS / ERA5 fields like 2-metre temperature, 10-metre wind, and mean sea level pressure are named instead of showing "Unknown". The tables are generated from eccodes, so they match it. Closes #48.
 
 ### Fixed
 

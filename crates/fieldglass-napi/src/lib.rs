@@ -193,7 +193,11 @@ fn build_grib1_message_meta(
     msg: &fieldglass_grib1::Grib1Message,
     packing: Option<String>,
 ) -> MessageMeta {
-    let param = lookup_parameter(msg.pds.parameter_id, msg.pds.table_version);
+    let param = lookup_parameter(
+        msg.pds.parameter_id,
+        msg.pds.table_version,
+        msg.pds.originating_centre,
+    );
     let (grid_type, grid_ni, grid_nj, lat_first, lon_first, lat_last, lon_last) = match &msg.gds {
         Some(gds) => {
             let dims = gds.dimensions();

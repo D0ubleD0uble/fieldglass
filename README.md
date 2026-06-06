@@ -87,7 +87,7 @@ This is a beta. Things to be aware of:
 - **GRIB2: full §0–§7 parsing, value decode for several packings.** `.grb2` / `.grib2` files enumerate messages and show edition, discipline, total length, originating centre, reference time, production status, data type, parameter name, level, forecast time, and grid geometry (templates 3.0 / 3.1 / 3.10 / 3.20 / 3.30 / 3.40 / 3.90: regular lat/lon, rotated lat/lon, Mercator, polar stereographic, Lambert Conformal, regular and reduced Gaussian, and space-view perspective). Value decoding covers a growing subset of §5 packing templates — see the [GRIB2 packing modes](#grib2-packing-modes) table for the current status. A message whose template isn't decoded yet still parses to the section level; `decode_message_values` returns an `UnsupportedSection` error naming the template rather than mis-decoding.
 - **NetCDF-4 / HDF5: header probe only.** Classic NetCDF (CDF-1 / CDF-2 / CDF-5) parses fully and renders dimensions, global attributes, and variables. NetCDF-4 / HDF5 files are validated and report the superblock version, but deep traversal (groups, datasets, attributes through the HDF5 object header tree) is a follow-up.
 - **GRIB1 GDS coverage:** Lat/Lon, Gaussian, Polar Stereographic, and Lambert Conformal grids are parsed. Reduced grids, rotated/oblique projections, and predefined grids (`grid_number != 255`) are not yet supported and will render as `unsupported`.
-- **Parameter table coverage:** WMO ON388 Table 2 (versions 1–3) only. ECMWF local tables (versions 128+) and other centre-specific extensions resolve as `Unknown`.
+- **Parameter table coverage:** WMO ON388 Table 2 (versions 1–3) plus ECMWF local tables 128 and 129 (centre 98), which cover the bulk of IFS / ERA5 fields. Other centres' local tables (and other ECMWF versions) still resolve as `Unknown`.
 - **Large files:** the extension reads the whole file into memory via `vscode.workspace.fs.readFile` to keep remote/virtual workspaces working. Multi-GB GRIB archives are not the target use case yet.
 
 ## Installation
@@ -314,7 +314,7 @@ The same flow applies to either edition — only the source section module diffe
 4. Add the corresponding camelCase field to the `MessageMeta` interface in `extension/src/provider.ts`.
 5. Render it in the webview table in the same file.
 
-WMO ON388 / FM 92 lookup tables live in `crates/fieldglass-grib1/src/tables.rs` (GRIB1) and `crates/fieldglass-grib2/src/tables.rs` (GRIB2) — extend the tables there rather than hardcoding strings at the napi or TypeScript layer. The napi-rs bindings automatically convert `snake_case` Rust field names to `camelCase` TypeScript fields.
+WMO ON388 / FM 92 lookup tables live in `crates/fieldglass-grib1/src/tables.rs` (GRIB1) and `crates/fieldglass-grib2/src/tables.rs` (GRIB2) — extend the tables there rather than hardcoding strings at the napi or TypeScript layer. ECMWF GRIB1 local parameter tables (128/129) are generated from eccodes into `tables_ecmwf.rs` by `tools/gen_ecmwf_tables.py` — regenerate that file rather than editing it by hand. The napi-rs bindings automatically convert `snake_case` Rust field names to `camelCase` TypeScript fields.
 
 ## License
 

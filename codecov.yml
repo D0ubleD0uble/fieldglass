@@ -46,7 +46,12 @@ flag_management:
 #  - `crates/fieldglass-netcdf/src/**`: stub-exclusion to be lifted in a
 #    follow-up; pulling it now would bundle an unrelated coverage delta
 #    with this PR.
+#  - `crates/fieldglass-grib1/src/tables_ecmwf.rs`: a generated lookup table
+#    (from eccodes via `tools/gen_ecmwf_tables.py`) — ~500 data match arms.
+#    The dispatch is exercised by `tables.rs` tests; counting each data arm
+#    as a line to cover would punish the table for being a table.
 ignore:
   - "crates/fieldglass-napi/src/**"
   - "crates/fieldglass-netcdf/src/**"
+  - "crates/fieldglass-grib1/src/tables_ecmwf.rs"
   - "**/tests/**"

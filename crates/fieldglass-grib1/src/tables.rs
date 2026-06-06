@@ -1,13 +1,33 @@
-/// Parameter entry from WMO ON388 Table 2.
+/// Parameter entry from a GRIB1 Table 2 (WMO ON388 international table, or a
+/// centre-local table such as ECMWF 128/129).
 pub struct ParameterEntry {
     pub name: &'static str,
     pub abbreviation: &'static str,
     pub units: &'static str,
 }
 
-/// Look up a parameter from WMO ON388 Table 2.
-/// `_table_version` is reserved for future ECMWF local table support (tables 128+).
-pub fn lookup_parameter(id: u8, _table_version: u8) -> ParameterEntry {
+/// WMO originating-centre code for ECMWF (Common Code Table C-1).
+const CENTRE_ECMWF: u8 = 98;
+
+/// Look up a GRIB1 parameter by id, `table_version` (PDS octet 4), and
+/// originating `centre` (PDS octet 5).
+///
+/// Parameter ids 1-127 are fixed by WMO ON388 Table 2 (versions 1-3), but
+/// `table_version >= 128` selects a *centre-local* table that redefines the
+/// whole id space. For ECMWF (centre 98) tables 128/129 are resolved from
+/// [`crate::tables_ecmwf`]; every other centre/version falls back to the WMO
+/// table, which is also correct for the standard versions 1-3.
+pub fn lookup_parameter(id: u8, table_version: u8, centre: u8) -> ParameterEntry {
+    // An ECMWF local table redefines the whole id space, so when one applies
+    // resolve against it exclusively — an id it doesn't define is genuinely
+    // Unknown, not the WMO meaning.
+    if centre == CENTRE_ECMWF && matches!(table_version, 128 | 129) {
+        return crate::tables_ecmwf::lookup(table_version, id).unwrap_or(ParameterEntry {
+            name: "Unknown",
+            abbreviation: "",
+            units: "",
+        });
+    }
     let (name, abbreviation, units) = match id {
         1 => ("Pressure", "PRES", "Pa"),
         2 => ("Pressure reduced to MSL", "PRMSL", "Pa"),
@@ -471,5 +491,66 @@ pub fn lookup_centre(id: u8) -> &'static str {
         99 => "De Bilt",
         100 => "Brazzaville",
         _ => "Unknown centre",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ecmwf_table_128_resolves_common_era5_params() {
+        // Centre 98, table 128 — the fields ERA5 / IFS users actually open.
+        for (id, name, abbr, units) in [
+            (167u8, "2 metre temperature", "2t", "K"),
+            (165, "10 metre U wind component", "10u", "m s**-1"),
+            (166, "10 metre V wind component", "10v", "m s**-1"),
+            (151, "Mean sea level pressure", "msl", "Pa"),
+        ] {
+            let p = lookup_parameter(id, 128, CENTRE_ECMWF);
+            assert_eq!(
+                (p.name, p.abbreviation, p.units),
+                (name, abbr, units),
+                "id {id}"
+            );
+        }
+    }
+
+    #[test]
+    fn ecmwf_table_129_resolves_gradient_table() {
+        let p = lookup_parameter(129, 129, CENTRE_ECMWF);
+        assert_eq!(
+            (p.name, p.abbreviation, p.units),
+            ("Geopotential gradient", "zgrd", "m**2 s**-2")
+        );
+    }
+
+    #[test]
+    fn ecmwf_local_table_unknown_id_is_unknown_not_wmo() {
+        // id 61 is undefined in ECMWF table 128 (it's "Total precipitation" in
+        // the WMO table). An ECMWF local table must not leak the WMO meaning.
+        let p = lookup_parameter(61, 128, CENTRE_ECMWF);
+        assert_eq!(p.name, "Unknown");
+    }
+
+    #[test]
+    fn non_ecmwf_centre_falls_back_to_wmo_even_at_version_128() {
+        // Centre 7 (NCEP) never uses ECMWF tables: id 11 stays WMO Temperature.
+        let p = lookup_parameter(11, 128, 7);
+        assert_eq!(
+            (p.name, p.abbreviation, p.units),
+            ("Temperature", "TMP", "K")
+        );
+    }
+
+    #[test]
+    fn ecmwf_centre_with_international_version_uses_wmo() {
+        // Centre 98 but table_version 1 is the international table, not a local
+        // one — id 33 is WMO u-component of wind, not the ECMWF id-33 entry.
+        let p = lookup_parameter(33, 1, CENTRE_ECMWF);
+        assert_eq!(
+            (p.name, p.abbreviation, p.units),
+            ("u-component of wind", "UGRD", "m/s")
+        );
     }
 }
