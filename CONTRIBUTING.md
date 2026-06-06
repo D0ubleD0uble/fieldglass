@@ -33,22 +33,22 @@ Open the repo in VS Code and press `F5` to launch an Extension Development Host 
 
 ## Pull request workflow
 
-Fieldglass uses a release-candidate branching model: feature work accumulates on a `release/X.Y.Z` branch for the next version, and that branch is promoted to `master` in a single merge at release time (alongside a `vX.Y.Z` tag). The active candidate branch is whichever `release/*` branch is currently *ahead* of `master`; check `git branch -r | grep release/` and pick the one with commits to spare.
+Fieldglass uses a trunk-based model: feature branches are cut from `master` and PRs target `master` directly. There is no long-lived release branch — a release is just a tagged commit on `master` (`vX.Y.Z`). Merging to `master` never publishes; only pushing a `v*` tag does.
 
-1. Fork the repo and create a feature branch from the active release candidate, not from `master`:
+1. Fork the repo and create a feature branch from `master`:
    ```sh
    git fetch origin
-   git switch -c my-feature origin/release/0.1.2   # substitute the current RC
+   git switch -c my-feature origin/master
    ```
 2. Make your change. The local pre-commit hook runs `cargo fmt`, `cargo clippy -- -D warnings`, `tsc --noEmit`, plus file-hygiene polish on every commit. The pre-push hook runs `cargo test --workspace`, `cargo deny check`, `npm audit`, and a `semgrep` SAST scan.
-3. Update [CHANGELOG.md](CHANGELOG.md) under the `## [Unreleased]` heading.
-4. Open the PR **targeting the release candidate branch**, not `master`:
+3. Update [CHANGELOG.md](CHANGELOG.md) under the `## [Unreleased]` heading. If your change closes an issue, put `Closes #N` in the PR body — it closes automatically when the PR merges to `master`.
+4. Open the PR targeting `master`:
    ```sh
-   gh pr create --base release/0.1.2
+   gh pr create --base master
    ```
-   CI runs the same checks regardless of base; required statuses are `Lint + test via pre-commit`, `Build extension`, `Analyze (rust)`, `Analyze (javascript-typescript)`, and `Semgrep SAST`.
+   Required statuses are `Lint + test via pre-commit`, `Build extension`, `Analyze (rust)`, `Analyze (javascript-typescript)`, and `Semgrep SAST`.
 
-At release time a `release/X.Y.Z-prep` branch off the RC bumps versions and promotes the `## [Unreleased]` heading; that prep PR merges into the RC, then the RC is promoted to `master` in one merge and tagged `vX.Y.Z`. The full operational checklist (pre-deploy gates, dry-run dispatch, tag commands, post-release verification) lives in [RELEASING.md](RELEASING.md).
+At release time a short-lived `release-prep/X.Y.Z` branch off `master` bumps versions and promotes the `## [Unreleased]` heading; that prep PR merges into `master` and the merge commit is tagged `vX.Y.Z`. The full operational checklist (pre-deploy gates, dry-run dispatch, tag commands, post-release verification) lives in [RELEASING.md](RELEASING.md).
 
 A few project-specific patterns worth knowing:
 
