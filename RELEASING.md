@@ -1,7 +1,7 @@
 # Releasing Fieldglass
 
 Operational checklist for cutting a Fieldglass release. The conceptual model
-(release-candidate branches, prep PRs, master promotion) lives in
+(trunk-based development, prep PRs, tag-triggered publish) lives in
 [CONTRIBUTING.md § Pull request workflow](CONTRIBUTING.md#pull-request-workflow);
 this doc is the *how*, not the *why*.
 
@@ -12,20 +12,19 @@ to the next even minor (`0.2.0`, `0.4.0`, …). All examples below use
 
 ## Roles
 
-- **Release branch** — `release/X.Y.Z`. Feature PRs target this branch
-  during the release cycle (see CONTRIBUTING.md).
-- **Prep branch** — `release/X.Y.Z-prep`. A short-lived branch off the
-  release branch that bumps versions and promotes the CHANGELOG.
-- **Master** — the publish reference. The `vX.Y.Z` tag is placed on the
-  master commit that merges `release/X.Y.Z` in.
+- **Master** — the trunk. Feature PRs land here continuously (see
+  CONTRIBUTING.md), and the `vX.Y.Z` tag is placed on a commit here.
+- **Prep branch** — `release-prep/X.Y.Z`. A short-lived branch off `master`
+  that bumps versions and promotes the CHANGELOG. Its merge commit on `master`
+  is the commit that gets tagged.
 
 ## 1 — Prep PR
 
-When the release branch contains everything you want to ship:
+When `master` contains everything you want to ship:
 
 ```sh
 git fetch origin
-git switch -c release/X.Y.Z-prep origin/release/X.Y.Z
+git switch -c release-prep/X.Y.Z origin/master
 ```
 
 Bump versions in lockstep:
@@ -58,23 +57,31 @@ cargo test --workspace
 cd extension && npm test     # needs xvfb-run -a on headless boxes
 ```
 
-Open the prep PR against the release branch:
+Open the prep PR against `master`:
 
 ```sh
-gh pr create --base release/X.Y.Z --title "release: prep X.Y.Z"
+gh pr create --base master --title "release: prep X.Y.Z"
 ```
 
-CI must be green before moving on. Merge.
+CI must be green before moving on. Merge it, then record the merge commit SHA —
+that exact commit is what you verify and tag below. `master` is a moving trunk,
+so everything from here on pins to that SHA rather than to "master HEAD":
+
+```sh
+git fetch origin
+RELEASE_SHA=$(git rev-parse origin/master)   # the prep merge commit
+```
 
 ## 2 — Pre-deploy verification
 
-After the prep PR merges into `release/X.Y.Z`:
+Verify the prep merge commit (`$RELEASE_SHA`), not whatever has landed on
+`master` since:
 
-- [ ] **CI green on `release/X.Y.Z`** — `gh run list --branch release/X.Y.Z --limit 5`. All of `ci.yml`, `coverage.yml`, `semgrep.yml`, `codeql.yml` should pass on the merged tip.
-- [ ] **Release-workflow dry-run** — manually trigger `release.yml` against `release/X.Y.Z`. This builds the full six-target `.vsix` matrix without publishing (the publish job is gated on `refs/tags/v*`):
+- [ ] **CI green on the prep merge** — `gh run list --branch master --limit 5` and confirm the run for `$RELEASE_SHA`. All of `ci.yml`, `coverage.yml`, `semgrep.yml`, `codeql.yml` should pass.
+- [ ] **Release-workflow dry-run** — manually trigger `release.yml` against the prep merge commit. This builds the full six-target `.vsix` matrix without publishing (the publish job is gated on `refs/tags/v*`):
 
   ```sh
-  gh workflow run release.yml --ref release/X.Y.Z
+  gh workflow run release.yml --ref "$RELEASE_SHA"
   gh run list --workflow=release.yml --limit 3
   ```
 
@@ -89,28 +96,16 @@ After the prep PR merges into `release/X.Y.Z`:
 
 - [ ] **Marketplace screenshot fresh** — if the render UI changed materially, refresh `extension/media/screenshot.png` so the Marketplace listing reflects the shipping version.
 
-## 3 — Promote to master
+## 3 — Tag and publish
 
-When the dry-run is green and the smoke test passes:
-
-```sh
-gh pr create --base master --head release/X.Y.Z \
-  --title "release: X.Y.Z" \
-  --body "Promotes release/X.Y.Z to master; see CHANGELOG.md for the entry."
-```
-
-This is the single merge that brings the release branch's commits onto
-master. CI runs on the PR as usual. Merge it.
-
-## 4 — Tag and publish
-
-After the master merge lands:
+When the dry-run is green and the smoke test passes, tag the verified prep
+merge commit — `$RELEASE_SHA`, not `master` HEAD. Pinning the SHA means a
+feature or Dependabot PR that landed on `master` since prep can't slip into
+this release; it simply rides the next one, and the tag reflects exactly what
+you verified:
 
 ```sh
-git fetch origin
-git switch master
-git pull --ff-only
-git tag -a vX.Y.Z -m "vX.Y.Z"
+git tag -a vX.Y.Z "$RELEASE_SHA" -m "vX.Y.Z"
 git push origin vX.Y.Z
 ```
 
@@ -131,19 +126,19 @@ gh run list --workflow=release.yml --limit 1
 gh run watch
 ```
 
-## 5 — Post-release verification
+## 4 — Post-release verification
 
 - [ ] **GitHub Release created** at `https://github.com/D0ubleD0uble/fieldglass/releases/tag/vX.Y.Z` with six `.vsix` attachments.
 - [ ] **CHANGELOG link refs resolve** — `[X.Y.Z]: …/compare/v{prev}...vX.Y.Z` should be live now that the tag exists.
 - [ ] **Marketplace listing updated** at `https://marketplace.visualstudio.com/items?itemName=fieldglass.fieldglass` — the new version number, screenshot, and README all reflect what shipped.
 - [ ] **Install from Marketplace and round-trip** a real file from each format in a clean VS Code install. The full chain — Marketplace → `.vsix` selection by platform → activation → file open → render — is something only a real install can validate.
-- [ ] **Issues that closed in this release** — review the CHANGELOG's `Closes #N` references and confirm those issues are closed (the Marketplace can't see GitHub issue state; this is a manual cleanup).
+- [ ] **Linked issues already closed** — issues with `Closes #N` in their PR auto-closed when that PR merged to `master`, so this needs no action in the normal case. Just spot-check the CHANGELOG's `Closes #N` references are in fact closed; a still-open one means its PR didn't carry the keyword.
 
 ## When things break
 
-- **Dry-run native build fails on one target** — usually a toolchain drift (windows-arm64 has been the recurring culprit). Fix in a new PR on the release branch; rerun the dry-run; do not tag until it's green.
+- **Dry-run native build fails on one target** — usually a toolchain drift (windows-arm64 has been the recurring culprit). Fix in a normal feature PR to `master`, re-prep so the fix is in the tagged commit, rerun the dry-run; do not tag until it's green.
 - **Tag pushed but publish fails partway** — the GitHub Release will be missing assets. Re-run the failed job from the Actions UI; the workflow is idempotent for the platform builds.
-- **A regression slips past CI** — if it's caught after publish but before users adopt, the cleanest fix is a hotfix release (`vX.Y.Z+1`) from a fresh prep PR. Don't retag.
+- **A regression slips past CI** — if it's caught after publish but before users adopt, the cleanest fix is a hotfix release (`vX.Y.Z+1`): land the fix on `master` like any other PR, run a fresh prep PR, and tag the new merge commit. Don't retag.
 - **Cutting an even-minor *stable* release** — `release.yml` is wired for the pre-release channel only: it hardcodes `vsce package --pre-release`, `vsce publish --pre-release`, and `prerelease: true` on the GitHub Release. The stable jump (`0.2.0`, `0.4.0`, …) needs those gated on the minor's parity **before** tagging — otherwise an even-minor tag still publishes to the pre-release channel. Don't tag a stable minor until the workflow is updated.
 
 ## What lives where
