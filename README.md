@@ -4,7 +4,7 @@
 [![Coverage](https://codecov.io/gh/D0ubleD0uble/fieldglass/branch/master/graph/badge.svg)](https://codecov.io/gh/D0ubleD0uble/fieldglass)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
-A Visual Studio Code extension for viewing meteorological binary data files (GRIB1, GRIB2, NetCDF) directly in the editor. Built on a Rust native module — installed extensions have **no Python runtime dependency**. (Python is only used by the dev tooling, not the shipped extension.)
+A Visual Studio Code extension for viewing meteorological data files (GRIB1, GRIB2, and NetCDF) right in the editor. It runs on a native Rust module and needs no extra dependencies to install. Fieldglass bundles a prebuilt binary for each supported platform and selects the right one automatically.
 
 ![Fieldglass viewer rendering a multi-message GRIB1 file](extension/media/screenshot.png)
 
@@ -12,7 +12,7 @@ A Visual Studio Code extension for viewing meteorological binary data files (GRI
 
 ## Status
 
-First public beta. Read-only metadata viewing for GRIB1 is in, and each message's decoded grid can now be rendered as a 2-D viridis-colored image directly in the webview — either in source-grid coordinates or inverse-warped into an equirectangular lat/lon canvas. GRIB2 and NetCDF have shipped header-level parsing — GRIB2 enumerates messages from the Indicator Section, NetCDF classic (CDF-1/2/5) renders the full dimension / variable / global-attribute view. Per-message GRIB2 metadata, NetCDF-4 / HDF5 deep parsing, value decode for GRIB2 + NetCDF, metadata editing, additional target projections, and basemap/coastline overlays are on the roadmap — see the [feature matrix](#feature-matrix) below for what works today.
+This is an early public release (beta). For GRIB1, you can read every message's metadata and render its grid as a 2-D color image, either in the grid's own coordinates or reprojected onto a map. Five projection targets are available (source, equirectangular, Web Mercator, orthographic, and polar stereographic), and you can overlay coastlines and a latitude/longitude grid. GRIB2 reads metadata for every message and renders values for simple-packed messages. NetCDF reads the full structure of classic files (CDF-1/2/5): dimensions, variables, and global attributes. Still to come: value decode for more GRIB2 packings and for NetCDF, deep NetCDF-4 / HDF5 parsing, and metadata editing. The [feature matrix](#feature-matrix) below shows exactly what works today.
 
 ## Feature matrix
 
@@ -29,7 +29,8 @@ First public beta. Read-only metadata viewing for GRIB1 is in, and each message'
 | Binary data section decoding (Rust API) | ✅ | 🚧 simple packing (5.0); 5.2 / 5.3 / 5.4 / 5.40 / 5.41 / 5.42 follow-up | ❌ Not yet |
 | Metadata editing | ❌ Not yet | ❌ Not yet | ❌ Not yet |
 | 2-D grid rendering with colormap | ✅ | 🚧 simple-packed messages only | ❌ Not yet |
-| Render-panel projection picker (source / equirectangular) | ✅ | ✅ (for simple-packed messages) | n/a |
+| Render-panel projection picker (5 targets) | ✅ | ✅ (simple-packed messages) | n/a |
+| Coastline + lat/lon grid overlay | ✅ | ✅ (simple-packed messages) | n/a |
 | Resampling picker (nearest / bilinear) | ✅ | ✅ | n/a |
 
 Format-agnostic features:
@@ -39,7 +40,7 @@ Format-agnostic features:
 
 ### GRIB1 packing modes
 
-A GRIB1 file's BDS (Binary Data Section) flag bits select one of several packing schemes. Decoding (and therefore 2-D rendering) covers only a subset today; metadata + format detection are independent of the packing mode and work on every file. For unsupported variants the decoder surfaces an error naming the eccodes-style `packingType` so you can match it against [eccodes' definitions](https://confluence.ecmwf.int/display/ECC/Documentation).
+A GRIB1 file's BDS (Binary Data Section) flag bits select one of several packing schemes. Decoding (and therefore 2-D rendering) covers only some of them today; metadata and format detection do not depend on the packing mode and work on every file. For an unsupported variant, the decoder returns an error naming the eccodes-style `packingType`, so you can match it against [eccodes' definitions](https://confluence.ecmwf.int/display/ECC/Documentation).
 
 | BDS packing | eccodes packingType | Decode | Notes |
 |---|---|:---:|---|
@@ -52,19 +53,19 @@ A GRIB1 file's BDS (Binary Data Section) flag bits select one of several packing
 | Second-order, row-by-row | `grid_second_order_row_by_row` | ✅ | Classic WMO layout: one group per row, per-row widths, no SPD. Cross-validated against eccodes 2.34 with a hand-built oracle fixture. |
 | Second-order, constant width | `grid_second_order_constant_width` | ✅ | Classic WMO layout: explicit secondary bitmap + single shared width. Cross-validated against eccodes 2.34 with a hand-built oracle fixture. |
 | Second-order, general (legacy) | `grid_second_order_general_grib1` | ✅ | Classic WMO layout: secondary-bitmap-delimited variable-length groups + per-group widths. Cross-validated against eccodes 2.34 with a hand-built oracle fixture. |
-| IEEE 754 raw floats | `grid_ieee` | ✅ | Values stored verbatim as big-endian floats; 32-bit (`precision = 1`) and 64-bit (`precision = 2`). Cross-validated against eccodes 2.34. 128-bit (`precision = 3`) is unsupported — eccodes returns `NOT_IMPLEMENTED` for it too. |
+| IEEE 754 raw floats | `grid_ieee` | ✅ | Values stored verbatim as big-endian floats; 32-bit (`precision = 1`) and 64-bit (`precision = 2`). Cross-validated against eccodes 2.34. 128-bit (`precision = 3`) is unsupported; eccodes returns `NOT_IMPLEMENTED` for it too. |
 | Matrix-of-values (scalar form) | `grid_simple_matrix` | ✅ | `matrixOfValues = 0`: a simple-packed body behind the matrix sub-header (what eccodes emits for `packingType=grid_simple_matrix`). Cross-validated against eccodes 2.34. |
 | Matrix-of-values (true matrix) | `grid_simple_matrix` | ✅ | `matrixOfValues = 1`: an `NR×NC` matrix at every grid point, via secondary bitmaps. Decoded through `Grib1Reader::decode_matrix_message` (not a single 2-D field, so it bypasses the scalar path). eccodes 2.34 can neither encode nor decode this variant, so it's validated against the eccodes definition/accessor source + a hand-computed fixture rather than a `grib_get_data` oracle. |
 | Spherical-harmonic coefficients | `spectral_simple` / `spectral_complex` | ❌ Planned | IFS analyses; needs an inverse Legendre transform. |
-| JPEG 2000 / PNG | `grid_jpeg` / `grid_png` | ❌ n/a | Not defined for GRIB1 edition 1 (eccodes' `packingType` concept lists them only to avoid set-failures); no encoder and no obtainable fixture. Common in GRIB2 — tracked there. |
+| JPEG 2000 / PNG | `grid_jpeg` / `grid_png` | ❌ n/a | Not defined for GRIB1 edition 1 (eccodes' `packingType` concept lists them only to avoid set-failures); no encoder and no obtainable fixture. Common in GRIB2, tracked there. |
 
 ## Known limitations
 
 This is a beta. Things to be aware of:
 
 - **No metadata editing in the viewer.** The Rust API has byte-level patching for the forecast period (P1) and the webview retains the full undo/redo wiring, but the editable affordance is hidden in beta until general PDS-field editing lands. For now Fieldglass is a read-only viewer.
-- **2-D render projections are preset-driven for the azimuthal targets.** The projection picker offers five targets — `Source projection` (paints the source grid unchanged — Lambert / Gaussian / polar stereo grids appear in their native shape), `Equirectangular`, `Web Mercator`, `Orthographic`, and `Polar stereographic` — plus an optional coastline + lat/lon graticule overlay. GRIB1 lat/lon, Gaussian, Lambert, and polar stereographic source grids, and GRIB2 polar stereographic (§3.20) grids, all warp into the lat/lon-box targets. The two azimuthal targets (orthographic, polar stereographic) are framed by a fixed centre / hemisphere preset rather than free-form numeric parameters — arbitrary projection centres are a follow-up.
-- **GRIB2: full §0–§7 parsing, simple-packed value decode.** `.grb2` / `.grib2` files enumerate messages and surface edition, discipline, total length, originating centre, reference time, production status, data type, parameter name + level + forecast time, and grid geometry (templates 3.0 / 3.1 / 3.10 / 3.20 / 3.30 / 3.40 / 3.90 — regular lat/lon, rotated lat/lon, Mercator, polar stereographic, Lambert Conformal, regular and reduced Gaussian, and space-view perspective). Value decoding works for **simple packing** (DRS template 5.0); complex packing (5.2 / 5.3), IEEE (5.4), JPEG 2000 (5.40), PNG (5.41), and CCSDS (5.42) are tracked under separate issues — those messages still parse to the section level but `decode_message_values` returns an `UnsupportedSection` error naming the template.
+- **The globe-style projections use fixed presets.** The projection picker offers five targets: source (the grid in its native shape), equirectangular, Web Mercator, orthographic, and polar stereographic, plus an optional coastline and lat/lon grid overlay. GRIB1 lat/lon, Gaussian, Lambert, and polar stereographic grids, and GRIB2 polar stereographic (§3.20) grids, all reproject into the flat (lat/lon-box) targets. The two globe-style targets (orthographic and polar stereographic) are framed by a fixed center or hemisphere preset rather than free-form numbers; arbitrary projection centers are a follow-up.
+- **GRIB2: full §0–§7 parsing, simple-packed value decode.** `.grb2` / `.grib2` files enumerate messages and show edition, discipline, total length, originating centre, reference time, production status, data type, parameter name, level, forecast time, and grid geometry (templates 3.0 / 3.1 / 3.10 / 3.20 / 3.30 / 3.40 / 3.90: regular lat/lon, rotated lat/lon, Mercator, polar stereographic, Lambert Conformal, regular and reduced Gaussian, and space-view perspective). Value decoding works for **simple packing** (DRS template 5.0). Complex packing (5.2 / 5.3), IEEE (5.4), JPEG 2000 (5.40), PNG (5.41), and CCSDS (5.42) are tracked under separate issues; those messages still parse to the section level, but `decode_message_values` returns an `UnsupportedSection` error naming the template.
 - **NetCDF-4 / HDF5: header probe only.** Classic NetCDF (CDF-1 / CDF-2 / CDF-5) parses fully and renders dimensions, global attributes, and variables. NetCDF-4 / HDF5 files are validated and report the superblock version, but deep traversal (groups, datasets, attributes through the HDF5 object header tree) is a follow-up.
 - **GRIB1 GDS coverage:** Lat/Lon, Gaussian, Polar Stereographic, and Lambert Conformal grids are parsed. Reduced grids, rotated/oblique projections, and predefined grids (`grid_number != 255`) are not yet supported and will render as `unsupported`.
 - **Parameter table coverage:** WMO ON388 Table 2 (versions 1–3) only. ECMWF local tables (versions 128+) and other centre-specific extensions resolve as `Unknown`.

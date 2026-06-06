@@ -1,7 +1,7 @@
 {
   "name": "fieldglass",
   "displayName": "Fieldglass",
-  "description": "VS Code extension for viewing meteorological data files (GRIB1, GRIB2, NetCDF)",
+  "description": "View and render GRIB1, GRIB2, and NetCDF weather data files in VS Code",
   "version": "0.1.3",
   "publisher": "fieldglass",
   "preview": true,
