@@ -8,6 +8,7 @@ pub mod packing;
 pub mod pds;
 pub mod reader;
 pub mod tables;
+mod tables_ecmwf;
 
 pub use bds::{BDS_DATA_OFFSET, BdsHeader, ComplexExtendedHeader, parse_bds_header};
 pub use bms::Bitmap;
