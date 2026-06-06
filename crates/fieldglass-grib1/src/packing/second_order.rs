@@ -132,7 +132,14 @@ pub fn decode(
             "BDS N1/N2 ordering invalid: N1={n1_octet}, N2={n2_octet}"
         )));
     }
-    if n2 >= bds_len {
+    // `n2 == bds_len` is legitimate: a message whose groups are all
+    // zero-width has no second-order packed values, so N2 (1-indexed) points
+    // one past the last byte (`n2 = bds_len`). The resulting `&bds[n2..]`
+    // slice is empty and only ever read for a non-zero-width group — and a
+    // malformed message that claims `n2 == end` *and* has second-order values
+    // hits the BitReader's exhaustion error below. Only `n2 > bds_len` is
+    // out of bounds. Matches eccodes 2.34, which decodes such messages.
+    if n2 > bds_len {
         return Err(FieldglassError::Parse(format!(
             "BDS N2={n2_octet} exceeds section_len={bds_len}"
         )));
@@ -371,6 +378,87 @@ fn apply_spd_inverse(x: &mut [i64], order: u8, bias: i64) -> Result<(), Fieldgla
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bds::ComplexExtendedHeader;
+
+    /// Build a minimal `grid_second_order_SPD1` BDS whose single group is
+    /// zero-width, so there are no second-order packed values and N2
+    /// (1-indexed) points exactly one past the last byte — i.e. `n2 ==
+    /// bds_len`. This is the boundary the decoder used to reject (issue #91);
+    /// eccodes 2.34 decodes it. Layout follows the module doc-comment and
+    /// `data.grid_second_order_SPD1.def`:
+    ///
+    /// - orderOfSPD = 1, widthOfSPD = 8, seed = 0, bias = 0
+    /// - one group, groupWidth = 0, groupLength = `count`, firstOrderValues = 1
+    ///
+    /// The order-1 inverse over the seed 0 followed by `count` copies of the
+    /// reference 1 is a cumulative sum, yielding the ramp `0, 1, …, count`.
+    fn zero_width_spd1_bds(count: u16, n2_octet: u16) -> (Vec<u8>, BdsHeader) {
+        const N1_OCTET: u16 = 32; // first-order values start at byte 31
+        const SECTION_LEN: usize = 32; // bytes 0..=31
+        let mut bds = vec![0u8; SECTION_LEN];
+        bds[14..16].copy_from_slice(&n2_octet.to_be_bytes()); // N2
+        bds[16..18].copy_from_slice(&1u16.to_be_bytes()); // codedNumberOfGroups
+        bds[20] = 0; // extraValues
+        bds[21] = 8; // widthOfWidths
+        bds[22] = 16; // widthOfLengths
+        bds[25] = 8; // widthOfSPD
+        bds[26] = 0; // SPD seed (unsigned)
+        bds[27] = 0; // SPD bias (sign-magnitude)
+        bds[28] = 0; // groupWidths[0] = 0  → zero-width group
+        bds[29..31].copy_from_slice(&count.to_be_bytes()); // groupLengths[0]
+        bds[31] = 1; // firstOrderValues[0] = 1
+
+        let header = BdsHeader {
+            section_len: SECTION_LEN as u32,
+            is_spherical_harmonic: false,
+            is_complex_packing: true,
+            is_integer_data: false,
+            has_extra_flags: true,
+            unused_trailing_bits: 0,
+            binary_scale_factor: 0,
+            reference_value: 0.0,
+            bits_per_value: 8, // widthOfFirstOrderValues
+            complex_extended: Some(ComplexExtendedHeader {
+                n1: N1_OCTET,
+                // secondOrderOfDifferentWidth | generalExtended2ordr | SPD order 1
+                extended_flag: 0x10 | 0x08 | 0x01,
+            }),
+        };
+        (bds, header)
+    }
+
+    #[test]
+    fn decodes_all_zero_width_group_with_n2_at_section_end() {
+        // Regression for #91: n2 == bds_len must be accepted, not rejected.
+        let count = 7u16;
+        let expected_count = count as usize + 1; // + orderOfSPD seed
+        let (bds, header) = zero_width_spd1_bds(count, 33); // N2 = section_len + 1
+        let out = decode(&bds, &header, 0, None, expected_count, expected_count)
+            .expect("all-zero-width second-order BDS should decode");
+        let present: Vec<f64> = out.into_iter().map(|v| v.expect("no missing")).collect();
+        let want: Vec<f64> = (0..=count).map(f64::from).collect();
+        assert_eq!(present, want);
+    }
+
+    #[test]
+    fn rejects_n2_past_section_end() {
+        // The relaxed guard must still catch a genuinely out-of-bounds N2.
+        let count = 7u16;
+        let (bds, header) = zero_width_spd1_bds(count, 34); // N2 = section_len + 2
+        let err = decode(
+            &bds,
+            &header,
+            0,
+            None,
+            count as usize + 1,
+            count as usize + 1,
+        )
+        .expect_err("N2 beyond section end must be rejected");
+        match err {
+            FieldglassError::Parse(msg) => assert!(msg.contains("N2=34"), "msg = {msg:?}"),
+            other => panic!("expected Parse error, got {other:?}"),
+        }
+    }
 
     #[test]
     fn spd_inverse_order1_is_cumulative_sum_with_bias() {

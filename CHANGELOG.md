@@ -6,6 +6,10 @@ Versioning follows the [VS Code pre-release convention](https://code.visualstudi
 
 ## [Unreleased]
 
+### Fixed
+
+- **GRIB1 second-order fields that are entirely constant now decode.** When every group in a second-order message has zero width, the file holds no second-order values and the pointer to them lands just past the end of the section. Fieldglass treated that as malformed and refused the message; it now decodes, matching eccodes. Closes #91.
+
 ## [0.1.3] — 2026-06-06
 
 ### Added
