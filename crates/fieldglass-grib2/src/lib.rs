@@ -26,7 +26,7 @@ pub use bms::{
     BitMapSection, parse_bit_map,
 };
 pub use drs::{
-    DRS_SECTION_NUMBER, DataRepresentationSection, DataRepresentationTemplate,
+    DRS_SECTION_NUMBER, DataRepresentationSection, DataRepresentationTemplate, IeeePackingTemplate,
     SimplePackingTemplate, parse_data_representation,
 };
 pub use ds::{DS_SECTION_NUMBER, decode_values};

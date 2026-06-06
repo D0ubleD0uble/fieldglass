@@ -144,7 +144,7 @@ fn grid_is_reprojectable(
 fn friendly_packing(label: &str) -> String {
     let mapped = match label {
         "grid_simple" | "simple" => "Simple grid-point",
-        "grid_ieee" => "IEEE float",
+        "grid_ieee" | "ieee" => "IEEE float",
         "grid_simple_matrix" => "Matrix of values",
         "grid_second_order" => "Second-order (SPD-2)",
         "grid_second_order_no_SPD" => "Second-order (no SPD)",
@@ -163,7 +163,6 @@ fn friendly_packing(label: &str) -> String {
             {
                 return match n {
                     "2" | "3" => format!("Complex packing (5.{n})"),
-                    "4" => "IEEE float (5.4)".to_string(),
                     "40" => "JPEG 2000 (5.40)".to_string(),
                     "41" => "PNG (5.41)".to_string(),
                     "42" => "CCSDS (5.42)".to_string(),
@@ -2468,6 +2467,7 @@ mod friendly_packing_tests {
         assert_eq!(friendly_packing("grid_simple"), "Simple grid-point");
         assert_eq!(friendly_packing("simple"), "Simple grid-point");
         assert_eq!(friendly_packing("grid_ieee"), "IEEE float");
+        assert_eq!(friendly_packing("ieee"), "IEEE float");
         assert_eq!(friendly_packing("grid_simple_matrix"), "Matrix of values");
         assert_eq!(
             friendly_packing("grid_second_order"),
@@ -2494,7 +2494,9 @@ mod friendly_packing_tests {
             friendly_packing("unsupported(5.3)"),
             "Complex packing (5.3)"
         );
-        assert_eq!(friendly_packing("unsupported(5.4)"), "IEEE float (5.4)");
+        // Template 5.4 (IEEE) is now decoded, so it surfaces as "ieee" (see the
+        // test above), never as unsupported(5.4); an unknown number still falls
+        // back to a generic label.
         assert_eq!(friendly_packing("unsupported(5.40)"), "JPEG 2000 (5.40)");
         assert_eq!(friendly_packing("unsupported(5.41)"), "PNG (5.41)");
         assert_eq!(friendly_packing("unsupported(5.42)"), "CCSDS (5.42)");

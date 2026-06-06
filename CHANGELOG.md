@@ -6,6 +6,10 @@ Versioning follows the [VS Code pre-release convention](https://code.visualstudi
 
 ## [Unreleased]
 
+### Added
+
+- **GRIB2 now decodes IEEE floating-point packing.** Data-representation template 5.4 stores each value as a plain big-endian float; both 32-bit and 64-bit decode, and both are checked against eccodes. (128-bit is not supported, which matches eccodes.) This is the GRIB2 counterpart to the GRIB1 IEEE packing already shipped. Closes #110.
+
 ### Fixed
 
 - **GRIB1 second-order fields that are entirely constant now decode.** When every group in a second-order message has zero width, the file holds no second-order values and the pointer to them lands just past the end of the section. Fieldglass treated that as malformed and refused the message; it now decodes, matching eccodes. Closes #91.
