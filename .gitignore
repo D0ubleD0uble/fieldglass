@@ -13,8 +13,12 @@ index.js
 # Local-only planning notes — kept on disk for the maintainer, not tracked.
 PLAN.md
 
-# LLM assistant files — kept locally as developer notes, never tracked.
-.claude/
+# LLM assistant files — kept locally as developer notes, never tracked,
+# except .claude/rules/ which holds committed project conventions that must
+# carry over to cloud / GitHub Action / routine sessions (user-scoped
+# ~/.claude does not).
+.claude/*
+!.claude/rules/
 CLAUDE.md
 .cursor/
 .cursorrules
