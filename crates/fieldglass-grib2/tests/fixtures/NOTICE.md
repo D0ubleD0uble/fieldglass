@@ -54,3 +54,23 @@ Conformal), 12-km CONUS grid. NOAA Eta is U.S. government work in the public
 domain; pygrib redistributes the file under its 3-Clause BSD license. Only
 the first message is retained to keep the fixture small (10 KB vs. 920 KB
 for the original multi-message file).
+
+## `ieee32_regular_latlon.grib2` / `ieee64_regular_latlon.grib2` (+ `ieee64_regular_latlon_expected.json`)
+
+`regular_latlon_surface.grib2` re-encoded by eccodes 2.34.1 into the IEEE
+floating-point packing (DRS template **5.4**, `grid_ieee`), at both precisions:
+
+```
+grib_set -s packingType=grid_ieee,precision=1 regular_latlon_surface.grib2 ieee32_regular_latlon.grib2
+grib_set -s packingType=grid_ieee,precision=2 regular_latlon_surface.grib2 ieee64_regular_latlon.grib2
+```
+
+Template 5.4 stores each value verbatim as a big-endian IEEE float (precision
+1 → 32-bit, 2 → 64-bit) with no reference/binary/decimal-scale transform.
+Because the source field was already quantised by simple packing to values
+that are f32-exact, the 32-bit and 64-bit fixtures decode to byte-identical
+fields — both are kept so the test exercises the f32 and f64 read paths.
+`ieee64_regular_latlon_expected.json` is the `grib_get_data` oracle (count,
+min/max/mean, anchored samples); decode tolerance is recorded in the file.
+eccodes returns `GRIB_NOT_IMPLEMENTED` for precision 3 (128-bit), and so do
+we. See eccodes `grib2/template.5.4.def` + `grib_accessor_class_data_raw_packing`.

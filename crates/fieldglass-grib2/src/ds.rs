@@ -9,7 +9,7 @@
 //! Spec reference: WMO Manual on Codes Vol I.2 (FM 92 GRIB Edition 2),
 //! Section 7 + Template 5.0 decoding formula.
 
-use crate::drs::{DataRepresentationTemplate, SimplePackingTemplate};
+use crate::drs::{DataRepresentationTemplate, IeeePackingTemplate, SimplePackingTemplate};
 use crate::section::{SECTION_HEADER_LEN, SectionHeader};
 use fieldglass_core::{FieldglassError, bits::BitReader};
 
@@ -61,6 +61,9 @@ pub fn decode_values(
     match template {
         DataRepresentationTemplate::Simple(t) => {
             decode_simple_packing(ds_payload, &t, bitmap, expected_count)
+        }
+        DataRepresentationTemplate::Ieee(t) => {
+            decode_ieee_packing(ds_payload, &t, bitmap, expected_count)
         }
         DataRepresentationTemplate::Unsupported(n) => Err(FieldglassError::UnsupportedSection(
             format!("DRS template 5.{n} decoding is not implemented"),
@@ -120,6 +123,64 @@ fn decode_simple_packing(
     for _ in 0..present_count {
         let x = reader.read_bits(t.bits_per_value)?;
         decoded.push((r + x as f64 * two_pow_e) * d_inv);
+    }
+
+    Ok(interleave_with_bitmap(decoded, bitmap, expected_count))
+}
+
+/// Decode IEEE floating-point packing (template 5.4). Each present grid point
+/// is stored verbatim as a big-endian IEEE float — precision `1` = 32-bit,
+/// `2` = 64-bit — with no reference / scale transform. Mirrors GRIB1
+/// `grid_ieee`; precision `3` (128-bit) is unimplemented in eccodes too and
+/// surfaces as [`FieldglassError::UnsupportedSection`].
+fn decode_ieee_packing(
+    ds_payload: &[u8],
+    t: &IeeePackingTemplate,
+    bitmap: Option<&[bool]>,
+    expected_count: usize,
+) -> Result<Vec<Option<f64>>, FieldglassError> {
+    if let Some(b) = bitmap
+        && b.len() != expected_count
+    {
+        return Err(FieldglassError::Parse(format!(
+            "bitmap length {} != grid-point count {expected_count}",
+            b.len()
+        )));
+    }
+
+    let width = match t.precision {
+        1 => 4, // IEEE 32-bit
+        2 => 8, // IEEE 64-bit
+        other => {
+            return Err(FieldglassError::UnsupportedSection(format!(
+                "DRS template 5.4 uses precision {other} (code-table 5.7); only \
+                 32-bit (1) and 64-bit (2) are supported — 128-bit is \
+                 unimplemented in eccodes too."
+            )));
+        }
+    };
+
+    let present_count = match bitmap {
+        Some(b) => b.iter().filter(|p| **p).count(),
+        None => expected_count,
+    };
+
+    let stored_count = ds_payload.len() / width;
+    if stored_count < present_count {
+        return Err(FieldglassError::Parse(format!(
+            "DS holds {stored_count} IEEE values but {present_count} are required"
+        )));
+    }
+
+    let mut decoded = Vec::with_capacity(present_count);
+    for chunk in ds_payload.chunks_exact(width).take(present_count) {
+        let value = match width {
+            4 => f32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]) as f64,
+            _ => f64::from_be_bytes([
+                chunk[0], chunk[1], chunk[2], chunk[3], chunk[4], chunk[5], chunk[6], chunk[7],
+            ]),
+        };
+        decoded.push(value);
     }
 
     Ok(interleave_with_bitmap(decoded, bitmap, expected_count))
@@ -278,6 +339,68 @@ mod tests {
     fn rejects_bits_per_value_above_32() {
         let template = simple_template(0.0, 0, 0, 33);
         assert!(decode_values(&[0u8; 64], template, None, 4).is_err());
+    }
+
+    fn ieee_template(precision: u8) -> DataRepresentationTemplate {
+        DataRepresentationTemplate::Ieee(crate::drs::IeeePackingTemplate { precision })
+    }
+
+    #[test]
+    fn ieee_packing_decodes_32bit_no_bitmap() {
+        let values = [-1.5f32, 0.0, 273.15, 1e6];
+        let payload: Vec<u8> = values.iter().flat_map(|v| v.to_be_bytes()).collect();
+        let decoded = decode_values(&payload, ieee_template(1), None, 4).expect("decode");
+        let got: Vec<f64> = decoded.into_iter().map(|v| v.unwrap()).collect();
+        for (g, w) in got.iter().zip(values.iter()) {
+            assert!((g - *w as f64).abs() < 1e-6, "got {g}, want {w}");
+        }
+    }
+
+    #[test]
+    fn ieee_packing_decodes_64bit_no_bitmap() {
+        let values = [-1.5f64, 0.0, 273.15, 1e12, f64::MAX];
+        let payload: Vec<u8> = values.iter().flat_map(|v| v.to_be_bytes()).collect();
+        let decoded = decode_values(&payload, ieee_template(2), None, 5).expect("decode");
+        let got: Vec<f64> = decoded.into_iter().map(|v| v.unwrap()).collect();
+        assert_eq!(got, values);
+    }
+
+    #[test]
+    fn ieee_packing_honours_bitmap() {
+        // Two present 32-bit values spread across a 4-point grid.
+        let payload: Vec<u8> = [10.0f32, 20.0]
+            .iter()
+            .flat_map(|v| v.to_be_bytes())
+            .collect();
+        let bitmap = [false, true, false, true];
+        let decoded = decode_values(&payload, ieee_template(1), Some(&bitmap), 4).expect("decode");
+        assert_eq!(decoded, vec![None, Some(10.0), None, Some(20.0)]);
+    }
+
+    #[test]
+    fn ieee_packing_rejects_128bit_precision() {
+        let err = decode_values(&[0u8; 16], ieee_template(3), None, 1).expect_err("must reject");
+        match err {
+            FieldglassError::UnsupportedSection(msg) => {
+                assert!(msg.contains("5.4"), "names template: {msg}");
+                assert!(msg.contains("128"), "names 128-bit: {msg}");
+            }
+            other => panic!("expected UnsupportedSection, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn ieee_packing_rejects_short_payload() {
+        // Need 2 × 8 bytes for two 64-bit values; supply only 8.
+        let payload = [0u8; 8];
+        assert!(decode_values(&payload, ieee_template(2), None, 2).is_err());
+    }
+
+    #[test]
+    fn ieee_packing_rejects_bitmap_length_mismatch() {
+        let payload: Vec<u8> = 1.0f32.to_be_bytes().to_vec();
+        let bitmap = [true]; // claims 1 point, caller asks for 5
+        assert!(decode_values(&payload, ieee_template(1), Some(&bitmap), 5).is_err());
     }
 
     #[test]

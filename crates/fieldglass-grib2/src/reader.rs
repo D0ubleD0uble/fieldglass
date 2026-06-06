@@ -76,8 +76,9 @@ impl Grib2Reader {
     /// API. Returns one entry per grid point: `Some(value)` for present
     /// points, `None` for points masked out by §6.
     ///
-    /// Currently supports DRS template 5.0 (simple packing). Other packing
-    /// templates return [`FieldglassError::UnsupportedSection`].
+    /// Currently supports DRS templates 5.0 (simple packing) and 5.4 (IEEE
+    /// floating point). Other packing templates return
+    /// [`FieldglassError::UnsupportedSection`].
     pub fn decode_message_values(
         &self,
         message_index: usize,

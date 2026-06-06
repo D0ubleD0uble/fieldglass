@@ -1,0 +1,16 @@
+{
+  "count": 496,
+  "missing_count": 0,
+  "min": 270.0,
+  "max": 310.63183594,
+  "mean": 291.118451518387,
+  "samples": {
+    "0": 278.53320312,
+    "1": 279.49414062,
+    "100": 278.16308594,
+    "250": 291.28125,
+    "495": 300.41503906
+  },
+  "tolerance_absolute": 0.001,
+  "source": "eccodes 2.34.1 grib_get_data. Oracle for DRS template 5.4 (grid_ieee) precision=2 (64-bit IEEE) re-encoded from regular_latlon_surface.grib2. The precision=1 (32-bit) fixture decodes to the identical values because the source field was already f32-exact. Provenance in NOTICE.md."
+}
