@@ -249,6 +249,18 @@ fn scan_messages(data: &[u8]) -> Result<Vec<Grib2Message>, FieldglassError> {
                 bms_header.number
             )));
         }
+        // The other sections' parsers validate their declared length against
+        // the bytes available; BMS/DS are recorded lazily, so do it here.
+        // Without this an oversized BMS length pushes `cursor` past `msg_end`,
+        // inverting the DS-header slice below, and an oversized DS length
+        // records a range that over-reads `data` at decode time.
+        if bms_header.length as usize > msg_end - cursor {
+            return Err(FieldglassError::Parse(format!(
+                "Message at offset {offset}: BMS declares length {} but only {} bytes remain",
+                bms_header.length,
+                msg_end - cursor
+            )));
+        }
         let bms_end_in_file = cursor + bms_header.length as usize;
         let bms_range = (cursor, bms_end_in_file);
         cursor = bms_end_in_file;
@@ -261,6 +273,13 @@ fn scan_messages(data: &[u8]) -> Result<Vec<Grib2Message>, FieldglassError> {
                 "Message at offset {offset}: expected DS (section {DS_SECTION_NUMBER}), \
                  got section {}",
                 ds_header.number
+            )));
+        }
+        if ds_header.length as usize > msg_end - cursor {
+            return Err(FieldglassError::Parse(format!(
+                "Message at offset {offset}: DS declares length {} but only {} bytes remain",
+                ds_header.length,
+                msg_end - cursor
             )));
         }
         let ds_end_in_file = cursor + ds_header.length as usize;

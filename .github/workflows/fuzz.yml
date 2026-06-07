@@ -5,11 +5,13 @@ on:
     branches: [master]
     paths:
       - 'crates/fieldglass-grib1/**'
+      - 'crates/fieldglass-grib2/**'
       - 'crates/fieldglass-netcdf/**'
       - '.github/workflows/fuzz.yml'
   pull_request:
     paths:
       - 'crates/fieldglass-grib1/**'
+      - 'crates/fieldglass-grib2/**'
       - 'crates/fieldglass-netcdf/**'
       - '.github/workflows/fuzz.yml'
 
@@ -53,6 +55,42 @@ jobs:
       - name: Fuzz the GRIB1 decode path
         run: cargo fuzz run decode --target x86_64-unknown-linux-gnu -- -max_total_time=120 -timeout=10
         working-directory: crates/fieldglass-grib1/fuzz
+
+  grib2-decode:
+    name: GRIB2 decode (cargo-fuzz, time-boxed)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      # cargo-fuzz needs the nightly libFuzzer sanitizer runtime; the normal
+      # gates stay on stable — the fuzz crate is excluded from the workspace so
+      # they never touch it.
+      - name: Set up Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/fieldglass-grib2/fuzz
+
+      - name: Install cargo-fuzz
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-fuzz
+
+      # Time-boxed run seeded by the committed corpus (the GRIB2 test
+      # fixtures). Not the normal `cargo test` gate — this is a bounded smoke
+      # fuzz that asserts the decode path neither panics nor hangs.
+      #
+      # `--target` is pinned to the gnu host: left to its default, cargo-fuzz
+      # selects the musl target on the hosted runner, which can't link the
+      # ASan runtime against a static libc.
+      - name: Fuzz the GRIB2 decode path
+        run: cargo fuzz run decode --target x86_64-unknown-linux-gnu -- -max_total_time=120 -timeout=10
+        working-directory: crates/fieldglass-grib2/fuzz
 
   netcdf-parse:
     name: NetCDF parse (cargo-fuzz, time-boxed)
