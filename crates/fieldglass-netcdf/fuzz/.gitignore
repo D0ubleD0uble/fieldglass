@@ -1,0 +1,6 @@
+# cargo-fuzz build output and run artifacts. The seed corpus under
+# corpus/parse/ is committed; libFuzzer-discovered inputs and crash
+# artifacts are not.
+/target
+/artifacts
+/coverage
