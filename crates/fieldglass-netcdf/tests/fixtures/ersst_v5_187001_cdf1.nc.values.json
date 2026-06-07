@@ -1,0 +1,144 @@
+{
+  "source": "netCDF4 1.7.4 (libnetcdf 4.9.3). Value-decode oracle for NetCDF classic value decode (#108). Provenance in NOTICE.md.",
+  "data_model": "NETCDF3_CLASSIC",
+  "variables": {
+    "lat": {
+      "nc_type": "float64",
+      "shape": [
+        89
+      ],
+      "dimensions": [
+        "lat"
+      ],
+      "count": 89,
+      "present_count": 89,
+      "missing_count": 0,
+      "min": -88.0,
+      "max": 88.0,
+      "mean": 0.0,
+      "samples": {
+        "0": -88.0,
+        "1": -86.0,
+        "44": 0.0,
+        "87": 86.0,
+        "88": 88.0
+      }
+    },
+    "lev": {
+      "nc_type": "float64",
+      "shape": [
+        1
+      ],
+      "dimensions": [
+        "lev"
+      ],
+      "count": 1,
+      "present_count": 1,
+      "missing_count": 0,
+      "min": 0.0,
+      "max": 0.0,
+      "mean": 0.0,
+      "samples": {
+        "0": 0.0
+      }
+    },
+    "lon": {
+      "nc_type": "float64",
+      "shape": [
+        180
+      ],
+      "dimensions": [
+        "lon"
+      ],
+      "count": 180,
+      "present_count": 180,
+      "missing_count": 0,
+      "min": 0.0,
+      "max": 358.0,
+      "mean": 179.0,
+      "samples": {
+        "0": 0.0,
+        "1": 2.0,
+        "90": 180.0,
+        "178": 356.0,
+        "179": 358.0
+      }
+    },
+    "sst": {
+      "nc_type": "float32",
+      "shape": [
+        1,
+        1,
+        89,
+        180
+      ],
+      "dimensions": [
+        "time",
+        "lev",
+        "lat",
+        "lon"
+      ],
+      "count": 16020,
+      "fill_value": -999.0,
+      "present_count": 10988,
+      "missing_count": 5032,
+      "min": -1.79999995,
+      "max": 31.09942245,
+      "mean": 13.547344207763672,
+      "samples": {
+        "0": -999.0,
+        "1": -999.0,
+        "8010": 27.795642852783203,
+        "16018": -1.7999999523162842,
+        "16019": -1.7999999523162842
+      }
+    },
+    "time": {
+      "nc_type": "float64",
+      "shape": [
+        1
+      ],
+      "dimensions": [
+        "time"
+      ],
+      "count": 1,
+      "present_count": 1,
+      "missing_count": 0,
+      "min": 0.0,
+      "max": 0.0,
+      "mean": 0.0,
+      "samples": {
+        "0": 0.0
+      }
+    },
+    "ssta": {
+      "nc_type": "float32",
+      "shape": [
+        1,
+        1,
+        89,
+        180
+      ],
+      "dimensions": [
+        "time",
+        "lev",
+        "lat",
+        "lon"
+      ],
+      "count": 16020,
+      "fill_value": -999.0,
+      "present_count": 10988,
+      "missing_count": 5032,
+      "min": -3.59052086,
+      "max": 6.38059139,
+      "mean": -0.16476963460445404,
+      "samples": {
+        "0": -999.0,
+        "1": -999.0,
+        "8010": -0.5284614562988281,
+        "16018": -4.76837158203125e-07,
+        "16019": -4.76837158203125e-07
+      }
+    }
+  }
+}
