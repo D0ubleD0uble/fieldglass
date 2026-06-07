@@ -9,7 +9,9 @@
 //! Spec reference: WMO Manual on Codes Vol I.2 (FM 92 GRIB Edition 2),
 //! Section 7 + Template 5.0 decoding formula.
 
-use crate::drs::{DataRepresentationTemplate, IeeePackingTemplate, SimplePackingTemplate};
+use crate::drs::{
+    ComplexPackingTemplate, DataRepresentationTemplate, IeeePackingTemplate, SimplePackingTemplate,
+};
 use crate::section::{SECTION_HEADER_LEN, SectionHeader};
 use fieldglass_core::{FieldglassError, bits::BitReader};
 
@@ -61,6 +63,9 @@ pub fn decode_values(
     match template {
         DataRepresentationTemplate::Simple(t) => {
             decode_simple_packing(ds_payload, &t, bitmap, expected_count)
+        }
+        DataRepresentationTemplate::Complex(t) => {
+            decode_complex_packing(ds_payload, &t, bitmap, expected_count)
         }
         DataRepresentationTemplate::Ieee(t) => {
             decode_ieee_packing(ds_payload, &t, bitmap, expected_count)
@@ -123,6 +128,172 @@ fn decode_simple_packing(
     for _ in 0..present_count {
         let x = reader.read_bits(t.bits_per_value)?;
         decoded.push((r + x as f64 * two_pow_e) * d_inv);
+    }
+
+    Ok(interleave_with_bitmap(decoded, bitmap, expected_count))
+}
+
+/// Decode complex packing (template 5.2). The field is split into NG groups
+/// of consecutive points; §7 carries, as one continuous MSB-first bitstream,
+/// the NG group reference values (at `bits_per_value` bits each), the NG
+/// group widths (at `group_width_bits`, offset by `group_width_reference`),
+/// the NG group lengths (at `group_length_bits`, offset by
+/// `group_length_reference` and scaled by `group_length_increment`, with the
+/// last group's length overridden by `group_length_last`), and finally the
+/// per-point offsets (each group's points at that group's width). The value
+/// at a point in group `g` is `(R + (group_ref[g] + X) · 2^E) · 10^-D`.
+///
+/// Supports the common envelope: general group splitting
+/// (`group_splitting_method == 1`) with no inline missing-value management
+/// (`missing_value_management == 0`). Row-by-row splitting and inline
+/// missing values surface as [`FieldglassError::UnsupportedSection`].
+fn decode_complex_packing(
+    ds_payload: &[u8],
+    t: &ComplexPackingTemplate,
+    bitmap: Option<&[bool]>,
+    expected_count: usize,
+) -> Result<Vec<Option<f64>>, FieldglassError> {
+    if let Some(b) = bitmap
+        && b.len() != expected_count
+    {
+        return Err(FieldglassError::Parse(format!(
+            "bitmap length {} != grid-point count {expected_count}",
+            b.len()
+        )));
+    }
+
+    if t.group_splitting_method != 1 {
+        return Err(FieldglassError::UnsupportedSection(format!(
+            "DRS template 5.2 group splitting method {} is not supported \
+             (only general group splitting, method 1)",
+            t.group_splitting_method
+        )));
+    }
+    if t.missing_value_management != 0 {
+        return Err(FieldglassError::UnsupportedSection(format!(
+            "DRS template 5.2 missing-value management {} is not supported \
+             (only management 0, no inline missing values)",
+            t.missing_value_management
+        )));
+    }
+    // The bit-width fields feed `BitReader::read_bits`, whose contract tops
+    // out at 32 bits; a wider field is malformed (and would silently truncate).
+    for (label, bits) in [
+        ("group reference", t.bits_per_value),
+        ("group width", t.group_width_bits),
+        ("group length", t.group_length_bits),
+    ] {
+        if bits > 32 {
+            return Err(FieldglassError::Parse(format!(
+                "complex packing: {label} field width {bits} exceeds 32 bits"
+            )));
+        }
+    }
+
+    let present_count = match bitmap {
+        Some(b) => b.iter().filter(|p| **p).count(),
+        None => expected_count,
+    };
+
+    let num_groups = t.num_groups as usize;
+    if num_groups == 0 {
+        // A grid with no groups can only describe an empty field; anything
+        // else is malformed.
+        if present_count != 0 {
+            return Err(FieldglassError::Parse(format!(
+                "complex packing declares 0 groups but {present_count} values are required"
+            )));
+        }
+        return Ok(interleave_with_bitmap(Vec::new(), bitmap, expected_count));
+    }
+    // Every group covers at least one point, so NG can't legitimately exceed
+    // the number of present points — this bounds the per-group allocations
+    // below against a malformed huge NG.
+    if num_groups > present_count {
+        return Err(FieldglassError::Parse(format!(
+            "complex packing declares {num_groups} groups but only {present_count} \
+             values are present"
+        )));
+    }
+
+    let mut reader = BitReader::new(ds_payload);
+
+    // Block 1: group reference values.
+    let mut group_refs = Vec::with_capacity(num_groups);
+    for _ in 0..num_groups {
+        group_refs.push(reader.read_bits(t.bits_per_value)?);
+    }
+
+    // Block 2: group widths (stored value offset by the width reference).
+    // Computed in u64 so the reference + a 32-bit stored value can't overflow
+    // before the `> 32` range check in the data loop sees it.
+    let mut group_widths: Vec<u64> = Vec::with_capacity(num_groups);
+    for _ in 0..num_groups {
+        let stored = reader.read_bits(t.group_width_bits)?;
+        group_widths.push(t.group_width_reference as u64 + stored as u64);
+    }
+
+    // Block 3: group lengths. The stored value for every group is read (so
+    // the bit cursor reaches the data block correctly), then the last group's
+    // length is overridden by the explicit `group_length_last` field.
+    let mut group_lengths = Vec::with_capacity(num_groups);
+    for _ in 0..num_groups {
+        let stored = reader.read_bits(t.group_length_bits)? as usize;
+        let len = stored
+            .checked_mul(t.group_length_increment as usize)
+            .and_then(|scaled| scaled.checked_add(t.group_length_reference as usize))
+            .ok_or_else(|| {
+                FieldglassError::Parse("complex packing: group length overflows usize".into())
+            })?;
+        group_lengths.push(len);
+    }
+    // num_groups >= 1 here, so the last element exists.
+    *group_lengths.last_mut().expect("num_groups >= 1") = t.group_length_last as usize;
+
+    // The group lengths must account for exactly the present points; validate
+    // before allocating so a malformed length can't drive a huge allocation.
+    let mut total = 0usize;
+    for &len in &group_lengths {
+        total = total.checked_add(len).ok_or_else(|| {
+            FieldglassError::Parse("complex packing: group lengths sum overflows usize".into())
+        })?;
+    }
+    if total != present_count {
+        return Err(FieldglassError::Parse(format!(
+            "complex packing: group lengths sum to {total} but {present_count} values are required"
+        )));
+    }
+
+    // Block 4: the per-point offsets, decoded group by group.
+    let r = t.reference_value as f64;
+    let two_pow_e = 2f64.powi(t.binary_scale_factor as i32);
+    let d_inv = 10f64.powi(-(t.decimal_scale_factor as i32));
+
+    let mut decoded = Vec::with_capacity(present_count);
+    for g in 0..num_groups {
+        let width = group_widths[g];
+        let group_ref = group_refs[g] as u64;
+        if width == 0 {
+            // Zero-width group: every point equals the group reference.
+            let value = (r + group_ref as f64 * two_pow_e) * d_inv;
+            for _ in 0..group_lengths[g] {
+                decoded.push(value);
+            }
+        } else {
+            if width > 32 {
+                // The actual width is `group_width_reference + stored`, which
+                // can exceed 32 even when each field is individually in range;
+                // `read_bits` only honours up to 32 bits per value.
+                return Err(FieldglassError::Parse(format!(
+                    "complex packing: group {g} width {width} exceeds 32 bits"
+                )));
+            }
+            for _ in 0..group_lengths[g] {
+                let x = reader.read_bits(width as u8)? as u64;
+                let scaled = group_ref + x;
+                decoded.push((r + scaled as f64 * two_pow_e) * d_inv);
+            }
+        }
     }
 
     Ok(interleave_with_bitmap(decoded, bitmap, expected_count))
@@ -339,6 +510,259 @@ mod tests {
     fn rejects_bits_per_value_above_32() {
         let template = simple_template(0.0, 0, 0, 33);
         assert!(decode_values(&[0u8; 64], template, None, 4).is_err());
+    }
+
+    // -----------------------------------------------------------------
+    // Complex packing (template 5.2)
+    // -----------------------------------------------------------------
+
+    /// Pack `(value, width)` fields MSB-first into one continuous bitstream —
+    /// the §7 layout complex packing uses for its reference / width / length /
+    /// data blocks.
+    fn pack_fields(fields: &[(u32, u8)]) -> Vec<u8> {
+        let total_bits: usize = fields.iter().map(|(_, w)| *w as usize).sum();
+        let mut out = vec![0u8; total_bits.div_ceil(8)];
+        let mut bit = 0usize;
+        for &(v, w) in fields {
+            for i in (0..w).rev() {
+                let b = ((v >> i) & 1) as u8;
+                out[bit / 8] |= b << (7 - (bit % 8));
+                bit += 1;
+            }
+        }
+        out
+    }
+
+    /// A complex-packing template with the common envelope (general splitting,
+    /// no missing values, R/E/D = 0/0/0). Tests override the group descriptors.
+    fn complex_template_base() -> ComplexPackingTemplate {
+        ComplexPackingTemplate {
+            reference_value: 0.0,
+            binary_scale_factor: 0,
+            decimal_scale_factor: 0,
+            bits_per_value: 8,
+            original_field_type: 0,
+            group_splitting_method: 1,
+            missing_value_management: 0,
+            primary_missing_value: 0,
+            secondary_missing_value: 0,
+            num_groups: 0,
+            group_width_reference: 0,
+            group_width_bits: 4,
+            group_length_reference: 0,
+            group_length_increment: 1,
+            group_length_last: 0,
+            group_length_bits: 8,
+        }
+    }
+
+    #[test]
+    fn complex_packing_decodes_two_groups_no_bitmap() {
+        // g0: ref 10, width 3, length 2, X = [1, 2] → scaled [11, 12].
+        // g1: ref 100, width 4, length 3 (from group_length_last), X =
+        //     [0, 5, 15] → scaled [100, 105, 115].
+        let t = ComplexPackingTemplate {
+            num_groups: 2,
+            group_length_last: 3,
+            ..complex_template_base()
+        };
+        let payload = pack_fields(&[
+            (10, 8),
+            (100, 8), // group references
+            (3, 4),
+            (4, 4), // stored group widths (reference 0)
+            (2, 8),
+            (0, 8), // stored group lengths — g1's is overridden by last = 3
+            (1, 3),
+            (2, 3), // g0 data
+            (0, 4),
+            (5, 4),
+            (15, 4), // g1 data
+        ]);
+        let decoded = decode_values(&payload, DataRepresentationTemplate::Complex(t), None, 5)
+            .expect("decode");
+        assert_eq!(
+            decoded,
+            vec![
+                Some(11.0),
+                Some(12.0),
+                Some(100.0),
+                Some(105.0),
+                Some(115.0)
+            ],
+        );
+    }
+
+    #[test]
+    fn complex_packing_applies_reference_and_scale_factors() {
+        // R = 10, E = 1 (×2), D = 1 (×0.1): value = (10 + scaled·2)·0.1.
+        // One group, ref 5, width 4, length 4, X = [0, 1, 2, 3] →
+        // scaled [5, 6, 7, 8] → values [2.0, 2.2, 2.4, 2.6].
+        let t = ComplexPackingTemplate {
+            reference_value: 10.0,
+            binary_scale_factor: 1,
+            decimal_scale_factor: 1,
+            num_groups: 1,
+            group_length_last: 4,
+            ..complex_template_base()
+        };
+        let payload = pack_fields(&[
+            (5, 8), // group reference
+            (4, 4), // stored group width
+            (0, 8), // stored group length — overridden by last = 4
+            (0, 4),
+            (1, 4),
+            (2, 4),
+            (3, 4), // data
+        ]);
+        let decoded = decode_values(&payload, DataRepresentationTemplate::Complex(t), None, 4)
+            .expect("decode");
+        let got: Vec<f64> = decoded.into_iter().map(Option::unwrap).collect();
+        for (g, w) in got.iter().zip([2.0, 2.2, 2.4, 2.6]) {
+            assert!((g - w).abs() < 1e-9, "got {g}, want {w}");
+        }
+    }
+
+    #[test]
+    fn complex_packing_zero_width_group_is_constant() {
+        // g0: ref 42, width 0, length 3 → every point = 42 (no data bits).
+        // g1: ref 7, width 2, length 2, X = [1, 3] → [8, 10].
+        let t = ComplexPackingTemplate {
+            num_groups: 2,
+            group_length_last: 2,
+            ..complex_template_base()
+        };
+        let payload = pack_fields(&[
+            (42, 8),
+            (7, 8), // references
+            (0, 4),
+            (2, 4), // widths — g0 is zero-width
+            (3, 8),
+            (0, 8), // lengths — g1 overridden by last = 2
+            (1, 2),
+            (3, 2), // g1 data only (g0 contributes no data bits)
+        ]);
+        let decoded = decode_values(&payload, DataRepresentationTemplate::Complex(t), None, 5)
+            .expect("decode");
+        assert_eq!(
+            decoded,
+            vec![Some(42.0), Some(42.0), Some(42.0), Some(8.0), Some(10.0)],
+        );
+    }
+
+    #[test]
+    fn complex_packing_honours_bitmap() {
+        // One group of 3 present values spread across a 5-point grid.
+        let t = ComplexPackingTemplate {
+            num_groups: 1,
+            group_length_last: 3,
+            ..complex_template_base()
+        };
+        let payload = pack_fields(&[
+            (0, 8), // reference
+            (8, 4), // width 8
+            (0, 8), // length overridden by last = 3
+            (1, 8),
+            (2, 8),
+            (3, 8), // data
+        ]);
+        let bitmap = [true, false, true, false, true];
+        let decoded = decode_values(
+            &payload,
+            DataRepresentationTemplate::Complex(t),
+            Some(&bitmap),
+            5,
+        )
+        .expect("decode");
+        assert_eq!(decoded, vec![Some(1.0), None, Some(2.0), None, Some(3.0)]);
+    }
+
+    #[test]
+    fn complex_packing_rejects_missing_value_management() {
+        let t = ComplexPackingTemplate {
+            num_groups: 1,
+            missing_value_management: 1,
+            ..complex_template_base()
+        };
+        let err = decode_values(&[0u8; 8], DataRepresentationTemplate::Complex(t), None, 1)
+            .expect_err("must reject");
+        match err {
+            FieldglassError::UnsupportedSection(msg) => {
+                assert!(msg.contains("missing-value management"), "msg: {msg}");
+            }
+            other => panic!("expected UnsupportedSection, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn complex_packing_rejects_row_by_row_splitting() {
+        let t = ComplexPackingTemplate {
+            num_groups: 1,
+            group_splitting_method: 0,
+            ..complex_template_base()
+        };
+        let err = decode_values(&[0u8; 8], DataRepresentationTemplate::Complex(t), None, 1)
+            .expect_err("must reject");
+        match err {
+            FieldglassError::UnsupportedSection(msg) => {
+                assert!(msg.contains("group splitting method"), "msg: {msg}");
+            }
+            other => panic!("expected UnsupportedSection, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn complex_packing_rejects_group_length_sum_mismatch() {
+        // Group lengths sum to 2 but the caller asks for 5 values.
+        let t = ComplexPackingTemplate {
+            num_groups: 1,
+            group_length_last: 2,
+            ..complex_template_base()
+        };
+        let payload = pack_fields(&[(0, 8), (8, 4), (0, 8), (1, 8), (2, 8)]);
+        assert!(decode_values(&payload, DataRepresentationTemplate::Complex(t), None, 5).is_err());
+    }
+
+    #[test]
+    fn complex_packing_rejects_more_groups_than_points() {
+        // NG = 4 but only 2 present points — impossible (each group ≥ 1 point).
+        let t = ComplexPackingTemplate {
+            num_groups: 4,
+            ..complex_template_base()
+        };
+        assert!(
+            decode_values(&[0u8; 16], DataRepresentationTemplate::Complex(t), None, 2).is_err()
+        );
+    }
+
+    #[test]
+    fn complex_packing_zero_groups_requires_empty_field() {
+        // NG = 0 with a non-empty grid is malformed.
+        let t = complex_template_base(); // num_groups = 0
+        assert!(decode_values(&[], DataRepresentationTemplate::Complex(t), None, 4).is_err());
+    }
+
+    #[test]
+    fn complex_packing_rejects_oversized_group_width_without_panicking() {
+        // group_width_bits = 32 with a near-max stored width: the actual width
+        // (reference + stored) must be computed in wide arithmetic and rejected
+        // cleanly, not overflow-panic on the addition (a fuzz-reachable input).
+        let t = ComplexPackingTemplate {
+            num_groups: 1,
+            bits_per_value: 8,
+            group_width_reference: 1,
+            group_width_bits: 32,
+            group_length_last: 1,
+            ..complex_template_base()
+        };
+        let payload = pack_fields(&[
+            (0, 8),            // group reference
+            (0xFFFF_FFFF, 32), // stored group width → actual width 0x1_0000_0000
+            (0, 8),            // stored group length (overridden by last = 1)
+        ]);
+        let err = decode_values(&payload, DataRepresentationTemplate::Complex(t), None, 1)
+            .expect_err("must reject oversized width");
+        assert!(err.to_string().contains("exceeds 32 bits"), "got: {err}");
     }
 
     fn ieee_template(precision: u8) -> DataRepresentationTemplate {
