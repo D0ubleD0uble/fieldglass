@@ -68,3 +68,44 @@ Regenerate with `python3 tools/regenerate-netcdf-oracles.py` from the repo
 root (needs `netCDF4`); the committed JSON means the Rust suite needs no
 netCDF4 at runtime. `tests/classic_value_targets.rs` pins the type/shape
 matrix the decode builds on; the value numbers are checked once #108 lands.
+
+## HDF5 deep-parse fixtures (`hdf5_v1_symboltable.h5`, `hdf5_v2_linkinfo.h5`)
+
+Synthetic HDF5 files built with `h5py` (wraps libhdf5) as targets for the
+NetCDF-4 / HDF5 deep-parse chain — object-header walker (#37), group/link
+traversal (#38), dataspace + datatype decoders (#39), attribute decoder (#40),
+and dataset value decode (#121), under the #33 umbrella. Built and
+oracle-dumped by `tools/build_hdf5_fixtures.py` (run from the repo root; needs
+`h5py`). `track_times=False` keeps object headers timestamp-free for
+reproducibility.
+
+The two files deliberately exercise the **two on-disk group layouts** #38 must
+handle:
+
+- `hdf5_v1_symboltable.h5` (`libver='earliest'`): superblock v0, **v1** object
+  headers, **symbol-table** groups (local heap + B-tree v1 → `SNOD` nodes), no
+  `OHDR` signature. The legacy layout.
+- `hdf5_v2_linkinfo.h5` (`libver='v110'`): superblock v3, **v2** object headers
+  (`OHDR`), **link-info** groups, a chunked + gzip + shuffle dataset (#121
+  filter pipeline), and a 12-attribute dataset that forces **dense** attribute
+  storage (fractal heap `FRHP` + B-tree v2, #40).
+
+Both carry the same matrix: the datatype set (#39: signed int little- and
+big-endian, `float32`, `float64`, fixed-length string), the dataspace set
+(scalar, simple 1-D / 2-D, and an unlimited `H5S_UNLIMITED` max dim — stored
+chunked, as HDF5 requires), global + per-dataset attributes (#40, numeric and
+string), contiguous storage, and an unwritten dataset with an explicit fill
+value (#121).
+
+Each fixture has a sibling `*.h5.oracle.json` (the decode/parse target): the
+superblock version, object-header style, raw layout markers (`OHDR` / `SNOD` /
+`FRHP`), global attributes, the root-group child list (== `h5dump -n`), and per
+dataset the datatype, dataspace (dims + max dims), storage layout + filters,
+fill value, attributes, and value statistics + samples. These are what the
+chain must reproduce; deep parsing isn't implemented yet, so they're staged
+references, with `tests/hdf5_deep_parse_targets.rs` pinning the layout facts
+verifiable today (superblock + `OHDR`/`SNOD`/`FRHP` markers).
+
+> The bundled real NetCDF-4 file `netcdf4_hdf5_dummy.nc` remains the "library
+> wrote it" example; these two add controlled coverage of both group layouts
+> and the datatype / storage / attribute matrix.

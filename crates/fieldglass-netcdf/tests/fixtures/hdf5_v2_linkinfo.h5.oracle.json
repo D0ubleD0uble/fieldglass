@@ -1,0 +1,600 @@
+{
+  "source": "h5py 3.16.0 (libhdf5 2.0.0), libver='v110'",
+  "superblock_version": 3,
+  "object_header_style": "v2_linkinfo",
+  "raw_markers": {
+    "OHDR_v2_object_header": true,
+    "SNOD_symbol_table": false,
+    "FRHP_fractal_heap_dense_attrs": true
+  },
+  "global_attributes": [
+    {
+      "name": "scale",
+      "datatype": {
+        "class": "floating-point",
+        "size_bytes": 8,
+        "byte_order": "little-endian"
+      },
+      "value": 0.25
+    },
+    {
+      "name": "title",
+      "datatype": {
+        "class": "string (fixed-length)",
+        "size_bytes": 23,
+        "byte_order": "not-applicable"
+      },
+      "value": "fieldglass HDF5 fixture"
+    },
+    {
+      "name": "version",
+      "datatype": {
+        "class": "fixed-point signed",
+        "size_bytes": 4,
+        "byte_order": "native"
+      },
+      "value": 5.0
+    }
+  ],
+  "root_children": [
+    {
+      "name": "chunked",
+      "type": "dataset"
+    },
+    {
+      "name": "dense_attrs",
+      "type": "dataset"
+    },
+    {
+      "name": "label",
+      "type": "dataset"
+    },
+    {
+      "name": "masked",
+      "type": "dataset"
+    },
+    {
+      "name": "record",
+      "type": "dataset"
+    },
+    {
+      "name": "scalar_i32",
+      "type": "dataset"
+    },
+    {
+      "name": "temp_be_i32",
+      "type": "dataset"
+    },
+    {
+      "name": "temp_f32",
+      "type": "dataset"
+    },
+    {
+      "name": "temp_f64",
+      "type": "dataset"
+    },
+    {
+      "name": "temp_i32",
+      "type": "dataset"
+    }
+  ],
+  "objects": {
+    "chunked": {
+      "kind": "dataset",
+      "datatype": {
+        "class": "floating-point",
+        "size_bytes": 4,
+        "byte_order": "little-endian"
+      },
+      "dataspace": {
+        "class": "simple",
+        "rank": 2,
+        "dims": [
+          10,
+          10
+        ],
+        "max_dims": [
+          10,
+          10
+        ]
+      },
+      "storage": {
+        "layout": "chunked",
+        "chunks": [
+          5,
+          5
+        ],
+        "filters": [
+          "shuffle",
+          "deflate"
+        ]
+      },
+      "fill_value": 0.0,
+      "attributes": [],
+      "values": {
+        "count": 100,
+        "present_count": 99,
+        "missing_count": 1,
+        "samples": {
+          "0": 0.0,
+          "1": 1.0,
+          "50": 50.0,
+          "98": 98.0,
+          "99": 99.0
+        },
+        "min": 1.0,
+        "max": 99.0,
+        "mean": 50.0
+      }
+    },
+    "dense_attrs": {
+      "kind": "dataset",
+      "datatype": {
+        "class": "fixed-point signed",
+        "size_bytes": 4,
+        "byte_order": "native"
+      },
+      "dataspace": {
+        "class": "simple",
+        "rank": 1,
+        "dims": [
+          3
+        ],
+        "max_dims": [
+          3
+        ]
+      },
+      "storage": {
+        "layout": "contiguous",
+        "chunks": null,
+        "filters": []
+      },
+      "fill_value": 0.0,
+      "attributes": [
+        {
+          "name": "attr_00",
+          "datatype": {
+            "class": "fixed-point signed",
+            "size_bytes": 4,
+            "byte_order": "native"
+          },
+          "value": 0.0
+        },
+        {
+          "name": "attr_01",
+          "datatype": {
+            "class": "fixed-point signed",
+            "size_bytes": 4,
+            "byte_order": "native"
+          },
+          "value": 1.0
+        },
+        {
+          "name": "attr_02",
+          "datatype": {
+            "class": "fixed-point signed",
+            "size_bytes": 4,
+            "byte_order": "native"
+          },
+          "value": 2.0
+        },
+        {
+          "name": "attr_03",
+          "datatype": {
+            "class": "fixed-point signed",
+            "size_bytes": 4,
+            "byte_order": "native"
+          },
+          "value": 3.0
+        },
+        {
+          "name": "attr_04",
+          "datatype": {
+            "class": "fixed-point signed",
+            "size_bytes": 4,
+            "byte_order": "native"
+          },
+          "value": 4.0
+        },
+        {
+          "name": "attr_05",
+          "datatype": {
+            "class": "fixed-point signed",
+            "size_bytes": 4,
+            "byte_order": "native"
+          },
+          "value": 5.0
+        },
+        {
+          "name": "attr_06",
+          "datatype": {
+            "class": "fixed-point signed",
+            "size_bytes": 4,
+            "byte_order": "native"
+          },
+          "value": 6.0
+        },
+        {
+          "name": "attr_07",
+          "datatype": {
+            "class": "fixed-point signed",
+            "size_bytes": 4,
+            "byte_order": "native"
+          },
+          "value": 7.0
+        },
+        {
+          "name": "attr_08",
+          "datatype": {
+            "class": "fixed-point signed",
+            "size_bytes": 4,
+            "byte_order": "native"
+          },
+          "value": 8.0
+        },
+        {
+          "name": "attr_09",
+          "datatype": {
+            "class": "fixed-point signed",
+            "size_bytes": 4,
+            "byte_order": "native"
+          },
+          "value": 9.0
+        },
+        {
+          "name": "attr_10",
+          "datatype": {
+            "class": "fixed-point signed",
+            "size_bytes": 4,
+            "byte_order": "native"
+          },
+          "value": 10.0
+        },
+        {
+          "name": "attr_11",
+          "datatype": {
+            "class": "fixed-point signed",
+            "size_bytes": 4,
+            "byte_order": "native"
+          },
+          "value": 11.0
+        }
+      ],
+      "values": {
+        "count": 3,
+        "present_count": 2,
+        "missing_count": 1,
+        "samples": {
+          "0": 0.0,
+          "1": 1.0,
+          "2": 2.0
+        },
+        "min": 1.0,
+        "max": 2.0,
+        "mean": 1.5
+      }
+    },
+    "label": {
+      "kind": "dataset",
+      "datatype": {
+        "class": "string (fixed-length)",
+        "size_bytes": 8,
+        "byte_order": "not-applicable"
+      },
+      "dataspace": {
+        "class": "scalar",
+        "rank": 0,
+        "dims": [],
+        "max_dims": []
+      },
+      "storage": {
+        "layout": "contiguous",
+        "chunks": null,
+        "filters": []
+      },
+      "fill_value": null,
+      "attributes": [],
+      "text": "degC"
+    },
+    "masked": {
+      "kind": "dataset",
+      "datatype": {
+        "class": "floating-point",
+        "size_bytes": 4,
+        "byte_order": "little-endian"
+      },
+      "dataspace": {
+        "class": "simple",
+        "rank": 1,
+        "dims": [
+          6
+        ],
+        "max_dims": [
+          6
+        ]
+      },
+      "storage": {
+        "layout": "contiguous",
+        "chunks": null,
+        "filters": []
+      },
+      "fill_value": -999.0,
+      "attributes": [],
+      "values": {
+        "count": 6,
+        "present_count": 0,
+        "missing_count": 6,
+        "samples": {
+          "0": -999.0,
+          "1": -999.0,
+          "3": -999.0,
+          "4": -999.0,
+          "5": -999.0
+        }
+      }
+    },
+    "record": {
+      "kind": "dataset",
+      "datatype": {
+        "class": "floating-point",
+        "size_bytes": 4,
+        "byte_order": "little-endian"
+      },
+      "dataspace": {
+        "class": "simple",
+        "rank": 1,
+        "dims": [
+          4
+        ],
+        "max_dims": [
+          -1
+        ]
+      },
+      "storage": {
+        "layout": "chunked",
+        "chunks": [
+          4
+        ],
+        "filters": []
+      },
+      "fill_value": 0.0,
+      "attributes": [],
+      "values": {
+        "count": 4,
+        "present_count": 3,
+        "missing_count": 1,
+        "samples": {
+          "0": 0.0,
+          "1": 1.0,
+          "2": 2.0,
+          "3": 3.0
+        },
+        "min": 1.0,
+        "max": 3.0,
+        "mean": 2.0
+      }
+    },
+    "scalar_i32": {
+      "kind": "dataset",
+      "datatype": {
+        "class": "fixed-point signed",
+        "size_bytes": 4,
+        "byte_order": "native"
+      },
+      "dataspace": {
+        "class": "scalar",
+        "rank": 0,
+        "dims": [],
+        "max_dims": []
+      },
+      "storage": {
+        "layout": "contiguous",
+        "chunks": null,
+        "filters": []
+      },
+      "fill_value": 0.0,
+      "attributes": [],
+      "values": {
+        "count": 1,
+        "present_count": 1,
+        "missing_count": 0,
+        "samples": {
+          "0": 42.0
+        },
+        "min": 42.0,
+        "max": 42.0,
+        "mean": 42.0
+      }
+    },
+    "temp_be_i32": {
+      "kind": "dataset",
+      "datatype": {
+        "class": "fixed-point signed",
+        "size_bytes": 4,
+        "byte_order": "big-endian"
+      },
+      "dataspace": {
+        "class": "simple",
+        "rank": 1,
+        "dims": [
+          5
+        ],
+        "max_dims": [
+          5
+        ]
+      },
+      "storage": {
+        "layout": "contiguous",
+        "chunks": null,
+        "filters": []
+      },
+      "fill_value": 0.0,
+      "attributes": [],
+      "values": {
+        "count": 5,
+        "present_count": 4,
+        "missing_count": 1,
+        "samples": {
+          "0": 0.0,
+          "1": 1.0,
+          "2": 2.0,
+          "3": 3.0,
+          "4": 4.0
+        },
+        "min": 1.0,
+        "max": 4.0,
+        "mean": 2.5
+      }
+    },
+    "temp_f32": {
+      "kind": "dataset",
+      "datatype": {
+        "class": "floating-point",
+        "size_bytes": 4,
+        "byte_order": "little-endian"
+      },
+      "dataspace": {
+        "class": "simple",
+        "rank": 1,
+        "dims": [
+          8
+        ],
+        "max_dims": [
+          8
+        ]
+      },
+      "storage": {
+        "layout": "contiguous",
+        "chunks": null,
+        "filters": []
+      },
+      "fill_value": 0.0,
+      "attributes": [],
+      "values": {
+        "count": 8,
+        "present_count": 7,
+        "missing_count": 1,
+        "samples": {
+          "0": 0.0,
+          "1": 1.5,
+          "4": 6.0,
+          "6": 9.0,
+          "7": 10.5
+        },
+        "min": 1.5,
+        "max": 10.5,
+        "mean": 6.0
+      }
+    },
+    "temp_f64": {
+      "kind": "dataset",
+      "datatype": {
+        "class": "floating-point",
+        "size_bytes": 8,
+        "byte_order": "little-endian"
+      },
+      "dataspace": {
+        "class": "simple",
+        "rank": 1,
+        "dims": [
+          6
+        ],
+        "max_dims": [
+          6
+        ]
+      },
+      "storage": {
+        "layout": "contiguous",
+        "chunks": null,
+        "filters": []
+      },
+      "fill_value": 0.0,
+      "attributes": [
+        {
+          "name": "units",
+          "datatype": {
+            "class": "string (fixed-length)",
+            "size_bytes": 6,
+            "byte_order": "not-applicable"
+          },
+          "value": "meters"
+        },
+        {
+          "name": "valid_max",
+          "datatype": {
+            "class": "floating-point",
+            "size_bytes": 8,
+            "byte_order": "little-endian"
+          },
+          "value": 1.0
+        },
+        {
+          "name": "valid_min",
+          "datatype": {
+            "class": "floating-point",
+            "size_bytes": 8,
+            "byte_order": "little-endian"
+          },
+          "value": 0.0
+        }
+      ],
+      "values": {
+        "count": 6,
+        "present_count": 5,
+        "missing_count": 1,
+        "samples": {
+          "0": 0.0,
+          "1": 0.2,
+          "3": 0.6000000000000001,
+          "4": 0.8,
+          "5": 1.0
+        },
+        "min": 0.2,
+        "max": 1.0,
+        "mean": 0.6
+      }
+    },
+    "temp_i32": {
+      "kind": "dataset",
+      "datatype": {
+        "class": "fixed-point signed",
+        "size_bytes": 4,
+        "byte_order": "native"
+      },
+      "dataspace": {
+        "class": "simple",
+        "rank": 2,
+        "dims": [
+          3,
+          4
+        ],
+        "max_dims": [
+          3,
+          4
+        ]
+      },
+      "storage": {
+        "layout": "contiguous",
+        "chunks": null,
+        "filters": []
+      },
+      "fill_value": 0.0,
+      "attributes": [],
+      "values": {
+        "count": 12,
+        "present_count": 11,
+        "missing_count": 1,
+        "samples": {
+          "0": 0.0,
+          "1": 1.0,
+          "6": 6.0,
+          "10": 10.0,
+          "11": 11.0
+        },
+        "min": 1.0,
+        "max": 11.0,
+        "mean": 6.0
+      }
+    }
+  }
+}
