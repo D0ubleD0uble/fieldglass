@@ -139,7 +139,7 @@ gh run watch
 - **Dry-run native build fails on one target** — usually a toolchain drift (windows-arm64 has been the recurring culprit). Fix in a normal feature PR to `master`, re-prep so the fix is in the tagged commit, rerun the dry-run; do not tag until it's green.
 - **Tag pushed but publish fails partway** — the GitHub Release will be missing assets. Re-run the failed job from the Actions UI; the workflow is idempotent for the platform builds.
 - **A regression slips past CI** — if it's caught after publish but before users adopt, the cleanest fix is a hotfix release (`vX.Y.Z+1`): land the fix on `master` like any other PR, run a fresh prep PR, and tag the new merge commit. Don't retag.
-- **Cutting an even-minor *stable* release** — `release.yml` is wired for the pre-release channel only: it hardcodes `vsce package --pre-release`, `vsce publish --pre-release`, and `prerelease: true` on the GitHub Release. The stable jump (`0.2.0`, `0.4.0`, …) needs those gated on the minor's parity **before** tagging — otherwise an even-minor tag still publishes to the pre-release channel. Don't tag a stable minor until the workflow is updated.
+- **Cutting an even-minor *stable* release** — `release.yml` derives the channel from the tag's minor parity automatically (its `channel` job: odd minor → pre-release, even minor → stable), and feeds that to `vsce package`, `vsce publish`, and the GitHub Release `prerelease` field. So an even-minor tag (`0.2.0`, `0.4.0`, …) publishes to the stable channel with no pre-tag workflow edit needed. Just tag the right version and the channel follows.
 
 ## What lives where
 

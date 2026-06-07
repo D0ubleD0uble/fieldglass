@@ -13,6 +13,32 @@ permissions:
   contents: read
 
 jobs:
+  channel:
+    name: Determine release channel
+    runs-on: ubuntu-latest
+    # Marketplace convention: odd minor → pre-release channel, even minor →
+    # stable. Derived from the tag here so the package/publish/release steps
+    # don't hardcode a channel. workflow_dispatch dry-runs (no tag) default to
+    # pre-release; their publish job is gated off anyway.
+    outputs:
+      prerelease: ${{ steps.detect.outputs.prerelease }}
+    steps:
+      - name: Detect channel from tag minor parity
+        id: detect
+        run: |
+          set -euo pipefail
+          ref="${GITHUB_REF_NAME}"
+          prerelease=true
+          if [[ "${GITHUB_REF_TYPE}" == "tag" && "$ref" =~ ^v[0-9]+\.([0-9]+)\. ]]; then
+            minor="${BASH_REMATCH[1]}"
+            # 10# forces base-10 so a minor like 08 isn't read as octal.
+            if (( 10#$minor % 2 == 0 )); then
+              prerelease=false
+            fi
+          fi
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "Release channel for ref '$ref': prerelease=$prerelease"
+
   build-native:
     name: Build native (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
@@ -86,7 +112,7 @@ jobs:
 
   package:
     name: Package .vsix (${{ matrix.vsce_target }})
-    needs: build-native
+    needs: [build-native, channel]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -121,12 +147,12 @@ jobs:
       - name: Install vsce
         run: npm install -g @vscode/vsce
 
-      - name: Package extension (--target ${{ matrix.vsce_target }} --pre-release)
+      - name: Package extension (--target ${{ matrix.vsce_target }})
         run: |
           mkdir -p ${{ github.workspace }}/dist
           vsce package \
             --target ${{ matrix.vsce_target }} \
-            --pre-release \
+            ${{ needs.channel.outputs.prerelease == 'true' && '--pre-release' || '' }} \
             --no-dependencies \
             --out ${{ github.workspace }}/dist/
         working-directory: extension
@@ -140,7 +166,7 @@ jobs:
 
   publish:
     name: Publish to Marketplace + GitHub Release
-    needs: package
+    needs: [package, channel]
     # Manual workflow_dispatch runs only build+package (dry run); only pushed
     # tags trigger the actual publish + release.
     if: startsWith(github.ref, 'refs/tags/v')
@@ -165,7 +191,7 @@ jobs:
       - name: Install vsce
         run: npm install -g @vscode/vsce
 
-      - name: Publish to VS Marketplace (pre-release channel)
+      - name: Publish to VS Marketplace
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: |
@@ -174,7 +200,7 @@ jobs:
           for vsix in dist/*.vsix; do
             args+=(--packagePath "$vsix")
           done
-          vsce publish --pre-release "${args[@]}"
+          vsce publish ${{ needs.channel.outputs.prerelease == 'true' && '--pre-release' || '' }} "${args[@]}"
 
       # Use the curated CHANGELOG section for this version as the release body,
       # not GitHub's auto-generated commit list. The tag is vX.Y.Z; the
@@ -197,5 +223,5 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           files: dist/*.vsix
-          prerelease: true
+          prerelease: ${{ needs.channel.outputs.prerelease }}
           body_path: release-notes.md
