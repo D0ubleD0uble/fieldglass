@@ -150,6 +150,66 @@ fn oversized_grid_dimensions_rejected_by_cap() {
     );
 }
 
+/// Scanner regression (found by the `decode` fuzz target): an Indicator
+/// Section that declares a total length shorter than its own 8 bytes
+/// previously underflowed `msg_end - 4` in the trailing-`7777` check.
+#[test]
+fn implausible_total_length_returns_parse_error() {
+    // total_length = 0 (octets 5–7), edition 1 (octet 8).
+    let buf = b"GRIB\x00\x00\x00\x01".to_vec();
+    let Err(err) = Grib1Reader::from_bytes(buf) else {
+        panic!("implausible total length must error, not panic");
+    };
+    assert!(
+        matches!(err, FieldglassError::Parse(_)),
+        "expected Parse error, got {err:?}"
+    );
+}
+
+/// Build a minimal 38-byte GRIB1 message whose PDS sets `flag` (the GDS/BMS
+/// present bits) but whose declared length leaves only 2 bytes after the PDS
+/// — fewer than the 3-byte length field a following GDS or BMS opens with.
+fn message_with_truncated_trailing_section(flag: u8) -> Vec<u8> {
+    let total_length = 38u8;
+    let mut buf = vec![0u8; total_length as usize];
+    buf[0..4].copy_from_slice(b"GRIB");
+    buf[4..7].copy_from_slice(&[0, 0, total_length]); // IS total length
+    buf[7] = 1; // GRIB edition 1
+    buf[8..11].copy_from_slice(&[0, 0, 28]); // PDS section_len = WMO minimum 28
+    buf[15] = flag; // PDS flag octet (GDS/BMS present bits)
+    buf[34..38].copy_from_slice(b"7777"); // End Section at msg_end - 4
+    buf
+}
+
+/// Scanner regression (found by the `decode` fuzz target): when the GDS-present
+/// flag is set but the message ends mid-length-field, reading the 3-byte GDS
+/// length previously indexed out of bounds.
+#[test]
+fn truncated_gds_length_field_returns_parse_error() {
+    let buf = message_with_truncated_trailing_section(0x80); // has_gds
+    let Err(err) = Grib1Reader::from_bytes(buf) else {
+        panic!("truncated GDS length field must error, not panic");
+    };
+    assert!(
+        matches!(err, FieldglassError::Parse(_)),
+        "expected Parse error, got {err:?}"
+    );
+}
+
+/// Same regression for the Bit Map Section, whose length field is read the
+/// same way immediately after the GDS.
+#[test]
+fn truncated_bms_length_field_returns_parse_error() {
+    let buf = message_with_truncated_trailing_section(0x40); // has_bms
+    let Err(err) = Grib1Reader::from_bytes(buf) else {
+        panic!("truncated BMS length field must error, not panic");
+    };
+    assert!(
+        matches!(err, FieldglassError::Parse(_)),
+        "expected Parse error, got {err:?}"
+    );
+}
+
 #[test]
 fn decode_grid_for_out_of_range_index_returns_error() {
     let reader = Grib1Reader::from_bytes(FIXTURE.to_vec()).expect("fixture parses");

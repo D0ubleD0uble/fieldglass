@@ -1,0 +1,47 @@
+name: Fuzz
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'crates/fieldglass-grib1/**'
+      - '.github/workflows/fuzz.yml'
+  pull_request:
+    paths:
+      - 'crates/fieldglass-grib1/**'
+      - '.github/workflows/fuzz.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  grib1-decode:
+    name: GRIB1 decode (cargo-fuzz, time-boxed)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      # cargo-fuzz needs the nightly libFuzzer sanitizer runtime; this is the
+      # only job in the repo that builds on nightly. The normal gates stay on
+      # stable — the fuzz crate is excluded from the workspace so they never
+      # touch it.
+      - name: Set up Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/fieldglass-grib1/fuzz
+
+      - name: Install cargo-fuzz
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-fuzz
+
+      # Time-boxed run seeded by the committed corpus (the GRIB1 test
+      # fixtures). Not the normal `cargo test` gate — this is a bounded smoke
+      # fuzz that asserts the decode path neither panics nor hangs.
+      - name: Fuzz the GRIB1 decode path
+        run: cargo fuzz run decode -- -max_total_time=120 -timeout=10
+        working-directory: crates/fieldglass-grib1/fuzz
