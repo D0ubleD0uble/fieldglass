@@ -104,6 +104,21 @@ impl Grib2Reader {
                 "grid {ni}×{nj} = {expected_count} points exceeds cap of {MAX_GRID_POINTS}"
             )));
         }
+        // The grid geometry (ni×nj) must agree with the point count the GDS
+        // declares for itself (§3 octets 7–10). A mismatch means the grid
+        // template and the section's own count disagree — a malformed message.
+        // Without this, a corrupted ni/nj can name a hundred-million-point grid
+        // (still under MAX_GRID_POINTS) whose constant-field decode then
+        // allocates gigabytes, even though the file carries no such data — an
+        // OOM found by the decode fuzz target. (Reduced grids return `None`
+        // from dimensions() above and never reach here.)
+        if expected_count != msg.gds.num_data_points as usize {
+            return Err(FieldglassError::Parse(format!(
+                "grid dimensions {ni}×{nj} = {expected_count} points disagree with the \
+                 GDS-declared {} data points",
+                msg.gds.num_data_points
+            )));
+        }
 
         // §6 BMS — decode the bitmap once (or skip it when indicator == 255).
         let (bms_start, bms_end) = msg.bms_range;

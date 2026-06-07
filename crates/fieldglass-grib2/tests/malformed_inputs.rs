@@ -174,3 +174,40 @@ fn oversized_ds_section_length_returns_parse_error() {
         "expected Parse error, got {err:?}"
     );
 }
+
+/// Decode regression (found by the `decode` fuzz target): this message's §3
+/// grid template names a 16 × 8388639 ≈ 134-million-point grid — under the
+/// MAX_GRID_POINTS cap — while the GDS's own "number of data points" field
+/// (and the rest of the file) describes a tiny 16 × 31 grid. The constant-field
+/// simple-packing path (`bits_per_value == 0`) then tried to allocate
+/// `vec![Some(f64); 134_218_224]` (~2 GiB) for a file carrying no such data,
+/// which libFuzzer reported as an out-of-memory. Decode must now reject the
+/// dimensions/`num_data_points` mismatch up front. Byte-for-byte the libFuzzer
+/// artifact (`fuzz/artifacts/decode/oom-…`), kept as the canonical regression.
+#[rustfmt::skip]
+const FUZZ_OOM_GRID_NP_MISMATCH: &[u8] = &[
+    71, 82, 73, 66, 255, 255, 0, 2, 0, 0, 0, 0, 0, 0, 0, 191, 0, 0, 0, 21, 1, 0, 98, 0, 0, 4, 0, 1,
+    7, 215, 3, 23, 12, 0, 0, 0, 2, 0, 0, 0, 84, 3, 0, 0, 0, 1, 240, 0, 0, 0, 1, 6, 255, 255, 255,
+    255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 0, 0, 0, 16, 0, 128, 0, 31, 0, 0,
+    0, 0, 255, 255, 255, 255, 3, 147, 135, 0, 0, 0, 0, 0, 48, 0, 0, 0, 0, 1, 201, 195, 128, 0, 30,
+    132, 128, 0, 30, 132, 128, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 34, 4, 0, 0, 0, 0,
+    0, 0, 0, 255, 128, 0, 0, 0, 1, 0, 0, 0, 0, 1, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+    255, 0, 0, 0, 21, 5, 0, 0, 1, 240, 0, 0, 67, 136, 147, 51, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6, 6,
+    255, 0, 0, 0, 5, 7, 55, 55, 55, 55,
+];
+
+#[test]
+fn grid_dimensions_disagreeing_with_num_data_points_rejected_before_allocation() {
+    let reader =
+        Grib2Reader::from_bytes(FUZZ_OOM_GRID_NP_MISMATCH.to_vec()).expect("scan succeeds");
+    let err = reader
+        .decode_message_values(0)
+        .expect_err("dimensions/num_data_points mismatch must error, not OOM");
+    let FieldglassError::Parse(msg) = err else {
+        panic!("expected Parse error, got {err:?}");
+    };
+    assert!(
+        msg.contains("disagree") && msg.contains("data points"),
+        "error should name the dimensions/num_data_points mismatch, got: {msg}"
+    );
+}
