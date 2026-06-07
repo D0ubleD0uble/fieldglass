@@ -167,14 +167,20 @@ fn scan_messages(data: &[u8]) -> Result<Vec<Grib2Message>, FieldglassError> {
             )));
         }
 
-        let msg_end_u64 = offset as u64 + is.total_length;
-        if msg_end_u64 > data.len() as u64 {
-            return Err(FieldglassError::Parse(format!(
-                "Message at offset {offset} claims length {} but only {} bytes remain",
-                is.total_length,
-                data.len() - offset
-            )));
-        }
+        // `total_length` is an attacker-controlled u64; a value near u64::MAX
+        // would overflow `offset + total_length`. checked_add turns that into
+        // the same "claims more than the buffer holds" error as a merely-too-big
+        // length, instead of a panic under overflow checks.
+        let msg_end_u64 = match (offset as u64).checked_add(is.total_length) {
+            Some(end) if end <= data.len() as u64 => end,
+            _ => {
+                return Err(FieldglassError::Parse(format!(
+                    "Message at offset {offset} claims length {} but only {} bytes remain",
+                    is.total_length,
+                    data.len() - offset
+                )));
+            }
+        };
         let msg_end = msg_end_u64 as usize;
 
         // Trailing 4-byte End Section "7777".

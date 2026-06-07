@@ -117,6 +117,30 @@ fn implausible_total_length_returns_parse_error() {
     );
 }
 
+/// Scanner regression (found by the `decode` fuzz target): a message found at a
+/// non-zero offset whose IS total-length octets are near `u64::MAX` made
+/// `offset + total_length` overflow `u64`, which panics under the fuzzer's
+/// overflow checks. The `checked_add` guard turns it into the ordinary
+/// "claims more than the buffer holds" parse error.
+#[test]
+fn total_length_overflowing_u64_returns_parse_error() {
+    // One leading non-"GRIB" byte so the message starts at offset 1, then a
+    // GRIB2 IS whose 8-byte total length is u64::MAX.
+    let mut buf = vec![0x00u8];
+    buf.extend_from_slice(b"GRIB");
+    buf.extend_from_slice(&[0xFF, 0xFF]); // reserved
+    buf.push(0x00); // discipline
+    buf.push(2); // edition 2
+    buf.extend_from_slice(&u64::MAX.to_be_bytes()); // total length
+    let Err(err) = Grib2Reader::from_bytes(buf) else {
+        panic!("u64-overflowing total length must error, not panic");
+    };
+    assert!(
+        matches!(err, FieldglassError::Parse(_)),
+        "expected Parse error, got {err:?}"
+    );
+}
+
 #[test]
 fn decode_for_out_of_range_index_returns_error() {
     let reader = Grib2Reader::from_bytes(FIXTURE.to_vec()).expect("fixture parses");
