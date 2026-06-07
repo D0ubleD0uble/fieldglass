@@ -219,6 +219,17 @@ fn scan_messages(data: &[u8]) -> Result<Vec<Grib1Message>, FieldglassError> {
             continue;
         }
 
+        // The declared length must cover at least the 8-byte Indicator
+        // Section. A shorter value makes the trailing-`7777` slice
+        // (`msg_end - 4`) and the PDS start (`offset + 8`) run past or before
+        // the message, so reject it rather than indexing out of bounds.
+        if (is.total_length as usize) < 8 {
+            return Err(FieldglassError::Parse(format!(
+                "Message at offset {offset} declares implausible total length {}",
+                is.total_length
+            )));
+        }
+
         let msg_end = offset + is.total_length as usize;
         if msg_end > data.len() {
             return Err(FieldglassError::Parse(format!(
@@ -242,9 +253,11 @@ fn scan_messages(data: &[u8]) -> Result<Vec<Grib1Message>, FieldglassError> {
         // GDS immediately follows the PDS when the has_gds flag is set.
         let mut cursor = pds_start + pds.section_len as usize;
         let gds = if pds.has_gds {
-            if cursor >= msg_end {
+            // The GDS opens with a 3-byte section-length field; require all
+            // three bytes before reading them below.
+            if cursor + 3 > msg_end {
                 return Err(FieldglassError::Parse(
-                    "PDS claims a GDS follows but no bytes remain".to_string(),
+                    "PDS claims a GDS follows but not enough bytes remain".to_string(),
                 ));
             }
             let gds = parse_grid_description(&data[cursor..msg_end])?;
@@ -259,9 +272,10 @@ fn scan_messages(data: &[u8]) -> Result<Vec<Grib1Message>, FieldglassError> {
 
         // BMS, if present, immediately follows the GDS.
         let bms_range = if pds.has_bms {
-            if cursor >= msg_end {
+            // Likewise, the BMS opens with a 3-byte section-length field.
+            if cursor + 3 > msg_end {
                 return Err(FieldglassError::Parse(
-                    "PDS claims a BMS follows but no bytes remain".to_string(),
+                    "PDS claims a BMS follows but not enough bytes remain".to_string(),
                 ));
             }
             let bms_len =

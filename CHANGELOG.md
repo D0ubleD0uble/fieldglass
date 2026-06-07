@@ -14,6 +14,7 @@ Versioning follows the [VS Code pre-release convention](https://code.visualstudi
 ### Fixed
 
 - **GRIB1 second-order fields that are entirely constant now decode.** When every group in a second-order message has zero width, the file holds no second-order values and the pointer to them lands just past the end of the section. Fieldglass treated that as malformed and refused the message; it now decodes, matching eccodes. Closes #91.
+- **Malformed GRIB1 files can no longer crash the reader.** A message that declared a length shorter than its own header, or that ended partway through a section's length field, used to panic instead of reporting a parse error. Both cases now surface a clean error. The crashes were found by a new fuzz target that exercises the GRIB1 decode path against arbitrary bytes, run as a time-boxed CI job. Closes #92.
 
 ## [0.1.3] — 2026-06-06
 
