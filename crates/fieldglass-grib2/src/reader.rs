@@ -104,6 +104,21 @@ impl Grib2Reader {
                 "grid {ni}×{nj} = {expected_count} points exceeds cap of {MAX_GRID_POINTS}"
             )));
         }
+        // The grid geometry (ni×nj) must agree with the point count the GDS
+        // declares for itself (§3 octets 7–10). A mismatch means the grid
+        // template and the section's own count disagree — a malformed message.
+        // Without this, a corrupted ni/nj can name a hundred-million-point grid
+        // (still under MAX_GRID_POINTS) whose constant-field decode then
+        // allocates gigabytes, even though the file carries no such data — an
+        // OOM found by the decode fuzz target. (Reduced grids return `None`
+        // from dimensions() above and never reach here.)
+        if expected_count != msg.gds.num_data_points as usize {
+            return Err(FieldglassError::Parse(format!(
+                "grid dimensions {ni}×{nj} = {expected_count} points disagree with the \
+                 GDS-declared {} data points",
+                msg.gds.num_data_points
+            )));
+        }
 
         // §6 BMS — decode the bitmap once (or skip it when indicator == 255).
         let (bms_start, bms_end) = msg.bms_range;
@@ -152,14 +167,20 @@ fn scan_messages(data: &[u8]) -> Result<Vec<Grib2Message>, FieldglassError> {
             )));
         }
 
-        let msg_end_u64 = offset as u64 + is.total_length;
-        if msg_end_u64 > data.len() as u64 {
-            return Err(FieldglassError::Parse(format!(
-                "Message at offset {offset} claims length {} but only {} bytes remain",
-                is.total_length,
-                data.len() - offset
-            )));
-        }
+        // `total_length` is an attacker-controlled u64; a value near u64::MAX
+        // would overflow `offset + total_length`. checked_add turns that into
+        // the same "claims more than the buffer holds" error as a merely-too-big
+        // length, instead of a panic under overflow checks.
+        let msg_end_u64 = match (offset as u64).checked_add(is.total_length) {
+            Some(end) if end <= data.len() as u64 => end,
+            _ => {
+                return Err(FieldglassError::Parse(format!(
+                    "Message at offset {offset} claims length {} but only {} bytes remain",
+                    is.total_length,
+                    data.len() - offset
+                )));
+            }
+        };
         let msg_end = msg_end_u64 as usize;
 
         // Trailing 4-byte End Section "7777".
@@ -249,6 +270,18 @@ fn scan_messages(data: &[u8]) -> Result<Vec<Grib2Message>, FieldglassError> {
                 bms_header.number
             )));
         }
+        // The other sections' parsers validate their declared length against
+        // the bytes available; BMS/DS are recorded lazily, so do it here.
+        // Without this an oversized BMS length pushes `cursor` past `msg_end`,
+        // inverting the DS-header slice below, and an oversized DS length
+        // records a range that over-reads `data` at decode time.
+        if bms_header.length as usize > msg_end - cursor {
+            return Err(FieldglassError::Parse(format!(
+                "Message at offset {offset}: BMS declares length {} but only {} bytes remain",
+                bms_header.length,
+                msg_end - cursor
+            )));
+        }
         let bms_end_in_file = cursor + bms_header.length as usize;
         let bms_range = (cursor, bms_end_in_file);
         cursor = bms_end_in_file;
@@ -261,6 +294,13 @@ fn scan_messages(data: &[u8]) -> Result<Vec<Grib2Message>, FieldglassError> {
                 "Message at offset {offset}: expected DS (section {DS_SECTION_NUMBER}), \
                  got section {}",
                 ds_header.number
+            )));
+        }
+        if ds_header.length as usize > msg_end - cursor {
+            return Err(FieldglassError::Parse(format!(
+                "Message at offset {offset}: DS declares length {} but only {} bytes remain",
+                ds_header.length,
+                msg_end - cursor
             )));
         }
         let ds_end_in_file = cursor + ds_header.length as usize;
