@@ -1,14 +1,15 @@
 //! GRIB2 Data Representation Section (§5).
 //!
 //! Implements simple packing (template 5.0) — the GRIB1 `grid_simple`
-//! analogue — and IEEE floating-point packing (template 5.4), the GRIB2
-//! counterpart to GRIB1 `grid_ieee`. Other packing templates (complex 5.2 /
-//! 5.3, JPEG 2000 5.40, PNG 5.41, CCSDS 5.42) parse as
-//! [`DataRepresentationTemplate::Unsupported`] so message enumeration
-//! still works.
+//! analogue — IEEE floating-point packing (template 5.4, the GRIB2
+//! counterpart to GRIB1 `grid_ieee`), and complex packing (template 5.2,
+//! the analogue of GRIB1 second-order packing). Other packing templates
+//! (complex + spatial differencing 5.3, JPEG 2000 5.40, PNG 5.41, CCSDS
+//! 5.42) parse as [`DataRepresentationTemplate::Unsupported`] so message
+//! enumeration still works.
 //!
 //! Spec reference: WMO Manual on Codes Vol I.2 (FM 92 GRIB Edition 2),
-//! Section 5 layout + Template 5.0.
+//! Section 5 layout + Templates 5.0 / 5.2 / 5.4.
 
 use crate::section::{SectionHeader, parse_section_header};
 use fieldglass_core::{FieldglassError, bits::sign_magnitude_i16};
@@ -23,6 +24,9 @@ const DRS_MIN_LEN: usize = 11;
 
 /// Template 5.0 payload length — octets 12..=21 of the section, 10 bytes.
 const TEMPLATE_5_0_PAYLOAD_LEN: usize = 10;
+
+/// Template 5.2 payload length — octets 12..=47 of the section, 36 bytes.
+const TEMPLATE_5_2_PAYLOAD_LEN: usize = 36;
 
 /// Template 5.4 payload length — a single octet (12), the precision code.
 const TEMPLATE_5_4_PAYLOAD_LEN: usize = 1;
@@ -62,11 +66,73 @@ pub struct IeeePackingTemplate {
     pub precision: u8,
 }
 
+/// Template 5.2 — complex grid-point packing.
+///
+/// The field is split into `num_groups` groups of consecutive points. Each
+/// group carries its own reference value (its minimum), bit width, and
+/// length; §7 then stores, as one continuous MSB-first bitstream, the group
+/// references, the group widths, the group lengths, and finally the packed
+/// per-point offsets. The unpacked value at a point in group `g` is
+/// `R + (group_ref[g] + X) · 2^E · 10^-D`, where `X` is the point's
+/// [`bits_per_value`]-style group-width-wide offset — the same global
+/// `R`/`E`/`D` transform as simple packing, applied to the per-group
+/// scaled integer. This mirrors GRIB1 second-order packing.
+///
+/// All template fields are parsed so the metadata view is complete; the §7
+/// decoder (see `ds.rs`) currently handles the common envelope (general
+/// group splitting, no inline missing-value management).
+///
+/// [`bits_per_value`]: ComplexPackingTemplate::bits_per_value
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ComplexPackingTemplate {
+    /// Reference value `R` (IEEE 32-bit float, octets 12–15).
+    pub reference_value: f32,
+    /// Binary scale factor `E` (sign-magnitude `i16`, octets 16–17).
+    pub binary_scale_factor: i16,
+    /// Decimal scale factor `D` (sign-magnitude `i16`, octets 18–19).
+    pub decimal_scale_factor: i16,
+    /// Number of bits used for each group reference value (octet 20).
+    pub bits_per_value: u8,
+    /// Type of original field values (octet 21) — WMO Code Table 5.1.
+    pub original_field_type: u8,
+    /// Group splitting method used (octet 22) — WMO Code Table 5.4
+    /// (`0` = row by row, `1` = general group splitting).
+    pub group_splitting_method: u8,
+    /// Missing value management used (octet 23) — WMO Code Table 5.5
+    /// (`0` = none, `1` = primary, `2` = primary + secondary).
+    pub missing_value_management: u8,
+    /// Primary missing value substitute (octets 24–27, raw bit pattern;
+    /// interpretation follows [`original_field_type`]).
+    ///
+    /// [`original_field_type`]: ComplexPackingTemplate::original_field_type
+    pub primary_missing_value: u32,
+    /// Secondary missing value substitute (octets 28–31, raw bit pattern).
+    pub secondary_missing_value: u32,
+    /// NG — number of groups the field is split into (octets 32–35).
+    pub num_groups: u32,
+    /// Reference for the group widths (octet 36); each stored group width
+    /// is this plus the value read at [`group_width_bits`].
+    ///
+    /// [`group_width_bits`]: ComplexPackingTemplate::group_width_bits
+    pub group_width_reference: u8,
+    /// Number of bits used for each (referenced) group width (octet 37).
+    pub group_width_bits: u8,
+    /// Reference for the group lengths (octets 38–41).
+    pub group_length_reference: u32,
+    /// Length increment for the group lengths (octet 42).
+    pub group_length_increment: u8,
+    /// True length of the last group (octets 43–46).
+    pub group_length_last: u32,
+    /// Number of bits used for each (scaled) group length (octet 47).
+    pub group_length_bits: u8,
+}
+
 /// Decoded template payload. Templates outside the supported set surface as
 /// [`DataRepresentationTemplate::Unsupported`].
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DataRepresentationTemplate {
     Simple(SimplePackingTemplate),
+    Complex(ComplexPackingTemplate),
     Ieee(IeeePackingTemplate),
     Unsupported(u16),
 }
@@ -89,6 +155,7 @@ impl DataRepresentationSection {
     pub fn template_name(&self) -> String {
         match &self.template {
             DataRepresentationTemplate::Simple(_) => "simple".to_string(),
+            DataRepresentationTemplate::Complex(_) => "complex".to_string(),
             DataRepresentationTemplate::Ieee(_) => "ieee".to_string(),
             DataRepresentationTemplate::Unsupported(n) => format!("unsupported(5.{n})"),
         }
@@ -99,6 +166,15 @@ impl DataRepresentationSection {
     pub fn simple(&self) -> Option<&SimplePackingTemplate> {
         match &self.template {
             DataRepresentationTemplate::Simple(t) => Some(t),
+            _ => None,
+        }
+    }
+
+    /// Borrow the complex-packing template if that's what the section
+    /// carries. Other templates return `None`.
+    pub fn complex(&self) -> Option<&ComplexPackingTemplate> {
+        match &self.template {
+            DataRepresentationTemplate::Complex(t) => Some(t),
             _ => None,
         }
     }
@@ -152,6 +228,7 @@ pub fn parse_data_representation_with_header(
     let payload = &bytes[11..len];
     let template = match template_number {
         0 => DataRepresentationTemplate::Simple(parse_template_5_0(payload)?),
+        2 => DataRepresentationTemplate::Complex(parse_template_5_2(payload)?),
         4 => DataRepresentationTemplate::Ieee(parse_template_5_4(payload)?),
         other => DataRepresentationTemplate::Unsupported(other),
     };
@@ -180,6 +257,51 @@ fn parse_template_5_0(payload: &[u8]) -> Result<SimplePackingTemplate, Fieldglas
         decimal_scale_factor,
         bits_per_value: payload[8],
         original_field_type: payload[9],
+    })
+}
+
+fn parse_template_5_2(payload: &[u8]) -> Result<ComplexPackingTemplate, FieldglassError> {
+    if payload.len() < TEMPLATE_5_2_PAYLOAD_LEN {
+        return Err(FieldglassError::Parse(format!(
+            "DRS template 5.2 needs {TEMPLATE_5_2_PAYLOAD_LEN} bytes of payload, got {}",
+            payload.len()
+        )));
+    }
+    let reference_value = f32::from_be_bytes([payload[0], payload[1], payload[2], payload[3]]);
+    let binary_scale_factor = sign_magnitude_i16(u16::from_be_bytes([payload[4], payload[5]]));
+    let decimal_scale_factor = sign_magnitude_i16(u16::from_be_bytes([payload[6], payload[7]]));
+    Ok(ComplexPackingTemplate {
+        reference_value,
+        binary_scale_factor,
+        decimal_scale_factor,
+        bits_per_value: payload[8],
+        original_field_type: payload[9],
+        group_splitting_method: payload[10],
+        missing_value_management: payload[11],
+        primary_missing_value: u32::from_be_bytes([
+            payload[12],
+            payload[13],
+            payload[14],
+            payload[15],
+        ]),
+        secondary_missing_value: u32::from_be_bytes([
+            payload[16],
+            payload[17],
+            payload[18],
+            payload[19],
+        ]),
+        num_groups: u32::from_be_bytes([payload[20], payload[21], payload[22], payload[23]]),
+        group_width_reference: payload[24],
+        group_width_bits: payload[25],
+        group_length_reference: u32::from_be_bytes([
+            payload[26],
+            payload[27],
+            payload[28],
+            payload[29],
+        ]),
+        group_length_increment: payload[30],
+        group_length_last: u32::from_be_bytes([payload[31], payload[32], payload[33], payload[34]]),
+        group_length_bits: payload[35],
     })
 }
 
@@ -335,6 +457,93 @@ mod tests {
         assert!(
             err.to_string().contains("template 5.4 needs"),
             "error names template-5.4 shortfall, got: {err}",
+        );
+    }
+
+    /// Build a minimal §5 with template 5.2 — 47-byte section. Field values
+    /// are arbitrary but distinct so the parser's octet mapping is pinned.
+    fn build_drs_5_2() -> Vec<u8> {
+        let mut buf: Vec<u8> = Vec::new();
+        let section_len: u32 = 47;
+        buf.extend_from_slice(&section_len.to_be_bytes());
+        buf.push(DRS_SECTION_NUMBER);
+        buf.extend_from_slice(&50u32.to_be_bytes()); // num data points
+        buf.extend_from_slice(&2u16.to_be_bytes()); // template 5.2
+        buf.extend_from_slice(&12.5_f32.to_be_bytes()); // R (octets 12–15)
+        buf.extend_from_slice(&1u16.to_be_bytes()); // E = 1 (16–17)
+        buf.extend_from_slice(&2u16.to_be_bytes()); // D = 2 (18–19)
+        buf.push(8); // bits per group reference value (20)
+        buf.push(0); // original field type (21)
+        buf.push(1); // group splitting method = general (22)
+        buf.push(0); // missing value management = none (23)
+        buf.extend_from_slice(&0xDEAD_BEEFu32.to_be_bytes()); // primary missing (24–27)
+        buf.extend_from_slice(&0x0BAD_F00Du32.to_be_bytes()); // secondary missing (28–31)
+        buf.extend_from_slice(&7u32.to_be_bytes()); // NG = 7 (32–35)
+        buf.push(3); // group width reference (36)
+        buf.push(4); // bits for group widths (37)
+        buf.extend_from_slice(&5u32.to_be_bytes()); // group length reference (38–41)
+        buf.push(1); // group length increment (42)
+        buf.extend_from_slice(&9u32.to_be_bytes()); // true length of last group (43–46)
+        buf.push(6); // bits for group lengths (47)
+        assert_eq!(buf.len() as u32, section_len);
+        buf
+    }
+
+    #[test]
+    fn template_5_2_round_trips_synthesized_payload() {
+        let drs = parse_data_representation(&build_drs_5_2()).expect("parse 5.2");
+        assert_eq!(drs.template_number, 2);
+        assert_eq!(drs.num_data_points, 50);
+        assert_eq!(drs.template_name(), "complex");
+        assert!(drs.simple().is_none());
+
+        let t = drs.complex().expect("5.2 has complex template");
+        assert!((t.reference_value - 12.5).abs() < 1e-6);
+        assert_eq!(t.binary_scale_factor, 1);
+        assert_eq!(t.decimal_scale_factor, 2);
+        assert_eq!(t.bits_per_value, 8);
+        assert_eq!(t.original_field_type, 0);
+        assert_eq!(t.group_splitting_method, 1);
+        assert_eq!(t.missing_value_management, 0);
+        assert_eq!(t.primary_missing_value, 0xDEAD_BEEF);
+        assert_eq!(t.secondary_missing_value, 0x0BAD_F00D);
+        assert_eq!(t.num_groups, 7);
+        assert_eq!(t.group_width_reference, 3);
+        assert_eq!(t.group_width_bits, 4);
+        assert_eq!(t.group_length_reference, 5);
+        assert_eq!(t.group_length_increment, 1);
+        assert_eq!(t.group_length_last, 9);
+        assert_eq!(t.group_length_bits, 6);
+    }
+
+    #[test]
+    fn template_5_2_decodes_negative_scale_factors() {
+        let mut bytes = build_drs_5_2();
+        // E at octets 16–17 = bytes 15–16; sign-magnitude −1.
+        bytes[15..17].copy_from_slice(&(0x8000u16 | 1).to_be_bytes());
+        // D at octets 18–19 = bytes 17–18; sign-magnitude −2.
+        bytes[17..19].copy_from_slice(&(0x8000u16 | 2).to_be_bytes());
+        let t = *parse_data_representation(&bytes)
+            .unwrap()
+            .complex()
+            .unwrap();
+        assert_eq!(t.binary_scale_factor, -1);
+        assert_eq!(t.decimal_scale_factor, -2);
+    }
+
+    #[test]
+    fn rejects_5_2_when_payload_truncated() {
+        // Declare length 11 (just past the template number) so the 5.2
+        // payload check fires on the missing 36-byte block.
+        let mut buf: Vec<u8> = Vec::new();
+        buf.extend_from_slice(&11u32.to_be_bytes());
+        buf.push(DRS_SECTION_NUMBER);
+        buf.extend_from_slice(&0u32.to_be_bytes());
+        buf.extend_from_slice(&2u16.to_be_bytes()); // template 5.2
+        let err = parse_data_representation(&buf).expect_err("must reject");
+        assert!(
+            err.to_string().contains("template 5.2 needs"),
+            "error names template-5.2 shortfall, got: {err}",
         );
     }
 

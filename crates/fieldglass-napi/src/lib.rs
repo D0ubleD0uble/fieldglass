@@ -144,6 +144,7 @@ fn grid_is_reprojectable(
 fn friendly_packing(label: &str) -> String {
     let mapped = match label {
         "grid_simple" | "simple" => "Simple grid-point",
+        "grid_complex" | "complex" => "Complex packing",
         "grid_ieee" | "ieee" => "IEEE float",
         "grid_simple_matrix" => "Matrix of values",
         "grid_second_order" => "Second-order (SPD-2)",
@@ -2470,6 +2471,8 @@ mod friendly_packing_tests {
     fn maps_grib1_and_grib2_labels_to_friendly_names() {
         assert_eq!(friendly_packing("grid_simple"), "Simple grid-point");
         assert_eq!(friendly_packing("simple"), "Simple grid-point");
+        assert_eq!(friendly_packing("grid_complex"), "Complex packing");
+        assert_eq!(friendly_packing("complex"), "Complex packing");
         assert_eq!(friendly_packing("grid_ieee"), "IEEE float");
         assert_eq!(friendly_packing("ieee"), "IEEE float");
         assert_eq!(friendly_packing("grid_simple_matrix"), "Matrix of values");
@@ -2490,6 +2493,9 @@ mod friendly_packing_tests {
 
     #[test]
     fn names_the_scheme_behind_grib2_unsupported_templates() {
+        // Template 5.3 (complex + spatial differencing) is still undecoded, so it
+        // surfaces via the unsupported path; the 5.2 arm is kept as a defensive
+        // fallback even though 5.2 now decodes to "complex" (see the test above).
         assert_eq!(
             friendly_packing("unsupported(5.2)"),
             "Complex packing (5.2)"
@@ -2498,9 +2504,9 @@ mod friendly_packing_tests {
             friendly_packing("unsupported(5.3)"),
             "Complex packing (5.3)"
         );
-        // Template 5.4 (IEEE) is now decoded, so it surfaces as "ieee" (see the
-        // test above), never as unsupported(5.4); an unknown number still falls
-        // back to a generic label.
+        // Templates 5.2 (complex) and 5.4 (IEEE) are now decoded, so they surface
+        // as "complex" / "ieee", never as unsupported(5.N); an unknown number
+        // still falls back to a generic label.
         assert_eq!(friendly_packing("unsupported(5.40)"), "JPEG 2000 (5.40)");
         assert_eq!(friendly_packing("unsupported(5.41)"), "PNG (5.41)");
         assert_eq!(friendly_packing("unsupported(5.42)"), "CCSDS (5.42)");

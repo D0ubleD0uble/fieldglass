@@ -72,7 +72,7 @@ A GRIB2 message's §5 Data Representation Section selects a packing template. De
 |---|---|:---:|---|
 | 5.0 — simple grid-point | `grid_simple` | ✅ | The common case for NCEP / ECMWF fields. Constant fields (`bits_per_value = 0`) included. Cross-validated against eccodes 2.34. |
 | 5.4 — IEEE floating point | `grid_ieee` | ✅ | Values stored verbatim as big-endian floats; 32-bit (`precision = 1`) and 64-bit (`precision = 2`). Cross-validated against eccodes 2.34. 128-bit (`precision = 3`) is unsupported, as in eccodes. |
-| 5.2 — complex | `grid_complex` | ❌ | Group-split packing; tracked in [#107](https://github.com/D0ubleD0uble/fieldglass/issues/107). |
+| 5.2 — complex | `grid_complex` | ✅ | Group-split packing, the GRIB2 analogue of GRIB1 second-order. Decodes the common envelope: general group splitting with no inline missing values. Row-by-row splitting and inline missing-value management return `UnsupportedSection`. |
 | 5.3 — complex + spatial differencing | `grid_complex_spatial_differencing` | ❌ | Complex packing with spatial differencing (common in GFS); tracked in [#109](https://github.com/D0ubleD0uble/fieldglass/issues/109). |
 | 5.40 — JPEG 2000 | `grid_jpeg` | ❌ | Compressed; decoder strategy under research ([#111](https://github.com/D0ubleD0uble/fieldglass/issues/111)), tracked in [#116](https://github.com/D0ubleD0uble/fieldglass/issues/116). |
 | 5.41 — PNG | `grid_png` | ❌ | Compressed; tracked in [#118](https://github.com/D0ubleD0uble/fieldglass/issues/118). |
