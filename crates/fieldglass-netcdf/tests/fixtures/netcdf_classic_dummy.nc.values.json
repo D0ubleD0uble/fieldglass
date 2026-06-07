@@ -1,0 +1,294 @@
+{
+  "source": "netCDF4 1.7.4 (libnetcdf 4.9.3). Value-decode oracle for NetCDF classic value decode (#108). Provenance in NOTICE.md.",
+  "data_model": "NETCDF3_CLASSIC",
+  "variables": {
+    "feature_type_instance": {
+      "nc_type": "|S1",
+      "shape": [
+        64
+      ],
+      "dimensions": [
+        "maxStrlen64"
+      ],
+      "count": 64,
+      "text": ""
+    },
+    "latitude": {
+      "nc_type": "float64",
+      "shape": [],
+      "dimensions": [],
+      "count": 1,
+      "present_count": 1,
+      "missing_count": 0,
+      "min": 9.969209968386869e+36,
+      "max": 9.969209968386869e+36,
+      "mean": 9.969209968386869e+36,
+      "samples": {
+        "0": 9.969209968386869e+36
+      }
+    },
+    "longitude": {
+      "nc_type": "float64",
+      "shape": [],
+      "dimensions": [],
+      "count": 1,
+      "present_count": 1,
+      "missing_count": 0,
+      "min": 9.969209968386869e+36,
+      "max": 9.969209968386869e+36,
+      "mean": 9.969209968386869e+36,
+      "samples": {
+        "0": 9.969209968386869e+36
+      }
+    },
+    "time": {
+      "nc_type": "float64",
+      "shape": [
+        0
+      ],
+      "dimensions": [
+        "time"
+      ],
+      "count": 0,
+      "present_count": 0,
+      "missing_count": 0
+    },
+    "z": {
+      "nc_type": "float64",
+      "shape": [
+        8
+      ],
+      "dimensions": [
+        "z"
+      ],
+      "count": 8,
+      "fill_value": -9999.9,
+      "present_count": 0,
+      "missing_count": 8,
+      "samples": {
+        "0": -9999.9,
+        "1": -9999.9,
+        "4": -9999.9,
+        "6": -9999.9,
+        "7": -9999.9
+      }
+    },
+    "crs": {
+      "nc_type": "int32",
+      "shape": [],
+      "dimensions": [],
+      "count": 1,
+      "present_count": 1,
+      "missing_count": 0,
+      "min": -2147483647.0,
+      "max": -2147483647.0,
+      "mean": -2147483647.0,
+      "samples": {
+        "0": -2147483647.0
+      }
+    },
+    "platform": {
+      "nc_type": "int32",
+      "shape": [],
+      "dimensions": [],
+      "count": 1,
+      "present_count": 1,
+      "missing_count": 0,
+      "min": -2147483647.0,
+      "max": -2147483647.0,
+      "mean": -2147483647.0,
+      "samples": {
+        "0": -2147483647.0
+      }
+    },
+    "Hdg_1215": {
+      "nc_type": "float64",
+      "shape": [
+        0
+      ],
+      "dimensions": [
+        "time"
+      ],
+      "count": 0,
+      "fill_value": 1.00000004091848e+35,
+      "present_count": 0,
+      "missing_count": 0
+    },
+    "sensor_depth": {
+      "nc_type": "float32",
+      "shape": [],
+      "dimensions": [],
+      "count": 1,
+      "present_count": 1,
+      "missing_count": 0,
+      "min": 9.969209968386869e+36,
+      "max": 9.969209968386869e+36,
+      "mean": 9.969209968386869e+36,
+      "samples": {
+        "0": 9.969209968386869e+36
+      }
+    },
+    "P_1": {
+      "nc_type": "float64",
+      "shape": [
+        0
+      ],
+      "dimensions": [
+        "time"
+      ],
+      "count": 0,
+      "fill_value": 1.00000004091848e+35,
+      "present_count": 0,
+      "missing_count": 0
+    },
+    "Ptch_1216": {
+      "nc_type": "float64",
+      "shape": [
+        0
+      ],
+      "dimensions": [
+        "time"
+      ],
+      "count": 0,
+      "fill_value": 1.00000004091848e+35,
+      "present_count": 0,
+      "missing_count": 0
+    },
+    "Roll_1217": {
+      "nc_type": "float64",
+      "shape": [
+        0
+      ],
+      "dimensions": [
+        "time"
+      ],
+      "count": 0,
+      "fill_value": -9999.9,
+      "present_count": 0,
+      "missing_count": 0
+    },
+    "Tx_1211": {
+      "nc_type": "float64",
+      "shape": [
+        0
+      ],
+      "dimensions": [
+        "time"
+      ],
+      "count": 0,
+      "fill_value": 1.00000004091848e+35,
+      "present_count": 0,
+      "missing_count": 0
+    },
+    "bindist": {
+      "nc_type": "float32",
+      "shape": [
+        8
+      ],
+      "dimensions": [
+        "z"
+      ],
+      "count": 8,
+      "fill_value": 1.0000000409184788e+35,
+      "present_count": 0,
+      "missing_count": 8,
+      "samples": {
+        "0": 1.0000000409184788e+35,
+        "1": 1.0000000409184788e+35,
+        "4": 1.0000000409184788e+35,
+        "6": 1.0000000409184788e+35,
+        "7": 1.0000000409184788e+35
+      }
+    },
+    "AGC_1202": {
+      "nc_type": "float64",
+      "shape": [
+        0,
+        8
+      ],
+      "dimensions": [
+        "time",
+        "z"
+      ],
+      "count": 0,
+      "fill_value": 1.00000004091848e+35,
+      "present_count": 0,
+      "missing_count": 0
+    },
+    "CD_310": {
+      "nc_type": "float64",
+      "shape": [
+        0,
+        8
+      ],
+      "dimensions": [
+        "time",
+        "z"
+      ],
+      "count": 0,
+      "fill_value": -9999.9,
+      "present_count": 0,
+      "missing_count": 0
+    },
+    "CS_300": {
+      "nc_type": "float64",
+      "shape": [
+        0,
+        8
+      ],
+      "dimensions": [
+        "time",
+        "z"
+      ],
+      "count": 0,
+      "fill_value": -9999.9,
+      "present_count": 0,
+      "missing_count": 0
+    },
+    "u_1205": {
+      "nc_type": "float64",
+      "shape": [
+        0,
+        8
+      ],
+      "dimensions": [
+        "time",
+        "z"
+      ],
+      "count": 0,
+      "fill_value": 1.00000004091848e+35,
+      "present_count": 0,
+      "missing_count": 0
+    },
+    "v_1206": {
+      "nc_type": "float64",
+      "shape": [
+        0,
+        8
+      ],
+      "dimensions": [
+        "time",
+        "z"
+      ],
+      "count": 0,
+      "fill_value": 1.00000004091848e+35,
+      "present_count": 0,
+      "missing_count": 0
+    },
+    "w_1204": {
+      "nc_type": "float64",
+      "shape": [
+        0,
+        8
+      ],
+      "dimensions": [
+        "time",
+        "z"
+      ],
+      "count": 0,
+      "fill_value": 1.00000004091848e+35,
+      "present_count": 0,
+      "missing_count": 0
+    }
+  }
+}

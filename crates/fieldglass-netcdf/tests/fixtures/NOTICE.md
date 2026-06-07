@@ -43,3 +43,28 @@ model-derived content rather than hand-crafted bytes. Reproduced via the
 > `UInt64`) are not exercised by these fixtures because the source CDF-1 file
 > contains none — those types are covered by the unit tests in
 > `crates/fieldglass-netcdf/src/classic.rs`.
+
+## Value-decode oracles (`*.values.json`)
+
+`netcdf_classic_dummy.nc.values.json` and `ersst_v5_187001_cdf1.nc.values.json`
+are the value-decode targets for classic NetCDF value decode (#108). Each
+records, per variable, what the canonical Unidata `netCDF4` library (which
+wraps `libnetcdf`) decodes from the on-disk bytes: `nc_type`, shape,
+dimensions, fill value, present/missing counts, value statistics, and a few
+anchored samples in C (row-major / on-disk) order. Samples are the *raw*
+on-disk values (fills included) so a decoder can match the exact sequence,
+including masked positions. Once #108 reads each variable from its `begin`
+offset, the decoded array must reproduce these numbers.
+
+The two fixtures together cover the decode matrix: every `nc_type`
+(`char` / `int` / `float` / `double`), every layout (scalar, fixed 1-D,
+multi-dimensional, and unlimited-dimension *record* variables — empty here
+since `numrecs = 0`), default fills (`crs` = `NC_FILL_INT`), explicit
+`_FillValue`s (`z` = -9999.9), and real masked climate data (ERSST `sst`:
+5032 of 16020 points are the -999 fill). The ERSST CDF-2 / CDF-5 fixtures
+decode to byte-identical values, so the single CDF-1 oracle covers all three.
+
+Regenerate with `python3 tools/regenerate-netcdf-oracles.py` from the repo
+root (needs `netCDF4`); the committed JSON means the Rust suite needs no
+netCDF4 at runtime. `tests/classic_value_targets.rs` pins the type/shape
+matrix the decode builds on; the value numbers are checked once #108 lands.
