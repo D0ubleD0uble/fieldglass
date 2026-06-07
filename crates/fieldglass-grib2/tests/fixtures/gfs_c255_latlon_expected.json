@@ -1,0 +1,36 @@
+{
+  "count": 2847,
+  "missing_count": 0,
+  "min": 53502.3,
+  "max": 99919.6,
+  "mean": 91821.82135581314,
+  "samples": {
+    "0": 93004.4,
+    "1": 90610.8,
+    "100": 97364.1,
+    "1000": 93990.0,
+    "2846": 93291.3
+  },
+  "tolerance_absolute": 0.001,
+  "section5": {
+    "dataRepresentationTemplateNumber": 3,
+    "packingType": "grid_complex_spatial_differencing",
+    "referenceValue": 535023,
+    "binaryScaleFactor": 0,
+    "decimalScaleFactor": 1,
+    "bitsPerValue": 20,
+    "typeOfOriginalFieldValues": 0,
+    "groupSplittingMethodUsed": 1,
+    "missingValueManagementUsed": 0,
+    "numberOfGroupsOfDataValues": 224,
+    "referenceForGroupWidths": 0,
+    "numberOfBitsUsedForTheGroupWidths": 5,
+    "referenceForGroupLengths": 1,
+    "lengthIncrementForTheGroupLengths": 1,
+    "trueLengthOfLastGroup": 11,
+    "numberOfBitsUsedForTheScaledGroupLengths": 6,
+    "orderOfSpatialDifferencing": 1,
+    "numberOfOctetsExtraDescriptors": 3
+  },
+  "source": "eccodes 2.34.1 grib_get_data + grib_get. Value+\u00a75 oracle for the committed gfs_c255_latlon.grib2 \u2014 real NCEP GFS, DRS template 5.3 (grid_complex_spatial_differencing) 1st-order differencing. Companion order-2 case: complex_spd2_regular_latlon. Provenance in NOTICE.md."
+}

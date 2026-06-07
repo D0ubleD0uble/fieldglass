@@ -1,0 +1,36 @@
+{
+  "count": 496,
+  "missing_count": 0,
+  "min": 270.46679688,
+  "max": 311.09863281,
+  "mean": 291.5852483934678,
+  "samples": {
+    "0": 279.0,
+    "1": 279.9609375,
+    "100": 278.62988281,
+    "250": 291.74804688,
+    "495": 300.88183594
+  },
+  "tolerance_absolute": 0.001,
+  "section5": {
+    "dataRepresentationTemplateNumber": 3,
+    "packingType": "grid_complex_spatial_differencing",
+    "referenceValue": 270.467,
+    "binaryScaleFactor": -10,
+    "decimalScaleFactor": 0,
+    "bitsPerValue": 14,
+    "typeOfOriginalFieldValues": 0,
+    "groupSplittingMethodUsed": 1,
+    "missingValueManagementUsed": 0,
+    "numberOfGroupsOfDataValues": 9,
+    "referenceForGroupWidths": 0,
+    "numberOfBitsUsedForTheGroupWidths": 4,
+    "referenceForGroupLengths": 1,
+    "lengthIncrementForTheGroupLengths": 1,
+    "trueLengthOfLastGroup": 48,
+    "numberOfBitsUsedForTheScaledGroupLengths": 8,
+    "orderOfSpatialDifferencing": 2,
+    "numberOfOctetsExtraDescriptors": 2
+  },
+  "source": "eccodes 2.34.1 grib_get_data + grib_get. Oracle for DRS template 5.3 (grid_complex_spatial_differencing) 2nd-order differencing, re-encoded from regular_latlon_surface.grib2. The order-1 case is covered by gfs_c255. Provenance in NOTICE.md."
+}

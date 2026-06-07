@@ -74,3 +74,70 @@ fields — both are kept so the test exercises the f32 and f64 read paths.
 min/max/mean, anchored samples); decode tolerance is recorded in the file.
 eccodes returns `GRIB_NOT_IMPLEMENTED` for precision 3 (128-bit), and so do
 we. See eccodes `grib2/template.5.4.def` + `grib_accessor_class_data_raw_packing`.
+
+## §5 packing fixtures and eccodes oracles
+
+These cover the §5 Data Representation templates exercised by the GRIB2 decode
+work. 5.2 (`grid_complex`) decodes today and `complex_regular_latlon.grib2` is
+its decode regression fixture (`tests/decode_complex.rs`); the rest are staged
+for their decode implementations and are listed as ❌ in the
+[GRIB2 packing modes](../../../../../README.md#grib2-packing-modes) table. Each
+was produced by re-encoding an already-bundled fixture with eccodes 2.34.1
+`grib_set`, so reproduction is deterministic and no new upstream file is added
+(the source files' provenance/licences are documented above). Each fixture
+ships two oracles, both generated with eccodes 2.34.1:
+
+- `<name>.grib2.eccodes.ref.json` — curated §0–§6 metadata snapshot from
+  `tools/regenerate-eccodes-snapshots.py` (the shared `eccodes_reference.rs`
+  harness; metadata + §5 template number cross-check green).
+- `<name>_expected.json` — the **decode target**: `grib_get_data` value stats
+  (count, missing, min/max/mean, anchored samples, absolute tolerance) plus a
+  `section5` block capturing every §5 packing parameter eccodes reports
+  (group counts/widths/lengths, spatial-differencing order, codec flags, …).
+  This is the ground truth the decoders validate against without needing
+  eccodes in the sandbox.
+
+| Fixture | DRS template | `packingType` | Issue |
+|---|---|---|---|
+| `complex_regular_latlon.grib2` | 5.2 | `grid_complex` | decodes today (#107); decode regression fixture |
+| `complex_spd2_regular_latlon.grib2` | 5.3 (2nd-order) | `grid_complex_spatial_differencing` | #109 |
+| `gfs_c255_latlon.grib2` (existing) | 5.3 (1st-order) | `grid_complex_spatial_differencing` | #109 |
+| `jpeg2000_regular_latlon.grib2` | 5.40 | `grid_jpeg` | #116 |
+| `png_eta_lambert.grib2` | 5.41 | `grid_png` | #118 |
+| `ccsds_regular_latlon.grib2` | 5.42 | `grid_ccsds` | #117 |
+
+```
+# 5.2 complex (group-split, no differencing)
+grib_set -s packingType=grid_complex regular_latlon_surface.grib2 complex_regular_latlon.grib2
+# 5.3 complex + 2nd-order spatial differencing (order-1 is the real gfs_c255 below)
+grib_set -s packingType=grid_complex_spatial_differencing,orderOfSpatialDifferencing=2 \
+  regular_latlon_surface.grib2 complex_spd2_regular_latlon.grib2
+# 5.40 JPEG 2000 (lossless, typeOfCompressionUsed=0)
+grib_set -s packingType=grid_jpeg regular_latlon_surface.grib2 jpeg2000_regular_latlon.grib2
+# 5.42 CCSDS / AEC (libaec)
+grib_set -s packingType=grid_ccsds regular_latlon_surface.grib2 ccsds_regular_latlon.grib2
+# 5.41 PNG — see note below on the source choice
+grib_set -s packingType=grid_png eta_lambert_msg0.grib2 png_eta_lambert.grib2
+```
+
+Notes on the choices:
+
+- **1st- vs 2nd-order differencing (#109).** The already-committed
+  `gfs_c255_latlon.grib2` is real NCEP GFS data packed as 5.3 with
+  `orderOfSpatialDifferencing = 1`; `gfs_c255_latlon_expected.json` is its new
+  value+§5 oracle. `complex_spd2_regular_latlon.grib2` supplies the 2nd-order
+  case, so the decoder is exercised against both orders.
+- **PNG source (#118).** eccodes' libpng *writer* rejects the small
+  `regular_latlon_surface` field at its native bit depth, and forcing a low
+  `bitsPerValue` there clips the value range. `eta_lambert_msg0.grib2` PNG-packs
+  at its native 13-bit depth with a full-fidelity round-trip (decoded range
+  matches the simple-packed source exactly), so it's the PNG fixture. Grid type
+  is irrelevant to the §5/§7 PNG decode path (decode is decoupled from grid
+  geometry), so a Lambert grid is fine here.
+- **Operational corpus.** #116/#117 also call for real HRRR/MRMS/ECMWF-open-data
+  rendering; those large operational files belong to the 0.2.0 fixture corpus
+  (#123). These small re-encoded fixtures are the deterministic decode oracles,
+  not a substitute for that corpus.
+
+See eccodes `grib2/template.5.{2,3,40,41,42}.def` and the matching
+`grib_accessor_class_data_*` packing classes.

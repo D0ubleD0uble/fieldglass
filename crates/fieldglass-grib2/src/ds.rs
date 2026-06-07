@@ -218,11 +218,19 @@ fn decode_complex_packing(
 
     let mut reader = BitReader::new(ds_payload);
 
+    // The four §7 sub-blocks (group references, widths, lengths, then the data
+    // values) each begin on an octet boundary, so we realign after every one.
+    // eccodes does the same: each `buf_*` pointer is advanced by the previous
+    // block's *byte* size, `ceil(bits / 8)` (DataG22OrderPacking::unpack).
+    // Without this, a block whose bit length isn't a multiple of 8 leaves the
+    // cursor mid-byte and every following block is misread.
+
     // Block 1: group reference values.
     let mut group_refs = Vec::with_capacity(num_groups);
     for _ in 0..num_groups {
         group_refs.push(reader.read_bits(t.bits_per_value)?);
     }
+    reader.align_to_byte();
 
     // Block 2: group widths (stored value offset by the width reference).
     // Computed in u64 so the reference + a 32-bit stored value can't overflow
@@ -232,6 +240,7 @@ fn decode_complex_packing(
         let stored = reader.read_bits(t.group_width_bits)?;
         group_widths.push(t.group_width_reference as u64 + stored as u64);
     }
+    reader.align_to_byte();
 
     // Block 3: group lengths. The stored value for every group is read (so
     // the bit cursor reaches the data block correctly), then the last group's
@@ -264,7 +273,9 @@ fn decode_complex_packing(
         )));
     }
 
-    // Block 4: the per-point offsets, decoded group by group.
+    // Block 4: the per-point offsets, decoded group by group. Starts on the
+    // octet boundary after the group-length block.
+    reader.align_to_byte();
     let r = t.reference_value as f64;
     let two_pow_e = 2f64.powi(t.binary_scale_factor as i32);
     let d_inv = 10f64.powi(-(t.decimal_scale_factor as i32));
@@ -516,9 +527,8 @@ mod tests {
     // Complex packing (template 5.2)
     // -----------------------------------------------------------------
 
-    /// Pack `(value, width)` fields MSB-first into one continuous bitstream —
-    /// the §7 layout complex packing uses for its reference / width / length /
-    /// data blocks.
+    /// Pack `(value, width)` fields MSB-first into one continuous bitstream,
+    /// padded to a whole number of bytes at the end.
     fn pack_fields(fields: &[(u32, u8)]) -> Vec<u8> {
         let total_bits: usize = fields.iter().map(|(_, w)| *w as usize).sum();
         let mut out = vec![0u8; total_bits.div_ceil(8)];
@@ -531,6 +541,15 @@ mod tests {
             }
         }
         out
+    }
+
+    /// Pack the §7 complex-packing sub-blocks (group references, widths,
+    /// lengths, data) with each block starting on a byte boundary, as the
+    /// GRIB2 layout requires. `pack_fields` already pads each block to whole
+    /// bytes, so concatenating them yields the octet-aligned stream the
+    /// decoder expects.
+    fn pack_blocks(blocks: &[&[(u32, u8)]]) -> Vec<u8> {
+        blocks.iter().flat_map(|b| pack_fields(b)).collect()
     }
 
     /// A complex-packing template with the common envelope (general splitting,
@@ -566,18 +585,11 @@ mod tests {
             group_length_last: 3,
             ..complex_template_base()
         };
-        let payload = pack_fields(&[
-            (10, 8),
-            (100, 8), // group references
-            (3, 4),
-            (4, 4), // stored group widths (reference 0)
-            (2, 8),
-            (0, 8), // stored group lengths — g1's is overridden by last = 3
-            (1, 3),
-            (2, 3), // g0 data
-            (0, 4),
-            (5, 4),
-            (15, 4), // g1 data
+        let payload = pack_blocks(&[
+            &[(10, 8), (100, 8)],                       // group references
+            &[(3, 4), (4, 4)],                          // stored group widths (reference 0)
+            &[(2, 8), (0, 8)], // stored group lengths — g1's is overridden by last = 3
+            &[(1, 3), (2, 3), (0, 4), (5, 4), (15, 4)], // g0 data (2×3b) then g1 data (3×4b)
         ]);
         let decoded = decode_values(&payload, DataRepresentationTemplate::Complex(t), None, 5)
             .expect("decode");
@@ -606,14 +618,11 @@ mod tests {
             group_length_last: 4,
             ..complex_template_base()
         };
-        let payload = pack_fields(&[
-            (5, 8), // group reference
-            (4, 4), // stored group width
-            (0, 8), // stored group length — overridden by last = 4
-            (0, 4),
-            (1, 4),
-            (2, 4),
-            (3, 4), // data
+        let payload = pack_blocks(&[
+            &[(5, 8)],                         // group reference
+            &[(4, 4)],                         // stored group width
+            &[(0, 8)],                         // stored group length — overridden by last = 4
+            &[(0, 4), (1, 4), (2, 4), (3, 4)], // data
         ]);
         let decoded = decode_values(&payload, DataRepresentationTemplate::Complex(t), None, 4)
             .expect("decode");
@@ -632,15 +641,11 @@ mod tests {
             group_length_last: 2,
             ..complex_template_base()
         };
-        let payload = pack_fields(&[
-            (42, 8),
-            (7, 8), // references
-            (0, 4),
-            (2, 4), // widths — g0 is zero-width
-            (3, 8),
-            (0, 8), // lengths — g1 overridden by last = 2
-            (1, 2),
-            (3, 2), // g1 data only (g0 contributes no data bits)
+        let payload = pack_blocks(&[
+            &[(42, 8), (7, 8)], // references
+            &[(0, 4), (2, 4)],  // widths — g0 is zero-width
+            &[(3, 8), (0, 8)],  // lengths — g1 overridden by last = 2
+            &[(1, 2), (3, 2)],  // g1 data only (g0 contributes no data bits)
         ]);
         let decoded = decode_values(&payload, DataRepresentationTemplate::Complex(t), None, 5)
             .expect("decode");
@@ -658,13 +663,11 @@ mod tests {
             group_length_last: 3,
             ..complex_template_base()
         };
-        let payload = pack_fields(&[
-            (0, 8), // reference
-            (8, 4), // width 8
-            (0, 8), // length overridden by last = 3
-            (1, 8),
-            (2, 8),
-            (3, 8), // data
+        let payload = pack_blocks(&[
+            &[(0, 8)],                 // reference
+            &[(8, 4)],                 // width 8
+            &[(0, 8)],                 // length overridden by last = 3
+            &[(1, 8), (2, 8), (3, 8)], // data
         ]);
         let bitmap = [true, false, true, false, true];
         let decoded = decode_values(

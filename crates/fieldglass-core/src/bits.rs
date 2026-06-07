@@ -70,6 +70,18 @@ impl<'a> BitReader<'a> {
         }
     }
 
+    /// Advance the cursor to the next byte boundary, discarding any unused
+    /// bits in the current byte. A no-op when already byte-aligned. GRIB2
+    /// complex packing (§7) stores the group reference / width / length / data
+    /// sub-blocks each starting on an octet boundary, so decoders pad to the
+    /// next byte between them.
+    pub fn align_to_byte(&mut self) {
+        let rem = self.bit_offset % 8;
+        if rem != 0 {
+            self.bit_offset += 8 - rem;
+        }
+    }
+
     pub fn read_bits(&mut self, n: u8) -> Result<u32, FieldglassError> {
         if n == 0 {
             return Ok(0);
@@ -194,6 +206,25 @@ mod tests {
     fn bit_reader_crosses_byte_boundary() {
         let mut r = BitReader::new(&[0xFF, 0x00]);
         assert_eq!(r.read_bits(12).unwrap(), 0xFF0);
+    }
+
+    #[test]
+    fn bit_reader_align_to_byte() {
+        let mut r = BitReader::new(&[0b1010_1111, 0b0011_0000]);
+        assert_eq!(r.read_bits(3).unwrap(), 0b101);
+        r.align_to_byte(); // skip the remaining 5 bits of byte 0
+        assert_eq!(r.read_bits(4).unwrap(), 0b0011);
+        // Already aligned here (4 bits into byte 1 is not, but align skips to byte 2).
+        r.align_to_byte();
+        assert!(r.read_bits(1).is_err(), "only 2 bytes of input");
+    }
+
+    #[test]
+    fn bit_reader_align_is_noop_when_aligned() {
+        let mut r = BitReader::new(&[0xAB, 0xCD]);
+        assert_eq!(r.read_bits(8).unwrap(), 0xAB);
+        r.align_to_byte(); // already on byte boundary — no-op
+        assert_eq!(r.read_bits(8).unwrap(), 0xCD);
     }
 
     #[test]

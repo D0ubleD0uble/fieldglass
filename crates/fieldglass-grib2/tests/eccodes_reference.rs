@@ -337,3 +337,48 @@ fn polar_stereographic_surface_matches_eccodes() {
         include_bytes!("fixtures/polar_stereographic_surface.grib2"),
     );
 }
+
+// Staged §5 packing fixtures (values not decoded yet — see the GRIB2 packing
+// modes table). These cross-check that §0–§4 metadata and the §5 template
+// number already parse for templates 5.2 / 5.3 / 5.40 / 5.41 / 5.42; the
+// sibling `*_expected.json` value oracles are the targets for the decode
+// implementations (#109 / #116 / #117 / #118).
+#[test]
+fn complex_regular_latlon_matches_eccodes() {
+    assert_fixture_matches_snapshot(
+        "complex_regular_latlon.grib2",
+        include_bytes!("fixtures/complex_regular_latlon.grib2"),
+    );
+}
+
+#[test]
+fn complex_spd2_regular_latlon_matches_eccodes() {
+    assert_fixture_matches_snapshot(
+        "complex_spd2_regular_latlon.grib2",
+        include_bytes!("fixtures/complex_spd2_regular_latlon.grib2"),
+    );
+}
+
+#[test]
+fn jpeg2000_regular_latlon_matches_eccodes() {
+    assert_fixture_matches_snapshot(
+        "jpeg2000_regular_latlon.grib2",
+        include_bytes!("fixtures/jpeg2000_regular_latlon.grib2"),
+    );
+}
+
+#[test]
+fn png_eta_lambert_matches_eccodes() {
+    assert_fixture_matches_snapshot(
+        "png_eta_lambert.grib2",
+        include_bytes!("fixtures/png_eta_lambert.grib2"),
+    );
+}
+
+#[test]
+fn ccsds_regular_latlon_matches_eccodes() {
+    assert_fixture_matches_snapshot(
+        "ccsds_regular_latlon.grib2",
+        include_bytes!("fixtures/ccsds_regular_latlon.grib2"),
+    );
+}

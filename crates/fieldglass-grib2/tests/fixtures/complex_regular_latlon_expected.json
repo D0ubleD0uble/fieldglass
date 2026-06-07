@@ -1,0 +1,36 @@
+{
+  "count": 496,
+  "missing_count": 0,
+  "min": 270.46679688,
+  "max": 311.09863281,
+  "mean": 291.5852483934678,
+  "samples": {
+    "0": 279.0,
+    "1": 279.9609375,
+    "100": 278.62988281,
+    "250": 291.74804688,
+    "495": 300.88183594
+  },
+  "tolerance_absolute": 0.001,
+  "section5": {
+    "dataRepresentationTemplateNumber": 2,
+    "packingType": "grid_complex",
+    "referenceValue": 270.467,
+    "binaryScaleFactor": -10,
+    "decimalScaleFactor": 0,
+    "bitsPerValue": 16,
+    "typeOfOriginalFieldValues": 0,
+    "groupSplittingMethodUsed": 1,
+    "missingValueManagementUsed": 0,
+    "numberOfGroupsOfDataValues": 15,
+    "referenceForGroupWidths": 12,
+    "numberOfBitsUsedForTheGroupWidths": 2,
+    "referenceForGroupLengths": 5,
+    "lengthIncrementForTheGroupLengths": 1,
+    "trueLengthOfLastGroup": 18,
+    "numberOfBitsUsedForTheScaledGroupLengths": 7,
+    "orderOfSpatialDifferencing": 0,
+    "numberOfOctetsExtraDescriptors": 0
+  },
+  "source": "eccodes 2.34.1 grib_get_data + grib_get. Oracle for DRS template 5.2 (grid_complex), re-encoded from regular_latlon_surface.grib2 via grib_set. Provenance in NOTICE.md."
+}

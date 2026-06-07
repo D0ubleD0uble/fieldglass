@@ -1,0 +1,25 @@
+{
+  "count": 6045,
+  "missing_count": 0,
+  "min": 97392.0,
+  "max": 102712.0,
+  "mean": 101439.16989247312,
+  "samples": {
+    "0": 101333.0,
+    "1": 101342.0,
+    "100": 101454.0,
+    "1000": 101890.0,
+    "6044": 100828.0
+  },
+  "tolerance_absolute": 0.001,
+  "section5": {
+    "dataRepresentationTemplateNumber": 41,
+    "packingType": "grid_png",
+    "referenceValue": 97392,
+    "binaryScaleFactor": 0,
+    "decimalScaleFactor": 0,
+    "bitsPerValue": 13,
+    "typeOfOriginalFieldValues": 0
+  },
+  "source": "eccodes 2.34.1 grib_get_data + grib_get. Oracle for DRS template 5.41 (grid_png), re-encoded from eta_lambert_msg0.grib2 at its native 13-bit depth (full-fidelity round-trip; eccodes' libpng writer rejects the small regular_latlon_surface field, and forcing a low bit depth there clips the range). Provenance in NOTICE.md."
+}
