@@ -1,11 +1,10 @@
 //! End-to-end decode coverage for simple packing (DRS template 5.0) against
 //! the public fixtures bundled with the crate.
 //!
-//! Two of the three bundled fixtures (eta and ECMWF reduced-Gaussian) are
-//! encoded with simple packing; gfs.c255 uses complex packing with spatial
-//! differencing (template 5.3) and is tracked under a separate "complex
-//! packing" issue — here we just confirm it surfaces a coherent
-//! [`UnsupportedSection`] error rather than mis-decoding.
+//! The eta and ECMWF reduced-Gaussian fixtures are encoded with simple
+//! packing. (The gfs.c255 fixture uses complex packing with spatial
+//! differencing, template 5.3 — its decode is pinned to an eccodes oracle in
+//! `decode_complex_spd.rs`.)
 //!
 //! Assertions pin the value count and a plausibility range for the
 //! decoded field — strict numeric pins would couple the test to the
@@ -14,7 +13,6 @@
 
 use fieldglass_grib2::Grib2Reader;
 
-const GFS_LATLON: &[u8] = include_bytes!("fixtures/gfs_c255_latlon.grib2");
 const ETA_LAMBERT: &[u8] = include_bytes!("fixtures/eta_lambert_msg0.grib2");
 const ECMWF_GAUSSIAN: &[u8] = include_bytes!("fixtures/reduced_gaussian_pressure_level.grib2");
 const REGULAR_LATLON: &[u8] = include_bytes!("fixtures/regular_latlon_surface.grib2");
@@ -104,23 +102,6 @@ fn ecmwf_reduced_gaussian_decode_unsupported_for_reduced_grids() {
     assert!(
         err.to_string().contains("no declared dimensions"),
         "decode names the missing-dims path, got: {err}",
-    );
-}
-
-#[test]
-fn gfs_complex_packing_yields_unsupported_section_error() {
-    // gfs.c255 is template 5.3 (complex packing + spatial differencing),
-    // tracked separately. Decode must fail with a precise error that names
-    // the template, not produce garbage.
-    let reader = Grib2Reader::from_bytes(GFS_LATLON.to_vec()).expect("parse");
-    let msg = &reader.messages[0];
-    assert_eq!(msg.drs.template_number, 3);
-
-    let err = reader.decode_message_values(0).expect_err("must reject");
-    let s = err.to_string();
-    assert!(
-        s.contains("template 5.3") && s.contains("not implemented"),
-        "error names the unsupported template, got: {s}",
     );
 }
 

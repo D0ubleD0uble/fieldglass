@@ -10,10 +10,14 @@
 //! Section 7 + Template 5.0 decoding formula.
 
 use crate::drs::{
-    ComplexPackingTemplate, DataRepresentationTemplate, IeeePackingTemplate, SimplePackingTemplate,
+    ComplexPackingTemplate, ComplexSpatialDiffTemplate, DataRepresentationTemplate,
+    IeeePackingTemplate, SimplePackingTemplate,
 };
 use crate::section::{SECTION_HEADER_LEN, SectionHeader};
-use fieldglass_core::{FieldglassError, bits::BitReader};
+use fieldglass_core::{
+    FieldglassError,
+    bits::{BitReader, sign_magnitude_to_i64},
+};
 
 /// Section number for the Data Section.
 pub const DS_SECTION_NUMBER: u8 = 7;
@@ -66,6 +70,9 @@ pub fn decode_values(
         }
         DataRepresentationTemplate::Complex(t) => {
             decode_complex_packing(ds_payload, &t, bitmap, expected_count)
+        }
+        DataRepresentationTemplate::ComplexSpatialDiff(t) => {
+            decode_complex_spatial_diff(ds_payload, &t, bitmap, expected_count)
         }
         DataRepresentationTemplate::Ieee(t) => {
             decode_ieee_packing(ds_payload, &t, bitmap, expected_count)
@@ -153,25 +160,173 @@ fn decode_complex_packing(
     bitmap: Option<&[bool]>,
     expected_count: usize,
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
-    if let Some(b) = bitmap
-        && b.len() != expected_count
-    {
+    let present_count = check_bitmap_present_count(bitmap, expected_count)?;
+
+    let mut reader = BitReader::new(ds_payload);
+    let scaled = decode_complex_groups(&mut reader, t, present_count)?;
+
+    let r = t.reference_value as f64;
+    let two_pow_e = 2f64.powi(t.binary_scale_factor as i32);
+    let d_inv = 10f64.powi(-(t.decimal_scale_factor as i32));
+    let decoded: Vec<f64> = scaled
+        .iter()
+        .map(|&s| (r + s as f64 * two_pow_e) * d_inv)
+        .collect();
+
+    Ok(interleave_with_bitmap(decoded, bitmap, expected_count))
+}
+
+/// Decode complex packing with spatial differencing (template 5.3). The packed
+/// integers are 1st- or 2nd-order spatial *differences* of the scaled field,
+/// reduced by their overall minimum so they group as non-negative values
+/// (mirroring the GRIB1 SPD orders). §7 opens with the spatial-differencing
+/// *extra descriptors* — the first `order` original scaled values, then the
+/// (sign-magnitude) overall minimum difference, each in
+/// `extra_descriptor_octets` octets — ahead of the normal complex-packing
+/// blocks decoded by [`decode_complex_groups`].
+///
+/// After group expansion yields the reduced differences `d`, the original
+/// scaled integers are recovered by reversing the differencing
+/// (`bias` = overall minimum):
+/// - order 1: `g[0] = ival1`; `g[i] = d[i] + g[i-1] + bias`.
+/// - order 2: `g[0] = ival1`, `g[1] = ival2`;
+///   `g[i] = d[i] + 2·g[i-1] − g[i-2] + bias`.
+///
+/// The `R`/`E`/`D` transform then applies as in simple/complex packing.
+/// Inherits the 5.2 envelope restrictions via [`decode_complex_groups`].
+fn decode_complex_spatial_diff(
+    ds_payload: &[u8],
+    t: &ComplexSpatialDiffTemplate,
+    bitmap: Option<&[bool]>,
+    expected_count: usize,
+) -> Result<Vec<Option<f64>>, FieldglassError> {
+    let present_count = check_bitmap_present_count(bitmap, expected_count)?;
+
+    let order = t.spatial_diff_order;
+    if order != 1 && order != 2 {
+        return Err(FieldglassError::UnsupportedSection(format!(
+            "DRS template 5.3 spatial-differencing order {order} is not supported \
+             (only first-order (1) and second-order (2), WMO Code Table 5.6)"
+        )));
+    }
+    // Each extra descriptor is read whole via `BitReader::read_bits`, capped at
+    // 32 bits; the signed minimum also needs ≥1 magnitude bit. Real files use
+    // 1–4 octets, so anything outside that is malformed.
+    let octets = t.extra_descriptor_octets;
+    if octets == 0 || octets > 4 {
         return Err(FieldglassError::Parse(format!(
-            "bitmap length {} != grid-point count {expected_count}",
-            b.len()
+            "complex packing: spatial-differencing extra-descriptor width {octets} octets \
+             is out of the supported 1..=4 range"
+        )));
+    }
+    let descriptor_bits = octets * 8;
+
+    let mut reader = BitReader::new(ds_payload);
+
+    // Spatial-differencing extra descriptors, ahead of the group blocks: the
+    // first `order` original scaled values (unsigned), then the overall
+    // minimum difference (sign-magnitude). Each occupies `descriptor_bits`,
+    // a whole number of octets, so the group-reference block stays aligned.
+    let ival1 = reader.read_bits(descriptor_bits)? as i64;
+    let ival2 = if order == 2 {
+        reader.read_bits(descriptor_bits)? as i64
+    } else {
+        0
+    };
+    let bias = sign_magnitude_to_i64(reader.read_bits(descriptor_bits)?, descriptor_bits);
+
+    let mut vals = decode_complex_groups(&mut reader, &t.complex, present_count)?;
+
+    // An empty field carries no first values to seed the recurrence; a field
+    // with fewer present points than the differencing order can't be seeded
+    // either. Guard both before indexing.
+    if vals.is_empty() {
+        return Ok(interleave_with_bitmap(Vec::new(), bitmap, expected_count));
+    }
+    if vals.len() < order as usize {
+        return Err(FieldglassError::Parse(format!(
+            "complex packing: spatial-differencing order {order} needs at least {order} \
+             values to seed, but only {} are present",
+            vals.len()
         )));
     }
 
+    // Reverse the differencing in wide wrapping arithmetic — a malformed
+    // descriptor could otherwise overflow the accumulation and panic in debug.
+    match order {
+        1 => {
+            vals[0] = ival1;
+            for i in 1..vals.len() {
+                vals[i] = vals[i].wrapping_add(vals[i - 1]).wrapping_add(bias);
+            }
+        }
+        // order == 2 (the only other value past the guard above).
+        _ => {
+            vals[0] = ival1;
+            vals[1] = ival2;
+            for i in 2..vals.len() {
+                vals[i] = vals[i]
+                    .wrapping_add(vals[i - 1].wrapping_mul(2))
+                    .wrapping_sub(vals[i - 2])
+                    .wrapping_add(bias);
+            }
+        }
+    }
+
+    let r = t.complex.reference_value as f64;
+    let two_pow_e = 2f64.powi(t.complex.binary_scale_factor as i32);
+    let d_inv = 10f64.powi(-(t.complex.decimal_scale_factor as i32));
+    let decoded: Vec<f64> = vals
+        .iter()
+        .map(|&s| (r + s as f64 * two_pow_e) * d_inv)
+        .collect();
+
+    Ok(interleave_with_bitmap(decoded, bitmap, expected_count))
+}
+
+/// Validate the §6 bitmap against the grid-point count and return the number
+/// of present points the §7 payload must carry (the whole grid when there is
+/// no bitmap). Shared by every packing decoder.
+fn check_bitmap_present_count(
+    bitmap: Option<&[bool]>,
+    expected_count: usize,
+) -> Result<usize, FieldglassError> {
+    match bitmap {
+        Some(b) if b.len() != expected_count => Err(FieldglassError::Parse(format!(
+            "bitmap length {} != grid-point count {expected_count}",
+            b.len()
+        ))),
+        Some(b) => Ok(b.iter().filter(|p| **p).count()),
+        None => Ok(expected_count),
+    }
+}
+
+/// Expand the complex-packing §7 group structure into one scaled integer
+/// (`group_ref[g] + X`) per present point. `reader`'s bit cursor must sit at
+/// the start of the group-reference block — at the very front of §7 for plain
+/// complex packing (5.2), or just past the spatial-differencing extra
+/// descriptors for 5.3. Shared by both decoders; the caller applies the
+/// `R`/`E`/`D` transform (and, for 5.3, the inverse differencing).
+///
+/// Validates the supported envelope: general group splitting
+/// (`group_splitting_method == 1`) with no inline missing-value management
+/// (`missing_value_management == 0`). Row-by-row splitting and inline missing
+/// values surface as [`FieldglassError::UnsupportedSection`].
+fn decode_complex_groups(
+    reader: &mut BitReader,
+    t: &ComplexPackingTemplate,
+    present_count: usize,
+) -> Result<Vec<i64>, FieldglassError> {
     if t.group_splitting_method != 1 {
         return Err(FieldglassError::UnsupportedSection(format!(
-            "DRS template 5.2 group splitting method {} is not supported \
+            "DRS complex packing group splitting method {} is not supported \
              (only general group splitting, method 1)",
             t.group_splitting_method
         )));
     }
     if t.missing_value_management != 0 {
         return Err(FieldglassError::UnsupportedSection(format!(
-            "DRS template 5.2 missing-value management {} is not supported \
+            "DRS complex packing missing-value management {} is not supported \
              (only management 0, no inline missing values)",
             t.missing_value_management
         )));
@@ -190,11 +345,6 @@ fn decode_complex_packing(
         }
     }
 
-    let present_count = match bitmap {
-        Some(b) => b.iter().filter(|p| **p).count(),
-        None => expected_count,
-    };
-
     let num_groups = t.num_groups as usize;
     if num_groups == 0 {
         // A grid with no groups can only describe an empty field; anything
@@ -204,7 +354,7 @@ fn decode_complex_packing(
                 "complex packing declares 0 groups but {present_count} values are required"
             )));
         }
-        return Ok(interleave_with_bitmap(Vec::new(), bitmap, expected_count));
+        return Ok(Vec::new());
     }
     // Every group covers at least one point, so NG can't legitimately exceed
     // the number of present points — this bounds the per-group allocations
@@ -215,8 +365,6 @@ fn decode_complex_packing(
              values are present"
         )));
     }
-
-    let mut reader = BitReader::new(ds_payload);
 
     // The four §7 sub-blocks (group references, widths, lengths, then the data
     // values) each begin on an octet boundary, so we realign after every one.
@@ -276,19 +424,15 @@ fn decode_complex_packing(
     // Block 4: the per-point offsets, decoded group by group. Starts on the
     // octet boundary after the group-length block.
     reader.align_to_byte();
-    let r = t.reference_value as f64;
-    let two_pow_e = 2f64.powi(t.binary_scale_factor as i32);
-    let d_inv = 10f64.powi(-(t.decimal_scale_factor as i32));
 
-    let mut decoded = Vec::with_capacity(present_count);
+    let mut scaled = Vec::with_capacity(present_count);
     for g in 0..num_groups {
         let width = group_widths[g];
-        let group_ref = group_refs[g] as u64;
+        let group_ref = group_refs[g] as i64;
         if width == 0 {
             // Zero-width group: every point equals the group reference.
-            let value = (r + group_ref as f64 * two_pow_e) * d_inv;
             for _ in 0..group_lengths[g] {
-                decoded.push(value);
+                scaled.push(group_ref);
             }
         } else {
             if width > 32 {
@@ -300,14 +444,13 @@ fn decode_complex_packing(
                 )));
             }
             for _ in 0..group_lengths[g] {
-                let x = reader.read_bits(width as u8)? as u64;
-                let scaled = group_ref + x;
-                decoded.push((r + scaled as f64 * two_pow_e) * d_inv);
+                let x = reader.read_bits(width as u8)? as i64;
+                scaled.push(group_ref + x);
             }
         }
     }
 
-    Ok(interleave_with_bitmap(decoded, bitmap, expected_count))
+    Ok(scaled)
 }
 
 /// Decode IEEE floating-point packing (template 5.4). Each present grid point
@@ -766,6 +909,187 @@ mod tests {
         let err = decode_values(&payload, DataRepresentationTemplate::Complex(t), None, 1)
             .expect_err("must reject oversized width");
         assert!(err.to_string().contains("exceeds 32 bits"), "got: {err}");
+    }
+
+    // -----------------------------------------------------------------
+    // Complex packing + spatial differencing (template 5.3)
+    // -----------------------------------------------------------------
+
+    /// Wrap a 5.2 template plus spatial-differencing descriptors as a 5.3
+    /// template payload.
+    fn spd_template(
+        complex: ComplexPackingTemplate,
+        order: u8,
+        octets: u8,
+    ) -> DataRepresentationTemplate {
+        DataRepresentationTemplate::ComplexSpatialDiff(ComplexSpatialDiffTemplate {
+            complex,
+            spatial_diff_order: order,
+            extra_descriptor_octets: octets,
+        })
+    }
+
+    /// Build a §7 payload for spatial differencing: the raw extra-descriptor
+    /// octets followed by the octet-aligned complex-packing group blocks.
+    fn pack_spd(extras: &[u8], blocks: &[&[(u32, u8)]]) -> Vec<u8> {
+        let mut out = extras.to_vec();
+        out.extend(pack_blocks(blocks));
+        out
+    }
+
+    #[test]
+    fn spatial_diff_order_1_reverses_first_differences() {
+        // Original scaled integers g = [10, 13, 12, 20] (R/E/D = 0 → values
+        // equal the integers). First differences e = [3, -1, 8]; minimum −1,
+        // so reduced differences stored in the groups are d = [_, 4, 0, 9]
+        // with d[0] a placeholder overwritten by ival1 = 10.
+        let t = ComplexPackingTemplate {
+            num_groups: 1,
+            group_length_last: 4,
+            ..complex_template_base()
+        };
+        // Extras (1 octet each): ival1 = 10, then minimum −1 as sign-magnitude
+        // 0x81 (sign bit + magnitude 1).
+        let payload = pack_spd(
+            &[10, 0x81],
+            &[
+                &[(0, 8)],                         // group reference 0
+                &[(4, 4)],                         // width 4
+                &[(0, 8)],                         // length overridden by last = 4
+                &[(0, 4), (4, 4), (0, 4), (9, 4)], // reduced differences d
+            ],
+        );
+        let decoded = decode_values(&payload, spd_template(t, 1, 1), None, 4).expect("decode");
+        assert_eq!(
+            decoded,
+            vec![Some(10.0), Some(13.0), Some(12.0), Some(20.0)],
+        );
+    }
+
+    #[test]
+    fn spatial_diff_order_2_reverses_second_differences() {
+        // g = [5, 8, 14, 23]; second differences are both 3, minimum 3, so the
+        // reduced differences stored in the groups are all zero (a zero-width
+        // group). ival1 = 5, ival2 = 8 seed the recurrence.
+        let t = ComplexPackingTemplate {
+            num_groups: 1,
+            group_length_last: 4,
+            ..complex_template_base()
+        };
+        // Extras: ival1 = 5, ival2 = 8, minimum +3 (sign-magnitude 0x03).
+        let payload = pack_spd(
+            &[5, 8, 3],
+            &[
+                &[(0, 8)], // group reference 0
+                &[(0, 4)], // width 0 → zero-width group, no data bits
+                &[(0, 8)], // length overridden by last = 4
+            ],
+        );
+        let decoded = decode_values(&payload, spd_template(t, 2, 1), None, 4).expect("decode");
+        assert_eq!(decoded, vec![Some(5.0), Some(8.0), Some(14.0), Some(23.0)],);
+    }
+
+    #[test]
+    fn spatial_diff_applies_reference_and_scale_factors() {
+        // Reuse the order-1 integers but scale: R = 100, E = 0, D = 1 → value
+        // = (100 + g) · 0.1 → [11.0, 11.3, 11.2, 12.0].
+        let t = ComplexPackingTemplate {
+            reference_value: 100.0,
+            decimal_scale_factor: 1,
+            num_groups: 1,
+            group_length_last: 4,
+            ..complex_template_base()
+        };
+        let payload = pack_spd(
+            &[10, 0x81],
+            &[
+                &[(0, 8)],
+                &[(4, 4)],
+                &[(0, 8)],
+                &[(0, 4), (4, 4), (0, 4), (9, 4)],
+            ],
+        );
+        let decoded = decode_values(&payload, spd_template(t, 1, 1), None, 4).expect("decode");
+        let got: Vec<f64> = decoded.into_iter().map(Option::unwrap).collect();
+        for (g, w) in got.iter().zip([11.0, 11.3, 11.2, 12.0]) {
+            assert!((g - w).abs() < 1e-9, "got {g}, want {w}");
+        }
+    }
+
+    #[test]
+    fn spatial_diff_honours_bitmap() {
+        // Three present order-1 values spread across a 5-point grid.
+        let t = ComplexPackingTemplate {
+            num_groups: 1,
+            group_length_last: 3,
+            ..complex_template_base()
+        };
+        // g = [4, 7, 6]; e = [3, -1], minimum −1, reduced d = [_, 4, 0].
+        let payload = pack_spd(
+            &[4, 0x81],
+            &[&[(0, 8)], &[(4, 4)], &[(0, 8)], &[(0, 4), (4, 4), (0, 4)]],
+        );
+        let bitmap = [true, false, true, false, true];
+        let decoded =
+            decode_values(&payload, spd_template(t, 1, 1), Some(&bitmap), 5).expect("decode");
+        assert_eq!(decoded, vec![Some(4.0), None, Some(7.0), None, Some(6.0)]);
+    }
+
+    #[test]
+    fn spatial_diff_rejects_unsupported_order() {
+        let t = ComplexPackingTemplate {
+            num_groups: 1,
+            group_length_last: 1,
+            ..complex_template_base()
+        };
+        let err = decode_values(&[0u8; 16], spd_template(t, 3, 1), None, 1)
+            .expect_err("must reject order 3");
+        match err {
+            FieldglassError::UnsupportedSection(msg) => {
+                assert!(msg.contains("spatial-differencing order 3"), "msg: {msg}");
+            }
+            other => panic!("expected UnsupportedSection, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn spatial_diff_rejects_out_of_range_octet_width() {
+        let t = ComplexPackingTemplate {
+            num_groups: 1,
+            group_length_last: 1,
+            ..complex_template_base()
+        };
+        // 0 octets and >4 octets both exceed what `read_bits` can serve.
+        for octets in [0u8, 5] {
+            let err = decode_values(&[0u8; 16], spd_template(t, 1, octets), None, 1)
+                .expect_err("must reject octet width");
+            assert!(
+                err.to_string().contains("extra-descriptor width"),
+                "octets {octets}: {err}",
+            );
+        }
+    }
+
+    #[test]
+    fn spatial_diff_inherits_complex_envelope_restrictions() {
+        // Row-by-row splitting is rejected by the shared group decoder even via
+        // the 5.3 path.
+        let t = ComplexPackingTemplate {
+            num_groups: 1,
+            group_splitting_method: 0,
+            group_length_last: 1,
+            ..complex_template_base()
+        };
+        // Extras consume the first 2 octets; the group decode then trips on the
+        // splitting method.
+        let err = decode_values(&[0u8; 16], spd_template(t, 1, 1), None, 1)
+            .expect_err("must reject row-by-row");
+        match err {
+            FieldglassError::UnsupportedSection(msg) => {
+                assert!(msg.contains("group splitting method"), "msg: {msg}");
+            }
+            other => panic!("expected UnsupportedSection, got {other:?}"),
+        }
     }
 
     fn ieee_template(precision: u8) -> DataRepresentationTemplate {

@@ -2,14 +2,15 @@
 //!
 //! Implements simple packing (template 5.0) — the GRIB1 `grid_simple`
 //! analogue — IEEE floating-point packing (template 5.4, the GRIB2
-//! counterpart to GRIB1 `grid_ieee`), and complex packing (template 5.2,
-//! the analogue of GRIB1 second-order packing). Other packing templates
-//! (complex + spatial differencing 5.3, JPEG 2000 5.40, PNG 5.41, CCSDS
-//! 5.42) parse as [`DataRepresentationTemplate::Unsupported`] so message
+//! counterpart to GRIB1 `grid_ieee`), complex packing (template 5.2, the
+//! analogue of GRIB1 second-order packing), and complex packing plus
+//! spatial differencing (template 5.3, the analogue of the GRIB1 SPD
+//! orders). Other packing templates (JPEG 2000 5.40, PNG 5.41, CCSDS 5.42)
+//! parse as [`DataRepresentationTemplate::Unsupported`] so message
 //! enumeration still works.
 //!
 //! Spec reference: WMO Manual on Codes Vol I.2 (FM 92 GRIB Edition 2),
-//! Section 5 layout + Templates 5.0 / 5.2 / 5.4.
+//! Section 5 layout + Templates 5.0 / 5.2 / 5.3 / 5.4.
 
 use crate::section::{SectionHeader, parse_section_header};
 use fieldglass_core::{FieldglassError, bits::sign_magnitude_i16};
@@ -27,6 +28,10 @@ const TEMPLATE_5_0_PAYLOAD_LEN: usize = 10;
 
 /// Template 5.2 payload length — octets 12..=47 of the section, 36 bytes.
 const TEMPLATE_5_2_PAYLOAD_LEN: usize = 36;
+
+/// Template 5.3 payload length — the 36-byte template-5.2 block plus the two
+/// spatial-differencing descriptor octets (48 + 49), 38 bytes total.
+const TEMPLATE_5_3_PAYLOAD_LEN: usize = 38;
 
 /// Template 5.4 payload length — a single octet (12), the precision code.
 const TEMPLATE_5_4_PAYLOAD_LEN: usize = 1;
@@ -127,12 +132,44 @@ pub struct ComplexPackingTemplate {
     pub group_length_bits: u8,
 }
 
+/// Template 5.3 — complex grid-point packing with spatial differencing.
+///
+/// Identical to template 5.2 (carried verbatim in [`complex`]) but the packed
+/// integers are spatial *differences* of the original scaled field rather than
+/// the scaled field itself, exactly like the GRIB1 second-order SPD orders.
+/// Before grouping, the encoder takes 1st- or 2nd-order differences, then
+/// subtracts the overall minimum difference so the grouped values are
+/// non-negative. §7 therefore opens with the spatial-differencing *extra
+/// descriptors* — the first `order` original values and the (signed) overall
+/// minimum, each stored in [`extra_descriptor_octets`] octets — ahead of the
+/// usual group-reference / width / length / data blocks. The §7 decoder (see
+/// `ds.rs`) reads those descriptors, expands the groups to the differenced
+/// integers, then inverts the differencing before applying the `R`/`E`/`D`
+/// transform.
+///
+/// [`complex`]: ComplexSpatialDiffTemplate::complex
+/// [`extra_descriptor_octets`]: ComplexSpatialDiffTemplate::extra_descriptor_octets
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ComplexSpatialDiffTemplate {
+    /// The underlying complex-packing parameters (octets 12–47), shared
+    /// verbatim with template 5.2.
+    pub complex: ComplexPackingTemplate,
+    /// Order of spatial differencing (octet 48) — WMO Code Table 5.6
+    /// (`1` = first-order, `2` = second-order).
+    pub spatial_diff_order: u8,
+    /// Number of octets used in §7 for each spatial-differencing extra
+    /// descriptor — the first original value(s) and the overall minimum of
+    /// the differences (octet 49).
+    pub extra_descriptor_octets: u8,
+}
+
 /// Decoded template payload. Templates outside the supported set surface as
 /// [`DataRepresentationTemplate::Unsupported`].
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DataRepresentationTemplate {
     Simple(SimplePackingTemplate),
     Complex(ComplexPackingTemplate),
+    ComplexSpatialDiff(ComplexSpatialDiffTemplate),
     Ieee(IeeePackingTemplate),
     Unsupported(u16),
 }
@@ -156,6 +193,7 @@ impl DataRepresentationSection {
         match &self.template {
             DataRepresentationTemplate::Simple(_) => "simple".to_string(),
             DataRepresentationTemplate::Complex(_) => "complex".to_string(),
+            DataRepresentationTemplate::ComplexSpatialDiff(_) => "complex_spatial_diff".to_string(),
             DataRepresentationTemplate::Ieee(_) => "ieee".to_string(),
             DataRepresentationTemplate::Unsupported(n) => format!("unsupported(5.{n})"),
         }
@@ -175,6 +213,15 @@ impl DataRepresentationSection {
     pub fn complex(&self) -> Option<&ComplexPackingTemplate> {
         match &self.template {
             DataRepresentationTemplate::Complex(t) => Some(t),
+            _ => None,
+        }
+    }
+
+    /// Borrow the complex + spatial-differencing template if that's what the
+    /// section carries. Other templates return `None`.
+    pub fn complex_spatial_diff(&self) -> Option<&ComplexSpatialDiffTemplate> {
+        match &self.template {
+            DataRepresentationTemplate::ComplexSpatialDiff(t) => Some(t),
             _ => None,
         }
     }
@@ -229,6 +276,7 @@ pub fn parse_data_representation_with_header(
     let template = match template_number {
         0 => DataRepresentationTemplate::Simple(parse_template_5_0(payload)?),
         2 => DataRepresentationTemplate::Complex(parse_template_5_2(payload)?),
+        3 => DataRepresentationTemplate::ComplexSpatialDiff(parse_template_5_3(payload)?),
         4 => DataRepresentationTemplate::Ieee(parse_template_5_4(payload)?),
         other => DataRepresentationTemplate::Unsupported(other),
     };
@@ -302,6 +350,23 @@ fn parse_template_5_2(payload: &[u8]) -> Result<ComplexPackingTemplate, Fieldgla
         group_length_increment: payload[30],
         group_length_last: u32::from_be_bytes([payload[31], payload[32], payload[33], payload[34]]),
         group_length_bits: payload[35],
+    })
+}
+
+fn parse_template_5_3(payload: &[u8]) -> Result<ComplexSpatialDiffTemplate, FieldglassError> {
+    if payload.len() < TEMPLATE_5_3_PAYLOAD_LEN {
+        return Err(FieldglassError::Parse(format!(
+            "DRS template 5.3 needs {TEMPLATE_5_3_PAYLOAD_LEN} bytes of payload, got {}",
+            payload.len()
+        )));
+    }
+    // Octets 12–47 are a verbatim template-5.2 block; 48–49 (payload[36..=37])
+    // carry the spatial-differencing order and extra-descriptor octet width.
+    let complex = parse_template_5_2(payload)?;
+    Ok(ComplexSpatialDiffTemplate {
+        complex,
+        spatial_diff_order: payload[36],
+        extra_descriptor_octets: payload[37],
     })
 }
 
@@ -544,6 +609,69 @@ mod tests {
         assert!(
             err.to_string().contains("template 5.2 needs"),
             "error names template-5.2 shortfall, got: {err}",
+        );
+    }
+
+    /// Build a minimal §5 with template 5.3 — the 5.2 block plus the order
+    /// and extra-descriptor octets. Reuses [`build_drs_5_2`]'s field values so
+    /// the embedded complex template is pinned to the same expectations.
+    fn build_drs_5_3(order: u8, extra_octets: u8) -> Vec<u8> {
+        let mut buf = build_drs_5_2();
+        // Re-stamp the section length (49) and template number (3); append the
+        // two spatial-differencing octets.
+        buf[0..4].copy_from_slice(&49u32.to_be_bytes());
+        buf[9..11].copy_from_slice(&3u16.to_be_bytes());
+        buf.push(order); // order of spatial differencing (octet 48)
+        buf.push(extra_octets); // extra-descriptor octets (octet 49)
+        assert_eq!(buf.len() as u32, 49);
+        buf
+    }
+
+    #[test]
+    fn template_5_3_round_trips_synthesized_payload() {
+        let drs = parse_data_representation(&build_drs_5_3(2, 2)).expect("parse 5.3");
+        assert_eq!(drs.template_number, 3);
+        assert_eq!(drs.num_data_points, 50);
+        assert_eq!(drs.template_name(), "complex_spatial_diff");
+        assert!(drs.complex().is_none(), "5.3 is not a bare 5.2");
+
+        let t = drs
+            .complex_spatial_diff()
+            .expect("5.3 has spatial-diff template");
+        assert_eq!(t.spatial_diff_order, 2);
+        assert_eq!(t.extra_descriptor_octets, 2);
+        // The embedded 5.2 block parses exactly as the standalone 5.2 fixture.
+        assert!((t.complex.reference_value - 12.5).abs() < 1e-6);
+        assert_eq!(t.complex.bits_per_value, 8);
+        assert_eq!(t.complex.num_groups, 7);
+        assert_eq!(t.complex.group_length_last, 9);
+    }
+
+    #[test]
+    fn template_5_3_preserves_order_and_octet_width() {
+        for (order, octets) in [(1u8, 3u8), (2, 1)] {
+            let t = *parse_data_representation(&build_drs_5_3(order, octets))
+                .unwrap()
+                .complex_spatial_diff()
+                .unwrap();
+            assert_eq!(t.spatial_diff_order, order);
+            assert_eq!(t.extra_descriptor_octets, octets);
+        }
+    }
+
+    #[test]
+    fn rejects_5_3_when_payload_truncated() {
+        // Declare length 11 (just past the template number) so the 5.3
+        // payload check fires on the missing 38-byte block.
+        let mut buf: Vec<u8> = Vec::new();
+        buf.extend_from_slice(&11u32.to_be_bytes());
+        buf.push(DRS_SECTION_NUMBER);
+        buf.extend_from_slice(&0u32.to_be_bytes());
+        buf.extend_from_slice(&3u16.to_be_bytes()); // template 5.3
+        let err = parse_data_representation(&buf).expect_err("must reject");
+        assert!(
+            err.to_string().contains("template 5.3 needs"),
+            "error names template-5.3 shortfall, got: {err}",
         );
     }
 
