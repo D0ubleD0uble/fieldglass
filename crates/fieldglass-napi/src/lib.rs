@@ -2,10 +2,11 @@
 
 use fieldglass_core::{
     Format, GaussianParams, GaussianProjector, LambertParams, LambertProjector, LatLonParams,
-    Orthographic, PlanarGridProjector, PolarStereoParams, PolarStereoProjector, PolarStereographic,
-    ProjectedPolylines, Resampling, SourceGrid, SourceOverlayTarget, TargetRaster, WebMercator,
+    MercatorParams, Orthographic, PlanarGridProjector, PolarStereoParams, PolarStereoProjector,
+    PolarStereographic, ProjectedPolylines, Resampling, SourceGrid, SourceOverlayTarget,
+    TargetRaster, WebMercator,
     colormap::{min_max_ignoring_mask, paint_grid_rgba},
-    detect_from_bytes, latlon_inverse, project_polylines,
+    detect_from_bytes, latlon_inverse, mercator_inverse, project_polylines,
     projection::GridIndex,
     warp::{TargetProjection, WarpedRaster, warp},
 };
@@ -112,15 +113,16 @@ pub struct MessageMeta {
     pub packing: Option<String>,
     /// Whether this message's grid can be reprojected (the render panel's
     /// non-source projection targets). Mirrors [`warp_setup_for`]: only
-    /// lat/lon, Gaussian, Lambert, and polar-stereographic source grids
-    /// reproject, and the two planar projections additionally need a non-zero
-    /// grid spacing (some sample files carry Dx = Dy = 0). The webview hides
-    /// the reprojection options when this is `false`.
+    /// lat/lon, Gaussian, Mercator, Lambert, and polar-stereographic source
+    /// grids reproject, and the two planar projections additionally need a
+    /// non-zero grid spacing (some sample files carry Dx = Dy = 0). The webview
+    /// hides the reprojection options when this is `false`.
     pub reprojectable: bool,
 }
 
 /// Whether a grid can feed the warp pipeline's non-source targets. Mirrors the
-/// dispatch in [`warp_setup_for`] — lat/lon and Gaussian always qualify; the
+/// dispatch in [`warp_setup_for`] — lat/lon, Gaussian, and Mercator always
+/// qualify (their inverse maps are pinned by the corner coordinates alone); the
 /// planar projections (Lambert, polar stereographic) also require a non-zero
 /// grid spacing, since a degenerate Dx/Dy collapses every grid point onto one
 /// location and the reprojection would render blank.
@@ -130,7 +132,7 @@ fn grid_is_reprojectable(
     planar_dy: Option<f64>,
 ) -> bool {
     match grid_type {
-        Some("latlon") | Some("gaussian") => true,
+        Some("latlon") | Some("gaussian") | Some("mercator") => true,
         Some("lambert") | Some("polar_stereo") => {
             matches!((planar_dx, planar_dy), (Some(dx), Some(dy)) if dx != 0.0 && dy != 0.0)
         }
@@ -1673,6 +1675,7 @@ fn warp_setup_for(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetu
     match meta.grid_type.as_deref().unwrap_or("") {
         "latlon" => latlon_warp_setup(meta, ni, nj),
         "gaussian" => gaussian_warp_setup(meta, ni, nj),
+        "mercator" => mercator_warp_setup(meta, ni, nj),
         "lambert" => lambert_warp_setup(meta, ni, nj),
         "polar_stereo" => polar_stereo_warp_setup(meta, ni, nj),
         other => Err(napi::Error::from_reason(format!(
@@ -1793,6 +1796,32 @@ fn gaussian_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<War
     let projector = GaussianProjector::new(p);
     let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
         Box::new(move |lat, lon| projector.inverse(lat, lon));
+    let bbox: BboxThunk = Box::new(move || {
+        (
+            p.lat_first.min(p.lat_last),
+            p.lat_first.max(p.lat_last),
+            p.lon_first.min(p.lon_last),
+            p.lon_first.max(p.lon_last),
+        )
+    });
+    Ok((inverse, bbox))
+}
+
+fn mercator_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
+    let p = MercatorParams {
+        ni,
+        nj,
+        lat_first: require_f64(meta.lat_first, "latFirst")?,
+        lon_first: require_f64(meta.lon_first, "lonFirst")?,
+        lat_last: require_f64(meta.lat_last, "latLast")?,
+        lon_last: require_f64(meta.lon_last, "lonLast")?,
+    };
+    let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
+        Box::new(move |lat, lon| mercator_inverse(&p, lat, lon));
+    // The §3.10 corner coordinates are geographic, so the source extent is the
+    // axis-aligned box they span — same as the regular lat/lon source. (The
+    // rows are non-uniform in latitude, but the box is still bounded by the
+    // corner latitudes.)
     let bbox: BboxThunk = Box::new(move || {
         (
             p.lat_first.min(p.lat_last),
@@ -2478,6 +2507,116 @@ mod polar_stereo_warp_tests {
             err.reason
         );
     }
+
+    /// MessageMeta for a GRIB2 §3.10 Mercator grid (100×100 over the western
+    /// tropics). The Mercator inverse map is pinned by the corner coordinates,
+    /// so — like the regular lat/lon source — no metric grid spacing is needed.
+    fn mercator_meta() -> MessageMeta {
+        MessageMeta {
+            grid_type: Some("mercator".to_string()),
+            grid_ni: Some(100),
+            grid_nj: Some(100),
+            lat_first: Some(0.0),
+            lon_first: Some(-100.0),
+            lat_last: Some(30.0),
+            lon_last: Some(-60.0),
+            format: "grib2".to_string(),
+            edition: Some(2),
+            ..cmc_polar_meta()
+        }
+    }
+
+    #[test]
+    fn warps_mercator_to_equirectangular() {
+        // #119: a GRIB2 Mercator (§3.10) source grid must reproject. Synthetic
+        // uniform field — testing warp geometry, not value transport.
+        let meta = mercator_meta();
+        let raw: Vec<Option<f64>> = vec![Some(1.0); 100 * 100];
+        let (values, mask, w, h, bounds, summary) = warp_message(
+            &meta,
+            &raw,
+            WarpTarget::Equirectangular,
+            Resampling::Nearest,
+            None,
+        )
+        .expect("mercator warp");
+
+        assert_eq!((w, h), (100, 100));
+        let present = mask.iter().filter(|&&m| m == 1).count();
+        assert!(present > 0, "mercator warp produced an empty mask");
+        for (i, &m) in mask.iter().enumerate() {
+            if m == 1 {
+                assert_eq!(values[i], 1.0, "present pixel {i} should be 1.0");
+            }
+        }
+        // The source extent is the geographic corner box.
+        let (lat_min, lat_max, lon_min, lon_max) = bounds.expect("mercator has bounds");
+        assert!(
+            lat_min >= -0.01 && lat_max <= 30.01,
+            "lat box {lat_min}..{lat_max}"
+        );
+        assert!(
+            lon_min >= -100.01 && lon_max <= -59.99,
+            "lon box {lon_min}..{lon_max}"
+        );
+        assert!(
+            summary.contains("mercator") && summary.contains("equirectangular"),
+            "summary should name source kind + target, got: {summary}"
+        );
+    }
+
+    /// MessageMeta for a GRIB2 §3.30 Lambert grid (100×100, 3 km, CONUS-like),
+    /// the way `build_grib2_message_meta` populates one.
+    fn lambert_meta() -> MessageMeta {
+        MessageMeta {
+            grid_type: Some("lambert".to_string()),
+            grid_ni: Some(100),
+            grid_nj: Some(100),
+            lat_first: Some(21.14),
+            lon_first: Some(-122.72),
+            lat_last: None,
+            lon_last: None,
+            lambert_lad: Some(38.5),
+            lambert_lov: Some(-97.5),
+            lambert_dx_metres: Some(3000.0),
+            lambert_dy_metres: Some(3000.0),
+            lambert_latin1: Some(38.5),
+            lambert_latin2: Some(38.5),
+            format: "grib2".to_string(),
+            edition: Some(2),
+            ..cmc_polar_meta()
+        }
+    }
+
+    #[test]
+    fn warps_grib2_lambert_to_equirectangular() {
+        // #119 audit half: confirm the GRIB2 Lambert (§3.30) params reach the
+        // warp and reproject a non-empty field — the same path GRIB1 Lambert
+        // already uses.
+        let meta = lambert_meta();
+        let raw: Vec<Option<f64>> = vec![Some(1.0); 100 * 100];
+        let (values, mask, w, h, _bounds, summary) = warp_message(
+            &meta,
+            &raw,
+            WarpTarget::Equirectangular,
+            Resampling::Nearest,
+            None,
+        )
+        .expect("lambert warp");
+
+        assert_eq!((w, h), (100, 100));
+        let present = mask.iter().filter(|&&m| m == 1).count();
+        assert!(present > 0, "lambert warp produced an empty mask");
+        for (i, &m) in mask.iter().enumerate() {
+            if m == 1 {
+                assert_eq!(values[i], 1.0, "present pixel {i} should be 1.0");
+            }
+        }
+        assert!(
+            summary.contains("lambert") && summary.contains("equirectangular"),
+            "summary should name source kind + target, got: {summary}"
+        );
+    }
 }
 
 #[cfg(test)]
@@ -2485,9 +2624,12 @@ mod reprojectable_tests {
     use super::grid_is_reprojectable;
 
     #[test]
-    fn latlon_and_gaussian_are_always_reprojectable() {
+    fn latlon_gaussian_and_mercator_are_always_reprojectable() {
+        // These three are pinned by their corner coordinates alone, so they
+        // never depend on a metric grid spacing.
         assert!(grid_is_reprojectable(Some("latlon"), None, None));
         assert!(grid_is_reprojectable(Some("gaussian"), None, None));
+        assert!(grid_is_reprojectable(Some("mercator"), None, None));
     }
 
     #[test]
@@ -2515,11 +2657,7 @@ mod reprojectable_tests {
     #[test]
     fn unsupported_grid_types_are_not_reprojectable() {
         assert!(!grid_is_reprojectable(Some("rotated_latlon"), None, None));
-        assert!(!grid_is_reprojectable(
-            Some("mercator"),
-            Some(1.0),
-            Some(1.0)
-        ));
+        assert!(!grid_is_reprojectable(Some("space_view"), None, None));
         assert!(!grid_is_reprojectable(None, None, None));
     }
 }
