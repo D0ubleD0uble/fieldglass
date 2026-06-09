@@ -145,6 +145,9 @@ fn friendly_packing(label: &str) -> String {
     let mapped = match label {
         "grid_simple" | "simple" => "Simple grid-point",
         "grid_complex" | "complex" => "Complex packing",
+        "grid_complex_spatial_differencing" | "complex_spatial_diff" => {
+            "Complex packing + spatial differencing"
+        }
         "grid_ieee" | "ieee" => "IEEE float",
         "grid_simple_matrix" => "Matrix of values",
         "grid_second_order" => "Second-order (SPD-2)",

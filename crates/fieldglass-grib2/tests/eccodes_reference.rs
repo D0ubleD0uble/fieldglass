@@ -338,11 +338,12 @@ fn polar_stereographic_surface_matches_eccodes() {
     );
 }
 
-// Staged §5 packing fixtures (values not decoded yet — see the GRIB2 packing
-// modes table). These cross-check that §0–§4 metadata and the §5 template
-// number already parse for templates 5.2 / 5.3 / 5.40 / 5.41 / 5.42; the
-// sibling `*_expected.json` value oracles are the targets for the decode
-// implementations (#109 / #116 / #117 / #118).
+// §5 packing fixtures: these cross-check that §0–§4 metadata and the §5
+// template number parse for templates 5.2 / 5.3 / 5.40 / 5.41 / 5.42. The
+// value decode for 5.2 and 5.3 is pinned to the sibling `*_expected.json`
+// oracles in `decode_complex.rs` / `decode_complex_spd.rs`; the compressed
+// templates 5.40 / 5.41 / 5.42 are not decoded yet (the oracles are the
+// targets for #116 / #117 / #118).
 #[test]
 fn complex_regular_latlon_matches_eccodes() {
     assert_fixture_matches_snapshot(
