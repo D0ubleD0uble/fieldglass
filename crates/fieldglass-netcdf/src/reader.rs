@@ -36,12 +36,11 @@ impl NetcdfBacking {
     }
 }
 
-/// Top-level reader. Always carries the raw bytes so future per-variable
-/// decode work can pull data on demand without re-reading the file.
+/// Top-level reader. Always carries the raw bytes so per-variable decode can
+/// pull data on demand without re-reading the file.
 #[derive(Debug)]
 pub struct NetcdfReader {
     pub backing: NetcdfBacking,
-    #[allow(dead_code)]
     data: Vec<u8>,
 }
 
@@ -60,6 +59,40 @@ impl NetcdfReader {
             return Err(FieldglassError::InvalidMagic);
         };
         Ok(Self { backing, data })
+    }
+
+    /// Decode one variable's values into row-major (C / on-disk order)
+    /// `Vec<Option<f64>>` — `Some(v)` for present points, `None` where the
+    /// element equals the variable's `_FillValue`. Mirrors the GRIB
+    /// `decode_message_values` surface.
+    ///
+    /// Implemented for classic (CDF-1/2/5) backings; NetCDF-4 / HDF5 value
+    /// decode is a separate track and returns
+    /// [`FieldglassError::UnsupportedSection`].
+    pub fn decode_variable_values(
+        &self,
+        var_index: usize,
+    ) -> Result<Vec<Option<f64>>, FieldglassError> {
+        match &self.backing {
+            NetcdfBacking::Classic(header) => {
+                classic::decode_variable_values(header, &self.data, var_index)
+            }
+            NetcdfBacking::Hdf5(_) => Err(FieldglassError::UnsupportedSection(
+                "NetCDF-4 / HDF5 value decode is not yet implemented".to_string(),
+            )),
+        }
+    }
+
+    /// Runtime shape of a variable (record dim resolved to `numrecs`), in
+    /// declared (C) order. Classic backings only; HDF5 returns
+    /// [`FieldglassError::UnsupportedSection`].
+    pub fn variable_shape(&self, var_index: usize) -> Result<Vec<u64>, FieldglassError> {
+        match &self.backing {
+            NetcdfBacking::Classic(header) => classic::variable_shape(header, var_index),
+            NetcdfBacking::Hdf5(_) => Err(FieldglassError::UnsupportedSection(
+                "NetCDF-4 / HDF5 value decode is not yet implemented".to_string(),
+            )),
+        }
     }
 }
 

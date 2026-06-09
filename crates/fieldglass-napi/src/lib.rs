@@ -692,6 +692,64 @@ fn dataset_meta_from(reader: NetcdfReader) -> DatasetMeta {
     }
 }
 
+/// Decoded values for one classic NetCDF variable, flattened for the JS
+/// boundary. Mirrors [`DecodedGrid`] but carries the full N-D `shape` (a
+/// NetCDF variable may be 1-D, 3-D, 4-D, …) instead of a single width/height.
+#[napi(object)]
+pub struct DecodedVariable {
+    /// Row-major (C / on-disk order) values; `f64::NAN` at masked / fill
+    /// positions (read `mask` to distinguish a real value from a fill).
+    pub values: napi::bindgen_prelude::Float64Array,
+    /// Parallel to `values`: `1` present, `0` equal to the variable's
+    /// `_FillValue`.
+    pub mask: napi::bindgen_prelude::Buffer,
+    /// Dimension lengths in declared (C) order; the unlimited dimension
+    /// contributes the file's record count.
+    pub shape: Vec<u32>,
+}
+
+/// Decode one classic NetCDF variable's values by index. Errors for HDF5
+/// backings (value decode is a separate track), `char` variables (text, not
+/// numbers), and out-of-range indices. Mirrors the GRIB
+/// `decode_grid` surface.
+#[napi]
+pub fn decode_netcdf_variable(
+    bytes: napi::bindgen_prelude::Buffer,
+    variable_index: u32,
+) -> napi::Result<DecodedVariable> {
+    let reader = NetcdfReader::from_bytes(bytes.to_vec())
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let raw = reader
+        .decode_variable_values(variable_index as usize)
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let shape = reader
+        .variable_shape(variable_index as usize)
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?
+        .into_iter()
+        .map(|d| {
+            u32::try_from(d)
+                .map_err(|_| napi::Error::from_reason(format!("dimension length {d} exceeds u32")))
+        })
+        .collect::<napi::Result<Vec<u32>>>()?;
+
+    let mut values = vec![0.0f64; raw.len()];
+    let mut mask = vec![0u8; raw.len()];
+    for (i, v) in raw.iter().enumerate() {
+        match v {
+            Some(x) => {
+                values[i] = *x;
+                mask[i] = 1;
+            }
+            None => values[i] = f64::NAN,
+        }
+    }
+    Ok(DecodedVariable {
+        values: napi::bindgen_prelude::Float64Array::new(values),
+        mask: mask.into(),
+        shape,
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Reader handles + render entry  (closes #41 + the Rust-side render rewrite
 // from #45)

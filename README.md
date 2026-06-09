@@ -12,7 +12,7 @@ A Visual Studio Code extension for viewing meteorological data files (GRIB1, GRI
 
 ## Status
 
-This is an early public release (beta). For GRIB1, you can read every message's metadata and render its grid as a 2-D color image, either in the grid's own coordinates or reprojected onto a map. Five projection targets are available (source, equirectangular, Web Mercator, orthographic, and polar stereographic), and you can overlay coastlines and a latitude/longitude grid. GRIB2 reads metadata for every message and renders values for the packings it can decode. NetCDF reads the full structure of classic files (CDF-1/2/5): dimensions, variables, and global attributes. Still to come: value decode for more GRIB2 packings and for NetCDF, deep NetCDF-4 / HDF5 parsing, and metadata editing. The [feature matrix](#feature-matrix) below shows exactly what works today.
+This is an early public release (beta). For GRIB1, you can read every message's metadata and render its grid as a 2-D color image, either in the grid's own coordinates or reprojected onto a map. Five projection targets are available (source, equirectangular, Web Mercator, orthographic, and polar stereographic), and you can overlay coastlines and a latitude/longitude grid. GRIB2 reads metadata for every message and renders values for the packings it can decode. NetCDF reads the full structure of classic files (CDF-1/2/5): dimensions, variables, and global attributes, and decodes their variable values through the Rust API. Still to come: rendering NetCDF fields, value decode for more GRIB2 packings, deep NetCDF-4 / HDF5 parsing, and metadata editing. The [feature matrix](#feature-matrix) below shows exactly what works today.
 
 ## Feature matrix
 
@@ -26,7 +26,7 @@ This is an early public release (beta). For GRIB1, you can read every message's 
 | Grid description (lat/lon, Gaussian, polar stereo, Lambert) | ✅ | 🚧 lat/lon (3.0), rotated lat/lon (3.1), Mercator (3.10), polar stereo (3.20), Lambert (3.30), Gaussian (3.40), space view (3.90) | ❌ Not yet |
 | WMO ON388 lookups (parameter, centre, level type) | ✅ | 🚧 Tables 0.0 / 1.2 / 1.3 / 1.4 / 3.1 / 3.2 / 4.1 / 4.2 / 4.3 / 4.4 / 4.5 / 4.6 / 4.10 + centres (subset) | n/a |
 | Tabular metadata viewer | ✅ | ✅ (§0–§4) | ✅ classic / 🚧 NetCDF-4 |
-| Binary data section decoding (Rust API) | ✅ | 🚧 partial — see [GRIB2 packing modes](#grib2-packing-modes) | ❌ Not yet |
+| Binary data section decoding (Rust API) | ✅ | 🚧 partial — see [GRIB2 packing modes](#grib2-packing-modes) | 🚧 classic (CDF-1/2/5) |
 | Metadata editing | ❌ Not yet | ❌ Not yet | ❌ Not yet |
 | 2-D grid rendering with colormap | ✅ | 🚧 any decodable message (see decoding row) | ❌ Not yet |
 | Render-panel projection picker (5 targets) | ✅ | ✅ (any decodable message) | n/a |
