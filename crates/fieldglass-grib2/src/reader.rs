@@ -184,6 +184,16 @@ fn scan_messages(data: &[u8]) -> Result<Vec<Grib2Message>, FieldglassError> {
         };
         let msg_end = msg_end_u64 as usize;
 
+        // The "impossibly small length" guard above already implies
+        // `msg_end >= offset + END_SECTION_LEN >= END_SECTION_LEN`, but assert it
+        // locally so the subtraction below can't underflow even if that guard is
+        // ever loosened.
+        if msg_end < END_SECTION_LEN {
+            return Err(FieldglassError::Parse(format!(
+                "Message at offset {offset} ends before its trailing 7777 marker"
+            )));
+        }
+
         // Trailing 4-byte End Section "7777".
         if &data[msg_end - END_SECTION_LEN..msg_end] != b"7777" {
             return Err(FieldglassError::Parse(format!(
