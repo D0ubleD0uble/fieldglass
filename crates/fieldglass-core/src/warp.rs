@@ -681,8 +681,8 @@ fn sample_source(source: &SourceGrid<'_>, idx: GridIndex, method: Resampling) ->
             }
             let i0u = i0 as usize;
             let j0u = j0 as usize;
-            let i1 = (i0u + 1).min((ni as usize).saturating_sub(1));
-            let j1 = (j0u + 1).min((nj as usize).saturating_sub(1));
+            let i1 = i0u.saturating_add(1).min((ni as usize).saturating_sub(1));
+            let j1 = j0u.saturating_add(1).min((nj as usize).saturating_sub(1));
             let v00 = (source.sample)(i0u, j0u)?;
             let v01 = (source.sample)(i1, j0u)?;
             let v10 = (source.sample)(i0u, j1)?;

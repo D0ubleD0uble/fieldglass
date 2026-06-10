@@ -237,7 +237,10 @@ pub fn gaussian_latitudes(n_parallels: u32) -> Vec<f64> {
     }
 
     let mut lats_deg: Vec<f64> = xs.iter().map(|s| s.asin() * RAD2DEG).collect();
-    lats_deg.sort_by(|a, b| b.partial_cmp(a).expect("Gaussian nodes are finite"));
+    // `total_cmp` rather than `partial_cmp().expect(...)`: the Newton-Raphson
+    // roots are finite by construction, but a non-panicking total order means a
+    // stray NaN sorts to one end instead of crashing the whole render.
+    lats_deg.sort_by(|a, b| b.total_cmp(a));
     GAUSS_CACHE.with(|c| {
         c.borrow_mut().insert(n_parallels, lats_deg.clone());
     });
@@ -387,6 +390,18 @@ pub struct LambertConstants {
     earth_r: f64,
 }
 
+impl LambertConstants {
+    /// Whether these constants describe a usable cone. Degenerate standard
+    /// parallels make the cone constant `n` zero or non-finite — both tangent
+    /// parallels on the equator (`latin1 == latin2 == 0`, so `n = sin 0 = 0`)
+    /// or a parallel at a pole (`cos → 0`, so `F = cos·tanⁿ / n` blows up). The
+    /// `/ n` in `f_const` would then divide by zero, yielding `inf`/`NaN` that
+    /// silently render blank; callers should reject the grid instead.
+    fn well_defined(&self) -> bool {
+        self.n.is_finite() && self.n != 0.0 && self.f_const.is_finite() && self.rho0.is_finite()
+    }
+}
+
 fn lambert_constants(p: &LambertParams) -> LambertConstants {
     let lat1 = p.latin1 * DEG2RAD;
     let lat2 = p.latin2 * DEG2RAD;
@@ -398,6 +413,10 @@ fn lambert_constants(p: &LambertParams) -> LambertConstants {
     } else {
         (lat1.cos() / lat2.cos()).ln() / (tan2 / tan1).ln()
     };
+    // `f_const`/`rho0` are non-finite for degenerate parallels (n == 0, or a
+    // pole-tangent cone). Rather than clamp here — which would invent a cone
+    // the grid never described — we let the values stay non-finite and gate on
+    // `LambertConstants::well_defined` at the projection boundary.
     let f_const = lat1.cos() * tan1.powf(n) / n;
     let rho0 = EARTH_RADIUS_M * f_const / (PI / 4.0 + lad / 2.0).tan().powf(n);
     LambertConstants {
@@ -493,6 +512,10 @@ impl LambertProjector {
         if !lat.is_finite() || !lon.is_finite() {
             return None;
         }
+        if !self.constants.well_defined() {
+            // Degenerate standard parallels (see `LambertConstants::well_defined`).
+            return None;
+        }
         if self.params.ni < 2
             || self.params.nj < 2
             || self.params.dx_metres == 0.0
@@ -531,6 +554,14 @@ impl LambertProjector {
     /// non-origin corners.
     pub fn origin(&self) -> (f64, f64) {
         self.origin
+    }
+
+    /// Whether the cone constants are usable. `false` for degenerate standard
+    /// parallels (see [`LambertConstants::well_defined`]); such a projector's
+    /// [`inverse`](Self::inverse) always returns `None`, so callers can surface
+    /// "not reprojectable" instead of rendering blank.
+    pub fn is_well_defined(&self) -> bool {
+        self.constants.well_defined()
     }
 }
 
@@ -839,7 +870,10 @@ pub trait PlanarGridProjector {
         // Largest empty gap between adjacent wrapped longitudes (including the
         // wrap-around gap from the last sample back to the first). The enclosing
         // arc is everything *except* that gap.
-        lons.sort_by(|a, b| a.partial_cmp(b).expect("longitudes are finite"));
+        // `total_cmp`: `inverse_lonlat` yields finite longitudes here, but a
+        // total order degrades gracefully instead of panicking if that ever
+        // slips. `rem_euclid(360.0)` above already keeps every entry in [0, 360).
+        lons.sort_by(|a, b| a.total_cmp(b));
         let n = lons.len();
         let mut gap_start = 0usize; // index just after the largest gap
         let mut max_gap = lons[0] + 360.0 - lons[n - 1]; // wrap-around gap
@@ -1252,6 +1286,28 @@ mod tests {
             lambert_inverse(&zero_dx, 40.0, -100.0).is_none(),
             "dx_metres = 0 must not divide"
         );
+    }
+
+    #[test]
+    fn lambert_rejects_degenerate_standard_parallels() {
+        // Both standard parallels on the equator: cone constant n = sin 0 = 0,
+        // so `F = cos·tanⁿ / n` divides by zero. The constants must report
+        // themselves ill-defined and the inverse must return None for every
+        // query, rather than emitting an index off a non-finite projection.
+        let equator = LambertParams {
+            latin1: 0.0,
+            latin2: 0.0,
+            ..lambert_params()
+        };
+        let proj = LambertProjector::new(equator);
+        assert!(
+            !proj.is_well_defined(),
+            "equator-tangent cone is degenerate"
+        );
+        assert!(proj.inverse(40.0, -100.0).is_none());
+        assert!(proj.inverse(equator.lat_first, equator.lon_first).is_none());
+        // A healthy cone still reports itself usable.
+        assert!(LambertProjector::new(lambert_params()).is_well_defined());
     }
 
     #[test]
