@@ -17,7 +17,9 @@ export function escapeHtml(s: string): string {
 
 /** CSPRNG-derived nonce string suitable for the CSP `script-src
  *  'nonce-…'` directive — the boundary that makes inline scripts safe
- *  inside a `default-src 'none'` policy. */
+ *  inside a `default-src 'none'` policy. Hex-encoded so all 128 bits of
+ *  entropy survive (stripping non-alphanumerics from base64 would discard
+ *  the `+`/`/`/`=` characters and weaken the nonce). */
 export function nonce(): string {
-  return randomBytes(16).toString("base64").replace(/[^A-Za-z0-9]/g, "");
+  return randomBytes(16).toString("hex");
 }

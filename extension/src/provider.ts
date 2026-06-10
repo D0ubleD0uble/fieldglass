@@ -22,6 +22,21 @@ const FORMAT_LABELS: Record<string, string> = {
   unknown: "Unknown",
 };
 
+/** Narrow a handle to {@link Grib1Handle} by the `setP1` method only GRIB1
+ *  exposes — a real type guard so callers don't need an `as` assertion. */
+function isGrib1Handle(handle: Grib1Handle | Grib2Handle): handle is Grib1Handle {
+  return "setP1" in handle;
+}
+
+/** Sanitize a decoded (untrusted) string for use in a plain-text panel title:
+ *  drop control characters and cap the length so it can't garble the tab. */
+function sanitizeTitlePart(s: string | undefined | null): string {
+  if (!s) {
+    return "";
+  }
+  return s.replace(/[\u0000-\u001F\u007F]/g, "").slice(0, 64);
+}
+
 // ---------------------------------------------------------------------------
 // Document
 // ---------------------------------------------------------------------------
@@ -152,7 +167,10 @@ export class FieldglassEditorProvider
     // Scripts must be enabled so the webview can request and paint a 2-D
     // render of a message's decoded grid. The CSP set in renderHtml is the
     // security boundary — see the comment there for the policy itself.
-    panel.webview.options = { enableScripts: true };
+    // `localResourceRoots: []` makes the no-external-resources boundary
+    // explicit: the CSP (`default-src 'none'`) already blocks loads, and this
+    // ensures nothing can be served from disk even if the CSP is later relaxed.
+    panel.webview.options = { enableScripts: true, localResourceRoots: [] };
     panel.webview.html = renderHtml(
       panel.webview,
       format,
@@ -306,13 +324,16 @@ export class FieldglassEditorProvider
     document: FieldglassDocument,
     meta: MessageMeta,
   ): void {
-    const title = `Render: msg ${meta.messageIndex}`
-      + (meta.parameterAbbreviation ? ` — ${meta.parameterAbbreviation}` : "");
+    // The abbreviation comes from a decoded (untrusted) file. VS Code renders
+    // panel titles as plain text, so there's no XSS, but strip control
+    // characters and cap the length so a hostile file can't garble the tab.
+    const abbr = sanitizeTitlePart(meta.parameterAbbreviation);
+    const title = `Render: msg ${meta.messageIndex}` + (abbr ? ` — ${abbr}` : "");
     const panel = vscode.window.createWebviewPanel(
       "fieldglass.render",
       title,
       { viewColumn: vscode.ViewColumn.Beside, preserveFocus: false },
-      { enableScripts: true, retainContextWhenHidden: false }
+      { enableScripts: true, retainContextWhenHidden: false, localResourceRoots: [] }
     );
     panel.webview.html = renderImagePanelHtml(panel.webview, meta, describeProjection(meta));
 
@@ -437,7 +458,7 @@ export class FieldglassEditorProvider
         return;
       }
     }
-    if (!("setP1" in handle)) {
+    if (!isGrib1Handle(handle)) {
       vscode.window.showErrorMessage(
         "Fieldglass: setP1 only applies to GRIB1 documents",
       );
@@ -445,7 +466,7 @@ export class FieldglassEditorProvider
     }
     let newBytes: Uint8Array;
     try {
-      newBytes = (handle as Grib1Handle).setP1(messageIndex, value);
+      newBytes = handle.setP1(messageIndex, value);
     } catch (err) {
       console.error("[Fieldglass] setP1 failed:", err);
       vscode.window.showErrorMessage(`Fieldglass: failed to set p1: ${err}`);
