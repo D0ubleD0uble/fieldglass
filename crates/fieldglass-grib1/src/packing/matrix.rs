@@ -352,7 +352,7 @@ pub(crate) fn decode_matrix_of_values(
         coded_count,
     )?;
 
-    let values = expand_matrix(&secondary, coded, bitmap, expected_count, datum);
+    let values = expand_matrix(&secondary, coded, bitmap, expected_count, datum)?;
     Ok(MatrixValues {
         nr: matrix.nr as usize,
         nc: matrix.nc as usize,
@@ -363,13 +363,18 @@ pub(crate) fn decode_matrix_of_values(
 /// Expand the per-present-point secondary bitmap into the full
 /// `expected_count · datum` value grid, pulling `coded` values where a cell is
 /// present. Factored out for direct unit testing of the bitmap walk.
+///
+/// Errors if the coded stream runs short of the set secondary bits: every set
+/// bit must consume exactly one coded value, so a shortfall means the declared
+/// bitmap and the packed data disagree. Silently substituting `None` there
+/// would misreport a present cell as missing and shift every later value.
 fn expand_matrix(
     secondary: &[bool],
     coded: Vec<f64>,
     bitmap: Option<&[bool]>,
     expected_count: usize,
     datum: usize,
-) -> Vec<Option<f64>> {
+) -> Result<Vec<Option<f64>>, FieldglassError> {
     let mut out = Vec::with_capacity(expected_count.saturating_mul(datum));
     let mut sec = secondary.iter();
     let mut vals = coded.into_iter();
@@ -383,13 +388,24 @@ fn expand_matrix(
                 // Present points were sized to consume exactly `datum`
                 // secondary bits each (validated via N above).
                 let cell_present = sec.next().copied().unwrap_or(false);
-                out.push(if cell_present { vals.next() } else { None });
+                if cell_present {
+                    let v = vals.next().ok_or_else(|| {
+                        FieldglassError::Parse(
+                            "grid_simple_matrix coded values exhausted before the secondary \
+                             bitmap: packed data shorter than the bitmap declares"
+                                .into(),
+                        )
+                    })?;
+                    out.push(Some(v));
+                } else {
+                    out.push(None);
+                }
             } else {
                 out.push(None);
             }
         }
     }
-    out
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -401,7 +417,7 @@ mod tests {
         // 3 grid points, 2×1 matrix, every cell present → values == coded order.
         let secondary = vec![true; 6];
         let coded = vec![10.0, 11.0, 12.0, 13.0, 14.0, 15.0];
-        let out = expand_matrix(&secondary, coded, None, 3, 2);
+        let out = expand_matrix(&secondary, coded, None, 3, 2).unwrap();
         assert_eq!(
             out,
             vec![
@@ -423,7 +439,7 @@ mod tests {
         let secondary = vec![true, false, true, true];
         let coded = vec![100.0, 200.0, 300.0];
         let primary = [true, false, true];
-        let out = expand_matrix(&secondary, coded, Some(&primary), 3, 2);
+        let out = expand_matrix(&secondary, coded, Some(&primary), 3, 2).unwrap();
         assert_eq!(
             out,
             vec![
@@ -435,6 +451,18 @@ mod tests {
                 Some(300.0), // point 2, cell 1 (secondary 1)
             ]
         );
+    }
+
+    /// A set secondary bit with no coded value behind it means the packed data
+    /// is shorter than the bitmap claims — that must error, not silently fill
+    /// `None` and shift every later value by one.
+    #[test]
+    fn expand_errors_when_coded_runs_short() {
+        // 4 set cells, but only 3 coded values supplied.
+        let secondary = vec![true, true, true, true];
+        let coded = vec![1.0, 2.0, 3.0];
+        let err = expand_matrix(&secondary, coded, None, 2, 2).unwrap_err();
+        assert!(matches!(err, FieldglassError::Parse(_)), "got {err:?}");
     }
 
     /// A declared section shorter than the coefficient arrays must error, not
