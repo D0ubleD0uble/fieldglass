@@ -203,9 +203,17 @@ const NC_ATTRIBUTE: u32 = 0x0C;
 pub const MAX_VAR_DIMS: u64 = 4096;
 
 /// Hard cap on the number of elements `decode_variable_values` will allocate
-/// for one variable, guarding against a corrupt header that declares a huge
-/// shape. Matches the GRIB2 decode cap (200M points ≈ 1.6 GiB of `f64`).
+/// for one variable's *values*, guarding against a corrupt header that declares
+/// a huge shape. Matches the GRIB2 decode cap (200M points ≈ 1.6 GiB of `f64`).
+/// This bounds value decode only — header metadata (names, dims, attributes) is
+/// capped separately (see [`MAX_NAME_LEN`], [`MAX_VAR_DIMS`]).
 pub const MAX_VAR_ELEMENTS: usize = 200_000_000;
+
+/// Hard cap on the byte length of a single `name` field (variable, dimension,
+/// or attribute). NetCDF identifiers are short; a header claiming a multi-megabyte
+/// name is corrupt. Bounding to a constant — rather than the whole file size —
+/// keeps a small but malicious header from forcing a large allocation per name.
+pub const MAX_NAME_LEN: u64 = 1 << 20; // 1 MiB
 
 /// Convert a NON_NEG (u64) read from the wire to usize, surfacing 32-bit
 /// truncation as a parse error instead of a silent wrap.
@@ -561,9 +569,11 @@ impl<'a> Parser<'a> {
     fn read_name(&mut self) -> Result<String, FieldglassError> {
         let n = self.read_nonneg()?;
         // Hard cap to keep a corrupt header from triggering huge allocations.
-        if n > self.bytes.len() as u64 {
+        // Bound by a constant *and* the file size: a name can't be longer than
+        // the bytes that hold it, and legitimate names are far below 1 MiB.
+        if n > MAX_NAME_LEN || n > self.bytes.len() as u64 {
             return Err(FieldglassError::Parse(format!(
-                "name length {n} exceeds file size"
+                "name length {n} exceeds the {MAX_NAME_LEN}-byte cap or the file size"
             )));
         }
         let raw = self.read_bytes_padded(nonneg_to_usize(n, "name length")?)?;
