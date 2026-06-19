@@ -13,6 +13,8 @@
 
 use fieldglass_core::FieldglassError;
 
+pub mod object_header;
+
 /// HDF5 signature: `\x89HDF\r\n\x1a\n`.
 pub const HDF5_SIGNATURE: [u8; 8] = [0x89, b'H', b'D', b'F', b'\r', b'\n', 0x1a, b'\n'];
 
@@ -90,6 +92,54 @@ pub fn probe(bytes: &[u8]) -> Result<Hdf5Probe, FieldglassError> {
         offset_size,
         length_size,
     })
+}
+
+/// File offset of the root group's object header, read from the superblock.
+///
+/// This is the bootstrap address the [`object_header`] walker and the
+/// higher-layer group traversal (#38) start from. For superblock versions 0/1
+/// it lives in the root-group symbol-table entry; for versions 2/3 it's a
+/// dedicated superblock field. Reading it is superblock-level work, not deep
+/// parsing, so it lives here alongside [`probe`].
+pub fn root_group_address(bytes: &[u8], probe: &Hdf5Probe) -> Result<u64, FieldglassError> {
+    let base = find_signature(bytes).ok_or(FieldglassError::InvalidMagic)?;
+    let o = probe.offset_size as usize;
+    if o == 0 || o > 8 {
+        return Err(FieldglassError::Parse(format!(
+            "unsupported HDF5 offset size {o}"
+        )));
+    }
+    // Offsets are relative to the superblock signature. Layouts:
+    //   v0: 24 fixed bytes (through file-consistency flags), then 4 addresses
+    //       (base/free-space/eof/driver) and the root symbol-table entry whose
+    //       first two fields are link-name offset + object-header address.
+    //   v1: as v0 but with 4 extra bytes (indexed-storage K + reserved).
+    //   v2/3: 12 fixed bytes, then base/superblock-extension/eof addresses and
+    //         the root-group object-header address.
+    let addr_off = match probe.superblock_version {
+        0 => base + 24 + 5 * o,
+        1 => base + 28 + 5 * o,
+        2 | 3 => base + 12 + 3 * o,
+        v => {
+            return Err(FieldglassError::Parse(format!(
+                "unsupported HDF5 superblock version {v}"
+            )));
+        }
+    };
+    let address = object_header::read_uint_le(bytes, addr_off, o)?;
+    // All-ones is HDF5's "undefined address" sentinel; a valid file always has
+    // a root group.
+    let undefined = if o == 8 {
+        u64::MAX
+    } else {
+        (1u64 << (8 * o)) - 1
+    };
+    if address == undefined {
+        return Err(FieldglassError::Parse(
+            "HDF5 superblock has no root-group address".into(),
+        ));
+    }
+    Ok(address)
 }
 
 #[cfg(test)]
