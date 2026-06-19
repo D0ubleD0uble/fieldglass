@@ -10,6 +10,7 @@ pub mod hdf5;
 pub mod reader;
 
 pub use classic::{Attribute, ClassicHeader, ClassicVersion, Dimension, NcType, Variable};
+pub use hdf5::attribute::{Hdf5Attribute, list_attributes};
 pub use hdf5::dataset::{DatasetShape, describe as describe_dataset};
 pub use hdf5::dataspace::Dataspace;
 pub use hdf5::datatype::{ByteOrder, Datatype, DatatypeClass};

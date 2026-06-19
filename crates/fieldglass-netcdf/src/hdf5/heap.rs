@@ -1,0 +1,328 @@
+//! Shared HDF5 fractal-heap + version-2 B-tree readers, plus the little-endian
+//! byte cursor they're built on. These back both the dense-link path (group
+//! traversal, #38) and the dense-attribute path (#40): in each case a B-tree v2
+//! indexes records that carry a fractal-heap ID, and the heap dereferences that
+//! ID to the actual message bytes.
+//!
+//! Only the subset the bundled fixtures need is implemented — a single-level
+//! B-tree (depth 0) and a single root direct block (no indirect doubling table,
+//! no huge/tiny objects, no I/O filters). Anything outside that returns a clear
+//! error rather than risk a silent misread.
+//!
+//! Reference: HDF5 file format specification version 3, "Fractal Heap" and
+//! "Version 2 B-trees".
+
+use super::object_header::read_uint_le;
+use fieldglass_core::FieldglassError;
+
+const SIG_BTREE_V2_HDR: &[u8; 4] = b"BTHD";
+const SIG_BTREE_V2_LEAF: &[u8; 4] = b"BTLF";
+const SIG_FRACTAL_HEAP: &[u8; 4] = b"FRHP";
+const SIG_FRACTAL_DIRECT: &[u8; 4] = b"FHDB";
+
+/// Upper bound on B-tree v2 leaf records — guards a malformed record count.
+const MAX_BTREE_V2_RECORDS: usize = 1 << 20;
+
+/// Read the records of a single-level (depth 0) version-2 B-tree, returning the
+/// B-tree `type` and the raw record bytes. Callers slice the fractal-heap ID out
+/// of each record at the offset their record type dictates (link-name records
+/// put it after a 4-byte hash; attribute-name records put it first).
+pub(crate) fn btree_v2_leaf_records(
+    bytes: &[u8],
+    addr: u64,
+    osize: u8,
+    lsize: u8,
+) -> Result<(u8, Vec<Vec<u8>>), FieldglassError> {
+    let mut hdr = Cursor::at(bytes, addr)?;
+    hdr.tag(SIG_BTREE_V2_HDR)?;
+    hdr.skip(1)?; // version
+    let btree_type = hdr.byte()?;
+    hdr.uint(4)?; // node size
+    let record_size = hdr.u16()? as usize;
+    let depth = hdr.u16()?;
+    if depth != 0 {
+        return Err(FieldglassError::Parse(
+            "multi-level B-tree v2 not supported".into(),
+        ));
+    }
+    hdr.skip(2)?; // split + merge percent
+    let root_addr = hdr.uint(osize as usize)?;
+    let root_nrec = hdr.u16()? as usize;
+    let _total = hdr.uint(lsize as usize)?;
+
+    if root_nrec > MAX_BTREE_V2_RECORDS {
+        return Err(FieldglassError::Parse(
+            "implausible B-tree v2 record count".into(),
+        ));
+    }
+
+    let mut leaf = Cursor::at(bytes, root_addr)?;
+    leaf.tag(SIG_BTREE_V2_LEAF)?;
+    leaf.skip(2)?; // version + type
+    let mut records = Vec::with_capacity(root_nrec);
+    for _ in 0..root_nrec {
+        records.push(leaf.take(record_size)?.to_vec());
+    }
+    Ok((btree_type, records))
+}
+
+/// The subset of a fractal heap needed to dereference managed objects.
+pub(crate) struct FractalHeap {
+    /// Total length of a heap ID for this heap.
+    pub(crate) heap_id_len: usize,
+    /// Byte width of the offset field inside a managed heap ID.
+    offset_bytes: usize,
+    /// Byte width of the length field inside a managed heap ID.
+    length_bytes: usize,
+    /// File address of the single root direct block.
+    root_block_addr: u64,
+}
+
+impl FractalHeap {
+    pub(crate) fn parse(
+        bytes: &[u8],
+        addr: u64,
+        osize: u8,
+        lsize: u8,
+    ) -> Result<Self, FieldglassError> {
+        let o = osize as usize;
+        let l = lsize as usize;
+        let mut cur = Cursor::at(bytes, addr)?;
+        cur.tag(SIG_FRACTAL_HEAP)?;
+        cur.skip(1)?; // version
+        let heap_id_len = cur.u16()? as usize;
+        let io_filter_len = cur.u16()? as usize;
+        if io_filter_len != 0 {
+            return Err(FieldglassError::Parse(
+                "I/O-filtered fractal heaps not supported".into(),
+            ));
+        }
+        cur.skip(1)?; // flags
+        cur.skip(4)?; // maximum size of managed objects
+        // Skip the statistics block between here and "table width". It is ten
+        // length-sized fields (next-huge id, free space, managed/allocated
+        // space, iterator offset, #managed, size/#huge, size/#tiny) plus two
+        // offset-sized addresses (huge-object B-tree, free-space manager).
+        cur.skip(l * 10 + o * 2)?;
+        cur.skip(2)?; // table width
+        cur.skip(l)?; // starting block size
+        cur.skip(l)?; // maximum direct block size
+        let max_heap_bits = cur.u16()? as usize;
+        cur.skip(2)?; // starting # rows in root indirect block
+        let root_block_addr = cur.uint(o)?;
+        let cur_rows = cur.u16()?;
+        if cur_rows != 0 {
+            return Err(FieldglassError::Parse(
+                "indirect fractal-heap root block not supported".into(),
+            ));
+        }
+        let offset_bytes = max_heap_bits.div_ceil(8);
+        if offset_bytes + 1 > heap_id_len {
+            return Err(FieldglassError::Parse(
+                "fractal heap ID smaller than its offset field".into(),
+            ));
+        }
+        let length_bytes = heap_id_len - 1 - offset_bytes;
+
+        // Validate the root direct block: a correct `root_block_addr` lands on
+        // an `FHDB` signature whose back-pointer is this heap header. This is a
+        // cheap guard against mis-parsing the variable-width header.
+        let mut block = Cursor::at(bytes, root_block_addr)?;
+        block.tag(SIG_FRACTAL_DIRECT)?;
+        block.skip(1)?; // version
+        if block.uint(o)? != addr {
+            return Err(FieldglassError::Parse(
+                "fractal-heap direct block back-pointer mismatch".into(),
+            ));
+        }
+
+        Ok(Self {
+            heap_id_len,
+            offset_bytes,
+            length_bytes,
+            root_block_addr,
+        })
+    }
+
+    /// Dereference a managed heap ID to its object bytes in the root direct
+    /// block. The heap ID is `flags(1) + offset(offset_bytes) + length(...)`.
+    pub(crate) fn managed_object(
+        &self,
+        bytes: &[u8],
+        id: &[u8],
+    ) -> Result<Vec<u8>, FieldglassError> {
+        if id.len() < self.heap_id_len {
+            return Err(FieldglassError::Parse("truncated heap ID".into()));
+        }
+        // Bits 4-5 of the first byte are the ID type; 0 == managed.
+        if (id[0] >> 4) & 0x03 != 0 {
+            return Err(FieldglassError::Parse(
+                "only managed fractal-heap objects are supported".into(),
+            ));
+        }
+        let offset = read_uint_le(id, 1, self.offset_bytes)?;
+        let length = read_uint_le(id, 1 + self.offset_bytes, self.length_bytes)? as usize;
+        // For a single root direct block the heap offset is relative to the
+        // block's file address.
+        let obj_addr = checked_add(self.root_block_addr, offset)?;
+        let start = usize::try_from(obj_addr)
+            .map_err(|_| FieldglassError::Parse("heap object address too large".into()))?;
+        let end = start
+            .checked_add(length)
+            .filter(|&e| e <= bytes.len())
+            .ok_or_else(|| FieldglassError::Parse("heap object runs past end of file".into()))?;
+        Ok(bytes[start..end].to_vec())
+    }
+}
+
+pub(crate) fn checked_add(a: u64, b: u64) -> Result<u64, FieldglassError> {
+    a.checked_add(b)
+        .ok_or_else(|| FieldglassError::Parse("address arithmetic overflow".into()))
+}
+
+/// A tiny forward cursor over a byte slice, reading little-endian fields with
+/// bounds checks. `at`/`over` choose between an absolute file offset and a
+/// borrowed message body.
+pub(crate) struct Cursor<'a> {
+    bytes: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> Cursor<'a> {
+    pub(crate) fn at(bytes: &'a [u8], addr: u64) -> Result<Self, FieldglassError> {
+        let pos = usize::try_from(addr)
+            .map_err(|_| FieldglassError::Parse("address too large for this platform".into()))?;
+        if pos > bytes.len() {
+            return Err(FieldglassError::Parse("address past end of file".into()));
+        }
+        Ok(Self { bytes, pos })
+    }
+
+    pub(crate) fn over(bytes: &'a [u8]) -> Self {
+        Self { bytes, pos: 0 }
+    }
+
+    pub(crate) fn uint(&mut self, width: usize) -> Result<u64, FieldglassError> {
+        let value = read_uint_le(self.bytes, self.pos, width)?;
+        self.pos += width;
+        Ok(value)
+    }
+
+    pub(crate) fn u16(&mut self) -> Result<u16, FieldglassError> {
+        Ok(self.uint(2)? as u16)
+    }
+
+    pub(crate) fn byte(&mut self) -> Result<u8, FieldglassError> {
+        Ok(self.uint(1)? as u8)
+    }
+
+    pub(crate) fn skip(&mut self, n: usize) -> Result<(), FieldglassError> {
+        let end = self
+            .pos
+            .checked_add(n)
+            .filter(|&e| e <= self.bytes.len())
+            .ok_or_else(|| FieldglassError::Parse("skip past end of buffer".into()))?;
+        self.pos = end;
+        Ok(())
+    }
+
+    /// The bytes from the current position to the end of the buffer.
+    pub(crate) fn remaining(&self) -> &'a [u8] {
+        &self.bytes[self.pos.min(self.bytes.len())..]
+    }
+
+    pub(crate) fn take(&mut self, n: usize) -> Result<&'a [u8], FieldglassError> {
+        let end = self
+            .pos
+            .checked_add(n)
+            .filter(|&e| e <= self.bytes.len())
+            .ok_or_else(|| FieldglassError::Parse("read past end of buffer".into()))?;
+        let out = &self.bytes[self.pos..end];
+        self.pos = end;
+        Ok(out)
+    }
+
+    pub(crate) fn tag(&mut self, signature: &[u8; 4]) -> Result<(), FieldglassError> {
+        let got = self.take(4)?;
+        if got != signature {
+            return Err(FieldglassError::Parse(format!(
+                "expected signature {:?}, got {:?}",
+                std::str::from_utf8(signature).unwrap_or("?"),
+                String::from_utf8_lossy(got)
+            )));
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn put(buf: &mut Vec<u8>, at: usize, data: &[u8]) {
+        if buf.len() < at + data.len() {
+            buf.resize(at + data.len(), 0);
+        }
+        buf[at..at + data.len()].copy_from_slice(data);
+    }
+
+    /// Build a depth-0 B-tree v2 header + leaf carrying `records`.
+    fn btree_v2(btree_type: u8, record_size: usize, records: &[Vec<u8>]) -> Vec<u8> {
+        let header_addr = 0usize;
+        let leaf_addr = 0x100usize;
+        let mut buf = vec![0u8; 0x200];
+        // Header: sig(4) version(1) type(1) node_size(4) record_size(2) depth(2)
+        //         split/merge(2) root_addr(8) root_nrec(2) total(8) checksum(4).
+        put(&mut buf, header_addr, SIG_BTREE_V2_HDR);
+        buf[header_addr + 5] = btree_type;
+        put(
+            &mut buf,
+            header_addr + 10,
+            &(record_size as u16).to_le_bytes(),
+        );
+        // depth (offset 12) stays 0; split/merge percent at 14-15.
+        put(
+            &mut buf,
+            header_addr + 16,
+            &(leaf_addr as u64).to_le_bytes(),
+        );
+        put(
+            &mut buf,
+            header_addr + 24,
+            &(records.len() as u16).to_le_bytes(),
+        );
+        // Leaf: sig(4) version(1) type(1) then records.
+        put(&mut buf, leaf_addr, SIG_BTREE_V2_LEAF);
+        let mut p = leaf_addr + 6;
+        for r in records {
+            put(&mut buf, p, r);
+            p += record_size;
+        }
+        buf
+    }
+
+    #[test]
+    fn reads_leaf_records() {
+        let records = vec![vec![1u8; 11], vec![2u8; 11]];
+        let buf = btree_v2(5, 11, &records);
+        let (btype, got) = btree_v2_leaf_records(&buf, 0, 8, 8).unwrap();
+        assert_eq!(btype, 5);
+        assert_eq!(got, records);
+    }
+
+    #[test]
+    fn rejects_multi_level_btree() {
+        let mut buf = btree_v2(5, 11, &[]);
+        put(&mut buf, 12, &1u16.to_le_bytes()); // depth = 1
+        let err = btree_v2_leaf_records(&buf, 0, 8, 8).unwrap_err();
+        assert!(matches!(err, FieldglassError::Parse(_)));
+    }
+
+    #[test]
+    fn leaf_records_past_eof_error_without_panic() {
+        let mut buf = btree_v2(5, 11, &[]);
+        // Claim 1000 records but supply none.
+        put(&mut buf, 24, &1000u16.to_le_bytes());
+        assert!(btree_v2_leaf_records(&buf, 0, 8, 8).is_err());
+    }
+}
