@@ -10,6 +10,7 @@ pub mod hdf5;
 pub mod reader;
 
 pub use classic::{Attribute, ClassicHeader, ClassicVersion, Dimension, NcType, Variable};
+pub use hdf5::group::{ChildKind, GroupChild, list_root_children};
 pub use hdf5::object_header::{HeaderMessage, ObjectHeader};
 pub use hdf5::{Hdf5Probe, root_group_address};
 pub use reader::{NetcdfBacking, NetcdfReader};
