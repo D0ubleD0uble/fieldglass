@@ -37,3 +37,7 @@ lcov.info
 extension/README.md
 extension/CHANGELOG.md
 extension/*.vsix
+
+# Python bytecode cache from tools/ scripts
+__pycache__/
+*.pyc

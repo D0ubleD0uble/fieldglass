@@ -122,3 +122,8 @@ classDiagram
     Grib2Handle ..> RenderedGrid : produces
     NetcdfReader ..> DatasetMeta : produces
 ```
+
+> Note: `IndicatorSection` appears in both the GRIB1 and GRIB2 sections above
+> but they are **distinct types**, one per crate (`fieldglass-grib1` and
+> `fieldglass-grib2`). The drift guard matches by base name and emits a warning
+> about this so it isn't mistaken for a single shared type.

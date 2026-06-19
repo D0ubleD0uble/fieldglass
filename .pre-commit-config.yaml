@@ -42,13 +42,21 @@ repos:
         pass_filenames: false
 
       - id: architecture-diagrams
-        name: architecture diagrams in sync with trait impls
+        name: architecture diagrams in sync with source
         language: system
-        files: ^(crates/.*\.rs|docs/architecture/.*\.md|tools/check_architecture_diagrams\.py)$
+        files: ^(crates/.*\.rs|crates/.*/Cargo\.toml|docs/architecture/.*\.md|tools/check_architecture_diagrams\.py)$
         entry: python3 tools/check_architecture_diagrams.py
         pass_filenames: false
 
       # ── Pre-push (slower) hooks
+      - id: architecture-diagrams-selftest
+        name: architecture diagram checker self-test
+        stages: [pre-push]
+        language: system
+        files: ^tools/(check_architecture_diagrams|test_check_architecture_diagrams)\.py$
+        entry: python3 tools/test_check_architecture_diagrams.py
+        pass_filenames: false
+
       - id: cargo-test
         name: cargo test --workspace
         stages: [pre-push]
