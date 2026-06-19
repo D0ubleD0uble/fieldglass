@@ -343,8 +343,9 @@ fn verify_checksum(bytes: &[u8], start: usize, checksum_pos: usize) -> Result<()
 }
 
 /// Bob Jenkins' `lookup3` `hashlittle` with `initval = 0` — the function HDF5
-/// uses for metadata checksums (`H5_checksum_lookup3`).
-fn checksum_lookup3(data: &[u8]) -> u32 {
+/// uses for metadata checksums (`H5_checksum_lookup3`). Shared with the group
+/// reader, which checksums B-tree v2 and fractal-heap blocks.
+pub(crate) fn checksum_lookup3(data: &[u8]) -> u32 {
     fn rot(x: u32, k: u32) -> u32 {
         x.rotate_left(k)
     }
