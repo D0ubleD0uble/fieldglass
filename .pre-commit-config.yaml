@@ -41,6 +41,13 @@ repos:
         entry: bash -c 'cd extension && npx --no-install eslint .'
         pass_filenames: false
 
+      - id: architecture-diagrams
+        name: architecture diagrams in sync with trait impls
+        language: system
+        files: ^(crates/.*\.rs|docs/architecture/.*\.md|tools/check_architecture_diagrams\.py)$
+        entry: python3 tools/check_architecture_diagrams.py
+        pass_filenames: false
+
       # ── Pre-push (slower) hooks
       - id: cargo-test
         name: cargo test --workspace

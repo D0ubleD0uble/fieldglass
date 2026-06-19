@@ -26,8 +26,23 @@ grep -rhoE '^impl( <[^>]+>)? [A-Za-z0-9_]+ for [A-Za-z0-9_]+' crates/*/src | sor
 grep -rhoE 'pub (struct|enum|trait) [A-Za-z0-9_]+' crates/*/src | sort -u
 ```
 
-If a trait gains or loses an implementor, or a message type restructures its
-sections, update the relevant diagram in the same PR — same discipline as the
-README "GRIB2 packing modes" table and the eccodes reference snapshots. A
-`tools/` extractor + CI drift check (fail when an `impl … for …` exists that no
-diagram mentions) would automate this; not yet wired up.
+### Drift guard (automated for the trait seams)
+
+`tools/check_architecture_diagrams.py` enforces `02-trait-seams.md`: every
+`impl <FirstPartyTrait> for <Type>` in `crates/*/src` (excluding `#[cfg(test)]`
+mocks) must appear as a `Trait <|.. Type` edge, and every such edge must have a
+matching impl. It fails on either kind of drift. Run it directly:
+
+```sh
+python3 tools/check_architecture_diagrams.py
+```
+
+It runs automatically on commit via pre-commit (the `architecture-diagrams`
+hook), so it also runs in CI through `pre-commit run --all-files`. A
+deliberately-undocumented first-party trait goes in the script's
+`UNDIAGRAMMED_TRAITS` set with a reason.
+
+The composition diagram (`03-composition.md`) is not auto-checked — section
+ownership changes rarely and is harder to verify mechanically. If a message
+type restructures its sections, update it in the same PR, same discipline as
+the README "GRIB2 packing modes" table and the eccodes reference snapshots.
