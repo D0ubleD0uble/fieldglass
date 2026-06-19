@@ -13,6 +13,9 @@
 
 use fieldglass_core::FieldglassError;
 
+pub mod dataset;
+pub mod dataspace;
+pub mod datatype;
 pub mod group;
 pub mod object_header;
 
