@@ -13,10 +13,12 @@
 
 use fieldglass_core::FieldglassError;
 
+pub mod attribute;
 pub mod dataset;
 pub mod dataspace;
 pub mod datatype;
 pub mod group;
+pub mod heap;
 pub mod object_header;
 
 /// HDF5 signature: `\x89HDF\r\n\x1a\n`.

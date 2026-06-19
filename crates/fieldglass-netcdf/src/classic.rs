@@ -767,7 +767,7 @@ impl<'a> Parser<'a> {
 /// chunk of `element_size` bytes is decoded according to `nc_type`. Truncated
 /// trailing bytes are silently ignored — the caller has already verified the
 /// length matches `nelems * element_size`.
-fn render_numeric_values(raw: &[u8], nc_type: NcType) -> String {
+pub(crate) fn render_numeric_values(raw: &[u8], nc_type: NcType) -> String {
     let elem = nc_type.element_size();
     if elem == 0 {
         return String::new();

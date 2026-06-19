@@ -22,6 +22,7 @@
 //! <https://docs.hdfgroup.org/hdf5/develop/_f_m_t3.html>.
 
 use super::Hdf5Probe;
+use super::heap::{self, Cursor, FractalHeap};
 use super::object_header::{self, read_uint_le};
 use fieldglass_core::FieldglassError;
 
@@ -32,14 +33,13 @@ const MSG_DATATYPE: u16 = 0x0003;
 const MSG_LINK: u16 = 0x0006;
 const MSG_SYMBOL_TABLE: u16 = 0x0011;
 
-// On-disk structure signatures.
+// On-disk structure signatures owned by this module.
 const SIG_LOCAL_HEAP: &[u8; 4] = b"HEAP";
 const SIG_BTREE_V1: &[u8; 4] = b"TREE";
 const SIG_SNOD: &[u8; 4] = b"SNOD";
-const SIG_BTREE_V2_HDR: &[u8; 4] = b"BTHD";
-const SIG_BTREE_V2_LEAF: &[u8; 4] = b"BTLF";
-const SIG_FRACTAL_HEAP: &[u8; 4] = b"FRHP";
-const SIG_FRACTAL_DIRECT: &[u8; 4] = b"FHDB";
+
+/// Link-name B-tree v2 record: `hash(4)` then the fractal-heap ID.
+const LINK_RECORD_HEAP_ID_OFFSET: usize = 4;
 
 /// Upper bound on children enumerated from one group — guards malformed counts.
 const MAX_CHILDREN: usize = 1 << 20;
@@ -244,7 +244,7 @@ fn read_snod(
 
 /// Read a null-terminated link name from the local heap data segment.
 fn read_heap_name(bytes: &[u8], heap_data: u64, offset: u64) -> Result<String, FieldglassError> {
-    let start = checked_add(heap_data, offset)?;
+    let start = heap::checked_add(heap_data, offset)?;
     let start = usize::try_from(start)
         .map_err(|_| FieldglassError::Parse("heap name offset too large".into()))?;
     let tail = bytes
@@ -295,11 +295,19 @@ fn link_info_links(
 
     let btree_addr = read_uint_le(body, pos + o, o)?;
     let heap = FractalHeap::parse(bytes, heap_addr, osize, lsize)?;
-    let heap_ids = btree_v2_heap_ids(bytes, btree_addr, heap.heap_id_len, osize, lsize)?;
+    let (btree_type, records) = heap::btree_v2_leaf_records(bytes, btree_addr, osize, lsize)?;
+    if btree_type != 5 && btree_type != 6 {
+        return Err(FieldglassError::Parse(format!(
+            "unsupported B-tree v2 type {btree_type} for links"
+        )));
+    }
 
     let mut links = Vec::new();
-    for id in heap_ids {
-        let object = heap.managed_object(bytes, &id)?;
+    for record in records {
+        let id = record
+            .get(LINK_RECORD_HEAP_ID_OFFSET..LINK_RECORD_HEAP_ID_OFFSET + heap.heap_id_len)
+            .ok_or_else(|| FieldglassError::Parse("link record too small for a heap ID".into()))?;
+        let object = heap.managed_object(bytes, id)?;
         if let Some(link) = parse_link_message(&object, osize)? {
             push_link(&mut links, link.0, link.1)?;
         }
@@ -331,158 +339,6 @@ fn parse_link_message(body: &[u8], osize: u8) -> Result<Option<(String, u64)>, F
     Ok(Some((name, addr)))
 }
 
-/// Minimal version-2 B-tree reader: returns the heap ID from every record in the
-/// (single-level) root leaf. Each link-name record is `hash(4) + heap_id`.
-fn btree_v2_heap_ids(
-    bytes: &[u8],
-    addr: u64,
-    heap_id_len: usize,
-    osize: u8,
-    lsize: u8,
-) -> Result<Vec<Vec<u8>>, FieldglassError> {
-    let mut hdr = Cursor::at(bytes, addr)?;
-    hdr.tag(SIG_BTREE_V2_HDR)?;
-    hdr.skip(1)?; // version
-    let btree_type = hdr.byte()?;
-    if btree_type != 5 && btree_type != 6 {
-        return Err(FieldglassError::Parse(format!(
-            "unsupported B-tree v2 type {btree_type} for links"
-        )));
-    }
-    hdr.uint(4)?; // node size
-    let record_size = hdr.u16()? as usize;
-    let depth = hdr.u16()?;
-    if depth != 0 {
-        return Err(FieldglassError::Parse(
-            "multi-level link B-tree v2 not supported".into(),
-        ));
-    }
-    hdr.skip(2)?; // split + merge percent
-    let root_addr = hdr.uint(osize as usize)?;
-    let root_nrec = hdr.u16()? as usize;
-    let _total = hdr.uint(lsize as usize)?;
-
-    if record_size < 4 + heap_id_len {
-        return Err(FieldglassError::Parse(
-            "B-tree v2 record too small for a heap ID".into(),
-        ));
-    }
-    if root_nrec > MAX_CHILDREN {
-        return Err(FieldglassError::Parse(
-            "implausible B-tree v2 record count".into(),
-        ));
-    }
-
-    let mut leaf = Cursor::at(bytes, root_addr)?;
-    leaf.tag(SIG_BTREE_V2_LEAF)?;
-    leaf.skip(2)?; // version + type
-    let mut ids = Vec::with_capacity(root_nrec);
-    for _ in 0..root_nrec {
-        let record = leaf.take(record_size)?;
-        ids.push(record[4..4 + heap_id_len].to_vec());
-    }
-    Ok(ids)
-}
-
-/// The subset of a fractal heap needed to dereference managed link objects.
-struct FractalHeap {
-    heap_id_len: usize,
-    /// Byte width of the offset field inside a managed heap ID.
-    offset_bytes: usize,
-    /// Byte width of the length field inside a managed heap ID.
-    length_bytes: usize,
-    /// File address of the single root direct block.
-    root_block_addr: u64,
-}
-
-impl FractalHeap {
-    fn parse(bytes: &[u8], addr: u64, osize: u8, lsize: u8) -> Result<Self, FieldglassError> {
-        let o = osize as usize;
-        let l = lsize as usize;
-        let mut cur = Cursor::at(bytes, addr)?;
-        cur.tag(SIG_FRACTAL_HEAP)?;
-        cur.skip(1)?; // version
-        let heap_id_len = cur.u16()? as usize;
-        let io_filter_len = cur.u16()? as usize;
-        if io_filter_len != 0 {
-            return Err(FieldglassError::Parse(
-                "I/O-filtered fractal heaps not supported".into(),
-            ));
-        }
-        cur.skip(1)?; // flags
-        cur.skip(4)?; // maximum size of managed objects
-        // Skip the statistics block between here and "table width". It is ten
-        // length-sized fields (next-huge id, free space, managed/allocated
-        // space, iterator offset, #managed, size/#huge, size/#tiny) plus two
-        // offset-sized addresses (huge-object B-tree, free-space manager).
-        cur.skip(l * 10 + o * 2)?;
-        cur.skip(2)?; // table width
-        cur.skip(l)?; // starting block size
-        cur.skip(l)?; // maximum direct block size
-        let max_heap_bits = cur.u16()? as usize;
-        cur.skip(2)?; // starting # rows in root indirect block
-        let root_block_addr = cur.uint(o)?;
-        let cur_rows = cur.u16()?;
-        if cur_rows != 0 {
-            return Err(FieldglassError::Parse(
-                "indirect fractal-heap root block not supported".into(),
-            ));
-        }
-        let offset_bytes = max_heap_bits.div_ceil(8);
-        if offset_bytes + 1 > heap_id_len {
-            return Err(FieldglassError::Parse(
-                "fractal heap ID smaller than its offset field".into(),
-            ));
-        }
-        let length_bytes = heap_id_len - 1 - offset_bytes;
-
-        // Validate the root direct block: a correct `root_block_addr` lands on
-        // an `FHDB` signature whose back-pointer is this heap header. This is a
-        // cheap guard against mis-parsing the variable-width header.
-        let mut block = Cursor::at(bytes, root_block_addr)?;
-        block.tag(SIG_FRACTAL_DIRECT)?;
-        block.skip(1)?; // version
-        if block.uint(o)? != addr {
-            return Err(FieldglassError::Parse(
-                "fractal-heap direct block back-pointer mismatch".into(),
-            ));
-        }
-
-        Ok(Self {
-            heap_id_len,
-            offset_bytes,
-            length_bytes,
-            root_block_addr,
-        })
-    }
-
-    /// Dereference a managed heap ID to its object bytes in the root direct
-    /// block. The heap ID is `flags(1) + offset(offset_bytes) + length(...)`.
-    fn managed_object(&self, bytes: &[u8], id: &[u8]) -> Result<Vec<u8>, FieldglassError> {
-        if id.len() < self.heap_id_len {
-            return Err(FieldglassError::Parse("truncated heap ID".into()));
-        }
-        // Top two bits of the first byte are the ID type; 0 == managed.
-        if (id[0] >> 4) & 0x03 != 0 {
-            return Err(FieldglassError::Parse(
-                "only managed fractal-heap objects are supported".into(),
-            ));
-        }
-        let offset = read_uint_le(id, 1, self.offset_bytes)?;
-        let length = read_uint_le(id, 1 + self.offset_bytes, self.length_bytes)? as usize;
-        // For a single root direct block the heap offset is relative to the
-        // block's file address.
-        let obj_addr = checked_add(self.root_block_addr, offset)?;
-        let start = usize::try_from(obj_addr)
-            .map_err(|_| FieldglassError::Parse("heap object address too large".into()))?;
-        let end = start
-            .checked_add(length)
-            .filter(|&e| e <= bytes.len())
-            .ok_or_else(|| FieldglassError::Parse("heap object runs past end of file".into()))?;
-        Ok(bytes[start..end].to_vec())
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
@@ -507,81 +363,6 @@ fn is_undefined(address: u64, osize: u8) -> bool {
         address == u64::MAX
     } else {
         address == (1u64 << (8 * o)) - 1
-    }
-}
-
-fn checked_add(a: u64, b: u64) -> Result<u64, FieldglassError> {
-    a.checked_add(b)
-        .ok_or_else(|| FieldglassError::Parse("address arithmetic overflow".into()))
-}
-
-/// A tiny forward cursor over a byte slice, reading little-endian fields with
-/// bounds checks. `at`/`over` choose between an absolute file offset and a
-/// borrowed message body.
-struct Cursor<'a> {
-    bytes: &'a [u8],
-    pos: usize,
-}
-
-impl<'a> Cursor<'a> {
-    fn at(bytes: &'a [u8], addr: u64) -> Result<Self, FieldglassError> {
-        let pos = usize::try_from(addr)
-            .map_err(|_| FieldglassError::Parse("address too large for this platform".into()))?;
-        if pos > bytes.len() {
-            return Err(FieldglassError::Parse("address past end of file".into()));
-        }
-        Ok(Self { bytes, pos })
-    }
-
-    fn over(bytes: &'a [u8]) -> Self {
-        Self { bytes, pos: 0 }
-    }
-
-    fn uint(&mut self, width: usize) -> Result<u64, FieldglassError> {
-        let value = read_uint_le(self.bytes, self.pos, width)?;
-        self.pos += width;
-        Ok(value)
-    }
-
-    fn u16(&mut self) -> Result<u16, FieldglassError> {
-        Ok(self.uint(2)? as u16)
-    }
-
-    fn byte(&mut self) -> Result<u8, FieldglassError> {
-        Ok(self.uint(1)? as u8)
-    }
-
-    fn skip(&mut self, n: usize) -> Result<(), FieldglassError> {
-        let end = self
-            .pos
-            .checked_add(n)
-            .filter(|&e| e <= self.bytes.len())
-            .ok_or_else(|| FieldglassError::Parse("skip past end of buffer".into()))?;
-        self.pos = end;
-        Ok(())
-    }
-
-    fn take(&mut self, n: usize) -> Result<&'a [u8], FieldglassError> {
-        let end = self
-            .pos
-            .checked_add(n)
-            .filter(|&e| e <= self.bytes.len())
-            .ok_or_else(|| FieldglassError::Parse("read past end of buffer".into()))?;
-        let out = &self.bytes[self.pos..end];
-        self.pos = end;
-        Ok(out)
-    }
-
-    fn tag(&mut self, signature: &[u8; 4]) -> Result<(), FieldglassError> {
-        let got = self.take(4)?;
-        if got != signature {
-            return Err(FieldglassError::Parse(format!(
-                "expected signature {:?}, got {:?}",
-                std::str::from_utf8(signature).unwrap_or("?"),
-                String::from_utf8_lossy(got)
-            )));
-        }
-        Ok(())
     }
 }
 
@@ -653,17 +434,6 @@ mod tests {
     fn rejects_bad_local_heap_signature() {
         let buf = vec![0u8; 64];
         let err = local_heap_data_segment(&buf, 0, 8, 8).unwrap_err();
-        assert!(matches!(err, FieldglassError::Parse(_)));
-    }
-
-    #[test]
-    fn rejects_multi_level_link_btree() {
-        let mut buf = vec![0u8; 64];
-        put(&mut buf, 0, SIG_BTREE_V2_HDR);
-        buf[5] = 5; // type: link name index
-        // Layout: sig(4) version(1) type(1) node_size(4) record_size(2) depth(2).
-        put(&mut buf, 12, &1u16.to_le_bytes()); // depth = 1 (multi-level)
-        let err = btree_v2_heap_ids(&buf, 0, 7, 8, 8).unwrap_err();
         assert!(matches!(err, FieldglassError::Parse(_)));
     }
 
