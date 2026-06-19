@@ -50,8 +50,11 @@ DIAGRAMS_DIR = REPO_ROOT / "docs" / "architecture"
 # from the source-of-truth scan.
 UNDIAGRAMMED_TRAITS: set[str] = set()
 
-# Mermaid/relationship tokens that look like identifiers but are not types.
-NON_TYPE_TOKENS = {"class", "many", "Classic", "Hdf5"}
+# Mermaid keywords that could appear where a type node is expected. The current
+# regexes structurally can't capture these (keywords and quoted cardinality fall
+# outside the capture groups), so this is belt-and-suspenders against a future
+# regex change — not load-bearing today.
+NON_TYPE_TOKENS = {"class", "many", "note", "direction"}
 
 # Built-in / primitive nodes allowed to appear in the composition diagram
 # without a `pub struct/enum/trait` declaration backing them.
@@ -114,6 +117,9 @@ def production_lines(text: str) -> list[str]:
     not production seams and must not be required in the diagrams. Generalised
     beyond ``mod`` to any test-gated item (``impl``/``struct``/``fn``/``use``).
     """
+    # Assumes the `#[cfg(test)]` attribute is on its own line (rustfmt always
+    # splits it from the item). An inline `#[cfg(test)] mod x {` would skip the
+    # wrong span — not handled because rustfmt makes it unreachable here.
     lines = text.splitlines()
     out: list[str] = []
     i, n = 0, len(lines)
@@ -157,7 +163,12 @@ def _logical_impl_headers(lines: list[str]) -> list[str]:
 
 
 def traits_from_text(text: str) -> set[str]:
-    return {m.group(1) for line in production_lines(text) for m in [TRAIT_DECL_RE.search(line)] if m}
+    names: set[str] = set()
+    for line in production_lines(text):
+        m = TRAIT_DECL_RE.search(line)
+        if m:
+            names.add(m.group(1))
+    return names
 
 
 def pub_types_from_text(text: str) -> set[str]:
@@ -204,7 +215,7 @@ def composition_type_nodes(text: str) -> set[str]:
     """
     nodes: set[str] = set()
     rel_re = re.compile(
-        r"([A-Za-z_][A-Za-z0-9_]*)\s*(?:\*--|o--|\.\.>|-->|--\|>|<\|\.\.)"
+        r"([A-Za-z_][A-Za-z0-9_]*)\s*(?:\*--|o--|\.\.>|<\.\.|-->|--\|>|<\|\.\.)"
         r"(?:\s*\"[^\"]*\")?\s*([A-Za-z_][A-Za-z0-9_]*)"
     )
     class_re = re.compile(r"\bclass\s+([A-Za-z_][A-Za-z0-9_]*)")
@@ -336,6 +347,22 @@ def check_crate_graph() -> list[str]:
     return errors
 
 
+def check_diagrams_present() -> list[str]:
+    """Fail loudly if a diagram file has no parseable ```mermaid``` block.
+
+    Without this, broken fences would make the trait/composition scans pass
+    vacuously (empty drawn-sets) for whichever check has no source counterpart.
+    """
+    errors = []
+    for name in ("01-crates.md", "02-trait-seams.md", "03-composition.md"):
+        path = DIAGRAMS_DIR / name
+        if not path.is_file():
+            errors.append(f"{name}: missing")
+        elif not mermaid_blocks(_read(path)):
+            errors.append(f"{name}: no ```mermaid``` block parsed (broken fence?)")
+    return errors
+
+
 def check_composition_types(known: set[str]) -> list[str]:
     text = _read(DIAGRAMS_DIR / "03-composition.md")
     nodes = composition_type_nodes(text)
@@ -356,11 +383,13 @@ def main() -> int:
     documented = traits - UNDIAGRAMMED_TRAITS
     known_types = all_pub_types()
 
-    errors = (
-        check_crate_graph()
-        + check_trait_seams(traits, documented)
-        + check_composition_types(known_types)
-    )
+    errors = check_diagrams_present()
+    if not errors:
+        errors = (
+            check_crate_graph()
+            + check_trait_seams(traits, documented)
+            + check_composition_types(known_types)
+        )
 
     # Non-fatal advisories.
     for note in macro_impl_notes(traits):

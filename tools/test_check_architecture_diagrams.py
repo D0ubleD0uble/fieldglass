@@ -129,6 +129,21 @@ class CompositionNodes(unittest.TestCase):
         self.assertNotIn("many", nodes)
         self.assertNotIn("class", nodes)
 
+    def test_captures_reverse_dependency_arrow(self):
+        # `<..` endpoints must be collected too (F2).
+        text = "```mermaid\nclassDiagram\n    GridTemplate <.. GridDefinitionSection\n```\n"
+        nodes = chk.composition_type_nodes(text)
+        self.assertEqual(nodes, {"GridTemplate", "GridDefinitionSection"})
+
+
+class FenceParsing(unittest.TestCase):
+    def test_broken_fence_yields_no_blocks(self):
+        # A mis-spelled fence must not silently parse as empty-and-fine (F3).
+        self.assertEqual(chk.mermaid_blocks("```mermaidx\nclassDiagram\n```\n"), [])
+
+    def test_good_fence_yields_block(self):
+        self.assertEqual(len(chk.mermaid_blocks("```mermaid\nA <|.. B\n```\n")), 1)
+
 
 class CrateDeps(unittest.TestCase):
     def test_only_dependencies_section(self):
