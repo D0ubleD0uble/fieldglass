@@ -9,7 +9,9 @@ datatype / dataspace / storage matrix. This script writes two fixtures with
 
   * ``hdf5_v1_symboltable.h5`` — ``libver='earliest'``: superblock v0, **v1**
     object headers, **symbol-table** groups (local heap + B-tree v1). The
-    legacy layout #38 must handle.
+    legacy layout #38 must handle. Also carries a chunked+gzip+shuffle dataset
+    whose chunk index is a **version-1 B-tree** (Data Layout v3) — the value
+    decode #121 reads end to end.
   * ``hdf5_v2_linkinfo.h5`` — ``libver='v110'``: superblock v3, **v2** object
     headers (``OHDR``), **link-info** groups, plus a chunked+gzip+shuffle
     dataset (#121) and a dataset with enough attributes to force **dense**
@@ -37,7 +39,7 @@ FIXturesDir = Path("crates/fieldglass-netcdf/tests/fixtures")
 FIXED_STR = h5py.string_dtype("ascii", 8)
 
 
-def populate(f: h5py.File, *, dense_and_chunked: bool) -> None:
+def populate(f: h5py.File, *, dense_and_chunked: bool, btree_v1_compressed: bool = False) -> None:
     """Write the shared object matrix into an open file."""
     # --- global (root-group) attributes: #40 ---
     f.attrs["title"] = np.bytes_(b"fieldglass HDF5 fixture")
@@ -60,7 +62,26 @@ def populate(f: h5py.File, *, dense_and_chunked: bool) -> None:
     ds("record", np.arange(4, dtype="<f4"), maxshape=(None,))
 
     # --- fill value, no data written → reads all-fill (#121) ---
-    ds("masked", shape=(6,), dtype="<f4", fillvalue=np.float32(-999.0))
+    # A non-round float `_FillValue` (its exact f32 value needs more than a few
+    # decimals) so value decode must mask against the *typed* fill, not the
+    # rounded display text. With the attribute present, every point reads as the
+    # fill and masks to missing.
+    masked = ds("masked", shape=(6,), dtype="<f4", fillvalue=np.float32(-9999.55))
+    masked.attrs["_FillValue"] = np.float32(-9999.55)
+
+    if btree_v1_compressed:
+        # chunked + deflate + shuffle under libver='earliest' → the chunk index
+        # is a version-1 B-tree (Data Layout v3). This is the read path #121
+        # decodes: B-tree chunk walk + filter-pipeline reverse, end to end. (The
+        # v110 fixture's `chunked` dataset uses a version-4 chunk index instead.)
+        ds(
+            "compressed",
+            np.arange(64, dtype="<f4").reshape(8, 8),
+            chunks=(4, 4),
+            compression="gzip",
+            compression_opts=4,
+            shuffle=True,
+        )
 
     # --- per-dataset attributes (#40): numeric + string ---
     f64.attrs["units"] = np.bytes_(b"meters")
@@ -151,10 +172,12 @@ def dataset_oracle(d: h5py.Dataset) -> dict:
     return o
 
 
-def build(name: str, libver: str, *, dense_and_chunked: bool) -> None:
+def build(name: str, libver: str, *, dense_and_chunked: bool,
+          btree_v1_compressed: bool = False) -> None:
     path = FIXturesDir / name
     with h5py.File(path, "w", libver=libver) as f:
-        populate(f, dense_and_chunked=dense_and_chunked)
+        populate(f, dense_and_chunked=dense_and_chunked,
+                 btree_v1_compressed=btree_v1_compressed)
 
     raw = path.read_bytes()
     with h5py.File(path, "r") as f:
@@ -183,7 +206,8 @@ def build(name: str, libver: str, *, dense_and_chunked: bool) -> None:
 def main() -> int:
     if not FIXturesDir.is_dir():
         raise SystemExit("run from the repo root")
-    build("hdf5_v1_symboltable.h5", "earliest", dense_and_chunked=False)
+    build("hdf5_v1_symboltable.h5", "earliest", dense_and_chunked=False,
+          btree_v1_compressed=True)
     build("hdf5_v2_linkinfo.h5", "v110", dense_and_chunked=True)
     return 0
 

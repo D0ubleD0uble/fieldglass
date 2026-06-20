@@ -74,6 +74,6 @@ fn v2_dataset_shapes_match_oracle() {
 /// The v1 and v2 fixtures genuinely use different dataspace message versions.
 #[test]
 fn both_dataspace_versions_decode() {
-    assert_eq!(shapes(V1_SYMBOLTABLE).len(), 8);
+    assert_eq!(shapes(V1_SYMBOLTABLE).len(), 9);
     assert_eq!(shapes(V2_LINKINFO).len(), 10);
 }

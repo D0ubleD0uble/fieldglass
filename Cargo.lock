@@ -99,6 +99,7 @@ name = "fieldglass-netcdf"
 version = "0.1.3"
 dependencies = [
  "fieldglass-core",
+ "miniz_oxide",
  "serde",
  "serde_json",
 ]

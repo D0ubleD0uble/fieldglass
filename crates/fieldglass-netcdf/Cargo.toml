@@ -10,6 +10,8 @@ repository.workspace = true
 [dependencies]
 fieldglass-core = { path = "../fieldglass-core", version = "=0.1.3" }
 serde = { version = "1", features = ["derive"] }
+# DEFLATE (zlib) decode for the HDF5 deflate filter on chunked NetCDF-4 datasets.
+miniz_oxide = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }

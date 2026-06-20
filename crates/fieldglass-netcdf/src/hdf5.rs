@@ -17,9 +17,12 @@ pub mod attribute;
 pub mod dataset;
 pub mod dataspace;
 pub mod datatype;
+pub mod filter;
 pub mod group;
 pub mod heap;
+pub mod layout;
 pub mod object_header;
+pub mod values;
 
 /// HDF5 signature: `\x89HDF\r\n\x1a\n`.
 pub const HDF5_SIGNATURE: [u8; 8] = [0x89, b'H', b'D', b'F', b'\r', b'\n', 0x1a, b'\n'];

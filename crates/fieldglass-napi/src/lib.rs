@@ -742,9 +742,9 @@ fn dataset_meta_from(reader: NetcdfReader) -> DatasetMeta {
     }
 }
 
-/// Decoded values for one classic NetCDF variable, flattened for the JS
-/// boundary. Mirrors [`DecodedGrid`] but carries the full N-D `shape` (a
-/// NetCDF variable may be 1-D, 3-D, 4-D, …) instead of a single width/height.
+/// Decoded values for one NetCDF variable, flattened for the JS boundary.
+/// Mirrors [`DecodedGrid`] but carries the full N-D `shape` (a NetCDF variable
+/// may be 1-D, 3-D, 4-D, …) instead of a single width/height.
 #[napi(object)]
 pub struct DecodedVariable {
     /// Row-major (C / on-disk order) values; `f64::NAN` at masked / fill
@@ -758,10 +758,12 @@ pub struct DecodedVariable {
     pub shape: Vec<u32>,
 }
 
-/// Decode one classic NetCDF variable's values by index. Errors for HDF5
-/// backings (value decode is a separate track), `char` variables (text, not
-/// numbers), and out-of-range indices. Mirrors the GRIB
-/// `decode_grid` surface.
+/// Decode one NetCDF variable's values by index. Works for classic (CDF-1/2/5)
+/// and NetCDF-4 / HDF5 backings; for HDF5 a "variable" is a root-group dataset
+/// in name-sorted order. Errors for `char` / string variables (text, not
+/// numbers), datasets stored with a layout not yet decoded (e.g. a version-4
+/// chunk index), and out-of-range indices. Mirrors the GRIB `decode_grid`
+/// surface.
 #[napi]
 pub fn decode_netcdf_variable(
     bytes: napi::bindgen_prelude::Buffer,

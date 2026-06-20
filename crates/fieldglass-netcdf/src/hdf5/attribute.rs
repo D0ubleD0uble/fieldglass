@@ -30,7 +30,7 @@ const ATTR_RECORD_HEAP_ID_OFFSET: usize = 0;
 const MAX_ATTRIBUTES: usize = 1 << 20;
 
 /// A decoded HDF5 attribute.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Hdf5Attribute {
     pub name: String,
     pub datatype: Datatype,
@@ -38,6 +38,10 @@ pub struct Hdf5Attribute {
     /// Display value: UTF-8 text for strings, comma-separated decimals for
     /// numeric types (matching the classic NetCDF render path).
     pub value: String,
+    /// Typed first element, widened to `f64`, for numeric attributes; `None` for
+    /// strings. Mirrors the classic `Attribute::first_value` so value decode can
+    /// read a `_FillValue` without a lossy round-trip through the display text.
+    pub first_value: Option<f64>,
 }
 
 /// List the attributes attached to the object header at `object_header_address`,
@@ -55,16 +59,19 @@ pub fn list_attributes(
     )?;
 
     let mut attrs = Vec::new();
-    // Inline attributes: Attribute messages directly in the header.
+    // Inline attributes: Attribute messages directly in the header. An attribute
+    // we can't parse — most often one whose datatype we don't decode (e.g. a
+    // NetCDF-4 `DIMENSION_LIST`, which is variable-length), but a malformed one
+    // too — is skipped rather than failing the whole list, so the rest of an
+    // object's attributes, and its value decode, still come through.
     for msg in header
         .messages
         .iter()
         .filter(|m| m.msg_type == MSG_ATTRIBUTE)
     {
-        push_attribute(
-            &mut attrs,
-            parse_attribute_message(&msg.body, probe.length_size)?,
-        )?;
+        if let Ok(attr) = parse_attribute_message(&msg.body, probe.length_size) {
+            push_attribute(&mut attrs, attr)?;
+        }
     }
     // Dense attributes: Attribute Info → fractal heap + B-tree v2.
     if let Some(msg) = header
@@ -100,7 +107,7 @@ fn read_dense_attributes(
     }
     let heap_addr = read_uint_le(body, pos, o)?;
     // No fractal heap ⇒ no dense attributes (everything was inline).
-    if is_undefined(heap_addr, probe.offset_size) {
+    if object_header::is_undefined_address(heap_addr, probe.offset_size) {
         return Ok(());
     }
     let btree_addr = read_uint_le(body, pos + o, o)?;
@@ -121,7 +128,11 @@ fn read_dense_attributes(
                 FieldglassError::Parse("attribute record too small for a heap ID".into())
             })?;
         let message = heap.managed_object(bytes, id)?;
-        push_attribute(out, parse_attribute_message(&message, probe.length_size)?)?;
+        // Skip dense attributes we can't parse (undecodable datatype or
+        // malformed), same as the inline loop in `list_attributes`.
+        if let Ok(attr) = parse_attribute_message(&message, probe.length_size) {
+            push_attribute(out, attr)?;
+        }
     }
     Ok(())
 }
@@ -161,11 +172,15 @@ fn parse_attribute_message(body: &[u8], length_size: u8) -> Result<Hdf5Attribute
     let datatype = datatype::decode(&datatype_bytes)?;
     let dataspace = dataspace::decode(&dataspace_bytes, length_size)?;
     let value = render_value(data, &datatype, &dataspace)?;
+    // Typed first element (numeric only), straight from the raw bytes — value
+    // decode masks `_FillValue` against this rather than the rounded display text.
+    let first_value = datatype.read_element_f64(data);
     Ok(Hdf5Attribute {
         name,
         datatype,
         dataspace,
         value,
+        first_value,
     })
 }
 
@@ -244,16 +259,6 @@ fn push_attribute(
 fn decode_name(raw: &[u8]) -> String {
     let end = raw.iter().position(|&b| b == 0).unwrap_or(raw.len());
     String::from_utf8_lossy(&raw[..end]).into_owned()
-}
-
-/// Whether an address field is the HDF5 "undefined address" sentinel (all ones).
-fn is_undefined(address: u64, osize: u8) -> bool {
-    let o = osize as usize;
-    if o >= 8 {
-        address == u64::MAX
-    } else {
-        address == (1u64 << (8 * o)) - 1
-    }
 }
 
 #[cfg(test)]

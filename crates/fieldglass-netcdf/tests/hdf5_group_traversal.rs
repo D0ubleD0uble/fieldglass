@@ -23,7 +23,7 @@ fn child_names(bytes: &[u8]) -> Vec<(String, ChildKind, u64)> {
         .collect()
 }
 
-/// v1 symbol-table layout: 8 datasets, matching `h5dump -n`.
+/// v1 symbol-table layout: 9 datasets, matching `h5dump -n`.
 #[test]
 fn v1_root_children() {
     let children = child_names(V1_SYMBOLTABLE);
@@ -31,6 +31,7 @@ fn v1_root_children() {
     assert_eq!(
         names,
         vec![
+            "compressed",
             "label",
             "masked",
             "record",

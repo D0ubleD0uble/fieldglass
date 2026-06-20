@@ -107,6 +107,46 @@ pub fn decode(body: &[u8]) -> Result<Datatype, FieldglassError> {
     }
 }
 
+impl Datatype {
+    /// Decode the first element from `bytes` (which must be at least
+    /// [`Self::size`] long) into `f64`, honouring the datatype's byte order.
+    /// Integer types widen (`i64` / `u64` may lose precision past 2^53, as
+    /// elsewhere in the `f64` value pipeline). Returns `None` for the string
+    /// class or when `bytes` is too short — a string holds text, not a number.
+    pub fn read_element_f64(&self, bytes: &[u8]) -> Option<f64> {
+        let size = self.size as usize;
+        if bytes.len() < size || size == 0 {
+            return None;
+        }
+        let big_endian = self.byte_order == Some(ByteOrder::BigEndian);
+        macro_rules! read {
+            ($ty:ty) => {{
+                const N: usize = std::mem::size_of::<$ty>();
+                let mut buf = [0u8; N];
+                buf.copy_from_slice(&bytes[..N]);
+                if big_endian {
+                    <$ty>::from_be_bytes(buf)
+                } else {
+                    <$ty>::from_le_bytes(buf)
+                }
+            }};
+        }
+        Some(match self.nc_type {
+            NcType::Byte => (bytes[0] as i8) as f64,
+            NcType::UByte => bytes[0] as f64,
+            NcType::Char => return None,
+            NcType::Short => read!(i16) as f64,
+            NcType::UShort => read!(u16) as f64,
+            NcType::Int => read!(i32) as f64,
+            NcType::UInt => read!(u32) as f64,
+            NcType::Float => read!(f32) as f64,
+            NcType::Double => read!(f64),
+            NcType::Int64 => read!(i64) as f64,
+            NcType::UInt64 => read!(u64) as f64,
+        })
+    }
+}
+
 /// Bit 0 of a numeric class bit field selects byte order: 0 = little, 1 = big.
 fn numeric_byte_order(bit_field: u32) -> ByteOrder {
     if bit_field & 0x01 != 0 {
@@ -195,6 +235,26 @@ mod tests {
         assert_eq!(dt.size, 8);
         assert_eq!(dt.byte_order, None);
         assert_eq!(dt.nc_type, NcType::Char);
+    }
+
+    #[test]
+    fn reads_element_honouring_byte_order() {
+        // Same 32-bit int, little- vs big-endian.
+        let le = decode(&datatype(CLASS_FIXED_POINT, 0x08, 4)).unwrap();
+        assert_eq!(le.read_element_f64(&[0x2A, 0, 0, 0]), Some(42.0));
+        let be = decode(&datatype(CLASS_FIXED_POINT, 0x09, 4)).unwrap();
+        assert_eq!(be.read_element_f64(&[0, 0, 0, 0x2A]), Some(42.0));
+    }
+
+    #[test]
+    fn reads_float_and_rejects_short_or_string() {
+        let f = decode(&datatype(CLASS_FLOATING_POINT, 0x00, 4)).unwrap();
+        assert_eq!(f.read_element_f64(&1.5f32.to_le_bytes()), Some(1.5));
+        // Too few bytes → None rather than panic.
+        assert_eq!(f.read_element_f64(&[0, 0]), None);
+        // Strings hold text, not a number.
+        let s = decode(&datatype(CLASS_STRING, 0x00, 8)).unwrap();
+        assert_eq!(s.read_element_f64(b"degC\0\0\0\0"), None);
     }
 
     #[test]
