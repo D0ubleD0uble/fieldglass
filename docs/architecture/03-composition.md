@@ -9,11 +9,11 @@ for, which keeps scanning a file cheap.
 ## GRIB2 message
 
 One `Grib2Message` holds every WMO section. The grid, product, and
-data-representation sections each carry a template enum that resolves to the
-single concrete template the file declared.
+data-representation sections each carry a template enum.
 
 ```mermaid
 classDiagram
+    direction LR
     class Grib2Message {
         +usize message_index
         +usize byte_offset
@@ -29,11 +29,13 @@ classDiagram
     Grib2Message *-- ProductDefinitionSection
     Grib2Message *-- DataRepresentationSection
     Grib2Message *-- BitMapSection
+```
 
-    GridTemplate <.. GridDefinitionSection
-    ProductTemplate <.. ProductDefinitionSection
-    DataRepresentationTemplate <.. DataRepresentationSection
+Each enum resolves to one concrete template. `GridTemplate` to a projection:
 
+```mermaid
+classDiagram
+    direction LR
     GridTemplate --> LatLonTemplate
     GridTemplate --> RotatedLatLonTemplate
     GridTemplate --> MercatorTemplate
@@ -41,7 +43,13 @@ classDiagram
     GridTemplate --> LambertTemplate
     GridTemplate --> GaussianTemplate
     GridTemplate --> SpaceViewTemplate
+```
 
+`ProductTemplate` and `DataRepresentationTemplate` to a product and a packing:
+
+```mermaid
+classDiagram
+    direction LR
     ProductTemplate --> Template40
     ProductTemplate --> Template48
     ProductTemplate --> Template411
