@@ -97,6 +97,45 @@ pub struct RotatedLatLonGrid {
     pub scanning_mode: ScanningMode,
 }
 
+/// Grid type 0 (reduced) — quasi-regular Latitude/Longitude.
+///
+/// A "reduced" grid drops `Ni` (the GDS encodes it as the missing marker
+/// `0xFFFF`) and instead carries a `PL` list giving the number of points in
+/// each of the `Nj` rows — fewer points toward the poles. The total point
+/// count is `points_per_row.sum()`, not `Ni·Nj`.
+pub struct ReducedLatLonGrid {
+    pub nj: u32,
+    pub lat_first: f64,
+    pub lon_first: f64,
+    pub lat_last: f64,
+    pub lon_last: f64,
+    /// North-south increment in degrees.
+    pub dj: f64,
+    /// Number of points in each of the `Nj` rows (the GDS `PL` list).
+    pub points_per_row: Vec<u32>,
+    pub resolution_flags: ResolutionFlags,
+    pub scanning_mode: ScanningMode,
+}
+
+/// Grid type 4 (reduced) — quasi-regular Gaussian Latitude/Longitude.
+///
+/// As [`ReducedLatLonGrid`], but the row latitudes are Gauss–Legendre nodes
+/// (`n_gaussians` between pole and equator) rather than equispaced. This is the
+/// common ECMWF "reduced_gg" layout.
+pub struct ReducedGaussianGrid {
+    pub nj: u32,
+    pub lat_first: f64,
+    pub lon_first: f64,
+    pub lat_last: f64,
+    pub lon_last: f64,
+    /// Number of Gaussian latitudes between pole and equator.
+    pub n_gaussians: u16,
+    /// Number of points in each of the `Nj` rows (the GDS `PL` list).
+    pub points_per_row: Vec<u32>,
+    pub resolution_flags: ResolutionFlags,
+    pub scanning_mode: ScanningMode,
+}
+
 /// Grid type 4 — Gaussian Latitude/Longitude.
 pub struct GaussianGrid {
     pub ni: u32,
@@ -220,7 +259,9 @@ impl LambertGrid {
 pub enum GridDescription {
     LatLon(LatLonGrid),
     RotatedLatLon(RotatedLatLonGrid),
+    ReducedLatLon(ReducedLatLonGrid),
     Gaussian(GaussianGrid),
+    ReducedGaussian(ReducedGaussianGrid),
     PolarStereographic(PolarStereoGrid),
     LambertConformal(LambertGrid),
     /// Grid type present but not yet supported by this parser.
@@ -234,22 +275,51 @@ impl GridDescription {
         match self {
             Self::LatLon(_) => "latlon",
             Self::RotatedLatLon(_) => "rotated_latlon",
+            Self::ReducedLatLon(_) => "reduced_latlon",
             Self::Gaussian(_) => "gaussian",
+            Self::ReducedGaussian(_) => "reduced_gaussian",
             Self::PolarStereographic(_) => "polar_stereo",
             Self::LambertConformal(_) => "lambert",
             Self::Unsupported { .. } => "unsupported",
         }
     }
 
-    /// Ni × Nj grid dimensions, if available.
+    /// Grid dimensions, if available. For reduced grids `Ni` is the *widest*
+    /// row (`max(points_per_row)`) — the column count a row-expanded raster
+    /// needs — paired with the true row count `Nj`.
     pub fn dimensions(&self) -> Option<(u32, u32)> {
         match self {
             Self::LatLon(g) => Some((g.ni, g.nj)),
             Self::RotatedLatLon(g) => Some((g.ni, g.nj)),
+            Self::ReducedLatLon(g) => Some((max_row_width(&g.points_per_row), g.nj)),
             Self::Gaussian(g) => Some((g.ni, g.nj)),
+            Self::ReducedGaussian(g) => Some((max_row_width(&g.points_per_row), g.nj)),
             Self::PolarStereographic(g) => Some((g.nx, g.ny)),
             Self::LambertConformal(g) => Some((g.nx, g.ny)),
             Self::Unsupported { .. } => None,
+        }
+    }
+
+    /// Number of stored data points. For regular grids this is `Ni·Nj`; for
+    /// reduced grids it is the sum of the `PL` list, since rows differ in width.
+    pub fn num_data_points(&self) -> Option<usize> {
+        match self {
+            Self::ReducedLatLon(g) => Some(g.points_per_row.iter().map(|&n| n as usize).sum()),
+            Self::ReducedGaussian(g) => Some(g.points_per_row.iter().map(|&n| n as usize).sum()),
+            _ => {
+                let (ni, nj) = self.dimensions()?;
+                (ni as usize).checked_mul(nj as usize)
+            }
+        }
+    }
+
+    /// The per-row point counts (`PL` list) for a reduced grid; `None` for the
+    /// regular grids whose rows are all `Ni` wide.
+    pub fn points_per_row(&self) -> Option<&[u32]> {
+        match self {
+            Self::ReducedLatLon(g) => Some(&g.points_per_row),
+            Self::ReducedGaussian(g) => Some(&g.points_per_row),
+            _ => None,
         }
     }
 
@@ -261,7 +331,9 @@ impl GridDescription {
         match self {
             Self::LatLon(g) => Some((g.lat_first, g.lon_first, g.lat_last, g.lon_last)),
             Self::RotatedLatLon(g) => Some((g.lat_first, g.lon_first, g.lat_last, g.lon_last)),
+            Self::ReducedLatLon(g) => Some((g.lat_first, g.lon_first, g.lat_last, g.lon_last)),
             Self::Gaussian(g) => Some((g.lat_first, g.lon_first, g.lat_last, g.lon_last)),
+            Self::ReducedGaussian(g) => Some((g.lat_first, g.lon_first, g.lat_last, g.lon_last)),
             Self::PolarStereographic(g) => {
                 let (lat_last, lon_last) = g.last_point();
                 Some((g.lat_first, g.lon_first, lat_last, lon_last))
@@ -273,6 +345,11 @@ impl GridDescription {
             Self::Unsupported { .. } => None,
         }
     }
+}
+
+/// Widest row in a reduced grid's `PL` list (0 if empty).
+fn max_row_width(points_per_row: &[u32]) -> u32 {
+    points_per_row.iter().copied().max().unwrap_or(0)
 }
 
 // ---------------------------------------------------------------------------
@@ -298,22 +375,26 @@ pub fn parse_grid_description(bytes: &[u8]) -> Result<GridDescription, Fieldglas
     }
 
     let grid_type = bytes[5];
+    let section = &bytes[..section_len];
+    // A reduced (quasi-regular) grid encodes Ni as the 2-byte missing marker
+    // (0xFFFF) and carries a per-row PL list instead. Needs octets 7-8.
+    let ni_is_missing = section_len >= 8 && section[6] == 0xFF && section[7] == 0xFF;
 
     match grid_type {
-        0 => Ok(GridDescription::LatLon(parse_latlon(
-            &bytes[..section_len],
+        0 if ni_is_missing => Ok(GridDescription::ReducedLatLon(parse_reduced_latlon(
+            section,
         )?)),
-        3 => Ok(GridDescription::LambertConformal(parse_lambert(
-            &bytes[..section_len],
+        0 => Ok(GridDescription::LatLon(parse_latlon(section)?)),
+        3 => Ok(GridDescription::LambertConformal(parse_lambert(section)?)),
+        4 if ni_is_missing => Ok(GridDescription::ReducedGaussian(parse_reduced_gaussian(
+            section,
         )?)),
-        4 => Ok(GridDescription::Gaussian(parse_gaussian(
-            &bytes[..section_len],
-        )?)),
+        4 => Ok(GridDescription::Gaussian(parse_gaussian(section)?)),
         10 => Ok(GridDescription::RotatedLatLon(parse_rotated_latlon(
-            &bytes[..section_len],
+            section,
         )?)),
         5 => Ok(GridDescription::PolarStereographic(parse_polar_stereo(
-            &bytes[..section_len],
+            section,
         )?)),
         _ => Ok(GridDescription::Unsupported { grid_type }),
     }
@@ -359,6 +440,72 @@ fn parse_rotated_latlon(b: &[u8]) -> Result<RotatedLatLonGrid, FieldglassError> 
         south_pole_lon: read_signed_magnitude_24(&b[35..38]) as f64 / 1000.0,
         angle_of_rotation: ibm_float_to_f64(read_u32(&b[38..42])),
     })
+}
+
+fn parse_reduced_latlon(b: &[u8]) -> Result<ReducedLatLonGrid, FieldglassError> {
+    require_len(b, 32, "Reduced LatLon GDS")?;
+    let nj = u16::from_be_bytes([b[8], b[9]]) as u32;
+    let points_per_row = parse_pl_list(b, nj)?;
+    Ok(ReducedLatLonGrid {
+        nj,
+        lat_first: read_signed_magnitude_24(&b[10..13]) as f64 / 1000.0,
+        lon_first: read_signed_magnitude_24(&b[13..16]) as f64 / 1000.0,
+        resolution_flags: ResolutionFlags::from_byte(b[16]),
+        lat_last: read_signed_magnitude_24(&b[17..20]) as f64 / 1000.0,
+        lon_last: read_signed_magnitude_24(&b[20..23]) as f64 / 1000.0,
+        dj: u16::from_be_bytes([b[25], b[26]]) as f64 / 1000.0,
+        scanning_mode: ScanningMode::from_byte(b[27]),
+        points_per_row,
+    })
+}
+
+fn parse_reduced_gaussian(b: &[u8]) -> Result<ReducedGaussianGrid, FieldglassError> {
+    require_len(b, 32, "Reduced Gaussian GDS")?;
+    let nj = u16::from_be_bytes([b[8], b[9]]) as u32;
+    let points_per_row = parse_pl_list(b, nj)?;
+    Ok(ReducedGaussianGrid {
+        nj,
+        lat_first: read_signed_magnitude_24(&b[10..13]) as f64 / 1000.0,
+        lon_first: read_signed_magnitude_24(&b[13..16]) as f64 / 1000.0,
+        resolution_flags: ResolutionFlags::from_byte(b[16]),
+        lat_last: read_signed_magnitude_24(&b[17..20]) as f64 / 1000.0,
+        lon_last: read_signed_magnitude_24(&b[20..23]) as f64 / 1000.0,
+        n_gaussians: u16::from_be_bytes([b[25], b[26]]),
+        scanning_mode: ScanningMode::from_byte(b[27]),
+        points_per_row,
+    })
+}
+
+/// Read the `PL` list — `Nj` big-endian `u16` point-counts, one per row — from
+/// a reduced grid's GDS. Following eccodes `grib1/section.2.def`: the PV/PL
+/// block begins at octet `pvlLocation` (GDS octet 5, 1-based; 33 when unset),
+/// the optional `NV` vertical-coordinate IBM floats (4 bytes each) come first,
+/// then the `PL` list.
+fn parse_pl_list(b: &[u8], nj: u32) -> Result<Vec<u32>, FieldglassError> {
+    let nv = b[3] as usize;
+    let pvl_location = b[4] as usize;
+    // pvlLocation is a 1-based octet index; 255 ("neither present") falls back
+    // to the fixed post-grid-definition offset (octet 33 → index 32).
+    let block_start = if pvl_location != 255 {
+        pvl_location.saturating_sub(1)
+    } else {
+        32
+    };
+    let pl_start = block_start + nv * 4;
+    let nj = nj as usize;
+    let pl_end = pl_start + nj * 2;
+    if b.len() < pl_end {
+        return Err(FieldglassError::Parse(format!(
+            "reduced grid PL list needs {pl_end} bytes, GDS section has {}",
+            b.len()
+        )));
+    }
+    Ok((0..nj)
+        .map(|i| {
+            let off = pl_start + i * 2;
+            u16::from_be_bytes([b[off], b[off + 1]]) as u32
+        })
+        .collect())
 }
 
 fn parse_gaussian(b: &[u8]) -> Result<GaussianGrid, FieldglassError> {
@@ -678,6 +825,93 @@ mod grid_variant_tests {
         let gds = build_gds(10, &body);
         let Err(err) = parse_grid_description(&gds) else {
             panic!("short rotated GDS should error");
+        };
+        assert!(matches!(err, FieldglassError::Parse(_)));
+    }
+
+    /// Build a reduced-grid GDS: the 22-octet grid header (octets 7-28), four
+    /// reserved octets, then the `PL` list. Sets `pvlLocation` (octet 5) to 255
+    /// so the parser falls back to the post-grid-definition offset (octet 33),
+    /// which is exactly where the appended `PL` list begins.
+    fn build_reduced_gds(grid_type: u8, header: &[u8], pl: &[u16]) -> Vec<u8> {
+        assert_eq!(header.len(), 22, "grid header is octets 7-28");
+        let mut body = Vec::new();
+        body.extend_from_slice(header);
+        body.extend([0, 0, 0, 0]); // octets 29-32, reserved
+        for &count in pl {
+            body.extend(u16be(count));
+        }
+        let mut gds = build_gds(grid_type, &body);
+        gds[4] = 255; // pvlLocation = neither-present sentinel
+        gds
+    }
+
+    /// The octets 7-28 grid header shared by reduced lat/lon and Gaussian: Ni
+    /// missing, four rows, a 60°N..60°S / 0..350°E box. The two trailing octets
+    /// (`tail`) are Dj for lat/lon or N for Gaussian.
+    fn reduced_header(tail: [u8; 2]) -> Vec<u8> {
+        let mut h = Vec::new();
+        h.extend(u16be(0xFFFF)); // Ni missing → reduced
+        h.extend(u16be(4)); // Nj = 4 rows
+        h.extend(sm24(60_000)); // lat_first = 60.000°
+        h.extend(sm24(0)); // lon_first = 0.000°
+        h.push(0x80); // resolution flags: increments_given
+        h.extend(sm24(-60_000)); // lat_last = -60.000°
+        h.extend(sm24(350_000)); // lon_last = 350.000°
+        h.extend(u16be(0xFFFF)); // Di missing (varies per row)
+        h.extend(tail); // Dj (lat/lon) or N (Gaussian)
+        h.push(0x00); // scanning mode
+        h
+    }
+
+    #[test]
+    fn parses_reduced_latlon_gds() {
+        // Four rows of 4, 8, 8, 4 points → 24 stored points, widest row 8.
+        let header = reduced_header(u16be(2_500)); // Dj = 2.5°
+        let gds = build_reduced_gds(0, &header, &[4, 8, 8, 4]);
+        let parsed = parse_grid_description(&gds).expect("reduced lat/lon GDS parses");
+        assert_eq!(parsed.grid_type_name(), "reduced_latlon");
+        assert_eq!(parsed.dimensions(), Some((8, 4)), "Ni = widest row");
+        assert_eq!(parsed.num_data_points(), Some(24), "sum of PL");
+        assert_eq!(parsed.points_per_row(), Some([4u32, 8, 8, 4].as_slice()));
+        assert_eq!(parsed.bounds(), Some((60.0, 0.0, -60.0, 350.0)));
+        let GridDescription::ReducedLatLon(g) = parsed else {
+            panic!("expected ReducedLatLon");
+        };
+        assert_eq!(g.nj, 4);
+        assert_eq!(g.dj, 2.5);
+    }
+
+    #[test]
+    fn parses_reduced_gaussian_gds() {
+        // N = 2 (two Gaussian latitudes pole-to-equator), rows 4, 8, 8, 4.
+        let header = reduced_header(u16be(2)); // N = 2
+        let gds = build_reduced_gds(4, &header, &[4, 8, 8, 4]);
+        let parsed = parse_grid_description(&gds).expect("reduced Gaussian GDS parses");
+        assert_eq!(parsed.grid_type_name(), "reduced_gaussian");
+        assert_eq!(parsed.dimensions(), Some((8, 4)));
+        assert_eq!(parsed.num_data_points(), Some(24));
+        assert_eq!(parsed.points_per_row(), Some([4u32, 8, 8, 4].as_slice()));
+        let GridDescription::ReducedGaussian(g) = parsed else {
+            panic!("expected ReducedGaussian");
+        };
+        assert_eq!(g.nj, 4);
+        assert_eq!(g.n_gaussians, 2);
+    }
+
+    #[test]
+    fn reduced_grid_truncated_pl_list_errors() {
+        // Promise four rows but supply only two PL entries.
+        let header = reduced_header(u16be(2_500));
+        let mut body = Vec::new();
+        body.extend_from_slice(&header);
+        body.extend([0, 0, 0, 0]);
+        body.extend(u16be(4));
+        body.extend(u16be(8)); // only 2 of the 4 promised rows
+        let mut gds = build_gds(0, &body);
+        gds[4] = 255;
+        let Err(err) = parse_grid_description(&gds) else {
+            panic!("truncated PL list should error");
         };
         assert!(matches!(err, FieldglassError::Parse(_)));
     }

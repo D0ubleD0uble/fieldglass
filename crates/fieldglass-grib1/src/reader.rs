@@ -103,8 +103,9 @@ impl Grib1Reader {
         let (ni, nj) = gds.dimensions().ok_or_else(|| {
             FieldglassError::Parse("grid type has no declared dimensions".to_string())
         })?;
-        // checked_mul guards 32-bit usize overflow; MAX_GRID_POINTS guards OOM.
-        let expected_count = (ni as usize).checked_mul(nj as usize).ok_or_else(|| {
+        // Reduced grids store sum(PL) points, not Ni·Nj; num_data_points folds
+        // both cases (and guards overflow via checked_mul for regular grids).
+        let expected_count = gds.num_data_points().ok_or_else(|| {
             FieldglassError::Parse(format!("grid dimensions {ni}×{nj} overflow usize"))
         })?;
         if expected_count > MAX_GRID_POINTS {
@@ -112,6 +113,15 @@ impl Grib1Reader {
                 "grid {ni}×{nj} = {expected_count} points exceeds cap of {MAX_GRID_POINTS}"
             )));
         }
+        // `cols` drives the uniform-width boustrophedonic undo in second-order
+        // packing. A reduced grid's rows differ in width, so a single column
+        // count is meaningless; pass 0 to skip it (correct for the simple/IEEE
+        // packings that dominate reduced grids and store rows left-to-right).
+        let cols = if gds.points_per_row().is_some() {
+            0
+        } else {
+            ni as usize
+        };
 
         let bitmap = match msg.bms_range {
             Some((start, end)) => Some(parse_bitmap(&self.data[start..end], expected_count)?),
@@ -125,6 +135,7 @@ impl Grib1Reader {
         Ok(DecodeInputs {
             ni: ni as usize,
             nj: nj as usize,
+            cols,
             expected_count,
             decimal_scale: msg.pds.decimal_scale_factor,
             bitmap,
@@ -147,7 +158,7 @@ impl Grib1Reader {
             inputs.decimal_scale,
             inputs.bitmap_bits(),
             inputs.expected_count,
-            inputs.ni,
+            inputs.cols,
         )
     }
 
@@ -184,6 +195,9 @@ impl Grib1Reader {
 struct DecodeInputs<'a> {
     ni: usize,
     nj: usize,
+    /// Column count handed to the packing decoders for boustrophedonic row
+    /// undo. Equals `ni` for regular grids, `0` for reduced grids.
+    cols: usize,
     expected_count: usize,
     decimal_scale: i16,
     bitmap: Option<Bitmap>,

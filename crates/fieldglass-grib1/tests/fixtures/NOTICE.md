@@ -157,6 +157,23 @@ the 13-octet matrix sub-header (`octetAtWichPackedDataBegins`, `extendedFlag`,
 original. `_expected.json` is its `grib_get_data` oracle. See eccodes
 `grib1/data.grid_simple_matrix.def`.
 
+## `reduced_gg_n32.grib1`
+
+The eccodes 2.34.1 `reduced_gg_pl_32_grib1.tmpl` sample (an N32 reduced —
+quasi-regular — Gaussian GRIB1 grid: 64 rows, per-row `PL` widths 20…128…20,
+6114 stored points) with every value set to a non-zero constant so the decode
+exercises the reference-value path on a real reduced GDS:
+
+```
+grib_set -d 285.5 /usr/share/eccodes/samples/reduced_gg_pl_32_grib1.tmpl reduced_gg_n32.grib1
+```
+
+`grib_get_data` is the decode oracle: 6114 points, every value 285.5,
+`packingType = grid_simple`, widest row 128. The reduced GDS parse (dims, `PL`
+list, bounds) and the row-widening expansion are pinned separately by unit
+tests in `src/gds.rs` and `crates/fieldglass-napi/src/lib.rs`; this fixture pins
+the reader's native-count (`sum(PL)`) decode integration end to end.
+
 ## `hand_matrix_of_values.grib1`
 
 A hand-assembled `grid_simple_matrix` message with `matrixOfValues = 1` — a true
