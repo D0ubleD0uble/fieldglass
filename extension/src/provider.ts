@@ -9,11 +9,13 @@ import {
   type Grib1Handle,
   type Grib2Handle,
   type MessageMeta,
+  type NetcdfHandle,
+  type NetcdfVariableMeta,
   type RenderedGrid,
   type RenderOptions,
 } from "./native";
 import { buildGraticule, loadCoastline, type OverlayGeometry } from "./overlay";
-import { renderImagePanelHtml } from "./render-panel";
+import { renderImagePanelHtml, type SlicePanelData, type SliceSpec } from "./render-panel";
 
 const FORMAT_LABELS: Record<string, string> = {
   grib1: "GRIB Edition 1",
@@ -87,7 +89,16 @@ interface DecodeGridMessage {
   messageIndex: number;
 }
 
-type WebviewMessage = EditP1Message | ReadyMessage | DecodeGridMessage;
+interface RenderVariableMessage {
+  type: "renderVariable";
+  variableIndex: number;
+}
+
+type WebviewMessage =
+  | EditP1Message
+  | ReadyMessage
+  | DecodeGridMessage
+  | RenderVariableMessage;
 
 export class FieldglassEditorProvider
   implements vscode.CustomEditorProvider<FieldglassDocument>
@@ -123,6 +134,12 @@ export class FieldglassEditorProvider
   // buffer on every napi call (was #41 — closed by the handle API).
   private readonly _handlesByDoc = new Map<string, Grib1Handle | Grib2Handle>();
 
+  // NetCDF reader handles per document, parallel to `_handlesByDoc` (the
+  // NetCDF surface differs — `variables()` / `renderSlice()` rather than
+  // `messages()` / `renderGrid()`). Built lazily when a NetCDF file is opened
+  // and dropped with the last panel (see `trackPanel`).
+  private readonly _netcdfHandlesByDoc = new Map<string, NetcdfHandle>();
+
   // -------------------------------------------------------------------------
   // CustomEditorProvider lifecycle
   // -------------------------------------------------------------------------
@@ -148,6 +165,7 @@ export class FieldglassEditorProvider
     const handle = native ? this.openOrReuseHandle(document, format) : undefined;
     const messages = handle?.messages();
     let dataset: DatasetMeta | undefined;
+    let netcdfVariables: NetcdfVariableMeta[] | undefined;
     if (native && format === "netcdf") {
       try {
         dataset = native.openNetcdf(document.bytes);
@@ -155,6 +173,15 @@ export class FieldglassEditorProvider
         console.error("[Fieldglass] openNetcdf failed:", err);
         // Leave `dataset` undefined; the renderer will fall back to the
         // "no messages found" status string with the format badge intact.
+      }
+      // The renderable-variable list drives the "Render" affordances in the
+      // metadata view. A backing without a render path yet (HDF5, #169) returns
+      // an empty list, so the dump shows without render buttons.
+      const ncHandle = this.openOrReuseNetcdfHandle(document);
+      try {
+        netcdfVariables = ncHandle?.variables();
+      } catch (err) {
+        console.error("[Fieldglass] NetcdfHandle.variables failed:", err);
       }
     }
     const headerBytes = format === "unknown" ? header : undefined;
@@ -178,7 +205,8 @@ export class FieldglassEditorProvider
       messages,
       dataset,
       headerBytes,
-      editable
+      editable,
+      netcdfVariables
     );
 
     panel.webview.onDidReceiveMessage((msg: WebviewMessage) => {
@@ -250,6 +278,11 @@ export class FieldglassEditorProvider
       case "decodeGrid":
         if (!isNonNegativeInt(msg.messageIndex)) return;
         this.handleDecodeGrid(document, panel, msg.messageIndex);
+        return;
+      case "renderVariable":
+        if (!isNonNegativeInt(msg.variableIndex)) return;
+        this.openNetcdfRenderPanel(document, msg.variableIndex);
+        panel.webview.postMessage({ type: "renderOpened", variableIndex: msg.variableIndex });
         return;
     }
   }
@@ -518,6 +551,7 @@ export class FieldglassEditorProvider
           // The handle will be rebuilt on the next `resolveCustomEditor`.
           this._panelsByDoc.delete(key);
           this._handlesByDoc.delete(key);
+          this._netcdfHandlesByDoc.delete(key);
         }
       }
     });
@@ -598,6 +632,156 @@ export class FieldglassEditorProvider
       vscode.window.showErrorMessage(`Fieldglass: failed to parse ${format}: ${err}`);
       return undefined;
     }
+  }
+
+  /** Get-or-build the cached NetCDF reader handle for a document. */
+  private openOrReuseNetcdfHandle(
+    document: FieldglassDocument,
+  ): NetcdfHandle | undefined {
+    const key = document.uri.toString();
+    const cached = this._netcdfHandlesByDoc.get(key);
+    if (cached) return cached;
+    const native = loadNative();
+    if (!native) return undefined;
+    try {
+      const handle = native.NetcdfHandle.fromBytes(document.bytes);
+      this._netcdfHandlesByDoc.set(key, handle);
+      return handle;
+    } catch (err) {
+      console.error("[Fieldglass] NetcdfHandle creation failed:", err);
+      vscode.window.showErrorMessage(`Fieldglass: failed to parse NetCDF: ${err}`);
+      return undefined;
+    }
+  }
+
+  /**
+   * Pop a render tab for one NetCDF variable. Mirrors {@link openRenderPanel}
+   * but drives the two-tier slice picker: every paint renders the chosen 2-D
+   * plane via `handle.renderSlice(...)`, and the picker (variable / axis / index
+   * controls) flows its {@link SliceSpec} back on each `rerenderRequest`.
+   */
+  private openNetcdfRenderPanel(
+    document: FieldglassDocument,
+    variableIndex: number,
+  ): void {
+    const handle = this.openOrReuseNetcdfHandle(document);
+    if (!handle) return;
+    const variables = handle.variables();
+    const initialVar =
+      variables.find((v) => v.variableIndex === variableIndex) ?? variables[0];
+    if (!initialVar) return;
+
+    const initial = defaultSliceSpec(initialVar);
+    const meta = syntheticNetcdfMeta(initialVar);
+    const title = `Render: ${sanitizeTitlePart(initialVar.name) || "variable"}`;
+    const panel = vscode.window.createWebviewPanel(
+      "fieldglass.render",
+      title,
+      { viewColumn: vscode.ViewColumn.Beside, preserveFocus: false },
+      { enableScripts: true, retainContextWhenHidden: false, localResourceRoots: [] },
+    );
+    const slice: SlicePanelData = { variables, initial };
+    panel.webview.html = renderImagePanelHtml(
+      panel.webview,
+      meta,
+      "NetCDF slice — latlon (synthesised geometry)",
+      slice,
+    );
+
+    const defaultOptions: RenderOptions = {
+      projection: "source",
+      resampling: "nearest",
+      flipY: false,
+    };
+
+    const paint = (options: RenderOptions, spec: SliceSpec) => {
+      const docHandle = this._netcdfHandlesByDoc.get(document.uri.toString());
+      if (!docHandle) {
+        panel.webview.postMessage({
+          type: "gridError",
+          messageIndex: spec.variableIndex,
+          error: "NetCDF handle was disposed",
+        });
+        return;
+      }
+      try {
+        const rendered = docHandle.renderSlice(
+          spec.variableIndex,
+          spec.yDim,
+          spec.xDim,
+          spec.sliceIndices,
+          options,
+        );
+        panel.webview.postMessage(
+          buildGridReadyMessage(rendered, syntheticNetcdfMeta(initialVar, spec.variableIndex), options),
+        );
+      } catch (err) {
+        panel.webview.postMessage({
+          type: "gridError",
+          messageIndex: spec.variableIndex,
+          error: `render failed: ${err}`,
+        });
+      }
+    };
+
+    const projectOverlay = (req: OverlayRequest & { slice?: SliceSpec }) => {
+      const docHandle = this._netcdfHandlesByDoc.get(document.uri.toString());
+      if (!docHandle) return;
+      const spec = req.slice ?? initial;
+      const options = resolveRerenderOptions(req.options ?? {});
+      const layers: OverlayLayerPayload[] = [];
+      const project = (name: string, geom: OverlayGeometry) => {
+        const projected = docHandle.projectOverlay(
+          spec.variableIndex,
+          spec.yDim,
+          spec.xDim,
+          options,
+          geom.latlon,
+          geom.ringLengths,
+        );
+        layers.push({ name, xy: projected.xy, segLengths: projected.segLengths });
+      };
+      try {
+        if (req.coastlines) project("coastline", loadCoastline());
+        if (req.graticule) project("graticule", buildGraticule(Number(req.graticuleSpacing)));
+        panel.webview.postMessage({
+          type: "overlayReady",
+          messageIndex: spec.variableIndex,
+          seq: req.seq,
+          layers,
+        });
+      } catch (err) {
+        panel.webview.postMessage({
+          type: "overlayError",
+          messageIndex: spec.variableIndex,
+          seq: req.seq,
+          error: `overlay projection failed: ${err}`,
+        });
+      }
+    };
+
+    const sub = panel.webview.onDidReceiveMessage(
+      (
+        m:
+          | ({ type?: string; slice?: SliceSpec } & Partial<RenderOptions>)
+          | (OverlayRequest & { slice?: SliceSpec }),
+      ) => {
+        if (!m || typeof m.type !== "string") return;
+        if (m.type === "ready") {
+          paint(defaultOptions, initial);
+          return;
+        }
+        if (m.type === "rerenderRequest") {
+          const spec = (m as { slice?: SliceSpec }).slice ?? initial;
+          paint(resolveRerenderOptions(m as Partial<RenderOptions>), spec);
+          return;
+        }
+        if (m.type === "overlayRequest") {
+          projectOverlay(m as OverlayRequest & { slice?: SliceSpec });
+        }
+      },
+    );
+    panel.onDidDispose(() => sub.dispose());
   }
 }
 
@@ -755,6 +939,61 @@ function formatCentreCell(m: MessageMeta): string {
   return m.originatingCentre;
 }
 
+/** The slice the render panel opens on: the variable's CF-detected horizontal
+ *  axes (falling back to the first two dimensions) with every held index at 0. */
+function defaultSliceSpec(v: NetcdfVariableMeta): SliceSpec {
+  const yDim = v.detectedYDim ?? 0;
+  let xDim = v.detectedXDim ?? (yDim === 0 ? 1 : 0);
+  if (xDim === yDim) xDim = yDim === 0 ? 1 : 0;
+  return {
+    variableIndex: v.variableIndex,
+    yDim,
+    xDim,
+    sliceIndices: v.dims.map(() => 0),
+  };
+}
+
+/** A `MessageMeta` synthesised for the NetCDF render panel's header + projection
+ *  controls. The Rust side builds the authoritative per-slice geometry; this
+ *  only carries what the panel HTML reads (title, units, reprojectable). */
+function syntheticNetcdfMeta(v: NetcdfVariableMeta, messageIndex = v.variableIndex): MessageMeta {
+  return {
+    messageIndex,
+    offsetBytes: 0,
+    parameterName: v.name,
+    parameterUnits: "",
+    parameterAbbreviation: v.name,
+    level: "",
+    levelType: "",
+    referenceTime: "",
+    forecastHours: 0,
+    forecastDisplay: "",
+    originatingCentre: "",
+    gridType: "latlon",
+    gridNi: null,
+    gridNj: null,
+    latFirst: null,
+    lonFirst: null,
+    latLast: null,
+    lonLast: null,
+    format: "netcdf",
+    edition: null,
+    discipline: null,
+    totalLengthBytes: null,
+    productionStatus: null,
+    dataType: null,
+    lambertLad: null,
+    lambertLov: null,
+    lambertDxMetres: null,
+    lambertDyMetres: null,
+    lambertLatin1: null,
+    lambertLatin2: null,
+    gaussianNParallels: null,
+    packing: null,
+    reprojectable: true,
+  };
+}
+
 function describeProjection(meta: MessageMeta): string {
   const dims = (meta.gridNi !== null && meta.gridNj !== null)
     ? `${meta.gridNi}×${meta.gridNj}` : "?";
@@ -768,7 +1007,10 @@ function describeProjection(meta: MessageMeta): string {
   return `${type} ${dims} (grid coordinates)`;
 }
 
-function renderDatasetBody(d: DatasetMeta): string {
+function renderDatasetBody(
+  d: DatasetMeta,
+  netcdfVariables?: NetcdfVariableMeta[],
+): string {
   // Long attribute strings are common in CF-Convention NetCDF files; truncate
   // for the row view but keep the full text in the title attribute so users
   // can hover to read it. Numeric attributes never hit this limit.
@@ -794,6 +1036,27 @@ function renderDatasetBody(d: DatasetMeta): string {
   }
 
   sections.push(`<div class="dump-label">${escapeHtml(d.backingLabel)}</div>`);
+
+  // Render affordances: one button per renderable variable (numeric, ≥ 2-D).
+  // Clicking opens the slice-picker render panel scoped to that variable (#122).
+  if (netcdfVariables && netcdfVariables.length > 0) {
+    const buttons = netcdfVariables
+      .map(
+        (v) =>
+          `<button type="button" class="netcdf-render-btn" data-variable-index="${v.variableIndex}">Render ${escapeHtml(v.name)}</button>`,
+      )
+      .join(" ");
+    sections.push(`
+      <h2>Render</h2>
+      <div class="netcdf-render">
+        ${buttons}
+        <div class="render-legend">
+          Opens a 2-D slice of the variable in a new editor tab. Pick the
+          image axes and step through the other dimensions in the panel.
+        </div>
+        <div class="render-status" id="netcdf-render-status"></div>
+      </div>`);
+  }
 
   if (d.dimensions.length > 0) {
     const rows = d.dimensions.map((dim) => `
@@ -865,7 +1128,8 @@ function renderHtml(
   messages: MessageMeta[] | undefined,
   dataset: DatasetMeta | undefined,
   headerBytes: Uint8Array | undefined,
-  editable: boolean
+  editable: boolean,
+  netcdfVariables?: NetcdfVariableMeta[]
 ): string {
   // FORMAT_LABELS is a closed Record<string, string>; `format` originates
   // from native detect_bytes which returns one of a fixed set of tokens.
@@ -934,7 +1198,7 @@ function renderHtml(
       <tbody>${rows}</tbody>
     </table>`;
   } else if (dataset) {
-    bodyContent = renderDatasetBody(dataset);
+    bodyContent = renderDatasetBody(dataset, netcdfVariables);
   } else if (!isKnown && headerBytes && headerBytes.length > 0) {
     const hex = Array.from(headerBytes)
       .map((b) => b.toString(16).padStart(2, "0"))
@@ -1019,6 +1283,17 @@ function renderHtml(
               vscode.postMessage({ type: 'decodeGrid', messageIndex: idx });
             });
           });
+          // NetCDF: open the slice-picker render panel for a variable.
+          document.querySelectorAll('button.netcdf-render-btn').forEach((el) => {
+            el.addEventListener('click', (ev) => {
+              ev.stopPropagation();
+              const idx = Number(el.getAttribute('data-variable-index'));
+              if (!Number.isFinite(idx)) return;
+              const s = document.getElementById('netcdf-render-status');
+              if (s) s.textContent = 'Opening render…';
+              vscode.postMessage({ type: 'renderVariable', variableIndex: idx });
+            });
+          });
           if (editable) {
             // Forecast-period inputs send an edit on commit (Enter / blur).
             document.querySelectorAll('input.p1-input').forEach((el) => {
@@ -1038,7 +1313,12 @@ function renderHtml(
           const msg = event.data;
           if (!msg || typeof msg.type !== 'string') return;
           if (msg.type === 'renderOpened') {
-            setStatus(msg.messageIndex, 'Opened render of message ' + msg.messageIndex + ' in a new tab.');
+            if (typeof msg.variableIndex === 'number') {
+              const s = document.getElementById('netcdf-render-status');
+              if (s) s.textContent = 'Opened render in a new tab.';
+            } else {
+              setStatus(msg.messageIndex, 'Opened render of message ' + msg.messageIndex + ' in a new tab.');
+            }
             return;
           }
           if (msg.type === 'gridError') {
@@ -1129,7 +1409,7 @@ function renderHtml(
       outline: 1px solid var(--vscode-focusBorder);
       outline-offset: -1px;
     }
-    button.render-btn {
+    button.render-btn, button.netcdf-render-btn {
       background: var(--vscode-button-secondaryBackground, var(--vscode-button-background));
       color: var(--vscode-button-secondaryForeground, var(--vscode-button-foreground));
       border: 1px solid var(--vscode-button-border, transparent);
@@ -1139,13 +1419,14 @@ function renderHtml(
       font-size: inherit;
       border-radius: 2px;
     }
-    button.render-btn:hover {
+    button.render-btn:hover, button.netcdf-render-btn:hover {
       background: var(--vscode-button-secondaryHoverBackground, var(--vscode-button-hoverBackground));
     }
-    button.render-btn:focus {
+    button.render-btn:focus, button.netcdf-render-btn:focus {
       outline: 1px solid var(--vscode-focusBorder);
       outline-offset: 1px;
     }
+    .netcdf-render { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
     .render-na { color: var(--vscode-descriptionForeground); font-size: 0.85rem; }
     .render-status { font-size: 0.85rem; min-height: 1.1em; }
     .render-legend { font-size: 0.75rem; color: var(--vscode-descriptionForeground); }

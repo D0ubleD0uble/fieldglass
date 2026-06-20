@@ -203,6 +203,54 @@ export interface Grib2HandleCtor {
 }
 
 // ---------------------------------------------------------------------------
+// NetCDF 2-D slice rendering (#122)
+// ---------------------------------------------------------------------------
+
+/** One axis (dimension) of a renderable NetCDF variable, for the picker's
+ *  index controls. */
+export interface NetcdfAxis {
+  name: string;
+  length: number;
+}
+
+/** A NetCDF variable the render panel can draw, with its dimensions and the
+ *  CF-detected horizontal-axis positions. `detectedYDim` / `detectedXDim` are
+ *  axis indices (into `dims`) the picker pre-fills the Y / X selectors with;
+ *  undefined means detection found no coordinate variable and the user assigns
+ *  that axis by hand. */
+export interface NetcdfVariableMeta {
+  variableIndex: number;
+  name: string;
+  ncType: string;
+  dims: NetcdfAxis[];
+  detectedYDim?: number;
+  detectedXDim?: number;
+}
+
+export interface NetcdfHandle {
+  variables(): NetcdfVariableMeta[];
+  renderSlice(
+    variableIndex: number,
+    yDim: number,
+    xDim: number,
+    sliceIndices: number[],
+    options: RenderOptions,
+  ): RenderedGrid;
+  projectOverlay(
+    variableIndex: number,
+    yDim: number,
+    xDim: number,
+    options: RenderOptions,
+    latlon: Float64Array,
+    ringLengths: Uint32Array,
+  ): ProjectedOverlay;
+}
+
+export interface NetcdfHandleCtor {
+  fromBytes(bytes: Uint8Array): NetcdfHandle;
+}
+
+// ---------------------------------------------------------------------------
 // Native module loader
 // ---------------------------------------------------------------------------
 
@@ -211,6 +259,7 @@ export interface FieldglassNative {
   openNetcdf(bytes: Uint8Array): DatasetMeta;
   Grib1Handle: Grib1HandleCtor;
   Grib2Handle: Grib2HandleCtor;
+  NetcdfHandle: NetcdfHandleCtor;
 }
 
 let cached: FieldglassNative | undefined;

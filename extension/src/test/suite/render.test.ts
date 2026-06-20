@@ -31,7 +31,7 @@ import {
 } from "../../provider";
 import { loadNative, type MessageMeta, type RenderOptions } from "../../native";
 import { buildGraticule, flattenLonLatLines, loadCoastline } from "../../overlay";
-import { renderImagePanelHtml } from "../../render-panel";
+import { renderImagePanelHtml, type SlicePanelData } from "../../render-panel";
 
 const EXT_ID = "fieldglass.fieldglass";
 
@@ -711,4 +711,148 @@ suite("overlay projection (native)", () => {
       /Web Mercator/,
     );
   });
+});
+
+suite("NetCDF 2-D slice rendering (#122)", () => {
+  // End-to-end across the napi boundary: the committed classic ERSST fixture
+  // (time × lev × lat × lon, regular 2° grid) lists `sst` as renderable, and a
+  // slice renders through both the source and equirectangular targets.
+
+  function netcdfHandle() {
+    const native = loadNative();
+    assert.ok(native, "native module must load");
+    const bytes = fs.readFileSync(fixturePath("ersst_v5_187001_cdf1.nc"));
+    return native.NetcdfHandle.fromBytes(bytes);
+  }
+
+  test("variables() detects the horizontal axes of a 4-D field", () => {
+    const handle = netcdfHandle();
+    const sst = handle.variables().find((v) => v.name === "sst");
+    assert.ok(sst, "sst must be renderable");
+    assert.strictEqual(sst.dims.length, 4, "sst is time × lev × lat × lon");
+    // lat is axis 2, lon axis 3 in declared order.
+    assert.strictEqual(sst.detectedYDim, 2);
+    assert.strictEqual(sst.detectedXDim, 3);
+  });
+
+  test("renderSlice paints a slice in source and equirectangular projections", () => {
+    const handle = netcdfHandle();
+    const sst = handle.variables().find((v) => v.name === "sst");
+    assert.ok(sst);
+    const indices = sst.dims.map(() => 0);
+    const source = handle.renderSlice(
+      sst.variableIndex,
+      sst.detectedYDim ?? 2,
+      sst.detectedXDim ?? 3,
+      indices,
+      defaultRenderOptions(),
+    );
+    assert.strictEqual(source.width, 180);
+    assert.strictEqual(source.height, 89);
+    assert.strictEqual(source.rgba.length, 180 * 89 * 4);
+
+    const warped = handle.renderSlice(
+      sst.variableIndex,
+      2,
+      3,
+      indices,
+      { projection: "equirectangular", resampling: "nearest", flipY: false },
+    );
+    assert.ok(warped.width > 0 && warped.height > 0);
+    assert.ok(warped.usedLatMin !== undefined, "warp echoes its extent back");
+  });
+
+  test("projectOverlay maps a coastline onto the synthesised lat/lon grid", () => {
+    const handle = netcdfHandle();
+    const sst = handle.variables().find((v) => v.name === "sst");
+    assert.ok(sst);
+    const coast = loadCoastline();
+    const out = handle.projectOverlay(
+      sst.variableIndex,
+      2,
+      3,
+      { projection: "equirectangular", resampling: "nearest", flipY: false },
+      coast.latlon,
+      coast.ringLengths,
+    );
+    const total = Array.from(out.segLengths).reduce((a, b) => a + b, 0);
+    assert.strictEqual(total * 2, out.xy.length, "segLengths must account for every xy pair");
+    assert.ok(out.xy.length > 0, "coastline should project onto the slice raster");
+  });
+
+  test("the panel HTML embeds the slice picker controls when given slice data", () => {
+    const handle = netcdfHandle();
+    const variables = handle.variables();
+    const sst = variables.find((v) => v.name === "sst");
+    assert.ok(sst);
+    const slice: SlicePanelData = {
+      variables,
+      initial: {
+        variableIndex: sst.variableIndex,
+        yDim: 2,
+        xDim: 3,
+        sliceIndices: sst.dims.map(() => 0),
+      },
+    };
+    const html = renderImagePanelHtml(
+      { cspSource: "" } as unknown as vscode.Webview,
+      // The panel only reads a handful of header fields; reuse the GRIB fake.
+      fakeNetcdfMeta(),
+      "summary",
+      slice,
+    );
+    for (const id of ["slice-variable", "slice-y", "slice-x", "slice-dims"]) {
+      assert.ok(
+        new RegExp(`id="${id}"`).test(html),
+        `slice control ${id} must be present`,
+      );
+    }
+    assert.ok(/const SLICE = \{/.test(html), "the SLICE payload must be embedded");
+    // A GRIB panel (no slice data) must not grow the slice row.
+    const gribHtml = renderImagePanelHtml(
+      { cspSource: "" } as unknown as vscode.Webview,
+      fakeNetcdfMeta(),
+      "summary",
+    );
+    assert.ok(/const SLICE = null/.test(gribHtml), "SLICE must be null without slice data");
+    assert.ok(!/id="slice-variable"/.test(gribHtml), "no slice row without slice data");
+  });
+
+  function fakeNetcdfMeta(): MessageMeta {
+    return {
+      messageIndex: 0,
+      offsetBytes: 0,
+      parameterName: "sst",
+      parameterUnits: "degree_C",
+      parameterAbbreviation: "sst",
+      level: "",
+      levelType: "",
+      referenceTime: "",
+      forecastHours: 0,
+      forecastDisplay: "",
+      originatingCentre: "",
+      gridType: "latlon",
+      gridNi: null,
+      gridNj: null,
+      latFirst: null,
+      lonFirst: null,
+      latLast: null,
+      lonLast: null,
+      format: "netcdf",
+      edition: null,
+      discipline: null,
+      totalLengthBytes: null,
+      productionStatus: null,
+      dataType: null,
+      lambertLad: null,
+      lambertLov: null,
+      lambertDxMetres: null,
+      lambertDyMetres: null,
+      lambertLatin1: null,
+      lambertLatin2: null,
+      gaussianNParallels: null,
+      packing: null,
+      reprojectable: true,
+    };
+  }
 });

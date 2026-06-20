@@ -13,16 +13,50 @@
 import * as vscode from "vscode";
 
 import { escapeHtml, nonce } from "./html";
-import type { MessageMeta } from "./native";
+import type { MessageMeta, NetcdfVariableMeta } from "./native";
+
+/** Which 2-D plane of an N-D NetCDF variable to draw: the variable, the two
+ *  image axes (positions into the variable's dimensions), and the held index
+ *  for every dimension (the `yDim` / `xDim` entries are ignored). */
+export interface SliceSpec {
+  variableIndex: number;
+  yDim: number;
+  xDim: number;
+  sliceIndices: number[];
+}
+
+/** Drives the NetCDF two-tier slice picker injected into the render panel: the
+ *  renderable variables (each with their dimensions and detected horizontal
+ *  axes) and the slice the panel opens on. */
+export interface SlicePanelData {
+  variables: NetcdfVariableMeta[];
+  initial: SliceSpec;
+}
 
 /** Returns the full HTML for the render-panel webview. The DOM mounts,
  *  the script posts `ready`, the provider responds with `gridReady`
  *  carrying paint-ready RGBA, and the canvas blits it. Picker changes
- *  flow back as `rerenderRequest`. */
+ *  flow back as `rerenderRequest`.
+ *
+ *  When `slice` is supplied (NetCDF, #122) the panel also shows the two-tier
+ *  slice picker — a variable selector, X / Y axis selectors, and one index
+ *  control per non-horizontal dimension — and every `rerenderRequest` /
+ *  `overlayRequest` carries the chosen {@link SliceSpec}. */
+/** Serialise the slice data for embedding in the inline `<script>`. NetCDF
+ *  variable names are decoded from an untrusted file, so escape `<` to its
+ *  `\\u003c` form — that prevents a `</script>` substring in a name from closing
+ *  the script element early (the JSON stays valid; the escape parses back to
+ *  `<`). The CSP nonce already blocks any injected script from executing, but
+ *  this keeps the panel's own script intact. */
+function sliceJson(slice: SlicePanelData): string {
+  return JSON.stringify(slice).replace(/</g, "\\u003c");
+}
+
 export function renderImagePanelHtml(
   webview: vscode.Webview,
   meta: MessageMeta,
-  projectionSummary: string
+  projectionSummary: string,
+  slice?: SlicePanelData
 ): string {
   const cspNonce = nonce();
   const csp = [
@@ -55,6 +89,147 @@ export function renderImagePanelHtml(
         // (projection / resampling / flip-y / range). The cached payload
         // lets us redraw after a tab hide/show without a round-trip.
         let lastPayload = null;
+
+        // --- NetCDF slice picker (#122) -------------------------------------
+        // SLICE is null for the GRIB panels; for NetCDF it carries the
+        // renderable variables and the slice the panel opened on. sliceState is
+        // the live {variableIndex, yDim, xDim, sliceIndices} the controls drive,
+        // attached to every rerender / overlay request so the provider knows
+        // which 2-D plane to draw.
+        const SLICE = ${slice ? sliceJson(slice) : "null"};
+        let sliceState = SLICE ? Object.assign({}, SLICE.initial, {
+          sliceIndices: SLICE.initial.sliceIndices.slice(),
+        }) : null;
+
+        function sliceVariable(idx) {
+          return SLICE ? SLICE.variables.find((v) => v.variableIndex === idx) : undefined;
+        }
+
+        // Extra fields merged into a rerender / overlay request: the slice spec
+        // when this is a NetCDF panel, nothing otherwise.
+        function sliceFields() {
+          return sliceState ? { slice: sliceState } : {};
+        }
+
+        // Rebuild the per-variable axis controls: the X / Y dimension selectors
+        // and one index slider per non-horizontal dimension. Called on mount and
+        // whenever the variable changes (its dimensions differ).
+        function buildSliceAxes() {
+          const wrap = document.getElementById('slice-dims');
+          const ySel = document.getElementById('slice-y');
+          const xSel = document.getElementById('slice-x');
+          if (!wrap || !ySel || !xSel || !sliceState) return;
+          const v = sliceVariable(sliceState.variableIndex);
+          if (!v) return;
+          const dimOptions = v.dims
+            .map((d, i) => '<option value="' + i + '">' + escapeAttr(d.name) + '</option>')
+            .join('');
+          ySel.innerHTML = dimOptions;
+          xSel.innerHTML = dimOptions;
+          ySel.value = String(sliceState.yDim);
+          xSel.value = String(sliceState.xDim);
+          // One slider + number per dimension that isn't an image axis.
+          let html = '';
+          for (let i = 0; i < v.dims.length; i++) {
+            if (i === sliceState.yDim || i === sliceState.xDim) continue;
+            const len = v.dims[i].length;
+            const max = Math.max(0, len - 1);
+            const val = sliceState.sliceIndices[i] || 0;
+            html += '<label class="slice-index">' + escapeAttr(v.dims[i].name) +
+              ' <input type="range" class="slice-slider" data-dim="' + i + '" min="0" max="' + max +
+              '" value="' + val + '">' +
+              '<input type="number" class="slice-number" data-dim="' + i + '" min="0" max="' + max +
+              '" value="' + val + '"><span class="slice-len">/' + max + '</span></label>';
+          }
+          wrap.innerHTML = html;
+        }
+
+        // Minimal attribute escaper for the option/label text we build in JS
+        // (variable + dimension names come from the decoded file).
+        function escapeAttr(s) {
+          return String(s).replace(/[&<>"']/g, (c) => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+          })[c]);
+        }
+
+        function syncSliceIndex(dim, value) {
+          if (!sliceState) return;
+          const v = sliceVariable(sliceState.variableIndex);
+          const max = v ? Math.max(0, v.dims[dim].length - 1) : 0;
+          const clamped = Math.min(max, Math.max(0, Math.floor(Number(value) || 0)));
+          sliceState.sliceIndices[dim] = clamped;
+          // Keep the paired slider + number input in lockstep.
+          document.querySelectorAll('[data-dim="' + dim + '"]').forEach((el) => {
+            if (el.value !== String(clamped)) el.value = String(clamped);
+          });
+        }
+
+        function setupSlice() {
+          if (!sliceState) return;
+          const varSel = document.getElementById('slice-variable');
+          if (varSel) {
+            varSel.innerHTML = SLICE.variables
+              .map((v) => '<option value="' + v.variableIndex + '">' + escapeAttr(v.name) + '</option>')
+              .join('');
+            varSel.value = String(sliceState.variableIndex);
+            varSel.addEventListener('change', () => {
+              const v = sliceVariable(Number(varSel.value));
+              if (!v) return;
+              // New variable → reset axes to its detected horizontals (falling
+              // back to the first two dims) and zero the held indices.
+              const yDim = v.detectedYDim != null ? v.detectedYDim : 0;
+              let xDim = v.detectedXDim != null ? v.detectedXDim : 1;
+              if (xDim === yDim) xDim = yDim === 0 ? 1 : 0;
+              sliceState = {
+                variableIndex: v.variableIndex,
+                yDim,
+                xDim,
+                sliceIndices: v.dims.map(() => 0),
+              };
+              buildSliceAxes();
+              requestRender();
+            });
+          }
+          const ySel = document.getElementById('slice-y');
+          const xSel = document.getElementById('slice-x');
+          const onAxisChange = () => {
+            if (!ySel || !xSel) return;
+            const y = Number(ySel.value);
+            const x = Number(xSel.value);
+            if (y === x) {
+              setStatus('The X and Y axes must be different dimensions.');
+              // Revert the just-changed selector to the stored value.
+              ySel.value = String(sliceState.yDim);
+              xSel.value = String(sliceState.xDim);
+              return;
+            }
+            sliceState.yDim = y;
+            sliceState.xDim = x;
+            buildSliceAxes();
+            requestRender();
+          };
+          if (ySel) ySel.addEventListener('change', onAxisChange);
+          if (xSel) xSel.addEventListener('change', onAxisChange);
+          buildSliceAxes();
+          // Delegate the dynamically-built index controls.
+          // 'change' (slider release / number commit) rather than 'input' so a
+          // slider drag doesn't fire a render per tick. 'input' still keeps the
+          // paired slider + number box in lockstep for live visual feedback.
+          const wrap = document.getElementById('slice-dims');
+          if (wrap) {
+            wrap.addEventListener('input', (ev) => {
+              const t = ev.target;
+              if (!t || t.dataset == null || t.dataset.dim == null) return;
+              syncSliceIndex(Number(t.dataset.dim), t.value);
+            });
+            wrap.addEventListener('change', (ev) => {
+              const t = ev.target;
+              if (!t || t.dataset == null || t.dataset.dim == null) return;
+              syncSliceIndex(Number(t.dataset.dim), t.value);
+              requestRender();
+            });
+          }
+        }
 
         function setStatus(text) {
           const el = document.getElementById('status');
@@ -127,7 +302,7 @@ export function renderImagePanelHtml(
             // Initial mount: provider posts ready-options-default automatically.
             return;
           }
-          vscode.postMessage(Object.assign({ type: 'rerenderRequest' }, currentOptions()));
+          vscode.postMessage(Object.assign({ type: 'rerenderRequest' }, currentOptions(), sliceFields()));
           setStatus('Rendering…');
         }
 
@@ -278,7 +453,7 @@ export function renderImagePanelHtml(
             return;
           }
           overlaySeq += 1;
-          vscode.postMessage({
+          vscode.postMessage(Object.assign({
             type: 'overlayRequest',
             seq: overlaySeq,
             options: currentOptions(),
@@ -286,7 +461,7 @@ export function renderImagePanelHtml(
             graticule: state.graticule,
             graticuleSpacing: Math.min(90, Math.max(5,
               Number((document.getElementById('graticule-spacing') || {}).value) || 30)),
-          });
+          }, sliceFields()));
         }
 
         function handleOverlayReady(msg) {
@@ -358,6 +533,7 @@ export function renderImagePanelHtml(
         }
 
         function attachControls() {
+          setupSlice();
           const projPick = document.getElementById('picker-projection');
           if (projPick) projPick.addEventListener('change', () => { syncProjectionControls(); requestRender(); });
           ['picker-center-lat', 'picker-center-lon', 'picker-preset-polar',
@@ -578,6 +754,13 @@ export function renderImagePanelHtml(
       outline: 1px solid var(--vscode-focusBorder);
       outline-offset: -1px;
     }
+    /* NetCDF slice picker: the per-dimension index controls lay out inline and
+       wrap within their row like the other groups. */
+    #slice-dims { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.5rem 1rem; }
+    .slice-index { display: inline-flex; align-items: center; gap: 0.3rem; }
+    .slice-index input[type="range"] { vertical-align: middle; }
+    .slice-index input[type="number"] { width: 4.5rem; }
+    .slice-len { color: var(--vscode-descriptionForeground); font-size: 0.8rem; }
   </style>
 </head>
 <body>
@@ -585,6 +768,14 @@ export function renderImagePanelHtml(
   <div class="subtitle">${escapeHtml(subLine)}</div>
   <div class="projection" id="projection-summary">${escapeHtml(projectionSummary)}</div>
   <div class="toolbar" role="toolbar" aria-label="Render settings">
+${slice
+    ? `    <div class="toolbar-row" id="slice-row">
+      <label>Variable <select id="slice-variable"></select></label>
+      <label>Y axis (rows) <select id="slice-y"></select></label>
+      <label>X axis (cols) <select id="slice-x"></select></label>
+      <span id="slice-dims"></span>
+    </div>`
+    : ""}
     <div class="toolbar-row">
       <label>Projection
         <select id="picker-projection">

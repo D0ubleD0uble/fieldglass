@@ -26,3 +26,11 @@ PDS template **4.0**, DRS template **5.0 (simple packing)**. Apache 2.0
 Minimal CDF-1 classic NetCDF from the Unidata `netcdf4-python` test corpus
 (<https://github.com/Unidata/netcdf4-python/tree/master/test>). Canonical
 copy: `crates/fieldglass-netcdf/tests/fixtures/NOTICE.md`.
+
+## `ersst_v5_187001_cdf1.nc`
+
+NOAA Extended Reconstructed Sea Surface Temperature (ERSST) v5, January 1870
+monthly mean — a real 4-D (`time × lev × lat × lon`) classic NetCDF on a regular
+2°×2° lat/lon grid, used to exercise the NetCDF 2-D slice render path end-to-end.
+"No constraints on data access or use." Canonical copy:
+`crates/fieldglass-netcdf/tests/fixtures/NOTICE.md`.
