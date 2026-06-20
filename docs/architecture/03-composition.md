@@ -1,14 +1,16 @@
-# Architecture — Level 3: data-type composition (per format)
+# Architecture — Level 3: composition (per format)
 
-How a decoded message is built from its parts. `*--` is UML composition
-(owns-a); `-->` an enum-variant fan-out. Byte-range fields (`Option<(usize,
-usize)>`) mark sections parsed lazily on demand rather than eagerly owned.
+Each reader parses a file into one message that holds its sections. Where a
+section's layout depends on a type code, the message carries a template enum and
+the variant in hand is the one the code selected. Sections that are large or
+optional stay as byte ranges and are decoded only when their values are asked
+for, which keeps scanning a file cheap.
 
 ## GRIB2 message
 
-A `Grib2Message` owns one of each WMO section; the grid, product, and data
-representation sections each carry a template enum that fans out to the
-concrete template structs.
+One `Grib2Message` holds every WMO section. The grid, product, and
+data-representation sections each carry a template enum that resolves to the
+single concrete template the file declared.
 
 ```mermaid
 classDiagram
@@ -52,8 +54,8 @@ classDiagram
 
 ## GRIB1 message
 
-Flatter than GRIB2: the GDS is optional, and the bitmap / data sections are held
-as byte ranges decoded on demand by `Grib1Reader`.
+Flatter than GRIB2: the grid description is optional, and the bitmap and data
+sections stay as byte ranges that `Grib1Reader` decodes on request.
 
 ```mermaid
 classDiagram
@@ -76,9 +78,9 @@ classDiagram
 
 ## NetCDF reader
 
-One reader, two backings. Classic CDF is fully parsed at the header level; HDF5
-(NetCDF-4) currently surfaces a superblock probe, with the deep HDF5 object
-model (`ObjectHeader` → messages → dataset shape) parsed on traversal.
+One reader over two on-disk layouts. Classic CDF is parsed fully up front. HDF5
+(NetCDF-4) starts from a superblock probe and walks the object model
+(`ObjectHeader` → messages → dataset shape) only as far as a request reaches.
 
 ```mermaid
 classDiagram
@@ -102,9 +104,9 @@ classDiagram
 
 ## N-API boundary
 
-The handle structs wrap a format reader plus a memoized decode cache and expose
-plain metadata structs to JavaScript (napi-rs renders `snake_case` →
-`camelCase`).
+Each handle wraps a format reader and a memoized decode cache, and hands
+JavaScript plain metadata structs. Decoding a field caches it, so a second
+request for the same field is free.
 
 ```mermaid
 classDiagram

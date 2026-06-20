@@ -1,9 +1,10 @@
-# Architecture — Level 1: crate dependency graph
+# Architecture — Level 1: crates
 
-The workspace is five crates. `fieldglass-core` defines the shared traits and
-geometry; each format crate decodes one container and depends only on `core`;
-`fieldglass-napi` is the Node/N-API boundary and is the only crate that depends
-on the format crates.
+Five crates, one flow: a format crate parses its container and hands `core` the
+same decoded field (`Vec<Option<f64>>` + grid geometry); `core` projects, warps,
+and renders it; `napi` binds the result to Node. `fieldglass-core` owns the
+shared traits and geometry and depends on nothing else in the workspace.
+`fieldglass-napi` is the only crate that pulls in the format crates.
 
 ```mermaid
 flowchart TD
@@ -22,8 +23,8 @@ flowchart TD
     netcdf --> core
 ```
 
-**Why this shape holds (a decode invariant, not a coincidence):** no format
-crate depends on another, and nothing below `napi` depends on `napi`. A new
-decode path lands inside one format crate and reuses `core`'s projection / warp
-/ overlay on the decoded `Vec<Option<f64>>` field + grid geometry — it does not
-ripple outward. Reprojection eligibility keys on grid type and spacing only.
+**Why it stays decoupled:** no format crate depends on another, and nothing
+below `napi` depends on `napi`. A new decode path lands inside one format crate
+and reuses `core`'s projection, warp, and overlay through the decoded field and
+grid geometry, so it never ripples outward. Reprojection keys on grid type and
+spacing alone, so a new field works the moment it decodes.

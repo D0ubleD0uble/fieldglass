@@ -1,12 +1,18 @@
-# Architecture — Level 2: trait seams (the extension points)
+# Architecture — Level 2: trait seams
 
-Rust has no classes; the closest analog to "an interface and its subclasses" is
-a trait and the structs that implement it. These are the seams where the design
-flexes — adding a packing, a projection, or a target raster means adding one
-`impl` here. Dashed-with-hollow-triangle (`..|>`) is UML realization: *struct
-implements trait*.
+A reader can't know at compile time which packing or projection a file uses; the
+file's own type codes decide. Each trait below is the dispatch point for one of
+those choices. The reader reads a code, selects the matching implementer, and
+calls through the trait, so supporting a new packing, projection, or output
+raster takes one new implementer and nothing else.
 
-## core traits: reading and decoding
+In each diagram the implementers point at the trait they satisfy.
+
+## Reading and decoding
+
+`FormatReader` walks raw bytes into a sequence of messages; `DataMessage`
+unpacks one message's values when asked. The scanner and the napi layer drive
+both as trait objects, iterating and decoding without naming a concrete format.
 
 ```mermaid
 classDiagram
@@ -20,10 +26,12 @@ classDiagram
     DataMessage  <|.. Grib2Message
 ```
 
-## GRIB1 packing family
+## GRIB1 packing
 
-The runtime-dispatched decoders. This is the GRIB1 analog of the README "GRIB2
-packing modes" table — each variant the decoder understands is one `impl`.
+The BDS flag byte names the packing. The reader matches it to one `Grib1Packing`
+implementer, which unpacks the bit-stream into the common field of values. Each
+implementer is one packing the decoder understands (GRIB2's equivalent set is
+the README "packing modes" table).
 
 ```mermaid
 classDiagram
@@ -37,12 +45,14 @@ classDiagram
     Grib1Packing <|.. SphericalPacking
 ```
 
-## core projection & warp
+## Projection and warp
 
-`TargetProjection` describes an output raster and prepares a per-pixel
-`PreparedTarget` / `ForwardMap`; `PlanarGridProjector` is the source-grid side
-(map a lat/lon to grid indices). Overlays reuse the same `ForwardMap` seam via
-`SourceOverlayTarget`.
+`warp` reprojects a decoded field onto an output raster. It picks a
+`TargetProjection`, calls `prepare()` once to build a `PreparedTarget`, then for
+every output pixel uses `ForwardMap` to turn that pixel back into a source
+lat/lon and sample the field. `PlanarGridProjector` runs the other direction,
+mapping a lat/lon into a native grid's row and column. Overlays reuse the same
+`ForwardMap` seam through `SourceOverlayTarget`.
 
 ```mermaid
 classDiagram
@@ -84,5 +94,5 @@ classDiagram
 
 > Authoritative source for the realizations above:
 > `grep -rE 'impl( <[^>]+>)? [A-Za-z0-9_]+ for [A-Za-z0-9_]+' crates/*/src`.
-> If that set changes, this file is stale — see `README.md` in this directory
+> If that set changes, this file is stale; see `README.md` in this directory
 > for the drift check.

@@ -1,22 +1,23 @@
 # Architecture diagrams
 
-Fieldglass is a five-crate Rust workspace, not an OO codebase, so there is no
-single "class diagram." The structure is documented at three altitudes, each as
-a [Mermaid](https://mermaid.js.org/) diagram that renders inline on GitHub:
+Fieldglass turns a weather-data file (GRIB1, GRIB2, or NetCDF) into a grid of
+values plus the geometry to place them on a map. Decode, projection, and
+rendering stay separate, so adding a format or packing does not touch the rest.
 
-| File | Altitude | What it shows |
+Three [Mermaid](https://mermaid.js.org/) diagrams trace that pipeline from the
+workspace down to one file's contents. Read them in order:
+
+| File | Scope | How it works |
 | --- | --- | --- |
-| [`01-crates.md`](01-crates.md) | Workspace | Crate dependency graph; the decode-decoupling invariant. |
-| [`02-trait-seams.md`](02-trait-seams.md) | Abstractions | Traits and their implementors — the extension points (packings, projections, targets). |
-| [`03-composition.md`](03-composition.md) | Data types | How a decoded message owns its sections / templates, per format. |
-
-Read top-down: crates → trait seams → composition.
+| [`01-crates.md`](01-crates.md) | Workspace | Each format crate decodes a container; `core` projects and renders the result. |
+| [`02-trait-seams.md`](02-trait-seams.md) | Dispatch | The traits a reader calls through to pick a packing, projection, or target at runtime. |
+| [`03-composition.md`](03-composition.md) | Per format | How a file parses into one message that holds its sections. |
 
 ## Keeping these honest
 
-The diagrams are curated, not exhaustive — they document the *seams and section
-composition* where design decisions live, deliberately omitting field-level
-getters. The fact set they rest on can be re-derived from the source:
+The diagrams are curated, not exhaustive. They trace the *seams and section
+composition* where the design decisions live, not every field. The fact set
+they rest on can be re-derived from the source:
 
 ```sh
 # realizations behind 02-trait-seams.md
@@ -48,7 +49,7 @@ What it verifies, per diagram:
   set with a reason.
 - **`03-composition.md`** — *partial*: every type node still exists as a
   `pub struct`/`pub enum`/`pub trait`. This catches renames and deletions, not
-  incompleteness of the section ownership — adding a new section to a message
+  incompleteness of the section ownership: adding a new section to a message
   without drawing it will **not** fail. That part stays manual, same discipline
   as the README "GRIB2 packing modes" table and the eccodes snapshots.
 
