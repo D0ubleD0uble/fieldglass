@@ -151,6 +151,7 @@ fn friendly_packing(label: &str) -> String {
             "Complex packing + spatial differencing"
         }
         "grid_ieee" | "ieee" => "IEEE float",
+        "grid_png" | "png" => "PNG",
         "grid_simple_matrix" => "Matrix of values",
         "grid_second_order" => "Second-order (SPD-2)",
         "grid_second_order_no_SPD" => "Second-order (no SPD)",
@@ -2674,6 +2675,8 @@ mod friendly_packing_tests {
         assert_eq!(friendly_packing("complex"), "Complex packing");
         assert_eq!(friendly_packing("grid_ieee"), "IEEE float");
         assert_eq!(friendly_packing("ieee"), "IEEE float");
+        assert_eq!(friendly_packing("grid_png"), "PNG");
+        assert_eq!(friendly_packing("png"), "PNG");
         assert_eq!(friendly_packing("grid_simple_matrix"), "Matrix of values");
         assert_eq!(
             friendly_packing("grid_second_order"),
@@ -2703,9 +2706,10 @@ mod friendly_packing_tests {
             friendly_packing("unsupported(5.3)"),
             "Complex packing (5.3)"
         );
-        // Templates 5.2 (complex) and 5.4 (IEEE) are now decoded, so they surface
-        // as "complex" / "ieee", never as unsupported(5.N); an unknown number
-        // still falls back to a generic label.
+        // Templates 5.2 (complex), 5.4 (IEEE), and 5.41 (PNG) are now decoded, so
+        // they surface as "complex" / "ieee" / "png", never as unsupported(5.N);
+        // the unsupported(5.N) arms below stay as defensive fallbacks, and an
+        // unknown number still falls back to a generic label.
         assert_eq!(friendly_packing("unsupported(5.40)"), "JPEG 2000 (5.40)");
         assert_eq!(friendly_packing("unsupported(5.41)"), "PNG (5.41)");
         assert_eq!(friendly_packing("unsupported(5.42)"), "CCSDS (5.42)");

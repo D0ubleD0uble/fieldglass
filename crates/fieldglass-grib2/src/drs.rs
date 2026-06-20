@@ -3,14 +3,15 @@
 //! Implements simple packing (template 5.0) — the GRIB1 `grid_simple`
 //! analogue — IEEE floating-point packing (template 5.4, the GRIB2
 //! counterpart to GRIB1 `grid_ieee`), complex packing (template 5.2, the
-//! analogue of GRIB1 second-order packing), and complex packing plus
+//! analogue of GRIB1 second-order packing), complex packing plus
 //! spatial differencing (template 5.3, the analogue of the GRIB1 SPD
-//! orders). Other packing templates (JPEG 2000 5.40, PNG 5.41, CCSDS 5.42)
-//! parse as [`DataRepresentationTemplate::Unsupported`] so message
+//! orders), and PNG packing (template 5.41, whose §7 wraps the integer grid in
+//! a PNG image). The remaining compressed templates (JPEG 2000 5.40, CCSDS
+//! 5.42) parse as [`DataRepresentationTemplate::Unsupported`] so message
 //! enumeration still works.
 //!
 //! Spec reference: WMO Manual on Codes Vol I.2 (FM 92 GRIB Edition 2),
-//! Section 5 layout + Templates 5.0 / 5.2 / 5.3 / 5.4.
+//! Section 5 layout + Templates 5.0 / 5.2 / 5.3 / 5.4 / 5.41.
 
 use crate::section::{SectionHeader, parse_section_header};
 use fieldglass_core::{FieldglassError, bits::sign_magnitude_i16};
@@ -36,6 +37,11 @@ const TEMPLATE_5_3_PAYLOAD_LEN: usize = 38;
 /// Template 5.4 payload length — a single octet (12), the precision code.
 const TEMPLATE_5_4_PAYLOAD_LEN: usize = 1;
 
+/// Template 5.41 payload length — octets 12..=21, identical to template 5.0
+/// (R / E / D / bits-per-value / original-field-type). The compressed grid
+/// lives in §7 as a PNG image rather than a bit-packed stream.
+const TEMPLATE_5_41_PAYLOAD_LEN: usize = 10;
+
 /// Template 5.0 — simple grid-point packing.
 ///
 /// The unpacked value at each grid point is
@@ -53,6 +59,34 @@ pub struct SimplePackingTemplate {
     /// Decimal scale factor `D` (sign-magnitude `i16`, octets 18–19).
     pub decimal_scale_factor: i16,
     /// Number of bits used for each packed value (octet 20).
+    pub bits_per_value: u8,
+    /// Type of original field values (octet 21) — WMO Code Table 5.1,
+    /// `0` = floating point, `1` = integer.
+    pub original_field_type: u8,
+}
+
+/// Template 5.41 — PNG packing.
+///
+/// The §5 payload is identical to simple packing (5.0): the same `R` / `E` /
+/// `D` / [`bits_per_value`] / original-field-type fields. The difference is in
+/// §7, which carries a complete PNG image whose pixels are the packed integers
+/// `X` rather than a raw bit-packed stream. After the PNG is decoded back to
+/// integers, the value transform is the simple-packing formula
+/// `R + X · 2^E · 10^-D`, so `bits_per_value == 0` is the same constant-field
+/// special case (every present point equals `R · 10^-D`, with no PNG present).
+///
+/// [`bits_per_value`]: PngPackingTemplate::bits_per_value
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PngPackingTemplate {
+    /// Reference value `R` (IEEE 32-bit float, octets 12–15 of the section).
+    pub reference_value: f32,
+    /// Binary scale factor `E` (sign-magnitude `i16`, octets 16–17).
+    pub binary_scale_factor: i16,
+    /// Decimal scale factor `D` (sign-magnitude `i16`, octets 18–19).
+    pub decimal_scale_factor: i16,
+    /// Number of bits used for each packed value (octet 20). Drives the PNG
+    /// sample depth eccodes chose: ≤8 → 8-bit grayscale, ≤16 → 16-bit
+    /// grayscale, ≤24 → 8-bit RGB, ≤32 → 8-bit RGBA.
     pub bits_per_value: u8,
     /// Type of original field values (octet 21) — WMO Code Table 5.1,
     /// `0` = floating point, `1` = integer.
@@ -171,6 +205,7 @@ pub enum DataRepresentationTemplate {
     Complex(ComplexPackingTemplate),
     ComplexSpatialDiff(ComplexSpatialDiffTemplate),
     Ieee(IeeePackingTemplate),
+    Png(PngPackingTemplate),
     Unsupported(u16),
 }
 
@@ -195,6 +230,7 @@ impl DataRepresentationSection {
             DataRepresentationTemplate::Complex(_) => "complex".to_string(),
             DataRepresentationTemplate::ComplexSpatialDiff(_) => "complex_spatial_diff".to_string(),
             DataRepresentationTemplate::Ieee(_) => "ieee".to_string(),
+            DataRepresentationTemplate::Png(_) => "png".to_string(),
             DataRepresentationTemplate::Unsupported(n) => format!("unsupported(5.{n})"),
         }
     }
@@ -231,6 +267,15 @@ impl DataRepresentationSection {
     pub fn ieee(&self) -> Option<&IeeePackingTemplate> {
         match &self.template {
             DataRepresentationTemplate::Ieee(t) => Some(t),
+            _ => None,
+        }
+    }
+
+    /// Borrow the PNG-packing template if that's what the section carries.
+    /// Other templates return `None`.
+    pub fn png(&self) -> Option<&PngPackingTemplate> {
+        match &self.template {
+            DataRepresentationTemplate::Png(t) => Some(t),
             _ => None,
         }
     }
@@ -278,6 +323,7 @@ pub fn parse_data_representation_with_header(
         2 => DataRepresentationTemplate::Complex(parse_template_5_2(payload)?),
         3 => DataRepresentationTemplate::ComplexSpatialDiff(parse_template_5_3(payload)?),
         4 => DataRepresentationTemplate::Ieee(parse_template_5_4(payload)?),
+        41 => DataRepresentationTemplate::Png(parse_template_5_41(payload)?),
         other => DataRepresentationTemplate::Unsupported(other),
     };
 
@@ -379,6 +425,26 @@ fn parse_template_5_4(payload: &[u8]) -> Result<IeeePackingTemplate, FieldglassE
     }
     Ok(IeeePackingTemplate {
         precision: payload[0],
+    })
+}
+
+fn parse_template_5_41(payload: &[u8]) -> Result<PngPackingTemplate, FieldglassError> {
+    if payload.len() < TEMPLATE_5_41_PAYLOAD_LEN {
+        return Err(FieldglassError::Parse(format!(
+            "DRS template 5.41 needs {TEMPLATE_5_41_PAYLOAD_LEN} bytes of payload, got {}",
+            payload.len()
+        )));
+    }
+    // Octets 12–21 mirror simple packing (5.0): R, E, D, bits-per-value, type.
+    let reference_value = f32::from_be_bytes([payload[0], payload[1], payload[2], payload[3]]);
+    let binary_scale_factor = sign_magnitude_i16(u16::from_be_bytes([payload[4], payload[5]]));
+    let decimal_scale_factor = sign_magnitude_i16(u16::from_be_bytes([payload[6], payload[7]]));
+    Ok(PngPackingTemplate {
+        reference_value,
+        binary_scale_factor,
+        decimal_scale_factor,
+        bits_per_value: payload[8],
+        original_field_type: payload[9],
     })
 }
 
@@ -522,6 +588,59 @@ mod tests {
         assert!(
             err.to_string().contains("template 5.4 needs"),
             "error names template-5.4 shortfall, got: {err}",
+        );
+    }
+
+    /// Build a minimal §5 with template 5.41 — a 21-byte section whose payload
+    /// mirrors simple packing: R = 97392.0, E = 0, D = 0, 13 bits/value,
+    /// original field type 0 (the parameters of the `png_eta_lambert` fixture).
+    fn build_drs_5_41() -> Vec<u8> {
+        let mut buf: Vec<u8> = Vec::new();
+        let section_len: u32 = 21;
+        buf.extend_from_slice(&section_len.to_be_bytes());
+        buf.push(DRS_SECTION_NUMBER);
+        buf.extend_from_slice(&6045u32.to_be_bytes()); // num data points
+        buf.extend_from_slice(&41u16.to_be_bytes()); // template 5.41
+        buf.extend_from_slice(&97392.0_f32.to_be_bytes()); // R
+        buf.extend_from_slice(&0u16.to_be_bytes()); // E = 0
+        buf.extend_from_slice(&0u16.to_be_bytes()); // D = 0
+        buf.push(13); // bits per value
+        buf.push(0); // original field type
+        assert_eq!(buf.len() as u32, section_len);
+        buf
+    }
+
+    #[test]
+    fn template_5_41_round_trips_synthesized_payload() {
+        let drs = parse_data_representation(&build_drs_5_41()).expect("parse 5.41");
+        assert_eq!(drs.template_number, 41);
+        assert_eq!(drs.num_data_points, 6045);
+        assert_eq!(drs.template_name(), "png");
+
+        let t = drs.png().expect("5.41 has png template");
+        assert!((t.reference_value - 97392.0).abs() < 1e-3);
+        assert_eq!(t.binary_scale_factor, 0);
+        assert_eq!(t.decimal_scale_factor, 0);
+        assert_eq!(t.bits_per_value, 13);
+        assert_eq!(t.original_field_type, 0);
+        // The accessors for the other templates must not claim a PNG section.
+        assert!(drs.simple().is_none());
+        assert!(drs.ieee().is_none());
+    }
+
+    #[test]
+    fn rejects_5_41_when_payload_truncated() {
+        // Declare length 11 (just past the template number) so the 5.41
+        // payload check fires on the missing R/E/D/bits octets.
+        let mut buf: Vec<u8> = Vec::new();
+        buf.extend_from_slice(&11u32.to_be_bytes());
+        buf.push(DRS_SECTION_NUMBER);
+        buf.extend_from_slice(&0u32.to_be_bytes());
+        buf.extend_from_slice(&41u16.to_be_bytes()); // template 5.41
+        let err = parse_data_representation(&buf).expect_err("must reject");
+        assert!(
+            err.to_string().contains("template 5.41 needs"),
+            "error names template-5.41 shortfall, got: {err}",
         );
     }
 
