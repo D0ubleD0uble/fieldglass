@@ -1348,10 +1348,10 @@ pub struct NetcdfVariableMeta {
 /// [`MessageMeta`] through the same [`render_with_options`] / [`project_overlay_impl`]
 /// the GRIB handles use — honouring the decode-decoupled rule.
 ///
-/// First pass: classic (CDF-1/2/5), regular 1-D lat/lon grids (decision 0002).
-/// HDF5-backed rendering (#169) and curvilinear grids (#168) are tracked
-/// follow-ups; for those backings `variables()` is empty and the panel falls
-/// back to the metadata view.
+/// Covers both backings — classic (CDF-1/2/5) and NetCDF-4 / HDF5 (#169) — for
+/// regular 1-D lat/lon grids (decision 0002). Curvilinear / projected grids
+/// (#168) are a tracked follow-up; for an HDF5 layout whose metadata can't be
+/// resolved, `variables()` is empty and the panel falls back to the metadata view.
 #[napi]
 pub struct NetcdfHandle {
     reader: NetcdfReader,
@@ -1365,14 +1365,19 @@ impl NetcdfHandle {
     pub fn from_bytes(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<Self> {
         let reader = NetcdfReader::from_bytes(bytes.to_vec())
             .map_err(|e| napi::Error::from_reason(e.to_string()))?;
-        // First pass renders the classic backing only; HDF5 (#169) leaves the
-        // view empty so the panel falls back to the metadata dump.
+        // Both backings build the neutral view that drives the slice picker. The
+        // HDF5 metadata is resolved lazily and can fail for a layout outside the
+        // decoded subset (decision 0003); on failure the view is empty and the
+        // panel falls back to the metadata dump, mirroring `open_netcdf`.
         let view = match &reader.backing {
             NetcdfBacking::Classic(h) => DatasetView::from_classic(h),
-            NetcdfBacking::Hdf5(_) => DatasetView {
-                dims: Vec::new(),
-                vars: Vec::new(),
-            },
+            NetcdfBacking::Hdf5(_) => reader
+                .hdf5_metadata()
+                .map(|meta| DatasetView::from_hdf5(&meta))
+                .unwrap_or_else(|_| DatasetView {
+                    dims: Vec::new(),
+                    vars: Vec::new(),
+                }),
         };
         Ok(Self {
             reader,
@@ -3539,6 +3544,11 @@ mod netcdf_slice_tests {
 
     const ERSST: &[u8] =
         include_bytes!("../../fieldglass-netcdf/tests/fixtures/ersst_v5_187001_cdf1.nc");
+    /// NetCDF-4 / HDF5 fixture: `temperature(time, lat, lon)` over a tiny regular
+    /// lat/lon grid, with `lat`/`lon` coordinate variables and a pure `nv`
+    /// dimension (decision 0003).
+    const DIMSCALE: &[u8] =
+        include_bytes!("../../fieldglass-netcdf/tests/fixtures/netcdf4_dimscale.nc");
 
     /// Build a handle from raw bytes without crossing the napi `Buffer` boundary
     /// (which would need a Node runtime) — mirrors `from_bytes`'s body.
@@ -3546,7 +3556,9 @@ mod netcdf_slice_tests {
         let reader = NetcdfReader::from_bytes(bytes.to_vec()).unwrap();
         let view = match &reader.backing {
             NetcdfBacking::Classic(h) => DatasetView::from_classic(h),
-            NetcdfBacking::Hdf5(_) => unreachable!("ERSST CDF-1 is classic"),
+            NetcdfBacking::Hdf5(_) => {
+                DatasetView::from_hdf5(&reader.hdf5_metadata().expect("dimension-scale resolution"))
+            }
         };
         NetcdfHandle {
             reader,
@@ -3636,6 +3648,53 @@ mod netcdf_slice_tests {
             .expect("equirectangular render");
         assert!(warped.width > 0 && warped.height > 0);
         assert!(warped.used_lat_min.is_some(), "warp echoes back its extent");
+    }
+
+    /// End-to-end on the NetCDF-4 / HDF5 backing (#169): open the dimension-scale
+    /// fixture, pick `temperature`'s lat/lon plane at time=0, and render. The
+    /// detected axes must come from the `lat`/`lon` coordinate variables, the
+    /// decode must read `temperature` (not the `nv` pure dimension that sits
+    /// between them in dataset order), and the synthesised grid must reproject.
+    #[test]
+    fn hdf5_temperature_slice_renders_with_detected_axes() {
+        let handle = handle(DIMSCALE);
+
+        let vars = handle.variables();
+        let temp = vars
+            .iter()
+            .find(|v| v.name == "temperature")
+            .expect("temperature is renderable");
+        // time × lat × lon ⇒ lat is axis 1, lon is axis 2.
+        assert_eq!(temp.detected_y_dim, Some(1), "lat detected as the Y axis");
+        assert_eq!(temp.detected_x_dim, Some(2), "lon detected as the X axis");
+
+        let indices = vec![0u32; temp.dims.len()]; // hold time = 0.
+        let source = handle
+            .render_slice(
+                temp.variable_index as u32,
+                1,
+                2,
+                indices.clone(),
+                opts("source"),
+            )
+            .expect("source render");
+        // ni = lon length (4), nj = lat length (3).
+        assert_eq!((source.width, source.height), (4, 3));
+
+        let warped = handle
+            .render_slice(
+                temp.variable_index as u32,
+                1,
+                2,
+                indices,
+                opts("equirectangular"),
+            )
+            .expect("equirectangular render");
+        assert!(warped.width > 0 && warped.height > 0);
+        assert!(
+            warped.used_lat_min.is_some(),
+            "synthesised lat/lon grid reprojects"
+        );
     }
 
     #[test]

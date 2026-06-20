@@ -163,3 +163,48 @@ fn pure_dimension_placeholder_resolves_in_the_dummy() {
     assert_eq!(meta.variables[0].dimensions, vec!["x"]);
     assert!(!meta.variables[0].is_coordinate);
 }
+
+/// The decode index recorded on each variable must point at the matching dataset
+/// through `decode_variable_values` / `variable_shape`, even though pure
+/// dimensions shift it away from the variable's position in the name-sorted
+/// `variables` list. In `netcdf4_dimscale.nc` the full dataset order is
+/// `lat, lat_bnds, lon, nv(pure dim), temperature, time`, so `temperature` sits
+/// at decode index 4 while it is only the 4th *variable* (index 3) — using the
+/// list position instead would decode the `nv` placeholder.
+#[test]
+fn decode_index_round_trips_through_the_reader() {
+    let reader = NetcdfReader::from_bytes(DIMSCALE.to_vec()).expect("recognised NetCDF-4");
+    let meta = reader.hdf5_metadata().expect("dimension-scale resolution");
+
+    let var = |name: &str| {
+        meta.variables
+            .iter()
+            .find(|v| v.name == name)
+            .unwrap_or_else(|| panic!("{name} variable"))
+    };
+
+    // The data variable: 2 × 3 × 4 (time × lat × lon), 24 elements.
+    let temperature = var("temperature");
+    assert_eq!(
+        reader.variable_shape(temperature.decode_index).unwrap(),
+        vec![2, 3, 4],
+        "decode_index must resolve temperature's own dataspace"
+    );
+    assert_eq!(
+        reader
+            .decode_variable_values(temperature.decode_index)
+            .unwrap()
+            .len(),
+        24
+    );
+
+    // The coordinate variables resolve to their 1-D axes.
+    assert_eq!(
+        reader.variable_shape(var("lat").decode_index).unwrap(),
+        vec![3]
+    );
+    assert_eq!(
+        reader.variable_shape(var("lon").decode_index).unwrap(),
+        vec![4]
+    );
+}
