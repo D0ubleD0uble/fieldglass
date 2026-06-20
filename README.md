@@ -76,7 +76,7 @@ A GRIB2 message's §5 Data Representation Section selects a packing template. De
 | 5.3 — complex + spatial differencing | `grid_complex_spatial_differencing` | ✅ | Complex packing with 1st- or 2nd-order spatial differencing (common in GFS). Same general-splitting / no-inline-missing envelope as 5.2. Cross-validated against eccodes 2.34. |
 | 5.40 — JPEG 2000 | `grid_jpeg` | ❌ | Compressed; deferred — no production-ready pure-Rust decoder, and a C binding would break the C-free cross-platform bundle (see [codec strategy](docs/decisions/0001-grib2-compressed-packing-codecs.md)). Tracked in [#116](https://github.com/D0ubleD0uble/fieldglass/issues/116). |
 | 5.41 — PNG | `grid_png` | ✅ | The integer grid is wrapped in a PNG image (decoded with the pure-Rust `png` crate); the simple-packing `R` / `E` / `D` transform then applies. Cross-validated against eccodes 2.34. |
-| 5.42 — CCSDS / AEC | `grid_ccsds` | ❌ | Compressed; pure-Rust AEC decoder planned (see [codec strategy](docs/decisions/0001-grib2-compressed-packing-codecs.md)). Tracked in [#117](https://github.com/D0ubleD0uble/fieldglass/issues/117). |
+| 5.42 — CCSDS / AEC | `grid_ccsds` | ✅ | The integer grid is wrapped in a CCSDS adaptive-entropy-coding (libaec-compatible) stream, decoded with the pure-Rust `rust-aec` crate; the simple-packing `R` / `E` / `D` transform then applies. Cross-validated against eccodes 2.34. |
 
 ## Known limitations
 
