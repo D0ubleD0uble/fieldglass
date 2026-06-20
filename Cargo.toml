@@ -22,3 +22,9 @@ thiserror = "2"
 # Pure-Rust PNG codec for GRIB2 DRS template 5.41 decode (no C deps; MIT/Apache,
 # cross-compiles to every release target). See crates/fieldglass-grib2.
 png = "0.18"
+# Pure-Rust CCSDS/AEC (libaec-compatible) codec for GRIB2 DRS template 5.42
+# decode. Purpose-built for GRIB2 5.42 and validated byte-for-byte against the
+# eccodes oracle; no C deps, so it preserves the six-target cross-compile.
+# Pinned exactly (bus-factor 1 upstream): review the diff on every bump and rely
+# on `cargo deny check` for advisory / licence drift. See ADR-0001.
+rust-aec = "=0.1.1"
