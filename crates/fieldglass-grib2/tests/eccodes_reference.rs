@@ -383,3 +383,19 @@ fn ccsds_regular_latlon_matches_eccodes() {
         include_bytes!("fixtures/ccsds_regular_latlon.grib2"),
     );
 }
+
+#[test]
+fn ccsds_regular_latlon_8bit_matches_eccodes() {
+    assert_fixture_matches_snapshot(
+        "ccsds_regular_latlon_8bit.grib2",
+        include_bytes!("fixtures/ccsds_regular_latlon_8bit.grib2"),
+    );
+}
+
+#[test]
+fn ccsds_regular_latlon_24bit_matches_eccodes() {
+    assert_fixture_matches_snapshot(
+        "ccsds_regular_latlon_24bit.grib2",
+        include_bytes!("fixtures/ccsds_regular_latlon_24bit.grib2"),
+    );
+}

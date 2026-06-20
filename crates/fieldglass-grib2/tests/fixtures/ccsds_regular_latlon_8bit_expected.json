@@ -1,0 +1,28 @@
+{
+  "count": 496,
+  "missing_count": 0,
+  "min": 270.46679688,
+  "max": 311.21679688,
+  "mean": 291.5902847832258,
+  "samples": {
+    "0": 278.96679688,
+    "1": 279.96679688,
+    "100": 278.71679688,
+    "250": 291.71679688,
+    "495": 300.96679688
+  },
+  "tolerance_absolute": 0.001,
+  "section5": {
+    "dataRepresentationTemplateNumber": 42,
+    "packingType": "grid_ccsds",
+    "referenceValue": 270.467,
+    "binaryScaleFactor": -2,
+    "decimalScaleFactor": 0,
+    "bitsPerValue": 8,
+    "typeOfOriginalFieldValues": 0,
+    "ccsdsFlags": 14,
+    "ccsdsBlockSize": 32,
+    "ccsdsRsi": 128
+  },
+  "source": "eccodes 2.34.1 grib_get_data + grib_get. Oracle for DRS template 5.42 (grid_ccsds / libaec) at bitsPerValue=8, re-encoded from ccsds_regular_latlon.grib2 with `grib_set -r -s bitsPerValue=8`. Provenance in NOTICE.md."
+}

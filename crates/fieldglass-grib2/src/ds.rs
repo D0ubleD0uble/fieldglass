@@ -10,8 +10,8 @@
 //! Section 7 + Template 5.0 decoding formula.
 
 use crate::drs::{
-    ComplexPackingTemplate, ComplexSpatialDiffTemplate, DataRepresentationTemplate,
-    IeeePackingTemplate, PngPackingTemplate, SimplePackingTemplate,
+    CcsdsPackingTemplate, ComplexPackingTemplate, ComplexSpatialDiffTemplate,
+    DataRepresentationTemplate, IeeePackingTemplate, PngPackingTemplate, SimplePackingTemplate,
 };
 use crate::section::{SECTION_HEADER_LEN, SectionHeader};
 use fieldglass_core::{
@@ -79,6 +79,9 @@ pub fn decode_values(
         }
         DataRepresentationTemplate::Png(t) => {
             decode_png_packing(ds_payload, &t, bitmap, expected_count)
+        }
+        DataRepresentationTemplate::Ccsds(t) => {
+            decode_ccsds_packing(ds_payload, &t, bitmap, expected_count)
         }
         DataRepresentationTemplate::Unsupported(n) => Err(FieldglassError::UnsupportedSection(
             format!("DRS template 5.{n} decoding is not implemented"),
@@ -585,6 +588,101 @@ fn decode_png_packing(
     if data.len() != present_count * bytes_per_value {
         return Err(FieldglassError::Parse(format!(
             "PNG packing: decoded {} bytes for {present_count} values at {bytes_per_value} \
+             bytes each",
+            data.len()
+        )));
+    }
+
+    let mut decoded = Vec::with_capacity(present_count);
+    for chunk in data.chunks_exact(bytes_per_value) {
+        let mut x: u64 = 0;
+        for &b in chunk {
+            x = (x << 8) | b as u64;
+        }
+        decoded.push((r + x as f64 * two_pow_e) * d_inv);
+    }
+
+    Ok(interleave_with_bitmap(decoded, bitmap, expected_count))
+}
+
+/// Decode CCSDS / AEC packing (template 5.42). §7 carries a CCSDS-121.0-B
+/// adaptive-entropy-coding (libaec-compatible) bitstream whose decoded samples
+/// are the packed integers `X`; after decompression the value transform is the
+/// simple-packing formula `value = (R + X · 2^E) · 10^-D`.
+///
+/// The AEC codec is the pure-Rust [`rust_aec`] crate (no C dependency, so the
+/// six-target `.vsix` cross-compile is preserved); see ADR-0001. Any decoder
+/// error — a malformed stream, or a flag/parameter combination `rust_aec`
+/// doesn't cover — is surfaced as [`FieldglassError::UnsupportedSection`] so an
+/// untrusted file degrades gracefully (the message is reported undecodable)
+/// rather than crashing the addon.
+///
+/// Flag handling mirrors eccodes' `grid_ccsds` (`modify_aec_flags`): the `MSB`
+/// and `DATA_3BYTE` flags only govern how `rust_aec` serialises decoded
+/// samples to bytes, not the entropy-decoded integer `X`. We pin them — force
+/// `MSB` on (samples big-endian) and `DATA_3BYTE` off (17–24-bit samples in 4
+/// bytes) — so a fixed `ceil(bits/8)`-byte big-endian read recovers `X`
+/// regardless of the file's stored byte-order bit. The `PREPROCESS` /
+/// `SIGNED` / `RESTRICTED` / `PAD_RSI` flags, which do drive the decode, are
+/// honoured as stored. Like eccodes, the decoded samples are read as unsigned
+/// offsets from `R`.
+fn decode_ccsds_packing(
+    ds_payload: &[u8],
+    t: &CcsdsPackingTemplate,
+    bitmap: Option<&[bool]>,
+    expected_count: usize,
+) -> Result<Vec<Option<f64>>, FieldglassError> {
+    let present_count = check_bitmap_present_count(bitmap, expected_count)?;
+
+    let r = t.reference_value as f64;
+    let two_pow_e = 2f64.powi(t.binary_scale_factor as i32);
+    let d_inv = 10f64.powi(-(t.decimal_scale_factor as i32));
+
+    // Constant field: bitsPerValue == 0 means §7 is empty and every present
+    // point equals the reference value verbatim. This matches eccodes'
+    // `grid_ccsds` unpack, which returns `R` directly (without the 10^-D
+    // factor that simple/PNG packing apply) because its encoder stores the
+    // already-scaled physical value in `R`. The two agree whenever D == 0,
+    // which is the case for essentially every constant field.
+    if t.bits_per_value == 0 {
+        return Ok(materialise_constant(r, bitmap, expected_count));
+    }
+    if t.bits_per_value > 32 {
+        return Err(FieldglassError::Parse(format!(
+            "CCSDS packing: bits_per_value {} exceeds 32",
+            t.bits_per_value
+        )));
+    }
+    // Output sample width with `DATA_3BYTE` forced off: 17–24-bit samples
+    // occupy 4 bytes, matching `rust_aec`'s serialisation under the pinned
+    // flags below. (`present_count * bytes_per_value` can't overflow:
+    // present_count is capped upstream and bytes_per_value ≤ 4.)
+    let bytes_per_value: usize = match t.bits_per_value {
+        1..=8 => 1,
+        9..=16 => 2,
+        _ => 4,
+    };
+
+    let mut flags = rust_aec::flags_from_grib2_ccsds_flags(t.ccsds_flags);
+    flags.insert(rust_aec::AecFlags::MSB);
+    flags.remove(rust_aec::AecFlags::DATA_3BYTE);
+    let params = rust_aec::AecParams::new(
+        t.bits_per_value,
+        t.block_size as u32,
+        t.reference_sample_interval as u32,
+        flags,
+    );
+
+    let data = rust_aec::decode(ds_payload, params, present_count).map_err(|e| {
+        FieldglassError::UnsupportedSection(format!("CCSDS packing: AEC decode failed: {e}"))
+    })?;
+
+    // `rust_aec` returns exactly `present_count * bytes_per_value` bytes under
+    // the pinned flags; verify before slicing so a contract change surfaces as
+    // a clean error rather than a panic.
+    if data.len() != present_count * bytes_per_value {
+        return Err(FieldglassError::Parse(format!(
+            "CCSDS packing: decoded {} bytes for {present_count} values at {bytes_per_value} \
              bytes each",
             data.len()
         )));
@@ -1371,6 +1469,65 @@ mod tests {
         let err =
             decode_values(&[], png_template(0.0, 0, 0, 33), None, 4).expect_err("must reject");
         assert!(err.to_string().contains("exceeds 32"), "got: {err}");
+    }
+
+    // -----------------------------------------------------------------
+    // CCSDS / AEC packing (template 5.42)
+    //
+    // `rust_aec` has no encoder, so a valid AEC stream can't be synthesised
+    // in-crate. The happy-path decode is cross-checked against the committed
+    // eccodes oracle in `tests/decode_ccsds.rs`; these unit tests cover the
+    // branches that don't need a real stream — the constant-field shortcut,
+    // input validation, and the graceful-degradation guardrail.
+    // -----------------------------------------------------------------
+
+    fn ccsds_template(r: f32, e: i16, d: i16, bits: u8) -> DataRepresentationTemplate {
+        DataRepresentationTemplate::Ccsds(CcsdsPackingTemplate {
+            reference_value: r,
+            binary_scale_factor: e,
+            decimal_scale_factor: d,
+            bits_per_value: bits,
+            original_field_type: 0,
+            ccsds_flags: 0x0e,
+            block_size: 32,
+            reference_sample_interval: 128,
+        })
+    }
+
+    #[test]
+    fn ccsds_packing_constant_field_no_stream() {
+        // bits_per_value == 0 → §7 is empty; every present point equals R
+        // verbatim (eccodes `grid_ccsds` semantics — no 10^-D factor).
+        let decoded = decode_values(&[], ccsds_template(7.0, 0, 1, 0), None, 5).expect("decode");
+        assert_eq!(decoded, vec![Some(7.0); 5]);
+    }
+
+    #[test]
+    fn ccsds_packing_constant_field_honours_bitmap() {
+        let bitmap = [true, false, true, false, true];
+        let decoded =
+            decode_values(&[], ccsds_template(3.5, 0, 0, 0), Some(&bitmap), 5).expect("decode");
+        assert_eq!(decoded, vec![Some(3.5), None, Some(3.5), None, Some(3.5)],);
+    }
+
+    #[test]
+    fn ccsds_packing_rejects_bits_above_32() {
+        let err =
+            decode_values(&[], ccsds_template(0.0, 0, 0, 33), None, 4).expect_err("must reject");
+        assert!(err.to_string().contains("exceeds 32"), "got: {err}");
+    }
+
+    #[test]
+    fn ccsds_packing_degrades_on_malformed_stream() {
+        // A non-AEC payload must surface as a recoverable UnsupportedSection
+        // error (graceful degradation), never a panic.
+        let err = decode_values(b"not an aec stream", ccsds_template(0.0, 0, 0, 16), None, 8)
+            .expect_err("must reject");
+        assert!(
+            matches!(err, FieldglassError::UnsupportedSection(_)),
+            "expected UnsupportedSection, got: {err:?}"
+        );
+        assert!(err.to_string().contains("CCSDS packing"), "got: {err}");
     }
 
     #[test]
