@@ -47,12 +47,13 @@ classDiagram
 
 ## Projection and warp
 
-`warp` reprojects a decoded field onto an output raster. It picks a
-`TargetProjection`, calls `prepare()` once to build a `PreparedTarget`, then for
-every output pixel uses `ForwardMap` to turn that pixel back into a source
-lat/lon and sample the field. `PlanarGridProjector` runs the other direction,
-mapping a lat/lon into a native grid's row and column. Overlays reuse the same
-`ForwardMap` seam through `SourceOverlayTarget`.
+`warp` reprojects a decoded field onto an output raster. Each `TargetProjection`
+prepares a `PreparedTarget`, and a `PreparedTarget` is a `ForwardMap`: it turns
+an output pixel back into a source lat/lon to sample. `PlanarGridProjector` runs
+the inverse for native grids, mapping a lat/lon into a row and column. Overlays
+reuse the `ForwardMap` seam through `SourceOverlayTarget`.
+
+The implementers and the traits they satisfy:
 
 ```mermaid
 classDiagram
@@ -88,8 +89,26 @@ classDiagram
     PlanarGridProjector <|.. LambertProjector
     PlanarGridProjector <|.. PolarStereoProjector
 
-    TargetProjection ..> PreparedTarget : prepare()
     PreparedTarget --|> ForwardMap : requires (supertrait)
+```
+
+The call order, where `prepare()` runs once per raster and `forward()` once per
+output pixel:
+
+```mermaid
+sequenceDiagram
+    participant W as warp
+    participant P as TargetProjection
+    participant T as PreparedTarget<br/>(: ForwardMap)
+    participant F as decoded field
+    W->>P: prepare(grid)
+    P-->>W: PreparedTarget
+    loop each output pixel
+        W->>T: forward(x, y)
+        T-->>W: source lat/lon
+        W->>F: sample(lat/lon)
+        F-->>W: value
+    end
 ```
 
 > Authoritative source for the realizations above:
