@@ -280,6 +280,13 @@ fn build_grib1_message_meta(
     let polar_stereo_dx_metres = polar_stereo_inc.map(|(dx, _)| dx);
     let polar_stereo_dy_metres = polar_stereo_inc.map(|(_, dy)| dy);
     let polar_stereo_south_pole = polar_stereo.map(|g| g.south_pole);
+    let rotated = match &msg.gds {
+        Some(fieldglass_grib1::GridDescription::RotatedLatLon(g)) => Some(g),
+        _ => None,
+    };
+    let rotated_south_pole_lat = rotated.map(|g| g.south_pole_lat);
+    let rotated_south_pole_lon = rotated.map(|g| g.south_pole_lon);
+    let rotated_angle_of_rotation = rotated.map(|g| g.angle_of_rotation);
     let reprojectable = grid_is_reprojectable(
         grid_type.as_deref(),
         polar_stereo_dx_metres.or(lambert_dx_metres),
@@ -322,11 +329,9 @@ fn build_grib1_message_meta(
         polar_stereo_dx_metres,
         polar_stereo_dy_metres,
         polar_stereo_south_pole,
-        // GRIB1 rotated grids (grid_type 10) are not parsed yet (#47), so the
-        // GRIB2-only rotated-pole fields are always absent here.
-        rotated_south_pole_lat: None,
-        rotated_south_pole_lon: None,
-        rotated_angle_of_rotation: None,
+        rotated_south_pole_lat,
+        rotated_south_pole_lon,
+        rotated_angle_of_rotation,
         packing,
         reprojectable,
     }

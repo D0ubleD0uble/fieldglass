@@ -1,6 +1,6 @@
 use fieldglass_core::{
     FieldglassError, LambertParams, LambertProjector, PlanarGridProjector, PolarStereoParams,
-    PolarStereoProjector,
+    PolarStereoProjector, bits::ibm_float_to_f64,
 };
 
 // ---------------------------------------------------------------------------
@@ -64,6 +64,35 @@ pub struct LatLonGrid {
     pub di: f64,
     /// North-south increment in degrees.
     pub dj: f64,
+    pub resolution_flags: ResolutionFlags,
+    pub scanning_mode: ScanningMode,
+}
+
+/// Grid type 10 — Rotated Latitude/Longitude.
+///
+/// A regular lat/lon grid expressed in a *rotated* coordinate frame whose south
+/// pole sits at (`south_pole_lat`, `south_pole_lon`). The grid body is identical
+/// to [`LatLonGrid`]; the rotated-pole position and rotation angle follow the
+/// scanning-mode octet (after four reserved octets). The corner coordinates
+/// (`lat_first`/`lon_first`/`lat_last`/`lon_last`) are in the rotated frame —
+/// converting them to geographic is the reprojector's job, not the parser's.
+pub struct RotatedLatLonGrid {
+    pub ni: u32,
+    pub nj: u32,
+    pub lat_first: f64,
+    pub lon_first: f64,
+    pub lat_last: f64,
+    pub lon_last: f64,
+    /// East-west increment in degrees.
+    pub di: f64,
+    /// North-south increment in degrees.
+    pub dj: f64,
+    /// Geographic latitude of the rotated grid's south pole (degrees).
+    pub south_pole_lat: f64,
+    /// Geographic longitude of the rotated grid's south pole (degrees).
+    pub south_pole_lon: f64,
+    /// Angle of rotation about the new polar axis (degrees).
+    pub angle_of_rotation: f64,
     pub resolution_flags: ResolutionFlags,
     pub scanning_mode: ScanningMode,
 }
@@ -190,6 +219,7 @@ impl LambertGrid {
 
 pub enum GridDescription {
     LatLon(LatLonGrid),
+    RotatedLatLon(RotatedLatLonGrid),
     Gaussian(GaussianGrid),
     PolarStereographic(PolarStereoGrid),
     LambertConformal(LambertGrid),
@@ -203,6 +233,7 @@ impl GridDescription {
     pub fn grid_type_name(&self) -> &'static str {
         match self {
             Self::LatLon(_) => "latlon",
+            Self::RotatedLatLon(_) => "rotated_latlon",
             Self::Gaussian(_) => "gaussian",
             Self::PolarStereographic(_) => "polar_stereo",
             Self::LambertConformal(_) => "lambert",
@@ -214,6 +245,7 @@ impl GridDescription {
     pub fn dimensions(&self) -> Option<(u32, u32)> {
         match self {
             Self::LatLon(g) => Some((g.ni, g.nj)),
+            Self::RotatedLatLon(g) => Some((g.ni, g.nj)),
             Self::Gaussian(g) => Some((g.ni, g.nj)),
             Self::PolarStereographic(g) => Some((g.nx, g.ny)),
             Self::LambertConformal(g) => Some((g.nx, g.ny)),
@@ -222,9 +254,13 @@ impl GridDescription {
     }
 
     /// Geographic bounds as (lat_first, lon_first, lat_last, lon_last), if available.
+    ///
+    /// For [`Self::RotatedLatLon`] these are the corner coordinates in the
+    /// rotated frame, not geographic; unrotating them is the reprojector's job.
     pub fn bounds(&self) -> Option<(f64, f64, f64, f64)> {
         match self {
             Self::LatLon(g) => Some((g.lat_first, g.lon_first, g.lat_last, g.lon_last)),
+            Self::RotatedLatLon(g) => Some((g.lat_first, g.lon_first, g.lat_last, g.lon_last)),
             Self::Gaussian(g) => Some((g.lat_first, g.lon_first, g.lat_last, g.lon_last)),
             Self::PolarStereographic(g) => {
                 let (lat_last, lon_last) = g.last_point();
@@ -273,6 +309,9 @@ pub fn parse_grid_description(bytes: &[u8]) -> Result<GridDescription, Fieldglas
         4 => Ok(GridDescription::Gaussian(parse_gaussian(
             &bytes[..section_len],
         )?)),
+        10 => Ok(GridDescription::RotatedLatLon(parse_rotated_latlon(
+            &bytes[..section_len],
+        )?)),
         5 => Ok(GridDescription::PolarStereographic(parse_polar_stereo(
             &bytes[..section_len],
         )?)),
@@ -297,6 +336,28 @@ fn parse_latlon(b: &[u8]) -> Result<LatLonGrid, FieldglassError> {
         di: u16::from_be_bytes([b[23], b[24]]) as f64 / 1000.0,
         dj: u16::from_be_bytes([b[25], b[26]]) as f64 / 1000.0,
         scanning_mode: ScanningMode::from_byte(b[27]),
+    })
+}
+
+fn parse_rotated_latlon(b: &[u8]) -> Result<RotatedLatLonGrid, FieldglassError> {
+    // Octets 7-28 are the lat/lon body; 29-32 are reserved; 33-35 / 36-38 hold
+    // the rotated south pole (sign-magnitude, /1000); 39-42 the rotation angle
+    // (IBM single-precision float). 0-indexed, the angle ends at byte 42.
+    require_len(b, 42, "Rotated LatLon GDS")?;
+    Ok(RotatedLatLonGrid {
+        ni: u16::from_be_bytes([b[6], b[7]]) as u32,
+        nj: u16::from_be_bytes([b[8], b[9]]) as u32,
+        lat_first: read_signed_magnitude_24(&b[10..13]) as f64 / 1000.0,
+        lon_first: read_signed_magnitude_24(&b[13..16]) as f64 / 1000.0,
+        resolution_flags: ResolutionFlags::from_byte(b[16]),
+        lat_last: read_signed_magnitude_24(&b[17..20]) as f64 / 1000.0,
+        lon_last: read_signed_magnitude_24(&b[20..23]) as f64 / 1000.0,
+        di: u16::from_be_bytes([b[23], b[24]]) as f64 / 1000.0,
+        dj: u16::from_be_bytes([b[25], b[26]]) as f64 / 1000.0,
+        scanning_mode: ScanningMode::from_byte(b[27]),
+        south_pole_lat: read_signed_magnitude_24(&b[32..35]) as f64 / 1000.0,
+        south_pole_lon: read_signed_magnitude_24(&b[35..38]) as f64 / 1000.0,
+        angle_of_rotation: ibm_float_to_f64(read_u32(&b[38..42])),
     })
 }
 
@@ -359,6 +420,11 @@ fn parse_lambert(b: &[u8]) -> Result<LambertGrid, FieldglassError> {
 /// Read a 3-byte big-endian unsigned integer.
 fn read_u24(b: &[u8]) -> u32 {
     u32::from_be_bytes([0, b[0], b[1], b[2]])
+}
+
+/// Read a 4-byte big-endian unsigned integer.
+fn read_u32(b: &[u8]) -> u32 {
+    u32::from_be_bytes([b[0], b[1], b[2], b[3]])
 }
 
 /// Read a 3-byte big-endian sign-and-magnitude integer.
@@ -558,6 +624,62 @@ mod grid_variant_tests {
         let (x, y) = projector.forward(la2, lo2);
         assert!((x - (ox + 600.0 * 13_545.0)).abs() < 1e-3, "x metres: {x}");
         assert!((y - (oy + 400.0 * 13_545.0)).abs() < 1e-3, "y metres: {y}");
+    }
+
+    #[test]
+    fn parses_rotated_latlon_gds() {
+        // A COSMO-style rotated lat/lon grid: 100×90 points, rotated south pole
+        // at (-30°, 10°), 0.5° angle of rotation, 0.0625° spacing. The corner
+        // coordinates are in the rotated frame.
+        let mut body = Vec::new();
+        body.extend(u16be(100)); // ni
+        body.extend(u16be(90)); // nj
+        body.extend(sm24(-18_000)); // lat_first = -18.000° (rotated frame)
+        body.extend(sm24(-12_000)); // lon_first = -12.000°
+        body.push(0x80); // resolution flags: increments_given
+        body.extend(sm24(20_000)); // lat_last = 20.000°
+        body.extend(sm24(15_000)); // lon_last = 15.000°
+        body.extend(u16be(63)); // di = 0.063°
+        body.extend(u16be(63)); // dj = 0.063°
+        body.push(0x40); // scanning mode: j_positive
+        body.extend([0, 0, 0, 0]); // 4 reserved octets
+        body.extend(sm24(-30_000)); // latitudeOfSouthernPole = -30.000°
+        body.extend(sm24(10_000)); // longitudeOfSouthernPole = 10.000°
+        // angleOfRotation as an IBM single-precision float: 0x40800000 = 0.5.
+        body.extend([0x40, 0x80, 0x00, 0x00]);
+
+        let gds = build_gds(10, &body);
+        let parsed = parse_grid_description(&gds).expect("rotated lat/lon GDS parses");
+        assert_eq!(parsed.grid_type_name(), "rotated_latlon");
+        assert_eq!(parsed.dimensions(), Some((100, 90)));
+        assert_eq!(parsed.bounds(), Some((-18.0, -12.0, 20.0, 15.0)));
+        let GridDescription::RotatedLatLon(g) = parsed else {
+            panic!("expected RotatedLatLon");
+        };
+        assert_eq!(g.ni, 100);
+        assert_eq!(g.nj, 90);
+        assert_eq!(g.lat_first, -18.0);
+        assert_eq!(g.lon_first, -12.0);
+        assert_eq!(g.lat_last, 20.0);
+        assert_eq!(g.lon_last, 15.0);
+        assert_eq!(g.di, 0.063);
+        assert_eq!(g.dj, 0.063);
+        assert_eq!(g.south_pole_lat, -30.0);
+        assert_eq!(g.south_pole_lon, 10.0);
+        assert!((g.angle_of_rotation - 0.5).abs() < 1e-9);
+        assert!(g.resolution_flags.increments_given);
+        assert!(g.scanning_mode.j_positive);
+    }
+
+    #[test]
+    fn rotated_latlon_too_short_yields_parse_error() {
+        // grid_type 10 needs 42 bytes; give it a 32-byte lat/lon-sized body.
+        let body = vec![0u8; 26];
+        let gds = build_gds(10, &body);
+        let Err(err) = parse_grid_description(&gds) else {
+            panic!("short rotated GDS should error");
+        };
+        assert!(matches!(err, FieldglassError::Parse(_)));
     }
 
     #[test]
