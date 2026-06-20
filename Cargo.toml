@@ -28,3 +28,7 @@ png = "0.18"
 # Pinned exactly (bus-factor 1 upstream): review the diff on every bump and rely
 # on `cargo deny check` for advisory / licence drift. See ADR-0001.
 rust-aec = "=0.1.1"
+# Pure-Rust DEFLATE (zlib) codec for the HDF5 deflate filter used by NetCDF-4
+# chunked datasets. Already in the tree via the `png` crate; MIT-licensed, no C
+# deps. See crates/fieldglass-netcdf.
+miniz_oxide = "0.8"

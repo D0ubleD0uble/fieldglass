@@ -84,7 +84,11 @@ handle:
 
 - `hdf5_v1_symboltable.h5` (`libver='earliest'`): superblock v0, **v1** object
   headers, **symbol-table** groups (local heap + B-tree v1 → `SNOD` nodes), no
-  `OHDR` signature. The legacy layout.
+  `OHDR` signature. The legacy layout. Also carries a chunked + gzip + shuffle
+  dataset (`compressed`) whose chunk index is a **version-1 B-tree** (Data Layout
+  v3) — the storage path #121 value decode reads end to end (B-tree chunk walk +
+  filter-pipeline reverse). The v2 fixture's `chunked` dataset uses the newer
+  version-4 chunk index instead, so the two cover both index styles.
 - `hdf5_v2_linkinfo.h5` (`libver='v110'`): superblock v3, **v2** object headers
   (`OHDR`), **link-info** groups, a chunked + gzip + shuffle dataset (#121
   filter pipeline), and a 12-attribute dataset that forces **dense** attribute

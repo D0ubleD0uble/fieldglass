@@ -460,6 +460,18 @@ pub(crate) fn read_uint_le(bytes: &[u8], at: usize, width: usize) -> Result<u64,
     Ok(value)
 }
 
+/// Whether an address field is the HDF5 "undefined address" sentinel (all ones)
+/// in a field `osize` bytes wide. Marks an object (heap, B-tree, contiguous data,
+/// chunk) whose storage has not been allocated.
+pub(crate) fn is_undefined_address(address: u64, osize: u8) -> bool {
+    let o = osize as usize;
+    if o >= 8 {
+        address == u64::MAX
+    } else {
+        address == (1u64 << (8 * o)) - 1
+    }
+}
+
 /// Bounds-checked slice of `len` bytes at `at`.
 fn slice(bytes: &[u8], at: usize, len: usize) -> Result<&[u8], FieldglassError> {
     let end = at

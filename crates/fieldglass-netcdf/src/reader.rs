@@ -66,9 +66,10 @@ impl NetcdfReader {
     /// element equals the variable's `_FillValue`. Mirrors the GRIB
     /// `decode_message_values` surface.
     ///
-    /// Implemented for classic (CDF-1/2/5) backings; NetCDF-4 / HDF5 value
-    /// decode is a separate track and returns
-    /// [`FieldglassError::UnsupportedSection`].
+    /// For HDF5 / NetCDF-4 backings a "variable" is a root-group dataset, indexed
+    /// in the same name-sorted order [`Self::variable_shape`] uses. Datasets
+    /// stored with a Data Layout the reader doesn't decode yet (e.g. a
+    /// version-4 chunk index) return [`FieldglassError::UnsupportedSection`].
     pub fn decode_variable_values(
         &self,
         var_index: usize,
@@ -77,23 +78,41 @@ impl NetcdfReader {
             NetcdfBacking::Classic(header) => {
                 classic::decode_variable_values(header, &self.data, var_index)
             }
-            NetcdfBacking::Hdf5(_) => Err(FieldglassError::UnsupportedSection(
-                "NetCDF-4 / HDF5 value decode is not yet implemented".to_string(),
-            )),
+            NetcdfBacking::Hdf5(probe) => {
+                let addr = hdf5_dataset_address(&self.data, probe, var_index)?;
+                hdf5::values::read_dataset_values(&self.data, addr, probe)
+            }
         }
     }
 
-    /// Runtime shape of a variable (record dim resolved to `numrecs`), in
-    /// declared (C) order. Classic backings only; HDF5 returns
-    /// [`FieldglassError::UnsupportedSection`].
+    /// Runtime shape of a variable in declared (C) order. For classic backings
+    /// the record dimension resolves to `numrecs`; for HDF5 it is the dataset's
+    /// current dataspace dimensions (empty for a scalar).
     pub fn variable_shape(&self, var_index: usize) -> Result<Vec<u64>, FieldglassError> {
         match &self.backing {
             NetcdfBacking::Classic(header) => classic::variable_shape(header, var_index),
-            NetcdfBacking::Hdf5(_) => Err(FieldglassError::UnsupportedSection(
-                "NetCDF-4 / HDF5 value decode is not yet implemented".to_string(),
-            )),
+            NetcdfBacking::Hdf5(probe) => {
+                let addr = hdf5_dataset_address(&self.data, probe, var_index)?;
+                let shape = hdf5::dataset::describe(&self.data, addr, probe)?;
+                Ok(shape.dataspace.dims)
+            }
         }
     }
+}
+
+/// Resolve the object-header address of the `var_index`-th HDF5 dataset, in the
+/// root group's name-sorted order (groups and committed datatypes excluded).
+fn hdf5_dataset_address(
+    bytes: &[u8],
+    probe: &hdf5::Hdf5Probe,
+    var_index: usize,
+) -> Result<u64, FieldglassError> {
+    hdf5::group::list_root_children(bytes, probe)?
+        .into_iter()
+        .filter(|c| c.kind == hdf5::group::ChildKind::Dataset)
+        .nth(var_index)
+        .map(|c| c.object_header_address)
+        .ok_or(FieldglassError::OutOfRange)
 }
 
 #[cfg(test)]

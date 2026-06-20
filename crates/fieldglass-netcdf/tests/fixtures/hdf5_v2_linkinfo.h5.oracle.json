@@ -318,18 +318,28 @@
         "chunks": null,
         "filters": []
       },
-      "fill_value": -999.0,
-      "attributes": [],
+      "fill_value": -9999.5498046875,
+      "attributes": [
+        {
+          "name": "_FillValue",
+          "datatype": {
+            "class": "floating-point",
+            "size_bytes": 4,
+            "byte_order": "little-endian"
+          },
+          "value": -9999.5498046875
+        }
+      ],
       "values": {
         "count": 6,
         "present_count": 0,
         "missing_count": 6,
         "samples": {
-          "0": -999.0,
-          "1": -999.0,
-          "3": -999.0,
-          "4": -999.0,
-          "5": -999.0
+          "0": -9999.5498046875,
+          "1": -9999.5498046875,
+          "3": -9999.5498046875,
+          "4": -9999.5498046875,
+          "5": -9999.5498046875
         }
       }
     },
