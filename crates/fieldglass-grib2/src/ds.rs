@@ -11,7 +11,7 @@
 
 use crate::drs::{
     ComplexPackingTemplate, ComplexSpatialDiffTemplate, DataRepresentationTemplate,
-    IeeePackingTemplate, SimplePackingTemplate,
+    IeeePackingTemplate, PngPackingTemplate, SimplePackingTemplate,
 };
 use crate::section::{SECTION_HEADER_LEN, SectionHeader};
 use fieldglass_core::{
@@ -76,6 +76,9 @@ pub fn decode_values(
         }
         DataRepresentationTemplate::Ieee(t) => {
             decode_ieee_packing(ds_payload, &t, bitmap, expected_count)
+        }
+        DataRepresentationTemplate::Png(t) => {
+            decode_png_packing(ds_payload, &t, bitmap, expected_count)
         }
         DataRepresentationTemplate::Unsupported(n) => Err(FieldglassError::UnsupportedSection(
             format!("DRS template 5.{n} decoding is not implemented"),
@@ -506,6 +509,94 @@ fn decode_ieee_packing(
             ]),
         };
         decoded.push(value);
+    }
+
+    Ok(interleave_with_bitmap(decoded, bitmap, expected_count))
+}
+
+/// Decode PNG packing (template 5.41). §7 carries a complete PNG image whose
+/// pixels are the packed integers `X`; after the image is decoded, the value
+/// transform is the simple-packing formula `value = (R + X · 2^E) · 10^-D`.
+///
+/// eccodes (`grid_png`) selects the PNG sample layout from `bits_per_value` —
+/// 8-bit grayscale (≤8), 16-bit grayscale (≤16), 8-bit RGB (≤24), or 8-bit
+/// RGBA (≤32) — and writes one value per pixel in raster order, with the
+/// value's bytes laid out most-significant-first across the pixel's
+/// samples/channels. So reading the decoded buffer as `ceil(bits/8)`-byte
+/// big-endian groups recovers `X` regardless of colour type, mirroring
+/// eccodes' own unpack. The image carries exactly `present_count` pixels.
+fn decode_png_packing(
+    ds_payload: &[u8],
+    t: &PngPackingTemplate,
+    bitmap: Option<&[bool]>,
+    expected_count: usize,
+) -> Result<Vec<Option<f64>>, FieldglassError> {
+    let present_count = check_bitmap_present_count(bitmap, expected_count)?;
+
+    let r = t.reference_value as f64;
+    let two_pow_e = 2f64.powi(t.binary_scale_factor as i32);
+    let d_inv = 10f64.powi(-(t.decimal_scale_factor as i32));
+
+    // Constant field: no PNG stream is written; every present point is R·10^-D.
+    if t.bits_per_value == 0 {
+        let constant = r * d_inv;
+        return Ok(materialise_constant(constant, bitmap, expected_count));
+    }
+    if t.bits_per_value > 32 {
+        return Err(FieldglassError::Parse(format!(
+            "PNG packing: bits_per_value {} exceeds 32",
+            t.bits_per_value
+        )));
+    }
+    let bytes_per_value = t.bits_per_value.div_ceil(8) as usize;
+
+    // Parse only the PNG header first; this lets us reject an image whose pixel
+    // count disagrees with the field before allocating the output buffer, so a
+    // crafted IHDR on an untrusted file can't drive a huge allocation.
+    // png 0.18's `Decoder` needs `BufRead + Seek`; a `Cursor` over the §7
+    // bytes provides both without copying.
+    let mut reader = png::Decoder::new(std::io::Cursor::new(ds_payload))
+        .read_info()
+        .map_err(|e| FieldglassError::Parse(format!("PNG packing: invalid PNG stream: {e}")))?;
+    let info = reader.info();
+    let pixels = (info.width as u64)
+        .checked_mul(info.height as u64)
+        .ok_or_else(|| FieldglassError::Parse("PNG packing: image dimensions overflow".into()))?;
+    if pixels != present_count as u64 {
+        return Err(FieldglassError::Parse(format!(
+            "PNG packing: image holds {pixels} pixels but {present_count} values are required"
+        )));
+    }
+
+    let buf_size = reader.output_buffer_size().ok_or_else(|| {
+        FieldglassError::Parse("PNG packing: decoded image size overflows usize".into())
+    })?;
+    let mut buf = vec![0u8; buf_size];
+    let out = reader
+        .next_frame(&mut buf)
+        .map_err(|e| FieldglassError::Parse(format!("PNG packing: decode failed: {e}")))?;
+    let data = &buf[..out.buffer_size()];
+
+    // Each value occupies `bytes_per_value` bytes, so the decoded buffer must
+    // hold exactly that many bytes per pixel. A mismatch means the PNG used an
+    // unexpected colour type / sample depth (e.g. a palette image), which we
+    // reject rather than misread. (`present_count * bytes_per_value` can't
+    // overflow: present_count is capped upstream and bytes_per_value ≤ 4.)
+    if data.len() != present_count * bytes_per_value {
+        return Err(FieldglassError::Parse(format!(
+            "PNG packing: decoded {} bytes for {present_count} values at {bytes_per_value} \
+             bytes each",
+            data.len()
+        )));
+    }
+
+    let mut decoded = Vec::with_capacity(present_count);
+    for chunk in data.chunks_exact(bytes_per_value) {
+        let mut x: u64 = 0;
+        for &b in chunk {
+            x = (x << 8) | b as u64;
+        }
+        decoded.push((r + x as f64 * two_pow_e) * d_inv);
     }
 
     Ok(interleave_with_bitmap(decoded, bitmap, expected_count))
@@ -1152,6 +1243,134 @@ mod tests {
         let payload: Vec<u8> = 1.0f32.to_be_bytes().to_vec();
         let bitmap = [true]; // claims 1 point, caller asks for 5
         assert!(decode_values(&payload, ieee_template(1), Some(&bitmap), 5).is_err());
+    }
+
+    // -----------------------------------------------------------------
+    // PNG packing (template 5.41)
+    // -----------------------------------------------------------------
+
+    fn png_template(r: f32, e: i16, d: i16, bits: u8) -> DataRepresentationTemplate {
+        DataRepresentationTemplate::Png(PngPackingTemplate {
+            reference_value: r,
+            binary_scale_factor: e,
+            decimal_scale_factor: d,
+            bits_per_value: bits,
+            original_field_type: 0,
+        })
+    }
+
+    /// Encode `samples` (the raw PNG image bytes — big-endian for 16-bit) as a
+    /// grayscale PNG, mirroring how eccodes lays the packed integers out in §7.
+    fn encode_png_gray(samples: &[u8], width: u32, height: u32, depth: png::BitDepth) -> Vec<u8> {
+        let mut out = Vec::new();
+        {
+            let mut enc = png::Encoder::new(&mut out, width, height);
+            enc.set_color(png::ColorType::Grayscale);
+            enc.set_depth(depth);
+            let mut writer = enc.write_header().expect("png header");
+            writer.write_image_data(samples).expect("png data");
+            writer.finish().expect("png finish");
+        }
+        out
+    }
+
+    #[test]
+    fn png_packing_decodes_8bit_grayscale_no_bitmap() {
+        // 4 values in a 4×1 8-bit grayscale image; R = 300, E = 0, D = 0 →
+        // value = 300 + X.
+        let png = encode_png_gray(&[0, 5, 10, 250], 4, 1, png::BitDepth::Eight);
+        let decoded = decode_values(&png, png_template(300.0, 0, 0, 8), None, 4).expect("decode");
+        assert_eq!(
+            decoded,
+            vec![Some(300.0), Some(305.0), Some(310.0), Some(550.0)],
+        );
+    }
+
+    #[test]
+    fn png_packing_decodes_16bit_grayscale() {
+        // 13-bit values need a 16-bit grayscale image (2 bytes/value), the same
+        // layout as the `png_eta_lambert` fixture. R = 100 → value = 100 + X.
+        let values: [u16; 4] = [0, 1, 4000, 8191];
+        let bytes: Vec<u8> = values.iter().flat_map(|v| v.to_be_bytes()).collect();
+        let png = encode_png_gray(&bytes, 2, 2, png::BitDepth::Sixteen);
+        let decoded = decode_values(&png, png_template(100.0, 0, 0, 13), None, 4).expect("decode");
+        assert_eq!(
+            decoded,
+            vec![Some(100.0), Some(101.0), Some(4100.0), Some(8291.0)],
+        );
+    }
+
+    #[test]
+    fn png_packing_applies_reference_and_scale_factors() {
+        // R = 0, E = -1 (×0.5), D = 1 (×0.1): value = (X·0.5)·0.1 = X·0.05.
+        let png = encode_png_gray(&[0, 2, 20], 3, 1, png::BitDepth::Eight);
+        let decoded = decode_values(&png, png_template(0.0, -1, 1, 8), None, 3).expect("decode");
+        let got: Vec<f64> = decoded.into_iter().map(Option::unwrap).collect();
+        for (g, w) in got.iter().zip([0.0, 0.1, 1.0]) {
+            assert!((g - w).abs() < 1e-9, "got {g}, want {w}");
+        }
+    }
+
+    #[test]
+    fn png_packing_constant_field_no_stream() {
+        // bits_per_value == 0 → no PNG is written; every point equals R · 10^-D.
+        let decoded = decode_values(&[], png_template(7.0, 0, 1, 0), None, 5).expect("decode");
+        assert_eq!(decoded.len(), 5);
+        for v in decoded {
+            assert!((v.unwrap() - 0.7).abs() < 1e-9);
+        }
+    }
+
+    #[test]
+    fn png_packing_honours_bitmap() {
+        // Three present values across a 5-point grid; the image holds exactly
+        // the three present pixels.
+        let png = encode_png_gray(&[1, 2, 3], 3, 1, png::BitDepth::Eight);
+        let bitmap = [true, false, true, false, true];
+        let decoded =
+            decode_values(&png, png_template(0.0, 0, 0, 8), Some(&bitmap), 5).expect("decode");
+        assert_eq!(decoded, vec![Some(1.0), None, Some(2.0), None, Some(3.0)]);
+    }
+
+    #[test]
+    fn png_packing_rejects_pixel_count_mismatch() {
+        // The image holds 4 pixels but the grid declares 6 points.
+        let png = encode_png_gray(&[0; 4], 4, 1, png::BitDepth::Eight);
+        let err =
+            decode_values(&png, png_template(0.0, 0, 0, 8), None, 6).expect_err("must reject");
+        assert!(err.to_string().contains("pixels"), "got: {err}");
+    }
+
+    #[test]
+    fn png_packing_rejects_unexpected_colour_type() {
+        // An RGB image (3 bytes/pixel) where the template expects 1 byte/value:
+        // the bytes-per-pixel disagree, so decode rejects rather than misreads.
+        let mut out = Vec::new();
+        {
+            let mut enc = png::Encoder::new(&mut out, 2, 2);
+            enc.set_color(png::ColorType::Rgb);
+            enc.set_depth(png::BitDepth::Eight);
+            let mut writer = enc.write_header().expect("png header");
+            writer.write_image_data(&[0u8; 12]).expect("png data");
+            writer.finish().expect("png finish");
+        }
+        let err =
+            decode_values(&out, png_template(0.0, 0, 0, 8), None, 4).expect_err("must reject");
+        assert!(err.to_string().contains("bytes"), "got: {err}");
+    }
+
+    #[test]
+    fn png_packing_rejects_malformed_stream() {
+        let err = decode_values(b"not a png", png_template(0.0, 0, 0, 8), None, 4)
+            .expect_err("must reject");
+        assert!(err.to_string().contains("PNG packing"), "got: {err}");
+    }
+
+    #[test]
+    fn png_packing_rejects_bits_above_32() {
+        let err =
+            decode_values(&[], png_template(0.0, 0, 0, 33), None, 4).expect_err("must reject");
+        assert!(err.to_string().contains("exceeds 32"), "got: {err}");
     }
 
     #[test]

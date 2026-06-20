@@ -1,10 +1,11 @@
 //! GRIB edition 2 reader.
 //!
 //! Current scope: full §0–§7 parsing for the message metadata, plus value
-//! decoding for **simple packing** (DRS template 5.0). Complex packing
-//! (5.2 / 5.3), IEEE 5.4, JPEG 2000 5.40, PNG 5.41, and CCSDS 5.42 are
-//! tracked under separate issues — those messages parse to the section
-//! level but `decode_message_values` returns
+//! decoding for **simple packing** (DRS template 5.0), **complex packing**
+//! (5.2 / 5.3), **IEEE floating point** (5.4), and **PNG packing** (5.41).
+//! The remaining compressed templates, JPEG 2000 5.40 and CCSDS 5.42, are
+//! tracked under separate issues — those messages parse to the section level
+//! but `decode_message_values` returns
 //! [`fieldglass_core::FieldglassError::UnsupportedSection`].
 
 #![forbid(unsafe_code)]
