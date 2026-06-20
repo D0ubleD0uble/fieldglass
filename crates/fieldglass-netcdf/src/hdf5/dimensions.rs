@@ -73,6 +73,12 @@ pub struct VariableInfo {
     pub attributes: Vec<Hdf5Attribute>,
     /// `true` when the variable is also a dimension scale (a coordinate variable).
     pub is_coordinate: bool,
+    /// Index into [`crate::NetcdfReader::decode_variable_values`] — the variable's
+    /// position in the root group's full name-sorted dataset list, *pure
+    /// dimensions included*. This is a different index space from this variable's
+    /// position in [`Hdf5Metadata::variables`] (which excludes pure dimensions),
+    /// so the render path must use this field, not the `variables` index.
+    pub decode_index: usize,
 }
 
 /// The fully resolved metadata for a NetCDF-4 / HDF5 file's root group — the
@@ -81,8 +87,9 @@ pub struct VariableInfo {
 /// `variables` is sorted by name and **excludes** pure dimensions (placeholder
 /// scales with no coordinate values). This is a different index space from
 /// [`crate::NetcdfReader::decode_variable_values`], which indexes *all* root
-/// datasets, pure dimensions included; a render path must map a chosen variable
-/// to its dataset by name, not by position (the wiring tracked in #169).
+/// datasets, pure dimensions included; each [`VariableInfo`] therefore carries
+/// its own [`VariableInfo::decode_index`], and the render path must use that
+/// rather than the variable's position in this list.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Hdf5Metadata {
     pub dimensions: Vec<DimensionInfo>,
@@ -130,9 +137,13 @@ pub fn resolve(bytes: &[u8], probe: &Hdf5Probe) -> Result<Hdf5Metadata, Fieldgla
     }
     let dimensions = build_dimensions(&datasets);
 
-    // Pass 2: classify each dataset, resolving its dimension names.
+    // Pass 2: classify each dataset, resolving its dimension names. `datasets` is
+    // in the same name-sorted, all-datasets order `decode_variable_values` indexes
+    // (`hdf5_dataset_address` walks the identical `list_root_children` filter), so
+    // the enumerate position is the variable's decode index — recorded now because
+    // it survives the by-name sort below, where the vector position no longer does.
     let mut variables = Vec::new();
-    for d in &datasets {
+    for (decode_index, d) in datasets.iter().enumerate() {
         // The pure-dimension placeholder is a dimension, not a variable.
         if matches!(&d.scale, Some(s) if !s.has_coordinate_values) {
             continue;
@@ -144,6 +155,7 @@ pub fn resolve(bytes: &[u8], probe: &Hdf5Probe) -> Result<Hdf5Metadata, Fieldgla
             dimensions: dims,
             attributes: visible_attributes(&d.attributes),
             is_coordinate: d.scale.is_some(),
+            decode_index,
         });
     }
     variables.sort_by(|a, b| a.name.cmp(&b.name));

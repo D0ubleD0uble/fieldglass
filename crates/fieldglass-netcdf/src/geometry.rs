@@ -12,12 +12,14 @@
 //!    coordinate arrays, mapped onto a regular `"latlon"` grid.
 //!
 //! The logic is backing-agnostic: it operates on a neutral [`DatasetView`] so the
-//! classic path (here) and the future HDF5 path (#169) share one implementation.
+//! classic and NetCDF-4 / HDF5 backings share one implementation (built by
+//! [`DatasetView::from_classic`] / [`DatasetView::from_hdf5`]).
 //! The first pass handles **regular 1-D lat/lon grids only**; curvilinear (2-D
 //! coordinate) and projected grids are tracked separately (decision 0002,
 //! *Out of scope*).
 
 use crate::classic::{ClassicHeader, NcType};
+use crate::hdf5::dimensions::Hdf5Metadata;
 use fieldglass_core::FieldglassError;
 
 /// The horizontal axis a coordinate variable represents.
@@ -110,6 +112,40 @@ impl DatasetView {
                             .unwrap_or_else(|| format!("dim#{id}"))
                     })
                     .collect(),
+                attrs: v
+                    .attributes
+                    .iter()
+                    .map(|a| (a.name.clone(), a.value.clone()))
+                    .collect(),
+            })
+            .collect();
+        Self { dims, vars }
+    }
+
+    /// Build the view from resolved NetCDF-4 / HDF5 metadata (decision 0003).
+    /// Dimensions and variables carry the dimension-scale names; each variable's
+    /// [`VarView::decode_index`] is the metadata's own
+    /// [`crate::hdf5::dimensions::VariableInfo::decode_index`], which already
+    /// accounts for the pure-dimension datasets the classic backing never has.
+    /// Only the CF axis attributes (`units`, `standard_name`, `axis`) are read
+    /// downstream, so the attribute values are taken as their display strings.
+    pub fn from_hdf5(meta: &Hdf5Metadata) -> Self {
+        let dims = meta
+            .dimensions
+            .iter()
+            .map(|d| DimView {
+                name: d.name.clone(),
+                length: d.length,
+            })
+            .collect();
+        let vars = meta
+            .variables
+            .iter()
+            .map(|v| VarView {
+                decode_index: v.decode_index,
+                name: v.name.clone(),
+                nc_type: v.nc_type,
+                dim_names: v.dimensions.clone(),
                 attrs: v
                     .attributes
                     .iter()
