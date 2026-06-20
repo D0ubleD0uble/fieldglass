@@ -11,8 +11,9 @@ use fieldglass_core::FieldglassError;
 pub enum NetcdfBacking {
     /// CDF-1 / CDF-2 / CDF-5 — fully parsed at the header level.
     Classic(ClassicHeader),
-    /// NetCDF-4 / HDF5. Deep parsing is a follow-up; we surface enough to
-    /// validate the file and tell the user.
+    /// NetCDF-4 / HDF5. The superblock probe is eager; the dimensions,
+    /// variables, and attributes are resolved on demand from the raw bytes via
+    /// [`NetcdfReader::hdf5_metadata`] (decision 0003).
     Hdf5(Hdf5Probe),
 }
 
@@ -28,9 +29,10 @@ impl NetcdfBacking {
         }
     }
 
-    /// Whether the metadata is fully exposed (`true` for classic) or whether
-    /// we only have a format probe (`false` for HDF5 today). The provider
-    /// uses this to render a "deep parsing not yet implemented" notice.
+    /// Whether the metadata is parsed eagerly at construction (`true` for
+    /// classic). HDF5 carries only the superblock probe in the backing and
+    /// resolves its metadata lazily via [`NetcdfReader::hdf5_metadata`], so this
+    /// is `false` for HDF5 even though that metadata is now fully available.
     pub fn is_fully_parsed(&self) -> bool {
         matches!(self, Self::Classic(_))
     }
@@ -82,6 +84,20 @@ impl NetcdfReader {
                 let addr = hdf5_dataset_address(&self.data, probe, var_index)?;
                 hdf5::values::read_dataset_values(&self.data, addr, probe)
             }
+        }
+    }
+
+    /// Resolve a NetCDF-4 / HDF5 file's root-group metadata — named dimensions,
+    /// variables with ordered dimension lists, and global attributes — by reading
+    /// the dimension-scale convention (decision 0003). Errors for a non-HDF5
+    /// backing, and for HDF5 layouts outside the decoded subset (e.g. a
+    /// `DIMENSION_LIST` reference into a nested group).
+    pub fn hdf5_metadata(&self) -> Result<hdf5::dimensions::Hdf5Metadata, FieldglassError> {
+        match &self.backing {
+            NetcdfBacking::Hdf5(probe) => hdf5::dimensions::resolve(&self.data, probe),
+            NetcdfBacking::Classic(_) => Err(FieldglassError::Parse(
+                "hdf5_metadata is only available for the NetCDF-4 / HDF5 backing".into(),
+            )),
         }
     }
 

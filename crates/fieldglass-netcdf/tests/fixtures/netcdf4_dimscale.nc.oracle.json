@@ -1,0 +1,71 @@
+{
+  "source": "netCDF4 1.7.4 (libnetcdf 4.9.3, HDF5 1.14.6)",
+  "format": "NETCDF4",
+  "dimensions": [
+    {
+      "name": "time",
+      "length": 2,
+      "unlimited": true
+    },
+    {
+      "name": "lat",
+      "length": 3,
+      "unlimited": false
+    },
+    {
+      "name": "lon",
+      "length": 4,
+      "unlimited": false
+    },
+    {
+      "name": "nv",
+      "length": 2,
+      "unlimited": false
+    }
+  ],
+  "variables": [
+    {
+      "name": "time",
+      "nc_type": "double",
+      "dimensions": [
+        "time"
+      ],
+      "is_coordinate": true
+    },
+    {
+      "name": "lat",
+      "nc_type": "double",
+      "dimensions": [
+        "lat"
+      ],
+      "is_coordinate": true
+    },
+    {
+      "name": "lon",
+      "nc_type": "double",
+      "dimensions": [
+        "lon"
+      ],
+      "is_coordinate": true
+    },
+    {
+      "name": "temperature",
+      "nc_type": "float",
+      "dimensions": [
+        "time",
+        "lat",
+        "lon"
+      ],
+      "is_coordinate": false
+    },
+    {
+      "name": "lat_bnds",
+      "nc_type": "double",
+      "dimensions": [
+        "lat",
+        "nv"
+      ],
+      "is_coordinate": false
+    }
+  ]
+}

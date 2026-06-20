@@ -51,6 +51,102 @@ pub struct Datatype {
 const CLASS_FIXED_POINT: u8 = 0;
 const CLASS_FLOATING_POINT: u8 = 1;
 const CLASS_STRING: u8 = 3;
+const CLASS_REFERENCE: u8 = 7;
+const CLASS_VARIABLE_LENGTH: u8 = 9;
+
+/// The datatype class in the low nibble of a message's class-and-version byte,
+/// without decoding the rest. Lets the dimension-scale layer dispatch on the
+/// structural classes (reference, variable-length) that [`decode`] rejects.
+pub fn class_of(body: &[u8]) -> Result<u8, FieldglassError> {
+    Ok(body
+        .first()
+        .ok_or_else(|| FieldglassError::Parse("empty datatype message".into()))?
+        & 0x0f)
+}
+
+/// What an HDF5 **reference** (class 7) datatype points at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReferenceKind {
+    /// An object reference — the referenced object's header address.
+    Object,
+    /// A dataset-region reference (object address + a selection). Not decoded.
+    DatasetRegion,
+}
+
+/// A decoded reference (class 7) datatype. `size` is the address width in bytes
+/// (the superblock's offset size); an object reference value is that many bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReferenceDatatype {
+    pub kind: ReferenceKind,
+    pub size: u32,
+}
+
+/// Decode a reference (class 7) datatype message body. The low nibble of the bit
+/// field selects object vs. dataset-region reference.
+pub fn decode_reference(body: &[u8]) -> Result<ReferenceDatatype, FieldglassError> {
+    if body.len() < 8 {
+        return Err(FieldglassError::Parse(
+            "reference datatype message too small".into(),
+        ));
+    }
+    if body[0] & 0x0f != CLASS_REFERENCE {
+        return Err(FieldglassError::Parse(
+            "datatype is not a reference (class 7)".into(),
+        ));
+    }
+    let kind = match read_uint_le(body, 1, 3)? & 0x0f {
+        0 => ReferenceKind::Object,
+        1 => ReferenceKind::DatasetRegion,
+        other => {
+            return Err(FieldglassError::Parse(format!(
+                "unsupported reference type {other}"
+            )));
+        }
+    };
+    let size = read_uint_le(body, 4, 4)? as u32;
+    Ok(ReferenceDatatype { kind, size })
+}
+
+/// The base element of a variable-length datatype, as far as the dimension-scale
+/// layer needs it: a reference base is decoded; any other class is reported by
+/// its class code so callers can reject it with a clear message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VlenBase {
+    Reference(ReferenceDatatype),
+    Other(u8),
+}
+
+/// A decoded variable-length (class 9) datatype. `is_sequence` distinguishes a
+/// vlen sequence (`H5T_VLEN_SEQUENCE`, e.g. `DIMENSION_LIST`) from a vlen string.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VlenDatatype {
+    pub is_sequence: bool,
+    pub base: VlenBase,
+}
+
+/// Decode a variable-length (class 9) datatype message body. The low nibble of
+/// the bit field is the vlen type (0 = sequence, 1 = string); the base datatype
+/// message follows the 8-byte fixed head.
+pub fn decode_vlen(body: &[u8]) -> Result<VlenDatatype, FieldglassError> {
+    if body.len() < 8 {
+        return Err(FieldglassError::Parse(
+            "variable-length datatype message too small".into(),
+        ));
+    }
+    if body[0] & 0x0f != CLASS_VARIABLE_LENGTH {
+        return Err(FieldglassError::Parse(
+            "datatype is not variable-length (class 9)".into(),
+        ));
+    }
+    let vlen_type = read_uint_le(body, 1, 3)? & 0x0f;
+    let is_sequence = vlen_type == 0;
+    let base_bytes = &body[8..];
+    let base = match class_of(base_bytes)? {
+        CLASS_REFERENCE => VlenBase::Reference(decode_reference(base_bytes)?),
+        other => VlenBase::Other(other),
+    };
+    Ok(VlenDatatype { is_sequence, base })
+}
 
 /// Decode a datatype message body.
 pub fn decode(body: &[u8]) -> Result<Datatype, FieldglassError> {
@@ -58,7 +154,7 @@ pub fn decode(body: &[u8]) -> Result<Datatype, FieldglassError> {
     if body.len() < 8 {
         return Err(FieldglassError::Parse("datatype message too small".into()));
     }
-    let class = body[0] & 0x0f;
+    let class = class_of(body)?;
     let bit_field = read_uint_le(body, 1, 3)? as u32;
     let size = read_uint_le(body, 4, 4)? as u32;
 
@@ -268,5 +364,59 @@ mod tests {
     fn rejects_truncated_body() {
         let err = decode(&[0x10, 0x00, 0x00]).unwrap_err();
         assert!(matches!(err, FieldglassError::Parse(_)));
+    }
+
+    /// Build a structural datatype head: class+version byte, 3-byte bit field,
+    /// 4-byte size, then any class-specific tail.
+    fn structural(class: u8, bit_field: u32, size: u32, tail: &[u8]) -> Vec<u8> {
+        let mut v = vec![(1 << 4) | class];
+        v.extend_from_slice(&bit_field.to_le_bytes()[..3]);
+        v.extend_from_slice(&size.to_le_bytes());
+        v.extend_from_slice(tail);
+        v
+    }
+
+    #[test]
+    fn decodes_object_reference() {
+        let r = decode_reference(&structural(CLASS_REFERENCE, 0x00, 8, &[])).unwrap();
+        assert_eq!(r.kind, ReferenceKind::Object);
+        assert_eq!(r.size, 8);
+    }
+
+    #[test]
+    fn rejects_region_reference_as_unsupported_kind() {
+        let r = decode_reference(&structural(CLASS_REFERENCE, 0x01, 8, &[])).unwrap();
+        assert_eq!(r.kind, ReferenceKind::DatasetRegion);
+    }
+
+    #[test]
+    fn decodes_vlen_sequence_of_object_references() {
+        // vlen sequence (type 0) whose base is an 8-byte object reference.
+        let base = structural(CLASS_REFERENCE, 0x00, 8, &[]);
+        let dt = decode_vlen(&structural(CLASS_VARIABLE_LENGTH, 0x00, 16, &base)).unwrap();
+        assert!(dt.is_sequence);
+        assert_eq!(
+            dt.base,
+            VlenBase::Reference(ReferenceDatatype {
+                kind: ReferenceKind::Object,
+                size: 8,
+            })
+        );
+    }
+
+    #[test]
+    fn vlen_string_is_not_a_sequence() {
+        // A vlen string (type 1) with a fixed-point base — not what DIMENSION_LIST
+        // is, but the decoder should still classify it without error.
+        let base = structural(CLASS_FIXED_POINT, 0x08, 1, &[]);
+        let dt = decode_vlen(&structural(CLASS_VARIABLE_LENGTH, 0x01, 16, &base)).unwrap();
+        assert!(!dt.is_sequence);
+        assert_eq!(dt.base, VlenBase::Other(CLASS_FIXED_POINT));
+    }
+
+    #[test]
+    fn class_of_reads_low_nibble() {
+        assert_eq!(class_of(&[(2 << 4) | CLASS_VARIABLE_LENGTH]).unwrap(), 9);
+        assert!(class_of(&[]).is_err());
     }
 }
