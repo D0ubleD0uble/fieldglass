@@ -1288,7 +1288,9 @@ fn grib1_dimensions(reader: &Grib1Reader, message_index: usize) -> napi::Result<
         .get(message_index)
         .ok_or_else(|| napi::Error::from_reason("message index out of range".to_string()))?;
     let gds = msg.gds.as_ref().ok_or_else(|| {
-        napi::Error::from_reason("message has no GDS — predefined grids unsupported".to_string())
+        napi::Error::from_reason(
+            "message has no GDS and its grid number is not a known predefined grid".to_string(),
+        )
     })?;
     gds.dimensions()
         .ok_or_else(|| napi::Error::from_reason("grid type has no declared dimensions".to_string()))

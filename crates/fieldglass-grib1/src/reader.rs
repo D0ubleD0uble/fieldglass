@@ -97,7 +97,7 @@ impl Grib1Reader {
 
         let gds = msg.gds.as_ref().ok_or_else(|| {
             FieldglassError::Parse(
-                "message has no GDS — predefined grids are not supported".to_string(),
+                "message has no GDS and its grid number is not a known predefined grid".to_string(),
             )
         })?;
         let (ni, nj) = gds.dimensions().ok_or_else(|| {
@@ -281,7 +281,10 @@ fn scan_messages(data: &[u8]) -> Result<Vec<Grib1Message>, FieldglassError> {
             cursor += gds_len;
             Some(gds)
         } else {
-            None
+            // No GDS section: the grid may be identified by a predefined
+            // catalogue number (WMO ON388 Table B). Resolve it so geometry,
+            // bounds, and reprojection still work; unknown numbers stay None.
+            crate::predefined::predefined_grid(pds.grid_number)
         };
 
         // BMS, if present, immediately follows the GDS.
