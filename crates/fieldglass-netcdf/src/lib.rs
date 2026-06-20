@@ -6,10 +6,15 @@
 #![forbid(unsafe_code)]
 
 pub mod classic;
+pub mod geometry;
 pub mod hdf5;
 pub mod reader;
 
 pub use classic::{Attribute, ClassicHeader, ClassicVersion, Dimension, NcType, Variable};
+pub use geometry::{
+    AxisKind, DatasetView, DimView, RenderableVariable, SliceGeometry, VarView,
+    corner_and_regularity, detect_axis, extract_plane, synthesize_geometry,
+};
 pub use hdf5::attribute::{Hdf5Attribute, RawAttribute, list_attributes, raw_attribute};
 pub use hdf5::dataset::{DatasetShape, describe as describe_dataset};
 pub use hdf5::dataspace::Dataspace;

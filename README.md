@@ -12,7 +12,7 @@ A Visual Studio Code extension for viewing meteorological data files (GRIB1, GRI
 
 ## Status
 
-This is an early public release (beta). For GRIB1, you can read every message's metadata and render its grid as a 2-D color image, either in the grid's own coordinates or reprojected onto a map. Five projection targets are available (source, equirectangular, Web Mercator, orthographic, and polar stereographic), and you can overlay coastlines and a latitude/longitude grid. GRIB2 reads metadata for every message and renders values for the packings it can decode. NetCDF reads the full structure of both classic files (CDF-1/2/5) and NetCDF-4 / HDF5 files — dimensions, variables, and global attributes — and decodes their variable values through the Rust API (for NetCDF-4 / HDF5: contiguous, compact, and chunked storage). Still to come: rendering NetCDF fields, value decode for more GRIB2 packings, and metadata editing. The [feature matrix](#feature-matrix) below shows exactly what works today.
+This is an early public release (beta). For GRIB1, you can read every message's metadata and render its grid as a 2-D color image, either in the grid's own coordinates or reprojected onto a map. Five projection targets are available (source, equirectangular, Web Mercator, orthographic, and polar stereographic), and you can overlay coastlines and a latitude/longitude grid. GRIB2 reads metadata for every message and renders values for the packings it can decode. NetCDF reads the full structure of both classic files (CDF-1/2/5) and NetCDF-4 / HDF5 files — dimensions, variables, and global attributes — and decodes their variable values through the Rust API (for NetCDF-4 / HDF5: contiguous, compact, and chunked storage). For classic files on a regular lat/lon grid you can render a 2-D slice of a variable: pick the variable and the image axes, step through the other dimensions (time, level), and use the same projection picker and overlays as GRIB. Still to come: rendering NetCDF-4 / HDF5 and curvilinear fields, value decode for more GRIB2 packings, and metadata editing. The [feature matrix](#feature-matrix) below shows exactly what works today.
 
 ## Feature matrix
 
@@ -28,10 +28,10 @@ This is an early public release (beta). For GRIB1, you can read every message's 
 | Tabular metadata viewer | ✅ | ✅ (§0–§4) | ✅ |
 | Binary data section decoding (Rust API) | ✅ | 🚧 partial — see [GRIB2 packing modes](#grib2-packing-modes) | 🚧 classic (CDF-1/2/5) + NetCDF-4 / HDF5 (contiguous, compact, and chunked storage with deflate / shuffle) |
 | Metadata editing | ❌ Not yet | ❌ Not yet | ❌ Not yet |
-| 2-D grid rendering with colormap | ✅ | 🚧 any decodable message (see decoding row) | ❌ Not yet |
-| Render-panel projection picker (5 targets) | ✅ | ✅ (any decodable message) | n/a |
-| Coastline + lat/lon grid overlay | ✅ | ✅ (any decodable message) | n/a |
-| Resampling picker (nearest / bilinear) | ✅ | ✅ | n/a |
+| 2-D grid rendering with colormap | ✅ | 🚧 any decodable message (see decoding row) | 🚧 classic, regular lat/lon grids |
+| Render-panel projection picker (5 targets) | ✅ | ✅ (any decodable message) | 🚧 classic lat/lon |
+| Coastline + lat/lon grid overlay | ✅ | ✅ (any decodable message) | 🚧 classic lat/lon |
+| Resampling picker (nearest / bilinear) | ✅ | ✅ | 🚧 classic lat/lon |
 
 Format-agnostic features:
 

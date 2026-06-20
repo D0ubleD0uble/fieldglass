@@ -19,7 +19,10 @@ use fieldglass_grib2::{
     lookup_centre as lookup_grib2_centre, lookup_discipline, lookup_fixed_surface,
     lookup_parameter as lookup_grib2_parameter, lookup_production_status, lookup_time_range_unit,
 };
-use fieldglass_netcdf::{Hdf5Attribute, Hdf5Metadata, NetcdfBacking, NetcdfReader};
+use fieldglass_netcdf::{
+    DatasetView, Hdf5Attribute, Hdf5Metadata, NetcdfBacking, NetcdfReader, RenderableVariable,
+    extract_plane, synthesize_geometry,
+};
 use napi_derive::napi;
 use std::sync::Mutex;
 
@@ -1304,6 +1307,336 @@ impl Grib2Handle {
             .expect("decode cache mutex poisoned")
             .insert(message_index, std::sync::Arc::clone(&arc));
         Ok(arc)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// NetCDF 2-D slice rendering  (#122; decision 0002)
+// ---------------------------------------------------------------------------
+
+/// One axis (dimension) of a renderable NetCDF variable, for the slice picker's
+/// index controls.
+#[napi(object)]
+pub struct NetcdfAxis {
+    pub name: String,
+    /// Runtime length (the unlimited/record dimension resolves to its count).
+    pub length: f64,
+}
+
+/// A NetCDF variable the render panel can draw, with its dimensions and the
+/// CF-detected horizontal-axis positions. `detectedYDim` / `detectedXDim` are
+/// the axis indices (into `dims`) the picker pre-fills the Y / X selectors with;
+/// `null` means detection found no matching coordinate variable and the user
+/// must assign that axis by hand.
+#[napi(object)]
+pub struct NetcdfVariableMeta {
+    /// Index into the reader's decode order — pass back as `variableIndex`.
+    pub variable_index: i32,
+    pub name: String,
+    pub nc_type: String,
+    pub dims: Vec<NetcdfAxis>,
+    pub detected_y_dim: Option<i32>,
+    pub detected_x_dim: Option<i32>,
+}
+
+/// Persistent NetCDF reader handle, sibling to [`Grib1Handle`]/[`Grib2Handle`].
+///
+/// A NetCDF variable is N-D, so rendering needs a slice picker (which 2-D plane)
+/// and synthesised geometry (NetCDF carries no GRIB-style GDS). The handle parses
+/// once, caches each decoded variable (including the lat/lon coordinate
+/// variables it reads for the corners), and feeds a synthesised `"latlon"`
+/// [`MessageMeta`] through the same [`render_with_options`] / [`project_overlay_impl`]
+/// the GRIB handles use — honouring the decode-decoupled rule.
+///
+/// First pass: classic (CDF-1/2/5), regular 1-D lat/lon grids (decision 0002).
+/// HDF5-backed rendering (#169) and curvilinear grids (#168) are tracked
+/// follow-ups; for those backings `variables()` is empty and the panel falls
+/// back to the metadata view.
+#[napi]
+pub struct NetcdfHandle {
+    reader: NetcdfReader,
+    view: DatasetView,
+    decoded: Mutex<std::collections::HashMap<usize, std::sync::Arc<Vec<Option<f64>>>>>,
+}
+
+#[napi]
+impl NetcdfHandle {
+    #[napi(factory)]
+    pub fn from_bytes(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<Self> {
+        let reader = NetcdfReader::from_bytes(bytes.to_vec())
+            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        // First pass renders the classic backing only; HDF5 (#169) leaves the
+        // view empty so the panel falls back to the metadata dump.
+        let view = match &reader.backing {
+            NetcdfBacking::Classic(h) => DatasetView::from_classic(h),
+            NetcdfBacking::Hdf5(_) => DatasetView {
+                dims: Vec::new(),
+                vars: Vec::new(),
+            },
+        };
+        Ok(Self {
+            reader,
+            view,
+            decoded: Mutex::new(std::collections::HashMap::new()),
+        })
+    }
+
+    /// The variables the picker can draw (numeric, ≥ 2-D, not coordinate
+    /// variables), each with its dimensions and detected horizontal axes.
+    #[napi]
+    pub fn variables(&self) -> Vec<NetcdfVariableMeta> {
+        self.view
+            .renderable_variables()
+            .into_iter()
+            .map(|v| NetcdfVariableMeta {
+                variable_index: v.decode_index as i32,
+                name: v.name,
+                nc_type: v.nc_type.name().to_string(),
+                dims: v
+                    .dims
+                    .iter()
+                    .map(|d| NetcdfAxis {
+                        name: d.name.clone(),
+                        length: d.length as f64,
+                    })
+                    .collect(),
+                detected_y_dim: v.detected_y_dim.map(|p| p as i32),
+                detected_x_dim: v.detected_x_dim.map(|p| p as i32),
+            })
+            .collect()
+    }
+
+    /// Render one 2-D slice of a variable. `yDim` / `xDim` are axis indices into
+    /// the variable's dimensions (the image's vertical / horizontal axes);
+    /// `sliceIndices` holds the fixed index for every dimension (its entries for
+    /// `yDim` / `xDim` are ignored). The picked plane is fed through the shared
+    /// warp as a synthesised `"latlon"` grid.
+    #[napi]
+    pub fn render_slice(
+        &self,
+        variable_index: u32,
+        y_dim: u32,
+        x_dim: u32,
+        slice_indices: Vec<u32>,
+        options: RenderOptions,
+    ) -> napi::Result<RenderedGrid> {
+        let var = self.renderable(variable_index)?;
+        let (y, x) = (y_dim as usize, x_dim as usize);
+        let plane = self.slice_plane(&var, y, x, &slice_indices)?;
+        let meta = self.slice_meta(&var, y, x)?;
+        render_with_options(&meta, &plane, &options)
+    }
+
+    /// Project geographic polylines onto the same raster `render_slice` produces
+    /// for these `options`. Geometry-only — independent of the slice indices, so
+    /// it takes only the axis assignment. Sibling to [`Grib2Handle::project_overlay`].
+    #[napi]
+    pub fn project_overlay(
+        &self,
+        variable_index: u32,
+        y_dim: u32,
+        x_dim: u32,
+        options: RenderOptions,
+        latlon: napi::bindgen_prelude::Float64Array,
+        ring_lengths: napi::bindgen_prelude::Uint32Array,
+    ) -> napi::Result<ProjectedOverlay> {
+        let var = self.renderable(variable_index)?;
+        let meta = self.slice_meta(&var, y_dim as usize, x_dim as usize)?;
+        project_overlay_impl(&meta, &options, latlon.as_ref(), ring_lengths.as_ref())
+            .map(ProjectedOverlay::from_polylines)
+    }
+}
+
+impl NetcdfHandle {
+    /// Look up a renderable variable by its decode index.
+    fn renderable(&self, variable_index: u32) -> napi::Result<RenderableVariable> {
+        self.view
+            .renderable_variables()
+            .into_iter()
+            .find(|v| v.decode_index == variable_index as usize)
+            .ok_or_else(|| {
+                napi::Error::from_reason(format!(
+                    "variable index {variable_index} is not a renderable NetCDF variable"
+                ))
+            })
+    }
+
+    /// Decode-and-cache one variable's values by decode index.
+    fn cached_decode(&self, index: usize) -> napi::Result<std::sync::Arc<Vec<Option<f64>>>> {
+        if let Some(hit) = self
+            .decoded
+            .lock()
+            .expect("decode cache mutex poisoned")
+            .get(&index)
+        {
+            return Ok(std::sync::Arc::clone(hit));
+        }
+        let raw = self
+            .reader
+            .decode_variable_values(index)
+            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        let arc = std::sync::Arc::new(raw);
+        self.decoded
+            .lock()
+            .expect("decode cache mutex poisoned")
+            .insert(index, std::sync::Arc::clone(&arc));
+        Ok(arc)
+    }
+
+    /// Extract the chosen 2-D plane from the (cached) decoded variable.
+    fn slice_plane(
+        &self,
+        var: &RenderableVariable,
+        y_dim: usize,
+        x_dim: usize,
+        slice_indices: &[u32],
+    ) -> napi::Result<Vec<Option<f64>>> {
+        let values = self.cached_decode(var.decode_index)?;
+        let shape = self
+            .reader
+            .variable_shape(var.decode_index)
+            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        if slice_indices.len() != shape.len() {
+            return Err(napi::Error::from_reason(format!(
+                "sliceIndices length {} does not match variable rank {}",
+                slice_indices.len(),
+                shape.len()
+            )));
+        }
+        let fixed: Vec<usize> = slice_indices.iter().map(|&i| i as usize).collect();
+        extract_plane(values.as_ref(), &shape, y_dim, x_dim, &fixed)
+            .map_err(|e| napi::Error::from_reason(e.to_string()))
+    }
+
+    /// Synthesise the `"latlon"` [`MessageMeta`] for a slice from the variable's
+    /// coordinate arrays. With both lat and lon coordinate variables present the
+    /// grid reprojects; without them the grid is "assumed" and only the source
+    /// projection is offered (no geographic corners).
+    fn slice_meta(
+        &self,
+        var: &RenderableVariable,
+        y_dim: usize,
+        x_dim: usize,
+    ) -> napi::Result<MessageMeta> {
+        let y_axis = var.dims.get(y_dim).ok_or_else(|| {
+            napi::Error::from_reason(format!("yDim {y_dim} out of range for {}", var.name))
+        })?;
+        let x_axis = var.dims.get(x_dim).ok_or_else(|| {
+            napi::Error::from_reason(format!("xDim {x_dim} out of range for {}", var.name))
+        })?;
+        if y_dim == x_dim {
+            return Err(napi::Error::from_reason(
+                "the X and Y axes must be different dimensions".to_string(),
+            ));
+        }
+
+        let lat_idx = self.view.coordinate_index(&y_axis.name);
+        let lon_idx = self.view.coordinate_index(&x_axis.name);
+        let geometry = match (lat_idx, lon_idx) {
+            (Some(lat_i), Some(lon_i)) => {
+                let lat = self.coordinate_values(lat_i)?;
+                let lon = self.coordinate_values(lon_i)?;
+                Some(
+                    synthesize_geometry(&lat, &lon)
+                        .map_err(|e| napi::Error::from_reason(e.to_string()))?,
+                )
+            }
+            _ => None,
+        };
+
+        let units = self
+            .view
+            .vars
+            .iter()
+            .find(|v| v.decode_index == var.decode_index)
+            .and_then(|v| {
+                v.attrs
+                    .iter()
+                    .find(|(n, _)| n == "units")
+                    .map(|(_, val)| val.clone())
+            })
+            .unwrap_or_default();
+
+        let (ni, nj) = (x_axis.length as i32, y_axis.length as i32);
+        Ok(synth_latlon_meta(&var.name, &units, ni, nj, geometry))
+    }
+
+    /// Decode a coordinate variable to a dense `Vec<f64>`; coordinate axes are
+    /// never masked, so a fill value there is a hard error.
+    fn coordinate_values(&self, index: usize) -> napi::Result<Vec<f64>> {
+        self.cached_decode(index)?
+            .iter()
+            .map(|v| {
+                v.ok_or_else(|| {
+                    napi::Error::from_reason(
+                        "coordinate variable contains a fill value".to_string(),
+                    )
+                })
+            })
+            .collect()
+    }
+}
+
+/// Build a synthesised `"latlon"` [`MessageMeta`] for a NetCDF slice. Every
+/// GRIB-specific field is `None`/empty; only the geometry the warp reads
+/// (`grid_type`, `grid_ni`/`grid_nj`, corner coordinates) is populated. When
+/// `geometry` is `None` (no coordinate variables) the corners are absent and the
+/// grid is not reprojectable, so only the source projection is offered.
+fn synth_latlon_meta(
+    name: &str,
+    units: &str,
+    ni: i32,
+    nj: i32,
+    geometry: Option<fieldglass_netcdf::SliceGeometry>,
+) -> MessageMeta {
+    let reprojectable = geometry.is_some();
+    // Grid dimensions always match the painted plane (`ni` = x-axis length,
+    // `nj` = y-axis length); the geometry supplies only the corner coordinates.
+    // Keeping these decoupled means a coordinate array whose length somehow
+    // disagrees with its dimension can't desync the raster from its declared
+    // size.
+    MessageMeta {
+        message_index: 0,
+        offset_bytes: 0,
+        parameter_name: name.to_string(),
+        parameter_units: units.to_string(),
+        parameter_abbreviation: name.to_string(),
+        level: String::new(),
+        level_type: String::new(),
+        reference_time: String::new(),
+        forecast_hours: 0,
+        forecast_display: String::new(),
+        originating_centre: String::new(),
+        grid_type: Some("latlon".to_string()),
+        grid_ni: Some(ni),
+        grid_nj: Some(nj),
+        lat_first: geometry.map(|g| g.lat_first),
+        lon_first: geometry.map(|g| g.lon_first),
+        lat_last: geometry.map(|g| g.lat_last),
+        lon_last: geometry.map(|g| g.lon_last),
+        format: "netcdf".to_string(),
+        edition: None,
+        discipline: None,
+        total_length_bytes: None,
+        production_status: None,
+        data_type: None,
+        lambert_lad: None,
+        lambert_lov: None,
+        lambert_dx_metres: None,
+        lambert_dy_metres: None,
+        lambert_latin1: None,
+        lambert_latin2: None,
+        gaussian_n_parallels: None,
+        polar_stereo_lov: None,
+        polar_stereo_lad: None,
+        polar_stereo_dx_metres: None,
+        polar_stereo_dy_metres: None,
+        polar_stereo_south_pole: None,
+        rotated_south_pole_lat: None,
+        rotated_south_pole_lon: None,
+        rotated_angle_of_rotation: None,
+        packing: None,
+        reprojectable,
     }
 }
 
@@ -3196,5 +3529,123 @@ mod overlay_projection_tests {
                 "{projection}: seg_lengths must account for every xy pair"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod netcdf_slice_tests {
+    use super::*;
+    use fieldglass_netcdf::DatasetView;
+
+    const ERSST: &[u8] =
+        include_bytes!("../../fieldglass-netcdf/tests/fixtures/ersst_v5_187001_cdf1.nc");
+
+    /// Build a handle from raw bytes without crossing the napi `Buffer` boundary
+    /// (which would need a Node runtime) — mirrors `from_bytes`'s body.
+    fn handle(bytes: &[u8]) -> NetcdfHandle {
+        let reader = NetcdfReader::from_bytes(bytes.to_vec()).unwrap();
+        let view = match &reader.backing {
+            NetcdfBacking::Classic(h) => DatasetView::from_classic(h),
+            NetcdfBacking::Hdf5(_) => unreachable!("ERSST CDF-1 is classic"),
+        };
+        NetcdfHandle {
+            reader,
+            view,
+            decoded: Mutex::new(std::collections::HashMap::new()),
+        }
+    }
+
+    fn opts(projection: &str) -> RenderOptions {
+        RenderOptions {
+            projection: projection.to_string(),
+            projection_preset: None,
+            center_lat: None,
+            center_lon: None,
+            resampling: "nearest".to_string(),
+            flip_y: false,
+            range_min: None,
+            range_max: None,
+            bounds_lat_min: None,
+            bounds_lat_max: None,
+            bounds_lon_min: None,
+            bounds_lon_max: None,
+        }
+    }
+
+    /// The synthesised geometry is a reprojectable `"latlon"` grid; without
+    /// coordinate arrays it degrades to a source-only assumed grid.
+    #[test]
+    fn synth_meta_is_latlon_and_reprojectable_with_geometry() {
+        let geom = fieldglass_netcdf::SliceGeometry {
+            ni: 180,
+            nj: 89,
+            lat_first: 88.0,
+            lat_last: -88.0,
+            lon_first: 0.0,
+            lon_last: 358.0,
+            irregular: false,
+        };
+        let meta = synth_latlon_meta("sst", "degree_C", 180, 89, Some(geom));
+        assert_eq!(meta.grid_type.as_deref(), Some("latlon"));
+        assert_eq!(meta.format, "netcdf");
+        assert_eq!(meta.grid_ni, Some(180));
+        assert_eq!(meta.lat_first, Some(88.0));
+        assert!(meta.reprojectable);
+
+        let assumed = synth_latlon_meta("sst", "", 180, 89, None);
+        assert!(assumed.lat_first.is_none());
+        assert!(!assumed.reprojectable, "no corners ⇒ source only");
+    }
+
+    /// End-to-end: open the committed classic ERSST fixture, pick the bottom
+    /// time/level slice of `sst`, synthesise geometry from the coordinate
+    /// arrays, and render — both source and equirectangular must paint a full
+    /// 180×89 raster without error.
+    #[test]
+    fn ersst_sst_slice_renders_source_and_equirectangular() {
+        let handle = handle(ERSST);
+
+        let vars = handle.variables();
+        let sst = vars.iter().find(|v| v.name == "sst").expect("sst present");
+        let (y, x) = (
+            sst.detected_y_dim.unwrap() as u32,
+            sst.detected_x_dim.unwrap() as u32,
+        );
+        // sst is time × lev × lat × lon; hold time=0, lev=0.
+        let indices = vec![0u32; sst.dims.len()];
+
+        let source = handle
+            .render_slice(
+                sst.variable_index as u32,
+                y,
+                x,
+                indices.clone(),
+                opts("source"),
+            )
+            .expect("source render");
+        assert_eq!((source.width, source.height), (180, 89));
+
+        let warped = handle
+            .render_slice(
+                sst.variable_index as u32,
+                y,
+                x,
+                indices,
+                opts("equirectangular"),
+            )
+            .expect("equirectangular render");
+        assert!(warped.width > 0 && warped.height > 0);
+        assert!(warped.used_lat_min.is_some(), "warp echoes back its extent");
+    }
+
+    #[test]
+    fn render_slice_rejects_a_non_renderable_index() {
+        let handle = handle(ERSST);
+        // Index 9999 is not a renderable variable.
+        let err = handle
+            .render_slice(9999, 0, 1, vec![0, 0], opts("source"))
+            .map(|_| ())
+            .expect_err("non-renderable index must error");
+        assert!(err.reason.contains("not a renderable"));
     }
 }
