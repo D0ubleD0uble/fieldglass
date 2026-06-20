@@ -678,9 +678,9 @@ const PROJECTIONS: ReadonlyArray<RenderOptions["projection"]> = [
  * set the Rust side accepts: an unknown/typo'd `projection` or `resampling`
  * silently snaps to its default (`source` / `nearest`) rather than
  * round-tripping a value `ResolvedOptions::parse` would reject with an error
- * popup. `projectionPreset` and the manual lat/lon extent pass through
- * untouched — native validates them and falls back to its own defaults on a
- * partial/inverted box or unknown preset.
+ * popup. `projectionPreset`, the free-form `centerLat`/`centerLon`, and the
+ * manual lat/lon extent pass through untouched — native validates them and
+ * falls back to its own defaults on a partial/inverted box or unknown preset.
  *
  * Pinned by `render.test.ts`: every projection the picker offers must survive
  * this clamp. The original two-value clamp here (source/equirectangular) was
@@ -696,6 +696,8 @@ export function resolveRerenderOptions(m: Partial<RenderOptions>): RenderOptions
   return {
     projection,
     projectionPreset: m.projectionPreset,
+    centerLat: m.centerLat,
+    centerLon: m.centerLon,
     resampling,
     flipY: !!m.flipY,
     rangeMin: m.rangeMin,

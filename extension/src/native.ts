@@ -107,8 +107,16 @@ export interface RenderOptions {
    *  preset ("atlantic" (default), "indian", "pacific", "americas",
    *  "north_pole", "south_pole"); "polar_stereographic" reads a hemisphere
    *  preset ("north" (default),
-   *  "south"). Ignored by the lat/lon-box targets. */
+   *  "south"). Ignored by the lat/lon-box targets. Superseded per-component by
+   *  centerLat/centerLon when those are supplied. */
   projectionPreset?: string;
+  /** Free-form projection centre for the azimuthal targets (degrees).
+   *  "orthographic" reads both (centre lat/lon); "polar_stereographic" reads
+   *  only centerLon as the central meridian (its pole comes from the
+   *  hemisphere preset). Either omitted falls back to the preset/default for
+   *  that component. Ignored by the lat/lon-box targets. */
+  centerLat?: number;
+  centerLon?: number;
   resampling: "nearest" | "bilinear";
   flipY: boolean;
   rangeMin?: number;
