@@ -1090,7 +1090,9 @@ impl Grib1Handle {
             .and_then(|m| m.gds.as_ref())
         {
             Some(gds) => match (gds.points_per_row(), gds.dimensions()) {
-                (Some(pl), Some((width, _))) => expand_reduced_field(raw, pl, width as usize),
+                (Some(pl), Some((width, _))) => {
+                    fieldglass_grib1::expand_reduced_to_regular(&raw, pl, width as usize)
+                }
                 _ => raw,
             },
             None => raw,
@@ -1101,71 +1103,6 @@ impl Grib1Handle {
             .expect("decode cache mutex poisoned")
             .insert(message_index, std::sync::Arc::clone(&arc));
         Ok(arc)
-    }
-}
-
-/// Expand a reduced (quasi-regular) grid's row-packed values into a regular
-/// `width × pl.len()` raster by nearest-neighbour sampling each row across the
-/// full width. Reduced grids store fewer points toward the poles; widening
-/// every row to a common column count lets the regular-grid paint and warp
-/// paths render them without bespoke per-row geometry.
-fn expand_reduced_field(raw: Vec<Option<f64>>, pl: &[u32], width: usize) -> Vec<Option<f64>> {
-    let mut out = Vec::with_capacity(width.saturating_mul(pl.len()));
-    let mut offset = 0usize;
-    for &count in pl {
-        let count = count as usize;
-        let row = &raw[offset.min(raw.len())..(offset + count).min(raw.len())];
-        for k in 0..width {
-            let value = if row.is_empty() {
-                None
-            } else if row.len() == 1 || width == 1 {
-                row[0]
-            } else {
-                // Nearest-neighbour: map output column k∈[0,width) onto the
-                // closest source column, rounding to nearest.
-                let src = (k * (row.len() - 1) + (width - 1) / 2) / (width - 1);
-                row[src.min(row.len() - 1)]
-            };
-            out.push(value);
-        }
-        offset += count;
-    }
-    out
-}
-
-#[cfg(test)]
-mod reduced_expand_tests {
-    use super::*;
-
-    fn vals(xs: &[f64]) -> Vec<Option<f64>> {
-        xs.iter().map(|&x| Some(x)).collect()
-    }
-
-    #[test]
-    fn widens_each_row_to_common_width() {
-        // Rows of 2 and 4 points → widen both to width 4. The 4-point row is
-        // already full width; the 2-point row's endpoints map to the corners.
-        let raw = vals(&[1.0, 2.0, 10.0, 20.0, 30.0, 40.0]);
-        let out = expand_reduced_field(raw, &[2, 4], 4);
-        assert_eq!(out.len(), 8, "width × rows");
-        // Row 0: nearest-neighbour of [1,2] across 4 columns → 1,1,2,2.
-        assert_eq!(&out[0..4], &[Some(1.0), Some(1.0), Some(2.0), Some(2.0)]);
-        // Row 1: already 4 wide, copied through.
-        assert_eq!(&out[4..8], &vals(&[10.0, 20.0, 30.0, 40.0])[..]);
-    }
-
-    #[test]
-    fn single_point_row_fills_width() {
-        // A polar row of one point spreads across the whole width.
-        let out = expand_reduced_field(vals(&[7.0]), &[1], 3);
-        assert_eq!(out, vals(&[7.0, 7.0, 7.0]));
-    }
-
-    #[test]
-    fn preserves_masked_points() {
-        let raw = vec![Some(1.0), None, Some(3.0)];
-        let out = expand_reduced_field(raw, &[3], 3);
-        assert_eq!(out, vec![Some(1.0), None, Some(3.0)]);
     }
 }
 

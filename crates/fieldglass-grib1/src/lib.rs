@@ -13,7 +13,7 @@ mod tables_ecmwf;
 
 pub use bds::{BDS_DATA_OFFSET, BdsHeader, ComplexExtendedHeader, parse_bds_header};
 pub use bms::Bitmap;
-pub use gds::GridDescription;
+pub use gds::{GridDescription, expand_reduced_to_regular};
 pub use is::IndicatorSection;
 pub use pds::ProductDefinition;
 pub use predefined::predefined_grid;
