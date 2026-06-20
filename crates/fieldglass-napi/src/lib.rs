@@ -146,7 +146,14 @@ fn grid_is_reprojectable(
     planar_dy: Option<f64>,
 ) -> bool {
     match grid_type {
-        Some("latlon") | Some("gaussian") | Some("mercator") | Some("rotated_latlon") => true,
+        // Reduced grids are widened to a regular Ni·Nj raster at decode time, so
+        // they reproject through the same lat/lon and Gaussian inverse maps.
+        Some("latlon")
+        | Some("gaussian")
+        | Some("mercator")
+        | Some("rotated_latlon")
+        | Some("reduced_latlon")
+        | Some("reduced_gaussian") => true,
         Some("lambert") | Some("polar_stereo") => {
             matches!((planar_dx, planar_dy), (Some(dx), Some(dy)) if dx != 0.0 && dy != 0.0)
         }
@@ -258,6 +265,7 @@ fn build_grib1_message_meta(
     let lambert_latin2 = lambert.map(|g| g.latin2);
     let gaussian_n_parallels = match &msg.gds {
         Some(fieldglass_grib1::GridDescription::Gaussian(g)) => Some(g.n_gaussians as i32),
+        Some(fieldglass_grib1::GridDescription::ReducedGaussian(g)) => Some(g.n_gaussians as i32),
         _ => None,
     };
     let polar_stereo = match &msg.gds {
@@ -280,6 +288,13 @@ fn build_grib1_message_meta(
     let polar_stereo_dx_metres = polar_stereo_inc.map(|(dx, _)| dx);
     let polar_stereo_dy_metres = polar_stereo_inc.map(|(_, dy)| dy);
     let polar_stereo_south_pole = polar_stereo.map(|g| g.south_pole);
+    let rotated = match &msg.gds {
+        Some(fieldglass_grib1::GridDescription::RotatedLatLon(g)) => Some(g),
+        _ => None,
+    };
+    let rotated_south_pole_lat = rotated.map(|g| g.south_pole_lat);
+    let rotated_south_pole_lon = rotated.map(|g| g.south_pole_lon);
+    let rotated_angle_of_rotation = rotated.map(|g| g.angle_of_rotation);
     let reprojectable = grid_is_reprojectable(
         grid_type.as_deref(),
         polar_stereo_dx_metres.or(lambert_dx_metres),
@@ -322,11 +337,9 @@ fn build_grib1_message_meta(
         polar_stereo_dx_metres,
         polar_stereo_dy_metres,
         polar_stereo_south_pole,
-        // GRIB1 rotated grids (grid_type 10) are not parsed yet (#47), so the
-        // GRIB2-only rotated-pole fields are always absent here.
-        rotated_south_pole_lat: None,
-        rotated_south_pole_lon: None,
-        rotated_angle_of_rotation: None,
+        rotated_south_pole_lat,
+        rotated_south_pole_lon,
+        rotated_angle_of_rotation,
         packing,
         reprojectable,
     }
@@ -1066,6 +1079,24 @@ impl Grib1Handle {
             .reader
             .decode_message_values(message_index as usize)
             .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        // Reduced grids decode to sum(PL) points laid out row by row. Expand
+        // each row to the widest-row width here, at the single decode boundary,
+        // so every downstream path (decode_grid, render, overlay) sees a
+        // regular Ni·Nj field and the `width·height == len` invariant holds.
+        let raw = match self
+            .reader
+            .messages
+            .get(message_index as usize)
+            .and_then(|m| m.gds.as_ref())
+        {
+            Some(gds) => match (gds.points_per_row(), gds.dimensions()) {
+                (Some(pl), Some((width, _))) => {
+                    fieldglass_grib1::expand_reduced_to_regular(&raw, pl, width as usize)
+                }
+                _ => raw,
+            },
+            None => raw,
+        };
         let arc = std::sync::Arc::new(raw);
         self.decoded
             .lock()
@@ -1194,7 +1225,9 @@ fn grib1_dimensions(reader: &Grib1Reader, message_index: usize) -> napi::Result<
         .get(message_index)
         .ok_or_else(|| napi::Error::from_reason("message index out of range".to_string()))?;
     let gds = msg.gds.as_ref().ok_or_else(|| {
-        napi::Error::from_reason("message has no GDS — predefined grids unsupported".to_string())
+        napi::Error::from_reason(
+            "message has no GDS and its grid number is not a known predefined grid".to_string(),
+        )
     })?;
     gds.dimensions()
         .ok_or_else(|| napi::Error::from_reason("grid type has no declared dimensions".to_string()))
@@ -1708,8 +1741,10 @@ fn build_warp_target(
 /// target geometry from the same source parameters.
 fn warp_setup_for(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
     match meta.grid_type.as_deref().unwrap_or("") {
-        "latlon" => latlon_warp_setup(meta, ni, nj),
-        "gaussian" => gaussian_warp_setup(meta, ni, nj),
+        // Reduced grids are widened to a regular raster before the warp runs, so
+        // they share the regular lat/lon and Gaussian setups (ni = widest row).
+        "latlon" | "reduced_latlon" => latlon_warp_setup(meta, ni, nj),
+        "gaussian" | "reduced_gaussian" => gaussian_warp_setup(meta, ni, nj),
         "mercator" => mercator_warp_setup(meta, ni, nj),
         "rotated_latlon" => rotated_latlon_warp_setup(meta, ni, nj),
         "lambert" => lambert_warp_setup(meta, ni, nj),
