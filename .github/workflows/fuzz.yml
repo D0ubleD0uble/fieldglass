@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # cargo-fuzz needs the nightly libFuzzer sanitizer runtime; this is the
       # only job in the repo that builds on nightly. The normal gates stay on
@@ -61,7 +61,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # cargo-fuzz needs the nightly libFuzzer sanitizer runtime; the normal
       # gates stay on stable — the fuzz crate is excluded from the workspace so
@@ -97,7 +97,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # cargo-fuzz needs the nightly libFuzzer sanitizer runtime; the normal
       # gates stay on stable — the fuzz crate is excluded from the workspace so
