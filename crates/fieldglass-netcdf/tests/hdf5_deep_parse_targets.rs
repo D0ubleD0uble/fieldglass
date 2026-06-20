@@ -62,15 +62,21 @@ fn v2_fixture_is_link_info_layout_with_dense_attrs() {
     );
 }
 
-/// Both layouts are flagged not-fully-parsed today (the provider's "deep parse
-/// pending" notice). This flips to fully-parsed when #33 lands.
+/// Both layouts now resolve to metadata (the dimension-scale chain, #174). These
+/// are pure-`h5py` fixtures with no dimension scales, so every dataset surfaces
+/// as a variable (with anonymous `phony_dim_*` axes) and there are no named
+/// dimensions — resolution still succeeds end to end over both on-disk layouts.
 #[test]
-fn both_fixtures_report_partial_parse() {
+fn both_fixtures_resolve_to_metadata() {
     for (label, bytes) in [("v1", V1_SYMBOLTABLE), ("v2", V2_LINKINFO)] {
         let reader = NetcdfReader::from_bytes(bytes.to_vec()).unwrap();
+        let meta = reader
+            .hdf5_metadata()
+            .unwrap_or_else(|e| panic!("{label} fixture resolves: {e}"));
         assert!(
-            !reader.backing.is_fully_parsed(),
-            "{label} HDF5 fixture should report partial parse until deep parsing lands"
+            meta.variables.iter().any(|v| v.name == "temp_f64"),
+            "{label} fixture surfaces its datasets as variables: {:?}",
+            meta.variables.iter().map(|v| &v.name).collect::<Vec<_>>()
         );
     }
 }

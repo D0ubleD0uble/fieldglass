@@ -19,7 +19,7 @@ use fieldglass_grib2::{
     lookup_centre as lookup_grib2_centre, lookup_discipline, lookup_fixed_surface,
     lookup_parameter as lookup_grib2_parameter, lookup_production_status, lookup_time_range_unit,
 };
-use fieldglass_netcdf::{NetcdfBacking, NetcdfReader};
+use fieldglass_netcdf::{Hdf5Attribute, Hdf5Metadata, NetcdfBacking, NetcdfReader};
 use napi_derive::napi;
 use std::sync::Mutex;
 
@@ -640,11 +640,13 @@ pub struct DatasetMeta {
     /// Human-readable label, e.g. `"NetCDF classic (CDF-1)"` or
     /// `"NetCDF-4 / HDF5"`.
     pub backing_label: String,
-    /// `true` if dimensions / variables / attributes are populated;
-    /// `false` for HDF5 today (deep parsing is a follow-up).
+    /// `true` if dimensions / variables / attributes are populated. Always
+    /// `true` for classic; `true` for HDF5 once its dimension-scale metadata
+    /// resolves, and `false` (with `note` set) only when an HDF5 file uses a
+    /// layout outside the decoded subset.
     pub fully_parsed: bool,
     /// Free-form note for the provider to surface when `fully_parsed` is
-    /// false — e.g. "NetCDF-4 / HDF5 deep parsing not yet implemented".
+    /// false — e.g. why an HDF5 file's metadata could not be fully resolved.
     pub note: Option<String>,
     pub dimensions: Vec<DimensionMeta>,
     pub global_attributes: Vec<AttributeMeta>,
@@ -665,6 +667,18 @@ pub fn open_netcdf(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<Dataset
 
 fn dataset_meta_from(reader: NetcdfReader) -> DatasetMeta {
     let label = reader.backing.label().to_string();
+    // HDF5 / NetCDF-4: resolve the dimension-scale convention (decision 0003) to
+    // the same dimensions / variables / attributes the classic backing exposes.
+    // Resolution is fallible (a layout outside the decoded subset); on failure we
+    // fall back to the format-only view with the reason in `note`, so the file
+    // still opens and the superblock still renders.
+    if let NetcdfBacking::Hdf5(probe) = &reader.backing {
+        let superblock = Some(probe.superblock_version as i32);
+        return match reader.hdf5_metadata() {
+            Ok(meta) => hdf5_dataset_meta(label, superblock, meta),
+            Err(e) => hdf5_unparsed_meta(label, superblock, &e.to_string()),
+        };
+    }
     match reader.backing {
         NetcdfBacking::Classic(h) => {
             let dim_names: Vec<String> = h.dimensions.iter().map(|d| d.name.clone()).collect();
@@ -724,21 +738,71 @@ fn dataset_meta_from(reader: NetcdfReader) -> DatasetMeta {
                 hdf5_superblock_version: None,
             }
         }
-        NetcdfBacking::Hdf5(probe) => DatasetMeta {
-            backing: "hdf5".to_string(),
-            backing_label: label,
-            fully_parsed: false,
-            note: Some(
-                "NetCDF-4 / HDF5 deep parsing is not yet implemented; \
-                 only the superblock has been validated. Classic NetCDF \
-                 (CDF-1 / CDF-2 / CDF-5) renders fully."
-                    .to_string(),
-            ),
-            dimensions: Vec::new(),
-            global_attributes: Vec::new(),
-            variables: Vec::new(),
-            hdf5_superblock_version: Some(probe.superblock_version as i32),
-        },
+        // HDF5 is handled above, before this match consumes `reader.backing`.
+        NetcdfBacking::Hdf5(_) => unreachable!("HDF5 backing resolved before the match"),
+    }
+}
+
+/// Map a resolved NetCDF-4 / HDF5 root group to the JS dataset metadata.
+fn hdf5_dataset_meta(label: String, superblock: Option<i32>, meta: Hdf5Metadata) -> DatasetMeta {
+    let dimensions = meta
+        .dimensions
+        .into_iter()
+        .map(|d| DimensionMeta {
+            name: d.name,
+            length: d.length as f64,
+            is_record: d.is_unlimited,
+        })
+        .collect();
+    let variables = meta
+        .variables
+        .into_iter()
+        .map(|v| VariableMeta {
+            name: v.name,
+            nc_type: v.nc_type.name().to_string(),
+            dimensions: v.dimensions,
+            attributes: v.attributes.iter().map(hdf5_attribute_meta).collect(),
+        })
+        .collect();
+    DatasetMeta {
+        backing: "hdf5".to_string(),
+        backing_label: label,
+        fully_parsed: true,
+        note: None,
+        dimensions,
+        global_attributes: meta
+            .global_attributes
+            .iter()
+            .map(hdf5_attribute_meta)
+            .collect(),
+        variables,
+        hdf5_superblock_version: superblock,
+    }
+}
+
+/// The format-only fallback when HDF5 metadata can't be fully resolved — the
+/// file still opens and reports its superblock, with the reason in `note`.
+fn hdf5_unparsed_meta(label: String, superblock: Option<i32>, reason: &str) -> DatasetMeta {
+    DatasetMeta {
+        backing: "hdf5".to_string(),
+        backing_label: label,
+        fully_parsed: false,
+        note: Some(format!(
+            "NetCDF-4 / HDF5 metadata could not be fully resolved ({reason}); \
+             only the superblock has been validated."
+        )),
+        dimensions: Vec::new(),
+        global_attributes: Vec::new(),
+        variables: Vec::new(),
+        hdf5_superblock_version: superblock,
+    }
+}
+
+fn hdf5_attribute_meta(a: &Hdf5Attribute) -> AttributeMeta {
+    AttributeMeta {
+        name: a.name.clone(),
+        nc_type: a.datatype.nc_type.name().to_string(),
+        value: a.value.clone(),
     }
 }
 

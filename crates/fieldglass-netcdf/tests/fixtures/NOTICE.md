@@ -113,3 +113,29 @@ verifiable today (superblock + `OHDR`/`SNOD`/`FRHP` markers).
 > The bundled real NetCDF-4 file `netcdf4_hdf5_dummy.nc` remains the "library
 > wrote it" example; these two add controlled coverage of both group layouts
 > and the datatype / storage / attribute matrix.
+
+## NetCDF-4 dimension-scale fixture (`netcdf4_dimscale.nc`)
+
+A small NetCDF-4 file written with the canonical Unidata `netCDF4` library (which
+wraps `libnetcdf` / libhdf5) as the target for dimension-scale resolution
+(#174, under #33; decision 0003). Unlike the two `hdf5_*` fixtures — which are
+pure `h5py` and carry **no** dimension scales — this lays down the real
+`CLASS = "DIMENSION_SCALE"` / `DIMENSION_LIST` / `_Netcdf4Dimid` machinery, so it
+exercises the semantic layer that maps HDF5 dimension scales to named netCDF
+dimensions and resolves each variable's ordered dimension list. Built by
+`tools/build_netcdf4_dimscale_fixture.py` (run from the repo root; needs
+`netCDF4`).
+
+It covers every classification the resolver makes: an **unlimited** dimension
+with a coordinate variable (`time`), regular coordinate variables (`lat` /
+`lon`), a **pure dimension** with no coordinate variable (`nv` — the
+`"This is a netCDF dimension but not a netCDF variable."` placeholder), a
+multi-dimensional **data variable** whose `DIMENSION_LIST` must resolve to
+ordered names (`temperature(time, lat, lon)`), and a variable that references the
+pure dimension (`lat_bnds(lat, nv)`).
+
+The sibling `netcdf4_dimscale.nc.oracle.json` is `ncdump -h` in JSON form: per
+dimension its length and unlimited flag; per variable its netCDF type, ordered
+dimension names, and whether it is a coordinate variable. `nc_type` is the
+canonical netCDF type name (matching the Rust reader's `NcType::name()`), not the
+numpy alias. `tests/hdf5_dimension_scales.rs` pins the resolver against it.

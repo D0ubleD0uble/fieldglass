@@ -44,6 +44,22 @@ pub struct Hdf5Attribute {
     pub first_value: Option<f64>,
 }
 
+/// A raw, undecoded attribute: its name plus the still-encoded datatype message
+/// and the value bytes, with only the dataspace decoded. Lets the dimension-scale
+/// layer read structured attributes — `DIMENSION_LIST` (vlen of references),
+/// `_Netcdf4Dimid` (a scalar int) — that the human [`Hdf5Attribute`] path drops
+/// because their datatype class isn't one [`datatype::decode`] maps to `NcType`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RawAttribute {
+    pub name: String,
+    /// The attribute's datatype message body, undecoded (caller dispatches on
+    /// its class — reference, variable-length, fixed-point, …).
+    pub datatype_bytes: Vec<u8>,
+    pub dataspace: Dataspace,
+    /// The attribute's raw value bytes.
+    pub data: Vec<u8>,
+}
+
 /// List the attributes attached to the object header at `object_header_address`,
 /// sorted by name. Works for the root group (global attributes) and datasets.
 pub fn list_attributes(
@@ -51,6 +67,57 @@ pub fn list_attributes(
     object_header_address: u64,
     probe: &Hdf5Probe,
 ) -> Result<Vec<Hdf5Attribute>, FieldglassError> {
+    let mut attrs = Vec::new();
+    // An attribute we can't parse — most often one whose datatype we don't decode
+    // (e.g. a NetCDF-4 `DIMENSION_LIST`, which is variable-length), but a
+    // malformed one too — is skipped rather than failing the whole list, so the
+    // rest of an object's attributes, and its value decode, still come through.
+    for body in attribute_message_bodies(bytes, object_header_address, probe)? {
+        if let Ok(attr) = parse_attribute_message(&body, probe.length_size) {
+            push_attribute(&mut attrs, attr)?;
+        }
+    }
+    attrs.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(attrs)
+}
+
+/// Return the raw bytes (datatype message + dataspace + value) of the attribute
+/// named `name` on the object header at `object_header_address`, or `None` if no
+/// such attribute exists. Unlike [`list_attributes`], this does not decode the
+/// datatype, so it serves the structural NetCDF-4 attributes.
+pub fn raw_attribute(
+    bytes: &[u8],
+    object_header_address: u64,
+    probe: &Hdf5Probe,
+    name: &str,
+) -> Result<Option<RawAttribute>, FieldglassError> {
+    for body in attribute_message_bodies(bytes, object_header_address, probe)? {
+        let Ok(split) = split_attribute_message(&body) else {
+            continue;
+        };
+        if split.name != name {
+            continue;
+        }
+        let dataspace = dataspace::decode(split.dataspace_bytes, probe.length_size)?;
+        return Ok(Some(RawAttribute {
+            name: split.name,
+            datatype_bytes: split.datatype_bytes.to_vec(),
+            dataspace,
+            data: split.data.to_vec(),
+        }));
+    }
+    Ok(None)
+}
+
+/// Collect the raw bodies of every Attribute message on an object header — both
+/// inline (messages in the header) and dense (Attribute Info → fractal heap +
+/// B-tree v2). The single source of attribute messages for both the human and
+/// raw decode paths.
+fn attribute_message_bodies(
+    bytes: &[u8],
+    object_header_address: u64,
+    probe: &Hdf5Probe,
+) -> Result<Vec<Vec<u8>>, FieldglassError> {
     let header = object_header::walk(
         bytes,
         object_header_address,
@@ -58,40 +125,28 @@ pub fn list_attributes(
         probe.length_size,
     )?;
 
-    let mut attrs = Vec::new();
-    // Inline attributes: Attribute messages directly in the header. An attribute
-    // we can't parse — most often one whose datatype we don't decode (e.g. a
-    // NetCDF-4 `DIMENSION_LIST`, which is variable-length), but a malformed one
-    // too — is skipped rather than failing the whole list, so the rest of an
-    // object's attributes, and its value decode, still come through.
-    for msg in header
+    let mut bodies: Vec<Vec<u8>> = header
         .messages
         .iter()
         .filter(|m| m.msg_type == MSG_ATTRIBUTE)
-    {
-        if let Ok(attr) = parse_attribute_message(&msg.body, probe.length_size) {
-            push_attribute(&mut attrs, attr)?;
-        }
-    }
-    // Dense attributes: Attribute Info → fractal heap + B-tree v2.
+        .map(|m| m.body.clone())
+        .collect();
     if let Some(msg) = header
         .messages
         .iter()
         .find(|m| m.msg_type == MSG_ATTRIBUTE_INFO)
     {
-        read_dense_attributes(bytes, &msg.body, probe, &mut attrs)?;
+        read_dense_attribute_bodies(bytes, &msg.body, probe, &mut bodies)?;
     }
-
-    attrs.sort_by(|a, b| a.name.cmp(&b.name));
-    Ok(attrs)
+    Ok(bodies)
 }
 
-/// Resolve dense attributes from an Attribute Info message body.
-fn read_dense_attributes(
+/// Append the dense attribute message bodies from an Attribute Info message.
+fn read_dense_attribute_bodies(
     bytes: &[u8],
     body: &[u8],
     probe: &Hdf5Probe,
-    out: &mut Vec<Hdf5Attribute>,
+    out: &mut Vec<Vec<u8>>,
 ) -> Result<(), FieldglassError> {
     let o = probe.offset_size as usize;
     // version (1) + flags (1), then optional max-creation-index (2).
@@ -128,17 +183,25 @@ fn read_dense_attributes(
                 FieldglassError::Parse("attribute record too small for a heap ID".into())
             })?;
         let message = heap.managed_object(bytes, id)?;
-        // Skip dense attributes we can't parse (undecodable datatype or
-        // malformed), same as the inline loop in `list_attributes`.
-        if let Ok(attr) = parse_attribute_message(&message, probe.length_size) {
-            push_attribute(out, attr)?;
-        }
+        out.push(message);
     }
     Ok(())
 }
 
-/// Parse a single Attribute message body (versions 1, 2, and 3).
-fn parse_attribute_message(body: &[u8], length_size: u8) -> Result<Hdf5Attribute, FieldglassError> {
+/// The name + still-encoded sub-blocks of an Attribute message, borrowed from
+/// the message body. Shared by the human ([`parse_attribute_message`]) and raw
+/// ([`raw_attribute`]) decode paths so the version/padding handling lives once.
+struct SplitAttribute<'a> {
+    name: String,
+    datatype_bytes: &'a [u8],
+    dataspace_bytes: &'a [u8],
+    data: &'a [u8],
+}
+
+/// Split an Attribute message body (versions 1, 2, and 3) into its name and the
+/// raw datatype / dataspace / value blocks, handling the version-1 8-byte
+/// padding and the version-3 name-charset byte.
+fn split_attribute_message(body: &[u8]) -> Result<SplitAttribute<'_>, FieldglassError> {
     let mut cur = Cursor::over(body);
     let version = cur.byte()?;
     cur.skip(1)?; // reserved (v1) / flags (v2, v3)
@@ -163,20 +226,30 @@ fn parse_attribute_message(body: &[u8], length_size: u8) -> Result<Hdf5Attribute
 
     let name = decode_name(cur.take(name_size)?);
     skip_padding(&mut cur, name_size, padded)?;
-    let datatype_bytes = cur.take(datatype_size)?.to_vec();
+    let datatype_bytes = cur.take(datatype_size)?;
     skip_padding(&mut cur, datatype_size, padded)?;
-    let dataspace_bytes = cur.take(dataspace_size)?.to_vec();
+    let dataspace_bytes = cur.take(dataspace_size)?;
     skip_padding(&mut cur, dataspace_size, padded)?;
     let data = cur.remaining();
+    Ok(SplitAttribute {
+        name,
+        datatype_bytes,
+        dataspace_bytes,
+        data,
+    })
+}
 
-    let datatype = datatype::decode(&datatype_bytes)?;
-    let dataspace = dataspace::decode(&dataspace_bytes, length_size)?;
-    let value = render_value(data, &datatype, &dataspace)?;
+/// Parse a single Attribute message body into a human-readable [`Hdf5Attribute`].
+fn parse_attribute_message(body: &[u8], length_size: u8) -> Result<Hdf5Attribute, FieldglassError> {
+    let split = split_attribute_message(body)?;
+    let datatype = datatype::decode(split.datatype_bytes)?;
+    let dataspace = dataspace::decode(split.dataspace_bytes, length_size)?;
+    let value = render_value(split.data, &datatype, &dataspace)?;
     // Typed first element (numeric only), straight from the raw bytes — value
     // decode masks `_FillValue` against this rather than the rounded display text.
-    let first_value = datatype.read_element_f64(data);
+    let first_value = datatype.read_element_f64(split.data);
     Ok(Hdf5Attribute {
-        name,
+        name: split.name,
         datatype,
         dataspace,
         value,

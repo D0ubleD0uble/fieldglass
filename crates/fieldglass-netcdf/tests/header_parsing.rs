@@ -111,11 +111,20 @@ fn hdf5_fixture_probes_to_a_versioned_superblock() {
 }
 
 #[test]
-fn hdf5_backing_reports_partial_parse() {
+fn hdf5_backing_resolves_dimension_metadata() {
+    // NetCDF-4 / HDF5 now resolves the dimension-scale convention (decision 0003),
+    // so the dummy's `x` dimension and `v(x)` variable come through.
     let reader = NetcdfReader::from_bytes(HDF5.to_vec()).unwrap();
+    let meta = reader.hdf5_metadata().expect("HDF5 metadata resolves");
     assert!(
-        !reader.backing.is_fully_parsed(),
-        "HDF5 fixture should be flagged as not-fully-parsed for the provider's notice"
+        meta.dimensions.iter().any(|d| d.name == "x"),
+        "resolved dimensions: {:?}",
+        meta.dimensions
+    );
+    assert!(
+        meta.variables.iter().any(|v| v.name == "v"),
+        "resolved variables: {:?}",
+        meta.variables
     );
 }
 
