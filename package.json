@@ -4,6 +4,6 @@
     "prepare": "command -v pre-commit >/dev/null 2>&1 && pre-commit install --hook-type pre-commit --hook-type pre-push >/dev/null 2>&1 || echo 'pre-commit not installed — see README for setup'"
   },
   "devDependencies": {
-    "@napi-rs/cli": "^3.7.1"
+    "@napi-rs/cli": "^3.7.2"
   }
 }
