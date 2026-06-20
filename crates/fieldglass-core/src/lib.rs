@@ -21,9 +21,11 @@ pub use metadata::Parameter;
 pub use overlay::{ProjectedPolylines, SourceOverlayTarget, project_polylines};
 pub use projection::{
     GaussianParams, GaussianProjector, GridIndex, LambertParams, LambertProjector, LatLonParams,
-    MercatorParams, PlanarGridProjector, PolarStereoParams, PolarStereoProjector, gaussian_inverse,
-    gaussian_latitudes, lambert_forward, lambert_inverse, lambert_inverse_xy, latlon_inverse,
-    mercator_inverse, polar_stereo_forward, polar_stereo_inverse, polar_stereo_inverse_xy,
+    MercatorParams, PlanarGridProjector, PolarStereoParams, PolarStereoProjector,
+    RotatedLatLonParams, RotatedLatLonProjector, gaussian_inverse, gaussian_latitudes,
+    lambert_forward, lambert_inverse, lambert_inverse_xy, latlon_inverse, mercator_inverse,
+    polar_stereo_forward, polar_stereo_inverse, polar_stereo_inverse_xy, rotate_latlon,
+    unrotate_latlon,
 };
 pub use reader::DataMessage;
 pub use reader::FormatReader;

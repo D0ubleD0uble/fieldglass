@@ -3,8 +3,8 @@
 use fieldglass_core::{
     Format, GaussianParams, GaussianProjector, LambertParams, LambertProjector, LatLonParams,
     MercatorParams, Orthographic, PlanarGridProjector, PolarStereoParams, PolarStereoProjector,
-    PolarStereographic, ProjectedPolylines, Resampling, SourceGrid, SourceOverlayTarget,
-    TargetRaster, WebMercator,
+    PolarStereographic, ProjectedPolylines, Resampling, RotatedLatLonParams,
+    RotatedLatLonProjector, SourceGrid, SourceOverlayTarget, TargetRaster, WebMercator,
     colormap::{min_max_ignoring_mask, paint_grid_rgba},
     detect_from_bytes, latlon_inverse, mercator_inverse, project_polylines,
     projection::GridIndex,
@@ -106,6 +106,18 @@ pub struct MessageMeta {
     pub polar_stereo_dy_metres: Option<f64>,
     /// `true` ⇒ south-pole projection, `false` ⇒ north-pole.
     pub polar_stereo_south_pole: Option<bool>,
+    // -------------------------------------------------------------------
+    // Rotated latitude/longitude projection parameters (only populated for
+    // GRIB2 §3.1 rotated lat/lon grids; `None` for every other grid type).
+    // The grid's corner coordinates (lat/lon first/last) are in the rotated
+    // frame; these three fields define the rotation back to geographic.
+    // -------------------------------------------------------------------
+    /// Geographic latitude of the projection's southern pole (degrees).
+    pub rotated_south_pole_lat: Option<f64>,
+    /// Geographic longitude of the projection's southern pole (degrees).
+    pub rotated_south_pole_lon: Option<f64>,
+    /// Angle of rotation about the new polar axis (degrees).
+    pub rotated_angle_of_rotation: Option<f64>,
     /// Human-readable data-packing method for this message — the GRIB1 BDS
     /// packing or GRIB2 §5 data-representation template, mapped to a friendly
     /// label (e.g. "Second-order (SPD-2)", "Simple grid-point"). `None` when
@@ -113,26 +125,28 @@ pub struct MessageMeta {
     pub packing: Option<String>,
     /// Whether this message's grid can be reprojected (the render panel's
     /// non-source projection targets). Mirrors [`warp_setup_for`]: only
-    /// lat/lon, Gaussian, Mercator, Lambert, and polar-stereographic source
-    /// grids reproject, and the two planar projections additionally need a
-    /// non-zero grid spacing (some sample files carry Dx = Dy = 0). The webview
-    /// hides the reprojection options when this is `false`.
+    /// lat/lon, rotated lat/lon, Gaussian, Mercator, Lambert, and
+    /// polar-stereographic source grids reproject, and the two planar
+    /// projections additionally need a non-zero grid spacing (some sample files
+    /// carry Dx = Dy = 0). The webview hides the reprojection options when this
+    /// is `false`.
     pub reprojectable: bool,
 }
 
 /// Whether a grid can feed the warp pipeline's non-source targets. Mirrors the
-/// dispatch in [`warp_setup_for`] — lat/lon, Gaussian, and Mercator always
-/// qualify (their inverse maps are pinned by the corner coordinates alone); the
-/// planar projections (Lambert, polar stereographic) also require a non-zero
-/// grid spacing, since a degenerate Dx/Dy collapses every grid point onto one
-/// location and the reprojection would render blank.
+/// dispatch in [`warp_setup_for`] — lat/lon, rotated lat/lon, Gaussian, and
+/// Mercator always qualify (their inverse maps are pinned by the corner
+/// coordinates — plus the rotated pole — alone); the planar projections
+/// (Lambert, polar stereographic) also require a non-zero grid spacing, since a
+/// degenerate Dx/Dy collapses every grid point onto one location and the
+/// reprojection would render blank.
 fn grid_is_reprojectable(
     grid_type: Option<&str>,
     planar_dx: Option<f64>,
     planar_dy: Option<f64>,
 ) -> bool {
     match grid_type {
-        Some("latlon") | Some("gaussian") | Some("mercator") => true,
+        Some("latlon") | Some("gaussian") | Some("mercator") | Some("rotated_latlon") => true,
         Some("lambert") | Some("polar_stereo") => {
             matches!((planar_dx, planar_dy), (Some(dx), Some(dy)) if dx != 0.0 && dy != 0.0)
         }
@@ -308,6 +322,11 @@ fn build_grib1_message_meta(
         polar_stereo_dx_metres,
         polar_stereo_dy_metres,
         polar_stereo_south_pole,
+        // GRIB1 rotated grids (grid_type 10) are not parsed yet (#47), so the
+        // GRIB2-only rotated-pole fields are always absent here.
+        rotated_south_pole_lat: None,
+        rotated_south_pole_lon: None,
+        rotated_angle_of_rotation: None,
         packing,
         reprojectable,
     }
@@ -500,6 +519,17 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
         )
     });
 
+    // §3.1 carries the rotated-pole position and rotation angle alongside a
+    // §3.0-style lat/lon layout; the warp uses them to rotate a geographic
+    // query into the grid's rotated frame.
+    let rotated = match &msg.gds.template {
+        fieldglass_grib2::GridTemplate::RotatedLatLon(t) => Some(t),
+        _ => None,
+    };
+    let rotated_south_pole_lat = rotated.map(|t| t.south_pole_lat);
+    let rotated_south_pole_lon = rotated.map(|t| t.south_pole_lon);
+    let rotated_angle_of_rotation = rotated.map(|t| t.angle_of_rotation);
+
     let grid_type = msg.gds.template_name();
     let reprojectable = grid_is_reprojectable(
         Some(grid_type.as_str()),
@@ -544,6 +574,9 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
         polar_stereo_dx_metres: polar_stereo_inc.map(|(dx, _)| dx),
         polar_stereo_dy_metres: polar_stereo_inc.map(|(_, dy)| dy),
         polar_stereo_south_pole: polar_stereo.map(|t| t.south_pole),
+        rotated_south_pole_lat,
+        rotated_south_pole_lon,
+        rotated_angle_of_rotation,
         packing: Some(friendly_packing(&msg.drs.template_name())),
         reprojectable,
     }
@@ -1678,6 +1711,7 @@ fn warp_setup_for(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetu
         "latlon" => latlon_warp_setup(meta, ni, nj),
         "gaussian" => gaussian_warp_setup(meta, ni, nj),
         "mercator" => mercator_warp_setup(meta, ni, nj),
+        "rotated_latlon" => rotated_latlon_warp_setup(meta, ni, nj),
         "lambert" => lambert_warp_setup(meta, ni, nj),
         "polar_stereo" => polar_stereo_warp_setup(meta, ni, nj),
         other => Err(napi::Error::from_reason(format!(
@@ -1832,6 +1866,31 @@ fn mercator_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<War
             p.lon_first.max(p.lon_last),
         )
     });
+    Ok((inverse, bbox))
+}
+
+fn rotated_latlon_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
+    let p = RotatedLatLonParams {
+        ni,
+        nj,
+        lat_first: require_f64(meta.lat_first, "latFirst")?,
+        lon_first: require_f64(meta.lon_first, "lonFirst")?,
+        lat_last: require_f64(meta.lat_last, "latLast")?,
+        lon_last: require_f64(meta.lon_last, "lonLast")?,
+        south_pole_lat: require_f64(meta.rotated_south_pole_lat, "rotatedSouthPoleLat")?,
+        south_pole_lon: require_f64(meta.rotated_south_pole_lon, "rotatedSouthPoleLon")?,
+        angle_of_rotation: require_f64(meta.rotated_angle_of_rotation, "rotatedAngleOfRotation")?,
+    };
+    // `RotatedLatLonProjector` caches the rotated-frame corner grid once; the
+    // inverse closure reuses it for every output pixel.
+    let projector = RotatedLatLonProjector::new(p);
+    let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
+        Box::new(move |lat, lon| projector.inverse(lat, lon));
+    // The grid's corner coordinates are in the rotated frame, so — unlike the
+    // geographic lat/lon source — the geographic extent is a curved region. The
+    // projector walks the rotated-grid perimeter and unrotates it to derive a
+    // tight lat/lon box.
+    let bbox: BboxThunk = Box::new(move || RotatedLatLonProjector::new(p).lonlat_bbox());
     Ok((inverse, bbox))
 }
 
@@ -2132,6 +2191,9 @@ mod polar_stereo_warp_tests {
             polar_stereo_dx_metres: Some(60_000.0),
             polar_stereo_dy_metres: Some(60_000.0),
             polar_stereo_south_pole: Some(false),
+            rotated_south_pole_lat: None,
+            rotated_south_pole_lon: None,
+            rotated_angle_of_rotation: None,
             packing: None,
             reprojectable: true,
         }
@@ -2619,6 +2681,67 @@ mod polar_stereo_warp_tests {
             "summary should name source kind + target, got: {summary}"
         );
     }
+
+    /// MessageMeta for a GRIB2 §3.1 rotated lat/lon grid, mirroring the
+    /// committed `rotated_latlon_surface.grib2` fixture: 16×31 grid, rotated
+    /// corners (60,0)→(0,30), southern pole at geographic (0,0), no rotation.
+    fn rotated_latlon_meta() -> MessageMeta {
+        MessageMeta {
+            grid_type: Some("rotated_latlon".to_string()),
+            grid_ni: Some(16),
+            grid_nj: Some(31),
+            lat_first: Some(60.0),
+            lon_first: Some(0.0),
+            lat_last: Some(0.0),
+            lon_last: Some(30.0),
+            rotated_south_pole_lat: Some(0.0),
+            rotated_south_pole_lon: Some(0.0),
+            rotated_angle_of_rotation: Some(0.0),
+            format: "grib2".to_string(),
+            edition: Some(2),
+            ..cmc_polar_meta()
+        }
+    }
+
+    #[test]
+    fn warps_grib2_rotated_latlon_to_equirectangular() {
+        // #120: a GRIB2 rotated lat/lon (§3.1) source grid must reproject. The
+        // corners are rotated-frame coordinates, so the warp rotates each
+        // geographic output point into the grid's frame before sampling.
+        // Synthetic uniform field — testing warp geometry, not value transport.
+        let meta = rotated_latlon_meta();
+        let raw: Vec<Option<f64>> = vec![Some(1.0); 16 * 31];
+        let (values, mask, w, h, bounds, summary) = warp_message(
+            &meta,
+            &raw,
+            WarpTarget::Equirectangular,
+            Resampling::Nearest,
+            None,
+        )
+        .expect("rotated lat/lon warp");
+
+        let present = mask.iter().filter(|&&m| m == 1).count();
+        assert!(present > 0, "rotated warp produced an empty mask");
+        for (i, &m) in mask.iter().enumerate() {
+            if m == 1 {
+                assert_eq!(values[i], 1.0, "present pixel {i} should be 1.0");
+            }
+        }
+        // The geographic extent is the unrotated perimeter box. With the pole at
+        // (0,0) the fixture's grid sweeps the high-latitude north side; the
+        // reported box must be non-degenerate and stay within valid ranges.
+        let (lat_min, lat_max, lon_min, lon_max) = bounds.expect("rotated grid has bounds");
+        assert!(
+            lat_max > lat_min && lat_max <= 90.01,
+            "lat box {lat_min}..{lat_max}"
+        );
+        assert!(lon_max > lon_min, "lon box {lon_min}..{lon_max}");
+        assert!(w > 0 && h > 0);
+        assert!(
+            summary.contains("rotated_latlon") && summary.contains("equirectangular"),
+            "summary should name source kind + target, got: {summary}"
+        );
+    }
 }
 
 #[cfg(test)]
@@ -2632,6 +2755,9 @@ mod reprojectable_tests {
         assert!(grid_is_reprojectable(Some("latlon"), None, None));
         assert!(grid_is_reprojectable(Some("gaussian"), None, None));
         assert!(grid_is_reprojectable(Some("mercator"), None, None));
+        // Rotated lat/lon is pinned by its rotated corners + pole position, so
+        // it too needs no metric spacing.
+        assert!(grid_is_reprojectable(Some("rotated_latlon"), None, None));
     }
 
     #[test]
@@ -2658,8 +2784,8 @@ mod reprojectable_tests {
 
     #[test]
     fn unsupported_grid_types_are_not_reprojectable() {
-        assert!(!grid_is_reprojectable(Some("rotated_latlon"), None, None));
         assert!(!grid_is_reprojectable(Some("space_view"), None, None));
+        assert!(!grid_is_reprojectable(Some("unknown"), None, None));
         assert!(!grid_is_reprojectable(None, None, None));
     }
 }
@@ -2774,6 +2900,9 @@ mod overlay_projection_tests {
             polar_stereo_dx_metres: None,
             polar_stereo_dy_metres: None,
             polar_stereo_south_pole: None,
+            rotated_south_pole_lat: None,
+            rotated_south_pole_lon: None,
+            rotated_angle_of_rotation: None,
             packing: None,
             reprojectable: true,
         }

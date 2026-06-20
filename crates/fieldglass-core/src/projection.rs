@@ -867,39 +867,56 @@ pub trait PlanarGridProjector {
             visit(ox + ex, oy + t * ey); // right edge (i = ni-1)
         }
 
-        // Largest empty gap between adjacent wrapped longitudes (including the
-        // wrap-around gap from the last sample back to the first). The enclosing
-        // arc is everything *except* that gap.
-        // `total_cmp`: `inverse_lonlat` yields finite longitudes here, but a
-        // total order degrades gracefully instead of panicking if that ever
-        // slips. `rem_euclid(360.0)` above already keeps every entry in [0, 360).
-        lons.sort_by(|a, b| a.total_cmp(b));
-        let n = lons.len();
-        let mut gap_start = 0usize; // index just after the largest gap
-        let mut max_gap = lons[0] + 360.0 - lons[n - 1]; // wrap-around gap
-        for i in 1..n {
-            let gap = lons[i] - lons[i - 1];
-            if gap > max_gap {
-                max_gap = gap;
-                gap_start = i;
-            }
-        }
-        // The arc runs from the sample after the gap to the one before it,
-        // adding a turn when the arc crosses 360° (interior gap).
-        let lon_min = lons[gap_start];
-        let lon_max = if gap_start == 0 {
-            lons[n - 1]
-        } else {
-            lons[gap_start - 1] + 360.0
-        };
-
-        // Recenter on [-180, 180] by shifting a whole number of turns so the
-        // midpoint is in range — preserves the (possibly antimeridian-spanning)
-        // span while keeping the reported bounds human-sensible.
-        let mid = (lon_min + lon_max) / 2.0;
-        let shift = ((mid + 180.0).rem_euclid(360.0) - 180.0) - mid;
-        (lat_min, lat_max, lon_min + shift, lon_max + shift)
+        // The longitude extent is the minimum enclosing arc of the perimeter
+        // samples; see [`enclosing_lon_arc`].
+        let (lon_min, lon_max) = enclosing_lon_arc(&mut lons);
+        (lat_min, lat_max, lon_min, lon_max)
     }
+}
+
+/// Tightest longitude span (degrees) enclosing a set of perimeter-sample
+/// longitudes, each already wrapped into `[0, 360)`. Returns
+/// `(lon_min, lon_max)` recentred so the midpoint lies in `[-180, 180]`.
+///
+/// The span is the complement of the largest empty gap between adjacent
+/// (sorted, wrapped) samples, so it stays tight and continuous for a grid
+/// straddling the ±180° antimeridian and — unlike a single-reference unwrap —
+/// for azimuthal extents wider than 180°. `lon_min < -180` (or `lon_max > 180`)
+/// intentionally describes a dateline-spanning window; the warp consumes it
+/// through periodic trig.
+///
+/// A sample set that *surrounds* a projection pole has no empty gap, so this
+/// arc degenerates toward 360°; callers that can enclose a pole must detect
+/// that case separately (e.g. [`PolarStereoProjector::pole_inside_grid`]).
+///
+/// `total_cmp`: callers feed finite longitudes, but a total order degrades
+/// gracefully instead of panicking if a stray NaN ever slips through.
+fn enclosing_lon_arc(lons: &mut [f64]) -> (f64, f64) {
+    lons.sort_by(|a, b| a.total_cmp(b));
+    let n = lons.len();
+    let mut gap_start = 0usize; // index just after the largest gap
+    let mut max_gap = lons[0] + 360.0 - lons[n - 1]; // wrap-around gap
+    for i in 1..n {
+        let gap = lons[i] - lons[i - 1];
+        if gap > max_gap {
+            max_gap = gap;
+            gap_start = i;
+        }
+    }
+    // The arc runs from the sample after the gap to the one before it, adding a
+    // turn when the arc crosses 360° (interior gap).
+    let lon_min = lons[gap_start];
+    let lon_max = if gap_start == 0 {
+        lons[n - 1]
+    } else {
+        lons[gap_start - 1] + 360.0
+    };
+    // Recenter on [-180, 180] by shifting a whole number of turns so the
+    // midpoint is in range — preserves the (possibly antimeridian-spanning)
+    // span while keeping the reported bounds human-sensible.
+    let mid = (lon_min + lon_max) / 2.0;
+    let shift = ((mid + 180.0).rem_euclid(360.0) - 180.0) - mid;
+    (lon_min + shift, lon_max + shift)
 }
 
 impl PlanarGridProjector for LambertProjector {
@@ -929,6 +946,208 @@ impl PlanarGridProjector for PolarStereoProjector {
     }
     fn inverse_lonlat(&self, x: f64, y: f64) -> (f64, f64) {
         self.inverse_xy(x, y)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Rotated latitude/longitude (GRIB1 grid_type 10, GRIB2 template 3.1)
+// ---------------------------------------------------------------------------
+
+/// A regular lat/lon grid laid out on a *rotated* sphere: the geographic south
+/// pole is moved to `(south_pole_lat, south_pole_lon)` and the sphere spun by
+/// `angle_of_rotation` about the new polar axis. COSMO, DWD ICON-EU, and
+/// Environment Canada HRDPS/RDPS publish their limited-area grids this way.
+///
+/// The grid is evenly spaced in the *rotated* coordinates (`lat_first..lat_last`
+/// by `lon_first..lon_last`), so the corner fields are rotated-frame degrees,
+/// not geographic. Locating a geographic point means rotating it into that
+/// frame first, then indexing exactly like [`latlon_inverse`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RotatedLatLonParams {
+    pub ni: u32,
+    pub nj: u32,
+    /// First/last grid-point coordinates **in the rotated frame** (degrees).
+    pub lat_first: f64,
+    pub lon_first: f64,
+    pub lat_last: f64,
+    pub lon_last: f64,
+    /// Geographic latitude of the projection's southern pole (degrees).
+    pub south_pole_lat: f64,
+    /// Geographic longitude of the projection's southern pole (degrees).
+    pub south_pole_lon: f64,
+    /// Rotation about the new polar axis (degrees).
+    pub angle_of_rotation: f64,
+}
+
+/// Clamp `v` onto `[min(a,b), max(a,b)]` only when it sits within `eps` just
+/// outside the range; otherwise return it unchanged. Used to absorb rotation
+/// round-off at a grid edge without masking a genuinely out-of-range value.
+fn snap_to_range(v: f64, a: f64, b: f64, eps: f64) -> f64 {
+    let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
+    if v < lo && v >= lo - eps {
+        lo
+    } else if v > hi && v <= hi + eps {
+        hi
+    } else {
+        v
+    }
+}
+
+/// Rotation-matrix terms shared by [`unrotate_latlon`] and [`rotate_latlon`].
+/// The unrotate map is `geo = M · rotated` with `M` orthonormal; the inverse
+/// rotate map is `rotated = Mᵀ · geo`.
+fn rotation_terms(south_pole_lat: f64, south_pole_lon: f64) -> (f64, f64, f64, f64) {
+    let t = -(90.0 + south_pole_lat);
+    let o = -south_pole_lon;
+    let (sin_t, cos_t) = (t * DEG2RAD).sin_cos();
+    let (sin_o, cos_o) = (o * DEG2RAD).sin_cos();
+    (sin_t, cos_t, sin_o, cos_o)
+}
+
+/// Convert a point from the rotated frame to geographic coordinates. Matches
+/// eccodes' `unrotate` (`grib_geography.cc`) — the routine that produces a
+/// §3.1 grid's geographic point coordinates — so a Fieldglass warp resolves to
+/// the same lat/lon eccodes' iterator reports.
+pub fn unrotate_latlon(
+    rlat: f64,
+    rlon: f64,
+    angle_of_rotation: f64,
+    south_pole_lat: f64,
+    south_pole_lon: f64,
+) -> (f64, f64) {
+    let (sin_lat, cos_lat) = (rlat * DEG2RAD).sin_cos();
+    let (sin_lon, cos_lon) = (rlon * DEG2RAD).sin_cos();
+    let xd = cos_lon * cos_lat;
+    let yd = sin_lon * cos_lat;
+    let zd = sin_lat;
+
+    let (sin_t, cos_t, sin_o, cos_o) = rotation_terms(south_pole_lat, south_pole_lon);
+    let x = cos_t * cos_o * xd + sin_o * yd + sin_t * cos_o * zd;
+    let y = -cos_t * sin_o * xd + cos_o * yd - sin_t * sin_o * zd;
+    let z = (-sin_t * xd + cos_t * zd).clamp(-1.0, 1.0);
+
+    let lat = z.asin() * RAD2DEG;
+    // eccodes subtracts the rotation angle from the geographic longitude last.
+    let lon = y.atan2(x) * RAD2DEG - angle_of_rotation;
+    (lat, lon)
+}
+
+/// Inverse of [`unrotate_latlon`]: geographic `(lat, lon)` → rotated-frame
+/// `(rlat, rlon)`. `M` is orthonormal so the inverse is its transpose `Mᵀ`;
+/// the `angle_of_rotation` term is undone by adding it back to the longitude
+/// before rotating. This is the direction a warp needs — output geographic
+/// point to source-grid coordinates.
+pub fn rotate_latlon(
+    lat: f64,
+    lon: f64,
+    angle_of_rotation: f64,
+    south_pole_lat: f64,
+    south_pole_lon: f64,
+) -> (f64, f64) {
+    let (sin_lat, cos_lat) = (lat * DEG2RAD).sin_cos();
+    let (sin_lon, cos_lon) = ((lon + angle_of_rotation) * DEG2RAD).sin_cos();
+    let x = cos_lon * cos_lat;
+    let y = sin_lon * cos_lat;
+    let z = sin_lat;
+
+    let (sin_t, cos_t, sin_o, cos_o) = rotation_terms(south_pole_lat, south_pole_lon);
+    // Transpose of the unrotate matrix.
+    let xd = cos_t * cos_o * x - cos_t * sin_o * y - sin_t * z;
+    let yd = sin_o * x + cos_o * y;
+    let zd = (sin_t * cos_o * x - sin_t * sin_o * y + cos_t * z).clamp(-1.0, 1.0);
+
+    let rlat = zd.asin() * RAD2DEG;
+    let rlon = yd.atan2(xd) * RAD2DEG;
+    (rlat, rlon)
+}
+
+/// Precomputed inverse map for a rotated lat/lon grid. Caches the rotated-frame
+/// corner geometry as a plain [`LatLonParams`] so `inverse` rotates the query
+/// into the rotated frame and then reuses [`latlon_inverse`]. Build once
+/// outside the warp loop; call [`Self::inverse`] per output pixel.
+pub struct RotatedLatLonProjector {
+    params: RotatedLatLonParams,
+    rotated_grid: LatLonParams,
+}
+
+impl RotatedLatLonProjector {
+    pub fn new(params: RotatedLatLonParams) -> Self {
+        let rotated_grid = LatLonParams {
+            ni: params.ni,
+            nj: params.nj,
+            lat_first: params.lat_first,
+            lon_first: params.lon_first,
+            lat_last: params.lat_last,
+            lon_last: params.lon_last,
+        };
+        Self {
+            params,
+            rotated_grid,
+        }
+    }
+
+    /// Project geographic `(lat, lon)` back to the source-grid fractional
+    /// index, or `None` when the point falls outside the grid coverage.
+    pub fn inverse(&self, lat: f64, lon: f64) -> Option<GridIndex> {
+        if !lat.is_finite() || !lon.is_finite() {
+            return None;
+        }
+        let (rlat, rlon) = rotate_latlon(
+            lat,
+            lon,
+            self.params.angle_of_rotation,
+            self.params.south_pole_lat,
+            self.params.south_pole_lon,
+        );
+        // The rotation arithmetic carries ~1e-14° of round-off, enough to push a
+        // point sitting exactly on a grid edge a hair outside `latlon_inverse`'s
+        // strict inclusive bounds and spuriously reject it. Snap coordinates
+        // within EDGE_EPS of an edge back onto it. EDGE_EPS (1e-9° ≈ 0.1 mm) is
+        // far above the round-off and far below any real grid spacing (≥0.01°),
+        // so it never reclassifies a genuinely off-grid point.
+        const EDGE_EPS: f64 = 1e-9;
+        let rlat = snap_to_range(rlat, self.params.lat_first, self.params.lat_last, EDGE_EPS);
+        let rlon = snap_to_range(rlon, self.params.lon_first, self.params.lon_last, EDGE_EPS);
+        latlon_inverse(&self.rotated_grid, rlat, rlon)
+    }
+
+    /// Geographic lat/lon bounding box of the grid, as
+    /// `(lat_min, lat_max, lon_min, lon_max)`. A rotated grid's edges are
+    /// straight in the rotated frame but curve in geographic coordinates, with
+    /// extrema generally in the interior of an edge — so walk a dense sample of
+    /// the perimeter and unrotate each point, mirroring the planar
+    /// [`PlanarGridProjector::lonlat_bbox`].
+    pub fn lonlat_bbox(&self) -> (f64, f64, f64, f64) {
+        // 512 samples/edge pins the closest-to-pole latitude tightly while
+        // staying a trivial ~2k unrotations regardless of grid size.
+        const PER_EDGE: u32 = 512;
+        let p = &self.params;
+        let mut lat_min = f64::INFINITY;
+        let mut lat_max = f64::NEG_INFINITY;
+        let mut lons: Vec<f64> = Vec::with_capacity(4 * (PER_EDGE as usize + 1));
+        let mut visit = |rlat: f64, rlon: f64| {
+            let (lat, lon) = unrotate_latlon(
+                rlat,
+                rlon,
+                p.angle_of_rotation,
+                p.south_pole_lat,
+                p.south_pole_lon,
+            );
+            lat_min = lat_min.min(lat);
+            lat_max = lat_max.max(lat);
+            lons.push(lon.rem_euclid(360.0));
+        };
+        for k in 0..=PER_EDGE {
+            let t = k as f64 / PER_EDGE as f64;
+            let rlat = p.lat_first + t * (p.lat_last - p.lat_first);
+            let rlon = p.lon_first + t * (p.lon_last - p.lon_first);
+            visit(rlat, p.lon_first); // left edge
+            visit(rlat, p.lon_last); // right edge
+            visit(p.lat_first, rlon); // first-row edge
+            visit(p.lat_last, rlon); // last-row edge
+        }
+        let (lon_min, lon_max) = enclosing_lon_arc(&mut lons);
+        (lat_min, lat_max, lon_min, lon_max)
     }
 }
 
@@ -1765,5 +1984,107 @@ mod tests {
             (span - 270.0).abs() < 1.0,
             "expected a tight ~270° span, got {span} ([{lon_min}, {lon_max}])"
         );
+    }
+
+    // -----------------------------------------------------------------
+    // Rotated latitude/longitude (GRIB2 template 3.1)
+    // -----------------------------------------------------------------
+
+    /// The committed `rotated_latlon_surface.grib2` fixture: 16×31 grid, rotated
+    /// corners (60,0)→(0,30), southern pole at geographic (0,0), no rotation
+    /// angle. eccodes 2.34.1 `grib_get_data` reports the corner geographic
+    /// coordinates used below as the oracle.
+    fn rotated_fixture_params() -> RotatedLatLonParams {
+        RotatedLatLonParams {
+            ni: 16,
+            nj: 31,
+            lat_first: 60.0,
+            lon_first: 0.0,
+            lat_last: 0.0,
+            lon_last: 30.0,
+            south_pole_lat: 0.0,
+            south_pole_lon: 0.0,
+            angle_of_rotation: 0.0,
+        }
+    }
+
+    #[test]
+    fn unrotate_matches_eccodes_oracle() {
+        let p = rotated_fixture_params();
+        // First grid point: rotated (60, 0) → geographic (30, 180).
+        let (lat, lon) = unrotate_latlon(
+            p.lat_first,
+            p.lon_first,
+            p.angle_of_rotation,
+            p.south_pole_lat,
+            p.south_pole_lon,
+        );
+        assert!(near(lat, 30.0, 1e-6), "first-point lat = {lat}");
+        assert!(near(lon, 180.0, 1e-6), "first-point lon = {lon}");
+        // Last grid point: rotated (0, 30) → geographic (60, 90).
+        let (lat, lon) = unrotate_latlon(
+            p.lat_last,
+            p.lon_last,
+            p.angle_of_rotation,
+            p.south_pole_lat,
+            p.south_pole_lon,
+        );
+        assert!(near(lat, 60.0, 1e-6), "last-point lat = {lat}");
+        assert!(near(lon, 90.0, 1e-6), "last-point lon = {lon}");
+        // An interior first-row point: rotated (60, 2) → geographic
+        // (29.980, 178.846) per the oracle (printed to 3 decimals).
+        let (lat, lon) = unrotate_latlon(60.0, 2.0, 0.0, 0.0, 0.0);
+        assert!(near(lat, 29.980, 2e-3), "interior lat = {lat}");
+        assert!(near(lon, 178.846, 2e-3), "interior lon = {lon}");
+    }
+
+    #[test]
+    fn rotate_is_inverse_of_unrotate() {
+        // A non-trivial pole so every matrix term is exercised, plus a rotation
+        // angle to cover the longitude shift.
+        let (sp_lat, sp_lon, angle) = (-36.0, 18.0, 12.0);
+        for &(rlat, rlon) in &[(45.0, 10.0), (-20.0, -75.0), (5.0, 140.0)] {
+            let (lat, lon) = unrotate_latlon(rlat, rlon, angle, sp_lat, sp_lon);
+            let (back_lat, back_lon) = rotate_latlon(lat, lon, angle, sp_lat, sp_lon);
+            assert!(near(back_lat, rlat, 1e-9), "rlat {rlat} -> {back_lat}");
+            // Compare longitudes modulo 360 to ignore wrap.
+            let dlon = ((back_lon - rlon + 180.0).rem_euclid(360.0)) - 180.0;
+            assert!(near(dlon, 0.0, 1e-9), "rlon {rlon} -> {back_lon}");
+        }
+    }
+
+    #[test]
+    fn rotated_inverse_maps_corners_to_grid_extent() {
+        let p = rotated_fixture_params();
+        let proj = RotatedLatLonProjector::new(p);
+        // Geographic first corner (30, 180) → index (0, 0).
+        let first = proj.inverse(30.0, 180.0).expect("first corner");
+        assert!(near(first.i, 0.0, 1e-6) && near(first.j, 0.0, 1e-6));
+        // Geographic last corner (60, 90) → index (ni-1, nj-1).
+        let last = proj.inverse(60.0, 90.0).expect("last corner");
+        assert!(near(last.i, p.ni as f64 - 1.0, 1e-6), "i = {}", last.i);
+        assert!(near(last.j, p.nj as f64 - 1.0, 1e-6), "j = {}", last.j);
+    }
+
+    #[test]
+    fn rotated_inverse_rejects_off_grid_and_nonfinite() {
+        let proj = RotatedLatLonProjector::new(rotated_fixture_params());
+        // Geographic (0, 0) rotates to the antipodal side of the grid.
+        assert!(proj.inverse(0.0, 0.0).is_none(), "off-grid point");
+        assert!(proj.inverse(f64::NAN, 180.0).is_none(), "NaN lat");
+        assert!(proj.inverse(30.0, f64::INFINITY).is_none(), "inf lon");
+    }
+
+    #[test]
+    fn rotated_bbox_covers_corner_latitudes() {
+        // The geographic corner latitudes (30 and 60) must lie within the
+        // reported box, and the box must not collapse.
+        let (lat_min, lat_max, lon_min, lon_max) =
+            RotatedLatLonProjector::new(rotated_fixture_params()).lonlat_bbox();
+        assert!(
+            lat_min <= 30.0 + 1e-6 && lat_max >= 60.0 - 1e-6,
+            "lat box too tight"
+        );
+        assert!(lon_max > lon_min, "degenerate lon span");
     }
 }
