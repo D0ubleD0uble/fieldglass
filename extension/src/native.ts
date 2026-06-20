@@ -55,8 +55,9 @@ export interface MessageMeta {
    *  data-representation template), e.g. "Second-order (SPD-2)". */
   packing: string | null;
   /** Whether this grid supports reprojection (the non-source projection
-   *  targets). False for grid types without a warp yet (e.g. space view) or
-   *  with a degenerate Dx/Dy; the panel hides those options when false. */
+   *  targets). False for grid types without a warp yet (e.g. an unsupported
+   *  GDS template) or with a degenerate Dx/Dy; the panel hides those options
+   *  when false. */
   reprojectable: boolean;
 }
 
