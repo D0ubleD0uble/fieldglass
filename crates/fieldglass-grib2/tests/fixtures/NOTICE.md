@@ -104,7 +104,9 @@ ships two oracles, both generated with eccodes 2.34.1:
 | `gfs_c255_latlon.grib2` (existing) | 5.3 (1st-order) | `grid_complex_spatial_differencing` | #109 |
 | `jpeg2000_regular_latlon.grib2` | 5.40 | `grid_jpeg` | #116 |
 | `png_eta_lambert.grib2` | 5.41 | `grid_png` | #118 |
-| `ccsds_regular_latlon.grib2` | 5.42 | `grid_ccsds` | #117 |
+| `ccsds_regular_latlon.grib2` | 5.42 (16-bit) | `grid_ccsds` | #117 |
+| `ccsds_regular_latlon_8bit.grib2` | 5.42 (8-bit) | `grid_ccsds` | #117 |
+| `ccsds_regular_latlon_24bit.grib2` | 5.42 (24-bit) | `grid_ccsds` | #117 |
 
 ```
 # 5.2 complex (group-split, no differencing)
@@ -116,6 +118,11 @@ grib_set -s packingType=grid_complex_spatial_differencing,orderOfSpatialDifferen
 grib_set -s packingType=grid_jpeg regular_latlon_surface.grib2 jpeg2000_regular_latlon.grib2
 # 5.42 CCSDS / AEC (libaec)
 grib_set -s packingType=grid_ccsds regular_latlon_surface.grib2 ccsds_regular_latlon.grib2
+# 5.42 CCSDS at 8- and 24-bit sample widths — derived from the 16-bit fixture.
+# `-r` forces a real repack (without it, grib_set only relabels §5 and leaves
+# the 16-bit §7 stream in place, producing an inconsistent message).
+grib_set -r -s bitsPerValue=8  ccsds_regular_latlon.grib2 ccsds_regular_latlon_8bit.grib2
+grib_set -r -s bitsPerValue=24 ccsds_regular_latlon.grib2 ccsds_regular_latlon_24bit.grib2
 # 5.41 PNG — see note below on the source choice
 grib_set -s packingType=grid_png eta_lambert_msg0.grib2 png_eta_lambert.grib2
 ```
@@ -127,6 +134,12 @@ Notes on the choices:
   `orderOfSpatialDifferencing = 1`; `gfs_c255_latlon_expected.json` is its new
   value+§5 oracle. `complex_spd2_regular_latlon.grib2` supplies the 2nd-order
   case, so the decoder is exercised against both orders.
+- **CCSDS bit widths (#117).** The same field is packed at 8, 16, and 24 bits
+  so the three fixtures exercise all three AEC option-ID-length code paths
+  (`id_len` 3 / 4 / 5). 24-bit is the wide-sample / multi-byte path ECMWF uses
+  for many operational fields (ECMWF moved all gridded GRIB2 output to CCSDS in
+  IFS cycle 48r1), so it is the most important to pin. All three decode
+  byte-for-byte against the eccodes oracle.
 - **PNG source (#118).** eccodes' libpng *writer* rejects the small
   `regular_latlon_surface` field at its native bit depth, and forcing a low
   `bitsPerValue` there clips the value range. `eta_lambert_msg0.grib2` PNG-packs
