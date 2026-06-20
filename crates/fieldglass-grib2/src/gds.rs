@@ -59,6 +59,65 @@ fn read_ieee_f32(bytes: &[u8]) -> f32 {
     f32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
 }
 
+/// Read a GRIB2 scale-factor / scaled-value pair into a physical quantity:
+/// `value · 10^(-scale)`. The 1-byte scale factor is sign-magnitude (high bit
+/// is the sign); the all-ones sentinel in either field means "not given" and
+/// yields `None`.
+fn read_scaled(scale_byte: u8, value_bytes: &[u8]) -> Option<f64> {
+    let raw = u32::from_be_bytes([
+        value_bytes[0],
+        value_bytes[1],
+        value_bytes[2],
+        value_bytes[3],
+    ]);
+    if scale_byte == 0xFF || raw == U32_MISSING {
+        return None;
+    }
+    // The scale factor is a 1-byte sign-magnitude integer — reuse the shared
+    // GRIB decode of that convention.
+    let scale = sign_magnitude_to_i64(scale_byte as u32, 8) as i32;
+    Some(raw as f64 * 10f64.powi(-scale))
+}
+
+/// Resolve the GRIB2 §3 shape-of-earth group (the first 16 payload octets,
+/// section octets 15-30) into `(r_eq, r_pol)` in **metres**. Handles WMO Code
+/// Table 3.2: the fixed spheres/ellipsoids and the producer-specified radius /
+/// axes codes (1, 3, 7) read from the scaled-value octets. Unknown or
+/// unresolvable codes fall back to the WMO mean sphere so geolocation never
+/// silently uses a zero radius.
+fn resolve_earth_shape(p: &[u8]) -> (f64, f64) {
+    const MEAN_SPHERE_M: f64 = 6_371_229.0;
+    // Spherical-radius pair (octet 16 scale, 17-20 value) and the major/minor
+    // axis pairs (octets 21 / 22-25 and 26 / 27-30).
+    let spherical = || read_scaled(p[1], &p[2..6]).unwrap_or(MEAN_SPHERE_M);
+    let major_m = || read_scaled(p[6], &p[7..11]);
+    let minor_m = || read_scaled(p[11], &p[12..16]);
+    let major_km = || major_m().map(|v| v * 1000.0);
+    let minor_km = || minor_m().map(|v| v * 1000.0);
+    match p[0] {
+        0 => (6_367_470.0, 6_367_470.0),
+        1 => {
+            let r = spherical();
+            (r, r)
+        }
+        2 => (6_378_160.0, 6_356_775.0), // IAU 1965
+        3 => (
+            major_km().unwrap_or(6_378_137.0),
+            minor_km().unwrap_or(6_356_752.314),
+        ),
+        4 => (6_378_137.0, 6_356_752.314),     // IAG-GRS80
+        5 => (6_378_137.0, 6_356_752.314_245), // WGS84
+        6 => (MEAN_SPHERE_M, MEAN_SPHERE_M),
+        7 => (
+            major_m().unwrap_or(6_378_137.0),
+            minor_m().unwrap_or(6_356_752.314),
+        ),
+        8 => (6_371_200.0, 6_371_200.0),
+        9 => (6_377_563.396, 6_356_256.909), // OSGB 1936 / Airy 1830
+        _ => (MEAN_SPHERE_M, MEAN_SPHERE_M),
+    }
+}
+
 /// Template 3.0 — regular latitude/longitude (equidistant cylindrical).
 #[derive(Debug, Clone, Copy)]
 pub struct LatLonTemplate {
@@ -152,6 +211,11 @@ pub struct PolarStereographicTemplate {
 #[derive(Debug, Clone, Copy)]
 pub struct SpaceViewTemplate {
     pub shape_of_earth: u8,
+    /// Ellipsoid semi-major / semi-minor axes in metres, resolved from the
+    /// shape-of-earth group. Geostationary geolocation is ellipsoidal (GOES
+    /// uses GRS80, Meteosat WGS84), unlike the spherical projectors.
+    pub r_eq: f64,
+    pub r_pol: f64,
     pub nx: u32,
     pub ny: u32,
     /// Latitude of the sub-satellite point (degrees).
@@ -480,8 +544,11 @@ fn parse_template_3_90(p: &[u8]) -> Result<SpaceViewTemplate, FieldglassError> {
             p.len()
         )));
     }
+    let (r_eq, r_pol) = resolve_earth_shape(p);
     Ok(SpaceViewTemplate {
         shape_of_earth: p[0],
+        r_eq,
+        r_pol,
         nx: u32::from_be_bytes([p[16], p[17], p[18], p[19]]),
         ny: u32::from_be_bytes([p[20], p[21], p[22], p[23]]),
         lap: read_lat_degrees(&p[24..28]),
@@ -835,10 +902,48 @@ mod tests {
         assert!((t.xp - 1856.0).abs() < 1e-6);
         assert!((t.orientation - 180.0).abs() < 1e-9);
         assert_eq!(t.nr, Some(6_610_710));
+        // Shape code 6 → WMO mean sphere (r_eq == r_pol).
+        assert!((t.r_eq - 6_371_229.0).abs() < 1e-3);
+        assert!((t.r_pol - 6_371_229.0).abs() < 1e-3);
         assert_eq!(gds.dimensions(), Some((3712, 3712)));
         // Space view carries only a sub-satellite point — no corner bounds.
         assert_eq!(gds.bounds(), None);
         assert_eq!(gds.template_name(), "space_view");
+    }
+
+    #[test]
+    fn resolve_earth_shape_handles_fixed_and_specified_codes() {
+        // Code 6 → WMO mean sphere.
+        let mut sphere = vec![6u8];
+        sphere.extend_from_slice(&[0u8; 15]);
+        assert_eq!(resolve_earth_shape(&sphere), (6_371_229.0, 6_371_229.0));
+
+        // Code 5 → WGS84 ellipsoid (oblate).
+        let mut wgs84 = vec![5u8];
+        wgs84.extend_from_slice(&[0u8; 15]);
+        let (a, b) = resolve_earth_shape(&wgs84);
+        assert!((a - 6_378_137.0).abs() < 1e-3 && b < a);
+
+        // Code 7 → oblate, axes specified in metres via the scaled-value octets.
+        // major = 6378137 m (scale 0), minor = 6356752 m (scale 0).
+        let mut p = vec![0u8; 16];
+        p[0] = 7;
+        p[6] = 0; // major scale factor
+        p[7..11].copy_from_slice(&6_378_137u32.to_be_bytes());
+        p[11] = 0; // minor scale factor
+        p[12..16].copy_from_slice(&6_356_752u32.to_be_bytes());
+        let (a, b) = resolve_earth_shape(&p);
+        assert!((a - 6_378_137.0).abs() < 1e-3, "r_eq = {a}");
+        assert!((b - 6_356_752.0).abs() < 1e-3, "r_pol = {b}");
+
+        // Code 1 → spherical radius specified in metres (octets 16-20),
+        // here with a scale factor of 1 (value 63712290 · 10⁻¹).
+        let mut p1 = vec![0u8; 16];
+        p1[0] = 1;
+        p1[1] = 1; // scale factor
+        p1[2..6].copy_from_slice(&63_712_290u32.to_be_bytes());
+        let (a, b) = resolve_earth_shape(&p1);
+        assert!((a - 6_371_229.0).abs() < 1e-3 && (a - b).abs() < 1e-9);
     }
 
     #[test]

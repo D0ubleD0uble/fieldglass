@@ -1151,6 +1151,155 @@ impl RotatedLatLonProjector {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Geostationary / space-view perspective (GRIB2 template 3.90; CF
+// `grid_mapping_name = "geostationary"`)
+// ---------------------------------------------------------------------------
+
+/// A regular grid in geostationary **scan-angle** space: a satellite parked
+/// over `sub_lon_deg` views the Earth ellipsoid, and each grid point maps to a
+/// pair of scan angles `(x, y)` in radians. Unlike the spherical projectors,
+/// this one is ellipsoidal (`r_eq` ≠ `r_pol`) — GOES uses GRS80 and Meteosat
+/// uses WGS84 — so geolocation goes through geodetic ↔ geocentric latitude.
+///
+/// The grid layout is given in scan-angle space (`x0`/`dx_rad`, `y0`/`dy_rad`)
+/// rather than as projected metres, so the same params describe a GRIB2 §3.90
+/// grid (scan angles derived from the apparent Earth diameter) and a GOES ABI
+/// fixed grid (1-D `x`/`y` radian coordinate variables, a follow-up in #168).
+///
+/// Inverse is the GOES-R fixed-grid algorithm (GOES-R PUG Vol. 3 / NOAA STAR),
+/// which is the analytic inverse of the CGMS LRIT/HRIT forward that GRIB2 §3.90
+/// encodes. Off-disk points (no Earth intersection) invert to `None` so the
+/// limb renders transparent.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GeostationaryParams {
+    pub ni: u32,
+    pub nj: u32,
+    /// Distance from the Earth's **centre** to the satellite, metres
+    /// (`perspective_point_height + r_eq` for CF; `Nr · r_eq` for GRIB2 §3.90).
+    pub h_metres: f64,
+    /// Ellipsoid semi-major axis (equatorial radius), metres.
+    pub r_eq: f64,
+    /// Ellipsoid semi-minor axis (polar radius), metres.
+    pub r_pol: f64,
+    /// Sub-satellite longitude (`longitude_of_projection_origin`), degrees.
+    pub sub_lon_deg: f64,
+    /// `true` ⇒ sweep angle about the `x` axis (GOES-R); `false` ⇒ about the
+    /// `y` axis (Meteosat / EUMETSAT). Swaps the two scan-angle rotations.
+    pub sweep_x: bool,
+    /// Scan angle (radians) at column `i = 0`.
+    pub x0: f64,
+    /// Signed scan-angle increment per column (scan direction baked into the
+    /// sign, like the planar grids' `dx_metres`).
+    pub dx_rad: f64,
+    /// Scan angle (radians) at row `j = 0`.
+    pub y0: f64,
+    /// Signed scan-angle increment per row.
+    pub dy_rad: f64,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct GeostationaryConstants {
+    sub_lon_rad: f64,
+    /// `(r_pol/r_eq)²` — folds the geodetic→geocentric latitude conversion.
+    ratio2: f64,
+    /// `(r_eq/r_pol)²` — appears in the geocentric→geodetic step and the
+    /// off-disk visibility test.
+    inv_ratio2: f64,
+    /// First eccentricity squared, `1 - (r_pol/r_eq)²`.
+    e2: f64,
+}
+
+fn geostationary_constants(p: &GeostationaryParams) -> GeostationaryConstants {
+    let ratio2 = (p.r_pol / p.r_eq) * (p.r_pol / p.r_eq);
+    GeostationaryConstants {
+        sub_lon_rad: p.sub_lon_deg * DEG2RAD,
+        ratio2,
+        inv_ratio2: 1.0 / ratio2,
+        e2: 1.0 - ratio2,
+    }
+}
+
+/// Forward geolocation step: geodetic `(lat, lon)` in degrees → scan angles
+/// `(x, y)` in radians, or `None` when the point is off the visible disk (the
+/// line of sight from the satellite misses the ellipsoid).
+fn geostationary_scan_angles(
+    p: &GeostationaryParams,
+    k: &GeostationaryConstants,
+    lat: f64,
+    lon: f64,
+) -> Option<(f64, f64)> {
+    let lat_r = lat * DEG2RAD;
+    // Geocentric latitude of the surface point, then its geocentric radius.
+    let phi_c = (k.ratio2 * lat_r.tan()).atan();
+    let cos_c = phi_c.cos();
+    let r_c = p.r_pol / (1.0 - k.e2 * cos_c * cos_c).sqrt();
+
+    let d_lon = lon * DEG2RAD - k.sub_lon_rad;
+    let sx = p.h_metres - r_c * cos_c * d_lon.cos();
+    let sy = -r_c * cos_c * d_lon.sin();
+    let sz = r_c * phi_c.sin();
+
+    // Off-disk when the satellite's line of sight passes outside the Earth:
+    // H·(H − sx) < sy² + (r_eq/r_pol)²·sz² (GOES-R PUG visibility test). This
+    // also rejects the far hemisphere, where sx > H makes the left side
+    // negative.
+    if p.h_metres * (p.h_metres - sx) < sy * sy + k.inv_ratio2 * sz * sz {
+        return None;
+    }
+
+    let norm = (sx * sx + sy * sy + sz * sz).sqrt();
+    let (x, y) = if p.sweep_x {
+        ((-sy / norm).asin(), (sz / sx).atan())
+    } else {
+        ((-sy / sx).atan(), (sz / norm).asin())
+    };
+    Some((x, y))
+}
+
+/// Inverse warp: `(lat, lon)` → fractional source grid index. **Recomputes
+/// constants per call** — for warp loops use [`GeostationaryProjector`].
+pub fn geostationary_inverse(p: &GeostationaryParams, lat: f64, lon: f64) -> Option<GridIndex> {
+    GeostationaryProjector::new(*p).inverse(lat, lon)
+}
+
+/// Precomputed inverse map for a geostationary grid. Owns the ellipsoid /
+/// sub-satellite constants, invariant across every output pixel of a warp.
+pub struct GeostationaryProjector {
+    pub params: GeostationaryParams,
+    constants: GeostationaryConstants,
+}
+
+impl GeostationaryProjector {
+    pub fn new(params: GeostationaryParams) -> Self {
+        let constants = geostationary_constants(&params);
+        Self { params, constants }
+    }
+
+    /// Geodetic `(lat, lon)` in degrees → scan angles `(x, y)` in radians, or
+    /// `None` off the visible disk.
+    pub fn scan_angles(&self, lat: f64, lon: f64) -> Option<(f64, f64)> {
+        geostationary_scan_angles(&self.params, &self.constants, lat, lon)
+    }
+
+    pub fn inverse(&self, lat: f64, lon: f64) -> Option<GridIndex> {
+        if !lat.is_finite() || !lon.is_finite() {
+            return None;
+        }
+        let p = &self.params;
+        if p.ni < 2 || p.nj < 2 || p.dx_rad == 0.0 || p.dy_rad == 0.0 {
+            return None;
+        }
+        let (x, y) = self.scan_angles(lat, lon)?;
+        let i = (x - p.x0) / p.dx_rad;
+        let j = (y - p.y0) / p.dy_rad;
+        if i < 0.0 || i > p.ni as f64 - 1.0 || j < 0.0 || j > p.nj as f64 - 1.0 {
+            return None;
+        }
+        Some(GridIndex { i, j })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2086,5 +2235,100 @@ mod tests {
             "lat box too tight"
         );
         assert!(lon_max > lon_min, "degenerate lon span");
+    }
+
+    // -----------------------------------------------------------------
+    // Geostationary / space view
+    // -----------------------------------------------------------------
+
+    /// GOES-East fixed-grid constants (GRS80 ellipsoid; GOES-R PUG). The full
+    /// disk spans ~0.151 rad each way; use a coarse 11×11 layout covering a
+    /// central sub-sector so the sub-satellite point lands on an exact index
+    /// and near-limb points fall off-grid.
+    fn goes_east_params() -> GeostationaryParams {
+        // Half-width of the scan-angle window, ~5.7° in radians — a central
+        // sector well inside the ~8.7° apparent radius of the Earth's limb.
+        let half = 0.10;
+        GeostationaryParams {
+            ni: 11,
+            nj: 11,
+            h_metres: 42_164_160.0,
+            r_eq: 6_378_137.0,
+            r_pol: 6_356_752.314_14,
+            sub_lon_deg: -75.0,
+            sweep_x: true,
+            x0: -half,
+            dx_rad: 2.0 * half / 10.0,
+            y0: -half,
+            dy_rad: 2.0 * half / 10.0,
+        }
+    }
+
+    #[test]
+    fn geostationary_subsatellite_maps_to_grid_centre() {
+        let proj = GeostationaryProjector::new(goes_east_params());
+        // The sub-satellite point sits at scan angle (0, 0) → grid centre.
+        let (x, y) = proj.scan_angles(0.0, -75.0).expect("sub-sat visible");
+        assert!(near(x, 0.0, 1e-9), "x = {x}");
+        assert!(near(y, 0.0, 1e-9), "y = {y}");
+        let idx = proj.inverse(0.0, -75.0).expect("sub-sat on grid");
+        assert!(near(idx.i, 5.0, 1e-6), "i = {}", idx.i);
+        assert!(near(idx.j, 5.0, 1e-6), "j = {}", idx.j);
+    }
+
+    #[test]
+    fn geostationary_scan_angle_round_trips_to_index() {
+        let p = goes_east_params();
+        let proj = GeostationaryProjector::new(p);
+        // A point east and north of the sub-satellite point produces positive
+        // scan angles whose index recovers via the linear layout.
+        let (lat, lon) = (20.0, -60.0);
+        let (x, y) = proj.scan_angles(lat, lon).expect("visible");
+        assert!(x > 0.0 && y > 0.0, "expected +x,+y got ({x},{y})");
+        let idx = proj.inverse(lat, lon).expect("on grid");
+        assert!(near(idx.i, (x - p.x0) / p.dx_rad, 1e-9));
+        assert!(near(idx.j, (y - p.y0) / p.dy_rad, 1e-9));
+    }
+
+    #[test]
+    fn geostationary_off_disk_is_none() {
+        let proj = GeostationaryProjector::new(goes_east_params());
+        // Antipodal-ish longitude is on the far hemisphere — not visible.
+        assert!(proj.scan_angles(0.0, 105.0).is_none(), "far side visible?");
+        assert!(proj.inverse(0.0, 105.0).is_none(), "far side on grid?");
+        // A near-side point beyond the 11×11 window inverts off-grid.
+        assert!(proj.inverse(75.0, -75.0).is_none(), "polar point on grid?");
+        // Non-finite inputs reject.
+        assert!(proj.inverse(f64::NAN, -75.0).is_none());
+        assert!(proj.inverse(0.0, f64::INFINITY).is_none());
+    }
+
+    #[test]
+    fn geostationary_sweep_axis_swaps_angles() {
+        let mut p = goes_east_params();
+        let (x_goes, y_goes) = GeostationaryProjector::new(p)
+            .scan_angles(20.0, -60.0)
+            .unwrap();
+        p.sweep_x = false;
+        let (x_met, y_met) = GeostationaryProjector::new(p)
+            .scan_angles(20.0, -60.0)
+            .unwrap();
+        // The two conventions order the scan rotations differently, so the
+        // angles differ; near the centre they stay close but not identical.
+        assert!(
+            (x_goes - x_met).abs() > 1e-9 || (y_goes - y_met).abs() > 1e-9,
+            "sweep axis had no effect"
+        );
+    }
+
+    #[test]
+    fn geostationary_free_fn_matches_projector() {
+        let p = goes_east_params();
+        let a = geostationary_inverse(&p, 10.0, -70.0);
+        let b = GeostationaryProjector::new(p).inverse(10.0, -70.0);
+        assert_eq!(a.is_some(), b.is_some());
+        if let (Some(a), Some(b)) = (a, b) {
+            assert!(near(a.i, b.i, 1e-12) && near(a.j, b.j, 1e-12));
+        }
     }
 }

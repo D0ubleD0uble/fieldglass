@@ -33,7 +33,7 @@ pub use drs::{
 pub use ds::{DS_SECTION_NUMBER, decode_values};
 pub use gds::{
     GDS_SECTION_NUMBER, GaussianTemplate, GridDefinitionSection, GridTemplate, LambertTemplate,
-    LatLonTemplate, parse_grid_definition,
+    LatLonTemplate, SpaceViewTemplate, parse_grid_definition,
 };
 pub use ids::{IDS_MIN_LEN, IDS_SECTION_NUMBER, IdentificationSection, parse_identification};
 pub use is::{

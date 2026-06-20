@@ -1,10 +1,11 @@
 #![deny(clippy::all)]
 
 use fieldglass_core::{
-    Format, GaussianParams, GaussianProjector, LambertParams, LambertProjector, LatLonParams,
-    MercatorParams, Orthographic, PlanarGridProjector, PolarStereoParams, PolarStereoProjector,
-    PolarStereographic, ProjectedPolylines, Resampling, RotatedLatLonParams,
-    RotatedLatLonProjector, SourceGrid, SourceOverlayTarget, TargetRaster, WebMercator,
+    Format, GaussianParams, GaussianProjector, GeostationaryParams, GeostationaryProjector,
+    LambertParams, LambertProjector, LatLonParams, MercatorParams, Orthographic,
+    PlanarGridProjector, PolarStereoParams, PolarStereoProjector, PolarStereographic,
+    ProjectedPolylines, Resampling, RotatedLatLonParams, RotatedLatLonProjector, SourceGrid,
+    SourceOverlayTarget, TargetRaster, WebMercator,
     colormap::{min_max_ignoring_mask, paint_grid_rgba},
     detect_from_bytes, latlon_inverse, mercator_inverse, project_polylines,
     projection::GridIndex,
@@ -121,6 +122,32 @@ pub struct MessageMeta {
     pub rotated_south_pole_lon: Option<f64>,
     /// Angle of rotation about the new polar axis (degrees).
     pub rotated_angle_of_rotation: Option<f64>,
+    // -------------------------------------------------------------------
+    // Geostationary / space-view projection parameters (only populated for
+    // GRIB2 §3.90 space-view grids; `None` for every other grid type). The
+    // grid is described in scan-angle space, so the warp reconstructs a
+    // `GeostationaryProjector` whose inverse maps (lat, lon) → scan angle →
+    // grid index. See `fieldglass_core::GeostationaryParams`.
+    // -------------------------------------------------------------------
+    /// Sub-satellite longitude (`longitude_of_projection_origin`), degrees.
+    pub geos_sub_lon: Option<f64>,
+    /// Distance from the Earth's centre to the satellite, metres.
+    pub geos_height: Option<f64>,
+    /// Ellipsoid semi-major axis (equatorial radius), metres.
+    pub geos_r_eq: Option<f64>,
+    /// Ellipsoid semi-minor axis (polar radius), metres.
+    pub geos_r_pol: Option<f64>,
+    /// `true` ⇒ sweep angle about the `x` axis (GOES-R; GRIB2 §3.90);
+    /// `false` ⇒ about the `y` axis (Meteosat).
+    pub geos_sweep_x: Option<bool>,
+    /// Scan angle (radians) at column `i = 0`.
+    pub geos_x0: Option<f64>,
+    /// Signed scan-angle increment per column (radians).
+    pub geos_dx_rad: Option<f64>,
+    /// Scan angle (radians) at row `j = 0`.
+    pub geos_y0: Option<f64>,
+    /// Signed scan-angle increment per row (radians).
+    pub geos_dy_rad: Option<f64>,
     /// Human-readable data-packing method for this message — the GRIB1 BDS
     /// packing or GRIB2 §5 data-representation template, mapped to a friendly
     /// label (e.g. "Second-order (SPD-2)", "Simple grid-point"). `None` when
@@ -157,7 +184,10 @@ fn grid_is_reprojectable(
         | Some("rotated_latlon")
         | Some("reduced_latlon")
         | Some("reduced_gaussian") => true,
-        Some("lambert") | Some("polar_stereo") => {
+        // Space view carries its scan-angle increments through the same
+        // planar spacing slots; an orthographic view (no camera altitude)
+        // leaves them `None` and so does not reproject.
+        Some("lambert") | Some("polar_stereo") | Some("space_view") => {
             matches!((planar_dx, planar_dy), (Some(dx), Some(dy)) if dx != 0.0 && dy != 0.0)
         }
         _ => false,
@@ -343,6 +373,15 @@ fn build_grib1_message_meta(
         rotated_south_pole_lat,
         rotated_south_pole_lon,
         rotated_angle_of_rotation,
+        geos_sub_lon: None,
+        geos_height: None,
+        geos_r_eq: None,
+        geos_r_pol: None,
+        geos_sweep_x: None,
+        geos_x0: None,
+        geos_dx_rad: None,
+        geos_y0: None,
+        geos_dy_rad: None,
         packing,
         reprojectable,
     }
@@ -480,6 +519,79 @@ fn signed_grid_increments(
     (sdx, sdy)
 }
 
+/// The geostationary scan-angle grid derived from a GRIB2 §3.90 space-view
+/// template, ready to populate the `geos_*` `MessageMeta` fields and rebuild a
+/// `GeostationaryProjector`.
+#[derive(Debug, Clone, Copy)]
+struct GeosScanGrid {
+    sub_lon: f64,
+    height: f64,
+    r_eq: f64,
+    r_pol: f64,
+    sweep_x: bool,
+    x0: f64,
+    dx_rad: f64,
+    y0: f64,
+    dy_rad: f64,
+}
+
+/// Reconstruct the scan-angle grid from a §3.90 template, following the CGMS
+/// LRIT/HRIT geometry that eccodes' space-view iterator decodes:
+/// `angular_size = 2·asin(1/Nr)`, the satellite distance `H = Nr·r_eq`, and
+/// per-grid-length scan increments `rx = angular_size/dx`,
+/// `ry = (r_pol/r_eq)·angular_size/dy`. The sub-satellite point's grid offset
+/// (`Xp`/`Yp` relative to the sector origin `Xo`/`Yo`, adjusted for scan
+/// direction) fixes the scan angle at index 0. Returns `None` for an
+/// orthographic view (`Nr` missing) or a degenerate apparent diameter, which
+/// then can't reproject. GRIB2 §3.90 is the GOES-R sweep-`x` convention.
+fn space_view_scan_grid(t: &fieldglass_grib2::SpaceViewTemplate) -> Option<GeosScanGrid> {
+    // `Nr` is the camera altitude in units of the Earth's radius × 10⁶.
+    let nr = t.nr? as f64 * 1.0e-6;
+    // Nr ≤ 1 would put the camera at or below the Earth's surface (asin domain);
+    // a zero apparent diameter has no scan increment.
+    if nr <= 1.0 || t.dx == 0 || t.dy == 0 {
+        return None;
+    }
+    let angular_size = 2.0 * (1.0 / nr).asin();
+    let rx = angular_size / t.dx as f64;
+    let ry = (t.r_pol / t.r_eq) * angular_size / t.dy as f64;
+
+    // Scan-direction adjustment of the sub-satellite grid offset, matching the
+    // eccodes space-view iterator so index 0 lands at the correct scan angle.
+    let i_scans_neg = t.scanning_mode & 0x80 != 0;
+    let j_scans_pos = t.scanning_mode & 0x40 != 0;
+    let xp_off = t.xp - t.xo as f64;
+    let yp_off = t.yp - t.yo as f64;
+    let xp_adj = if i_scans_neg {
+        (t.nx as f64 - 1.0) - xp_off
+    } else {
+        xp_off
+    };
+    let yp_adj = if j_scans_pos {
+        yp_off
+    } else {
+        (t.ny as f64 - 1.0) - yp_off
+    };
+
+    // eccodes emits scan rows in reverse (`for iy = ny-1 .. 0`), so stored data
+    // row `k` is geometric row `iy = (ny-1) - k`: the scan angle of stored row
+    // `k` is `((ny-1) - yp_adj - k)·ry`, i.e. y0 at k=0 with a negative per-row
+    // step. The column loop is not reversed, so x keeps a positive step. Index
+    // (i, j) must address the stored raster (`raw[j·ni + i]`), so this matches
+    // eccodes' data order — otherwise the reprojected image is flipped in y.
+    Some(GeosScanGrid {
+        sub_lon: t.lop,
+        height: nr * t.r_eq,
+        r_eq: t.r_eq,
+        r_pol: t.r_pol,
+        sweep_x: true,
+        x0: -xp_adj * rx,
+        dx_rad: rx,
+        y0: (t.ny as f64 - 1.0 - yp_adj) * ry,
+        dy_rad: -ry,
+    })
+}
+
 /// Parse a GRIB2 file from raw bytes and return per-message metadata.
 /// Surfaces §0 + §1 + §3 + §4 fields (edition, discipline, centre, ref-time,
 /// parameter triple, level + level type, forecast time, production status,
@@ -546,11 +658,24 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
     let rotated_south_pole_lon = rotated.map(|t| t.south_pole_lon);
     let rotated_angle_of_rotation = rotated.map(|t| t.angle_of_rotation);
 
+    // §3.90 space view: reconstruct the scan-angle grid for the geostationary
+    // warp (sub-satellite point, ellipsoid, camera height, scan increments).
+    let space_view = match &msg.gds.template {
+        fieldglass_grib2::GridTemplate::SpaceView(t) => space_view_scan_grid(t),
+        _ => None,
+    };
+
     let grid_type = msg.gds.template_name();
     let reprojectable = grid_is_reprojectable(
         Some(grid_type.as_str()),
-        polar_stereo_inc.map(|(dx, _)| dx).or(lambert_dx_metres),
-        polar_stereo_inc.map(|(_, dy)| dy).or(lambert_dy_metres),
+        polar_stereo_inc
+            .map(|(dx, _)| dx)
+            .or(lambert_dx_metres)
+            .or(space_view.map(|g| g.dx_rad)),
+        polar_stereo_inc
+            .map(|(_, dy)| dy)
+            .or(lambert_dy_metres)
+            .or(space_view.map(|g| g.dy_rad)),
     );
 
     MessageMeta {
@@ -593,6 +718,15 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
         rotated_south_pole_lat,
         rotated_south_pole_lon,
         rotated_angle_of_rotation,
+        geos_sub_lon: space_view.map(|g| g.sub_lon),
+        geos_height: space_view.map(|g| g.height),
+        geos_r_eq: space_view.map(|g| g.r_eq),
+        geos_r_pol: space_view.map(|g| g.r_pol),
+        geos_sweep_x: space_view.map(|g| g.sweep_x),
+        geos_x0: space_view.map(|g| g.x0),
+        geos_dx_rad: space_view.map(|g| g.dx_rad),
+        geos_y0: space_view.map(|g| g.y0),
+        geos_dy_rad: space_view.map(|g| g.dy_rad),
         packing: Some(friendly_packing(&msg.drs.template_name())),
         reprojectable,
     }
@@ -1640,6 +1774,15 @@ fn synth_latlon_meta(
         rotated_south_pole_lat: None,
         rotated_south_pole_lon: None,
         rotated_angle_of_rotation: None,
+        geos_sub_lon: None,
+        geos_height: None,
+        geos_r_eq: None,
+        geos_r_pol: None,
+        geos_sweep_x: None,
+        geos_x0: None,
+        geos_dx_rad: None,
+        geos_y0: None,
+        geos_dy_rad: None,
         packing: None,
         reprojectable,
     }
@@ -2188,6 +2331,7 @@ fn warp_setup_for(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetu
         "rotated_latlon" => rotated_latlon_warp_setup(meta, ni, nj),
         "lambert" => lambert_warp_setup(meta, ni, nj),
         "polar_stereo" => polar_stereo_warp_setup(meta, ni, nj),
+        "space_view" => geostationary_warp_setup(meta, ni, nj),
         other => Err(napi::Error::from_reason(format!(
             "reprojection not yet supported for grid type {other:?}"
         ))),
@@ -2430,6 +2574,39 @@ fn polar_stereo_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result
             }
         }
         (lat_min, lat_max, lon_min, lon_max)
+    });
+    Ok((inverse, bbox))
+}
+
+fn geostationary_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
+    let p = GeostationaryParams {
+        ni,
+        nj,
+        h_metres: require_f64(meta.geos_height, "geosHeight")?,
+        r_eq: require_f64(meta.geos_r_eq, "geosREq")?,
+        r_pol: require_f64(meta.geos_r_pol, "geosRPol")?,
+        sub_lon_deg: require_f64(meta.geos_sub_lon, "geosSubLon")?,
+        sweep_x: meta
+            .geos_sweep_x
+            .ok_or_else(|| napi::Error::from_reason("missing geosSweepX".to_string()))?,
+        x0: require_f64(meta.geos_x0, "geosX0")?,
+        dx_rad: require_nonzero_spacing(meta.geos_dx_rad, "geosDxRad")?,
+        y0: require_f64(meta.geos_y0, "geosY0")?,
+        dy_rad: require_nonzero_spacing(meta.geos_dy_rad, "geosDyRad")?,
+    };
+
+    let projector = GeostationaryProjector::new(p);
+    let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
+        Box::new(move |lat, lon| projector.inverse(lat, lon));
+    // A full-disk geostationary view can see roughly a hemisphere centred on the
+    // sub-satellite point. Rather than walk the scan-angle perimeter (its
+    // lat/lon edges curve and the limb is off-disk), report a generous box: the
+    // full latitude span and ±90° of longitude around the sub-satellite point.
+    // Off-disk target pixels invert to `None` and stay transparent, so an
+    // over-wide box only affects the default framing, never correctness.
+    let bbox: BboxThunk = Box::new(move || {
+        let lon = p.sub_lon_deg;
+        (-90.0, 90.0, lon - 90.0, lon + 90.0)
     });
     Ok((inverse, bbox))
 }
@@ -2722,6 +2899,15 @@ mod polar_stereo_warp_tests {
             rotated_south_pole_lat: None,
             rotated_south_pole_lon: None,
             rotated_angle_of_rotation: None,
+            geos_sub_lon: None,
+            geos_height: None,
+            geos_r_eq: None,
+            geos_r_pol: None,
+            geos_sweep_x: None,
+            geos_x0: None,
+            geos_dx_rad: None,
+            geos_y0: None,
+            geos_dy_rad: None,
             packing: None,
             reprojectable: true,
         }
@@ -3227,6 +3413,15 @@ mod polar_stereo_warp_tests {
             rotated_south_pole_lat: Some(0.0),
             rotated_south_pole_lon: Some(0.0),
             rotated_angle_of_rotation: Some(0.0),
+            geos_sub_lon: None,
+            geos_height: None,
+            geos_r_eq: None,
+            geos_r_pol: None,
+            geos_sweep_x: None,
+            geos_x0: None,
+            geos_dx_rad: None,
+            geos_y0: None,
+            geos_dy_rad: None,
             format: "grib2".to_string(),
             edition: Some(2),
             ..cmc_polar_meta()
@@ -3303,6 +3498,13 @@ mod reprojectable_tests {
             Some(60_000.0),
             Some(60_000.0)
         ));
+        // Space view carries its scan-angle increments through the same
+        // spacing slots; a real apparent diameter → reprojectable.
+        assert!(grid_is_reprojectable(
+            Some("space_view"),
+            Some(5.6e-5),
+            Some(5.6e-5)
+        ));
         // Degenerate Dx/Dy (eccodes' polar_stereographic sample) → not.
         assert!(!grid_is_reprojectable(
             Some("polar_stereo"),
@@ -3310,11 +3512,13 @@ mod reprojectable_tests {
             Some(0.0)
         ));
         assert!(!grid_is_reprojectable(Some("lambert"), None, None));
+        // Orthographic space view (no camera altitude) leaves the increments
+        // unset, so it does not reproject.
+        assert!(!grid_is_reprojectable(Some("space_view"), None, None));
     }
 
     #[test]
     fn unsupported_grid_types_are_not_reprojectable() {
-        assert!(!grid_is_reprojectable(Some("space_view"), None, None));
         assert!(!grid_is_reprojectable(Some("unknown"), None, None));
         assert!(!grid_is_reprojectable(None, None, None));
     }
@@ -3433,6 +3637,15 @@ mod overlay_projection_tests {
             rotated_south_pole_lat: None,
             rotated_south_pole_lon: None,
             rotated_angle_of_rotation: None,
+            geos_sub_lon: None,
+            geos_height: None,
+            geos_r_eq: None,
+            geos_r_pol: None,
+            geos_sweep_x: None,
+            geos_x0: None,
+            geos_dx_rad: None,
+            geos_y0: None,
+            geos_dy_rad: None,
             packing: None,
             reprojectable: true,
         }
@@ -3706,5 +3919,160 @@ mod netcdf_slice_tests {
             .map(|_| ())
             .expect_err("non-renderable index must error");
         assert!(err.reason.contains("not a renderable"));
+    }
+}
+
+#[cfg(test)]
+mod space_view_geos_tests {
+    use super::*;
+    use fieldglass_grib2::SpaceViewTemplate;
+
+    /// A minimal §3.90 template: an 11×11 central crop of a disk that is 15
+    /// grid lengths across, GRS80 ellipsoid, sub-satellite point at grid
+    /// centre, GOES-East longitude, default (i+, j-) scan.
+    fn space_view_template() -> SpaceViewTemplate {
+        SpaceViewTemplate {
+            shape_of_earth: 5,
+            r_eq: 6_378_137.0,
+            r_pol: 6_356_752.314,
+            nx: 11,
+            ny: 11,
+            lap: 0.0,
+            lop: -75.0,
+            dx: 15,
+            dy: 15,
+            xp: 5.0,
+            yp: 5.0,
+            orientation: 0.0,
+            nr: Some(6_610_710),
+            xo: 0,
+            yo: 0,
+            resolution_flags: 0,
+            scanning_mode: 0,
+        }
+    }
+
+    #[test]
+    fn scan_grid_places_subsatellite_point_at_its_grid_index() {
+        let g = space_view_scan_grid(&space_view_template()).expect("scan grid");
+        // Default scan (i+, j-): sub-satellite point resolves to (5, 5).
+        let p = GeostationaryParams {
+            ni: 11,
+            nj: 11,
+            h_metres: g.height,
+            r_eq: g.r_eq,
+            r_pol: g.r_pol,
+            sub_lon_deg: g.sub_lon,
+            sweep_x: g.sweep_x,
+            x0: g.x0,
+            dx_rad: g.dx_rad,
+            y0: g.y0,
+            dy_rad: g.dy_rad,
+        };
+        let proj = GeostationaryProjector::new(p);
+        let idx = proj.inverse(0.0, -75.0).expect("sub-sat on grid");
+        assert!((idx.i - 5.0).abs() < 1e-6, "i = {}", idx.i);
+        assert!((idx.j - 5.0).abs() < 1e-6, "j = {}", idx.j);
+        // Camera height is Nr (×10⁻⁶) Earth radii from the centre, ~6.6 r_eq.
+        assert!((g.height / g.r_eq - 6.610_71).abs() < 1e-4);
+        assert!(g.sweep_x, "GRIB2 §3.90 is the GOES-R sweep-x convention");
+        // Off-disk far-side longitude is not on the grid.
+        assert!(proj.inverse(0.0, 105.0).is_none());
+
+        // Orientation must match the stored data order eccodes decodes (the
+        // row loop is reversed, the column loop is not). With this template's
+        // j-scans-negative mode, stored row 0 is the northernmost, so a point
+        // north of the sub-satellite point indexes a SMALLER row, a southern
+        // point a LARGER row, and an eastern point a LARGER column.
+        let north = proj.inverse(20.0, -75.0).expect("north on grid");
+        let south = proj.inverse(-20.0, -75.0).expect("south on grid");
+        let east = proj.inverse(0.0, -60.0).expect("east on grid");
+        assert!(north.j < 5.0, "north row {} should be < centre", north.j);
+        assert!(south.j > 5.0, "south row {} should be > centre", south.j);
+        assert!(east.i > 5.0, "east col {} should be > centre", east.i);
+        // North and south are symmetric about the centre row for points
+        // equidistant in latitude.
+        assert!(
+            ((north.j - 5.0) + (south.j - 5.0)).abs() < 1e-6,
+            "north/south not symmetric: {} / {}",
+            north.j,
+            south.j
+        );
+    }
+
+    #[test]
+    fn orthographic_view_has_no_scan_grid() {
+        // Nr missing ⇒ orthographic projection, which we don't reproject.
+        let mut t = space_view_template();
+        t.nr = None;
+        assert!(space_view_scan_grid(&t).is_none());
+    }
+
+    /// A space-view `MessageMeta` with only the fields the warp consults set;
+    /// every other slot is left empty so the synthetic stays minimal.
+    fn space_view_meta() -> MessageMeta {
+        let g = space_view_scan_grid(&space_view_template()).unwrap();
+        MessageMeta {
+            message_index: 0,
+            offset_bytes: 0,
+            parameter_name: String::new(),
+            parameter_units: String::new(),
+            parameter_abbreviation: String::new(),
+            level: String::new(),
+            level_type: String::new(),
+            reference_time: String::new(),
+            forecast_hours: 0,
+            forecast_display: String::new(),
+            originating_centre: String::new(),
+            grid_type: Some("space_view".to_string()),
+            grid_ni: Some(11),
+            grid_nj: Some(11),
+            lat_first: None,
+            lon_first: None,
+            lat_last: None,
+            lon_last: None,
+            format: "grib2".to_string(),
+            edition: Some(2),
+            discipline: None,
+            total_length_bytes: None,
+            production_status: None,
+            data_type: None,
+            lambert_lad: None,
+            lambert_lov: None,
+            lambert_dx_metres: None,
+            lambert_dy_metres: None,
+            lambert_latin1: None,
+            lambert_latin2: None,
+            gaussian_n_parallels: None,
+            polar_stereo_lov: None,
+            polar_stereo_lad: None,
+            polar_stereo_dx_metres: None,
+            polar_stereo_dy_metres: None,
+            polar_stereo_south_pole: None,
+            rotated_south_pole_lat: None,
+            rotated_south_pole_lon: None,
+            rotated_angle_of_rotation: None,
+            geos_sub_lon: Some(g.sub_lon),
+            geos_height: Some(g.height),
+            geos_r_eq: Some(g.r_eq),
+            geos_r_pol: Some(g.r_pol),
+            geos_sweep_x: Some(g.sweep_x),
+            geos_x0: Some(g.x0),
+            geos_dx_rad: Some(g.dx_rad),
+            geos_y0: Some(g.y0),
+            geos_dy_rad: Some(g.dy_rad),
+            packing: None,
+            reprojectable: true,
+        }
+    }
+
+    #[test]
+    fn space_view_warp_setup_round_trips_through_meta() {
+        // Drive the full napi path: §3.90 meta → warp_setup_for → inverse.
+        let meta = space_view_meta();
+        let (inverse, _bbox) = warp_setup_for(&meta, 11, 11).expect("space view warp setup");
+        let idx = inverse(0.0, -75.0).expect("sub-sat on grid");
+        assert!((idx.i - 5.0).abs() < 1e-6 && (idx.j - 5.0).abs() < 1e-6);
+        assert!(inverse(0.0, 105.0).is_none(), "far side must be off-grid");
     }
 }
