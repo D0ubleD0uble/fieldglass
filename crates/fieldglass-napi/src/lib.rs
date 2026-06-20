@@ -2598,15 +2598,21 @@ fn geostationary_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Resul
     let projector = GeostationaryProjector::new(p);
     let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
         Box::new(move |lat, lon| projector.inverse(lat, lon));
-    // A full-disk geostationary view can see roughly a hemisphere centred on the
-    // sub-satellite point. Rather than walk the scan-angle perimeter (its
-    // lat/lon edges curve and the limb is off-disk), report a generous box: the
-    // full latitude span and ±90° of longitude around the sub-satellite point.
-    // Off-disk target pixels invert to `None` and stay transparent, so an
-    // over-wide box only affects the default framing, never correctness.
+    // Frame the on-disk extent: walk the scan-angle perimeter and take the tight
+    // lat/lon box of the visible samples, so cropped sectors (GOES CONUS /
+    // mesoscale, Meteosat sectors) frame their sector instead of a whole
+    // hemisphere. A full disk whose perimeter is all limb has no on-disk sample;
+    // fall back there to a generous box — the full latitude span and ±90° of
+    // longitude around the sub-satellite point. Off-disk target pixels invert to
+    // `None` and stay transparent, so the fallback only affects default framing,
+    // never correctness.
     let bbox: BboxThunk = Box::new(move || {
-        let lon = p.sub_lon_deg;
-        (-90.0, 90.0, lon - 90.0, lon + 90.0)
+        GeostationaryProjector::new(p)
+            .lonlat_bbox()
+            .unwrap_or_else(|| {
+                let lon = p.sub_lon_deg;
+                (-90.0, 90.0, lon - 90.0, lon + 90.0)
+            })
     });
     Ok((inverse, bbox))
 }
@@ -4074,5 +4080,41 @@ mod space_view_geos_tests {
         let idx = inverse(0.0, -75.0).expect("sub-sat on grid");
         assert!((idx.i - 5.0).abs() < 1e-6 && (idx.j - 5.0).abs() < 1e-6);
         assert!(inverse(0.0, 105.0).is_none(), "far side must be off-grid");
+    }
+
+    #[test]
+    fn space_view_bbox_frames_on_disk_extent() {
+        // The 11×11 central crop is on-disk, so the thunk frames its extent
+        // tightly — strictly inside the ±90° hemisphere fallback.
+        let meta = space_view_meta();
+        let (_inverse, bbox) = warp_setup_for(&meta, 11, 11).expect("space view warp setup");
+        let (lat_min, lat_max, lon_min, lon_max) = bbox();
+        assert!(
+            lat_min > -90.0 && lat_max < 90.0,
+            "lat {lat_min}..{lat_max}"
+        );
+        assert!(
+            lon_min > -165.0 && lon_max < 15.0,
+            "lon {lon_min}..{lon_max} should be inside the hemisphere fallback"
+        );
+        // Spans the sub-satellite meridian (-75°).
+        assert!(lon_min < -75.0 && lon_max > -75.0, "box not around sub-lon");
+    }
+
+    #[test]
+    fn space_view_bbox_falls_back_when_perimeter_off_disk() {
+        // A scan window wider than the apparent disk (±0.16 rad > ~0.152 rad
+        // limb) has no on-disk perimeter sample, so the thunk returns the
+        // generous ±90° hemisphere box around the sub-satellite point.
+        let mut meta = space_view_meta();
+        let half = 0.16;
+        meta.geos_x0 = Some(-half);
+        meta.geos_y0 = Some(-half);
+        meta.geos_dx_rad = Some(2.0 * half / 10.0);
+        meta.geos_dy_rad = Some(2.0 * half / 10.0);
+        let (_inverse, bbox) = warp_setup_for(&meta, 11, 11).expect("space view warp setup");
+        let (lat_min, lat_max, lon_min, lon_max) = bbox();
+        assert_eq!((lat_min, lat_max), (-90.0, 90.0));
+        assert_eq!((lon_min, lon_max), (-165.0, 15.0));
     }
 }
