@@ -1298,6 +1298,108 @@ impl GeostationaryProjector {
         }
         Some(GridIndex { i, j })
     }
+
+    /// Forward geolocation: scan angles `(x, y)` in radians → geodetic
+    /// `(lat, lon)` in degrees, or `None` when the line of sight misses the
+    /// Earth (an off-disk / limb sample). Inverse of [`Self::scan_angles`].
+    ///
+    /// Intersects the satellite's view ray with the Earth ellipsoid (GOES-R
+    /// PUG §5.1.2.8.1). The unit look direction in the sub-satellite frame is
+    /// `(cos x cos y, −sin x, cos x sin y)` for an `x`-sweep (GOES) and
+    /// `(cos x cos y, −sin x cos y, sin y)` for a `y`-sweep (Meteosat); both
+    /// feed the same ray/ellipsoid quadratic.
+    pub fn scan_to_lonlat(&self, x: f64, y: f64) -> Option<(f64, f64)> {
+        if !x.is_finite() || !y.is_finite() {
+            return None;
+        }
+        let p = &self.params;
+        let k = &self.constants;
+        let (cx, sx) = (x.cos(), x.sin());
+        let (cy, sy) = (y.cos(), y.sin());
+        // Unit look direction (satellite → Earth) in the (sx, sy, sz) frame.
+        let (dx, dy, dz) = if p.sweep_x {
+            (cx * cy, -sx, cx * sy)
+        } else {
+            (cx * cy, -sx * cy, sy)
+        };
+        // The surface point P = S − r_s·d, with the satellite at S = (H, 0, 0),
+        // lies on the ellipsoid (x²+y²)/r_eq² + z²/r_pol² = 1, giving
+        //   a·r_s² + b·r_s + c = 0,   a = dx²+dy²+(r_eq/r_pol)²·dz²,
+        //   b = −2H·dx,   c = H² − r_eq².
+        // The near root (smaller r_s) is the visible face; a negative
+        // discriminant means the ray misses the disk (limb / off-disk).
+        let h = p.h_metres;
+        let a = dx * dx + dy * dy + k.inv_ratio2 * dz * dz;
+        let b = -2.0 * h * dx;
+        let c = h * h - p.r_eq * p.r_eq;
+        let disc = b * b - 4.0 * a * c;
+        if disc < 0.0 || a <= 0.0 {
+            return None;
+        }
+        let r_s = (-b - disc.sqrt()) / (2.0 * a);
+        let px = h - r_s * dx;
+        let py = -r_s * dy;
+        let pz = r_s * dz;
+        // Geocentric surface point → geodetic latitude; longitude is the
+        // offset from the sub-satellite meridian. At a geographic pole
+        // (px² + py² == 0, unreachable on a real disk) the ratio is ±∞ and
+        // `atan` returns ±90°, the correct limit — no NaN.
+        let lat = (k.inv_ratio2 * pz / (px * px + py * py).sqrt()).atan();
+        let lon = k.sub_lon_rad + py.atan2(px);
+        Some((lat / DEG2RAD, lon / DEG2RAD))
+    }
+
+    /// Axis-aligned lat/lon bounding box of the grid's **on-disk** extent,
+    /// `(lat_min, lat_max, lon_min, lon_max)`, or `None` when the whole grid
+    /// perimeter is off-disk (a full disk whose edges are all limb) and the
+    /// caller should fall back to a generous default box.
+    ///
+    /// Walks the scan-angle perimeter, forward-projects each sample with
+    /// [`Self::scan_to_lonlat`], and skips off-disk (limb) samples. The
+    /// longitude span is the minimum enclosing arc of the on-disk samples
+    /// ([`enclosing_lon_arc`]) — the same logic the planar projectors use — so
+    /// a sector straddling the ±180° antimeridian still frames tightly. Like
+    /// [`PlanarGridProjector::lonlat_bbox`], the boundary walk suffices: the
+    /// lat/lon extrema of this smooth map fall on the grid perimeter, not its
+    /// interior.
+    ///
+    /// A degenerate grid (fewer than two points on a side, or zero scan-angle
+    /// spacing) has no perimeter to walk and also returns `None`, mirroring the
+    /// guard in [`Self::inverse`].
+    pub fn lonlat_bbox(&self) -> Option<(f64, f64, f64, f64)> {
+        // Subdivisions per edge, matching the planar perimeter walk: cheap and
+        // fine enough to pin a bowed edge's extremum.
+        const PER_EDGE: u32 = 512;
+        let p = &self.params;
+        if p.ni < 2 || p.nj < 2 || p.dx_rad == 0.0 || p.dy_rad == 0.0 {
+            return None;
+        }
+        let x1 = p.x0 + (p.ni as f64 - 1.0) * p.dx_rad;
+        let y1 = p.y0 + (p.nj as f64 - 1.0) * p.dy_rad;
+
+        let mut lat_min = f64::INFINITY;
+        let mut lat_max = f64::NEG_INFINITY;
+        let mut lons: Vec<f64> = Vec::with_capacity(4 * (PER_EDGE as usize + 1));
+        let mut visit = |x: f64, y: f64| {
+            if let Some((lat, lon)) = self.scan_to_lonlat(x, y) {
+                lat_min = lat_min.min(lat);
+                lat_max = lat_max.max(lat);
+                lons.push(lon.rem_euclid(360.0));
+            }
+        };
+        for n in 0..=PER_EDGE {
+            let t = n as f64 / PER_EDGE as f64;
+            visit(p.x0 + t * (x1 - p.x0), p.y0); // y = y0 edge
+            visit(p.x0 + t * (x1 - p.x0), y1); // y = y1 edge
+            visit(p.x0, p.y0 + t * (y1 - p.y0)); // x = x0 edge
+            visit(x1, p.y0 + t * (y1 - p.y0)); // x = x1 edge
+        }
+        if lons.is_empty() {
+            return None;
+        }
+        let (lon_min, lon_max) = enclosing_lon_arc(&mut lons);
+        Some((lat_min, lat_max, lon_min, lon_max))
+    }
 }
 
 #[cfg(test)]
@@ -2330,5 +2432,113 @@ mod tests {
         if let (Some(a), Some(b)) = (a, b) {
             assert!(near(a.i, b.i, 1e-12) && near(a.j, b.j, 1e-12));
         }
+    }
+
+    #[test]
+    fn geostationary_forward_round_trips_scan_angles() {
+        // scan_to_lonlat must invert scan_angles for both sweep conventions.
+        for sweep_x in [true, false] {
+            let mut p = goes_east_params();
+            p.sweep_x = sweep_x;
+            let proj = GeostationaryProjector::new(p);
+            for &(lat, lon) in &[(0.0, -75.0), (20.0, -60.0), (-15.0, -85.0), (5.0, -70.0)] {
+                let (x, y) = proj.scan_angles(lat, lon).expect("visible");
+                let (lat2, lon2) = proj.scan_to_lonlat(x, y).expect("on disk");
+                assert!(
+                    near(lat2, lat, 1e-6),
+                    "lat {lat} -> {lat2} (sweep_x={sweep_x})"
+                );
+                assert!(
+                    near(lon2, lon, 1e-6),
+                    "lon {lon} -> {lon2} (sweep_x={sweep_x})"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn geostationary_forward_off_disk_is_none() {
+        let proj = GeostationaryProjector::new(goes_east_params());
+        // Scan angles beyond the ~0.152 rad apparent radius miss the disk.
+        assert!(proj.scan_to_lonlat(0.3, 0.3).is_none(), "corner off-disk");
+        assert!(proj.scan_to_lonlat(f64::NAN, 0.0).is_none());
+        assert!(proj.scan_to_lonlat(0.0, f64::INFINITY).is_none());
+    }
+
+    #[test]
+    fn geostationary_bbox_frames_sector_tightly() {
+        // A modest off-centre sub-sector (north-west of the sub-satellite
+        // point), like a GOES CONUS sector, well inside the apparent disk.
+        let mut p = goes_east_params();
+        p.ni = 21;
+        p.nj = 21;
+        p.x0 = -0.06;
+        p.dx_rad = 0.06 / 20.0; // x ∈ [-0.06, 0.0]
+        p.y0 = 0.02;
+        p.dy_rad = 0.06 / 20.0; // y ∈ [0.02, 0.08]
+        let proj = GeostationaryProjector::new(p);
+        let (lat_min, lat_max, lon_min, lon_max) = proj.lonlat_bbox().expect("on-disk sector");
+
+        // The box must enclose every grid corner's ground point.
+        let x1 = p.x0 + (p.ni as f64 - 1.0) * p.dx_rad;
+        let y1 = p.y0 + (p.nj as f64 - 1.0) * p.dy_rad;
+        for &(x, y) in &[(p.x0, p.y0), (x1, p.y0), (p.x0, y1), (x1, y1)] {
+            let (lat, lon) = proj.scan_to_lonlat(x, y).expect("corner on disk");
+            assert!(
+                lat >= lat_min - 1e-9 && lat <= lat_max + 1e-9,
+                "lat {lat} outside box"
+            );
+            assert!(
+                lon >= lon_min - 1e-9 && lon <= lon_max + 1e-9,
+                "lon {lon} outside box"
+            );
+        }
+
+        // It frames the sector, strictly inside the ±90° hemisphere fallback.
+        let lon0 = p.sub_lon_deg;
+        assert!(
+            lat_min > -90.0 && lat_max < 90.0,
+            "lat {lat_min}..{lat_max}"
+        );
+        assert!(
+            lon_min > lon0 - 90.0 && lon_max < lon0 + 90.0,
+            "lon {lon_min}..{lon_max}"
+        );
+        // The window sits north of the equator (y > 0) and runs up to the
+        // sub-satellite meridian on its east edge (x = 0), so the frame does
+        // too: entirely north, entirely at or west of the sub-lon.
+        assert!(
+            lat_min > 0.0,
+            "sector is north of equator, lat_min {lat_min}"
+        );
+        assert!(
+            lon_max <= lon0 + 1e-9,
+            "sector is west of sub-lon, lon_max {lon_max}"
+        );
+        assert!(
+            lon_min < lon0,
+            "sector should extend west of sub-lon, lon_min {lon_min}"
+        );
+        // And the span is tight, nothing like the 180° fallback.
+        assert!(lat_max - lat_min < 40.0, "lat span {}", lat_max - lat_min);
+        assert!(lon_max - lon_min < 40.0, "lon span {}", lon_max - lon_min);
+    }
+
+    #[test]
+    fn geostationary_bbox_full_disk_falls_back() {
+        // A grid whose square perimeter lies entirely outside the apparent
+        // disk (half-width 0.16 rad > ~0.152 rad limb) has no on-disk
+        // perimeter sample, so no tight box is available.
+        let mut p = goes_east_params();
+        let half = 0.16;
+        p.x0 = -half;
+        p.y0 = -half;
+        p.dx_rad = 2.0 * half / (p.ni as f64 - 1.0);
+        p.dy_rad = 2.0 * half / (p.nj as f64 - 1.0);
+        let proj = GeostationaryProjector::new(p);
+        assert!(
+            proj.lonlat_bbox().is_none(),
+            "full-disk perimeter should be off-disk"
+        );
     }
 }
