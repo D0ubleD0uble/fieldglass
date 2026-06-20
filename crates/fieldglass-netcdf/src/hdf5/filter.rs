@@ -153,7 +153,7 @@ fn inflate(data: &[u8]) -> Result<Vec<u8>, FieldglassError> {
 /// byte 0s, then all byte 1s, …); regroup them back into consecutive elements.
 fn unshuffle(data: &[u8], element_size: usize) -> Vec<u8> {
     // A trailing partial element (or element_size <= 1) means nothing to undo.
-    if element_size <= 1 || data.len() % element_size != 0 {
+    if element_size <= 1 || !data.len().is_multiple_of(element_size) {
         return data.to_vec();
     }
     let count = data.len() / element_size;
