@@ -75,12 +75,21 @@ export function renderImagePanelHtml(
           const flipY = !!(document.getElementById('flip-y') && document.getElementById('flip-y').checked);
           const mode = document.querySelector('input[name="range-mode"]:checked');
           const options = { projection, resampling, flipY };
-          // The azimuthal targets read a centre / hemisphere preset; the
-          // lat/lon-box targets ignore it.
+          // The azimuthal targets read a free-form centre; the lat/lon-box
+          // targets ignore it. Orthographic takes a centre lat + lon; polar
+          // stereographic takes a hemisphere (its pole) plus a central
+          // meridian. A blank/non-numeric field is omitted so the Rust side
+          // falls back to its default for that component.
+          const num = (id) => {
+            const v = Number((document.getElementById(id) || {}).value);
+            return Number.isFinite(v) ? v : undefined;
+          };
           if (projection === 'orthographic') {
-            options.projectionPreset = (document.getElementById('picker-preset-ortho') || {}).value;
+            options.centerLat = num('picker-center-lat');
+            options.centerLon = num('picker-center-lon');
           } else if (projection === 'polar_stereographic') {
             options.projectionPreset = (document.getElementById('picker-preset-polar') || {}).value;
+            options.centerLon = num('picker-central-meridian');
           }
           if (mode && mode.value === 'manual') {
             const min = Number((document.getElementById('range-min') || {}).value);
@@ -246,7 +255,7 @@ export function renderImagePanelHtml(
         function overlayKey() {
           const o = currentOptions();
           return JSON.stringify([
-            o.projection, o.projectionPreset, !!o.flipY,
+            o.projection, o.projectionPreset, o.centerLat, o.centerLon, !!o.flipY,
             o.boundsLatMin, o.boundsLatMax, o.boundsLonMin, o.boundsLonMax,
           ]);
         }
@@ -351,7 +360,8 @@ export function renderImagePanelHtml(
         function attachControls() {
           const projPick = document.getElementById('picker-projection');
           if (projPick) projPick.addEventListener('change', () => { syncProjectionControls(); requestRender(); });
-          ['picker-preset-ortho', 'picker-preset-polar'].forEach((id) => {
+          ['picker-center-lat', 'picker-center-lon', 'picker-preset-polar',
+           'picker-central-meridian'].forEach((id) => {
             const el = document.getElementById(id);
             if (el) el.addEventListener('change', requestRender);
           });
@@ -543,6 +553,13 @@ export function renderImagePanelHtml(
        rule (display:none); without this the preset selectors never hide when
        syncProjectionControls toggles them off. */
     .toolbar label[hidden] { display: none; }
+    /* The azimuthal centre groups (orthographic centre lon/lat, polar
+       hemisphere + central meridian) bundle their fields in a span so
+       syncProjectionControls can toggle the whole group; inline-flex spaces the
+       fields like the other groups, and the explicit hidden rule restores the
+       toggle the display above would otherwise out-specify. */
+    .toolbar-row > span { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.5rem 1rem; }
+    .toolbar-row > span[hidden] { display: none; }
     /* The graticule-spacing field hides without reflowing: visibility:hidden
        keeps its box in the toolbar's flow, so toggling Graticule on/off can't
        grow the toolbar and shove the canvas down (it also drops the field out
@@ -583,22 +600,22 @@ ${meta.reprojectable
         ? ""
         : `        <span class="picker-note">Reprojection isn't available for ${escapeHtml(meta.gridType ?? "this")} grids yet.</span>`}
       </label>
-      <label id="preset-ortho" hidden>Center
-        <select id="picker-preset-ortho">
-          <option value="atlantic" selected>Atlantic (0°N 0°E)</option>
-          <option value="indian">Indian Ocean (0°N 90°E)</option>
-          <option value="pacific">Pacific (0°N 180°E)</option>
-          <option value="americas">Americas (0°N 270°E)</option>
-          <option value="north_pole">North pole</option>
-          <option value="south_pole">South pole</option>
-        </select>
-      </label>
-      <label id="preset-polar" hidden>Hemisphere
-        <select id="picker-preset-polar">
-          <option value="north" selected>North</option>
-          <option value="south">South</option>
-        </select>
-      </label>
+      <span id="preset-ortho" hidden>
+        <label>Center lon
+          <input type="number" id="picker-center-lon" value="0" min="-360" max="360" step="any"></label>
+        <label>Center lat
+          <input type="number" id="picker-center-lat" value="0" min="-90" max="90" step="any"></label>
+      </span>
+      <span id="preset-polar" hidden>
+        <label>Hemisphere
+          <select id="picker-preset-polar">
+            <option value="north" selected>North</option>
+            <option value="south">South</option>
+          </select>
+        </label>
+        <label>Central meridian
+          <input type="number" id="picker-central-meridian" value="0" min="-360" max="360" step="any"></label>
+      </span>
       <label>Resampling
         <select id="picker-resampling">
           <option value="nearest" selected>Nearest</option>

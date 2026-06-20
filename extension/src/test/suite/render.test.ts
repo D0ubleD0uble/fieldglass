@@ -345,15 +345,17 @@ suite("Render pipeline", () => {
     assert.strictEqual(merc.rgba.length, merc.width * merc.height * 4);
   });
 
-  test("GRIB1 azimuthal targets: orthographic + polar stereographic render via presets", () => {
+  test("GRIB1 azimuthal targets: orthographic + polar stereographic render with free-form centre", () => {
     const native = loadNative();
     assert.ok(native, "native module must load");
     const bytes = fs.readFileSync(fixturePath("cmc_wind_300_2010052400_p012.grib"));
     const handle = native.Grib1Handle.fromBytes(bytes);
 
+    // Free-form orthographic centre (lon/lat), not a named preset.
     const ortho = handle.renderGrid(0, {
       projection: "orthographic",
-      projectionPreset: "north_pole",
+      centerLat: 55.0,
+      centerLon: -100.0,
       resampling: "nearest",
       flipY: false,
     });
@@ -365,9 +367,11 @@ suite("Render pipeline", () => {
     assert.ok(/orthographic/.test(ortho.projectionSummary), ortho.projectionSummary);
     assert.strictEqual(ortho.rgba.length, ortho.width * ortho.height * 4);
 
+    // Polar stereographic: hemisphere preset + free-form central meridian.
     const polar = handle.renderGrid(0, {
       projection: "polar_stereographic",
       projectionPreset: "north",
+      centerLon: -45.0,
       resampling: "nearest",
       flipY: false,
     });
@@ -450,6 +454,24 @@ suite("rerenderRequest option clamp", () => {
       projectionPreset: "south",
     });
     assert.strictEqual(polar.projectionPreset, "south");
+  });
+
+  test("forwards the free-form projection centre untouched", () => {
+    const ortho = resolveRerenderOptions({
+      projection: "orthographic",
+      centerLat: 37.5,
+      centerLon: -122.25,
+    });
+    assert.strictEqual(ortho.centerLat, 37.5);
+    assert.strictEqual(ortho.centerLon, -122.25);
+
+    // A central meridian rides through on centerLon for the polar target.
+    const polar = resolveRerenderOptions({
+      projection: "polar_stereographic",
+      projectionPreset: "north",
+      centerLon: -45.0,
+    });
+    assert.strictEqual(polar.centerLon, -45.0);
   });
 
   test("unknown projection / resampling snap to their defaults", () => {
@@ -536,10 +558,12 @@ suite("overlay geometry", () => {
 });
 
 suite("render-panel HTML", () => {
-  // The webview's orthographic preset <select> values are the contract with
-  // Rust's `orthographic_from_preset`, which recognises exactly this set and
-  // silently falls back to Atlantic for anything else. Pin the picker so it
-  // can't drift away from the recognised presets unnoticed.
+  // The webview's azimuthal-centre inputs are the contract with Rust's
+  // `orthographic_from_options` / `polar_stereographic_from_options`:
+  // orthographic reads a free-form centre lon + lat, polar stereographic reads
+  // a hemisphere plus a central meridian. Pin the input ids and defaults so the
+  // picker can't drift away from what the native side reads (`currentOptions`
+  // pulls these by id).
 
   function fakeMeta(): MessageMeta {
     return {
@@ -579,27 +603,50 @@ suite("render-panel HTML", () => {
     };
   }
 
-  test("orthographic preset picker matches the Rust-recognised preset set", () => {
+  test("azimuthal centre inputs expose the free-form fields currentOptions reads", () => {
     const html = renderImagePanelHtml(
       { cspSource: "" } as unknown as vscode.Webview,
       fakeMeta(),
       "summary",
     );
-    // Isolate the <select id="picker-preset-ortho"> … </select> block, then
-    // pull every <option value="…"> within it.
-    const selectMatch = /<select id="picker-preset-ortho">([\s\S]*?)<\/select>/.exec(html);
-    assert.ok(selectMatch, "picker-preset-ortho select must exist in the HTML");
+    // The orthographic centre and the polar central meridian are free-form
+    // number inputs (no preset <select> for the ortho centre any more); the
+    // polar hemisphere stays a two-option select.
+    assert.ok(
+      !/id="picker-preset-ortho"/.test(html),
+      "the fixed-preset ortho select must be gone — the centre is free-form now",
+    );
+    for (const id of [
+      "picker-center-lon",
+      "picker-center-lat",
+      "picker-central-meridian",
+    ]) {
+      assert.ok(
+        new RegExp(`<input type="number" id="${id}"[^>]*>`).test(html),
+        `${id} number input must exist (read by currentOptions)`,
+      );
+    }
+    // The free-form fields default to 0 so the initial view matches the prior
+    // Atlantic / 0° central-meridian default.
+    for (const id of ["picker-center-lon", "picker-center-lat", "picker-central-meridian"]) {
+      assert.ok(
+        new RegExp(`id="${id}"[^>]*value="0"`).test(html),
+        `${id} must default to 0`,
+      );
+    }
+    // The polar hemisphere is still a north/south select.
+    const hemi = /<select id="picker-preset-polar">([\s\S]*?)<\/select>/.exec(html);
+    assert.ok(hemi, "picker-preset-polar hemisphere select must exist");
     const values: string[] = [];
     const optionRe = /<option value="([^"]*)"/g;
     let m: RegExpExecArray | null;
-    while ((m = optionRe.exec(selectMatch[1])) !== null) {
+    while ((m = optionRe.exec(hemi[1])) !== null) {
       values.push(m[1]);
     }
     assert.deepStrictEqual(
       values,
-      ["atlantic", "indian", "pacific", "americas", "north_pole", "south_pole"],
-      "ortho preset picker must match Rust's orthographic_from_preset set " +
-        "(an unknown value silently falls back to Atlantic)",
+      ["north", "south"],
+      "polar hemisphere select must match Rust's recognised set",
     );
   });
 });

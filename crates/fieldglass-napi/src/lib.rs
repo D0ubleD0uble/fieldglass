@@ -817,7 +817,29 @@ pub struct RenderOptions {
     /// `"south_pole"`); `"polar_stereographic"` reads a
     /// hemisphere preset (`"north"` (default), `"south"`). Ignored by the
     /// lat/lon-box targets. `None`/unknown falls back to the default.
+    ///
+    /// Superseded by [`center_lat`]/[`center_lon`] when those are supplied: the
+    /// free-form centre wins, the preset is only the fallback. Retained so
+    /// callers that still send a preset keep working.
+    ///
+    /// [`center_lat`]: RenderOptions::center_lat
+    /// [`center_lon`]: RenderOptions::center_lon
     pub projection_preset: Option<String>,
+    /// Free-form projection centre for the azimuthal targets (degrees).
+    /// `"orthographic"` reads both: `center_lat` is the centre latitude
+    /// (clamped to ±90° downstream) and `center_lon` the centre longitude.
+    /// `"polar_stereographic"` reads only `center_lon` as the central meridian
+    /// (the meridian oriented toward the bottom edge); its pole is the
+    /// hemisphere from [`projection_preset`]. Either field `None` falls back to
+    /// the preset/default for that component. Ignored by the lat/lon-box
+    /// targets.
+    ///
+    /// [`projection_preset`]: RenderOptions::projection_preset
+    pub center_lat: Option<f64>,
+    /// Free-form projection-centre longitude — see [`center_lat`].
+    ///
+    /// [`center_lat`]: RenderOptions::center_lat
+    pub center_lon: Option<f64>,
     pub resampling: String,
     pub flip_y: bool,
     /// Manual range override. When either is `None` the renderer uses the
@@ -1331,8 +1353,10 @@ impl ResolvedOptions {
             "source" => TargetKind::Source,
             "equirectangular" => TargetKind::Warp(WarpTarget::Equirectangular),
             "web_mercator" => TargetKind::Warp(WarpTarget::WebMercator),
-            "orthographic" => TargetKind::Warp(orthographic_from_preset(preset)),
-            "polar_stereographic" => TargetKind::Warp(polar_stereographic_from_preset(preset)),
+            "orthographic" => TargetKind::Warp(orthographic_from_options(options, preset)),
+            "polar_stereographic" => {
+                TargetKind::Warp(polar_stereographic_from_options(options, preset))
+            }
             other => {
                 return Err(napi::Error::from_reason(format!(
                     "unknown projection {other:?} (expected \"source\", \"equirectangular\", \
@@ -1360,11 +1384,23 @@ impl ResolvedOptions {
     }
 }
 
-/// Resolve an orthographic centre preset into `(lat0, lon0)`. The issue's
-/// non-goals call for a small preset list rather than free-form lat0/lon0
-/// inputs; unknown/`None` defaults to the Atlantic view (0°N 0°E).
-fn orthographic_from_preset(preset: Option<&str>) -> WarpTarget {
-    let (lat0, lon0) = match preset {
+/// Resolve the orthographic centre. A free-form `center_lat`/`center_lon`
+/// (degrees) wins per component; otherwise the named preset supplies it; with
+/// neither the centre is the Atlantic view (0°N 0°E). (#71 shipped presets
+/// only; #113 added the free-form centre, of which the presets are now named
+/// shortcuts.)
+fn orthographic_from_options(o: &RenderOptions, preset: Option<&str>) -> WarpTarget {
+    let (preset_lat, preset_lon) = orthographic_preset_centre(preset);
+    WarpTarget::Orthographic {
+        lat0: o.center_lat.unwrap_or(preset_lat),
+        lon0: o.center_lon.unwrap_or(preset_lon),
+    }
+}
+
+/// The `(lat0, lon0)` of an orthographic centre preset. Unknown/`None`
+/// defaults to the Atlantic view (0°N 0°E).
+fn orthographic_preset_centre(preset: Option<&str>) -> (f64, f64) {
+    match preset {
         Some("indian") => (0.0, 90.0),
         Some("pacific") => (0.0, 180.0),
         Some("americas") => (0.0, 270.0),
@@ -1372,18 +1408,17 @@ fn orthographic_from_preset(preset: Option<&str>) -> WarpTarget {
         Some("south_pole") => (-90.0, 0.0),
         // "atlantic" / None / unknown
         _ => (0.0, 0.0),
-    };
-    WarpTarget::Orthographic { lat0, lon0 }
+    }
 }
 
-/// Resolve a polar-stereographic hemisphere preset. Defaults to the
-/// north-pole aspect; `lon0` (orientation toward the bottom edge) stays at
-/// 0° — the free-form orientation knob is a non-goal for #71.
-fn polar_stereographic_from_preset(preset: Option<&str>) -> WarpTarget {
-    let south_pole = matches!(preset, Some("south"));
+/// Resolve the polar-stereographic target. The pole is the hemisphere preset
+/// (`"south"` ⇒ south aspect; otherwise north). `lon0` — the central meridian
+/// oriented toward the bottom edge — is the free-form `center_lon` when given,
+/// else 0°. (#113 added the free-form central meridian; #71 fixed it at 0°.)
+fn polar_stereographic_from_options(o: &RenderOptions, preset: Option<&str>) -> WarpTarget {
     WarpTarget::PolarStereographic {
-        south_pole,
-        lon0: 0.0,
+        south_pole: matches!(preset, Some("south")),
+        lon0: o.center_lon.unwrap_or(0.0),
     }
 }
 
@@ -2034,6 +2069,8 @@ mod resolved_options_tests {
         RenderOptions {
             projection: projection.to_string(),
             projection_preset: None,
+            center_lat: None,
+            center_lon: None,
             resampling: resampling.to_string(),
             flip_y: false,
             range_min: None,
@@ -2159,6 +2196,58 @@ mod resolved_options_tests {
     }
 
     #[test]
+    fn orthographic_free_form_centre_overrides_preset() {
+        // A free-form centre is honoured verbatim, with no preset present.
+        let mut o = opts("orthographic", "nearest");
+        o.center_lat = Some(37.5);
+        o.center_lon = Some(-122.25);
+        assert!(matches!(
+            ResolvedOptions::parse(&o).unwrap().projection,
+            TargetKind::Warp(WarpTarget::Orthographic { lat0, lon0 })
+                if lat0 == 37.5 && lon0 == -122.25
+        ));
+
+        // Free-form centre wins over a preset that would say otherwise.
+        o.projection_preset = Some("pacific".to_string());
+        assert!(matches!(
+            ResolvedOptions::parse(&o).unwrap().projection,
+            TargetKind::Warp(WarpTarget::Orthographic { lat0, lon0 })
+                if lat0 == 37.5 && lon0 == -122.25
+        ));
+
+        // Each component falls back independently: lon free-form, lat from preset.
+        o.center_lat = None;
+        o.center_lon = Some(10.0);
+        assert!(matches!(
+            ResolvedOptions::parse(&o).unwrap().projection,
+            // "pacific" preset is (0.0, 180.0); lon overridden to 10, lat from preset.
+            TargetKind::Warp(WarpTarget::Orthographic { lat0, lon0 })
+                if lat0 == 0.0 && lon0 == 10.0
+        ));
+    }
+
+    #[test]
+    fn polar_stereographic_free_form_central_meridian() {
+        // center_lon sets the central meridian; hemisphere still from the preset.
+        let mut o = opts("polar_stereographic", "nearest");
+        o.projection_preset = Some("south".to_string());
+        o.center_lon = Some(-45.0);
+        assert!(matches!(
+            ResolvedOptions::parse(&o).unwrap().projection,
+            TargetKind::Warp(WarpTarget::PolarStereographic { south_pole: true, lon0 })
+                if lon0 == -45.0
+        ));
+
+        // No center_lon → central meridian defaults to 0°.
+        o.center_lon = None;
+        assert!(matches!(
+            ResolvedOptions::parse(&o).unwrap().projection,
+            TargetKind::Warp(WarpTarget::PolarStereographic { south_pole: true, lon0 })
+                if lon0 == 0.0
+        ));
+    }
+
+    #[test]
     fn rejects_unknown_projection() {
         let err = ResolvedOptions::parse(&opts("mollweide", "nearest"))
             .expect_err("unknown projection must error");
@@ -2243,6 +2332,8 @@ mod polar_stereo_warp_tests {
         let opts = RenderOptions {
             projection: "source".to_string(),
             projection_preset: None,
+            center_lat: None,
+            center_lon: None,
             resampling: "nearest".to_string(),
             flip_y: false,
             range_min: None,
@@ -2947,6 +3038,8 @@ mod overlay_projection_tests {
         RenderOptions {
             projection: projection.to_string(),
             projection_preset: None,
+            center_lat: None,
+            center_lon: None,
             resampling: "nearest".to_string(),
             flip_y: false,
             range_min: None,
