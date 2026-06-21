@@ -187,13 +187,62 @@ pub fn cf_scale_offset(attrs: &[(String, String)]) -> (f64, f64) {
 }
 
 /// Apply CF `scale_factor` / `add_offset` to raw decoded values. A no-op when
-/// the attributes are absent (`scale = 1`, `offset = 0`).
+/// the attributes are absent (`scale = 1`, `offset = 0`). Used for coordinate
+/// arrays, which are never masked; data planes go through [`unpack_cf_data`].
 pub fn apply_scale_offset(raw: &[f64], attrs: &[(String, String)]) -> Vec<f64> {
     let (scale, offset) = cf_scale_offset(attrs);
     if scale == 1.0 && offset == 0.0 {
         return raw.to_vec();
     }
     raw.iter().map(|v| v * scale + offset).collect()
+}
+
+/// CF valid-range bounds of a variable as inclusive **packed-domain** bounds
+/// `(min, max)`, either side `None` when unspecified. A *well-formed*
+/// two-element `valid_range` takes precedence over the scalar `valid_min` /
+/// `valid_max` pair (CF Conventions §2.5.1); a reversed `valid_range` is
+/// normalised. A malformed `valid_range` (not two parseable numbers — a file
+/// libnetcdf would itself reject) is ignored, falling back to
+/// `valid_min`/`valid_max` rather than failing the render. The bounds describe
+/// the *stored* (packed) values, so [`unpack_cf_data`] compares them before
+/// applying `scale_factor` / `add_offset`.
+fn cf_valid_bounds(attrs: &[(String, String)]) -> (Option<f64>, Option<f64>) {
+    if let Some(s) = attr(attrs, "valid_range") {
+        let mut it = s.split(',').filter_map(|t| t.trim().parse::<f64>().ok());
+        if let (Some(a), Some(b)) = (it.next(), it.next()) {
+            return (Some(a.min(b)), Some(a.max(b)));
+        }
+    }
+    (attr_f64(attrs, "valid_min"), attr_f64(attrs, "valid_max"))
+}
+
+/// Unpack a decoded **data** plane to physical units per the CF conventions:
+/// drop values outside `valid_range` / `valid_min` / `valid_max` (compared in
+/// packed units, inclusive), then map the survivors through `scale_factor` /
+/// `add_offset`. Points already masked at decode (`_FillValue`) stay masked.
+///
+/// Mirrors libnetcdf's auto mask+scale and how [`apply_scale_offset`] unpacks
+/// coordinate arrays, but over `Option<f64>` so missing data is preserved. The
+/// common unscaled, unbounded case returns the plane untouched. A `NaN` packed
+/// value survives the range test (both comparisons are false for `NaN`) and
+/// stays `NaN`, matching libnetcdf, which masks only `_FillValue` /
+/// `missing_value`.
+pub fn unpack_cf_data(plane: &[Option<f64>], attrs: &[(String, String)]) -> Vec<Option<f64>> {
+    let (scale, offset) = cf_scale_offset(attrs);
+    let (lo, hi) = cf_valid_bounds(attrs);
+    if scale == 1.0 && offset == 0.0 && lo.is_none() && hi.is_none() {
+        return plane.to_vec();
+    }
+    plane
+        .iter()
+        .map(|&packed| {
+            let v = packed?;
+            if lo.is_some_and(|lo| v < lo) || hi.is_some_and(|hi| v > hi) {
+                return None;
+            }
+            Some(v * scale + offset)
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -308,5 +357,105 @@ mod tests {
         assert_eq!(apply_scale_offset(&packed, &with), vec![10.0, 60.0, -15.0]);
         let none = attrs(&[("units", "rad")]);
         assert_eq!(apply_scale_offset(&packed, &none), packed.to_vec());
+    }
+
+    #[test]
+    fn unpack_masks_valid_range_then_scales() {
+        // Inclusive packed bounds [0, 10000]; -50 and 15000 fall out, the bounds
+        // themselves stay. scale = 1/16 (exact in binary), offset = 250.
+        let plane = [
+            Some(-50.0),
+            Some(0.0),
+            Some(10000.0),
+            Some(15000.0),
+            None, // already masked at decode (_FillValue)
+            Some(5000.0),
+        ];
+        let a = attrs(&[
+            ("scale_factor", "0.0625"),
+            ("add_offset", "250.0"),
+            ("valid_range", "0, 10000"),
+        ]);
+        assert_eq!(
+            unpack_cf_data(&plane, &a),
+            vec![None, Some(250.0), Some(875.0), None, None, Some(562.5),]
+        );
+    }
+
+    #[test]
+    fn unpack_valid_min_max_are_one_sided_and_inclusive() {
+        let plane = [Some(5.0), Some(10.0), Some(100.0), Some(200.0)];
+        // Only valid_min: drops below 10, keeps the bound.
+        let lo_only = attrs(&[("valid_min", "10")]);
+        assert_eq!(
+            unpack_cf_data(&plane, &lo_only),
+            vec![None, Some(10.0), Some(100.0), Some(200.0)]
+        );
+        // Only valid_max: drops above 100, keeps the bound.
+        let hi_only = attrs(&[("valid_max", "100")]);
+        assert_eq!(
+            unpack_cf_data(&plane, &hi_only),
+            vec![Some(5.0), Some(10.0), Some(100.0), None]
+        );
+    }
+
+    #[test]
+    fn unpack_valid_range_takes_precedence_over_min_max() {
+        let plane = [Some(0.0), Some(50.0), Some(100.0)];
+        let a = attrs(&[
+            ("valid_range", "40, 60"),
+            ("valid_min", "0"),
+            ("valid_max", "100"),
+        ]);
+        assert_eq!(
+            unpack_cf_data(&plane, &a),
+            vec![None, Some(50.0), None],
+            "valid_range [40,60] wins over the wider valid_min/valid_max"
+        );
+    }
+
+    #[test]
+    fn unpack_normalises_reversed_valid_range() {
+        let plane = [Some(5.0), Some(50.0), Some(95.0)];
+        let a = attrs(&[("valid_range", "90, 10")]); // stored high-then-low
+        assert_eq!(
+            unpack_cf_data(&plane, &a),
+            vec![None, Some(50.0), None],
+            "a reversed valid_range still bounds [10, 90]"
+        );
+    }
+
+    #[test]
+    fn unpack_malformed_valid_range_falls_back_to_min_max() {
+        let plane = [Some(5.0), Some(50.0), Some(150.0)];
+        // A single-element `valid_range` is malformed (libnetcdf rejects it); we
+        // ignore it and honour the scalar valid_min/valid_max instead.
+        let a = attrs(&[
+            ("valid_range", "10"),
+            ("valid_min", "10"),
+            ("valid_max", "100"),
+        ]);
+        assert_eq!(
+            unpack_cf_data(&plane, &a),
+            vec![None, Some(50.0), None],
+            "malformed valid_range ignored; valid_min/valid_max [10,100] apply"
+        );
+        // A non-numeric `valid_range` with no min/max leaves everything present.
+        let b = attrs(&[("valid_range", "n/a")]);
+        assert_eq!(unpack_cf_data(&plane, &b), plane.to_vec());
+    }
+
+    #[test]
+    fn unpack_identity_when_no_scale_or_bounds() {
+        let plane = [Some(1.0), None, Some(3.0)];
+        let none = attrs(&[("units", "K")]);
+        assert_eq!(unpack_cf_data(&plane, &none), plane.to_vec());
+    }
+
+    #[test]
+    fn unpack_scale_only_leaves_all_present() {
+        let plane = [Some(0.0), Some(2.0), None];
+        let a = attrs(&[("scale_factor", "0.5"), ("add_offset", "1.0")]);
+        assert_eq!(unpack_cf_data(&plane, &a), vec![Some(1.0), Some(2.0), None]);
     }
 }

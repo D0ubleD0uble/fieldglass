@@ -23,7 +23,7 @@ use fieldglass_grib2::{
 use fieldglass_netcdf::{
     DatasetView, Hdf5Attribute, Hdf5Metadata, NetcdfBacking, NetcdfReader, RenderableVariable,
     WrfLambertGrid, apply_scale_offset, extract_plane, resolve_cf_geostationary,
-    resolve_wrf_lambert, synthesize_geometry,
+    resolve_wrf_lambert, synthesize_geometry, unpack_cf_data,
 };
 use napi_derive::napi;
 use std::sync::Mutex;
@@ -1624,7 +1624,13 @@ impl NetcdfHandle {
         Ok(arc)
     }
 
-    /// Extract the chosen 2-D plane from the (cached) decoded variable.
+    /// Extract the chosen 2-D plane from the (cached) decoded variable and
+    /// unpack it to physical units. The decode returns raw on-disk codes with
+    /// only `_FillValue` masked; [`unpack_cf_data`] then applies the CF
+    /// `valid_range` mask and `scale_factor` / `add_offset`, so a packed CF
+    /// field (scaled `int16`, as GOES / MERRA-2 / ERA5 store it) renders and
+    /// labels in real units rather than integer codes (#184). Decode stays
+    /// decoupled from rendering; the same unpacking serves both backings.
     fn slice_plane(
         &self,
         var: &RenderableVariable,
@@ -1645,8 +1651,16 @@ impl NetcdfHandle {
             )));
         }
         let fixed: Vec<usize> = slice_indices.iter().map(|&i| i as usize).collect();
-        extract_plane(values.as_ref(), &shape, y_dim, x_dim, &fixed)
-            .map_err(|e| napi::Error::from_reason(e.to_string()))
+        let plane = extract_plane(values.as_ref(), &shape, y_dim, x_dim, &fixed)
+            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        let attrs = self
+            .view
+            .vars
+            .iter()
+            .find(|v| v.decode_index == var.decode_index)
+            .map(|v| v.attrs.clone())
+            .unwrap_or_default();
+        Ok(unpack_cf_data(&plane, &attrs))
     }
 
     /// Synthesise the `"latlon"` [`MessageMeta`] for a slice from the variable's

@@ -28,6 +28,6 @@ pub use hdf5::object_header::{HeaderMessage, ObjectHeader};
 pub use hdf5::{Hdf5Probe, root_group_address};
 pub use projection::{
     GeostationaryGrid, WrfLambertGrid, apply_scale_offset, cf_scale_offset,
-    resolve_cf_geostationary, resolve_wrf_lambert,
+    resolve_cf_geostationary, resolve_wrf_lambert, unpack_cf_data,
 };
 pub use reader::{NetcdfBacking, NetcdfReader};
