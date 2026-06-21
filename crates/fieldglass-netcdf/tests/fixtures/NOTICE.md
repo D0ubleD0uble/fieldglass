@@ -173,6 +173,43 @@ sampled `(i, j) ↔ (lat, lon)` geolocation. `tests/projected_grids.rs` resolves
 the projection from the on-disk metadata and asserts the `fieldglass_core`
 projector reproduces the oracle.
 
+## Real GOES-16 ABI fixture (`goes16_abi_cmip.nc`)
+
+The first **real operational** NetCDF-4 / HDF5 file in the corpus (#123) — a
+small subset of a genuine NOAA GOES-16 ABI L2 Cloud & Moisture Imagery product:
+
+- Product: ABI L2 CMIP, Mesoscale sector 1, band 13 (10.3 µm IR), GOES-East.
+- Source object (immutable, in the public NOAA archive):
+  `s3://noaa-goes16/ABI-L2-CMIPM/2023/001/18/`
+  `OR_ABI-L2-CMIPM1-M6C13_G16_s20230011800281_e20230011800350_c20230011800425.nc`
+- License: a work of the U.S. Government — **public domain**, no copyright. NOAA
+  requests attribution to "NOAA/NESDIS, GOES-R Series."
+
+Built by `tools/build_goes_real_fixture.py` (run from the repo root; needs
+`netCDF4` + `numpy`; downloads the source object once). The script keeps a
+`24 × 24` center window of the 500×500 grid plus the `goes_imager_projection`
+grid mapping, the scaled-`int16` `x` / `y` scan-angle coordinates, and the
+`CMI` / `DQF` fields; the dozens of ancillary scalar metadata variables are
+dropped to keep the fixture byte-small. The raw on-disk `int16` / `int8` codes
+are copied verbatim (auto-scaling off), so the genuine CF `scale_factor` /
+`add_offset` / `valid_range` / `_FillValue` attributes and the real GRS80 /
+sub-satellite-longitude projection parameters survive unchanged. `CMI` keeps the
+real chunked + deflate storage, so the HDF5 value path decodes a real compressed
+field end to end.
+
+Unlike the synthetic `goes_geostationary.nc`, the attributes here are rich enough
+that their dense storage spills into a fractal heap with an **indirect root
+block** (a doubling table of direct blocks) — the structure real attribute-heavy
+NetCDF-4 files use, exercised here for the first time.
+
+The sibling `goes16_abi_cmip.nc.oracle.json` records the resolved projection
+parameters, the `(i, j) ↔ (lat, lon)` geolocation (computed by an *independent*
+NumPy transcription of the GOES-R PUG fixed-grid algorithm, so the Rust projector
+reproducing it is a cross-language check), and the `CMI` brightness temperatures
+`netCDF4` decodes (CF-unpacked, in Kelvin). `tests/goes_real_world.rs` asserts
+the HDF5 backing, the dimension/variable resolution, the geolocation, and the
+chunked-field value decode against it.
+
 ## CF packed-data fixture (`cf_packed_data.nc`)
 
 Target for CF **data-variable** unpacking (#184): `scale_factor` / `add_offset`
