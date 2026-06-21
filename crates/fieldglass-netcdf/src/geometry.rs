@@ -36,6 +36,20 @@ pub struct DimView {
     pub length: u64,
 }
 
+/// The value stored in the neutral view for an attribute, preserving full `f64`
+/// precision for a **scalar numeric** attribute. The human-facing display string
+/// rounds small magnitudes lossily (a GOES `scale_factor` ≈ 6.7e-7 prints as
+/// `"0.000001"`), which would mis-scale the `x`/`y` scan-angle coordinates the
+/// geostationary resolver reads. Multi-valued (comma-bearing) and string
+/// attributes keep their display string. `format!("{n}")` is the shortest
+/// round-trippable representation.
+fn attr_value(display: &str, first_value: Option<f64>) -> String {
+    match first_value {
+        Some(n) if !display.contains(',') => format!("{n}"),
+        _ => display.to_string(),
+    }
+}
+
 /// One variable in the neutral view, carrying just what axis detection and the
 /// slice picker need. `decode_index` is the index
 /// [`crate::NetcdfReader::decode_variable_values`] uses, so a chosen variable
@@ -76,6 +90,10 @@ impl VarView {
 pub struct DatasetView {
     pub dims: Vec<DimView>,
     pub vars: Vec<VarView>,
+    /// Global (root-group) attributes as `(name, display_value)`. Carries the
+    /// non-CF projection metadata WRF stores at the file level (`MAP_PROJ`,
+    /// `TRUELAT1`, …); see [`crate::projection`].
+    pub global_attrs: Vec<(String, String)>,
 }
 
 impl DatasetView {
@@ -115,11 +133,20 @@ impl DatasetView {
                 attrs: v
                     .attributes
                     .iter()
-                    .map(|a| (a.name.clone(), a.value.clone()))
+                    .map(|a| (a.name.clone(), attr_value(&a.value, a.first_value)))
                     .collect(),
             })
             .collect();
-        Self { dims, vars }
+        let global_attrs = header
+            .global_attributes
+            .iter()
+            .map(|a| (a.name.clone(), attr_value(&a.value, a.first_value)))
+            .collect();
+        Self {
+            dims,
+            vars,
+            global_attrs,
+        }
     }
 
     /// Build the view from resolved NetCDF-4 / HDF5 metadata (decision 0003).
@@ -149,11 +176,20 @@ impl DatasetView {
                 attrs: v
                     .attributes
                     .iter()
-                    .map(|a| (a.name.clone(), a.value.clone()))
+                    .map(|a| (a.name.clone(), attr_value(&a.value, a.first_value)))
                     .collect(),
             })
             .collect();
-        Self { dims, vars }
+        let global_attrs = meta
+            .global_attributes
+            .iter()
+            .map(|a| (a.name.clone(), attr_value(&a.value, a.first_value)))
+            .collect();
+        Self {
+            dims,
+            vars,
+            global_attrs,
+        }
     }
 
     fn dim_length(&self, name: &str) -> Option<u64> {
