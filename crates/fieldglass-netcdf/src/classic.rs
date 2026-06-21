@@ -179,6 +179,21 @@ impl Variable {
             .find(|a| a.name == "_FillValue")
             .and_then(|a| a.first_value)
     }
+
+    /// Typed sentinel values that value-decode masks to `None`: the `_FillValue`
+    /// and the CF `missing_value` attribute, each contributing its typed first
+    /// element, in that order. `libnetcdf` masks a point equal to either. A
+    /// multi-valued `missing_value` masks only its first entry — the same
+    /// first-element limit [`fill_value`](Self::fill_value) already carries (a
+    /// scalar `missing_value` is the common form). Empty when the variable
+    /// declares neither, the unmasked fast path.
+    pub fn missing_sentinels(&self) -> Vec<f64> {
+        ["_FillValue", "missing_value"]
+            .into_iter()
+            .filter_map(|name| self.attributes.iter().find(|a| a.name == name))
+            .filter_map(|a| a.first_value)
+            .collect()
+    }
 }
 
 /// Top-level on-disk header for a NetCDF classic / 64-bit / CDF-5 file.
@@ -348,7 +363,7 @@ pub fn decode_variable_values(
         return Ok(Vec::new());
     }
 
-    let fill = var.fill_value();
+    let fills = var.missing_sentinels();
     let begin = nonneg_to_usize(var.begin, "variable begin")?;
     let mut out: Vec<Option<f64>> = Vec::with_capacity(total);
 
@@ -374,13 +389,13 @@ pub fn decode_variable_values(
                 per_record,
                 elem,
                 var.nc_type,
-                fill,
+                &fills,
                 &mut out,
             )?;
         }
     } else {
         // Fixed (non-record) variable: one contiguous slab at `begin`.
-        read_slab(data, begin, total, elem, var.nc_type, fill, &mut out)?;
+        read_slab(data, begin, total, elem, var.nc_type, &fills, &mut out)?;
     }
 
     Ok(out)
@@ -409,14 +424,15 @@ fn record_size(header: &ClassicHeader) -> Result<usize, FieldglassError> {
 }
 
 /// Read `count` big-endian elements of `nc_type` starting at byte offset
-/// `start`, decode each to `f64`, mask fills to `None`, and append to `out`.
+/// `start`, decode each to `f64`, mask any sentinel (`fills`) to `None`, and
+/// append to `out`.
 fn read_slab(
     data: &[u8],
     start: usize,
     count: usize,
     elem: usize,
     nc_type: NcType,
-    fill: Option<f64>,
+    fills: &[f64],
     out: &mut Vec<Option<f64>>,
 ) -> Result<(), FieldglassError> {
     let span = count
@@ -435,14 +451,12 @@ fn read_slab(
         let off = start + i * elem;
         let v = decode_element_f64(&data[off..off + elem], nc_type);
         // Mask on value equality, matching how `libnetcdf` / numpy compare a
-        // masked array against `_FillValue` (so a `NaN` fill, like `NaN == NaN`,
-        // masks nothing). The compare is in the `f64` domain, so for `int64` /
-        // `uint64` fills two values past 2^53 apart can collide — the same
-        // precision limit the rest of this pipeline carries.
-        out.push(match fill {
-            Some(f) if v == f => None,
-            _ => Some(v),
-        });
+        // masked array against `_FillValue` / `missing_value` (so a `NaN`
+        // sentinel, like `NaN == NaN`, masks nothing). The compare is in the
+        // `f64` domain, so for `int64` / `uint64` sentinels two values past
+        // 2^53 apart can collide — the same precision limit the rest of this
+        // pipeline carries.
+        out.push(if fills.contains(&v) { None } else { Some(v) });
     }
     Ok(())
 }
@@ -916,13 +930,53 @@ mod tests {
     }
 
     fn fill_attr(value: f64, nc_type: NcType) -> Attribute {
+        named_attr("_FillValue", value, nc_type)
+    }
+
+    fn named_attr(name: &str, value: f64, nc_type: NcType) -> Attribute {
         Attribute {
-            name: "_FillValue".to_string(),
+            name: name.to_string(),
             nc_type,
             nelems: 1,
             value: value.to_string(),
             first_value: Some(value),
         }
+    }
+
+    #[test]
+    fn missing_sentinels_collect_fill_and_missing_value() {
+        let mut v = var("t", vec![0], NcType::Short, 4, 0);
+        assert!(v.missing_sentinels().is_empty(), "no attrs -> no sentinels");
+        v.attributes
+            .push(named_attr("missing_value", -8.0, NcType::Short));
+        v.attributes.push(fill_attr(-9.0, NcType::Short));
+        // _FillValue first, then missing_value, regardless of declaration order.
+        assert_eq!(v.missing_sentinels(), vec![-9.0, -8.0]);
+    }
+
+    #[test]
+    fn fixed_variable_masks_missing_value() {
+        // A variable that marks gaps with `missing_value` and no `_FillValue`
+        // still masks them (the gap this fixes).
+        let mut v = var("t", vec![0], NcType::Float, 8, 4);
+        v.attributes
+            .push(named_attr("missing_value", -1.0, NcType::Float));
+        let header = ClassicHeader {
+            version: ClassicVersion::Cdf1,
+            numrecs: Some(0),
+            dimensions: vec![Dimension {
+                name: "x".to_string(),
+                length: 2,
+                is_record: false,
+            }],
+            global_attributes: Vec::new(),
+            variables: vec![v],
+        };
+        let mut data = vec![0u8; 4];
+        data.extend_from_slice(&7.5f32.to_be_bytes());
+        data.extend_from_slice(&(-1.0f32).to_be_bytes());
+        let out = decode_variable_values(&header, &data, 0).unwrap();
+        assert_eq!(out, vec![Some(7.5), None]);
     }
 
     #[test]

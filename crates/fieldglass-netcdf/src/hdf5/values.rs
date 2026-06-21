@@ -85,8 +85,9 @@ pub fn read_dataset_values(
         .and_then(|b| fill_value_default(b).ok())
         .flatten();
 
-    // `_FillValue` *attribute* drives masking, matching classic / libnetcdf.
-    let fill_mask = fill_value_attribute(bytes, object_header_address, probe)?;
+    // `_FillValue` and CF `missing_value` *attributes* drive masking, matching
+    // classic / libnetcdf.
+    let fills = missing_sentinels(bytes, object_header_address, probe)?;
 
     let shape: Vec<u64> = dataspace.dims.clone();
     let total = checked_total(&shape)?;
@@ -117,10 +118,7 @@ pub fn read_dataset_values(
         let v = datatype
             .read_element_f64(&raw[off..off + elem])
             .ok_or_else(|| FieldglassError::Parse("dataset element decode failed".into()))?;
-        out.push(match fill_mask {
-            Some(f) if v == f => None,
-            _ => Some(v),
-        });
+        out.push(if fills.contains(&v) { None } else { Some(v) });
     }
     Ok(out)
 }
@@ -458,20 +456,24 @@ fn fill_value_default(body: &[u8]) -> Result<Option<Vec<u8>>, FieldglassError> {
     Ok(Some(body[start..end].to_vec()))
 }
 
-/// The numeric `_FillValue` *attribute*, widened to `f64`, used to mask points.
-/// Mirrors the classic path: only an explicit `_FillValue` attribute masks; the
-/// HDF5 storage fill default does not.
-fn fill_value_attribute(
+/// The numeric sentinel values that mask a point: the `_FillValue` and the CF
+/// `missing_value` *attributes*, widened to `f64`. Mirrors the classic path
+/// ([`crate::classic::Variable::missing_sentinels`]): only explicit attributes
+/// mask (the HDF5 storage fill default does not), `libnetcdf` masks a point
+/// equal to either, and a multi-valued `missing_value` contributes only its
+/// first element.
+fn missing_sentinels(
     bytes: &[u8],
     object_header_address: u64,
     probe: &Hdf5Probe,
-) -> Result<Option<f64>, FieldglassError> {
+) -> Result<Vec<f64>, FieldglassError> {
     let attrs = attribute::list_attributes(bytes, object_header_address, probe)?;
     // Use the typed first element, not the rendered display string: the display
     // text is rounded to a few decimals, so reparsing it would not bit-match the
-    // decoded value and float fills would silently fail to mask.
-    Ok(attrs
-        .iter()
-        .find(|a| a.name == "_FillValue")
-        .and_then(|a| a.first_value))
+    // decoded value and float sentinels would silently fail to mask.
+    Ok(["_FillValue", "missing_value"]
+        .into_iter()
+        .filter_map(|name| attrs.iter().find(|a| a.name == name))
+        .filter_map(|a| a.first_value)
+        .collect())
 }
