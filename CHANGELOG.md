@@ -36,6 +36,7 @@ Versioning follows the [VS Code pre-release convention](https://code.visualstudi
 - **Truncated GRIB1 matrix-of-values fields now report an error instead of mis-decoding.** When a matrix message's packed data ran short of what its secondary bitmap declared, the decoder filled the gap with missing values and shifted every later value by one. It now surfaces a clean parse error, matching how the other packings handle a short data section.
 - **Hardened parsing of untrusted files.** A NetCDF header name length is now bounded by a fixed cap rather than the file size, a GRIB2 end-of-message check guards its own bounds locally, and the projection code sorts with a total order so a stray non-finite value can't panic a render. None of these change how valid files decode.
 - **Small NetCDF attribute values now show in full.** The metadata viewer rounded numeric attributes to six decimal places, so a tiny value like a GOES `scale_factor` of about 0.00000067 displayed as `0.000001`. Numeric attributes now show their exact stored value. Closes #184.
+- **NetCDF fields that mark gaps with `missing_value` now mask them.** Decode masked only points equal to a variable's `_FillValue`; it now also masks the CF `missing_value` attribute, the older convention many products still use, so those gaps read as missing instead of as a real data spike. Both the classic and NetCDF-4 / HDF5 backings handle it, cross-checked against the netCDF4 library.
 
 ## [0.1.3] — 2026-06-06
 

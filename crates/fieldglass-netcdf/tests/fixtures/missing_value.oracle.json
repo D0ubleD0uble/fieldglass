@@ -1,0 +1,19 @@
+{
+  "source": "netCDF4 1.7.4 (libnetcdf 4.9.3). CF missing_value masking oracle. Self-generated; provenance in NOTICE.md.",
+  "temp": {
+    "shape": [
+      2,
+      3
+    ],
+    "fill_value": -9999.0,
+    "missing_value": -8888.0,
+    "values": [
+      10.0,
+      null,
+      20.0,
+      null,
+      30.0,
+      null
+    ]
+  }
+}
