@@ -8,6 +8,7 @@
 pub mod classic;
 pub mod geometry;
 pub mod hdf5;
+pub mod projection;
 pub mod reader;
 
 pub use classic::{Attribute, ClassicHeader, ClassicVersion, Dimension, NcType, Variable};
@@ -25,4 +26,8 @@ pub use hdf5::dimensions::{
 pub use hdf5::group::{ChildKind, GroupChild, list_root_children};
 pub use hdf5::object_header::{HeaderMessage, ObjectHeader};
 pub use hdf5::{Hdf5Probe, root_group_address};
+pub use projection::{
+    GeostationaryGrid, WrfLambertGrid, apply_scale_offset, cf_scale_offset,
+    resolve_cf_geostationary, resolve_wrf_lambert,
+};
 pub use reader::{NetcdfBacking, NetcdfReader};
