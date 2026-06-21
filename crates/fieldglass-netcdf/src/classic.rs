@@ -785,14 +785,8 @@ pub(crate) fn render_numeric_values(raw: &[u8], nc_type: NcType) -> String {
             NcType::UShort => u16::from_be_bytes([chunk[0], chunk[1]]).to_string(),
             NcType::Int => i32::from_be_bytes(chunk.try_into().unwrap()).to_string(),
             NcType::UInt => u32::from_be_bytes(chunk.try_into().unwrap()).to_string(),
-            NcType::Float => {
-                let v = f32::from_be_bytes(chunk.try_into().unwrap());
-                format_float(v as f64)
-            }
-            NcType::Double => {
-                let v = f64::from_be_bytes(chunk.try_into().unwrap());
-                format_float(v)
-            }
+            NcType::Float => format_float(f32::from_be_bytes(chunk.try_into().unwrap())),
+            NcType::Double => format_float(f64::from_be_bytes(chunk.try_into().unwrap())),
             NcType::Int64 => i64::from_be_bytes(chunk.try_into().unwrap()).to_string(),
             NcType::UInt64 => u64::from_be_bytes(chunk.try_into().unwrap()).to_string(),
         };
@@ -801,26 +795,15 @@ pub(crate) fn render_numeric_values(raw: &[u8], nc_type: NcType) -> String {
     parts.join(", ")
 }
 
-/// Format a float compactly: trim trailing zeros while keeping enough
-/// precision that the displayed value round-trips for typical attributes.
-fn format_float(v: f64) -> String {
-    if !v.is_finite() {
-        return v.to_string();
-    }
-    // 6 significant digits is enough for human-readable attribute display.
-    // Precision-critical reads go through `decode_variable_values` (which
-    // decodes from the raw bytes), not this display string.
-    let formatted = format!("{v:.6}");
-    if formatted.contains('.') {
-        let trimmed = formatted.trim_end_matches('0').trim_end_matches('.');
-        if trimmed.is_empty() || trimmed == "-" {
-            "0".to_string()
-        } else {
-            trimmed.to_string()
-        }
-    } else {
-        formatted
-    }
+/// Format a float as the shortest decimal string that round-trips at its own
+/// precision — Rust's `Display`, which trims trailing zeros and never uses
+/// exponent notation. Formatting from the native type (not a widened `f64`)
+/// keeps small magnitudes exact: a GOES `scale_factor` ≈ 6.7e-7 prints in full
+/// rather than rounding to `0.000001`, so the metadata table is lossless.
+/// Signed zero normalises to `0`.
+fn format_float<T: std::fmt::Display>(v: T) -> String {
+    let s = v.to_string();
+    if s == "-0" { "0".to_string() } else { s }
 }
 
 #[cfg(test)]
@@ -840,6 +823,32 @@ mod tests {
         v.extend_from_slice(&0u32.to_be_bytes()); // var_list ABSENT tag
         v.extend_from_slice(&0u32.to_be_bytes()); // var_list count 0
         v
+    }
+
+    #[test]
+    fn float_attr_display_preserves_small_magnitudes() {
+        // A GOES-style scale_factor ≈ 6.67e-7 stored as float32 must not round
+        // to "0.000001"; it keeps its full float32 precision.
+        let goes = (6.666_666_7e-7_f32).to_be_bytes();
+        assert_eq!(
+            render_numeric_values(&goes, NcType::Float),
+            "0.00000066666666"
+        );
+        // Integer-valued floats stay clean (no trailing ".0"), and a two-element
+        // array joins with ", ".
+        let mut pair = Vec::new();
+        pair.extend_from_slice(&(-89.0_f32).to_be_bytes());
+        pair.extend_from_slice(&(89.0_f32).to_be_bytes());
+        assert_eq!(render_numeric_values(&pair, NcType::Float), "-89, 89");
+        // float64 keeps double precision; signed zero normalises to "0".
+        assert_eq!(
+            render_numeric_values(&(0.1_f64).to_be_bytes(), NcType::Double),
+            "0.1"
+        );
+        assert_eq!(
+            render_numeric_values(&(-0.0_f64).to_be_bytes(), NcType::Double),
+            "0"
+        );
     }
 
     #[test]
