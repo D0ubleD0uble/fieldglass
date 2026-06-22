@@ -295,7 +295,7 @@ fn link_info_links(
 
     let btree_addr = read_uint_le(body, pos + o, o)?;
     let heap = FractalHeap::parse(bytes, heap_addr, osize, lsize)?;
-    let (btree_type, records) = heap::btree_v2_leaf_records(bytes, btree_addr, osize, lsize)?;
+    let (btree_type, records) = heap::btree_v2_records(bytes, btree_addr, osize, lsize)?;
     if btree_type != 5 && btree_type != 6 {
         return Err(FieldglassError::Parse(format!(
             "unsupported B-tree v2 type {btree_type} for links"
