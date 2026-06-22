@@ -50,6 +50,12 @@ const TEMPLATE_5_41_PAYLOAD_LEN: usize = 10;
 /// size (octet 23), and the 2-octet reference sample interval (24–25).
 const TEMPLATE_5_42_PAYLOAD_LEN: usize = 14;
 
+/// Template 5.40 payload length — octets 12..=23, 12 bytes: the 10-byte
+/// simple-packing block (R / E / D / bits-per-value / original-field-type)
+/// followed by the two JPEG 2000 descriptors — type-of-compression-used
+/// (octet 22) and target-compression-ratio (octet 23).
+const TEMPLATE_5_40_PAYLOAD_LEN: usize = 12;
+
 /// Template 5.0 — simple grid-point packing.
 ///
 /// The unpacked value at each grid point is
@@ -139,6 +145,46 @@ pub struct CcsdsPackingTemplate {
     /// Reference sample interval (octets 24–25) — how often the AEC stream
     /// restarts with a verbatim reference sample (typically 128).
     pub reference_sample_interval: u16,
+}
+
+/// Template 5.40 — JPEG 2000 packing.
+///
+/// Like PNG (5.41) and CCSDS (5.42), the first ten payload octets mirror simple
+/// packing (5.0): `R` / `E` / `D` / [`bits_per_value`] / original-field-type,
+/// and the value transform after decompression is the simple-packing formula
+/// `R + X · 2^E · 10^-D`. The difference is §7, which carries a JPEG 2000
+/// codestream (ISO/IEC 15444-1 Annex A, no JP2 boxes) whose decoded
+/// single-component samples are the packed integers `X`. The two extra octets
+/// describe the compression.
+///
+/// `bits_per_value == 0` is the constant-field special case: §7 is empty and
+/// every present point equals the reference value verbatim (matching eccodes'
+/// `grid_jpeg` unpack — see [`super::ds`]).
+///
+/// [`bits_per_value`]: Jpeg2000PackingTemplate::bits_per_value
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Jpeg2000PackingTemplate {
+    /// Reference value `R` (IEEE 32-bit float, octets 12–15 of the section).
+    pub reference_value: f32,
+    /// Binary scale factor `E` (sign-magnitude `i16`, octets 16–17).
+    pub binary_scale_factor: i16,
+    /// Decimal scale factor `D` (sign-magnitude `i16`, octets 18–19).
+    pub decimal_scale_factor: i16,
+    /// Number of bits used for each packed value (octet 20) — the JPEG 2000
+    /// component bit depth. `0` is the constant-field special case (no §7
+    /// codestream).
+    pub bits_per_value: u8,
+    /// Type of original field values (octet 21) — WMO Code Table 5.1,
+    /// `0` = floating point, `1` = integer.
+    pub original_field_type: u8,
+    /// Type of compression used (octet 22) — WMO Code Table 5.40,
+    /// `0` = lossless, `1` = lossy. The wavelet transform (reversible 5/3 vs
+    /// irreversible 9/7) is selected by the codestream's COD marker, so decode
+    /// does not branch on this field; it is parsed for metadata completeness.
+    pub type_of_compression_used: u8,
+    /// Target compression ratio `M:1` (octet 23), meaningful only for lossy
+    /// compression. `255` (missing) for lossless, as eccodes writes.
+    pub target_compression_ratio: u8,
 }
 
 /// Template 5.4 — grid-point IEEE 754 floating-point packing.
@@ -255,6 +301,7 @@ pub enum DataRepresentationTemplate {
     Ieee(IeeePackingTemplate),
     Png(PngPackingTemplate),
     Ccsds(CcsdsPackingTemplate),
+    Jpeg2000(Jpeg2000PackingTemplate),
     Unsupported(u16),
 }
 
@@ -281,6 +328,7 @@ impl DataRepresentationSection {
             DataRepresentationTemplate::Ieee(_) => "ieee".to_string(),
             DataRepresentationTemplate::Png(_) => "png".to_string(),
             DataRepresentationTemplate::Ccsds(_) => "ccsds".to_string(),
+            DataRepresentationTemplate::Jpeg2000(_) => "jpeg".to_string(),
             DataRepresentationTemplate::Unsupported(n) => format!("unsupported(5.{n})"),
         }
     }
@@ -338,6 +386,15 @@ impl DataRepresentationSection {
             _ => None,
         }
     }
+
+    /// Borrow the JPEG 2000-packing template if that's what the section
+    /// carries. Other templates return `None`.
+    pub fn jpeg2000(&self) -> Option<&Jpeg2000PackingTemplate> {
+        match &self.template {
+            DataRepresentationTemplate::Jpeg2000(t) => Some(t),
+            _ => None,
+        }
+    }
 }
 
 /// Parse the Data Representation Section starting at `bytes[0]`.
@@ -382,6 +439,7 @@ pub fn parse_data_representation_with_header(
         2 => DataRepresentationTemplate::Complex(parse_template_5_2(payload)?),
         3 => DataRepresentationTemplate::ComplexSpatialDiff(parse_template_5_3(payload)?),
         4 => DataRepresentationTemplate::Ieee(parse_template_5_4(payload)?),
+        40 => DataRepresentationTemplate::Jpeg2000(parse_template_5_40(payload)?),
         41 => DataRepresentationTemplate::Png(parse_template_5_41(payload)?),
         42 => DataRepresentationTemplate::Ccsds(parse_template_5_42(payload)?),
         other => DataRepresentationTemplate::Unsupported(other),
@@ -505,6 +563,29 @@ fn parse_template_5_41(payload: &[u8]) -> Result<PngPackingTemplate, FieldglassE
         decimal_scale_factor,
         bits_per_value: payload[8],
         original_field_type: payload[9],
+    })
+}
+
+fn parse_template_5_40(payload: &[u8]) -> Result<Jpeg2000PackingTemplate, FieldglassError> {
+    if payload.len() < TEMPLATE_5_40_PAYLOAD_LEN {
+        return Err(FieldglassError::Parse(format!(
+            "DRS template 5.40 needs {TEMPLATE_5_40_PAYLOAD_LEN} bytes of payload, got {}",
+            payload.len()
+        )));
+    }
+    // Octets 12–21 mirror simple packing (5.0): R, E, D, bits-per-value, type.
+    let reference_value = f32::from_be_bytes([payload[0], payload[1], payload[2], payload[3]]);
+    let binary_scale_factor = sign_magnitude_i16(u16::from_be_bytes([payload[4], payload[5]]));
+    let decimal_scale_factor = sign_magnitude_i16(u16::from_be_bytes([payload[6], payload[7]]));
+    // Octets 22–23 are the JPEG 2000 descriptors.
+    Ok(Jpeg2000PackingTemplate {
+        reference_value,
+        binary_scale_factor,
+        decimal_scale_factor,
+        bits_per_value: payload[8],
+        original_field_type: payload[9],
+        type_of_compression_used: payload[10],
+        target_compression_ratio: payload[11],
     })
 }
 
@@ -945,13 +1026,64 @@ mod tests {
     fn unsupported_template_round_trips_with_label() {
         let mut bytes = build_drs_5_0();
         // Template number lives at section octets 10–11 = bytes 9–10.
-        bytes[9..11].copy_from_slice(&40u16.to_be_bytes()); // JPEG 2000
+        // 50 is unassigned in WMO Code Table 5.0 — a genuinely unsupported
+        // template (40/41/42 all decode now).
+        bytes[9..11].copy_from_slice(&50u16.to_be_bytes());
         let drs = parse_data_representation(&bytes).expect("parse");
         assert!(matches!(
             drs.template,
-            DataRepresentationTemplate::Unsupported(40)
+            DataRepresentationTemplate::Unsupported(50)
         ));
-        assert_eq!(drs.template_name(), "unsupported(5.40)");
+        assert_eq!(drs.template_name(), "unsupported(5.50)");
         assert!(drs.simple().is_none());
+    }
+
+    /// Build a minimal §5 with template 5.40 — a 23-byte section whose payload
+    /// is the 10-byte simple-packing block plus the two JPEG 2000 descriptors.
+    fn build_drs_5_40() -> Vec<u8> {
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&23u32.to_be_bytes()); // section length
+        buf.push(DRS_SECTION_NUMBER); // section number
+        buf.extend_from_slice(&496u32.to_be_bytes()); // number of data points
+        buf.extend_from_slice(&40u16.to_be_bytes()); // template 5.40
+        buf.extend_from_slice(&270.467f32.to_be_bytes()); // R
+        buf.extend_from_slice(&0x800au16.to_be_bytes()); // E = -10 (sign-magnitude)
+        buf.extend_from_slice(&0u16.to_be_bytes()); // D = 0
+        buf.push(16); // bits per value
+        buf.push(0); // original field type
+        buf.push(0); // type of compression used (lossless)
+        buf.push(255); // target compression ratio (missing)
+        buf
+    }
+
+    #[test]
+    fn parses_template_5_40() {
+        let drs = parse_data_representation(&build_drs_5_40()).expect("parse 5.40");
+        assert_eq!(drs.template_number, 40);
+        assert_eq!(drs.template_name(), "jpeg");
+        let t = drs.jpeg2000().expect("5.40 has jpeg2000 template");
+        assert_eq!(t.reference_value, 270.467);
+        assert_eq!(t.binary_scale_factor, -10);
+        assert_eq!(t.decimal_scale_factor, 0);
+        assert_eq!(t.bits_per_value, 16);
+        assert_eq!(t.original_field_type, 0);
+        assert_eq!(t.type_of_compression_used, 0);
+        assert_eq!(t.target_compression_ratio, 255);
+        assert!(drs.simple().is_none());
+        assert!(drs.png().is_none());
+    }
+
+    #[test]
+    fn template_5_40_short_payload_is_rejected() {
+        let mut buf = build_drs_5_40();
+        // Declare length 22 (one octet short of the 12-byte payload) so the
+        // 5.40 parser sees a truncated payload.
+        buf[3] = 22;
+        buf.truncate(22);
+        let err = parse_data_representation(&buf).expect_err("must reject short 5.40");
+        assert!(
+            err.to_string().contains("template 5.40 needs"),
+            "error names template-5.40 shortfall, got: {err}",
+        );
     }
 }

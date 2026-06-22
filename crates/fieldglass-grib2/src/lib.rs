@@ -2,10 +2,10 @@
 //!
 //! Current scope: full §0–§7 parsing for the message metadata, plus value
 //! decoding for **simple packing** (DRS template 5.0), **complex packing**
-//! (5.2 / 5.3), **IEEE floating point** (5.4), **PNG packing** (5.41), and
-//! **CCSDS / AEC packing** (5.42). The remaining compressed template, JPEG
-//! 2000 5.40, is tracked under a separate issue — those messages parse to the
-//! section level but `decode_message_values` returns
+//! (5.2 / 5.3), **IEEE floating point** (5.4), **JPEG 2000 packing** (5.40),
+//! **PNG packing** (5.41), and **CCSDS / AEC packing** (5.42) — every §5
+//! template eccodes can encode. Templates outside that set parse to the section
+//! level but `decode_message_values` returns
 //! [`fieldglass_core::FieldglassError::UnsupportedSection`].
 
 #![forbid(unsafe_code)]

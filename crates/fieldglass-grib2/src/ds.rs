@@ -11,7 +11,8 @@
 
 use crate::drs::{
     CcsdsPackingTemplate, ComplexPackingTemplate, ComplexSpatialDiffTemplate,
-    DataRepresentationTemplate, IeeePackingTemplate, PngPackingTemplate, SimplePackingTemplate,
+    DataRepresentationTemplate, IeeePackingTemplate, Jpeg2000PackingTemplate, PngPackingTemplate,
+    SimplePackingTemplate,
 };
 use crate::section::{SECTION_HEADER_LEN, SectionHeader};
 use fieldglass_core::{
@@ -82,6 +83,9 @@ pub fn decode_values(
         }
         DataRepresentationTemplate::Ccsds(t) => {
             decode_ccsds_packing(ds_payload, &t, bitmap, expected_count)
+        }
+        DataRepresentationTemplate::Jpeg2000(t) => {
+            decode_jpeg2000_packing(ds_payload, &t, bitmap, expected_count)
         }
         DataRepresentationTemplate::Unsupported(n) => Err(FieldglassError::UnsupportedSection(
             format!("DRS template 5.{n} decoding is not implemented"),
@@ -694,6 +698,84 @@ fn decode_ccsds_packing(
         for &b in chunk {
             x = (x << 8) | b as u64;
         }
+        decoded.push((r + x as f64 * two_pow_e) * d_inv);
+    }
+
+    Ok(interleave_with_bitmap(decoded, bitmap, expected_count))
+}
+
+/// Decode JPEG 2000 packing (template 5.40). §7 carries a JPEG 2000 codestream
+/// (ISO/IEC 15444-1 Annex A, no JP2 boxes) whose decoded single-component
+/// samples are the packed integers `X`; after decompression the value transform
+/// is the simple-packing formula `value = (R + X · 2^E) · 10^-D`, identical to
+/// PNG (5.41) / CCSDS (5.42).
+///
+/// The codec is the pure-Rust [`rust_j2k`] crate (no C dependency, so the
+/// six-target `.vsix` cross-compile is preserved); see ADR-0001. Any decoder
+/// error — a malformed codestream, or a JPEG 2000 feature `rust_j2k` doesn't
+/// cover yet — is surfaced as [`FieldglassError::UnsupportedSection`] so an
+/// untrusted file degrades gracefully (the message is reported undecodable)
+/// rather than crashing the addon.
+///
+/// `rust_j2k` returns samples already DC-level-shifted into the unsigned range
+/// `[0, 2^bits-1]`, matching eccodes' `grid_jpeg`, which reads them as unsigned
+/// offsets from `R`. The reversible 5/3 (lossless) and irreversible 9/7 (lossy)
+/// wavelet paths are selected by the codestream itself, so the decode does not
+/// branch on the template's `type_of_compression_used`.
+fn decode_jpeg2000_packing(
+    ds_payload: &[u8],
+    t: &Jpeg2000PackingTemplate,
+    bitmap: Option<&[bool]>,
+    expected_count: usize,
+) -> Result<Vec<Option<f64>>, FieldglassError> {
+    let present_count = check_bitmap_present_count(bitmap, expected_count)?;
+
+    let r = t.reference_value as f64;
+    let two_pow_e = 2f64.powi(t.binary_scale_factor as i32);
+    let d_inv = 10f64.powi(-(t.decimal_scale_factor as i32));
+
+    // Constant field: bitsPerValue == 0 means §7 is empty and every present
+    // point equals the reference value verbatim, matching eccodes' `grid_jpeg`
+    // unpack (which returns `R` directly, without the 10^-D factor).
+    if t.bits_per_value == 0 {
+        return Ok(materialise_constant(r, bitmap, expected_count));
+    }
+    if t.bits_per_value > 32 {
+        return Err(FieldglassError::Parse(format!(
+            "JPEG 2000 packing: bits_per_value {} exceeds 32",
+            t.bits_per_value
+        )));
+    }
+
+    let image = rust_j2k::decode(ds_payload).map_err(|e| {
+        FieldglassError::UnsupportedSection(format!("JPEG 2000 packing: decode failed: {e}"))
+    })?;
+
+    // Operational `grid_jpeg` always stores an unsigned component, and eccodes
+    // reads the samples as unsigned offsets from `R`. A signed component would
+    // make `rust_j2k` return negative samples, which the unsigned-offset
+    // transform below would silently misread — so reject it rather than guess.
+    if image.signed {
+        return Err(FieldglassError::UnsupportedSection(
+            "JPEG 2000 packing: signed component is unsupported".into(),
+        ));
+    }
+
+    // The codestream must hold exactly one sample per present point; a mismatch
+    // means the §7 geometry disagrees with the field, which we reject rather
+    // than misread.
+    if image.samples.len() != present_count {
+        return Err(FieldglassError::Parse(format!(
+            "JPEG 2000 packing: codestream holds {} samples but {present_count} values are required",
+            image.samples.len()
+        )));
+    }
+
+    // Samples are non-negative unsigned offsets `X` (the encoder stores an
+    // unsigned component, and `rust_j2k` level-shifts unsigned components back
+    // into `[0, 2^bits-1]`). Read them as such, mirroring eccodes.
+    let mut decoded = Vec::with_capacity(present_count);
+    for &x in &image.samples {
         decoded.push((r + x as f64 * two_pow_e) * d_inv);
     }
 
@@ -1530,11 +1612,75 @@ mod tests {
         assert!(err.to_string().contains("CCSDS packing"), "got: {err}");
     }
 
+    // -----------------------------------------------------------------
+    // JPEG 2000 packing (template 5.40)
+    //
+    // The §7 codestream is decoded by `rust_j2k`; the happy path is
+    // cross-checked against the committed eccodes oracle in
+    // `tests/decode_jpeg2000.rs`. These unit tests cover the branches that
+    // don't need a real codestream — the constant-field shortcut, the
+    // bits-per-value guard, and the graceful-degradation guardrail.
+    // -----------------------------------------------------------------
+
+    fn jpeg2000_template(r: f32, e: i16, d: i16, bits: u8) -> DataRepresentationTemplate {
+        DataRepresentationTemplate::Jpeg2000(Jpeg2000PackingTemplate {
+            reference_value: r,
+            binary_scale_factor: e,
+            decimal_scale_factor: d,
+            bits_per_value: bits,
+            original_field_type: 0,
+            type_of_compression_used: 0,
+            target_compression_ratio: 255,
+        })
+    }
+
+    #[test]
+    fn jpeg2000_packing_constant_field_no_stream() {
+        // bits_per_value == 0 → §7 is empty; every present point equals R
+        // verbatim (eccodes `grid_jpeg` semantics — no 10^-D factor).
+        let decoded = decode_values(&[], jpeg2000_template(7.0, 0, 1, 0), None, 5).expect("decode");
+        assert_eq!(decoded, vec![Some(7.0); 5]);
+    }
+
+    #[test]
+    fn jpeg2000_packing_constant_field_honours_bitmap() {
+        let bitmap = [true, false, true, false, true];
+        let decoded =
+            decode_values(&[], jpeg2000_template(3.5, 0, 0, 0), Some(&bitmap), 5).expect("decode");
+        assert_eq!(decoded, vec![Some(3.5), None, Some(3.5), None, Some(3.5)]);
+    }
+
+    #[test]
+    fn jpeg2000_packing_rejects_bits_above_32() {
+        let err =
+            decode_values(&[], jpeg2000_template(0.0, 0, 0, 33), None, 4).expect_err("must reject");
+        assert!(err.to_string().contains("exceeds 32"), "got: {err}");
+    }
+
+    #[test]
+    fn jpeg2000_packing_degrades_on_malformed_stream() {
+        // A non-J2K payload must surface as a recoverable UnsupportedSection
+        // error (graceful degradation), never a panic.
+        let err = decode_values(
+            b"not a j2k stream",
+            jpeg2000_template(0.0, 0, 0, 16),
+            None,
+            8,
+        )
+        .expect_err("must reject");
+        assert!(
+            matches!(err, FieldglassError::UnsupportedSection(_)),
+            "expected UnsupportedSection, got: {err:?}"
+        );
+        assert!(err.to_string().contains("JPEG 2000 packing"), "got: {err}");
+    }
+
     #[test]
     fn unsupported_template_yields_unsupported_error() {
-        let template = DataRepresentationTemplate::Unsupported(40);
+        // 50 is unassigned in WMO Code Table 5.0 (40/41/42 all decode now).
+        let template = DataRepresentationTemplate::Unsupported(50);
         let err = decode_values(&[], template, None, 0).expect_err("must reject");
-        assert!(err.to_string().contains("template 5.40"));
+        assert!(err.to_string().contains("template 5.50"));
     }
 
     #[test]
