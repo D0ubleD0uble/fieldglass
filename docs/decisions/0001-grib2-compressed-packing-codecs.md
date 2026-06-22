@@ -117,7 +117,7 @@ oracle** (count, min/max/mean, and anchored samples). It has no C dependency, so
 it cross-compiles to all six targets and preserves the C-free `.vsix` this ADR
 set out to protect.
 
-Like `rust-aec`, it is young (v0.1.0, single maintainer), so #116 ships it behind
+Like `rust-aec`, it is young (v0.2.0, single maintainer), so #116 ships it behind
 the same guardrails: the version is pinned exactly and `cargo deny check` stays
 in the gate; the codec call is kept self-contained in `decode_jpeg2000_packing`
 so it stays swappable; and any decoder error is surfaced as `UnsupportedSection`

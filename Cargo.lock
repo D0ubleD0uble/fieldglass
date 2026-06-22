@@ -346,9 +346,9 @@ dependencies = [
 
 [[package]]
 name = "rust-j2k"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1312c5b329a500b1f10022fe84822d9c720b2859f3ef8947419bb8cfc415bb86"
+checksum = "7b943f63afac98bb325a204f5bb88a599d54f8d354b1d1a0fb8e9d1d469f078e"
 
 [[package]]
 name = "rustc-hash"

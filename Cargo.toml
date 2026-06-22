@@ -33,7 +33,7 @@ rust-aec = "=0.1.1"
 # deps, so it preserves the six-target cross-compile that ADR-0001 protects.
 # Pinned exactly (young, bus-factor 1 upstream): review the diff on every bump
 # and rely on `cargo deny check` for advisory / licence drift. See ADR-0001.
-rust-j2k = "=0.1.0"
+rust-j2k = "=0.2.0"
 # Pure-Rust DEFLATE (zlib) codec for the HDF5 deflate filter used by NetCDF-4
 # chunked datasets. Already in the tree via the `png` crate; MIT-licensed, no C
 # deps. See crates/fieldglass-netcdf.
