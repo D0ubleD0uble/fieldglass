@@ -1,0 +1,18 @@
+{
+  "source": "h5py 3.16.0 (libhdf5 2.0.0), libver='latest'",
+  "superblock_version": 3,
+  "dataset": "many_attrs",
+  "attribute_count": 700,
+  "attribute_name_index_btree_v2": {
+    "type": 8,
+    "depth": 2
+  },
+  "attribute_value_rule": "a{i:04d} -> int32 i, for i in 0..attribute_count",
+  "sampled_attributes": {
+    "a0000": 0,
+    "a0001": 1,
+    "a0350": 350,
+    "a0698": 698,
+    "a0699": 699
+  }
+}

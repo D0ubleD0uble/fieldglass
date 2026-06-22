@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 
 const V1_SYMBOLTABLE: &[u8] = include_bytes!("fixtures/hdf5_v1_symboltable.h5");
 const V2_LINKINFO: &[u8] = include_bytes!("fixtures/hdf5_v2_linkinfo.h5");
+const BTREEV2_MULTILEVEL: &[u8] = include_bytes!("fixtures/hdf5_btreev2_multilevel.h5");
 
 fn probe(bytes: &[u8]) -> fieldglass_netcdf::Hdf5Probe {
     match NetcdfReader::from_bytes(bytes.to_vec()).unwrap().backing {
@@ -91,4 +92,18 @@ fn dense_attributes_decode() {
 #[test]
 fn dataset_without_attributes_is_empty() {
     assert!(dataset_attrs(V1_SYMBOLTABLE, "scalar_i32").is_empty());
+}
+
+/// `many_attrs` carries 700 dense attributes, enough to push the attribute
+/// name-index B-tree v2 to depth 2 (per the oracle). Reading every one back
+/// proves the reader descends internal nodes instead of erroring — the gap that
+/// blocked metadata-heavy operational NetCDF-4 files (#33). Each `a{i:04}` maps
+/// to `int32 i`, so the whole set is checked against a generated expectation.
+#[test]
+fn multilevel_btree_v2_attributes_decode() {
+    let attrs = dataset_attrs(BTREEV2_MULTILEVEL, "many_attrs");
+    let want: BTreeMap<String, String> = (0..700)
+        .map(|i| (format!("a{i:04}"), i.to_string()))
+        .collect();
+    assert_eq!(attrs, want);
 }

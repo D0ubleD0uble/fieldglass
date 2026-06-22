@@ -203,12 +203,55 @@ def build(name: str, libver: str, *, dense_and_chunked: bool,
           f"FRHP={oracle['raw_markers']['FRHP_fractal_heap_dense_attrs']}]")
 
 
+def btree_v2_depth(raw: bytes, btree_type: int) -> int:
+    """Depth field of the first version-2 B-tree (``BTHD``) of ``btree_type``."""
+    i = 0
+    while (i := raw.find(b"BTHD", i)) >= 0:
+        if raw[i + 5] == btree_type:
+            return int.from_bytes(raw[i + 12:i + 14], "little")
+        i += 1
+    raise SystemExit(f"no BTHD of type {btree_type} in fixture")
+
+
+def build_btreev2_multilevel(name: str, n_attrs: int) -> None:
+    """A dataset carrying enough dense attributes that the attribute name-index
+    version-2 B-tree grows past one level (``depth > 0``), so the reader must walk
+    internal nodes — the structure real metadata-heavy NetCDF-4 / HDF5 files hit
+    well before their fractal heap needs child indirect blocks. Each attribute is
+    ``a{i:04d} -> int32 i`` so the oracle stays a rule plus samples, not a dump."""
+    path = FIXturesDir / name
+    with h5py.File(path, "w", libver="latest") as f:
+        f.attrs["title"] = np.bytes_(b"fieldglass multi-level B-tree v2 fixture")
+        dense = f.create_dataset("many_attrs", data=np.arange(3, dtype="<i4"),
+                                 track_times=False)
+        for i in range(n_attrs):
+            dense.attrs[f"a{i:04d}"] = np.int32(i)
+
+    raw = path.read_bytes()
+    depth = btree_v2_depth(raw, btree_type=8)
+    oracle = {
+        "source": f"h5py {h5py.__version__} (libhdf5 {h5py.version.hdf5_version}), libver='latest'",
+        "superblock_version": raw[raw.index(b"\x89HDF\r\n\x1a\n") + 8],
+        "dataset": "many_attrs",
+        "attribute_count": n_attrs,
+        "attribute_name_index_btree_v2": {"type": 8, "depth": depth},
+        "attribute_value_rule": "a{i:04d} -> int32 i, for i in 0..attribute_count",
+        "sampled_attributes": {f"a{i:04d}": i for i in sample_indices(n_attrs)},
+    }
+    (FIXturesDir / f"{name}.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n")
+    print(f"wrote {path} ({len(raw)} B) + oracle "
+          f"[{n_attrs} attrs, attr-name B-tree v2 depth={depth}]")
+
+
 def main() -> int:
     if not FIXturesDir.is_dir():
         raise SystemExit("run from the repo root")
     build("hdf5_v1_symboltable.h5", "earliest", dense_and_chunked=False,
           btree_v1_compressed=True)
     build("hdf5_v2_linkinfo.h5", "v110", dense_and_chunked=True)
+    # 700 attributes pushes the attribute name-index B-tree v2 to depth 2,
+    # exercising both the record-count and subtree-total node-pointer fields.
+    build_btreev2_multilevel("hdf5_btreev2_multilevel.h5", n_attrs=700)
     return 0
 
 

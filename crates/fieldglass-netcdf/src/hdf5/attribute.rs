@@ -169,7 +169,7 @@ fn read_dense_attribute_bodies(
 
     let heap = FractalHeap::parse(bytes, heap_addr, probe.offset_size, probe.length_size)?;
     let (btree_type, records) =
-        heap::btree_v2_leaf_records(bytes, btree_addr, probe.offset_size, probe.length_size)?;
+        heap::btree_v2_records(bytes, btree_addr, probe.offset_size, probe.length_size)?;
     if btree_type != 8 && btree_type != 9 {
         return Err(FieldglassError::Parse(format!(
             "unsupported B-tree v2 type {btree_type} for attributes"

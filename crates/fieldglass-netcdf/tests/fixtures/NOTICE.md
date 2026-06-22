@@ -114,6 +114,23 @@ verifiable today (superblock + `OHDR`/`SNOD`/`FRHP` markers).
 > wrote it" example; these two add controlled coverage of both group layouts
 > and the datatype / storage / attribute matrix.
 
+## Multi-level B-tree v2 fixture (`hdf5_btreev2_multilevel.h5`)
+
+A synthetic `h5py` (libhdf5) file whose `many_attrs` dataset carries 700 dense
+attributes — enough that the attribute name-index **version-2 B-tree grows to
+depth 2** (an internal-node tree, not a single leaf). It targets the multi-level
+B-tree walk: the doubling-table heap support added for the GOES-16 file (#187)
+handles a file's *storage*, but a metadata-heavy file's *index* spills into
+internal B-tree nodes first, which the reader previously refused. A real
+operational file (e.g. ERA5 / MERRA-2 / CMIP6, #123) hits this before it needs
+child indirect heap blocks. Built and oracle-dumped by
+`tools/build_hdf5_fixtures.py` (`track_times=False` for reproducibility).
+
+Each attribute is `a{i:04d} -> int32 i`, so the sibling `*.h5.oracle.json` records
+the rule, the attribute count, the measured B-tree depth, and a few sampled
+values rather than dumping 700 entries; `tests/hdf5_attributes.rs` reads every
+attribute back and checks it against the generated expectation. Part of #33.
+
 ## NetCDF-4 dimension-scale fixture (`netcdf4_dimscale.nc`)
 
 A small NetCDF-4 file written with the canonical Unidata `netCDF4` library (which

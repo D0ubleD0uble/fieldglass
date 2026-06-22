@@ -4,12 +4,14 @@
 //! indexes records that carry a fractal-heap ID, and the heap dereferences that
 //! ID to the actual message bytes.
 //!
-//! A single-level B-tree (depth 0) is the only B-tree layout implemented. For
-//! the fractal heap, both a single root direct block and a root *indirect* block
-//! (the doubling table that real attribute-rich files spill into once their
-//! dense storage outgrows one direct block) are handled, but only while every
-//! row holds direct blocks — child indirect blocks, huge/tiny objects, and I/O
-//! filters return a clear error rather than risk a silent misread.
+//! Both single-level (depth 0) and multi-level (depth > 0) B-trees are walked:
+//! once a dense attribute / link index outgrows one leaf the root becomes an
+//! internal node, and the records are gathered from every leaf in key order.
+//! For the fractal heap, both a single root direct block and a root *indirect*
+//! block (the doubling table that real attribute-rich files spill into once
+//! their dense storage outgrows one direct block) are handled, but only while
+//! every row holds direct blocks — child indirect blocks, huge/tiny objects,
+//! and I/O filters return a clear error rather than risk a silent misread.
 //!
 //! Reference: HDF5 file format specification version 3, "Fractal Heap" and
 //! "Version 2 B-trees".
@@ -18,6 +20,7 @@ use super::object_header::{is_undefined_address, read_uint_le};
 use fieldglass_core::FieldglassError;
 
 const SIG_BTREE_V2_HDR: &[u8; 4] = b"BTHD";
+const SIG_BTREE_V2_INTERNAL: &[u8; 4] = b"BTIN";
 const SIG_BTREE_V2_LEAF: &[u8; 4] = b"BTLF";
 const SIG_FRACTAL_HEAP: &[u8; 4] = b"FRHP";
 const SIG_FRACTAL_DIRECT: &[u8; 4] = b"FHDB";
@@ -29,14 +32,29 @@ const MAX_HEAP_ROWS: usize = 64;
 /// Guards a malformed doubling-table width (columns per row).
 const MAX_HEAP_TABLE_WIDTH: usize = 1024;
 
-/// Upper bound on B-tree v2 leaf records — guards a malformed record count.
+/// Upper bound on B-tree v2 records gathered across all leaves — guards a
+/// malformed record or node count.
 const MAX_BTREE_V2_RECORDS: usize = 1 << 20;
 
-/// Read the records of a single-level (depth 0) version-2 B-tree, returning the
-/// B-tree `type` and the raw record bytes. Callers slice the fractal-heap ID out
-/// of each record at the offset their record type dictates (link-name records
-/// put it after a 4-byte hash; attribute-name records put it first).
-pub(crate) fn btree_v2_leaf_records(
+/// Upper bound on B-tree v2 depth — guards a malformed header and bounds the
+/// node-walk recursion. Real indexes are only a few levels deep.
+const MAX_BTREE_V2_DEPTH: u16 = 32;
+
+/// Upper bound on a B-tree v2 node size — guards a malformed header. Real node
+/// sizes are a few KB; this cap keeps the per-level record counts (and the
+/// sizing recurrence) in a sane range rather than near `u32::MAX`.
+const MAX_BTREE_V2_NODE_SIZE: usize = 1 << 20;
+
+/// Fixed overhead of any B-tree v2 node image: signature(4) + version(1) +
+/// type(1) at the front and a Jenkins checksum(4) at the back.
+const BTREE_V2_NODE_OVERHEAD: usize = 6 + 4;
+
+/// Read every record of a version-2 B-tree, descending through internal nodes
+/// when the tree has more than one level, and return the B-tree `type` with the
+/// records in key order. Callers slice the fractal-heap ID out of each record at
+/// the offset their record type dictates (link-name records put it after a
+/// 4-byte hash; attribute-name records put it first).
+pub(crate) fn btree_v2_records(
     bytes: &[u8],
     addr: u64,
     osize: u8,
@@ -46,33 +64,207 @@ pub(crate) fn btree_v2_leaf_records(
     hdr.tag(SIG_BTREE_V2_HDR)?;
     hdr.skip(1)?; // version
     let btree_type = hdr.byte()?;
-    hdr.uint(4)?; // node size
+    let node_size = hdr.uint(4)? as usize;
     let record_size = hdr.u16()? as usize;
     let depth = hdr.u16()?;
-    if depth != 0 {
-        return Err(FieldglassError::Parse(
-            "multi-level B-tree v2 not supported".into(),
-        ));
-    }
     hdr.skip(2)?; // split + merge percent
     let root_addr = hdr.uint(osize as usize)?;
     let root_nrec = hdr.u16()? as usize;
     let _total = hdr.uint(lsize as usize)?;
 
+    if record_size == 0 {
+        return Err(FieldglassError::Parse("zero B-tree v2 record size".into()));
+    }
+    if node_size > MAX_BTREE_V2_NODE_SIZE {
+        return Err(FieldglassError::Parse(
+            "implausible B-tree v2 node size".into(),
+        ));
+    }
+    if depth > MAX_BTREE_V2_DEPTH {
+        return Err(FieldglassError::Parse("implausible B-tree v2 depth".into()));
+    }
     if root_nrec > MAX_BTREE_V2_RECORDS {
         return Err(FieldglassError::Parse(
             "implausible B-tree v2 record count".into(),
         ));
     }
 
-    let mut leaf = Cursor::at(bytes, root_addr)?;
-    leaf.tag(SIG_BTREE_V2_LEAF)?;
-    leaf.skip(2)?; // version + type
-    let mut records = Vec::with_capacity(root_nrec);
-    for _ in 0..root_nrec {
-        records.push(leaf.take(record_size)?.to_vec());
-    }
+    // The width of a node pointer's "number of records" fields is derived from
+    // how many records each level can hold, so precompute the per-level geometry
+    // before walking. `levels[u]` describes a node sitting `u` levels above the
+    // leaves (level 0).
+    let levels = BTreeV2Levels::compute(node_size, record_size, osize as usize, depth)?;
+
+    let mut records = Vec::new();
+    walk_btree_v2_node(
+        bytes,
+        root_addr,
+        depth,
+        root_nrec,
+        record_size,
+        osize as usize,
+        &levels,
+        &mut records,
+    )?;
     Ok((btree_type, records))
+}
+
+/// Per-level sizing for a version-2 B-tree, mirroring libhdf5's `node_info`
+/// table. A node pointer to a level-`u` child stores that child's record count
+/// in `count_bytes[u]` bytes, and — when the child is itself internal — its
+/// whole-subtree record count in `cum_bytes[u]` bytes.
+struct BTreeV2Levels {
+    /// Bytes used to encode the record count of a level-`u` child node.
+    count_bytes: Vec<usize>,
+    /// Bytes used to encode the total record count beneath a level-`u` child
+    /// (only read when that child is internal, i.e. `u >= 1`).
+    cum_bytes: Vec<usize>,
+    /// Maximum records a level-`u` node can hold, used to reject malformed
+    /// node-pointer record counts.
+    max_nrec: Vec<usize>,
+}
+
+impl BTreeV2Levels {
+    fn compute(
+        node_size: usize,
+        record_size: usize,
+        osize: usize,
+        depth: u16,
+    ) -> Result<Self, FieldglassError> {
+        let usable = node_size
+            .checked_sub(BTREE_V2_NODE_OVERHEAD)
+            .filter(|&u| u >= record_size)
+            .ok_or_else(|| FieldglassError::Parse("B-tree v2 node too small".into()))?;
+
+        // Level 0 — leaves hold as many fixed-size records as the node fits.
+        let mut max_nrec = vec![usable / record_size];
+        let mut cum_max = vec![max_nrec[0] as u64];
+        let mut count_bytes = vec![count_field_bytes(max_nrec[0] as u64)];
+        let mut cum_bytes = vec![0usize]; // unused for leaves
+
+        for u in 1..=depth as usize {
+            // A pointer to the level below: address + its record-count field, plus
+            // its subtree-total field once that child is itself internal.
+            let child = u - 1;
+            let ptr = osize + count_bytes[child] + if child >= 1 { cum_bytes[child] } else { 0 };
+            let denom = record_size + ptr;
+            // n records need n*(record+ptr) + ptr bytes (n+1 pointers); solve for n.
+            let n = usable
+                .checked_sub(ptr)
+                .map(|room| room / denom)
+                .filter(|&n| n > 0)
+                .ok_or_else(|| {
+                    FieldglassError::Parse("B-tree v2 internal node holds no records".into())
+                })?;
+            // Saturate: a subtree total that approaches `u64::MAX` only widens
+            // the (skipped) total field to its 8-byte ceiling, so over-estimating
+            // is harmless, where an unchecked multiply would overflow-panic on a
+            // crafted deep header.
+            let cum = (n as u64).saturating_add((n as u64 + 1).saturating_mul(cum_max[child]));
+            max_nrec.push(n);
+            count_bytes.push(count_field_bytes(n as u64));
+            cum_bytes.push(count_field_bytes(cum));
+            cum_max.push(cum);
+        }
+
+        Ok(Self {
+            count_bytes,
+            cum_bytes,
+            max_nrec,
+        })
+    }
+}
+
+/// Least number of bytes needed to encode values up to `max` (libhdf5's
+/// `H5B2_SIZEOF_RECORDS_PER_NODE`): `floor(log2(max)) / 8 + 1`, at least one.
+fn count_field_bytes(max: u64) -> usize {
+    if max == 0 {
+        1
+    } else {
+        (max.ilog2() as usize) / 8 + 1
+    }
+}
+
+/// Collect the records under one B-tree v2 node at `level` (0 = leaf). Internal
+/// nodes store all `nrec` records first, then `nrec + 1` node pointers; the
+/// records interleave between the subtrees in key order.
+#[allow(clippy::too_many_arguments)]
+fn walk_btree_v2_node(
+    bytes: &[u8],
+    addr: u64,
+    level: u16,
+    nrec: usize,
+    record_size: usize,
+    osize: usize,
+    levels: &BTreeV2Levels,
+    out: &mut Vec<Vec<u8>>,
+) -> Result<(), FieldglassError> {
+    // This guard is also the total-work bound, not just per-node validation:
+    // a node fans out to `nrec + 1` children, so producing more than one child
+    // requires `nrec >= 1`, and those records are pushed into `out` below. The
+    // `out.len() + nrec` cap therefore limits how many fan-out nodes can be
+    // visited, while `level` strictly decreasing (depth ≤ MAX_BTREE_V2_DEPTH)
+    // bounds the depth of any `nrec == 0` chain — together ruling out the
+    // exponential blow-up a back-edge could otherwise cause. Keep the record
+    // push *after* the recursion so this stays true.
+    if nrec > levels.max_nrec[level as usize] || out.len() + nrec > MAX_BTREE_V2_RECORDS {
+        return Err(FieldglassError::Parse(
+            "B-tree v2 node record count out of range".into(),
+        ));
+    }
+    let mut cur = Cursor::at(bytes, addr)?;
+
+    if level == 0 {
+        cur.tag(SIG_BTREE_V2_LEAF)?;
+        cur.skip(2)?; // version + type
+        for _ in 0..nrec {
+            out.push(cur.take(record_size)?.to_vec());
+        }
+        return Ok(());
+    }
+
+    cur.tag(SIG_BTREE_V2_INTERNAL)?;
+    cur.skip(2)?; // version + type
+    let mut records = Vec::with_capacity(nrec);
+    for _ in 0..nrec {
+        records.push(cur.take(record_size)?.to_vec());
+    }
+
+    // Node pointers to the level below: address, record count, and — when that
+    // child is internal — its subtree total (read past, not needed here).
+    let child = level - 1;
+    let count_bytes = levels.count_bytes[child as usize];
+    let cum_bytes = if child >= 1 {
+        levels.cum_bytes[child as usize]
+    } else {
+        0
+    };
+    let mut children = Vec::with_capacity(nrec + 1);
+    for _ in 0..=nrec {
+        let child_addr = cur.uint(osize)?;
+        let child_nrec = cur.uint(count_bytes)? as usize;
+        if cum_bytes > 0 {
+            cur.skip(cum_bytes)?;
+        }
+        children.push((child_addr, child_nrec));
+    }
+
+    for (i, &(child_addr, child_nrec)) in children.iter().enumerate() {
+        walk_btree_v2_node(
+            bytes,
+            child_addr,
+            child,
+            child_nrec,
+            record_size,
+            osize,
+            levels,
+            out,
+        )?;
+        if let Some(rec) = records.get(i) {
+            out.push(rec.clone());
+        }
+    }
+    Ok(())
 }
 
 /// One managed direct block, placed in the heap's linear address space. A heap
@@ -397,56 +589,209 @@ mod tests {
         buf[at..at + data.len()].copy_from_slice(data);
     }
 
-    /// Build a depth-0 B-tree v2 header + leaf carrying `records`.
-    fn btree_v2(btree_type: u8, record_size: usize, records: &[Vec<u8>]) -> Vec<u8> {
-        let header_addr = 0usize;
-        let leaf_addr = 0x100usize;
-        let mut buf = vec![0u8; 0x200];
+    // Node size every test B-tree advertises; with the small record sizes used
+    // here every count/total field is one byte wide (see `level_geometry`).
+    const NODE_SIZE: usize = 512;
+
+    /// Write a B-tree v2 header at offset 0 pointing at `root_addr`.
+    fn btree_v2_header(
+        buf: &mut Vec<u8>,
+        btree_type: u8,
+        record_size: usize,
+        depth: u16,
+        root_addr: u64,
+        root_nrec: usize,
+    ) {
         // Header: sig(4) version(1) type(1) node_size(4) record_size(2) depth(2)
         //         split/merge(2) root_addr(8) root_nrec(2) total(8) checksum(4).
-        put(&mut buf, header_addr, SIG_BTREE_V2_HDR);
-        buf[header_addr + 5] = btree_type;
-        put(
+        put(buf, 0, SIG_BTREE_V2_HDR);
+        buf[5] = btree_type;
+        put(buf, 6, &(NODE_SIZE as u32).to_le_bytes());
+        put(buf, 10, &(record_size as u16).to_le_bytes());
+        put(buf, 12, &depth.to_le_bytes());
+        put(buf, 16, &root_addr.to_le_bytes());
+        put(buf, 24, &(root_nrec as u16).to_le_bytes());
+    }
+
+    /// A depth-0 B-tree v2 (header + a single leaf) carrying `records`.
+    fn btree_v2(btree_type: u8, record_size: usize, records: &[Vec<u8>]) -> Vec<u8> {
+        let leaf_addr = 0x100usize;
+        let mut buf = vec![0u8; 0x200];
+        btree_v2_header(
             &mut buf,
-            header_addr + 10,
-            &(record_size as u16).to_le_bytes(),
+            btree_type,
+            record_size,
+            0,
+            leaf_addr as u64,
+            records.len(),
         );
-        // depth (offset 12) stays 0; split/merge percent at 14-15.
-        put(
-            &mut buf,
-            header_addr + 16,
-            &(leaf_addr as u64).to_le_bytes(),
-        );
-        put(
-            &mut buf,
-            header_addr + 24,
-            &(records.len() as u16).to_le_bytes(),
-        );
-        // Leaf: sig(4) version(1) type(1) then records.
-        put(&mut buf, leaf_addr, SIG_BTREE_V2_LEAF);
-        let mut p = leaf_addr + 6;
+        write_leaf(&mut buf, leaf_addr, record_size, records);
+        buf
+    }
+
+    /// Leaf node image: sig(4) version(1) type(1) then the fixed-size records.
+    fn write_leaf(buf: &mut Vec<u8>, addr: usize, record_size: usize, records: &[Vec<u8>]) {
+        put(buf, addr, SIG_BTREE_V2_LEAF);
+        let mut p = addr + 6;
         for r in records {
-            put(&mut buf, p, r);
+            put(buf, p, r);
             p += record_size;
         }
-        buf
+    }
+
+    /// Internal node image: sig(4) version(1) type(1), then all records, then
+    /// `children.len()` node pointers (address + 1-byte record count + an
+    /// optional 1-byte subtree total when `cum` is set).
+    fn write_internal(
+        buf: &mut Vec<u8>,
+        addr: usize,
+        record_size: usize,
+        records: &[Vec<u8>],
+        children: &[(u64, u8, u8)], // (address, record count, subtree total)
+        cum: bool,
+    ) {
+        put(buf, addr, SIG_BTREE_V2_INTERNAL);
+        let mut p = addr + 6;
+        for r in records {
+            put(buf, p, r);
+            p += record_size;
+        }
+        for &(child_addr, child_nrec, child_total) in children {
+            put(buf, p, &child_addr.to_le_bytes());
+            p += 8;
+            buf[p] = child_nrec;
+            p += 1;
+            if cum {
+                buf[p] = child_total;
+                p += 1;
+            }
+        }
+    }
+
+    /// The per-level geometry the reader derives, exposed so tests can assert it
+    /// matches a hand computation and reuse it when laying out nodes.
+    fn level_geometry(record_size: usize, depth: u16) -> BTreeV2Levels {
+        BTreeV2Levels::compute(NODE_SIZE, record_size, 8, depth).unwrap()
     }
 
     #[test]
     fn reads_leaf_records() {
         let records = vec![vec![1u8; 11], vec![2u8; 11]];
         let buf = btree_v2(5, 11, &records);
-        let (btype, got) = btree_v2_leaf_records(&buf, 0, 8, 8).unwrap();
+        let (btype, got) = btree_v2_records(&buf, 0, 8, 8).unwrap();
         assert_eq!(btype, 5);
         assert_eq!(got, records);
     }
 
     #[test]
-    fn rejects_multi_level_btree() {
+    fn count_field_byte_widths() {
+        // floor(log2(max)) / 8 + 1, matching libhdf5's record-count sizing.
+        assert_eq!(count_field_bytes(0), 1);
+        assert_eq!(count_field_bytes(29), 1);
+        assert_eq!(count_field_bytes(255), 1);
+        assert_eq!(count_field_bytes(256), 2);
+        assert_eq!(count_field_bytes(65_535), 2);
+        assert_eq!(count_field_bytes(65_536), 3);
+    }
+
+    #[test]
+    fn level_geometry_matches_hand_computation() {
+        // node_size 512, record_size 200: every node holds two records and every
+        // count/total field fits in one byte. Mirrors the depth-2 walk below.
+        let g = level_geometry(200, 2);
+        assert_eq!(g.max_nrec, vec![2, 2, 2]);
+        assert_eq!(g.count_bytes, vec![1, 1, 1]);
+        // Leaf level carries no subtree-total field; internal levels need one.
+        assert_eq!(g.cum_bytes[1], 1);
+        assert_eq!(g.cum_bytes[2], 1);
+    }
+
+    #[test]
+    fn walks_depth_one_btree() {
+        // Root internal node with one record between two leaves. In-order result
+        // is leaf0's record, the root record, then leaf1's record.
+        let rs = 11;
+        let (leaf0, leaf1) = (0x100usize, 0x200usize);
+        let mut buf = vec![0u8; 0x400];
+        btree_v2_header(&mut buf, 8, rs, 1, 0x40, 1);
+        write_internal(
+            &mut buf,
+            0x40,
+            rs,
+            &[vec![0xBB; rs]],
+            &[(leaf0 as u64, 1, 0), (leaf1 as u64, 1, 0)],
+            false, // children are leaves: no subtree-total field
+        );
+        write_leaf(&mut buf, leaf0, rs, &[vec![0xAA; rs]]);
+        write_leaf(&mut buf, leaf1, rs, &[vec![0xCC; rs]]);
+
+        let (_, got) = btree_v2_records(&buf, 0, 8, 8).unwrap();
+        assert_eq!(got, vec![vec![0xAA; rs], vec![0xBB; rs], vec![0xCC; rs]]);
+    }
+
+    #[test]
+    fn walks_depth_two_btree() {
+        // Three levels, two records per node, exercising the subtree-total field
+        // on the internal-to-internal pointers. Records are tagged with their
+        // in-order rank so the flattened output must come back 0,1,2,…,8.
+        let rs = 200;
+        let rec = |n: u8| vec![n; rs];
+        let (lo, mid_l, mid_r, root) = (0x1000usize, 0x400usize, 0x800usize, 0x40usize);
+        let leaves = [lo, lo + 0x200, lo + 0x400]; // under mid_l
+        let leaves_r = [lo + 0x600, lo + 0x800, lo + 0xA00]; // under mid_r
+        let mut buf = vec![0u8; 0x2000];
+        btree_v2_header(&mut buf, 8, rs, 2, root as u64, 1);
+        // Root: record #5 between the two internal children.
+        write_internal(
+            &mut buf,
+            root,
+            rs,
+            &[rec(5)],
+            // Child record counts must match each subtree node; totals (5 and 3
+            // records) are read past but not used.
+            &[(mid_l as u64, 2, 5), (mid_r as u64, 1, 3)],
+            true,
+        );
+        // Left internal: records #1, #3 between three leaves (#0, #2, #4).
+        write_internal(
+            &mut buf,
+            mid_l,
+            rs,
+            &[rec(1), rec(3)],
+            &[
+                (leaves[0] as u64, 1, 0),
+                (leaves[1] as u64, 1, 0),
+                (leaves[2] as u64, 1, 0),
+            ],
+            false,
+        );
+        // Right internal: records #7 between two leaves (#6, #8).
+        write_internal(
+            &mut buf,
+            mid_r,
+            rs,
+            &[rec(7)],
+            &[(leaves_r[0] as u64, 1, 0), (leaves_r[1] as u64, 1, 0)],
+            false,
+        );
+        write_leaf(&mut buf, leaves[0], rs, &[rec(0)]);
+        write_leaf(&mut buf, leaves[1], rs, &[rec(2)]);
+        write_leaf(&mut buf, leaves[2], rs, &[rec(4)]);
+        write_leaf(&mut buf, leaves_r[0], rs, &[rec(6)]);
+        write_leaf(&mut buf, leaves_r[1], rs, &[rec(8)]);
+
+        let (_, got) = btree_v2_records(&buf, 0, 8, 8).unwrap();
+        assert_eq!(got, (0u8..9).map(rec).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn rejects_implausible_depth() {
         let mut buf = btree_v2(5, 11, &[]);
-        put(&mut buf, 12, &1u16.to_le_bytes()); // depth = 1
-        let err = btree_v2_leaf_records(&buf, 0, 8, 8).unwrap_err();
-        assert!(matches!(err, FieldglassError::Parse(_)));
+        put(&mut buf, 12, &1000u16.to_le_bytes()); // depth far past any real tree
+        assert!(matches!(
+            btree_v2_records(&buf, 0, 8, 8),
+            Err(FieldglassError::Parse(_))
+        ));
     }
 
     #[test]
@@ -454,7 +799,27 @@ mod tests {
         let mut buf = btree_v2(5, 11, &[]);
         // Claim 1000 records but supply none.
         put(&mut buf, 24, &1000u16.to_le_bytes());
-        assert!(btree_v2_leaf_records(&buf, 0, 8, 8).is_err());
+        assert!(btree_v2_records(&buf, 0, 8, 8).is_err());
+    }
+
+    #[test]
+    fn rejects_implausible_node_size() {
+        let mut buf = btree_v2(5, 11, &[]);
+        put(&mut buf, 6, &u32::MAX.to_le_bytes()); // 4 GiB node size
+        assert!(matches!(
+            btree_v2_records(&buf, 0, 8, 8),
+            Err(FieldglassError::Parse(_))
+        ));
+    }
+
+    #[test]
+    fn deep_geometry_saturates_without_overflow_panic() {
+        // A large (but in-range) node with single-byte records and the deepest
+        // allowed tree makes the subtree-total counts explode past u64; the
+        // recurrence must saturate rather than overflow-panic in debug builds.
+        let g = BTreeV2Levels::compute(MAX_BTREE_V2_NODE_SIZE, 1, 8, MAX_BTREE_V2_DEPTH).unwrap();
+        // The deepest level's total field saturates to the 8-byte ceiling.
+        assert_eq!(*g.cum_bytes.last().unwrap(), 8);
     }
 
     #[test]
