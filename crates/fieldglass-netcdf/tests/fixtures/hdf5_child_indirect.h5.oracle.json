@@ -1,0 +1,25 @@
+{
+  "source": "h5py 3.16.0 (libhdf5 2.0.0), libver='latest'",
+  "superblock_version": 3,
+  "dataset": "many_attrs",
+  "attribute_count": 512,
+  "attribute_value_rule": "a{i:04d} -> int32[256], value[k] = i + k",
+  "attribute_value_length": 256,
+  "sampled_attributes": [
+    "a0000",
+    "a0001",
+    "a0256",
+    "a0510",
+    "a0511"
+  ],
+  "attribute_fractal_heap": {
+    "table_width": 4,
+    "starting_block_size": 1024,
+    "max_direct_block_size": 65536,
+    "cur_rows": 12,
+    "max_dblock_rows": 8,
+    "has_child_indirect_rows": true,
+    "indirect_block_count": 2,
+    "direct_block_count": 36
+  }
+}

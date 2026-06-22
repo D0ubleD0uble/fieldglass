@@ -131,6 +131,30 @@ the rule, the attribute count, the measured B-tree depth, and a few sampled
 values rather than dumping 700 entries; `tests/hdf5_attributes.rs` reads every
 attribute back and checks it against the generated expectation. Part of #33.
 
+## Child-indirect fractal-heap fixture (`hdf5_child_indirect.h5`)
+
+A synthetic `h5py` (libhdf5) file whose `many_attrs` dataset carries 512 dense
+attributes of `int32[256]` (≈1 KiB each). That much dense storage fills every
+direct-block row of the attribute fractal heap's doubling table and spills into a
+**child indirect block** — the rows beyond `max_direct_block_size`, which the
+reader previously refused with a clean `child indirect fractal-heap blocks not
+supported` error. It is the real-libhdf5 backstop for the step after the
+multi-level B-tree fixture: the metadata-heaviest corpus files (#123) reach this
+once their *storage*, not just their *index*, outgrows one indirect block's
+direct rows.
+
+libhdf5 fills the full grid of direct blocks before it allocates a child indirect
+block (the exact heap geometry — starting / max-direct block size, table width —
+is libhdf5-version dependent and recorded in the oracle), so this fixture is
+necessarily larger (~575 KiB) than the others; the hand-built
+`crates/fieldglass-netcdf/src/hdf5/heap.rs` unit tests pin the exact byte layout
+at no cost. The sibling `*.h5.oracle.json` records the attribute rule / count,
+sampled names, and the parsed fractal-heap geometry (`cur_rows`,
+`max_dblock_rows`, and the indirect / direct block counts that confirm a child
+indirect block is populated). Built by `tools/build_hdf5_fixtures.py`
+(`track_times=False` for reproducibility); `tests/hdf5_attributes.rs` reads every
+attribute back. Part of #33.
+
 ## NetCDF-4 dimension-scale fixture (`netcdf4_dimscale.nc`)
 
 A small NetCDF-4 file written with the canonical Unidata `netCDF4` library (which
