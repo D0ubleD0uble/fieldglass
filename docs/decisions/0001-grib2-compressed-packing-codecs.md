@@ -8,6 +8,12 @@ v0.3.3 failed the committed eccodes oracle — it decodes its own round-trips bu
 byte-compatible with real libaec streams. `rust-aec` (pure-Rust, purpose-built for GRIB2
 5.42) decodes the fixture byte-for-byte against the oracle. See the 5.42 section below.
 
+**Amended (2026-06-21):** 5.40 is no longer deferred. The pure-Rust **`rust-j2k`** JPEG
+2000 decoder (purpose-built GRIB2-decode-first) reached the same bar — it decodes the
+committed fixture byte-for-byte against the eccodes oracle with no C dependency — so
+[#116](https://github.com/D0ubleD0uble/fieldglass/issues/116) shipped on the same pure-Rust
+basis as 5.41 / 5.42. See the 5.40 section below.
+
 ## Context
 
 GRIB2 data-representation templates **5.40 (JPEG 2000)**, **5.41 (PNG)**, and
@@ -50,7 +56,7 @@ decoder lands. (Provenance in `crates/fieldglass-grib2/tests/fixtures/NOTICE.md`
 | --- | --- | --- | --- | --- |
 | **5.41 PNG** | pure-Rust | [`png`](https://crates.io/crates/png) | clean, no C | **Shipped** ([#118](https://github.com/D0ubleD0uble/fieldglass/issues/118)) |
 | **5.42 CCSDS / AEC** | pure-Rust | [`rust-aec`](https://crates.io/crates/rust-aec) | clean, no C | **Shipped** ([#117](https://github.com/D0ubleD0uble/fieldglass/issues/117)) |
-| **5.40 JPEG 2000** | none viable in pure Rust | — | windows-arm64 risk | **Defer** ([#116](https://github.com/D0ubleD0uble/fieldglass/issues/116)) |
+| **5.40 JPEG 2000** | pure-Rust | [`rust-j2k`](https://crates.io/crates/rust-j2k) | clean, no C | **Shipped** ([#116](https://github.com/D0ubleD0uble/fieldglass/issues/116)) |
 
 ### 5.41 PNG — done
 
@@ -89,31 +95,48 @@ later proves insufficient on other models (e.g. 24-bit/3-byte, signed, or
 non-preprocessed streams) — that would reintroduce the windows-arm64
 cross-compile cost, so it is a last resort, not the default.
 
-### 5.40 JPEG 2000 — deferred
+### 5.40 JPEG 2000 — pure-Rust (`rust-j2k`)
 
-There is no production-ready pure-Rust JPEG 2000 decoder. The `jpeg2000` crate
-is stale 2019 OpenJPEG *bindings* (C++), not pure Rust, and pure-Rust codestream
-(ISO 15444-1 Annex A) support never matured. The only realistic path today is an
-OpenJPEG C binding (`openjpeg-sys` / `jpeg2k`), which the reference `grib` crate
-uses by default — and that is precisely the C-on-six-targets situation we want
-to avoid, windows-arm64 included.
+**Originally deferred (2025).** At the spike there was no production-ready
+pure-Rust JPEG 2000 decoder. The `jpeg2000` crate was stale 2019 OpenJPEG
+*bindings* (C++), not pure Rust, and pure-Rust codestream (ISO 15444-1 Annex A)
+support had never matured. The only realistic path was an OpenJPEG C binding
+(`openjpeg-sys` / `jpeg2k`), which the reference `grib` crate uses by default —
+precisely the C-on-six-targets situation (windows-arm64 included) we want to
+avoid. JPEG 2000 is common (HRRR, MRMS, some NAM / GEFS), so this was a real gap;
+#116 was deferred until a pure-Rust J2K decoder became viable, with the committed
+fixture + oracle held ready.
 
-JPEG 2000 is common (HRRR, MRMS, some NAM / GEFS), so this is a real gap, not a
-dismissal. But it is the one template that would break the pure-Rust,
-no-native-dep property of the bundled `.vsix`. **Defer #116** until either a
-pure-Rust J2K decoder becomes viable, or we decide the packing is worth a
-dedicated cross-compile effort. The committed fixture + oracle are ready for
-whenever that happens.
+**Shipped (2026-06).** [`rust-j2k`](https://crates.io/crates/rust-j2k)
+(MIT / Apache-2.0) is a pure-Rust JPEG 2000 decoder **purpose-built
+GRIB2-decode-first**: it decodes a single-component integer codestream (Annex A,
+no JP2 boxes) over both the reversible 5/3 and irreversible 9/7 wavelet paths —
+exactly the slice `grid_jpeg` produces. Against the committed
+`jpeg2000_regular_latlon.grib2` fixture it decodes **byte-for-byte to the eccodes
+oracle** (count, min/max/mean, and anchored samples). It has no C dependency, so
+it cross-compiles to all six targets and preserves the C-free `.vsix` this ADR
+set out to protect.
+
+Like `rust-aec`, it is young (v0.1.0, single maintainer), so #116 ships it behind
+the same guardrails: the version is pinned exactly and `cargo deny check` stays
+in the gate; the codec call is kept self-contained in `decode_jpeg2000_packing`
+so it stays swappable; and any decoder error is surfaced as `UnsupportedSection`
+so an untrusted file degrades gracefully rather than crashing the addon. The
+committed eccodes oracle test is the standing correctness backstop.
+
+`openjpeg-sys` (C) remains the documented fallback **only** if `rust-j2k` later
+proves insufficient on other models — that would reintroduce the windows-arm64
+cross-compile cost, so it is a last resort, not the default.
 
 ## Consequences
 
 - #111 is resolved; the per-template implementation issues (#116 / #117 / #118)
   already exist, so no new issues are needed.
-- #117 proceeds on a pure-Rust basis; #116 is parked with a clear reason rather
-  than left ambiguously "blocked on research".
-- The decode-decoupled design holds: both 5.42 (when it lands) and 5.40 (if it
-  ever does) feed the same `Vec<Option<f64>>` + grid geometry, so neither needs
-  any projection, overlay, or render change.
+- #117 and #116 both proceed on a pure-Rust basis; neither needed the C-binding
+  fallback that would have reintroduced the windows-arm64 cross-compile cost.
+- The decode-decoupled design holds: 5.40 / 5.41 / 5.42 all feed the same
+  `Vec<Option<f64>>` + grid geometry, so none needed any projection, overlay, or
+  render change.
 
 ## References
 

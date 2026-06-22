@@ -77,6 +77,7 @@ dependencies = [
  "fieldglass-core",
  "png",
  "rust-aec",
+ "rust-j2k",
  "serde",
  "serde_json",
 ]
@@ -342,6 +343,12 @@ checksum = "c9053fe9dc492823823e21aa267e48dbbe3e6cbc7b1557f95979c04af11aad0f"
 dependencies = [
  "bitflags",
 ]
+
+[[package]]
+name = "rust-j2k"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1312c5b329a500b1f10022fe84822d9c720b2859f3ef8947419bb8cfc415bb86"
 
 [[package]]
 name = "rustc-hash"

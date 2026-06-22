@@ -340,10 +340,10 @@ fn polar_stereographic_surface_matches_eccodes() {
 
 // §5 packing fixtures: these cross-check that §0–§4 metadata and the §5
 // template number parse for templates 5.2 / 5.3 / 5.40 / 5.41 / 5.42. The
-// value decode for 5.2 and 5.3 is pinned to the sibling `*_expected.json`
-// oracles in `decode_complex.rs` / `decode_complex_spd.rs`; the compressed
-// templates 5.40 / 5.41 / 5.42 are not decoded yet (the oracles are the
-// targets for #116 / #117 / #118).
+// value decode for each is pinned to the sibling `*_expected.json` oracle in
+// the matching `decode_*.rs` test (complex → `decode_complex.rs` /
+// `decode_complex_spd.rs`; JPEG 2000 5.40 → `decode_jpeg2000.rs`; PNG 5.41 →
+// `decode_png.rs`; CCSDS 5.42 → `decode_ccsds.rs`).
 #[test]
 fn complex_regular_latlon_matches_eccodes() {
     assert_fixture_matches_snapshot(
