@@ -285,3 +285,48 @@ repo root; needs `netCDF4` + `numpy`), so there is **no upstream provenance or
 licensing constraint** — a tiny `2 × 3` toy grid. The shared
 `missing_value.oracle.json` records the masked array `netCDF4` produces with
 auto-mask on; `tests/missing_value.rs` asserts both backings reproduce it.
+
+## Real NOAA OISST v2.1 fixture (`oisst_avhrr_v2.nc`)
+
+The second **real operational** NetCDF-4 / HDF5 file in the corpus (#123) — a
+tiny window subset of a genuine NOAA/NCEI Optimum Interpolation Sea Surface
+Temperature analysis:
+
+- Product: OISST v2.1, AVHRR, daily 1/4° global, 2025-01-01.
+- Source object (immutable, in the public NOAA CDR archive):
+  `s3://noaa-cdr-sea-surface-temp-optimum-interpolation-pds/`
+  `data/v2.1/avhrr/202501/oisst-avhrr-v02r01.20250101.nc`
+- License: a NOAA Climate Data Record produced by NOAA/NCEI — a work of the
+  U.S. Government, **public domain**, no copyright. Attribution: NOAA/NCEI.
+
+Built by `tools/build_oisst_real_fixture.py` (run from the repo root; needs
+`netCDF4` + `numpy`; downloads the source object once). The script keeps a
+`32 × 32` Hudson Bay window (rows 592–624, cols 1112–1144) of the global grid —
+a January high-latitude scene chosen so all three real behaviours appear at
+once: land and sea ice fill the `sst` mask (~1/3 of the window), while the rest
+carries near-freezing water and the `ice` field genuine sea-ice concentrations.
+It retains the `sst` and `ice` fields plus the `time` / `zlev` / `lat` / `lon`
+coordinate variables; the dozens of ancillary attributes that name the full grid
+extent are dropped or noted as a window subset in `history`. The raw on-disk
+`int16` codes are copied verbatim (auto-scaling off), so the genuine CF
+`scale_factor` / `add_offset` / `valid_min` / `valid_max` / `_FillValue`
+attributes survive unchanged, and `sst` / `ice` keep the real chunked + deflate
++ **shuffle** storage, so the HDF5 value path decodes a real compressed field end
+to end.
+
+It complements the geostationary `goes16_abi_cmip.nc` with a different slice of
+the stack: a **regular 1/4° lat/lon** analysis grid (vs the GOES fixed scan
+grid), the deflate + **shuffle** filter chain (GOES used deflate alone), CF
+unpacking driven by scalar `valid_min` / `valid_max` (GOES used the two-element
+`valid_range`), and a 4-D `(time, zlev, lat, lon)` variable with singleton
+`time` / `zlev`. Its 25 retained global attributes still exceed libhdf5's
+8-attribute compact threshold, so the metadata spills into **dense** storage
+(fractal heap `FRHP` + B-tree v2 `BTHD`) — the layout the #33 robustness work
+hardened, exercised here on a real file.
+
+The sibling `oisst_avhrr_v2.nc.oracle.json` records the regular-grid geolocation
+(corner + 0.25° spacing) and, per packed field, the masking + scaling `netCDF4`
+produces (auto mask+scale on): present / missing counts, value statistics, and
+anchored per-index samples. `tests/oisst_real_world.rs` asserts the HDF5
+backing, the dimension / variable resolution, the regular-grid coordinates, and
+the chunked + deflate + shuffle value decode against it.
