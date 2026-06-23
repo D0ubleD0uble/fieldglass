@@ -11,6 +11,7 @@ use std::collections::BTreeMap;
 const V1_SYMBOLTABLE: &[u8] = include_bytes!("fixtures/hdf5_v1_symboltable.h5");
 const V2_LINKINFO: &[u8] = include_bytes!("fixtures/hdf5_v2_linkinfo.h5");
 const BTREEV2_MULTILEVEL: &[u8] = include_bytes!("fixtures/hdf5_btreev2_multilevel.h5");
+const CHILD_INDIRECT: &[u8] = include_bytes!("fixtures/hdf5_child_indirect.h5");
 
 fn probe(bytes: &[u8]) -> fieldglass_netcdf::Hdf5Probe {
     match NetcdfReader::from_bytes(bytes.to_vec()).unwrap().backing {
@@ -106,4 +107,40 @@ fn multilevel_btree_v2_attributes_decode() {
         .map(|i| (format!("a{i:04}"), i.to_string()))
         .collect();
     assert_eq!(attrs, want);
+}
+
+/// 512 kilobyte-sized dense attributes overflow the attribute fractal heap's
+/// direct-block rows into a *child indirect block* (doubling-table rows beyond
+/// `max_direct_block_size`). Enumerating every attribute name therefore has to
+/// dereference heap IDs that resolve through the child indirect block — the path
+/// `heap.rs` previously refused. This is the real-libhdf5 backstop for the
+/// metadata-heaviest corpus files (#123); the hand-built `heap.rs` unit tests
+/// pin the byte layout. Each `a{i:04}` is `int32[256]` with `value[k] = i + k`.
+#[test]
+fn child_indirect_fractal_heap_attributes_decode() {
+    let attrs = dataset_attrs(CHILD_INDIRECT, "many_attrs");
+    // Every attribute name resolves — including the ones whose records live in
+    // the child indirect block.
+    let want_names: std::collections::BTreeSet<String> =
+        (0..512).map(|i| format!("a{i:04}")).collect();
+    let got_names: std::collections::BTreeSet<String> = attrs.keys().cloned().collect();
+    assert_eq!(got_names, want_names, "all 512 dense attributes enumerate");
+
+    // Each attribute carries a *distinct* array value (`value[k] = i + k`), so
+    // these assertions would catch a heap object resolved to the wrong block —
+    // not just a missing name. Sample across the direct rows and the child
+    // indirect block.
+    let want_value = |i: i64| {
+        (0..256)
+            .map(|k| (i + k).to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    for i in [0i64, 255, 256, 511] {
+        assert_eq!(
+            attrs[&format!("a{i:04}")],
+            want_value(i),
+            "value of a{i:04}"
+        );
+    }
 }

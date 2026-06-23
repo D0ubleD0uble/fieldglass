@@ -243,6 +243,76 @@ def build_btreev2_multilevel(name: str, n_attrs: int) -> None:
           f"[{n_attrs} attrs, attr-name B-tree v2 depth={depth}]")
 
 
+def fractal_heap_geometry(raw: bytes) -> dict:
+    """Parse the first fractal-heap header (``FRHP``) the way ``heap.rs`` does —
+    assuming 8-byte offset/length sizes (``libver='latest'``) — and report
+    whether its doubling table has spilled into child indirect blocks."""
+    i = raw.index(b"FRHP")
+    g = lambda off, n: int.from_bytes(raw[i + off:i + off + n], "little")
+    width, starting, max_direct, cur_rows = g(110, 2), g(112, 8), g(120, 8), g(140, 2)
+    # max_dblock_rows = (log2(max_direct) - log2(starting)) + 2; rows beyond it
+    # hold child indirect block pointers.
+    max_dblock_rows = (max_direct.bit_length() - starting.bit_length()) + 2
+    return {
+        "table_width": width,
+        "starting_block_size": starting,
+        "max_direct_block_size": max_direct,
+        "cur_rows": cur_rows,
+        "max_dblock_rows": max_dblock_rows,
+        "has_child_indirect_rows": cur_rows > max_dblock_rows,
+        # FHIB count > 1 means a child indirect block is actually allocated and
+        # populated (block #0 is the root indirect block).
+        "indirect_block_count": raw.count(b"FHIB"),
+        "direct_block_count": raw.count(b"FHDB"),
+    }
+
+
+def build_child_indirect(name: str, n_attrs: int, vlen: int) -> None:
+    """A dataset with enough *large* dense attributes that the attribute fractal
+    heap fills every direct-block row of its doubling table and spills into a
+    **child indirect block** — the rows beyond ``max_direct_block_size`` that
+    ``heap.rs`` must now recurse into. This is the structure the metadata-heaviest
+    corpus files (#123) reach; libhdf5 fills the full grid of direct blocks (the
+    exact heap geometry is libhdf5-version dependent and recorded in the oracle)
+    before allocating a child indirect block, so this fixture is necessarily
+    larger than the others. Each attribute is ``a{i:04d} -> int32[vlen]`` (value
+    ``arange``) so the oracle stays a rule plus samples rather than a dump."""
+    path = FIXturesDir / name
+    base = np.arange(vlen, dtype="<i4")
+    with h5py.File(path, "w", libver="latest") as f:
+        f.attrs["title"] = np.bytes_(b"fieldglass child-indirect fractal-heap fixture")
+        dense = f.create_dataset("many_attrs", data=np.arange(3, dtype="<i4"),
+                                 track_times=False)
+        # Each attribute gets a *distinct* value (`base + i`) so a heap-object
+        # mis-mapping (e.g. aliasing two records resolved through the child
+        # indirect block) shows up as a wrong value, not just a missing name.
+        for i in range(n_attrs):
+            dense.attrs[f"a{i:04d}"] = base + np.int32(i)
+
+    raw = path.read_bytes()
+    heap = fractal_heap_geometry(raw)
+    if heap["indirect_block_count"] < 2 or not heap["has_child_indirect_rows"]:
+        raise SystemExit(
+            f"{name}: fractal heap did not spill into a populated child indirect "
+            f"block (FHIB={heap['indirect_block_count']}, "
+            f"has_child_indirect_rows={heap['has_child_indirect_rows']}); "
+            f"raise n_attrs / vlen")
+    oracle = {
+        "source": f"h5py {h5py.__version__} (libhdf5 {h5py.version.hdf5_version}), libver='latest'",
+        "superblock_version": raw[raw.index(b"\x89HDF\r\n\x1a\n") + 8],
+        "dataset": "many_attrs",
+        "attribute_count": n_attrs,
+        "attribute_value_rule": f"a{{i:04d}} -> int32[{vlen}], value[k] = i + k",
+        "attribute_value_length": vlen,
+        "sampled_attributes": [f"a{i:04d}" for i in sample_indices(n_attrs)],
+        "attribute_fractal_heap": heap,
+    }
+    (FIXturesDir / f"{name}.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n")
+    print(f"wrote {path} ({len(raw)} B) + oracle "
+          f"[{n_attrs} attrs × int32[{vlen}], FRHP cur_rows={heap['cur_rows']} "
+          f"max_dblock_rows={heap['max_dblock_rows']} FHIB={heap['indirect_block_count']}]")
+
+
 def main() -> int:
     if not FIXturesDir.is_dir():
         raise SystemExit("run from the repo root")
@@ -252,6 +322,9 @@ def main() -> int:
     # 700 attributes pushes the attribute name-index B-tree v2 to depth 2,
     # exercising both the record-count and subtree-total node-pointer fields.
     build_btreev2_multilevel("hdf5_btreev2_multilevel.h5", n_attrs=700)
+    # 512 large (1 KiB) attributes overflow the attribute fractal heap's direct
+    # rows into a child indirect block (depth-1 doubling-table recursion).
+    build_child_indirect("hdf5_child_indirect.h5", n_attrs=512, vlen=256)
     return 0
 
 

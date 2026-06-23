@@ -7,11 +7,13 @@
 //! Both single-level (depth 0) and multi-level (depth > 0) B-trees are walked:
 //! once a dense attribute / link index outgrows one leaf the root becomes an
 //! internal node, and the records are gathered from every leaf in key order.
-//! For the fractal heap, both a single root direct block and a root *indirect*
-//! block (the doubling table that real attribute-rich files spill into once
-//! their dense storage outgrows one direct block) are handled, but only while
-//! every row holds direct blocks — child indirect blocks, huge/tiny objects,
-//! and I/O filters return a clear error rather than risk a silent misread.
+//! For the fractal heap, a single root direct block, a root *indirect* block,
+//! and the *child* indirect blocks its doubling table spills into are all
+//! walked: once dense storage outgrows the direct-block rows (those whose block
+//! size is at most the max direct size), the rows beyond hold pointers to child
+//! indirect blocks, which recurse through the same structure to their own direct
+//! blocks. Huge/tiny objects and I/O filters still return a clear error rather
+//! than risk a silent misread.
 //!
 //! Reference: HDF5 file format specification version 3, "Fractal Heap" and
 //! "Version 2 B-trees".
@@ -31,6 +33,20 @@ const MAX_HEAP_ROWS: usize = 64;
 
 /// Guards a malformed doubling-table width (columns per row).
 const MAX_HEAP_TABLE_WIDTH: usize = 1024;
+
+/// Bounds child-indirect recursion against a crafted header. The doubling-table
+/// block size of a child indirect block is strictly smaller than the parent row
+/// that holds it, so real heaps nest only a handful of levels deep.
+const MAX_HEAP_INDIRECT_DEPTH: usize = 24;
+
+/// Upper bound on doubling-table entries traversed across a whole heap — the
+/// total-work guard for the indirect-block recursion. The depth cap alone is not
+/// a work bound: a crafted heap whose high rows are all child-indirect pointers
+/// (with a large table width) fans out by tens of thousands per level, and the
+/// only per-block check is a signature plus a back-pointer an attacker can
+/// satisfy at a single reused address, so without a running tally the walk could
+/// blow up exponentially. A well-formed heap traverses only a handful of blocks.
+const MAX_HEAP_TABLE_ENTRIES: usize = 1 << 20;
 
 /// Upper bound on B-tree v2 records gathered across all leaves — guards a
 /// malformed record or node count.
@@ -344,17 +360,34 @@ impl FractalHeap {
                 file_addr: root_block_addr,
             }]
         } else {
-            parse_root_indirect(
-                bytes,
-                root_block_addr,
-                addr,
+            // Walk the doubling table from its root indirect block, descending
+            // into child indirect blocks where the rows outgrow direct storage.
+            let dtable = DoublingTable::new(
                 o,
                 offset_bytes,
                 table_width,
                 starting_block_size,
                 max_direct_block_size,
+            )?;
+            let mut blocks = Vec::new();
+            let mut entries_read = 0usize;
+            walk_indirect(
+                bytes,
+                &dtable,
+                addr,
+                root_block_addr,
+                0,
                 cur_rows,
-            )?
+                0,
+                &mut entries_read,
+                &mut blocks,
+            )?;
+            if blocks.is_empty() {
+                return Err(FieldglassError::Parse(
+                    "fractal-heap indirect blocks hold no direct blocks".into(),
+                ));
+            }
+            blocks
         };
 
         Ok(Self {
@@ -429,32 +462,112 @@ fn row_block_size(starting: u64, row: usize) -> u64 {
     }
 }
 
-/// Walk a root indirect block's doubling table into its direct blocks. Every row
-/// must be direct (block size ≤ the max direct size); a row of *child* indirect
-/// blocks is rejected, as are huge/tiny objects elsewhere.
-#[allow(clippy::too_many_arguments)]
-fn parse_root_indirect(
-    bytes: &[u8],
-    indirect_addr: u64,
-    heap_addr: u64,
+/// The doubling-table geometry shared by every indirect block in one heap. It
+/// fixes which rows hold direct blocks versus child indirect blocks, and how
+/// many rows a child indirect block of a given size has.
+struct DoublingTable {
+    /// "Size of offsets" — the byte width of a block address.
     osize: usize,
+    /// Byte width of the per-block "offset in the heap address space" field.
     offset_bytes: usize,
+    /// Columns per row of the doubling table.
     table_width: usize,
+    /// Block size of rows 0 and 1; every later row doubles it.
     starting_block_size: u64,
-    max_direct_block_size: u64,
-    cur_rows: usize,
-) -> Result<Vec<DirectBlock>, FieldglassError> {
-    if table_width == 0 || table_width > MAX_HEAP_TABLE_WIDTH {
+    /// Rows below this index hold direct blocks; rows at or beyond hold child
+    /// indirect block pointers. `(log2(max_direct) - log2(starting)) + 2`,
+    /// matching the format's `max_dblock_rows`.
+    max_direct_rows: usize,
+    /// `log2(starting) + log2(width)`: a child indirect block representing a
+    /// doubling-table block of size `S` has `log2(S) - first_row_bits + 1` rows.
+    first_row_bits: u32,
+}
+
+impl DoublingTable {
+    fn new(
+        osize: usize,
+        offset_bytes: usize,
+        table_width: usize,
+        starting_block_size: u64,
+        max_direct_block_size: u64,
+    ) -> Result<Self, FieldglassError> {
+        if table_width == 0 || table_width > MAX_HEAP_TABLE_WIDTH {
+            return Err(FieldglassError::Parse(
+                "implausible heap table width".into(),
+            ));
+        }
+        // The format requires these three to be powers of two; the bit math below
+        // (and the row-size doubling) depends on it, so reject anything else
+        // rather than compute a bogus geometry.
+        if !starting_block_size.is_power_of_two()
+            || !max_direct_block_size.is_power_of_two()
+            || !table_width.is_power_of_two()
+        {
+            return Err(FieldglassError::Parse(
+                "fractal-heap block sizes and table width must be powers of two".into(),
+            ));
+        }
+        if max_direct_block_size < starting_block_size {
+            return Err(FieldglassError::Parse(
+                "fractal-heap max direct block smaller than starting block".into(),
+            ));
+        }
+        let start_bits = starting_block_size.ilog2();
+        let max_direct_rows = (max_direct_block_size.ilog2() - start_bits) as usize + 2;
+        let first_row_bits = start_bits + (table_width as u64).ilog2();
+        Ok(Self {
+            osize,
+            offset_bytes,
+            table_width,
+            starting_block_size,
+            max_direct_rows,
+            first_row_bits,
+        })
+    }
+
+    /// Number of rows in an indirect block that represents a doubling-table block
+    /// of `size` bytes: `log2(size) - first_row_bits + 1` (libhdf5's
+    /// `H5HF_dtable_size_to_rows`). `size` is a power-of-two row block size.
+    fn indirect_block_rows(&self, size: u64) -> Result<usize, FieldglassError> {
+        let rows = (size.ilog2() as i64) - (self.first_row_bits as i64) + 1;
+        usize::try_from(rows)
+            .ok()
+            .filter(|&n| (1..=MAX_HEAP_ROWS).contains(&n))
+            .ok_or_else(|| {
+                FieldglassError::Parse("implausible child indirect block row count".into())
+            })
+    }
+}
+
+/// Collect the direct blocks under one indirect block (the root or a child),
+/// recursing into the child indirect blocks that the rows beyond `max_direct_rows`
+/// point to. An indirect block stores its `K` direct-block addresses (the first
+/// `min(nrows, max_direct_rows)` rows) ahead of its `N` child-indirect addresses
+/// (the rows beyond), so a single row-major pass reads them in file order.
+#[allow(clippy::too_many_arguments)]
+fn walk_indirect(
+    bytes: &[u8],
+    dtable: &DoublingTable,
+    heap_addr: u64,
+    indirect_addr: u64,
+    block_offset: u64,
+    nrows: usize,
+    depth: usize,
+    entries_read: &mut usize,
+    blocks: &mut Vec<DirectBlock>,
+) -> Result<(), FieldglassError> {
+    if depth > MAX_HEAP_INDIRECT_DEPTH {
         return Err(FieldglassError::Parse(
-            "implausible heap table width".into(),
+            "fractal-heap indirect nesting too deep".into(),
         ));
     }
-    if cur_rows > MAX_HEAP_ROWS {
+    if nrows == 0 || nrows > MAX_HEAP_ROWS {
         return Err(FieldglassError::Parse(
             "implausible fractal-heap row count".into(),
         ));
     }
 
+    let osize = dtable.osize;
     let mut cur = Cursor::at(bytes, indirect_addr)?;
     cur.tag(SIG_FRACTAL_INDIRECT)?;
     cur.skip(1)?; // version
@@ -463,39 +576,61 @@ fn parse_root_indirect(
             "fractal-heap indirect block back-pointer mismatch".into(),
         ));
     }
-    cur.skip(offset_bytes)?; // this block's offset in the heap address space (0 at the root)
+    // This block's own offset in the heap address space must match the offset the
+    // parent's doubling-table walk arrived at; a mismatch is a corruption signal.
+    if cur.uint(dtable.offset_bytes)? != block_offset {
+        return Err(FieldglassError::Parse(
+            "fractal-heap indirect block offset mismatch".into(),
+        ));
+    }
 
-    let mut blocks = Vec::new();
-    let mut logical = 0u64;
-    for row in 0..cur_rows {
-        let size = row_block_size(starting_block_size, row);
-        if size > max_direct_block_size {
-            return Err(FieldglassError::Parse(
-                "child indirect fractal-heap blocks not supported".into(),
-            ));
-        }
-        for _ in 0..table_width {
-            let block_addr = cur.uint(osize)?;
+    let mut logical = block_offset;
+    for row in 0..nrows {
+        let size = row_block_size(dtable.starting_block_size, row);
+        let is_direct = row < dtable.max_direct_rows;
+        for _ in 0..dtable.table_width {
+            // Tally every entry visited, direct or not: this is the total-work
+            // bound that stops a crafted all-indirect heap from fanning out
+            // unboundedly (the depth cap only limits a single path's length).
+            *entries_read += 1;
+            if *entries_read > MAX_HEAP_TABLE_ENTRIES {
+                return Err(FieldglassError::Parse(
+                    "fractal-heap doubling table too large or cyclic".into(),
+                ));
+            }
+            let entry_addr = cur.uint(osize)?;
             // An undefined address marks an unallocated table slot — skip it, but
             // still advance `logical` so later blocks keep their place in the
             // heap's linear address space.
-            if !is_undefined_address(block_addr, osize as u8) {
-                validate_direct_block(bytes, block_addr, heap_addr, osize)?;
-                blocks.push(DirectBlock {
-                    logical,
-                    size,
-                    file_addr: block_addr,
-                });
+            if !is_undefined_address(entry_addr, osize as u8) {
+                if is_direct {
+                    validate_direct_block(bytes, entry_addr, heap_addr, osize)?;
+                    blocks.push(DirectBlock {
+                        logical,
+                        size,
+                        file_addr: entry_addr,
+                    });
+                } else {
+                    // A child indirect block governs exactly this row's block
+                    // size of the heap address space, starting at `logical`.
+                    let child_rows = dtable.indirect_block_rows(size)?;
+                    walk_indirect(
+                        bytes,
+                        dtable,
+                        heap_addr,
+                        entry_addr,
+                        logical,
+                        child_rows,
+                        depth + 1,
+                        entries_read,
+                        blocks,
+                    )?;
+                }
             }
             logical = checked_add(logical, size)?;
         }
     }
-    if blocks.is_empty() {
-        return Err(FieldglassError::Parse(
-            "fractal-heap root indirect block has no direct blocks".into(),
-        ));
-    }
-    Ok(blocks)
+    Ok(())
 }
 
 pub(crate) fn checked_add(a: u64, b: u64) -> Result<u64, FieldglassError> {
@@ -892,12 +1027,130 @@ mod tests {
         assert_eq!(heap.managed_object(&buf, &id).unwrap(), payload);
     }
 
+    /// Write an "undefined" (all-`0xFF`) address into an `osize`-wide slot — the
+    /// marker for an unallocated doubling-table entry.
+    fn put_undef(buf: &mut Vec<u8>, at: usize, osize: usize) {
+        put(buf, at, &vec![0xFFu8; osize]);
+    }
+
+    // Geometry for the two-level fixture below: starting 64, width 2, max direct
+    // 128 → max_direct_rows = (log2 128 − log2 64) + 2 = 3. So rows 0–2 hold
+    // direct blocks and row 3 (size 256) holds child indirect blocks.
+    const CI_ROOT_IB: u64 = 0x100;
+    const CI_ROOT_DB: u64 = 0x200; // a populated root-level direct block (row 0, col 0)
+    const CI_CHILD_IB: u64 = 0x300; // child indirect block (row 3, col 0)
+    const CI_CHILD_DB: u64 = 0x400; // a direct block under the child (its row 1, col 0)
+
+    /// A fractal heap whose root indirect block has both direct-block rows and a
+    /// row of child indirect blocks. One root direct block (logical 0) and one
+    /// direct block under a child indirect block (logical 640) are populated; the
+    /// rest of the doubling-table slots are undefined. Heap IDs are
+    /// `flags(1) + offset(2) + length(2)`.
+    fn frhp_child_indirect() -> Vec<u8> {
+        let mut buf = vec![0u8; 0x500];
+        // --- FRHP header ---
+        put(&mut buf, 0, SIG_FRACTAL_HEAP);
+        put(&mut buf, 5, &5u16.to_le_bytes()); // heap_id_len
+        put(&mut buf, 110, &2u16.to_le_bytes()); // table_width
+        put(&mut buf, 112, &64u64.to_le_bytes()); // starting_block_size
+        put(&mut buf, 120, &128u64.to_le_bytes()); // max_direct_block_size
+        put(&mut buf, 128, &16u16.to_le_bytes()); // max_heap_size bits -> offset_bytes = 2
+        put(&mut buf, 132, &CI_ROOT_IB.to_le_bytes()); // root_block_addr
+        put(&mut buf, 140, &4u16.to_le_bytes()); // cur_rows (rows 0–3)
+
+        // --- root FHIB: 6 direct entries (rows 0–2) then 2 indirect (row 3) ---
+        put(&mut buf, CI_ROOT_IB as usize, SIG_FRACTAL_INDIRECT);
+        put(&mut buf, CI_ROOT_IB as usize + 5, &HEAP_ADDR.to_le_bytes());
+        // block offset (offset_bytes = 2) at +13 stays 0 (the root starts at 0).
+        let root_entries = CI_ROOT_IB as usize + 15;
+        for i in 0..8 {
+            put_undef(&mut buf, root_entries + i * 8, 8);
+        }
+        put(&mut buf, root_entries, &CI_ROOT_DB.to_le_bytes()); // row 0, col 0 → direct
+        put(&mut buf, root_entries + 6 * 8, &CI_CHILD_IB.to_le_bytes()); // row 3, col 0 → indirect
+
+        // --- child FHIB (size 256 → 2 rows, both direct): 4 direct entries ---
+        put(&mut buf, CI_CHILD_IB as usize, SIG_FRACTAL_INDIRECT);
+        put(&mut buf, CI_CHILD_IB as usize + 5, &HEAP_ADDR.to_le_bytes());
+        put(&mut buf, CI_CHILD_IB as usize + 13, &512u16.to_le_bytes()); // its heap offset
+        let child_entries = CI_CHILD_IB as usize + 15;
+        for i in 0..4 {
+            put_undef(&mut buf, child_entries + i * 8, 8);
+        }
+        put(&mut buf, child_entries + 2 * 8, &CI_CHILD_DB.to_le_bytes()); // its row 1, col 0
+
+        // --- the two populated FHDB direct blocks ---
+        for addr in [CI_ROOT_DB, CI_CHILD_DB] {
+            let a = addr as usize;
+            put(&mut buf, a, SIG_FRACTAL_DIRECT);
+            put(&mut buf, a + 5, &HEAP_ADDR.to_le_bytes());
+        }
+        buf
+    }
+
     #[test]
-    fn rejects_child_indirect_rows() {
-        let mut buf = frhp_indirect();
-        // Force the single row to exceed the max direct block size so its
-        // entries would be child indirect blocks (unsupported).
-        put(&mut buf, 120, &32u64.to_le_bytes()); // max_direct_block_size < starting (64)
+    fn child_indirect_dereferences_objects_in_both_levels() {
+        let mut buf = frhp_child_indirect();
+        let root_obj = [0x11u8, 0x22, 0x33, 0x44];
+        let child_obj = [0xCAu8, 0xFE, 0xBA, 0xBE];
+        put(&mut buf, CI_ROOT_DB as usize + BLOCK_PREFIX, &root_obj);
+        put(&mut buf, CI_CHILD_DB as usize + BLOCK_PREFIX, &child_obj);
+
+        let heap = FractalHeap::parse(&buf, HEAP_ADDR, 8, 8).unwrap();
+        let id = |logical: u64| {
+            let offset = logical + BLOCK_PREFIX as u64;
+            let mut id = vec![0u8]; // flags: managed
+            id.extend_from_slice(&(offset as u16).to_le_bytes());
+            id.extend_from_slice(&4u16.to_le_bytes());
+            id
+        };
+        // The root direct block sits at logical 0; the child indirect block
+        // governs logical 512.., and its row-1 direct block at logical 640.
+        assert_eq!(heap.managed_object(&buf, &id(0)).unwrap(), root_obj);
+        assert_eq!(heap.managed_object(&buf, &id(640)).unwrap(), child_obj);
+    }
+
+    #[test]
+    fn doubling_table_geometry_matches_hand_computation() {
+        // starting 64, width 2, max direct 128: first_row_bits = 6 + 1 = 7, and
+        // an indirect block's row count follows log2(size) − 7 + 1.
+        let dt = DoublingTable::new(8, 2, 2, 64, 128).unwrap();
+        assert_eq!(dt.max_direct_rows, 3);
+        assert_eq!(dt.first_row_bits, 7);
+        assert_eq!(dt.indirect_block_rows(128).unwrap(), 1);
+        assert_eq!(dt.indirect_block_rows(256).unwrap(), 2);
+        assert_eq!(dt.indirect_block_rows(512).unwrap(), 3);
+    }
+
+    #[test]
+    fn rejects_non_power_of_two_block_sizes() {
+        // A starting block size that is not a power of two would make the bit
+        // math bogus, so the doubling table is rejected up front.
+        let mut buf = frhp_child_indirect();
+        put(&mut buf, 112, &48u64.to_le_bytes()); // starting_block_size = 48
+        assert!(matches!(
+            FractalHeap::parse(&buf, HEAP_ADDR, 8, 8),
+            Err(FieldglassError::Parse(_))
+        ));
+    }
+
+    #[test]
+    fn child_indirect_back_pointer_mismatch_errors_without_panic() {
+        let mut buf = frhp_child_indirect();
+        // Corrupt the child indirect block's heap header back-pointer.
+        put(&mut buf, CI_CHILD_IB as usize + 5, &0xDEADu64.to_le_bytes());
+        assert!(matches!(
+            FractalHeap::parse(&buf, HEAP_ADDR, 8, 8),
+            Err(FieldglassError::Parse(_))
+        ));
+    }
+
+    #[test]
+    fn child_indirect_offset_mismatch_errors_without_panic() {
+        let mut buf = frhp_child_indirect();
+        // The child block claims a heap offset other than the 512 the parent's
+        // doubling-table walk arrived at — a corruption signal.
+        put(&mut buf, CI_CHILD_IB as usize + 13, &999u16.to_le_bytes());
         assert!(matches!(
             FractalHeap::parse(&buf, HEAP_ADDR, 8, 8),
             Err(FieldglassError::Parse(_))
