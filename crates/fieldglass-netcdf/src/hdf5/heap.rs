@@ -12,12 +12,14 @@
 //! walked: once dense storage outgrows the direct-block rows (those whose block
 //! size is at most the max direct size), the rows beyond hold pointers to child
 //! indirect blocks, which recurse through the same structure to their own direct
-//! blocks. Huge/tiny objects and I/O filters still return a clear error rather
-//! than risk a silent misread.
+//! blocks. The heap's direct blocks may also be I/O-filtered (deflate / shuffle):
+//! each filtered block is decompressed before its objects are read. Huge / tiny
+//! objects still return a clear error rather than risk a silent misread.
 //!
 //! Reference: HDF5 file format specification version 3, "Fractal Heap" and
 //! "Version 2 B-trees".
 
+use super::filter::FilterPipeline;
 use super::object_header::{is_undefined_address, read_uint_le};
 use fieldglass_core::FieldglassError;
 
@@ -47,6 +49,11 @@ const MAX_HEAP_INDIRECT_DEPTH: usize = 24;
 /// satisfy at a single reused address, so without a running tally the walk could
 /// blow up exponentially. A well-formed heap traverses only a handful of blocks.
 const MAX_HEAP_TABLE_ENTRIES: usize = 1 << 20;
+
+/// Upper bound on the *decompressed* size of one I/O-filtered direct block.
+/// Real heap direct blocks are KBs (libhdf5's default max is 64 KiB); this cap
+/// keeps a crafted block size from driving a large allocation during inflate.
+const MAX_FILTERED_DIRECT_BLOCK_SIZE: u64 = 1 << 26;
 
 /// Upper bound on B-tree v2 records gathered across all leaves — guards a
 /// malformed record or node count.
@@ -285,15 +292,39 @@ fn walk_btree_v2_node(
 
 /// One managed direct block, placed in the heap's linear address space. A heap
 /// offset is resolved by finding the block whose `[logical, logical + size)`
-/// range contains it; the object then lives at `file_addr + (offset - logical)`
-/// (the heap offset counts the block's prefix bytes, matching the file layout).
+/// range contains it; the object then lives at `offset - logical` bytes into the
+/// block image (the heap offset counts the block's prefix bytes, matching the
+/// file layout), whether the block is in the file verbatim or was decompressed.
 struct DirectBlock {
     /// Start of this block in the heap's linear address space.
     logical: u64,
     /// Block size in bytes (prefix included).
     size: u64,
-    /// File address of the block's `FHDB` signature.
-    file_addr: u64,
+    /// Where this block's bytes live.
+    content: BlockContent,
+}
+
+/// The bytes of a direct block: read in place from the file when the heap is
+/// unfiltered, or owned (already decompressed) when the heap is I/O-filtered.
+enum BlockContent {
+    /// File address of the block's `FHDB` signature; objects are sliced straight
+    /// out of the file (zero-copy until the object itself is taken).
+    InFile(u64),
+    /// The decompressed block image (size == the block's logical size), for an
+    /// I/O-filtered heap whose on-disk bytes are not the object bytes.
+    Decoded(Vec<u8>),
+}
+
+/// The I/O-filter state of a filtered fractal heap: the pipeline applied to
+/// every direct block, the length-field width used by the per-block filtered
+/// sizes, and the root direct block's filtered size + mask (carried in the
+/// header for the single-block case; per-block copies live in the indirect
+/// block for the doubling-table case).
+struct HeapFilter {
+    pipeline: FilterPipeline,
+    lsize: usize,
+    root_filtered_size: usize,
+    root_filter_mask: u32,
 }
 
 /// The subset of a fractal heap needed to dereference managed objects.
@@ -322,11 +353,6 @@ impl FractalHeap {
         cur.skip(1)?; // version
         let heap_id_len = cur.u16()? as usize;
         let io_filter_len = cur.u16()? as usize;
-        if io_filter_len != 0 {
-            return Err(FieldglassError::Parse(
-                "I/O-filtered fractal heaps not supported".into(),
-            ));
-        }
         cur.skip(1)?; // flags
         cur.skip(4)?; // maximum size of managed objects
         // Skip the statistics block between here and "table width". It is ten
@@ -342,6 +368,26 @@ impl FractalHeap {
         let root_block_addr = cur.uint(o)?;
         let cur_rows = cur.u16()? as usize;
 
+        // When the heap is I/O-filtered, three fields follow the row count: the
+        // filtered (on-disk) size of the root direct block, its filter mask, and
+        // the filter-pipeline description (same encoding as the Filter Pipeline
+        // object-header message). The first two only apply to the single-block
+        // case; the doubling table carries a filtered size + mask per direct
+        // block in its indirect block instead.
+        let filter = if io_filter_len != 0 {
+            let root_filtered_size = cur.uint(l)? as usize;
+            let root_filter_mask = cur.uint(4)? as u32;
+            let pipeline = FilterPipeline::decode(cur.take(io_filter_len)?)?;
+            Some(HeapFilter {
+                pipeline,
+                lsize: l,
+                root_filtered_size,
+                root_filter_mask,
+            })
+        } else {
+            None
+        };
+
         let offset_bytes = max_heap_bits.div_ceil(8);
         // A managed heap ID is flags(1) + offset(offset_bytes) + length(>=1).
         if heap_id_len < offset_bytes + 2 {
@@ -353,11 +399,26 @@ impl FractalHeap {
 
         let blocks = if cur_rows == 0 {
             // A single root direct block of the starting size.
-            validate_direct_block(bytes, root_block_addr, addr, o)?;
+            let content = match &filter {
+                None => {
+                    validate_direct_block(bytes, root_block_addr, addr, o)?;
+                    BlockContent::InFile(root_block_addr)
+                }
+                Some(hf) => BlockContent::Decoded(decode_filtered_direct_block(
+                    bytes,
+                    root_block_addr,
+                    hf.root_filtered_size,
+                    hf.root_filter_mask,
+                    &hf.pipeline,
+                    addr,
+                    o,
+                    starting_block_size,
+                )?),
+            };
             vec![DirectBlock {
                 logical: 0,
                 size: starting_block_size,
-                file_addr: root_block_addr,
+                content,
             }]
         } else {
             // Walk the doubling table from its root indirect block, descending
@@ -379,6 +440,7 @@ impl FractalHeap {
                 0,
                 cur_rows,
                 0,
+                filter.as_ref(),
                 &mut entries_read,
                 &mut blocks,
             )?;
@@ -421,14 +483,33 @@ impl FractalHeap {
             .iter()
             .find(|b| offset >= b.logical && offset - b.logical < b.size)
             .ok_or_else(|| FieldglassError::Parse("heap offset outside any direct block".into()))?;
-        let obj_addr = checked_add(block.file_addr, offset - block.logical)?;
-        let start = usize::try_from(obj_addr)
-            .map_err(|_| FieldglassError::Parse("heap object address too large".into()))?;
-        let end = start
-            .checked_add(length)
-            .filter(|&e| e <= bytes.len())
-            .ok_or_else(|| FieldglassError::Parse("heap object runs past end of file".into()))?;
-        Ok(bytes[start..end].to_vec())
+        let within = offset - block.logical;
+        match &block.content {
+            BlockContent::InFile(file_addr) => {
+                let obj_addr = checked_add(*file_addr, within)?;
+                let start = usize::try_from(obj_addr)
+                    .map_err(|_| FieldglassError::Parse("heap object address too large".into()))?;
+                let end = start
+                    .checked_add(length)
+                    .filter(|&e| e <= bytes.len())
+                    .ok_or_else(|| {
+                        FieldglassError::Parse("heap object runs past end of file".into())
+                    })?;
+                Ok(bytes[start..end].to_vec())
+            }
+            BlockContent::Decoded(image) => {
+                // `within < size == image.len()`, so the start is in range; the
+                // object's length must still fit the decompressed block.
+                let start = within as usize;
+                let end = start
+                    .checked_add(length)
+                    .filter(|&e| e <= image.len())
+                    .ok_or_else(|| {
+                        FieldglassError::Parse("heap object runs past end of direct block".into())
+                    })?;
+                Ok(image[start..end].to_vec())
+            }
+        }
     }
 }
 
@@ -450,6 +531,48 @@ fn validate_direct_block(
         ));
     }
     Ok(())
+}
+
+/// Read and decompress one I/O-filtered direct block. `filtered_size` is the
+/// block's on-disk byte count; reversing the pipeline (the heap's blocks are
+/// opaque byte streams, so element size is 1) yields the full block image, which
+/// must equal the block's `logical_size` and carry the `FHDB` signature and a
+/// back-pointer to the owning heap header — both checked here so a mis-decode
+/// surfaces as a clean error rather than feeding bad object bytes downstream.
+#[allow(clippy::too_many_arguments)]
+fn decode_filtered_direct_block(
+    bytes: &[u8],
+    block_addr: u64,
+    filtered_size: usize,
+    filter_mask: u32,
+    pipeline: &FilterPipeline,
+    heap_addr: u64,
+    osize: usize,
+    logical_size: u64,
+) -> Result<Vec<u8>, FieldglassError> {
+    if logical_size > MAX_FILTERED_DIRECT_BLOCK_SIZE {
+        return Err(FieldglassError::Parse(
+            "implausible filtered direct block size".into(),
+        ));
+    }
+    let start = usize::try_from(block_addr)
+        .map_err(|_| FieldglassError::Parse("filtered direct block address too large".into()))?;
+    let end = start
+        .checked_add(filtered_size)
+        .filter(|&e| e <= bytes.len())
+        .ok_or_else(|| {
+            FieldglassError::Parse("filtered direct block runs past end of file".into())
+        })?;
+    let image = pipeline.reverse(bytes[start..end].to_vec(), filter_mask, 1)?;
+    if image.len() as u64 != logical_size {
+        return Err(FieldglassError::Parse(
+            "filtered direct block decoded to the wrong size".into(),
+        ));
+    }
+    // The decompressed image is a normal direct block at offset 0, so the same
+    // signature + heap back-pointer check the unfiltered path runs applies.
+    validate_direct_block(&image, 0, heap_addr, osize)?;
+    Ok(image)
 }
 
 /// Block size for row `r` of the doubling table: rows 0 and 1 share the starting
@@ -544,6 +667,11 @@ impl DoublingTable {
 /// point to. An indirect block stores its `K` direct-block addresses (the first
 /// `min(nrows, max_direct_rows)` rows) ahead of its `N` child-indirect addresses
 /// (the rows beyond), so a single row-major pass reads them in file order.
+///
+/// When `filter` is set the heap is I/O-filtered: each *direct*-block entry
+/// carries its filtered (on-disk) size and filter mask right after its address
+/// (for every slot, allocated or not), and the block bytes are decompressed
+/// before use. Child-indirect entries are unfiltered and carry no such prefix.
 #[allow(clippy::too_many_arguments)]
 fn walk_indirect(
     bytes: &[u8],
@@ -553,6 +681,7 @@ fn walk_indirect(
     block_offset: u64,
     nrows: usize,
     depth: usize,
+    filter: Option<&HeapFilter>,
     entries_read: &mut usize,
     blocks: &mut Vec<DirectBlock>,
 ) -> Result<(), FieldglassError> {
@@ -599,16 +728,39 @@ fn walk_indirect(
                 ));
             }
             let entry_addr = cur.uint(osize)?;
+            // In a filtered heap each *direct*-block entry carries its on-disk
+            // size + filter mask next to its address, for every slot (allocated
+            // or not), so these fields are read before the undefined-address
+            // check. Child-indirect entries are unfiltered and have no prefix.
+            let (filtered_size, filter_mask) = match (is_direct, filter) {
+                (true, Some(hf)) => (cur.uint(hf.lsize)? as usize, cur.uint(4)? as u32),
+                _ => (0, 0),
+            };
             // An undefined address marks an unallocated table slot — skip it, but
             // still advance `logical` so later blocks keep their place in the
             // heap's linear address space.
             if !is_undefined_address(entry_addr, osize as u8) {
                 if is_direct {
-                    validate_direct_block(bytes, entry_addr, heap_addr, osize)?;
+                    let content = match filter {
+                        None => {
+                            validate_direct_block(bytes, entry_addr, heap_addr, osize)?;
+                            BlockContent::InFile(entry_addr)
+                        }
+                        Some(hf) => BlockContent::Decoded(decode_filtered_direct_block(
+                            bytes,
+                            entry_addr,
+                            filtered_size,
+                            filter_mask,
+                            &hf.pipeline,
+                            heap_addr,
+                            osize,
+                            size,
+                        )?),
+                    };
                     blocks.push(DirectBlock {
                         logical,
                         size,
-                        file_addr: entry_addr,
+                        content,
                     });
                 } else {
                     // A child indirect block governs exactly this row's block
@@ -622,6 +774,7 @@ fn walk_indirect(
                         logical,
                         child_rows,
                         depth + 1,
+                        filter,
                         entries_read,
                         blocks,
                     )?;
@@ -1151,6 +1304,179 @@ mod tests {
         // The child block claims a heap offset other than the 512 the parent's
         // doubling-table walk arrived at — a corruption signal.
         put(&mut buf, CI_CHILD_IB as usize + 13, &999u16.to_le_bytes());
+        assert!(matches!(
+            FractalHeap::parse(&buf, HEAP_ADDR, 8, 8),
+            Err(FieldglassError::Parse(_))
+        ));
+    }
+
+    // --- I/O-filtered fractal heaps ----------------------------------------
+    //
+    // libhdf5's high-level API never writes a filtered attribute / link heap
+    // (no caller sets a pipeline on the heaps Fieldglass reads), so — like the
+    // GRIB1 `matrixOfValues` case that eccodes can't encode — these are pinned
+    // with hand-built byte layouts rather than a libhdf5-generated fixture. The
+    // direct blocks are compressed with the same `miniz_oxide` zlib codec the
+    // decode path reverses, so a round-trip is an end-to-end check of the
+    // filtered-block plumbing.
+
+    /// A `deflate`-only filter pipeline body (version 2): one filter, id 1,
+    /// compression level 6. Matches `filter::FilterPipeline::decode`.
+    fn deflate_pipeline_body() -> Vec<u8> {
+        vec![
+            2, 1, /*id*/ 1, 0, /*flags*/ 0, 0, /*nvalues*/ 1, 0, /*cdata*/ 6,
+            0, 0, 0,
+        ]
+    }
+
+    fn zlib(image: &[u8]) -> Vec<u8> {
+        miniz_oxide::deflate::compress_to_vec_zlib(image, 6)
+    }
+
+    /// A full `FHDB` direct-block image of `size` bytes: signature, version,
+    /// 8-byte heap back-pointer, 2-byte block offset, then `payload` placed at
+    /// the first object slot (just past the prefix).
+    fn fhdb_image(size: usize, heap_addr: u64, payload: &[u8]) -> Vec<u8> {
+        let mut img = vec![0u8; size];
+        img[0..4].copy_from_slice(SIG_FRACTAL_DIRECT);
+        // version at 4 stays 0
+        img[5..13].copy_from_slice(&heap_addr.to_le_bytes());
+        // 2-byte block offset at 13..15 stays 0
+        img[BLOCK_PREFIX..BLOCK_PREFIX + payload.len()].copy_from_slice(payload);
+        img
+    }
+
+    /// A filtered heap with a single root direct block (`cur_rows = 0`). The
+    /// header's filter fields carry the root block's on-disk size + mask.
+    fn frhp_filtered_single(on_disk: &[u8], filtered_size: usize, mask: u32, pl: &[u8]) -> Vec<u8> {
+        let mut buf = vec![0u8; 0x400];
+        put(&mut buf, 0, SIG_FRACTAL_HEAP);
+        put(&mut buf, 5, &5u16.to_le_bytes()); // heap_id_len
+        put(&mut buf, 7, &(pl.len() as u16).to_le_bytes()); // io_filter_len
+        put(&mut buf, 110, &2u16.to_le_bytes()); // table_width
+        put(&mut buf, 112, &64u64.to_le_bytes()); // starting_block_size
+        put(&mut buf, 120, &65536u64.to_le_bytes()); // max_direct_block_size
+        put(&mut buf, 128, &16u16.to_le_bytes()); // max_heap_size bits -> offset_bytes = 2
+        put(&mut buf, 132, &BLOCK0_ADDR.to_le_bytes()); // root_block_addr
+        put(&mut buf, 140, &0u16.to_le_bytes()); // cur_rows = 0
+        // Filter fields after the row count: filtered root size, mask, pipeline.
+        put(&mut buf, 142, &(filtered_size as u64).to_le_bytes());
+        put(&mut buf, 150, &mask.to_le_bytes());
+        put(&mut buf, 154, pl);
+        put(&mut buf, BLOCK0_ADDR as usize, on_disk);
+        buf
+    }
+
+    /// Build the `flags(1) + offset(2) + length(2)` managed heap ID for an
+    /// object at heap `offset` of `len` bytes.
+    fn managed_id(offset: u64, len: usize) -> Vec<u8> {
+        let mut id = vec![0u8]; // flags: managed
+        id.extend_from_slice(&(offset as u16).to_le_bytes());
+        id.extend_from_slice(&(len as u16).to_le_bytes());
+        id
+    }
+
+    #[test]
+    fn filtered_single_root_block_dereferences_object() {
+        let payload = [0xDEu8, 0xAD, 0xBE, 0xEF];
+        let image = fhdb_image(64, HEAP_ADDR, &payload);
+        let on_disk = zlib(&image);
+        let buf = frhp_filtered_single(&on_disk, on_disk.len(), 0, &deflate_pipeline_body());
+
+        let heap = FractalHeap::parse(&buf, HEAP_ADDR, 8, 8).unwrap();
+        let id = managed_id(BLOCK_PREFIX as u64, payload.len());
+        assert_eq!(heap.managed_object(&buf, &id).unwrap(), payload);
+    }
+
+    #[test]
+    fn filtered_indirect_root_block_dereferences_object_in_second_block() {
+        let payload = [0x01u8, 0x02, 0x03, 0x04];
+        let block0 = zlib(&fhdb_image(64, HEAP_ADDR, &[]));
+        let block1 = zlib(&fhdb_image(64, HEAP_ADDR, &payload));
+
+        let pl = deflate_pipeline_body();
+        let mut buf = vec![0u8; 0x600];
+        put(&mut buf, 0, SIG_FRACTAL_HEAP);
+        put(&mut buf, 5, &5u16.to_le_bytes()); // heap_id_len
+        put(&mut buf, 7, &(pl.len() as u16).to_le_bytes()); // io_filter_len
+        put(&mut buf, 110, &2u16.to_le_bytes()); // table_width
+        put(&mut buf, 112, &64u64.to_le_bytes()); // starting_block_size
+        put(&mut buf, 120, &65536u64.to_le_bytes()); // max_direct_block_size
+        put(&mut buf, 128, &16u16.to_le_bytes()); // max_heap_size bits -> offset_bytes = 2
+        put(&mut buf, 132, &INDIRECT_ADDR.to_le_bytes()); // root_block_addr
+        put(&mut buf, 140, &1u16.to_le_bytes()); // cur_rows = 1
+        // Root direct size/mask unused for an indirect root; pipeline at 154.
+        put(&mut buf, 154, &pl);
+
+        // FHIB: each direct entry is address(8) + filtered size(8) + mask(4).
+        put(&mut buf, 0x100, SIG_FRACTAL_INDIRECT);
+        put(&mut buf, 0x100 + 5, &HEAP_ADDR.to_le_bytes());
+        let e0 = 0x100 + 15; // after sig(4) ver(1) heap_addr(8) block_offset(2)
+        put(&mut buf, e0, &BLOCK0_ADDR.to_le_bytes());
+        put(&mut buf, e0 + 8, &(block0.len() as u64).to_le_bytes());
+        let e1 = e0 + 20;
+        put(&mut buf, e1, &BLOCK1_ADDR.to_le_bytes());
+        put(&mut buf, e1 + 8, &(block1.len() as u64).to_le_bytes());
+
+        put(&mut buf, BLOCK0_ADDR as usize, &block0);
+        put(&mut buf, BLOCK1_ADDR as usize, &block1);
+
+        let heap = FractalHeap::parse(&buf, HEAP_ADDR, 8, 8).unwrap();
+        // Second block's logical start (64) + position within it.
+        let id = managed_id(64 + BLOCK_PREFIX as u64, payload.len());
+        assert_eq!(heap.managed_object(&buf, &id).unwrap(), payload);
+    }
+
+    #[test]
+    fn filter_mask_skips_decompression_of_unfiltered_block() {
+        // libhdf5 stores a block verbatim (and sets its mask bit) when a filter
+        // didn't shrink it; the reader must then skip that filter on read.
+        let payload = [0xAAu8, 0xBB];
+        let image = fhdb_image(64, HEAP_ADDR, &payload);
+        let buf = frhp_filtered_single(&image, image.len(), 0b1, &deflate_pipeline_body());
+
+        let heap = FractalHeap::parse(&buf, HEAP_ADDR, 8, 8).unwrap();
+        let id = managed_id(BLOCK_PREFIX as u64, payload.len());
+        assert_eq!(heap.managed_object(&buf, &id).unwrap(), payload);
+    }
+
+    #[test]
+    fn rejects_unknown_heap_filter() {
+        let on_disk = zlib(&fhdb_image(64, HEAP_ADDR, &[0xFF]));
+        let szip = vec![
+            2u8, 1, /*id*/ 4, 0, /*flags*/ 0, 0, /*nvalues*/ 0, 0,
+        ];
+        let buf = frhp_filtered_single(&on_disk, on_disk.len(), 0, &szip);
+        assert!(FractalHeap::parse(&buf, HEAP_ADDR, 8, 8).is_err());
+    }
+
+    #[test]
+    fn rejects_filtered_block_back_pointer_mismatch() {
+        // Decompresses fine, but the block's heap back-pointer is wrong.
+        let on_disk = zlib(&fhdb_image(64, 0x9999, &[0x01]));
+        let buf = frhp_filtered_single(&on_disk, on_disk.len(), 0, &deflate_pipeline_body());
+        assert!(matches!(
+            FractalHeap::parse(&buf, HEAP_ADDR, 8, 8),
+            Err(FieldglassError::Parse(_))
+        ));
+    }
+
+    #[test]
+    fn rejects_filtered_block_decoded_to_wrong_size() {
+        // A 32-byte image where the logical block size is 64.
+        let on_disk = zlib(&fhdb_image(32, HEAP_ADDR, &[0x01]));
+        let buf = frhp_filtered_single(&on_disk, on_disk.len(), 0, &deflate_pipeline_body());
+        assert!(matches!(
+            FractalHeap::parse(&buf, HEAP_ADDR, 8, 8),
+            Err(FieldglassError::Parse(_))
+        ));
+    }
+
+    #[test]
+    fn rejects_filtered_block_past_end_of_file() {
+        let on_disk = zlib(&fhdb_image(64, HEAP_ADDR, &[0x01]));
+        // Claim an on-disk size that runs past the buffer.
+        let buf = frhp_filtered_single(&on_disk, 0x10000, 0, &deflate_pipeline_body());
         assert!(matches!(
             FractalHeap::parse(&buf, HEAP_ADDR, 8, 8),
             Err(FieldglassError::Parse(_))
