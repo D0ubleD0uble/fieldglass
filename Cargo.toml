@@ -37,4 +37,4 @@ rust-j2k = "=0.2.0"
 # Pure-Rust DEFLATE (zlib) codec for the HDF5 deflate filter used by NetCDF-4
 # chunked datasets. Already in the tree via the `png` crate; MIT-licensed, no C
 # deps. See crates/fieldglass-netcdf.
-miniz_oxide = "0.8"
+miniz_oxide = "0.9"
