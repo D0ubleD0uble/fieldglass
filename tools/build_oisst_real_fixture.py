@@ -81,7 +81,10 @@ KEEP_GLOBALS = [
 def fetch_source() -> Path:
     if not CACHE.exists():
         print(f"  downloading {SOURCE_URL}")
-        urllib.request.urlretrieve(SOURCE_URL, CACHE)
+        # SOURCE_URL is a hardcoded https:// NOAA S3 constant in this
+        # maintainer-only fixture builder; no caller-controlled input reaches it.
+        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
+        urllib.request.urlretrieve(SOURCE_URL, CACHE)  # noqa: S310
     return CACHE
 
 
