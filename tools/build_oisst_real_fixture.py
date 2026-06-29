@@ -81,10 +81,14 @@ KEEP_GLOBALS = [
 def fetch_source() -> Path:
     if not CACHE.exists():
         print(f"  downloading {SOURCE_URL}")
-        # SOURCE_URL is a hardcoded https:// NOAA S3 constant in this
-        # maintainer-only fixture builder; no caller-controlled input reaches it.
-        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
-        urllib.request.urlretrieve(SOURCE_URL, CACHE)  # noqa: S310
+        # SOURCE_URL is composed only from string literals, so a static analyzer
+        # can constant-fold it to a fixed https:// URL — no caller-controlled
+        # value ever reaches the fetch. We read via single-argument urlopen and
+        # write the body ourselves rather than the two-argument urlretrieve: only
+        # the former lets the analyzer see the URL as the proven constant it is.
+        # The source object is ~1.5 MB, so buffering it in memory is fine.
+        with urllib.request.urlopen(SOURCE_URL) as resp:
+            CACHE.write_bytes(resp.read())
     return CACHE
 
 
