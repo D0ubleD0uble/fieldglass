@@ -1,6 +1,6 @@
 [package]
 name        = "fieldglass-netcdf"
-description = "NetCDF format reader — classic (CDF-1/2/5) header parser; HDF5 / NetCDF-4 superblock probe"
+description = "NetCDF format reader — classic (CDF-1/2/5) and NetCDF-4 / HDF5: metadata, dimension scales, and value decode"
 version.workspace    = true
 edition.workspace    = true
 license.workspace    = true

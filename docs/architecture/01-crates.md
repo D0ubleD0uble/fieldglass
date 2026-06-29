@@ -11,7 +11,7 @@ flowchart TD
     napi["fieldglass-napi<br/><i>N-API boundary (Node addon)</i>"]
     grib1["fieldglass-grib1<br/><i>GRIB1 decode</i>"]
     grib2["fieldglass-grib2<br/><i>GRIB2 decode</i>"]
-    netcdf["fieldglass-netcdf<br/><i>NetCDF classic + HDF5 probe</i>"]
+    netcdf["fieldglass-netcdf<br/><i>NetCDF classic + NetCDF-4 / HDF5</i>"]
     core["fieldglass-core<br/><i>traits, projection, warp, overlay, bits</i>"]
 
     napi --> grib1

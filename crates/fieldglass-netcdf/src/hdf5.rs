@@ -1,12 +1,14 @@
-//! Minimal HDF5 superblock probe — just enough to confirm a file is HDF5,
-//! report the superblock version, and surface a clear "deep parsing not yet
-//! implemented" status to the metadata view.
+//! HDF5 (NetCDF-4) backing. This module root probes the superblock — confirming
+//! the file is HDF5 and reading its version into [`Hdf5Probe`] — and declares the
+//! `hdf5/` submodule tree that does the deep, pure-Rust traversal on demand:
+//! object headers, group and link tables, dataspace and datatype messages,
+//! attribute messages, dimension scales, the fractal heap + B-tree v2 dense
+//! metadata indexes, the filter pipeline, and dataset value decode.
 //!
-//! Going further into HDF5 internals (B-trees, local heaps, object headers,
-//! attribute messages) is intentionally a follow-up task: the surface area is
-//! large and a hand-rolled reader is a project of its own. The promise from
-//! issue #29 is "parse enough to validate the file and tell the user what's
-//! going on" — this module delivers that.
+//! The probe is eager but cheap; the deep walk runs only as far as a metadata or
+//! value request reaches (decision 0003), so scanning a file stays inexpensive.
+//! Started as issue #29 ("parse enough to validate the file and tell the user
+//! what's going on") and completed under the #33 umbrella (#37–#40, #121, #174).
 //!
 //! Reference: HDF5 file format specification version 3
 //! <https://docs.hdfgroup.org/hdf5/develop/_f_m_t3.html>.
