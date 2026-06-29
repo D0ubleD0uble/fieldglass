@@ -95,7 +95,13 @@ def goes_scan_to_lonlat(x, y, lon0_deg, h, r_eq, r_pol):
 def fetch_source() -> Path:
     if not CACHE.exists():
         print(f"  downloading {SOURCE_URL}")
-        urllib.request.urlretrieve(SOURCE_URL, CACHE)
+        # SOURCE_URL is composed only from string literals, so a static analyzer
+        # can constant-fold it to a fixed https:// URL — no caller-controlled
+        # value ever reaches the fetch. We read via single-argument urlopen and
+        # write the body ourselves rather than the two-argument urlretrieve: only
+        # the former lets the analyzer see the URL as the proven constant it is.
+        with urllib.request.urlopen(SOURCE_URL) as resp:
+            CACHE.write_bytes(resp.read())
     return CACHE
 
 
