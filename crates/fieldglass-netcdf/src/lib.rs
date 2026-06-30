@@ -1,7 +1,7 @@
 //! NetCDF format reader. Covers the classic on-disk layout (CDF-1, CDF-2,
-//! CDF-5) end-to-end at the header level and probes HDF5 / NetCDF-4 files
-//! enough to confirm the format. See the per-module docs for what's parsed
-//! and what's deferred.
+//! CDF-5) and the NetCDF-4 / HDF5 layout end to end: dimensions, variables,
+//! and attributes, plus per-variable value decode into `Vec<Option<f64>>`.
+//! See the per-module docs for the per-layout detail.
 
 #![forbid(unsafe_code)]
 

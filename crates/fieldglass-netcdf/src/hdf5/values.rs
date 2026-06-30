@@ -7,7 +7,7 @@
 //!
 //! Storage is read for the three Data Layout classes a NetCDF-4 file uses:
 //! compact, contiguous, and chunked (version-1 B-tree index, the legacy
-//! `libver=earliest` form). Chunks pass back through the [`filter`] pipeline
+//! `libver=earliest` form). Chunks pass back through the [`filter`](super::filter) pipeline
 //! (deflate / shuffle) before being scattered into place; any region with no
 //! stored chunk reads as the dataset's Fill Value (message `0x0005`) default.
 //!

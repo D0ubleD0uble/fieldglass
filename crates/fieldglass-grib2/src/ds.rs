@@ -1,10 +1,9 @@
-//! GRIB2 Data Section (§7) — simple-packing (template 5.0) decoder.
+//! GRIB2 Data Section (§7) — decoders for every supported §5 packing.
 //!
 //! §7 is a thin wrapper around the packed bytes: 5 bytes of section header
-//! (length + section number = 7) followed by the bit-packed values. All
-//! decoding rules live in the [`DataRepresentationSection`] (§5); this
-//! module only converts the packed bytes into one `Option<f64>` per grid
-//! point.
+//! (length + section number = 7) followed by the packed payload. All
+//! decoding rules live in the [`DataRepresentationSection`](crate::drs::DataRepresentationSection)
+//! (§5); this module turns the payload into one `Option<f64>` per grid point.
 //!
 //! Spec reference: WMO Manual on Codes Vol I.2 (FM 92 GRIB Edition 2),
 //! Section 7 + Template 5.0 decoding formula.
