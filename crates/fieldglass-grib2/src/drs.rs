@@ -5,15 +5,17 @@
 //! counterpart to GRIB1 `grid_ieee`), complex packing (template 5.2, the
 //! analogue of GRIB1 second-order packing), complex packing plus
 //! spatial differencing (template 5.3, the analogue of the GRIB1 SPD
-//! orders), PNG packing (template 5.41, whose §7 wraps the integer grid in
+//! orders), JPEG 2000 packing (template 5.40, whose §7 wraps the integer
+//! grid in a JPEG 2000 codestream, decoded with the pure-Rust `rust-j2k`
+//! crate), PNG packing (template 5.41, whose §7 wraps the integer grid in
 //! a PNG image), and CCSDS / AEC packing (template 5.42, whose §7 wraps the
-//! integer grid in a libaec-compatible adaptive-entropy-coding stream). The
-//! remaining compressed template (JPEG 2000 5.40) parses as
+//! integer grid in a libaec-compatible adaptive-entropy-coding stream).
+//! Templates outside this set parse as
 //! [`DataRepresentationTemplate::Unsupported`] so message enumeration still
 //! works.
 //!
 //! Spec reference: WMO Manual on Codes Vol I.2 (FM 92 GRIB Edition 2),
-//! Section 5 layout + Templates 5.0 / 5.2 / 5.3 / 5.4 / 5.41 / 5.42.
+//! Section 5 layout + Templates 5.0 / 5.2 / 5.3 / 5.4 / 5.40 / 5.41 / 5.42.
 
 use crate::section::{SectionHeader, parse_section_header};
 use fieldglass_core::{FieldglassError, bits::sign_magnitude_i16};

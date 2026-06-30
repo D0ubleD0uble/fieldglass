@@ -78,9 +78,9 @@ impl Grib2Reader {
     ///
     /// Currently supports DRS templates 5.0 (simple packing), 5.2 / 5.3
     /// (complex packing, with and without spatial differencing — general
-    /// splitting, no inline missing values), 5.4 (IEEE floating point), 5.41
-    /// (PNG packing), and 5.42 (CCSDS / AEC packing). Other packing templates
-    /// return [`FieldglassError::UnsupportedSection`].
+    /// splitting, no inline missing values), 5.4 (IEEE floating point), 5.40
+    /// (JPEG 2000 packing), 5.41 (PNG packing), and 5.42 (CCSDS / AEC packing).
+    /// Other packing templates return [`FieldglassError::UnsupportedSection`].
     pub fn decode_message_values(
         &self,
         message_index: usize,
