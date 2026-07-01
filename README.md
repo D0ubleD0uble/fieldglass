@@ -23,15 +23,17 @@ This is an early public release (beta). For GRIB1, you can read every message's 
 | Open via *Reopen Editor With…* for unrecognized files | ✅ | ✅ | ✅ |
 | Indicator / header section parsing | ✅ | ✅ | ✅ |
 | Per-message metadata (parameter, level, time, forecast period) | ✅ | ✅ (§0–§4) | ✅ (dims / vars / attrs) |
-| Grid description (lat/lon, Gaussian, polar stereo, Lambert) | ✅ | 🚧 lat/lon (3.0), rotated lat/lon (3.1), Mercator (3.10), polar stereo (3.20), Lambert (3.30), Gaussian (3.40), space view (3.90) | 🚧 regular lat/lon (CF coordinate vars), WRF Lambert, GOES geostationary |
+| Grid description (lat/lon, Gaussian, polar stereo, Lambert) | ✅ | ✅ lat/lon (3.0), rotated lat/lon (3.1), Mercator (3.10), polar stereo (3.20), Lambert (3.30), Gaussian (3.40), space view (3.90) | ✅ regular lat/lon (CF coordinate vars), WRF Lambert, GOES geostationary |
 | WMO ON388 lookups (parameter, centre, level type) | ✅ | 🚧 Tables 0.0 / 1.2 / 1.3 / 1.4 / 3.1 / 3.2 / 4.1 / 4.2 / 4.3 / 4.4 / 4.5 / 4.6 / 4.10 + centres (subset) | n/a |
 | Tabular metadata viewer | ✅ | ✅ (§0–§4) | ✅ |
-| Binary data section decoding (Rust API) | ✅ | 🚧 partial — see [GRIB2 packing modes](#grib2-packing-modes) | 🚧 classic (CDF-1/2/5) + NetCDF-4 / HDF5 (contiguous, compact, and chunked storage with deflate / shuffle) |
+| Binary data section decoding (Rust API) | ✅ | 🚧 partial — see [GRIB2 packing modes](#grib2-packing-modes) | ✅ classic (CDF-1/2/5) + NetCDF-4 / HDF5 (contiguous, compact, and chunked storage with deflate / shuffle) |
 | Metadata editing | ❌ Not yet | ❌ Not yet | ❌ Not yet |
-| 2-D grid rendering with colormap | ✅ | 🚧 any decodable message (see decoding row) | 🚧 regular lat/lon (classic + NetCDF-4 / HDF5), WRF Lambert, GOES geostationary |
-| Render-panel projection picker (5 targets) | ✅ | ✅ (any decodable message) | 🚧 regular lat/lon + WRF Lambert / GOES geostationary |
-| Coastline + lat/lon grid overlay | ✅ | ✅ (any decodable message) | 🚧 regular lat/lon + WRF Lambert / GOES geostationary |
-| Resampling picker (nearest / bilinear) | ✅ | ✅ | 🚧 regular lat/lon |
+| 2-D grid rendering with colormap | ✅ | ✅ any decodable message (see decoding row) | ✅ regular lat/lon (classic + NetCDF-4 / HDF5), WRF Lambert, GOES geostationary |
+| Render-panel projection picker (5 targets) | ✅ | ✅ (any decodable message) | ✅ regular lat/lon + WRF Lambert / GOES geostationary |
+| Coastline + lat/lon grid overlay | ✅ | ✅ (any decodable message) | ✅ regular lat/lon + WRF Lambert / GOES geostationary |
+| Resampling picker (nearest / bilinear) | ✅ | ✅ | ✅ regular lat/lon + WRF Lambert / GOES geostationary |
+
+Legend: ✅ supported — any following text names the scope · 🚧 partial / in progress · ❌ not yet · n/a not applicable to the format.
 
 Format-agnostic features:
 

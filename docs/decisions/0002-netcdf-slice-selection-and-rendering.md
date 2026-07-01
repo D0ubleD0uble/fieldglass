@@ -4,6 +4,16 @@
 research spike and scopes the [#122](https://github.com/D0ubleD0uble/fieldglass/issues/122)
 implementation.
 
+**Amended (2026-06-29):** The "Sequencing and dependencies" section below was written while
+deep HDF5 metadata ([#33](https://github.com/D0ubleD0uble/fieldglass/issues/33)) was still
+open, so it scopes NetCDF-4 / HDF5 rendering as blocked on it. That blocker has since
+shipped — #33 landed the deep HDF5 parse, [#174](https://github.com/D0ubleD0uble/fieldglass/issues/174)
+resolved the dimension-scale convention, and [#169](https://github.com/D0ubleD0uble/fieldglass/issues/169)
+brought NetCDF-4 / HDF5 files onto the same slice-picker render path as classic files. The
+"needs #33 metadata" rows (ERA5, MERRA-2, CMIP6) are no longer blocked on the decode path;
+what remains for them is the bundled fixture corpus ([#123](https://github.com/D0ubleD0uble/fieldglass/issues/123)).
+The original sequencing is kept below as the point-in-time record.
+
 ## Context
 
 The render pipeline assumes a single 2-D field. That holds for GRIB, where a

@@ -87,8 +87,10 @@ classDiagram
 ## NetCDF reader
 
 One reader over two on-disk layouts. Classic CDF is parsed fully up front. HDF5
-(NetCDF-4) starts from a superblock probe and walks the object model
-(`ObjectHeader` → messages → dataset shape) only as far as a request reaches.
+(NetCDF-4) is parsed by a deep walk of the object model (`ObjectHeader` →
+messages → dataset shape), resolving groups, datasets, dataspaces, datatypes,
+the dimension-scale convention, and attributes — including dense attributes held
+in a fractal heap indexed by a B-tree.
 
 ```mermaid
 classDiagram
@@ -102,6 +104,7 @@ classDiagram
     ClassicHeader *-- "many" Variable
     Variable *-- "many" Attribute
 
+    Hdf5Probe --> ObjectHeader
     class ObjectHeader { +u8 version }
     ObjectHeader *-- "many" HeaderMessage
     class DatasetShape
