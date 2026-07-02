@@ -6,7 +6,7 @@
 
 A Visual Studio Code extension for viewing meteorological data files (GRIB1, GRIB2, and NetCDF) right in the editor. It runs on a native Rust module and needs no extra dependencies to install. Fieldglass bundles a prebuilt binary for each supported platform and selects the right one automatically.
 
-![Fieldglass viewer rendering a multi-message GRIB1 file](extension/media/screenshot.png)
+![Fieldglass rendering a GFS temperature field reprojected onto an orthographic globe with coastlines](extension/media/screenshot.png)
 
 [Latest release](https://github.com/D0ubleD0uble/fieldglass/releases/latest)
 
