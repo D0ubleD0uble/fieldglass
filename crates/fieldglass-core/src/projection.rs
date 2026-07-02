@@ -1169,10 +1169,18 @@ impl RotatedLatLonProjector {
             lat_max = lat_max.max(lat);
             lons.push(lon.rem_euclid(360.0));
         };
+        // Walk the row edges along the grid's true (eastward) span. A rotated
+        // grid whose columns cross the rotated antimeridian — ECCC's HRDPS
+        // continental grid runs 345° → 42° — reports `lon_last` numerically
+        // below `lon_first`, and `lon_last - lon_first` would sweep the ~300°
+        // complement arc of rotated longitudes that aren't in the grid,
+        // inflating the box to nearly the whole globe. Mirrors the unwrap in
+        // `latlon_inverse` (which this projector delegates to).
+        let east_span = eastward_lon_span(p.lon_first, p.lon_last);
         for k in 0..=PER_EDGE {
             let t = k as f64 / PER_EDGE as f64;
             let rlat = p.lat_first + t * (p.lat_last - p.lat_first);
-            let rlon = p.lon_first + t * (p.lon_last - p.lon_first);
+            let rlon = p.lon_first + t * east_span;
             visit(rlat, p.lon_first); // left edge
             visit(rlat, p.lon_last); // right edge
             visit(p.lat_first, rlon); // first-row edge
@@ -2527,6 +2535,34 @@ mod tests {
             "lat box too tight"
         );
         assert!(lon_max > lon_min, "degenerate lon span");
+    }
+
+    #[test]
+    fn rotated_bbox_handles_antimeridian_crossing_rotated_columns() {
+        // Real ECCC HRDPS continental grid: its rotated columns run
+        // 345.18° → 42.31°, across the rotated antimeridian. Interpolating the
+        // row edges over the raw corner difference swept the ~303° complement
+        // arc — rotated longitudes that aren't in the grid — inflating the box
+        // to nearly the whole globe, so the equirectangular render split the
+        // field across the window's left and right edges.
+        let p = RotatedLatLonParams {
+            ni: 2540,
+            nj: 1290,
+            lat_first: -12.302501,
+            lon_first: 345.17878,
+            lat_last: 16.700001,
+            lon_last: 42.306283,
+            south_pole_lat: -36.08852,
+            south_pole_lon: 245.305142,
+            angle_of_rotation: 0.0,
+        };
+        let (lat_min, lat_max, lon_min, lon_max) = RotatedLatLonProjector::new(p).lonlat_bbox();
+        // The HRDPS continental domain covers North America — roughly
+        // 27°N..71°N, 153°W..41°W, a ~112° longitude window.
+        assert!(near(lat_min, 27.28, 0.05), "lat_min = {lat_min}");
+        assert!(near(lat_max, 70.61, 0.05), "lat_max = {lat_max}");
+        assert!(near(lon_min, -152.73, 0.05), "lon_min = {lon_min}");
+        assert!(near(lon_max, -40.71, 0.05), "lon_max = {lon_max}");
     }
 
     // -----------------------------------------------------------------
