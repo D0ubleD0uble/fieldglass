@@ -77,13 +77,32 @@ pub fn eastward_lon_span(lon_first: f64, lon_last: f64) -> f64 {
     if span < 0.0 { span + 360.0 } else { span }
 }
 
+/// Whether a west-to-east grid covers the full globe: one more column step
+/// past the last column lands back on the first (`span + step ≈ 360°`). A
+/// global grid is periodic in longitude — the seam gap between the last
+/// column and the first belongs to the grid and wrap-interpolates (see
+/// `SourceGrid::periodic_i` in the warp). The tolerance is relative to the
+/// step so coarse and fine grids alike qualify only when truly periodic; a
+/// grid spanning exactly 360° (duplicated seam column) has no gap and isn't
+/// flagged.
+pub fn lon_grid_is_global(east_span: f64, ni: u32) -> bool {
+    if ni < 2 || !east_span.is_finite() || east_span <= 0.0 {
+        return false;
+    }
+    let ew = east_span / (ni as f64 - 1.0);
+    (east_span + ew - 360.0).abs() <= ew * 1e-3
+}
+
 /// Eastward offset of `lon` from `lon_first` on a west-to-east grid covering
 /// `[lon_first, lon_first + east_span]`, plus the span itself — or `None` when
-/// the longitude is off-grid (past the eastern edge, including the wrap seam
-/// of a global grid) or the corners are malformed (non-finite, or no east-west
-/// extent). Shared by the lat/lon, Mercator, and Gaussian inverse maps so the
-/// antimeridian unwrap (see [`eastward_lon_span`]) can't drift between them.
-fn eastward_rel_lon(lon_first: f64, lon_last: f64, lon: f64) -> Option<(f64, f64)> {
+/// the longitude is off-grid or the corners are malformed (non-finite, or no
+/// east-west extent). On a global grid (see [`lon_grid_is_global`]) the seam
+/// gap past the last column is on-grid too: the offset lands in
+/// `(east_span, 360)` — a fractional column between `ni - 1` and `ni` — which
+/// a periodic-aware sampler wraps back to column 0. Shared by the lat/lon,
+/// Mercator, and Gaussian inverse maps so the antimeridian unwrap (see
+/// [`eastward_lon_span`]) can't drift between them.
+fn eastward_rel_lon(lon_first: f64, lon_last: f64, ni: u32, lon: f64) -> Option<(f64, f64)> {
     let east_span = eastward_lon_span(lon_first, lon_last);
     if !east_span.is_finite() || east_span == 0.0 {
         // A non-finite corner (a NaN NetCDF coordinate, say) must be rejected
@@ -98,7 +117,7 @@ fn eastward_rel_lon(lon_first: f64, lon_last: f64, lon: f64) -> Option<(f64, f64
         return Some((rel, east_span));
     }
     let rel = rel.rem_euclid(360.0);
-    if rel > east_span {
+    if rel > east_span && !lon_grid_is_global(east_span, ni) {
         return None;
     }
     Some((rel, east_span))
@@ -113,7 +132,7 @@ pub fn latlon_inverse(p: &LatLonParams, lat: f64, lon: f64) -> Option<GridIndex>
         // sane caller asks for one but the math would divide by zero.
         return None;
     }
-    let (rel_lon, east_span) = eastward_rel_lon(p.lon_first, p.lon_last, lon)?;
+    let (rel_lon, east_span) = eastward_rel_lon(p.lon_first, p.lon_last, p.ni, lon)?;
     let min_lat = p.lat_first.min(p.lat_last);
     let max_lat = p.lat_first.max(p.lat_last);
     if !(min_lat..=max_lat).contains(&lat) {
@@ -167,7 +186,7 @@ pub fn mercator_inverse(p: &MercatorParams, lat: f64, lon: f64) -> Option<GridIn
         // lat/lon inverse uses.
         return None;
     }
-    let (rel_lon, east_span) = eastward_rel_lon(p.lon_first, p.lon_last, lon)?;
+    let (rel_lon, east_span) = eastward_rel_lon(p.lon_first, p.lon_last, p.ni, lon)?;
     let min_lat = p.lat_first.min(p.lat_last);
     let max_lat = p.lat_first.max(p.lat_last);
     if !(min_lat..=max_lat).contains(&lat) {
@@ -321,7 +340,7 @@ impl GaussianProjector {
         if !(min_lat..=max_lat).contains(&lat) {
             return None;
         }
-        let (rel_lon, east_span) = eastward_rel_lon(p.lon_first, p.lon_last, lon)?;
+        let (rel_lon, east_span) = eastward_rel_lon(p.lon_first, p.lon_last, p.ni, lon)?;
         let ew = east_span / (p.ni as f64 - 1.0);
         let i = rel_lon / ew;
 
@@ -1509,8 +1528,38 @@ mod tests {
             3.0,
             1e-9
         ));
-        // A longitude in the seam gap east of the last column is off-grid.
-        assert!(latlon_inverse(&p, 30.0, 135.0).is_none());
+        // This grid is global (270° span + 90° step = 360°), so a longitude
+        // in the seam gap between the last column and the wrap of the first
+        // is on-grid: it maps past `ni - 1`, and the periodic sampler wraps
+        // it back to column 0.
+        assert!(near(
+            latlon_inverse(&p, 30.0, 135.0).expect("seam gap").i,
+            3.5,
+            1e-9
+        ));
+    }
+
+    #[test]
+    fn latlon_inverse_rejects_seam_gap_of_regional_grid() {
+        // A regional grid (40° span + 10° step ≠ 360°) is not periodic; a
+        // longitude past its eastern edge stays off-grid.
+        let p = latlon_params(); // lon 100..140, ni = 5
+        assert!(latlon_inverse(&p, 30.0, 150.0).is_none());
+    }
+
+    #[test]
+    fn lon_grid_is_global_detects_periodic_spans() {
+        // GFS-style 0.25° global grid: 0..359.75 over 1440 columns.
+        assert!(lon_grid_is_global(359.75, 1440));
+        // Coarse global grid: 270° over 4 columns (90° step).
+        assert!(lon_grid_is_global(270.0, 4));
+        // Regional grid.
+        assert!(!lon_grid_is_global(40.0, 5));
+        // Exactly 360° means a duplicated seam column — no gap to wrap.
+        assert!(!lon_grid_is_global(360.0, 1441));
+        // Malformed spans.
+        assert!(!lon_grid_is_global(f64::NAN, 1440));
+        assert!(!lon_grid_is_global(0.0, 1440));
     }
 
     #[test]
@@ -1566,8 +1615,13 @@ mod tests {
             2.0,
             1e-9
         ));
-        // A longitude in the seam gap east of the last column is off-grid.
-        assert!(mercator_inverse(&p, 20.0, 135.0).is_none());
+        // This grid is global (270° span + 90° step = 360°): the seam gap
+        // maps past `ni - 1` for the periodic sampler to wrap.
+        assert!(near(
+            mercator_inverse(&p, 20.0, 135.0).expect("seam gap").i,
+            3.5,
+            1e-9
+        ));
     }
 
     #[test]
@@ -1720,8 +1774,13 @@ mod tests {
             2.0,
             1e-9
         ));
-        // The seam gap east of the last column is off-grid.
-        assert!(projector.inverse(0.0, 135.0).is_none());
+        // This grid is global (270° span + 90° step = 360°): the seam gap
+        // maps past `ni - 1` for the periodic sampler to wrap.
+        assert!(near(
+            projector.inverse(0.0, 135.0).expect("seam gap").i,
+            3.5,
+            1e-9
+        ));
     }
 
     #[test]

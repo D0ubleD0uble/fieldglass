@@ -7,7 +7,8 @@ use fieldglass_core::{
     ProjectedPolylines, Resampling, RotatedLatLonParams, RotatedLatLonProjector, SourceGrid,
     SourceOverlayTarget, TargetRaster, WebMercator,
     colormap::{min_max_ignoring_mask, paint_grid_rgba},
-    detect_from_bytes, eastward_lon_span, latlon_inverse, mercator_inverse, project_polylines,
+    detect_from_bytes, eastward_lon_span, latlon_inverse, lon_grid_is_global, mercator_inverse,
+    project_polylines,
     projection::GridIndex,
     warp::{TargetProjection, WarpedRaster, warp},
 };
@@ -2444,6 +2445,7 @@ fn warp_message(
         nj,
         sample: sample_ref,
         inverse_at: inverse_ref,
+        periodic_i: source_grid_is_periodic(meta, ni),
     };
     // Construct the concrete target (shared with the overlay-projection path so
     // both paint into byte-identical geometry), then warp the source into it.
@@ -2691,19 +2693,48 @@ fn resolve_box_extent(
 /// grid (see `eastward_lon_span`) so the window is the grid's true span
 /// (`lon_first .. lon_first + east_span`) rather than a collapsed `min..max`
 /// sliver; `lon_max` may exceed 360°, which the warp targets accept (query
-/// longitudes wrap to the nearest 360° multiple).
+/// longitudes wrap to the nearest 360° multiple). A global grid's window
+/// extends through the seam gap to the full 360° so the wrap column at the
+/// eastern edge is painted too (the periodic sampler fills it).
 fn latlon_family_bbox(
     lat_first: f64,
     lat_last: f64,
     lon_first: f64,
     lon_last: f64,
+    ni: u32,
 ) -> (f64, f64, f64, f64) {
+    let east_span = eastward_lon_span(lon_first, lon_last);
+    let lon_span = if lon_grid_is_global(east_span, ni) {
+        360.0
+    } else {
+        east_span
+    };
     (
         lat_first.min(lat_last),
         lat_first.max(lat_last),
         lon_first,
-        lon_first + eastward_lon_span(lon_first, lon_last),
+        lon_first + lon_span,
     )
+}
+
+/// Whether the source grid is periodic in its column axis: a corner-pinned
+/// west-to-east grid whose columns cover the full globe, so the warp may wrap
+/// column indices across the seam (see `SourceGrid::periodic_i`). Rotated
+/// lat/lon is judged in its rotated frame, matching its inverse map; planar
+/// grids are never periodic.
+fn source_grid_is_periodic(meta: &MessageMeta, ni: u32) -> bool {
+    match meta.grid_type.as_deref() {
+        Some("latlon")
+        | Some("gaussian")
+        | Some("mercator")
+        | Some("rotated_latlon")
+        | Some("reduced_latlon")
+        | Some("reduced_gaussian") => match (meta.lon_first, meta.lon_last) {
+            (Some(first), Some(last)) => lon_grid_is_global(eastward_lon_span(first, last), ni),
+            _ => false,
+        },
+        _ => false,
+    }
 }
 
 fn latlon_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
@@ -2717,8 +2748,9 @@ fn latlon_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpS
     };
     let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
         Box::new(move |lat, lon| latlon_inverse(&p, lat, lon));
-    let bbox: BboxThunk =
-        Box::new(move || latlon_family_bbox(p.lat_first, p.lat_last, p.lon_first, p.lon_last));
+    let bbox: BboxThunk = Box::new(move || {
+        latlon_family_bbox(p.lat_first, p.lat_last, p.lon_first, p.lon_last, p.ni)
+    });
     Ok((inverse, bbox))
 }
 
@@ -2741,8 +2773,9 @@ fn gaussian_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<War
     let projector = GaussianProjector::new(p);
     let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
         Box::new(move |lat, lon| projector.inverse(lat, lon));
-    let bbox: BboxThunk =
-        Box::new(move || latlon_family_bbox(p.lat_first, p.lat_last, p.lon_first, p.lon_last));
+    let bbox: BboxThunk = Box::new(move || {
+        latlon_family_bbox(p.lat_first, p.lat_last, p.lon_first, p.lon_last, p.ni)
+    });
     Ok((inverse, bbox))
 }
 
@@ -2761,8 +2794,9 @@ fn mercator_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<War
     // axis-aligned box they span — same as the regular lat/lon source. (The
     // rows are non-uniform in latitude, but the box is still bounded by the
     // corner latitudes.)
-    let bbox: BboxThunk =
-        Box::new(move || latlon_family_bbox(p.lat_first, p.lat_last, p.lon_first, p.lon_last));
+    let bbox: BboxThunk = Box::new(move || {
+        latlon_family_bbox(p.lat_first, p.lat_last, p.lon_first, p.lon_last, p.ni)
+    });
     Ok((inverse, bbox))
 }
 
@@ -4153,6 +4187,39 @@ mod netcdf_slice_tests {
         let assumed = synth_latlon_meta("sst", "", 180, 89, None);
         assert!(assumed.lat_first.is_none());
         assert!(!assumed.reprojectable, "no corners ⇒ source only");
+    }
+
+    #[test]
+    fn global_grids_sample_periodically_regional_grids_do_not() {
+        // 0..358° over 180 columns (2° step): one more step wraps to the
+        // first column, so the warp may sample across the seam.
+        let global = fieldglass_netcdf::SliceGeometry {
+            ni: 180,
+            nj: 89,
+            lat_first: 88.0,
+            lat_last: -88.0,
+            lon_first: 0.0,
+            lon_last: 358.0,
+            irregular: false,
+            lon_descending: false,
+        };
+        let meta = synth_latlon_meta("sst", "degree_C", 180, 89, Some(global));
+        assert!(source_grid_is_periodic(&meta, 180));
+
+        // A 90°-wide regional window is not periodic.
+        let regional = fieldglass_netcdf::SliceGeometry {
+            lon_first: 0.0,
+            lon_last: 90.0,
+            ni: 10,
+            ..global
+        };
+        let meta = synth_latlon_meta("t", "K", 10, 89, Some(regional));
+        assert!(!source_grid_is_periodic(&meta, 10));
+
+        // Planar grid types never wrap, whatever their corners say.
+        let mut planar = synth_latlon_meta("t", "K", 180, 89, Some(global));
+        planar.grid_type = Some("lambert".to_string());
+        assert!(!source_grid_is_periodic(&planar, 180));
     }
 
     /// End-to-end: open the committed classic ERSST fixture, pick the bottom
