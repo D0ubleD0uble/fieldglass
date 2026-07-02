@@ -72,7 +72,7 @@ get_gfs() { # complex+spatial-diff (5.3), regular lat/lon (3.0) — global
   fi
 }
 
-get_hrrr() { # JPEG 2000 (5.40), Lambert (3.30) — CONUS
+get_hrrr() { # complex + spatial-diff (5.3), Lambert (3.30) — CONUS
   info "HRRR surface temperature (byte-range from wrfsfc)"
   extract_wgrib2 \
     "https://noaa-hrrr-bdp-pds.s3.amazonaws.com/hrrr.${DATE}/conus/hrrr.t${CYCLE}z.wrfsfcf00.grib2" \
@@ -86,7 +86,7 @@ get_nam() { # complex / JPEG 2000, Lambert (3.30) — CONUS
     "$OUT/nam.grib2" ":TMP:surface:"
 }
 
-get_rap() { # complex (5.3), Lambert (3.30) — CONUS
+get_rap() { # JPEG 2000 (5.40), Lambert (3.30) — CONUS
   info "RAP surface temperature (byte-range from awp130)"
   extract_wgrib2 \
     "https://noaa-rap-pds.s3.amazonaws.com/rap.${DATE}/rap.t${CYCLE}z.awp130pgrbf00.grib2" \
