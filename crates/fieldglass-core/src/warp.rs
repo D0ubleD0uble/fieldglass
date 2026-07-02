@@ -58,6 +58,13 @@ pub struct SourceGrid<'a> {
     pub nj: u32,
     pub sample: Sample<'a>,
     pub inverse_at: Inverse<'a>,
+    /// `true` when the grid is periodic in `i` — a global west-to-east grid
+    /// whose next column past `ni - 1` is column 0 again (see
+    /// [`crate::projection::lon_grid_is_global`]). The resampler then wraps
+    /// column indices instead of clamping, so the seam gap between the last
+    /// and first columns interpolates across the wrap rather than rendering
+    /// as a one-pixel hole at the seam meridian.
+    pub periodic_i: bool,
 }
 
 /// Target raster definition for the warp. `lat_max` sits at output pixel
@@ -656,7 +663,14 @@ fn sample_source(source: &SourceGrid<'_>, idx: GridIndex, method: Resampling) ->
     let nj = source.nj as i64;
     match method {
         Resampling::Nearest => {
-            let i = idx.i.round().clamp(0.0, (ni - 1) as f64) as usize;
+            // A periodic grid wraps the column index (a seam-gap sample past
+            // `ni - 1` rounds to `ni`, which is column 0 again); a bounded
+            // grid clamps to the edge column.
+            let i = if source.periodic_i {
+                idx.i.round().rem_euclid(ni as f64) as usize
+            } else {
+                idx.i.round().clamp(0.0, (ni - 1) as f64) as usize
+            };
             let j = idx.j.round().clamp(0.0, (nj - 1) as f64) as usize;
             (source.sample)(i, j)
         }
@@ -668,20 +682,33 @@ fn sample_source(source: &SourceGrid<'_>, idx: GridIndex, method: Resampling) ->
             // `fi` (or `fj`) is 0 anyway so the saturated column
             // contributes nothing to the weighted sum.
             //
+            // On a periodic grid the columns wrap instead: `i0` reduces
+            // modulo `ni` (a seam-gap index sits in `(ni - 1, ni)`) and the
+            // eastern neighbour of the last column is column 0, so the seam
+            // interpolates between the last and first columns.
+            //
             // Off-grid points (negative or far past the edge) should
             // already be `None` from the inverse map; the clamp here is
             // defensive against accumulated float error pushing `idx.i`
             // a hair past `ni - 1`.
             let i0_f = idx.i.floor();
             let j0_f = idx.j.floor();
-            let i0 = i0_f as i64;
+            let i0 = if source.periodic_i {
+                i0_f.rem_euclid(ni as f64) as i64
+            } else {
+                i0_f as i64
+            };
             let j0 = j0_f as i64;
             if i0 < 0 || j0 < 0 || i0 >= ni || j0 >= nj {
                 return None;
             }
             let i0u = i0 as usize;
             let j0u = j0 as usize;
-            let i1 = i0u.saturating_add(1).min((ni as usize).saturating_sub(1));
+            let i1 = if source.periodic_i {
+                (i0u + 1) % ni as usize
+            } else {
+                i0u.saturating_add(1).min((ni as usize).saturating_sub(1))
+            };
             let j1 = j0u.saturating_add(1).min((nj as usize).saturating_sub(1));
             let v00 = (source.sample)(i0u, j0u)?;
             let v01 = (source.sample)(i1, j0u)?;
@@ -701,7 +728,7 @@ fn sample_source(source: &SourceGrid<'_>, idx: GridIndex, method: Resampling) ->
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::projection::{LatLonParams, latlon_inverse};
+    use crate::projection::{LatLonParams, eastward_lon_span, latlon_inverse, lon_grid_is_global};
 
     /// Build a source grid whose value at `(i, j)` is `j * 100 + i` — the
     /// pattern makes warp behaviour transparent to inspect.
@@ -724,6 +751,7 @@ mod tests {
     ) -> SourceGrid<'a> {
         let ni = p.ni;
         let nj = p.nj;
+        let periodic_i = lon_grid_is_global(eastward_lon_span(p.lon_first, p.lon_last), ni);
         let inverse = move |lat: f64, lon: f64| latlon_inverse(p, lat, lon);
         let inverse_ref: &'a dyn Fn(f64, f64) -> Option<GridIndex> = Box::leak(Box::new(inverse));
         SourceGrid {
@@ -731,11 +759,93 @@ mod tests {
             nj,
             sample,
             inverse_at: inverse_ref,
+            periodic_i,
         }
     }
 
     fn near(a: f64, b: f64, tol: f64) -> bool {
         (a - b).abs() < tol
+    }
+
+    /// A 4-column global grid: 90° step, columns at 0/90/180/270, so one more
+    /// step past the last column wraps to the first (span 270° + 90° = 360°).
+    fn global_latlon_params() -> LatLonParams {
+        LatLonParams {
+            ni: 4,
+            nj: 5,
+            lat_first: 50.0,
+            lon_first: 0.0,
+            lat_last: 10.0,
+            lon_last: 270.0,
+        }
+    }
+
+    #[test]
+    fn periodic_nearest_wraps_the_seam_column() {
+        let (p, cell) = indexed_latlon_source(global_latlon_params());
+        let source = make_source(&p, &cell);
+        assert!(source.periodic_i, "4×90° grid is global");
+        // A seam-gap index past the midpoint rounds to `ni`, which is column
+        // 0 again on a periodic grid (a bounded grid would clamp to `ni - 1`).
+        let v = sample_source(&source, GridIndex { i: 3.8, j: 0.0 }, Resampling::Nearest);
+        assert_eq!(v, Some(0.0));
+        // The western half of the gap stays nearest to the last column.
+        let v = sample_source(&source, GridIndex { i: 3.4, j: 0.0 }, Resampling::Nearest);
+        assert_eq!(v, Some(3.0));
+    }
+
+    #[test]
+    fn periodic_bilinear_interpolates_across_the_seam() {
+        let (p, cell) = indexed_latlon_source(global_latlon_params());
+        let source = make_source(&p, &cell);
+        // Halfway through the seam gap blends the last column (value 3) and
+        // the wrapped first column (value 0) equally.
+        let v = sample_source(&source, GridIndex { i: 3.5, j: 0.0 }, Resampling::Bilinear)
+            .expect("seam sample");
+        assert!(near(v, 1.5, 1e-12), "got {v}");
+    }
+
+    #[test]
+    fn global_grid_warps_with_no_seam_hole() {
+        // The bug this guards: a global grid's seam gap (here the 90° between
+        // column 3 at 270° and the wrap of column 0 at 360°) rendered masked,
+        // a transparent line at the wrap meridian in every full-globe target.
+        // With periodic sampling the full 0..360° window paints wall to wall.
+        let (p, cell) = indexed_latlon_source(global_latlon_params());
+        let source = make_source(&p, &cell);
+        let target = TargetRaster {
+            width: 16,
+            height: 5,
+            lat_max: 50.0,
+            lat_min: 10.0,
+            lon_min: 0.0,
+            lon_max: 360.0,
+        };
+        for method in [Resampling::Nearest, Resampling::Bilinear] {
+            let out = warp_to_equirectangular(&source, &target, method);
+            let holes = out.mask.iter().filter(|&&m| m == 0).count();
+            assert_eq!(holes, 0, "{method:?}: {holes} masked pixels in seam");
+        }
+    }
+
+    #[test]
+    fn bounded_grid_still_clamps_at_the_east_edge() {
+        // Regional grid (40° span + 10° step ≠ 360°): not periodic, so both
+        // resamplers saturate at the last column instead of wrapping.
+        let (p, cell) = indexed_latlon_source(LatLonParams {
+            ni: 5,
+            nj: 5,
+            lat_first: 50.0,
+            lon_first: 100.0,
+            lat_last: 10.0,
+            lon_last: 140.0,
+        });
+        let source = make_source(&p, &cell);
+        assert!(!source.periodic_i);
+        let v = sample_source(&source, GridIndex { i: 4.4, j: 0.0 }, Resampling::Nearest);
+        assert_eq!(v, Some(4.0));
+        let v = sample_source(&source, GridIndex { i: 4.0, j: 0.0 }, Resampling::Bilinear);
+        assert_eq!(v, Some(4.0));
     }
 
     #[test]
