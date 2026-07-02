@@ -152,7 +152,36 @@ get_goes() { # NetCDF-4, geostationary — mesoscale band 13
     && ok "goes.nc ($(du -h "$OUT/goes.nc" | cut -f1))"
 }
 
-ALL=(gfs hrrr nam rap nbm mrms ecmwf eccc goes)
+get_oisst() { # NetCDF-4, regular 1/4° global lat/lon — real full OISST analysis
+  info "NOAA OISST v2.1 daily analysis (NOAA CDR archive, full real file)"
+  # A pinned date rather than \$DATE: the CDR archive's recent days are
+  # preliminary/late-arriving, while this object is final and immutable — the
+  # same one the committed oisst_avhrr_v2.nc test fixture was subset from
+  # (provenance in crates/fieldglass-netcdf/tests/fixtures/NOTICE.md). NOAA
+  # CDR output is a U.S. Government work in the public domain. ~1.6 MB.
+  local url="https://noaa-cdr-sea-surface-temp-optimum-interpolation-pds.s3.amazonaws.com/data/v2.1/avhrr/202501/oisst-avhrr-v02r01.20250101.nc"
+  if curl -fsSL "$url" -o "$OUT/oisst.nc"; then
+    ok "oisst.nc ($(du -h "$OUT/oisst.nc" | cut -f1))"
+  else
+    warn "OISST fetch failed"
+  fi
+}
+
+get_wrf() { # NetCDF classic, WRF Lambert (MAP_PROJ attrs) — synthetic stand-in
+  info "WRF wrfout stand-in (copied from the committed test fixture)"
+  # Real wrfout files are self-generated model output with no public
+  # no-credential endpoint, so this stages the repo's tiny (6×5) synthetic
+  # wrfout-style fixture. It exercises the WRF-attribute + Lambert render
+  # path end to end, but it's too small for a meaningful coastline check —
+  # drop a real wrfout into samples/ by hand for that (see samples/README.md).
+  if cp "$REPO/crates/fieldglass-netcdf/tests/fixtures/wrf_lambert.nc" "$OUT/wrf.nc"; then
+    ok "wrf.nc (synthetic 6×5 stand-in — drop in a real wrfout for visual checks)"
+  else
+    warn "WRF fixture copy failed"
+  fi
+}
+
+ALL=(gfs hrrr nam rap nbm mrms ecmwf eccc goes oisst wrf)
 targets=("$@"); [ ${#targets[@]} -eq 0 ] && targets=("${ALL[@]}")
 
 info "run: ${DATE} ${CYCLE}Z  ->  $OUT"
