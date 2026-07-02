@@ -1,0 +1,28 @@
+{
+  "count": 1038240,
+  "missing_count": 0,
+  "min": 203.61279,
+  "max": 314.67529,
+  "mean": 281.3642512672145,
+  "samples": {
+    "0": 273.14404,
+    "1": 273.14404,
+    "100": 273.14404,
+    "1000": 273.14404,
+    "1038239": 215.98779
+  },
+  "tolerance_absolute": 0.001,
+  "section5": {
+    "dataRepresentationTemplateNumber": 42,
+    "packingType": "grid_ccsds",
+    "referenceValue": 203.613,
+    "binaryScaleFactor": -5,
+    "decimalScaleFactor": 0,
+    "bitsPerValue": 12,
+    "typeOfOriginalFieldValues": 0,
+    "ccsdsFlags": 14,
+    "ccsdsBlockSize": 32,
+    "ccsdsRsi": 128
+  },
+  "source": "eccodes 2.34.1 grib_get_data + grib_get. Value+\u00a75 oracle for the committed ecmwf_ccsds_latlon.grib2 \u2014 real ECMWF open-data IFS 2m temperature, DRS template 5.42 (grid_ccsds / libaec) on a regular lat/lon (3.0) grid. Provenance in NOTICE.md."
+}

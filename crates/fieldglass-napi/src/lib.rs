@@ -7,7 +7,7 @@ use fieldglass_core::{
     ProjectedPolylines, Resampling, RotatedLatLonParams, RotatedLatLonProjector, SourceGrid,
     SourceOverlayTarget, TargetRaster, WebMercator,
     colormap::{min_max_ignoring_mask, paint_grid_rgba},
-    detect_from_bytes, latlon_inverse, mercator_inverse, project_polylines,
+    detect_from_bytes, eastward_lon_span, latlon_inverse, mercator_inverse, project_polylines,
     projection::GridIndex,
     warp::{TargetProjection, WarpedRaster, warp},
 };
@@ -166,15 +166,19 @@ pub struct MessageMeta {
 
 /// Whether a grid can feed the warp pipeline's non-source targets. Mirrors the
 /// dispatch in [`warp_setup_for`] — lat/lon, rotated lat/lon, Gaussian, and
-/// Mercator always qualify (their inverse maps are pinned by the corner
-/// coordinates — plus the rotated pole — alone); the planar projections
-/// (Lambert, polar stereographic) also require a non-zero grid spacing, since a
-/// degenerate Dx/Dy collapses every grid point onto one location and the
-/// reprojection would render blank.
+/// Mercator qualify when they scan west-to-east (their inverse maps are pinned
+/// by the corner coordinates — plus the rotated pole — alone, and those maps
+/// read a descending-longitude corner pair as an antimeridian wrap, so the
+/// vanishingly rare −i scan stays in the source projection rather than
+/// mis-rendering); the planar projections (Lambert, polar stereographic) also
+/// require a non-zero grid spacing, since a degenerate Dx/Dy collapses every
+/// grid point onto one location and the reprojection would render blank. (The
+/// planar grids handle −i themselves: the scan sign is baked into Dx.)
 fn grid_is_reprojectable(
     grid_type: Option<&str>,
     planar_dx: Option<f64>,
     planar_dy: Option<f64>,
+    i_scan_negative: bool,
 ) -> bool {
     match grid_type {
         // Reduced grids are widened to a regular Ni·Nj raster at decode time, so
@@ -184,7 +188,7 @@ fn grid_is_reprojectable(
         | Some("mercator")
         | Some("rotated_latlon")
         | Some("reduced_latlon")
-        | Some("reduced_gaussian") => true,
+        | Some("reduced_gaussian") => !i_scan_negative,
         // Space view carries its scan-angle increments through the same
         // planar spacing slots; an orthographic view (no camera altitude)
         // leaves them `None` and so does not reproject.
@@ -330,10 +334,22 @@ fn build_grib1_message_meta(
     let rotated_south_pole_lat = rotated.map(|g| g.south_pole_lat);
     let rotated_south_pole_lon = rotated.map(|g| g.south_pole_lon);
     let rotated_angle_of_rotation = rotated.map(|g| g.angle_of_rotation);
+    // Corner-pinned grids assume a west-to-east scan; surface the −i flag so
+    // `grid_is_reprojectable` keeps descending grids in the source projection.
+    // (Predefined no-GDS grids have no flag and all scan west-to-east.)
+    let i_scan_negative = match &msg.gds {
+        Some(fieldglass_grib1::GridDescription::LatLon(g)) => g.scanning_mode.i_negative,
+        Some(fieldglass_grib1::GridDescription::RotatedLatLon(g)) => g.scanning_mode.i_negative,
+        Some(fieldglass_grib1::GridDescription::ReducedLatLon(g)) => g.scanning_mode.i_negative,
+        Some(fieldglass_grib1::GridDescription::Gaussian(g)) => g.scanning_mode.i_negative,
+        Some(fieldglass_grib1::GridDescription::ReducedGaussian(g)) => g.scanning_mode.i_negative,
+        _ => false,
+    };
     let reprojectable = grid_is_reprojectable(
         grid_type.as_deref(),
         polar_stereo_dx_metres.or(lambert_dx_metres),
         polar_stereo_dy_metres.or(lambert_dy_metres),
+        i_scan_negative,
     );
     MessageMeta {
         message_index: msg.message_index as i32,
@@ -668,6 +684,16 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
     };
 
     let grid_type = msg.gds.template_name();
+    // Corner-pinned grids assume a west-to-east scan; surface the −i flag
+    // (scanning-mode bit 0x80) so `grid_is_reprojectable` keeps descending
+    // grids in the source projection.
+    let i_scan_negative = match &msg.gds.template {
+        fieldglass_grib2::GridTemplate::LatLon(t) => t.scanning_mode & 0x80 != 0,
+        fieldglass_grib2::GridTemplate::RotatedLatLon(t) => t.scanning_mode & 0x80 != 0,
+        fieldglass_grib2::GridTemplate::Mercator(t) => t.scanning_mode & 0x80 != 0,
+        fieldglass_grib2::GridTemplate::Gaussian(t) => t.scanning_mode & 0x80 != 0,
+        _ => false,
+    };
     let reprojectable = grid_is_reprojectable(
         Some(grid_type.as_str()),
         polar_stereo_inc
@@ -678,6 +704,7 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
             .map(|(_, dy)| dy)
             .or(lambert_dy_metres)
             .or(space_view.map(|g| g.dy_rad)),
+        i_scan_negative,
     );
 
     MessageMeta {
@@ -1983,7 +2010,10 @@ fn synth_latlon_meta(
         lon_first: geometry.map(|g| g.lon_first),
         lat_last: geometry.map(|g| g.lat_last),
         lon_last: geometry.map(|g| g.lon_last),
-        reprojectable: geometry.is_some(),
+        // A descending (east-to-west) longitude axis would be misread by the
+        // west-to-east inverse map as an antimeridian wrap — mirror the GRIB
+        // scanning-mode gate and offer only the source projection.
+        reprojectable: geometry.is_some_and(|g| !g.lon_descending),
         ..base_netcdf_meta(name, units, ni, nj)
     }
 }
@@ -2656,6 +2686,26 @@ fn resolve_box_extent(
     }
 }
 
+/// Axis-aligned lat/lon extent of a corner-pinned west-to-east grid, shared by
+/// the lat/lon, Gaussian, and Mercator setups. Unwraps an antimeridian-crossing
+/// grid (see `eastward_lon_span`) so the window is the grid's true span
+/// (`lon_first .. lon_first + east_span`) rather than a collapsed `min..max`
+/// sliver; `lon_max` may exceed 360°, which the warp targets accept (query
+/// longitudes wrap to the nearest 360° multiple).
+fn latlon_family_bbox(
+    lat_first: f64,
+    lat_last: f64,
+    lon_first: f64,
+    lon_last: f64,
+) -> (f64, f64, f64, f64) {
+    (
+        lat_first.min(lat_last),
+        lat_first.max(lat_last),
+        lon_first,
+        lon_first + eastward_lon_span(lon_first, lon_last),
+    )
+}
+
 fn latlon_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
     let p = LatLonParams {
         ni,
@@ -2667,14 +2717,8 @@ fn latlon_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpS
     };
     let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
         Box::new(move |lat, lon| latlon_inverse(&p, lat, lon));
-    let bbox: BboxThunk = Box::new(move || {
-        (
-            p.lat_first.min(p.lat_last),
-            p.lat_first.max(p.lat_last),
-            p.lon_first.min(p.lon_last),
-            p.lon_first.max(p.lon_last),
-        )
-    });
+    let bbox: BboxThunk =
+        Box::new(move || latlon_family_bbox(p.lat_first, p.lat_last, p.lon_first, p.lon_last));
     Ok((inverse, bbox))
 }
 
@@ -2697,14 +2741,8 @@ fn gaussian_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<War
     let projector = GaussianProjector::new(p);
     let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
         Box::new(move |lat, lon| projector.inverse(lat, lon));
-    let bbox: BboxThunk = Box::new(move || {
-        (
-            p.lat_first.min(p.lat_last),
-            p.lat_first.max(p.lat_last),
-            p.lon_first.min(p.lon_last),
-            p.lon_first.max(p.lon_last),
-        )
-    });
+    let bbox: BboxThunk =
+        Box::new(move || latlon_family_bbox(p.lat_first, p.lat_last, p.lon_first, p.lon_last));
     Ok((inverse, bbox))
 }
 
@@ -2723,14 +2761,8 @@ fn mercator_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<War
     // axis-aligned box they span — same as the regular lat/lon source. (The
     // rows are non-uniform in latitude, but the box is still bounded by the
     // corner latitudes.)
-    let bbox: BboxThunk = Box::new(move || {
-        (
-            p.lat_first.min(p.lat_last),
-            p.lat_first.max(p.lat_last),
-            p.lon_first.min(p.lon_last),
-            p.lon_first.max(p.lon_last),
-        )
-    });
+    let bbox: BboxThunk =
+        Box::new(move || latlon_family_bbox(p.lat_first, p.lat_last, p.lon_first, p.lon_last));
     Ok((inverse, bbox))
 }
 
@@ -2877,7 +2909,14 @@ fn grid_nj(meta: &MessageMeta) -> napi::Result<u32> {
 }
 
 fn require_f64(value: Option<f64>, name: &str) -> napi::Result<f64> {
-    value.ok_or_else(|| napi::Error::from_reason(format!("missing {name}")))
+    match value {
+        Some(v) if v.is_finite() => Ok(v),
+        // A non-finite corner or parameter (a NaN NetCDF coordinate in a
+        // corrupt file, say) would slip through the projection math as a NaN
+        // grid index and paint wrong data; fail with a nameable field instead.
+        Some(_) => Err(napi::Error::from_reason(format!("non-finite {name}"))),
+        None => Err(napi::Error::from_reason(format!("missing {name}"))),
+    }
 }
 
 /// Like [`require_f64`] but also rejects a zero grid spacing. Some sample GRIB2
@@ -3727,15 +3766,44 @@ mod reprojectable_tests {
     use super::grid_is_reprojectable;
 
     #[test]
-    fn latlon_gaussian_and_mercator_are_always_reprojectable() {
+    fn latlon_gaussian_and_mercator_reproject_when_scanning_west_to_east() {
         // These three are pinned by their corner coordinates alone, so they
         // never depend on a metric grid spacing.
-        assert!(grid_is_reprojectable(Some("latlon"), None, None));
-        assert!(grid_is_reprojectable(Some("gaussian"), None, None));
-        assert!(grid_is_reprojectable(Some("mercator"), None, None));
+        assert!(grid_is_reprojectable(Some("latlon"), None, None, false));
+        assert!(grid_is_reprojectable(Some("gaussian"), None, None, false));
+        assert!(grid_is_reprojectable(Some("mercator"), None, None, false));
         // Rotated lat/lon is pinned by its rotated corners + pole position, so
         // it too needs no metric spacing.
-        assert!(grid_is_reprojectable(Some("rotated_latlon"), None, None));
+        assert!(grid_is_reprojectable(
+            Some("rotated_latlon"),
+            None,
+            None,
+            false
+        ));
+    }
+
+    #[test]
+    fn descending_scan_keeps_corner_pinned_grids_in_source_projection() {
+        // A −i (east-to-west) scan would be misread by the west-to-east
+        // inverse maps as an antimeridian wrap, so those grids don't offer
+        // reprojection.
+        assert!(!grid_is_reprojectable(Some("latlon"), None, None, true));
+        assert!(!grid_is_reprojectable(Some("gaussian"), None, None, true));
+        assert!(!grid_is_reprojectable(Some("mercator"), None, None, true));
+        assert!(!grid_is_reprojectable(
+            Some("rotated_latlon"),
+            None,
+            None,
+            true
+        ));
+        // The planar projections bake the scan sign into Dx, so the flag
+        // doesn't gate them.
+        assert!(grid_is_reprojectable(
+            Some("lambert"),
+            Some(-81_271.0),
+            Some(81_271.0),
+            true
+        ));
     }
 
     #[test]
@@ -3744,36 +3812,45 @@ mod reprojectable_tests {
         assert!(grid_is_reprojectable(
             Some("lambert"),
             Some(81_271.0),
-            Some(81_271.0)
+            Some(81_271.0),
+            false
         ));
         assert!(grid_is_reprojectable(
             Some("polar_stereo"),
             Some(60_000.0),
-            Some(60_000.0)
+            Some(60_000.0),
+            false
         ));
         // Space view carries its scan-angle increments through the same
         // spacing slots; a real apparent diameter → reprojectable.
         assert!(grid_is_reprojectable(
             Some("space_view"),
             Some(5.6e-5),
-            Some(5.6e-5)
+            Some(5.6e-5),
+            false
         ));
         // Degenerate Dx/Dy (eccodes' polar_stereographic sample) → not.
         assert!(!grid_is_reprojectable(
             Some("polar_stereo"),
             Some(0.0),
-            Some(0.0)
+            Some(0.0),
+            false
         ));
-        assert!(!grid_is_reprojectable(Some("lambert"), None, None));
+        assert!(!grid_is_reprojectable(Some("lambert"), None, None, false));
         // Orthographic space view (no camera altitude) leaves the increments
         // unset, so it does not reproject.
-        assert!(!grid_is_reprojectable(Some("space_view"), None, None));
+        assert!(!grid_is_reprojectable(
+            Some("space_view"),
+            None,
+            None,
+            false
+        ));
     }
 
     #[test]
     fn unsupported_grid_types_are_not_reprojectable() {
-        assert!(!grid_is_reprojectable(Some("unknown"), None, None));
-        assert!(!grid_is_reprojectable(None, None, None));
+        assert!(!grid_is_reprojectable(Some("unknown"), None, None, false));
+        assert!(!grid_is_reprojectable(None, None, None, false));
     }
 }
 
@@ -4064,6 +4141,7 @@ mod netcdf_slice_tests {
             lon_first: 0.0,
             lon_last: 358.0,
             irregular: false,
+            lon_descending: false,
         };
         let meta = synth_latlon_meta("sst", "degree_C", 180, 89, Some(geom));
         assert_eq!(meta.grid_type.as_deref(), Some("latlon"));

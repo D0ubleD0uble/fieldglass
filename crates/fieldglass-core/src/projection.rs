@@ -60,26 +60,52 @@ pub struct LatLonParams {
     pub lon_last: f64,
 }
 
-pub fn latlon_inverse(p: &LatLonParams, lat: f64, lon: f64) -> Option<GridIndex> {
-    if !lat.is_finite() || !lon.is_finite() {
+/// Eastward longitude span of a west-to-east lat/lon grid, in degrees.
+///
+/// A grid that crosses the antimeridian reports `lon_last` numerically *below*
+/// `lon_first` (e.g. ECMWF open data runs 180° → 359.75° → 0° → 179.75°, so
+/// `lon_first = 180`, `lon_last = 179.75`). Taking `min`/`max` of the two
+/// corners then collapses the span to a single grid step and reverses the
+/// east-west increment — the field renders mirrored and only a sliver near the
+/// seam survives. Unwrapping by +360° recovers the true span. All operational
+/// lat/lon grids scan west-to-east; a descending-longitude grid would be
+/// misread as a wrap, so the render seam keeps the rare east-to-west scan out
+/// of reprojection. A grid spanning exactly the globe (e.g. -180°..180°) keeps
+/// its full 360° span (`span >= 0`).
+pub fn eastward_lon_span(lon_first: f64, lon_last: f64) -> f64 {
+    let span = lon_last - lon_first;
+    if span < 0.0 { span + 360.0 } else { span }
+}
+
+/// Eastward offset of `lon` from `lon_first` on a west-to-east grid covering
+/// `[lon_first, lon_first + east_span]`, plus the span itself — or `None` when
+/// the longitude is off-grid (past the eastern edge, including the wrap seam
+/// of a global grid) or the corners are malformed (non-finite, or no east-west
+/// extent). Shared by the lat/lon, Mercator, and Gaussian inverse maps so the
+/// antimeridian unwrap (see [`eastward_lon_span`]) can't drift between them.
+fn eastward_rel_lon(lon_first: f64, lon_last: f64, lon: f64) -> Option<(f64, f64)> {
+    let east_span = eastward_lon_span(lon_first, lon_last);
+    if !east_span.is_finite() || east_span == 0.0 {
+        // A non-finite corner (a NaN NetCDF coordinate, say) must be rejected
+        // here: NaN survives `rem_euclid` and both comparisons below, and
+        // would escape as a NaN grid index that the warp samples as column 0.
         return None;
     }
-    let min_lon = p.lon_first.min(p.lon_last);
-    let max_lon = p.lon_first.max(p.lon_last);
-    // Shift `lon` into the grid's longitude range without spinning a while
-    // loop on pathological inputs (was unbounded if `lon` was huge).
-    let norm_lon = if (min_lon..=max_lon).contains(&lon) {
-        lon
-    } else {
-        let shifted = min_lon + (lon - min_lon).rem_euclid(360.0);
-        if !(min_lon..=max_lon).contains(&shifted) {
-            return None;
-        }
-        shifted
-    };
-    let min_lat = p.lat_first.min(p.lat_last);
-    let max_lat = p.lat_first.max(p.lat_last);
-    if !(min_lat..=max_lat).contains(&lat) {
+    let rel = lon - lon_first;
+    if (0.0..=east_span).contains(&rel) {
+        // Fast path: already in range — the common case in a warp loop, where
+        // this runs once per output pixel and `rem_euclid` is an fmod.
+        return Some((rel, east_span));
+    }
+    let rel = rel.rem_euclid(360.0);
+    if rel > east_span {
+        return None;
+    }
+    Some((rel, east_span))
+}
+
+pub fn latlon_inverse(p: &LatLonParams, lat: f64, lon: f64) -> Option<GridIndex> {
+    if !lat.is_finite() || !lon.is_finite() {
         return None;
     }
     if p.ni < 2 || p.nj < 2 {
@@ -87,10 +113,16 @@ pub fn latlon_inverse(p: &LatLonParams, lat: f64, lon: f64) -> Option<GridIndex>
         // sane caller asks for one but the math would divide by zero.
         return None;
     }
-    let ew = (p.lon_last - p.lon_first) / (p.ni as f64 - 1.0);
+    let (rel_lon, east_span) = eastward_rel_lon(p.lon_first, p.lon_last, lon)?;
+    let min_lat = p.lat_first.min(p.lat_last);
+    let max_lat = p.lat_first.max(p.lat_last);
+    if !(min_lat..=max_lat).contains(&lat) {
+        return None;
+    }
+    let ew = east_span / (p.ni as f64 - 1.0);
     let ns = (p.lat_last - p.lat_first) / (p.nj as f64 - 1.0);
     Some(GridIndex {
-        i: (norm_lon - p.lon_first) / ew,
+        i: rel_lon / ew,
         j: (lat - p.lat_first) / ns,
     })
 }
@@ -135,17 +167,7 @@ pub fn mercator_inverse(p: &MercatorParams, lat: f64, lon: f64) -> Option<GridIn
         // lat/lon inverse uses.
         return None;
     }
-    let min_lon = p.lon_first.min(p.lon_last);
-    let max_lon = p.lon_first.max(p.lon_last);
-    let norm_lon = if (min_lon..=max_lon).contains(&lon) {
-        lon
-    } else {
-        let shifted = min_lon + (lon - min_lon).rem_euclid(360.0);
-        if !(min_lon..=max_lon).contains(&shifted) {
-            return None;
-        }
-        shifted
-    };
+    let (rel_lon, east_span) = eastward_rel_lon(p.lon_first, p.lon_last, lon)?;
     let min_lat = p.lat_first.min(p.lat_last);
     let max_lat = p.lat_first.max(p.lat_last);
     if !(min_lat..=max_lat).contains(&lat) {
@@ -153,7 +175,7 @@ pub fn mercator_inverse(p: &MercatorParams, lat: f64, lon: f64) -> Option<GridIn
     }
     // Rows are evenly spaced in the Mercator ordinate, not in latitude; columns
     // are evenly spaced in longitude.
-    let ew = (p.lon_last - p.lon_first) / (p.ni as f64 - 1.0);
+    let ew = east_span / (p.ni as f64 - 1.0);
     let y_first = mercator_ordinate(p.lat_first);
     let y_last = mercator_ordinate(p.lat_last);
     if !y_first.is_finite() || !y_last.is_finite() {
@@ -165,13 +187,14 @@ pub fn mercator_inverse(p: &MercatorParams, lat: f64, lon: f64) -> Option<GridIn
         return None;
     }
     let ns = (y_last - y_first) / (p.nj as f64 - 1.0);
-    if ew == 0.0 || ns == 0.0 {
-        // A grid whose longitude or latitude extent collapses to a point has no
-        // spatial extent to interpolate over.
+    if ns == 0.0 {
+        // Both corner latitudes coincide — no north-south extent to
+        // interpolate over. (The longitude counterpart is already rejected by
+        // `eastward_rel_lon`'s zero-span guard.)
         return None;
     }
     Some(GridIndex {
-        i: (norm_lon - p.lon_first) / ew,
+        i: rel_lon / ew,
         j: (mercator_ordinate(lat) - y_first) / ns,
     })
 }
@@ -298,19 +321,9 @@ impl GaussianProjector {
         if !(min_lat..=max_lat).contains(&lat) {
             return None;
         }
-        let min_lon = p.lon_first.min(p.lon_last);
-        let max_lon = p.lon_first.max(p.lon_last);
-        let norm_lon = if (min_lon..=max_lon).contains(&lon) {
-            lon
-        } else {
-            let shifted = min_lon + (lon - min_lon).rem_euclid(360.0);
-            if !(min_lon..=max_lon).contains(&shifted) {
-                return None;
-            }
-            shifted
-        };
-        let ew = (p.lon_last - p.lon_first) / (p.ni as f64 - 1.0);
-        let i = (norm_lon - p.lon_first) / ew;
+        let (rel_lon, east_span) = eastward_rel_lon(p.lon_first, p.lon_last, lon)?;
+        let ew = east_span / (p.ni as f64 - 1.0);
+        let i = rel_lon / ew;
 
         const BOUND_EPS: f64 = 1e-3;
         let last_row = self.row_lats.len() - 1;
@@ -1461,6 +1474,61 @@ mod tests {
         assert!(near(idx.i, p.ni as f64 - 1.0, 1e-9));
     }
 
+    #[test]
+    fn latlon_inverse_handles_antimeridian_origin_grid() {
+        // ECMWF open data starts at the antimeridian and wraps: here lon runs
+        // 180 → 270 → 0 → 90 across four columns (90° step), so `lon_last` (90)
+        // comes back numerically below `lon_first` (180). The grid still covers
+        // a 270° eastward arc; taking min/max of the corners used to collapse it
+        // to a single step and render a mirrored sliver.
+        let p = LatLonParams {
+            ni: 4,
+            lon_first: 180.0,
+            lon_last: 90.0,
+            ..latlon_params() // nj = 5, lat 10..50
+        };
+        // Each column resolves to its true longitude, including the one past
+        // the 360° wrap.
+        assert!(near(
+            latlon_inverse(&p, 30.0, 180.0).expect("col 0").i,
+            0.0,
+            1e-9
+        ));
+        assert!(near(
+            latlon_inverse(&p, 30.0, 270.0).expect("col 1").i,
+            1.0,
+            1e-9
+        ));
+        assert!(near(
+            latlon_inverse(&p, 30.0, 0.0).expect("col 2 at 360°").i,
+            2.0,
+            1e-9
+        ));
+        assert!(near(
+            latlon_inverse(&p, 30.0, 90.0).expect("col 3").i,
+            3.0,
+            1e-9
+        ));
+        // A longitude in the seam gap east of the last column is off-grid.
+        assert!(latlon_inverse(&p, 30.0, 135.0).is_none());
+    }
+
+    #[test]
+    fn latlon_inverse_rejects_non_finite_corner() {
+        // A NaN corner (a corrupt NetCDF coordinate, say) must reject, not
+        // escape as a NaN grid index that the warp would sample as column 0.
+        let p = LatLonParams {
+            lon_first: f64::NAN,
+            ..latlon_params()
+        };
+        assert!(latlon_inverse(&p, 30.0, 120.0).is_none());
+        let p = LatLonParams {
+            lon_last: f64::NAN,
+            ..latlon_params()
+        };
+        assert!(latlon_inverse(&p, 30.0, 120.0).is_none());
+    }
+
     // -----------------------------------------------------------------
     // Mercator
     // -----------------------------------------------------------------
@@ -1475,6 +1543,40 @@ mod tests {
             lat_last: 40.0,
             lon_last: 140.0,
         }
+    }
+
+    #[test]
+    fn mercator_inverse_handles_antimeridian_origin_grid() {
+        // Same layout as the lat/lon antimeridian test: lon runs 180 → 270 →
+        // 0 → 90 across four columns (90° step), so `lon_last` comes back
+        // numerically below `lon_first` but the grid covers a 270° arc.
+        let p = MercatorParams {
+            ni: 4,
+            lon_first: 180.0,
+            lon_last: 90.0,
+            ..mercator_params()
+        };
+        assert!(near(
+            mercator_inverse(&p, 20.0, 270.0).expect("col 1").i,
+            1.0,
+            1e-9
+        ));
+        assert!(near(
+            mercator_inverse(&p, 20.0, 0.0).expect("col 2 at 360°").i,
+            2.0,
+            1e-9
+        ));
+        // A longitude in the seam gap east of the last column is off-grid.
+        assert!(mercator_inverse(&p, 20.0, 135.0).is_none());
+    }
+
+    #[test]
+    fn mercator_inverse_rejects_non_finite_corner() {
+        let p = MercatorParams {
+            lon_first: f64::NAN,
+            ..mercator_params()
+        };
+        assert!(mercator_inverse(&p, 20.0, 120.0).is_none());
     }
 
     #[test]
@@ -1591,6 +1693,35 @@ mod tests {
         };
         let idx = gaussian_inverse(&p, 0.0, 180.0).expect("equator");
         assert!(idx.j >= 31.0 && idx.j <= 32.0, "j = {}", idx.j);
+    }
+
+    #[test]
+    fn gaussian_inverse_handles_antimeridian_origin_grid() {
+        // Column longitudes run 180 → 270 → 0 → 90 (`lon_last` numerically
+        // below `lon_first`); the eastward span must unwrap like the lat/lon
+        // inverse instead of collapsing to a reversed sliver.
+        let p = GaussianParams {
+            ni: 4,
+            nj: 64,
+            lat_first: 87.8638,
+            lon_first: 180.0,
+            lat_last: -87.8638,
+            lon_last: 90.0,
+            n_parallels: 32,
+        };
+        let projector = GaussianProjector::new(p);
+        assert!(near(
+            projector.inverse(0.0, 270.0).expect("col 1").i,
+            1.0,
+            1e-9
+        ));
+        assert!(near(
+            projector.inverse(0.0, 0.0).expect("col 2 at 360°").i,
+            2.0,
+            1e-9
+        ));
+        // The seam gap east of the last column is off-grid.
+        assert!(projector.inverse(0.0, 135.0).is_none());
     }
 
     #[test]

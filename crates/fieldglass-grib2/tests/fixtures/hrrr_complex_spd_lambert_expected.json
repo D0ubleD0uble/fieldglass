@@ -1,0 +1,36 @@
+{
+  "count": 1905141,
+  "missing_count": 0,
+  "min": 267.74731,
+  "max": 321.87231,
+  "mean": 298.94155210747516,
+  "samples": {
+    "0": 296.99731,
+    "1": 296.99731,
+    "100": 296.74731,
+    "1000": 301.30981,
+    "1905140": 281.99731
+  },
+  "tolerance_absolute": 0.001,
+  "section5": {
+    "dataRepresentationTemplateNumber": 3,
+    "packingType": "grid_complex_spatial_differencing",
+    "referenceValue": 267.747,
+    "binaryScaleFactor": -4,
+    "decimalScaleFactor": 0,
+    "bitsPerValue": 11,
+    "typeOfOriginalFieldValues": 0,
+    "groupSplittingMethodUsed": 1,
+    "missingValueManagementUsed": 0,
+    "numberOfGroupsOfDataValues": 117180,
+    "referenceForGroupWidths": 0,
+    "numberOfBitsUsedForTheGroupWidths": 4,
+    "referenceForGroupLengths": 1,
+    "lengthIncrementForTheGroupLengths": 1,
+    "trueLengthOfLastGroup": 6,
+    "numberOfBitsUsedForTheScaledGroupLengths": 6,
+    "orderOfSpatialDifferencing": 2,
+    "numberOfOctetsExtraDescriptors": 2
+  },
+  "source": "eccodes 2.34.1 grib_get_data + grib_get. Value+\u00a75 oracle for the committed hrrr_complex_spd_lambert.grib2 \u2014 real NCEP HRRR surface temperature, DRS template 5.3 (grid_complex_spatial_differencing) 2nd-order differencing on a Lambert (3.30) grid. Provenance in NOTICE.md."
+}

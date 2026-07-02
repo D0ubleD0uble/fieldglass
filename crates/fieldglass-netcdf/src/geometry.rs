@@ -424,6 +424,14 @@ pub struct SliceGeometry {
     pub lon_last: f64,
     /// `true` when either coordinate axis has non-uniform spacing.
     pub irregular: bool,
+    /// `true` when the longitude axis is monotonically decreasing
+    /// (east-to-west). The west-to-east inverse map would misread such an
+    /// axis as an antimeridian wrap, so the render seam keeps these files in
+    /// the source projection. (A wrapped-storage axis that jumps back across
+    /// 0° — 180°..359.75°, 0°..179.75° — is not monotonic and stays `false`;
+    /// its descending corner pair really is a wrap.) Descending *latitude*
+    /// axes are common and handled; this flags longitude only.
+    pub lon_descending: bool,
 }
 
 /// Synthesise the grid geometry from the decoded latitude and longitude
@@ -434,6 +442,7 @@ pub fn synthesize_geometry(lat: &[f64], lon: &[f64]) -> Result<SliceGeometry, Fi
         .ok_or_else(|| FieldglassError::Parse("empty latitude coordinate array".into()))?;
     let (lon_first, lon_last, lon_regular) = corner_and_regularity(lon)
         .ok_or_else(|| FieldglassError::Parse("empty longitude coordinate array".into()))?;
+    let lon_descending = lon.len() >= 2 && lon.windows(2).all(|w| w[1] < w[0]);
     Ok(SliceGeometry {
         ni: lon.len() as u32,
         nj: lat.len() as u32,
@@ -442,5 +451,6 @@ pub fn synthesize_geometry(lat: &[f64], lon: &[f64]) -> Result<SliceGeometry, Fi
         lon_first,
         lon_last,
         irregular: !(lat_regular && lon_regular),
+        lon_descending,
     })
 }

@@ -112,3 +112,11 @@ fn gfs_c255_decodes_order_1_spatial_differencing() {
 fn complex_spd2_decodes_order_2_spatial_differencing() {
     assert_decode_matches_oracle("complex_spd2_regular_latlon.grib2", 2);
 }
+
+// Real NCEP HRRR surface-temperature field: order-2 spatial differencing on a
+// Lambert (3.30) grid — the packing/grid combination NCEP actually ships for
+// HRRR/NAM today (they moved off JPEG 2000). Provenance in fixtures/NOTICE.md.
+#[test]
+fn hrrr_lambert_decodes_order_2_spatial_differencing() {
+    assert_decode_matches_oracle("hrrr_complex_spd_lambert.grib2", 2);
+}
