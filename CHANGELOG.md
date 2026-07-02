@@ -4,7 +4,7 @@ All notable changes to Fieldglass are documented here. The format roughly follow
 
 Versioning follows the [VS Code pre-release convention](https://code.visualstudio.com/api/working-with-extensions/publishing-extension#prerelease-extensions): odd-minor versions (`0.1.x`, `0.3.x`, …) ship to the Marketplace pre-release channel; stable releases use the next even minor (`0.2.x`, `0.4.x`, …).
 
-## [Unreleased]
+## [0.2.0] — 2026-07-02
 
 ### Added
 
