@@ -370,12 +370,6 @@ export class FieldglassEditorProvider
     );
     panel.webview.html = renderImagePanelHtml(panel.webview, meta, describeProjection(meta));
 
-    const defaultOptions: RenderOptions = {
-      projection: "source",
-      resampling: "nearest",
-      flipY: false,
-    };
-
     const paint = (options: RenderOptions) => {
       const docHandle = this._handlesByDoc.get(document.uri.toString());
       if (!docHandle) {
@@ -443,12 +437,14 @@ export class FieldglassEditorProvider
 
     // Respond for the panel's lifetime: webview is created with
     // retainContextWhenHidden=false so VS Code tears down the DOM/JS
-    // context when the tab is hidden; each remount posts a fresh `ready`.
+    // context when the tab is hidden; each remount posts a fresh `ready`
+    // carrying the webview's (state-restored) selections, so the repaint
+    // shows what the user had rather than the defaults.
     const sub = panel.webview.onDidReceiveMessage(
       (m: ({ type?: string } & Partial<RenderOptions>) | OverlayRequest) => {
         if (!m || typeof m.type !== "string") return;
         if (m.type === "ready") {
-          paint(defaultOptions);
+          paint(resolveRerenderOptions(m as Partial<RenderOptions>));
           return;
         }
         if (m.type === "rerenderRequest") {
@@ -688,12 +684,6 @@ export class FieldglassEditorProvider
       slice,
     );
 
-    const defaultOptions: RenderOptions = {
-      projection: "source",
-      resampling: "nearest",
-      flipY: false,
-    };
-
     const paint = (options: RenderOptions, spec: SliceSpec) => {
       const docHandle = this._netcdfHandlesByDoc.get(document.uri.toString());
       if (!docHandle) {
@@ -767,11 +757,10 @@ export class FieldglassEditorProvider
           | (OverlayRequest & { slice?: SliceSpec }),
       ) => {
         if (!m || typeof m.type !== "string") return;
-        if (m.type === "ready") {
-          paint(defaultOptions, initial);
-          return;
-        }
-        if (m.type === "rerenderRequest") {
+        // `ready` carries the webview's (state-restored) selections and slice,
+        // exactly like a rerenderRequest, so a remount repaints what the user
+        // had; a fresh panel sends its defaults.
+        if (m.type === "ready" || m.type === "rerenderRequest") {
           const spec = (m as { slice?: SliceSpec }).slice ?? initial;
           paint(resolveRerenderOptions(m as Partial<RenderOptions>), spec);
           return;

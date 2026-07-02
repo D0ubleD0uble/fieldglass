@@ -532,6 +532,123 @@ export function renderImagePanelHtml(
           if (bounds) bounds.toggleAttribute('hidden', !warpsLatLon(projection));
         }
 
+        // --- Selection persistence across tab hide/show ----------------------
+        // The panel is created with retainContextWhenHidden: false (kept off
+        // deliberately — a retained hidden panel pins its full canvas in
+        // memory), so VS Code tears this webview down whenever its tab hides
+        // and re-runs the whole script on re-show. vscode.setState survives
+        // that teardown: every control change snapshots the selections,
+        // restoreState() writes them back on remount, and the 'ready' message
+        // carries the restored options so the provider's first paint honours
+        // them instead of the baked-in defaults.
+        function snapshotState() {
+          const val = (id) => {
+            const el = document.getElementById(id);
+            return el ? el.value : undefined;
+          };
+          const chk = (id) => {
+            const el = document.getElementById(id);
+            return !!(el && el.checked);
+          };
+          const radio = (name) => {
+            const el = document.querySelector('input[name="' + name + '"]:checked');
+            return el ? el.value : undefined;
+          };
+          vscode.setState({
+            projection: val('picker-projection'),
+            centerLon: val('picker-center-lon'),
+            centerLat: val('picker-center-lat'),
+            polarPreset: val('picker-preset-polar'),
+            centralMeridian: val('picker-central-meridian'),
+            resampling: val('picker-resampling'),
+            flipY: chk('flip-y'),
+            rangeMode: radio('range-mode'),
+            rangeMin: val('range-min'),
+            rangeMax: val('range-max'),
+            boundsMode: radio('bounds-mode'),
+            boundsLatMin: val('bounds-lat-min'),
+            boundsLatMax: val('bounds-lat-max'),
+            boundsLonMin: val('bounds-lon-min'),
+            boundsLonMax: val('bounds-lon-max'),
+            coastlines: chk('overlay-coastlines'),
+            graticule: chk('overlay-graticule'),
+            graticuleSpacing: val('graticule-spacing'),
+            slice: sliceState,
+          });
+        }
+
+        // Write a saved snapshot back into the DOM (and sliceState). Runs
+        // before attachControls so setupSlice builds the restored variable's
+        // axis controls and syncProjectionControls shows the restored
+        // projection's preset/bounds groups.
+        function restoreState() {
+          const s = vscode.getState();
+          if (!s) return;
+          const setVal = (id, v) => {
+            if (v === undefined || v === null) return;
+            const el = document.getElementById(id);
+            if (!el) return;
+            // A <select> silently blanks on a value with no matching option
+            // (e.g. a projection this grid doesn't offer); keep its default.
+            if (el.options && !Array.from(el.options).some((o) => o.value === String(v))) return;
+            el.value = String(v);
+          };
+          const setChk = (id, v) => {
+            const el = document.getElementById(id);
+            if (el) el.checked = !!v;
+          };
+          const setRadio = (name, v) => {
+            if (!v) return;
+            const el = document.querySelector('input[name="' + name + '"][value="' + v + '"]');
+            if (el) el.checked = true;
+          };
+          setVal('picker-projection', s.projection);
+          setVal('picker-center-lon', s.centerLon);
+          setVal('picker-center-lat', s.centerLat);
+          setVal('picker-preset-polar', s.polarPreset);
+          setVal('picker-central-meridian', s.centralMeridian);
+          setVal('picker-resampling', s.resampling);
+          setChk('flip-y', s.flipY);
+          setRadio('range-mode', s.rangeMode);
+          setVal('range-min', s.rangeMin);
+          setVal('range-max', s.rangeMax);
+          setRadio('bounds-mode', s.boundsMode);
+          setVal('bounds-lat-min', s.boundsLatMin);
+          setVal('bounds-lat-max', s.boundsLatMax);
+          setVal('bounds-lon-min', s.boundsLonMin);
+          setVal('bounds-lon-max', s.boundsLonMax);
+          setChk('overlay-coastlines', s.coastlines);
+          setChk('overlay-graticule', s.graticule);
+          setVal('graticule-spacing', s.graticuleSpacing);
+          // Dependent visibility the change handlers would normally toggle.
+          // (The projection-dependent groups are syncProjectionControls' job.)
+          const rm = document.getElementById('range-manual-fields');
+          if (rm) rm.toggleAttribute('hidden', s.rangeMode !== 'manual');
+          const bm = document.getElementById('bounds-manual-fields');
+          if (bm) bm.toggleAttribute('hidden', s.boundsMode !== 'manual');
+          const gl = document.getElementById('graticule-spacing-label');
+          if (gl) gl.classList.toggle('spacing-hidden', !s.graticule);
+          // NetCDF slice: adopt the saved spec only if it still describes a
+          // variable in this panel with sane axes; indices clamp per dimension.
+          const v = SLICE && s.slice ? sliceVariable(s.slice.variableIndex) : undefined;
+          if (v) {
+            const nd = v.dims.length;
+            const okAxis = (a) => Number.isInteger(a) && a >= 0 && a < nd;
+            if (okAxis(s.slice.yDim) && okAxis(s.slice.xDim) && s.slice.yDim !== s.slice.xDim &&
+                Array.isArray(s.slice.sliceIndices)) {
+              sliceState = {
+                variableIndex: s.slice.variableIndex,
+                yDim: s.slice.yDim,
+                xDim: s.slice.xDim,
+                sliceIndices: v.dims.map((d, i) => {
+                  const raw = Math.floor(Number(s.slice.sliceIndices[i]) || 0);
+                  return Math.min(Math.max(0, raw), Math.max(0, d.length - 1));
+                }),
+              };
+            }
+          }
+        }
+
         function attachControls() {
           setupSlice();
           const projPick = document.getElementById('picker-projection');
@@ -589,6 +706,17 @@ export function renderImagePanelHtml(
           // Keep the overlay aligned + crisp as the panel (and the displayed
           // image size) resizes.
           window.addEventListener('resize', drawOverlay);
+          // Snapshot the selections on every control change. One delegated
+          // pair on the toolbar covers every control — including the
+          // dynamically-built slice inputs — and bubbles fire *after* the
+          // per-control target-phase handlers, so sliceState is already
+          // synced when the snapshot reads it. 'input' additionally catches
+          // slider drags and typed-but-uncommitted numbers.
+          const toolbar = document.querySelector('.toolbar');
+          if (toolbar) {
+            toolbar.addEventListener('change', snapshotState);
+            toolbar.addEventListener('input', snapshotState);
+          }
         }
 
         window.addEventListener('message', (event) => {
@@ -600,8 +728,11 @@ export function renderImagePanelHtml(
           else if (msg.type === 'overlayError') handleOverlayError(msg);
         });
 
+        restoreState();
         attachControls();
-        vscode.postMessage({ type: 'ready' });
+        // Attach the (possibly restored) selections so the provider's first
+        // paint honours them; a fresh panel just sends its defaults.
+        vscode.postMessage(Object.assign({ type: 'ready' }, currentOptions(), sliceFields()));
       })();
     </script>
   `;
