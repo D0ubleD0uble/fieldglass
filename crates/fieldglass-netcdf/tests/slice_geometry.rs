@@ -153,6 +153,24 @@ fn synthesize_geometry_maps_corners_and_dims() {
     assert_eq!((geom.lat_first, geom.lat_last), (90.0, 0.0));
     assert_eq!((geom.lon_first, geom.lon_last), (0.0, 270.0));
     assert!(!geom.irregular);
+    // A descending latitude axis is the common north-to-south layout; only a
+    // descending *longitude* axis raises the flag.
+    assert!(!geom.lon_descending);
+}
+
+#[test]
+fn synthesize_geometry_flags_descending_longitude() {
+    let lat = [0.0, 30.0, 60.0, 90.0];
+    // Monotonically decreasing (east-to-west) — the west-to-east inverse map
+    // would misread this as an antimeridian wrap, so it must be flagged.
+    let lon = [270.0, 180.0, 90.0, 0.0];
+    let geom = synthesize_geometry(&lat, &lon).unwrap();
+    assert!(geom.lon_descending);
+    // A wrapped-storage axis that jumps back across 0° is ascending storage,
+    // not a descending scan — its corner pair (180, 90) is a true wrap.
+    let wrapped = [180.0, 270.0, 0.0, 90.0];
+    let geom = synthesize_geometry(&lat, &wrapped).unwrap();
+    assert!(!geom.lon_descending);
 }
 
 // ---------------------------------------------------------------------------
