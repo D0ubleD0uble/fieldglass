@@ -68,8 +68,8 @@ variable's real physical units, not raw integer codes.
 | File | Type / grid | Reproject to | Looks-right check |
 |---|---|---|---|
 | `goes.nc`  | NetCDF-4, geostationary (CF `goes_imager_projection`) | source, then equirect / orthographic | off-disk pixels stay transparent; a CONUS/meso sector frames to its own extent (not tiny in an empty hemisphere); colorbar in real units (K / radiance) |
-| `wrf.nc`   | NetCDF classic, WRF Lambert (`MAP_PROJ` attrs) | equirect | regional domain, coastlines aligned |
-| `oisst.nc` | NetCDF-4, regular 1/4° lat/lon | equirect | global SST, land masked (fill) transparent, colorbar in °C/K |
+| `wrf.nc`   | NetCDF classic, WRF Lambert (`MAP_PROJ` attrs) | equirect | the fetch script stages the repo's tiny (6×5) synthetic wrfout-style fixture — enough to smoke-test the WRF-attribute + Lambert path, but too small for a coastline check. Real `wrfout` files are self-generated model output with no public endpoint; drop one in by hand (overwriting `wrf.nc`) for a meaningful visual pass: regional domain, coastlines aligned |
+| `oisst.nc` | NetCDF-4, regular 1/4° lat/lon (real full NOAA CDR file, pinned to 2025-01-01) | equirect | global SST, land masked (fill) transparent, colorbar in °C/K |
 
 ### Auth-gated (drop in by hand)
 
