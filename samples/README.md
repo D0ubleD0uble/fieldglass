@@ -55,7 +55,7 @@ variable's real physical units, not raw integer codes.
 | File | Packing / grid | Reproject to | Looks-right check |
 |---|---|---|---|
 | `gfs.grib2`   | complex + spatial-diff (5.3), regular lat/lon (3.0) | equirect, orthographic, Web Mercator | global field, coastlines align worldwide, no dateline tear; orthographic shows one hemisphere |
-| `hrrr.grib2`  | JPEG 2000 (5.40), Lambert (3.30)   | source (shows the Lambert cone), then equirect / Web Mercator | CONUS field, coastlines over the US Gulf/Atlantic/Pacific coasts; not upside-down or mirrored |
+| `hrrr.grib2`  | complex + spatial-diff (5.3), Lambert (3.30) | source (shows the Lambert cone), then equirect / Web Mercator | CONUS field, coastlines over the US Gulf/Atlantic/Pacific coasts; not upside-down or mirrored |
 | `nam.grib2`   | complex / JPEG 2000, Lambert (3.30) | equirect | regional CONUS, coastlines aligned |
 | `rap.grib2`   | **JPEG 2000 (5.40)**, Lambert (3.30) | equirect | CONUS, aligned — real JPEG2000-on-Lambert |
 | `nbm.grib2`   | complex (5.2) w/ inline missing values (mvmu=1), Lambert | — | **expected to fail**: NBM uses missing-value management 1, which reports a clean `UnsupportedSection` error rather than mis-decoding (documented out-of-scope). Confirms the guard, not a render. |
