@@ -94,6 +94,8 @@ This is a beta. Things to be aware of:
 
 ## Installation
 
+The easiest way to install is from the VS Code Marketplace: search for "Fieldglass" in the Extensions view. To install a specific build by hand instead, download the `.vsix` from the [releases page](https://github.com/D0ubleD0uble/fieldglass/releases/latest) as described below.
+
 Pre-built binaries for all supported platforms are bundled inside a single `.vsix` package. The extension selects the correct binary at runtime based on the host platform and architecture.
 
 Supported platforms:
