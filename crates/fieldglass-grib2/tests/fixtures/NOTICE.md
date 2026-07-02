@@ -55,6 +55,33 @@ domain; pygrib redistributes the file under its 3-Clause BSD license. Only
 the first message is retained to keep the fixture small (10 KB vs. 920 KB
 for the original multi-message file).
 
+## `hrrr_complex_spd_lambert.grib2`
+
+Real NOAA/NCEP HRRR surface-temperature message, fetched from the public
+`noaa-hrrr-bdp-pds` AWS Open Data bucket
+(`hrrr.<date>/conus/hrrr.t00z.wrfsfcf00.grib2`, the `TMP:surface` field
+extracted by byte range). GDS template **3.30** (Lambert Conformal), a 1799×1059
+3-km CONUS grid (1,905,141 points), DRS template **5.3**
+(`grid_complex_spatial_differencing`) with `orderOfSpatialDifferencing = 2`.
+This is the packing/grid combination NCEP ships for HRRR and NAM today — both
+moved off JPEG 2000 to complex packing — so it is the real counterpart to the
+re-encoded 5.3 fixtures and the first real order-2 case on a Lambert grid. NOAA
+NCEP output is U.S. government work in the public domain.
+`hrrr_complex_spd_lambert_expected.json` is its eccodes 2.34.1 value+§5 oracle.
+
+## `ecmwf_ccsds_latlon.grib2`
+
+Real ECMWF open-data IFS 2-metre-temperature message, fetched from the public
+ECMWF open-data endpoint (<https://data.ecmwf.int/forecasts/>, the `2t` step-0
+field extracted by byte range from the `.index` sidecar). GDS template **3.0**
+(regular latitude/longitude), a 1440×721 0.25° global grid (1,038,240 points),
+DRS template **5.42** (`grid_ccsds` / libaec). This is the packing ECMWF ships
+for all gridded open data (IFS cycle 48r1 onward), so it confirms the pure-Rust
+AEC decoder handles a real ECMWF codestream rather than only re-encoded
+fixtures. ECMWF real-time open data is published under CC-BY-4.0 (attribution:
+"Generated using Copernicus/ECMWF open data").
+`ecmwf_ccsds_latlon_expected.json` is its eccodes 2.34.1 value+§5 oracle.
+
 ## `ieee32_regular_latlon.grib2` / `ieee64_regular_latlon.grib2` (+ `ieee64_regular_latlon_expected.json`)
 
 `regular_latlon_surface.grib2` re-encoded by eccodes 2.34.1 into the IEEE
@@ -147,10 +174,13 @@ Notes on the choices:
   matches the simple-packed source exactly), so it's the PNG fixture. Grid type
   is irrelevant to the §5/§7 PNG decode path (decode is decoupled from grid
   geometry), so a Lambert grid is fine here.
-- **Operational corpus.** #116/#117 also call for real HRRR/MRMS/ECMWF-open-data
-  rendering; those large operational files belong to the 0.2.0 fixture corpus
-  (#123). These small re-encoded fixtures are the deterministic decode oracles,
-  not a substitute for that corpus.
+- **Operational corpus.** The real HRRR (5.3 / Lambert) and ECMWF open-data
+  (5.42 / lat-lon) messages documented above are the named-model counterparts to
+  these re-encoded fixtures, added under #123 so the "renders real-world files"
+  claim is pinned per model, not just per packing. Remaining real-model coverage
+  (MRMS, and models still on JPEG 2000) is tracked there and exercised via the
+  manual sample corpus (`samples/`, `tools/fetch_samples.sh`) rather than
+  committed fixtures.
 
 See eccodes `grib2/template.5.{2,3,40,41,42}.def` and the matching
 `grib_accessor_class_data_*` packing classes.

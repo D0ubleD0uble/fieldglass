@@ -1,0 +1,36 @@
+{
+  "messages": [
+    {
+      "discipline": 0,
+      "editionNumber": 2,
+      "centre": 98,
+      "subCentre": 0,
+      "significanceOfReferenceTime": 1,
+      "dataDate": 20260630,
+      "dataTime": 0,
+      "productionStatusOfProcessedData": 0,
+      "typeOfProcessedData": 1,
+      "gridDefinitionTemplateNumber": 0,
+      "shapeOfTheEarth": 6,
+      "numberOfDataPoints": 1038240,
+      "Ni": 1440,
+      "Nj": 721,
+      "latitudeOfFirstGridPointInDegrees": 90,
+      "longitudeOfFirstGridPointInDegrees": 180,
+      "latitudeOfLastGridPointInDegrees": -90,
+      "longitudeOfLastGridPointInDegrees": 179.75,
+      "iDirectionIncrementInDegrees": 0.25,
+      "jDirectionIncrementInDegrees": 0.25,
+      "productDefinitionTemplateNumber": 0,
+      "parameterCategory": 0,
+      "parameterNumber": 0,
+      "typeOfGeneratingProcess": 2,
+      "indicatorOfUnitOfTimeRange": 1,
+      "forecastTime": 0,
+      "typeOfFirstFixedSurface": 103,
+      "scaleFactorOfFirstFixedSurface": 0,
+      "scaledValueOfFirstFixedSurface": 2,
+      "bitMapIndicator": 255
+    }
+  ]
+}

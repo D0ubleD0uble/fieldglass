@@ -1,0 +1,30 @@
+{
+  "messages": [
+    {
+      "discipline": 0,
+      "editionNumber": 2,
+      "centre": 7,
+      "subCentre": 0,
+      "significanceOfReferenceTime": 1,
+      "dataDate": 20260630,
+      "dataTime": 0,
+      "productionStatusOfProcessedData": 0,
+      "typeOfProcessedData": 1,
+      "gridDefinitionTemplateNumber": 30,
+      "shapeOfTheEarth": 6,
+      "numberOfDataPoints": 1905141,
+      "latitudeOfFirstGridPointInDegrees": 21.1381,
+      "longitudeOfFirstGridPointInDegrees": 237.28,
+      "productDefinitionTemplateNumber": 0,
+      "parameterCategory": 0,
+      "parameterNumber": 0,
+      "typeOfGeneratingProcess": 2,
+      "indicatorOfUnitOfTimeRange": 1,
+      "forecastTime": 0,
+      "typeOfFirstFixedSurface": 1,
+      "scaleFactorOfFirstFixedSurface": 0,
+      "scaledValueOfFirstFixedSurface": 0,
+      "bitMapIndicator": 255
+    }
+  ]
+}

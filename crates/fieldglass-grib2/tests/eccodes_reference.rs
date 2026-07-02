@@ -399,3 +399,27 @@ fn ccsds_regular_latlon_24bit_matches_eccodes() {
         include_bytes!("fixtures/ccsds_regular_latlon_24bit.grib2"),
     );
 }
+
+/// The real-model fixtures below are ~1 MB each — two orders of magnitude
+/// larger than the re-encoded ones — so read them at runtime rather than
+/// embedding them in the test binary with `include_bytes!`.
+fn read_fixture(fixture: &str) -> Vec<u8> {
+    let path = Path::new("tests/fixtures").join(fixture);
+    std::fs::read(&path).unwrap_or_else(|e| panic!("read fixture {}: {e}", path.display()))
+}
+
+#[test]
+fn hrrr_complex_spd_lambert_matches_eccodes() {
+    assert_fixture_matches_snapshot(
+        "hrrr_complex_spd_lambert.grib2",
+        &read_fixture("hrrr_complex_spd_lambert.grib2"),
+    );
+}
+
+#[test]
+fn ecmwf_ccsds_latlon_matches_eccodes() {
+    assert_fixture_matches_snapshot(
+        "ecmwf_ccsds_latlon.grib2",
+        &read_fixture("ecmwf_ccsds_latlon.grib2"),
+    );
+}

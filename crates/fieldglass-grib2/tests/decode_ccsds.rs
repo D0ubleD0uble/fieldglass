@@ -138,3 +138,12 @@ fn ccsds_decodes_8bit_id_len_3() {
 fn ccsds_decodes_24bit_id_len_5() {
     assert_decode_matches_oracle("ccsds_regular_latlon_24bit.grib2");
 }
+
+// Real ECMWF open-data IFS 2m-temperature field: CCSDS / libaec packing on a
+// 0.25° global regular lat/lon grid — the packing ECMWF ships for its open
+// data. Confirms the pure-Rust AEC decoder handles a real ECMWF codestream, not
+// just re-encoded fixtures. Provenance in fixtures/NOTICE.md.
+#[test]
+fn ecmwf_open_data_ccsds_decodes() {
+    assert_decode_matches_oracle("ecmwf_ccsds_latlon.grib2");
+}
