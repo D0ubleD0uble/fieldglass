@@ -159,10 +159,10 @@ fn decode_simple_packing(
 /// per-point offsets (each group's points at that group's width). The value
 /// at a point in group `g` is `(R + (group_ref[g] + X) · 2^E) · 10^-D`.
 ///
-/// Supports the common envelope: general group splitting
-/// (`group_splitting_method == 1`) with no inline missing-value management
-/// (`missing_value_management == 0`). Row-by-row splitting and inline
-/// missing values surface as [`FieldglassError::UnsupportedSection`].
+/// Both splitting methods and inline missing-value management (1: primary
+/// substitutes; 2: primary + secondary) are supported — substituted points
+/// come back as `None`, the same seam the §6 bitmap uses, so rendering
+/// needs no packing-specific handling. See [`decode_complex_groups`].
 fn decode_complex_packing(
     ds_payload: &[u8],
     t: &ComplexPackingTemplate,
@@ -174,15 +174,25 @@ fn decode_complex_packing(
     let mut reader = BitReader::new(ds_payload);
     let scaled = decode_complex_groups(&mut reader, t, present_count)?;
 
+    Ok(complex_scaled_to_values(t, scaled, bitmap, expected_count))
+}
+
+/// Shared 5.2 / 5.3 tail: apply the `R`/`E`/`D` transform to the expanded
+/// scaled integers (missing points pass through as `None`) and spread the
+/// result across the grid per the §6 bitmap.
+fn complex_scaled_to_values(
+    t: &ComplexPackingTemplate,
+    scaled: Vec<Option<i64>>,
+    bitmap: Option<&[bool]>,
+    expected_count: usize,
+) -> Vec<Option<f64>> {
     let r = t.reference_value as f64;
     let two_pow_e = 2f64.powi(t.binary_scale_factor as i32);
     let d_inv = 10f64.powi(-(t.decimal_scale_factor as i32));
-    let decoded: Vec<f64> = scaled
-        .iter()
-        .map(|&s| (r + s as f64 * two_pow_e) * d_inv)
-        .collect();
-
-    Ok(interleave_with_bitmap(decoded, bitmap, expected_count))
+    let decoded = scaled
+        .into_iter()
+        .map(|s| s.map(|s| (r + s as f64 * two_pow_e) * d_inv));
+    interleave_present_points(decoded, bitmap, expected_count)
 }
 
 /// Decode complex packing with spatial differencing (template 5.3). The packed
@@ -201,8 +211,15 @@ fn decode_complex_packing(
 /// - order 2: `g[0] = ival1`, `g[1] = ival2`;
 ///   `g[i] = d[i] + 2·g[i-1] − g[i-2] + bias`.
 ///
+/// Points marked missing by inline missing-value management take no part in
+/// the recurrence: the seed values fill the first `order` *non-missing*
+/// slots, and each later non-missing point recurses on the nearest previous
+/// non-missing values (eccodes `DataG22OrderPacking` post-process). A field
+/// with fewer non-missing points than the differencing order simply seeds
+/// what exists, as eccodes does.
+///
 /// The `R`/`E`/`D` transform then applies as in simple/complex packing.
-/// Inherits the 5.2 envelope restrictions via [`decode_complex_groups`].
+/// Missing-value handling is shared with 5.2 via [`decode_complex_groups`].
 fn decode_complex_spatial_diff(
     ds_payload: &[u8],
     t: &ComplexSpatialDiffTemplate,
@@ -246,51 +263,48 @@ fn decode_complex_spatial_diff(
 
     let mut vals = decode_complex_groups(&mut reader, &t.complex, present_count)?;
 
-    // An empty field carries no first values to seed the recurrence; a field
-    // with fewer present points than the differencing order can't be seeded
-    // either. Guard both before indexing.
-    if vals.is_empty() {
-        return Ok(interleave_with_bitmap(Vec::new(), bitmap, expected_count));
-    }
-    if vals.len() < order as usize {
-        return Err(FieldglassError::Parse(format!(
-            "complex packing: spatial-differencing order {order} needs at least {order} \
-             values to seed, but only {} are present",
-            vals.len()
-        )));
-    }
-
     // Reverse the differencing in wide wrapping arithmetic — a malformed
     // descriptor could otherwise overflow the accumulation and panic in debug.
+    // Missing slots are skipped: the seeds land on the first `order`
+    // non-missing slots and the recurrence tracks the nearest previous
+    // non-missing values, mirroring eccodes' post-process. A field with fewer
+    // non-missing points than `order` just seeds what exists.
     match order {
         1 => {
-            vals[0] = ival1;
-            for i in 1..vals.len() {
-                vals[i] = vals[i].wrapping_add(vals[i - 1]).wrapping_add(bias);
+            let mut last: Option<i64> = None;
+            for slot in vals.iter_mut() {
+                let Some(d) = slot.as_mut() else { continue };
+                *d = match last {
+                    None => ival1,
+                    Some(prev) => d.wrapping_add(prev).wrapping_add(bias),
+                };
+                last = Some(*d);
             }
         }
         // order == 2 (the only other value past the guard above).
         _ => {
-            vals[0] = ival1;
-            vals[1] = ival2;
-            for i in 2..vals.len() {
-                vals[i] = vals[i]
-                    .wrapping_add(vals[i - 1].wrapping_mul(2))
-                    .wrapping_sub(vals[i - 2])
-                    .wrapping_add(bias);
+            let (mut penultimate, mut last): (Option<i64>, Option<i64>) = (None, None);
+            for slot in vals.iter_mut() {
+                let Some(d) = slot.as_mut() else { continue };
+                *d = match (last, penultimate) {
+                    (None, _) => ival1,
+                    (Some(_), None) => ival2,
+                    (Some(l), Some(p)) => d
+                        .wrapping_add(l.wrapping_mul(2))
+                        .wrapping_sub(p)
+                        .wrapping_add(bias),
+                };
+                (penultimate, last) = (last, Some(*d));
             }
         }
     }
 
-    let r = t.complex.reference_value as f64;
-    let two_pow_e = 2f64.powi(t.complex.binary_scale_factor as i32);
-    let d_inv = 10f64.powi(-(t.complex.decimal_scale_factor as i32));
-    let decoded: Vec<f64> = vals
-        .iter()
-        .map(|&s| (r + s as f64 * two_pow_e) * d_inv)
-        .collect();
-
-    Ok(interleave_with_bitmap(decoded, bitmap, expected_count))
+    Ok(complex_scaled_to_values(
+        &t.complex,
+        vals,
+        bitmap,
+        expected_count,
+    ))
 }
 
 /// Validate the §6 bitmap against the grid-point count and return the number
@@ -311,32 +325,40 @@ fn check_bitmap_present_count(
 }
 
 /// Expand the complex-packing §7 group structure into one scaled integer
-/// (`group_ref[g] + X`) per present point. `reader`'s bit cursor must sit at
+/// (`group_ref[g] + X`) per present point — `None` for points marked missing
+/// by inline missing-value management. `reader`'s bit cursor must sit at
 /// the start of the group-reference block — at the very front of §7 for plain
 /// complex packing (5.2), or just past the spatial-differencing extra
 /// descriptors for 5.3. Shared by both decoders; the caller applies the
 /// `R`/`E`/`D` transform (and, for 5.3, the inverse differencing).
 ///
-/// Validates the supported envelope: general group splitting
-/// (`group_splitting_method == 1`) with no inline missing-value management
-/// (`missing_value_management == 0`). Row-by-row splitting and inline missing
-/// values surface as [`FieldglassError::UnsupportedSection`].
+/// Missing points are flagged by all-ones sentinels, not by the template's
+/// substitute values (eccodes `DataG22OrderPacking::unpack`): in a zero-width
+/// group, the group *reference* equal to `2^bits_per_value − 1` marks the
+/// whole group missing; in a wider group, a per-point offset equal to
+/// `2^width − 1` marks that point missing. Management 2 additionally treats
+/// sentinel − 1 (the secondary substitute) as missing; primary and secondary
+/// both decode to `None`. Splitting method (Code Table 5.4) does not affect
+/// decoding — the group structure is self-describing whether the encoder
+/// split row by row (0) or generally (1) — so both decode on this one path,
+/// as in eccodes. Reserved values of either field surface as
+/// [`FieldglassError::UnsupportedSection`].
 fn decode_complex_groups(
     reader: &mut BitReader,
     t: &ComplexPackingTemplate,
     present_count: usize,
-) -> Result<Vec<i64>, FieldglassError> {
-    if t.group_splitting_method != 1 {
+) -> Result<Vec<Option<i64>>, FieldglassError> {
+    if t.group_splitting_method > 1 {
         return Err(FieldglassError::UnsupportedSection(format!(
             "DRS complex packing group splitting method {} is not supported \
-             (only general group splitting, method 1)",
+             (Code Table 5.4 defines only 0, row by row, and 1, general)",
             t.group_splitting_method
         )));
     }
-    if t.missing_value_management != 0 {
+    if t.missing_value_management > 2 {
         return Err(FieldglassError::UnsupportedSection(format!(
             "DRS complex packing missing-value management {} is not supported \
-             (only management 0, no inline missing values)",
+             (Code Table 5.5 defines only 0, none; 1, primary; 2, primary + secondary)",
             t.missing_value_management
         )));
     }
@@ -434,14 +456,33 @@ fn decode_complex_groups(
     // octet boundary after the group-length block.
     reader.align_to_byte();
 
+    // Missing-value classification per Code Table 5.5 (eccodes
+    // `DataG22OrderPacking::unpack`): the all-ones value at the given field
+    // width is the primary substitute; management 2 adds all-ones − 1 as the
+    // secondary. Both decode to missing. `field_bits <= 32` at every call
+    // site, so the u64 shift can't overflow.
+    let mvm = t.missing_value_management;
+    let is_missing = |raw: i64, field_bits: u8| {
+        let sentinel = ((1u64 << field_bits) - 1) as i64;
+        match mvm {
+            1 => raw == sentinel,
+            2 => raw == sentinel || raw == sentinel - 1,
+            _ => false,
+        }
+    };
+
     let mut scaled = Vec::with_capacity(present_count);
     for g in 0..num_groups {
         let width = group_widths[g];
         let group_ref = group_refs[g] as i64;
         if width == 0 {
-            // Zero-width group: every point equals the group reference.
+            // Zero-width group: no per-point offsets are stored. Every point
+            // equals the group reference — unless the reference is the
+            // missing sentinel at `bits_per_value`, which marks the whole
+            // group missing.
+            let value = (!is_missing(group_ref, t.bits_per_value)).then_some(group_ref);
             for _ in 0..group_lengths[g] {
-                scaled.push(group_ref);
+                scaled.push(value);
             }
         } else {
             if width > 32 {
@@ -454,7 +495,8 @@ fn decode_complex_groups(
             }
             for _ in 0..group_lengths[g] {
                 let x = reader.read_bits(width as u8)? as i64;
-                scaled.push(group_ref + x);
+                let value = (!is_missing(x, width as u8)).then_some(group_ref + x);
+                scaled.push(value);
             }
         }
     }
@@ -789,13 +831,24 @@ fn interleave_with_bitmap(
     bitmap: Option<&[bool]>,
     expected_count: usize,
 ) -> Vec<Option<f64>> {
+    interleave_present_points(present.into_iter().map(Some), bitmap, expected_count)
+}
+
+/// Iterator-based body shared by [`interleave_with_bitmap`] and the complex
+/// packing decoders (whose present-point values may already be `None` from
+/// inline missing-value management; those pass through as missing alongside
+/// the bitmap's).
+fn interleave_present_points(
+    mut present: impl Iterator<Item = Option<f64>>,
+    bitmap: Option<&[bool]>,
+    expected_count: usize,
+) -> Vec<Option<f64>> {
     match bitmap {
-        None => present.into_iter().map(Some).collect(),
+        None => present.collect(),
         Some(b) => {
             let mut out = Vec::with_capacity(expected_count);
-            let mut iter = present.into_iter();
             for &flag in b {
-                out.push(if flag { iter.next() } else { None });
+                out.push(if flag { present.next().flatten() } else { None });
             }
             out
         }
@@ -1094,10 +1147,11 @@ mod tests {
     }
 
     #[test]
-    fn complex_packing_rejects_missing_value_management() {
+    fn complex_packing_rejects_reserved_missing_value_management() {
+        // Code Table 5.5 defines 0/1/2; 3 is reserved.
         let t = ComplexPackingTemplate {
             num_groups: 1,
-            missing_value_management: 1,
+            missing_value_management: 3,
             ..complex_template_base()
         };
         let err = decode_values(&[0u8; 8], DataRepresentationTemplate::Complex(t), None, 1)
@@ -1111,10 +1165,11 @@ mod tests {
     }
 
     #[test]
-    fn complex_packing_rejects_row_by_row_splitting() {
+    fn complex_packing_rejects_reserved_splitting_method() {
+        // Code Table 5.4 defines 0 (row by row) and 1 (general); 2 is reserved.
         let t = ComplexPackingTemplate {
             num_groups: 1,
-            group_splitting_method: 0,
+            group_splitting_method: 2,
             ..complex_template_base()
         };
         let err = decode_values(&[0u8; 8], DataRepresentationTemplate::Complex(t), None, 1)
@@ -1125,6 +1180,93 @@ mod tests {
             }
             other => panic!("expected UnsupportedSection, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn complex_packing_row_by_row_decodes_like_general() {
+        // The §7 group structure is self-describing, so splitting method 0
+        // (row by row) decodes on the same path as method 1 — byte-identical
+        // results from the same payload, as in eccodes.
+        let payload = pack_blocks(&[
+            &[(10, 8), (100, 8)],
+            &[(3, 4), (4, 4)],
+            &[(2, 8), (0, 8)],
+            &[(1, 3), (2, 3), (0, 4), (5, 4), (15, 4)],
+        ]);
+        let decode = |method: u8| {
+            let t = ComplexPackingTemplate {
+                num_groups: 2,
+                group_length_last: 3,
+                group_splitting_method: method,
+                ..complex_template_base()
+            };
+            decode_values(&payload, DataRepresentationTemplate::Complex(t), None, 5)
+                .expect("decode")
+        };
+        assert_eq!(decode(0), decode(1));
+    }
+
+    /// Decode one width-4 group (ref 10, offsets `[1, 15, 3, 14]`) under the
+    /// given missing-value management. On this payload 15 is the primary
+    /// sentinel (`2^4 − 1`) and 14 the secondary, so the management modes
+    /// disagree only on those two points.
+    fn decode_width4_sentinel_payload(mvm: u8) -> Vec<Option<f64>> {
+        let t = ComplexPackingTemplate {
+            num_groups: 1,
+            group_length_last: 4,
+            missing_value_management: mvm,
+            ..complex_template_base()
+        };
+        let payload = pack_blocks(&[
+            &[(10, 8)],
+            &[(4, 4)],
+            &[(0, 8)],
+            &[(1, 4), (15, 4), (3, 4), (14, 4)],
+        ]);
+        decode_values(&payload, DataRepresentationTemplate::Complex(t), None, 4).expect("decode")
+    }
+
+    #[test]
+    fn complex_packing_mvm1_marks_sentinel_offsets_missing() {
+        // Management 1: the all-ones offset is missing; the would-be
+        // secondary (14) is an ordinary value.
+        assert_eq!(
+            decode_width4_sentinel_payload(1),
+            vec![Some(11.0), None, Some(13.0), Some(24.0)],
+        );
+    }
+
+    #[test]
+    fn complex_packing_mvm2_marks_secondary_offsets_missing_too() {
+        // Management 2 on the same payload: the secondary sentinel goes
+        // missing as well.
+        assert_eq!(
+            decode_width4_sentinel_payload(2),
+            vec![Some(11.0), None, Some(13.0), None],
+        );
+    }
+
+    #[test]
+    fn complex_packing_mvm1_zero_width_group_reference_sentinel_is_missing() {
+        // A zero-width group stores no offsets; under management 1 a group
+        // reference equal to 2^bits_per_value − 1 (255 here) marks the whole
+        // group missing. A second, ordinary group still decodes (its offsets
+        // stay below the width-2 sentinel 3).
+        let t = ComplexPackingTemplate {
+            num_groups: 2,
+            group_length_last: 2,
+            missing_value_management: 1,
+            ..complex_template_base()
+        };
+        let payload = pack_blocks(&[
+            &[(255, 8), (7, 8)],
+            &[(0, 4), (2, 4)],
+            &[(3, 8), (0, 8)],
+            &[(1, 2), (2, 2)],
+        ]);
+        let decoded = decode_values(&payload, DataRepresentationTemplate::Complex(t), None, 5)
+            .expect("decode");
+        assert_eq!(decoded, vec![None, None, None, Some(8.0), Some(9.0)]);
     }
 
     #[test]
@@ -1342,24 +1484,94 @@ mod tests {
 
     #[test]
     fn spatial_diff_inherits_complex_envelope_restrictions() {
-        // Row-by-row splitting is rejected by the shared group decoder even via
-        // the 5.3 path.
+        // A reserved missing-value-management value is rejected by the shared
+        // group decoder even via the 5.3 path.
         let t = ComplexPackingTemplate {
             num_groups: 1,
-            group_splitting_method: 0,
+            missing_value_management: 3,
             group_length_last: 1,
             ..complex_template_base()
         };
-        // Extras consume the first 2 octets; the group decode then trips on the
-        // splitting method.
+        // Extras consume the first 2 octets; the group decode then trips on
+        // the reserved management value.
         let err = decode_values(&[0u8; 16], spd_template(t, 1, 1), None, 1)
-            .expect_err("must reject row-by-row");
+            .expect_err("must reject reserved management");
         match err {
             FieldglassError::UnsupportedSection(msg) => {
-                assert!(msg.contains("group splitting method"), "msg: {msg}");
+                assert!(msg.contains("missing-value management"), "msg: {msg}");
             }
             other => panic!("expected UnsupportedSection, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn spatial_diff_order1_skips_missing_in_recurrence() {
+        // Order 1, management 1, width 4 (offset 15 = missing). Packed
+        // offsets: [15, 0, 4, 15, 0]. The seed (ival1 = 10) lands on the
+        // first *non-missing* slot; each later non-missing point recurses on
+        // the nearest previous non-missing value (bias = +1):
+        //   [None, 10, 4+10+1 = 15, None, 0+15+1 = 16].
+        let t = ComplexPackingTemplate {
+            num_groups: 1,
+            group_length_last: 5,
+            missing_value_management: 1,
+            ..complex_template_base()
+        };
+        let payload = pack_spd(
+            &[10, 0x01],
+            &[
+                &[(0, 8)],
+                &[(4, 4)],
+                &[(0, 8)],
+                &[(15, 4), (0, 4), (4, 4), (15, 4), (0, 4)],
+            ],
+        );
+        let decoded = decode_values(&payload, spd_template(t, 1, 1), None, 5).expect("decode");
+        assert_eq!(
+            decoded,
+            vec![None, Some(10.0), Some(15.0), None, Some(16.0)],
+        );
+    }
+
+    #[test]
+    fn spatial_diff_seeds_short_fields_without_error() {
+        // A field with fewer points than the differencing order just seeds
+        // what exists, as eccodes' post-process does: one point, order 2 →
+        // the point takes ival1.
+        let t = ComplexPackingTemplate {
+            num_groups: 1,
+            group_length_last: 1,
+            ..complex_template_base()
+        };
+        let payload = pack_spd(&[5, 8, 3], &[&[(0, 8)], &[(0, 4)], &[(0, 8)]]);
+        let decoded = decode_values(&payload, spd_template(t, 2, 1), None, 1).expect("decode");
+        assert_eq!(decoded, vec![Some(5.0)]);
+    }
+
+    #[test]
+    fn spatial_diff_order2_skips_missing_in_recurrence() {
+        // Order 2, management 1, width 4. Packed offsets:
+        // [15, 0, 0, 2, 15]. Seeds ival1 = 5 and ival2 = 8 land on the first
+        // two non-missing slots; the recurrence (bias = +3) then gives
+        // 2 + 3 + 2·8 − 5 = 16 for the next non-missing point:
+        //   [None, 5, 8, 16, None].
+        let t = ComplexPackingTemplate {
+            num_groups: 1,
+            group_length_last: 5,
+            missing_value_management: 1,
+            ..complex_template_base()
+        };
+        let payload = pack_spd(
+            &[5, 8, 3],
+            &[
+                &[(0, 8)],
+                &[(4, 4)],
+                &[(0, 8)],
+                &[(15, 4), (0, 4), (0, 4), (2, 4), (15, 4)],
+            ],
+        );
+        let decoded = decode_values(&payload, spd_template(t, 2, 1), None, 5).expect("decode");
+        assert_eq!(decoded, vec![None, Some(5.0), Some(8.0), Some(16.0), None],);
     }
 
     fn ieee_template(precision: u8) -> DataRepresentationTemplate {

@@ -360,6 +360,40 @@ fn complex_spd2_regular_latlon_matches_eccodes() {
     );
 }
 
+// Missing-value management / row-by-row splitting fixtures (#217); value
+// decode pinned in `decode_complex_missing.rs`.
+#[test]
+fn complex_mvm1_regular_latlon_matches_eccodes() {
+    assert_fixture_matches_snapshot(
+        "complex_mvm1_regular_latlon.grib2",
+        include_bytes!("fixtures/complex_mvm1_regular_latlon.grib2"),
+    );
+}
+
+#[test]
+fn complex_spd2_mvm1_regular_latlon_matches_eccodes() {
+    assert_fixture_matches_snapshot(
+        "complex_spd2_mvm1_regular_latlon.grib2",
+        include_bytes!("fixtures/complex_spd2_mvm1_regular_latlon.grib2"),
+    );
+}
+
+#[test]
+fn complex_mvm2_regular_latlon_matches_eccodes() {
+    assert_fixture_matches_snapshot(
+        "complex_mvm2_regular_latlon.grib2",
+        include_bytes!("fixtures/complex_mvm2_regular_latlon.grib2"),
+    );
+}
+
+#[test]
+fn complex_rowbyrow_regular_latlon_matches_eccodes() {
+    assert_fixture_matches_snapshot(
+        "complex_rowbyrow_regular_latlon.grib2",
+        include_bytes!("fixtures/complex_rowbyrow_regular_latlon.grib2"),
+    );
+}
+
 #[test]
 fn jpeg2000_regular_latlon_matches_eccodes() {
     assert_fixture_matches_snapshot(

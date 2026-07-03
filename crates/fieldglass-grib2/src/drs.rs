@@ -214,8 +214,8 @@ pub struct IeeePackingTemplate {
 /// scaled integer. This mirrors GRIB1 second-order packing.
 ///
 /// All template fields are parsed so the metadata view is complete; the §7
-/// decoder (see `ds.rs`) currently handles the common envelope (general
-/// group splitting, no inline missing-value management).
+/// decoder (see `ds.rs`) handles both splitting methods and inline
+/// missing-value management 0, 1, and 2.
 ///
 /// [`bits_per_value`]: ComplexPackingTemplate::bits_per_value
 #[derive(Debug, Clone, Copy, PartialEq)]
