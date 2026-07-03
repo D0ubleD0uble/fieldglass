@@ -184,3 +184,48 @@ Notes on the choices:
 
 See eccodes `grib2/template.5.{2,3,40,41,42}.def` and the matching
 `grib_accessor_class_data_*` packing classes.
+
+## Complex-packing missing-value / row-by-row fixtures (#217)
+
+Four derived fixtures pin the 5.2 / 5.3 inline missing-value management and
+row-by-row group-splitting decode paths. All are deterministic re-encodes or
+single-byte patches of already-bundled fixtures (source provenance above), and
+each ships the same two eccodes 2.34.1 oracles as the §5 fixtures above.
+
+| Fixture | DRS template | Envelope | Issue |
+|---|---|---|---|
+| `complex_mvm1_regular_latlon.grib2` | 5.2 | missing-value management 1 (primary) | #217 |
+| `complex_spd2_mvm1_regular_latlon.grib2` | 5.3 (2nd-order) | missing-value management 1 | #217 |
+| `complex_mvm2_regular_latlon.grib2` | 5.2 | missing-value management 2 (primary + secondary) | #217 |
+| `complex_rowbyrow_regular_latlon.grib2` | 5.2 | group-splitting method 0 (row by row) | #217 |
+
+The two management-1 fixtures re-encode `regular_latlon_surface.grib2` with
+`grib_filter`, setting 46 of the 496 values to the default `missingValue`
+(9999): index 5, the run 40–79, and 130, 131, 260, 388, 495 — a long run (so
+the encoder emits whole-missing groups) plus scattered singles (so missing
+points are embedded inside normal-width groups):
+
+```
+# rules (values elided; the 9999 entries are at the indexes listed above)
+set packingType="grid_complex";                       # or grid_complex_spatial_differencing
+# set orderOfSpatialDifferencing=2;                   # 5.3 fixture only
+set values={ ... };
+write "complex_mvm1_regular_latlon.grib2";
+```
+
+eccodes' `grid_complex` encoder detects the missing entries and sets
+`missingValueManagementUsed = 1` itself (`DataG22OrderPacking::pack`); it never
+emits management 2 or row-by-row splitting, so those two fixtures are
+single-byte §5 patches — the sanctioned hand-built-fixture / decode-as-oracle
+strategy for envelopes eccodes can decode but not encode:
+
+- `complex_mvm2_regular_latlon.grib2`: `complex_mvm1_regular_latlon.grib2`
+  with §5 octet 23 (`missingValueManagementUsed`) patched 1 → 2. eccodes'
+  *decode* of the patched message is the oracle: two extra points whose packed
+  increment equals the secondary sentinel (`2^width − 2`) become missing
+  (48 total), confirming the fixture really exercises the secondary path.
+- `complex_rowbyrow_regular_latlon.grib2`: `complex_regular_latlon.grib2`
+  with §5 octet 22 (`groupSplittingMethodUsed`) patched 1 → 0. The §7 group
+  structure is self-describing, so eccodes decodes the patched message
+  identically to the original (verified byte-for-byte via `grib_get_data`);
+  the fixture pins that our decoder accepts method 0 rather than erroring.

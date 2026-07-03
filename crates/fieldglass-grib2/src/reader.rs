@@ -74,13 +74,15 @@ impl Grib2Reader {
 
     /// Decode the grid values for one message, mirroring the GRIB1 reader's
     /// API. Returns one entry per grid point: `Some(value)` for present
-    /// points, `None` for points masked out by §6.
+    /// points, `None` for points masked out by the §6 bitmap or substituted
+    /// as missing by §5 missing-value management.
     ///
     /// Currently supports DRS templates 5.0 (simple packing), 5.2 / 5.3
-    /// (complex packing, with and without spatial differencing — general
-    /// splitting, no inline missing values), 5.4 (IEEE floating point), 5.40
-    /// (JPEG 2000 packing), 5.41 (PNG packing), and 5.42 (CCSDS / AEC packing).
-    /// Other packing templates return [`FieldglassError::UnsupportedSection`].
+    /// (complex packing, with and without spatial differencing — both
+    /// splitting methods, inline missing-value management 0/1/2), 5.4 (IEEE
+    /// floating point), 5.40 (JPEG 2000 packing), 5.41 (PNG packing), and
+    /// 5.42 (CCSDS / AEC packing). Other packing templates return
+    /// [`FieldglassError::UnsupportedSection`].
     pub fn decode_message_values(
         &self,
         message_index: usize,

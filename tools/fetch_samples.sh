@@ -93,7 +93,7 @@ get_rap() { # JPEG 2000 (5.40), Lambert (3.30) — CONUS
     "$OUT/rap.grib2" ":TMP:surface:"
 }
 
-get_nbm() { # complex, Lambert (3.30) — CONUS (NOMADS; ~2-day retention)
+get_nbm() { # complex + spatial-diff (5.3, inline missing values), Lambert (3.30) — CONUS (NOMADS; ~2-day retention)
   info "NBM 2m temperature (byte-range from NOMADS core.co)"
   extract_wgrib2 \
     "https://nomads.ncep.noaa.gov/pub/data/nccf/com/blend/prod/blend.${DATE}/${CYCLE}/core/blend.t${CYCLE}z.core.f001.co.grib2" \
