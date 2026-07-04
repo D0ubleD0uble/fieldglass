@@ -18,18 +18,18 @@
     coordinate variables are stored as scaled ``int16`` (the real GOES on-disk
     encoding), exercising CF ``scale_factor``/``add_offset``.
 
-Both grids are **regular grids in a projected CRS** (Model A in decision 0004),
+All four are **regular grids in a projected CRS** (Model A in decision 0004),
 deliberately tiny so they stay byte-small in git. The coordinate geometry is
 generated with *independent* NumPy implementations of the standard projection
-formulas (Snyder Lambert Conformal Conic; GOES-R PUG fixed-grid), so the Rust
-projectors reproducing them is a genuine cross-language cross-check rather than a
-tautology.
+formulas (Snyder Lambert Conformal Conic and polar stereographic; spherical
+Mercator; GOES-R PUG fixed-grid), so the Rust projectors reproducing them is a
+genuine cross-language cross-check rather than a tautology.
 
 Run from the repo root (needs ``netCDF4`` + ``numpy``)::
 
     python3 tools/build_netcdf_projected_fixtures.py
 
-It writes the two ``.nc`` files and a sibling ``*.oracle.json`` for each, next to
+It writes the ``.nc`` files and a sibling ``*.oracle.json`` for each, next to
 the other NetCDF fixtures. See that directory's ``NOTICE.md`` for provenance.
 """
 from __future__ import annotations
@@ -53,6 +53,13 @@ EARTH_R = 6_371_229.0
 DEG = math.pi / 180.0
 
 
+def wrap_dlon(lon: float, lov: float) -> float:
+    """Longitude offset from the reference meridian, wrapped to (-180, 180] and
+    in radians — shared by every projection forward so the wrap convention
+    can't drift between fixtures."""
+    return ((lon - lov + 180.0) % 360.0 - 180.0) * DEG
+
+
 # ---------------------------------------------------------------------------
 # Lambert Conformal Conic (Snyder, "Map Projections — A Working Manual", §15)
 # ---------------------------------------------------------------------------
@@ -71,7 +78,7 @@ def _lambert_constants(latin1: float, latin2: float, lad: float):
 
 def lambert_forward(lat, lon, latin1, latin2, lad, lov):
     n, f, rho0 = _lambert_constants(latin1, latin2, lad)
-    dlon = ((lon - lov + 180.0) % 360.0 - 180.0) * DEG
+    dlon = wrap_dlon(lon, lov)
     rho = EARTH_R * f / math.tan(math.pi / 4 + lat * DEG / 2) ** n
     return rho * math.sin(n * dlon), rho0 - rho * math.cos(n * dlon)
 
@@ -93,7 +100,7 @@ def lambert_inverse(x, y, latin1, latin2, lad, lov):
 def polar_forward(lat, lon, lad, lov):
     sign = -1.0 if lad < 0 else 1.0
     k0 = (1.0 + math.sin(abs(lad) * DEG)) / 2.0
-    dlon = ((lon - lov + 180.0) % 360.0 - 180.0) * DEG
+    dlon = wrap_dlon(lon, lov)
     rho = 2.0 * EARTH_R * k0 * math.tan(math.pi / 4 - sign * lat * DEG / 2)
     return rho * math.sin(dlon), -sign * rho * math.cos(dlon)
 
@@ -110,7 +117,7 @@ def polar_inverse(x, y, lad, lov):
 
 def mercator_forward(lat, lon, truelat1, lov):
     k = math.cos(truelat1 * DEG)
-    dlon = ((lon - lov + 180.0) % 360.0 - 180.0) * DEG
+    dlon = wrap_dlon(lon, lov)
     return (EARTH_R * k * dlon,
             EARTH_R * k * math.log(math.tan(math.pi / 4 + lat * DEG / 2)))
 

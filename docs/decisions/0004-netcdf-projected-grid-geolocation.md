@@ -5,6 +5,14 @@
 source-raster-vs-full-geo question left open after decision
 [0002](0002-netcdf-slice-selection-and-rendering.md).
 
+**Amended (2026-07-04):** The non-Lambert WRF `MAP_PROJ` variants listed under
+"Out of scope / deferred" shipped in
+[#220](https://github.com/D0ubleD0uble/fieldglass/issues/220): polar
+stereographic (`MAP_PROJ = 2`) and Mercator (`3`) now resolve through the same
+global-attribute reader onto the existing projectors. `MAP_PROJ = 6` (lat-lon)
+stays deferred — `wrfout` has no 1-D coordinate variables, so it cannot ride
+the regular lat/lon path and falls back to source projection.
+
 ## Context
 
 Decision 0002 renders NetCDF variables on a **regular 1-D lat/lon** grid by

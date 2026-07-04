@@ -134,26 +134,57 @@ pub struct WrfLambertGrid {
     pub latin2: f64,
 }
 
-/// WRF's `MAP_PROJ` code for Lambert Conformal Conic.
-const WRF_MAP_PROJ_LAMBERT: f64 = 1.0;
-/// WRF's `MAP_PROJ` code for polar stereographic.
-const WRF_MAP_PROJ_POLAR_STEREO: f64 = 2.0;
-/// WRF's `MAP_PROJ` code for Mercator.
-pub const WRF_MAP_PROJ_MERCATOR: f64 = 3.0;
+/// The WRF `MAP_PROJ` projections Fieldglass resolves. One value of this enum
+/// is the single source of the code → projection mapping: [`wrf_map_proj`]
+/// derives it, each resolver gates on it, and the napi caller matches on it to
+/// decide which `XLAT`/`XLONG` corners to read before invoking a resolver
+/// (Mercator is the only one that needs the far corner).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WrfMapProj {
+    /// `MAP_PROJ == 1`.
+    Lambert,
+    /// `MAP_PROJ == 2`.
+    PolarStereo,
+    /// `MAP_PROJ == 3`.
+    Mercator,
+}
 
-/// The file's WRF `MAP_PROJ` code, when the global attribute is present and
-/// numeric. Lets the caller decide which grid corners it must read before
-/// invoking a resolver (Mercator is the only one that needs the far corner).
-pub fn wrf_map_proj(global: &[(String, String)]) -> Option<f64> {
-    attr_f64(global, "MAP_PROJ")
+/// The file's WRF `MAP_PROJ` code, mapped to a projection we resolve. `None`
+/// when the attribute is absent, non-numeric, or an unresolved code —
+/// `MAP_PROJ == 6` (lat-lon, possibly rotated) has no 1-D coordinate variables
+/// to ride the regular lat/lon path, so it falls back to source projection
+/// like any other unrecognised code (decision 0004 guardrail).
+pub fn wrf_map_proj(global: &[(String, String)]) -> Option<WrfMapProj> {
+    let code = attr_f64(global, "MAP_PROJ")?;
+    if code == 1.0 {
+        Some(WrfMapProj::Lambert)
+    } else if code == 2.0 {
+        Some(WrfMapProj::PolarStereo)
+    } else if code == 3.0 {
+        Some(WrfMapProj::Mercator)
+    } else {
+        None
+    }
+}
+
+/// Grid spacings parsed from `DX`/`DY`, required present, finite, and non-zero
+/// — the same gate `grid_is_reprojectable` applies to the GRIB planar grids, so
+/// a degenerate spacing falls back to source projection instead of advertising
+/// a reprojection that every warp would reject.
+fn wrf_grid_spacing(global: &[(String, String)]) -> Option<(f64, f64)> {
+    let dx = attr_f64(global, "DX")?;
+    let dy = attr_f64(global, "DY")?;
+    if !dx.is_finite() || !dy.is_finite() || dx == 0.0 || dy == 0.0 {
+        return None;
+    }
+    Some((dx, dy))
 }
 
 /// Resolve a WRF Lambert grid from the file's global attributes plus the grid
 /// origin read from the `XLAT`/`XLONG` corner. Returns `None` unless
 /// `MAP_PROJ == 1` (Lambert) and the standard parallels / orientation / spacing
 /// attributes are all present. The polar stereographic and Mercator variants
-/// have their own resolvers below; `MAP_PROJ == 6` (lat-lon, possibly rotated)
-/// stays unresolved and falls back to source projection.
+/// have their own resolvers below.
 pub fn resolve_wrf_lambert(
     global: &[(String, String)],
     lat_first: f64,
@@ -161,7 +192,7 @@ pub fn resolve_wrf_lambert(
     ni: u32,
     nj: u32,
 ) -> Option<WrfLambertGrid> {
-    if attr_f64(global, "MAP_PROJ")? != WRF_MAP_PROJ_LAMBERT {
+    if wrf_map_proj(global)? != WrfMapProj::Lambert {
         return None;
     }
     let latin1 = attr_f64(global, "TRUELAT1")?;
@@ -172,8 +203,7 @@ pub fn resolve_wrf_lambert(
     // origin-relative inverse the projector uses; MOAD_CEN_LAT is the natural
     // choice, with TRUELAT1 as a fallback.
     let lad = attr_f64(global, "MOAD_CEN_LAT").unwrap_or(latin1);
-    let dx_metres = attr_f64(global, "DX")?;
-    let dy_metres = attr_f64(global, "DY")?;
+    let (dx_metres, dy_metres) = wrf_grid_spacing(global)?;
     Some(WrfLambertGrid {
         ni,
         nj,
@@ -223,13 +253,12 @@ pub fn resolve_wrf_polar_stereo(
     ni: u32,
     nj: u32,
 ) -> Option<WrfPolarStereoGrid> {
-    if attr_f64(global, "MAP_PROJ")? != WRF_MAP_PROJ_POLAR_STEREO {
+    if wrf_map_proj(global)? != WrfMapProj::PolarStereo {
         return None;
     }
     let lad = attr_f64(global, "TRUELAT1")?;
     let lov = attr_f64(global, "STAND_LON")?;
-    let dx_metres = attr_f64(global, "DX")?;
-    let dy_metres = attr_f64(global, "DY")?;
+    let (dx_metres, dy_metres) = wrf_grid_spacing(global)?;
     Some(WrfPolarStereoGrid {
         ni,
         nj,
@@ -263,9 +292,9 @@ pub struct WrfMercatorGrid {
 }
 
 /// Resolve a WRF Mercator grid from the file's global attributes plus **both**
-/// grid corners read from `XLAT`/`XLONG` (the caller checks
-/// [`wrf_map_proj`]` == `[`WRF_MAP_PROJ_MERCATOR`] before paying for the far
-/// corner). Returns `None` unless `MAP_PROJ == 3`.
+/// grid corners read from `XLAT`/`XLONG` (the caller matches [`wrf_map_proj`]
+/// first, so only a Mercator file pays for — or can fail on — the far corner).
+/// Returns `None` unless `MAP_PROJ == 3`.
 pub fn resolve_wrf_mercator(
     global: &[(String, String)],
     lat_first: f64,
@@ -275,7 +304,7 @@ pub fn resolve_wrf_mercator(
     ni: u32,
     nj: u32,
 ) -> Option<WrfMercatorGrid> {
-    if attr_f64(global, "MAP_PROJ")? != WRF_MAP_PROJ_MERCATOR {
+    if wrf_map_proj(global)? != WrfMapProj::Mercator {
         return None;
     }
     Some(WrfMercatorGrid {
@@ -445,23 +474,57 @@ mod tests {
     #[test]
     fn wrf_resolvers_gate_on_their_own_map_proj() {
         // Each resolver only fires for its own MAP_PROJ code, so exactly one
-        // resolves for a given file and MAP_PROJ 6 (lat-lon) resolves nothing —
-        // it falls back to source projection.
-        let polar = attrs(&[
-            ("MAP_PROJ", "2"),
-            ("TRUELAT1", "60.0"),
-            ("STAND_LON", "-100.0"),
-            ("DX", "10000.0"),
-            ("DY", "10000.0"),
-        ]);
+        // resolves for a given attribute set. Every set below carries the full
+        // TRUELAT1/STAND_LON/DX/DY complement, so the MAP_PROJ gate — not a
+        // missing attribute — is what each rejection proves.
+        let projection_attrs = |map_proj: &str| {
+            attrs(&[
+                ("MAP_PROJ", map_proj),
+                ("TRUELAT1", "60.0"),
+                ("TRUELAT2", "60.0"),
+                ("STAND_LON", "-100.0"),
+                ("DX", "10000.0"),
+                ("DY", "10000.0"),
+            ])
+        };
+        let polar = projection_attrs("2");
         assert!(resolve_wrf_lambert(&polar, 0.0, 0.0, 4, 4).is_none());
         assert!(resolve_wrf_mercator(&polar, 0.0, 0.0, 1.0, 1.0, 4, 4).is_none());
-        let latlon = attrs(&[("MAP_PROJ", "6"), ("TRUELAT1", "0.0")]);
+        let mercator = projection_attrs("3");
+        assert!(resolve_wrf_lambert(&mercator, 0.0, 0.0, 4, 4).is_none());
+        assert!(resolve_wrf_polar_stereo(&mercator, 0.0, 0.0, 4, 4).is_none());
+        // MAP_PROJ 6 (lat-lon) resolves nothing — source-projection fallback.
+        let latlon = projection_attrs("6");
         assert!(resolve_wrf_lambert(&latlon, 0.0, 0.0, 4, 4).is_none());
         assert!(resolve_wrf_polar_stereo(&latlon, 0.0, 0.0, 4, 4).is_none());
         assert!(resolve_wrf_mercator(&latlon, 0.0, 0.0, 1.0, 1.0, 4, 4).is_none());
-        assert_eq!(wrf_map_proj(&latlon), Some(6.0));
+        assert_eq!(wrf_map_proj(&latlon), None);
+        assert_eq!(wrf_map_proj(&polar), Some(WrfMapProj::PolarStereo));
+        assert_eq!(wrf_map_proj(&mercator), Some(WrfMapProj::Mercator));
         assert_eq!(wrf_map_proj(&attrs(&[("TITLE", "not wrf")])), None);
+    }
+
+    #[test]
+    fn wrf_degenerate_spacing_falls_back_to_source() {
+        // A zero DX advertises a grid no warp could invert; the resolver
+        // rejects it so the render stays source-only — the same gate
+        // `grid_is_reprojectable` applies to the GRIB planar grids.
+        let zero_dx = attrs(&[
+            ("MAP_PROJ", "2"),
+            ("TRUELAT1", "60.0"),
+            ("STAND_LON", "-100.0"),
+            ("DX", "0.0"),
+            ("DY", "10000.0"),
+        ]);
+        assert!(resolve_wrf_polar_stereo(&zero_dx, 0.0, 0.0, 4, 4).is_none());
+        let nan_dy = attrs(&[
+            ("MAP_PROJ", "1"),
+            ("TRUELAT1", "30.0"),
+            ("STAND_LON", "-97.5"),
+            ("DX", "3000.0"),
+            ("DY", "NaN"),
+        ]);
+        assert!(resolve_wrf_lambert(&nan_dy, 0.0, 0.0, 4, 4).is_none());
     }
 
     #[test]

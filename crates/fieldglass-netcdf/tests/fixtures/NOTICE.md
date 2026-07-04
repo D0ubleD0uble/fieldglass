@@ -207,7 +207,10 @@ a tautology.
   `MAP_PROJ = 2` (polar stereographic: `DX`/`DY` true at `TRUELAT1`, oriented
   along `STAND_LON`, hemisphere from `TRUELAT1`'s sign) and `MAP_PROJ = 3`
   (Mercator: uniform projected metres, geolocated from the `XLAT`/`XLONG`
-  corner coordinates alone).
+  corner coordinates alone). They adopt the same 6 371 229 m sphere as
+  `wrf_lambert.nc`, so the same ~0.02 % radius approximation against real
+  `wrfout` applies — the oracle cross-check exercises the projection math, not
+  that constant.
 - `goes_geostationary.nc` (NetCDF-4 / HDF5) is a GOES ABI-style file: a CF
   `grid_mapping` variable `goes_imager_projection`
   (`grid_mapping_name = "geostationary"`, GRS80 ellipsoid, `sweep_angle_axis =

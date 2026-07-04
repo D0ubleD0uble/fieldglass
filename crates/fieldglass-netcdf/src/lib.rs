@@ -27,7 +27,7 @@ pub use hdf5::group::{ChildKind, GroupChild, list_root_children};
 pub use hdf5::object_header::{HeaderMessage, ObjectHeader};
 pub use hdf5::{Hdf5Probe, root_group_address};
 pub use projection::{
-    GeostationaryGrid, WRF_MAP_PROJ_MERCATOR, WrfLambertGrid, WrfMercatorGrid, WrfPolarStereoGrid,
+    GeostationaryGrid, WrfLambertGrid, WrfMapProj, WrfMercatorGrid, WrfPolarStereoGrid,
     apply_scale_offset, cf_scale_offset, resolve_cf_geostationary, resolve_wrf_lambert,
     resolve_wrf_mercator, resolve_wrf_polar_stereo, unpack_cf_data, wrf_map_proj,
 };

@@ -37,7 +37,9 @@ fn view(bytes: &[u8]) -> (NetcdfReader, DatasetView) {
     (reader, view)
 }
 
-/// Decode a variable by name to dense `f64`, taking present values only.
+/// Decode a variable by name to dense `f64`. Coordinate fixtures carry no
+/// masked cells; panicking on one (rather than skipping it) keeps every flat
+/// index aligned with its `[j, i]` grid cell, which the corner reads rely on.
 fn decode_named(reader: &NetcdfReader, view: &DatasetView, name: &str) -> Vec<f64> {
     let idx = view
         .vars
@@ -49,7 +51,7 @@ fn decode_named(reader: &NetcdfReader, view: &DatasetView, name: &str) -> Vec<f6
         .decode_variable_values(idx)
         .expect("decode")
         .into_iter()
-        .flatten()
+        .map(|v| v.unwrap_or_else(|| panic!("{name} has a masked cell")))
         .collect()
 }
 
