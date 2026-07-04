@@ -394,6 +394,24 @@ fn complex_rowbyrow_regular_latlon_matches_eccodes() {
     );
 }
 
+// NG == 0 constant-field fixtures (#222, eccodes ECC-2095); value decode
+// pinned in `decode_complex_constant.rs`.
+#[test]
+fn complex_ng0_regular_latlon_matches_eccodes() {
+    assert_fixture_matches_snapshot(
+        "complex_ng0_regular_latlon.grib2",
+        include_bytes!("fixtures/complex_ng0_regular_latlon.grib2"),
+    );
+}
+
+#[test]
+fn complex_spd2_ng0_regular_latlon_matches_eccodes() {
+    assert_fixture_matches_snapshot(
+        "complex_spd2_ng0_regular_latlon.grib2",
+        include_bytes!("fixtures/complex_spd2_ng0_regular_latlon.grib2"),
+    );
+}
+
 #[test]
 fn jpeg2000_regular_latlon_matches_eccodes() {
     assert_fixture_matches_snapshot(
