@@ -22,9 +22,11 @@ use fieldglass_grib2::Grib2Reader;
 use serde_json::Value;
 use std::path::Path;
 
-/// Decode the fixture and assert every point equals the oracle's §5
-/// `referenceValue` exactly (f32 widened to f64, bitwise — the constant
-/// path applies no scale transform, so no tolerance is needed).
+/// Decode the fixture, check it against the eccodes oracle (count, no
+/// missing points, min/max/mean and anchored samples within tolerance), and
+/// then assert every point equals the oracle's §5 `referenceValue` exactly
+/// (f32 widened to f64, bitwise — the constant path applies no scale
+/// transform, so no tolerance is allowed there).
 fn assert_constant_field_matches_oracle(fixture: &str) {
     let dir = Path::new("tests/fixtures");
     let bytes = std::fs::read(dir.join(format!("{fixture}.grib2")))
@@ -46,14 +48,45 @@ fn assert_constant_field_matches_oracle(fixture: &str) {
         oracle["count"].as_u64().expect("count") as usize,
         "{fixture}: value count",
     );
+    assert_eq!(
+        oracle["missing_count"].as_u64().expect("missing_count"),
+        0,
+        "{fixture}: oracle declares missing points in a constant field",
+    );
+
+    let defined: Vec<f64> = decoded
+        .iter()
+        .enumerate()
+        .map(|(i, v)| v.unwrap_or_else(|| panic!("{fixture}: values[{i}] missing")))
+        .collect();
+
+    let tol = oracle["tolerance_absolute"].as_f64().expect("tolerance");
+    let min = defined.iter().cloned().fold(f64::INFINITY, f64::min);
+    let max = defined.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let mean: f64 = defined.iter().sum::<f64>() / defined.len() as f64;
+    for (name, got) in [("min", min), ("max", max), ("mean", mean)] {
+        let want = oracle[name].as_f64().expect(name);
+        assert!(
+            (got - want).abs() < tol,
+            "{fixture}: {name} was {got}, oracle {want}",
+        );
+    }
+    for (idx, want) in oracle["samples"].as_object().expect("samples") {
+        let i: usize = idx.parse().expect("sample index");
+        let want = want.as_f64().expect("sample value");
+        let got = defined[i];
+        assert!(
+            (got - want).abs() < tol,
+            "{fixture}: values[{i}] was {got}, oracle {want}",
+        );
+    }
 
     let reference = oracle["section5"]["referenceValue"]
         .as_f64()
         .expect("referenceValue");
-    for (i, v) in decoded.iter().enumerate() {
-        let got = v.unwrap_or_else(|| panic!("{fixture}: values[{i}] missing"));
+    for (i, got) in defined.iter().enumerate() {
         assert!(
-            got == reference,
+            *got == reference,
             "{fixture}: values[{i}] was {got}, expected referenceValue {reference} verbatim",
         );
     }

@@ -246,7 +246,9 @@ Each is a byte patch of the matching committed fixture
 provenance above): §5 octets 32–35 (`numberOfGroupsOfDataValues`) zeroed, §7
 truncated to its bare 5-octet header (no group blocks — for 5.3 not even the
 spatial-differencing extra descriptors), and the §7 length and §0
-`totalLength` recomputed to match.
+`totalLength` recomputed to match. The patch is scripted:
+`tools/build_grib2_ng0_fixtures.py` rebuilds both fixtures deterministically
+from the committed sources.
 
 **Oracle version caveat:** ECC-2095 shipped in eccodes **2.42.0**, so the
 otherwise-pinned 2.34.1 cannot be the value oracle here — it predates the fix
