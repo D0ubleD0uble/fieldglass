@@ -5,24 +5,31 @@
     projection lives in *global attributes* (``MAP_PROJ`` = 1, ``TRUELAT1/2``,
     ``STAND_LON``, ``MOAD_CEN_LAT``, ``DX``/``DY``) and the 2-D ``XLAT``/``XLONG``
     coordinate arrays are precomputed conveniences (and the verification oracle).
+  * ``wrf_polar.nc``          — the same ``wrfout`` shape with ``MAP_PROJ`` = 2
+    (polar stereographic; issue #220): ``TRUELAT1`` is the latitude of true
+    scale, ``STAND_LON`` the orientation meridian, hemisphere from the sign of
+    ``TRUELAT1``.
+  * ``wrf_mercator.nc``        — ``MAP_PROJ`` = 3 (Mercator; issue #220): the
+    grid walks uniform projected metres, so geolocation is pinned entirely by
+    the ``XLAT``/``XLONG`` corner coordinates.
   * ``goes_geostationary.nc`` — a GOES ABI-style NetCDF-4 file: a CF
     ``grid_mapping`` variable ``goes_imager_projection`` carries the
     ``geostationary`` parameters and the 1-D ``x``/``y`` *radian* scan-angle
     coordinate variables are stored as scaled ``int16`` (the real GOES on-disk
     encoding), exercising CF ``scale_factor``/``add_offset``.
 
-Both grids are **regular grids in a projected CRS** (Model A in decision 0004),
+All four are **regular grids in a projected CRS** (Model A in decision 0004),
 deliberately tiny so they stay byte-small in git. The coordinate geometry is
 generated with *independent* NumPy implementations of the standard projection
-formulas (Snyder Lambert Conformal Conic; GOES-R PUG fixed-grid), so the Rust
-projectors reproducing them is a genuine cross-language cross-check rather than a
-tautology.
+formulas (Snyder Lambert Conformal Conic and polar stereographic; spherical
+Mercator; GOES-R PUG fixed-grid), so the Rust projectors reproducing them is a
+genuine cross-language cross-check rather than a tautology.
 
 Run from the repo root (needs ``netCDF4`` + ``numpy``)::
 
     python3 tools/build_netcdf_projected_fixtures.py
 
-It writes the two ``.nc`` files and a sibling ``*.oracle.json`` for each, next to
+It writes the ``.nc`` files and a sibling ``*.oracle.json`` for each, next to
 the other NetCDF fixtures. See that directory's ``NOTICE.md`` for provenance.
 """
 from __future__ import annotations
@@ -46,6 +53,13 @@ EARTH_R = 6_371_229.0
 DEG = math.pi / 180.0
 
 
+def wrap_dlon(lon: float, lov: float) -> float:
+    """Longitude offset from the reference meridian, wrapped to (-180, 180] and
+    in radians — shared by every projection forward so the wrap convention
+    can't drift between fixtures."""
+    return ((lon - lov + 180.0) % 360.0 - 180.0) * DEG
+
+
 # ---------------------------------------------------------------------------
 # Lambert Conformal Conic (Snyder, "Map Projections — A Working Manual", §15)
 # ---------------------------------------------------------------------------
@@ -64,7 +78,7 @@ def _lambert_constants(latin1: float, latin2: float, lad: float):
 
 def lambert_forward(lat, lon, latin1, latin2, lad, lov):
     n, f, rho0 = _lambert_constants(latin1, latin2, lad)
-    dlon = ((lon - lov + 180.0) % 360.0 - 180.0) * DEG
+    dlon = wrap_dlon(lon, lov)
     rho = EARTH_R * f / math.tan(math.pi / 4 + lat * DEG / 2) ** n
     return rho * math.sin(n * dlon), rho0 - rho * math.cos(n * dlon)
 
@@ -79,43 +93,51 @@ def lambert_inverse(x, y, latin1, latin2, lad, lov):
     return lat, lon
 
 
-def build_wrf() -> None:
-    """A tiny CONUS-like WRF mass grid. We pin the south-west corner (the first
-    scanned point, south_north = west_east = 0) in geographic coordinates, walk
-    +DX/+DY through projected space, and inverse-project to fill XLAT/XLONG."""
-    latin1, latin2, lov, lad = 30.0, 60.0, -97.5, 38.5
-    dx = dy = 30_000.0  # metres (deliberately coarse; this is a 6×5 toy grid)
-    nx, ny = 6, 5
-    sw_lat, sw_lon = 32.0, -100.0
+# ---------------------------------------------------------------------------
+# Polar stereographic (Snyder §21, spherical) and Mercator (Snyder §7,
+# spherical, true at TRUELAT1) — WRF's other two conformal MAP_PROJ variants
+# ---------------------------------------------------------------------------
+def polar_forward(lat, lon, lad, lov):
+    sign = -1.0 if lad < 0 else 1.0
+    k0 = (1.0 + math.sin(abs(lad) * DEG)) / 2.0
+    dlon = wrap_dlon(lon, lov)
+    rho = 2.0 * EARTH_R * k0 * math.tan(math.pi / 4 - sign * lat * DEG / 2)
+    return rho * math.sin(dlon), -sign * rho * math.cos(dlon)
 
-    x0, y0 = lambert_forward(sw_lat, sw_lon, latin1, latin2, lad, lov)
-    xlat = np.zeros((ny, nx), dtype="f4")
-    xlong = np.zeros((ny, nx), dtype="f4")
-    for j in range(ny):
-        for i in range(nx):
-            lat, lon = lambert_inverse(
-                x0 + i * dx, y0 + j * dy, latin1, latin2, lad, lov
-            )
-            xlat[j, i] = lat
-            xlong[j, i] = lon
 
-    # A smooth, recognisable data field so a render is visually meaningful.
+def polar_inverse(x, y, lad, lov):
+    sign = -1.0 if lad < 0 else 1.0
+    k0 = (1.0 + math.sin(abs(lad) * DEG)) / 2.0
+    rho = math.hypot(x, y)
+    c = 2.0 * math.atan(rho / (2.0 * EARTH_R * k0))
+    lat = sign * (math.pi / 2 - c) / DEG
+    lon = lov + math.atan2(x, -sign * y) / DEG
+    return lat, lon
+
+
+def mercator_forward(lat, lon, truelat1, lov):
+    k = math.cos(truelat1 * DEG)
+    dlon = wrap_dlon(lon, lov)
+    return (EARTH_R * k * dlon,
+            EARTH_R * k * math.log(math.tan(math.pi / 4 + lat * DEG / 2)))
+
+
+def mercator_inverse(x, y, truelat1, lov):
+    k = math.cos(truelat1 * DEG)
+    lat = (2.0 * math.atan(math.exp(y / (EARTH_R * k))) - math.pi / 2) / DEG
+    lon = lov + (x / (EARTH_R * k)) / DEG
+    return lat, lon
+
+
+def write_wrfout(path: Path, global_attrs: dict, xlat, xlong) -> None:
+    """Write a ``wrfout``-shaped classic file: the projection in global
+    attributes, precomputed 2-D ``XLAT``/``XLONG``, and a smooth ``T2`` field
+    so a render is visually meaningful."""
+    ny, nx = xlat.shape
     t2 = (280.0 + 5.0 * np.cos(np.linspace(0, math.pi, ny))[:, None]
           + 3.0 * np.sin(np.linspace(0, math.pi, nx))[None, :]).astype("f4")
-
-    path = FIXTURES / "wrf_lambert.nc"
     with netCDF4.Dataset(path, "w", format="NETCDF3_CLASSIC") as d:
-        d.setncatts({
-            "TITLE": " OUTPUT FROM WRF (synthetic fixture)",
-            "MAP_PROJ": np.int32(1),          # 1 = Lambert Conformal
-            "MAP_PROJ_CHAR": "Lambert Conformal",
-            "TRUELAT1": np.float32(latin1),
-            "TRUELAT2": np.float32(latin2),
-            "STAND_LON": np.float32(lov),
-            "MOAD_CEN_LAT": np.float32(lad),
-            "DX": np.float32(dx),
-            "DY": np.float32(dy),
-        })
+        d.setncatts({"TITLE": " OUTPUT FROM WRF (synthetic fixture)", **global_attrs})
         d.createDimension("Time", None)
         d.createDimension("south_north", ny)
         d.createDimension("west_east", nx)
@@ -129,23 +151,141 @@ def build_wrf() -> None:
         v_t2.setncatts({"units": "K", "description": "TEMP at 2 M"})
         v_t2[0, :, :] = t2
 
+
+def wrf_grid(nx, ny, sw_lat, sw_lon, dx, dy, forward, inverse):
+    """Pin the south-west corner (the first scanned point, south_north =
+    west_east = 0) in geographic coordinates, walk +DX/+DY through projected
+    space, and inverse-project to fill XLAT/XLONG."""
+    x0, y0 = forward(sw_lat, sw_lon)
+    xlat = np.zeros((ny, nx), dtype="f4")
+    xlong = np.zeros((ny, nx), dtype="f4")
+    for j in range(ny):
+        for i in range(nx):
+            lat, lon = inverse(x0 + i * dx, y0 + j * dy)
+            xlat[j, i] = lat
+            xlong[j, i] = lon
+    return xlat, xlong
+
+
+def interior_samples(xlat, xlong):
+    """Interior cells whose (XLAT, XLONG) the Rust inverse must map back to
+    (i, j). The grid edge (row 0 / col 0 / far edge) is skipped: float32
+    storage nudges a boundary cell a hair outside the grid, which the projector
+    correctly rejects — not what this geolocation check is about (the render
+    warp samples the interior)."""
+    ny, nx = xlat.shape
+    return [
+        {"i": i, "j": j, "lat": float(xlat[j, i]), "lon": float(xlong[j, i])}
+        for j in (1, ny // 2, ny - 2) for i in (1, nx // 2, nx - 2)
+    ]
+
+
+def build_wrf() -> None:
+    """A tiny CONUS-like WRF Lambert mass grid (6×5 toy, deliberately coarse)."""
+    latin1, latin2, lov, lad = 30.0, 60.0, -97.5, 38.5
+    dx = dy = 30_000.0
+    nx, ny = 6, 5
+    xlat, xlong = wrf_grid(
+        nx, ny, 32.0, -100.0, dx, dy,
+        lambda lat, lon: lambert_forward(lat, lon, latin1, latin2, lad, lov),
+        lambda x, y: lambert_inverse(x, y, latin1, latin2, lad, lov),
+    )
+
+    path = FIXTURES / "wrf_lambert.nc"
+    write_wrfout(path, {
+        "MAP_PROJ": np.int32(1),          # 1 = Lambert Conformal
+        "MAP_PROJ_CHAR": "Lambert Conformal",
+        "TRUELAT1": np.float32(latin1),
+        "TRUELAT2": np.float32(latin2),
+        "STAND_LON": np.float32(lov),
+        "MOAD_CEN_LAT": np.float32(lad),
+        "DX": np.float32(dx),
+        "DY": np.float32(dy),
+    }, xlat, xlong)
+
     oracle = {
         "projection": "lambert_conformal_conic",
         "map_proj": 1,
         "truelat1": latin1, "truelat2": latin2,
         "stand_lon": lov, "moad_cen_lat": lad,
         "dx": dx, "dy": dy, "nx": nx, "ny": ny,
-        # Interior cells whose (XLAT, XLONG) the Rust Lambert inverse must map
-        # back to (i, j). The grid edge (row 0 / col 0 / far edge) is skipped:
-        # float32 storage nudges a boundary cell a hair outside the grid, which
-        # the projector correctly rejects — not what this geolocation check is
-        # about (the render warp samples the interior).
-        "samples": [
-            {"i": i, "j": j, "lat": float(xlat[j, i]), "lon": float(xlong[j, i])}
-            for j in (1, ny // 2, ny - 2) for i in (1, nx // 2, nx - 2)
-        ],
+        "samples": interior_samples(xlat, xlong),
     }
     (FIXTURES / "wrf_lambert.nc.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n")
+    print(f"  wrote {path.name} ({path.stat().st_size} bytes) + oracle")
+
+
+def build_wrf_polar() -> None:
+    """A northern-hemisphere WRF polar stereographic grid (#220): DX/DY true at
+    TRUELAT1, oriented along STAND_LON, hemisphere from TRUELAT1's sign."""
+    truelat1, stand_lon = 60.0, -100.0
+    dx = dy = 15_000.0
+    nx, ny = 6, 5
+    xlat, xlong = wrf_grid(
+        nx, ny, 55.0, -120.0, dx, dy,
+        lambda lat, lon: polar_forward(lat, lon, truelat1, stand_lon),
+        lambda x, y: polar_inverse(x, y, truelat1, stand_lon),
+    )
+
+    path = FIXTURES / "wrf_polar.nc"
+    write_wrfout(path, {
+        "MAP_PROJ": np.int32(2),          # 2 = polar stereographic
+        "MAP_PROJ_CHAR": "Polar Stereographic",
+        "TRUELAT1": np.float32(truelat1),
+        "TRUELAT2": np.float32(truelat1),
+        "STAND_LON": np.float32(stand_lon),
+        "MOAD_CEN_LAT": np.float32(truelat1),
+        "DX": np.float32(dx),
+        "DY": np.float32(dy),
+    }, xlat, xlong)
+
+    oracle = {
+        "projection": "polar_stereographic",
+        "map_proj": 2,
+        "truelat1": truelat1, "stand_lon": stand_lon,
+        "dx": dx, "dy": dy, "nx": nx, "ny": ny,
+        "samples": interior_samples(xlat, xlong),
+    }
+    (FIXTURES / "wrf_polar.nc.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n")
+    print(f"  wrote {path.name} ({path.stat().st_size} bytes) + oracle")
+
+
+def build_wrf_mercator() -> None:
+    """A tropical WRF Mercator grid (#220): uniform projected metres true at
+    TRUELAT1, which the reader geolocates from the corner coordinates alone."""
+    truelat1, stand_lon = 20.0, -58.0
+    dx = dy = 25_000.0
+    nx, ny = 6, 5
+    xlat, xlong = wrf_grid(
+        nx, ny, 10.0, -60.0, dx, dy,
+        lambda lat, lon: mercator_forward(lat, lon, truelat1, stand_lon),
+        lambda x, y: mercator_inverse(x, y, truelat1, stand_lon),
+    )
+
+    path = FIXTURES / "wrf_mercator.nc"
+    write_wrfout(path, {
+        "MAP_PROJ": np.int32(3),          # 3 = Mercator
+        "MAP_PROJ_CHAR": "Mercator",
+        "TRUELAT1": np.float32(truelat1),
+        "TRUELAT2": np.float32(0.0),
+        "STAND_LON": np.float32(stand_lon),
+        "MOAD_CEN_LAT": np.float32(truelat1),
+        "DX": np.float32(dx),
+        "DY": np.float32(dy),
+    }, xlat, xlong)
+
+    oracle = {
+        "projection": "mercator",
+        "map_proj": 3,
+        "truelat1": truelat1, "stand_lon": stand_lon,
+        "dx": dx, "dy": dy, "nx": nx, "ny": ny,
+        # The corner-pinned Mercator contract: the reader derives lat/lon_last
+        # from the far XLAT/XLONG corner, recorded here for the cross-check.
+        "lat_last": float(xlat[ny - 1, nx - 1]),
+        "lon_last": float(xlong[ny - 1, nx - 1]),
+        "samples": interior_samples(xlat, xlong),
+    }
+    (FIXTURES / "wrf_mercator.nc.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n")
     print(f"  wrote {path.name} ({path.stat().st_size} bytes) + oracle")
 
 
@@ -252,6 +392,8 @@ def build_goes() -> None:
 
 def main() -> int:
     build_wrf()
+    build_wrf_polar()
+    build_wrf_mercator()
     build_goes()
     return 0
 

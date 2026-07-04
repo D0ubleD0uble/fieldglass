@@ -23,8 +23,10 @@ use fieldglass_grib2::{
 };
 use fieldglass_netcdf::{
     DatasetView, Hdf5Attribute, Hdf5Metadata, NetcdfBacking, NetcdfReader, RenderableVariable,
-    WrfLambertGrid, apply_scale_offset, extract_plane, resolve_cf_geostationary,
-    resolve_wrf_lambert, synthesize_geometry, unpack_cf_data,
+    WrfLambertGrid, WrfMapProj, WrfMercatorGrid, WrfPolarStereoGrid, apply_scale_offset,
+    cf_scale_offset, extract_plane, resolve_cf_geostationary, resolve_wrf_lambert,
+    resolve_wrf_mercator, resolve_wrf_polar_stereo, synthesize_geometry, unpack_cf_data,
+    wrf_map_proj,
 };
 use napi_derive::napi;
 use std::sync::Mutex;
@@ -1728,12 +1730,14 @@ impl NetcdfHandle {
             .unwrap_or_default();
         let (ni, nj) = (x_axis.length as u32, y_axis.length as u32);
 
-        // A projected grid (WRF Lambert / GOES geostationary, decision 0004)
-        // takes precedence over the regular lat/lon path: its `x`/`y` coordinate
+        // A projected grid (WRF / GOES geostationary, decision 0004) takes
+        // precedence over the regular lat/lon path: its `x`/`y` coordinate
         // variables are scan angles or projected metres, not degrees, so the
         // lat/lon synthesis would mis-georeference them.
-        if let Some(g) = self.try_wrf_lambert(&y_axis.name, &x_axis.name, ni, nj)? {
-            return Ok(synth_lambert_meta(&var.name, &units, &g));
+        if let Some(meta) =
+            self.try_wrf_projected(&var.name, &units, &y_axis.name, &x_axis.name, ni, nj)?
+        {
+            return Ok(meta);
         }
 
         // CF `grid_mapping`: a data variable in a projected CRS names a
@@ -1788,22 +1792,27 @@ impl NetcdfHandle {
         ))
     }
 
-    /// Resolve a WRF Lambert grid (decision 0004) when the file carries WRF's
-    /// `MAP_PROJ = 1` global attributes and the 2-D `XLAT`/`XLONG` arrays whose
-    /// `(0, 0)` corner fixes the grid origin. `None` for any non-WRF file (no
-    /// `XLAT`/`XLONG`) or a non-Lambert projection.
+    /// Resolve a WRF projected grid (decision 0004, #220) when the file carries
+    /// WRF's `MAP_PROJ` global attributes and the 2-D `XLAT`/`XLONG` arrays
+    /// whose `(0, 0)` corner fixes the grid origin: Lambert (`MAP_PROJ = 1`),
+    /// polar stereographic (`2`), or Mercator (`3`). `None` for any non-WRF
+    /// file (no `XLAT`/`XLONG`) or an unresolved projection (e.g. `MAP_PROJ =
+    /// 6` lat-lon, which has no 1-D coordinate variables to ride the regular
+    /// lat/lon path and so stays source-only).
     ///
     /// `XLAT`/`XLONG` must span the selected horizontal axes (their trailing two
     /// dimensions = `y_name`, `x_name`), so a file that merely *names* variables
     /// `XLAT`/`XLONG`, or a WRF field rendered on an unexpected axis pick, doesn't
-    /// resolve a Lambert grid whose `(ni, nj)` mismatch the coordinate arrays.
-    fn try_wrf_lambert(
+    /// resolve a grid whose `(ni, nj)` mismatch the coordinate arrays.
+    fn try_wrf_projected(
         &self,
+        name: &str,
+        units: &str,
         y_name: &str,
         x_name: &str,
         ni: u32,
         nj: u32,
-    ) -> napi::Result<Option<WrfLambertGrid>> {
+    ) -> napi::Result<Option<MessageMeta>> {
         let (Some(xlat), Some(xlong)) = (self.var_named("XLAT"), self.var_named("XLONG")) else {
             return Ok(None);
         };
@@ -1812,15 +1821,33 @@ impl NetcdfHandle {
         {
             return Ok(None);
         }
-        let lat_first = self.grid_corner_value(xlat.decode_index, "XLAT")?;
-        let lon_first = self.grid_corner_value(xlong.decode_index, "XLONG")?;
-        Ok(resolve_wrf_lambert(
-            &self.view.global_attrs,
-            lat_first,
-            lon_first,
-            ni,
-            nj,
-        ))
+        // Match MAP_PROJ before touching XLAT/XLONG values: a file whose
+        // projection we don't resolve keeps its source-only fallback even when
+        // a corner cell is masked, and pays no coordinate decode. A masked
+        // corner on a projection we *do* resolve stays a hard error rather
+        // than silently mis-georeferencing (decision 0004 guardrail).
+        let global = &self.view.global_attrs;
+        let Some(map_proj) = wrf_map_proj(global) else {
+            return Ok(None);
+        };
+        let lat_first = self.grid_corner_value(xlat.decode_index, "XLAT", 0, 0, ni)?;
+        let lon_first = self.grid_corner_value(xlong.decode_index, "XLONG", 0, 0, ni)?;
+        Ok(match map_proj {
+            WrfMapProj::Lambert => resolve_wrf_lambert(global, lat_first, lon_first, ni, nj)
+                .map(|g| synth_lambert_meta(name, units, &g)),
+            WrfMapProj::PolarStereo => {
+                resolve_wrf_polar_stereo(global, lat_first, lon_first, ni, nj)
+                    .map(|g| synth_polar_stereo_meta(name, units, &g))
+            }
+            // Mercator is corner-pinned, so it alone needs the far corner too.
+            WrfMapProj::Mercator => {
+                let (j, i) = (nj.saturating_sub(1), ni.saturating_sub(1));
+                let lat_last = self.grid_corner_value(xlat.decode_index, "XLAT", j, i, ni)?;
+                let lon_last = self.grid_corner_value(xlong.decode_index, "XLONG", j, i, ni)?;
+                resolve_wrf_mercator(global, lat_first, lon_first, lat_last, lon_last, ni, nj)
+                    .map(|g| synth_mercator_meta(name, units, &g))
+            }
+        })
     }
 
     /// The attributes of the `grid_mapping` variable a data variable points at,
@@ -1863,16 +1890,37 @@ impl NetcdfHandle {
             .map(|(_, v)| v.clone())
     }
 
-    /// The grid-origin corner value of a 2-D coordinate field — strictly its
-    /// first element (`[0, 0]` in C order, at the first time step), so a masked
-    /// corner is a hard error rather than silently shifting the origin to the
-    /// next present cell and mis-georeferencing the whole grid.
-    fn grid_corner_value(&self, index: usize, name: &str) -> napi::Result<f64> {
-        self.cached_decode(index)?
-            .first()
+    /// The value of a 2-D coordinate field at `[j, i]` of the first time step
+    /// (flat index `j·ni + i` in C order; the caller has already checked the
+    /// variable's trailing two dimensions are the horizontal axes), with the
+    /// variable's CF `scale_factor` / `add_offset` applied — a packed
+    /// coordinate decodes like the 1-D GOES axes do. A masked corner is a hard
+    /// error rather than silently shifting the corner to the next present cell
+    /// and mis-georeferencing the whole grid.
+    fn grid_corner_value(
+        &self,
+        index: usize,
+        name: &str,
+        j: u32,
+        i: u32,
+        ni: u32,
+    ) -> napi::Result<f64> {
+        let raw = self
+            .cached_decode(index)?
+            .get(j as usize * ni as usize + i as usize)
             .copied()
             .flatten()
-            .ok_or_else(|| napi::Error::from_reason(format!("{name}[0,0] is missing or masked")))
+            .ok_or_else(|| {
+                napi::Error::from_reason(format!("{name}[{j},{i}] is missing or masked"))
+            })?;
+        let (scale, offset) = self
+            .view
+            .vars
+            .iter()
+            .find(|v| v.decode_index == index)
+            .map(|v| cf_scale_offset(&v.attrs))
+            .unwrap_or((1.0, 0.0));
+        Ok(raw * scale + offset)
     }
 
     /// Decode a coordinate variable to a dense `Vec<f64>`, applying CF
@@ -2022,11 +2070,7 @@ fn synth_latlon_meta(
 /// Build a `"lambert"` [`MessageMeta`] from a WRF-resolved Lambert grid
 /// (decision 0004). The corner is the grid origin (first scanned point) and the
 /// `lambert_*` fields feed the same projector the GRIB2 §3.30 path uses.
-fn synth_lambert_meta(
-    name: &str,
-    units: &str,
-    g: &fieldglass_netcdf::WrfLambertGrid,
-) -> MessageMeta {
+fn synth_lambert_meta(name: &str, units: &str, g: &WrfLambertGrid) -> MessageMeta {
     MessageMeta {
         grid_type: Some("lambert".to_string()),
         lat_first: Some(g.lat_first),
@@ -2037,6 +2081,40 @@ fn synth_lambert_meta(
         lambert_dy_metres: Some(g.dy_metres),
         lambert_latin1: Some(g.latin1),
         lambert_latin2: Some(g.latin2),
+        reprojectable: true,
+        ..base_netcdf_meta(name, units, g.ni as i32, g.nj as i32)
+    }
+}
+
+/// Build a `"polar_stereo"` [`MessageMeta`] from a WRF-resolved polar
+/// stereographic grid (#220). `"polar_stereo"` is the *source-grid* string the
+/// GRIB paths emit (routing into `polar_stereo_warp_setup`), distinct from the
+/// `"polar_stereographic"` *target*-projection picker option.
+fn synth_polar_stereo_meta(name: &str, units: &str, g: &WrfPolarStereoGrid) -> MessageMeta {
+    MessageMeta {
+        grid_type: Some("polar_stereo".to_string()),
+        lat_first: Some(g.lat_first),
+        lon_first: Some(g.lon_first),
+        polar_stereo_lov: Some(g.lov),
+        polar_stereo_lad: Some(g.lad),
+        polar_stereo_dx_metres: Some(g.dx_metres),
+        polar_stereo_dy_metres: Some(g.dy_metres),
+        polar_stereo_south_pole: Some(g.south_pole),
+        reprojectable: true,
+        ..base_netcdf_meta(name, units, g.ni as i32, g.nj as i32)
+    }
+}
+
+/// Build a `"mercator"` [`MessageMeta`] from a WRF-resolved Mercator grid
+/// (#220). Like the GRIB Mercator source, the grid is pinned entirely by its
+/// corner coordinates — no spacing or true-scale fields exist to copy.
+fn synth_mercator_meta(name: &str, units: &str, g: &WrfMercatorGrid) -> MessageMeta {
+    MessageMeta {
+        grid_type: Some("mercator".to_string()),
+        lat_first: Some(g.lat_first),
+        lon_first: Some(g.lon_first),
+        lat_last: Some(g.lat_last),
+        lon_last: Some(g.lon_last),
         reprojectable: true,
         ..base_netcdf_meta(name, units, g.ni as i32, g.nj as i32)
     }
@@ -4325,6 +4403,11 @@ mod netcdf_slice_tests {
     /// attributes (`MAP_PROJ = 1`), with 2-D `XLAT`/`XLONG` fixing the origin
     /// (decision 0004 / #168).
     const WRF: &[u8] = include_bytes!("../../fieldglass-netcdf/tests/fixtures/wrf_lambert.nc");
+    /// The same `wrfout` shape with `MAP_PROJ = 2` (polar stereographic, #220).
+    const WRF_POLAR: &[u8] = include_bytes!("../../fieldglass-netcdf/tests/fixtures/wrf_polar.nc");
+    /// The same `wrfout` shape with `MAP_PROJ = 3` (Mercator, #220).
+    const WRF_MERCATOR: &[u8] =
+        include_bytes!("../../fieldglass-netcdf/tests/fixtures/wrf_mercator.nc");
     /// GOES ABI-style NetCDF-4 fixture: a CF `geostationary` `grid_mapping` and
     /// 1-D `x`/`y` scan-angle coordinate variables stored as scaled `int16`.
     const GOES: &[u8] =
@@ -4354,15 +4437,17 @@ mod netcdf_slice_tests {
         }
     }
 
-    /// WRF Lambert (#168): `T2` resolves to a reprojectable `"lambert"` grid from
-    /// the global attributes, and both source and a flat target paint a raster.
-    #[test]
-    fn wrf_t2_slice_renders_as_reprojected_lambert() {
-        let handle = handle(WRF);
+    /// Shared walkthrough for the WRF `wrfout` fixtures: resolve `T2`'s slice
+    /// meta on the projected axes, assert it is reprojectable with the expected
+    /// grid type, render the 6×5 source raster, and reproject into a flat
+    /// target that must paint and echo its extent. Returns the meta for the
+    /// per-projection assertions. `T2` is Time × south_north × west_east with
+    /// no 1-D coordinate variables for the projected axes, so the axes are
+    /// picked explicitly.
+    fn wrf_t2_meta_after_renders(fixture: &[u8], grid_type: &str) -> MessageMeta {
+        let handle = handle(fixture);
         let vars = handle.variables();
         let t2 = vars.iter().find(|v| v.name == "T2").expect("T2 present");
-        // T2 is Time × south_north × west_east; there are no 1-D coordinate
-        // variables for the projected axes, so pick them explicitly.
         let (y, x) = (1u32, 2u32);
 
         let meta = handle
@@ -4372,10 +4457,8 @@ mod netcdf_slice_tests {
                 x as usize,
             )
             .expect("slice meta");
-        assert_eq!(meta.grid_type.as_deref(), Some("lambert"));
-        assert!(meta.reprojectable, "WRF Lambert reprojects");
-        assert_eq!(meta.lambert_latin1, Some(30.0));
-        assert_eq!(meta.lambert_latin2, Some(60.0));
+        assert_eq!(meta.grid_type.as_deref(), Some(grid_type));
+        assert!(meta.reprojectable, "WRF {grid_type} reprojects");
 
         let indices = vec![0u32; t2.dims.len()];
         let source = handle
@@ -4401,7 +4484,46 @@ mod netcdf_slice_tests {
         assert!(warped.width > 0 && warped.height > 0);
         assert!(
             warped.used_lat_min.is_some(),
-            "Lambert warp echoes its extent"
+            "{grid_type} warp echoes its extent"
+        );
+        meta
+    }
+
+    /// WRF Lambert (#168): `T2` resolves to a reprojectable `"lambert"` grid from
+    /// the global attributes, and both source and a flat target paint a raster.
+    #[test]
+    fn wrf_t2_slice_renders_as_reprojected_lambert() {
+        let meta = wrf_t2_meta_after_renders(WRF, "lambert");
+        assert_eq!(meta.lambert_latin1, Some(30.0));
+        assert_eq!(meta.lambert_latin2, Some(60.0));
+    }
+
+    /// WRF polar stereographic (#220): `T2` resolves to a reprojectable
+    /// `"polar_stereo"` grid from the `MAP_PROJ = 2` global attributes, and both
+    /// source and a flat target paint a raster.
+    #[test]
+    fn wrf_t2_slice_renders_as_reprojected_polar_stereo() {
+        let meta = wrf_t2_meta_after_renders(WRF_POLAR, "polar_stereo");
+        assert_eq!(meta.polar_stereo_lad, Some(60.0), "true scale at TRUELAT1");
+        assert_eq!(meta.polar_stereo_lov, Some(-100.0));
+        assert_eq!(
+            meta.polar_stereo_south_pole,
+            Some(false),
+            "positive TRUELAT1 = north-pole projection"
+        );
+    }
+
+    /// WRF Mercator (#220): `T2` resolves to a reprojectable `"mercator"` grid
+    /// whose corners come from both ends of `XLAT`/`XLONG`, and both source and
+    /// a flat target paint a raster.
+    #[test]
+    fn wrf_t2_slice_renders_as_reprojected_mercator() {
+        let meta = wrf_t2_meta_after_renders(WRF_MERCATOR, "mercator");
+        let lat_last = meta.lat_last.expect("far corner latitude");
+        let lon_last = meta.lon_last.expect("far corner longitude");
+        assert!(
+            lat_last > meta.lat_first.unwrap() && lon_last > meta.lon_first.unwrap(),
+            "far corner is north-east of the origin (+DX/+DY scan)"
         );
     }
 
