@@ -229,3 +229,32 @@ strategy for envelopes eccodes can decode but not encode:
   structure is self-describing, so eccodes decodes the patched message
   identically to the original (verified byte-for-byte via `grib_get_data`);
   the fixture pins that our decoder accepts method 0 rather than erroring.
+
+## Complex-packing NG == 0 constant-field fixtures (#222)
+
+Two derived fixtures pin the `numberOfGroupsOfDataValues == 0` constant-field
+decode (eccodes ECC-2095): every point equals the §5 reference value verbatim,
+with no `2^E · 10^-D` transform and nothing read from §7.
+
+| Fixture | DRS template | Envelope | Issue |
+|---|---|---|---|
+| `complex_ng0_regular_latlon.grib2` | 5.2 | NG = 0 (constant field) | #222 |
+| `complex_spd2_ng0_regular_latlon.grib2` | 5.3 (2nd-order) | NG = 0 (constant field) | #222 |
+
+Each is a byte patch of the matching committed fixture
+(`complex_regular_latlon.grib2` / `complex_spd2_regular_latlon.grib2`; source
+provenance above): §5 octets 32–35 (`numberOfGroupsOfDataValues`) zeroed, §7
+truncated to its bare 5-octet header (no group blocks — for 5.3 not even the
+spatial-differencing extra descriptors), and the §7 length and §0
+`totalLength` recomputed to match.
+
+**Oracle version caveat:** ECC-2095 shipped in eccodes **2.42.0**, so the
+otherwise-pinned 2.34.1 cannot be the value oracle here — it predates the fix
+and mis-decodes NG == 0 (for the 5.3 fixture it reads past the truncated §7
+and returns garbage without erroring). The `<fixture>_expected.json` value
+oracles were therefore decoded with eccodes **2.47.3**
+(`codes_get_values`, via the `eccodes` PyPI wheel): all 496 points equal the
+reference value 270.466796875 exactly, for both fixtures. The
+`.eccodes.ref.json` metadata snapshots remain 2.34.1
+(`tools/regenerate-eccodes-snapshots.py`), which reads §0–§6 only and is
+unaffected.

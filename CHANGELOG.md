@@ -9,6 +9,7 @@ Versioning follows the [VS Code pre-release convention](https://code.visualstudi
 ### Added
 
 - **GRIB2 complex-packed fields with inline missing values now decode.** Sparse NCEP products such as the National Blend of Models (NBM) and precipitation type mark missing points inside the packed data (missing-value management, templates 5.2 / 5.3) instead of using a bitmap. Fieldglass now decodes both management modes (primary, and primary + secondary substitutes) and masks the missing points exactly like bitmap points, so these fields render instead of reporting an unsupported-template error. Fields whose groups are split row by row, which templates 5.2 / 5.3 also used to reject, decode too. Both are checked against eccodes, and the NBM file in the sample corpus now renders. Closes #217.
+- **GRIB2 constant complex-packed fields now decode.** Some encoders write an all-same-value field under templates 5.2 / 5.3 as zero groups, which used to be rejected as malformed. Fieldglass now decodes zero groups as a constant field equal to the reference value, matching eccodes 2.42+ (ECC-2095), and the result is checked against eccodes. Closes #222.
 
 ## [0.2.0] — 2026-07-02
 
