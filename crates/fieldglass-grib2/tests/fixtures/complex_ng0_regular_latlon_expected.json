@@ -1,0 +1,36 @@
+{
+  "count": 496,
+  "missing_count": 0,
+  "min": 270.466796875,
+  "max": 270.466796875,
+  "mean": 270.466796875,
+  "samples": {
+    "0": 270.466796875,
+    "1": 270.466796875,
+    "100": 270.466796875,
+    "250": 270.466796875,
+    "495": 270.466796875
+  },
+  "tolerance_absolute": 0.001,
+  "section5": {
+    "dataRepresentationTemplateNumber": 2,
+    "packingType": "grid_complex",
+    "referenceValue": 270.466796875,
+    "binaryScaleFactor": -10,
+    "decimalScaleFactor": 0,
+    "bitsPerValue": 16,
+    "typeOfOriginalFieldValues": 0,
+    "groupSplittingMethodUsed": 1,
+    "missingValueManagementUsed": 0,
+    "numberOfGroupsOfDataValues": 0,
+    "referenceForGroupWidths": 12,
+    "numberOfBitsUsedForTheGroupWidths": 2,
+    "referenceForGroupLengths": 5,
+    "lengthIncrementForTheGroupLengths": 1,
+    "trueLengthOfLastGroup": 18,
+    "numberOfBitsUsedForTheScaledGroupLengths": 7,
+    "orderOfSpatialDifferencing": 0,
+    "numberOfOctetsExtraDescriptors": 0
+  },
+  "source": "eccodes 2.47.3 codes_get_values (decode oracle) + eccodes 2.34.1 grib_get (section 5). Oracle for DRS template 5.2 (grid_complex) with numberOfGroupsOfDataValues = 0: a constant field equal to referenceValue verbatim (ECC-2095, fixed in eccodes 2.42.0; the pinned 2.34.1 predates the fix and mis-decodes this case). Provenance in NOTICE.md."
+}

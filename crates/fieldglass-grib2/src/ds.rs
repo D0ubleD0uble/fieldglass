@@ -163,6 +163,8 @@ fn decode_simple_packing(
 /// substitutes; 2: primary + secondary) are supported — substituted points
 /// come back as `None`, the same seam the §6 bitmap uses, so rendering
 /// needs no packing-specific handling. See [`decode_complex_groups`].
+///
+/// `NG == 0` is a constant field — see [`complex_ng0_constant_field`].
 fn decode_complex_packing(
     ds_payload: &[u8],
     t: &ComplexPackingTemplate,
@@ -171,10 +173,27 @@ fn decode_complex_packing(
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
     let present_count = check_bitmap_present_count(bitmap, expected_count)?;
 
+    if let Some(constant) = complex_ng0_constant_field(t, bitmap, expected_count) {
+        return Ok(constant);
+    }
+
     let mut reader = BitReader::new(ds_payload);
     let scaled = decode_complex_groups(&mut reader, t, present_count)?;
 
     Ok(complex_scaled_to_values(t, scaled, bitmap, expected_count))
+}
+
+/// The `NG == 0` constant-field rule shared by 5.2 and 5.3 (eccodes
+/// ECC-2095, `DataG22OrderPacking::unpack`): `Some` when the template
+/// declares zero groups, with every present point equal to the reference
+/// value `R` verbatim — no `2^E · 10^-D` transform, nothing read from §7.
+fn complex_ng0_constant_field(
+    t: &ComplexPackingTemplate,
+    bitmap: Option<&[bool]>,
+    expected_count: usize,
+) -> Option<Vec<Option<f64>>> {
+    (t.num_groups == 0)
+        .then(|| materialise_constant(t.reference_value as f64, bitmap, expected_count))
 }
 
 /// Shared 5.2 / 5.3 tail: apply the `R`/`E`/`D` transform to the expanded
@@ -220,6 +239,11 @@ fn complex_scaled_to_values(
 ///
 /// The `R`/`E`/`D` transform then applies as in simple/complex packing.
 /// Missing-value handling is shared with 5.2 via [`decode_complex_groups`].
+///
+/// `NG == 0` is a constant field — see [`complex_ng0_constant_field`].
+/// eccodes detects it before validating the differencing order and reads
+/// nothing from §7, not even the extra descriptors, so the check sits ahead
+/// of both here too.
 fn decode_complex_spatial_diff(
     ds_payload: &[u8],
     t: &ComplexSpatialDiffTemplate,
@@ -227,6 +251,10 @@ fn decode_complex_spatial_diff(
     expected_count: usize,
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
     let present_count = check_bitmap_present_count(bitmap, expected_count)?;
+
+    if let Some(constant) = complex_ng0_constant_field(&t.complex, bitmap, expected_count) {
+        return Ok(constant);
+    }
 
     let order = t.spatial_diff_order;
     if order != 1 && order != 2 {
@@ -342,7 +370,9 @@ fn check_bitmap_present_count(
 /// decoding — the group structure is self-describing whether the encoder
 /// split row by row (0) or generally (1) — so both decode on this one path,
 /// as in eccodes. Reserved values of either field surface as
-/// [`FieldglassError::UnsupportedSection`].
+/// [`FieldglassError::UnsupportedSection`]. Callers must intercept
+/// `NG == 0` (the ECC-2095 constant-field case) before calling; it is an
+/// error here.
 fn decode_complex_groups(
     reader: &mut BitReader,
     t: &ComplexPackingTemplate,
@@ -377,15 +407,13 @@ fn decode_complex_groups(
     }
 
     let num_groups = t.num_groups as usize;
+    // NG == 0 is the constant-field case (ECC-2095) and both callers
+    // intercept it before any §7 read; reaching here with 0 groups is a
+    // caller bug, kept as an error so the `last_mut` below can't panic.
     if num_groups == 0 {
-        // A grid with no groups can only describe an empty field; anything
-        // else is malformed.
-        if present_count != 0 {
-            return Err(FieldglassError::Parse(format!(
-                "complex packing declares 0 groups but {present_count} values are required"
-            )));
-        }
-        return Ok(Vec::new());
+        return Err(FieldglassError::Parse(
+            "complex packing: group expansion invoked with 0 groups".into(),
+        ));
     }
     // Every group covers at least one point, so NG can't legitimately exceed
     // the number of present points — this bounds the per-group allocations
@@ -1294,10 +1322,47 @@ mod tests {
     }
 
     #[test]
-    fn complex_packing_zero_groups_requires_empty_field() {
-        // NG = 0 with a non-empty grid is malformed.
+    fn complex_packing_zero_groups_is_constant_reference_value() {
+        // NG = 0 is a constant field: every point equals R *verbatim* — the
+        // non-zero E and D here must not be applied (eccodes ECC-2095 returns
+        // reference_value directly). The empty payload proves §7 is not read.
+        let t = ComplexPackingTemplate {
+            reference_value: 2.5,
+            binary_scale_factor: 1,
+            decimal_scale_factor: 1,
+            ..complex_template_base() // num_groups = 0
+        };
+        let decoded =
+            decode_values(&[], DataRepresentationTemplate::Complex(t), None, 4).expect("decode");
+        assert_eq!(decoded, vec![Some(2.5); 4]);
+    }
+
+    #[test]
+    fn complex_packing_zero_groups_empty_grid_decodes_empty() {
+        // NG = 0 with no grid points: still the constant path, yielding an
+        // empty field (the behaviour the pre-ECC-2095 code also had).
         let t = complex_template_base(); // num_groups = 0
-        assert!(decode_values(&[], DataRepresentationTemplate::Complex(t), None, 4).is_err());
+        let decoded =
+            decode_values(&[], DataRepresentationTemplate::Complex(t), None, 0).expect("decode");
+        assert_eq!(decoded, Vec::<Option<f64>>::new());
+    }
+
+    #[test]
+    fn complex_packing_zero_groups_respects_bitmap() {
+        // NG = 0 with a §6 bitmap: present points are R, absent points None.
+        let t = ComplexPackingTemplate {
+            reference_value: -7.0,
+            ..complex_template_base() // num_groups = 0
+        };
+        let bitmap = [true, false, true, false];
+        let decoded = decode_values(
+            &[],
+            DataRepresentationTemplate::Complex(t),
+            Some(&bitmap),
+            4,
+        )
+        .expect("decode");
+        assert_eq!(decoded, vec![Some(-7.0), None, Some(-7.0), None]);
     }
 
     #[test]
@@ -1399,6 +1464,33 @@ mod tests {
         );
         let decoded = decode_values(&payload, spd_template(t, 2, 1), None, 4).expect("decode");
         assert_eq!(decoded, vec![Some(5.0), Some(8.0), Some(14.0), Some(23.0)],);
+    }
+
+    #[test]
+    fn spatial_diff_zero_groups_is_constant_reference_value() {
+        // NG = 0 under 5.3: constant field, R verbatim — the empty payload
+        // proves not even the spatial-differencing extra descriptors are read
+        // (eccodes ECC-2095 returns before touching §7).
+        let t = ComplexPackingTemplate {
+            reference_value: 4.25,
+            binary_scale_factor: 2,
+            decimal_scale_factor: 1,
+            ..complex_template_base() // num_groups = 0
+        };
+        let decoded = decode_values(&[], spd_template(t, 2, 1), None, 3).expect("decode");
+        assert_eq!(decoded, vec![Some(4.25); 3]);
+    }
+
+    #[test]
+    fn spatial_diff_zero_groups_wins_over_invalid_order() {
+        // eccodes checks NG == 0 before validating the differencing order, so
+        // a constant field with a reserved order still decodes; match that.
+        let t = ComplexPackingTemplate {
+            reference_value: 1.5,
+            ..complex_template_base() // num_groups = 0
+        };
+        let decoded = decode_values(&[], spd_template(t, 3, 1), None, 2).expect("decode");
+        assert_eq!(decoded, vec![Some(1.5); 2]);
     }
 
     #[test]
