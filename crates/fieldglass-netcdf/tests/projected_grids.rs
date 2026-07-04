@@ -8,16 +8,21 @@
 //! geolocation — a genuine cross-language check, not a tautology.
 
 use fieldglass_core::{
-    GeostationaryParams, GeostationaryProjector, LambertParams, LambertProjector,
+    GeostationaryParams, GeostationaryProjector, LambertParams, LambertProjector, MercatorParams,
+    PolarStereoParams, PolarStereoProjector, mercator_inverse,
 };
 use fieldglass_netcdf::{
     DatasetView, NetcdfBacking, NetcdfReader, apply_scale_offset, resolve_cf_geostationary,
-    resolve_wrf_lambert,
+    resolve_wrf_lambert, resolve_wrf_mercator, resolve_wrf_polar_stereo,
 };
 use serde_json::Value;
 
 const WRF: &[u8] = include_bytes!("fixtures/wrf_lambert.nc");
 const WRF_ORACLE: &str = include_str!("fixtures/wrf_lambert.nc.oracle.json");
+const WRF_POLAR: &[u8] = include_bytes!("fixtures/wrf_polar.nc");
+const WRF_POLAR_ORACLE: &str = include_str!("fixtures/wrf_polar.nc.oracle.json");
+const WRF_MERCATOR: &[u8] = include_bytes!("fixtures/wrf_mercator.nc");
+const WRF_MERCATOR_ORACLE: &str = include_str!("fixtures/wrf_mercator.nc.oracle.json");
 const GOES: &[u8] = include_bytes!("fixtures/goes_geostationary.nc");
 const GOES_ORACLE: &str = include_str!("fixtures/goes_geostationary.nc.oracle.json");
 
@@ -74,13 +79,18 @@ fn wrf_lambert_grid_reproduces_xlat_xlong() {
         latin2: g.latin2,
     });
 
-    // Every sampled (XLAT, XLONG) must invert back to its grid index (i, j).
+    assert_samples_invert(&oracle, |lat, lon| proj.inverse(lat, lon));
+}
+
+/// Every sampled oracle (XLAT, XLONG) must invert back to its grid index (i, j).
+fn assert_samples_invert(
+    oracle: &Value,
+    inverse: impl Fn(f64, f64) -> Option<fieldglass_core::GridIndex>,
+) {
     for s in oracle["samples"].as_array().unwrap() {
         let (i, j) = (s["i"].as_f64().unwrap(), s["j"].as_f64().unwrap());
         let (lat, lon) = (s["lat"].as_f64().unwrap(), s["lon"].as_f64().unwrap());
-        let idx = proj
-            .inverse(lat, lon)
-            .unwrap_or_else(|| panic!("({lat},{lon}) on grid"));
+        let idx = inverse(lat, lon).unwrap_or_else(|| panic!("({lat},{lon}) on grid"));
         assert!(
             (idx.i - i).abs() < 1e-2 && (idx.j - j).abs() < 1e-2,
             "XLAT/XLONG ({lat},{lon}) → ({}, {}), expected ({i}, {j})",
@@ -88,6 +98,72 @@ fn wrf_lambert_grid_reproduces_xlat_xlong() {
             idx.j
         );
     }
+}
+
+#[test]
+fn wrf_polar_stereo_grid_reproduces_xlat_xlong() {
+    let (reader, view) = view(WRF_POLAR);
+    let oracle: Value = serde_json::from_str(WRF_POLAR_ORACLE).unwrap();
+    let ni = oracle["nx"].as_u64().unwrap() as u32;
+    let nj = oracle["ny"].as_u64().unwrap() as u32;
+
+    let lat0 = decode_named(&reader, &view, "XLAT")[0];
+    let lon0 = decode_named(&reader, &view, "XLONG")[0];
+    let g = resolve_wrf_polar_stereo(&view.global_attrs, lat0, lon0, ni, nj)
+        .expect("WRF polar stereographic resolves");
+    assert!(!g.south_pole, "TRUELAT1 = 60 is a north-pole grid");
+
+    let proj = PolarStereoProjector::new(PolarStereoParams {
+        ni: g.ni,
+        nj: g.nj,
+        lat_first: g.lat_first,
+        lon_first: g.lon_first,
+        lov: g.lov,
+        lad: g.lad,
+        dx_metres: g.dx_metres,
+        dy_metres: g.dy_metres,
+        south_pole: g.south_pole,
+    });
+    assert_samples_invert(&oracle, |lat, lon| proj.inverse(lat, lon));
+}
+
+#[test]
+fn wrf_mercator_grid_reproduces_xlat_xlong() {
+    let (reader, view) = view(WRF_MERCATOR);
+    let oracle: Value = serde_json::from_str(WRF_MERCATOR_ORACLE).unwrap();
+    let ni = oracle["nx"].as_u64().unwrap() as u32;
+    let nj = oracle["ny"].as_u64().unwrap() as u32;
+
+    // Mercator is corner-pinned: both the origin and the far corner come from
+    // XLAT/XLONG, exactly as the render path reads them.
+    let xlat = decode_named(&reader, &view, "XLAT");
+    let xlong = decode_named(&reader, &view, "XLONG");
+    let far = (ni as usize * nj as usize) - 1;
+    let g = resolve_wrf_mercator(
+        &view.global_attrs,
+        xlat[0],
+        xlong[0],
+        xlat[far],
+        xlong[far],
+        ni,
+        nj,
+    )
+    .expect("WRF Mercator resolves");
+    assert!(
+        (g.lat_last - oracle["lat_last"].as_f64().unwrap()).abs() < 1e-6
+            && (g.lon_last - oracle["lon_last"].as_f64().unwrap()).abs() < 1e-6,
+        "far corner matches the oracle"
+    );
+
+    let p = MercatorParams {
+        ni: g.ni,
+        nj: g.nj,
+        lat_first: g.lat_first,
+        lon_first: g.lon_first,
+        lat_last: g.lat_last,
+        lon_last: g.lon_last,
+    };
+    assert_samples_invert(&oracle, |lat, lon| mercator_inverse(&p, lat, lon));
 }
 
 #[test]

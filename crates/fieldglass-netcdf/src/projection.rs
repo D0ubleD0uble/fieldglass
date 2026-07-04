@@ -14,10 +14,11 @@
 //!    A data variable names a `grid_mapping` variable whose `grid_mapping_name`
 //!    + parameters define the CRS. GOES uses `grid_mapping_name =
 //!    "geostationary"` with 1-D `x`/`y` radian scan-angle coordinate variables.
-//! 2. **WRF global attributes** ([`resolve_wrf_lambert`]) — WRF output is not
-//!    CF-compliant; `MAP_PROJ` + `TRUELAT1/2` / `STAND_LON` / `MOAD_CEN_LAT` /
-//!    `DX` / `DY` sit at the file level, with the grid origin taken from the
-//!    `XLAT`/`XLONG` corner.
+//! 2. **WRF global attributes** ([`resolve_wrf_lambert`],
+//!    [`resolve_wrf_polar_stereo`], [`resolve_wrf_mercator`]) — WRF output is
+//!    not CF-compliant; `MAP_PROJ` + `TRUELAT1/2` / `STAND_LON` /
+//!    `MOAD_CEN_LAT` / `DX` / `DY` sit at the file level, with the grid corners
+//!    taken from the `XLAT`/`XLONG` arrays.
 //!
 //! Both are intentionally pure (attribute slices + decoded coordinate arrays in,
 //! parameters out) so they unit-test without a reader or the napi boundary. An
@@ -135,12 +136,24 @@ pub struct WrfLambertGrid {
 
 /// WRF's `MAP_PROJ` code for Lambert Conformal Conic.
 const WRF_MAP_PROJ_LAMBERT: f64 = 1.0;
+/// WRF's `MAP_PROJ` code for polar stereographic.
+const WRF_MAP_PROJ_POLAR_STEREO: f64 = 2.0;
+/// WRF's `MAP_PROJ` code for Mercator.
+pub const WRF_MAP_PROJ_MERCATOR: f64 = 3.0;
+
+/// The file's WRF `MAP_PROJ` code, when the global attribute is present and
+/// numeric. Lets the caller decide which grid corners it must read before
+/// invoking a resolver (Mercator is the only one that needs the far corner).
+pub fn wrf_map_proj(global: &[(String, String)]) -> Option<f64> {
+    attr_f64(global, "MAP_PROJ")
+}
 
 /// Resolve a WRF Lambert grid from the file's global attributes plus the grid
 /// origin read from the `XLAT`/`XLONG` corner. Returns `None` unless
 /// `MAP_PROJ == 1` (Lambert) and the standard parallels / orientation / spacing
-/// attributes are all present. The non-Lambert `MAP_PROJ` variants (polar
-/// stereo / Mercator / lat-lon) are a cheap follow-up (decision 0004).
+/// attributes are all present. The polar stereographic and Mercator variants
+/// have their own resolvers below; `MAP_PROJ == 6` (lat-lon, possibly rotated)
+/// stays unresolved and falls back to source projection.
 pub fn resolve_wrf_lambert(
     global: &[(String, String)],
     lat_first: f64,
@@ -172,6 +185,106 @@ pub fn resolve_wrf_lambert(
         dy_metres,
         latin1,
         latin2,
+    })
+}
+
+/// A polar stereographic grid resolved from WRF global attributes. Mirrors the
+/// `polar_stereo_*` + corner fields of a `MessageMeta`; the napi layer copies
+/// these straight across and reuses the existing polar stereographic projector.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WrfPolarStereoGrid {
+    pub ni: u32,
+    pub nj: u32,
+    /// Geographic coordinates of the first scanned point (`XLAT`/`XLONG` at
+    /// `south_north = west_east = 0`) — the grid origin.
+    pub lat_first: f64,
+    pub lon_first: f64,
+    /// Latitude of true scale — WRF specifies `DX`/`DY` at `TRUELAT1`.
+    pub lad: f64,
+    /// Orientation longitude (meridian parallel to the y-axis) — `STAND_LON`.
+    pub lov: f64,
+    pub dx_metres: f64,
+    pub dy_metres: f64,
+    /// `true` ⇒ south-pole projection. WRF has no projection-centre flag; the
+    /// hemisphere follows the sign of `TRUELAT1` (the WPS convention).
+    pub south_pole: bool,
+}
+
+/// Resolve a WRF polar stereographic grid from the file's global attributes
+/// plus the grid origin read from the `XLAT`/`XLONG` corner. Returns `None`
+/// unless `MAP_PROJ == 2` and the true-scale / orientation / spacing attributes
+/// are all present. WRF's spherical polar stereographic is algebraically the
+/// Snyder form the core projector implements, with the pole scale factor
+/// `k₀ = (1 + sin|TRUELAT1|)/2`, so `lad = TRUELAT1` is exact.
+pub fn resolve_wrf_polar_stereo(
+    global: &[(String, String)],
+    lat_first: f64,
+    lon_first: f64,
+    ni: u32,
+    nj: u32,
+) -> Option<WrfPolarStereoGrid> {
+    if attr_f64(global, "MAP_PROJ")? != WRF_MAP_PROJ_POLAR_STEREO {
+        return None;
+    }
+    let lad = attr_f64(global, "TRUELAT1")?;
+    let lov = attr_f64(global, "STAND_LON")?;
+    let dx_metres = attr_f64(global, "DX")?;
+    let dy_metres = attr_f64(global, "DY")?;
+    Some(WrfPolarStereoGrid {
+        ni,
+        nj,
+        lat_first,
+        lon_first,
+        lad,
+        lov,
+        dx_metres,
+        dy_metres,
+        south_pole: lad < 0.0,
+    })
+}
+
+/// A Mercator grid resolved from WRF global attributes. Like the GRIB Mercator
+/// grids, it is fully pinned by its corner coordinates: a WRF Mercator domain
+/// walks uniform projected metres, which is uniform in longitude along i and in
+/// the Mercator ordinate along j — exactly the core `MercatorParams` contract.
+/// `DX`/`DY`/`TRUELAT1` therefore never enter the geolocation.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WrfMercatorGrid {
+    pub ni: u32,
+    pub nj: u32,
+    /// Geographic coordinates of the first scanned point (`XLAT`/`XLONG` at
+    /// `south_north = west_east = 0`).
+    pub lat_first: f64,
+    pub lon_first: f64,
+    /// Geographic coordinates of the last scanned point (`XLAT`/`XLONG` at the
+    /// far corner of the first time step).
+    pub lat_last: f64,
+    pub lon_last: f64,
+}
+
+/// Resolve a WRF Mercator grid from the file's global attributes plus **both**
+/// grid corners read from `XLAT`/`XLONG` (the caller checks
+/// [`wrf_map_proj`]` == `[`WRF_MAP_PROJ_MERCATOR`] before paying for the far
+/// corner). Returns `None` unless `MAP_PROJ == 3`.
+pub fn resolve_wrf_mercator(
+    global: &[(String, String)],
+    lat_first: f64,
+    lon_first: f64,
+    lat_last: f64,
+    lon_last: f64,
+    ni: u32,
+    nj: u32,
+) -> Option<WrfMercatorGrid> {
+    if attr_f64(global, "MAP_PROJ")? != WRF_MAP_PROJ_MERCATOR {
+        return None;
+    }
+    Some(WrfMercatorGrid {
+        ni,
+        nj,
+        lat_first,
+        lon_first,
+        lat_last,
+        lon_last,
     })
 }
 
@@ -330,10 +443,81 @@ mod tests {
     }
 
     #[test]
-    fn wrf_rejects_non_lambert_map_proj() {
-        // MAP_PROJ 2 is polar stereographic — out of scope here.
-        let global = attrs(&[("MAP_PROJ", "2"), ("TRUELAT1", "60.0")]);
-        assert!(resolve_wrf_lambert(&global, 0.0, 0.0, 4, 4).is_none());
+    fn wrf_resolvers_gate_on_their_own_map_proj() {
+        // Each resolver only fires for its own MAP_PROJ code, so exactly one
+        // resolves for a given file and MAP_PROJ 6 (lat-lon) resolves nothing —
+        // it falls back to source projection.
+        let polar = attrs(&[
+            ("MAP_PROJ", "2"),
+            ("TRUELAT1", "60.0"),
+            ("STAND_LON", "-100.0"),
+            ("DX", "10000.0"),
+            ("DY", "10000.0"),
+        ]);
+        assert!(resolve_wrf_lambert(&polar, 0.0, 0.0, 4, 4).is_none());
+        assert!(resolve_wrf_mercator(&polar, 0.0, 0.0, 1.0, 1.0, 4, 4).is_none());
+        let latlon = attrs(&[("MAP_PROJ", "6"), ("TRUELAT1", "0.0")]);
+        assert!(resolve_wrf_lambert(&latlon, 0.0, 0.0, 4, 4).is_none());
+        assert!(resolve_wrf_polar_stereo(&latlon, 0.0, 0.0, 4, 4).is_none());
+        assert!(resolve_wrf_mercator(&latlon, 0.0, 0.0, 1.0, 1.0, 4, 4).is_none());
+        assert_eq!(wrf_map_proj(&latlon), Some(6.0));
+        assert_eq!(wrf_map_proj(&attrs(&[("TITLE", "not wrf")])), None);
+    }
+
+    #[test]
+    fn wrf_resolves_polar_stereo_global_attrs() {
+        let global = attrs(&[
+            ("MAP_PROJ", "2"),
+            ("TRUELAT1", "60.0"),
+            ("STAND_LON", "-100.0"),
+            ("DX", "10000.0"),
+            ("DY", "10000.0"),
+        ]);
+        let g = resolve_wrf_polar_stereo(&global, 55.0, -120.0, 6, 5).expect("polar resolves");
+        assert_eq!((g.ni, g.nj), (6, 5));
+        assert_eq!((g.lat_first, g.lon_first), (55.0, -120.0));
+        assert_eq!(g.lad, 60.0, "DX/DY are true at TRUELAT1");
+        assert_eq!(g.lov, -100.0);
+        assert_eq!((g.dx_metres, g.dy_metres), (10000.0, 10000.0));
+        assert!(!g.south_pole, "positive TRUELAT1 = north-pole projection");
+    }
+
+    #[test]
+    fn wrf_polar_stereo_southern_hemisphere_from_truelat1_sign() {
+        let global = attrs(&[
+            ("MAP_PROJ", "2"),
+            ("TRUELAT1", "-60.0"),
+            ("STAND_LON", "170.0"),
+            ("DX", "20000.0"),
+            ("DY", "20000.0"),
+        ]);
+        let g = resolve_wrf_polar_stereo(&global, -65.0, 160.0, 4, 4).unwrap();
+        assert!(g.south_pole, "negative TRUELAT1 = south-pole projection");
+        assert_eq!(g.lad, -60.0);
+    }
+
+    #[test]
+    fn wrf_polar_stereo_rejects_missing_params() {
+        // No STAND_LON: the orientation is unknowable, so nothing resolves.
+        let global = attrs(&[
+            ("MAP_PROJ", "2"),
+            ("TRUELAT1", "60.0"),
+            ("DX", "10000.0"),
+            ("DY", "10000.0"),
+        ]);
+        assert!(resolve_wrf_polar_stereo(&global, 0.0, 0.0, 4, 4).is_none());
+    }
+
+    #[test]
+    fn wrf_resolves_mercator_from_corners_only() {
+        // Mercator geolocation is corner-pinned; TRUELAT1/DX/DY are not needed
+        // (and their absence must not block the resolve).
+        let global = attrs(&[("MAP_PROJ", "3")]);
+        let g = resolve_wrf_mercator(&global, 10.0, -60.0, 14.0, -55.0, 6, 5)
+            .expect("mercator resolves");
+        assert_eq!((g.ni, g.nj), (6, 5));
+        assert_eq!((g.lat_first, g.lon_first), (10.0, -60.0));
+        assert_eq!((g.lat_last, g.lon_last), (14.0, -55.0));
     }
 
     #[test]
