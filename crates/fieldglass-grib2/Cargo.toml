@@ -1,15 +1,19 @@
 [package]
 name        = "fieldglass-grib2"
 description = "GRIB edition 2 format reader — full §0–§7 parsing and simple-packing (DRS 5.0) value decode"
-version.workspace    = true
-edition.workspace    = true
-license.workspace    = true
-authors.workspace    = true
-repository.workspace = true
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+authors.workspace      = true
+repository.workspace   = true
+readme      = "README.md"
+keywords    = ["grib", "grib2", "meteorology", "weather", "gis"]
+categories  = ["science", "parser-implementations"]
 
 [dependencies]
 fieldglass-core = { path = "../fieldglass-core", version = "=0.2.0", default-features = false }
-serde = { version = "1", features = ["derive"] }
+serde = { workspace = true }
 png = { workspace = true }
 rust-aec = { workspace = true }
 rust-j2k = { workspace = true }
