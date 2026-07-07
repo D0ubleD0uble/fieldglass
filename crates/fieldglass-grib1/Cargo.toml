@@ -1,13 +1,17 @@
 [package]
 name        = "fieldglass-grib1"
 description = "GRIB edition 1 format reader implementing the Fieldglass core traits"
-version.workspace    = true
-edition.workspace    = true
-license.workspace    = true
-authors.workspace    = true
-repository.workspace = true
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+authors.workspace      = true
+repository.workspace   = true
+readme      = "README.md"
+keywords    = ["grib", "grib1", "meteorology", "weather", "gis"]
+categories  = ["science", "parser-implementations"]
 
 [dependencies]
 fieldglass-core = { path = "../fieldglass-core", version = "=0.2.0", default-features = false }
-serde = { version = "1", features = ["derive"] }
+serde = { workspace = true }
 thiserror = { workspace = true }
