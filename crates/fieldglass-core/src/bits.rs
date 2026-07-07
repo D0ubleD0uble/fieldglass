@@ -82,9 +82,24 @@ impl<'a> BitReader<'a> {
         }
     }
 
+    /// Read the next `n` bits (MSB-first) as an unsigned integer.
+    ///
+    /// `n` must be in `0..=32`: the value is returned as a `u32`, so a wider
+    /// request can't be represented and is rejected. Without this guard a
+    /// request for `n > 32` would accumulate into the internal `u64` and then
+    /// silently truncate its top bits on the `as u32` return. Callers bound the
+    /// stored field width to 32; enforcing it here makes the contract explicit
+    /// and turns a would-be silent wrong result into a clean error on malformed
+    /// input (e.g. a per-group residual width read from an untrusted GRIB
+    /// stream).
     pub fn read_bits(&mut self, n: u8) -> Result<u32, FieldglassError> {
         if n == 0 {
             return Ok(0);
+        }
+        if n > 32 {
+            return Err(FieldglassError::Parse(format!(
+                "bit reader asked for {n} bits, but read_bits returns a u32 (max 32)"
+            )));
         }
         // checked: bit_offset near usize::MAX would wrap past the bounds check.
         let end_bit = self
@@ -231,5 +246,29 @@ mod tests {
     fn bit_reader_exhaustion() {
         let mut r = BitReader::new(&[0x00]);
         assert!(r.read_bits(9).is_err());
+    }
+
+    #[test]
+    fn bit_reader_reads_full_32_bits() {
+        // The boundary of the contract: 32 bits round-trips losslessly.
+        let mut r = BitReader::new(&[0xFF, 0xFF, 0xFF, 0xFF]);
+        assert_eq!(r.read_bits(32).unwrap(), 0xFFFF_FFFF);
+        let mut r = BitReader::new(&[0x12, 0x34, 0x56, 0x78]);
+        assert_eq!(r.read_bits(32).unwrap(), 0x1234_5678);
+    }
+
+    #[test]
+    fn bit_reader_rejects_more_than_32_bits() {
+        // n > 32 can't fit in the returned u32. It must error rather than read
+        // the bits and silently truncate the top ones via `as u32`. The buffer
+        // is deliberately long enough that the request would otherwise succeed.
+        let bytes = [0xAAu8; 8];
+        let mut r = BitReader::new(&bytes);
+        assert!(r.read_bits(33).is_err());
+        assert!(r.read_bits(40).is_err());
+        // A rejected read must not advance the cursor.
+        assert_eq!(r.bit_offset, 0);
+        // A valid read right afterwards still works.
+        assert_eq!(r.read_bits(8).unwrap(), 0xAA);
     }
 }

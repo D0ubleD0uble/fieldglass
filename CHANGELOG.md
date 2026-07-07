@@ -13,6 +13,10 @@ Versioning follows the [VS Code pre-release convention](https://code.visualstudi
 - **Polar stereographic and Mercator WRF output now reprojects onto the map.** WRF `wrfout` rendering previously recognised only the Lambert Conformal projection (`MAP_PROJ = 1`); polar-region domains (`MAP_PROJ = 2`, polar stereographic) and tropical domains (`MAP_PROJ = 3`, Mercator) fell back to an unprojected source-only image. Fieldglass now reads both from the same global attributes and reprojects them through the projectors the GRIB paths already use, checked against independently computed coordinates. Closes #220.
 - **Unrotated lat-lon WRF output now reprojects onto the map.** WRF's lat-lon projection (`MAP_PROJ = 6`), used for global and some regional domains, previously fell back to an unprojected source-only image. An unrotated domain (`POLE_LAT = 90`) is a plain regular geographic grid, so Fieldglass now geolocates it from its corner coordinates and reprojects it like any other lat/lon grid, checked against independently computed coordinates. Rotated domains (`POLE_LAT` other than 90) still render source-only, because the mapping from WRF's rotation parameters onto a rotated pole is not cleanly documented. Closes #226.
 
+### Fixed
+
+- **A corrupt GRIB1 second-order message can no longer decode to wrong values.** The shared bit reader returns its result as a 32-bit integer, but nothing stopped a caller asking for more than 32 bits, which silently dropped the extra high bits. A malformed second-order-packed field could declare a per-group value width above 32 and hit that path. The reader now rejects a request for more than 32 bits, so such a file is reported as an error instead of rendering incorrect data.
+
 ## [0.2.0] — 2026-07-02
 
 ### Added
