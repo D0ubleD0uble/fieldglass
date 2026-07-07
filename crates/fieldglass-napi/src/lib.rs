@@ -23,10 +23,10 @@ use fieldglass_grib2::{
 };
 use fieldglass_netcdf::{
     DatasetView, Hdf5Attribute, Hdf5Metadata, NetcdfBacking, NetcdfReader, RenderableVariable,
-    WrfLambertGrid, WrfMapProj, WrfMercatorGrid, WrfPolarStereoGrid, apply_scale_offset,
-    cf_scale_offset, extract_plane, resolve_cf_geostationary, resolve_wrf_lambert,
-    resolve_wrf_mercator, resolve_wrf_polar_stereo, synthesize_geometry, unpack_cf_data,
-    wrf_map_proj,
+    WrfLambertGrid, WrfLatLonGrid, WrfMapProj, WrfMercatorGrid, WrfPolarStereoGrid,
+    apply_scale_offset, cf_scale_offset, extract_plane, resolve_cf_geostationary,
+    resolve_wrf_lambert, resolve_wrf_latlon, resolve_wrf_mercator, resolve_wrf_polar_stereo,
+    synthesize_geometry, unpack_cf_data, wrf_map_proj,
 };
 use napi_derive::napi;
 use std::sync::Mutex;
@@ -1795,10 +1795,11 @@ impl NetcdfHandle {
     /// Resolve a WRF projected grid (decision 0004, #220) when the file carries
     /// WRF's `MAP_PROJ` global attributes and the 2-D `XLAT`/`XLONG` arrays
     /// whose `(0, 0)` corner fixes the grid origin: Lambert (`MAP_PROJ = 1`),
-    /// polar stereographic (`2`), or Mercator (`3`). `None` for any non-WRF
-    /// file (no `XLAT`/`XLONG`) or an unresolved projection (e.g. `MAP_PROJ =
-    /// 6` lat-lon, which has no 1-D coordinate variables to ride the regular
-    /// lat/lon path and so stays source-only).
+    /// polar stereographic (`2`), Mercator (`3`), or unrotated lat-lon (`6`,
+    /// `POLE_LAT = 90`). `None` for any non-WRF file (no `XLAT`/`XLONG`) or an
+    /// unresolved projection (e.g. a *rotated* `MAP_PROJ = 6` domain, whose
+    /// WRF → GRIB2 §3.1 pole mapping is not cleanly documented, so it stays
+    /// source-only).
     ///
     /// `XLAT`/`XLONG` must span the selected horizontal axes (their trailing two
     /// dimensions = `y_name`, `x_name`), so a file that merely *names* variables
@@ -1839,13 +1840,17 @@ impl NetcdfHandle {
                 resolve_wrf_polar_stereo(global, lat_first, lon_first, ni, nj)
                     .map(|g| synth_polar_stereo_meta(name, units, &g))
             }
-            // Mercator is corner-pinned, so it alone needs the far corner too.
+            // Mercator and (unrotated) lat-lon are corner-pinned, so they alone
+            // also need the far corner.
             WrfMapProj::Mercator => {
-                let (j, i) = (nj.saturating_sub(1), ni.saturating_sub(1));
-                let lat_last = self.grid_corner_value(xlat.decode_index, "XLAT", j, i, ni)?;
-                let lon_last = self.grid_corner_value(xlong.decode_index, "XLONG", j, i, ni)?;
+                let (lat_last, lon_last) = self.grid_far_corner(xlat, xlong, ni, nj)?;
                 resolve_wrf_mercator(global, lat_first, lon_first, lat_last, lon_last, ni, nj)
                     .map(|g| synth_mercator_meta(name, units, &g))
+            }
+            WrfMapProj::LatLon => {
+                let (lat_last, lon_last) = self.grid_far_corner(xlat, xlong, ni, nj)?;
+                resolve_wrf_latlon(global, lat_first, lon_first, lat_last, lon_last, ni, nj)
+                    .map(|g| synth_wrf_latlon_meta(name, units, &g))
             }
         })
     }
@@ -1888,6 +1893,22 @@ impl NetcdfHandle {
             .iter()
             .find(|(n, _)| n == attr)
             .map(|(_, v)| v.clone())
+    }
+
+    /// The geographic `(lat, lon)` of the far grid corner (`XLAT`/`XLONG` at the
+    /// last scanned point, `[nj-1, ni-1]`) — the second corner the corner-pinned
+    /// WRF grids (Mercator, unrotated lat-lon) need beyond the origin.
+    fn grid_far_corner(
+        &self,
+        xlat: &fieldglass_netcdf::VarView,
+        xlong: &fieldglass_netcdf::VarView,
+        ni: u32,
+        nj: u32,
+    ) -> napi::Result<(f64, f64)> {
+        let (j, i) = (nj.saturating_sub(1), ni.saturating_sub(1));
+        let lat_last = self.grid_corner_value(xlat.decode_index, "XLAT", j, i, ni)?;
+        let lon_last = self.grid_corner_value(xlong.decode_index, "XLONG", j, i, ni)?;
+        Ok((lat_last, lon_last))
     }
 
     /// The value of a 2-D coordinate field at `[j, i]` of the first time step
@@ -2111,6 +2132,26 @@ fn synth_polar_stereo_meta(name: &str, units: &str, g: &WrfPolarStereoGrid) -> M
 fn synth_mercator_meta(name: &str, units: &str, g: &WrfMercatorGrid) -> MessageMeta {
     MessageMeta {
         grid_type: Some("mercator".to_string()),
+        lat_first: Some(g.lat_first),
+        lon_first: Some(g.lon_first),
+        lat_last: Some(g.lat_last),
+        lon_last: Some(g.lon_last),
+        reprojectable: true,
+        ..base_netcdf_meta(name, units, g.ni as i32, g.nj as i32)
+    }
+}
+
+/// Build a `"latlon"` [`MessageMeta`] from a WRF-resolved unrotated lat-lon grid
+/// (#226). An unrotated WRF lat-lon domain is a plain regular geographic grid,
+/// so — like the corner-pinned Mercator — its four corners feed the same lat/lon
+/// projector the regular 1-D coordinate path uses. It is always reprojectable,
+/// as the Mercator sibling is: WRF scans west-to-east (`+DX`), so the corner
+/// longitudes ascend, and a domain straddling the antimeridian
+/// (`lon_last < lon_first`) is an eastward wrap the lat/lon inverse map already
+/// handles — not the descending axis the regular 1-D path guards against.
+fn synth_wrf_latlon_meta(name: &str, units: &str, g: &WrfLatLonGrid) -> MessageMeta {
+    MessageMeta {
+        grid_type: Some("latlon".to_string()),
         lat_first: Some(g.lat_first),
         lon_first: Some(g.lon_first),
         lat_last: Some(g.lat_last),
@@ -4408,6 +4449,9 @@ mod netcdf_slice_tests {
     /// The same `wrfout` shape with `MAP_PROJ = 3` (Mercator, #220).
     const WRF_MERCATOR: &[u8] =
         include_bytes!("../../fieldglass-netcdf/tests/fixtures/wrf_mercator.nc");
+    /// The same `wrfout` shape with `MAP_PROJ = 6` (unrotated lat-lon, #226).
+    const WRF_LATLON: &[u8] =
+        include_bytes!("../../fieldglass-netcdf/tests/fixtures/wrf_latlon.nc");
     /// GOES ABI-style NetCDF-4 fixture: a CF `geostationary` `grid_mapping` and
     /// 1-D `x`/`y` scan-angle coordinate variables stored as scaled `int16`.
     const GOES: &[u8] =
@@ -4519,6 +4563,20 @@ mod netcdf_slice_tests {
     #[test]
     fn wrf_t2_slice_renders_as_reprojected_mercator() {
         let meta = wrf_t2_meta_after_renders(WRF_MERCATOR, "mercator");
+        let lat_last = meta.lat_last.expect("far corner latitude");
+        let lon_last = meta.lon_last.expect("far corner longitude");
+        assert!(
+            lat_last > meta.lat_first.unwrap() && lon_last > meta.lon_first.unwrap(),
+            "far corner is north-east of the origin (+DX/+DY scan)"
+        );
+    }
+
+    /// WRF unrotated lat-lon (#226): `T2` resolves to a reprojectable `"latlon"`
+    /// grid whose four corners come from both ends of `XLAT`/`XLONG`, and both
+    /// source and a flat target paint a raster.
+    #[test]
+    fn wrf_t2_slice_renders_as_reprojected_latlon() {
+        let meta = wrf_t2_meta_after_renders(WRF_LATLON, "latlon");
         let lat_last = meta.lat_last.expect("far corner latitude");
         let lon_last = meta.lon_last.expect("far corner longitude");
         assert!(

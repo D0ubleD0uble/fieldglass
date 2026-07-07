@@ -9,9 +9,23 @@ source-raster-vs-full-geo question left open after decision
 "Out of scope / deferred" shipped in
 [#220](https://github.com/D0ubleD0uble/fieldglass/issues/220): polar
 stereographic (`MAP_PROJ = 2`) and Mercator (`3`) now resolve through the same
-global-attribute reader onto the existing projectors. `MAP_PROJ = 6` (lat-lon)
-stays deferred — `wrfout` has no 1-D coordinate variables, so it cannot ride
-the regular lat/lon path and falls back to source projection.
+global-attribute reader onto the existing projectors.
+
+**Amended (2026-07-06):** *Unrotated* lat-lon (`MAP_PROJ = 6`, `POLE_LAT = 90`)
+shipped in [#226](https://github.com/D0ubleD0uble/fieldglass/issues/226). An
+unrotated domain is a plain rectilinear geographic grid — WRF's Cassini
+transform reduces to `olat = rlat`, `olon = rlon − const` when the computational
+pole coincides with the geographic pole — so it is corner-pinned from the true
+`XLAT`/`XLONG` ends onto the existing lat/lon projector, exactly like the
+Mercator variant (no 1-D coordinate variables needed). *Rotated* lat-lon
+(`POLE_LAT != 90`) stays deferred to source projection: there is no cleanly
+documented mapping from WRF's `(POLE_LAT, POLE_LON, STAND_LON)` onto the GRIB2
+§3.1 rotated-pole convention (`STAND_LON` and `POLE_LON` are folded into one
+longitude offset, the pole-parameter definitions are inconsistent between WRF's
+code and docs, and WPS has a known double-`stand_lon` rotation bug), so
+synthesising a rotated-pole grid would risk mis-georeferencing. A rotated domain
+whose 2-D `XLAT`/`XLONG` arrays are used *directly* is the Model-B curvilinear
+path ([#218](https://github.com/D0ubleD0uble/fieldglass/issues/218)).
 
 ## Context
 

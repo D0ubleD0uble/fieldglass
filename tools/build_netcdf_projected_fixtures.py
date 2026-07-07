@@ -12,6 +12,9 @@
   * ``wrf_mercator.nc``        — ``MAP_PROJ`` = 3 (Mercator; issue #220): the
     grid walks uniform projected metres, so geolocation is pinned entirely by
     the ``XLAT``/``XLONG`` corner coordinates.
+  * ``wrf_latlon.nc``          — ``MAP_PROJ`` = 6 (unrotated lat-lon, ``POLE_LAT``
+    = 90; issue #226): a plain regular geographic grid, corner-pinned from the
+    ``XLAT``/``XLONG`` ends like Mercator.
   * ``goes_geostationary.nc`` — a GOES ABI-style NetCDF-4 file: a CF
     ``grid_mapping`` variable ``goes_imager_projection`` carries the
     ``geostationary`` parameters and the 1-D ``x``/``y`` *radian* scan-angle
@@ -127,6 +130,18 @@ def mercator_inverse(x, y, truelat1, lov):
     lat = (2.0 * math.atan(math.exp(y / (EARTH_R * k))) - math.pi / 2) / DEG
     lon = lov + (x / (EARTH_R * k)) / DEG
     return lat, lon
+
+
+# --- lat-lon (MAP_PROJ = 6, unrotated: POLE_LAT = 90) --------------------------
+# An unrotated WRF lat-lon domain is a plain regular geographic grid: "projected
+# space" is just degrees, so the forward/inverse are the identity swap between
+# (lat, lon) and (x = lon, y = lat). ``wrf_grid`` then walks +DX/+DY *in degrees*.
+def latlon_forward(lat, lon):
+    return lon, lat
+
+
+def latlon_inverse(x, y):
+    return y, x
 
 
 def write_wrfout(path: Path, global_attrs: dict, xlat, xlong) -> None:
@@ -289,6 +304,45 @@ def build_wrf_mercator() -> None:
     print(f"  wrote {path.name} ({path.stat().st_size} bytes) + oracle")
 
 
+def build_wrf_latlon() -> None:
+    """An unrotated WRF lat-lon grid (MAP_PROJ = 6, POLE_LAT = 90; issue #226):
+    a plain regular geographic grid whose geolocation, like Mercator, is pinned
+    entirely by the XLAT/XLONG corner coordinates. DX/DY are degrees here and do
+    not enter the geolocation."""
+    stand_lon = 0.0              # unrotated: no rotation about the geographic pole
+    dlon = dlat = 0.5             # degrees; DX/DY for a lat-lon domain
+    nx, ny = 6, 5
+    xlat, xlong = wrf_grid(
+        nx, ny, 30.0, -110.0, dlon, dlat,
+        latlon_forward, latlon_inverse,
+    )
+
+    path = FIXTURES / "wrf_latlon.nc"
+    write_wrfout(path, {
+        "MAP_PROJ": np.int32(6),          # 6 = lat-lon (cylindrical equidistant)
+        "MAP_PROJ_CHAR": "Cylindrical Equidistant",
+        "POLE_LAT": np.float32(90.0),     # 90 = unrotated
+        "POLE_LON": np.float32(0.0),
+        "STAND_LON": np.float32(stand_lon),
+        "DX": np.float32(dlon),
+        "DY": np.float32(dlat),
+    }, xlat, xlong)
+
+    oracle = {
+        "projection": "latlon",
+        "map_proj": 6,
+        "pole_lat": 90.0, "pole_lon": 0.0, "stand_lon": stand_lon,
+        "nx": nx, "ny": ny,
+        # Corner-pinned like Mercator: the reader derives all four corners from
+        # the XLAT/XLONG ends, recorded here for the cross-check.
+        "lat_first": float(xlat[0, 0]), "lon_first": float(xlong[0, 0]),
+        "lat_last": float(xlat[ny - 1, nx - 1]), "lon_last": float(xlong[ny - 1, nx - 1]),
+        "samples": interior_samples(xlat, xlong),
+    }
+    (FIXTURES / "wrf_latlon.nc.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n")
+    print(f"  wrote {path.name} ({path.stat().st_size} bytes) + oracle")
+
+
 # ---------------------------------------------------------------------------
 # GOES-R ABI fixed grid (GOES-R PUG Vol. 3 §5.1.2.8; NOAA STAR)
 # ---------------------------------------------------------------------------
@@ -394,6 +448,7 @@ def main() -> int:
     build_wrf()
     build_wrf_polar()
     build_wrf_mercator()
+    build_wrf_latlon()
     build_goes()
     return 0
 
