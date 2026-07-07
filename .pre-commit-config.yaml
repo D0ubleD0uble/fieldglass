@@ -27,6 +27,28 @@ repos:
         entry: cargo clippy --all-targets --workspace -- -D warnings
         pass_filenames: false
 
+      - id: cargo-clippy-core-no-default
+        name: cargo clippy -p fieldglass-core --no-default-features -- -D warnings
+        language: system
+        types: [rust]
+        # Guards the gated build: `render` off must still compile clean so the
+        # parsing-only surface the format crates consume can't rot.
+        entry: cargo clippy -p fieldglass-core --no-default-features --all-targets -- -D warnings
+        pass_filenames: false
+
+      - id: cargo-clippy-format-crates-render-off
+        name: cargo clippy (format crates against render-off core)
+        language: system
+        types: [rust]
+        # The real #227 backstop. Selecting only the format crates keeps
+        # fieldglass-napi (the sole `render` consumer) out of the build graph, so
+        # core resolves with `default-features = false` and `render` OFF. A
+        # format crate that reaches into a gated `warp`/`overlay`/`colormap`
+        # symbol fails here — a `--workspace` build would hide it, since napi's
+        # `render` request unifies the feature back on for everyone.
+        entry: cargo clippy -p fieldglass-grib1 -p fieldglass-grib2 -p fieldglass-netcdf --all-targets -- -D warnings
+        pass_filenames: false
+
       - id: tsc-extension
         name: tsc --noEmit (extension)
         language: system
@@ -62,6 +84,13 @@ repos:
         stages: [pre-push]
         language: system
         entry: cargo test --workspace
+        pass_filenames: false
+
+      - id: cargo-test-core-no-default
+        name: cargo test -p fieldglass-core --no-default-features
+        stages: [pre-push]
+        language: system
+        entry: cargo test -p fieldglass-core --no-default-features
         pass_filenames: false
 
       - id: cargo-deny

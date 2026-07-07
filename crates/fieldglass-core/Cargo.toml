@@ -7,6 +7,14 @@ license.workspace    = true
 authors.workspace    = true
 repository.workspace = true
 
+[features]
+# Viewer-domain code (`warp`, `overlay`, `colormap`) consumed only by
+# `fieldglass-napi`. On by default so the workspace and downstream renderers get
+# it transitively; the format crates opt out with `default-features = false` to
+# keep their public API to the parsing surface. See the crate-level docs.
+default = ["render"]
+render = []
+
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 thiserror = { workspace = true }

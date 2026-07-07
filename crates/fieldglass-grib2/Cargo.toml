@@ -8,7 +8,7 @@ authors.workspace    = true
 repository.workspace = true
 
 [dependencies]
-fieldglass-core = { path = "../fieldglass-core", version = "=0.2.0" }
+fieldglass-core = { path = "../fieldglass-core", version = "=0.2.0", default-features = false }
 serde = { version = "1", features = ["derive"] }
 png = { workspace = true }
 rust-aec = { workspace = true }
