@@ -147,13 +147,17 @@ pub enum WrfMapProj {
     PolarStereo,
     /// `MAP_PROJ == 3`.
     Mercator,
+    /// `MAP_PROJ == 6` (cylindrical-equidistant "lat-lon"). Only *unrotated*
+    /// domains (`POLE_LAT == 90`, `POLE_LON == 0`) resolve to a grid; a rotated
+    /// pole leaves the resolver at `None` (see [`resolve_wrf_latlon`]).
+    LatLon,
 }
 
 /// The file's WRF `MAP_PROJ` code, mapped to a projection we resolve. `None`
-/// when the attribute is absent, non-numeric, or an unresolved code —
-/// `MAP_PROJ == 6` (lat-lon, possibly rotated) has no 1-D coordinate variables
-/// to ride the regular lat/lon path, so it falls back to source projection
-/// like any other unrecognised code (decision 0004 guardrail).
+/// when the attribute is absent, non-numeric, or an unresolved code. Code `6`
+/// (lat-lon) maps to [`WrfMapProj::LatLon`], but only its *unrotated* aspect
+/// resolves to a grid — [`resolve_wrf_latlon`] applies that gate, and a rotated
+/// domain falls back to source projection (decision 0004 guardrail).
 pub fn wrf_map_proj(global: &[(String, String)]) -> Option<WrfMapProj> {
     let code = attr_f64(global, "MAP_PROJ")?;
     if code == 1.0 {
@@ -162,6 +166,8 @@ pub fn wrf_map_proj(global: &[(String, String)]) -> Option<WrfMapProj> {
         Some(WrfMapProj::PolarStereo)
     } else if code == 3.0 {
         Some(WrfMapProj::Mercator)
+    } else if code == 6.0 {
+        Some(WrfMapProj::LatLon)
     } else {
         None
     }
@@ -308,6 +314,73 @@ pub fn resolve_wrf_mercator(
         return None;
     }
     Some(WrfMercatorGrid {
+        ni,
+        nj,
+        lat_first,
+        lon_first,
+        lat_last,
+        lon_last,
+    })
+}
+
+/// An unrotated WRF lat-lon grid (`MAP_PROJ == 6`, `POLE_LAT == 90`). Like the
+/// WRF Mercator grid it is pinned entirely by its corner coordinates: an
+/// unrotated lat-lon domain is a plain regular geographic grid, so both corners
+/// fix a `"latlon"` `MessageMeta` the existing lat/lon projector reads. `DX`/`DY`
+/// (which are *degrees* here, not metres) and `STAND_LON` never enter the
+/// geolocation.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WrfLatLonGrid {
+    pub ni: u32,
+    pub nj: u32,
+    /// Geographic coordinates of the first scanned point (`XLAT`/`XLONG` at
+    /// `south_north = west_east = 0`).
+    pub lat_first: f64,
+    pub lon_first: f64,
+    /// Geographic coordinates of the last scanned point (`XLAT`/`XLONG` at the
+    /// far corner of the first time step).
+    pub lat_last: f64,
+    pub lon_last: f64,
+}
+
+/// Whether a WRF lat-lon domain (`MAP_PROJ == 6`) is *unrotated* — its
+/// computational pole coincides with the geographic pole, so the grid is a
+/// plain rectilinear geographic mesh. WRF's Cassini transform reduces to
+/// `olat = rlat`, `olon = rlon − const` exactly when `POLE_LAT == 90` and
+/// `POLE_LON == 0` (any `STAND_LON` is then a pure longitude offset already
+/// baked into the true `XLAT`/`XLONG`, so it is not consulted). Both attributes
+/// default to their unrotated value when absent — `POLE_LON` is required for a
+/// rotated domain, so its absence implies no rotation. A rotated domain
+/// (`POLE_LAT != 90`) is *not* rectilinear in geographic coordinates; there is
+/// no cleanly documented mapping from WRF's `(POLE_LAT, POLE_LON, STAND_LON)`
+/// onto the GRIB2 §3.1 rotated-pole convention, so it stays source-only.
+fn wrf_latlon_is_unrotated(global: &[(String, String)]) -> bool {
+    let pole_lat = attr_f64(global, "POLE_LAT").unwrap_or(90.0);
+    let pole_lon = attr_f64(global, "POLE_LON").unwrap_or(0.0);
+    // Fold POLE_LON onto [-180, 180] so 0 and 360 both read as unrotated.
+    let pole_lon = (pole_lon + 180.0).rem_euclid(360.0) - 180.0;
+    (pole_lat - 90.0).abs() < 1e-3 && pole_lon.abs() < 1e-3
+}
+
+/// Resolve an unrotated WRF lat-lon grid from the file's global attributes plus
+/// **both** grid corners read from `XLAT`/`XLONG` (the caller matches
+/// [`wrf_map_proj`] first, so only a lat-lon file pays for — or can fail on —
+/// the far corner). Returns `None` unless `MAP_PROJ == 6` *and* the domain is
+/// unrotated (see [`wrf_latlon_is_unrotated`]); a rotated-pole domain resolves
+/// to nothing and stays source-only.
+pub fn resolve_wrf_latlon(
+    global: &[(String, String)],
+    lat_first: f64,
+    lon_first: f64,
+    lat_last: f64,
+    lon_last: f64,
+    ni: u32,
+    nj: u32,
+) -> Option<WrfLatLonGrid> {
+    if wrf_map_proj(global)? != WrfMapProj::LatLon || !wrf_latlon_is_unrotated(global) {
+        return None;
+    }
+    Some(WrfLatLonGrid {
         ni,
         nj,
         lat_first,
@@ -493,12 +566,15 @@ mod tests {
         let mercator = projection_attrs("3");
         assert!(resolve_wrf_lambert(&mercator, 0.0, 0.0, 4, 4).is_none());
         assert!(resolve_wrf_polar_stereo(&mercator, 0.0, 0.0, 4, 4).is_none());
-        // MAP_PROJ 6 (lat-lon) resolves nothing — source-projection fallback.
+        // MAP_PROJ 6 (lat-lon): the conformal resolvers still reject it, but
+        // wrf_map_proj now recognises it and (being unrotated by default — no
+        // POLE_LAT/POLE_LON here) resolve_wrf_latlon resolves.
         let latlon = projection_attrs("6");
         assert!(resolve_wrf_lambert(&latlon, 0.0, 0.0, 4, 4).is_none());
         assert!(resolve_wrf_polar_stereo(&latlon, 0.0, 0.0, 4, 4).is_none());
         assert!(resolve_wrf_mercator(&latlon, 0.0, 0.0, 1.0, 1.0, 4, 4).is_none());
-        assert_eq!(wrf_map_proj(&latlon), None);
+        assert_eq!(wrf_map_proj(&latlon), Some(WrfMapProj::LatLon));
+        assert!(resolve_wrf_latlon(&latlon, 0.0, 0.0, 1.0, 1.0, 4, 4).is_some());
         assert_eq!(wrf_map_proj(&polar), Some(WrfMapProj::PolarStereo));
         assert_eq!(wrf_map_proj(&mercator), Some(WrfMapProj::Mercator));
         assert_eq!(wrf_map_proj(&attrs(&[("TITLE", "not wrf")])), None);
@@ -581,6 +657,67 @@ mod tests {
         assert_eq!((g.ni, g.nj), (6, 5));
         assert_eq!((g.lat_first, g.lon_first), (10.0, -60.0));
         assert_eq!((g.lat_last, g.lon_last), (14.0, -55.0));
+    }
+
+    #[test]
+    fn wrf_resolves_unrotated_latlon_from_corners_only() {
+        // An unrotated lat-lon domain (POLE_LAT = 90, POLE_LON = 0) is corner-
+        // pinned like Mercator; DX/DY (degrees here) and STAND_LON don't enter.
+        let global = attrs(&[
+            ("MAP_PROJ", "6"),
+            ("POLE_LAT", "90.0"),
+            ("POLE_LON", "0.0"),
+            ("STAND_LON", "0.0"),
+            ("DX", "0.5"),
+            ("DY", "0.5"),
+        ]);
+        let g = resolve_wrf_latlon(&global, 30.0, -110.0, 32.0, -107.5, 6, 5)
+            .expect("unrotated lat-lon resolves");
+        assert_eq!((g.ni, g.nj), (6, 5));
+        assert_eq!((g.lat_first, g.lon_first), (30.0, -110.0));
+        assert_eq!((g.lat_last, g.lon_last), (32.0, -107.5));
+    }
+
+    #[test]
+    fn wrf_latlon_pole_attrs_default_to_unrotated_when_absent() {
+        // POLE_LAT defaults to 90 and POLE_LON to 0 (POLE_LON is required for a
+        // rotated domain, so its absence implies no rotation). STAND_LON is not
+        // consulted — a non-zero value is a pure longitude offset already baked
+        // into the true XLAT/XLONG corners.
+        let global = attrs(&[("MAP_PROJ", "6"), ("STAND_LON", "-100.0")]);
+        assert!(resolve_wrf_latlon(&global, 30.0, -110.0, 32.0, -107.5, 6, 5).is_some());
+        // POLE_LON = 360 normalises to unrotated as well.
+        let wrapped = attrs(&[("MAP_PROJ", "6"), ("POLE_LON", "360.0")]);
+        assert!(resolve_wrf_latlon(&wrapped, 30.0, -110.0, 32.0, -107.5, 6, 5).is_some());
+    }
+
+    #[test]
+    fn wrf_rotated_latlon_falls_back_to_source() {
+        // A rotated pole (POLE_LAT != 90 or POLE_LON != 0) is not rectilinear in
+        // geographic coordinates, and the WRF → GRIB2 §3.1 pole mapping is not
+        // cleanly documented, so the resolver declines it (source-only).
+        let shifted_pole = attrs(&[
+            ("MAP_PROJ", "6"),
+            ("POLE_LAT", "45.0"),
+            ("POLE_LON", "0.0"),
+            ("STAND_LON", "0.0"),
+        ]);
+        assert!(resolve_wrf_latlon(&shifted_pole, 30.0, -110.0, 32.0, -107.5, 6, 5).is_none());
+        let rotated = attrs(&[
+            ("MAP_PROJ", "6"),
+            ("POLE_LAT", "90.0"),
+            ("POLE_LON", "36.0"),
+            ("STAND_LON", "0.0"),
+        ]);
+        assert!(resolve_wrf_latlon(&rotated, 30.0, -110.0, 32.0, -107.5, 6, 5).is_none());
+    }
+
+    #[test]
+    fn wrf_latlon_resolver_gates_on_map_proj() {
+        // resolve_wrf_latlon only fires for MAP_PROJ == 6, even when the domain
+        // would otherwise look unrotated.
+        let lambert = attrs(&[("MAP_PROJ", "1"), ("POLE_LAT", "90.0"), ("POLE_LON", "0.0")]);
+        assert!(resolve_wrf_latlon(&lambert, 30.0, -110.0, 32.0, -107.5, 6, 5).is_none());
     }
 
     #[test]

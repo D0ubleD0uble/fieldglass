@@ -8,12 +8,12 @@
 //! geolocation — a genuine cross-language check, not a tautology.
 
 use fieldglass_core::{
-    GeostationaryParams, GeostationaryProjector, LambertParams, LambertProjector, MercatorParams,
-    PolarStereoParams, PolarStereoProjector, mercator_inverse,
+    GeostationaryParams, GeostationaryProjector, LambertParams, LambertProjector, LatLonParams,
+    MercatorParams, PolarStereoParams, PolarStereoProjector, latlon_inverse, mercator_inverse,
 };
 use fieldglass_netcdf::{
     DatasetView, NetcdfBacking, NetcdfReader, apply_scale_offset, resolve_cf_geostationary,
-    resolve_wrf_lambert, resolve_wrf_mercator, resolve_wrf_polar_stereo,
+    resolve_wrf_lambert, resolve_wrf_latlon, resolve_wrf_mercator, resolve_wrf_polar_stereo,
 };
 use serde_json::Value;
 
@@ -23,6 +23,8 @@ const WRF_POLAR: &[u8] = include_bytes!("fixtures/wrf_polar.nc");
 const WRF_POLAR_ORACLE: &str = include_str!("fixtures/wrf_polar.nc.oracle.json");
 const WRF_MERCATOR: &[u8] = include_bytes!("fixtures/wrf_mercator.nc");
 const WRF_MERCATOR_ORACLE: &str = include_str!("fixtures/wrf_mercator.nc.oracle.json");
+const WRF_LATLON: &[u8] = include_bytes!("fixtures/wrf_latlon.nc");
+const WRF_LATLON_ORACLE: &str = include_str!("fixtures/wrf_latlon.nc.oracle.json");
 const GOES: &[u8] = include_bytes!("fixtures/goes_geostationary.nc");
 const GOES_ORACLE: &str = include_str!("fixtures/goes_geostationary.nc.oracle.json");
 
@@ -166,6 +168,45 @@ fn wrf_mercator_grid_reproduces_xlat_xlong() {
         lon_last: g.lon_last,
     };
     assert_samples_invert(&oracle, |lat, lon| mercator_inverse(&p, lat, lon));
+}
+
+#[test]
+fn wrf_latlon_grid_reproduces_xlat_xlong() {
+    let (reader, view) = view(WRF_LATLON);
+    let oracle: Value = serde_json::from_str(WRF_LATLON_ORACLE).unwrap();
+    let ni = oracle["nx"].as_u64().unwrap() as u32;
+    let nj = oracle["ny"].as_u64().unwrap() as u32;
+
+    // Unrotated lat-lon is corner-pinned: both the origin and the far corner
+    // come from XLAT/XLONG, exactly as the render path reads them.
+    let xlat = decode_named(&reader, &view, "XLAT");
+    let xlong = decode_named(&reader, &view, "XLONG");
+    let far = (ni as usize * nj as usize) - 1;
+    let g = resolve_wrf_latlon(
+        &view.global_attrs,
+        xlat[0],
+        xlong[0],
+        xlat[far],
+        xlong[far],
+        ni,
+        nj,
+    )
+    .expect("WRF unrotated lat-lon resolves");
+    assert!(
+        (g.lat_last - oracle["lat_last"].as_f64().unwrap()).abs() < 1e-6
+            && (g.lon_last - oracle["lon_last"].as_f64().unwrap()).abs() < 1e-6,
+        "far corner matches the oracle"
+    );
+
+    let p = LatLonParams {
+        ni: g.ni,
+        nj: g.nj,
+        lat_first: g.lat_first,
+        lon_first: g.lon_first,
+        lat_last: g.lat_last,
+        lon_last: g.lon_last,
+    };
+    assert_samples_invert(&oracle, |lat, lon| latlon_inverse(&p, lat, lon));
 }
 
 #[test]
