@@ -13,6 +13,7 @@ use std::collections::BTreeMap;
 const V1_SYMBOLTABLE: &[u8] = include_bytes!("fixtures/hdf5_v1_symboltable.h5");
 const V2_LINKINFO: &[u8] = include_bytes!("fixtures/hdf5_v2_linkinfo.h5");
 const V4_CHUNK_INDEX: &[u8] = include_bytes!("fixtures/hdf5_v4_chunk_index.h5");
+const EA_CHUNK_INDEX: &[u8] = include_bytes!("fixtures/hdf5_ea_chunk_index.h5");
 const DUMMY: &[u8] = include_bytes!("fixtures/netcdf4_hdf5_dummy.nc");
 
 /// Decode every root dataset, mapping name → Result of present-or-None values.
@@ -168,13 +169,38 @@ fn decodes_v4_unfiltered_fixed_array_dataset() {
 }
 
 #[test]
-fn extensible_array_index_still_errors_cleanly() {
-    // `record` in the same fixture is an unlimited-dimension chunked dataset, so
-    // it uses the extensible-array index — deferred, and must surface a clean
-    // error rather than panic.
+fn decodes_v4_extensible_array_direct_data_blocks() {
+    // `ea_direct` is a 1-D unlimited dataset of 150 chunks (600 elements), which
+    // spans super blocks 0–3 whose growing-size data blocks (16, 32, 32, 64, …)
+    // are addressed directly from the extensible-array index block — no secondary
+    // block. Exercises the super-block doubling walk. Values are arange(600).
+    let got = decode_all(EA_CHUNK_INDEX);
+    assert_eq!(
+        present(&got["ea_direct"]),
+        (0..600).map(|i| i as f64).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn decodes_v4_extensible_array_secondary_block() {
+    // `ea_secondary` is a 1-D unlimited dataset of 280 chunks (1120 elements),
+    // large enough that libhdf5 allocates a secondary block for super block 4.
+    // The reader must walk the index block's secondary-block pointer to reach the
+    // data-block addresses beyond the direct slots. Values are arange(1120).
+    let got = decode_all(EA_CHUNK_INDEX);
+    assert_eq!(
+        present(&got["ea_secondary"]),
+        (0..1120).map(|i| i as f64).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn decodes_v4_extensible_array_index_block_only() {
+    // `record` in the v110 fixture is a 1-D unlimited-dimension dataset with a
+    // single 4-element chunk, so its one chunk address lives directly in the
+    // extensible-array index block (no data blocks). Values 0..3.
     let got = decode_all(V2_LINKINFO);
-    let err = got["record"].as_ref().unwrap_err();
-    assert!(err.contains("extensible-array"), "unexpected error: {err}");
+    assert_eq!(present(&got["record"]), vec![0.0, 1.0, 2.0, 3.0]);
 }
 
 #[test]

@@ -171,8 +171,28 @@ target for #216. It carries three chunked float datasets whose values are
   which post-dates the v3-spec format the reader decodes; it is a deliberate
   boundary case the reader must reject cleanly, tracked as a #216 follow-up.
 
-The *filtered* Fixed Array and the extensible-array index are already covered by
-`hdf5_v2_linkinfo.h5`'s `chunked` and `record` datasets. Built by
+The *filtered* Fixed Array is already covered by `hdf5_v2_linkinfo.h5`'s
+`chunked` dataset. Built by `tools/build_hdf5_fixtures.py` (`track_times=False`
+for reproducibility); `tests/hdf5_value_decode.rs` checks the decoded values
+against `h5py`. Part of #216.
+
+## Extensible-array chunk-index fixture (`hdf5_ea_chunk_index.h5`)
+
+A synthetic `h5py` (libhdf5) file written with `libver='latest'` whose two
+datasets have one unlimited dimension, so libhdf5 indexes their chunks with a
+version-4 **Extensible Array** (target for #216). Values are `arange`:
+
+- `ea_direct` (150 chunks) spans super blocks 0–3, whose data-block addresses
+  libhdf5 stores directly in the extensible-array index block (no secondary
+  block); the data blocks grow in size (16, 32, 32, 64, … elements) per the
+  super-block doubling rule.
+- `ea_secondary` (280 chunks) is large enough that libhdf5 allocates a
+  **secondary block** for super block 4, exercising the reader's walk from the
+  index block's secondary-block pointer to the data-block addresses beyond the
+  direct slots.
+
+The `hdf5_v2_linkinfo.h5` `record` dataset already covers the simplest tier: a
+single chunk addressed directly in the index block with no data blocks. Built by
 `tools/build_hdf5_fixtures.py` (`track_times=False` for reproducibility);
 `tests/hdf5_value_decode.rs` checks the decoded values against `h5py`. Part of
 #216.
