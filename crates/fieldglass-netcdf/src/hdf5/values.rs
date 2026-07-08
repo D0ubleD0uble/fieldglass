@@ -8,8 +8,8 @@
 //! Storage is read for the three Data Layout classes a NetCDF-4 file uses:
 //! compact, contiguous, and chunked. Chunked datasets are located through their
 //! chunk index — the version-1 B-tree of the legacy `libver=earliest` form, or
-//! the version-4 single-chunk, fixed-array, and extensible-array indexes of the
-//! "latest format".
+//! the version-4/5 single-chunk, fixed-array, extensible-array, and implicit
+//! indexes of the "latest format".
 //! Chunks pass back through the [`filter`](super::filter) pipeline
 //! (deflate / shuffle) before being scattered into place; any region with no
 //! stored chunk reads as the dataset's Fill Value (message `0x0005`) default.
@@ -545,47 +545,16 @@ fn collect_fixed_array_chunks(
     }
     d.skip(o)?; // header back-pointer address
 
-    // Element layout: unfiltered (client 0) = address only; filtered (client 1)
-    // = address + on-disk chunk size + 4-byte filter mask. The chunk-size width
-    // is the entry size minus the address and filter-mask widths.
+    // Element layout (shared with the Extensible Array): unfiltered (client 0) =
+    // address only; filtered (client 1) = address + on-disk chunk size + 4-byte
+    // filter mask.
     let filtered = client_id == 1;
-    let size_width = if filtered {
-        entry_size
-            .checked_sub(o + 4)
-            .filter(|&w| (1..=8).contains(&w))
-            .ok_or_else(|| {
-                FieldglassError::Parse(format!(
-                    "Fixed Array filtered entry size {entry_size} too small for a chunk element"
-                ))
-            })?
-    } else {
-        if entry_size != o {
-            return Err(FieldglassError::Parse(format!(
-                "Fixed Array unfiltered entry size {entry_size} != offset size {o}"
-            )));
-        }
-        0
-    };
+    let size_width = filtered_element_width(entry_size, o, filtered, "Fixed Array")?;
 
     let mut out = Vec::with_capacity(num_entries);
     for i in 0..num_entries {
-        let raw_addr = d.uint(o)?;
-        let (size, filter_mask) = if filtered {
-            (d.uint(size_width)?, d.uint(4)? as u32)
-        } else {
-            (chunk_bytes as u64, 0)
-        };
-        if object_header::is_undefined_address(raw_addr, osize) {
-            continue; // chunk never written: stays fill
-        }
-        let size = u32::try_from(size)
-            .map_err(|_| FieldglassError::Parse("chunk size exceeds u32".into()))?;
-        out.push(ChunkRecord {
-            address: raw_addr,
-            size,
-            filter_mask,
-            offset: chunk_offset_from_linear(i as u64, &grid, chunk_dims),
-        });
+        let elem = read_chunk_element(&mut d, o, filtered, size_width, chunk_bytes)?;
+        push_chunk_record(&mut out, &elem, i, &grid, chunk_dims, osize)?;
     }
     Ok(out)
 }
@@ -605,8 +574,9 @@ const SIG_EXT_ARRAY_SECONDARY: &[u8; 4] = b"EASB";
 /// or through a secondary block. Data blocks are read in order and their
 /// elements assigned to consecutive chunks.
 ///
-/// Filtered chunks and paged data blocks (only reached by very large datasets)
-/// are not decoded yet and return a clear error.
+/// Both unfiltered (client id 0, address-only elements) and filtered (client id
+/// 1, address + on-disk size + filter mask elements) arrays decode. Paged data
+/// blocks (only reached by very large datasets) return a clear error.
 fn collect_extensible_array_chunks(
     bytes: &[u8],
     header_addr: u64,
@@ -630,16 +600,15 @@ fn collect_extensible_array_chunks(
         )));
     }
     let client_id = h.byte()?;
-    if client_id == 1 {
-        return Err(FieldglassError::UnsupportedSection(
-            "HDF5 extensible array uses filtered chunks, which are not decoded yet".into(),
-        ));
-    }
-    if client_id != 0 {
+    if client_id > 1 {
+        // Only 0 (unfiltered chunks) and 1 (filtered chunks) are defined for a
+        // dataset-chunk Extensible Array; anything else is malformed or a client
+        // type this reader doesn't handle.
         return Err(FieldglassError::Parse(format!(
             "unsupported Extensible Array client id {client_id} (expected 0 or 1)"
         )));
     }
+    let filtered = client_id == 1;
     let element_size = h.byte()? as usize;
     let max_nelmts_bits = h.byte()? as usize;
     let idx_blk_elmts = h.byte()? as usize;
@@ -649,11 +618,10 @@ fn collect_extensible_array_chunks(
     h.skip(6 * l)?; // six length_size statistics (block/element counts and sizes)
     let index_block_addr = h.uint(o)?;
 
-    if element_size != o {
-        return Err(FieldglassError::Parse(format!(
-            "extensible array unfiltered element size {element_size} != offset size {o}"
-        )));
-    }
+    // Element layout mirrors the Fixed Array: unfiltered (client 0) is an address
+    // only (element_size == offset_size); filtered (client 1) is address + on-disk
+    // chunk size + 4-byte filter mask.
+    let size_width = filtered_element_width(element_size, o, filtered, "Extensible Array")?;
     if !data_blk_min_elmts.is_power_of_two() || !sup_blk_min_data_ptrs.is_power_of_two() {
         return Err(FieldglassError::Parse(
             "extensible array block parameters must be powers of two".into(),
@@ -695,7 +663,13 @@ fn collect_extensible_array_chunks(
     ib.skip(o)?; // header back-pointer
     let mut direct_elems = Vec::with_capacity(idx_blk_elmts);
     for _ in 0..idx_blk_elmts {
-        direct_elems.push(ib.uint(o)?);
+        direct_elems.push(read_chunk_element(
+            &mut ib,
+            o,
+            filtered,
+            size_width,
+            chunk_bytes,
+        )?);
     }
     let mut direct_dblk_addrs = Vec::with_capacity(ndblk_addrs);
     for _ in 0..ndblk_addrs {
@@ -710,8 +684,8 @@ fn collect_extensible_array_chunks(
     let mut chunk = 0usize;
 
     // The first `idx_blk_elmts` chunks are addressed directly in the index block.
-    for &addr in direct_elems.iter().take(grid_count) {
-        push_ea_chunk(&mut out, addr, chunk, chunk_bytes, &grid, chunk_dims, osize)?;
+    for elem in direct_elems.iter().take(grid_count) {
+        push_chunk_record(&mut out, elem, chunk, &grid, chunk_dims, osize)?;
         chunk += 1;
     }
 
@@ -790,8 +764,8 @@ fn collect_extensible_array_chunks(
                 if chunk >= grid_count {
                     break;
                 }
-                let addr = db.uint(o)?;
-                push_ea_chunk(&mut out, addr, chunk, chunk_bytes, &grid, chunk_dims, osize)?;
+                let elem = read_chunk_element(&mut db, o, filtered, size_width, chunk_bytes)?;
+                push_chunk_record(&mut out, &elem, chunk, &grid, chunk_dims, osize)?;
                 chunk += 1;
             }
         }
@@ -800,26 +774,88 @@ fn collect_extensible_array_chunks(
     Ok(out)
 }
 
-/// Push one extensible-array chunk record, skipping an unwritten (undefined)
-/// address so the chunk stays fill.
-fn push_ea_chunk(
-    out: &mut Vec<ChunkRecord>,
+/// The on-disk width of the chunk-size field inside a *filtered* chunk-index
+/// element — the same layout for a Fixed Array entry and an Extensible Array
+/// element: the element/entry byte size (`field_size`) minus the chunk address
+/// (`o`) and the 4-byte filter mask. Returns 0 for an unfiltered index, whose
+/// element is an address only and must therefore be exactly `o` bytes wide.
+/// `label` names the index in the error message.
+fn filtered_element_width(
+    field_size: usize,
+    o: usize,
+    filtered: bool,
+    label: &str,
+) -> Result<usize, FieldglassError> {
+    if filtered {
+        field_size
+            .checked_sub(o + 4)
+            .filter(|&w| (1..=8).contains(&w))
+            .ok_or_else(|| {
+                FieldglassError::Parse(format!(
+                    "{label} filtered element size {field_size} too small for a chunk element"
+                ))
+            })
+    } else if field_size == o {
+        Ok(0)
+    } else {
+        Err(FieldglassError::Parse(format!(
+            "{label} unfiltered element size {field_size} != offset size {o}"
+        )))
+    }
+}
+
+/// One chunk-index element: the chunk's file address plus, for a filtered index,
+/// its on-disk byte size and filter mask. An unfiltered element is address-only
+/// and carries the full uncompressed chunk byte size with a zero mask.
+struct ChunkElement {
     addr: u64,
-    chunk: usize,
+    size: u64,
+    filter_mask: u32,
+}
+
+/// Read one chunk-index element from `cur` (a Fixed Array entry or an Extensible
+/// Array element, whose element layout is identical). An unfiltered element is
+/// just a chunk address (its size is the full chunk byte size); a filtered
+/// element is address + on-disk size (`size_width` bytes) + 4-byte filter mask.
+fn read_chunk_element(
+    cur: &mut super::heap::Cursor,
+    o: usize,
+    filtered: bool,
+    size_width: usize,
     chunk_bytes: usize,
+) -> Result<ChunkElement, FieldglassError> {
+    let addr = cur.uint(o)?;
+    let (size, filter_mask) = if filtered {
+        (cur.uint(size_width)?, cur.uint(4)? as u32)
+    } else {
+        (chunk_bytes as u64, 0)
+    };
+    Ok(ChunkElement {
+        addr,
+        size,
+        filter_mask,
+    })
+}
+
+/// Push one chunk record at linear chunk index `chunk`, skipping an unwritten
+/// (undefined) address so the chunk stays fill.
+fn push_chunk_record(
+    out: &mut Vec<ChunkRecord>,
+    elem: &ChunkElement,
+    chunk: usize,
     grid: &[u64],
     chunk_dims: &[u32],
     osize: u8,
 ) -> Result<(), FieldglassError> {
-    if object_header::is_undefined_address(addr, osize) {
+    if object_header::is_undefined_address(elem.addr, osize) {
         return Ok(());
     }
-    let size = u32::try_from(chunk_bytes)
+    let size = u32::try_from(elem.size)
         .map_err(|_| FieldglassError::Parse("chunk size exceeds u32".into()))?;
     out.push(ChunkRecord {
-        address: addr,
+        address: elem.addr,
         size,
-        filter_mask: 0,
+        filter_mask: elem.filter_mask,
         offset: chunk_offset_from_linear(chunk as u64, grid, chunk_dims),
     });
     Ok(())

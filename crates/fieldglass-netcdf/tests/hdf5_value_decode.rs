@@ -2,10 +2,11 @@
 //! fixtures, pinned to the values `h5py` reports. Covers contiguous storage of
 //! every numeric class and byte order, a scalar, and chunked datasets across
 //! every chunk index the reader decodes: the version-1 B-tree, and the
-//! version-4 single-chunk and fixed-array (filtered + unfiltered) indexes.
-//! String datasets and datasets stored with a Data Layout the reader doesn't
-//! decode yet (the extensible-array index, and a version-5 layout message) must
-//! report a clean error rather than panic.
+//! version-4 single-chunk, fixed-array, extensible-array (all filtered +
+//! unfiltered), and implicit indexes, including the version-5 layout message
+//! libhdf5 2.0 writes for a filtered chunk. String datasets and datasets stored
+//! with a chunk index the reader doesn't decode yet (the v2 B-tree) must report
+//! a clean error rather than panic.
 
 use fieldglass_netcdf::{ChildKind, NetcdfBacking, NetcdfReader, list_root_children};
 use std::collections::BTreeMap;
@@ -14,6 +15,7 @@ const V1_SYMBOLTABLE: &[u8] = include_bytes!("fixtures/hdf5_v1_symboltable.h5");
 const V2_LINKINFO: &[u8] = include_bytes!("fixtures/hdf5_v2_linkinfo.h5");
 const V4_CHUNK_INDEX: &[u8] = include_bytes!("fixtures/hdf5_v4_chunk_index.h5");
 const EA_CHUNK_INDEX: &[u8] = include_bytes!("fixtures/hdf5_ea_chunk_index.h5");
+const EA_FILTERED: &[u8] = include_bytes!("fixtures/hdf5_ea_filtered.h5");
 const IMPLICIT_INDEX: &[u8] = include_bytes!("fixtures/hdf5_implicit_index.h5");
 const DUMMY: &[u8] = include_bytes!("fixtures/netcdf4_hdf5_dummy.nc");
 
@@ -147,14 +149,17 @@ fn decodes_v4_single_chunk_dataset() {
 }
 
 #[test]
-fn filtered_single_chunk_version_5_errors_cleanly() {
+fn decodes_v5_filtered_single_chunk_dataset() {
     // libhdf5 2.0 writes a *filtered* single chunk with a data-layout message
-    // version 5 (not the version 4 the unfiltered case uses). Version 5 is a
-    // newer, undocumented-in-the-v3-spec encoding, so it must surface a clean
-    // error rather than mis-decode — a tracked follow-up (#216).
+    // version 5 (not the version 4 the unfiltered case uses). For the chunked
+    // class, version 5 is encoded byte-for-byte like version 4, so `single_chunk_
+    // filtered` — a 4×4 gzip+shuffle field stored as one chunk with the filtered
+    // size and mask inline in the layout message — decodes to arange(16).
     let got = decode_all(V4_CHUNK_INDEX);
-    let err = got["single_chunk_filtered"].as_ref().unwrap_err();
-    assert!(err.contains("version 5"), "unexpected error: {err}");
+    assert_eq!(
+        present(&got["single_chunk_filtered"]),
+        (0..16).map(|i| i as f64).collect::<Vec<_>>()
+    );
 }
 
 #[test]
@@ -229,6 +234,47 @@ fn decodes_v4_extensible_array_index_block_only() {
     // extensible-array index block (no data blocks). Values 0..3.
     let got = decode_all(V2_LINKINFO);
     assert_eq!(present(&got["record"]), vec![0.0, 1.0, 2.0, 3.0]);
+}
+
+#[test]
+fn decodes_v4_filtered_extensible_array_index_block_only() {
+    // `ea_filtered_iblock` is a 1-D unlimited gzip+shuffle dataset of 4 chunks
+    // (16 elements): few enough that every chunk address lives directly in the
+    // extensible-array index block, so no data blocks are walked. Its elements
+    // are the *filtered* form (client id 1: address + on-disk size + filter mask),
+    // and each chunk passes back through the filter pipeline. Values arange(16).
+    let got = decode_all(EA_FILTERED);
+    assert_eq!(
+        present(&got["ea_filtered_iblock"]),
+        (0..16).map(|i| i as f64).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn decodes_v4_filtered_extensible_array_direct_data_blocks() {
+    // `ea_filtered_direct` is a 1-D unlimited gzip+shuffle dataset of 150 chunks
+    // (600 elements) spanning super blocks 0–3, whose data blocks are addressed
+    // directly from the index block (no secondary block). Exercises reading the
+    // filtered element triple inside data blocks across the doubling walk.
+    let got = decode_all(EA_FILTERED);
+    assert_eq!(
+        present(&got["ea_filtered_direct"]),
+        (0..600).map(|i| i as f64).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn decodes_v4_filtered_extensible_array_secondary_block() {
+    // `ea_filtered_secondary` is a 1-D unlimited gzip+shuffle dataset of 280
+    // chunks (1120 elements), large enough that libhdf5 allocates a secondary
+    // block for super block 4. The reader walks the secondary-block pointer to
+    // the data-block addresses beyond the index block's direct slots, reading a
+    // filtered element from each. Values arange(1120).
+    let got = decode_all(EA_FILTERED);
+    assert_eq!(
+        present(&got["ea_filtered_secondary"]),
+        (0..1120).map(|i| i as f64).collect::<Vec<_>>()
+    );
 }
 
 #[test]
