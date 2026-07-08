@@ -197,6 +197,28 @@ single chunk addressed directly in the index block with no data blocks. Built by
 `tests/hdf5_value_decode.rs` checks the decoded values against `h5py`. Part of
 #216.
 
+## Implicit chunk-index fixture (`hdf5_implicit_index.h5`)
+
+A synthetic `h5py` (libhdf5) file written with `libver='latest'` whose datasets
+are fixed-shape, unfiltered, and **early-allocated**, so libhdf5 indexes their
+chunks with the version-4 **Implicit** index (target for #216): every chunk of
+the chunk grid is stored contiguously from one base address with no on-disk
+index structure. The high-level `h5py` API always defers allocation (which
+yields a Fixed Array), so the datasets are created through the low-level API
+with `set_alloc_time(ALLOC_TIME_EARLY)`. Values are `arange`:
+
+- `implicit` (8×8 in 4×4 chunks) is a square 2×2 chunk grid of four whole
+  chunks.
+- `implicit_partial` (5×7 in 4×4 chunks) is a 2×2 grid whose right and bottom
+  chunks hang past the dataset bounds, exercising edge-chunk clipping on
+  scatter.
+
+The builder asserts the file contains no `FAHD`/`EAHD`/… markers, positively
+confirming libhdf5 chose the implicit index rather than a Fixed or Extensible
+Array. Built by `tools/build_hdf5_fixtures.py` (`track_times=False` for
+reproducibility); `tests/hdf5_value_decode.rs` checks the decoded values against
+`h5py`. Part of #216.
+
 ## NetCDF-4 dimension-scale fixture (`netcdf4_dimscale.nc`)
 
 A small NetCDF-4 file written with the canonical Unidata `netCDF4` library (which

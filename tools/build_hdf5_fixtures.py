@@ -403,6 +403,72 @@ def build_extensible_array(name: str) -> None:
           f"[EA direct + secondary, EASB={oracle['raw_markers']['EASB_secondary_block']}]")
 
 
+def build_implicit_index(name: str) -> None:
+    """Datasets whose version-4 chunk index is the **Implicit** index (type 2):
+    libhdf5 uses it for a fixed-shape, unfiltered, *early-allocated* chunked
+    dataset, storing every chunk of the chunk grid contiguously from one base
+    address with no on-disk index structure. The high-level h5py API always
+    defers allocation (which yields a Fixed Array), so the datasets are created
+    through the low-level API with the space-allocation time set to *early*.
+
+    Two shapes exercise the reader: a square multi-chunk grid (``implicit``,
+    8×8 in 4×4 → four whole chunks) and one whose edge chunks hang past the
+    dataset bounds (``implicit_partial``, 5×7 in 4×4 → a 2×2 grid of full-size
+    chunks the reader must clip on scatter). Values are ``arange`` so the oracle
+    is a rule."""
+    path = FIXturesDir / name
+
+    def implicit_ds(f, nm, shape, chunks, dtype="<f4"):
+        # Early space allocation + fixed dims + no filters ⇒ libhdf5 selects the
+        # implicit index. Requires the low-level dataset-creation path.
+        space = h5py.h5s.create_simple(shape)  # max dims == shape (fixed)
+        dcpl = h5py.h5p.create(h5py.h5p.DATASET_CREATE)
+        dcpl.set_chunk(chunks)
+        dcpl.set_alloc_time(h5py.h5d.ALLOC_TIME_EARLY)
+        # Match the high-level fixtures' `track_times=False`: keep the object
+        # header free of modification timestamps so the fixture is reproducible.
+        dcpl.set_obj_track_times(False)
+        tid = h5py.h5t.py_create(np.dtype(dtype), logical=True)
+        dsid = h5py.h5d.create(f.id, nm.encode(), tid, space, dcpl=dcpl)
+        d = h5py.Dataset(dsid)
+        d[...] = np.arange(int(np.prod(shape)), dtype=dtype).reshape(shape)
+        return d
+
+    with h5py.File(path, "w", libver="latest") as f:
+        f.attrs["title"] = np.bytes_(b"fieldglass implicit chunk-index fixture")
+        implicit_ds(f, "implicit", (8, 8), (4, 4))
+        implicit_ds(f, "implicit_partial", (5, 7), (4, 4))
+
+    raw = path.read_bytes()
+    # Positively confirm the implicit index. These datasets are fixed-shape and
+    # multi-chunk, so the only index libhdf5 could pick *instead* of implicit is
+    # a Fixed Array (single chunk is ruled out by having several chunks; the
+    # Extensible Array and v2-B-tree indexes require an unlimited dimension). The
+    # Fixed Array writes a "FAHD" header / "FADB" data block, and neither has any
+    # other reason to appear in this file, so their absence pins the index as
+    # implicit. (An "EAHD" check is kept as a cheap belt-and-suspenders; a bare
+    # "BTHD" is deliberately *not* checked — that signature also marks dense
+    # link / attribute storage and would false-fail if the fixture grew.)
+    for marker in (b"FAHD", b"FADB", b"EAHD"):
+        if marker in raw:
+            raise SystemExit(
+                f"{name}: unexpected {marker.decode()} marker — libhdf5 did not "
+                f"use the implicit index (check alloc-time / filters / max dims)")
+    with h5py.File(path, "r") as f:
+        oracle = {
+            "source": f"h5py {h5py.__version__} (libhdf5 {h5py.version.hdf5_version}), libver='latest'",
+            "superblock_version": raw[raw.index(b"\x89HDF\r\n\x1a\n") + 8],
+            "note": "version-4 implicit chunk index (early-allocated, unfiltered) (#216)",
+            "raw_markers": {
+                "no_FAHD_fixed_array": b"FAHD" not in raw,
+                "no_EAHD_extensible_array": b"EAHD" not in raw,
+            },
+            "objects": {n: dataset_oracle(f[n]) for n in f if isinstance(f[n], h5py.Dataset)},
+        }
+    (FIXturesDir / f"{name}.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n")
+    print(f"wrote {path} ({len(raw)} B) + oracle [v4 implicit index, no FAHD/EAHD]")
+
+
 def main() -> int:
     if not FIXturesDir.is_dir():
         raise SystemExit("run from the repo root")
@@ -419,6 +485,8 @@ def main() -> int:
     build_v4_chunk_index("hdf5_v4_chunk_index.h5")
     # Version-4 extensible array (unlimited dimension): direct + secondary blocks.
     build_extensible_array("hdf5_ea_chunk_index.h5")
+    # Version-4 implicit index (fixed-shape, early-allocated, unfiltered chunks).
+    build_implicit_index("hdf5_implicit_index.h5")
     return 0
 
 

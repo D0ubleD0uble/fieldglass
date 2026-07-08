@@ -265,6 +265,7 @@ fn assemble_chunked(
     let chunks = match &chunked.index {
         ChunkIndex::BTreeV1(None)
         | ChunkIndex::SingleChunk(None)
+        | ChunkIndex::Implicit(None)
         | ChunkIndex::FixedArray(None)
         | ChunkIndex::ExtensibleArray(None) => return Ok(raw),
         ChunkIndex::BTreeV1(Some(addr)) => collect_chunks(bytes, *addr, rank, osize)?,
@@ -280,6 +281,17 @@ fn assemble_chunked(
                 filter_mask: single.filter_mask,
                 offset: vec![0u64; rank],
             }]
+        }
+        ChunkIndex::Implicit(Some(base)) => {
+            // An implicit index is only ever written for unfiltered chunks; a
+            // filter pipeline on such a dataset is malformed, and treating its
+            // full-size chunks as filtered would mis-decode them.
+            if !pipeline.filters.is_empty() {
+                return Err(FieldglassError::Parse(
+                    "HDF5 implicit chunk index cannot carry a filter pipeline".into(),
+                ));
+            }
+            collect_implicit_chunks(*base, shape, &chunked.chunk_dims, chunk_bytes)?
         }
         ChunkIndex::FixedArray(Some(addr)) => collect_fixed_array_chunks(
             bytes,
@@ -395,6 +407,54 @@ fn collect_chunks(
                 pending.push(child);
             }
         }
+    }
+    Ok(out)
+}
+
+/// Collect chunk records from a version-4 Implicit index (chunk index type 2).
+/// This index has no on-disk structure at all: for a fixed-shape, early-
+/// allocated, unfiltered dataset libhdf5 allocates every chunk of the chunk grid
+/// contiguously from `base`, in row-major chunk order. Chunk `i` therefore lives
+/// at `base + i * chunk_bytes`, is exactly `chunk_bytes` long, and is always
+/// present (no undefined-address holes and no per-chunk filter mask).
+fn collect_implicit_chunks(
+    base: u64,
+    shape: &[u64],
+    chunk_dims: &[u32],
+    chunk_bytes: usize,
+) -> Result<Vec<ChunkRecord>, FieldglassError> {
+    // Row-major chunk grid: ceil(shape / chunk) per dimension. Every cell is an
+    // allocated chunk.
+    let grid: Vec<u64> = shape
+        .iter()
+        .zip(chunk_dims)
+        .map(|(&s, &c)| s.div_ceil(c as u64))
+        .collect();
+    let grid_count: u64 = grid.iter().product();
+    // Bound the chunk count like the B-tree walk so a malformed shape can't
+    // drive an unbounded allocation.
+    if grid_count > MAX_BTREE_NODES as u64 {
+        return Err(FieldglassError::Parse(
+            "implicit chunk grid has too many chunks".into(),
+        ));
+    }
+
+    let size = u32::try_from(chunk_bytes)
+        .map_err(|_| FieldglassError::Parse("implicit chunk size exceeds u32".into()))?;
+    let chunk_bytes = chunk_bytes as u64;
+
+    let mut out = Vec::with_capacity(grid_count as usize);
+    for i in 0..grid_count {
+        let address = i
+            .checked_mul(chunk_bytes)
+            .and_then(|off| base.checked_add(off))
+            .ok_or_else(|| FieldglassError::Parse("implicit chunk address overflows u64".into()))?;
+        out.push(ChunkRecord {
+            address,
+            size,
+            filter_mask: 0,
+            offset: chunk_offset_from_linear(i, &grid, chunk_dims),
+        });
     }
     Ok(out)
 }
