@@ -6,8 +6,10 @@
 //! row-major (C) order; slice selection happens downstream.
 //!
 //! Storage is read for the three Data Layout classes a NetCDF-4 file uses:
-//! compact, contiguous, and chunked (version-1 B-tree index, the legacy
-//! `libver=earliest` form). Chunks pass back through the [`filter`](super::filter) pipeline
+//! compact, contiguous, and chunked. Chunked datasets are located through their
+//! chunk index — the version-1 B-tree of the legacy `libver=earliest` form, or
+//! the version-4 single-chunk and fixed-array indexes of the "latest format".
+//! Chunks pass back through the [`filter`](super::filter) pipeline
 //! (deflate / shuffle) before being scattered into place; any region with no
 //! stored chunk reads as the dataset's Fill Value (message `0x0005`) default.
 //!
@@ -16,7 +18,7 @@
 //! pick the host's little-endian order.
 
 use super::datatype::DatatypeClass;
-use super::layout::{ChunkedLayout, DataLayout};
+use super::layout::{ChunkIndex, ChunkedLayout, DataLayout};
 use super::object_header::{self, read_uint_le};
 use super::{Hdf5Probe, attribute, dataspace, filter::FilterPipeline, layout};
 use crate::classic::{MAX_VAR_ELEMENTS, NcType};
@@ -109,7 +111,7 @@ pub fn read_dataset_values(
         elem,
         &pipeline,
         fill_default.as_deref(),
-        probe.offset_size,
+        probe,
     )?;
 
     let mut out = Vec::with_capacity(total);
@@ -149,7 +151,7 @@ fn assemble_raw(
     elem: usize,
     pipeline: &FilterPipeline,
     fill_default: Option<&[u8]>,
-    osize: u8,
+    probe: &Hdf5Probe,
 ) -> Result<Vec<u8>, FieldglassError> {
     let span = byte_span(shape, elem)?;
 
@@ -182,7 +184,7 @@ fn assemble_raw(
             Ok(raw)
         }
         DataLayout::Chunked(chunked) => {
-            assemble_chunked(bytes, chunked, shape, elem, pipeline, fill_default, osize)
+            assemble_chunked(bytes, chunked, shape, elem, pipeline, fill_default, probe)
         }
     }
 }
@@ -211,9 +213,9 @@ fn fill_buffer(span: usize, elem: usize, fill_default: Option<&[u8]>) -> Vec<u8>
     }
 }
 
-/// Assemble a chunked dataset: walk the version-1 chunk B-tree, reverse each
-/// chunk's filters, and scatter it into the row-major output. Unstored regions
-/// keep the fill default.
+/// Assemble a chunked dataset: gather its chunk records from whichever chunk
+/// index the layout uses, reverse each chunk's filters, and scatter it into the
+/// row-major output. Unstored regions keep the fill default.
 fn assemble_chunked(
     bytes: &[u8],
     chunked: &ChunkedLayout,
@@ -221,8 +223,9 @@ fn assemble_chunked(
     elem: usize,
     pipeline: &FilterPipeline,
     fill_default: Option<&[u8]>,
-    osize: u8,
+    probe: &Hdf5Probe,
 ) -> Result<Vec<u8>, FieldglassError> {
+    let osize = probe.offset_size;
     let rank = shape.len();
     if chunked.chunk_dims.len() != rank {
         return Err(FieldglassError::Parse(format!(
@@ -239,10 +242,13 @@ fn assemble_chunked(
     let span = byte_span(shape, elem)?;
     let mut raw = fill_buffer(span, elem, fill_default);
 
-    let Some(btree_addr) = chunked.btree_address else {
-        return Ok(raw); // no chunk written: all fill
-    };
-
+    // A zero chunk edge is malformed; reject it up front so the chunk-grid math
+    // (which divides by each chunk edge) can't divide by zero.
+    if chunked.chunk_dims.contains(&0) {
+        return Err(FieldglassError::Parse(
+            "chunked layout has a zero-length chunk dimension".into(),
+        ));
+    }
     let chunk_elems: usize = chunked
         .chunk_dims
         .iter()
@@ -252,7 +258,37 @@ fn assemble_chunked(
         .checked_mul(elem)
         .ok_or_else(|| FieldglassError::Parse("chunk byte size overflows usize".into()))?;
 
-    let chunks = collect_chunks(bytes, btree_addr, rank, osize)?;
+    // Every chunk index resolves to the same per-chunk record; only the way the
+    // records are located differs. An unallocated index leaves the buffer as
+    // all fill.
+    let chunks = match &chunked.index {
+        ChunkIndex::BTreeV1(None)
+        | ChunkIndex::SingleChunk(None)
+        | ChunkIndex::FixedArray(None) => return Ok(raw),
+        ChunkIndex::BTreeV1(Some(addr)) => collect_chunks(bytes, *addr, rank, osize)?,
+        ChunkIndex::SingleChunk(Some(single)) => {
+            let size = single
+                .filtered_size
+                .unwrap_or(chunk_bytes as u64)
+                .try_into()
+                .map_err(|_| FieldglassError::Parse("single-chunk size exceeds u32".into()))?;
+            vec![ChunkRecord {
+                address: single.address,
+                size,
+                filter_mask: single.filter_mask,
+                offset: vec![0u64; rank],
+            }]
+        }
+        ChunkIndex::FixedArray(Some(addr)) => collect_fixed_array_chunks(
+            bytes,
+            *addr,
+            shape,
+            &chunked.chunk_dims,
+            chunk_bytes,
+            probe.offset_size,
+            probe.length_size,
+        )?,
+    };
     for chunk in chunks {
         let expanded = if pipeline.filters.is_empty() {
             read_at(bytes, chunk.address, chunk.size as usize)?.to_vec()
@@ -350,6 +386,152 @@ fn collect_chunks(
         }
     }
     Ok(out)
+}
+
+/// Fixed Array header / data-block signatures (v4 chunk index type 3).
+const SIG_FIXED_ARRAY_HEADER: &[u8; 4] = b"FAHD";
+const SIG_FIXED_ARRAY_DBLOCK: &[u8; 4] = b"FADB";
+
+/// Collect chunk records from a version-4 Fixed Array index, used for
+/// fixed-shape chunked datasets under the HDF5 "latest format". The array holds
+/// one element per chunk in row-major chunk order; an element is a chunk address
+/// (unfiltered) or address + on-disk size + filter mask (filtered). Each chunk's
+/// element-space offset is computed from its linear position in the chunk grid.
+fn collect_fixed_array_chunks(
+    bytes: &[u8],
+    header_addr: u64,
+    shape: &[u64],
+    chunk_dims: &[u32],
+    chunk_bytes: usize,
+    osize: u8,
+    lsize: u8,
+) -> Result<Vec<ChunkRecord>, FieldglassError> {
+    let o = osize as usize;
+    let l = lsize as usize;
+
+    // Fixed Array Header: signature, version, client id, entry size, page bits,
+    // max num entries (length_size), data block address (offset_size), checksum.
+    let mut h = super::heap::Cursor::at(bytes, header_addr)?;
+    h.tag(SIG_FIXED_ARRAY_HEADER)?;
+    let version = h.byte()?;
+    if version != 0 {
+        return Err(FieldglassError::Parse(format!(
+            "unsupported Fixed Array header version {version}"
+        )));
+    }
+    let client_id = h.byte()?;
+    if client_id > 1 {
+        // Only 0 (unfiltered chunks) and 1 (filtered chunks) are defined for a
+        // dataset-chunk Fixed Array; anything else is malformed or a client type
+        // this reader doesn't handle.
+        return Err(FieldglassError::Parse(format!(
+            "unsupported Fixed Array client id {client_id} (expected 0 or 1)"
+        )));
+    }
+    let entry_size = h.byte()? as usize;
+    let page_bits = h.byte()?;
+    let num_entries = h.uint(l)? as usize; // max num entries == chunk count
+    let dblock_addr = h.uint(o)?;
+
+    // Row-major chunk grid: ceil(shape / chunk) per dimension. Its cell count
+    // must match the array's entry count.
+    let grid: Vec<u64> = shape
+        .iter()
+        .zip(chunk_dims)
+        .map(|(&s, &c)| s.div_ceil(c as u64))
+        .collect();
+    let grid_count: u64 = grid.iter().product();
+    if grid_count != num_entries as u64 {
+        return Err(FieldglassError::Parse(format!(
+            "Fixed Array holds {num_entries} entries but the chunk grid has {grid_count}"
+        )));
+    }
+
+    // The data block is paged when the entry count exceeds one page; that layout
+    // (a page bitmap plus per-page checksums) is a follow-up.
+    let per_page = 1u64.checked_shl(page_bits as u32).unwrap_or(u64::MAX);
+    if num_entries as u64 > per_page {
+        return Err(FieldglassError::UnsupportedSection(
+            "HDF5 Fixed Array data block is paged, which is not decoded yet".into(),
+        ));
+    }
+
+    // Data Block: signature, version, client id, header back-pointer, then the
+    // elements (non-paged), then a checksum.
+    let mut d = super::heap::Cursor::at(bytes, dblock_addr)?;
+    d.tag(SIG_FIXED_ARRAY_DBLOCK)?;
+    let dversion = d.byte()?;
+    if dversion != 0 {
+        return Err(FieldglassError::Parse(format!(
+            "unsupported Fixed Array data block version {dversion}"
+        )));
+    }
+    let dclient = d.byte()?;
+    if dclient != client_id {
+        return Err(FieldglassError::Parse(
+            "Fixed Array data block client id disagrees with its header".into(),
+        ));
+    }
+    d.skip(o)?; // header back-pointer address
+
+    // Element layout: unfiltered (client 0) = address only; filtered (client 1)
+    // = address + on-disk chunk size + 4-byte filter mask. The chunk-size width
+    // is the entry size minus the address and filter-mask widths.
+    let filtered = client_id == 1;
+    let size_width = if filtered {
+        entry_size
+            .checked_sub(o + 4)
+            .filter(|&w| (1..=8).contains(&w))
+            .ok_or_else(|| {
+                FieldglassError::Parse(format!(
+                    "Fixed Array filtered entry size {entry_size} too small for a chunk element"
+                ))
+            })?
+    } else {
+        if entry_size != o {
+            return Err(FieldglassError::Parse(format!(
+                "Fixed Array unfiltered entry size {entry_size} != offset size {o}"
+            )));
+        }
+        0
+    };
+
+    let mut out = Vec::with_capacity(num_entries);
+    for i in 0..num_entries {
+        let raw_addr = d.uint(o)?;
+        let (size, filter_mask) = if filtered {
+            (d.uint(size_width)?, d.uint(4)? as u32)
+        } else {
+            (chunk_bytes as u64, 0)
+        };
+        if object_header::is_undefined_address(raw_addr, osize) {
+            continue; // chunk never written: stays fill
+        }
+        let size = u32::try_from(size)
+            .map_err(|_| FieldglassError::Parse("chunk size exceeds u32".into()))?;
+        out.push(ChunkRecord {
+            address: raw_addr,
+            size,
+            filter_mask,
+            offset: chunk_offset_from_linear(i as u64, &grid, chunk_dims),
+        });
+    }
+    Ok(out)
+}
+
+/// Element-space origin of the chunk at row-major linear index `i` within a
+/// chunk grid of dimensions `grid`, given the chunk edge lengths `chunk_dims`.
+fn chunk_offset_from_linear(mut i: u64, grid: &[u64], chunk_dims: &[u32]) -> Vec<u64> {
+    let mut coord = vec![0u64; grid.len()];
+    for d in (0..grid.len()).rev() {
+        coord[d] = i % grid[d];
+        i /= grid[d];
+    }
+    coord
+        .iter()
+        .zip(chunk_dims)
+        .map(|(&c, &cd)| c * cd as u64)
+        .collect()
 }
 
 /// Copy a chunk's decoded elements into the dataset's row-major buffer,

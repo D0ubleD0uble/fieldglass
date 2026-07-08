@@ -1,0 +1,148 @@
+{
+  "source": "h5py 3.16.0 (libhdf5 2.0.0), libver='latest'",
+  "superblock_version": 3,
+  "note": "version-4 data layout; single-chunk and fixed-array chunk indexes (#216)",
+  "raw_markers": {
+    "FAHD_fixed_array_header": true
+  },
+  "objects": {
+    "fixed_array": {
+      "kind": "dataset",
+      "datatype": {
+        "class": "floating-point",
+        "size_bytes": 4,
+        "byte_order": "little-endian"
+      },
+      "dataspace": {
+        "class": "simple",
+        "rank": 2,
+        "dims": [
+          8,
+          8
+        ],
+        "max_dims": [
+          8,
+          8
+        ]
+      },
+      "storage": {
+        "layout": "chunked",
+        "chunks": [
+          4,
+          4
+        ],
+        "filters": []
+      },
+      "fill_value": 0.0,
+      "attributes": [],
+      "values": {
+        "count": 64,
+        "present_count": 63,
+        "missing_count": 1,
+        "samples": {
+          "0": 0.0,
+          "1": 1.0,
+          "32": 32.0,
+          "62": 62.0,
+          "63": 63.0
+        },
+        "min": 1.0,
+        "max": 63.0,
+        "mean": 32.0
+      }
+    },
+    "single_chunk": {
+      "kind": "dataset",
+      "datatype": {
+        "class": "floating-point",
+        "size_bytes": 4,
+        "byte_order": "little-endian"
+      },
+      "dataspace": {
+        "class": "simple",
+        "rank": 2,
+        "dims": [
+          4,
+          4
+        ],
+        "max_dims": [
+          4,
+          4
+        ]
+      },
+      "storage": {
+        "layout": "chunked",
+        "chunks": [
+          4,
+          4
+        ],
+        "filters": []
+      },
+      "fill_value": 0.0,
+      "attributes": [],
+      "values": {
+        "count": 16,
+        "present_count": 15,
+        "missing_count": 1,
+        "samples": {
+          "0": 0.0,
+          "1": 1.0,
+          "8": 8.0,
+          "14": 14.0,
+          "15": 15.0
+        },
+        "min": 1.0,
+        "max": 15.0,
+        "mean": 8.0
+      }
+    },
+    "single_chunk_filtered": {
+      "kind": "dataset",
+      "datatype": {
+        "class": "floating-point",
+        "size_bytes": 4,
+        "byte_order": "little-endian"
+      },
+      "dataspace": {
+        "class": "simple",
+        "rank": 2,
+        "dims": [
+          4,
+          4
+        ],
+        "max_dims": [
+          4,
+          4
+        ]
+      },
+      "storage": {
+        "layout": "chunked",
+        "chunks": [
+          4,
+          4
+        ],
+        "filters": [
+          "shuffle",
+          "deflate"
+        ]
+      },
+      "fill_value": 0.0,
+      "attributes": [],
+      "values": {
+        "count": 16,
+        "present_count": 15,
+        "missing_count": 1,
+        "samples": {
+          "0": 0.0,
+          "1": 1.0,
+          "8": 8.0,
+          "14": 14.0,
+          "15": 15.0
+        },
+        "min": 1.0,
+        "max": 15.0,
+        "mean": 8.0
+      }
+    }
+  }
+}

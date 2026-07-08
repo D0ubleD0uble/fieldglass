@@ -313,6 +313,55 @@ def build_child_indirect(name: str, n_attrs: int, vlen: int) -> None:
           f"max_dblock_rows={heap['max_dblock_rows']} FHIB={heap['indirect_block_count']}]")
 
 
+def build_v4_chunk_index(name: str) -> None:
+    """Datasets whose version-4 chunk indexes are the two the reader decodes but
+    the ``v110`` fixture does not already cover: a **single chunk** (chunk shape
+    == dataset shape) and a fixed-shape multi-chunk **fixed array** with
+    unfiltered chunks. Written under ``libver='latest'`` so libhdf5 selects the
+    version-4 layout message and these newer indexes. (The ``v110`` fixture
+    already covers a *filtered* fixed array and an extensible array.)
+
+    ``single_chunk_filtered`` is a deliberate boundary case: libhdf5 2.0 writes a
+    filtered single chunk with a data-layout message **version 5** (not the
+    version 4 the unfiltered case uses). Version 5 is newer than the v3-spec
+    format this reader decodes, so it must error cleanly — a tracked follow-up
+    (#216). Values are ``arange`` so the oracle is a rule."""
+    path = FIXturesDir / name
+    with h5py.File(path, "w", libver="latest") as f:
+        f.attrs["title"] = np.bytes_(b"fieldglass v4 chunk-index fixture")
+
+        def ds(nm, data, **kw):
+            kw.setdefault("track_times", False)
+            return f.create_dataset(nm, data=data, **kw)
+
+        # Single Chunk index (type 1): the whole dataset is one chunk.
+        ds("single_chunk", np.arange(16, dtype="<f4").reshape(4, 4), chunks=(4, 4))
+        # Single Chunk, filtered → SINGLE_INDEX_WITH_FILTER: size + mask inline.
+        ds(
+            "single_chunk_filtered",
+            np.arange(16, dtype="<f4").reshape(4, 4),
+            chunks=(4, 4),
+            compression="gzip",
+            compression_opts=4,
+            shuffle=True,
+        )
+        # Fixed Array index (type 3), unfiltered: fixed-shape 8×8 in 4×4 chunks.
+        ds("fixed_array", np.arange(64, dtype="<f4").reshape(8, 8), chunks=(4, 4))
+
+    raw = path.read_bytes()
+    with h5py.File(path, "r") as f:
+        oracle = {
+            "source": f"h5py {h5py.__version__} (libhdf5 {h5py.version.hdf5_version}), libver='latest'",
+            "superblock_version": raw[raw.index(b"\x89HDF\r\n\x1a\n") + 8],
+            "note": "version-4 data layout; single-chunk and fixed-array chunk indexes (#216)",
+            "raw_markers": {"FAHD_fixed_array_header": b"FAHD" in raw},
+            "objects": {n: dataset_oracle(f[n]) for n in f if isinstance(f[n], h5py.Dataset)},
+        }
+    (FIXturesDir / f"{name}.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n")
+    print(f"wrote {path} ({len(raw)} B) + oracle "
+          f"[v4 single-chunk + fixed-array, FAHD={oracle['raw_markers']['FAHD_fixed_array_header']}]")
+
+
 def main() -> int:
     if not FIXturesDir.is_dir():
         raise SystemExit("run from the repo root")
@@ -325,6 +374,8 @@ def main() -> int:
     # 512 large (1 KiB) attributes overflow the attribute fractal heap's direct
     # rows into a child indirect block (depth-1 doubling-table recursion).
     build_child_indirect("hdf5_child_indirect.h5", n_attrs=512, vlen=256)
+    # Version-4 layout: single-chunk and unfiltered fixed-array chunk indexes.
+    build_v4_chunk_index("hdf5_v4_chunk_index.h5")
     return 0
 
 
