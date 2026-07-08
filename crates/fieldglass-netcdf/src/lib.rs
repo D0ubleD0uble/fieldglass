@@ -23,7 +23,7 @@ pub use hdf5::datatype::{ByteOrder, Datatype, DatatypeClass};
 pub use hdf5::dimensions::{
     DimensionInfo, Hdf5Metadata, VariableInfo, resolve as resolve_hdf5_metadata,
 };
-pub use hdf5::group::{ChildKind, GroupChild, list_root_children};
+pub use hdf5::group::{ChildKind, GroupChild, list_all_children, list_root_children};
 pub use hdf5::object_header::{HeaderMessage, ObjectHeader};
 pub use hdf5::{Hdf5Probe, root_group_address};
 pub use projection::{

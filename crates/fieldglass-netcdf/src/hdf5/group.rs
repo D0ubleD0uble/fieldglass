@@ -12,11 +12,12 @@
 //!   Small groups instead store Link messages (`0x0006`) directly in the object
 //!   header ("compact" storage); that case is handled too.
 //!
-//! Scope is the root group's immediate children (the NetCDF-4 acceptance
-//! target). Decoding child *contents* is the next layer (#39/#40). Layouts the
-//! fixtures don't exercise — multi-level B-trees, indirect fractal-heap blocks,
-//! huge/tiny heap objects, I/O-filtered heaps — return a clear error rather than
-//! risk a silent misread.
+//! [`list_root_children`] enumerates one group's immediate children;
+//! [`list_all_children`] descends the whole tree, presenting objects in nested
+//! groups with path-qualified names (#219). Decoding child *contents* is the
+//! next layer (#39/#40). Layouts the fixtures don't exercise — multi-level
+//! B-trees, indirect fractal-heap blocks, huge/tiny heap objects, I/O-filtered
+//! heaps — return a clear error rather than risk a silent misread.
 //!
 //! Reference: HDF5 file format specification version 3, "Disk Format: Level 1"
 //! <https://docs.hdfgroup.org/hdf5/develop/_f_m_t3.html>.
@@ -25,6 +26,7 @@ use super::Hdf5Probe;
 use super::heap::{self, Cursor, FractalHeap};
 use super::object_header::{self, read_uint_le};
 use fieldglass_core::FieldglassError;
+use std::collections::HashSet;
 
 // Object-header message types consulted here.
 const MSG_DATASPACE: u16 = 0x0001;
@@ -69,9 +71,20 @@ pub fn list_root_children(
     probe: &Hdf5Probe,
 ) -> Result<Vec<GroupChild>, FieldglassError> {
     let root = super::root_group_address(bytes, probe)?;
+    list_group_children(bytes, root, probe)
+}
+
+/// Enumerate one group's immediate children (by object-header address), sorted
+/// by name. The building block for both the root listing and the recursive
+/// descendant walk ([`list_all_children`]).
+pub fn list_group_children(
+    bytes: &[u8],
+    group_addr: u64,
+    probe: &Hdf5Probe,
+) -> Result<Vec<GroupChild>, FieldglassError> {
     let osize = probe.offset_size;
     let lsize = probe.length_size;
-    let header = object_header::walk(bytes, root, osize, lsize)?;
+    let header = object_header::walk(bytes, group_addr, osize, lsize)?;
 
     // A group uses exactly one of the two link layouts. Symbol Table wins if
     // present (legacy files); otherwise Link Info drives the modern path.
@@ -99,6 +112,93 @@ pub fn list_root_children(
             })
         })
         .collect()
+}
+
+/// Enumerate every dataset and committed datatype reachable from the root group,
+/// descending into child groups, with **path-qualified** names. A root-group
+/// child keeps its bare name (`temp`); a child of group `G` is named `/G/temp`,
+/// and a grandchild `/G/H/temp` — the netCDF path convention (#219). Groups
+/// themselves are not emitted (they are containers, not variables), but they are
+/// recursed into.
+///
+/// Depth-first, pre-order, children name-sorted at every level, so the order is
+/// deterministic and — for a file with no nested groups — identical to
+/// [`list_root_children`]. That keeps the emitted order (and hence each
+/// dataset's decode index) stable and shared between metadata resolution and the
+/// decode path, which both walk this list.
+///
+/// A `visited` set of object-header addresses guards against a cyclic hard-link
+/// graph, and a running count against a maliciously wide tree.
+///
+/// The traversal is an explicit frame stack, not native recursion: a
+/// pathologically deep group chain (thousands of nested groups, each tiny on
+/// disk) would otherwise overflow the call stack. Each frame holds one group's
+/// name-sorted children, a cursor into them, and that group's path prefix;
+/// `visited` bounds the total number of groups the stack can hold.
+pub fn list_all_children(
+    bytes: &[u8],
+    probe: &Hdf5Probe,
+) -> Result<Vec<GroupChild>, FieldglassError> {
+    /// One group's in-progress traversal: its children, the next to visit, and
+    /// the path prefix (`""` for the root, `/G` for a nested group `G`).
+    struct Frame {
+        children: Vec<GroupChild>,
+        next: usize,
+        prefix: String,
+    }
+
+    let root = super::root_group_address(bytes, probe)?;
+    let mut out = Vec::new();
+    let mut visited = HashSet::new();
+    visited.insert(root);
+    let mut stack = vec![Frame {
+        children: list_group_children(bytes, root, probe)?,
+        next: 0,
+        prefix: String::new(),
+    }];
+
+    while let Some(frame) = stack.last_mut() {
+        let Some(child) = frame.children.get(frame.next).cloned() else {
+            stack.pop();
+            continue;
+        };
+        frame.next += 1;
+        let prefix = frame.prefix.clone();
+        // The `frame` borrow ends here (below only touches `stack` as a whole).
+
+        if out.len() >= MAX_CHILDREN {
+            return Err(FieldglassError::Parse(
+                "HDF5 group tree has too many objects".into(),
+            ));
+        }
+        // Root-group children keep their bare name (`temp`); a child of a nested
+        // group is qualified by that group's leading-slash path (`/G/temp`).
+        let path = format!("{prefix}/{}", child.name);
+        match child.kind {
+            ChildKind::Group => {
+                // A hard-link cycle (or a shared subgroup reached twice) would
+                // otherwise loop forever / double-count; skip an already-seen
+                // group object. `path` (e.g. `/G`) becomes the child prefix.
+                if visited.insert(child.object_header_address) {
+                    let children = list_group_children(bytes, child.object_header_address, probe)?;
+                    stack.push(Frame {
+                        children,
+                        next: 0,
+                        prefix: path,
+                    });
+                }
+            }
+            ChildKind::Dataset | ChildKind::CommittedDatatype => {
+                let name = if prefix.is_empty() {
+                    child.name.clone()
+                } else {
+                    path
+                };
+                out.push(GroupChild { name, ..child });
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// Classify a child by walking its object header and inspecting message types.

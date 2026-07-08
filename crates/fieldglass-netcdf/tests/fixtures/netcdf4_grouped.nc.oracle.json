@@ -1,0 +1,69 @@
+{
+  "source": "netCDF4 1.7.4 (libnetcdf 4.9.3, HDF5 1.14.6)",
+  "format": "NETCDF4",
+  "note": "nested-group resolution with path-qualified names (#219)",
+  "dimensions": [
+    {
+      "name": "time",
+      "length": 2,
+      "unlimited": false
+    },
+    {
+      "name": "/PRODUCT/scanline",
+      "length": 3,
+      "unlimited": false
+    },
+    {
+      "name": "/PRODUCT/ground_pixel",
+      "length": 4,
+      "unlimited": false
+    }
+  ],
+  "variables": [
+    {
+      "name": "time",
+      "nc_type": "double",
+      "dimensions": [
+        "time"
+      ],
+      "is_coordinate": true
+    },
+    {
+      "name": "/PRODUCT/latitude",
+      "nc_type": "float",
+      "dimensions": [
+        "/PRODUCT/scanline",
+        "/PRODUCT/ground_pixel"
+      ],
+      "is_coordinate": false
+    },
+    {
+      "name": "/PRODUCT/longitude",
+      "nc_type": "float",
+      "dimensions": [
+        "/PRODUCT/scanline",
+        "/PRODUCT/ground_pixel"
+      ],
+      "is_coordinate": false
+    },
+    {
+      "name": "/PRODUCT/qa_value",
+      "nc_type": "float",
+      "dimensions": [
+        "time",
+        "/PRODUCT/scanline",
+        "/PRODUCT/ground_pixel"
+      ],
+      "is_coordinate": false
+    },
+    {
+      "name": "/PRODUCT/SUPPORT_DATA/surface_altitude",
+      "nc_type": "float",
+      "dimensions": [
+        "/PRODUCT/scanline",
+        "/PRODUCT/ground_pixel"
+      ],
+      "is_coordinate": false
+    }
+  ]
+}
