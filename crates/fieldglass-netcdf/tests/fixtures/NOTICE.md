@@ -197,6 +197,33 @@ single chunk addressed directly in the index block with no data blocks. Built by
 `tests/hdf5_value_decode.rs` checks the decoded values against `h5py`. Part of
 #216.
 
+## Filtered extensible-array chunk-index fixture (`hdf5_ea_filtered.h5`)
+
+A synthetic `h5py` (libhdf5) file written with `libver='latest'` whose datasets
+have one unlimited dimension **and** a filter (gzip + shuffle), so libhdf5
+indexes their chunks with a version-4 **Extensible Array** whose elements are the
+*filtered* form (client id 1: chunk address + on-disk size + filter mask, not the
+address-only elements the unfiltered array stores). libhdf5 2.0 writes these
+under a data-layout message **version 5**, which for the chunked class is encoded
+byte-for-byte like version 4. Values are `arange`:
+
+- `ea_filtered_iblock` (4 chunks) keeps every element directly in the
+  extensible-array index block (no data blocks), covering the filtered
+  index-block element read in isolation.
+- `ea_filtered_direct` (150 chunks) spans super blocks 0–3 whose data blocks are
+  addressed directly from the index block, covering filtered elements inside data
+  blocks across the doubling walk.
+- `ea_filtered_secondary` (280 chunks) is large enough that libhdf5 allocates a
+  **secondary block** for super block 4, reached via the index block's
+  secondary-block pointer.
+
+The builder asserts every `EAHD` header in the file has client id 1, positively
+confirming libhdf5 filtered the chunks (a client id 0 would mean the filter was
+dropped and the fixture no longer exercises the filtered path). Built by
+`tools/build_hdf5_fixtures.py` (`track_times=False` for reproducibility);
+`tests/hdf5_value_decode.rs` checks the decoded values against `h5py`. Part of
+#216.
+
 ## Implicit chunk-index fixture (`hdf5_implicit_index.h5`)
 
 A synthetic `h5py` (libhdf5) file written with `libver='latest'` whose datasets

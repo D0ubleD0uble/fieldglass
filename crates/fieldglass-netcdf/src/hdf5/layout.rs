@@ -7,19 +7,20 @@
 //! * **Chunked** — the elements are split into fixed-size chunks, each stored
 //!   (and optionally filtered) separately and located through a chunk index.
 //!
-//! Both **version 3** and **version 4** of the message are decoded. Version 3
-//! is the layout `libhdf5` has written since 1.6; its chunked form indexes the
-//! chunks with a **version-1 B-tree** (node type 1). Version 4 is what libhdf5
-//! ≥ 1.10 writes under the "latest format", and its chunked form selects among
-//! five chunk indexes — single chunk, implicit, fixed array, extensible array,
-//! and v2 B-tree. This decoder handles four of those: **single chunk** (whole
-//! dataset is one chunk) and **fixed array** (fixed-shape multi-chunk) for both
-//! filtered and unfiltered chunks, **implicit** (fixed-shape, early-allocated,
-//! unfiltered chunks stored contiguously with no on-disk index), and
-//! **extensible array** (one unlimited dimension) for unfiltered chunks. The
-//! v2-B-tree index and filtered extensible arrays are recognised and rejected
-//! with a clear per-index error rather than mis-read — they remain a tracked
-//! follow-up (#216).
+//! Versions **3**, **4**, and **5** of the message are decoded. Version 3 is the
+//! layout `libhdf5` has written since 1.6; its chunked form indexes the chunks
+//! with a **version-1 B-tree** (node type 1). Version 4 is what libhdf5 ≥ 1.10
+//! writes under the "latest format", and its chunked form selects among five
+//! chunk indexes — single chunk, implicit, fixed array, extensible array, and v2
+//! B-tree. Version 5 is what libhdf5 2.0 writes for a **filtered** chunked
+//! dataset; its chunked class is encoded byte-for-byte like version 4, so both
+//! share one parser. This decoder handles four of the five chunk indexes:
+//! **single chunk** (whole dataset is one chunk), **fixed array** (fixed-shape
+//! multi-chunk), and **extensible array** (one unlimited dimension), each for
+//! both filtered and unfiltered chunks, plus **implicit** (fixed-shape,
+//! early-allocated, unfiltered chunks stored contiguously with no on-disk
+//! index). The v2-B-tree index is recognised and rejected with a clear per-index
+//! error rather than mis-read — it remains a tracked follow-up (#216).
 //!
 //! Reference: HDF5 file format specification version 3, "Data Layout Message"
 //! (version 4 chunked storage property description) and "The Fixed Array Index".
@@ -105,10 +106,10 @@ pub fn decode(body: &[u8], probe: &Hdf5Probe) -> Result<DataLayout, FieldglassEr
     let version = *body
         .first()
         .ok_or_else(|| FieldglassError::Parse("empty data layout message".into()))?;
-    if version != 3 && version != 4 {
+    if !(3..=5).contains(&version) {
         return Err(FieldglassError::UnsupportedSection(format!(
             "HDF5 data layout message version {version} is not supported \
-             (only versions 3 and 4 are)"
+             (only versions 3, 4, and 5 are)"
         )));
     }
     let class = *body
@@ -118,7 +119,10 @@ pub fn decode(body: &[u8], probe: &Hdf5Probe) -> Result<DataLayout, FieldglassEr
     let lsize = probe.length_size as usize;
 
     // The chunked layout differs between message versions; compact and
-    // contiguous share one encoding across both.
+    // contiguous share one encoding across all of them. Version 5 (written by
+    // libhdf5 2.0 for a filtered chunked dataset) encodes the chunked class
+    // byte-for-byte like version 4 — only the version number differs — so both
+    // route through the same parser.
     if class == CLASS_CHUNKED {
         return if version == 3 {
             decode_chunked(body, probe, osize)
@@ -216,10 +220,11 @@ const V4_INDEX_V2_BTREE: u8 = 5;
 /// spec prose mislabels this gate as bit 0, but libhdf5 uses bit 1.)
 const V4_FLAG_SINGLE_INDEX_WITH_FILTER: u8 = 0b10;
 
-/// Decode the version-4 chunked layout property description: flags,
-/// dimensionality, the encoded chunk dimensions, then a chunk-index-type byte
-/// selecting how the chunks are located. Single Chunk (type 1) and Fixed Array
-/// (type 3) are decoded; the others return a clear per-index error.
+/// Decode the version-4 (and structurally identical version-5) chunked layout
+/// property description: flags, dimensionality, the encoded chunk dimensions,
+/// then a chunk-index-type byte selecting how the chunks are located. Single
+/// Chunk (type 1), Implicit (type 2), Fixed Array (type 3), and Extensible Array
+/// (type 4) are decoded; the v2 B-tree (type 5) returns a clear per-index error.
 fn decode_chunked_v4(
     body: &[u8],
     probe: &Hdf5Probe,
@@ -560,7 +565,8 @@ mod tests {
 
     #[test]
     fn rejects_unknown_message_version() {
-        let body = vec![5u8, CLASS_CONTIGUOUS];
+        // Versions 3, 4, and 5 are decoded; 6 is beyond the reader's range.
+        let body = vec![6u8, CLASS_CONTIGUOUS];
         assert!(matches!(
             decode(&body, &probe()),
             Err(FieldglassError::UnsupportedSection(_))

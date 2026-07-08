@@ -321,11 +321,11 @@ def build_v4_chunk_index(name: str) -> None:
     version-4 layout message and these newer indexes. (The ``v110`` fixture
     already covers a *filtered* fixed array and an extensible array.)
 
-    ``single_chunk_filtered`` is a deliberate boundary case: libhdf5 2.0 writes a
-    filtered single chunk with a data-layout message **version 5** (not the
-    version 4 the unfiltered case uses). Version 5 is newer than the v3-spec
-    format this reader decodes, so it must error cleanly — a tracked follow-up
-    (#216). Values are ``arange`` so the oracle is a rule."""
+    ``single_chunk_filtered`` exercises the **version-5** layout message: libhdf5
+    2.0 writes a filtered single chunk with a data-layout message version 5 (not
+    the version 4 the unfiltered case uses). For the chunked class version 5 is
+    encoded byte-for-byte like version 4, so it decodes through the same path.
+    Values are ``arange`` so the oracle is a rule."""
     path = FIXturesDir / name
     with h5py.File(path, "w", libver="latest") as f:
         f.attrs["title"] = np.bytes_(b"fieldglass v4 chunk-index fixture")
@@ -401,6 +401,71 @@ def build_extensible_array(name: str) -> None:
     (FIXturesDir / f"{name}.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n")
     print(f"wrote {path} ({len(raw)} B) + oracle "
           f"[EA direct + secondary, EASB={oracle['raw_markers']['EASB_secondary_block']}]")
+
+
+def build_extensible_array_filtered(name: str) -> None:
+    """Datasets with one unlimited dimension **and a filter** (gzip + shuffle),
+    whose chunks libhdf5 indexes with a version-4 **Extensible Array** whose
+    elements are *filtered* (client id 1): address + on-disk size + filter mask,
+    not the address-only elements the unfiltered array stores. Written under
+    ``libver='latest'``. Three sizes exercise every path a filtered element is
+    read (values are ``arange``):
+
+    - ``ea_filtered_iblock`` (4 chunks): all elements live directly in the
+      extensible-array index block — no data blocks. Covers the filtered
+      index-block element read in isolation.
+    - ``ea_filtered_direct`` (150 chunks): spans super blocks 0–3 whose data
+      blocks libhdf5 addresses directly from the index block (no secondary
+      block). Covers filtered elements inside data blocks.
+    - ``ea_filtered_secondary`` (280 chunks): large enough that libhdf5
+      allocates a **secondary block** for super block 4, reached via the index
+      block's secondary-block pointer.
+
+    (The unfiltered counterparts live in ``hdf5_ea_chunk_index.h5``.)"""
+    path = FIXturesDir / name
+    with h5py.File(path, "w", libver="latest") as f:
+        f.attrs["title"] = np.bytes_(b"fieldglass filtered extensible-array fixture")
+        for nm, nchunks in (("ea_filtered_iblock", 4), ("ea_filtered_direct", 150),
+                            ("ea_filtered_secondary", 280)):
+            n = nchunks * 4  # chunk edge 4
+            d = f.create_dataset(nm, shape=(n,), maxshape=(None,), chunks=(4,),
+                                 dtype="<f4", compression="gzip", compression_opts=4,
+                                 shuffle=True, track_times=False)
+            d[:] = np.arange(n, dtype="<f4")
+
+    raw = path.read_bytes()
+    # Every extensible-array header in this file must be a *filtered* one
+    # (client id 1, the byte after the 4-byte signature + 1-byte version); a
+    # client id 0 would mean libhdf5 dropped the filter and this fixture no
+    # longer exercises the filtered path.
+    i, saw_ea = 0, False
+    while (i := raw.find(b"EAHD", i)) >= 0:
+        saw_ea = True
+        client_id = raw[i + 5]
+        if client_id != 1:
+            raise SystemExit(
+                f"{name}: extensible-array header at {i} has client id {client_id}, "
+                f"expected 1 (filtered) — libhdf5 did not filter these chunks")
+        i += 1
+    if not saw_ea:
+        raise SystemExit(f"{name}: no EAHD extensible-array header — libhdf5 chose "
+                         f"a different chunk index (check maxshape / chunks)")
+    with h5py.File(path, "r") as f:
+        oracle = {
+            "source": f"h5py {h5py.__version__} (libhdf5 {h5py.version.hdf5_version}), libver='latest'",
+            "superblock_version": raw[raw.index(b"\x89HDF\r\n\x1a\n") + 8],
+            "note": "version-4 filtered extensible-array chunk index (client id 1), "
+                    "index-block + direct + secondary blocks (#216)",
+            "raw_markers": {
+                "EAHD_header": b"EAHD" in raw,
+                "EADB_data_block": b"EADB" in raw,
+                "EASB_secondary_block": b"EASB" in raw,
+            },
+            "objects": {n: dataset_oracle(f[n]) for n in f if isinstance(f[n], h5py.Dataset)},
+        }
+    (FIXturesDir / f"{name}.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n")
+    print(f"wrote {path} ({len(raw)} B) + oracle "
+          f"[filtered EA iblock + direct + secondary, EASB={oracle['raw_markers']['EASB_secondary_block']}]")
 
 
 def build_implicit_index(name: str) -> None:
@@ -485,6 +550,9 @@ def main() -> int:
     build_v4_chunk_index("hdf5_v4_chunk_index.h5")
     # Version-4 extensible array (unlimited dimension): direct + secondary blocks.
     build_extensible_array("hdf5_ea_chunk_index.h5")
+    # Version-4 *filtered* extensible array (unlimited dimension + gzip/shuffle):
+    # index-block, direct, and secondary-block-located data blocks.
+    build_extensible_array_filtered("hdf5_ea_filtered.h5")
     # Version-4 implicit index (fixed-shape, early-allocated, unfiltered chunks).
     build_implicit_index("hdf5_implicit_index.h5")
     return 0
