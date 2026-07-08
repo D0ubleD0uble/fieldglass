@@ -534,6 +534,88 @@ def build_implicit_index(name: str) -> None:
     print(f"wrote {path} ({len(raw)} B) + oracle [v4 implicit index, no FAHD/EAHD]")
 
 
+def build_v2_btree(name: str) -> None:
+    """Datasets with **more than one unlimited dimension**, the case libhdf5
+    indexes with a version-4 **version-2 B-tree** (chunk index type 5) rather than
+    a fixed or extensible array (which assume at most one growth dimension).
+    Written under ``libver='latest'``. Each record carries the chunk's scaled
+    (chunk-grid) coordinate directly, so the reader multiplies it by the chunk
+    edge to place the chunk. Two datasets cover the reader's two record shapes
+    (values are ``arange``):
+
+    - ``bt2`` (4×4 in 2×2 chunks): unfiltered chunks → type-10 records (address +
+      scaled offsets).
+    - ``bt2_filtered`` (4×4 gzip+shuffle in 2×2 chunks): filtered chunks →
+      type-11 records (address + on-disk size + filter mask + scaled offsets).
+
+    A larger unfiltered grid (``bt2_multi`` 8×8 in 2×2 → 16 chunks) keeps the
+    B-tree exercised with several records per leaf without depending on a specific
+    node fanout."""
+    path = FIXturesDir / name
+    with h5py.File(path, "w", libver="latest") as f:
+        f.attrs["title"] = np.bytes_(b"fieldglass v2 B-tree chunk-index fixture")
+
+        def bt2_ds(nm, shape, chunks, **kw):
+            kw.setdefault("track_times", False)
+            d = f.create_dataset(nm, shape=shape, maxshape=(None,) * len(shape),
+                                 chunks=chunks, dtype="<f4", **kw)
+            d[...] = np.arange(int(np.prod(shape)), dtype="<f4").reshape(shape)
+            return d
+
+        bt2_ds("bt2", (4, 4), (2, 2))
+        bt2_ds("bt2_multi", (8, 8), (2, 2))
+        bt2_ds("bt2_filtered", (4, 4), (2, 2),
+               compression="gzip", compression_opts=4, shuffle=True)
+
+    raw = path.read_bytes()
+    # Positively confirm the v2 B-tree chunk index: every chunk-index B-tree
+    # header (BTHD) must be type 10 (unfiltered) or 11 (filtered), and neither a
+    # fixed nor extensible array header may appear — those would mean libhdf5 chose
+    # a different index (check maxshape has >1 unlimited dimension).
+    for marker in (b"FAHD", b"EAHD"):
+        if marker in raw:
+            raise SystemExit(
+                f"{name}: unexpected {marker.decode()} marker — libhdf5 did not use "
+                f"the v2 B-tree index (check maxshape / chunks)")
+    saw_chunk_bt2 = False
+    i = 0
+    while (i := raw.find(b"BTHD", i)) >= 0:
+        if raw[i + 5] in (10, 11):
+            saw_chunk_bt2 = True
+        i += 1
+    if not saw_chunk_bt2:
+        raise SystemExit(f"{name}: no chunk-index BTHD (type 10 or 11) — libhdf5 "
+                         f"chose a different chunk index")
+    with h5py.File(path, "r") as f:
+        oracle = {
+            "source": f"h5py {h5py.__version__} (libhdf5 {h5py.version.hdf5_version}), libver='latest'",
+            "superblock_version": raw[raw.index(b"\x89HDF\r\n\x1a\n") + 8],
+            "note": "version-4 v2 B-tree chunk index (>1 unlimited dimension), "
+                    "unfiltered (type 10) + filtered (type 11) records (#216)",
+            "raw_markers": {
+                "BTHD_type10_unfiltered_chunks": any(
+                    raw[j + 5] == 10 for j in _find_all(raw, b"BTHD")),
+                "BTHD_type11_filtered_chunks": any(
+                    raw[j + 5] == 11 for j in _find_all(raw, b"BTHD")),
+                "no_FAHD_fixed_array": b"FAHD" not in raw,
+                "no_EAHD_extensible_array": b"EAHD" not in raw,
+            },
+            "objects": {n: dataset_oracle(f[n]) for n in f if isinstance(f[n], h5py.Dataset)},
+        }
+    (FIXturesDir / f"{name}.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n")
+    print(f"wrote {path} ({len(raw)} B) + oracle [v4 v2-B-tree chunk index, "
+          f"type10={oracle['raw_markers']['BTHD_type10_unfiltered_chunks']}, "
+          f"type11={oracle['raw_markers']['BTHD_type11_filtered_chunks']}]")
+
+
+def _find_all(raw: bytes, sig: bytes) -> list[int]:
+    out, i = [], 0
+    while (i := raw.find(sig, i)) >= 0:
+        out.append(i)
+        i += 1
+    return out
+
+
 def main() -> int:
     if not FIXturesDir.is_dir():
         raise SystemExit("run from the repo root")
@@ -555,6 +637,8 @@ def main() -> int:
     build_extensible_array_filtered("hdf5_ea_filtered.h5")
     # Version-4 implicit index (fixed-shape, early-allocated, unfiltered chunks).
     build_implicit_index("hdf5_implicit_index.h5")
+    # Version-4 v2 B-tree index (>1 unlimited dimension): unfiltered + filtered.
+    build_v2_btree("hdf5_v2_btree_index.h5")
     return 0
 
 

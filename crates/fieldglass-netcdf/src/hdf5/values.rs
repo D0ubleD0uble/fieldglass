@@ -267,7 +267,8 @@ fn assemble_chunked(
         | ChunkIndex::SingleChunk(None)
         | ChunkIndex::Implicit(None)
         | ChunkIndex::FixedArray(None)
-        | ChunkIndex::ExtensibleArray(None) => return Ok(raw),
+        | ChunkIndex::ExtensibleArray(None)
+        | ChunkIndex::V2Btree(None) => return Ok(raw),
         ChunkIndex::BTreeV1(Some(addr)) => collect_chunks(bytes, *addr, rank, osize)?,
         ChunkIndex::SingleChunk(Some(single)) => {
             let size = single
@@ -306,6 +307,14 @@ fn assemble_chunked(
             bytes,
             *addr,
             shape,
+            &chunked.chunk_dims,
+            chunk_bytes,
+            probe.offset_size,
+            probe.length_size,
+        )?,
+        ChunkIndex::V2Btree(Some(addr)) => collect_v2_btree_chunks(
+            bytes,
+            *addr,
             &chunked.chunk_dims,
             chunk_bytes,
             probe.offset_size,
@@ -770,6 +779,103 @@ fn collect_extensible_array_chunks(
             }
         }
         s += 1;
+    }
+    Ok(out)
+}
+
+/// v2 B-tree chunk-index B-tree type IDs: type 10 indexes non-filtered dataset
+/// chunks and type 11 filtered ones (libhdf5 `H5B2_CDSET_ID` /
+/// `H5B2_CDSET_FILT_ID`).
+const BTREE_V2_TYPE_CHUNK_UNFILTERED: u8 = 10;
+const BTREE_V2_TYPE_CHUNK_FILTERED: u8 = 11;
+
+/// Collect chunk records from a version-4 v2 B-tree index (chunk index type 5),
+/// which libhdf5 selects for a chunked dataset with more than one unlimited
+/// dimension. Unlike the Fixed and Extensible Arrays — where a chunk's grid
+/// position is implied by its element's ordinal — each v2 B-tree record carries
+/// the chunk's *scaled* (chunk-grid) coordinate explicitly, so the chunk's
+/// element-space origin is `scaled[d] * chunk_dims[d]`. The records reuse the
+/// shared v2 B-tree reader ([`super::heap::btree_v2_records`]); their two shapes
+/// match the Fixed / Extensible Array element prefix — type 10 = address only,
+/// type 11 = address + on-disk size + filter mask — followed by one 8-byte scaled
+/// offset per dataset dimension.
+fn collect_v2_btree_chunks(
+    bytes: &[u8],
+    header_addr: u64,
+    chunk_dims: &[u32],
+    chunk_bytes: usize,
+    osize: u8,
+    lsize: u8,
+) -> Result<Vec<ChunkRecord>, FieldglassError> {
+    let o = osize as usize;
+    let rank = chunk_dims.len();
+    let (btree_type, records) = super::heap::btree_v2_records(bytes, header_addr, osize, lsize)?;
+    let filtered = match btree_type {
+        BTREE_V2_TYPE_CHUNK_UNFILTERED => false,
+        BTREE_V2_TYPE_CHUNK_FILTERED => true,
+        other => {
+            return Err(FieldglassError::Parse(format!(
+                "unsupported B-tree v2 type {other} for a chunk index (expected 10 or 11)"
+            )));
+        }
+    };
+    // One 8-byte scaled offset per dataset dimension trails every record.
+    let scaled_bytes = rank
+        .checked_mul(8)
+        .ok_or_else(|| FieldglassError::Parse("chunk rank overflows a record size".into()))?;
+
+    let mut out = Vec::with_capacity(records.len());
+    for record in &records {
+        // The on-disk chunk-size field of a *filtered* record takes up whatever
+        // the record has left after the address, 4-byte filter mask, and scaled
+        // offsets. libhdf5 sizes that field from the chunk byte size, and its
+        // width has varied across versions, so derive it from the record width
+        // the B-tree header advertised rather than recomputing the formula. An
+        // unfiltered record is an address followed straight by the scaled offsets.
+        let size_width = if filtered {
+            record
+                .len()
+                .checked_sub(o + 4 + scaled_bytes)
+                .filter(|&w| (1..=8).contains(&w))
+                .ok_or_else(|| {
+                    FieldglassError::Parse(format!(
+                        "filtered v2 B-tree chunk record is {} bytes, too small for rank {rank}",
+                        record.len()
+                    ))
+                })?
+        } else {
+            if record.len() != o + scaled_bytes {
+                return Err(FieldglassError::Parse(format!(
+                    "unfiltered v2 B-tree chunk record is {} bytes, expected {}",
+                    record.len(),
+                    o + scaled_bytes
+                )));
+            }
+            0
+        };
+
+        let mut cur = super::heap::Cursor::over(record);
+        let elem = read_chunk_element(&mut cur, o, filtered, size_width, chunk_bytes)?;
+        // A v2 B-tree only ever records written chunks, but skip a stray
+        // undefined address rather than fabricate a chunk at the sentinel.
+        if object_header::is_undefined_address(elem.addr, osize) {
+            continue;
+        }
+        let mut offset = Vec::with_capacity(rank);
+        for &cd in chunk_dims {
+            let scaled = cur.uint(8)?;
+            offset.push(scaled.checked_mul(cd as u64).ok_or_else(|| {
+                FieldglassError::Parse("v2 B-tree chunk offset overflows".into())
+            })?);
+        }
+        let size = u32::try_from(elem.size)
+            .map_err(|_| FieldglassError::Parse("chunk size exceeds u32".into()))?;
+        out.push(ChunkRecord {
+            address: elem.addr,
+            size,
+            filter_mask: elem.filter_mask,
+            offset,
+        });
     }
     Ok(out)
 }

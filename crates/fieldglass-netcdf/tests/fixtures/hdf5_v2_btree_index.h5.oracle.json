@@ -1,0 +1,151 @@
+{
+  "source": "h5py 3.16.0 (libhdf5 2.0.0), libver='latest'",
+  "superblock_version": 3,
+  "note": "version-4 v2 B-tree chunk index (>1 unlimited dimension), unfiltered (type 10) + filtered (type 11) records (#216)",
+  "raw_markers": {
+    "BTHD_type10_unfiltered_chunks": true,
+    "BTHD_type11_filtered_chunks": true,
+    "no_FAHD_fixed_array": true,
+    "no_EAHD_extensible_array": true
+  },
+  "objects": {
+    "bt2": {
+      "kind": "dataset",
+      "datatype": {
+        "class": "floating-point",
+        "size_bytes": 4,
+        "byte_order": "little-endian"
+      },
+      "dataspace": {
+        "class": "simple",
+        "rank": 2,
+        "dims": [
+          4,
+          4
+        ],
+        "max_dims": [
+          -1,
+          -1
+        ]
+      },
+      "storage": {
+        "layout": "chunked",
+        "chunks": [
+          2,
+          2
+        ],
+        "filters": []
+      },
+      "fill_value": 0.0,
+      "attributes": [],
+      "values": {
+        "count": 16,
+        "present_count": 15,
+        "missing_count": 1,
+        "samples": {
+          "0": 0.0,
+          "1": 1.0,
+          "8": 8.0,
+          "14": 14.0,
+          "15": 15.0
+        },
+        "min": 1.0,
+        "max": 15.0,
+        "mean": 8.0
+      }
+    },
+    "bt2_filtered": {
+      "kind": "dataset",
+      "datatype": {
+        "class": "floating-point",
+        "size_bytes": 4,
+        "byte_order": "little-endian"
+      },
+      "dataspace": {
+        "class": "simple",
+        "rank": 2,
+        "dims": [
+          4,
+          4
+        ],
+        "max_dims": [
+          -1,
+          -1
+        ]
+      },
+      "storage": {
+        "layout": "chunked",
+        "chunks": [
+          2,
+          2
+        ],
+        "filters": [
+          "shuffle",
+          "deflate"
+        ]
+      },
+      "fill_value": 0.0,
+      "attributes": [],
+      "values": {
+        "count": 16,
+        "present_count": 15,
+        "missing_count": 1,
+        "samples": {
+          "0": 0.0,
+          "1": 1.0,
+          "8": 8.0,
+          "14": 14.0,
+          "15": 15.0
+        },
+        "min": 1.0,
+        "max": 15.0,
+        "mean": 8.0
+      }
+    },
+    "bt2_multi": {
+      "kind": "dataset",
+      "datatype": {
+        "class": "floating-point",
+        "size_bytes": 4,
+        "byte_order": "little-endian"
+      },
+      "dataspace": {
+        "class": "simple",
+        "rank": 2,
+        "dims": [
+          8,
+          8
+        ],
+        "max_dims": [
+          -1,
+          -1
+        ]
+      },
+      "storage": {
+        "layout": "chunked",
+        "chunks": [
+          2,
+          2
+        ],
+        "filters": []
+      },
+      "fill_value": 0.0,
+      "attributes": [],
+      "values": {
+        "count": 64,
+        "present_count": 63,
+        "missing_count": 1,
+        "samples": {
+          "0": 0.0,
+          "1": 1.0,
+          "32": 32.0,
+          "62": 62.0,
+          "63": 63.0
+        },
+        "min": 1.0,
+        "max": 63.0,
+        "mean": 32.0
+      }
+    }
+  }
+}
