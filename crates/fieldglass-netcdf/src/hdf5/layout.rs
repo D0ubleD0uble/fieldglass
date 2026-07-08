@@ -12,13 +12,14 @@
 //! chunks with a **version-1 B-tree** (node type 1). Version 4 is what libhdf5
 //! ≥ 1.10 writes under the "latest format", and its chunked form selects among
 //! five chunk indexes — single chunk, implicit, fixed array, extensible array,
-//! and v2 B-tree. This decoder handles three of those: **single chunk** (whole
+//! and v2 B-tree. This decoder handles four of those: **single chunk** (whole
 //! dataset is one chunk) and **fixed array** (fixed-shape multi-chunk) for both
-//! filtered and unfiltered chunks, and **extensible array** (one unlimited
-//! dimension) for unfiltered chunks. The implicit and v2-B-tree indexes, and
-//! filtered extensible arrays, are recognised and rejected with a clear
-//! per-index error rather than mis-read — they remain a tracked follow-up
-//! (#216).
+//! filtered and unfiltered chunks, **implicit** (fixed-shape, early-allocated,
+//! unfiltered chunks stored contiguously with no on-disk index), and
+//! **extensible array** (one unlimited dimension) for unfiltered chunks. The
+//! v2-B-tree index and filtered extensible arrays are recognised and rejected
+//! with a clear per-index error rather than mis-read — they remain a tracked
+//! follow-up (#216).
 //!
 //! Reference: HDF5 file format specification version 3, "Data Layout Message"
 //! (version 4 chunked storage property description) and "The Fixed Array Index".
@@ -63,7 +64,8 @@ pub struct ChunkedLayout {
 
 /// The chunk index that locates a chunked dataset's chunks. Version-3 messages
 /// always use a version-1 B-tree; version-4 messages select among several — of
-/// which single chunk, fixed array, and extensible array are decoded here.
+/// which single chunk, implicit, fixed array, and extensible array are decoded
+/// here.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChunkIndex {
     /// Version-1 B-tree (node type 1) at the given address. `None` when no chunk
@@ -73,6 +75,11 @@ pub enum ChunkIndex {
     /// The whole dataset is a single chunk, stored inline in the layout message
     /// (v4 chunk index type 1). `None` when the chunk is unallocated.
     SingleChunk(Option<SingleChunk>),
+    /// Fixed-shape, early-allocated, unfiltered dataset with an Implicit index
+    /// (v4 chunk index type 2): the chunks are stored contiguously in row-major
+    /// chunk order with no on-disk index structure, so the value is the base
+    /// address of that contiguous chunk array. `None` when unallocated.
+    Implicit(Option<u64>),
     /// Fixed-shape dataset indexed by a Fixed Array (v4 chunk index type 3); the
     /// address is that of the "FAHD" header. `None` when unallocated.
     FixedArray(Option<u64>),
@@ -297,9 +304,16 @@ fn decode_chunked_v4(
             }
         }
         V4_INDEX_IMPLICIT => {
-            return Err(FieldglassError::UnsupportedSection(
-                "HDF5 v4 chunked layout uses the implicit index, which is not decoded yet".into(),
-            ));
+            // No index-specific parameters and no on-disk index structure: the
+            // base address of the contiguous chunk array follows the index-type
+            // byte directly. Every chunk is allocated (early allocation), so an
+            // undefined base address means the whole dataset is unwritten.
+            let raw_addr = read_uint_le(body, pos, osize)?;
+            if is_undefined_address(raw_addr, probe.offset_size) {
+                ChunkIndex::Implicit(None)
+            } else {
+                ChunkIndex::Implicit(Some(raw_addr))
+            }
         }
         V4_INDEX_EXTENSIBLE_ARRAY => {
             // Index-specific info: max bits, index-block elements, min data-block
@@ -516,12 +530,32 @@ mod tests {
     }
 
     #[test]
-    fn rejects_v4_implicit_index_cleanly() {
-        let body = vec![4u8, CLASS_CHUNKED, 0, 2, 1, 4, 4, V4_INDEX_IMPLICIT];
-        assert!(matches!(
-            decode(&body, &probe()),
-            Err(FieldglassError::UnsupportedSection(_))
-        ));
+    fn decodes_v4_implicit() {
+        // Real libhdf5 implicit-index layout message (2-D 8×8 dataset in 4×4
+        // chunks, element size 4): dimensionality 3, dims [4,4,4], index type 2,
+        // then the base address of the contiguous chunk array (0x800) with no
+        // intervening page-bits byte.
+        let mut body = vec![4u8, CLASS_CHUNKED, 0, 3, 1, 4, 4, 4, V4_INDEX_IMPLICIT];
+        body.extend_from_slice(&0x800u64.to_le_bytes());
+        match decode(&body, &probe()).unwrap() {
+            DataLayout::Chunked(c) => {
+                assert_eq!(c.chunk_dims, vec![4, 4]);
+                assert_eq!(c.element_size, 4);
+                assert_eq!(c.index, ChunkIndex::Implicit(Some(0x800)));
+            }
+            other => panic!("expected chunked, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn decodes_v4_implicit_unallocated() {
+        // An undefined base address (all-0xFF) means every chunk is unwritten.
+        let mut body = vec![4u8, CLASS_CHUNKED, 0, 3, 1, 4, 4, 4, V4_INDEX_IMPLICIT];
+        body.extend_from_slice(&u64::MAX.to_le_bytes());
+        match decode(&body, &probe()).unwrap() {
+            DataLayout::Chunked(c) => assert_eq!(c.index, ChunkIndex::Implicit(None)),
+            other => panic!("expected chunked, got {other:?}"),
+        }
     }
 
     #[test]

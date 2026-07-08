@@ -1,0 +1,101 @@
+{
+  "source": "h5py 3.16.0 (libhdf5 2.0.0), libver='latest'",
+  "superblock_version": 3,
+  "note": "version-4 implicit chunk index (early-allocated, unfiltered) (#216)",
+  "raw_markers": {
+    "no_FAHD_fixed_array": true,
+    "no_EAHD_extensible_array": true
+  },
+  "objects": {
+    "implicit": {
+      "kind": "dataset",
+      "datatype": {
+        "class": "floating-point",
+        "size_bytes": 4,
+        "byte_order": "little-endian"
+      },
+      "dataspace": {
+        "class": "simple",
+        "rank": 2,
+        "dims": [
+          8,
+          8
+        ],
+        "max_dims": [
+          8,
+          8
+        ]
+      },
+      "storage": {
+        "layout": "chunked",
+        "chunks": [
+          4,
+          4
+        ],
+        "filters": []
+      },
+      "fill_value": 0.0,
+      "attributes": [],
+      "values": {
+        "count": 64,
+        "present_count": 63,
+        "missing_count": 1,
+        "samples": {
+          "0": 0.0,
+          "1": 1.0,
+          "32": 32.0,
+          "62": 62.0,
+          "63": 63.0
+        },
+        "min": 1.0,
+        "max": 63.0,
+        "mean": 32.0
+      }
+    },
+    "implicit_partial": {
+      "kind": "dataset",
+      "datatype": {
+        "class": "floating-point",
+        "size_bytes": 4,
+        "byte_order": "little-endian"
+      },
+      "dataspace": {
+        "class": "simple",
+        "rank": 2,
+        "dims": [
+          5,
+          7
+        ],
+        "max_dims": [
+          5,
+          7
+        ]
+      },
+      "storage": {
+        "layout": "chunked",
+        "chunks": [
+          4,
+          4
+        ],
+        "filters": []
+      },
+      "fill_value": 0.0,
+      "attributes": [],
+      "values": {
+        "count": 35,
+        "present_count": 34,
+        "missing_count": 1,
+        "samples": {
+          "0": 0.0,
+          "1": 1.0,
+          "17": 17.0,
+          "33": 33.0,
+          "34": 34.0
+        },
+        "min": 1.0,
+        "max": 34.0,
+        "mean": 17.5
+      }
+    }
+  }
+}

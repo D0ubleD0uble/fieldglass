@@ -14,6 +14,7 @@ const V1_SYMBOLTABLE: &[u8] = include_bytes!("fixtures/hdf5_v1_symboltable.h5");
 const V2_LINKINFO: &[u8] = include_bytes!("fixtures/hdf5_v2_linkinfo.h5");
 const V4_CHUNK_INDEX: &[u8] = include_bytes!("fixtures/hdf5_v4_chunk_index.h5");
 const EA_CHUNK_INDEX: &[u8] = include_bytes!("fixtures/hdf5_ea_chunk_index.h5");
+const IMPLICIT_INDEX: &[u8] = include_bytes!("fixtures/hdf5_implicit_index.h5");
 const DUMMY: &[u8] = include_bytes!("fixtures/netcdf4_hdf5_dummy.nc");
 
 /// Decode every root dataset, mapping name → Result of present-or-None values.
@@ -165,6 +166,33 @@ fn decodes_v4_unfiltered_fixed_array_dataset() {
     assert_eq!(
         present(&got["fixed_array"]),
         (0..64).map(|i| i as f64).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn decodes_v4_implicit_index_dataset() {
+    // `implicit` is a fixed-shape 8×8 field in 4×4 chunks, unfiltered and early-
+    // allocated, so libhdf5 indexes it with the version-4 Implicit index: the
+    // four chunks are stored contiguously from a base address with no on-disk
+    // index. The reader locates chunk `i` at `base + i * chunk_bytes`. Values are
+    // arange(64).
+    let got = decode_all(IMPLICIT_INDEX);
+    assert_eq!(
+        present(&got["implicit"]),
+        (0..64).map(|i| i as f64).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn decodes_v4_implicit_index_partial_edge_chunks() {
+    // `implicit_partial` is 5×7 in 4×4 chunks: a 2×2 grid of full-size chunks
+    // whose right and bottom chunks hang past the dataset bounds. Exercises the
+    // implicit index together with edge-chunk clipping on scatter. Values are
+    // arange(35).
+    let got = decode_all(IMPLICIT_INDEX);
+    assert_eq!(
+        present(&got["implicit_partial"]),
+        (0..35).map(|i| i as f64).collect::<Vec<_>>()
     );
 }
 
