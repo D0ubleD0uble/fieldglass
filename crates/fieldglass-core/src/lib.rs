@@ -50,6 +50,7 @@ pub use reader::DataMessage;
 pub use reader::FormatReader;
 #[cfg(feature = "render")]
 pub use warp::{
-    ForwardMap, Orthographic, PolarStereographic, PreparedTarget, Resampling, SourceGrid,
-    TargetProjection, TargetRaster, WarpedRaster, WebMercator, warp, warp_to_equirectangular,
+    ForwardMap, Mollweide, Orthographic, PolarStereographic, PreparedTarget, Resampling,
+    SourceGrid, TargetProjection, TargetRaster, WarpedRaster, WebMercator, warp,
+    warp_to_equirectangular,
 };

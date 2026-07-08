@@ -2,7 +2,7 @@
 
 use fieldglass_core::{
     Format, GaussianParams, GaussianProjector, GeostationaryParams, GeostationaryProjector,
-    LambertParams, LambertProjector, LatLonParams, MercatorParams, Orthographic,
+    LambertParams, LambertProjector, LatLonParams, MercatorParams, Mollweide, Orthographic,
     PlanarGridProjector, PolarStereoParams, PolarStereoProjector, PolarStereographic,
     ProjectedPolylines, Resampling, RotatedLatLonParams, RotatedLatLonProjector, SourceGrid,
     SourceOverlayTarget, TargetRaster, WebMercator,
@@ -2301,10 +2301,11 @@ impl ResolvedOptions {
             "polar_stereographic" => {
                 TargetKind::Warp(polar_stereographic_from_options(options, preset))
             }
+            "mollweide" => TargetKind::Warp(mollweide_from_options(options)),
             other => {
                 return Err(napi::Error::from_reason(format!(
                     "unknown projection {other:?} (expected \"source\", \"equirectangular\", \
-                     \"web_mercator\", \"orthographic\", or \"polar_stereographic\")"
+                     \"web_mercator\", \"orthographic\", \"polar_stereographic\", or \"mollweide\")"
                 )));
             }
         };
@@ -2362,6 +2363,15 @@ fn orthographic_preset_centre(preset: Option<&str>) -> (f64, f64) {
 fn polar_stereographic_from_options(o: &RenderOptions, preset: Option<&str>) -> WarpTarget {
     WarpTarget::PolarStereographic {
         south_pole: matches!(preset, Some("south")),
+        lon0: o.center_lon.unwrap_or(0.0),
+    }
+}
+
+/// Resolve the Mollweide target. The only parameter is the central meridian —
+/// the free-form `center_lon` when given, else 0° (Greenwich-centred). There is
+/// no hemisphere/centre preset: Mollweide always shows the whole globe.
+fn mollweide_from_options(o: &RenderOptions) -> WarpTarget {
+    WarpTarget::Mollweide {
         lon0: o.center_lon.unwrap_or(0.0),
     }
 }
@@ -2526,6 +2536,11 @@ enum WarpTarget {
         south_pole: bool,
         lon0: f64,
     },
+    /// Pseudocylindrical equal-area world target parameterised by its central
+    /// meridian; fits an ellipse to a 2:1 raster with no lat/lon-box extent.
+    Mollweide {
+        lon0: f64,
+    },
 }
 
 impl WarpTarget {
@@ -2535,6 +2550,7 @@ impl WarpTarget {
             WarpTarget::WebMercator => "web mercator",
             WarpTarget::Orthographic { .. } => "orthographic",
             WarpTarget::PolarStereographic { .. } => "polar stereographic",
+            WarpTarget::Mollweide { .. } => "mollweide",
         }
     }
 }
@@ -2598,6 +2614,7 @@ enum BuiltTarget {
     Mercator(WebMercator),
     Ortho(Orthographic),
     Polar(PolarStereographic),
+    Moll(Mollweide),
 }
 
 impl BuiltTarget {
@@ -2607,6 +2624,7 @@ impl BuiltTarget {
             BuiltTarget::Mercator(t) => t.dims(),
             BuiltTarget::Ortho(t) => t.dims(),
             BuiltTarget::Polar(t) => t.dims(),
+            BuiltTarget::Moll(t) => t.dims(),
         }
     }
 
@@ -2616,6 +2634,7 @@ impl BuiltTarget {
             BuiltTarget::Mercator(t) => warp(source, t, resampling),
             BuiltTarget::Ortho(t) => warp(source, t, resampling),
             BuiltTarget::Polar(t) => warp(source, t, resampling),
+            BuiltTarget::Moll(t) => warp(source, t, resampling),
         }
     }
 
@@ -2637,6 +2656,14 @@ impl BuiltTarget {
             }
             BuiltTarget::Polar(t) => {
                 project_polylines(&t.prepare(), w, h, flip_y, false, latlon, ring_lengths)
+            }
+            // Split at the ±180° seam meridian like the lat/lon-box targets:
+            // Mollweide wraps longitude into (−π, π] about its centre, so a
+            // polyline crossing the seam jumps from one rim to the other (a
+            // near-full-width Δx) and must break there. A genuine segment spans
+            // ≤ 180° of longitude, so its Δx stays ≤ w/2 and never false-splits.
+            BuiltTarget::Moll(t) => {
+                project_polylines(&t.prepare(), w, h, flip_y, true, latlon, ring_lengths)
             }
         }
     }
@@ -2711,6 +2738,14 @@ fn build_warp_target(
                 BuiltTarget::Polar(PolarStereographic::new(side, side, south_pole, lon0)),
                 None,
             ))
+        }
+        WarpTarget::Mollweide { lon0 } => {
+            // The map ellipse is exactly 2:1, so height is the source's larger
+            // edge and width is twice that — nothing is downsampled and the
+            // ellipse keeps its true proportions. No lat/lon-box extent to echo.
+            let height = ni.max(nj);
+            let width = height.saturating_mul(2);
+            Ok((BuiltTarget::Moll(Mollweide::new(width, height, lon0)), None))
         }
     }
 }
@@ -3274,8 +3309,26 @@ mod resolved_options_tests {
     }
 
     #[test]
+    fn mollweide_central_meridian_from_center_lon() {
+        // center_lon sets the central meridian; no preset applies to Mollweide.
+        let mut o = opts("mollweide", "nearest");
+        o.center_lon = Some(-100.0);
+        assert!(matches!(
+            ResolvedOptions::parse(&o).unwrap().projection,
+            TargetKind::Warp(WarpTarget::Mollweide { lon0 }) if lon0 == -100.0
+        ));
+
+        // No center_lon → central meridian defaults to 0° (Greenwich-centred).
+        o.center_lon = None;
+        assert!(matches!(
+            ResolvedOptions::parse(&o).unwrap().projection,
+            TargetKind::Warp(WarpTarget::Mollweide { lon0 }) if lon0 == 0.0
+        ));
+    }
+
+    #[test]
     fn rejects_unknown_projection() {
-        let err = ResolvedOptions::parse(&opts("mollweide", "nearest"))
+        let err = ResolvedOptions::parse(&opts("aitoff", "nearest"))
             .expect_err("unknown projection must error");
         assert!(
             err.to_string().contains("unknown projection"),
