@@ -1,8 +1,10 @@
-//! HDF5 / NetCDF-4 variable value decode (issue #121) against the bundled
+//! HDF5 / NetCDF-4 variable value decode (issues #121, #216) against the bundled
 //! fixtures, pinned to the values `h5py` reports. Covers contiguous storage of
-//! every numeric class and byte order, a scalar, and a chunked (version-1
-//! B-tree) dataset. String datasets and datasets stored with a Data Layout the
-//! reader doesn't decode yet (the v2 fixture's version-4 chunk indexes) must
+//! every numeric class and byte order, a scalar, and chunked datasets across
+//! every chunk index the reader decodes: the version-1 B-tree, and the
+//! version-4 single-chunk and fixed-array (filtered + unfiltered) indexes.
+//! String datasets and datasets stored with a Data Layout the reader doesn't
+//! decode yet (the extensible-array index, and a version-5 layout message) must
 //! report a clean error rather than panic.
 
 use fieldglass_netcdf::{ChildKind, NetcdfBacking, NetcdfReader, list_root_children};
@@ -10,6 +12,7 @@ use std::collections::BTreeMap;
 
 const V1_SYMBOLTABLE: &[u8] = include_bytes!("fixtures/hdf5_v1_symboltable.h5");
 const V2_LINKINFO: &[u8] = include_bytes!("fixtures/hdf5_v2_linkinfo.h5");
+const V4_CHUNK_INDEX: &[u8] = include_bytes!("fixtures/hdf5_v4_chunk_index.h5");
 const DUMMY: &[u8] = include_bytes!("fixtures/netcdf4_hdf5_dummy.nc");
 
 /// Decode every root dataset, mapping name → Result of present-or-None values.
@@ -113,14 +116,65 @@ fn rejects_string_dataset() {
 }
 
 #[test]
-fn version_4_chunk_index_errors_cleanly() {
-    // The v110 fixture stores its chunked datasets with version-4 layout
-    // (fixed / extensible array indexes), which this reader doesn't decode yet.
-    // It must surface an error, never panic.
+fn decodes_v4_filtered_fixed_array_dataset() {
+    // The v110 ("latest format") fixture stores `chunked` — a fixed-shape 10×10
+    // float field in 5×5 gzip chunks — with a version-4 layout indexed by a
+    // filtered Fixed Array. It exercises the whole v4 path: parse the v4 layout
+    // message → walk the Fixed Array header + data block → filter reverse →
+    // scatter. Values are arange(100), pinned to h5py.
     let got = decode_all(V2_LINKINFO);
-    // Contiguous datasets in the same file still decode.
+    // A contiguous dataset in the same file still decodes.
     assert_eq!(present(&got["dense_attrs"]), vec![0.0, 1.0, 2.0]);
-    assert!(got["chunked"].is_err(), "v4-indexed chunk should error");
+    assert_eq!(
+        present(&got["chunked"]),
+        (0..100).map(|i| i as f64).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn decodes_v4_single_chunk_dataset() {
+    // In the latest-format fixture, a dataset whose chunk shape equals its
+    // dataset shape is stored as one chunk under the version-4 Single Chunk
+    // index — inline in the layout message, with no external index structure.
+    // Values are arange(16).
+    let got = decode_all(V4_CHUNK_INDEX);
+    assert_eq!(
+        present(&got["single_chunk"]),
+        (0..16).map(|i| i as f64).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn filtered_single_chunk_version_5_errors_cleanly() {
+    // libhdf5 2.0 writes a *filtered* single chunk with a data-layout message
+    // version 5 (not the version 4 the unfiltered case uses). Version 5 is a
+    // newer, undocumented-in-the-v3-spec encoding, so it must surface a clean
+    // error rather than mis-decode — a tracked follow-up (#216).
+    let got = decode_all(V4_CHUNK_INDEX);
+    let err = got["single_chunk_filtered"].as_ref().unwrap_err();
+    assert!(err.contains("version 5"), "unexpected error: {err}");
+}
+
+#[test]
+fn decodes_v4_unfiltered_fixed_array_dataset() {
+    // `fixed_array` is a fixed-shape 8×8 field in 4×4 chunks with no filters,
+    // indexed by an unfiltered version-4 Fixed Array (each element is just a
+    // chunk address). Values are arange(64).
+    let got = decode_all(V4_CHUNK_INDEX);
+    assert_eq!(
+        present(&got["fixed_array"]),
+        (0..64).map(|i| i as f64).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn extensible_array_index_still_errors_cleanly() {
+    // `record` in the same fixture is an unlimited-dimension chunked dataset, so
+    // it uses the extensible-array index — deferred, and must surface a clean
+    // error rather than panic.
+    let got = decode_all(V2_LINKINFO);
+    let err = got["record"].as_ref().unwrap_err();
+    assert!(err.contains("extensible-array"), "unexpected error: {err}");
 }
 
 #[test]

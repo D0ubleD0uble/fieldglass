@@ -7,15 +7,20 @@
 //! * **Chunked** — the elements are split into fixed-size chunks, each stored
 //!   (and optionally filtered) separately and located through a chunk index.
 //!
-//! Only **version 3** of the message is decoded — the layout `libhdf5` has
-//! written since 1.6 and what every NetCDF-4 file in the wild uses. For chunked
-//! version-3 datasets the chunk index is a **version-1 B-tree** (node type 1);
-//! that is the index this decoder records. The newer version-4 message (whose
-//! chunked form selects among single-chunk / implicit / fixed-array /
-//! extensible-array / v2-B-tree indexes) is recognised and rejected with a clear
-//! error rather than mis-read — it is a tracked follow-up.
+//! Both **version 3** and **version 4** of the message are decoded. Version 3
+//! is the layout `libhdf5` has written since 1.6; its chunked form indexes the
+//! chunks with a **version-1 B-tree** (node type 1). Version 4 is what libhdf5
+//! ≥ 1.10 writes under the "latest format", and its chunked form selects among
+//! five chunk indexes — single chunk, implicit, fixed array, extensible array,
+//! and v2 B-tree. This decoder handles the two most common of those,
+//! **single chunk** (whole dataset is one chunk) and **fixed array**
+//! (fixed-shape multi-chunk, the common case), for both filtered and
+//! unfiltered chunks. The implicit, extensible-array, and v2-B-tree indexes are
+//! recognised and rejected with a clear per-index error rather than mis-read —
+//! they remain a tracked follow-up (#216).
 //!
-//! Reference: HDF5 file format specification version 3, "Data Layout Message".
+//! Reference: HDF5 file format specification version 3, "Data Layout Message"
+//! (version 4 chunked storage property description) and "The Fixed Array Index".
 
 use super::Hdf5Probe;
 use super::object_header::{is_undefined_address, read_uint_le};
@@ -39,7 +44,7 @@ pub enum DataLayout {
     /// the storage is unallocated (undefined-address sentinel) — the dataset
     /// reads entirely as its fill value.
     Contiguous { address: Option<u64>, size: u64 },
-    /// Chunked storage indexed by a version-1 B-tree.
+    /// Chunked storage, located through a chunk index (see [`ChunkIndex`]).
     Chunked(ChunkedLayout),
 }
 
@@ -51,9 +56,37 @@ pub struct ChunkedLayout {
     pub chunk_dims: Vec<u32>,
     /// Element size in bytes (the trailing on-disk chunk dimension).
     pub element_size: u32,
-    /// File address of the version-1 B-tree that indexes the chunks; `None`
-    /// when no chunk has been written yet (undefined-address sentinel).
-    pub btree_address: Option<u64>,
+    /// How (and where) the chunks are indexed.
+    pub index: ChunkIndex,
+}
+
+/// The chunk index that locates a chunked dataset's chunks. Version-3 messages
+/// always use a version-1 B-tree; version-4 messages select among several — of
+/// which the two most common (single chunk, fixed array) are decoded here.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ChunkIndex {
+    /// Version-1 B-tree (node type 1) at the given address. `None` when no chunk
+    /// has been written yet (undefined-address sentinel) — the dataset reads
+    /// entirely as its fill value.
+    BTreeV1(Option<u64>),
+    /// The whole dataset is a single chunk, stored inline in the layout message
+    /// (v4 chunk index type 1). `None` when the chunk is unallocated.
+    SingleChunk(Option<SingleChunk>),
+    /// Fixed-shape dataset indexed by a Fixed Array (v4 chunk index type 3); the
+    /// address is that of the "FAHD" header. `None` when unallocated.
+    FixedArray(Option<u64>),
+}
+
+/// The inline location of a single-chunk dataset's one chunk (v4 index type 1).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SingleChunk {
+    /// File address of the chunk's raw (possibly filtered) bytes.
+    pub address: u64,
+    /// On-disk filtered byte size when the chunk is filtered; `None` for an
+    /// unfiltered chunk, whose size is the full uncompressed chunk byte size.
+    pub filtered_size: Option<u64>,
+    /// Filter mask (which filters were skipped for this chunk); 0 when unfiltered.
+    pub filter_mask: u32,
 }
 
 /// Decode a Data Layout message body.
@@ -61,10 +94,10 @@ pub fn decode(body: &[u8], probe: &Hdf5Probe) -> Result<DataLayout, FieldglassEr
     let version = *body
         .first()
         .ok_or_else(|| FieldglassError::Parse("empty data layout message".into()))?;
-    if version != 3 {
+    if version != 3 && version != 4 {
         return Err(FieldglassError::UnsupportedSection(format!(
             "HDF5 data layout message version {version} is not supported \
-             (only version 3 is; version 4 chunk indexes are a follow-up)"
+             (only versions 3 and 4 are)"
         )));
     }
     let class = *body
@@ -72,6 +105,16 @@ pub fn decode(body: &[u8], probe: &Hdf5Probe) -> Result<DataLayout, FieldglassEr
         .ok_or_else(|| FieldglassError::Parse("truncated data layout message".into()))?;
     let osize = probe.offset_size as usize;
     let lsize = probe.length_size as usize;
+
+    // The chunked layout differs between message versions; compact and
+    // contiguous share one encoding across both.
+    if class == CLASS_CHUNKED {
+        return if version == 3 {
+            decode_chunked(body, probe, osize)
+        } else {
+            decode_chunked_v4(body, probe, osize, lsize)
+        };
+    }
 
     match class {
         CLASS_COMPACT => {
@@ -99,7 +142,7 @@ pub fn decode(body: &[u8], probe: &Hdf5Probe) -> Result<DataLayout, FieldglassEr
             };
             Ok(DataLayout::Contiguous { address, size })
         }
-        CLASS_CHUNKED => decode_chunked(body, probe, osize),
+        // CLASS_CHUNKED is dispatched above (its encoding is version-specific).
         other => Err(FieldglassError::Parse(format!(
             "unsupported HDF5 data layout class {other}"
         ))),
@@ -146,7 +189,137 @@ fn decode_chunked(
     Ok(DataLayout::Chunked(ChunkedLayout {
         chunk_dims: dims,
         element_size,
-        btree_address,
+        index: ChunkIndex::BTreeV1(btree_address),
+    }))
+}
+
+// Version-4 chunk index type codes (the byte after the encoded chunk dims).
+const V4_INDEX_SINGLE_CHUNK: u8 = 1;
+const V4_INDEX_IMPLICIT: u8 = 2;
+const V4_INDEX_FIXED_ARRAY: u8 = 3;
+const V4_INDEX_EXTENSIBLE_ARRAY: u8 = 4;
+const V4_INDEX_V2_BTREE: u8 = 5;
+
+/// Flags bit 1 of the v4 chunked property description: a filtered chunk under
+/// the Single Chunk index. (Bit 0 is `DONT_FILTER_PARTIAL_BOUND_CHUNKS`; the
+/// spec prose mislabels this gate as bit 0, but libhdf5 uses bit 1.)
+const V4_FLAG_SINGLE_INDEX_WITH_FILTER: u8 = 0b10;
+
+/// Decode the version-4 chunked layout property description: flags,
+/// dimensionality, the encoded chunk dimensions, then a chunk-index-type byte
+/// selecting how the chunks are located. Single Chunk (type 1) and Fixed Array
+/// (type 3) are decoded; the others return a clear per-index error.
+fn decode_chunked_v4(
+    body: &[u8],
+    probe: &Hdf5Probe,
+    osize: usize,
+    lsize: usize,
+) -> Result<DataLayout, FieldglassError> {
+    // version(1) class(1) flags(1) dimensionality(1) dim_encoded_len(1) ...
+    let flags = *body
+        .get(2)
+        .ok_or_else(|| FieldglassError::Parse("truncated v4 chunked layout".into()))?;
+    let dimensionality = *body
+        .get(3)
+        .ok_or_else(|| FieldglassError::Parse("truncated v4 chunked layout".into()))?
+        as usize;
+    if !(1..=MAX_CHUNK_RANK + 1).contains(&dimensionality) {
+        return Err(FieldglassError::Parse(format!(
+            "v4 chunked layout dimensionality {dimensionality} out of range"
+        )));
+    }
+    let dim_encoded_len = *body
+        .get(4)
+        .ok_or_else(|| FieldglassError::Parse("truncated v4 chunked layout".into()))?
+        as usize;
+    if !(1..=8).contains(&dim_encoded_len) {
+        return Err(FieldglassError::Parse(format!(
+            "v4 chunked dimension-size encoded length {dim_encoded_len} out of range"
+        )));
+    }
+
+    // `dimensionality` encoded chunk dims, the last of which is the element size.
+    let mut dims = Vec::with_capacity(dimensionality);
+    let mut pos = 5usize;
+    for _ in 0..dimensionality {
+        // The encoded width can be up to 8 bytes; a chunk edge is a u32, so
+        // reject an out-of-range value rather than silently truncating it.
+        let dim = u32::try_from(read_uint_le(body, pos, dim_encoded_len)?)
+            .map_err(|_| FieldglassError::Parse("v4 chunk dimension exceeds u32".into()))?;
+        dims.push(dim);
+        pos += dim_encoded_len;
+    }
+    let element_size = dims
+        .pop()
+        .expect("dimensionality >= 1 guarantees an element-size entry");
+
+    let index_type = *body
+        .get(pos)
+        .ok_or_else(|| FieldglassError::Parse("truncated v4 chunked layout".into()))?;
+    pos += 1;
+
+    let index = match index_type {
+        V4_INDEX_SINGLE_CHUNK => {
+            let filtered = flags & V4_FLAG_SINGLE_INDEX_WITH_FILTER != 0;
+            let (filtered_size, filter_mask) = if filtered {
+                // Size of filtered chunk (length_size) then filter mask (4).
+                let size = read_uint_le(body, pos, lsize)?;
+                pos += lsize;
+                let mask = read_uint_le(body, pos, 4)? as u32;
+                pos += 4;
+                (Some(size), mask)
+            } else {
+                (None, 0)
+            };
+            let raw_addr = read_uint_le(body, pos, osize)?;
+            if is_undefined_address(raw_addr, probe.offset_size) {
+                ChunkIndex::SingleChunk(None)
+            } else {
+                ChunkIndex::SingleChunk(Some(SingleChunk {
+                    address: raw_addr,
+                    filtered_size,
+                    filter_mask,
+                }))
+            }
+        }
+        V4_INDEX_FIXED_ARRAY => {
+            // Page Bits (1) then the Fixed Array header address (offset_size).
+            pos += 1;
+            let raw_addr = read_uint_le(body, pos, osize)?;
+            if is_undefined_address(raw_addr, probe.offset_size) {
+                ChunkIndex::FixedArray(None)
+            } else {
+                ChunkIndex::FixedArray(Some(raw_addr))
+            }
+        }
+        V4_INDEX_IMPLICIT => {
+            return Err(FieldglassError::UnsupportedSection(
+                "HDF5 v4 chunked layout uses the implicit index, which is not decoded yet".into(),
+            ));
+        }
+        V4_INDEX_EXTENSIBLE_ARRAY => {
+            return Err(FieldglassError::UnsupportedSection(
+                "HDF5 v4 chunked layout uses the extensible-array index (unlimited dimension), \
+                 which is not decoded yet"
+                    .into(),
+            ));
+        }
+        V4_INDEX_V2_BTREE => {
+            return Err(FieldglassError::UnsupportedSection(
+                "HDF5 v4 chunked layout uses the v2 B-tree index, which is not decoded yet".into(),
+            ));
+        }
+        other => {
+            return Err(FieldglassError::Parse(format!(
+                "unknown HDF5 v4 chunk index type {other}"
+            )));
+        }
+    };
+
+    Ok(DataLayout::Chunked(ChunkedLayout {
+        chunk_dims: dims,
+        element_size,
+        index,
     }))
 }
 
@@ -215,15 +388,102 @@ mod tests {
             DataLayout::Chunked(c) => {
                 assert_eq!(c.chunk_dims, vec![5, 5]);
                 assert_eq!(c.element_size, 4);
-                assert_eq!(c.btree_address, Some(0x400));
+                assert_eq!(c.index, ChunkIndex::BTreeV1(Some(0x400)));
             }
             other => panic!("expected chunked, got {other:?}"),
         }
     }
 
     #[test]
-    fn rejects_version_4() {
-        let body = vec![4u8, CLASS_CHUNKED, 3];
+    fn decodes_v4_single_chunk_unfiltered() {
+        // version 4, class 2, flags 0, dimensionality 3 (2 dims + element size),
+        // dim_encoded_len 1, dims [4,4,4], index type 1 (single chunk),
+        // address 0x800. Mirrors a real libhdf5 whole-dataset-as-one-chunk file.
+        let mut body = vec![4u8, CLASS_CHUNKED, 0, 3, 1, 4, 4, 4, V4_INDEX_SINGLE_CHUNK];
+        body.extend_from_slice(&0x800u64.to_le_bytes());
+        match decode(&body, &probe()).unwrap() {
+            DataLayout::Chunked(c) => {
+                assert_eq!(c.chunk_dims, vec![4, 4]);
+                assert_eq!(c.element_size, 4);
+                assert_eq!(
+                    c.index,
+                    ChunkIndex::SingleChunk(Some(SingleChunk {
+                        address: 0x800,
+                        filtered_size: None,
+                        filter_mask: 0,
+                    }))
+                );
+            }
+            other => panic!("expected chunked, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn decodes_v4_single_chunk_filtered() {
+        // flags bit 1 set (SINGLE_INDEX_WITH_FILTER): a size (length_size) and a
+        // 4-byte filter mask precede the address.
+        let mut body = vec![
+            4u8,
+            CLASS_CHUNKED,
+            V4_FLAG_SINGLE_INDEX_WITH_FILTER,
+            3,
+            1,
+            4,
+            4,
+            4,
+            V4_INDEX_SINGLE_CHUNK,
+        ];
+        body.extend_from_slice(&37u64.to_le_bytes()); // filtered size
+        body.extend_from_slice(&0u32.to_le_bytes()); // filter mask
+        body.extend_from_slice(&0x800u64.to_le_bytes()); // address
+        match decode(&body, &probe()).unwrap() {
+            DataLayout::Chunked(c) => assert_eq!(
+                c.index,
+                ChunkIndex::SingleChunk(Some(SingleChunk {
+                    address: 0x800,
+                    filtered_size: Some(37),
+                    filter_mask: 0,
+                }))
+            ),
+            other => panic!("expected chunked, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn decodes_v4_fixed_array() {
+        // index type 3 (fixed array): a page-bits byte then the FAHD header
+        // address.
+        let mut body = vec![
+            4u8,
+            CLASS_CHUNKED,
+            0,
+            3,
+            1,
+            4,
+            4,
+            4,
+            V4_INDEX_FIXED_ARRAY,
+            10,
+        ];
+        body.extend_from_slice(&0x1bfu64.to_le_bytes());
+        match decode(&body, &probe()).unwrap() {
+            DataLayout::Chunked(c) => assert_eq!(c.index, ChunkIndex::FixedArray(Some(0x1bf))),
+            other => panic!("expected chunked, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_v4_extensible_array_cleanly() {
+        let body = vec![4u8, CLASS_CHUNKED, 0, 2, 1, 4, 4, V4_INDEX_EXTENSIBLE_ARRAY];
+        assert!(matches!(
+            decode(&body, &probe()),
+            Err(FieldglassError::UnsupportedSection(_))
+        ));
+    }
+
+    #[test]
+    fn rejects_unknown_message_version() {
+        let body = vec![5u8, CLASS_CONTIGUOUS];
         assert!(matches!(
             decode(&body, &probe()),
             Err(FieldglassError::UnsupportedSection(_))
@@ -234,5 +494,41 @@ mod tests {
     fn rejects_truncated_chunked() {
         let body = vec![3u8, CLASS_CHUNKED];
         assert!(decode(&body, &probe()).is_err());
+    }
+
+    #[test]
+    fn rejects_truncated_v4_chunked() {
+        // A v4 single-chunk header that stops before the 8-byte address must
+        // error rather than read past the buffer.
+        let body = vec![
+            4u8,
+            CLASS_CHUNKED,
+            0,
+            3,
+            1,
+            4,
+            4,
+            4,
+            V4_INDEX_SINGLE_CHUNK,
+            0,
+            0,
+        ];
+        assert!(decode(&body, &probe()).is_err());
+    }
+
+    #[test]
+    fn rejects_v4_chunk_dimension_over_u32() {
+        // An 8-byte-encoded chunk dimension larger than u32::MAX is rejected,
+        // not truncated. dim_encoded_len = 8, first dim = u64::MAX.
+        let mut body = vec![4u8, CLASS_CHUNKED, 0, 3, 8];
+        body.extend_from_slice(&u64::MAX.to_le_bytes()); // oversized chunk dim
+        body.extend_from_slice(&4u64.to_le_bytes()); // second dim
+        body.extend_from_slice(&4u64.to_le_bytes()); // element size
+        body.push(V4_INDEX_SINGLE_CHUNK);
+        body.extend_from_slice(&0x800u64.to_le_bytes());
+        assert!(matches!(
+            decode(&body, &probe()),
+            Err(FieldglassError::Parse(_))
+        ));
     }
 }

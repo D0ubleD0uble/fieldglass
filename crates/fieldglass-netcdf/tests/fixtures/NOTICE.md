@@ -155,6 +155,28 @@ indirect block is populated). Built by `tools/build_hdf5_fixtures.py`
 (`track_times=False` for reproducibility); `tests/hdf5_attributes.rs` reads every
 attribute back. Part of #33.
 
+## Version-4 chunk-index fixture (`hdf5_v4_chunk_index.h5`)
+
+A synthetic `h5py` (libhdf5) file written with `libver='latest'` so libhdf5
+selects the **version-4 data-layout message** and its newer chunk indexes, the
+target for #216. It carries three chunked float datasets whose values are
+`arange` (so the oracle is a rule):
+
+- `single_chunk` — a 4×4 field in one 4×4 chunk, stored under the **Single
+  Chunk** index (type 1), inline in the layout message with no external index.
+- `fixed_array` — a fixed-shape 8×8 field in 4×4 chunks, stored under an
+  **unfiltered Fixed Array** index (type 3, `FAHD` header + `FADB` data block).
+- `single_chunk_filtered` — a gzip/shuffle single chunk. libhdf5 2.0 writes this
+  with a data-layout message **version 5** (the unfiltered cases stay version 4),
+  which post-dates the v3-spec format the reader decodes; it is a deliberate
+  boundary case the reader must reject cleanly, tracked as a #216 follow-up.
+
+The *filtered* Fixed Array and the extensible-array index are already covered by
+`hdf5_v2_linkinfo.h5`'s `chunked` and `record` datasets. Built by
+`tools/build_hdf5_fixtures.py` (`track_times=False` for reproducibility);
+`tests/hdf5_value_decode.rs` checks the decoded values against `h5py`. Part of
+#216.
+
 ## NetCDF-4 dimension-scale fixture (`netcdf4_dimscale.nc`)
 
 A small NetCDF-4 file written with the canonical Unidata `netCDF4` library (which
