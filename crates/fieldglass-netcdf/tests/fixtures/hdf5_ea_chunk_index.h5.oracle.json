@@ -1,0 +1,96 @@
+{
+  "source": "h5py 3.16.0 (libhdf5 2.0.0), libver='latest'",
+  "superblock_version": 3,
+  "note": "version-4 extensible-array chunk index, direct + secondary blocks (#216)",
+  "raw_markers": {
+    "EAHD_header": true,
+    "EADB_data_block": true,
+    "EASB_secondary_block": true
+  },
+  "objects": {
+    "ea_direct": {
+      "kind": "dataset",
+      "datatype": {
+        "class": "floating-point",
+        "size_bytes": 4,
+        "byte_order": "little-endian"
+      },
+      "dataspace": {
+        "class": "simple",
+        "rank": 1,
+        "dims": [
+          600
+        ],
+        "max_dims": [
+          -1
+        ]
+      },
+      "storage": {
+        "layout": "chunked",
+        "chunks": [
+          4
+        ],
+        "filters": []
+      },
+      "fill_value": 0.0,
+      "attributes": [],
+      "values": {
+        "count": 600,
+        "present_count": 599,
+        "missing_count": 1,
+        "samples": {
+          "0": 0.0,
+          "1": 1.0,
+          "300": 300.0,
+          "598": 598.0,
+          "599": 599.0
+        },
+        "min": 1.0,
+        "max": 599.0,
+        "mean": 300.0
+      }
+    },
+    "ea_secondary": {
+      "kind": "dataset",
+      "datatype": {
+        "class": "floating-point",
+        "size_bytes": 4,
+        "byte_order": "little-endian"
+      },
+      "dataspace": {
+        "class": "simple",
+        "rank": 1,
+        "dims": [
+          1120
+        ],
+        "max_dims": [
+          -1
+        ]
+      },
+      "storage": {
+        "layout": "chunked",
+        "chunks": [
+          4
+        ],
+        "filters": []
+      },
+      "fill_value": 0.0,
+      "attributes": [],
+      "values": {
+        "count": 1120,
+        "present_count": 1119,
+        "missing_count": 1,
+        "samples": {
+          "0": 0.0,
+          "1": 1.0,
+          "560": 560.0,
+          "1118": 1118.0,
+          "1119": 1119.0
+        },
+        "min": 1.0,
+        "max": 1119.0,
+        "mean": 560.0
+      }
+    }
+  }
+}

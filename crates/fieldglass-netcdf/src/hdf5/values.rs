@@ -8,7 +8,8 @@
 //! Storage is read for the three Data Layout classes a NetCDF-4 file uses:
 //! compact, contiguous, and chunked. Chunked datasets are located through their
 //! chunk index — the version-1 B-tree of the legacy `libver=earliest` form, or
-//! the version-4 single-chunk and fixed-array indexes of the "latest format".
+//! the version-4 single-chunk, fixed-array, and extensible-array indexes of the
+//! "latest format".
 //! Chunks pass back through the [`filter`](super::filter) pipeline
 //! (deflate / shuffle) before being scattered into place; any region with no
 //! stored chunk reads as the dataset's Fill Value (message `0x0005`) default.
@@ -264,7 +265,8 @@ fn assemble_chunked(
     let chunks = match &chunked.index {
         ChunkIndex::BTreeV1(None)
         | ChunkIndex::SingleChunk(None)
-        | ChunkIndex::FixedArray(None) => return Ok(raw),
+        | ChunkIndex::FixedArray(None)
+        | ChunkIndex::ExtensibleArray(None) => return Ok(raw),
         ChunkIndex::BTreeV1(Some(addr)) => collect_chunks(bytes, *addr, rank, osize)?,
         ChunkIndex::SingleChunk(Some(single)) => {
             let size = single
@@ -280,6 +282,15 @@ fn assemble_chunked(
             }]
         }
         ChunkIndex::FixedArray(Some(addr)) => collect_fixed_array_chunks(
+            bytes,
+            *addr,
+            shape,
+            &chunked.chunk_dims,
+            chunk_bytes,
+            probe.offset_size,
+            probe.length_size,
+        )?,
+        ChunkIndex::ExtensibleArray(Some(addr)) => collect_extensible_array_chunks(
             bytes,
             *addr,
             shape,
@@ -515,6 +526,260 @@ fn collect_fixed_array_chunks(
             filter_mask,
             offset: chunk_offset_from_linear(i as u64, &grid, chunk_dims),
         });
+    }
+    Ok(out)
+}
+
+/// Extensible Array header / index / data / secondary-block signatures (v4
+/// chunk index type 4).
+const SIG_EXT_ARRAY_HEADER: &[u8; 4] = b"EAHD";
+const SIG_EXT_ARRAY_INDEX: &[u8; 4] = b"EAIB";
+const SIG_EXT_ARRAY_DATA: &[u8; 4] = b"EADB";
+const SIG_EXT_ARRAY_SECONDARY: &[u8; 4] = b"EASB";
+
+/// Collect chunk records from a version-4 Extensible Array index, used for a
+/// chunked dataset with one unlimited dimension. The array stores one chunk
+/// address per chunk in chunk order, spread across the index block (the first
+/// `idx_blk_elmts`), then a doubling hierarchy of data blocks that are located
+/// either directly from the index block (the first `nsblks_direct` super blocks)
+/// or through a secondary block. Data blocks are read in order and their
+/// elements assigned to consecutive chunks.
+///
+/// Filtered chunks and paged data blocks (only reached by very large datasets)
+/// are not decoded yet and return a clear error.
+fn collect_extensible_array_chunks(
+    bytes: &[u8],
+    header_addr: u64,
+    shape: &[u64],
+    chunk_dims: &[u32],
+    chunk_bytes: usize,
+    osize: u8,
+    lsize: u8,
+) -> Result<Vec<ChunkRecord>, FieldglassError> {
+    let o = osize as usize;
+    let l = lsize as usize;
+
+    // Extensible Array Header: a 6-byte fixed run of parameters, then six
+    // length_size statistics, then the index block address, then a checksum.
+    let mut h = super::heap::Cursor::at(bytes, header_addr)?;
+    h.tag(SIG_EXT_ARRAY_HEADER)?;
+    let version = h.byte()?;
+    if version != 0 {
+        return Err(FieldglassError::Parse(format!(
+            "unsupported Extensible Array header version {version}"
+        )));
+    }
+    let client_id = h.byte()?;
+    if client_id == 1 {
+        return Err(FieldglassError::UnsupportedSection(
+            "HDF5 extensible array uses filtered chunks, which are not decoded yet".into(),
+        ));
+    }
+    if client_id != 0 {
+        return Err(FieldglassError::Parse(format!(
+            "unsupported Extensible Array client id {client_id} (expected 0 or 1)"
+        )));
+    }
+    let element_size = h.byte()? as usize;
+    let max_nelmts_bits = h.byte()? as usize;
+    let idx_blk_elmts = h.byte()? as usize;
+    let data_blk_min_elmts = h.byte()? as usize;
+    let sup_blk_min_data_ptrs = h.byte()? as usize;
+    let max_dblk_page_nelmts_bits = h.byte()? as u32;
+    h.skip(6 * l)?; // six length_size statistics (block/element counts and sizes)
+    let index_block_addr = h.uint(o)?;
+
+    if element_size != o {
+        return Err(FieldglassError::Parse(format!(
+            "extensible array unfiltered element size {element_size} != offset size {o}"
+        )));
+    }
+    if !data_blk_min_elmts.is_power_of_two() || !sup_blk_min_data_ptrs.is_power_of_two() {
+        return Err(FieldglassError::Parse(
+            "extensible array block parameters must be powers of two".into(),
+        ));
+    }
+    if !(1..=64).contains(&(max_nelmts_bits)) {
+        return Err(FieldglassError::Parse(format!(
+            "extensible array max-nelmts bits {max_nelmts_bits} out of range"
+        )));
+    }
+    // The block offset field width and the per-super-block counts, per the
+    // libhdf5 layout (H5EA__hdr_init / H5EA__iblock_alloc).
+    let arr_off_size = max_nelmts_bits.div_ceil(8);
+    let dblk_page_nelmts = 1usize
+        .checked_shl(max_dblk_page_nelmts_bits)
+        .unwrap_or(usize::MAX);
+    let nsblks_direct = 2 * sup_blk_min_data_ptrs.trailing_zeros() as usize;
+    let ndblk_addrs = 2 * (sup_blk_min_data_ptrs - 1);
+    let hdr_nsblks = 1 + max_nelmts_bits
+        .checked_sub(data_blk_min_elmts.trailing_zeros() as usize)
+        .ok_or_else(|| FieldglassError::Parse("extensible array header is inconsistent".into()))?;
+    let nsblk_addrs = hdr_nsblks.saturating_sub(nsblks_direct);
+
+    // The chunk grid, as for the fixed array; the unlimited dimension is already
+    // resolved to its current extent in `shape`.
+    let grid: Vec<u64> = shape
+        .iter()
+        .zip(chunk_dims)
+        .map(|(&s, &c)| s.div_ceil(c as u64))
+        .collect();
+    let grid_count = usize::try_from(grid.iter().product::<u64>())
+        .map_err(|_| FieldglassError::Parse("chunk grid exceeds usize".into()))?;
+
+    // Index Block: prefix, the first `idx_blk_elmts` elements, then the direct
+    // data-block addresses, then the secondary-block addresses.
+    let mut ib = super::heap::Cursor::at(bytes, index_block_addr)?;
+    ib.tag(SIG_EXT_ARRAY_INDEX)?;
+    ib.skip(2)?; // version + client id
+    ib.skip(o)?; // header back-pointer
+    let mut direct_elems = Vec::with_capacity(idx_blk_elmts);
+    for _ in 0..idx_blk_elmts {
+        direct_elems.push(ib.uint(o)?);
+    }
+    let mut direct_dblk_addrs = Vec::with_capacity(ndblk_addrs);
+    for _ in 0..ndblk_addrs {
+        direct_dblk_addrs.push(ib.uint(o)?);
+    }
+    let mut sblk_addrs = Vec::with_capacity(nsblk_addrs);
+    for _ in 0..nsblk_addrs {
+        sblk_addrs.push(ib.uint(o)?);
+    }
+
+    let mut out = Vec::new();
+    let mut chunk = 0usize;
+
+    // The first `idx_blk_elmts` chunks are addressed directly in the index block.
+    for &addr in direct_elems.iter().take(grid_count) {
+        push_ea_chunk(&mut out, addr, chunk, chunk_bytes, &grid, chunk_dims, osize)?;
+        chunk += 1;
+    }
+
+    // Then the doubling super-block hierarchy. Super block `s` holds
+    // `2^(s/2)` data blocks of `data_blk_min_elmts * 2^((s+1)/2)` elements each.
+    let mut s = 0usize;
+    let mut direct_ord = 0usize; // running index into `direct_dblk_addrs`
+    while chunk < grid_count {
+        let ndblks_s = 1usize
+            .checked_shl((s / 2) as u32)
+            .ok_or_else(|| FieldglassError::Parse("extensible array is too large".into()))?;
+        // libhdf5's H5EA_SBLK_DBLK_NELMTS: data_blk_min_elmts * 2^((s+1)/2).
+        // `(s + 1) / 2` is exactly `s.div_ceil(2)` for a non-negative `s`.
+        let dblk_nelmts_s = data_blk_min_elmts
+            .checked_shl(s.div_ceil(2) as u32)
+            .ok_or_else(|| FieldglassError::Parse("extensible array is too large".into()))?;
+        // `checked_shl` only guards the shift width, not value overflow; a
+        // zero result would stall the walk, so reject it explicitly. (Bounded
+        // `grid_count` keeps this unreachable in practice, but the guard makes
+        // termination hold by construction rather than incidentally.)
+        if dblk_nelmts_s == 0 {
+            return Err(FieldglassError::Parse(
+                "extensible array data-block element count overflowed".into(),
+            ));
+        }
+        if dblk_nelmts_s > dblk_page_nelmts {
+            return Err(FieldglassError::UnsupportedSection(
+                "HDF5 extensible array uses paged data blocks, which are not decoded yet".into(),
+            ));
+        }
+
+        // This super block's data-block addresses: directly from the index block
+        // for the first `nsblks_direct` super blocks, else via a secondary block.
+        let dblk_addrs: Vec<u64> = if s < nsblks_direct {
+            let end = direct_ord + ndblks_s;
+            let slice = direct_dblk_addrs
+                .get(direct_ord..end)
+                .ok_or_else(|| {
+                    FieldglassError::Parse(
+                        "extensible array direct data-block slot out of range".into(),
+                    )
+                })?
+                .to_vec();
+            direct_ord = end;
+            slice
+        } else {
+            let slot = s - nsblks_direct;
+            let sblk_addr = *sblk_addrs.get(slot).ok_or_else(|| {
+                FieldglassError::Parse("extensible array secondary-block slot out of range".into())
+            })?;
+            if object_header::is_undefined_address(sblk_addr, osize) {
+                // Whole super block unallocated: skip its chunks (they stay
+                // fill) without fabricating sentinel addresses, whose width
+                // would otherwise have to match the file's offset size.
+                chunk = chunk.saturating_add(ndblks_s.saturating_mul(dblk_nelmts_s));
+                s += 1;
+                continue;
+            }
+            read_ea_secondary_dblk_addrs(bytes, sblk_addr, ndblks_s, o, arr_off_size)?
+        };
+
+        for &dblk_addr in &dblk_addrs {
+            if chunk >= grid_count {
+                break;
+            }
+            if object_header::is_undefined_address(dblk_addr, osize) {
+                chunk += dblk_nelmts_s; // unwritten data block: its chunks stay fill
+                continue;
+            }
+            // Data Block: prefix, header back-pointer, block offset, then the
+            // elements (chunk addresses).
+            let mut db = super::heap::Cursor::at(bytes, dblk_addr)?;
+            db.tag(SIG_EXT_ARRAY_DATA)?;
+            db.skip(2 + o + arr_off_size)?; // version + client + header addr + block offset
+            for _ in 0..dblk_nelmts_s {
+                if chunk >= grid_count {
+                    break;
+                }
+                let addr = db.uint(o)?;
+                push_ea_chunk(&mut out, addr, chunk, chunk_bytes, &grid, chunk_dims, osize)?;
+                chunk += 1;
+            }
+        }
+        s += 1;
+    }
+    Ok(out)
+}
+
+/// Push one extensible-array chunk record, skipping an unwritten (undefined)
+/// address so the chunk stays fill.
+fn push_ea_chunk(
+    out: &mut Vec<ChunkRecord>,
+    addr: u64,
+    chunk: usize,
+    chunk_bytes: usize,
+    grid: &[u64],
+    chunk_dims: &[u32],
+    osize: u8,
+) -> Result<(), FieldglassError> {
+    if object_header::is_undefined_address(addr, osize) {
+        return Ok(());
+    }
+    let size = u32::try_from(chunk_bytes)
+        .map_err(|_| FieldglassError::Parse("chunk size exceeds u32".into()))?;
+    out.push(ChunkRecord {
+        address: addr,
+        size,
+        filter_mask: 0,
+        offset: chunk_offset_from_linear(chunk as u64, grid, chunk_dims),
+    });
+    Ok(())
+}
+
+/// Read the `ndblks` data-block addresses from an Extensible Array secondary
+/// block (unpaged: no per-data-block page bitmap precedes the addresses).
+fn read_ea_secondary_dblk_addrs(
+    bytes: &[u8],
+    addr: u64,
+    ndblks: usize,
+    o: usize,
+    arr_off_size: usize,
+) -> Result<Vec<u64>, FieldglassError> {
+    let mut c = super::heap::Cursor::at(bytes, addr)?;
+    c.tag(SIG_EXT_ARRAY_SECONDARY)?;
+    c.skip(2 + o + arr_off_size)?; // version + client + header addr + block offset
+    let mut out = Vec::with_capacity(ndblks);
+    for _ in 0..ndblks {
+        out.push(c.uint(o)?);
     }
     Ok(out)
 }

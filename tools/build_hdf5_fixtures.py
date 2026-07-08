@@ -362,6 +362,47 @@ def build_v4_chunk_index(name: str) -> None:
           f"[v4 single-chunk + fixed-array, FAHD={oracle['raw_markers']['FAHD_fixed_array_header']}]")
 
 
+def build_extensible_array(name: str) -> None:
+    """Datasets with one unlimited dimension, whose chunks libhdf5 indexes with a
+    version-4 **Extensible Array**. Written under ``libver='latest'``. Two sizes
+    exercise the two tiers the reader decodes (values are ``arange``):
+
+    - ``ea_direct`` (150 chunks): spans super blocks 0–3, whose data-block
+      addresses libhdf5 stores directly in the extensible-array index block (no
+      secondary block) — data blocks of growing size (16, 32, 32, 64, …).
+    - ``ea_secondary`` (280 chunks): large enough that libhdf5 allocates a
+      **secondary block** for super block 4, which the reader walks to reach the
+      data-block addresses beyond the index block's direct slots.
+
+    (The v110 fixture's ``record`` already covers the index-block-only case: one
+    chunk addressed directly in the index block with no data blocks.)"""
+    path = FIXturesDir / name
+    with h5py.File(path, "w", libver="latest") as f:
+        f.attrs["title"] = np.bytes_(b"fieldglass extensible-array fixture")
+        for nm, nchunks in (("ea_direct", 150), ("ea_secondary", 280)):
+            n = nchunks * 4  # chunk edge 4
+            d = f.create_dataset(nm, shape=(n,), maxshape=(None,), chunks=(4,),
+                                 dtype="<f4", track_times=False)
+            d[:] = np.arange(n, dtype="<f4")
+
+    raw = path.read_bytes()
+    with h5py.File(path, "r") as f:
+        oracle = {
+            "source": f"h5py {h5py.__version__} (libhdf5 {h5py.version.hdf5_version}), libver='latest'",
+            "superblock_version": raw[raw.index(b"\x89HDF\r\n\x1a\n") + 8],
+            "note": "version-4 extensible-array chunk index, direct + secondary blocks (#216)",
+            "raw_markers": {
+                "EAHD_header": b"EAHD" in raw,
+                "EADB_data_block": b"EADB" in raw,
+                "EASB_secondary_block": b"EASB" in raw,
+            },
+            "objects": {n: dataset_oracle(f[n]) for n in f if isinstance(f[n], h5py.Dataset)},
+        }
+    (FIXturesDir / f"{name}.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n")
+    print(f"wrote {path} ({len(raw)} B) + oracle "
+          f"[EA direct + secondary, EASB={oracle['raw_markers']['EASB_secondary_block']}]")
+
+
 def main() -> int:
     if not FIXturesDir.is_dir():
         raise SystemExit("run from the repo root")
@@ -376,6 +417,8 @@ def main() -> int:
     build_child_indirect("hdf5_child_indirect.h5", n_attrs=512, vlen=256)
     # Version-4 layout: single-chunk and unfiltered fixed-array chunk indexes.
     build_v4_chunk_index("hdf5_v4_chunk_index.h5")
+    # Version-4 extensible array (unlimited dimension): direct + secondary blocks.
+    build_extensible_array("hdf5_ea_chunk_index.h5")
     return 0
 
 

@@ -12,12 +12,13 @@
 //! chunks with a **version-1 B-tree** (node type 1). Version 4 is what libhdf5
 //! ≥ 1.10 writes under the "latest format", and its chunked form selects among
 //! five chunk indexes — single chunk, implicit, fixed array, extensible array,
-//! and v2 B-tree. This decoder handles the two most common of those,
-//! **single chunk** (whole dataset is one chunk) and **fixed array**
-//! (fixed-shape multi-chunk, the common case), for both filtered and
-//! unfiltered chunks. The implicit, extensible-array, and v2-B-tree indexes are
-//! recognised and rejected with a clear per-index error rather than mis-read —
-//! they remain a tracked follow-up (#216).
+//! and v2 B-tree. This decoder handles three of those: **single chunk** (whole
+//! dataset is one chunk) and **fixed array** (fixed-shape multi-chunk) for both
+//! filtered and unfiltered chunks, and **extensible array** (one unlimited
+//! dimension) for unfiltered chunks. The implicit and v2-B-tree indexes, and
+//! filtered extensible arrays, are recognised and rejected with a clear
+//! per-index error rather than mis-read — they remain a tracked follow-up
+//! (#216).
 //!
 //! Reference: HDF5 file format specification version 3, "Data Layout Message"
 //! (version 4 chunked storage property description) and "The Fixed Array Index".
@@ -62,7 +63,7 @@ pub struct ChunkedLayout {
 
 /// The chunk index that locates a chunked dataset's chunks. Version-3 messages
 /// always use a version-1 B-tree; version-4 messages select among several — of
-/// which the two most common (single chunk, fixed array) are decoded here.
+/// which single chunk, fixed array, and extensible array are decoded here.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChunkIndex {
     /// Version-1 B-tree (node type 1) at the given address. `None` when no chunk
@@ -75,6 +76,9 @@ pub enum ChunkIndex {
     /// Fixed-shape dataset indexed by a Fixed Array (v4 chunk index type 3); the
     /// address is that of the "FAHD" header. `None` when unallocated.
     FixedArray(Option<u64>),
+    /// Unlimited-dimension dataset indexed by an Extensible Array (v4 chunk index
+    /// type 4); the address is that of the "EAHD" header. `None` when unallocated.
+    ExtensibleArray(Option<u64>),
 }
 
 /// The inline location of a single-chunk dataset's one chunk (v4 index type 1).
@@ -298,11 +302,18 @@ fn decode_chunked_v4(
             ));
         }
         V4_INDEX_EXTENSIBLE_ARRAY => {
-            return Err(FieldglassError::UnsupportedSection(
-                "HDF5 v4 chunked layout uses the extensible-array index (unlimited dimension), \
-                 which is not decoded yet"
-                    .into(),
-            ));
+            // Index-specific info: max bits, index-block elements, min data-block
+            // pointers, min data-block elements, and data-block page bits — five
+            // bytes that duplicate fields the header restates, so skip them and
+            // read the header address. The authoritative values come from the
+            // "EAHD" header itself at decode time.
+            pos += 5;
+            let raw_addr = read_uint_le(body, pos, osize)?;
+            if is_undefined_address(raw_addr, probe.offset_size) {
+                ChunkIndex::ExtensibleArray(None)
+            } else {
+                ChunkIndex::ExtensibleArray(Some(raw_addr))
+            }
         }
         V4_INDEX_V2_BTREE => {
             return Err(FieldglassError::UnsupportedSection(
@@ -473,8 +484,40 @@ mod tests {
     }
 
     #[test]
-    fn rejects_v4_extensible_array_cleanly() {
-        let body = vec![4u8, CLASS_CHUNKED, 0, 2, 1, 4, 4, V4_INDEX_EXTENSIBLE_ARRAY];
+    fn decodes_v4_extensible_array() {
+        // Real libhdf5 extensible-array layout message (1-D unlimited dataset,
+        // chunk edge 4, element size 4): index type 4, five bytes of index info,
+        // then the "EAHD" header address (0x1bf).
+        let body = vec![
+            4u8,
+            CLASS_CHUNKED,
+            0,
+            2,
+            1,
+            4,
+            4,
+            V4_INDEX_EXTENSIBLE_ARRAY,
+            0x20,
+            0x04,
+            0x04,
+            0x10,
+            0x0a,
+        ];
+        let mut body = body;
+        body.extend_from_slice(&0x1bfu64.to_le_bytes());
+        match decode(&body, &probe()).unwrap() {
+            DataLayout::Chunked(c) => {
+                assert_eq!(c.chunk_dims, vec![4]);
+                assert_eq!(c.element_size, 4);
+                assert_eq!(c.index, ChunkIndex::ExtensibleArray(Some(0x1bf)));
+            }
+            other => panic!("expected chunked, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_v4_implicit_index_cleanly() {
+        let body = vec![4u8, CLASS_CHUNKED, 0, 2, 1, 4, 4, V4_INDEX_IMPLICIT];
         assert!(matches!(
             decode(&body, &probe()),
             Err(FieldglassError::UnsupportedSection(_))
