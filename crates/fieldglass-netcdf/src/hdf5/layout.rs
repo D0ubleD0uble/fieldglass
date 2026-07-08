@@ -65,8 +65,8 @@ pub struct ChunkedLayout {
 
 /// The chunk index that locates a chunked dataset's chunks. Version-3 messages
 /// always use a version-1 B-tree; version-4 messages select among several — of
-/// which single chunk, implicit, fixed array, and extensible array are decoded
-/// here.
+/// which single chunk, implicit, fixed array, extensible array, and v2 B-tree
+/// are decoded here.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChunkIndex {
     /// Version-1 B-tree (node type 1) at the given address. `None` when no chunk
@@ -87,6 +87,11 @@ pub enum ChunkIndex {
     /// Unlimited-dimension dataset indexed by an Extensible Array (v4 chunk index
     /// type 4); the address is that of the "EAHD" header. `None` when unallocated.
     ExtensibleArray(Option<u64>),
+    /// Dataset indexed by a version-2 B-tree (v4 chunk index type 5), which
+    /// libhdf5 selects for a chunked dataset with more than one unlimited
+    /// dimension; the address is that of the "BTHD" header. `None` when
+    /// unallocated.
+    V2Btree(Option<u64>),
 }
 
 /// The inline location of a single-chunk dataset's one chunk (v4 index type 1).
@@ -223,8 +228,8 @@ const V4_FLAG_SINGLE_INDEX_WITH_FILTER: u8 = 0b10;
 /// Decode the version-4 (and structurally identical version-5) chunked layout
 /// property description: flags, dimensionality, the encoded chunk dimensions,
 /// then a chunk-index-type byte selecting how the chunks are located. Single
-/// Chunk (type 1), Implicit (type 2), Fixed Array (type 3), and Extensible Array
-/// (type 4) are decoded; the v2 B-tree (type 5) returns a clear per-index error.
+/// Chunk (type 1), Implicit (type 2), Fixed Array (type 3), Extensible Array
+/// (type 4), and v2 B-tree (type 5) are all decoded.
 fn decode_chunked_v4(
     body: &[u8],
     probe: &Hdf5Probe,
@@ -335,9 +340,16 @@ fn decode_chunked_v4(
             }
         }
         V4_INDEX_V2_BTREE => {
-            return Err(FieldglassError::UnsupportedSection(
-                "HDF5 v4 chunked layout uses the v2 B-tree index, which is not decoded yet".into(),
-            ));
+            // Node size (4), split percent (1), merge percent (1) — all restated
+            // by the "BTHD" header this reader reads authoritatively — then the v2
+            // B-tree header address.
+            pos += 6;
+            let raw_addr = read_uint_le(body, pos, osize)?;
+            if is_undefined_address(raw_addr, probe.offset_size) {
+                ChunkIndex::V2Btree(None)
+            } else {
+                ChunkIndex::V2Btree(Some(raw_addr))
+            }
         }
         other => {
             return Err(FieldglassError::Parse(format!(
@@ -559,6 +571,41 @@ mod tests {
         body.extend_from_slice(&u64::MAX.to_le_bytes());
         match decode(&body, &probe()).unwrap() {
             DataLayout::Chunked(c) => assert_eq!(c.index, ChunkIndex::Implicit(None)),
+            other => panic!("expected chunked, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn decodes_v4_v2_btree() {
+        // libhdf5 v2-B-tree layout message (2-D dataset in 2×2 chunks, element
+        // size 4): dimensionality 3, dims [2,2,4], index type 5, then node size
+        // (4), split percent (1), merge percent (1) — all restated by the "BTHD"
+        // header — then the header address (0x1000).
+        let mut body = vec![4u8, CLASS_CHUNKED, 0, 3, 1, 2, 2, 4, V4_INDEX_V2_BTREE];
+        body.extend_from_slice(&2048u32.to_le_bytes()); // node size
+        body.push(100); // split percent
+        body.push(40); // merge percent
+        body.extend_from_slice(&0x1000u64.to_le_bytes());
+        match decode(&body, &probe()).unwrap() {
+            DataLayout::Chunked(c) => {
+                assert_eq!(c.chunk_dims, vec![2, 2]);
+                assert_eq!(c.element_size, 4);
+                assert_eq!(c.index, ChunkIndex::V2Btree(Some(0x1000)));
+            }
+            other => panic!("expected chunked, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn decodes_v4_v2_btree_unallocated() {
+        // An undefined header address (all-0xFF) means no chunk has been written.
+        let mut body = vec![4u8, CLASS_CHUNKED, 0, 3, 1, 2, 2, 4, V4_INDEX_V2_BTREE];
+        body.extend_from_slice(&2048u32.to_le_bytes());
+        body.push(100);
+        body.push(40);
+        body.extend_from_slice(&u64::MAX.to_le_bytes());
+        match decode(&body, &probe()).unwrap() {
+            DataLayout::Chunked(c) => assert_eq!(c.index, ChunkIndex::V2Btree(None)),
             other => panic!("expected chunked, got {other:?}"),
         }
     }

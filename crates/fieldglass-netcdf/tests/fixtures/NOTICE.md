@@ -246,6 +246,31 @@ Array. Built by `tools/build_hdf5_fixtures.py` (`track_times=False` for
 reproducibility); `tests/hdf5_value_decode.rs` checks the decoded values against
 `h5py`. Part of #216.
 
+## Version-2 B-tree chunk-index fixture (`hdf5_v2_btree_index.h5`)
+
+A synthetic `h5py` (libhdf5) file written with `libver='latest'` whose datasets
+have **more than one unlimited dimension**, the case libhdf5 indexes with a
+version-4 **version-2 B-tree** (chunk index type 5) rather than a fixed or
+extensible array — both of which assume at most one growth dimension (target
+for #216). Each B-tree record carries the chunk's scaled (chunk-grid) coordinate
+directly, which the reader multiplies by the chunk edge to place the chunk.
+Values are `arange`:
+
+- `bt2` (4×4 in 2×2 chunks) is unfiltered, so its records are the type-10 form
+  (address + scaled offsets).
+- `bt2_multi` (8×8 in 2×2 chunks → 16 chunks) keeps several records per B-tree
+  leaf.
+- `bt2_filtered` (4×4 in 2×2 gzip+shuffle chunks) uses the filtered type-11
+  form (address + on-disk size + filter mask + scaled offsets), whose size-field
+  width the reader derives from the record width the B-tree advertises.
+
+The builder asserts every chunk-index B-tree header (`BTHD`) is type 10 or 11
+and that no `FAHD`/`EAHD` marker appears, positively confirming libhdf5 chose
+the v2 B-tree rather than a Fixed or Extensible Array. Built by
+`tools/build_hdf5_fixtures.py` (`track_times=False` for reproducibility);
+`tests/hdf5_value_decode.rs` checks the decoded values against `h5py`. Part of
+#216.
+
 ## NetCDF-4 dimension-scale fixture (`netcdf4_dimscale.nc`)
 
 A small NetCDF-4 file written with the canonical Unidata `netCDF4` library (which

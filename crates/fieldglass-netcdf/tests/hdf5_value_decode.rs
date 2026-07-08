@@ -2,11 +2,11 @@
 //! fixtures, pinned to the values `h5py` reports. Covers contiguous storage of
 //! every numeric class and byte order, a scalar, and chunked datasets across
 //! every chunk index the reader decodes: the version-1 B-tree, and the
-//! version-4 single-chunk, fixed-array, extensible-array (all filtered +
-//! unfiltered), and implicit indexes, including the version-5 layout message
-//! libhdf5 2.0 writes for a filtered chunk. String datasets and datasets stored
-//! with a chunk index the reader doesn't decode yet (the v2 B-tree) must report
-//! a clean error rather than panic.
+//! version-4 single-chunk, fixed-array, extensible-array, v2-B-tree (all
+//! filtered + unfiltered), and implicit indexes, including the version-5 layout
+//! message
+//! libhdf5 2.0 writes for a filtered chunk. String datasets must report a clean
+//! error rather than panic.
 
 use fieldglass_netcdf::{ChildKind, NetcdfBacking, NetcdfReader, list_root_children};
 use std::collections::BTreeMap;
@@ -17,6 +17,7 @@ const V4_CHUNK_INDEX: &[u8] = include_bytes!("fixtures/hdf5_v4_chunk_index.h5");
 const EA_CHUNK_INDEX: &[u8] = include_bytes!("fixtures/hdf5_ea_chunk_index.h5");
 const EA_FILTERED: &[u8] = include_bytes!("fixtures/hdf5_ea_filtered.h5");
 const IMPLICIT_INDEX: &[u8] = include_bytes!("fixtures/hdf5_implicit_index.h5");
+const V2_BTREE_INDEX: &[u8] = include_bytes!("fixtures/hdf5_v2_btree_index.h5");
 const DUMMY: &[u8] = include_bytes!("fixtures/netcdf4_hdf5_dummy.nc");
 
 /// Decode every root dataset, mapping name → Result of present-or-None values.
@@ -274,6 +275,46 @@ fn decodes_v4_filtered_extensible_array_secondary_block() {
     assert_eq!(
         present(&got["ea_filtered_secondary"]),
         (0..1120).map(|i| i as f64).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn decodes_v4_v2_btree_unfiltered_dataset() {
+    // `bt2` has two unlimited dimensions (4×4 in 2×2 chunks), so libhdf5 indexes
+    // its chunks with a version-2 B-tree (chunk index type 5) rather than a fixed
+    // or extensible array. Its type-10 records carry each chunk's scaled chunk-grid
+    // coordinate, which the reader multiplies by the chunk edge to place the
+    // chunk. Values are arange(16), pinned to h5py.
+    let got = decode_all(V2_BTREE_INDEX);
+    assert_eq!(
+        present(&got["bt2"]),
+        (0..16).map(|i| i as f64).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn decodes_v4_v2_btree_multi_chunk_dataset() {
+    // `bt2_multi` (8×8 in 2×2 chunks → 16 chunks) keeps several records per B-tree
+    // leaf, so the whole record set is gathered and scattered by scaled offset.
+    // Values are arange(64).
+    let got = decode_all(V2_BTREE_INDEX);
+    assert_eq!(
+        present(&got["bt2_multi"]),
+        (0..64).map(|i| i as f64).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn decodes_v4_v2_btree_filtered_dataset() {
+    // `bt2_filtered` (4×4 in 2×2 gzip+shuffle chunks) uses the filtered type-11
+    // records: address + on-disk chunk size + filter mask + scaled offsets. Each
+    // chunk passes back through the filter pipeline before scatter. The on-disk
+    // size field width is derived from the record width the B-tree advertises.
+    // Values are arange(16).
+    let got = decode_all(V2_BTREE_INDEX);
+    assert_eq!(
+        present(&got["bt2_filtered"]),
+        (0..16).map(|i| i as f64).collect::<Vec<_>>()
     );
 }
 
