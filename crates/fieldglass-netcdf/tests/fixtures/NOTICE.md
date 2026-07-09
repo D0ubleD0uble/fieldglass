@@ -297,6 +297,29 @@ dimension names, and whether it is a coordinate variable. `nc_type` is the
 canonical netCDF type name (matching the Rust reader's `NcType::name()`), not the
 numpy alias. `tests/hdf5_dimension_scales.rs` pins the resolver against it.
 
+## NetCDF-4 nested-group fixture (`netcdf4_grouped.nc`)
+
+A small grouped NetCDF-4 file written with the canonical Unidata `netCDF4`
+library, the target for nested-group resolution (#219). Where `netcdf4_dimscale.nc`
+lives entirely in the root group, this lays out a Sentinel-5P-style tree so the
+resolver must descend into groups and present objects with path-qualified names:
+
+- a **root** dimension + coordinate variable (`time`) that stays bare-named,
+- a nested group `/PRODUCT` with its own `scanline` / `ground_pixel` dimensions
+  and variables (`/PRODUCT/latitude`, `/PRODUCT/longitude`, `/PRODUCT/qa_value`),
+- `/PRODUCT/qa_value`, whose `DIMENSION_LIST` mixes the **ancestor** root `time`
+  dimension with its own group's dimensions — the netCDF scoping rule that a
+  dimension is visible to its group and all descendants,
+- a **two-level** group `/PRODUCT/SUPPORT_DATA` whose `surface_altitude` variable
+  is path-qualified through both levels.
+
+The sibling `netcdf4_grouped.nc.oracle.json` path-qualifies every object exactly
+as the Rust reader does (a root object keeps its bare name; a nested one is its
+group's leading-slash path plus `/name`), with each variable's dimension names
+qualified by the group that *defines* each dimension. Built by
+`tools/build_netcdf4_grouped_fixture.py` (run from the repo root; needs `netCDF4`);
+`tests/hdf5_nested_groups.rs` pins the resolver and the decode path against it.
+
 ## Projected-grid fixtures (`wrf_lambert.nc`, `wrf_polar.nc`, `wrf_mercator.nc`, `wrf_latlon.nc`, `goes_geostationary.nc`)
 
 Targets for projected-grid geolocation (#168, #220, and #226; decision 0004) — regular

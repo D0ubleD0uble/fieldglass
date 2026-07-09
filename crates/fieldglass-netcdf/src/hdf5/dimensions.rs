@@ -11,12 +11,15 @@
 //! dataset carries a `DIMENSION_LIST` — a variable-length array of object
 //! references, one per axis — that names its dimensions in order.
 //!
-//! This module reads that convention over the **root group** and exposes it as
+//! This module reads that convention over the **whole file** — the root group
+//! and every nested group, descended depth-first (#219) — and exposes it as
 //! [`Hdf5Metadata`], shaped so the napi layer can build the same
 //! dimensions / variables / attributes tables the classic backing produces.
-//! Layouts outside the decoded subset (nested-group references, a
-//! `DIMENSION_LIST` that isn't a vlen of object references) return a clear error
-//! rather than a silent misread, matching the rest of the HDF5 reader.
+//! Objects in nested groups carry a path-qualified name (`/PRODUCT/qa_value`);
+//! a `DIMENSION_LIST` reference resolves to the referenced scale wherever it
+//! lives in the tree. Layouts outside the decoded subset (a `DIMENSION_LIST`
+//! that isn't a vlen of object references) return a clear error rather than a
+//! silent misread, matching the rest of the HDF5 reader.
 //!
 //! Reference: HDF5 file format specification version 3; NetCDF User's Guide,
 //! "NetCDF-4 File Format"; Unidata, "NetCDF-4 use of dimension scales".
@@ -74,22 +77,23 @@ pub struct VariableInfo {
     /// `true` when the variable is also a dimension scale (a coordinate variable).
     pub is_coordinate: bool,
     /// Index into [`crate::NetcdfReader::decode_variable_values`] — the variable's
-    /// position in the root group's full name-sorted dataset list, *pure
-    /// dimensions included*. This is a different index space from this variable's
-    /// position in [`Hdf5Metadata::variables`] (which excludes pure dimensions),
-    /// so the render path must use this field, not the `variables` index.
+    /// position in the whole-file depth-first dataset list, *pure dimensions
+    /// included*. This is a different index space from this variable's position in
+    /// [`Hdf5Metadata::variables`] (which excludes pure dimensions), so the render
+    /// path must use this field, not the `variables` index.
     pub decode_index: usize,
 }
 
-/// The fully resolved metadata for a NetCDF-4 / HDF5 file's root group — the
-/// HDF5 analogue of the classic header, ready for the napi `DatasetMeta`.
+/// The fully resolved metadata for a NetCDF-4 / HDF5 file — every group,
+/// descended depth-first — the HDF5 analogue of the classic header, ready for
+/// the napi `DatasetMeta`. Objects in nested groups carry a path-qualified name.
 ///
 /// `variables` is sorted by name and **excludes** pure dimensions (placeholder
 /// scales with no coordinate values). This is a different index space from
-/// [`crate::NetcdfReader::decode_variable_values`], which indexes *all* root
-/// datasets, pure dimensions included; each [`VariableInfo`] therefore carries
-/// its own [`VariableInfo::decode_index`], and the render path must use that
-/// rather than the variable's position in this list.
+/// [`crate::NetcdfReader::decode_variable_values`], which indexes *all* datasets
+/// across the file, pure dimensions included; each [`VariableInfo`] therefore
+/// carries its own [`VariableInfo::decode_index`], and the render path must use
+/// that rather than the variable's position in this list.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Hdf5Metadata {
     pub dimensions: Vec<DimensionInfo>,
@@ -121,7 +125,7 @@ struct DatasetInfo {
 
 /// Resolve the root group's dimensions, variables, and global attributes.
 pub fn resolve(bytes: &[u8], probe: &Hdf5Probe) -> Result<Hdf5Metadata, FieldglassError> {
-    let datasets: Vec<DatasetInfo> = group::list_root_children(bytes, probe)?
+    let datasets: Vec<DatasetInfo> = group::list_all_children(bytes, probe)?
         .into_iter()
         .filter(|c| c.kind == ChildKind::Dataset)
         .map(|child| describe(bytes, probe, child))
@@ -138,8 +142,8 @@ pub fn resolve(bytes: &[u8], probe: &Hdf5Probe) -> Result<Hdf5Metadata, Fieldgla
     let dimensions = build_dimensions(&datasets);
 
     // Pass 2: classify each dataset, resolving its dimension names. `datasets` is
-    // in the same name-sorted, all-datasets order `decode_variable_values` indexes
-    // (`hdf5_dataset_address` walks the identical `list_root_children` filter), so
+    // in the same whole-file depth-first order `decode_variable_values` indexes
+    // (`hdf5_dataset_address` walks the identical `list_all_children` filter), so
     // the enumerate position is the variable's decode index — recorded now because
     // it survives the by-name sort below, where the vector position no longer does.
     let mut variables = Vec::new();
@@ -309,7 +313,7 @@ fn decode_dimension_list(
         let referenced = read_uint_le(&object, 0, o)?;
         let name = name_by_address.get(&referenced).ok_or_else(|| {
             FieldglassError::Parse(
-                "DIMENSION_LIST references a dimension outside the root group".into(),
+                "DIMENSION_LIST references an object that is not a known dimension scale".into(),
             )
         })?;
         names.push(name.clone());

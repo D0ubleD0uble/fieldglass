@@ -68,8 +68,9 @@ impl NetcdfReader {
     /// element equals the variable's `_FillValue`. Mirrors the GRIB
     /// `decode_message_values` surface.
     ///
-    /// For HDF5 / NetCDF-4 backings a "variable" is a root-group dataset, indexed
-    /// in the same name-sorted order [`Self::variable_shape`] uses. Datasets
+    /// For HDF5 / NetCDF-4 backings a "variable" is any dataset in the file
+    /// (nested groups included, #219), indexed in the same whole-file depth-first
+    /// order [`Self::variable_shape`] uses. Datasets
     /// stored with a Data Layout the reader doesn't decode yet (e.g. a
     /// version-4 chunk index) return [`FieldglassError::UnsupportedSection`].
     pub fn decode_variable_values(
@@ -87,11 +88,12 @@ impl NetcdfReader {
         }
     }
 
-    /// Resolve a NetCDF-4 / HDF5 file's root-group metadata — named dimensions,
-    /// variables with ordered dimension lists, and global attributes — by reading
-    /// the dimension-scale convention (decision 0003). Errors for a non-HDF5
-    /// backing, and for HDF5 layouts outside the decoded subset (e.g. a
-    /// `DIMENSION_LIST` reference into a nested group).
+    /// Resolve a NetCDF-4 / HDF5 file's metadata — named dimensions, variables
+    /// with ordered dimension lists, and global attributes — across the whole
+    /// file, descending into nested groups (#219, variables path-qualified as
+    /// `/GROUP/name`), by reading the dimension-scale convention (decision 0003).
+    /// Errors for a non-HDF5 backing and for HDF5 layouts outside the decoded
+    /// subset.
     pub fn hdf5_metadata(&self) -> Result<hdf5::dimensions::Hdf5Metadata, FieldglassError> {
         match &self.backing {
             NetcdfBacking::Hdf5(probe) => hdf5::dimensions::resolve(&self.data, probe),
@@ -117,13 +119,16 @@ impl NetcdfReader {
 }
 
 /// Resolve the object-header address of the `var_index`-th HDF5 dataset, in the
-/// root group's name-sorted order (groups and committed datatypes excluded).
+/// whole-file depth-first order (groups excluded, committed datatypes excluded).
+/// This is the identical order [`hdf5::dimensions::resolve`] walks, so a
+/// variable's `decode_index` from the resolved metadata indexes here directly —
+/// including variables in nested groups (#219).
 fn hdf5_dataset_address(
     bytes: &[u8],
     probe: &hdf5::Hdf5Probe,
     var_index: usize,
 ) -> Result<u64, FieldglassError> {
-    hdf5::group::list_root_children(bytes, probe)?
+    hdf5::group::list_all_children(bytes, probe)?
         .into_iter()
         .filter(|c| c.kind == hdf5::group::ChildKind::Dataset)
         .nth(var_index)
