@@ -73,16 +73,19 @@ classDiagram
     TargetProjection <|.. WebMercator
     TargetProjection <|.. Orthographic
     TargetProjection <|.. PolarStereographic
+    TargetProjection <|.. Mollweide
     TargetProjection <|.. TargetRaster
 
     PreparedTarget <|.. WebMercatorPrepared
     PreparedTarget <|.. OrthographicPrepared
     PreparedTarget <|.. PolarStereographicPrepared
+    PreparedTarget <|.. MollweidePrepared
     PreparedTarget <|.. EquirectPrepared
 
     ForwardMap <|.. WebMercatorPrepared
     ForwardMap <|.. OrthographicPrepared
     ForwardMap <|.. PolarStereographicPrepared
+    ForwardMap <|.. MollweidePrepared
     ForwardMap <|.. EquirectPrepared
     ForwardMap <|.. SourceOverlayTarget
 

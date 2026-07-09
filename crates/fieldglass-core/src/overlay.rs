@@ -178,7 +178,7 @@ pub fn project_polylines<P: ForwardMap>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::warp::{Orthographic, TargetProjection, TargetRaster};
+    use crate::warp::{Mollweide, Orthographic, TargetProjection, TargetRaster};
 
     /// A full-globe equirectangular raster for box-target tests.
     fn global_equirect(width: u32, height: u32) -> impl ForwardMap {
@@ -215,6 +215,22 @@ mod tests {
         let out = project_polylines(&prep, 361, 181, false, true, &latlon, &[4]);
         // The wrap breaks the 4-vertex ring into two 2-vertex runs.
         assert_eq!(out.seg_lengths, vec![2, 2]);
+    }
+
+    #[test]
+    fn mollweide_splits_at_the_seam_but_keeps_wide_visible_runs() {
+        // Mollweide wraps longitude about its centre, so a polyline hopping the
+        // ±180° seam jumps rim-to-rim and must break there (wraps_antimeridian =
+        // true), exactly like the lat/lon-box targets.
+        let prep = Mollweide::new(360, 180, 0.0).prepare();
+        let seam = [0.0, 160.0, 0.0, 170.0, 0.0, -170.0, 0.0, -160.0];
+        let out = project_polylines(&prep, 360, 180, false, true, &seam, &[4]);
+        assert_eq!(out.seg_lengths, vec![2, 2], "seam crossing must split");
+        // A genuine 160°-wide equatorial segment (no seam crossing) spans less
+        // than half the width, so it must stay one run rather than false-split.
+        let wide = [0.0, -80.0, 0.0, 80.0];
+        let out = project_polylines(&prep, 360, 180, false, true, &wide, &[2]);
+        assert_eq!(out.seg_lengths, vec![2], "wide visible run must not split");
     }
 
     #[test]

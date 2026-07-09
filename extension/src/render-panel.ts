@@ -265,6 +265,9 @@ export function renderImagePanelHtml(
           } else if (projection === 'polar_stereographic') {
             options.projectionPreset = (document.getElementById('picker-preset-polar') || {}).value;
             options.centerLon = num('picker-central-meridian');
+          } else if (projection === 'mollweide') {
+            // Mollweide has no preset — only a central meridian.
+            options.centerLon = num('picker-moll-meridian');
           }
           if (mode && mode.value === 'manual') {
             const min = Number((document.getElementById('range-min') || {}).value);
@@ -526,8 +529,10 @@ export function renderImagePanelHtml(
           const projection = (document.getElementById('picker-projection') || {}).value || 'source';
           const ortho = document.getElementById('preset-ortho');
           const polar = document.getElementById('preset-polar');
+          const moll = document.getElementById('preset-moll');
           if (ortho) ortho.toggleAttribute('hidden', projection !== 'orthographic');
           if (polar) polar.toggleAttribute('hidden', projection !== 'polar_stereographic');
+          if (moll) moll.toggleAttribute('hidden', projection !== 'mollweide');
           const bounds = document.getElementById('bounds-fieldset');
           if (bounds) bounds.toggleAttribute('hidden', !warpsLatLon(projection));
         }
@@ -560,6 +565,7 @@ export function renderImagePanelHtml(
             centerLat: val('picker-center-lat'),
             polarPreset: val('picker-preset-polar'),
             centralMeridian: val('picker-central-meridian'),
+            mollMeridian: val('picker-moll-meridian'),
             resampling: val('picker-resampling'),
             flipY: chk('flip-y'),
             rangeMode: radio('range-mode'),
@@ -607,6 +613,7 @@ export function renderImagePanelHtml(
           setVal('picker-center-lat', s.centerLat);
           setVal('picker-preset-polar', s.polarPreset);
           setVal('picker-central-meridian', s.centralMeridian);
+          setVal('picker-moll-meridian', s.mollMeridian);
           setVal('picker-resampling', s.resampling);
           setChk('flip-y', s.flipY);
           setRadio('range-mode', s.rangeMode);
@@ -654,7 +661,7 @@ export function renderImagePanelHtml(
           const projPick = document.getElementById('picker-projection');
           if (projPick) projPick.addEventListener('change', () => { syncProjectionControls(); requestRender(); });
           ['picker-center-lat', 'picker-center-lon', 'picker-preset-polar',
-           'picker-central-meridian'].forEach((id) => {
+           'picker-central-meridian', 'picker-moll-meridian'].forEach((id) => {
             const el = document.getElementById(id);
             if (el) el.addEventListener('change', requestRender);
           });
@@ -915,7 +922,8 @@ ${meta.reprojectable
           ? `          <option value="equirectangular">Equirectangular</option>
           <option value="web_mercator">Web Mercator</option>
           <option value="orthographic">Orthographic</option>
-          <option value="polar_stereographic">Polar stereographic</option>`
+          <option value="polar_stereographic">Polar stereographic</option>
+          <option value="mollweide">Mollweide</option>`
           : ""}
         </select>
 ${meta.reprojectable
@@ -937,6 +945,10 @@ ${meta.reprojectable
         </label>
         <label>Central meridian
           <input type="number" id="picker-central-meridian" value="0" min="-360" max="360" step="any"></label>
+      </span>
+      <span id="preset-moll" hidden>
+        <label>Central meridian
+          <input type="number" id="picker-moll-meridian" value="0" min="-360" max="360" step="any"></label>
       </span>
       <label>Resampling
         <select id="picker-resampling">

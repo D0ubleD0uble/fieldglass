@@ -605,6 +605,131 @@ impl PreparedTarget for PolarStereographicPrepared {
     }
 }
 
+/// Mollweide ("Babinet" / homalographic) equal-area world target centred on
+/// the meridian `lon0`. The whole globe maps into an ellipse whose width is
+/// twice its height; the raster is sized 2:1 so that ellipse fills it, and
+/// pixels in the corners outside the ellipse are `None` (rendered as
+/// background, as the azimuthal targets already do). Latitude is spaced so
+/// every equal area on the sphere occupies an equal area on the map — the
+/// property that makes it a publication favourite for global fields.
+///
+/// Working in the *normalized* frame where the bounding ellipse is the unit
+/// disc (`X = x/(2√2)`, `Y = y/√2` of Snyder's `R = 1` coordinates), the map
+/// reduces to `X = Δλ·cosθ/π`, `Y = sinθ`, with the auxiliary angle `θ`
+/// solving `2θ + sin 2θ = π·sinφ` (Snyder, PP-1395 §31, sphere).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Mollweide {
+    width: u32,
+    height: u32,
+    lon0: f64,
+}
+
+impl Mollweide {
+    /// Build a Mollweide target centred on meridian `lon0` (any value; the
+    /// inverse normalises longitude downstream). Fields are private to keep
+    /// construction symmetric with the other targets (single entry point).
+    pub fn new(width: u32, height: u32, lon0: f64) -> Self {
+        Self {
+            width,
+            height,
+            lon0,
+        }
+    }
+}
+
+/// Hoisted Mollweide map: the centre meridian in radians plus the raster dims
+/// needed to place each pixel in the normalized unit-disc frame.
+#[derive(Debug, Clone, Copy)]
+pub struct MollweidePrepared {
+    width: u32,
+    height: u32,
+    lon0_rad: f64,
+}
+
+/// Solve `2θ + sin 2θ = π·sinφ` for the Mollweide auxiliary angle `θ` by
+/// Newton's method (Snyder eq. 31-4). Converges in a handful of steps for the
+/// interior; the poles (`|sinφ| = 1`) are handled in closed form to keep the
+/// `cos 2θ` derivative from vanishing.
+fn mollweide_theta(phi: f64) -> f64 {
+    let s = phi.sin();
+    if (1.0 - s.abs()) < 1e-12 {
+        return (PI / 2.0).copysign(s);
+    }
+    let target = PI * s;
+    let mut theta = phi; // Snyder's suggested initial estimate.
+    for _ in 0..12 {
+        let delta =
+            (2.0 * theta + (2.0 * theta).sin() - target) / (2.0 + 2.0 * (2.0 * theta).cos());
+        theta -= delta;
+        if delta.abs() < 1e-12 {
+            break;
+        }
+    }
+    theta
+}
+
+impl TargetProjection for Mollweide {
+    type Prepared = MollweidePrepared;
+
+    fn dims(&self) -> (u32, u32) {
+        (self.width, self.height)
+    }
+
+    fn prepare(&self) -> MollweidePrepared {
+        MollweidePrepared {
+            width: self.width,
+            height: self.height,
+            lon0_rad: self.lon0 * DEG2RAD,
+        }
+    }
+}
+
+impl ForwardMap for MollweidePrepared {
+    fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)> {
+        let phi = lat * DEG2RAD;
+        // Shift longitude by the ±360 multiple nearest the centre meridian so a
+        // point just past one map edge stays on that edge instead of wrapping.
+        let mut dlon = lon * DEG2RAD - self.lon0_rad;
+        dlon -= 2.0 * PI * (dlon / (2.0 * PI)).round();
+        let theta = mollweide_theta(phi);
+        // Normalized frame: the bounding ellipse is the unit disc.
+        let x = dlon * theta.cos() / PI;
+        let y = theta.sin();
+        // Invert `pixel_unit_coord`, north-up (y points up → row 0 at top).
+        Some((
+            unit_coord_to_pixel(x, self.width),
+            unit_coord_to_pixel(-y, self.height),
+        ))
+    }
+}
+
+impl PreparedTarget for MollweidePrepared {
+    fn pixel_to_lonlat(&self, px: u32, py: u32) -> Option<(f64, f64)> {
+        // Pixel → normalized unit-disc frame, north-up: X ∈ [-1, 1] L→R,
+        // Y ∈ [1, -1] T→B. The bounding ellipse is the unit circle here.
+        let x = pixel_unit_coord(px, self.width);
+        let y = -pixel_unit_coord(py, self.height);
+        if x * x + y * y > 1.0 {
+            return None; // Corner outside the map ellipse — background.
+        }
+        // Y = sinθ, so θ = asin(Y); clamp guards a rim pixel rounded past 1.
+        let theta = y.clamp(-1.0, 1.0).asin();
+        // φ = asin((2θ + sin2θ) / π); the bracket is in [-1, 1] analytically.
+        let lat = ((2.0 * theta + (2.0 * theta).sin()) / PI)
+            .clamp(-1.0, 1.0)
+            .asin();
+        // λ = λ0 + π·X / cosθ. At a pole cosθ → 0 and X → 0 (forced by the disc
+        // bound), so the meridian is indeterminate; report the centre meridian.
+        let cos_theta = theta.cos();
+        let lon = if cos_theta.abs() < 1e-12 {
+            self.lon0_rad
+        } else {
+            self.lon0_rad + PI * x / cos_theta
+        };
+        Some((lat * RAD2DEG, lon * RAD2DEG))
+    }
+}
+
 /// Per-pixel step that spreads `span` evenly across `n` pixels (`span /
 /// (n - 1)`). A single-pixel axis collapses to a zero step rather than
 /// dividing by zero.
@@ -1330,6 +1455,148 @@ mod tests {
                 "south_pole={south_pole}: opposite hemisphere must be None"
             );
         }
+    }
+
+    #[test]
+    fn mollweide_forward_inverts_interior_and_rejects_ellipse_corners() {
+        // 2:1 raster so the unit-disc frame fills it as the correct ellipse.
+        // Round-trip only *interior* pixels: the ellipse boundary is the whole
+        // ±180° meridian, represented on both the left and right rim, so a bare
+        // (φ, ±180) is genuinely double-valued and its exact pixel can't be
+        // recovered. Exclude a thin boundary margin; the seam is tested below.
+        let (w, h) = (43u32, 21u32);
+        let prep = Mollweide::new(w, h, 10.0).prepare();
+        for py in 0..h {
+            for px in 0..w {
+                let x = pixel_unit_coord(px, w);
+                let y = pixel_unit_coord(py, h);
+                if x * x + y * y > 0.98 {
+                    continue; // Near/at the rim — the seam, tested separately.
+                }
+                let (lat, lon) = prep.pixel_to_lonlat(px, py).expect("interior on map");
+                let (rx, ry) = prep.lonlat_to_pixel(lat, lon).expect("forward on map");
+                assert!(
+                    near(rx, px as f64, 1e-6) && near(ry, py as f64, 1e-6),
+                    "({px},{py}) → ({lat},{lon}) → ({rx},{ry})"
+                );
+            }
+        }
+        // The four raster corners lie outside the bounding ellipse → background.
+        for (px, py) in [(0u32, 0u32), (w - 1, 0), (0, h - 1), (w - 1, h - 1)] {
+            assert!(
+                prep.pixel_to_lonlat(px, py).is_none(),
+                "corner ({px},{py}) must be off the map ellipse"
+            );
+        }
+    }
+
+    #[test]
+    fn mollweide_seam_meridian_maps_to_a_rim() {
+        // The ±180°-from-centre meridian is the ellipse boundary. A point on it
+        // forward-projects onto the rim (|X| = 1) at the correct latitude row,
+        // and its inverse recovers the seam meridian. Centre on lon0 = 20°, so
+        // the seam is at lon = 200° ≡ -160°.
+        let (w, h) = (401u32, 201u32);
+        let prep = Mollweide::new(w, h, 20.0).prepare();
+        let (px, py) = prep.lonlat_to_pixel(0.0, -160.0).expect("seam on map");
+        // Equator row is the vertical centre; the seam sits on a rim column.
+        assert!(
+            near(py, (h as f64 - 1.0) / 2.0, 1e-6),
+            "seam equator row {py}"
+        );
+        assert!(
+            near(px, 0.0, 1e-6) || near(px, w as f64 - 1.0, 1e-6),
+            "seam must land on a rim column, got {px}"
+        );
+    }
+
+    #[test]
+    fn mollweide_known_points_match_published_geometry() {
+        // Snyder PP-1395 §31 anchor points on the unit sphere, expressed in the
+        // normalized frame (X = x/(2√2), Y = y/√2): the map centre is (0,0), the
+        // poles sit at Y = ±1 on the centre meridian, the ±90° meridians at the
+        // equator reach X = ±0.5, and the ±180° meridians reach the ellipse rim
+        // X = ±1. Verify `pixel_to_lonlat` recovers these by sampling the exact
+        // pixels they map to on a fine raster centred on lon0 = 0.
+        let w = 2001u32;
+        let h = 1001u32;
+        let prep = Mollweide::new(w, h, 0.0).prepare();
+        let at = |x: f64, y: f64| {
+            // Normalized (x, y) north-up → pixel (invert pixel_unit_coord).
+            let px = ((x + 1.0) / 2.0 * (w as f64 - 1.0)).round() as u32;
+            let py = ((1.0 - y) / 2.0 * (h as f64 - 1.0)).round() as u32;
+            prep.pixel_to_lonlat(px, py).expect("on map")
+        };
+        // Centre → (0, 0).
+        let (lat, lon) = at(0.0, 0.0);
+        assert!(
+            near(lat, 0.0, 0.05) && near(lon, 0.0, 0.05),
+            "centre ({lat},{lon})"
+        );
+        // North pole → (90, ·); the meridian is indeterminate there.
+        let (lat, _) = at(0.0, 1.0);
+        assert!(near(lat, 90.0, 0.2), "north pole lat {lat}");
+        // South pole → (-90, ·).
+        let (lat, _) = at(0.0, -1.0);
+        assert!(near(lat, -90.0, 0.2), "south pole lat {lat}");
+        // Equator at X = 0.5 → 90°E; at X = -0.5 → 90°W.
+        let (lat, lon) = at(0.5, 0.0);
+        assert!(
+            near(lat, 0.0, 0.05) && near(lon, 90.0, 0.1),
+            "90E ({lat},{lon})"
+        );
+        let (_, lon) = at(-0.5, 0.0);
+        assert!(near(lon, -90.0, 0.1), "90W lon {lon}");
+        // Equator rim X = ±1 → ±180° meridian.
+        let (_, lon) = at(1.0, 0.0);
+        assert!(near(lon.abs(), 180.0, 0.2), "east rim lon {lon}");
+    }
+
+    #[test]
+    fn mollweide_forward_matches_closed_form_interior_points() {
+        // Independently computed forward values (normalized frame, lon0 = 0):
+        // X = Δλ·cosθ/π, Y = sinθ with θ solving 2θ+sin2θ = π·sinφ. Values from
+        // an out-of-band solver (documented in the PR); assert `lonlat_to_pixel`
+        // places each at the matching fractional pixel of a unit-square-mapped
+        // raster (so pixel/(n-1) recovers the normalized coordinate directly).
+        let (w, h) = (1001u32, 1001u32);
+        let prep = Mollweide::new(w, h, 0.0).prepare();
+        // (lat, lon, X, Y)
+        let cases = [
+            (30.0, 45.0, 0.228_692_754_4, 0.403_972_753_3),
+            (-45.0, -100.0, -0.447_726_274_4, -0.592_041_749_8),
+            (60.0, 150.0, 0.539_268_700_2, 0.762_386_088_1),
+        ];
+        for (lat, lon, x, y) in cases {
+            let (px, py) = prep.lonlat_to_pixel(lat, lon).expect("on map");
+            let want_px = (x + 1.0) / 2.0 * (w as f64 - 1.0);
+            let want_py = (1.0 - y) / 2.0 * (h as f64 - 1.0);
+            assert!(
+                near(px, want_px, 1e-3) && near(py, want_py, 1e-3),
+                "({lat},{lon}) → ({px},{py}), want ({want_px},{want_py})"
+            );
+        }
+    }
+
+    #[test]
+    fn mollweide_warps_indexed_source() {
+        // A global source warped into the Mollweide ellipse samples a non-empty
+        // interior and leaves the corners (outside the ellipse) masked.
+        let (p, cell) = indexed_latlon_source(LatLonParams {
+            ni: 13,
+            nj: 13,
+            lat_first: 90.0,
+            lon_first: -180.0,
+            lat_last: -90.0,
+            lon_last: 180.0,
+        });
+        let source = make_source(&p, &cell);
+        let target = Mollweide::new(64, 32, 0.0);
+        let out = warp(&source, &target, Resampling::Nearest);
+        let present = out.mask.iter().filter(|&&m| m == 1).count();
+        assert!(present > 0, "Mollweide warp produced an empty mask");
+        // Top-left corner pixel is outside the ellipse → masked.
+        assert_eq!(out.mask[0], 0, "ellipse corner should be masked");
     }
 
     #[test]
