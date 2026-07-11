@@ -1,15 +1,16 @@
-// Overlay layer data sources for the render panel (#72).
+// Overlay layer data sources for the render panel (#72, extended in #237).
 //
-// This module produces geographic `(lat, lon)` polylines for the coastline
-// and graticule overlays and nothing more — the *projection* into pixel space
-// happens in Rust (`Grib{1,2}Handle.projectOverlay`), which owns every bit of
-// the forward map. Keeping the math on the Rust side is the contract: the
-// webview never reprojects, so it can never drift from the warp.
+// This module produces geographic `(lat, lon)` polylines for the bundled vector
+// layers (coastline, borders, lakes, rivers) and the graticule, and nothing more
+// — the *projection* into pixel space happens in Rust
+// (`Grib{1,2}Handle.projectOverlay`), which owns every bit of the forward map.
+// Keeping the math on the Rust side is the contract: the webview never
+// reprojects, so it can never drift from the warp.
 //
-// Both layers hand back the same flat shape the napi `projectOverlay` call
+// Every layer hands back the same flat shape the napi `projectOverlay` call
 // expects — `latlon` as `[lat, lon, lat, lon, …]` plus a `ringLengths` count
-// per polyline — so a future user-defined-shape layer is just another
-// producer of this shape with zero Rust change.
+// per polyline — so a new layer is just another producer of this shape, and a
+// future user-defined-shape layer needs zero Rust change.
 
 import * as fs from "fs";
 import * as path from "path";
@@ -22,28 +23,44 @@ export interface OverlayGeometry {
   ringLengths: Uint32Array;
 }
 
-/** Shape of the bundled coastline asset: each line is flat `[lon, lat, …]`
+/** Shape of a bundled vector asset: each line is flat `[lon, lat, …]`
  *  (GeoJSON coordinate order). Converted to `[lat, lon, …]` on load. */
-interface CoastlineAsset {
+interface VectorAsset {
   lines: number[][];
 }
 
-let coastlineCache: OverlayGeometry | undefined;
+/** The bundled Natural Earth 1:110m vector layers, all public domain. The
+ *  coastline predates the others; the rest are built by
+ *  `tools/build_overlay_layers.py`. Lakes are stroked as their boundary rings —
+ *  the overlay pipeline draws lines and fills nothing. */
+export const VECTOR_LAYERS = ["coastline", "borders", "lakes", "rivers"] as const;
 
-/** Load + cache the bundled Natural Earth 1:110m coastline as
- *  `OverlayGeometry`. Parsed once per extension-host session. The asset sits
- *  beside the compiled output under `media/`, located the same way
- *  `native.ts` finds the native binary (relative to `__dirname`). */
-export function loadCoastline(): OverlayGeometry {
-  if (coastlineCache) {
-    return coastlineCache;
+export type VectorLayer = (typeof VECTOR_LAYERS)[number];
+
+/** Parsed geometry per layer, kept for the extension-host session. Each asset
+ *  is read and flattened at most once however many panels ask for it. */
+const layerCache = new Map<VectorLayer, OverlayGeometry>();
+
+/** Load + cache a bundled Natural Earth 1:110m vector layer as
+ *  `OverlayGeometry`. The assets sit beside the compiled output under
+ *  `media/`, located the same way `native.ts` finds the native binary
+ *  (relative to `__dirname`).
+ *
+ *  `layer` is a member of the closed {@link VECTOR_LAYERS} set — never a
+ *  caller-supplied string — so the filename can't be steered off `media/`. */
+export function loadVectorLayer(layer: VectorLayer): OverlayGeometry {
+  const cached = layerCache.get(layer);
+  if (cached) {
+    return cached;
   }
-  const file = path.join(__dirname, "..", "media", "coastline-110m.json");
-  // Path is built from `__dirname` + a fixed asset name, never user input.
+  const file = path.join(__dirname, "..", "media", `${layer}-110m.json`);
+  // Path is built from `__dirname` + a name from the closed layer set above,
+  // never user input.
   // eslint-disable-next-line security/detect-non-literal-fs-filename
-  const asset = JSON.parse(fs.readFileSync(file, "utf8")) as CoastlineAsset;
-  coastlineCache = flattenLonLatLines(asset.lines);
-  return coastlineCache;
+  const asset = JSON.parse(fs.readFileSync(file, "utf8")) as VectorAsset;
+  const geometry = flattenLonLatLines(asset.lines);
+  layerCache.set(layer, geometry);
+  return geometry;
 }
 
 /** Flatten lines into the `OverlayGeometry` contract shape. When `swapPairs`
