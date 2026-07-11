@@ -5,6 +5,7 @@ import { escapeHtml, nonce } from "./html";
 import {
   loadNative,
   nativeBinaryName,
+  type ColormapInfo,
   type DatasetMeta,
   type Grib1Handle,
   type Grib2Handle,
@@ -368,7 +369,12 @@ export class FieldglassEditorProvider
       { viewColumn: vscode.ViewColumn.Beside, preserveFocus: false },
       { enableScripts: true, retainContextWhenHidden: false, localResourceRoots: [] }
     );
-    panel.webview.html = renderImagePanelHtml(panel.webview, meta, describeProjection(meta));
+    panel.webview.html = renderImagePanelHtml(
+      panel.webview,
+      meta,
+      describeProjection(meta),
+      colormapRegistry(),
+    );
 
     const paint = (options: RenderOptions) => {
       const docHandle = this._handlesByDoc.get(document.uri.toString());
@@ -681,6 +687,7 @@ export class FieldglassEditorProvider
       panel.webview,
       meta,
       "NetCDF slice — latlon (synthesised geometry)",
+      colormapRegistry(),
       slice,
     );
 
@@ -862,6 +869,26 @@ const PROJECTIONS: ReadonlyArray<RenderOptions["projection"]> = [
  * this clamp. The original two-value clamp here (source/equirectangular) was
  * the #71 regression where the new targets and presets silently did nothing.
  */
+/** The colormap registry, straight from Rust. Empty when the native binding
+ *  is unavailable, which leaves the panel with no colormap picker rather than
+ *  a picker offering names the renderer doesn't have. */
+function colormapRegistry(): ColormapInfo[] {
+  const native = loadNative();
+  return native ? native.colormaps() : [];
+}
+
+/** The colormap names the Rust side accepts, read once from the registry.
+ *  Derived from the registry rather than hardcoded, so adding a colormap in
+ *  Rust needs no matching edit here and the clamp below can't fall behind it. */
+let knownColormapNames: ReadonlySet<string> | undefined;
+function knownColormaps(): ReadonlySet<string> {
+  if (!knownColormapNames) {
+    const native = loadNative();
+    knownColormapNames = new Set(native ? native.colormaps().map((c) => c.name) : []);
+  }
+  return knownColormapNames;
+}
+
 export function resolveRerenderOptions(m: Partial<RenderOptions>): RenderOptions {
   const projection: RenderOptions["projection"] =
     m.projection !== undefined && PROJECTIONS.includes(m.projection)
@@ -869,6 +896,11 @@ export function resolveRerenderOptions(m: Partial<RenderOptions>): RenderOptions
       : "source";
   const resampling: RenderOptions["resampling"] =
     m.resampling === "bilinear" ? "bilinear" : "nearest";
+  // An unknown colormap drops to `undefined` — the native default (viridis) —
+  // rather than round-tripping a name Rust would reject with an error popup.
+  // Same clamp as the projection, for the same reason.
+  const colormap =
+    m.colormap !== undefined && knownColormaps().has(m.colormap) ? m.colormap : undefined;
   return {
     projection,
     projectionPreset: m.projectionPreset,
@@ -882,6 +914,8 @@ export function resolveRerenderOptions(m: Partial<RenderOptions>): RenderOptions
     boundsLatMax: m.boundsLatMax,
     boundsLonMin: m.boundsLonMin,
     boundsLonMax: m.boundsLonMax,
+    colormap,
+    reverseColormap: !!m.reverseColormap,
   };
 }
 

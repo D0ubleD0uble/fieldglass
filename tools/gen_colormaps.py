@@ -1,0 +1,162 @@
+#!/usr/bin/env python3
+"""Generate the colormap anchor tables in fieldglass-core.
+
+Writes ``crates/fieldglass-core/src/colormap_tables.rs`` — the RGB anchor
+stops for every colormap the render panel offers. Run it after changing the
+colormap set; do not hand-edit the generated file.
+
+    python3 tools/gen_colormaps.py
+
+Needs matplotlib (``pip install matplotlib``), which is the upstream for every
+table here. The colormaps are *data*, not code, and each one's licence is
+recorded in the generated file's header and in the repository README:
+
+  * viridis, plasma, cividis  — CC0 / public domain (matplotlib "new"
+    colormaps, by Nathaniel J. Smith, Stefan van der Walt, Eric Firing, and
+    for cividis Jamie R. Nunez, Christopher R. Anderton, Ryan S. Renslow).
+  * coolwarm — CC0 / public domain (Kenneth Moreland, "Diverging Color Maps
+    for Scientific Visualization").
+  * turbo — Apache-2.0, Copyright 2019 Google LLC (Anton Mikhailov).
+  * RdBu, BrBG — Apache-style licence, Copyright Cynthia Brewer, Mark
+    Harrower, and The Pennsylvania State University (ColorBrewer).
+  * grayscale — trivial black-to-white ramp defined here, not derived.
+
+The two Apache-licensed sources require an attribution notice in end-user
+documentation; that notice lives in the README's licence section.
+
+Sampling. Each colormap is reduced to a handful of anchor stops that the Rust
+side interpolates back up to a 256-entry LUT, matching how the original
+hardcoded viridis table worked.
+
+*viridis keeps the exact 11 anchors already committed*, sampled at the
+upstream indices below, so the default render stays byte-for-byte what it was
+before the registry existed. (The original module doc claimed indices 127 /
+178 / 229 for three of them; the committed values are really 128 / 179 / 230,
+which is what this script uses.) Everything else is sampled at ANCHORS_N stops,
+which tracks the upstream curve more closely than 11 would.
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+try:
+    import matplotlib
+    import matplotlib.pyplot as plt
+except ImportError:  # pragma: no cover - developer tooling
+    sys.exit("matplotlib is required: pip install matplotlib")
+
+OUT = Path(__file__).resolve().parent.parent / "crates/fieldglass-core/src/colormap_tables.rs"
+
+# The upstream indices the committed viridis anchors were sampled at. Pinned so
+# the default colormap's output cannot drift.
+VIRIDIS_INDICES = [0, 25, 51, 76, 102, 128, 153, 179, 204, 230, 255]
+
+# Anchor count for every other colormap.
+ANCHORS_N = 33
+
+# (rust_const, id, label, kind, upstream matplotlib name, licence tag)
+SPECS = [
+    ("VIRIDIS", "viridis", "Viridis", "Sequential", "viridis", "CC0"),
+    ("PLASMA", "plasma", "Plasma", "Sequential", "plasma", "CC0"),
+    ("CIVIDIS", "cividis", "Cividis", "Sequential", "cividis", "CC0"),
+    ("TURBO", "turbo", "Turbo", "Sequential", "turbo", "Apache-2.0 (Google LLC)"),
+    ("GRAYSCALE", "grayscale", "Grayscale", "Sequential", None, "trivial ramp"),
+    ("RD_BU", "rdbu", "Red–Blue", "Diverging", "RdBu", "Apache-style (ColorBrewer)"),
+    ("BR_BG", "brbg", "Brown–Teal", "Diverging", "BrBG", "Apache-style (ColorBrewer)"),
+    ("COOLWARM", "coolwarm", "Cool–Warm", "Diverging", "coolwarm", "CC0"),
+]
+
+
+def sample(mpl_name: str, n: int) -> list[list[float]]:
+    """Sample `n` evenly spaced anchor stops from an upstream colormap."""
+    cmap = plt.get_cmap(mpl_name)
+    return [[round(c, 6) for c in cmap(i / (n - 1))[:3]] for i in range(n)]
+
+
+def viridis_anchors() -> list[list[float]]:
+    """The committed viridis anchors, read back from the upstream 256-entry
+    listed table at the indices they were originally sampled at."""
+    colors = plt.get_cmap("viridis").colors
+    return [[round(c, 6) for c in colors[i][:3]] for i in VIRIDIS_INDICES]
+
+
+def grayscale_anchors() -> list[list[float]]:
+    """Black to white. Defined here rather than sampled: it is not anyone's
+    intellectual property and two stops interpolate exactly."""
+    return [[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]]
+
+
+def fmt_table(const: str, anchors: list[list[float]]) -> str:
+    rows = "\n".join(
+        f"    [{r:.6f}, {g:.6f}, {b:.6f}]," for r, g, b in anchors
+    )
+    return f"const {const}: [[f64; 3]; {len(anchors)}] = [\n{rows}\n];\n"
+
+
+def main() -> None:
+    tables, entries = [], []
+    for const, ident, label, kind, mpl_name, licence in SPECS:
+        if ident == "viridis":
+            anchors = viridis_anchors()
+        elif ident == "grayscale":
+            anchors = grayscale_anchors()
+        else:
+            anchors = sample(mpl_name, ANCHORS_N)
+        tables.append((const, anchors, licence))
+        entries.append(
+            f'    Colormap {{\n'
+            f'        name: "{ident}",\n'
+            f'        label: "{label}",\n'
+            f'        kind: ColormapKind::{kind},\n'
+            f'        anchors: &{const},\n'
+            f'    }},'
+        )
+
+    header = f'''//! Colormap anchor tables — GENERATED by `tools/gen_colormaps.py`.
+//!
+//! Do not edit by hand: re-run the script instead. Each colormap is a list of
+//! RGB anchor stops that [`crate::colormap::Colormap::lut`] interpolates up to
+//! a 256-entry lookup table.
+//!
+//! `viridis` keeps the 11 anchors it has always had, so the default render is
+//! byte-for-byte unchanged by the registry. The others carry {ANCHORS_N} anchors,
+//! which follows the upstream curve more closely.
+//!
+//! Provenance and licences of the colour values (the data, not this file):
+//!
+//! - `viridis`, `plasma`, `cividis`, `coolwarm` — CC0 / public domain.
+//!   viridis/plasma by Nathaniel J. Smith, Stefan van der Walt & Eric Firing;
+//!   cividis by Jamie R. Nunez, Christopher R. Anderton & Ryan S. Renslow;
+//!   coolwarm by Kenneth Moreland.
+//! - `turbo` — Apache-2.0, Copyright 2019 Google LLC (Anton Mikhailov).
+//! - `rdbu`, `brbg` — Apache-style licence, Copyright Cynthia Brewer, Mark
+//!   Harrower and The Pennsylvania State University. Colour specifications and
+//!   designs developed by Cynthia Brewer (<https://colorbrewer2.org/>).
+//! - `grayscale` — a plain black-to-white ramp, not derived from any source.
+//!
+//! The Apache-licensed sources ask for an attribution notice in end-user
+//! documentation; it is in the README's licence section.
+//!
+//! Generated against matplotlib {matplotlib.__version__}.
+
+use crate::colormap::{{Colormap, ColormapKind}};
+
+/// Every colormap the renderer offers, in picker order. The first entry is the
+/// default.
+pub(crate) const COLORMAPS: &[Colormap] = &[
+{chr(10).join(entries)}
+];
+'''
+
+    body = "\n".join(
+        f"/// `{const.lower()}` anchors — {licence}.\n{fmt_table(const, anchors)}"
+        for const, anchors, licence in tables
+    )
+    OUT.write_text(header + "\n" + body)
+    print(f"wrote {OUT} ({len(SPECS)} colormaps)")
+
+
+if __name__ == "__main__":
+    main()
