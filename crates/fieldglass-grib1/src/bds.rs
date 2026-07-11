@@ -23,6 +23,9 @@ pub struct BdsHeader {
     /// width; for complex packing this same octet (octet 11) is repurposed
     /// as `widthOfFirstOrderValues`. Zero means a constant field.
     pub bits_per_value: u8,
+    /// Present when `is_spherical_harmonic`. Holds the spectral follow-on
+    /// header (the field mean, or the sub-truncation + Laplacian exponent).
+    pub spherical_extended: Option<SphericalExtendedHeader>,
     /// Present when `is_complex_packing && has_extra_flags`. Holds N1 + the
     /// extended flag byte (octets 12-14) so [`crate::packing`] decoders can
     /// branch on the precise variant without re-parsing the section header.
@@ -109,7 +112,13 @@ impl BdsHeader {
     /// kept in step with the README GRIB1 packing-modes table.
     pub fn packing_type_label(&self) -> &'static str {
         if self.is_spherical_harmonic {
-            return "spectral";
+            // The complex bit selects the variant, as in eccodes'
+            // `grib1/section.4.def` concept dispatch.
+            return if self.is_complex_packing {
+                "spectral_complex"
+            } else {
+                "spectral_simple"
+            };
         }
         if self.is_complex_packing {
             return match self.complex_extended {
@@ -157,9 +166,20 @@ pub fn parse_bds_header(bytes: &[u8]) -> Result<BdsHeader, FieldglassError> {
     let is_complex_packing = flag & 0x40 != 0;
     let has_extra_flags = flag & 0x10 != 0;
 
+    // Spherical-harmonic packing has its own follow-on layout. `spectral_simple`
+    // (no complex bit) carries the (0, 0) coefficient's real part as a bare IBM
+    // float; `spectral_complex` carries the sub-truncation and the Laplacian
+    // exponent instead. Both are read here so the decoder never re-parses.
+    let spherical_extended = if is_spherical_harmonic {
+        Some(parse_spherical_extended(bytes, is_complex_packing)?)
+    } else {
+        None
+    };
+
     // Octets 12-14 are only present (and meaningful) for complex packing
-    // with the extra-flags bit set. They are not used by spherical-harmonic
-    // packing, which has its own follow-on layout we don't decode today.
+    // with the extra-flags bit set. Spherical-harmonic packing sets the same
+    // complex bit but lays its octets out differently (see above), so it is
+    // excluded here.
     let complex_extended = if is_complex_packing && !is_spherical_harmonic && has_extra_flags {
         if bytes.len() < 14 {
             return Err(FieldglassError::Parse(format!(
@@ -188,7 +208,76 @@ pub fn parse_bds_header(bytes: &[u8]) -> Result<BdsHeader, FieldglassError> {
         ])),
         bits_per_value: bytes[10],
         complex_extended,
+        spherical_extended,
     })
+}
+
+/// Follow-on header of a spherical-harmonic BDS, after `bitsPerValue` (octet
+/// 11). The two spectral packings lay these octets out differently, so the
+/// variant is decided by the complex-packing flag — exactly as eccodes'
+/// `grib1/data.spectral_{simple,complex}.def` do.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SphericalExtendedHeader {
+    /// `spectral_simple`: octets 12-15 hold the real part of the `(0, 0)`
+    /// coefficient — the field mean — as a bare IBM float, lifted out of the
+    /// packed stream so its magnitude doesn't swamp the quantisation of every
+    /// other coefficient. Data begins at octet 16.
+    Simple { real_part: f64 },
+    /// `spectral_complex`: octets 12-13 `N`, 14-15 `P`, 16 `JS`, 17 `KS`,
+    /// 18 `MS`. Data begins at octet 19.
+    Complex {
+        /// Laplacian exponent, as stored (thousandths). The operator applied to
+        /// each coefficient is `(n·(n+1))^(P/1000)`.
+        p: i16,
+        /// Sub-truncation `JS` / `KS` / `MS`. eccodes asserts all three are
+        /// equal (`DataComplexPacking.cc`), so a message that disagrees is
+        /// malformed rather than a variant to support.
+        js: u8,
+        ks: u8,
+        ms: u8,
+    },
+}
+
+/// Octet at which a spectral BDS's data begins, counted from the start of the
+/// section. `spectral_simple` ends after the 4-byte real part; `spectral_complex`
+/// ends after `MS`.
+pub const SPECTRAL_SIMPLE_DATA_OFFSET: usize = 15;
+pub const SPECTRAL_COMPLEX_DATA_OFFSET: usize = 18;
+
+fn parse_spherical_extended(
+    bytes: &[u8],
+    is_complex_packing: bool,
+) -> Result<SphericalExtendedHeader, FieldglassError> {
+    if is_complex_packing {
+        if bytes.len() < SPECTRAL_COMPLEX_DATA_OFFSET {
+            return Err(FieldglassError::Parse(format!(
+                "spectral_complex BDS header requires {SPECTRAL_COMPLEX_DATA_OFFSET} bytes, got {}",
+                bytes.len()
+            )));
+        }
+        Ok(SphericalExtendedHeader::Complex {
+            // `N` (octets 12-13) is deliberately not read: eccodes writes it as
+            // an offset from the start of the *message* rather than the section
+            // and its own decoder ignores it, deriving the packed-data offset
+            // from `KS` instead. We do the same rather than trust it.
+            p: sign_magnitude_i16(u16::from_be_bytes([bytes[13], bytes[14]])),
+            js: bytes[15],
+            ks: bytes[16],
+            ms: bytes[17],
+        })
+    } else {
+        if bytes.len() < SPECTRAL_SIMPLE_DATA_OFFSET {
+            return Err(FieldglassError::Parse(format!(
+                "spectral_simple BDS header requires {SPECTRAL_SIMPLE_DATA_OFFSET} bytes, got {}",
+                bytes.len()
+            )));
+        }
+        Ok(SphericalExtendedHeader::Simple {
+            real_part: ibm_float_to_f64(u32::from_be_bytes([
+                bytes[11], bytes[12], bytes[13], bytes[14],
+            ])),
+        })
+    }
 }
 
 /// Decode a BDS into floating-point values.
@@ -287,6 +376,7 @@ mod tests {
             binary_scale_factor: 0,
             reference_value: 42.0,
             bits_per_value: 0,
+            spherical_extended: None,
             complex_extended: None,
         };
         let bds = vec![0u8; BDS_DATA_OFFSET];
@@ -341,17 +431,52 @@ mod tests {
     }
 
     #[test]
-    fn rejects_spherical_harmonic_packing() {
-        let mut bds = vec![0u8; BDS_DATA_OFFSET];
-        bds[0..3].copy_from_slice(&[0, 0, BDS_DATA_OFFSET as u8]);
-        bds[3] = 0x80; // spherical-harmonic flag
+    fn spherical_harmonic_refuses_the_scalar_grid_path() {
+        // Coefficients are not one scalar per grid point, so the scalar decoder
+        // must refuse — and name the call that does decode them, rather than
+        // leaving the caller to guess. (`decode_spectral_message` is the entry
+        // point; see `packing::spherical`.)
+        let mut bds = vec![0u8; SPECTRAL_SIMPLE_DATA_OFFSET];
+        bds[0..3].copy_from_slice(&[0, 0, SPECTRAL_SIMPLE_DATA_OFFSET as u8]);
+        bds[3] = 0x80; // spherical-harmonic flag, complex bit clear → simple
         let header = parse_bds_header(&bds).unwrap();
+        assert!(header.is_spherical_harmonic);
+        assert!(matches!(
+            header.spherical_extended,
+            Some(SphericalExtendedHeader::Simple { .. })
+        ));
+        assert_eq!(header.packing_type_label(), "spectral_simple");
+
         let err = decode_values(&bds, &header, 0, None, 1, 0).unwrap_err();
         match err {
             FieldglassError::UnsupportedSection(msg) => {
-                assert!(msg.contains("spherical-harmonic"), "msg = {msg:?}");
+                assert!(msg.contains("decode_spectral_message"), "msg = {msg:?}");
             }
             other => panic!("expected UnsupportedSection, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn spectral_complex_header_reads_the_sub_truncation() {
+        // Octets 12-13 N, 14-15 P, 16 JS, 17 KS, 18 MS. `N` is deliberately
+        // ignored (eccodes writes it relative to the message and ignores it too).
+        let mut bds = vec![0u8; SPECTRAL_COMPLEX_DATA_OFFSET];
+        bds[0..3].copy_from_slice(&[0, 0, SPECTRAL_COMPLEX_DATA_OFFSET as u8]);
+        bds[3] = 0xC0; // spherical-harmonic + complex
+        bds[13..15].copy_from_slice(&2000u16.to_be_bytes()); // P = +2.000
+        bds[15] = 20; // JS
+        bds[16] = 20; // KS
+        bds[17] = 20; // MS
+        let header = parse_bds_header(&bds).unwrap();
+        assert_eq!(header.packing_type_label(), "spectral_complex");
+        assert_eq!(
+            header.spherical_extended,
+            Some(SphericalExtendedHeader::Complex {
+                p: 2000,
+                js: 20,
+                ks: 20,
+                ms: 20
+            })
+        );
     }
 }

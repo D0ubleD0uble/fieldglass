@@ -500,6 +500,7 @@ mod tests {
             binary_scale_factor: 0,
             reference_value: 0.0,
             bits_per_value: 8,
+            spherical_extended: None,
             complex_extended: None,
         };
         let bds = vec![0u8; 32];

@@ -418,6 +418,7 @@ mod tests {
             binary_scale_factor: 0,
             reference_value: 0.0,
             bits_per_value: 8, // widthOfFirstOrderValues
+            spherical_extended: None,
             complex_extended: Some(ComplexExtendedHeader {
                 n1: N1_OCTET,
                 // secondOrderOfDifferentWidth | generalExtended2ordr | SPD order 1

@@ -204,3 +204,45 @@ With nothing masked and `R/E/D = 0`, decoded matrix value at flat index `k`
 equals `k % 256` — exactly hand-computable. The bitmap-masked code paths
 (absent grid points, clear secondary bits) are covered by unit tests on
 `expand_matrix` in `src/packing/matrix.rs`.
+
+## `spectral_complex_t63.grib1`
+
+Copied verbatim from eccodes 2.34.1's own sample set
+(`/usr/share/eccodes/samples/sh_sfc_grib1.tmpl`), which ECMWF ships under the
+Apache License 2.0. A real spherical-harmonic temperature field:
+
+- GDS data representation type 50 (spherical harmonics), triangular truncation
+  `J = K = M = 63`, `representationType = 1` (associated Legendre),
+  `representationMode = 2`.
+- BDS `packingType = spectral_complex`, `bitsPerValue = 16`, sub-truncation
+  `JS = KS = MS = 20`, Laplacian `P = 2000` (operator `(n(n+1))^2.0`).
+- 4160 stored values = `(63+1)·(63+2)` — 2080 complex coefficients.
+
+### `spectral_complex_t63.eccodes.ref.txt`
+
+The 4160 coefficients as eccodes decodes them, one per line. Note that
+`grib_get_data` on a spectral message prints a bare `Value` column with **no**
+latitude/longitude: eccodes decodes the packing but does not synthesise a grid,
+so this is a coefficient oracle, not a gridded one. Regenerate with:
+
+```sh
+grib_get_data spectral_complex_t63.grib1 | tail -n +2 \
+  > spectral_complex_t63.eccodes.ref.txt
+```
+
+## `spectral_simple_t63.grib1`
+
+The same field, re-encoded by eccodes 2.34.1 as the *other* spectral packing:
+
+```sh
+grib_set -s packingType=spectral_simple sh_sfc_grib1.tmpl spectral_simple_t63.grib1
+```
+
+Same T63 truncation and 4160 coefficients, but no sub-truncation and no
+Laplacian: the array is plain simple packing, except the real part of the
+`(0, 0)` coefficient, which the header carries as a bare IBM float.
+
+`spectral_simple_t63.eccodes.ref.txt` is its coefficient oracle, generated the
+same way as the complex one. Note `values[1]` — the imaginary part of `(0, 0)` —
+decodes to ~9.5e-06 rather than 0: it is genuinely stored in the packed stream
+and eccodes does not force it to zero here (unlike complex packing, which does).

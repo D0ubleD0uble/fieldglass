@@ -3,6 +3,7 @@ use crate::bms::{Bitmap, parse_bitmap};
 use crate::gds::{GridDescription, parse_grid_description};
 use crate::is::{IndicatorSection, parse_indicator};
 use crate::packing::matrix::decode_matrix_of_values;
+use crate::packing::spherical::{SpectralCoefficients, decode_spectral};
 use crate::pds::{ProductDefinition, parse_product_definition};
 use fieldglass_core::FieldglassError;
 
@@ -100,6 +101,16 @@ impl Grib1Reader {
                 "message has no GDS and its grid number is not a known predefined grid".to_string(),
             )
         })?;
+        // A spectral message has coefficients, not grid points, so it has no
+        // dimensions to report. Say so precisely — and name the call that does
+        // decode it — rather than letting it fall into the generic
+        // no-dimensions error below, which reads like a malformed grid.
+        if matches!(gds, GridDescription::SphericalHarmonic(_)) {
+            return Err(FieldglassError::UnsupportedSection(
+                "message holds spherical-harmonic coefficients, which are not values                  on a grid — decode them with `Grib1Reader::decode_spectral_message`"
+                    .to_string(),
+            ));
+        }
         let (ni, nj) = gds.dimensions().ok_or_else(|| {
             FieldglassError::Parse("grid type has no declared dimensions".to_string())
         })?;
@@ -159,6 +170,53 @@ impl Grib1Reader {
             inputs.bitmap_bits(),
             inputs.expected_count,
             inputs.cols,
+        )
+    }
+
+    /// Decode a spherical-harmonic message into its spectral coefficients.
+    ///
+    /// A spectral message stores the field in wavenumber space, not on a grid,
+    /// so it has no `Ni`/`Nj` and cannot go through
+    /// [`Grib1Reader::decode_message_values`] — the same reason a true
+    /// matrix-of-values field has its own entry point. Turning the coefficients
+    /// back into a grid needs an inverse Legendre transform, which this crate
+    /// does not do yet; what you get here is what eccodes' `grib_get_data`
+    /// prints for the same message.
+    ///
+    /// Errors if the message is not spherical-harmonic.
+    pub fn decode_spectral_message(
+        &self,
+        message_index: usize,
+    ) -> Result<SpectralCoefficients, FieldglassError> {
+        let msg = self
+            .messages
+            .get(message_index)
+            .ok_or(FieldglassError::OutOfRange)?;
+        let gds = msg
+            .gds
+            .as_ref()
+            .ok_or_else(|| FieldglassError::Parse("spectral message has no GDS".to_string()))?;
+        let GridDescription::SphericalHarmonic(sh) = gds else {
+            return Err(FieldglassError::UnsupportedSection(format!(
+                "message {message_index} is a {} grid, not spherical-harmonic                  coefficients — use `decode_message_values`",
+                gds.grid_type_name()
+            )));
+        };
+        let (bds_start, bds_end) = msg.bds_range;
+        let bds_bytes = &self.data[bds_start..bds_end];
+        let header = parse_bds_header(bds_bytes)?;
+        if !header.is_spherical_harmonic {
+            return Err(FieldglassError::Parse(
+                "GDS declares spherical-harmonic coefficients but the BDS does not".to_string(),
+            ));
+        }
+        decode_spectral(
+            bds_bytes,
+            &header,
+            msg.pds.decimal_scale_factor,
+            sh.j,
+            sh.k,
+            sh.m,
         )
     }
 
