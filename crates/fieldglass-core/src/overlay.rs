@@ -178,7 +178,9 @@ pub fn project_polylines<P: ForwardMap>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::warp::{Mollweide, Orthographic, TargetProjection, TargetRaster};
+    use crate::warp::{
+        EqualEarth, Mollweide, Orthographic, Robinson, TargetProjection, TargetRaster,
+    };
 
     /// A full-globe equirectangular raster for box-target tests.
     fn global_equirect(width: u32, height: u32) -> impl ForwardMap {
@@ -231,6 +233,32 @@ mod tests {
         let wide = [0.0, -80.0, 0.0, 80.0];
         let out = project_polylines(&prep, 360, 180, false, true, &wide, &[2]);
         assert_eq!(out.seg_lengths, vec![2], "wide visible run must not split");
+    }
+
+    #[test]
+    fn robinson_and_equal_earth_split_at_the_seam() {
+        // Same seam rule as Mollweide: these targets wrap longitude about their
+        // centre, so a polyline hopping the ±180° seam jumps rim-to-rim and must
+        // break there rather than smear a line back across the map. A genuine
+        // wide run stays whole.
+        let seam = [0.0, 160.0, 0.0, 170.0, 0.0, -170.0, 0.0, -160.0];
+        let wide = [0.0, -80.0, 0.0, 80.0];
+
+        let robin = Robinson::new(360, 180, 0.0).prepare();
+        let out = project_polylines(&robin, 360, 180, false, true, &seam, &[4]);
+        assert_eq!(out.seg_lengths, vec![2, 2], "Robinson seam must split");
+        let out = project_polylines(&robin, 360, 180, false, true, &wide, &[2]);
+        assert_eq!(out.seg_lengths, vec![2], "Robinson wide run must not split");
+
+        let ee = EqualEarth::new(360, 180, 0.0).prepare();
+        let out = project_polylines(&ee, 360, 180, false, true, &seam, &[4]);
+        assert_eq!(out.seg_lengths, vec![2, 2], "Equal Earth seam must split");
+        let out = project_polylines(&ee, 360, 180, false, true, &wide, &[2]);
+        assert_eq!(
+            out.seg_lengths,
+            vec![2],
+            "Equal Earth wide run must not split"
+        );
     }
 
     #[test]
