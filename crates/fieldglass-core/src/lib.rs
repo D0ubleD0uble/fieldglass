@@ -17,6 +17,9 @@
 pub mod bits;
 #[cfg(feature = "render")]
 pub mod colormap;
+/// Generated colormap anchor tables (`tools/gen_colormaps.py`).
+#[cfg(feature = "render")]
+mod colormap_tables;
 pub mod detect;
 pub mod error;
 pub mod metadata;

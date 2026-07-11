@@ -6,7 +6,7 @@ use fieldglass_core::{
     Mollweide, Orthographic, PlanarGridProjector, PolarStereoParams, PolarStereoProjector,
     PolarStereographic, ProjectedPolylines, Resampling, Robinson, RotatedLatLonParams,
     RotatedLatLonProjector, SourceGrid, SourceOverlayTarget, TargetRaster, WebMercator,
-    colormap::{min_max_ignoring_mask, paint_grid_rgba},
+    colormap::{Colormap, min_max_ignoring_mask, paint_grid_rgba},
     detect_from_bytes, eastward_lon_span, latlon_inverse, lon_grid_is_global, mercator_inverse,
     project_polylines,
     projection::GridIndex,
@@ -1094,6 +1094,50 @@ pub struct RenderOptions {
     pub bounds_lat_max: Option<f64>,
     pub bounds_lon_min: Option<f64>,
     pub bounds_lon_max: Option<f64>,
+    /// Name of the colormap to paint with — one of the names [`colormaps`]
+    /// reports (`"viridis"`, `"plasma"`, `"turbo"`, `"rdbu"`, …). `None` uses
+    /// the default (`"viridis"`), so a caller that never sets it renders
+    /// exactly as before. An unknown name is an error rather than a silent
+    /// fallback, so a typo can't quietly paint the wrong colours.
+    pub colormap: Option<String>,
+    /// Flip the colormap end-for-end (blue↔red on a diverging map, dark↔light
+    /// on a sequential one). `None` is `false`.
+    pub reverse_colormap: Option<bool>,
+}
+
+/// One entry of the colormap registry, as the picker needs it.
+#[napi(object)]
+pub struct ColormapInfo {
+    /// Stable wire name — what [`RenderOptions::colormap`] takes.
+    pub name: String,
+    /// Human-readable label for the picker.
+    pub label: String,
+    /// `"sequential"` or `"diverging"`.
+    pub kind: String,
+    /// Evenly spaced `#rrggbb` stops across the ramp, low → high, for the
+    /// legend gradient. Sampled from the same lookup table that paints the
+    /// grid, so the legend cannot drift from the image.
+    pub stops: Vec<String>,
+}
+
+/// Number of gradient stops handed to the webview per colormap. Enough for a
+/// smooth CSS gradient without shipping all 256 entries.
+const COLORMAP_STOPS: usize = 33;
+
+/// Every colormap the renderer offers, in picker order; the first is the
+/// default. The panel builds its dropdown and its legend gradient from this,
+/// so Rust stays the single source of truth for the colours.
+#[napi]
+pub fn colormaps() -> Vec<ColormapInfo> {
+    fieldglass_core::colormap::colormaps()
+        .iter()
+        .map(|c| ColormapInfo {
+            name: c.name().to_string(),
+            label: c.label().to_string(),
+            kind: c.kind().as_str().to_string(),
+            stops: c.css_stops(COLORMAP_STOPS, false),
+        })
+        .collect()
 }
 
 /// Output of [`Grib1Handle::render_grid`] / [`Grib2Handle::render_grid`].
@@ -2242,6 +2286,8 @@ struct ResolvedOptions {
     range_min: Option<f64>,
     range_max: Option<f64>,
     bounds: Option<RenderBounds>,
+    colormap: &'static Colormap,
+    reverse_colormap: bool,
 }
 
 /// What the picker's `projection` string resolved to. Named `TargetKind`
@@ -2329,6 +2375,21 @@ impl ResolvedOptions {
                 )));
             }
         };
+        // An unknown colormap is an error, not a silent fallback to viridis: a
+        // typo'd name should say so rather than paint the wrong colours.
+        let colormap = match options.colormap.as_deref() {
+            None => fieldglass_core::colormap::default_colormap(),
+            Some(name) => Colormap::by_name(name).ok_or_else(|| {
+                let known: Vec<&str> = fieldglass_core::colormap::colormaps()
+                    .iter()
+                    .map(|c| c.name())
+                    .collect();
+                napi::Error::from_reason(format!(
+                    "unknown colormap {name:?} (expected one of {})",
+                    known.join(", ")
+                ))
+            })?,
+        };
         Ok(Self {
             projection,
             resampling,
@@ -2336,6 +2397,8 @@ impl ResolvedOptions {
             range_min: options.range_min,
             range_max: options.range_max,
             bounds: RenderBounds::from_options(options),
+            colormap,
+            reverse_colormap: options.reverse_colormap.unwrap_or(false),
         })
     }
 }
@@ -2432,6 +2495,8 @@ fn render_with_options(
         used_min,
         used_max,
         resolved.flip_y,
+        resolved.colormap,
+        resolved.reverse_colormap,
     );
 
     let (used_lat_min, used_lat_max, used_lon_min, used_lon_max) = match used_bounds {
@@ -3192,6 +3257,8 @@ mod resolved_options_tests {
             bounds_lat_max: None,
             bounds_lon_min: None,
             bounds_lon_max: None,
+            colormap: None,
+            reverse_colormap: None,
         }
     }
 
@@ -3430,6 +3497,70 @@ mod resolved_options_tests {
     }
 
     #[test]
+    fn colormap_defaults_to_viridis_and_resolves_by_name() {
+        // A caller that never sets a colormap renders exactly as before.
+        let o = opts("source", "nearest");
+        let r = ResolvedOptions::parse(&o).expect("default colormap");
+        assert_eq!(r.colormap.name(), "viridis");
+        assert!(!r.reverse_colormap);
+
+        // Every registered name resolves to itself, so the picker and the
+        // renderer can't disagree about what a name means.
+        for c in fieldglass_core::colormap::colormaps() {
+            let mut o = opts("source", "nearest");
+            o.colormap = Some(c.name().to_string());
+            o.reverse_colormap = Some(true);
+            let r = ResolvedOptions::parse(&o).expect("registered colormap");
+            assert_eq!(r.colormap.name(), c.name());
+            assert!(r.reverse_colormap);
+        }
+    }
+
+    #[test]
+    fn rejects_unknown_colormap_naming_the_known_ones() {
+        let mut o = opts("source", "nearest");
+        o.colormap = Some("jet".to_string());
+        let err = ResolvedOptions::parse(&o).expect_err("unknown colormap must error");
+        let msg = err.to_string();
+        assert!(msg.contains("unknown colormap"), "{msg}");
+        // The message must list what *is* available, or it isn't actionable.
+        assert!(msg.contains("viridis"), "{msg}");
+    }
+
+    #[test]
+    fn colormaps_export_feeds_the_picker_and_the_legend() {
+        let all = colormaps();
+        assert!(all.len() >= 8, "expected the full registry");
+        assert_eq!(all[0].name, "viridis", "the default must come first");
+        for c in &all {
+            assert!(!c.label.is_empty(), "{} needs a picker label", c.name);
+            assert!(
+                c.kind == "sequential" || c.kind == "diverging",
+                "{} has an odd kind {:?}",
+                c.name,
+                c.kind
+            );
+            // The legend needs real CSS colours, one per stop.
+            assert_eq!(c.stops.len(), COLORMAP_STOPS);
+            for s in &c.stops {
+                assert!(
+                    s.len() == 7 && s.starts_with('#'),
+                    "{} emitted a bad stop {s:?}",
+                    c.name
+                );
+            }
+            // Every name the picker offers must resolve on the render side.
+            let mut o = opts("source", "nearest");
+            o.colormap = Some(c.name.clone());
+            assert!(
+                ResolvedOptions::parse(&o).is_ok(),
+                "picker offers {} but the renderer rejects it",
+                c.name
+            );
+        }
+    }
+
+    #[test]
     fn rejects_unknown_projection() {
         let err = ResolvedOptions::parse(&opts("aitoff", "nearest"))
             .expect_err("unknown projection must error");
@@ -3533,6 +3664,8 @@ mod polar_stereo_warp_tests {
             bounds_lat_max: None,
             bounds_lon_min: None,
             bounds_lon_max: None,
+            colormap: None,
+            reverse_colormap: None,
         };
         let latlon = [40.0, -100.0, 41.0, -99.0, 42.0, -98.0];
         let out = project_overlay_impl(&cmc_polar_meta(), &opts, &latlon, &[3])
@@ -4306,6 +4439,8 @@ mod overlay_projection_tests {
             bounds_lat_max: None,
             bounds_lon_min: None,
             bounds_lon_max: None,
+            colormap: None,
+            reverse_colormap: None,
         }
     }
 
@@ -4435,6 +4570,8 @@ mod netcdf_slice_tests {
             bounds_lat_max: None,
             bounds_lon_min: None,
             bounds_lon_max: None,
+            colormap: None,
+            reverse_colormap: None,
         }
     }
 

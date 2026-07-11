@@ -1,6 +1,6 @@
 // HTML + embedded script for the render-panel webview. The pop-out tab
 // users see beside the metadata table after clicking "Render": one large
-// canvas, a viridis colorbar on the right, and a toolbar with the
+// canvas, a colorbar on the right, and a toolbar with the
 // projection / resampling / flip-y / range pickers.
 //
 // The script lives as a template string inside this file rather than a
@@ -13,7 +13,7 @@
 import * as vscode from "vscode";
 
 import { escapeHtml, nonce } from "./html";
-import type { MessageMeta, NetcdfVariableMeta } from "./native";
+import type { ColormapInfo, MessageMeta, NetcdfVariableMeta } from "./native";
 
 /** Which 2-D plane of an N-D NetCDF variable to draw: the variable, the two
  *  image axes (positions into the variable's dimensions), and the held index
@@ -52,10 +52,60 @@ function sliceJson(slice: SlicePanelData): string {
   return JSON.stringify(slice).replace(/</g, "\\u003c");
 }
 
+/** The colormap registry, inlined into the panel script. Same `<` escaping as
+ *  {@link sliceJson}. The panel needs it to build its picker and to paint the
+ *  legend gradient in the colours Rust will actually paint the grid with. */
+function colormapsJson(colormaps: ColormapInfo[]): string {
+  return JSON.stringify(colormaps).replace(/</g, "\\u003c");
+}
+
+/** The Colors toolbar row: the colormap dropdown (grouped sequential /
+ *  diverging) plus the reverse toggle. Built from the registry, so a colormap
+ *  added in Rust shows up here with no edit. With no registry — the native
+ *  binding failed to load — the row is omitted entirely rather than offering a
+ *  picker the renderer can't honour. */
+function colormapFieldsetHtml(colormaps: ColormapInfo[]): string {
+  if (colormaps.length === 0) {
+    return "";
+  }
+  const group = (kind: string, label: string): string => {
+    const entries = colormaps.filter((c) => c.kind === kind);
+    if (entries.length === 0) {
+      return "";
+    }
+    const opts = entries
+      .map(
+        (c) =>
+          // Pre-select the renderer's default (the registry's first entry),
+          // wherever it sits among the groups — the picker must agree with what
+          // Rust paints when the panel opens untouched.
+          `            <option value="${escapeHtml(c.name)}"${
+            c.name === colormaps[0].name ? " selected" : ""
+          }>${escapeHtml(c.label)}</option>`,
+      )
+      .join("\n");
+    return `          <optgroup label="${escapeHtml(label)}">\n${opts}\n          </optgroup>`;
+  };
+  const groups = [group("sequential", "Sequential"), group("diverging", "Diverging")]
+    .filter(Boolean)
+    .join("\n");
+  return `    <fieldset>
+      <legend>Colors:</legend>
+      <label>Colormap
+        <select id="picker-colormap">
+${groups}
+        </select>
+      </label>
+      <label><input type="checkbox" id="reverse-colormap"> Reverse</label>
+    </fieldset>
+`;
+}
+
 export function renderImagePanelHtml(
   webview: vscode.Webview,
   meta: MessageMeta,
   projectionSummary: string,
+  colormaps: ColormapInfo[],
   slice?: SlicePanelData
 ): string {
   const cspNonce = nonce();
@@ -96,6 +146,10 @@ export function renderImagePanelHtml(
         // the live {variableIndex, yDim, xDim, sliceIndices} the controls drive,
         // attached to every rerender / overlay request so the provider knows
         // which 2-D plane to draw.
+        // The colormap registry, straight from the Rust side: [{name, label,
+        // kind, stops}]. Both the picker and the legend gradient are built from
+        // it, so the colours in the strip are the colours in the image.
+        const COLORMAPS = ${colormapsJson(colormaps)};
         const SLICE = ${slice ? sliceJson(slice) : "null"};
         let sliceState = SLICE ? Object.assign({}, SLICE.initial, {
           sliceIndices: SLICE.initial.sliceIndices.slice(),
@@ -250,6 +304,12 @@ export function renderImagePanelHtml(
           const flipY = !!(document.getElementById('flip-y') && document.getElementById('flip-y').checked);
           const mode = document.querySelector('input[name="range-mode"]:checked');
           const options = { projection, resampling, flipY };
+          // Colours. The name is a registry name the Rust side knows; reverse
+          // flips the ramp end-for-end.
+          const cmapEl = document.getElementById('picker-colormap');
+          if (cmapEl && cmapEl.value) options.colormap = cmapEl.value;
+          options.reverseColormap = !!(document.getElementById('reverse-colormap')
+            && document.getElementById('reverse-colormap').checked);
           // The azimuthal targets read a free-form centre; the lat/lon-box
           // targets ignore it. Orthographic takes a centre lat + lon; polar
           // stereographic takes a hemisphere (its pole) plus a central
@@ -532,6 +592,24 @@ export function renderImagePanelHtml(
             || projection === 'equal_earth';
         }
 
+        // Repaint the legend strip in the selected colormap. The stops come from
+        // the Rust registry — the same lookup table that paints the grid — so
+        // the strip can't drift from the image the way a hardcoded CSS gradient
+        // could (and did). Bottom = min, top = max, hence 'to top'.
+        function syncColorbar() {
+          const strip = document.querySelector('.cb');
+          if (!strip || !COLORMAPS.length) return;
+          const name = (document.getElementById('picker-colormap') || {}).value;
+          const entry = COLORMAPS.find((c) => c.name === name) || COLORMAPS[0];
+          const reversed = !!(document.getElementById('reverse-colormap')
+            && document.getElementById('reverse-colormap').checked);
+          const stops = reversed ? entry.stops.slice().reverse() : entry.stops;
+          const parts = stops.map((c, i) =>
+            c + ' ' + (stops.length > 1 ? (i / (stops.length - 1)) * 100 : 0) + '%');
+          strip.style.background = 'linear-gradient(to top, ' + parts.join(', ') + ')';
+          strip.setAttribute('aria-label', entry.label + (reversed ? ' (reversed)' : '') + ' colormap');
+        }
+
         function syncProjectionControls() {
           const projection = (document.getElementById('picker-projection') || {}).value || 'source';
           const ortho = document.getElementById('preset-ortho');
@@ -574,6 +652,8 @@ export function renderImagePanelHtml(
             centralMeridian: val('picker-central-meridian'),
             worldMeridian: val('picker-world-meridian'),
             resampling: val('picker-resampling'),
+            colormap: val('picker-colormap'),
+            reverseColormap: chk('reverse-colormap'),
             flipY: chk('flip-y'),
             rangeMode: radio('range-mode'),
             rangeMin: val('range-min'),
@@ -622,6 +702,8 @@ export function renderImagePanelHtml(
           setVal('picker-central-meridian', s.centralMeridian);
           setVal('picker-world-meridian', s.worldMeridian);
           setVal('picker-resampling', s.resampling);
+          setVal('picker-colormap', s.colormap);
+          setChk('reverse-colormap', s.reverseColormap);
           setChk('flip-y', s.flipY);
           setRadio('range-mode', s.rangeMode);
           setVal('range-min', s.rangeMin);
@@ -673,6 +755,13 @@ export function renderImagePanelHtml(
             if (el) el.addEventListener('change', requestRender);
           });
           syncProjectionControls();
+          // Changing the colormap repaints the legend strip locally and asks
+          // the Rust side for a re-render of the grid in the new colours.
+          ['picker-colormap', 'reverse-colormap'].forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('change', () => { syncColorbar(); requestRender(); });
+          });
+          syncColorbar();
           const sampPick = document.getElementById('picker-resampling');
           if (sampPick) sampPick.addEventListener('change', requestRender);
           const flip = document.getElementById('flip-y');
@@ -804,26 +893,13 @@ export function renderImagePanelHtml(
       height: 320px;
       flex: 0 0 auto;
     }
-    /* Static viridis gradient — 11 anchor stops matched against the
-       Rust LUT in fieldglass-core::colormap (top = max, bottom = min). */
+    /* The gradient is painted by syncColorbar() from the Rust colormap
+       registry (top = max, bottom = min) — never hardcoded here, so the strip
+       cannot drift from the colours the grid is actually painted with. */
     .cb {
       width: 24px;
       height: 320px;
       border: 1px solid var(--vscode-panel-border);
-      background: linear-gradient(
-        to top,
-        rgb(68, 1, 84) 0%,
-        rgb(72, 36, 117) 10%,
-        rgb(65, 68, 135) 20%,
-        rgb(53, 95, 141) 30%,
-        rgb(42, 120, 142) 40%,
-        rgb(33, 145, 140) 50%,
-        rgb(34, 168, 132) 60%,
-        rgb(68, 191, 112) 70%,
-        rgb(122, 209, 81) 80%,
-        rgb(189, 223, 38) 90%,
-        rgb(253, 231, 37) 100%
-      );
     }
     .colorbar-labels {
       display: flex;
@@ -967,6 +1043,7 @@ ${meta.reprojectable
       </label>
       <label><input type="checkbox" id="flip-y"> Flip Y axis</label>
     </div>
+${colormapFieldsetHtml(colormaps)}
     <fieldset>
       <legend>Color Range:</legend>
       <label><input type="radio" name="range-mode" value="auto" checked> Auto</label>
@@ -1002,7 +1079,7 @@ ${meta.reprojectable
       <canvas id="overlay"></canvas>
     </div>
     <div class="colorbar-wrap">
-      <div class="cb" aria-label="viridis colormap"></div>
+      <div class="cb" aria-label="colormap"></div>
       <div class="colorbar-labels">
         <div id="cb-max">—</div>
         <div id="cb-min">—</div>

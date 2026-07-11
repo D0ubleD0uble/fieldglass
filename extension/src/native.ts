@@ -137,6 +137,22 @@ export interface RenderOptions {
   boundsLatMax?: number;
   boundsLonMin?: number;
   boundsLonMax?: number;
+  /** Name of the colormap to paint with — one of the names `colormaps()`
+   *  reports. Omitted uses the default ("viridis"). An unknown name is an
+   *  error on the Rust side rather than a silent fallback. */
+  colormap?: string;
+  /** Flip the colormap end-for-end. Omitted is false. */
+  reverseColormap?: boolean;
+}
+
+/** One entry of the Rust colormap registry — everything the picker and the
+ *  legend need. `stops` are sampled from the same lookup table that paints the
+ *  grid, so the legend gradient cannot drift from the image. */
+export interface ColormapInfo {
+  name: string;
+  label: string;
+  kind: "sequential" | "diverging";
+  stops: string[];
 }
 
 export interface RenderedGrid {
@@ -262,6 +278,8 @@ export interface NetcdfHandleCtor {
 export interface FieldglassNative {
   detectBytes(bytes: Uint8Array): string;
   openNetcdf(bytes: Uint8Array): DatasetMeta;
+  /** The colormap registry, in picker order; the first entry is the default. */
+  colormaps(): ColormapInfo[];
   Grib1Handle: Grib1HandleCtor;
   Grib2Handle: Grib2HandleCtor;
   NetcdfHandle: NetcdfHandleCtor;

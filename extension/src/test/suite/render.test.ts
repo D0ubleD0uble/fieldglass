@@ -33,6 +33,15 @@ import { loadNative, type MessageMeta, type RenderOptions } from "../../native";
 import { buildGraticule, flattenLonLatLines, loadCoastline } from "../../overlay";
 import { renderImagePanelHtml, type SlicePanelData } from "../../render-panel";
 
+/** The real colormap registry from Rust. The panel is fed the same data in
+ *  production, so the panel tests exercise the actual names and stops rather
+ *  than a fixture that could drift from the registry. */
+function registry() {
+  const native = loadNative();
+  assert.ok(native, "native binding required");
+  return native.colormaps();
+}
+
 const EXT_ID = "fieldglass.fieldglass";
 
 function fixturePath(name: string): string {
@@ -619,6 +628,7 @@ suite("render-panel HTML", () => {
       { cspSource: "" } as unknown as vscode.Webview,
       fakeMeta(),
       "summary",
+      registry(),
     );
     const select = /<select id="picker-projection">([\s\S]*?)<\/select>/.exec(html);
     assert.ok(select, "the projection picker must be in the panel HTML");
@@ -639,11 +649,70 @@ suite("render-panel HTML", () => {
     );
   });
 
+  test("the colormap picker offers the whole Rust registry and defaults to viridis", () => {
+    const cmaps = registry();
+    assert.ok(cmaps.length >= 8, `expected the full registry, got ${cmaps.length}`);
+
+    const html = renderImagePanelHtml(
+      { cspSource: "" } as unknown as vscode.Webview,
+      fakeMeta(),
+      "summary",
+      cmaps,
+    );
+    const select = /<select id="picker-colormap">([\s\S]*?)<\/select>/.exec(html);
+    assert.ok(select, "the colormap picker must be in the panel HTML");
+    const offered = [...select[1].matchAll(/<option value="([^"]+)"/g)].map((m) => m[1]);
+    assert.deepStrictEqual(
+      offered.slice().sort(),
+      cmaps.map((c) => c.name).sort(),
+      "the picker must offer exactly the colormaps the renderer has",
+    );
+    // Every offered name must survive the provider clamp, or picking it would
+    // silently paint the default instead — the #71 failure mode.
+    for (const name of offered) {
+      assert.strictEqual(
+        resolveRerenderOptions({ colormap: name }).colormap,
+        name,
+        `the picker offers "${name}" but the clamp drops it`,
+      );
+    }
+    // viridis is selected out of the box, so an untouched panel renders exactly
+    // as it did before the registry existed.
+    assert.ok(
+      /<option value="viridis" selected>/.test(html),
+      "viridis must be the pre-selected default",
+    );
+    assert.ok(/id="reverse-colormap"/.test(html), "the reverse toggle must exist");
+    // The legend gradient is data, not CSS: the stops ride along in the script
+    // payload and syncColorbar paints from them.
+    assert.ok(/const COLORMAPS = \[/.test(html), "the registry must be embedded");
+    assert.ok(
+      !/rgb\(68, 1, 84\)/.test(html),
+      "the hardcoded viridis CSS gradient must be gone",
+    );
+  });
+
+  test("an unknown colormap snaps to the native default", () => {
+    // Same clamp philosophy as the projection: a stale or typo'd name must not
+    // round-trip into an error popup from Rust.
+    assert.strictEqual(
+      resolveRerenderOptions({ colormap: "jet" }).colormap,
+      undefined,
+      "unknown colormap must fall back to the native default",
+    );
+    assert.strictEqual(resolveRerenderOptions({}).reverseColormap, false);
+    assert.strictEqual(
+      resolveRerenderOptions({ colormap: "turbo", reverseColormap: true }).reverseColormap,
+      true,
+    );
+  });
+
   test("azimuthal centre inputs expose the free-form fields currentOptions reads", () => {
     const html = renderImagePanelHtml(
       { cspSource: "" } as unknown as vscode.Webview,
       fakeMeta(),
       "summary",
+      registry(),
     );
     // The orthographic centre and the polar central meridian are free-form
     // number inputs (no preset <select> for the ortho centre any more); the
@@ -835,6 +904,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
       // The panel only reads a handful of header fields; reuse the GRIB fake.
       fakeNetcdfMeta(),
       "summary",
+      registry(),
       slice,
     );
     for (const id of ["slice-variable", "slice-y", "slice-x", "slice-dims"]) {
@@ -849,6 +919,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
       { cspSource: "" } as unknown as vscode.Webview,
       fakeNetcdfMeta(),
       "summary",
+      registry(),
     );
     assert.ok(/const SLICE = null/.test(gribHtml), "SLICE must be null without slice data");
     assert.ok(!/id="slice-variable"/.test(gribHtml), "no slice row without slice data");
