@@ -560,10 +560,28 @@ impl LambertProjector {
             // Forward map hit a pole singularity. See `lambert_forward`.
             return None;
         }
-        let i = (x - self.origin.0) / self.params.dx_metres;
-        let j = (y - self.origin.1) / self.params.dy_metres;
-        if i < 0.0 || i > self.params.ni as f64 - 1.0 || j < 0.0 || j > self.params.nj as f64 - 1.0
-        {
+        let (i_max, j_max) = (self.params.ni as f64 - 1.0, self.params.nj as f64 - 1.0);
+        // The projection arithmetic carries ~1e-13 of a cell in round-off, enough
+        // to push a point sitting exactly *on* a grid edge a hair outside the
+        // bounds below and spuriously reject it — dropping the outermost row or
+        // column to background. Snap an index within EDGE_EPS of an edge back
+        // onto it, exactly as the rotated lat/lon inverse already does for the
+        // same reason. EDGE_EPS is a nanometre of a grid cell: far above the
+        // round-off, far below any real offset.
+        const EDGE_EPS: f64 = 1e-9;
+        let i = snap_to_range(
+            (x - self.origin.0) / self.params.dx_metres,
+            0.0,
+            i_max,
+            EDGE_EPS,
+        );
+        let j = snap_to_range(
+            (y - self.origin.1) / self.params.dy_metres,
+            0.0,
+            j_max,
+            EDGE_EPS,
+        );
+        if i < 0.0 || i > i_max || j < 0.0 || j > j_max {
             return None;
         }
         Some(GridIndex { i, j })
@@ -751,10 +769,28 @@ impl PolarStereoProjector {
         if !x.is_finite() || !y.is_finite() {
             return None;
         }
-        let i = (x - self.origin.0) / self.params.dx_metres;
-        let j = (y - self.origin.1) / self.params.dy_metres;
-        if i < 0.0 || i > self.params.ni as f64 - 1.0 || j < 0.0 || j > self.params.nj as f64 - 1.0
-        {
+        let (i_max, j_max) = (self.params.ni as f64 - 1.0, self.params.nj as f64 - 1.0);
+        // The projection arithmetic carries ~1e-13 of a cell in round-off, enough
+        // to push a point sitting exactly *on* a grid edge a hair outside the
+        // bounds below and spuriously reject it — dropping the outermost row or
+        // column to background. Snap an index within EDGE_EPS of an edge back
+        // onto it, exactly as the rotated lat/lon inverse already does for the
+        // same reason. EDGE_EPS is a nanometre of a grid cell: far above the
+        // round-off, far below any real offset.
+        const EDGE_EPS: f64 = 1e-9;
+        let i = snap_to_range(
+            (x - self.origin.0) / self.params.dx_metres,
+            0.0,
+            i_max,
+            EDGE_EPS,
+        );
+        let j = snap_to_range(
+            (y - self.origin.1) / self.params.dy_metres,
+            0.0,
+            j_max,
+            EDGE_EPS,
+        );
+        if i < 0.0 || i > i_max || j < 0.0 || j > j_max {
             return None;
         }
         Some(GridIndex { i, j })
@@ -816,6 +852,17 @@ pub trait PlanarGridProjector {
     fn grid_spacing(&self) -> (f64, f64);
     /// Inverse-project projected metres back to `(lat, lon)` in degrees.
     fn inverse_lonlat(&self, x: f64, y: f64) -> (f64, f64);
+
+    /// `(lat, lon)` of grid point `(i, j)`: step out from the origin in
+    /// projected metres and invert. The forward geolocation every planar grid
+    /// (Lambert, polar stereographic) shares — the same `origin + i·d` walk
+    /// [`Self::lonlat_bbox`] already does along the perimeter, opened up to the
+    /// grid interior.
+    fn grid_point_lonlat(&self, i: u32, j: u32) -> (f64, f64) {
+        let (ox, oy) = self.grid_origin();
+        let (dx, dy) = self.grid_spacing();
+        self.inverse_lonlat(ox + i as f64 * dx, oy + j as f64 * dy)
+    }
 
     /// The four grid corners in projected metres, ordered: origin, far-x
     /// edge, far-y edge, opposite corner.
@@ -1439,6 +1486,152 @@ impl GeostationaryProjector {
         }
         let (lon_min, lon_max) = enclosing_lon_arc(&mut lons);
         Some((lat_min, lat_max, lon_min, lon_max))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Forward geolocation: grid index → (lat, lon)
+// ---------------------------------------------------------------------------
+//
+// The rest of this module answers "which grid point holds this lat/lon?" — the
+// direction a warp needs, because it walks *output* pixels and samples the
+// source. Exporting a field asks the opposite question: "where on Earth is grid
+// point (i, j)?". That is what the functions below answer, one per grid type.
+//
+// Each is the algebraic inverse of the `*_inverse` map above it, and is pinned
+// against it by a round-trip test — so the two directions cannot drift apart.
+// Longitudes come back as the underlying geometry produces them (they may sit
+// outside [-180, 180]); [`normalise_lon`] is there for callers that want the
+// conventional range.
+
+/// Wrap a longitude into `[-180, 180)`. The forward maps return longitudes in
+/// whatever range the grid's own corners imply (a 0..360 grid keeps 0..360);
+/// an exporter that wants the conventional range applies this.
+pub fn normalise_lon(lon: f64) -> f64 {
+    // `rem_euclid` lands in [0, 360), so the shift lands in [-180, 180): the
+    // half-open convention, with +180° folding onto -180°.
+    (lon + 180.0).rem_euclid(360.0) - 180.0
+}
+
+/// Position along an axis of `n` evenly spaced points running `first` → `last`.
+///
+/// The endpoints are returned *exactly*, not as `first + (n-1)·step`: the
+/// declared corner is the grid's own definition of where its edge is, and
+/// walking there in floating point lands an ulp away. That ulp is enough for
+/// the `*_inverse` maps' inclusive range checks to reject the point as
+/// off-grid, so an exporter would lose the last row of every field.
+fn axis_position(first: f64, last: f64, n: u32, k: u32) -> f64 {
+    if k == 0 {
+        first
+    } else if k == n - 1 {
+        last
+    } else {
+        first + (last - first) * (k as f64 / (n as f64 - 1.0))
+    }
+}
+
+/// `(lat, lon)` of grid point `(i, j)` on a regular lat/lon grid — the inverse
+/// of [`latlon_inverse`]. Rows are evenly spaced in latitude, columns in
+/// longitude.
+///
+/// The longitude walks the *eastward* span, so a grid that crosses the
+/// antimeridian (`lon_last` numerically below `lon_first`) marches east like
+/// the inverse reads it, rather than doubling back west. It is returned in the
+/// grid's own frame and may exceed 360°; see [`normalise_lon`].
+pub fn latlon_point(p: &LatLonParams, i: u32, j: u32) -> Option<(f64, f64)> {
+    if p.ni < 2 || p.nj < 2 {
+        return None;
+    }
+    let east_span = eastward_lon_span(p.lon_first, p.lon_last);
+    Some((
+        axis_position(p.lat_first, p.lat_last, p.nj, j),
+        p.lon_first + i as f64 * (east_span / (p.ni as f64 - 1.0)),
+    ))
+}
+
+/// Mercator ordinate → geodetic latitude (degrees): the inverse of
+/// [`mercator_ordinate`], `φ = 2·atan(eʸ) − π/2`.
+fn mercator_latitude(y: f64) -> f64 {
+    (2.0 * y.exp().atan() - PI / 2.0) * RAD2DEG
+}
+
+/// `(lat, lon)` of grid point `(i, j)` on a Mercator grid — the inverse of
+/// [`mercator_inverse`]. Rows are evenly spaced in the *Mercator ordinate*,
+/// not in latitude, so the latitude is recovered through the inverse ordinate.
+pub fn mercator_point(p: &MercatorParams, i: u32, j: u32) -> Option<(f64, f64)> {
+    if p.ni < 2 || p.nj < 2 {
+        return None;
+    }
+    let y_first = mercator_ordinate(p.lat_first);
+    let y_last = mercator_ordinate(p.lat_last);
+    if !y_first.is_finite() || !y_last.is_finite() {
+        // A corner sits at a pole, where the ordinate diverges — the same
+        // malformed-grid guard `mercator_inverse` applies.
+        return None;
+    }
+    // Step the ordinate, then invert it back to a latitude. The end rows are
+    // the declared corners exactly: the ordinate round-trip (ln ∘ tan, then
+    // atan ∘ exp) is not bit-exact, and the drift is enough for the inverse to
+    // read the last row as off-grid.
+    let lat = if j == 0 {
+        p.lat_first
+    } else if j == p.nj - 1 {
+        p.lat_last
+    } else {
+        let ns = (y_last - y_first) / (p.nj as f64 - 1.0);
+        mercator_latitude(y_first + j as f64 * ns)
+    };
+    let ew = eastward_lon_span(p.lon_first, p.lon_last) / (p.ni as f64 - 1.0);
+    Some((lat, p.lon_first + i as f64 * ew))
+}
+
+impl GaussianProjector {
+    /// `(lat, lon)` of grid point `(i, j)` — the inverse of [`Self::inverse`].
+    ///
+    /// The row latitude is read straight from the cached Gauss–Legendre roots
+    /// (already ordered to match the grid's scan direction), *not* interpolated:
+    /// a Gaussian grid's rows are unevenly spaced by construction, so a linear
+    /// formula would misplace every row but the first and last. Columns are
+    /// evenly spaced in longitude, as on a regular lat/lon grid.
+    pub fn grid_point_lonlat(&self, i: u32, j: u32) -> Option<(f64, f64)> {
+        let p = &self.params;
+        if p.ni < 2 || p.nj < 2 {
+            return None;
+        }
+        let lat = *self.row_lats.get(j as usize)?;
+        let ew = eastward_lon_span(p.lon_first, p.lon_last) / (p.ni as f64 - 1.0);
+        Some((lat, p.lon_first + i as f64 * ew))
+    }
+}
+
+/// `(lat, lon)` — **geographic**, not rotated — of grid point `(i, j)` on a
+/// rotated lat/lon grid. The grid is evenly spaced in the *rotated* frame, so
+/// the point is placed there first and then unrotated onto the sphere with
+/// [`unrotate_latlon`] (the same routine, matching eccodes, that the bbox walk
+/// uses).
+pub fn rotated_latlon_point(p: &RotatedLatLonParams, i: u32, j: u32) -> Option<(f64, f64)> {
+    if p.ni < 2 || p.nj < 2 {
+        return None;
+    }
+    let east_span = eastward_lon_span(p.lon_first, p.lon_last);
+    let rlat = axis_position(p.lat_first, p.lat_last, p.nj, j);
+    let rlon = p.lon_first + i as f64 * (east_span / (p.ni as f64 - 1.0));
+    Some(unrotate_latlon(
+        rlat,
+        rlon,
+        p.angle_of_rotation,
+        p.south_pole_lat,
+        p.south_pole_lon,
+    ))
+}
+
+impl GeostationaryProjector {
+    /// `(lat, lon)` of grid point `(i, j)`, or `None` when that pixel's line of
+    /// sight misses the Earth — the corners of a full-disk image are space, and
+    /// an exporter must skip them rather than invent a coordinate.
+    pub fn grid_point_lonlat(&self, i: u32, j: u32) -> Option<(f64, f64)> {
+        let p = &self.params;
+        self.scan_to_lonlat(p.x0 + i as f64 * p.dx_rad, p.y0 + j as f64 * p.dy_rad)
     }
 }
 
@@ -2455,6 +2648,409 @@ mod tests {
             south_pole_lon: 0.0,
             angle_of_rotation: 0.0,
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Forward geolocation (grid index → lat/lon)
+    // -----------------------------------------------------------------------
+    //
+    // The load-bearing property for every grid type: the forward map must be
+    // the exact inverse of the `*_inverse` map the warp already uses. Those
+    // inverses are the ones validated against eccodes, so round-tripping every
+    // grid point through forward → inverse pins the new direction against
+    // known-good code rather than against a hand-copied constant.
+
+    /// Assert `forward(i, j) → (lat, lon) → inverse → (i, j)` over every point
+    /// of a grid, to within a fraction of a grid cell.
+    fn assert_round_trips(
+        ni: u32,
+        nj: u32,
+        forward: impl Fn(u32, u32) -> Option<(f64, f64)>,
+        inverse: impl Fn(f64, f64) -> Option<GridIndex>,
+        tol: f64,
+        what: &str,
+    ) {
+        for j in 0..nj {
+            for i in 0..ni {
+                let (lat, lon) = forward(i, j).unwrap_or_else(|| panic!("{what}: no ({i},{j})"));
+                let idx = inverse(lat, lon)
+                    .unwrap_or_else(|| panic!("{what}: ({i},{j}) → ({lat},{lon}) → off-grid"));
+                assert!(
+                    near(idx.i, i as f64, tol) && near(idx.j, j as f64, tol),
+                    "{what}: ({i},{j}) → ({lat},{lon}) → ({}, {})",
+                    idx.i,
+                    idx.j
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn latlon_forward_inverts_the_inverse_map() {
+        // A 0.25° global grid scanning north-to-south, the common GFS layout.
+        let p = LatLonParams {
+            ni: 41,
+            nj: 21,
+            lat_first: 90.0,
+            lon_first: 0.0,
+            lat_last: -90.0,
+            lon_last: 359.0,
+        };
+        assert_round_trips(
+            p.ni,
+            p.nj,
+            |i, j| latlon_point(&p, i, j),
+            |lat, lon| latlon_inverse(&p, lat, lon),
+            1e-9,
+            "latlon",
+        );
+        // Anchor: the first point is the grid's own first corner, by definition.
+        assert_eq!(latlon_point(&p, 0, 0), Some((90.0, 0.0)));
+        // A degenerate grid has no step to walk and must not divide by zero.
+        let degenerate = LatLonParams { ni: 1, ..p };
+        assert!(latlon_point(&degenerate, 0, 0).is_none());
+    }
+
+    #[test]
+    fn latlon_forward_handles_an_antimeridian_crossing_grid() {
+        // ECMWF open data runs 180° → 359.75° → 0° → 179.75°, so `lon_last` is
+        // numerically below `lon_first`. The forward map must walk the *eastward*
+        // span (as the inverse does), not the negative difference of the corners
+        // — otherwise it would march west and mirror the field.
+        let p = LatLonParams {
+            ni: 5,
+            nj: 3,
+            lat_first: 20.0,
+            lon_first: 180.0,
+            lat_last: -20.0,
+            lon_last: 100.0, // 280° of eastward span, wrapping the seam.
+        };
+        let (_, lon0) = latlon_point(&p, 0, 0).expect("first point");
+        let (_, lon_last) = latlon_point(&p, 4, 0).expect("last column");
+        assert!(near(lon0, 180.0, 1e-9));
+        // Eastward span = 100 - 180 + 360 = 280°, so the last column is at
+        // 180 + 280 = 460° ≡ 100°. The raw value keeps the grid's own frame.
+        assert!(near(lon_last, 460.0, 1e-9), "lon_last {lon_last}");
+        assert!(near(normalise_lon(lon_last), 100.0, 1e-9));
+        assert_round_trips(
+            p.ni,
+            p.nj,
+            |i, j| latlon_point(&p, i, j),
+            |lat, lon| latlon_inverse(&p, lat, lon),
+            1e-9,
+            "latlon seam",
+        );
+    }
+
+    #[test]
+    fn mercator_forward_inverts_the_inverse_map() {
+        // Rows are even in the Mercator ordinate, not in latitude: a linear
+        // latitude walk would misplace every interior row, and the round-trip
+        // through `mercator_inverse` is what catches that.
+        let p = MercatorParams {
+            ni: 12,
+            nj: 9,
+            lat_first: -40.0,
+            lon_first: -100.0,
+            lat_last: 40.0,
+            lon_last: -20.0,
+        };
+        assert_round_trips(
+            p.ni,
+            p.nj,
+            |i, j| mercator_point(&p, i, j),
+            |lat, lon| mercator_inverse(&p, lat, lon),
+            1e-9,
+            "mercator",
+        );
+        // The interior rows must NOT be evenly spaced in latitude — proof the
+        // ordinate is what's being stepped.
+        let lat = |j| mercator_point(&p, 0, j).expect("on grid").0;
+        let (a, b, c) = (lat(0), lat(1), lat(2));
+        assert!(
+            ((b - a) - (c - b)).abs() > 1e-3,
+            "latitude spacing must not be uniform: {a}, {b}, {c}"
+        );
+        // The end rows are the declared corners exactly — not an ulp away. The
+        // ordinate round-trip is not bit-exact, and that drift is enough for
+        // `mercator_inverse`'s inclusive latitude bounds to read the last row as
+        // off-grid, which would silently drop it from an export.
+        assert_eq!(mercator_point(&p, 0, 0).map(|c| c.0), Some(p.lat_first));
+        assert_eq!(
+            mercator_point(&p, 0, p.nj - 1).map(|c| c.0),
+            Some(p.lat_last)
+        );
+        // Degenerate dimensions have no step to walk, as in the inverse.
+        assert!(mercator_point(&MercatorParams { nj: 1, ..p }, 0, 0).is_none());
+    }
+
+    #[test]
+    fn gaussian_forward_reads_the_true_row_latitudes() {
+        // Gaussian rows sit at the Gauss–Legendre roots, unevenly spaced. The
+        // forward map must read them from the cached table, not interpolate.
+        let p = GaussianParams {
+            ni: 16,
+            nj: 8,
+            lat_first: 78.0,
+            lon_first: 0.0,
+            lat_last: -78.0,
+            lon_last: 337.5,
+            n_parallels: 4,
+        };
+        let proj = GaussianProjector::new(p);
+        assert_round_trips(
+            p.ni,
+            p.nj,
+            |i, j| proj.grid_point_lonlat(i, j),
+            |lat, lon| proj.inverse(lat, lon),
+            1e-9,
+            "gaussian",
+        );
+        // Row latitudes are the Gauss–Legendre roots, north-to-south here.
+        let roots = gaussian_latitudes(4);
+        for j in 0..p.nj {
+            let (lat, _) = proj.grid_point_lonlat(0, j).expect("on grid");
+            assert!(
+                near(lat, roots[j as usize], 1e-12),
+                "row {j}: {lat} vs root {}",
+                roots[j as usize]
+            );
+        }
+        // And they are *not* evenly spaced — the whole reason for the table.
+        let d0 = roots[1] - roots[0];
+        let d3 = roots[4] - roots[3];
+        assert!((d0 - d3).abs() > 1e-3, "roots should not be uniform");
+    }
+
+    #[test]
+    fn gaussian_forward_follows_a_south_to_north_scan() {
+        // A south-first grid reverses the row order; the forward map must follow
+        // the scan direction rather than always running north-to-south.
+        let p = GaussianParams {
+            ni: 8,
+            nj: 8,
+            lat_first: -78.0,
+            lon_first: 0.0,
+            lat_last: 78.0,
+            lon_last: 315.0,
+            n_parallels: 4,
+        };
+        let proj = GaussianProjector::new(p);
+        let (first, _) = proj.grid_point_lonlat(0, 0).expect("on grid");
+        assert!(first < 0.0, "a south-first scan must start south: {first}");
+        assert_round_trips(
+            p.ni,
+            p.nj,
+            |i, j| proj.grid_point_lonlat(i, j),
+            |lat, lon| proj.inverse(lat, lon),
+            1e-9,
+            "gaussian s→n",
+        );
+    }
+
+    #[test]
+    fn rotated_latlon_forward_returns_geographic_coordinates() {
+        let p = rotated_fixture_params();
+        let proj = RotatedLatLonProjector::new(p);
+        assert_round_trips(
+            p.ni,
+            p.nj,
+            |i, j| rotated_latlon_point(&p, i, j),
+            |lat, lon| proj.inverse(lat, lon),
+            1e-6,
+            "rotated latlon",
+        );
+        // The eccodes oracle already pinned in `unrotate_matches_eccodes_oracle`:
+        // the first grid point, rotated (60, 0), is geographic (30, 180). The
+        // forward map must report the *geographic* pair, not the rotated one.
+        let (lat, lon) = rotated_latlon_point(&p, 0, 0).expect("first point");
+        assert!(
+            near(lat, 30.0, 1e-9) && near(lon.abs(), 180.0, 1e-9),
+            "({lat},{lon})"
+        );
+    }
+
+    #[test]
+    fn planar_forward_walks_the_grid_from_its_origin() {
+        // Lambert (CONUS) and polar stereographic (CMC) share the trait default:
+        // origin + (i·dx, j·dy) in projected metres, then invert.
+        let lambert = LambertProjector::new(LambertParams {
+            ni: 21,
+            nj: 15,
+            lat_first: 38.5,
+            lon_first: -126.0,
+            lad: 38.5,
+            lov: -95.0,
+            dx_metres: 13_545.0,
+            dy_metres: 13_545.0,
+            latin1: 38.5,
+            latin2: 38.5,
+        });
+        assert_round_trips(
+            21,
+            15,
+            |i, j| Some(lambert.grid_point_lonlat(i, j)),
+            |lat, lon| lambert.inverse(lat, lon),
+            1e-6,
+            "lambert",
+        );
+        // Grid point (0, 0) is the declared first corner, by construction.
+        let (lat, lon) = lambert.grid_point_lonlat(0, 0);
+        assert!(
+            near(lat, 38.5, 1e-6) && near(lon, -126.0, 1e-6),
+            "({lat},{lon})"
+        );
+
+        let polar = PolarStereoProjector::new(PolarStereoParams {
+            ni: 21,
+            nj: 17,
+            lat_first: 27.203,
+            lon_first: -135.213,
+            lov: 249.0,
+            lad: 60.0,
+            dx_metres: 60_000.0,
+            dy_metres: 60_000.0,
+            south_pole: false,
+        });
+        assert_round_trips(
+            21,
+            17,
+            |i, j| Some(polar.grid_point_lonlat(i, j)),
+            |lat, lon| polar.inverse(lat, lon),
+            1e-6,
+            "polar stereo",
+        );
+        let (lat, lon) = polar.grid_point_lonlat(0, 0);
+        assert!(
+            near(lat, 27.203, 1e-6) && near(normalise_lon(lon), -135.213, 1e-6),
+            "({lat},{lon})"
+        );
+    }
+
+    #[test]
+    fn planar_inverse_accepts_a_point_sitting_exactly_on_the_grid_edge() {
+        // Regression guard. The projection arithmetic carries ~1e-13 of a cell
+        // in round-off, so a coordinate lying exactly *on* the first row came
+        // back with j = -6.9e-14 and was rejected as off-grid by the strict
+        // `j < 0.0` bound — silently dropping the outermost row/column of every
+        // Lambert and polar-stereo field to background. (The rotated lat/lon
+        // inverse already snapped for this reason; these two never did.)
+        let lambert = LambertProjector::new(LambertParams {
+            ni: 21,
+            nj: 15,
+            lat_first: 38.5,
+            lon_first: -126.0,
+            lad: 38.5,
+            lov: -95.0,
+            dx_metres: 13_545.0,
+            dy_metres: 13_545.0,
+            latin1: 38.5,
+            latin2: 38.5,
+        });
+        // Every point of the first row is on the edge; all must be accepted.
+        for i in 0..21 {
+            let (lat, lon) = lambert.grid_point_lonlat(i, 0);
+            let idx = lambert
+                .inverse(lat, lon)
+                .unwrap_or_else(|| panic!("edge point ({i},0) → ({lat},{lon}) rejected"));
+            assert!(near(idx.j, 0.0, 1e-6), "edge row j = {}", idx.j);
+        }
+        // A point genuinely outside the grid is still rejected — the snap must
+        // not widen the grid, only absorb round-off.
+        assert!(
+            lambert.inverse(38.5, -126.0 - 5.0).is_none(),
+            "a point well west of the grid must stay off-grid"
+        );
+    }
+
+    #[test]
+    fn geostationary_forward_locates_the_disk_and_rejects_space() {
+        // A GOES-East-like full disk: the corners of the raster are space, so
+        // the forward map must decline to invent a coordinate there, while the
+        // centre sits under the satellite.
+        let p = GeostationaryParams {
+            ni: 21,
+            nj: 21,
+            h_metres: 42_164_160.0,
+            r_eq: 6_378_137.0,
+            r_pol: 6_356_752.314_14,
+            sub_lon_deg: -75.0,
+            sweep_x: true,
+            x0: -0.151844,
+            dx_rad: 0.0151844,
+            y0: 0.151844,
+            dy_rad: -0.0151844,
+        };
+        let proj = GeostationaryProjector::new(p);
+        // Centre pixel looks straight down: the sub-satellite point.
+        let (lat, lon) = proj
+            .grid_point_lonlat(10, 10)
+            .expect("centre is on the disk");
+        assert!(
+            near(lat, 0.0, 1e-6) && near(lon, -75.0, 1e-6),
+            "({lat},{lon})"
+        );
+        // The raster corners are off the limb.
+        for (i, j) in [(0u32, 0u32), (20, 0), (0, 20), (20, 20)] {
+            assert!(
+                proj.grid_point_lonlat(i, j).is_none(),
+                "corner ({i},{j}) should miss the Earth"
+            );
+        }
+        // On-disk points round-trip through the inverse.
+        for (i, j) in [(10u32, 10u32), (8, 12), (12, 8), (10, 6)] {
+            let (lat, lon) = proj.grid_point_lonlat(i, j).expect("on disk");
+            let idx = proj
+                .inverse(lat, lon)
+                .unwrap_or_else(|| panic!("({i},{j}) → ({lat},{lon}) → off-grid"));
+            assert!(
+                near(idx.i, i as f64, 1e-6) && near(idx.j, j as f64, 1e-6),
+                "({i},{j}) → ({}, {})",
+                idx.i,
+                idx.j
+            );
+        }
+    }
+
+    #[test]
+    fn latlon_forward_matches_the_eccodes_point_iterator() {
+        // The round-trip tests above pin the forward map against our own
+        // inverse; this pins it against an *outside* oracle. Geometry and
+        // coordinates are eccodes' `grib_get_data` output for the committed
+        // fixture `crates/fieldglass-grib2/tests/fixtures/ccsds_regular_latlon.grib2`
+        // (16 × 31, 60°N 0°E → 0°N 30°E), which is what a field export must
+        // reproduce point for point. The lat/lon family carries no Earth-radius
+        // dependence, so this is an exact check rather than a tolerance.
+        let p = LatLonParams {
+            ni: 16,
+            nj: 31,
+            lat_first: 60.0,
+            lon_first: 0.0,
+            lat_last: 0.0,
+            lon_last: 30.0,
+        };
+        for (i, j, lat, lon) in [
+            (0, 0, 60.0, 0.0),   // first point
+            (1, 0, 60.0, 2.0),   // one column east: Δλ = 30/15 = 2°
+            (7, 10, 40.0, 14.0), // interior: lat 60 - 10·2, lon 7·2
+            (15, 30, 0.0, 30.0), // last point
+        ] {
+            let got = latlon_point(&p, i, j).expect("on grid");
+            assert!(
+                near(got.0, lat, 1e-9) && near(got.1, lon, 1e-9),
+                "({i},{j}) → {got:?}, eccodes says ({lat}, {lon})"
+            );
+        }
+    }
+
+    #[test]
+    fn normalise_lon_wraps_into_the_conventional_range() {
+        assert!(near(normalise_lon(460.0), 100.0, 1e-12));
+        assert!(near(normalise_lon(-190.0), 170.0, 1e-12));
+        assert!(near(normalise_lon(0.0), 0.0, 1e-12));
+        // The half-open convention: +180 folds onto -180, and stays there.
+        assert!(near(normalise_lon(180.0), -180.0, 1e-12));
+        assert!(near(normalise_lon(-180.0), -180.0, 1e-12));
     }
 
     #[test]
