@@ -460,32 +460,85 @@ export function renderImagePanelHtml(
         // that changes only range/resampling leaves this unchanged, so we skip
         // a redundant reprojection round-trip.
         let lastOverlayKey = null;
-        // The themed foreground colour for overlay strokes, read from CSS once
-        // and cached — drawOverlay fires on every resize tick, so we avoid the
-        // repeated getComputedStyle reflow. (A theme switch mid-session keeps
-        // the first-read colour; acceptable for a thin vector overlay.)
-        let overlayFg = null;
-        let overlayStyles = null;
+        // The overlay layers, in draw order: the vector layers, then the
+        // graticule on top. \`flag\` is the field the provider reads on an
+        // overlayRequest; \`name\` is what it labels the projected runs with and
+        // what the stroke styles key off. \`themed\` layers default to the
+        // editor's foreground colour (so they read on light and dark alike);
+        // the water layers default to the blue baked into their colour input.
+        const OVERLAY_LAYERS = [
+          { id: 'coastline', flag: 'coastlines', themed: true, alpha: 1 },
+          { id: 'borders', flag: 'borders', themed: true, alpha: 0.75 },
+          { id: 'lakes', flag: 'lakes', themed: false, alpha: 1 },
+          { id: 'rivers', flag: 'rivers', themed: false, alpha: 1 },
+          { id: 'graticule', flag: 'graticule', themed: true, alpha: 0.35 },
+        ];
 
-        // Lazily compute + cache the overlay stroke styles from the themed
-        // foreground colour.
-        function overlayStrokeStyles() {
-          if (!overlayStyles) {
+        // The themed foreground colour, read from CSS once and cached —
+        // getComputedStyle reflows, and this is consulted on every resize tick.
+        // (A theme switch mid-session keeps the first-read colour; acceptable
+        // for a thin vector overlay.)
+        let overlayFg = null;
+        function themedForeground() {
+          if (!overlayFg) {
             overlayFg = (getComputedStyle(document.documentElement)
               .getPropertyValue('--vscode-foreground') || '#ffffff').trim() || '#ffffff';
-            overlayStyles = {
-              coastline: { color: overlayFg, width: 1.1 },
-              graticule: { color: overlayFg, width: 0.6, alpha: 0.35 },
-            };
           }
-          return overlayStyles;
+          return overlayFg;
         }
 
+        // Seed each themed layer's colour input from the editor foreground. Only
+        // touches an input the user (or restored state) hasn't already set, so a
+        // saved colour survives a remount.
+        function initLayerColours() {
+          for (const layer of OVERLAY_LAYERS) {
+            if (!layer.themed) continue;
+            const el = document.getElementById('color-' + layer.id);
+            if (el && !el.dataset.userSet) el.value = toHexColour(themedForeground());
+          }
+        }
+
+        // An <input type="color"> only accepts #rrggbb. The themed foreground
+        // arrives as whatever CSS holds — usually a hex, sometimes rgb(). Convert
+        // what we can and fall back to white rather than letting the input reject
+        // the value and silently snap to black.
+        function toHexColour(css) {
+          const s = String(css).trim();
+          if (/^#[0-9a-f]{6}$/i.test(s)) return s;
+          if (/^#[0-9a-f]{3}$/i.test(s)) {
+            return '#' + s[1] + s[1] + s[2] + s[2] + s[3] + s[3];
+          }
+          const m = s.match(/^rgba?\\(\\s*(\\d+)\\s*,\\s*(\\d+)\\s*,\\s*(\\d+)/i);
+          if (m) {
+            const hex = (v) => Math.min(255, Number(v)).toString(16).padStart(2, '0');
+            return '#' + hex(m[1]) + hex(m[2]) + hex(m[3]);
+          }
+          return '#ffffff';
+        }
+
+        // Current stroke style per layer, straight from its controls. Read fresh
+        // on each draw: restyling is a repaint, never a reprojection.
+        function overlayStrokeStyles() {
+          const styles = {};
+          for (const layer of OVERLAY_LAYERS) {
+            const colour = (document.getElementById('color-' + layer.id) || {}).value;
+            const width = Number((document.getElementById('width-' + layer.id) || {}).value);
+            styles[layer.id] = {
+              color: colour || themedForeground(),
+              width: Number.isFinite(width) && width > 0 ? width : 1,
+              alpha: layer.alpha,
+            };
+          }
+          return styles;
+        }
+
+        // Which layers are switched on, keyed by the provider's request flags.
         function overlayState() {
-          return {
-            coastlines: !!(document.getElementById('overlay-coastlines') || {}).checked,
-            graticule: !!(document.getElementById('overlay-graticule') || {}).checked,
-          };
+          const state = {};
+          for (const layer of OVERLAY_LAYERS) {
+            state[layer.flag] = !!(document.getElementById('overlay-' + layer.flag) || {}).checked;
+          }
+          return state;
         }
 
         // Only projection / preset / flip-y / bounds move the overlay's pixel
@@ -511,7 +564,7 @@ export function renderImagePanelHtml(
           if (!lastPayload) return;
           lastOverlayKey = overlayKey();
           const state = overlayState();
-          if (!state.coastlines && !state.graticule) {
+          if (!OVERLAY_LAYERS.some((l) => state[l.flag])) {
             clearOverlay();
             return;
           }
@@ -520,11 +573,9 @@ export function renderImagePanelHtml(
             type: 'overlayRequest',
             seq: overlaySeq,
             options: currentOptions(),
-            coastlines: state.coastlines,
-            graticule: state.graticule,
             graticuleSpacing: Math.min(90, Math.max(5,
               Number((document.getElementById('graticule-spacing') || {}).value) || 30)),
-          }, sliceFields()));
+          }, state, sliceFields()));
         }
 
         function handleOverlayReady(msg) {
@@ -556,6 +607,9 @@ export function renderImagePanelHtml(
           const sy = o.height / lastPayload.height;
           const styles = overlayStrokeStyles();
           for (const layer of lastOverlay.layers) {
+            // The provider labels each run with the layer id the styles key on;
+            // an unknown label falls back to the coastline's style rather than
+            // going unstroked.
             const style = styles[layer.name] || styles.coastline;
             ctx.save();
             ctx.globalAlpha = style.alpha || 1;
@@ -663,8 +717,14 @@ export function renderImagePanelHtml(
             boundsLatMax: val('bounds-lat-max'),
             boundsLonMin: val('bounds-lon-min'),
             boundsLonMax: val('bounds-lon-max'),
-            coastlines: chk('overlay-coastlines'),
-            graticule: chk('overlay-graticule'),
+            layers: OVERLAY_LAYERS.reduce((acc, l) => {
+              acc[l.id] = {
+                on: chk('overlay-' + l.flag),
+                color: val('color-' + l.id),
+                width: val('width-' + l.id),
+              };
+              return acc;
+            }, {}),
             graticuleSpacing: val('graticule-spacing'),
             slice: sliceState,
           });
@@ -713,8 +773,19 @@ export function renderImagePanelHtml(
           setVal('bounds-lat-max', s.boundsLatMax);
           setVal('bounds-lon-min', s.boundsLonMin);
           setVal('bounds-lon-max', s.boundsLonMax);
-          setChk('overlay-coastlines', s.coastlines);
-          setChk('overlay-graticule', s.graticule);
+          // Per-layer toggle + style. A restored colour is marked user-set so
+          // initLayerColours won't overwrite it with the theme default.
+          for (const layer of OVERLAY_LAYERS) {
+            const saved = (s.layers || {})[layer.id];
+            if (!saved) continue;
+            setChk('overlay-' + layer.flag, saved.on);
+            setVal('width-' + layer.id, saved.width);
+            const colour = document.getElementById('color-' + layer.id);
+            if (colour && saved.color) {
+              colour.value = saved.color;
+              colour.dataset.userSet = '1';
+            }
+          }
           setVal('graticule-spacing', s.graticuleSpacing);
           // Dependent visibility the change handlers would normally toggle.
           // (The projection-dependent groups are syncProjectionControls' job.)
@@ -792,8 +863,23 @@ export function renderImagePanelHtml(
           });
           // Overlay toggles never re-render the image — they only reproject the
           // vector layer, so the image paint is untouched when toggling.
-          const coast = document.getElementById('overlay-coastlines');
-          if (coast) coast.addEventListener('change', requestOverlay);
+          initLayerColours();
+          for (const layer of OVERLAY_LAYERS) {
+            const toggle = document.getElementById('overlay-' + layer.flag);
+            if (toggle) toggle.addEventListener('change', requestOverlay);
+            // Restyling is a *repaint*, not a reprojection: the pixel geometry
+            // is unchanged, so redraw the cached runs instead of asking Rust to
+            // project them again.
+            const colour = document.getElementById('color-' + layer.id);
+            if (colour) {
+              colour.addEventListener('input', () => {
+                colour.dataset.userSet = '1';
+                drawOverlay();
+              });
+            }
+            const width = document.getElementById('width-' + layer.id);
+            if (width) width.addEventListener('input', drawOverlay);
+          }
           const grat = document.getElementById('overlay-graticule');
           if (grat) {
             grat.addEventListener('change', () => {
@@ -801,7 +887,6 @@ export function renderImagePanelHtml(
               // visibility toggle (not display) so the field's box stays
               // reserved — showing it never grows the toolbar row.
               if (label) label.classList.toggle('spacing-hidden', !grat.checked);
-              requestOverlay();
             });
           }
           const spacing = document.getElementById('graticule-spacing');
@@ -962,6 +1047,23 @@ export function renderImagePanelHtml(
        grow the toolbar and shove the canvas down (it also drops the field out
        of the tab order while hidden). */
     #graticule-spacing-label.spacing-hidden { visibility: hidden; }
+    /* One overlay layer per group: its toggle, then its colour and line weight.
+       Keeping the three together stops the row from reading as a loose pile of
+       inputs when five layers sit side by side. */
+    .overlay-layer {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      margin-right: 0.6rem;
+    }
+    .toolbar .layer-width { width: 3.5rem; }
+    .toolbar .layer-color {
+      width: 1.6rem;
+      height: 1.3rem;
+      padding: 0;
+      border: 1px solid var(--vscode-panel-border);
+      background: none;
+    }
     .toolbar input[type="number"] {
       width: 7rem;
       background: var(--vscode-input-background);
@@ -1066,10 +1168,33 @@ ${colormapFieldsetHtml(colormaps)}
     </fieldset>
     <fieldset>
       <legend>Overlay:</legend>
-      <label><input type="checkbox" id="overlay-coastlines"> Coastlines</label>
-      <label><input type="checkbox" id="overlay-graticule"> Graticule</label>
-      <label id="graticule-spacing-label" class="spacing-hidden">spacing
-        <input type="number" id="graticule-spacing" value="30" min="5" max="90" step="5"></label>
+      <span class="overlay-layer">
+        <label><input type="checkbox" id="overlay-coastlines"> Coastlines</label>
+        <input type="color" id="color-coastline" class="layer-color" aria-label="Coastline colour">
+        <input type="number" id="width-coastline" class="layer-width" value="1.1" min="0.2" max="5" step="0.1" aria-label="Coastline line weight">
+      </span>
+      <span class="overlay-layer">
+        <label><input type="checkbox" id="overlay-borders"> Borders</label>
+        <input type="color" id="color-borders" class="layer-color" aria-label="Border colour">
+        <input type="number" id="width-borders" class="layer-width" value="0.8" min="0.2" max="5" step="0.1" aria-label="Border line weight">
+      </span>
+      <span class="overlay-layer">
+        <label><input type="checkbox" id="overlay-lakes"> Lakes</label>
+        <input type="color" id="color-lakes" class="layer-color" value="#4f9fd8" aria-label="Lake colour">
+        <input type="number" id="width-lakes" class="layer-width" value="0.9" min="0.2" max="5" step="0.1" aria-label="Lake line weight">
+      </span>
+      <span class="overlay-layer">
+        <label><input type="checkbox" id="overlay-rivers"> Rivers</label>
+        <input type="color" id="color-rivers" class="layer-color" value="#4f9fd8" aria-label="River colour">
+        <input type="number" id="width-rivers" class="layer-width" value="0.7" min="0.2" max="5" step="0.1" aria-label="River line weight">
+      </span>
+      <span class="overlay-layer">
+        <label><input type="checkbox" id="overlay-graticule"> Graticule</label>
+        <input type="color" id="color-graticule" class="layer-color" aria-label="Graticule colour">
+        <input type="number" id="width-graticule" class="layer-width" value="0.6" min="0.2" max="5" step="0.1" aria-label="Graticule line weight">
+        <label id="graticule-spacing-label" class="spacing-hidden">spacing
+          <input type="number" id="graticule-spacing" value="30" min="5" max="90" step="5"></label>
+      </span>
     </fieldset>
   </div>
   <div id="status">Rendering…</div>

@@ -15,7 +15,12 @@ import {
   type RenderedGrid,
   type RenderOptions,
 } from "./native";
-import { buildGraticule, loadCoastline, type OverlayGeometry } from "./overlay";
+import {
+  buildGraticule,
+  loadVectorLayer,
+  type OverlayGeometry,
+  type VectorLayer,
+} from "./overlay";
 import { renderImagePanelHtml, type SlicePanelData, type SliceSpec } from "./render-panel";
 
 const FORMAT_LABELS: Record<string, string> = {
@@ -420,7 +425,11 @@ export class FieldglassEditorProvider
         layers.push({ name, xy: projected.xy, segLengths: projected.segLengths });
       };
       try {
-        if (req.coastlines) project("coastline", loadCoastline());
+        // Vector layers first, then the graticule on top of them — the fixed
+        // draw order the webview also strokes in.
+        for (const layer of REQUESTED_VECTOR_LAYERS) {
+          if (req[layer.flag]) project(layer.name, loadVectorLayer(layer.asset));
+        }
         if (req.graticule) project("graticule", buildGraticule(Number(req.graticuleSpacing)));
         panel.webview.postMessage({
           type: "overlayReady",
@@ -739,7 +748,11 @@ export class FieldglassEditorProvider
         layers.push({ name, xy: projected.xy, segLengths: projected.segLengths });
       };
       try {
-        if (req.coastlines) project("coastline", loadCoastline());
+        // Vector layers first, then the graticule on top of them — the fixed
+        // draw order the webview also strokes in.
+        for (const layer of REQUESTED_VECTOR_LAYERS) {
+          if (req[layer.flag]) project(layer.name, loadVectorLayer(layer.asset));
+        }
         if (req.graticule) project("graticule", buildGraticule(Number(req.graticuleSpacing)));
         panel.webview.postMessage({
           type: "overlayReady",
@@ -813,10 +826,29 @@ export interface OverlayRequest {
    *  discard a reply that a newer request has superseded. */
   seq?: number;
   options?: Partial<RenderOptions>;
+  /** The bundled Natural Earth vector layers, each independently toggleable. */
   coastlines?: boolean;
+  borders?: boolean;
+  lakes?: boolean;
+  rivers?: boolean;
   graticule?: boolean;
   graticuleSpacing?: number;
 }
+
+/** The vector layers an `OverlayRequest` can ask for, paired with the asset
+ *  each one loads. Keyed by the request flag so the projection loop below is a
+ *  filter over this table rather than a chain of `if`s — adding a layer means
+ *  adding a row, and the webview's stroke styles key off the same names. */
+const REQUESTED_VECTOR_LAYERS: ReadonlyArray<{
+  flag: keyof Pick<OverlayRequest, "coastlines" | "borders" | "lakes" | "rivers">;
+  name: string;
+  asset: VectorLayer;
+}> = [
+  { flag: "coastlines", name: "coastline", asset: "coastline" },
+  { flag: "borders", name: "borders", asset: "borders" },
+  { flag: "lakes", name: "lakes", asset: "lakes" },
+  { flag: "rivers", name: "rivers", asset: "rivers" },
+];
 
 /** One projected overlay layer in the `overlayReady` payload — pixel-space
  *  runs ready for the webview to stroke. */

@@ -30,7 +30,12 @@ import {
   type GridReadyMessage,
 } from "../../provider";
 import { loadNative, type MessageMeta, type RenderOptions } from "../../native";
-import { buildGraticule, flattenLonLatLines, loadCoastline } from "../../overlay";
+import {
+  buildGraticule,
+  flattenLonLatLines,
+  loadVectorLayer,
+  VECTOR_LAYERS,
+} from "../../overlay";
 import { renderImagePanelHtml, type SlicePanelData } from "../../render-panel";
 
 /** The real colormap registry from Rust. The panel is fed the same data in
@@ -564,11 +569,53 @@ suite("overlay geometry", () => {
     }
   });
 
-  test("loadCoastline parses the bundled asset into flat lat,lon", () => {
-    const c = loadCoastline();
+  test("loadVectorLayer parses the bundled coastline into flat lat,lon", () => {
+    const c = loadVectorLayer("coastline");
     assert.ok(c.ringLengths.length > 0, "coastline has polylines");
     const total = Array.from(c.ringLengths).reduce((a, b) => a + b, 0);
     assert.strictEqual(total * 2, c.latlon.length);
+  });
+
+  test("every bundled vector layer loads with in-range coordinates", () => {
+    // Each Natural Earth asset must satisfy the OverlayGeometry contract the
+    // Rust `projectOverlay` reads: flat [lat, lon, …] with ringLengths summing
+    // to half its length. A layer whose coordinates were left in GeoJSON
+    // (lon, lat) order would sail through the length check but put every
+    // latitude outside ±90 — so check the ranges too, which is what catches a
+    // swapped-axis asset.
+    for (const layer of VECTOR_LAYERS) {
+      const g = loadVectorLayer(layer);
+      assert.ok(g.ringLengths.length > 0, `${layer} has polylines`);
+      const total = Array.from(g.ringLengths).reduce((a, b) => a + b, 0);
+      assert.strictEqual(total * 2, g.latlon.length, `${layer} length matches rings`);
+      for (let i = 0; i < g.latlon.length; i += 2) {
+        const lat = g.latlon[i];
+        const lon = g.latlon[i + 1];
+        assert.ok(lat >= -90 && lat <= 90, `${layer}: latitude ${lat} out of range`);
+        assert.ok(lon >= -180 && lon <= 180, `${layer}: longitude ${lon} out of range`);
+      }
+      // A polyline needs two vertices to stroke; a stray single point would
+      // silently draw nothing.
+      for (const n of g.ringLengths) {
+        assert.ok(n >= 2, `${layer}: a polyline with ${n} vertices cannot stroke`);
+      }
+    }
+  });
+
+  test("the vector layers are distinct and cached", () => {
+    // A copy-paste slip in the asset table (two layers pointing at one file)
+    // would otherwise go unnoticed — the panel would offer four toggles that
+    // draw the same lines.
+    const seen = new Map<string, string>();
+    for (const layer of VECTOR_LAYERS) {
+      const g = loadVectorLayer(layer);
+      const key = `${g.ringLengths.length}:${g.latlon.length}:${g.latlon[0]}`;
+      const clash = seen.get(key);
+      assert.ok(!clash, `${layer} loaded the same geometry as ${clash}`);
+      seen.set(key, layer);
+    }
+    // The cache hands back the same object rather than re-reading the file.
+    assert.strictEqual(loadVectorLayer("rivers"), loadVectorLayer("rivers"));
   });
 });
 
@@ -771,7 +818,7 @@ suite("overlay projection (native)", () => {
 
   test("projectOverlay maps coastline into the warped raster's pixel space", () => {
     const handle = grib1Handle();
-    const coast = loadCoastline();
+    const coast = loadVectorLayer("coastline");
     const eqr: RenderOptions = {
       projection: "equirectangular",
       resampling: "nearest",
@@ -788,7 +835,7 @@ suite("overlay projection (native)", () => {
     // overlay maps through the grid's own inverse — coastlines/graticule show
     // on the source projection too, not only the warped targets.
     const handle = grib1Handle();
-    const coast = loadCoastline();
+    const coast = loadVectorLayer("coastline");
     const out = handle.projectOverlay(0, defaultRenderOptions(), coast.latlon, coast.ringLengths);
     const total = Array.from(out.segLengths).reduce((a, b) => a + b, 0);
     assert.strictEqual(total * 2, out.xy.length, "segLengths must account for every xy pair");
@@ -801,7 +848,7 @@ suite("overlay projection (native)", () => {
     // error (the provider reports it as a seq-tagged `overlayError`, which the
     // panel handles by re-arming the overlay instead of dead-ending it).
     const handle = grib1Handle();
-    const coast = loadCoastline();
+    const coast = loadVectorLayer("coastline");
     const opts: RenderOptions = {
       projection: "web_mercator",
       resampling: "nearest",
@@ -871,7 +918,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     const handle = netcdfHandle();
     const sst = handle.variables().find((v) => v.name === "sst");
     assert.ok(sst);
-    const coast = loadCoastline();
+    const coast = loadVectorLayer("coastline");
     const out = handle.projectOverlay(
       sst.variableIndex,
       2,
