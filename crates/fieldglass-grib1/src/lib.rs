@@ -11,10 +11,13 @@ pub mod reader;
 pub mod tables;
 mod tables_ecmwf;
 
-pub use bds::{BDS_DATA_OFFSET, BdsHeader, ComplexExtendedHeader, parse_bds_header};
+pub use bds::{
+    BDS_DATA_OFFSET, BdsHeader, ComplexExtendedHeader, SphericalExtendedHeader, parse_bds_header,
+};
 pub use bms::Bitmap;
-pub use gds::{GridDescription, expand_reduced_to_regular};
+pub use gds::{GridDescription, SphericalHarmonicGrid, expand_reduced_to_regular};
 pub use is::IndicatorSection;
+pub use packing::spherical::SpectralCoefficients;
 pub use pds::ProductDefinition;
 pub use predefined::predefined_grid;
 pub use reader::{

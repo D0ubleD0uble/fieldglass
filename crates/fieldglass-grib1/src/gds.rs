@@ -264,10 +264,31 @@ pub enum GridDescription {
     ReducedGaussian(ReducedGaussianGrid),
     PolarStereographic(PolarStereoGrid),
     LambertConformal(LambertGrid),
+    /// Spherical-harmonic coefficients (grid type 50). Not a grid at all: the
+    /// message stores the field's spectral coefficients, so it has no `Ni`/`Nj`
+    /// and no data points in the usual sense. Decode it with
+    /// [`crate::Grib1Reader::decode_spectral_message`].
+    SphericalHarmonic(SphericalHarmonicGrid),
     /// Grid type present but not yet supported by this parser.
     Unsupported {
         grid_type: u8,
     },
+}
+
+/// Pentagonal resolution parameters of a spherical-harmonic "grid" (GDS data
+/// representation type 50). Real data is always triangular (`j == k == m`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SphericalHarmonicGrid {
+    /// Pentagonal resolution parameter J (octets 7-8).
+    pub j: u16,
+    /// Pentagonal resolution parameter K (octets 9-10).
+    pub k: u16,
+    /// Pentagonal resolution parameter M (octets 11-12).
+    pub m: u16,
+    /// Octet 13. 1 = associated Legendre polynomials (the only value defined).
+    pub representation_type: u8,
+    /// Octet 14. 1 = the complex/triangular packing ECMWF writes.
+    pub representation_mode: u8,
 }
 
 impl GridDescription {
@@ -280,6 +301,7 @@ impl GridDescription {
             Self::ReducedGaussian(_) => "reduced_gaussian",
             Self::PolarStereographic(_) => "polar_stereo",
             Self::LambertConformal(_) => "lambert",
+            Self::SphericalHarmonic(_) => "spherical_harmonic",
             Self::Unsupported { .. } => "unsupported",
         }
     }
@@ -296,6 +318,9 @@ impl GridDescription {
             Self::ReducedGaussian(g) => Some((max_row_width(&g.points_per_row), g.nj)),
             Self::PolarStereographic(g) => Some((g.nx, g.ny)),
             Self::LambertConformal(g) => Some((g.nx, g.ny)),
+            // Spectral coefficients are not laid out on a grid, so there is no
+            // Ni x Nj to report. The scalar decode path refuses on this basis.
+            Self::SphericalHarmonic(_) => None,
             Self::Unsupported { .. } => None,
         }
     }
@@ -342,6 +367,9 @@ impl GridDescription {
                 let (lat_last, lon_last) = g.last_point();
                 Some((g.lat_first, g.lon_first, lat_last, lon_last))
             }
+            // Spectral coefficients have no corner coordinates: the field is
+            // global by construction and lives in wavenumber space.
+            Self::SphericalHarmonic(_) => None,
             Self::Unsupported { .. } => None,
         }
     }
@@ -426,6 +454,9 @@ pub fn parse_grid_description(bytes: &[u8]) -> Result<GridDescription, Fieldglas
         )?)),
         0 => Ok(GridDescription::LatLon(parse_latlon(section)?)),
         3 => Ok(GridDescription::LambertConformal(parse_lambert(section)?)),
+        50 => Ok(GridDescription::SphericalHarmonic(
+            parse_spherical_harmonic(section)?,
+        )),
         4 if ni_is_missing => Ok(GridDescription::ReducedGaussian(parse_reduced_gaussian(
             section,
         )?)),
@@ -577,6 +608,28 @@ fn parse_polar_stereo(b: &[u8]) -> Result<PolarStereoGrid, FieldglassError> {
         dy_m: read_u24(&b[23..26]),
         south_pole: b[26] & 0x80 != 0,
         scanning_mode: ScanningMode::from_byte(b[27]),
+    })
+}
+
+/// Parse a spherical-harmonic GDS (data representation type 50).
+///
+/// Octets 7-8 / 9-10 / 11-12 are the pentagonal resolution parameters J, K, M;
+/// octet 13 is the representation type (1 = associated Legendre polynomials) and
+/// octet 14 the representation mode (1 = the complex packing ECMWF writes).
+/// There is no `Ni`/`Nj` — a spectral message describes coefficients, not points.
+fn parse_spherical_harmonic(b: &[u8]) -> Result<SphericalHarmonicGrid, FieldglassError> {
+    if b.len() < 14 {
+        return Err(FieldglassError::Parse(format!(
+            "spherical-harmonic GDS requires 14 octets, got {}",
+            b.len()
+        )));
+    }
+    Ok(SphericalHarmonicGrid {
+        j: u16::from_be_bytes([b[6], b[7]]),
+        k: u16::from_be_bytes([b[8], b[9]]),
+        m: u16::from_be_bytes([b[10], b[11]]),
+        representation_type: b[12],
+        representation_mode: b[13],
     })
 }
 
@@ -1104,17 +1157,18 @@ mod grid_variant_tests {
 
     #[test]
     fn unsupported_grid_type_surfaces_marker() {
-        // grid_type 50 isn't one we implement; parser should return the
-        // Unsupported variant carrying the offending byte rather than fail.
-        // Body bytes are irrelevant for the unsupported branch, but the
-        // section must still pass the length-prefix validation.
+        // grid_type 13 (oblique Lambert) isn't one we implement; the parser
+        // should return the Unsupported variant carrying the offending byte
+        // rather than fail. Body bytes are irrelevant for the unsupported
+        // branch, but the section must still pass the length-prefix validation.
+        // (50 used to stand in here; it is spherical-harmonic and now parses.)
         let body = vec![0u8; 22];
-        let gds = build_gds(50, &body);
+        let gds = build_gds(13, &body);
         let parsed = parse_grid_description(&gds).expect("unsupported parses cleanly");
         let GridDescription::Unsupported { grid_type } = parsed else {
             panic!("expected Unsupported variant");
         };
-        assert_eq!(grid_type, 50);
+        assert_eq!(grid_type, 13);
     }
 
     #[test]
