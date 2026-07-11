@@ -625,6 +625,10 @@ pub struct Mollweide {
 }
 
 impl Mollweide {
+    /// Width : height of the map body — the bounding ellipse is exactly 2:1.
+    /// A raster in this ratio holds the map at its true proportions.
+    pub const ASPECT_RATIO: f64 = 2.0;
+
     /// Build a Mollweide target centred on meridian `lon0` (any value; the
     /// inverse normalises longitude downstream). Fields are private to keep
     /// construction symmetric with the other targets (single entry point).
@@ -727,6 +731,415 @@ impl PreparedTarget for MollweidePrepared {
             self.lon0_rad + PI * x / cos_theta
         };
         Some((lat * RAD2DEG, lon * RAD2DEG))
+    }
+}
+
+/// Robinson's tabulated parallels (Robinson 1974; reprinted as Snyder,
+/// PP-1395 Table 27), every 5° of latitude from the equator to the pole.
+/// `ROBINSON_X[i]` is the length of that parallel relative to the equator's
+/// and `ROBINSON_Y[i]` its distance from the equator relative to the pole's.
+const ROBINSON_NODES: usize = 19;
+
+/// Latitude step between successive table nodes, in degrees.
+const ROBINSON_STEP: f64 = 5.0;
+
+const ROBINSON_X: [f64; ROBINSON_NODES] = [
+    1.0000, 0.9986, 0.9954, 0.9900, 0.9822, 0.9730, 0.9600, 0.9427, 0.9216, 0.8962, 0.8679, 0.8350,
+    0.7986, 0.7597, 0.7186, 0.6732, 0.6213, 0.5722, 0.5322,
+];
+
+const ROBINSON_Y: [f64; ROBINSON_NODES] = [
+    0.0000, 0.0620, 0.1240, 0.1860, 0.2480, 0.3100, 0.3720, 0.4340, 0.4958, 0.5571, 0.6176, 0.6769,
+    0.7346, 0.7903, 0.8435, 0.8936, 0.9394, 0.9761, 1.0000,
+];
+
+/// Snyder's scaling constants for the table: `x = 0.8487·R·X·Δλ`,
+/// `y = 1.3523·R·Y` (PP-1395 §Robinson, sphere).
+const ROBINSON_FX: f64 = 0.8487;
+const ROBINSON_FY: f64 = 1.3523;
+
+/// A natural cubic spline through the 19 table nodes, held as the value at
+/// each knot plus the spline's second derivative there.
+///
+/// Robinson published the table but never the interpolant, so every
+/// implementation picks one and they differ slightly between them (Aitken
+/// interpolation and cubic splines are both reported in the literature). We
+/// take the natural cubic spline: it reproduces the published table exactly at
+/// the nodes, is C² in between, and — verified over the whole domain by test —
+/// stays monotone in `Y` and inside each node bracket, so it never overshoots
+/// the table and the inverse below is single-valued.
+#[derive(Debug, Clone, Copy)]
+struct RobinsonSpline {
+    /// Tabulated value at each knot.
+    v: [f64; ROBINSON_NODES],
+    /// Second derivative of the spline at each knot (w.r.t. latitude in
+    /// degrees), from the natural end conditions `m[0] = m[n-1] = 0`.
+    m: [f64; ROBINSON_NODES],
+}
+
+impl RobinsonSpline {
+    /// Fit the natural cubic spline through `v` on the uniform 5° knot grid,
+    /// solving the tridiagonal system for the knot second derivatives with the
+    /// Thomas algorithm.
+    fn new(v: [f64; ROBINSON_NODES]) -> Self {
+        let n = ROBINSON_NODES;
+        let h = ROBINSON_STEP;
+        let mut m = [0.0f64; ROBINSON_NODES];
+        // Interior rows: m[i-1] + 4·m[i] + m[i+1] = 6·(v[i-1] - 2v[i] + v[i+1]) / h².
+        // The natural end conditions fix m[0] = m[n-1] = 0, so only the n-2
+        // interior unknowns are solved. `cp`/`dp` are the Thomas sweep's
+        // modified super-diagonal and right-hand side.
+        let mut cp = [0.0f64; ROBINSON_NODES];
+        let mut dp = [0.0f64; ROBINSON_NODES];
+        for i in 1..n - 1 {
+            let d = 6.0 * (v[i - 1] - 2.0 * v[i] + v[i + 1]) / (h * h);
+            // Sub-diagonal is 1 and the diagonal 4 on every interior row.
+            let denom = 4.0 - cp[i - 1];
+            cp[i] = 1.0 / denom;
+            dp[i] = (d - dp[i - 1]) / denom;
+        }
+        for i in (1..n - 1).rev() {
+            m[i] = dp[i] - cp[i] * m[i + 1];
+        }
+        Self { v, m }
+    }
+
+    /// Index of the node cell containing `phi` (degrees, `0..=90`), clamped to
+    /// the last cell so the pole itself evaluates on `[85°, 90°]`.
+    fn cell(phi: f64) -> usize {
+        ((phi / ROBINSON_STEP) as usize).min(ROBINSON_NODES - 2)
+    }
+
+    /// Evaluate the spline at latitude `phi` (degrees, `0..=90`).
+    fn eval(&self, phi: f64) -> f64 {
+        let i = Self::cell(phi);
+        let h = ROBINSON_STEP;
+        let t = (phi - i as f64 * h) / h;
+        let (m0, m1) = (self.m[i], self.m[i + 1]);
+        let hh6 = h * h / 6.0;
+        (m0 * (1.0 - t).powi(3) + m1 * t.powi(3)) * hh6
+            + (self.v[i] - m0 * hh6) * (1.0 - t)
+            + (self.v[i + 1] - m1 * hh6) * t
+    }
+
+    /// Derivative of the spline at latitude `phi` (per degree).
+    fn deriv(&self, phi: f64) -> f64 {
+        let i = Self::cell(phi);
+        let h = ROBINSON_STEP;
+        let t = (phi - i as f64 * h) / h;
+        let (m0, m1) = (self.m[i], self.m[i + 1]);
+        -m0 * h * (1.0 - t).powi(2) / 2.0
+            + m1 * h * t * t / 2.0
+            + (self.v[i + 1] - self.v[i]) / h
+            + (m0 - m1) * h / 6.0
+    }
+
+    /// Invert a *strictly increasing* spline: the latitude in `0..=90` whose
+    /// spline value is `target`. Used for the `Y` table only (`X` decreases
+    /// but is never inverted — a pixel's latitude comes from `Y` alone).
+    ///
+    /// The knot values bracket the root, so a binary search picks the cell and
+    /// Newton — safeguarded by bisection, since a bad step would otherwise
+    /// leave the cell — converges to it.
+    fn invert_increasing(&self, target: f64) -> f64 {
+        let t = target.clamp(self.v[0], self.v[ROBINSON_NODES - 1]);
+        // Cell whose knot values bracket `t` (`v` is increasing).
+        let mut i = ROBINSON_NODES - 2;
+        for k in 0..ROBINSON_NODES - 1 {
+            if t <= self.v[k + 1] {
+                i = k;
+                break;
+            }
+        }
+        let (mut lo, mut hi) = (i as f64 * ROBINSON_STEP, (i + 1) as f64 * ROBINSON_STEP);
+        // Seed with the linear estimate inside the cell — already within a
+        // fraction of a degree of the root for this table.
+        let span = self.v[i + 1] - self.v[i];
+        let mut phi = if span > 0.0 {
+            lo + (t - self.v[i]) / span * ROBINSON_STEP
+        } else {
+            lo
+        };
+        for _ in 0..24 {
+            let f = self.eval(phi) - t;
+            if f.abs() < 1e-13 {
+                break;
+            }
+            if f > 0.0 {
+                hi = phi
+            } else {
+                lo = phi
+            }
+            let d = self.deriv(phi);
+            let next = phi - f / d;
+            // Keep the iterate inside the bracket; fall back to bisection when
+            // Newton would jump out of it.
+            phi = if d > 0.0 && next > lo && next < hi {
+                next
+            } else {
+                0.5 * (lo + hi)
+            };
+        }
+        phi
+    }
+}
+
+/// Robinson pseudocylindrical *compromise* world target centred on the
+/// meridian `lon0` — neither equal-area nor conformal, shaped by eye to look
+/// right, and the projection most world atlases used through the 1990s.
+/// Parallels are straight lines, spaced by the table's `Y` and so drawn closer
+/// together toward the poles; meridians are smooth curves; the poles are lines
+/// about half the equator's length. The map body's corners are rounded, so a
+/// pixel outside the body is `None` and reads as background, as the elliptical
+/// and azimuthal targets already do.
+///
+/// Working in the *normalized* frame where the map body's bounding box is
+/// `[-1, 1]²` (`X = x/(0.8487·π)`, `Y = y/1.3523` of Snyder's `R = 1`
+/// coordinates), the map reduces to `X = X(φ)·Δλ/π`, `Y = Y(φ)`, with `X(φ)`
+/// and `Y(φ)` interpolated from Robinson's published table (see
+/// [`RobinsonSpline`] for the choice of interpolant).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Robinson {
+    width: u32,
+    height: u32,
+    lon0: f64,
+}
+
+impl Robinson {
+    /// Width : height of the map body, `0.8487·π : 1.3523` ≈ `1.9717 : 1`.
+    /// A raster in this ratio holds the map at its true proportions.
+    pub const ASPECT_RATIO: f64 = ROBINSON_FX * PI / ROBINSON_FY;
+
+    /// Build a Robinson target centred on meridian `lon0` (any value; the
+    /// inverse normalises longitude downstream).
+    pub fn new(width: u32, height: u32, lon0: f64) -> Self {
+        Self {
+            width,
+            height,
+            lon0,
+        }
+    }
+}
+
+/// Hoisted Robinson map: the fitted table splines, the centre meridian in
+/// radians, and the raster dims needed to place each pixel in the normalized
+/// frame.
+#[derive(Debug, Clone, Copy)]
+pub struct RobinsonPrepared {
+    width: u32,
+    height: u32,
+    lon0_rad: f64,
+    x_spline: RobinsonSpline,
+    y_spline: RobinsonSpline,
+}
+
+impl TargetProjection for Robinson {
+    type Prepared = RobinsonPrepared;
+
+    fn dims(&self) -> (u32, u32) {
+        (self.width, self.height)
+    }
+
+    fn prepare(&self) -> RobinsonPrepared {
+        RobinsonPrepared {
+            width: self.width,
+            height: self.height,
+            lon0_rad: self.lon0 * DEG2RAD,
+            x_spline: RobinsonSpline::new(ROBINSON_X),
+            y_spline: RobinsonSpline::new(ROBINSON_Y),
+        }
+    }
+}
+
+impl ForwardMap for RobinsonPrepared {
+    fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)> {
+        // The table is tabulated on |φ| and the map is symmetric about the
+        // equator, so evaluate on the absolute latitude and re-sign `Y`.
+        let abs_lat = lat.abs().min(90.0);
+        // Shift longitude by the ±360 multiple nearest the centre meridian so a
+        // point just past one map edge stays on that edge instead of wrapping.
+        let mut dlon = lon * DEG2RAD - self.lon0_rad;
+        dlon -= 2.0 * PI * (dlon / (2.0 * PI)).round();
+        // Normalized frame: the map body's bounding box is [-1, 1]².
+        let x = self.x_spline.eval(abs_lat) * dlon / PI;
+        let y = self.y_spline.eval(abs_lat).copysign(lat);
+        Some((
+            unit_coord_to_pixel(x, self.width),
+            unit_coord_to_pixel(-y, self.height),
+        ))
+    }
+}
+
+impl PreparedTarget for RobinsonPrepared {
+    fn pixel_to_lonlat(&self, px: u32, py: u32) -> Option<(f64, f64)> {
+        // Pixel → normalized frame, north-up: X ∈ [-1, 1] L→R, Y ∈ [1, -1] T→B.
+        let x = pixel_unit_coord(px, self.width);
+        let y = -pixel_unit_coord(py, self.height);
+        // Y = Y(|φ|) is strictly increasing, so the row alone fixes the
+        // latitude; the sign of Y picks the hemisphere.
+        let abs_lat = self.y_spline.invert_increasing(y.abs());
+        let lat = abs_lat.copysign(y);
+        // Δλ = π·X / X(φ). Past |Δλ| = π the pixel is beyond that parallel's
+        // end — one of the rounded corners outside the map body.
+        let half_width = self.x_spline.eval(abs_lat);
+        if x.abs() > half_width {
+            return None;
+        }
+        let lon = self.lon0_rad + PI * x / half_width;
+        Some((lat, lon * RAD2DEG))
+    }
+}
+
+/// Equal Earth polynomial coefficients (Šavrič, Patterson & Jenny 2018/2019).
+const EQUAL_EARTH_A1: f64 = 1.340264;
+const EQUAL_EARTH_A2: f64 = -0.081106;
+const EQUAL_EARTH_A3: f64 = 0.000893;
+const EQUAL_EARTH_A4: f64 = 0.003796;
+
+/// `√3/2 = sin 60°`, the factor relating the parametric latitude `θ` to the
+/// latitude: `sin θ = (√3/2)·sin φ`. Written as a literal because `sqrt` is not
+/// available in a `const`; pinned against `(3.0).sqrt() / 2.0` by test.
+const EQUAL_EARTH_M: f64 = 0.866_025_403_784_438_6;
+
+/// The parametric latitude at the pole: `θ = asin(√3/2) = π/3`, exactly.
+const EQUAL_EARTH_THETA_MAX: f64 = PI / 3.0;
+
+/// `fy(θ) = θ·(A1 + A2·θ² + θ⁶·(A3 + A4·θ²))` — the projected `y` on the unit
+/// sphere.
+const fn equal_earth_fy(theta: f64) -> f64 {
+    let t2 = theta * theta;
+    let t6 = t2 * t2 * t2;
+    theta * (EQUAL_EARTH_A1 + EQUAL_EARTH_A2 * t2 + t6 * (EQUAL_EARTH_A3 + EQUAL_EARTH_A4 * t2))
+}
+
+/// `fy'(θ) = A1 + 3·A2·θ² + θ⁶·(7·A3 + 9·A4·θ²)` — the derivative of `fy`,
+/// which also scales `x` in the forward map.
+const fn equal_earth_dfy(theta: f64) -> f64 {
+    let t2 = theta * theta;
+    let t6 = t2 * t2 * t2;
+    EQUAL_EARTH_A1
+        + 3.0 * EQUAL_EARTH_A2 * t2
+        + t6 * (7.0 * EQUAL_EARTH_A3 + 9.0 * EQUAL_EARTH_A4 * t2)
+}
+
+/// Half-width of the map body: `x` at the equator (`θ = 0`) on the ±180°
+/// meridian, where `fy'(0) = A1`.
+const EQUAL_EARTH_X_MAX: f64 = PI / (EQUAL_EARTH_M * EQUAL_EARTH_A1);
+
+/// Half-height of the map body: `y` at the pole.
+const EQUAL_EARTH_Y_MAX: f64 = equal_earth_fy(EQUAL_EARTH_THETA_MAX);
+
+/// Equal Earth equal-area world target centred on the meridian `lon0` — the
+/// 2018 projection designed to keep areas true while looking close to Robinson
+/// (which is not equal-area), now the usual choice for a global thematic map.
+/// Like Robinson the map body has rounded corners, so a pixel outside it is
+/// `None` and reads as background.
+///
+/// Working in the *normalized* frame where the map body's bounding box is
+/// `[-1, 1]²`, the forward map on the unit sphere (Šavrič, Patterson & Jenny,
+/// sphere case `β = φ`, `R_A = R = 1`) is
+/// `sin θ = (√3/2)·sin φ`, `x = Δλ·cos θ / ((√3/2)·fy'(θ))`, `y = fy(θ)`,
+/// with `fy` the published quartic-in-`θ²` polynomial, then divided through by
+/// the half-extents [`EQUAL_EARTH_X_MAX`] / [`EQUAL_EARTH_Y_MAX`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EqualEarth {
+    width: u32,
+    height: u32,
+    lon0: f64,
+}
+
+impl EqualEarth {
+    /// Width : height of the map body ≈ `2.0546 : 1` (a touch wider than
+    /// Mollweide's exact 2:1). A raster in this ratio holds the map at its true
+    /// proportions.
+    pub const ASPECT_RATIO: f64 = EQUAL_EARTH_X_MAX / EQUAL_EARTH_Y_MAX;
+
+    /// Build an Equal Earth target centred on meridian `lon0` (any value; the
+    /// inverse normalises longitude downstream).
+    pub fn new(width: u32, height: u32, lon0: f64) -> Self {
+        Self {
+            width,
+            height,
+            lon0,
+        }
+    }
+}
+
+/// Hoisted Equal Earth map: the centre meridian in radians plus the raster
+/// dims needed to place each pixel in the normalized frame.
+#[derive(Debug, Clone, Copy)]
+pub struct EqualEarthPrepared {
+    width: u32,
+    height: u32,
+    lon0_rad: f64,
+}
+
+/// Solve `fy(θ) = y` for the Equal Earth parametric latitude `θ` by Newton's
+/// method, seeded at `θ₀ = y` as the authors suggest. `fy` is strictly
+/// increasing on the domain (`fy' ≥ fy'(θ_max) > 0`), so the iteration is
+/// well-conditioned everywhere including the poles.
+fn equal_earth_theta(y: f64) -> f64 {
+    let mut theta = y;
+    for _ in 0..12 {
+        let delta = (equal_earth_fy(theta) - y) / equal_earth_dfy(theta);
+        theta -= delta;
+        if delta.abs() < 1e-12 {
+            break;
+        }
+    }
+    theta
+}
+
+impl TargetProjection for EqualEarth {
+    type Prepared = EqualEarthPrepared;
+
+    fn dims(&self) -> (u32, u32) {
+        (self.width, self.height)
+    }
+
+    fn prepare(&self) -> EqualEarthPrepared {
+        EqualEarthPrepared {
+            width: self.width,
+            height: self.height,
+            lon0_rad: self.lon0 * DEG2RAD,
+        }
+    }
+}
+
+impl ForwardMap for EqualEarthPrepared {
+    fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)> {
+        let phi = lat * DEG2RAD;
+        // Shift longitude by the ±360 multiple nearest the centre meridian so a
+        // point just past one map edge stays on that edge instead of wrapping.
+        let mut dlon = lon * DEG2RAD - self.lon0_rad;
+        dlon -= 2.0 * PI * (dlon / (2.0 * PI)).round();
+        // sin θ = (√3/2)·sin φ; the clamp guards |sin φ| rounded past 1.
+        let theta = (EQUAL_EARTH_M * phi.sin()).clamp(-1.0, 1.0).asin();
+        let x = dlon * theta.cos() / (EQUAL_EARTH_M * equal_earth_dfy(theta));
+        let y = equal_earth_fy(theta);
+        // Normalized frame: divide through by the half-extents.
+        Some((
+            unit_coord_to_pixel(x / EQUAL_EARTH_X_MAX, self.width),
+            unit_coord_to_pixel(-y / EQUAL_EARTH_Y_MAX, self.height),
+        ))
+    }
+}
+
+impl PreparedTarget for EqualEarthPrepared {
+    fn pixel_to_lonlat(&self, px: u32, py: u32) -> Option<(f64, f64)> {
+        // Pixel → normalized frame, north-up: X ∈ [-1, 1] L→R, Y ∈ [1, -1] T→B.
+        let x = pixel_unit_coord(px, self.width) * EQUAL_EARTH_X_MAX;
+        let y = -pixel_unit_coord(py, self.height) * EQUAL_EARTH_Y_MAX;
+        let theta = equal_earth_theta(y);
+        // φ = asin(sin θ / (√3/2)); the clamp guards the pole rounding past 1.
+        let lat = (theta.sin() / EQUAL_EARTH_M).clamp(-1.0, 1.0).asin();
+        // Δλ = (√3/2)·x·fy'(θ) / cos θ. cos θ ≥ cos 60° = ½, so no singularity
+        // at the poles — unlike Mollweide, Equal Earth's pole is a line.
+        let dlon = EQUAL_EARTH_M * x * equal_earth_dfy(theta) / theta.cos();
+        if dlon.abs() > PI {
+            return None; // Beyond the parallel's end — outside the map body.
+        }
+        Some((lat * RAD2DEG, (self.lon0_rad + dlon) * RAD2DEG))
     }
 }
 
@@ -1597,6 +2010,296 @@ mod tests {
         assert!(present > 0, "Mollweide warp produced an empty mask");
         // Top-left corner pixel is outside the ellipse → masked.
         assert_eq!(out.mask[0], 0, "ellipse corner should be masked");
+    }
+
+    #[test]
+    fn robinson_spline_reproduces_the_published_table_at_its_nodes() {
+        // The acceptance bar for a table projection: at every tabulated
+        // latitude the interpolant must return the published value exactly, so
+        // the map is Robinson's and not merely Robinson-shaped.
+        let x = RobinsonSpline::new(ROBINSON_X);
+        let y = RobinsonSpline::new(ROBINSON_Y);
+        for i in 0..ROBINSON_NODES {
+            let phi = i as f64 * ROBINSON_STEP;
+            assert!(
+                near(x.eval(phi), ROBINSON_X[i], 1e-12),
+                "X({phi}) = {} want {}",
+                x.eval(phi),
+                ROBINSON_X[i]
+            );
+            assert!(
+                near(y.eval(phi), ROBINSON_Y[i], 1e-12),
+                "Y({phi}) = {} want {}",
+                y.eval(phi),
+                ROBINSON_Y[i]
+            );
+        }
+    }
+
+    #[test]
+    fn robinson_spline_is_monotone_and_never_overshoots_the_table() {
+        // Two properties the inverse leans on. Y must be strictly increasing in
+        // latitude, or a map row would not fix a single latitude. And neither
+        // curve may overshoot the bracket of the two nodes it sits between —
+        // the failure mode of a badly chosen interpolant, which would bulge the
+        // parallels between the tabulated ones.
+        let xs = RobinsonSpline::new(ROBINSON_X);
+        let ys = RobinsonSpline::new(ROBINSON_Y);
+        let mut prev = f64::NEG_INFINITY;
+        for k in 0..=9000 {
+            let phi = k as f64 * 0.01;
+            let (xv, yv) = (xs.eval(phi), ys.eval(phi));
+            assert!(yv > prev, "Y must strictly increase, stalled at {phi}");
+            prev = yv;
+            assert!(ys.deriv(phi) > 0.0, "dY/dφ must stay positive at {phi}");
+
+            let i = RobinsonSpline::cell(phi);
+            assert!(
+                yv >= ROBINSON_Y[i] - 1e-12 && yv <= ROBINSON_Y[i + 1] + 1e-12,
+                "Y({phi}) = {yv} escaped its node bracket"
+            );
+            // X decreases with latitude, so its bracket runs the other way.
+            assert!(
+                xv <= ROBINSON_X[i] + 1e-12 && xv >= ROBINSON_X[i + 1] - 1e-12,
+                "X({phi}) = {xv} escaped its node bracket"
+            );
+        }
+    }
+
+    #[test]
+    fn robinson_forward_matches_the_table_and_interpolates_between_it() {
+        // On the ±180° meridian the normalized |X| is exactly the parallel's
+        // tabulated length and Y its tabulated distance from the equator, so
+        // the forward map can be read straight against the published table.
+        // (|X|, not X: ±180° is the seam, drawn on both rims, and the longitude
+        // wrap puts it on whichever one it rounds to — see the round-trip test.)
+        let (w, h) = (1001u32, 1001u32);
+        let prep = Robinson::new(w, h, 0.0).prepare();
+        // Pixel → the normalized frame (the inverse of `unit_coord_to_pixel`).
+        let norm = |px: f64, py: f64| {
+            (
+                (px / (w as f64 - 1.0) * 2.0 - 1.0).abs(),
+                -(py / (h as f64 - 1.0) * 2.0 - 1.0),
+            )
+        };
+        for i in 0..ROBINSON_NODES {
+            let lat = i as f64 * ROBINSON_STEP;
+            let (px, py) = prep.lonlat_to_pixel(lat, 180.0).expect("on map");
+            let (x, y) = norm(px, py);
+            assert!(
+                near(x, ROBINSON_X[i], 1e-9) && near(y, ROBINSON_Y[i], 1e-9),
+                "{lat}°N on the rim → ({x}, {y}), want ({}, {})",
+                ROBINSON_X[i],
+                ROBINSON_Y[i]
+            );
+        }
+        // Off-node latitudes exercise the interpolant itself. Values from an
+        // out-of-band solve of the same natural spline (documented in the PR).
+        for (lat, want_x, want_y) in [
+            (22.5, 0.977_895_570_5, 0.279_000_606_3),
+            (67.8, 0.737_018_376_4, 0.820_439_608_0),
+        ] {
+            let (px, py) = prep.lonlat_to_pixel(lat, 180.0).expect("on map");
+            let (x, y) = norm(px, py);
+            assert!(
+                near(x, want_x, 1e-9) && near(y, want_y, 1e-9),
+                "{lat}°N → ({x}, {y}), want ({want_x}, {want_y})"
+            );
+        }
+    }
+
+    #[test]
+    fn robinson_forward_inverts_interior_and_rejects_the_rounded_corners() {
+        let (w, h) = (79u32, 41u32);
+        let prep = Robinson::new(w, h, 25.0).prepare();
+        for py in 0..h {
+            for px in 0..w {
+                let Some((lat, lon)) = prep.pixel_to_lonlat(px, py) else {
+                    continue; // Outside the map body — checked below.
+                };
+                let (rx, ry) = prep.lonlat_to_pixel(lat, lon).expect("forward on map");
+                // Skip the rim: the ±180° meridian is drawn on both edges, so a
+                // bare (φ, ±180) is double-valued and its column can't be
+                // recovered. Everything inside must round-trip.
+                if (rx - px as f64).abs() > 0.5 && (rx - (w as f64 - 1.0 - px as f64)).abs() < 0.5 {
+                    continue;
+                }
+                assert!(
+                    near(rx, px as f64, 1e-6) && near(ry, py as f64, 1e-6),
+                    "({px},{py}) → ({lat},{lon}) → ({rx},{ry})"
+                );
+            }
+        }
+        // The pole line is barely half the equator's length, so the raster's
+        // top corners fall well outside the map body → background.
+        for (px, py) in [(0u32, 0u32), (w - 1, 0), (0, h - 1), (w - 1, h - 1)] {
+            assert!(
+                prep.pixel_to_lonlat(px, py).is_none(),
+                "corner ({px},{py}) must be off the map body"
+            );
+        }
+        // The centre of the map is the centre meridian on the equator.
+        let (lat, lon) = prep.pixel_to_lonlat(w / 2, h / 2).expect("centre on map");
+        assert!(
+            near(lat, 0.0, 1e-9) && near(lon, 25.0, 1e-9),
+            "({lat},{lon})"
+        );
+    }
+
+    #[test]
+    fn equal_earth_constants_match_the_published_derivation() {
+        // √3/2 is spelled as a literal (no `sqrt` in a `const`) — pin it.
+        assert!(near(EQUAL_EARTH_M, 3.0f64.sqrt() / 2.0, 1e-15));
+        // θ at the pole solves sin θ = √3/2, i.e. exactly 60°.
+        assert!(near(EQUAL_EARTH_THETA_MAX, EQUAL_EARTH_M.asin(), 1e-12));
+        // Half-extents on the unit sphere, from the published polynomial.
+        assert!(near(EQUAL_EARTH_X_MAX, 2.706_629_983_7, 1e-9));
+        assert!(near(EQUAL_EARTH_Y_MAX, 1.317_362_759_2, 1e-9));
+        // The map is a touch wider than Mollweide's 2:1 and than Robinson's.
+        assert!(near(EqualEarth::ASPECT_RATIO, 2.054_582_130_0, 1e-9));
+        assert!(near(Robinson::ASPECT_RATIO, 1.971_655_464_8, 1e-9));
+    }
+
+    #[test]
+    fn equal_earth_forward_matches_closed_form_interior_points() {
+        // Independently computed forward values in the normalized frame
+        // (lon0 = 0) from the published sphere equations: sinθ = (√3/2)·sinφ,
+        // x = Δλ·cosθ/((√3/2)·fy'(θ)), y = fy(θ), each over its half-extent.
+        let (w, h) = (1001u32, 1001u32);
+        let prep = EqualEarth::new(w, h, 0.0).prepare();
+        let cases = [
+            (30.0, 45.0, 0.233_842_609_7, 0.450_092_516_8),
+            (-45.0, -100.0, -0.476_137_199_8, -0.652_994_841_1),
+            (60.0, 150.0, 0.627_797_944_3, 0.826_120_844_8),
+        ];
+        for (lat, lon, x, y) in cases {
+            let (px, py) = prep.lonlat_to_pixel(lat, lon).expect("on map");
+            let want_px = (x + 1.0) / 2.0 * (w as f64 - 1.0);
+            let want_py = (1.0 - y) / 2.0 * (h as f64 - 1.0);
+            assert!(
+                near(px, want_px, 1e-6) && near(py, want_py, 1e-6),
+                "({lat},{lon}) → ({px},{py}), want ({want_px},{want_py})"
+            );
+        }
+    }
+
+    #[test]
+    fn equal_earth_anchor_points_sit_where_the_geometry_says() {
+        let (w, h) = (2001u32, 1001u32);
+        let prep = EqualEarth::new(w, h, 0.0).prepare();
+        let (cx, cy) = ((w as f64 - 1.0) / 2.0, (h as f64 - 1.0) / 2.0);
+        // Map centre → (0°, 0°).
+        let (px, py) = prep.lonlat_to_pixel(0.0, 0.0).expect("on map");
+        assert!(near(px, cx, 1e-9) && near(py, cy, 1e-9), "centre");
+        // The poles are *lines*, not points: the north pole at any longitude
+        // sits on the top row, and its ±180° end stops short of the equator's
+        // full half-width. (The seam lands on whichever rim the longitude wrap
+        // rounds to, so measure the distance from the centre meridian.)
+        let (px_pole, py_pole) = prep.lonlat_to_pixel(90.0, 0.0).expect("on map");
+        assert!(near(py_pole, 0.0, 1e-9), "north pole row {py_pole}");
+        assert!(near(px_pole, cx, 1e-9), "pole on the centre meridian");
+        let (px_end, py_end) = prep.lonlat_to_pixel(90.0, 180.0).expect("on map");
+        assert!(near(py_end, 0.0, 1e-9), "pole line stays on the top row");
+        let pole_half = (px_end - cx).abs();
+        assert!(pole_half > 0.0, "the pole is a line, not a point");
+        assert!(
+            pole_half < cx,
+            "the pole line is shorter than the equator: {pole_half} vs {cx}"
+        );
+        // The equator's ±180° ends reach the frame edge.
+        let (px_e, _) = prep.lonlat_to_pixel(0.0, 180.0).expect("on map");
+        assert!(near((px_e - cx).abs(), cx, 1e-9), "equator reaches the rim");
+    }
+
+    #[test]
+    fn equal_earth_forward_inverts_interior_and_rejects_the_rounded_corners() {
+        let (w, h) = (83u32, 41u32);
+        let prep = EqualEarth::new(w, h, -60.0).prepare();
+        for py in 0..h {
+            for px in 0..w {
+                let Some((lat, lon)) = prep.pixel_to_lonlat(px, py) else {
+                    continue;
+                };
+                let (rx, ry) = prep.lonlat_to_pixel(lat, lon).expect("forward on map");
+                // Skip the doubled ±180° rim, as in the Robinson round-trip.
+                if (rx - px as f64).abs() > 0.5 && (rx - (w as f64 - 1.0 - px as f64)).abs() < 0.5 {
+                    continue;
+                }
+                assert!(
+                    near(rx, px as f64, 1e-6) && near(ry, py as f64, 1e-6),
+                    "({px},{py}) → ({lat},{lon}) → ({rx},{ry})"
+                );
+            }
+        }
+        for (px, py) in [(0u32, 0u32), (w - 1, 0), (0, h - 1), (w - 1, h - 1)] {
+            assert!(
+                prep.pixel_to_lonlat(px, py).is_none(),
+                "corner ({px},{py}) must be off the map body"
+            );
+        }
+    }
+
+    #[test]
+    fn equal_earth_preserves_relative_area() {
+        // The whole point of the projection. Two equal-area caps of the sphere
+        // must cover the same map area, which Robinson (a compromise) does not.
+        // A latitude band's map area is ∫ 2·x(φ, 180°) dy over the band, since
+        // the parallel at φ runs from -x to +x. Integrate by trapezoid on the
+        // forward map. `lonlat_to_pixel` returns a continuous coordinate, so the
+        // raster size only sets a constant scale, which cancels in the ratio.
+        let prep = EqualEarth::new(1001, 1001, 0.0).prepare();
+        let centre_x = prep.lonlat_to_pixel(0.0, 0.0).expect("on map").0;
+        let band_area = |lat0: f64, lat1: f64| {
+            let n = 2000;
+            let edge = |lat: f64| {
+                let (px, py) = prep.lonlat_to_pixel(lat, 180.0).expect("on map");
+                ((px - centre_x).abs(), py)
+            };
+            (0..n)
+                .map(|i| {
+                    let a = lat0 + (lat1 - lat0) * i as f64 / n as f64;
+                    let b = lat0 + (lat1 - lat0) * (i + 1) as f64 / n as f64;
+                    let (half_a, ya) = edge(a);
+                    let (half_b, yb) = edge(b);
+                    (half_a + half_b) / 2.0 * (ya - yb).abs()
+                })
+                .sum::<f64>()
+        };
+        // Sphere area of a band ∝ sin φ1 − sin φ0. Pick two bands with equal
+        // sphere area: 0°–30° (sin = 0.5) and 30°–90° (1 − 0.5 = 0.5).
+        let low = band_area(0.0, 30.0);
+        let high = band_area(30.0, 90.0);
+        assert!(
+            (low - high).abs() / low < 2e-3,
+            "equal sphere areas must map to equal map areas: {low} vs {high}"
+        );
+    }
+
+    #[test]
+    fn world_targets_warp_indexed_source() {
+        // A global source warped into each world target samples a non-empty
+        // interior and leaves the corners (outside the map body) masked.
+        let (p, cell) = indexed_latlon_source(LatLonParams {
+            ni: 13,
+            nj: 13,
+            lat_first: 90.0,
+            lon_first: -180.0,
+            lat_last: -90.0,
+            lon_last: 180.0,
+        });
+        let source = make_source(&p, &cell);
+        let robin = warp(&source, &Robinson::new(64, 32, 0.0), Resampling::Nearest);
+        assert!(
+            robin.mask.contains(&1),
+            "Robinson warp produced an empty mask"
+        );
+        assert_eq!(robin.mask[0], 0, "Robinson corner should be masked");
+        let ee = warp(&source, &EqualEarth::new(64, 32, 0.0), Resampling::Nearest);
+        assert!(
+            ee.mask.contains(&1),
+            "Equal Earth warp produced an empty mask"
+        );
+        assert_eq!(ee.mask[0], 0, "Equal Earth corner should be masked");
     }
 
     #[test]

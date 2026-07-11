@@ -432,6 +432,9 @@ suite("rerenderRequest option clamp", () => {
       "web_mercator",
       "orthographic",
       "polar_stereographic",
+      "mollweide",
+      "robinson",
+      "equal_earth",
     ];
     for (const projection of pickerProjections) {
       assert.strictEqual(
@@ -475,8 +478,11 @@ suite("rerenderRequest option clamp", () => {
   });
 
   test("unknown projection / resampling snap to their defaults", () => {
+    // "aitoff" is a real projection we don't offer — a plausible typo/stale
+    // client value, not one of ours. (This used to read "mollweide", which
+    // stopped being unknown the moment the picker gained it.)
     const r = resolveRerenderOptions({
-      projection: "mollweide" as RenderOptions["projection"],
+      projection: "aitoff" as RenderOptions["projection"],
       resampling: "lanczos" as RenderOptions["resampling"],
     });
     assert.strictEqual(r.projection, "source");
@@ -602,6 +608,36 @@ suite("render-panel HTML", () => {
       reprojectable: true,
     };
   }
+
+  test("every projection the picker actually offers survives the clamp", () => {
+    // The structural version of the clamp test above: instead of a hand-kept
+    // list, read the <option> values straight out of the rendered picker. A new
+    // target added to the picker but not to `PROJECTIONS` would silently snap
+    // back to "source" — which is exactly what shipped for Mollweide, since the
+    // hand-kept list can't notice an option it was never told about.
+    const html = renderImagePanelHtml(
+      { cspSource: "" } as unknown as vscode.Webview,
+      fakeMeta(),
+      "summary",
+    );
+    const select = /<select id="picker-projection">([\s\S]*?)<\/select>/.exec(html);
+    assert.ok(select, "the projection picker must be in the panel HTML");
+    const offered = [...select[1].matchAll(/<option value="([^"]+)"/g)].map((m) => m[1]);
+    assert.ok(offered.length >= 6, `expected the full picker, got ${offered.join(", ")}`);
+    for (const projection of offered) {
+      assert.strictEqual(
+        resolveRerenderOptions({ projection } as Partial<RenderOptions>).projection,
+        projection,
+        `the picker offers "${projection}" but the clamp drops it back to source`,
+      );
+    }
+    // The world targets (Mollweide, Robinson, Equal Earth) share one control,
+    // the central meridian `currentOptions` reads as `picker-world-meridian`.
+    assert.ok(
+      /<input type="number" id="picker-world-meridian"[^>]*>/.test(html),
+      "the shared world-projection central meridian input must exist",
+    );
+  });
 
   test("azimuthal centre inputs expose the free-form fields currentOptions reads", () => {
     const html = renderImagePanelHtml(

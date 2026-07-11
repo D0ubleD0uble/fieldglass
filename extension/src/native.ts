@@ -103,19 +103,23 @@ export interface RenderOptions {
     | "equirectangular"
     | "web_mercator"
     | "orthographic"
-    | "polar_stereographic";
+    | "polar_stereographic"
+    | "mollweide"
+    | "robinson"
+    | "equal_earth";
   /** Preset for the parameterised targets. "orthographic" reads a centre
    *  preset ("atlantic" (default), "indian", "pacific", "americas",
    *  "north_pole", "south_pole"); "polar_stereographic" reads a hemisphere
    *  preset ("north" (default),
-   *  "south"). Ignored by the lat/lon-box targets. Superseded per-component by
-   *  centerLat/centerLon when those are supplied. */
+   *  "south"). Ignored by the lat/lon-box and world targets. Superseded
+   *  per-component by centerLat/centerLon when those are supplied. */
   projectionPreset?: string;
-  /** Free-form projection centre for the azimuthal targets (degrees).
-   *  "orthographic" reads both (centre lat/lon); "polar_stereographic" reads
-   *  only centerLon as the central meridian (its pole comes from the
-   *  hemisphere preset). Either omitted falls back to the preset/default for
-   *  that component. Ignored by the lat/lon-box targets. */
+  /** Free-form projection centre for the azimuthal and world targets
+   *  (degrees). "orthographic" reads both (centre lat/lon);
+   *  "polar_stereographic" reads only centerLon as the central meridian (its
+   *  pole comes from the hemisphere preset), as do the world targets
+   *  ("mollweide", "robinson", "equal_earth"). Either omitted falls back to the
+   *  preset/default for that component. Ignored by the lat/lon-box targets. */
   centerLat?: number;
   centerLon?: number;
   resampling: "nearest" | "bilinear";

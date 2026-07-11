@@ -265,9 +265,9 @@ export function renderImagePanelHtml(
           } else if (projection === 'polar_stereographic') {
             options.projectionPreset = (document.getElementById('picker-preset-polar') || {}).value;
             options.centerLon = num('picker-central-meridian');
-          } else if (projection === 'mollweide') {
-            // Mollweide has no preset — only a central meridian.
-            options.centerLon = num('picker-moll-meridian');
+          } else if (isWorldProjection(projection)) {
+            // The world targets have no preset — only a central meridian.
+            options.centerLon = num('picker-world-meridian');
           }
           if (mode && mode.value === 'manual') {
             const min = Number((document.getElementById('range-min') || {}).value);
@@ -525,14 +525,21 @@ export function renderImagePanelHtml(
         // only. The azimuthal targets frame themselves by preset and ignore a
         // bounds rectangle, and the source projection has no window either, so
         // showing Bounds there would be an inert, misleading control.
+        // The whole-world targets share one control: a central meridian. They
+        // take no preset (they always show the entire globe) and no bounds.
+        function isWorldProjection(projection) {
+          return projection === 'mollweide' || projection === 'robinson'
+            || projection === 'equal_earth';
+        }
+
         function syncProjectionControls() {
           const projection = (document.getElementById('picker-projection') || {}).value || 'source';
           const ortho = document.getElementById('preset-ortho');
           const polar = document.getElementById('preset-polar');
-          const moll = document.getElementById('preset-moll');
+          const world = document.getElementById('preset-world');
           if (ortho) ortho.toggleAttribute('hidden', projection !== 'orthographic');
           if (polar) polar.toggleAttribute('hidden', projection !== 'polar_stereographic');
-          if (moll) moll.toggleAttribute('hidden', projection !== 'mollweide');
+          if (world) world.toggleAttribute('hidden', !isWorldProjection(projection));
           const bounds = document.getElementById('bounds-fieldset');
           if (bounds) bounds.toggleAttribute('hidden', !warpsLatLon(projection));
         }
@@ -565,7 +572,7 @@ export function renderImagePanelHtml(
             centerLat: val('picker-center-lat'),
             polarPreset: val('picker-preset-polar'),
             centralMeridian: val('picker-central-meridian'),
-            mollMeridian: val('picker-moll-meridian'),
+            worldMeridian: val('picker-world-meridian'),
             resampling: val('picker-resampling'),
             flipY: chk('flip-y'),
             rangeMode: radio('range-mode'),
@@ -613,7 +620,7 @@ export function renderImagePanelHtml(
           setVal('picker-center-lat', s.centerLat);
           setVal('picker-preset-polar', s.polarPreset);
           setVal('picker-central-meridian', s.centralMeridian);
-          setVal('picker-moll-meridian', s.mollMeridian);
+          setVal('picker-world-meridian', s.worldMeridian);
           setVal('picker-resampling', s.resampling);
           setChk('flip-y', s.flipY);
           setRadio('range-mode', s.rangeMode);
@@ -661,7 +668,7 @@ export function renderImagePanelHtml(
           const projPick = document.getElementById('picker-projection');
           if (projPick) projPick.addEventListener('change', () => { syncProjectionControls(); requestRender(); });
           ['picker-center-lat', 'picker-center-lon', 'picker-preset-polar',
-           'picker-central-meridian', 'picker-moll-meridian'].forEach((id) => {
+           'picker-central-meridian', 'picker-world-meridian'].forEach((id) => {
             const el = document.getElementById(id);
             if (el) el.addEventListener('change', requestRender);
           });
@@ -923,7 +930,9 @@ ${meta.reprojectable
           <option value="web_mercator">Web Mercator</option>
           <option value="orthographic">Orthographic</option>
           <option value="polar_stereographic">Polar stereographic</option>
-          <option value="mollweide">Mollweide</option>`
+          <option value="mollweide">Mollweide</option>
+          <option value="robinson">Robinson</option>
+          <option value="equal_earth">Equal Earth</option>`
           : ""}
         </select>
 ${meta.reprojectable
@@ -946,9 +955,9 @@ ${meta.reprojectable
         <label>Central meridian
           <input type="number" id="picker-central-meridian" value="0" min="-360" max="360" step="any"></label>
       </span>
-      <span id="preset-moll" hidden>
+      <span id="preset-world" hidden>
         <label>Central meridian
-          <input type="number" id="picker-moll-meridian" value="0" min="-360" max="360" step="any"></label>
+          <input type="number" id="picker-world-meridian" value="0" min="-360" max="360" step="any"></label>
       </span>
       <label>Resampling
         <select id="picker-resampling">

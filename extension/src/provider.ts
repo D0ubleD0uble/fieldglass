@@ -843,6 +843,9 @@ const PROJECTIONS: ReadonlyArray<RenderOptions["projection"]> = [
   "web_mercator",
   "orthographic",
   "polar_stereographic",
+  "mollweide",
+  "robinson",
+  "equal_earth",
 ];
 
 /**

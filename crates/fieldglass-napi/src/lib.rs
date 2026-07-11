@@ -1,11 +1,11 @@
 #![deny(clippy::all)]
 
 use fieldglass_core::{
-    Format, GaussianParams, GaussianProjector, GeostationaryParams, GeostationaryProjector,
-    LambertParams, LambertProjector, LatLonParams, MercatorParams, Mollweide, Orthographic,
-    PlanarGridProjector, PolarStereoParams, PolarStereoProjector, PolarStereographic,
-    ProjectedPolylines, Resampling, RotatedLatLonParams, RotatedLatLonProjector, SourceGrid,
-    SourceOverlayTarget, TargetRaster, WebMercator,
+    EqualEarth, Format, GaussianParams, GaussianProjector, GeostationaryParams,
+    GeostationaryProjector, LambertParams, LambertProjector, LatLonParams, MercatorParams,
+    Mollweide, Orthographic, PlanarGridProjector, PolarStereoParams, PolarStereoProjector,
+    PolarStereographic, ProjectedPolylines, Resampling, Robinson, RotatedLatLonParams,
+    RotatedLatLonProjector, SourceGrid, SourceOverlayTarget, TargetRaster, WebMercator,
     colormap::{min_max_ignoring_mask, paint_grid_rgba},
     detect_from_bytes, eastward_lon_span, latlon_inverse, lon_grid_is_global, mercator_inverse,
     project_polylines,
@@ -1065,8 +1065,10 @@ pub struct RenderOptions {
     /// (clamped to ±90° downstream) and `center_lon` the centre longitude.
     /// `"polar_stereographic"` reads only `center_lon` as the central meridian
     /// (the meridian oriented toward the bottom edge); its pole is the
-    /// hemisphere from [`projection_preset`]. Either field `None` falls back to
-    /// the preset/default for that component. Ignored by the lat/lon-box
+    /// hemisphere from [`projection_preset`]. The world targets
+    /// (`"mollweide"`, `"robinson"`, `"equal_earth"`) likewise read only
+    /// `center_lon`, as their central meridian. Either field `None` falls back
+    /// to the preset/default for that component. Ignored by the lat/lon-box
     /// targets.
     ///
     /// [`projection_preset`]: RenderOptions::projection_preset
@@ -2301,11 +2303,20 @@ impl ResolvedOptions {
             "polar_stereographic" => {
                 TargetKind::Warp(polar_stereographic_from_options(options, preset))
             }
-            "mollweide" => TargetKind::Warp(mollweide_from_options(options)),
+            "mollweide" => TargetKind::Warp(WarpTarget::Mollweide {
+                lon0: world_central_meridian(options),
+            }),
+            "robinson" => TargetKind::Warp(WarpTarget::Robinson {
+                lon0: world_central_meridian(options),
+            }),
+            "equal_earth" => TargetKind::Warp(WarpTarget::EqualEarth {
+                lon0: world_central_meridian(options),
+            }),
             other => {
                 return Err(napi::Error::from_reason(format!(
                     "unknown projection {other:?} (expected \"source\", \"equirectangular\", \
-                     \"web_mercator\", \"orthographic\", \"polar_stereographic\", or \"mollweide\")"
+                     \"web_mercator\", \"orthographic\", \"polar_stereographic\", \"mollweide\", \
+                     \"robinson\", or \"equal_earth\")"
                 )));
             }
         };
@@ -2367,13 +2378,12 @@ fn polar_stereographic_from_options(o: &RenderOptions, preset: Option<&str>) -> 
     }
 }
 
-/// Resolve the Mollweide target. The only parameter is the central meridian —
-/// the free-form `center_lon` when given, else 0° (Greenwich-centred). There is
-/// no hemisphere/centre preset: Mollweide always shows the whole globe.
-fn mollweide_from_options(o: &RenderOptions) -> WarpTarget {
-    WarpTarget::Mollweide {
-        lon0: o.center_lon.unwrap_or(0.0),
-    }
+/// The central meridian of a whole-world target (Mollweide, Robinson, Equal
+/// Earth): the free-form `center_lon` when given, else 0° (Greenwich-centred).
+/// These take no preset — they always show the whole globe, and recentring is
+/// the only knob.
+fn world_central_meridian(o: &RenderOptions) -> f64 {
+    o.center_lon.unwrap_or(0.0)
 }
 
 /// Output of a projection stage (`paint_source` / `warp_message`):
@@ -2541,6 +2551,16 @@ enum WarpTarget {
     Mollweide {
         lon0: f64,
     },
+    /// Pseudocylindrical *compromise* world target (Robinson's table), likewise
+    /// parameterised by its central meridian only.
+    Robinson {
+        lon0: f64,
+    },
+    /// Pseudocylindrical equal-area world target (Equal Earth), likewise
+    /// parameterised by its central meridian only.
+    EqualEarth {
+        lon0: f64,
+    },
 }
 
 impl WarpTarget {
@@ -2551,6 +2571,8 @@ impl WarpTarget {
             WarpTarget::Orthographic { .. } => "orthographic",
             WarpTarget::PolarStereographic { .. } => "polar stereographic",
             WarpTarget::Mollweide { .. } => "mollweide",
+            WarpTarget::Robinson { .. } => "robinson",
+            WarpTarget::EqualEarth { .. } => "equal earth",
         }
     }
 }
@@ -2615,6 +2637,8 @@ enum BuiltTarget {
     Ortho(Orthographic),
     Polar(PolarStereographic),
     Moll(Mollweide),
+    Robin(Robinson),
+    EqEarth(EqualEarth),
 }
 
 impl BuiltTarget {
@@ -2625,6 +2649,8 @@ impl BuiltTarget {
             BuiltTarget::Ortho(t) => t.dims(),
             BuiltTarget::Polar(t) => t.dims(),
             BuiltTarget::Moll(t) => t.dims(),
+            BuiltTarget::Robin(t) => t.dims(),
+            BuiltTarget::EqEarth(t) => t.dims(),
         }
     }
 
@@ -2635,6 +2661,8 @@ impl BuiltTarget {
             BuiltTarget::Ortho(t) => warp(source, t, resampling),
             BuiltTarget::Polar(t) => warp(source, t, resampling),
             BuiltTarget::Moll(t) => warp(source, t, resampling),
+            BuiltTarget::Robin(t) => warp(source, t, resampling),
+            BuiltTarget::EqEarth(t) => warp(source, t, resampling),
         }
     }
 
@@ -2657,12 +2685,18 @@ impl BuiltTarget {
             BuiltTarget::Polar(t) => {
                 project_polylines(&t.prepare(), w, h, flip_y, false, latlon, ring_lengths)
             }
-            // Split at the ±180° seam meridian like the lat/lon-box targets:
-            // Mollweide wraps longitude into (−π, π] about its centre, so a
+            // Split at the ±180° seam meridian like the lat/lon-box targets: the
+            // world targets wrap longitude into (−π, π] about their centre, so a
             // polyline crossing the seam jumps from one rim to the other (a
             // near-full-width Δx) and must break there. A genuine segment spans
             // ≤ 180° of longitude, so its Δx stays ≤ w/2 and never false-splits.
             BuiltTarget::Moll(t) => {
+                project_polylines(&t.prepare(), w, h, flip_y, true, latlon, ring_lengths)
+            }
+            BuiltTarget::Robin(t) => {
+                project_polylines(&t.prepare(), w, h, flip_y, true, latlon, ring_lengths)
+            }
+            BuiltTarget::EqEarth(t) => {
                 project_polylines(&t.prepare(), w, h, flip_y, true, latlon, ring_lengths)
             }
         }
@@ -2740,14 +2774,32 @@ fn build_warp_target(
             ))
         }
         WarpTarget::Mollweide { lon0 } => {
-            // The map ellipse is exactly 2:1, so height is the source's larger
-            // edge and width is twice that — nothing is downsampled and the
-            // ellipse keeps its true proportions. No lat/lon-box extent to echo.
-            let height = ni.max(nj);
-            let width = height.saturating_mul(2);
-            Ok((BuiltTarget::Moll(Mollweide::new(width, height, lon0)), None))
+            let (w, h) = world_raster_dims(ni, nj, Mollweide::ASPECT_RATIO);
+            Ok((BuiltTarget::Moll(Mollweide::new(w, h, lon0)), None))
+        }
+        WarpTarget::Robinson { lon0 } => {
+            let (w, h) = world_raster_dims(ni, nj, Robinson::ASPECT_RATIO);
+            Ok((BuiltTarget::Robin(Robinson::new(w, h, lon0)), None))
+        }
+        WarpTarget::EqualEarth { lon0 } => {
+            let (w, h) = world_raster_dims(ni, nj, EqualEarth::ASPECT_RATIO);
+            Ok((BuiltTarget::EqEarth(EqualEarth::new(w, h, lon0)), None))
         }
     }
+}
+
+/// Raster dims for a whole-world target of the given width : height ratio.
+/// Height is the source's larger edge, so nothing is downsampled, and width
+/// follows from the projection's own aspect so the map body keeps its true
+/// proportions — 2:1 for Mollweide, ≈1.97:1 for Robinson, ≈2.05:1 for Equal
+/// Earth. These targets have no lat/lon-box extent to echo back to the UI.
+fn world_raster_dims(ni: u32, nj: u32, aspect: f64) -> (u32, u32) {
+    let height = ni.max(nj);
+    // A saturating `as u32` cast: `aspect` is a positive constant just under 2,
+    // so an enormous source clamps at `u32::MAX` rather than wrapping to a tiny
+    // raster. A zero-size source stays zero-size, as it did before.
+    let width = (height as f64 * aspect).round() as u32;
+    (width, height)
 }
 
 /// Dispatch to the per-grid-type warp setup, returning the source inverse map
@@ -3309,21 +3361,72 @@ mod resolved_options_tests {
     }
 
     #[test]
-    fn mollweide_central_meridian_from_center_lon() {
-        // center_lon sets the central meridian; no preset applies to Mollweide.
-        let mut o = opts("mollweide", "nearest");
-        o.center_lon = Some(-100.0);
+    fn world_targets_take_the_central_meridian_from_center_lon() {
+        // center_lon sets the central meridian; no preset applies to these.
+        for (name, lon0) in [
+            ("mollweide", -100.0),
+            ("robinson", 25.0),
+            ("equal_earth", 0.0),
+        ] {
+            let mut o = opts(name, "nearest");
+            o.center_lon = Some(lon0);
+            let got = match ResolvedOptions::parse(&o).unwrap().projection {
+                TargetKind::Warp(WarpTarget::Mollweide { lon0 })
+                | TargetKind::Warp(WarpTarget::Robinson { lon0 })
+                | TargetKind::Warp(WarpTarget::EqualEarth { lon0 }) => lon0,
+                other => panic!("{name} did not resolve to a world target: {other:?}"),
+            };
+            assert_eq!(got, lon0, "{name} central meridian");
+        }
+
+        // Each name must resolve to *its own* target, not merely to some world
+        // target — a copy-paste slip in the parse arms would pass the loop above.
         assert!(matches!(
-            ResolvedOptions::parse(&o).unwrap().projection,
-            TargetKind::Warp(WarpTarget::Mollweide { lon0 }) if lon0 == -100.0
+            ResolvedOptions::parse(&opts("mollweide", "nearest"))
+                .unwrap()
+                .projection,
+            TargetKind::Warp(WarpTarget::Mollweide { .. })
+        ));
+        assert!(matches!(
+            ResolvedOptions::parse(&opts("robinson", "nearest"))
+                .unwrap()
+                .projection,
+            TargetKind::Warp(WarpTarget::Robinson { .. })
+        ));
+        assert!(matches!(
+            ResolvedOptions::parse(&opts("equal_earth", "nearest"))
+                .unwrap()
+                .projection,
+            TargetKind::Warp(WarpTarget::EqualEarth { .. })
         ));
 
         // No center_lon → central meridian defaults to 0° (Greenwich-centred).
-        o.center_lon = None;
         assert!(matches!(
-            ResolvedOptions::parse(&o).unwrap().projection,
-            TargetKind::Warp(WarpTarget::Mollweide { lon0 }) if lon0 == 0.0
+            ResolvedOptions::parse(&opts("robinson", "nearest"))
+                .unwrap()
+                .projection,
+            TargetKind::Warp(WarpTarget::Robinson { lon0 }) if lon0 == 0.0
         ));
+    }
+
+    #[test]
+    fn world_raster_keeps_each_projections_true_proportions() {
+        // Height is the source's larger edge; width follows the projection's own
+        // aspect, so the three world maps are *not* interchangeable rasters.
+        assert_eq!(
+            world_raster_dims(100, 200, Mollweide::ASPECT_RATIO),
+            (400, 200)
+        );
+        assert_eq!(
+            world_raster_dims(100, 200, Robinson::ASPECT_RATIO),
+            (394, 200)
+        );
+        assert_eq!(
+            world_raster_dims(100, 200, EqualEarth::ASPECT_RATIO),
+            (411, 200)
+        );
+        // A degenerate source stays degenerate rather than wrapping.
+        assert_eq!(world_raster_dims(0, 0, Robinson::ASPECT_RATIO), (0, 0));
     }
 
     #[test]
