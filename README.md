@@ -158,6 +158,8 @@ Open any file with a supported extension. VS Code will use Fieldglass as the def
 | `crates/fieldglass-napi` | Node.js bindings exposed via napi-rs. The only crate that knows about Node. |
 | `extension/` | TypeScript VS Code extension. Registers a custom read-only editor and renders a webview. |
 
+The four library crates (`fieldglass-core`, `-grib1`, `-grib2`, `-netcdf`) are published to crates.io on each stable release, so the readers can be used from Rust on their own, without the extension. `fieldglass-napi` is not published: it is a build artefact of the extension rather than a library to depend on.
+
 ### Initial setup
 
 ```sh

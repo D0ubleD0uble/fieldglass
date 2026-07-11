@@ -51,6 +51,18 @@ jobs:
       - name: Run pre-commit (push-stage hooks)
         run: pre-commit run --all-files --hook-stage pre-push --show-diff-on-failure
 
+      # A release tag publishes the library crates to crates.io, where a bad
+      # manifest is only discovered at tag time — after the point where it is
+      # cheap to fix. Packaging the one crate with no internal dependencies
+      # catches the manifest regressions early: a missing `description`, a
+      # `readme` that points at nothing, a file the package would omit.
+      #
+      # Only `fieldglass-core` can be checked this way today. The format crates
+      # pin it with `=`, so cargo cannot resolve them for packaging until core
+      # is on crates.io; once it is, they can be added here.
+      - name: Check the published crate manifest
+        run: cargo publish --dry-run -p fieldglass-core
+
   build-extension:
     name: Build extension
     runs-on: ubuntu-latest
