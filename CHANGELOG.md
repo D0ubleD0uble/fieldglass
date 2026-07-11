@@ -19,6 +19,7 @@ Versioning follows the [VS Code pre-release convention](https://code.visualstudi
 
 ### Fixed
 
+- **The outermost row and column of a Lambert or polar-stereographic field no longer drop out of the render.** A grid point lying exactly on the grid's edge could come back from the projection arithmetic a fraction of a billionth of a cell outside it, which the bounds check read as off-grid and painted as background. The two projections now absorb that rounding, as the rotated lat/lon one already did.
 - **A corrupt GRIB1 second-order message can no longer decode to wrong values.** The shared bit reader returns its result as a 32-bit integer, but nothing stopped a caller asking for more than 32 bits, which silently dropped the extra high bits. A malformed second-order-packed field could declare a per-group value width above 32 and hit that path. The reader now rejects a request for more than 32 bits, so such a file is reported as an error instead of rendering incorrect data.
 
 ## [0.2.0] — 2026-07-02
