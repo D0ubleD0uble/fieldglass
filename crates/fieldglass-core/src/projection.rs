@@ -33,7 +33,12 @@ use std::f64::consts::PI;
 /// spheroids: custom radius / axis lengths). Plumb that through
 /// `LambertParams` / `GaussianParams` once we get a fixture whose
 /// projection error against eccodes is visible at pixel scale.
-const EARTH_RADIUS_M: f64 = 6_371_229.0;
+/// Default spherical Earth radius: WMO GRIB2 code table 3.2 shape 6, the value
+/// most operational GRIB2 producers declare. A message that declares its own
+/// earth shape should pass that instead — the projections are sensitive to it.
+/// Being off by one part in 1700 (GRIB1's 6 367 470 m) misplaces the far corner
+/// of a continental grid by several kilometres.
+pub const DEFAULT_EARTH_RADIUS_M: f64 = 6_371_229.0;
 
 const DEG2RAD: f64 = PI / 180.0;
 const RAD2DEG: f64 = 180.0 / PI;
@@ -397,6 +402,10 @@ impl GaussianProjector {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LambertParams {
+    /// Radius of the spherical Earth the grid is projected on, in metres. The
+    /// message declares it (GRIB1's earth-shape flag, GRIB2's
+    /// `shapeOfTheEarth`); [`DEFAULT_EARTH_RADIUS_M`] is the fallback.
+    pub earth_radius_m: f64,
     pub ni: u32,
     pub nj: u32,
     pub lat_first: f64,
@@ -450,12 +459,12 @@ fn lambert_constants(p: &LambertParams) -> LambertConstants {
     // the grid never described — we let the values stay non-finite and gate on
     // `LambertConstants::well_defined` at the projection boundary.
     let f_const = lat1.cos() * tan1.powf(n) / n;
-    let rho0 = EARTH_RADIUS_M * f_const / (PI / 4.0 + lad / 2.0).tan().powf(n);
+    let rho0 = p.earth_radius_m * f_const / (PI / 4.0 + lad / 2.0).tan().powf(n);
     LambertConstants {
         n,
         f_const,
         rho0,
-        earth_r: EARTH_RADIUS_M,
+        earth_r: p.earth_radius_m,
     }
 }
 
@@ -621,6 +630,9 @@ impl LambertProjector {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PolarStereoParams {
+    /// Radius of the spherical Earth the grid is projected on, in metres. See
+    /// [`LambertParams::earth_radius_m`].
+    pub earth_radius_m: f64,
     pub ni: u32,
     pub nj: u32,
     /// Latitude of the grid origin (first scanned point), degrees.
@@ -653,12 +665,12 @@ pub struct PolarStereoConstants {
     sign: f64,
 }
 
-fn polar_stereo_constants(lad: f64, south_pole: bool) -> PolarStereoConstants {
+fn polar_stereo_constants(lad: f64, south_pole: bool, earth_radius_m: f64) -> PolarStereoConstants {
     // The pole scale factor depends on the magnitude of the latitude of true
     // scale; the hemisphere is handled separately by `sign`.
     let k0 = (1.0 + (lad.abs() * DEG2RAD).sin()) / 2.0;
     PolarStereoConstants {
-        two_r_k0: 2.0 * EARTH_RADIUS_M * k0,
+        two_r_k0: 2.0 * earth_radius_m * k0,
         sign: if south_pole { -1.0 } else { 1.0 },
     }
 }
@@ -673,7 +685,7 @@ fn polar_stereo_constants(lad: f64, south_pole: bool) -> PolarStereoConstants {
 /// **Recomputes constants per call.** For warp loops use [`PolarStereoProjector`].
 pub fn polar_stereo_forward(p: &PolarStereoParams, lat: f64, lon: f64) -> (f64, f64) {
     polar_stereo_forward_with(
-        &polar_stereo_constants(p.lad, p.south_pole),
+        &polar_stereo_constants(p.lad, p.south_pole, p.earth_radius_m),
         p.lov,
         lat,
         lon,
@@ -696,7 +708,12 @@ fn polar_stereo_forward_with(k: &PolarStereoConstants, lov: f64, lat: f64, lon: 
 /// degrees. Returns `(NaN, lov)` when `(x, y) == (0, 0)` (the projection
 /// pole), where longitude is undefined.
 pub fn polar_stereo_inverse_xy(p: &PolarStereoParams, x: f64, y: f64) -> (f64, f64) {
-    polar_stereo_inverse_xy_with(&polar_stereo_constants(p.lad, p.south_pole), p.lov, x, y)
+    polar_stereo_inverse_xy_with(
+        &polar_stereo_constants(p.lad, p.south_pole, p.earth_radius_m),
+        p.lov,
+        x,
+        y,
+    )
 }
 
 fn polar_stereo_inverse_xy_with(k: &PolarStereoConstants, lov: f64, x: f64, y: f64) -> (f64, f64) {
@@ -733,7 +750,8 @@ pub struct PolarStereoProjector {
 
 impl PolarStereoProjector {
     pub fn new(params: PolarStereoParams) -> Self {
-        let constants = polar_stereo_constants(params.lad, params.south_pole);
+        let constants =
+            polar_stereo_constants(params.lad, params.south_pole, params.earth_radius_m);
         let origin =
             polar_stereo_forward_with(&constants, params.lov, params.lat_first, params.lon_first);
         Self {
@@ -2058,6 +2076,7 @@ mod tests {
 
     fn lambert_params() -> LambertParams {
         LambertParams {
+            earth_radius_m: DEFAULT_EARTH_RADIUS_M,
             ni: 93,
             nj: 65,
             lat_first: 12.19,
@@ -2087,6 +2106,7 @@ mod tests {
         // uses. Regression for the cone-angle wrap bug that rendered such grids
         // blank under equirectangular reprojection.
         let p = LambertParams {
+            earth_radius_m: DEFAULT_EARTH_RADIUS_M,
             lov: 265.0,
             lon_first: 226.541,
             ..lambert_params()
@@ -2140,6 +2160,7 @@ mod tests {
             "ni < 2"
         );
         let zero_dx = LambertParams {
+            earth_radius_m: DEFAULT_EARTH_RADIUS_M,
             dx_metres: 0.0,
             ..p
         };
@@ -2156,6 +2177,7 @@ mod tests {
         // themselves ill-defined and the inverse must return None for every
         // query, rather than emitting an index off a non-finite projection.
         let equator = LambertParams {
+            earth_radius_m: DEFAULT_EARTH_RADIUS_M,
             latin1: 0.0,
             latin2: 0.0,
             ..lambert_params()
@@ -2204,6 +2226,7 @@ mod tests {
     /// fixture used by the GRIB1 integration tests.
     fn cmc_polar_params() -> PolarStereoParams {
         PolarStereoParams {
+            earth_radius_m: DEFAULT_EARTH_RADIUS_M,
             ni: 135,
             nj: 95,
             lat_first: 11.43,
@@ -2234,6 +2257,7 @@ mod tests {
     #[test]
     fn polar_stereo_forward_inverse_round_trip_south() {
         let p = PolarStereoParams {
+            earth_radius_m: DEFAULT_EARTH_RADIUS_M,
             south_pole: true,
             lat_first: -11.43,
             ..cmc_polar_params()
@@ -2255,6 +2279,7 @@ mod tests {
         // encodes that as a *negative* dy; the projector's j must then advance
         // southward. (See `signed_polar_increments` in the napi crate.)
         let base = PolarStereoParams {
+            earth_radius_m: DEFAULT_EARTH_RADIUS_M,
             ni: 10,
             nj: 10,
             lat_first: 80.0,
@@ -2284,6 +2309,7 @@ mod tests {
         // (positive dy), which maps the same southward point to negative j and
         // drops it from the grid entirely.
         let unsigned = PolarStereoParams {
+            earth_radius_m: DEFAULT_EARTH_RADIUS_M,
             dy_metres: 50_000.0,
             ..base
         };
@@ -2303,6 +2329,7 @@ mod tests {
         // the polar-stereo case, since both map `j = (y - origin_y) / dy` in the
         // LoV plane.
         let base = LambertParams {
+            earth_radius_m: DEFAULT_EARTH_RADIUS_M,
             ni: 50,
             nj: 50,
             lat_first: 50.0,
@@ -2334,6 +2361,7 @@ mod tests {
         // Regression guard: the unsigned magnitude (positive dy) drops the
         // southward point to negative j and rejects it.
         let unsigned = LambertParams {
+            earth_radius_m: DEFAULT_EARTH_RADIUS_M,
             dy_metres: 20_000.0,
             ..base
         };
@@ -2362,6 +2390,7 @@ mod tests {
     fn polar_stereo_lad_drives_pole_scale_factor() {
         let at_60 = cmc_polar_params(); // lad = 60.0
         let at_90 = PolarStereoParams {
+            earth_radius_m: DEFAULT_EARTH_RADIUS_M,
             lad: 90.0,
             ..cmc_polar_params()
         };
@@ -2384,6 +2413,7 @@ mod tests {
     #[test]
     fn polar_stereo_south_pole_projects_to_origin() {
         let p = PolarStereoParams {
+            earth_radius_m: DEFAULT_EARTH_RADIUS_M,
             south_pole: true,
             ..cmc_polar_params()
         };
@@ -2408,6 +2438,7 @@ mod tests {
             "north grid + south lat"
         );
         let south = PolarStereoParams {
+            earth_radius_m: DEFAULT_EARTH_RADIUS_M,
             south_pole: true,
             lat_first: -11.43,
             ..p
@@ -2435,6 +2466,7 @@ mod tests {
         let degenerate = PolarStereoParams { ni: 1, ..p };
         assert!(polar_stereo_inverse(&degenerate, 60.0, 0.0).is_none());
         let zero_dx = PolarStereoParams {
+            earth_radius_m: DEFAULT_EARTH_RADIUS_M,
             dx_metres: 0.0,
             ..p
         };
@@ -2456,6 +2488,7 @@ mod tests {
         // lands at roughly (-3e6, +3e6) metres. Scanning east + south at 2 Mm
         // step over 4×4 cells crosses the pole at (0, 0).
         let hemispheric = PolarStereoParams {
+            earth_radius_m: DEFAULT_EARTH_RADIUS_M,
             ni: 4,
             nj: 4,
             lat_first: 50.8,
@@ -2485,6 +2518,7 @@ mod tests {
     #[test]
     fn lambert_tangent_cone_at_origin() {
         let p = LambertParams {
+            earth_radius_m: DEFAULT_EARTH_RADIUS_M,
             latin1: 40.0,
             latin2: 40.0,
             lad: 40.0,
@@ -2504,6 +2538,7 @@ mod tests {
         // Naive min/max would give a ~312°-wide box; unwrapping must yield a
         // tight, continuous span instead.
         let proj = PolarStereoProjector::new(PolarStereoParams {
+            earth_radius_m: DEFAULT_EARTH_RADIUS_M,
             ni: 135,
             nj: 95,
             lat_first: 27.203,
@@ -2532,6 +2567,7 @@ mod tests {
         // corners top out at 60.5°N, but the boundary reaches ~80.6°N. A
         // corner-only box would report the former.
         let proj = PolarStereoProjector::new(PolarStereoParams {
+            earth_radius_m: DEFAULT_EARTH_RADIUS_M,
             ni: 135,
             nj: 95,
             lat_first: 27.203,
@@ -2565,6 +2601,7 @@ mod tests {
         // because edges bow, may extend beyond them in latitude (this grid's
         // boundary reaches ~83°N, above any corner).
         let proj = LambertProjector::new(LambertParams {
+            earth_radius_m: DEFAULT_EARTH_RADIUS_M,
             ni: 601,
             nj: 401,
             lat_first: 38.5,
@@ -2875,6 +2912,7 @@ mod tests {
         // Lambert (CONUS) and polar stereographic (CMC) share the trait default:
         // origin + (i·dx, j·dy) in projected metres, then invert.
         let lambert = LambertProjector::new(LambertParams {
+            earth_radius_m: DEFAULT_EARTH_RADIUS_M,
             ni: 21,
             nj: 15,
             lat_first: 38.5,
@@ -2902,6 +2940,7 @@ mod tests {
         );
 
         let polar = PolarStereoProjector::new(PolarStereoParams {
+            earth_radius_m: DEFAULT_EARTH_RADIUS_M,
             ni: 21,
             nj: 17,
             lat_first: 27.203,
@@ -2936,6 +2975,7 @@ mod tests {
         // Lambert and polar-stereo field to background. (The rotated lat/lon
         // inverse already snapped for this reason; these two never did.)
         let lambert = LambertProjector::new(LambertParams {
+            earth_radius_m: DEFAULT_EARTH_RADIUS_M,
             ni: 21,
             nj: 15,
             lat_first: 38.5,

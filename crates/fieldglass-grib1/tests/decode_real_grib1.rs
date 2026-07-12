@@ -9,7 +9,8 @@
 //! decoder (no eccodes/pygrib dependency) — see /tmp/reference_decode.py
 //! in the development environment.
 
-use fieldglass_grib1::Grib1Reader;
+use fieldglass_core::{PlanarGridProjector, PolarStereoParams, PolarStereoProjector};
+use fieldglass_grib1::{Grib1Reader, GridDescription};
 
 const FIXTURE: &[u8] = include_bytes!("fixtures/cmc_wind_300_2010052400_p012.grib");
 
@@ -33,11 +34,57 @@ fn parses_one_message_with_polar_stereo_grid() {
     let (la1, lo1, la2, lo2) = gds.bounds().expect("polar stereo has bounds");
     assert!((la1 - 27.203).abs() < 1e-3, "lat_first: {la1}");
     assert!((lo1 - (-135.213)).abs() < 1e-3, "lon_first: {lo1}");
-    // Last point ≈ (43.097°N, -31.933°E), normalised to (-180, 180]. The key
-    // guarantee is that it is a real northern-hemisphere corner, not the old
-    // (0, 0) placeholder.
-    assert!((la2 - 43.097).abs() < 1e-2, "lat_last: {la2}");
-    assert!((lo2 - (-31.933)).abs() < 1e-2, "lon_last: {lo2}");
+    // Last point, straight from eccodes' own point iterator on this fixture:
+    // `grib_get_data` reports (43.064°N, 328.113°E) = (43.064, -31.887)
+    // normalised to (-180, 180]. This used to read (43.097, -31.933) — the grid
+    // was projected on the wrong sphere (6 371 229 m instead of GRIB1's
+    // 6 367 470 m), which put the far corner ~3.5 km from where it belongs.
+    assert!((la2 - 43.064).abs() < 1e-2, "lat_last: {la2}");
+    assert!((lo2 - (-31.887)).abs() < 1e-2, "lon_last: {lo2}");
+}
+
+#[test]
+fn polar_stereo_grid_points_match_the_eccodes_iterator() {
+    // The whole grid, not just a corner. Values are eccodes' own `grib_get_data`
+    // output for this fixture — the oracle that caught the wrong-sphere bug.
+    //
+    // The projection is exquisitely sensitive to the Earth radius: this grid is
+    // declared on GRIB1's 6 367 470 m sphere, and projecting it on the WMO
+    // shape-6 default (6 371 229 m) — one part in 1700 — put the far corner
+    // 3.5 km from where eccodes puts it. The first point matched either way,
+    // which is exactly why a corner-only check missed it for so long.
+    let reader = open();
+    let gds = reader.messages[0].gds.as_ref().expect("polar stereo GDS");
+    let GridDescription::PolarStereographic(g) = gds else {
+        panic!("expected a polar-stereographic grid");
+    };
+    let proj = PolarStereoProjector::new(PolarStereoParams {
+        earth_radius_m: g.resolution_flags.earth_radius_m(),
+        ni: g.nx,
+        nj: g.ny,
+        lat_first: g.lat_first,
+        lon_first: g.lon_first,
+        lov: g.lov,
+        lad: 60.0,
+        dx_metres: g.dx_m as f64,
+        dy_metres: g.dy_m as f64,
+        south_pole: g.south_pole,
+    });
+    // (i, j, lat, lon) straight from `grib_get_data`, longitudes in 0..360.
+    for (i, j, lat, lon) in [
+        (0u32, 0u32, 27.203, 224.787),
+        (1, 0, 27.375, 225.221),
+        (0, 1, 27.588, 224.591),
+        (67, 47, 53.346, 264.407),
+        (134, 94, 43.064, 328.113),
+    ] {
+        let (got_lat, got_lon) = proj.grid_point_lonlat(i, j);
+        let got_lon = got_lon.rem_euclid(360.0);
+        assert!(
+            (got_lat - lat).abs() < 2e-3 && (got_lon - lon).abs() < 2e-3,
+            "({i},{j}): got ({got_lat:.3}, {got_lon:.3}), eccodes says ({lat}, {lon})"
+        );
+    }
 }
 
 #[test]

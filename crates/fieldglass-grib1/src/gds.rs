@@ -18,7 +18,35 @@ pub struct ResolutionFlags {
     pub uv_relative_to_grid: bool,
 }
 
+/// GRIB1's spherical Earth (ON388 Code Table 7, earth-shape bit clear). This is
+/// the value eccodes reports as `radius` for a GRIB1 message, and the one its
+/// grid iterators project with.
+pub const GRIB1_SPHERICAL_RADIUS_M: f64 = 6_367_470.0;
+
+/// The IAU 1965 spheroid GRIB1 selects when the earth-shape bit is set.
+const IAU_1965_MAJOR_AXIS_M: f64 = 6_378_160.0;
+const IAU_1965_MINOR_AXIS_M: f64 = 6_356_775.0;
+
 impl ResolutionFlags {
+    /// Radius of the sphere to project this grid on, in metres.
+    ///
+    /// The spherical case is exact — GRIB1 fixes it at 6 367 470 m, and using
+    /// anything else misplaces a continental grid by kilometres.
+    ///
+    /// The oblate case is an approximation: eccodes projects an oblate grid on
+    /// the true spheroid, while the projections here are spherical, so we take
+    /// the spheroid's mean radius `(2a + b) / 3`. That is within ~0.1 % of the
+    /// true figure and is far closer than ignoring the shape altogether. Oblate
+    /// GRIB1 Lambert / polar-stereo grids are rare; true ellipsoidal projection
+    /// is a follow-up.
+    pub fn earth_radius_m(&self) -> f64 {
+        if self.earth_oblate {
+            (2.0 * IAU_1965_MAJOR_AXIS_M + IAU_1965_MINOR_AXIS_M) / 3.0
+        } else {
+            GRIB1_SPHERICAL_RADIUS_M
+        }
+    }
+
     fn from_byte(b: u8) -> Self {
         Self {
             increments_given: b & 0x80 != 0,
@@ -180,6 +208,7 @@ impl PolarStereoGrid {
     /// `(Nx-1)·Dx` / `(Ny-1)·Dy`, and inverse-projecting back to lat/lon.
     fn last_point(&self) -> (f64, f64) {
         let projector = PolarStereoProjector::new(PolarStereoParams {
+            earth_radius_m: self.resolution_flags.earth_radius_m(),
             ni: self.nx,
             nj: self.ny,
             lat_first: self.lat_first,
@@ -236,6 +265,7 @@ impl LambertGrid {
     /// matching how the warp path builds [`LambertParams`].
     fn last_point(&self) -> (f64, f64) {
         let projector = LambertProjector::new(LambertParams {
+            earth_radius_m: self.resolution_flags.earth_radius_m(),
             ni: self.nx,
             nj: self.ny,
             lat_first: self.lat_first,
@@ -907,6 +937,7 @@ mod grid_variant_tests {
             unreachable!("parsed as Lambert above");
         };
         let projector = LambertProjector::new(LambertParams {
+            earth_radius_m: g.resolution_flags.earth_radius_m(),
             ni: g.nx,
             nj: g.ny,
             lat_first: g.lat_first,
@@ -1139,6 +1170,7 @@ mod grid_variant_tests {
             unreachable!("parsed as polar stereo above");
         };
         let projector = PolarStereoProjector::new(PolarStereoParams {
+            earth_radius_m: g.resolution_flags.earth_radius_m(),
             ni: g.nx,
             nj: g.ny,
             lat_first: g.lat_first,

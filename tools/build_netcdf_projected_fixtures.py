@@ -47,12 +47,13 @@ import numpy as np
 HERE = Path(__file__).resolve().parent.parent
 FIXTURES = HERE / "crates" / "fieldglass-netcdf" / "tests" / "fixtures"
 
-# Spherical Earth radius used by the Fieldglass Lambert projector
-# (`fieldglass_core::projection::EARTH_RADIUS_M`, the WMO shapeOfTheEarth = 6
-# default). Real wrfout uses 6_370_000 m; the ~0.02 % difference is the same
-# approximation the GRIB Lambert path already makes, so the fixture adopts the
-# projector's constant to keep the cross-check about the projection math.
-EARTH_R = 6_371_229.0
+# The sphere WRF projects on (`module_map_utils`). Real wrfout uses this, and so
+# does the Fieldglass WRF path (`fieldglass_netcdf::WRF_EARTH_RADIUS_M`), so the
+# fixture's XLAT/XLONG are what a real WRF run would write. This used to adopt
+# the projector's own constant (6 371 229 m, the WMO shape-6 default), which made
+# the cross-check partly circular: it compared our projection against coordinates
+# generated with our own radius. Now the radius comes from WRF.
+EARTH_R = 6_370_000.0
 DEG = math.pi / 180.0
 
 

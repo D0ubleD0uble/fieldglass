@@ -27,9 +27,9 @@ pub use hdf5::group::{ChildKind, GroupChild, list_all_children, list_root_childr
 pub use hdf5::object_header::{HeaderMessage, ObjectHeader};
 pub use hdf5::{Hdf5Probe, root_group_address};
 pub use projection::{
-    GeostationaryGrid, WrfLambertGrid, WrfLatLonGrid, WrfMapProj, WrfMercatorGrid,
-    WrfPolarStereoGrid, apply_scale_offset, cf_scale_offset, resolve_cf_geostationary,
-    resolve_wrf_lambert, resolve_wrf_latlon, resolve_wrf_mercator, resolve_wrf_polar_stereo,
-    unpack_cf_data, wrf_map_proj,
+    GeostationaryGrid, WRF_EARTH_RADIUS_M, WrfLambertGrid, WrfLatLonGrid, WrfMapProj,
+    WrfMercatorGrid, WrfPolarStereoGrid, apply_scale_offset, cf_scale_offset,
+    resolve_cf_geostationary, resolve_wrf_lambert, resolve_wrf_latlon, resolve_wrf_mercator,
+    resolve_wrf_polar_stereo, unpack_cf_data, wrf_map_proj,
 };
 pub use reader::{NetcdfBacking, NetcdfReader};

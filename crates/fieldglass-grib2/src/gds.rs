@@ -186,6 +186,8 @@ pub struct MercatorTemplate {
 #[derive(Debug, Clone, Copy)]
 pub struct PolarStereographicTemplate {
     pub shape_of_earth: u8,
+    /// Radius of the sphere to project on, resolved from the earth-shape fields.
+    pub earth_radius_m: f64,
     pub nx: u32,
     pub ny: u32,
     pub la1: f64,
@@ -245,6 +247,8 @@ pub struct SpaceViewTemplate {
 #[derive(Debug, Clone, Copy)]
 pub struct LambertTemplate {
     pub shape_of_earth: u8,
+    /// Radius of the sphere to project on, resolved from the earth-shape fields.
+    pub earth_radius_m: f64,
     pub nx: u32,
     pub ny: u32,
     pub la1: f64,
@@ -426,6 +430,21 @@ pub fn parse_grid_definition_with_header(
     })
 }
 
+/// Radius of the sphere to project a planar grid on, in metres.
+///
+/// Derived from [`resolve_earth_shape`], so it inherits that function's handling
+/// of the producer-specified shapes and of a missing scaled value. A spherical
+/// shape has `a == b` and the mean is exactly the declared radius.
+///
+/// An oblate shape is an approximation: eccodes projects those on the true
+/// spheroid, while these projections are spherical, so we take the spheroid's
+/// mean radius `(2a + b) / 3` — within ~0.1 % of the true figure, and far closer
+/// than ignoring the declared shape. True ellipsoidal projection is a follow-up.
+fn earth_radius_from_shape(p: &[u8]) -> f64 {
+    let (major, minor) = resolve_earth_shape(p);
+    (2.0 * major + minor) / 3.0
+}
+
 /// Template 3.0 payload starts at GDS octet 15 (= `payload[0]`).
 /// Total payload length = 58 bytes (octets 15..=72 of the section).
 fn parse_template_3_0(p: &[u8]) -> Result<LatLonTemplate, FieldglassError> {
@@ -518,6 +537,7 @@ fn parse_template_3_20(p: &[u8]) -> Result<PolarStereographicTemplate, Fieldglas
     let projection_centre = p[49];
     Ok(PolarStereographicTemplate {
         shape_of_earth: p[0],
+        earth_radius_m: earth_radius_from_shape(p),
         nx: u32::from_be_bytes([p[16], p[17], p[18], p[19]]),
         ny: u32::from_be_bytes([p[20], p[21], p[22], p[23]]),
         la1: read_lat_degrees(&p[24..28]),
@@ -578,6 +598,7 @@ fn parse_template_3_30(p: &[u8]) -> Result<LambertTemplate, FieldglassError> {
     }
     Ok(LambertTemplate {
         shape_of_earth: p[0],
+        earth_radius_m: earth_radius_from_shape(p),
         nx: u32::from_be_bytes([p[16], p[17], p[18], p[19]]),
         ny: u32::from_be_bytes([p[20], p[21], p[22], p[23]]),
         la1: read_lat_degrees(&p[24..28]),
@@ -909,6 +930,38 @@ mod tests {
         // Space view carries only a sub-satellite point — no corner bounds.
         assert_eq!(gds.bounds(), None);
         assert_eq!(gds.template_name(), "space_view");
+    }
+
+    #[test]
+    fn earth_radius_matches_the_declared_shape() {
+        // The radius the planar projections actually use. Getting these wrong by
+        // one part in 1700 misplaces a continental grid by kilometres (#271), so
+        // pin each spherical shape to its exact declared value.
+        let shape = |code: u8| {
+            let mut p = vec![code];
+            p.extend_from_slice(&[0xFFu8; 15]); // scaled values all "missing"
+            earth_radius_from_shape(&p)
+        };
+        assert_eq!(shape(0), 6_367_470.0, "shape 0 sphere");
+        assert_eq!(shape(6), 6_371_229.0, "shape 6 sphere (the WMO default)");
+        assert_eq!(shape(8), 6_371_200.0, "shape 8 sphere");
+        // An oblate shape collapses to the spheroid's mean radius, which must sit
+        // between the two axes rather than outside them.
+        let wgs84 = shape(5);
+        assert!(
+            (6_356_752.0..6_378_137.0).contains(&wgs84),
+            "WGS84 mean radius {wgs84} is not between the axes"
+        );
+        // A producer-specified shape whose scaled value is *missing* must not
+        // yield a nonsense radius — `resolve_earth_shape` falls back, and the
+        // radius stays a plausible Earth.
+        for code in [1u8, 3, 7] {
+            let r = shape(code);
+            assert!(
+                (6_300_000.0..6_400_000.0).contains(&r),
+                "shape {code} with a missing scaled value gave radius {r}"
+            );
+        }
     }
 
     #[test]
