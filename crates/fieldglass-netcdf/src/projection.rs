@@ -118,6 +118,12 @@ pub fn resolve_cf_geostationary(
 /// A Lambert Conformal grid resolved from WRF global attributes. Mirrors the
 /// `lambert_*` + corner fields of a `MessageMeta`; the napi layer copies these
 /// straight across and reuses the existing Lambert projector.
+/// The sphere WRF projects on (`module_map_utils`). WRF fixes it at 6 370 000 m,
+/// which is neither of the WMO spherical radii — so a `wrfout` grid must be
+/// projected on WRF's own sphere, not on a GRIB default, or the domain lands a
+/// few hundred metres off its true position.
+pub const WRF_EARTH_RADIUS_M: f64 = 6_370_000.0;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct WrfLambertGrid {
     pub ni: u32,

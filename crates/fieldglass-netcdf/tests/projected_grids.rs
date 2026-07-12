@@ -12,8 +12,9 @@ use fieldglass_core::{
     MercatorParams, PolarStereoParams, PolarStereoProjector, latlon_inverse, mercator_inverse,
 };
 use fieldglass_netcdf::{
-    DatasetView, NetcdfBacking, NetcdfReader, apply_scale_offset, resolve_cf_geostationary,
-    resolve_wrf_lambert, resolve_wrf_latlon, resolve_wrf_mercator, resolve_wrf_polar_stereo,
+    DatasetView, NetcdfBacking, NetcdfReader, WRF_EARTH_RADIUS_M, apply_scale_offset,
+    resolve_cf_geostationary, resolve_wrf_lambert, resolve_wrf_latlon, resolve_wrf_mercator,
+    resolve_wrf_polar_stereo,
 };
 use serde_json::Value;
 
@@ -71,6 +72,7 @@ fn wrf_lambert_grid_reproduces_xlat_xlong() {
         resolve_wrf_lambert(&view.global_attrs, lat0, lon0, ni, nj).expect("WRF Lambert resolves");
 
     let proj = LambertProjector::new(LambertParams {
+        earth_radius_m: WRF_EARTH_RADIUS_M,
         ni: g.ni,
         nj: g.nj,
         lat_first: g.lat_first,
@@ -118,6 +120,7 @@ fn wrf_polar_stereo_grid_reproduces_xlat_xlong() {
     assert!(!g.south_pole, "TRUELAT1 = 60 is a north-pole grid");
 
     let proj = PolarStereoProjector::new(PolarStereoParams {
+        earth_radius_m: WRF_EARTH_RADIUS_M,
         ni: g.ni,
         nj: g.nj,
         lat_first: g.lat_first,

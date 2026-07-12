@@ -23,10 +23,10 @@ use fieldglass_grib2::{
 };
 use fieldglass_netcdf::{
     DatasetView, Hdf5Attribute, Hdf5Metadata, NetcdfBacking, NetcdfReader, RenderableVariable,
-    WrfLambertGrid, WrfLatLonGrid, WrfMapProj, WrfMercatorGrid, WrfPolarStereoGrid,
-    apply_scale_offset, cf_scale_offset, extract_plane, resolve_cf_geostationary,
-    resolve_wrf_lambert, resolve_wrf_latlon, resolve_wrf_mercator, resolve_wrf_polar_stereo,
-    synthesize_geometry, unpack_cf_data, wrf_map_proj,
+    WRF_EARTH_RADIUS_M, WrfLambertGrid, WrfLatLonGrid, WrfMapProj, WrfMercatorGrid,
+    WrfPolarStereoGrid, apply_scale_offset, cf_scale_offset, extract_plane,
+    resolve_cf_geostationary, resolve_wrf_lambert, resolve_wrf_latlon, resolve_wrf_mercator,
+    resolve_wrf_polar_stereo, synthesize_geometry, unpack_cf_data, wrf_map_proj,
 };
 use napi_derive::napi;
 use std::sync::Mutex;
@@ -76,6 +76,10 @@ pub struct MessageMeta {
     /// Latitude at which Dx and Dy are specified, in degrees. GRIB2 §3.30
     /// carries this explicitly; for GRIB1 it is mirrored from `latin1` (the
     /// historical convention).
+    /// Radius of the sphere the grid is projected on, in metres, as the message
+    /// declares it (GRIB1's earth-shape flag; GRIB2's `shapeOfTheEarth`; WRF's
+    /// own 6 370 000 m sphere). `None` falls back to the projection default.
+    pub earth_radius_metres: Option<f64>,
     pub lambert_lad: Option<f64>,
     /// Orientation longitude (the meridian parallel to the y-axis), degrees.
     pub lambert_lov: Option<f64>,
@@ -314,6 +318,11 @@ fn build_grib1_message_meta(
         Some(fieldglass_grib1::GridDescription::PolarStereographic(g)) => Some(g),
         _ => None,
     };
+    // The earth shape is declared per-message (GDS octet 17). Only the planar
+    // projections consume it; a lat/lon or Gaussian grid needs no radius.
+    let earth_radius_metres = lambert
+        .map(|g| g.resolution_flags.earth_radius_m())
+        .or_else(|| polar_stereo.map(|g| g.resolution_flags.earth_radius_m()));
     let polar_stereo_lov = polar_stereo.map(|g| g.lov);
     // GRIB1 has no LaD field — its latitude of true scale is fixed at ±60°.
     let polar_stereo_lad = polar_stereo.map(|_| 60.0);
@@ -379,6 +388,7 @@ fn build_grib1_message_meta(
         total_length_bytes: Some(msg.is.total_length as f64),
         production_status: None,
         data_type: None,
+        earth_radius_metres,
         lambert_lad,
         lambert_lov,
         lambert_dx_metres,
@@ -690,6 +700,13 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
     // Corner-pinned grids assume a west-to-east scan; surface the −i flag
     // (scanning-mode bit 0x80) so `grid_is_reprojectable` keeps descending
     // grids in the source projection.
+    // Earth shape, declared per-message in §3 (`shapeOfTheEarth`). Only the
+    // planar projections consume it.
+    let earth_radius_metres = match &msg.gds.template {
+        fieldglass_grib2::GridTemplate::Lambert(t) => Some(t.earth_radius_m),
+        fieldglass_grib2::GridTemplate::PolarStereographic(t) => Some(t.earth_radius_m),
+        _ => None,
+    };
     let i_scan_negative = match &msg.gds.template {
         fieldglass_grib2::GridTemplate::LatLon(t) => t.scanning_mode & 0x80 != 0,
         fieldglass_grib2::GridTemplate::RotatedLatLon(t) => t.scanning_mode & 0x80 != 0,
@@ -735,6 +752,7 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
         total_length_bytes: Some(msg.is.total_length as f64),
         production_status: Some(lookup_production_status(msg.ids.production_status).to_string()),
         data_type: Some(fieldglass_grib2::lookup_data_type(msg.ids.data_type).to_string()),
+        earth_radius_metres,
         lambert_lad,
         lambert_lov,
         lambert_dx_metres,
@@ -2056,6 +2074,7 @@ fn classify_cf_mapping(name: Option<&str>) -> CfMapping {
 /// with its dimension can't desync the raster from its declared size.
 fn base_netcdf_meta(name: &str, units: &str, ni: i32, nj: i32) -> MessageMeta {
     MessageMeta {
+        earth_radius_metres: None,
         message_index: 0,
         offset_bytes: 0,
         parameter_name: name.to_string(),
@@ -2139,6 +2158,8 @@ fn synth_latlon_meta(
 /// `lambert_*` fields feed the same projector the GRIB2 §3.30 path uses.
 fn synth_lambert_meta(name: &str, units: &str, g: &WrfLambertGrid) -> MessageMeta {
     MessageMeta {
+        // WRF projects on its own 6 370 000 m sphere, not a WMO default.
+        earth_radius_metres: Some(WRF_EARTH_RADIUS_M),
         grid_type: Some("lambert".to_string()),
         lat_first: Some(g.lat_first),
         lon_first: Some(g.lon_first),
@@ -2159,6 +2180,8 @@ fn synth_lambert_meta(name: &str, units: &str, g: &WrfLambertGrid) -> MessageMet
 /// `"polar_stereographic"` *target*-projection picker option.
 fn synth_polar_stereo_meta(name: &str, units: &str, g: &WrfPolarStereoGrid) -> MessageMeta {
     MessageMeta {
+        // WRF projects on its own 6 370 000 m sphere, not a WMO default.
+        earth_radius_metres: Some(WRF_EARTH_RADIUS_M),
         grid_type: Some("polar_stereo".to_string()),
         lat_first: Some(g.lat_first),
         lon_first: Some(g.lon_first),
@@ -3098,6 +3121,9 @@ fn rotated_latlon_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Resu
 
 fn lambert_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
     let p = LambertParams {
+        earth_radius_m: meta
+            .earth_radius_metres
+            .unwrap_or(fieldglass_core::DEFAULT_EARTH_RADIUS_M),
         ni,
         nj,
         lat_first: require_f64(meta.lat_first, "latFirst")?,
@@ -3123,6 +3149,9 @@ fn lambert_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<Warp
 
 fn polar_stereo_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
     let p = PolarStereoParams {
+        earth_radius_m: meta
+            .earth_radius_metres
+            .unwrap_or(fieldglass_core::DEFAULT_EARTH_RADIUS_M),
         ni,
         nj,
         lat_first: require_f64(meta.lat_first, "latFirst")?,
@@ -3592,6 +3621,7 @@ mod polar_stereo_warp_tests {
     /// minimal.
     fn cmc_polar_meta() -> MessageMeta {
         MessageMeta {
+            earth_radius_metres: None,
             message_index: 0,
             offset_bytes: 0,
             parameter_name: String::new(),
@@ -4372,6 +4402,7 @@ mod overlay_projection_tests {
     /// predictable pixel: `px = lon + 180`, `py = 90 - lat`.
     fn global_latlon_meta() -> MessageMeta {
         MessageMeta {
+            earth_radius_metres: None,
             message_index: 0,
             offset_bytes: 0,
             parameter_name: String::new(),
@@ -5030,6 +5061,7 @@ mod space_view_geos_tests {
     fn space_view_meta() -> MessageMeta {
         let g = space_view_scan_grid(&space_view_template()).unwrap();
         MessageMeta {
+            earth_radius_metres: None,
             message_index: 0,
             offset_bytes: 0,
             parameter_name: String::new(),
