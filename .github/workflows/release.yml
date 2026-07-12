@@ -9,36 +9,22 @@ on:
     # The publish + GitHub Release jobs are gated on a tag ref, so manual
     # runs build artefacts and stop short of touching the Marketplace.
 
+# Every tag is a stable release. The extension publishes to the Marketplace's
+# stable channel and the library crates go to crates.io, both from the same tag.
+#
+# There is no pre-release channel. The Marketplace has one version sequence
+# shared by both channels and each version can only be published once, so
+# routing pre-releases automatically means encoding the channel in the version
+# number (the odd/even-minor convention). That makes the minor digit a channel
+# bit rather than a semantic one, which fights crates.io — where cargo reads
+# semver strictly. Plain semver won instead. If a soak build is ever wanted,
+# `vsce publish --pre-release` is a per-publish flag: publish one version with
+# it, the next without.
+
 permissions:
   contents: read
 
 jobs:
-  channel:
-    name: Determine release channel
-    runs-on: ubuntu-latest
-    # Marketplace convention: odd minor → pre-release channel, even minor →
-    # stable. Derived from the tag here so the package/publish/release steps
-    # don't hardcode a channel. workflow_dispatch dry-runs (no tag) default to
-    # pre-release; their publish job is gated off anyway.
-    outputs:
-      prerelease: ${{ steps.detect.outputs.prerelease }}
-    steps:
-      - name: Detect channel from tag minor parity
-        id: detect
-        run: |
-          set -euo pipefail
-          ref="${GITHUB_REF_NAME}"
-          prerelease=true
-          if [[ "${GITHUB_REF_TYPE}" == "tag" && "$ref" =~ ^v[0-9]+\.([0-9]+)\. ]]; then
-            minor="${BASH_REMATCH[1]}"
-            # 10# forces base-10 so a minor like 08 isn't read as octal.
-            if (( 10#$minor % 2 == 0 )); then
-              prerelease=false
-            fi
-          fi
-          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
-          echo "Release channel for ref '$ref': prerelease=$prerelease"
-
   build-native:
     name: Build native (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
@@ -113,7 +99,7 @@ jobs:
 
   package:
     name: Package .vsix (${{ matrix.vsce_target }})
-    needs: [build-native, channel]
+    needs: [build-native]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -153,7 +139,6 @@ jobs:
           mkdir -p ${{ github.workspace }}/dist
           vsce package \
             --target ${{ matrix.vsce_target }} \
-            ${{ needs.channel.outputs.prerelease == 'true' && '--pre-release' || '' }} \
             --no-dependencies \
             --out ${{ github.workspace }}/dist/
         working-directory: extension
@@ -167,7 +152,7 @@ jobs:
 
   publish:
     name: Publish to Marketplace + GitHub Release
-    needs: [package, channel]
+    needs: [package]
     # Manual workflow_dispatch runs only build+package (dry run); only pushed
     # tags trigger the actual publish + release.
     if: startsWith(github.ref, 'refs/tags/v')
@@ -201,7 +186,7 @@ jobs:
           for vsix in dist/*.vsix; do
             args+=(--packagePath "$vsix")
           done
-          vsce publish ${{ needs.channel.outputs.prerelease == 'true' && '--pre-release' || '' }} "${args[@]}"
+          vsce publish "${args[@]}"
 
       # Use the curated CHANGELOG section for this version as the release body,
       # not GitHub's auto-generated commit list. The tag is vX.Y.Z; the
@@ -224,19 +209,19 @@ jobs:
         uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
         with:
           files: dist/*.vsix
-          prerelease: ${{ needs.channel.outputs.prerelease }}
+          prerelease: false
           body_path: release-notes.md
 
   publish-crates:
     name: Publish library crates to crates.io
-    needs: [package, channel]
-    # Stable releases only. crates.io has no pre-release channel, so odd-minor
-    # (pre-release) tags stay git-only. A workflow_dispatch dry run has no tag,
-    # so it skips this job too and keeps its no-side-effects property.
+    needs: [package]
+    # Every tag is a release, so every tag publishes the crates. A
+    # workflow_dispatch dry run has no tag, so it skips this job and keeps its
+    # no-side-effects property.
     #
     # Gated on `package` so the crates only go out if every native target built:
     # a version on crates.io cannot be taken back, only yanked.
-    if: startsWith(github.ref, 'refs/tags/v') && needs.channel.outputs.prerelease == 'false'
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: read

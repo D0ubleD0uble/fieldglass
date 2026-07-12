@@ -5,10 +5,19 @@ Operational checklist for cutting a Fieldglass release. The conceptual model
 [CONTRIBUTING.md § Pull request workflow](CONTRIBUTING.md#pull-request-workflow);
 this doc is the *how*, not the *why*.
 
-The Marketplace pre-release / stable convention applies: odd minors
-(`0.1.x`, `0.3.x`, …) ship to the pre-release channel; stable releases jump
-to the next even minor (`0.2.0`, `0.4.0`, …). All examples below use
-`0.1.2` — substitute the version you're cutting.
+Versioning is plain semver, and **every tag is a stable release**. Pre-1.0, a
+minor bump (`0.3.0` → `0.4.0`) may break the Rust API; a patch (`0.3.0` →
+`0.3.1`) does not. The extension and the four library crates share the version.
+
+There is no pre-release channel. Fieldglass used one through `0.1.x` — under the
+Marketplace's odd/even-minor convention, where the minor digit encodes the
+channel — and retired it at `0.2.0`. Encoding the channel in the version number
+makes the minor digit meaningless to semver, which matters now that the crates
+publish to crates.io, where cargo reads it strictly. If a soak build is ever
+wanted, `vsce publish --pre-release` is a per-publish flag; nothing in the
+version scheme has to change to use it.
+
+All examples below use `0.1.2` — substitute the version you're cutting.
 
 ## Roles
 
@@ -128,10 +137,8 @@ publish to crates.io from the `publish-crates` job. `fieldglass-napi` does not:
 it carries `publish = false`, since it is a build artefact of the extension, not
 a library anyone should depend on.
 
-**Stable tags only.** crates.io has no pre-release channel, so an odd-minor
-(`0.3.x`) pre-release stays git-only and the job is skipped. A
-`workflow_dispatch` dry run has no tag at all, so it skips this job too — the
-dry run remains free of side effects.
+**Every tag publishes.** A `workflow_dispatch` dry run has no tag, so it skips
+this job — the dry run remains free of side effects.
 
 **Every stable release publishes all four crates, whether or not they changed.**
 The format crates pin core with `=`, so their manifests change with every
@@ -181,7 +188,7 @@ gh run watch
 
 - [ ] **GitHub Release created** at `https://github.com/D0ubleD0uble/fieldglass/releases/tag/vX.Y.Z` with six `.vsix` attachments.
 - [ ] **CHANGELOG link refs resolve** — `[X.Y.Z]: …/compare/v{prev}...vX.Y.Z` should be live now that the tag exists.
-- [ ] **crates.io shows the new version** (stable releases only) for all four library crates — `cargo info fieldglass-core` should report `X.Y.Z`, and likewise for `-grib1`, `-grib2`, `-netcdf`. Skip this for a pre-release; the job doesn't run.
+- [ ] **crates.io shows the new version** for all four library crates — `cargo info fieldglass-core` should report `X.Y.Z`, and likewise for `-grib1`, `-grib2`, `-netcdf`.
 - [ ] **Marketplace listing updated** at `https://marketplace.visualstudio.com/items?itemName=fieldglass.fieldglass` — the new version number, screenshot, and README all reflect what shipped.
 - [ ] **Install from Marketplace and round-trip** a real file from each format in a clean VS Code install. The full chain — Marketplace → `.vsix` selection by platform → activation → file open → render — is something only a real install can validate.
 - [ ] **Linked issues already closed** — issues with `Closes #N` in their PR auto-closed when that PR merged to `master`, so this needs no action in the normal case. Just spot-check the CHANGELOG's `Closes #N` references are in fact closed; a still-open one means its PR didn't carry the keyword.
@@ -193,7 +200,7 @@ gh run watch
 - **crates.io publish fails partway** — say core went out and `-grib1` failed. Re-run the job: it checks the index and skips what is already published, so it picks up where it stopped. A version that went out *wrongly* cannot be replaced, only yanked (`cargo yank -p <crate> --version X.Y.Z`), and yanking does not free the version number — the fix ships as the next patch.
 - **crates.io publish fails on the very first stable release** — most likely the Trusted Publishing bootstrap above hasn't been done. The rest of the release (Marketplace, GitHub Release) is unaffected; do the manual bootstrap and re-run the job.
 - **A regression slips past CI** — if it's caught after publish but before users adopt, the cleanest fix is a hotfix release (`vX.Y.Z+1`): land the fix on `master` like any other PR, run a fresh prep PR, and tag the new merge commit. Don't retag.
-- **Cutting an even-minor *stable* release** — `release.yml` derives the channel from the tag's minor parity automatically (its `channel` job: odd minor → pre-release, even minor → stable), and feeds that to `vsce package`, `vsce publish`, and the GitHub Release `prerelease` field. So an even-minor tag (`0.2.0`, `0.4.0`, …) publishes to the stable channel with no pre-tag workflow edit needed. Just tag the right version and the channel follows.
+- **Wanting a soak build before a stable one** — there is no pre-release channel any more, so this is a manual step: publish one version with `vsce publish --pre-release` (the flag is per-publish, not a property of the version), let it soak, then publish the *next* version without it. A version number can only be published once, so the promoted build needs its own number. For a one-off, handing out the `.vsix` from the release workflow's artifacts is usually simpler.
 
 ## What lives where
 

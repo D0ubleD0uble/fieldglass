@@ -2,7 +2,7 @@
 
 All notable changes to Fieldglass are documented here. The format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Versioning follows the [VS Code pre-release convention](https://code.visualstudio.com/api/working-with-extensions/publishing-extension#prerelease-extensions): odd-minor versions (`0.1.x`, `0.3.x`, …) ship to the Marketplace pre-release channel; stable releases use the next even minor (`0.2.x`, `0.4.x`, …).
+Versioning is plain [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and every release is a stable one. Pre-1.0, a minor bump (`0.3.0` → `0.4.0`) may break the Rust API; a patch (`0.3.0` → `0.3.1`) does not. The same version numbers the extension and the library crates.
 
 ## [Unreleased]
 
