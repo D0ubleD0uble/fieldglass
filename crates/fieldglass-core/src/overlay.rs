@@ -19,17 +19,28 @@
 //! viewport, or that are left with fewer than two vertices, are dropped
 //! (nothing visible to stroke).
 //!
-//! The half-raster threshold is a *sufficient* test, not an exact one. It reads
-//! a seam hop as "far apart in x", which holds for a map that is the full raster
-//! width at every row, but the world targets taper toward the poles: Mollweide's
-//! ellipse is only ~49 % of its width at 71°, so a genuine rim-to-rim hop up
-//! there falls under the threshold and is not split. Nothing bundled hits this —
-//! a seam hop needs a ring that crosses the seam meridian, and the layers are
-//! pre-clipped at ±180 while the graticule steps along it (see
-//! `wrap_dlon_to_seam`, which keeps a vertex *on* the seam from faking a hop) —
-//! but a caller passing a seam-crossing shape at high latitude would see the
-//! streak. Splitting on the vertices' own longitudes rather than their pixels
-//! would make the test exact.
+//! **The half-raster threshold is known-wrong on Mollweide above ~70.4°, and
+//! that is a live bug.** It reads a seam hop as "far apart in x", which holds
+//! for a map that is the full raster width at every row. Mollweide's ellipse is
+//! not: it narrows to w/2 at ~70.4° and to ~49 % of its width at 71°, so a
+//! genuine rim-to-rim hop up there falls *under* the threshold, is not split,
+//! and strokes clear across the map. Robinson and Equal Earth never dip below
+//! half-width (their minimum half-widths are 0.5322 and 0.5924 of the frame), so
+//! they are unaffected.
+//!
+//! This is reachable from the UI: the seam sits at the centre meridian ±180, so
+//! recentring the map (a shipped control) moves it onto un-clipped coastline —
+//! Antarctica crosses every meridian below −70°, and at a centre of 90° the
+//! coastline crosses the seam eight times above 70.3°N. Only a centre of 0°
+//! escapes, because the bundled layers are pre-clipped at ±180 and so cross
+//! nothing there. Do not mistake that default for the general case.
+//!
+//! No `|Δx|` threshold can fix this: on a tapered map a full-width parallel and
+//! a seam hop have the same Δx. The exact test is geographic, and this function
+//! already has `(lat, lon)` in hand — split when the two vertices' centre-
+//! relative longitudes straddle the seam. That is a separate change from the
+//! seam-vertex placement (`wrap_to_seam_span`, which stops a vertex *on* the
+//! seam from faking a hop); both are needed, and this one is still open.
 //!
 //! This module is deliberately projection-agnostic: it knows nothing about
 //! "coastline" vs "graticule" vs a user-drawn shape — they are all just
@@ -92,8 +103,8 @@ pub struct ProjectedPolylines {
 /// (`None`), and a straight chord between two visible points always stays on the
 /// convex hemisphere. This stops a sparse polyline (e.g. a user-drawn shape)
 /// from being wrongly split when two distant points happen to land more than
-/// half a raster apart on a disc. See the module docs for the threshold's limits
-/// on the tapered world targets.
+/// half a raster apart on a disc. See the module docs: on Mollweide the
+/// threshold misses a genuine seam hop above ~70.4°, which is still open.
 ///
 /// `latlon` is flat `[lat, lon, lat, lon, …]`; `ring_lengths[k]` is the
 /// vertex count of ring `k`. See the module docs for the run-splitting rules.
@@ -268,11 +279,17 @@ mod tests {
         let east_piece: [f64; 8] = [
             70.832, 180.0, 70.781, 178.903, 71.099, 178.725, 71.516, 180.0,
         ];
+        // Antarctica's ring is clipped the same way and streaked the same way,
+        // at −84.7°: it runs seam to seam, so *both* its ends touch one.
+        let antarctic_west: [f64; 4] = [-84.713, -180.0, -84.721, -179.942];
+        let antarctic_east: [f64; 4] = [-84.473, 178.277, -84.713, 180.0];
         let mid = (w as f64 - 1.0) / 2.0;
 
         for (label, ring, want_west_of_centre) in [
-            ("−180° piece", &west_piece[..], true),
-            ("+180° piece", &east_piece[..], false),
+            ("wrangel −180° piece", &west_piece[..], true),
+            ("wrangel +180° piece", &east_piece[..], false),
+            ("antarctica −180° end", &antarctic_west[..], true),
+            ("antarctica +180° end", &antarctic_east[..], false),
         ] {
             let n = (ring.len() / 2) as u32;
             let out = project_polylines(&prep, w, h, false, true, ring, &[n]);

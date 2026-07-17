@@ -20,31 +20,39 @@ use std::f64::consts::PI;
 const DEG2RAD: f64 = PI / 180.0;
 const RAD2DEG: f64 = 180.0 / PI;
 
-/// Shift a centre-relative longitude (radians) by the ±2π multiple that brings
-/// it into `[-π, π]` — the span the world targets (Mollweide, Robinson, Equal
-/// Earth) draw, with ±π the seam meridian on the map's left and right rim.
+/// Shift a centre-relative angle by whole turns of `2 * half_turn` until it lies
+/// in `[-half_turn, half_turn]` — the span a map draws about its centre
+/// meridian, with `±half_turn` the seam on its left and right edge. Pass `PI`
+/// for radians (the world targets) or `180.0` for degrees ([`lon_to_px`]).
 ///
-/// A value *exactly* on the seam is returned unchanged, so its sign decides its
-/// rim. That tie-break matters: the seam is double-valued (both rims are the
-/// same meridian), and the vertex's own sign is the only information available
-/// to place it. It is also what the data means — Natural Earth clips a ring at
-/// the antimeridian and signs each piece on the side it lies (the piece running
-/// to −180° is signed −180°, the piece running to +180° is signed +180°), so
-/// preserving the sign lands each piece on its own rim.
+/// A value landing *exactly* on the seam keeps its sign, so it stays on the edge
+/// it names. That tie-break is the whole point. The seam is double-valued — both
+/// edges are the same meridian — and the value's own sign is the only
+/// information available to place it. It is also what the data means: Natural
+/// Earth clips a ring at the antimeridian and signs each piece on the side it
+/// lies (the piece running to −180° is signed −180°, the piece running to +180°
+/// is signed +180°), so preserving the sign lands each piece on its own edge.
 ///
-/// Rounding to the *nearest* multiple unconditionally would not: `f64::round`
-/// breaks a tie away from zero, so `dlon = ±π` shifted a full 2π onto the
-/// opposite rim, and a ring touching the seam was drawn as a streak clear
-/// across the map (or dropped by the overlay's seam split).
+/// Rounding to the *nearest* whole turn does not: `f64::round` breaks a tie away
+/// from zero, so a value exactly on the seam was shifted a full turn onto the
+/// opposite edge, and a ring touching it was drawn as a streak clear across the
+/// map (or lost to the overlay's seam split). Ties here break *toward* zero
+/// instead, at every half-integer multiple — `±half_turn` and `±3·half_turn`
+/// alike, since a centre meridian of ±360° is as legal an input as 0°.
 ///
-/// A non-finite `dlon` passes through unchanged and stays non-finite, which the
-/// forward maps' callers already handle.
-fn wrap_dlon_to_seam(dlon: f64) -> f64 {
-    if dlon.abs() > PI {
-        dlon - 2.0 * PI * (dlon / (2.0 * PI)).round()
-    } else {
-        dlon
-    }
+/// This relies on a seam value being *bit-exactly* `±half_turn` after the
+/// caller's own arithmetic — `180.0 * DEG2RAD == PI` exactly in `f64`, which
+/// `wrap_seam_tie_is_bit_exact` pins. A value one ULP off the seam is not on the
+/// seam and correctly takes the shift.
+///
+/// A non-finite input passes through as non-finite, which callers already handle.
+fn wrap_to_seam_span(value: f64, half_turn: f64) -> f64 {
+    let turn = 2.0 * half_turn;
+    let k = value / turn;
+    // |k| ≤ 0.5 → n = 0 (already in span, seam included). Otherwise the nearest
+    // whole turn, with a half-integer |k| resolving to the smaller |n|.
+    let n = (k.abs() - 0.5).ceil().copysign(k);
+    value - turn * n
 }
 
 /// The latitude beyond which Web Mercator's `ln(tan(...))` diverges. The
@@ -710,7 +718,10 @@ impl TargetProjection for Mollweide {
         MollweidePrepared {
             width: self.width,
             height: self.height,
-            lon0_rad: self.lon0 * DEG2RAD,
+            // ±360° names the same meridian as 0°, and the seam tie-break
+            // reads the sign of `lon - lon0`, so a centre outside [-180, 180]
+            // would flip which rim a seam vertex takes. Canonicalise it first.
+            lon0_rad: wrap_to_seam_span(self.lon0, 180.0) * DEG2RAD,
         }
     }
 }
@@ -719,8 +730,8 @@ impl ForwardMap for MollweidePrepared {
     fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)> {
         let phi = lat * DEG2RAD;
         // Bring longitude into the ±π the map spans; a point on the seam keeps
-        // its sign, so it lands on its own rim (see `wrap_dlon_to_seam`).
-        let dlon = wrap_dlon_to_seam(lon * DEG2RAD - self.lon0_rad);
+        // its sign, so it lands on its own rim (see `wrap_to_seam_span`).
+        let dlon = wrap_to_seam_span(lon * DEG2RAD - self.lon0_rad, PI);
         let theta = mollweide_theta(phi);
         // Normalized frame: the bounding ellipse is the unit disc.
         let x = dlon * theta.cos() / PI;
@@ -970,7 +981,10 @@ impl TargetProjection for Robinson {
         RobinsonPrepared {
             width: self.width,
             height: self.height,
-            lon0_rad: self.lon0 * DEG2RAD,
+            // ±360° names the same meridian as 0°, and the seam tie-break
+            // reads the sign of `lon - lon0`, so a centre outside [-180, 180]
+            // would flip which rim a seam vertex takes. Canonicalise it first.
+            lon0_rad: wrap_to_seam_span(self.lon0, 180.0) * DEG2RAD,
             x_spline: RobinsonSpline::new(ROBINSON_X),
             y_spline: RobinsonSpline::new(ROBINSON_Y),
         }
@@ -983,8 +997,8 @@ impl ForwardMap for RobinsonPrepared {
         // equator, so evaluate on the absolute latitude and re-sign `Y`.
         let abs_lat = lat.abs().min(90.0);
         // Bring longitude into the ±π the map spans; a point on the seam keeps
-        // its sign, so it lands on its own rim (see `wrap_dlon_to_seam`).
-        let dlon = wrap_dlon_to_seam(lon * DEG2RAD - self.lon0_rad);
+        // its sign, so it lands on its own rim (see `wrap_to_seam_span`).
+        let dlon = wrap_to_seam_span(lon * DEG2RAD - self.lon0_rad, PI);
         // Normalized frame: the map body's bounding box is [-1, 1]².
         let x = self.x_spline.eval(abs_lat) * dlon / PI;
         let y = self.y_spline.eval(abs_lat).copysign(lat);
@@ -1126,7 +1140,10 @@ impl TargetProjection for EqualEarth {
         EqualEarthPrepared {
             width: self.width,
             height: self.height,
-            lon0_rad: self.lon0 * DEG2RAD,
+            // ±360° names the same meridian as 0°, and the seam tie-break
+            // reads the sign of `lon - lon0`, so a centre outside [-180, 180]
+            // would flip which rim a seam vertex takes. Canonicalise it first.
+            lon0_rad: wrap_to_seam_span(self.lon0, 180.0) * DEG2RAD,
         }
     }
 }
@@ -1135,8 +1152,8 @@ impl ForwardMap for EqualEarthPrepared {
     fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)> {
         let phi = lat * DEG2RAD;
         // Bring longitude into the ±π the map spans; a point on the seam keeps
-        // its sign, so it lands on its own rim (see `wrap_dlon_to_seam`).
-        let dlon = wrap_dlon_to_seam(lon * DEG2RAD - self.lon0_rad);
+        // its sign, so it lands on its own rim (see `wrap_to_seam_span`).
+        let dlon = wrap_to_seam_span(lon * DEG2RAD - self.lon0_rad, PI);
         // sin θ = (√3/2)·sin φ; the clamp guards |sin φ| rounded past 1.
         let theta = (EQUAL_EARTH_M * phi.sin()).clamp(-1.0, 1.0).asin();
         let x = dlon * theta.cos() / (EQUAL_EARTH_M * equal_earth_dfy(theta));
@@ -1213,7 +1230,7 @@ fn lon_to_px(lon: f64, lon_min: f64, lon_mid: f64, d_lon: f64) -> f64 {
         return 0.0;
     }
     let centered = lon - lon_mid;
-    let nearest = centered - 360.0 * (centered / 360.0).round();
+    let nearest = wrap_to_seam_span(centered, 180.0);
     (lon_mid + nearest - lon_min) / d_lon
 }
 
@@ -1948,59 +1965,102 @@ mod tests {
     }
 
     #[test]
-    fn wrap_dlon_to_seam_keeps_the_seam_on_its_own_side() {
+    fn wrap_to_seam_span_breaks_every_seam_tie_toward_zero() {
         // Exactly on the seam: the sign is the tie-break, so it survives. A
-        // nearest-multiple round would send ±π to the opposite rim (`f64::round`
+        // nearest-turn round would send ±π to the opposite rim (`f64::round`
         // breaks the ±0.5 tie away from zero).
-        assert_eq!(wrap_dlon_to_seam(PI), PI, "+π must stay on the +π rim");
-        assert_eq!(wrap_dlon_to_seam(-PI), -PI, "-π must stay on the -π rim");
+        assert_eq!(wrap_to_seam_span(PI, PI), PI, "+π stays on the +π rim");
+        assert_eq!(wrap_to_seam_span(-PI, PI), -PI, "-π stays on the -π rim");
+        // …and so does the tie a whole turn out: a centre meridian of ±360° is
+        // a legal input, which puts a seam vertex at ±3π rather than ±π.
+        assert!(
+            near(wrap_to_seam_span(3.0 * PI, PI), PI, 1e-9),
+            "+3π ≡ +π must reach the +π rim, got {}",
+            wrap_to_seam_span(3.0 * PI, PI)
+        );
+        assert!(
+            near(wrap_to_seam_span(-3.0 * PI, PI), -PI, 1e-9),
+            "-3π ≡ -π must reach the -π rim, got {}",
+            wrap_to_seam_span(-3.0 * PI, PI)
+        );
         // Inside the span: untouched.
         for d in [0.0, 1.0, -1.0, PI - 1e-9, -PI + 1e-9] {
-            assert_eq!(wrap_dlon_to_seam(d), d, "{d} is already in span");
+            assert_eq!(wrap_to_seam_span(d, PI), d, "{d} is already in span");
         }
-        // Outside: still wrapped to the nearest equivalent, as before.
+        // Outside: still shifted to the nearest equivalent, as before.
         for (input, want) in [
             (PI + 0.5, -PI + 0.5),
             (-PI - 0.5, PI - 0.5),
             (2.0 * PI, 0.0),
             (-2.0 * PI, 0.0),
+            (4.0 * PI, 0.0),
         ] {
             assert!(
-                near(wrap_dlon_to_seam(input), want, 1e-9),
+                near(wrap_to_seam_span(input, PI), want, 1e-9),
                 "{input} wrapped to {}, want {want}",
-                wrap_dlon_to_seam(input)
+                wrap_to_seam_span(input, PI)
             );
         }
+        // Degrees behave the same — this is the form `lon_to_px` uses.
+        assert_eq!(wrap_to_seam_span(180.0, 180.0), 180.0);
+        assert_eq!(wrap_to_seam_span(-180.0, 180.0), -180.0);
+        assert!(near(wrap_to_seam_span(190.0, 180.0), -170.0, 1e-9));
+        assert!(near(wrap_to_seam_span(-190.0, 180.0), 170.0, 1e-9));
         // Non-finite passes through rather than becoming a bogus finite angle.
-        assert!(wrap_dlon_to_seam(f64::NAN).is_nan());
+        assert!(wrap_to_seam_span(f64::NAN, PI).is_nan());
     }
 
-    /// A vertex *on* the ±180° seam must land on the rim its sign names, next to
-    /// its own neighbours — not teleport to the opposite rim. Natural Earth clips
-    /// a ring at the antimeridian and signs each piece accordingly (Wrangel
-    /// Island, ~71°N, is split into a −180° piece and a +180° piece), so a flip
-    /// drew a streak clear across the map or lost the vertex to the seam split.
-    fn assert_seam_vertex_keeps_its_rim<P: ForwardMap>(prep: &P, w: u32, label: &str) {
-        for lat in [0.0, 60.0, 71.0, -71.0] {
-            let (west, _) = prep.lonlat_to_pixel(lat, -180.0).expect("seam on map");
-            let (west_neighbour, _) = prep.lonlat_to_pixel(lat, -179.5).expect("on map");
-            let (east, _) = prep.lonlat_to_pixel(lat, 180.0).expect("seam on map");
-            let (east_neighbour, _) = prep.lonlat_to_pixel(lat, 179.5).expect("on map");
+    #[test]
+    fn wrap_seam_tie_is_bit_exact() {
+        // The seam tie-break only fires on a value landing *exactly* on the
+        // seam, so a caller converting 180° to radians must hit `PI` on the
+        // nose. It does — but one ULP either way and a seam vertex would take
+        // the shift branch and flip rims again, silently. Pin it.
+        assert_eq!(180.0 * DEG2RAD, PI, "180° must convert to PI bit-exactly");
+        assert_eq!(-180.0 * DEG2RAD, -PI);
+    }
+
+    /// A vertex *on* the map's seam meridian must land on the edge its sign
+    /// names, next to its own neighbours — not teleport to the opposite edge.
+    /// Natural Earth clips a ring at the antimeridian and signs each piece
+    /// accordingly (Wrangel Island, ~71°N, is split into a −180° piece and a
+    /// +180° piece; Antarctica likewise), so a flip drew a streak clear across
+    /// the map, or lost the vertex to the overlay's seam split.
+    ///
+    /// `lon0` is the map's centre meridian, so the seam sits at `lon0 ± 180`.
+    /// The centre is canonicalised into [-180, 180] first — `lon0 ± 180` off a
+    /// raw ±360 centre would name the *same* meridian twice rather than the two
+    /// sides of the seam.
+    fn assert_seam_vertex_keeps_its_edge<P: ForwardMap>(prep: &P, w: u32, lon0: f64, label: &str) {
+        let centre = wrap_to_seam_span(lon0, 180.0);
+        for lat in [0.0, 60.0, 71.0, -71.0, -84.7] {
+            let probe = |lon: f64| {
+                prep.lonlat_to_pixel(lat, lon)
+                    .unwrap_or_else(|| panic!("{label} @ {lon0}: ({lat}, {lon}) left the map"))
+                    .0
+            };
+            // The seam approached from each side. `-0.5` is a hair *inside* the
+            // west half, `+0.5` a hair inside the east half.
+            let (west, west_neighbour) = (probe(centre - 180.0), probe(centre - 179.5));
+            let (east, east_neighbour) = (probe(centre + 180.0), probe(centre + 179.5));
             let mid = (w as f64 - 1.0) / 2.0;
             assert!(
                 west < mid && east > mid,
-                "{label} at {lat}°: -180° → {west} and +180° → {east} straddling centre {mid}"
+                "{label} @ lon0={lon0} at {lat}°: seam −180 → {west} and +180 → {east} \
+                 must straddle centre {mid}"
             );
-            // Each seam vertex sits beside its own neighbour, not a rim away.
+            // Each seam vertex sits beside its own neighbour, not an edge away.
             let span = w as f64;
             assert!(
                 (west - west_neighbour).abs() < 0.05 * span,
-                "{label} at {lat}°: -180° ({west}) is {} px from -179.5° ({west_neighbour})",
+                "{label} @ lon0={lon0} at {lat}°: seam −180 ({west}) is {} px from its \
+                 neighbour ({west_neighbour})",
                 (west - west_neighbour).abs()
             );
             assert!(
                 (east - east_neighbour).abs() < 0.05 * span,
-                "{label} at {lat}°: +180° ({east}) is {} px from +179.5° ({east_neighbour})",
+                "{label} @ lon0={lon0} at {lat}°: seam +180 ({east}) is {} px from its \
+                 neighbour ({east_neighbour})",
                 (east - east_neighbour).abs()
             );
         }
@@ -2009,9 +2069,51 @@ mod tests {
     #[test]
     fn world_targets_keep_a_seam_vertex_on_its_own_rim() {
         let (w, h) = (2880u32, 1440u32);
-        assert_seam_vertex_keeps_its_rim(&Mollweide::new(w, h, 0.0).prepare(), w, "mollweide");
-        assert_seam_vertex_keeps_its_rim(&Robinson::new(w, h, 0.0).prepare(), w, "robinson");
-        assert_seam_vertex_keeps_its_rim(&EqualEarth::new(w, h, 0.0).prepare(), w, "equal earth");
+        // ±360 is the same map as 0, and the picker accepts it (min=-360,
+        // max=360) — the centre is canonicalised so the seam behaves the same.
+        for lon0 in [0.0, 20.0, -150.0, 180.0, 360.0, -360.0] {
+            assert_seam_vertex_keeps_its_edge(
+                &Mollweide::new(w, h, lon0).prepare(),
+                w,
+                lon0,
+                "mollweide",
+            );
+            assert_seam_vertex_keeps_its_edge(
+                &Robinson::new(w, h, lon0).prepare(),
+                w,
+                lon0,
+                "robinson",
+            );
+            assert_seam_vertex_keeps_its_edge(
+                &EqualEarth::new(w, h, lon0).prepare(),
+                w,
+                lon0,
+                "equal earth",
+            );
+        }
+    }
+
+    #[test]
+    fn box_targets_keep_a_seam_vertex_on_its_own_edge() {
+        // `lon_to_px` shares the tie: on a global window the seam is the window
+        // edge, and a ±180 vertex flipped to the far edge — where the width-based
+        // split then discarded it, nicking the coastline rather than streaking.
+        let (w, h) = (1440u32, 721u32);
+        let equirect = TargetRaster {
+            width: w,
+            height: h,
+            lat_min: -90.0,
+            lat_max: 90.0,
+            lon_min: -180.0,
+            lon_max: 180.0,
+        };
+        assert_seam_vertex_keeps_its_edge(&equirect.prepare(), w, 0.0, "equirectangular");
+        assert_seam_vertex_keeps_its_edge(
+            &WebMercator::new(w, h, -85.0, 85.0, -180.0, 180.0).prepare(),
+            w,
+            0.0,
+            "web mercator",
+        );
     }
 
     #[test]
