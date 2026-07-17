@@ -46,7 +46,13 @@ const RAD2DEG: f64 = 180.0 / PI;
 /// seam and correctly takes the shift.
 ///
 /// A non-finite input passes through as non-finite, which callers already handle.
-fn wrap_to_seam_span(value: f64, half_turn: f64) -> f64 {
+///
+/// The range is the **closed** `[-half_turn, half_turn]`: both `±half_turn` are
+/// attainable and keep their sign (a seam value is not folded to one side). The
+/// overlay's seam-crossing test ([`crate::overlay::project_polylines`]) relies on
+/// that — canonicalising to a half-open interval would flip a `+180°` vertex to
+/// `-180°` and re-introduce the streak #277 removed.
+pub(crate) fn wrap_to_seam_span(value: f64, half_turn: f64) -> f64 {
     let turn = 2.0 * half_turn;
     let k = value / turn;
     // |k| ≤ 0.5 → n = 0 (already in span, seam included). Otherwise the nearest
@@ -164,6 +170,32 @@ pub trait TargetProjection {
     }
 }
 
+/// How [`crate::overlay::project_polylines`] breaks a polyline run at a target's
+/// longitude seam — the one break that is not a plain exit from the visible
+/// domain. A target reports its own rule through [`ForwardMap::seam_split`],
+/// because the seam is a property of the target's geometry, not of the caller.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SeamSplit {
+    /// No meridional seam. A run breaks only when a vertex leaves the visible
+    /// domain (`lonlat_to_pixel` returns `None`); a large pixel gap between two
+    /// visible vertices is never treated as a seam. Used by the azimuthal
+    /// targets, where a chord between two on-disc points stays on the near
+    /// hemisphere.
+    None,
+    /// Break where a segment crosses the seam meridian at `centre_deg ± 180°`,
+    /// tested on the two vertices' centre-relative longitudes (split when they
+    /// differ by more than 180°). Exact for any map — it never looks at pixels,
+    /// so a tapered map (Mollweide narrows below half-width near the poles) is
+    /// handled the same as a rectangular one. Used by the world and lat/lon-box
+    /// targets.
+    Meridian { centre_deg: f64 },
+    /// Break on a greater-than-half-raster-width jump in pixel x. The source
+    /// projection only: its raster is the rectangular grid laid straight in, so
+    /// a column wrap really is a half-width x jump, and its wrap meridian (which
+    /// a projected or regional grid may not even have) is not carried here.
+    PixelHalfWidth,
+}
+
 /// Forward geographic→pixel map: fractional output pixel `(x, y)` for a
 /// geographic `(lat, lon)` in degrees. Implemented by every prepared target
 /// (as the inverse of [`PreparedTarget::pixel_to_lonlat`]) and by the
@@ -183,6 +215,12 @@ pub trait TargetProjection {
 /// pixel just past that edge (continuous) rather than wrapping to the far side.
 pub trait ForwardMap {
     fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)>;
+
+    /// This target's seam-split rule (see [`SeamSplit`]). Defaults to
+    /// [`SeamSplit::None`] — a target with a seam overrides it.
+    fn seam_split(&self) -> SeamSplit {
+        SeamSplit::None
+    }
 }
 
 /// The precomputed per-pixel map of a [`TargetProjection`], with all
@@ -282,6 +320,15 @@ impl ForwardMap for EquirectPrepared {
             (lat - self.lat_max) / self.d_lat
         };
         Some((lon_to_px(lon, self.lon_min, self.lon_mid, self.d_lon), py))
+    }
+
+    fn seam_split(&self) -> SeamSplit {
+        // The window's seam is at its centre ±180 — exactly what `lon_to_px`
+        // wraps about. Use `lon_mid` verbatim (it may exceed 360 for a shifted
+        // window; the geographic test only cares about differences).
+        SeamSplit::Meridian {
+            centre_deg: self.lon_mid,
+        }
     }
 }
 
@@ -408,6 +455,12 @@ impl ForwardMap for WebMercatorPrepared {
             (y - self.y_max) / self.d_y
         };
         Some((lon_to_px(lon, self.lon_min, self.lon_mid, self.d_lon), py))
+    }
+
+    fn seam_split(&self) -> SeamSplit {
+        SeamSplit::Meridian {
+            centre_deg: self.lon_mid,
+        }
     }
 }
 
@@ -742,6 +795,15 @@ impl ForwardMap for MollweidePrepared {
             unit_coord_to_pixel(-y, self.height),
         ))
     }
+
+    fn seam_split(&self) -> SeamSplit {
+        // `lon0_rad` is already canonicalised into ±180 (#277); the seam is at
+        // its ±180. The deg→rad→deg round-trip is not bit-exact, but the
+        // > 180° test has whole-degree margins.
+        SeamSplit::Meridian {
+            centre_deg: self.lon0_rad * RAD2DEG,
+        }
+    }
 }
 
 impl PreparedTarget for MollweidePrepared {
@@ -1007,6 +1069,12 @@ impl ForwardMap for RobinsonPrepared {
             unit_coord_to_pixel(-y, self.height),
         ))
     }
+
+    fn seam_split(&self) -> SeamSplit {
+        SeamSplit::Meridian {
+            centre_deg: self.lon0_rad * RAD2DEG,
+        }
+    }
 }
 
 impl PreparedTarget for RobinsonPrepared {
@@ -1163,6 +1231,12 @@ impl ForwardMap for EqualEarthPrepared {
             unit_coord_to_pixel(x / EQUAL_EARTH_X_MAX, self.width),
             unit_coord_to_pixel(-y / EQUAL_EARTH_Y_MAX, self.height),
         ))
+    }
+
+    fn seam_split(&self) -> SeamSplit {
+        SeamSplit::Meridian {
+            centre_deg: self.lon0_rad * RAD2DEG,
+        }
     }
 }
 

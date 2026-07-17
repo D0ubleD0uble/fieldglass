@@ -7,40 +7,39 @@
 //! forward map ([`ForwardMap::lonlat_to_pixel`]) and emit the *visible*
 //! pixel-space runs, ready for the webview to stroke on its overlay canvas.
 //!
-//! A single input ring becomes zero or more output runs: we break a run
+//! A single input ring becomes zero or more output runs. We break a run
 //! whenever a vertex leaves the projection's visible domain (the back of an
-//! orthographic globe, past a polar disc's equator rim) and — only for targets
-//! that wrap longitude (`wraps_antimeridian`: the lat/lon-box targets, the world
-//! targets, and the source projection) — whenever consecutive vertices jump more
-//! than half the raster width apart, the antimeridian / grid seam where a
-//! polyline wraps from one edge to the other and must not be drawn as a streak
-//! across the map. The azimuthal targets have no seam, so they pass
-//! `wraps_antimeridian = false`. Runs whose bounding box never reaches the
-//! viewport, or that are left with fewer than two vertices, are dropped
-//! (nothing visible to stroke).
+//! orthographic globe, past a polar disc's equator rim), and whenever a segment
+//! crosses the target's longitude seam — the meridian drawn on both edges of the
+//! map, where a polyline that wraps around the far side must not be stroked
+//! straight across. How the seam is detected is the target's own business,
+//! reported through [`ForwardMap::seam_split`] ([`SeamSplit`]):
 //!
-//! **The half-raster threshold is known-wrong on Mollweide above ~70.4°, and
-//! that is a live bug.** It reads a seam hop as "far apart in x", which holds
-//! for a map that is the full raster width at every row. Mollweide's ellipse is
-//! not: it narrows to w/2 at ~70.4° and to ~49 % of its width at 71°, so a
-//! genuine rim-to-rim hop up there falls *under* the threshold, is not split,
-//! and strokes clear across the map. Robinson and Equal Earth never dip below
-//! half-width (their minimum half-widths are 0.5322 and 0.5924 of the frame), so
-//! they are unaffected.
+//! * The **world** targets (Mollweide, Robinson, Equal Earth) and the
+//!   **lat/lon-box** targets (equirectangular, Web Mercator) know their centre
+//!   meridian, so the seam is at `centre ± 180`. We test it *geographically*:
+//!   split when the two vertices' centre-relative longitudes differ by more than
+//!   180°. This never looks at pixels, so it is exact on a map that tapers toward
+//!   the poles — Mollweide's ellipse narrows below half the raster width above
+//!   ~70.4°, and an earlier pixel-distance test missed a genuine seam hop there
+//!   and streaked a line clear across the map (#278).
+//! * The **source** projection lays the rectangular grid straight into pixels, so
+//!   a column wrap really is a greater-than-half-width jump in pixel x; it splits
+//!   on that. Its wrap meridian is not carried here, and a projected or regional
+//!   grid may have no single seam (off-coverage vertices invert to `None` and
+//!   break the run anyway).
+//! * The **azimuthal** targets (orthographic, polar stereographic) have no seam:
+//!   a chord between two on-disc points stays on the near hemisphere, so a large
+//!   pixel gap is never a seam. They break a run only on a domain exit.
 //!
-//! This is reachable from the UI: the seam sits at the centre meridian ±180, so
-//! recentring the map (a shipped control) moves it onto un-clipped coastline —
-//! Antarctica crosses every meridian below −70°, and at a centre of 90° the
-//! coastline crosses the seam eight times above 70.3°N. Only a centre of 0°
-//! escapes, because the bundled layers are pre-clipped at ±180 and so cross
-//! nothing there. Do not mistake that default for the general case.
+//! Runs whose bounding box never reaches the viewport, or that are left with
+//! fewer than two vertices, are dropped (nothing visible to stroke).
 //!
-//! No `|Δx|` threshold can fix this: on a tapered map a full-width parallel and
-//! a seam hop have the same Δx. The exact test is geographic, and this function
-//! already has `(lat, lon)` in hand — split when the two vertices' centre-
-//! relative longitudes straddle the seam. That is a separate change from the
-//! seam-vertex placement (`wrap_to_seam_span`, which stops a vertex *on* the
-//! seam from faking a hop); both are needed, and this one is still open.
+//! The geographic seam test pairs with the seam-vertex placement fixed in #277
+//! (`wrap_to_seam_span`, which keeps a vertex sitting *on* the seam on the edge
+//! its sign names): placement decides which edge a seam vertex lands on, this
+//! decides where a run is cut. Both are needed for a correct high-latitude
+//! overlay.
 //!
 //! This module is deliberately projection-agnostic: it knows nothing about
 //! "coastline" vs "graticule" vs a user-drawn shape — they are all just
@@ -48,7 +47,7 @@
 //! is untouched; this is an additive, geometry-only path.
 
 use crate::projection::GridIndex;
-use crate::warp::ForwardMap;
+use crate::warp::{ForwardMap, SeamSplit, wrap_to_seam_span};
 
 /// Overlay forward map for the **source projection** — the unwarped grid shown
 /// as-is. `paint_source` lays source grid point `(i, j)` straight into output
@@ -56,9 +55,9 @@ use crate::warp::ForwardMap;
 /// fractional grid index) *is* the forward pixel map here. Wrapping it as a
 /// [`ForwardMap`] lets the overlay layer (#72) project coastlines /
 /// graticule onto the source projection too — reusing [`project_polylines`]'s
-/// visibility + antimeridian-seam splitting unchanged, and working for every
-/// grid type (latlon, gaussian, lambert, polar stereographic) since each
-/// already supplies an inverse map.
+/// visibility + seam splitting, and working for every grid type (latlon,
+/// gaussian, lambert, polar stereographic) since each already supplies an
+/// inverse map.
 ///
 /// Holds a borrowed inverse closure — a shared reference, hence `Copy`; the
 /// borrow only needs to outlive the synchronous `project_polylines` call.
@@ -79,6 +78,13 @@ impl ForwardMap for SourceOverlayTarget<'_> {
     fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)> {
         (self.inverse)(lat, lon).map(|GridIndex { i, j }| (i, j))
     }
+
+    fn seam_split(&self) -> SeamSplit {
+        // The source raster is the grid laid straight in, so a longitude wrap is
+        // a > half-width jump in pixel x. The grid's own seam meridian is not
+        // carried here, and a projected / regional grid may have none.
+        SeamSplit::PixelHalfWidth
+    }
 }
 
 /// Projected overlay geometry in output pixel space. `xy` is flat
@@ -94,17 +100,10 @@ pub struct ProjectedPolylines {
 /// size `width × height`. When `flip_y` is set the output Y is flipped to
 /// match a vertically-flipped render (the `paint_grid_rgba` flip).
 ///
-/// `wraps_antimeridian` controls the seam split: pass `true` for the lat/lon-box
-/// targets (equirectangular, Web Mercator), the world targets (Mollweide,
-/// Robinson, Equal Earth) and the source projection, where a polyline can jump
-/// edge-to-edge across the antimeridian / grid seam and must be broken there;
-/// pass `false` for the azimuthal targets (orthographic, polar stereographic),
-/// which have no seam — their only run break is leaving the visible disc
-/// (`None`), and a straight chord between two visible points always stays on the
-/// convex hemisphere. This stops a sparse polyline (e.g. a user-drawn shape)
-/// from being wrongly split when two distant points happen to land more than
-/// half a raster apart on a disc. See the module docs: on Mollweide the
-/// threshold misses a genuine seam hop above ~70.4°, which is still open.
+/// The seam split is the target's own decision, read from
+/// [`ForwardMap::seam_split`] — geographic for the world and lat/lon-box targets,
+/// a half-width pixel jump for the source projection, none for the azimuthal
+/// targets. See the module docs for what each means and why.
 ///
 /// `latlon` is flat `[lat, lon, lat, lon, …]`; `ring_lengths[k]` is the
 /// vertex count of ring `k`. See the module docs for the run-splitting rules.
@@ -113,7 +112,6 @@ pub fn project_polylines<P: ForwardMap>(
     width: u32,
     height: u32,
     flip_y: bool,
-    wraps_antimeridian: bool,
     latlon: &[f64],
     ring_lengths: &[u32],
 ) -> ProjectedPolylines {
@@ -122,9 +120,9 @@ pub fn project_polylines<P: ForwardMap>(
         return out;
     }
     let (w, h) = (width as f64, height as f64);
-    // Consecutive vertices farther apart than this in x are treated as an
-    // antimeridian seam (only when `wraps_antimeridian`) rather than a real
-    // edge: split there.
+    let seam = prepared.seam_split();
+    // Half the raster width: a larger jump in pixel x is a seam wrap for the
+    // `PixelHalfWidth` (source) target.
     let wrap_threshold = w / 2.0;
     let y_top = h - 1.0;
     // A run is kept only if its bounding box overlaps the viewport expanded by
@@ -164,7 +162,11 @@ pub fn project_polylines<P: ForwardMap>(
 
     for &len in ring_lengths {
         run.clear();
+        // Per-run seam state. `prev_x` feeds the source projection's pixel test;
+        // `prev_dlon` the world / box targets' geographic one. Both reset on a
+        // domain exit so a gap is never mistaken for a seam crossing.
         let mut prev_x: Option<f64> = None;
+        let mut prev_dlon: Option<f64> = None;
         for _ in 0..len {
             // Stop the ring if `ring_lengths` overruns `latlon` (or a final
             // `lat` has no paired `lon`) rather than fabricating a vertex.
@@ -178,21 +180,45 @@ pub fn project_polylines<P: ForwardMap>(
                     // Left the visible domain — end the current run.
                     flush(&mut run, &mut out);
                     prev_x = None;
+                    prev_dlon = None;
                 }
                 Some((x, mut y)) => {
                     if flip_y {
                         y = y_top - y;
                     }
-                    if wraps_antimeridian
-                        && let Some(px) = prev_x
-                        && (x - px).abs() > wrap_threshold
-                    {
-                        // Antimeridian seam — break before this vertex.
+                    // This vertex's centre-relative longitude, for a Meridian
+                    // seam. `wrap_to_seam_span` is sign-preserving on the seam
+                    // (#277), so a vertex on ±180 keeps its rim and does not read
+                    // as a full-turn jump from its same-rim neighbour.
+                    let dlon = match seam {
+                        SeamSplit::Meridian { centre_deg } => {
+                            Some(wrap_to_seam_span(lon - centre_deg, 180.0))
+                        }
+                        _ => None,
+                    };
+                    let crosses_seam = match seam {
+                        // A > half-turn gap between two centre-relative
+                        // longitudes: the segment runs the short way through the
+                        // seam, not through the centre.
+                        SeamSplit::Meridian { .. } => matches!(
+                            (prev_dlon, dlon),
+                            (Some(p), Some(d)) if (d - p).abs() > 180.0
+                        ),
+                        // A > half-width jump in the source's rectangular raster.
+                        SeamSplit::PixelHalfWidth => {
+                            matches!(prev_x, Some(px) if (x - px).abs() > wrap_threshold)
+                        }
+                        // No seam: only a domain exit (the `None` arm) breaks.
+                        SeamSplit::None => false,
+                    };
+                    if crosses_seam {
+                        // Seam crossing — break before this vertex.
                         flush(&mut run, &mut out);
                     }
                     run.push(x);
                     run.push(y);
                     prev_x = Some(x);
+                    prev_dlon = dlon;
                 }
             }
         }
@@ -227,7 +253,7 @@ mod tests {
         // Three points well inside the map.
         let latlon = [10.0, -20.0, 12.0, -18.0, 14.0, -16.0];
         let ring_lengths = [3u32];
-        let out = project_polylines(&prep, 361, 181, false, true, &latlon, &ring_lengths);
+        let out = project_polylines(&prep, 361, 181, false, &latlon, &ring_lengths);
         assert_eq!(out.seg_lengths, vec![3]);
         assert_eq!(out.xy.len(), 6);
         // First vertex must match the target's own forward map.
@@ -240,7 +266,7 @@ mod tests {
         let prep = global_equirect(361, 181);
         // A segment hopping the antimeridian: lon 170 → -170 wraps edge-to-edge.
         let latlon = [0.0, 160.0, 0.0, 170.0, 0.0, -170.0, 0.0, -160.0];
-        let out = project_polylines(&prep, 361, 181, false, true, &latlon, &[4]);
+        let out = project_polylines(&prep, 361, 181, false, &latlon, &[4]);
         // The wrap breaks the 4-vertex ring into two 2-vertex runs.
         assert_eq!(out.seg_lengths, vec![2, 2]);
     }
@@ -248,17 +274,74 @@ mod tests {
     #[test]
     fn mollweide_splits_at_the_seam_but_keeps_wide_visible_runs() {
         // Mollweide wraps longitude about its centre, so a polyline hopping the
-        // ±180° seam jumps rim-to-rim and must break there (wraps_antimeridian =
-        // true), exactly like the lat/lon-box targets.
+        // ±180° seam crosses the seam meridian and must break there, exactly
+        // like the lat/lon-box targets.
         let prep = Mollweide::new(360, 180, 0.0).prepare();
         let seam = [0.0, 160.0, 0.0, 170.0, 0.0, -170.0, 0.0, -160.0];
-        let out = project_polylines(&prep, 360, 180, false, true, &seam, &[4]);
+        let out = project_polylines(&prep, 360, 180, false, &seam, &[4]);
         assert_eq!(out.seg_lengths, vec![2, 2], "seam crossing must split");
         // A genuine 160°-wide equatorial segment (no seam crossing) spans less
-        // than half the width, so it must stay one run rather than false-split.
+        // than 180° of longitude, so it must stay one run rather than
+        // false-split.
         let wide = [0.0, -80.0, 0.0, 80.0];
-        let out = project_polylines(&prep, 360, 180, false, true, &wide, &[2]);
+        let out = project_polylines(&prep, 360, 180, false, &wide, &[2]);
         assert_eq!(out.seg_lengths, vec![2], "wide visible run must not split");
+    }
+
+    #[test]
+    fn mollweide_splits_a_high_latitude_seam_hop() {
+        // The #278 bug: at 71°N Mollweide's ellipse is ~1414 px wide on a
+        // 2880-wide canvas — under the old w/2 = 1440 px split threshold — so a
+        // genuine rim-to-rim seam hop was NOT split and streaked across the map.
+        // The geographic test splits it regardless of taper. Two vertices per
+        // side so each survives the ≥2-vertex run filter.
+        let (w, h) = (2880u32, 1440u32);
+        let prep = Mollweide::new(w, h, 0.0).prepare();
+        let hop = [71.0, 178.0, 71.0, 179.0, 71.0, -179.0, 71.0, -178.0];
+        let out = project_polylines(&prep, w, h, false, &hop, &[4]);
+        assert_eq!(
+            out.seg_lengths,
+            vec![2, 2],
+            "a high-latitude seam hop must split into two runs"
+        );
+        // Neither run spans anything like the map: no streak survived.
+        for run in [&out.xy[0..4], &out.xy[4..8]] {
+            let (min_x, max_x) = run
+                .chunks_exact(2)
+                .fold((f64::MAX, f64::MIN), |(lo, hi), v| {
+                    (lo.min(v[0]), hi.max(v[0]))
+                });
+            assert!(
+                max_x - min_x < 0.25 * w as f64,
+                "run spans {} px — a streak survived",
+                max_x - min_x
+            );
+        }
+    }
+
+    #[test]
+    fn mollweide_splits_a_recentred_seam_but_not_a_wide_run() {
+        // Recentring the map (a shipped control) moves the seam off ±180 onto
+        // un-clipped coastline — the general case the #278 default (centre 0)
+        // hides. Centre 90°, seam at −90°: a segment crossing −90 at high
+        // latitude must split; a wide segment that does not cross it must not.
+        let (w, h) = (2880u32, 1440u32);
+        let prep = Mollweide::new(w, h, 90.0).prepare();
+        let across = [75.0, -88.0, 75.0, -89.0, 75.0, -91.0, 75.0, -92.0];
+        let out = project_polylines(&prep, w, h, false, &across, &[4]);
+        assert_eq!(
+            out.seg_lengths,
+            vec![2, 2],
+            "a segment crossing the recentred seam must split"
+        );
+        // 10°→170° (centre-relative −80°→+80°) never crosses the −90° seam.
+        let wide = [0.0, 10.0, 0.0, 170.0];
+        let out = project_polylines(&prep, w, h, false, &wide, &[2]);
+        assert_eq!(
+            out.seg_lengths,
+            vec![2],
+            "a non-crossing wide run must not split"
+        );
     }
 
     #[test]
@@ -292,7 +375,7 @@ mod tests {
             ("antarctica +180° end", &antarctic_east[..], false),
         ] {
             let n = (ring.len() / 2) as u32;
-            let out = project_polylines(&prep, w, h, false, true, ring, &[n]);
+            let out = project_polylines(&prep, w, h, false, ring, &[n]);
             assert_eq!(
                 out.seg_lengths,
                 vec![n],
@@ -332,15 +415,15 @@ mod tests {
         let wide = [0.0, -80.0, 0.0, 80.0];
 
         let robin = Robinson::new(360, 180, 0.0).prepare();
-        let out = project_polylines(&robin, 360, 180, false, true, &seam, &[4]);
+        let out = project_polylines(&robin, 360, 180, false, &seam, &[4]);
         assert_eq!(out.seg_lengths, vec![2, 2], "Robinson seam must split");
-        let out = project_polylines(&robin, 360, 180, false, true, &wide, &[2]);
+        let out = project_polylines(&robin, 360, 180, false, &wide, &[2]);
         assert_eq!(out.seg_lengths, vec![2], "Robinson wide run must not split");
 
         let ee = EqualEarth::new(360, 180, 0.0).prepare();
-        let out = project_polylines(&ee, 360, 180, false, true, &seam, &[4]);
+        let out = project_polylines(&ee, 360, 180, false, &seam, &[4]);
         assert_eq!(out.seg_lengths, vec![2, 2], "Equal Earth seam must split");
-        let out = project_polylines(&ee, 360, 180, false, true, &wide, &[2]);
+        let out = project_polylines(&ee, 360, 180, false, &wide, &[2]);
         assert_eq!(
             out.seg_lengths,
             vec![2],
@@ -352,11 +435,11 @@ mod tests {
     fn flip_y_mirrors_the_output_row() {
         let prep = global_equirect(361, 181);
         let latlon = [45.0, 0.0];
-        let unflipped = project_polylines(&prep, 361, 181, false, true, &latlon, &[1]);
+        let unflipped = project_polylines(&prep, 361, 181, false, &latlon, &[1]);
         // A single-vertex run is dropped, so compare a 2-vertex run instead.
         let latlon2 = [45.0, 0.0, 45.0, 1.0];
-        let plain = project_polylines(&prep, 361, 181, false, true, &latlon2, &[2]);
-        let flipped = project_polylines(&prep, 361, 181, true, true, &latlon2, &[2]);
+        let plain = project_polylines(&prep, 361, 181, false, &latlon2, &[2]);
+        let flipped = project_polylines(&prep, 361, 181, true, &latlon2, &[2]);
         assert!(unflipped.xy.is_empty(), "single-vertex run is dropped");
         // y_flipped = (height-1) - y_plain.
         assert!((flipped.xy[1] - (180.0 - plain.xy[1])).abs() < 1e-9);
@@ -373,9 +456,9 @@ mod tests {
         let prep = t.prepare();
         // Front (lon 0), back (lon 180, off-disc), front again.
         let latlon = [0.0, -10.0, 0.0, 0.0, 0.0, 180.0, 0.0, 10.0, 0.0, 20.0];
-        // Azimuthal target: no antimeridian seam, so `wraps_antimeridian` is
-        // false — runs break only on leaving the disc (`None`).
-        let out = project_polylines(&prep, 101, 101, false, false, &latlon, &[5]);
+        // Azimuthal target: `seam_split` is `None`, so runs break only on
+        // leaving the disc (`None` pixel), never on distance.
+        let out = project_polylines(&prep, 101, 101, false, &latlon, &[5]);
         // The off-disc vertex splits the ring; the back side is dropped.
         // Front run #1 = 2 verts (lon -10, 0); front run #2 = 2 verts (lon 10, 20).
         assert_eq!(out.seg_lengths, vec![2, 2]);
@@ -395,21 +478,21 @@ mod tests {
         }
         .prepare();
         let asia = [35.0, 100.0, 36.0, 101.0, 37.0, 102.0];
-        let culled = project_polylines(&prep, 80, 40, false, true, &asia, &[3]);
+        let culled = project_polylines(&prep, 80, 40, false, &asia, &[3]);
         assert!(
             culled.xy.is_empty() && culled.seg_lengths.is_empty(),
             "off-window polyline should be culled"
         );
         // A polyline inside the window is still kept.
         let here = [40.0, -110.0, 41.0, -109.0, 42.0, -108.0];
-        let kept = project_polylines(&prep, 80, 40, false, true, &here, &[3]);
+        let kept = project_polylines(&prep, 80, 40, false, &here, &[3]);
         assert_eq!(kept.seg_lengths, vec![3]);
     }
 
     #[test]
     fn drops_runs_shorter_than_two_vertices() {
         let prep = global_equirect(361, 181);
-        let out = project_polylines(&prep, 361, 181, false, true, &[0.0, 0.0], &[1]);
+        let out = project_polylines(&prep, 361, 181, false, &[0.0, 0.0], &[1]);
         assert!(out.xy.is_empty() && out.seg_lengths.is_empty());
     }
 
@@ -429,15 +512,7 @@ mod tests {
         };
         let inverse = move |lat: f64, lon: f64| latlon_inverse(&p, lat, lon);
         let target = SourceOverlayTarget::new(&inverse);
-        let out = project_polylines(
-            &target,
-            361,
-            181,
-            false,
-            true,
-            &[45.0, 0.0, 45.0, 10.0],
-            &[2],
-        );
+        let out = project_polylines(&target, 361, 181, false, &[45.0, 0.0, 45.0, 10.0], &[2]);
         assert_eq!(out.seg_lengths, vec![2]);
         assert!((out.xy[0] - 180.0).abs() < 1e-6, "lon 0 → px {}", out.xy[0]);
         assert!((out.xy[1] - 45.0).abs() < 1e-6, "lat 45 → py {}", out.xy[1]);
@@ -448,22 +523,14 @@ mod tests {
         );
         // A vertex off the grid (past the pole) inverts to None and breaks the
         // run; the lone remaining vertex is dropped.
-        let off = project_polylines(
-            &target,
-            361,
-            181,
-            false,
-            true,
-            &[45.0, 0.0, 95.0, 0.0],
-            &[2],
-        );
+        let off = project_polylines(&target, 361, 181, false, &[45.0, 0.0, 95.0, 0.0], &[2]);
         assert!(off.xy.is_empty(), "vertex past the pole leaves the grid");
     }
 
     #[test]
     fn degenerate_raster_returns_empty() {
         let prep = global_equirect(0, 181);
-        let out = project_polylines(&prep, 0, 181, false, true, &[0.0, 0.0, 1.0, 1.0], &[2]);
+        let out = project_polylines(&prep, 0, 181, false, &[0.0, 0.0, 1.0, 1.0], &[2]);
         assert_eq!(out, ProjectedPolylines::default());
     }
 
@@ -483,7 +550,7 @@ mod tests {
         }
         .prepare();
         let crossing = [40.0, -121.0, 40.0, -119.0];
-        let out = project_polylines(&prep, 80, 40, false, true, &crossing, &[2]);
+        let out = project_polylines(&prep, 80, 40, false, &crossing, &[2]);
         assert_eq!(out.seg_lengths, vec![2], "edge-crossing run must not split");
         assert!(
             out.xy[0] < 0.0,
@@ -511,26 +578,27 @@ mod tests {
     fn keeps_a_chord_that_crosses_the_viewport_with_both_endpoints_off_margin() {
         // 100×100 raster; keep-margin is x,y ∈ [-100, 200]. Both endpoints fall
         // outside the margin (x = -150 and x = 250) but the chord crosses the
-        // viewport, so the run must be kept (not culled vertex-by-vertex). Use a
-        // non-wrapping target so the > w/2 jump isn't treated as a seam.
+        // viewport, so the run must be kept (not culled vertex-by-vertex).
+        // `IdentityPixels` has no seam (`seam_split` defaults to `None`), so the
+        // > w/2 jump isn't treated as a seam.
         let crossing = [50.0, -150.0, 50.0, 250.0];
-        let kept = project_polylines(&IdentityPixels, 100, 100, false, false, &crossing, &[2]);
+        let kept = project_polylines(&IdentityPixels, 100, 100, false, &crossing, &[2]);
         assert_eq!(kept.seg_lengths, vec![2], "viewport-crossing chord kept");
         // A run entirely off to one side is still culled.
         let off = [50.0, 250.0, 50.0, 300.0];
-        let culled = project_polylines(&IdentityPixels, 100, 100, false, false, &off, &[2]);
+        let culled = project_polylines(&IdentityPixels, 100, 100, false, &off, &[2]);
         assert!(culled.xy.is_empty(), "run off to one side is culled");
     }
 
     #[test]
     fn azimuthal_target_does_not_split_far_apart_visible_points() {
         // Two visible front-hemisphere points project near opposite edges of the
-        // disc (> half the raster apart). With `wraps_antimeridian = false` the
-        // azimuthal target keeps them as one chord instead of mistaking the gap
-        // for an antimeridian wrap (which would split + drop both as singletons).
+        // disc (> half the raster apart). The azimuthal target's `seam_split` is
+        // `None`, so it keeps them as one chord instead of mistaking the gap for
+        // an antimeridian wrap (which would split + drop both as singletons).
         let prep = Orthographic::new(100, 100, 0.0, 0.0).prepare();
         let wide = [0.0, -80.0, 0.0, 80.0];
-        let out = project_polylines(&prep, 100, 100, false, false, &wide, &[2]);
+        let out = project_polylines(&prep, 100, 100, false, &wide, &[2]);
         assert_eq!(out.seg_lengths, vec![2]);
     }
 
@@ -540,7 +608,7 @@ mod tests {
         // The dangling `lat` (30.0) has no paired `lon`, so it is dropped rather
         // than fabricating a (30, 0) vertex on the prime meridian.
         let prep = global_equirect(361, 181);
-        let out = project_polylines(&prep, 361, 181, false, true, &[10.0, 20.0, 30.0], &[2]);
+        let out = project_polylines(&prep, 361, 181, false, &[10.0, 20.0, 30.0], &[2]);
         assert!(
             out.xy.is_empty(),
             "truncated tail must not fabricate a vertex"

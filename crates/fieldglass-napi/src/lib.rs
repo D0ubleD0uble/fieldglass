@@ -2755,37 +2755,32 @@ impl BuiltTarget {
     }
 
     /// Project geographic `(lat, lon)` rings onto this target's pixel space,
-    /// applying `flip_y` to match a vertically-flipped render. The lat/lon-box
-    /// targets split runs at the antimeridian seam; the azimuthal targets have
-    /// no seam (`wraps_antimeridian = false`) and break only off the disc.
+    /// applying `flip_y` to match a vertically-flipped render. Each target
+    /// reports its own seam-split rule (`ForwardMap::seam_split`), so the only
+    /// per-variant work here is preparing the concrete map.
     fn project(&self, flip_y: bool, latlon: &[f64], ring_lengths: &[u32]) -> ProjectedPolylines {
         let (w, h) = self.dims();
         match self {
             BuiltTarget::Equirect(t) => {
-                project_polylines(&t.prepare(), w, h, flip_y, true, latlon, ring_lengths)
+                project_polylines(&t.prepare(), w, h, flip_y, latlon, ring_lengths)
             }
             BuiltTarget::Mercator(t) => {
-                project_polylines(&t.prepare(), w, h, flip_y, true, latlon, ring_lengths)
+                project_polylines(&t.prepare(), w, h, flip_y, latlon, ring_lengths)
             }
             BuiltTarget::Ortho(t) => {
-                project_polylines(&t.prepare(), w, h, flip_y, false, latlon, ring_lengths)
+                project_polylines(&t.prepare(), w, h, flip_y, latlon, ring_lengths)
             }
             BuiltTarget::Polar(t) => {
-                project_polylines(&t.prepare(), w, h, flip_y, false, latlon, ring_lengths)
+                project_polylines(&t.prepare(), w, h, flip_y, latlon, ring_lengths)
             }
-            // Split at the ±180° seam meridian like the lat/lon-box targets: the
-            // world targets wrap longitude into (−π, π] about their centre, so a
-            // polyline crossing the seam jumps from one rim to the other (a
-            // near-full-width Δx) and must break there. A genuine segment spans
-            // ≤ 180° of longitude, so its Δx stays ≤ w/2 and never false-splits.
             BuiltTarget::Moll(t) => {
-                project_polylines(&t.prepare(), w, h, flip_y, true, latlon, ring_lengths)
+                project_polylines(&t.prepare(), w, h, flip_y, latlon, ring_lengths)
             }
             BuiltTarget::Robin(t) => {
-                project_polylines(&t.prepare(), w, h, flip_y, true, latlon, ring_lengths)
+                project_polylines(&t.prepare(), w, h, flip_y, latlon, ring_lengths)
             }
             BuiltTarget::EqEarth(t) => {
-                project_polylines(&t.prepare(), w, h, flip_y, true, latlon, ring_lengths)
+                project_polylines(&t.prepare(), w, h, flip_y, latlon, ring_lengths)
             }
         }
     }
@@ -2936,15 +2931,15 @@ fn project_overlay_impl(
     let (inverse, bbox_thunk) = warp_setup_for(meta, ni, nj)?;
     match resolved.projection {
         // A source grid can wrap longitude (a global grid's seam, or the cut
-        // meridian of a projected grid), so split at a raster-width jump like
-        // the box targets; on a regional grid, out-of-coverage vertices invert
-        // to `None` and break runs there instead.
+        // meridian of a projected grid); `SourceOverlayTarget::seam_split`
+        // returns `PixelHalfWidth`, so a raster-width jump breaks the run. On a
+        // regional grid, out-of-coverage vertices invert to `None` and break
+        // runs there instead.
         TargetKind::Source => Ok(project_polylines(
             &SourceOverlayTarget::new(inverse.as_ref()),
             ni,
             nj,
             resolved.flip_y,
-            true,
             latlon,
             ring_lengths,
         )),
