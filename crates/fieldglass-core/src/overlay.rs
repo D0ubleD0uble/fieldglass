@@ -10,13 +10,37 @@
 //! A single input ring becomes zero or more output runs: we break a run
 //! whenever a vertex leaves the projection's visible domain (the back of an
 //! orthographic globe, past a polar disc's equator rim) and — only for targets
-//! that wrap longitude (`wraps_antimeridian`: the lat/lon-box targets and the
-//! source projection) — whenever consecutive vertices jump more than half the
-//! raster width apart, the antimeridian / grid seam where a polyline wraps from
-//! one edge to the other and must not be drawn as a streak across the map. The
-//! azimuthal targets have no seam, so they pass `wraps_antimeridian = false`.
-//! Runs whose bounding box never reaches the viewport, or that are left with
-//! fewer than two vertices, are dropped (nothing visible to stroke).
+//! that wrap longitude (`wraps_antimeridian`: the lat/lon-box targets, the world
+//! targets, and the source projection) — whenever consecutive vertices jump more
+//! than half the raster width apart, the antimeridian / grid seam where a
+//! polyline wraps from one edge to the other and must not be drawn as a streak
+//! across the map. The azimuthal targets have no seam, so they pass
+//! `wraps_antimeridian = false`. Runs whose bounding box never reaches the
+//! viewport, or that are left with fewer than two vertices, are dropped
+//! (nothing visible to stroke).
+//!
+//! **The half-raster threshold is known-wrong on Mollweide above ~70.4°, and
+//! that is a live bug.** It reads a seam hop as "far apart in x", which holds
+//! for a map that is the full raster width at every row. Mollweide's ellipse is
+//! not: it narrows to w/2 at ~70.4° and to ~49 % of its width at 71°, so a
+//! genuine rim-to-rim hop up there falls *under* the threshold, is not split,
+//! and strokes clear across the map. Robinson and Equal Earth never dip below
+//! half-width (their minimum half-widths are 0.5322 and 0.5924 of the frame), so
+//! they are unaffected.
+//!
+//! This is reachable from the UI: the seam sits at the centre meridian ±180, so
+//! recentring the map (a shipped control) moves it onto un-clipped coastline —
+//! Antarctica crosses every meridian below −70°, and at a centre of 90° the
+//! coastline crosses the seam eight times above 70.3°N. Only a centre of 0°
+//! escapes, because the bundled layers are pre-clipped at ±180 and so cross
+//! nothing there. Do not mistake that default for the general case.
+//!
+//! No `|Δx|` threshold can fix this: on a tapered map a full-width parallel and
+//! a seam hop have the same Δx. The exact test is geographic, and this function
+//! already has `(lat, lon)` in hand — split when the two vertices' centre-
+//! relative longitudes straddle the seam. That is a separate change from the
+//! seam-vertex placement (`wrap_to_seam_span`, which stops a vertex *on* the
+//! seam from faking a hop); both are needed, and this one is still open.
 //!
 //! This module is deliberately projection-agnostic: it knows nothing about
 //! "coastline" vs "graticule" vs a user-drawn shape — they are all just
@@ -71,14 +95,16 @@ pub struct ProjectedPolylines {
 /// match a vertically-flipped render (the `paint_grid_rgba` flip).
 ///
 /// `wraps_antimeridian` controls the seam split: pass `true` for the lat/lon-box
-/// targets (equirectangular, Web Mercator) and the source projection, where a
-/// polyline can jump edge-to-edge across the antimeridian / grid seam and must
-/// be broken there; pass `false` for the azimuthal targets (orthographic, polar
-/// stereographic), which have no seam — their only run break is leaving the
-/// visible disc (`None`), and a straight chord between two visible points always
-/// stays on the convex hemisphere. This stops a sparse polyline (e.g. a
-/// user-drawn shape) from being wrongly split when two distant points happen to
-/// land more than half a raster apart on a disc.
+/// targets (equirectangular, Web Mercator), the world targets (Mollweide,
+/// Robinson, Equal Earth) and the source projection, where a polyline can jump
+/// edge-to-edge across the antimeridian / grid seam and must be broken there;
+/// pass `false` for the azimuthal targets (orthographic, polar stereographic),
+/// which have no seam — their only run break is leaving the visible disc
+/// (`None`), and a straight chord between two visible points always stays on the
+/// convex hemisphere. This stops a sparse polyline (e.g. a user-drawn shape)
+/// from being wrongly split when two distant points happen to land more than
+/// half a raster apart on a disc. See the module docs: on Mollweide the
+/// threshold misses a genuine seam hop above ~70.4°, which is still open.
 ///
 /// `latlon` is flat `[lat, lon, lat, lon, …]`; `ring_lengths[k]` is the
 /// vertex count of ring `k`. See the module docs for the run-splitting rules.
@@ -233,6 +259,67 @@ mod tests {
         let wide = [0.0, -80.0, 0.0, 80.0];
         let out = project_polylines(&prep, 360, 180, false, true, &wide, &[2]);
         assert_eq!(out.seg_lengths, vec![2], "wide visible run must not split");
+    }
+
+    #[test]
+    fn a_ring_touching_the_seam_draws_whole_and_stays_on_its_rim() {
+        // Wrangel Island as Natural Earth 1:110m ships it: the antimeridian
+        // clips it into a −180° piece and a +180° piece, each carrying vertices
+        // *exactly* on the seam. Those must land on their own rim beside their
+        // neighbours — a flip to the far rim drew a streak across the whole map
+        // at ~71°N (the ellipse is ~1414 px wide there, under the w/2 = 1440
+        // seam-split threshold, so the split did not mask it as it does lower
+        // down). Every vertex must survive: no split, one run per ring.
+        let (w, h) = (2880u32, 1440u32);
+        let prep = Mollweide::new(w, h, 0.0).prepare();
+        let west_piece: [f64; 14] = [
+            71.516, -180.0, 71.558, -179.872, 71.556, -179.024, 71.269, -177.578, 71.133, -177.664,
+            70.893, -178.694, 70.832, -180.0,
+        ];
+        let east_piece: [f64; 8] = [
+            70.832, 180.0, 70.781, 178.903, 71.099, 178.725, 71.516, 180.0,
+        ];
+        // Antarctica's ring is clipped the same way and streaked the same way,
+        // at −84.7°: it runs seam to seam, so *both* its ends touch one.
+        let antarctic_west: [f64; 4] = [-84.713, -180.0, -84.721, -179.942];
+        let antarctic_east: [f64; 4] = [-84.473, 178.277, -84.713, 180.0];
+        let mid = (w as f64 - 1.0) / 2.0;
+
+        for (label, ring, want_west_of_centre) in [
+            ("wrangel −180° piece", &west_piece[..], true),
+            ("wrangel +180° piece", &east_piece[..], false),
+            ("antarctica −180° end", &antarctic_west[..], true),
+            ("antarctica +180° end", &antarctic_east[..], false),
+        ] {
+            let n = (ring.len() / 2) as u32;
+            let out = project_polylines(&prep, w, h, false, true, ring, &[n]);
+            assert_eq!(
+                out.seg_lengths,
+                vec![n],
+                "{label}: must stay one unbroken run of every vertex"
+            );
+            // The whole piece sits on one rim — no vertex crossed the centre.
+            for v in out.xy.chunks_exact(2) {
+                assert_eq!(
+                    v[0] < mid,
+                    want_west_of_centre,
+                    "{label}: vertex x={} fell on the wrong side of centre {mid}",
+                    v[0]
+                );
+            }
+            // …and it is a small island, not a streak: it spans a sliver of map.
+            let (min_x, max_x) = out
+                .xy
+                .chunks_exact(2)
+                .fold((f64::MAX, f64::MIN), |(lo, hi), v| {
+                    (lo.min(v[0]), hi.max(v[0]))
+                });
+            assert!(
+                max_x - min_x < 0.05 * w as f64,
+                "{label}: spans {} px — a streak, not an island",
+                max_x - min_x
+            );
+        }
     }
 
     #[test]
