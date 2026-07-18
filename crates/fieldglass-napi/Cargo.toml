@@ -15,10 +15,10 @@ repository.workspace   = true
 crate-type = ["cdylib"]
 
 [dependencies]
-fieldglass-core   = { path = "../fieldglass-core",   version = "=0.2.0", features = ["render"] }
-fieldglass-grib1  = { path = "../fieldglass-grib1",  version = "=0.2.0" }
-fieldglass-grib2  = { path = "../fieldglass-grib2",  version = "=0.2.0" }
-fieldglass-netcdf = { path = "../fieldglass-netcdf", version = "=0.2.0" }
+fieldglass-core   = { path = "../fieldglass-core",   version = "=0.3.0", features = ["render"] }
+fieldglass-grib1  = { path = "../fieldglass-grib1",  version = "=0.3.0" }
+fieldglass-grib2  = { path = "../fieldglass-grib2",  version = "=0.3.0" }
+fieldglass-netcdf = { path = "../fieldglass-netcdf", version = "=0.3.0" }
 napi = { version = "3", features = ["napi6"] }
 napi-derive = "3"
 

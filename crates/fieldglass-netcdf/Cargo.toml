@@ -12,7 +12,7 @@ keywords    = ["netcdf", "hdf5", "meteorology", "weather", "science"]
 categories  = ["science", "parser-implementations"]
 
 [dependencies]
-fieldglass-core = { path = "../fieldglass-core", version = "=0.2.0", default-features = false }
+fieldglass-core = { path = "../fieldglass-core", version = "=0.3.0", default-features = false }
 serde = { workspace = true }
 # DEFLATE (zlib) decode for the HDF5 deflate filter on chunked NetCDF-4 datasets.
 miniz_oxide = { workspace = true }

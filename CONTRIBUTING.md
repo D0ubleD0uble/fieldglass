@@ -1,6 +1,6 @@
 # Contributing to Fieldglass
 
-Thanks for considering a contribution. Fieldglass is in beta — bug reports, file fixtures that don't render correctly, and pull requests are all welcome.
+Thanks for considering a contribution. Bug reports, file fixtures that don't render correctly, and pull requests are all welcome.
 
 ## Filing issues
 

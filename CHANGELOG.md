@@ -6,6 +6,8 @@ Versioning is plain [Semantic Versioning](https://semver.org/spec/v2.0.0.html), 
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-07-18
+
 ### Added
 
 - **GRIB1 spectral messages now decode to their spherical-harmonic coefficients.** IFS analyses and other spectral-model output store a field as spherical-harmonic coefficients rather than grid values, and both GRIB1 spectral packings (`spectral_simple` and `spectral_complex`, the latter with its Laplacian-scaled sub-truncation) now decode through `Grib1Reader::decode_spectral_message` in the Rust API, checked coefficient-for-coefficient against eccodes on a T63 field. The coefficients are not values on a grid, so such a message still does not render as a 2-D image — recovering a grid needs an inverse Legendre transform, which is a follow-up. Until then the message reports a precise reason instead of a bare unsupported-packing error. Part of #43.
@@ -267,7 +269,8 @@ First public release, on the Marketplace pre-release channel. Read-only metadata
 
 See the README "Known limitations" section.
 
-[Unreleased]: https://github.com/D0ubleD0uble/fieldglass/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/D0ubleD0uble/fieldglass/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/D0ubleD0uble/fieldglass/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/D0ubleD0uble/fieldglass/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/D0ubleD0uble/fieldglass/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/D0ubleD0uble/fieldglass/compare/v0.1.1...v0.1.2

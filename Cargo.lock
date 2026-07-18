@@ -55,7 +55,7 @@ dependencies = [
 
 [[package]]
 name = "fieldglass-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "serde",
  "thiserror",
@@ -63,7 +63,7 @@ dependencies = [
 
 [[package]]
 name = "fieldglass-grib1"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "fieldglass-core",
  "serde",
@@ -72,7 +72,7 @@ dependencies = [
 
 [[package]]
 name = "fieldglass-grib2"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "fieldglass-core",
  "png",
@@ -84,7 +84,7 @@ dependencies = [
 
 [[package]]
 name = "fieldglass-napi"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "fieldglass-core",
  "fieldglass-grib1",
@@ -97,7 +97,7 @@ dependencies = [
 
 [[package]]
 name = "fieldglass-netcdf"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "fieldglass-core",
  "miniz_oxide 0.9.1",
