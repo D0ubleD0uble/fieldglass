@@ -31,7 +31,7 @@ jobs:
       # stable — the fuzz crate is excluded from the workspace so they never
       # touch it.
       - name: Set up Rust nightly
-        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
         with:
           toolchain: nightly
           targets: x86_64-unknown-linux-gnu
@@ -68,7 +68,7 @@ jobs:
       # gates stay on stable — the fuzz crate is excluded from the workspace so
       # they never touch it.
       - name: Set up Rust nightly
-        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
         with:
           toolchain: nightly
           targets: x86_64-unknown-linux-gnu
@@ -105,7 +105,7 @@ jobs:
       # gates stay on stable — the fuzz crate is excluded from the workspace so
       # they never touch it.
       - name: Set up Rust nightly
-        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
         with:
           toolchain: nightly
           targets: x86_64-unknown-linux-gnu
