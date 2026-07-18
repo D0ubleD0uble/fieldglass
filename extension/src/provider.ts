@@ -330,7 +330,7 @@ export class FieldglassEditorProvider
       });
       return;
     }
-    if (meta.gridNi === null || meta.gridNj === null) {
+    if (meta.gridNi == null || meta.gridNj == null) {
       panel.webview.postMessage({
         type: "gridError",
         messageIndex,
@@ -1054,11 +1054,11 @@ function syntheticNetcdfMeta(v: NetcdfVariableMeta, messageIndex = v.variableInd
 }
 
 function describeProjection(meta: MessageMeta): string {
-  const dims = (meta.gridNi !== null && meta.gridNj !== null)
+  const dims = (meta.gridNi != null && meta.gridNj != null)
     ? `${meta.gridNi}×${meta.gridNj}` : "?";
   const type = meta.gridType ?? "unknown grid";
-  if (meta.latFirst !== null && meta.lonFirst !== null
-      && meta.latLast !== null && meta.lonLast !== null) {
+  if (meta.latFirst != null && meta.lonFirst != null
+      && meta.latLast != null && meta.lonLast != null) {
     const f = (v: number) => v.toFixed(2);
     return `${type} ${dims} — ${f(meta.latFirst)},${f(meta.lonFirst)} → `
          + `${f(meta.latLast)},${f(meta.lonLast)} (grid coordinates)`;
@@ -1201,17 +1201,19 @@ function renderHtml(
   let bodyContent = "";
 
   if (messages && messages.length > 0) {
-    const fmt1 = (v: number | null) => v !== null ? v.toFixed(3) : "—";
+    // napi returns `undefined` (not `null`) for a Rust `None`, so use a nullish
+    // check — a grid-less message (e.g. GRIB1 spectral) has no bounds.
+    const fmt1 = (v: number | null | undefined) => v != null ? v.toFixed(3) : "—";
     const COLSPAN = 13;
     const rows = messages.map((m) => {
-      const gridDims = (m.gridNi !== null && m.gridNj !== null)
+      const gridDims = (m.gridNi != null && m.gridNj != null)
         ? `${m.gridNi}×${m.gridNj}` : "—";
-      const gridBounds = (m.latFirst !== null && m.lonFirst !== null)
+      const gridBounds = (m.latFirst != null && m.lonFirst != null)
         ? `${fmt1(m.latFirst)},${fmt1(m.lonFirst)} → ${fmt1(m.latLast)},${fmt1(m.lonLast)}` : "—";
       const fcstCell = editable
         ? `<input type="number" class="p1-input" data-message-index="${m.messageIndex}" min="0" max="255" step="1" value="${m.forecastHours}" />`
         : escapeHtml(m.forecastDisplay);
-      const canRender = m.gridNi !== null && m.gridNj !== null;
+      const canRender = m.gridNi != null && m.gridNj != null;
       const idx = m.messageIndex;
       const expansionInner = canRender
         ? `<button type="button" class="render-btn" data-message-index="${idx}">Render</button>
