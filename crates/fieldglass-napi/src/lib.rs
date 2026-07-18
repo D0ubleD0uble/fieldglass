@@ -169,6 +169,12 @@ pub struct MessageMeta {
     /// carry Dx = Dy = 0). The webview hides the reprojection options when this
     /// is `false`.
     pub reprojectable: bool,
+    /// Whether the grid's rows scan south→north (GRIB `jScansPositively`).
+    /// The source projection paints grid row 0 at the top of the canvas, so a
+    /// south→north grid renders upside-down unless flipped; the source render
+    /// uses this to orient the raster by default (#286). `None` for grids with
+    /// no scan flag (predefined GRIB1 grids, NetCDF), treated as `false`.
+    pub j_scans_positive: Option<bool>,
 }
 
 /// Whether a grid can feed the warp pipeline's non-source targets. Mirrors the
@@ -357,6 +363,27 @@ fn build_grib1_message_meta(
         Some(fieldglass_grib1::GridDescription::ReducedGaussian(g)) => g.scanning_mode.i_negative,
         _ => false,
     };
+    // South→north row scan, so the source render can orient the raster (#286).
+    let j_scans_positive = match &msg.gds {
+        Some(fieldglass_grib1::GridDescription::LatLon(g)) => Some(g.scanning_mode.j_positive),
+        Some(fieldglass_grib1::GridDescription::RotatedLatLon(g)) => {
+            Some(g.scanning_mode.j_positive)
+        }
+        Some(fieldglass_grib1::GridDescription::ReducedLatLon(g)) => {
+            Some(g.scanning_mode.j_positive)
+        }
+        Some(fieldglass_grib1::GridDescription::Gaussian(g)) => Some(g.scanning_mode.j_positive),
+        Some(fieldglass_grib1::GridDescription::ReducedGaussian(g)) => {
+            Some(g.scanning_mode.j_positive)
+        }
+        Some(fieldglass_grib1::GridDescription::LambertConformal(g)) => {
+            Some(g.scanning_mode.j_positive)
+        }
+        Some(fieldglass_grib1::GridDescription::PolarStereographic(g)) => {
+            Some(g.scanning_mode.j_positive)
+        }
+        _ => None,
+    };
     let reprojectable = grid_is_reprojectable(
         grid_type.as_deref(),
         polar_stereo_dx_metres.or(lambert_dx_metres),
@@ -415,6 +442,7 @@ fn build_grib1_message_meta(
         geos_dy_rad: None,
         packing,
         reprojectable,
+        j_scans_positive,
     }
 }
 
@@ -779,6 +807,8 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
         geos_dy_rad: space_view.map(|g| g.dy_rad),
         packing: Some(friendly_packing(&msg.drs.template_name())),
         reprojectable,
+        // GRIB2 §3 Flag Table 3.4 bit 2 (0x40): rows scan south→north (#286).
+        j_scans_positive: msg.gds.scanning_mode().map(|sm| sm & 0x40 != 0),
     }
 }
 
@@ -2143,6 +2173,7 @@ fn base_netcdf_meta(name: &str, units: &str, ni: i32, nj: i32) -> MessageMeta {
         geos_dy_rad: None,
         packing: None,
         reprojectable: false,
+        j_scans_positive: None,
     }
 }
 
@@ -2503,17 +2534,34 @@ type ProjectionStage = (
     String,
 );
 
+/// Effective vertical flip for the source projection.
+///
+/// The source projection paints grid row 0 at the top of the canvas, so a grid
+/// that scans south→north (`jScansPositively`) renders upside-down. The source
+/// view therefore flips such a grid by default, with the user's Flip Y toggle
+/// riding on top as an override. Reprojected targets orient from geometry, so
+/// they use `flip_y` verbatim and never call this. (#286)
+fn source_flip_y(meta: &MessageMeta, flip_y: bool) -> bool {
+    flip_y ^ meta.j_scans_positive.unwrap_or(false)
+}
+
 fn render_with_options(
     meta: &MessageMeta,
     raw: &[Option<f64>],
     options: &RenderOptions,
 ) -> napi::Result<RenderedGrid> {
     let resolved = ResolvedOptions::parse(options)?;
+    let is_source = matches!(resolved.projection, TargetKind::Source);
     let (values, mask, width, height, used_bounds, summary) = match resolved.projection {
         TargetKind::Source => paint_source(meta, raw)?,
         TargetKind::Warp(target) => {
             warp_message(meta, raw, target, resolved.resampling, resolved.bounds)?
         }
+    };
+    let flip_y = if is_source {
+        source_flip_y(meta, resolved.flip_y)
+    } else {
+        resolved.flip_y
     };
 
     let (used_min, used_max) = match (resolved.range_min, resolved.range_max) {
@@ -2535,7 +2583,7 @@ fn render_with_options(
         height,
         used_min,
         used_max,
-        resolved.flip_y,
+        flip_y,
         resolved.colormap,
         resolved.reverse_colormap,
     );
@@ -2953,11 +3001,13 @@ fn project_overlay_impl(
         // returns `PixelHalfWidth`, so a raster-width jump breaks the run. On a
         // regional grid, out-of-coverage vertices invert to `None` and break
         // runs there instead.
+        // The source raster is flipped to face north-up by default (#286); the
+        // overlay must ride the same flip so coastlines track the field.
         TargetKind::Source => Ok(project_polylines(
             &SourceOverlayTarget::new(inverse.as_ref()),
             ni,
             nj,
-            resolved.flip_y,
+            source_flip_y(meta, resolved.flip_y),
             latlon,
             ring_lengths,
         )),
@@ -3685,6 +3735,7 @@ mod polar_stereo_warp_tests {
             geos_dy_rad: None,
             packing: None,
             reprojectable: true,
+            j_scans_positive: None,
         }
     }
 
@@ -4466,6 +4517,7 @@ mod overlay_projection_tests {
             geos_dy_rad: None,
             packing: None,
             reprojectable: true,
+            j_scans_positive: None,
         }
     }
 
@@ -4567,6 +4619,28 @@ mod overlay_projection_tests {
                 "{projection}: seg_lengths must account for every xy pair"
             );
         }
+    }
+
+    #[test]
+    fn source_flip_y_orients_south_to_north_grids() {
+        let mut meta = global_latlon_meta();
+
+        // North→south scan (jScansPositively = 0): row 0 is already north, so
+        // the source view needs no intrinsic flip; the user toggle passes through.
+        meta.j_scans_positive = Some(false);
+        assert!(!source_flip_y(&meta, false));
+        assert!(source_flip_y(&meta, true));
+
+        // South→north scan (NBM): row 0 is south, so the source view flips by
+        // default and the user toggle rides on top of that.
+        meta.j_scans_positive = Some(true);
+        assert!(source_flip_y(&meta, false));
+        assert!(!source_flip_y(&meta, true));
+
+        // No scan flag (predefined GRIB1, NetCDF): treated as no intrinsic flip.
+        meta.j_scans_positive = None;
+        assert!(!source_flip_y(&meta, false));
+        assert!(source_flip_y(&meta, true));
     }
 }
 
@@ -5125,6 +5199,7 @@ mod space_view_geos_tests {
             geos_dy_rad: Some(g.dy_rad),
             packing: None,
             reprojectable: true,
+            j_scans_positive: None,
         }
     }
 

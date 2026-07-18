@@ -1049,6 +1049,7 @@ function syntheticNetcdfMeta(v: NetcdfVariableMeta, messageIndex = v.variableInd
     gaussianNParallels: null,
     packing: null,
     reprojectable: true,
+    jScansPositive: null,
   };
 }
 

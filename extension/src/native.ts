@@ -59,6 +59,10 @@ export interface MessageMeta {
    *  GDS template) or with a degenerate Dx/Dy; the panel hides those options
    *  when false. */
   reprojectable: boolean;
+  /** Whether the grid's rows scan south→north (GRIB `jScansPositively`). The
+   *  source projection orients the raster from this so it isn't upside-down;
+   *  null for grids with no scan flag (predefined GRIB1 grids, NetCDF). */
+  jScansPositive: boolean | null;
 }
 
 export interface DimensionMeta {
