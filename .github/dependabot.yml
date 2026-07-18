@@ -51,6 +51,16 @@ updates:
       # the minimum supported VS Code, which is a deliberate decision, not
       # a Dependabot one. Skip these bumps and revisit manually.
       - dependency-name: "@types/vscode"
+      # TypeScript 7.0 is the native (Go) compiler rewrite, not an incremental
+      # release. typescript-eslint's type-aware rules reach into the compiler's
+      # internal API and crash at runtime on TS 7 ("Cannot read properties of
+      # undefined (reading 'Cjs')"); its supported range is still >=4.8.4
+      # <6.1.0, and the support issue was closed as not planned
+      # (typescript-eslint/typescript-eslint#12518). Keep taking 6.x minor and
+      # patch bumps; revisit the major deliberately once the lint toolchain
+      # ships TS 7 support (it must move in lockstep with @typescript-eslint/*).
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
 
   # Root package.json (only @napi-rs/cli).
   - package-ecosystem: npm
