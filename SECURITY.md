@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Fieldglass is an early public release (beta). Only the latest release on `master` receives security fixes; there are no maintained branches for earlier versions.
+Only the latest release on `master` receives security fixes; there are no maintained branches for earlier versions.
 
 ## Reporting a vulnerability
 

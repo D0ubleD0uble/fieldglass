@@ -193,7 +193,7 @@ export class FieldglassEditorProvider
     const headerBytes = format === "unknown" ? header : undefined;
     // Editing wiring (set_p1, undo/redo, save, webview script + input) is kept
     // intact for when general PDS field editing lands, but disabled at the
-    // entry point so beta users see a coherent read-only viewer instead of a
+    // entry point so users see a coherent read-only viewer instead of a
     // single editable column.
     const editable = false;
 

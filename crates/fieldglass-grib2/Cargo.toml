@@ -12,7 +12,7 @@ keywords    = ["grib", "grib2", "meteorology", "weather", "gis"]
 categories  = ["science", "parser-implementations"]
 
 [dependencies]
-fieldglass-core = { path = "../fieldglass-core", version = "=0.2.0", default-features = false }
+fieldglass-core = { path = "../fieldglass-core", version = "=0.3.0", default-features = false }
 serde = { workspace = true }
 png = { workspace = true }
 rust-aec = { workspace = true }
