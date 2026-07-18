@@ -44,7 +44,7 @@ Bump versions in lockstep:
 | `crates/fieldglass-{grib1,grib2,napi,netcdf}/Cargo.toml` | internal `version = "=X.Y.Z"` pins to match |
 | `extension/package.json` | `version` field |
 | `Cargo.lock` | `cargo check --workspace` to refresh |
-| `crates/fieldglass-{grib1,grib2,netcdf}/fuzz/Cargo.lock` | refresh each — the fuzz crates are excluded from the workspace, so `cargo check --workspace` does **not** touch their locks, yet they pin `fieldglass-* = "=X.Y.Z"`. Run `cargo update -w` in each `fuzz/` dir (or `cargo check`) so the committed locks aren't left on the old version. |
+| `crates/fieldglass-{grib1,grib2,netcdf}/fuzz/Cargo.lock` | refresh each — the fuzz crates are excluded from the workspace, so `cargo check --workspace` does **not** touch their locks, yet each lock still records the resolved `fieldglass-*` version. Run `cargo update -w` in each `fuzz/` dir (or `cargo check`) so the committed locks aren't left on the old version. |
 | `extension/package-lock.json` | `cd extension && npm install --package-lock-only` to refresh |
 
 Promote the CHANGELOG: rename `## [Unreleased]` to `## [X.Y.Z] — YYYY-MM-DD`
