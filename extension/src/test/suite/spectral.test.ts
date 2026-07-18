@@ -1,0 +1,71 @@
+import * as assert from "assert";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
+import * as vscode from "vscode";
+
+import type { FieldglassApi } from "../../extension";
+import type { FieldglassDocument, FieldglassEditorProvider } from "../../provider";
+
+const EXT_ID = "fieldglass.fieldglass";
+
+async function activateExtension(): Promise<FieldglassApi> {
+  const ext = vscode.extensions.getExtension<FieldglassApi>(EXT_ID);
+  if (!ext) {
+    throw new Error(`extension ${EXT_ID} not found`);
+  }
+  return ext.activate();
+}
+
+function copyFixtureToTmp(name: string): vscode.Uri {
+  const ext = vscode.extensions.getExtension(EXT_ID);
+  if (!ext) {
+    throw new Error(`extension ${EXT_ID} not found`);
+  }
+  const src = path.join(ext.extensionPath, "src", "test", "fixtures", name);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-spectral-"));
+  const dest = path.join(dir, name);
+  fs.copyFileSync(src, dest);
+  return vscode.Uri.file(dest);
+}
+
+suite("GRIB1 spectral editor opens", () => {
+  let api: FieldglassApi;
+  let provider: FieldglassEditorProvider;
+
+  suiteSetup(async () => {
+    api = await activateExtension();
+    provider = api.provider;
+  });
+
+  for (const fixture of ["spectral_complex_t63.grib1", "spectral_simple_t63.grib1"]) {
+    test(`resolveCustomEditor populates the table for ${fixture}`, async () => {
+      const uri = copyFixtureToTmp(fixture);
+      const doc = (await provider.openCustomDocument(
+        uri,
+        {} as vscode.CustomDocumentOpenContext,
+        new vscode.CancellationTokenSource().token,
+      )) as FieldglassDocument;
+
+      const panel = vscode.window.createWebviewPanel(
+        "fieldglass.viewer",
+        fixture,
+        vscode.ViewColumn.One,
+        {},
+      );
+      try {
+        // Must not throw ("editor could not be opened due to an unexpected error").
+        await provider.resolveCustomEditor(doc, panel);
+        const html = panel.webview.html;
+        assert.ok(html.length > 0, "webview html should be populated");
+        assert.ok(
+          html.includes("spectral_simple") || html.includes("spectral_complex"),
+          "message table should show the spectral packing label",
+        );
+        assert.ok(html.includes("Temperature"), "message row should render");
+      } finally {
+        panel.dispose();
+      }
+    });
+  }
+});

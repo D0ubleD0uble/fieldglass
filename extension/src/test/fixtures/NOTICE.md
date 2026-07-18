@@ -34,3 +34,12 @@ monthly mean — a real 4-D (`time × lev × lat × lon`) classic NetCDF on a re
 2°×2° lat/lon grid, used to exercise the NetCDF 2-D slice render path end-to-end.
 "No constraints on data access or use." Canonical copy:
 `crates/fieldglass-netcdf/tests/fixtures/NOTICE.md`.
+
+## `spectral_complex_t63.grib1` / `spectral_simple_t63.grib1`
+
+GRIB1 spherical-harmonic (spectral) temperature fields, GDS data representation
+type 50, T63 triangular truncation — the two spectral packings. Derived from
+eccodes 2.34.1's own sample (`sh_sfc_grib1.tmpl`), ECMWF, Apache 2.0. Used to
+verify a grid-less message opens in the editor and reports it can't render
+rather than crashing. Canonical copy:
+`crates/fieldglass-grib1/tests/fixtures/NOTICE.md`.
