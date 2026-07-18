@@ -179,10 +179,18 @@ looking for gaps in it: the proof the mvm-aware decode is right is that the
 shifts the whole field. Actual masking is checked on the fixtures in §4b.
 
 - [ ] Renders (it used to report an unsupported template).
+- [ ] The field reads as a smooth, continuous temperature map — **not** a
+      left-right mirror of itself, and **not** a venetian-blind of alternating
+      noisy rows. NBM scans alternate rows in opposite directions (scanning-mode
+      80, bit 4); if that is not undone, every second row is reversed and the
+      image scrambles this way. The value range still looks right when it does,
+      so this visual check is the only thing that catches it.
 - [ ] Reproject to equirectangular, coastlines on: CONUS temperature, aligned.
-- [ ] The value range reads **267.9 … 315.8 K** (auto range). This is the real
-      check — it is eccodes' range for this field, to the tenth. A number well
-      outside it means the sentinel was decoded as data.
+- [ ] The value range reads **267.9 … 315.8 K** (auto range). This is eccodes'
+      range for this field, to the tenth. A number well outside it means the
+      sentinel was decoded as data. Note this range is order-independent: it
+      passes even if the rows are mirrored, so it does not replace the check
+      above.
 - [ ] The transparent area is only *outside* the CONUS domain (an equirectangular
       canvas around a Lambert grid). There should be **no holes inside** it.
 
@@ -206,9 +214,11 @@ of them. These fixtures are tiny regular lat/lon grids, and the viewer opens
       row-shifted image (a mis-read row split shows up as visible stripes).
 - [ ] `complex_ng0_regular_latlon.grib2` — **zero groups**, i.e. a constant
       field (#222). Renders as one **flat colour** rather than reporting a
-      malformed message, and the legend's min and max are **both 270.47**.
+      malformed message, and the legend's min and max are **both 270.5** (the
+      field's constant value is 270.4668; the legend shows four significant
+      figures, so 270.5 is correct, not 270.47).
 - [ ] `complex_spd2_ng0_regular_latlon.grib2` — the same, with spatial
-      differencing. Also flat, also 270.47.
+      differencing. Also flat, also **270.5**.
 
 ---
 

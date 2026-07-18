@@ -332,6 +332,21 @@ impl GridDefinitionSection {
         }
     }
 
+    /// The §3 scanning-mode flags (Flag Table 3.4) the template carries.
+    /// `None` for templates that define no data-point layout (`Unsupported`).
+    pub fn scanning_mode(&self) -> Option<u8> {
+        match &self.template {
+            GridTemplate::LatLon(t) => Some(t.scanning_mode),
+            GridTemplate::RotatedLatLon(t) => Some(t.scanning_mode),
+            GridTemplate::Mercator(t) => Some(t.scanning_mode),
+            GridTemplate::PolarStereographic(t) => Some(t.scanning_mode),
+            GridTemplate::Lambert(t) => Some(t.scanning_mode),
+            GridTemplate::Gaussian(t) => Some(t.scanning_mode),
+            GridTemplate::SpaceView(t) => Some(t.scanning_mode),
+            GridTemplate::Unsupported(_) => None,
+        }
+    }
+
     /// `(la1, lo1, la2, lo2)` corner coordinates in degrees, when the
     /// template defines them. The projection grids that lack an explicit last
     /// grid point — Lambert and polar stereographic — return
@@ -364,6 +379,37 @@ impl GridDefinitionSection {
             GridTemplate::SpaceView(_) => "space_view".to_string(),
             GridTemplate::Unsupported(n) => format!("unsupported(3.{n})"),
         }
+    }
+}
+
+/// Alternate-row ("boustrophedon") scanning flag in §3 Flag Table 3.4 — bit 4,
+/// "adjacent rows scan in the opposite direction".
+pub const SCAN_ALTERNATE_ROWS: u8 = 0x10;
+/// §3 Flag Table 3.4 bit 3 — when set, adjacent points in the **j** direction
+/// are consecutive (columns), rather than the usual `i`-consecutive rows.
+pub const SCAN_J_CONSECUTIVE: u8 = 0x20;
+
+/// Undo alternate-row scanning in a flat, row-major (`i`-consecutive) field.
+///
+/// GRIB2 Flag Table 3.4 bit 4 (`0x10`) marks a grid whose adjacent rows scan in
+/// opposite directions (boustrophedon). The decoder emits points in storage
+/// order, so every second row lands column-reversed; the projector addresses
+/// the field as `raw[j·ni + i]` and expects a regular raster, so those rows must
+/// be flipped back. Row 0 scans in the nominal (`i`-flag) direction, so the
+/// odd-indexed rows (1, 3, 5, …) are the reversed ones.
+///
+/// Only the common `i`-consecutive layout is handled — the caller must confirm
+/// `SCAN_ALTERNATE_ROWS` is set and `SCAN_J_CONSECUTIVE` is clear, and pass
+/// `ni` = points per row. A `values` length that is not a whole number of `ni`
+/// rows leaves any trailing partial row untouched.
+pub fn undo_alternate_rows(values: &mut [Option<f64>], ni: usize) {
+    if ni == 0 {
+        return;
+    }
+    let mut start = ni; // first odd row
+    while start + ni <= values.len() {
+        values[start..start + ni].reverse();
+        start += 2 * ni; // next odd row
     }
 }
 
@@ -1028,5 +1074,64 @@ mod tests {
         assert_eq!(gds.template_name(), "unsupported(3.99)");
         assert_eq!(gds.dimensions(), None);
         assert_eq!(gds.bounds(), None);
+        assert_eq!(gds.scanning_mode(), None);
+    }
+
+    fn some(vs: &[f64]) -> Vec<Option<f64>> {
+        vs.iter().map(|v| Some(*v)).collect()
+    }
+
+    #[test]
+    fn undo_alternate_rows_flips_only_odd_rows() {
+        // 3 rows of 4. Rows 0 and 2 stay; row 1 (odd) reverses.
+        let mut v = some(&[
+            1.0, 2.0, 3.0, 4.0, // row 0
+            8.0, 7.0, 6.0, 5.0, // row 1, stored reversed
+            9.0, 10.0, 11.0, 12.0, // row 2
+        ]);
+        undo_alternate_rows(&mut v, 4);
+        assert_eq!(
+            v,
+            some(&[
+                1.0, 2.0, 3.0, 4.0, //
+                5.0, 6.0, 7.0, 8.0, //
+                9.0, 10.0, 11.0, 12.0,
+            ])
+        );
+    }
+
+    #[test]
+    fn undo_alternate_rows_carries_masked_points() {
+        let mut v = vec![Some(1.0), None, Some(3.0), None, Some(6.0), Some(4.0)];
+        undo_alternate_rows(&mut v, 3); // row 1 = [None, 6, 4] -> [4, 6, None]
+        assert_eq!(
+            v,
+            vec![Some(1.0), None, Some(3.0), Some(4.0), Some(6.0), None]
+        );
+    }
+
+    #[test]
+    fn undo_alternate_rows_leaves_trailing_partial_row() {
+        // 4 full elems (row 0) + 4 (row 1) + 2 trailing: the partial row is
+        // shorter than ni and must not be touched (would corrupt it).
+        let mut v = some(&[1.0, 2.0, 8.0, 7.0, 99.0, 98.0]);
+        undo_alternate_rows(&mut v, 2);
+        assert_eq!(v, some(&[1.0, 2.0, 7.0, 8.0, 99.0, 98.0]));
+    }
+
+    #[test]
+    fn undo_alternate_rows_ni_zero_is_noop() {
+        let mut v = some(&[1.0, 2.0, 3.0]);
+        undo_alternate_rows(&mut v, 0);
+        assert_eq!(v, some(&[1.0, 2.0, 3.0]));
+    }
+
+    #[test]
+    fn scan_flag_constants_match_table_3_4() {
+        // scanningMode 80 (NBM): j-positive (0x40) + alternate rows (0x10).
+        let sm: u8 = 80;
+        assert_eq!(sm, 0x40 | SCAN_ALTERNATE_ROWS);
+        assert!(sm & SCAN_ALTERNATE_ROWS != 0);
+        assert!(sm & SCAN_J_CONSECUTIVE == 0);
     }
 }
