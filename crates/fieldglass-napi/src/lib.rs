@@ -1527,10 +1527,28 @@ impl Grib2Handle {
         {
             return Ok(std::sync::Arc::clone(hit));
         }
-        let raw = self
+        let mut raw = self
             .reader
             .decode_message_values(message_index as usize)
             .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        // Undo alternate-row (boustrophedon) scanning here, at the single decode
+        // boundary, so every downstream path (decode_grid, render, overlay) sees
+        // a regular Ni·Nj raster the projector can address as `raw[j·ni + i]`.
+        // GRIB2 Flag Table 3.4 bit 4 (0x10) marks it; NBM's Lambert 2 m field is
+        // the real-world case, and the decode is otherwise correct — the scan
+        // sign flags fold into the projection, but the alternate-row flip cannot.
+        // Only the common i-consecutive layout (bit 3 0x20 clear) is handled.
+        if let Some(gds) = self
+            .reader
+            .messages
+            .get(message_index as usize)
+            .map(|m| &m.gds)
+            && let (Some(sm), Some((ni, _nj))) = (gds.scanning_mode(), gds.dimensions())
+            && sm & fieldglass_grib2::SCAN_ALTERNATE_ROWS != 0
+            && sm & fieldglass_grib2::SCAN_J_CONSECUTIVE == 0
+        {
+            fieldglass_grib2::undo_alternate_rows(&mut raw, ni as usize);
+        }
         let arc = std::sync::Arc::new(raw);
         self.decoded
             .lock()

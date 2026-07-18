@@ -179,10 +179,18 @@ looking for gaps in it: the proof the mvm-aware decode is right is that the
 shifts the whole field. Actual masking is checked on the fixtures in §4b.
 
 - [ ] Renders (it used to report an unsupported template).
+- [ ] The field reads as a smooth, continuous temperature map — **not** a
+      left-right mirror of itself, and **not** a venetian-blind of alternating
+      noisy rows. NBM scans alternate rows in opposite directions (scanning-mode
+      80, bit 4); if that is not undone, every second row is reversed and the
+      image scrambles this way. The value range still looks right when it does,
+      so this visual check is the only thing that catches it.
 - [ ] Reproject to equirectangular, coastlines on: CONUS temperature, aligned.
-- [ ] The value range reads **267.9 … 315.8 K** (auto range). This is the real
-      check — it is eccodes' range for this field, to the tenth. A number well
-      outside it means the sentinel was decoded as data.
+- [ ] The value range reads **267.9 … 315.8 K** (auto range). This is eccodes'
+      range for this field, to the tenth. A number well outside it means the
+      sentinel was decoded as data. Note this range is order-independent: it
+      passes even if the rows are mirrored, so it does not replace the check
+      above.
 - [ ] The transparent area is only *outside* the CONUS domain (an equirectangular
       canvas around a Lambert grid). There should be **no holes inside** it.
 
