@@ -214,9 +214,11 @@ of them. These fixtures are tiny regular lat/lon grids, and the viewer opens
       row-shifted image (a mis-read row split shows up as visible stripes).
 - [ ] `complex_ng0_regular_latlon.grib2` — **zero groups**, i.e. a constant
       field (#222). Renders as one **flat colour** rather than reporting a
-      malformed message, and the legend's min and max are **both 270.47**.
+      malformed message, and the legend's min and max are **both 270.5** (the
+      field's constant value is 270.4668; the legend shows four significant
+      figures, so 270.5 is correct, not 270.47).
 - [ ] `complex_spd2_ng0_regular_latlon.grib2` — the same, with spatial
-      differencing. Also flat, also 270.47.
+      differencing. Also flat, also **270.5**.
 
 ---
 
