@@ -209,6 +209,7 @@ suite("Render pipeline", () => {
       gaussianNParallels: null,
       packing: null,
       reprojectable: true,
+      jScansPositive: null,
     };
     const options = defaultRenderOptions();
     const message: GridReadyMessage = buildGridReadyMessage(
@@ -662,6 +663,7 @@ suite("render-panel HTML", () => {
       gaussianNParallels: null,
       packing: null,
       reprojectable: true,
+      jScansPositive: null,
     };
   }
 
@@ -1007,6 +1009,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
       gaussianNParallels: null,
       packing: null,
       reprojectable: true,
+      jScansPositive: null,
     };
   }
 });
