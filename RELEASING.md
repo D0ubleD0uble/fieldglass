@@ -44,11 +44,21 @@ Bump versions in lockstep:
 | `crates/fieldglass-{grib1,grib2,napi,netcdf}/Cargo.toml` | internal `version = "=X.Y.Z"` pins to match |
 | `extension/package.json` | `version` field |
 | `Cargo.lock` | `cargo check --workspace` to refresh |
+| `crates/fieldglass-{grib1,grib2,netcdf}/fuzz/Cargo.lock` | refresh each — the fuzz crates are excluded from the workspace, so `cargo check --workspace` does **not** touch their locks, yet each lock still records the resolved `fieldglass-*` version. Run `cargo update -w` in each `fuzz/` dir (or `cargo check`) so the committed locks aren't left on the old version. |
 | `extension/package-lock.json` | `cd extension && npm install --package-lock-only` to refresh |
 
 Promote the CHANGELOG: rename `## [Unreleased]` to `## [X.Y.Z] — YYYY-MM-DD`
-(today's date), update the `[Unreleased]` / `[X.Y.Z]` link references at the
-bottom of the file, and review entries one more time for accuracy. The
+(today's date), fix the link references at the bottom of the file, and review
+entries one more time for accuracy. Both link edits are easy to forget — do
+**both**:
+
+- repoint `[Unreleased]` to compare from the version you're cutting:
+  `compare/vX.Y.Z...HEAD`;
+- add a new `[X.Y.Z]:` line for the released version:
+  `compare/v{prev}...vX.Y.Z`.
+
+A missing `[X.Y.Z]:` line renders the heading as a dead link, and leaving
+`[Unreleased]` on the previous base makes its diff span two releases. The
 `## [X.Y.Z]` section becomes the GitHub Release body verbatim (the publish
 workflow extracts it by heading — see §4), so make sure it reads as user-facing
 release notes.
