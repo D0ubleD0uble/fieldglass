@@ -32,6 +32,16 @@ import subprocess
 import sys
 from pathlib import Path
 
+# Fixtures eccodes cannot decode, so there is no snapshot to generate. These
+# are deliberately exceed-eccodes cases (e.g. local template 5.40010, which
+# eccodes has no definition for and errors on with "No final 7777"); their
+# decode is cross-checked against a different oracle in the Rust tests instead.
+ECCODES_UNDECODABLE: frozenset[str] = frozenset(
+    {
+        "png_local_40010.grib2",
+    }
+)
+
 # Curated subset of eccodes keys. Keep ordered by section for human-readable
 # diffs when the snapshot regenerates.
 CURATED_KEYS: list[str] = [
@@ -118,6 +128,9 @@ def main() -> int:
         return 1
 
     for grib in grib_files:
+        if grib.name in ECCODES_UNDECODABLE:
+            print(f"skipping {grib.name} (eccodes cannot decode it)")
+            continue
         dump = grib_dump_json(grib)
         curated = curate(dump["messages"])
         ref_path = grib.with_suffix(".grib2.eccodes.ref.json")

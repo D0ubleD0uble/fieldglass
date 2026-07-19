@@ -87,6 +87,8 @@ A GRIB2 message's §5 Data Representation Section selects a packing template. De
 | 5.200 — run-length | `grid_run_length` | ✅ | Runs of quantised level indices resolved through a level → value table (JMA radar, rain-gauge analysis, and nowcasts). Level 0 marks missing; a run is a level code followed by base-`range` length digits. No `R` / `E` transform — only the decimal scale. Cross-validated against eccodes 2.34. |
 | 5.61 — simple + log pre-processing | `grid_simple_log_preprocessing` | ✅ | Simple packing of the log-transformed field; decode is the simple-packing `R` / `E` / `D` value followed by `Y = exp(X) − B`, where `B` is the pre-processing parameter (`B = 0` for a positive field). Experimental (WMO: bilateral tests only), no known operational producer — decoded for census completeness. Cross-validated against eccodes 2.34. |
 
+Two pre-standard local-use templates decode through the codecs above: **5.40000** (early NCEP JPEG 2000, identical to 5.40) and **5.40010** (early NCEP PNG, identical to 5.41). eccodes ships no definition for 5.40010 and errors on it, so this is one packing Fieldglass decodes that stock eccodes cannot; 5.40000 is cross-validated against eccodes 2.34, and 5.40010 against the 5.41 decode of the same codestream.
+
 ## Known limitations
 
 Things to be aware of:

@@ -1,0 +1,24 @@
+{
+  "count": 496,
+  "missing_count": 0,
+  "min": 270.46679688,
+  "max": 311.09863281,
+  "mean": 291.5852483934678,
+  "samples": {
+    "0": 279.0,
+    "1": 279.9609375,
+    "100": 278.62988281,
+    "250": 291.74804688,
+    "495": 300.88183594
+  },
+  "tolerance_absolute": 0.001,
+  "section5": {
+    "dataRepresentationTemplateNumber": 40000,
+    "packingType": "grid_jpeg",
+    "bitsPerValue": 16,
+    "referenceValue": 270.467,
+    "binaryScaleFactor": -10,
+    "decimalScaleFactor": 0
+  },
+  "source": "eccodes 2.34.1 grib_get_data + grib_get on the relabelled file (eccodes decodes 5.40000 as grid_jpeg). jpeg2000_regular_latlon.grib2 with its \u00a75 template number changed 40 -> 40000 by tools/build_grib2_local_template_fixtures.py; \u00a77 codestream unchanged. Provenance in NOTICE.md."
+}

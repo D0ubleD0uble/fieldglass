@@ -493,6 +493,18 @@ fn log_negative_regular_latlon_matches_eccodes() {
     );
 }
 
+// Pre-standard local JPEG 2000 (5.40000, part of #307); value decode pinned in
+// `decode_local_templates.rs`. eccodes decodes it as `grid_jpeg`. The sibling
+// local PNG (5.40010) has no snapshot here: eccodes cannot decode it at all, so
+// it is cross-checked against the original 5.41 fixture's decode in that test.
+#[test]
+fn jpeg2000_local_40000_matches_eccodes() {
+    assert_fixture_matches_snapshot(
+        "jpeg2000_local_40000.grib2",
+        include_bytes!("fixtures/jpeg2000_local_40000.grib2"),
+    );
+}
+
 /// The real-model fixtures below are ~1 MB each — two orders of magnitude
 /// larger than the re-encoded ones — so read them at runtime rather than
 /// embedding them in the test binary with `include_bytes!`.

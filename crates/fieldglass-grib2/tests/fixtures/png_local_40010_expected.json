@@ -1,0 +1,24 @@
+{
+  "count": 6045,
+  "missing_count": 0,
+  "min": 97392.0,
+  "max": 102712.0,
+  "mean": 101439.16989247312,
+  "samples": {
+    "0": 101333.0,
+    "1": 101342.0,
+    "3000": 102621.0,
+    "6000": 101818.0,
+    "6044": 100828.0
+  },
+  "tolerance_absolute": 0.001,
+  "section5": {
+    "dataRepresentationTemplateNumber": 40010,
+    "packingType": "grid_png",
+    "bitsPerValue": 13,
+    "referenceValue": 97392.0,
+    "binaryScaleFactor": 0,
+    "decimalScaleFactor": 0
+  },
+  "source": "eccodes 2.34.1 grib_get_data + grib_get on the ORIGINAL png_eta_lambert.grib2 (5.41): eccodes has no 5.40010 definition and cannot decode the relabelled file, but its \u00a77 is byte-identical, so the 5.41 decode is the value oracle. Fixture built by tools/build_grib2_local_template_fixtures.py (\u00a75 template number 41 -> 40010). Provenance in NOTICE.md."
+}

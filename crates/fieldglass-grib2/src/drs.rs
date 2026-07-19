@@ -9,16 +9,19 @@
 //! grid in a JPEG 2000 codestream, decoded with the pure-Rust `rust-j2k`
 //! crate), PNG packing (template 5.41, whose §7 wraps the integer grid in
 //! a PNG image), CCSDS / AEC packing (template 5.42, whose §7 wraps the
-//! integer grid in a libaec-compatible adaptive-entropy-coding stream), and
+//! integer grid in a libaec-compatible adaptive-entropy-coding stream),
 //! run-length packing (template 5.200, whose §7 is a run-length-encoded stream
 //! of quantised level indices resolved through a level → value table — JMA
-//! radar and nowcast products). Templates outside this set parse as
+//! radar and nowcast products), and simple packing with logarithmic
+//! pre-processing (template 5.61). The pre-standard local templates 5.40000
+//! (JPEG 2000) and 5.40010 (PNG) alias onto the 5.40 / 5.41 codecs. Templates
+//! outside this set parse as
 //! [`DataRepresentationTemplate::Unsupported`] so message enumeration still
 //! works.
 //!
 //! Spec reference: WMO Manual on Codes Vol I.2 (FM 92 GRIB Edition 2),
 //! Section 5 layout + Templates 5.0 / 5.2 / 5.3 / 5.4 / 5.40 / 5.41 / 5.42 /
-//! 5.200.
+//! 5.61 / 5.200 (plus local 5.40000 / 5.40010).
 
 use crate::section::{SectionHeader, parse_section_header};
 use fieldglass_core::{
@@ -562,6 +565,14 @@ pub fn parse_data_representation_with_header(
         42 => DataRepresentationTemplate::Ccsds(parse_template_5_42(payload)?),
         61 => DataRepresentationTemplate::LogPreprocessing(parse_template_5_61(payload)?),
         200 => DataRepresentationTemplate::RunLength(parse_template_5_200(payload)?),
+        // Local-use (pre-standard NCEP) templates whose §5 and §7 are identical
+        // to a registered image packing, so they decode through the same codec.
+        // 5.40000 predates the registered JPEG 2000 template 5.40; 5.40010
+        // predates PNG template 5.41 (and eccodes has no definition for it, so
+        // this is a genuinely exceed-eccodes decode). The `template_number`
+        // field preserves the local number for the metadata view.
+        40000 => DataRepresentationTemplate::Jpeg2000(parse_template_5_40(payload)?),
+        40010 => DataRepresentationTemplate::Png(parse_template_5_41(payload)?),
         other => DataRepresentationTemplate::Unsupported(other),
     };
 
@@ -1426,5 +1437,42 @@ mod tests {
             err.to_string().contains("template 5.40 needs"),
             "error names template-5.40 shortfall, got: {err}",
         );
+    }
+
+    /// Rewrite the §5 data-representation-template number (octets 10–11 =
+    /// byte indices 9–10) in place, so an existing builder can stand in for a
+    /// pre-standard local template with the same payload.
+    fn relabel_template_number(buf: &mut [u8], number: u16) {
+        buf[9..11].copy_from_slice(&number.to_be_bytes());
+    }
+
+    #[test]
+    fn local_template_5_40010_parses_as_png() {
+        // Pre-standard local PNG: §5 payload identical to 5.41, so it decodes
+        // through the PNG codec. eccodes has no 5.40010 definition, so this is
+        // an exceed-eccodes decode.
+        let mut buf = build_drs_5_41();
+        relabel_template_number(&mut buf, 40010);
+        let drs = parse_data_representation(&buf).expect("parse 5.40010");
+        assert_eq!(drs.template_number, 40010);
+        assert_eq!(drs.template_name(), "png");
+        let t = drs.png().expect("5.40010 decodes via the PNG template");
+        assert_eq!(t.bits_per_value, 13);
+        assert!((t.reference_value - 97392.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn local_template_5_40000_parses_as_jpeg2000() {
+        // Pre-standard local JPEG 2000: §5 payload identical to 5.40.
+        let mut buf = build_drs_5_40();
+        relabel_template_number(&mut buf, 40000);
+        let drs = parse_data_representation(&buf).expect("parse 5.40000");
+        assert_eq!(drs.template_number, 40000);
+        assert_eq!(drs.template_name(), "jpeg");
+        let t = drs
+            .jpeg2000()
+            .expect("5.40000 decodes via the JPEG 2000 template");
+        assert_eq!(t.bits_per_value, 16);
+        assert_eq!(t.type_of_compression_used, 0);
     }
 }
