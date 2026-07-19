@@ -28,6 +28,7 @@ import {
   buildGridReadyMessage,
   gribFieldLabel,
   resolveGribCompare,
+  resolveInterval,
   resolveNetcdfCompare,
   resolveRerenderOptions,
   type GridReadyMessage,
@@ -607,6 +608,16 @@ suite("rerenderRequest option clamp", () => {
     );
   });
 
+  test("resolveInterval: only a positive finite number survives", () => {
+    assert.strictEqual(resolveInterval(5), 5);
+    assert.strictEqual(resolveInterval(0.5), 0.5);
+    assert.strictEqual(resolveInterval(0), undefined, "zero → auto levels");
+    assert.strictEqual(resolveInterval(-2), undefined);
+    assert.strictEqual(resolveInterval(undefined), undefined);
+    assert.strictEqual(resolveInterval(NaN), undefined);
+    assert.strictEqual(resolveInterval("5" as unknown), undefined, "not a number");
+  });
+
   test("resolveNetcdfCompare: valid rider passes, junk falls back to single render", () => {
     assert.deepStrictEqual(
       resolveNetcdfCompare({
@@ -1147,6 +1158,32 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     );
   });
 
+  test("projectContours returns isoline runs for a NetCDF slice (#238)", () => {
+    const handle = netcdfHandle();
+    const sst = handle.variables().find((v) => v.name === "sst");
+    assert.ok(sst);
+    const indices = sst.dims.map(() => 0);
+    const [y, x] = [sst.detectedYDim ?? 2, sst.detectedXDim ?? 3];
+
+    // Auto levels: a real SST field has interior isolines.
+    const auto = handle.projectContours(sst.variableIndex, y, x, indices, {
+      projection: "equirectangular",
+      resampling: "nearest",
+      flipY: false,
+    });
+    assert.ok(auto.xy.length > 0, "auto-level contours produce runs");
+    assert.strictEqual(auto.xy.length % 2, 0, "xy is flat (x, y) pairs");
+    assert.ok(auto.segLengths.length > 0, "runs are grouped by vertex count");
+
+    // A manual interval also produces runs (a different set of levels).
+    const manual = handle.projectContours(sst.variableIndex, y, x, indices, {
+      projection: "source",
+      resampling: "nearest",
+      flipY: false,
+    }, 2);
+    assert.ok(manual.xy.length > 0, "manual-interval contours produce runs");
+  });
+
   test("projectOverlay maps a coastline onto the synthesised lat/lon grid", () => {
     const handle = netcdfHandle();
     const sst = handle.variables().find((v) => v.name === "sst");
@@ -1196,6 +1233,10 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     assert.ok(/const SLICE = \{/.test(html), "the SLICE payload must be embedded");
     // The NetCDF Compare row (#239) is an operation selector plus a Field B
     // stepper container — no message dropdown (that's the GRIB variant).
+    // The contour overlay controls (#238) are present in the panel HTML.
+    for (const id of ["overlay-contours", "contour-interval", "contours-only", "color-contours"]) {
+      assert.ok(html.includes(`id="${id}"`), `contour control ${id} must be present`);
+    }
     assert.ok(/id="compare-op"/.test(html), "the compare operation selector must exist");
     assert.ok(/id="compare-dims"/.test(html), "the Field B stepper container must exist");
     assert.ok(!/id="compare-field-b"/.test(html), "NetCDF uses steppers, not a message dropdown");
