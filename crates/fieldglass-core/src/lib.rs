@@ -21,6 +21,7 @@ pub mod colormap;
 #[cfg(feature = "render")]
 mod colormap_tables;
 pub mod combine;
+pub mod contour;
 pub mod detect;
 pub mod error;
 pub mod metadata;
@@ -32,6 +33,7 @@ pub mod reader;
 pub mod warp;
 
 pub use combine::{CombineOp, combine_fields};
+pub use contour::{ContourLevel, GridSegment, contour_segments, nice_levels};
 pub use detect::Format;
 pub use detect::detect_format;
 pub use detect::detect_from_bytes;
