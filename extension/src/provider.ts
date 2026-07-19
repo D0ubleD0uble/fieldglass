@@ -720,7 +720,7 @@ export class FieldglassEditorProvider
       slice,
     );
 
-    const paint = (options: RenderOptions, spec: SliceSpec) => {
+    const paint = (options: RenderOptions, spec: SliceSpec, compare?: NetcdfCompare) => {
       const docHandle = this._netcdfHandlesByDoc.get(document.uri.toString());
       if (!docHandle) {
         panel.webview.postMessage({
@@ -731,13 +731,27 @@ export class FieldglassEditorProvider
         return;
       }
       try {
-        const rendered = docHandle.renderSlice(
-          spec.variableIndex,
-          spec.yDim,
-          spec.xDim,
-          spec.sliceIndices,
-          options,
-        );
+        // A difference map combines this slice (A) with a second slice (B) —
+        // the same or another variable at its own indices; otherwise a plain
+        // single-slice render. Both return the same paint-ready RGBA.
+        const rendered = compare
+          ? docHandle.renderSliceCombined(
+              spec.variableIndex,
+              spec.yDim,
+              spec.xDim,
+              spec.sliceIndices,
+              compare.variableIndexB,
+              compare.sliceIndicesB,
+              compare.op,
+              options,
+            )
+          : docHandle.renderSlice(
+              spec.variableIndex,
+              spec.yDim,
+              spec.xDim,
+              spec.sliceIndices,
+              options,
+            );
         panel.webview.postMessage(
           buildGridReadyMessage(rendered, syntheticNetcdfMeta(initialVar, spec.variableIndex), options),
         );
@@ -802,7 +816,7 @@ export class FieldglassEditorProvider
         // had; a fresh panel sends its defaults.
         if (m.type === "ready" || m.type === "rerenderRequest") {
           const spec = (m as { slice?: SliceSpec }).slice ?? initial;
-          paint(resolveRerenderOptions(m as Partial<RenderOptions>), spec);
+          paint(resolveRerenderOptions(m as Partial<RenderOptions>), spec, resolveNetcdfCompare(m));
           return;
         }
         if (m.type === "overlayRequest") {
@@ -967,6 +981,36 @@ export function resolveGribCompare(m: unknown): GribCompare | undefined {
   const b = c.messageIndexB;
   if (typeof b !== "number" || !Number.isInteger(b) || b < 0) return undefined;
   return { op: c.op as CombineOp, messageIndexB: b };
+}
+
+/** A validated NetCDF difference-map request: combine field A (the panel's
+ *  slice) with `variableIndexB` at `sliceIndicesB` under `op`. The common case
+ *  is the same variable at a different slice — two time steps or levels. */
+export interface NetcdfCompare {
+  op: CombineOp;
+  variableIndexB: number;
+  sliceIndicesB: number[];
+}
+
+/** Validate a webview `compare` rider into a {@link NetcdfCompare}, or
+ *  `undefined` for "no comparison". Same fall-back-to-single-render philosophy
+ *  as {@link resolveGribCompare}; the indices must be a non-negative integer
+ *  array (native re-validates them against the variable's shape). */
+export function resolveNetcdfCompare(m: unknown): NetcdfCompare | undefined {
+  const c = (
+    m as { compare?: { op?: unknown; variableIndexB?: unknown; sliceIndicesB?: unknown } }
+  )?.compare;
+  if (!c || typeof c.op !== "string" || !COMBINE_OPS.has(c.op)) return undefined;
+  const vb = c.variableIndexB;
+  if (typeof vb !== "number" || !Number.isInteger(vb) || vb < 0) return undefined;
+  const idx = c.sliceIndicesB;
+  if (
+    !Array.isArray(idx) ||
+    !idx.every((n) => typeof n === "number" && Number.isInteger(n) && n >= 0)
+  ) {
+    return undefined;
+  }
+  return { op: c.op as CombineOp, variableIndexB: vb, sliceIndicesB: idx as number[] };
 }
 
 /** A concise picker label for a GRIB message: index, parameter, level, and

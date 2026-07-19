@@ -28,6 +28,7 @@ import {
   buildGridReadyMessage,
   gribFieldLabel,
   resolveGribCompare,
+  resolveNetcdfCompare,
   resolveRerenderOptions,
   type GridReadyMessage,
 } from "../../provider";
@@ -606,6 +607,40 @@ suite("rerenderRequest option clamp", () => {
     );
   });
 
+  test("resolveNetcdfCompare: valid rider passes, junk falls back to single render", () => {
+    assert.deepStrictEqual(
+      resolveNetcdfCompare({
+        compare: { op: "a_minus_b", variableIndexB: 0, sliceIndicesB: [1, 0] },
+      }),
+      { op: "a_minus_b", variableIndexB: 0, sliceIndicesB: [1, 0] },
+    );
+    // No rider → single render.
+    assert.strictEqual(resolveNetcdfCompare({}), undefined);
+    // Unknown op → single render.
+    assert.strictEqual(
+      resolveNetcdfCompare({ compare: { op: "product", variableIndexB: 0, sliceIndicesB: [0] } }),
+      undefined,
+    );
+    // Indices must be a non-negative integer array.
+    assert.strictEqual(
+      resolveNetcdfCompare({ compare: { op: "mean", variableIndexB: 0, sliceIndicesB: "0" } }),
+      undefined,
+    );
+    assert.strictEqual(
+      resolveNetcdfCompare({ compare: { op: "mean", variableIndexB: 0, sliceIndicesB: [-1] } }),
+      undefined,
+    );
+    assert.strictEqual(
+      resolveNetcdfCompare({ compare: { op: "mean", variableIndexB: 1.5, sliceIndicesB: [0] } }),
+      undefined,
+    );
+    // An empty index array is valid (a 2-D variable with no extra dimensions).
+    assert.deepStrictEqual(
+      resolveNetcdfCompare({ compare: { op: "ratio", variableIndexB: 2, sliceIndicesB: [] } }),
+      { op: "ratio", variableIndexB: 2, sliceIndicesB: [] },
+    );
+  });
+
   test("gribFieldLabel: concise, skips placeholder level", () => {
     const base = {
       messageIndex: 3,
@@ -1073,6 +1108,45 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     assert.ok(warped.usedLatMin !== undefined, "warp echoes its extent back");
   });
 
+  test("renderSliceCombined differences two slices of a variable (#239)", () => {
+    const handle = netcdfHandle();
+    const sst = handle.variables().find((v) => v.name === "sst");
+    assert.ok(sst);
+    const indices = sst.dims.map(() => 0);
+    const [y, x] = [sst.detectedYDim ?? 2, sst.detectedXDim ?? 3];
+
+    // A − A on identical slice indices: every present cell is exactly 0.
+    const self = handle.renderSliceCombined(
+      sst.variableIndex, y, x, indices,
+      sst.variableIndex, indices,
+      "a_minus_b", defaultRenderOptions(),
+    );
+    assert.strictEqual(self.usedMin, 0, "self-difference minimum is 0");
+    assert.strictEqual(self.usedMax, 0, "self-difference maximum is 0");
+    assert.strictEqual(self.rgba.length, self.width * self.height * 4);
+
+    // Stepping the lev dimension for field B gives a real difference of the
+    // same geometry (the "two levels / two time steps" workflow).
+    const bIndices = indices.slice();
+    bIndices[1] = Math.min(1, Math.max(0, sst.dims[1].length - 1)); // lev axis
+    const diff = handle.renderSliceCombined(
+      sst.variableIndex, y, x, indices,
+      sst.variableIndex, bIndices,
+      "a_minus_b", defaultRenderOptions(),
+    );
+    assert.strictEqual(diff.rgba.length, diff.width * diff.height * 4);
+
+    // A bad op is a clear error.
+    assert.throws(
+      () => handle.renderSliceCombined(
+        sst.variableIndex, y, x, indices,
+        sst.variableIndex, indices,
+        "product" as never, defaultRenderOptions(),
+      ),
+      /unknown combine op/,
+    );
+  });
+
   test("projectOverlay maps a coastline onto the synthesised lat/lon grid", () => {
     const handle = netcdfHandle();
     const sst = handle.variables().find((v) => v.name === "sst");
@@ -1120,6 +1194,17 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
       );
     }
     assert.ok(/const SLICE = \{/.test(html), "the SLICE payload must be embedded");
+    // The NetCDF Compare row (#239) is an operation selector plus a Field B
+    // stepper container — no message dropdown (that's the GRIB variant).
+    assert.ok(/id="compare-op"/.test(html), "the compare operation selector must exist");
+    assert.ok(/id="compare-dims"/.test(html), "the Field B stepper container must exist");
+    assert.ok(!/id="compare-field-b"/.test(html), "NetCDF uses steppers, not a message dropdown");
+    for (const op of ["a_minus_b", "b_minus_a", "a_plus_b", "mean", "ratio"]) {
+      assert.ok(
+        html.includes(`value="${op}"`),
+        `the compare picker must offer the "${op}" operation`,
+      );
+    }
     // A GRIB panel (no slice data) must not grow the slice row.
     const gribHtml = renderImagePanelHtml(
       { cspSource: "" } as unknown as vscode.Webview,
