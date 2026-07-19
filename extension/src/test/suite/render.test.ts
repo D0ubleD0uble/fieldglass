@@ -26,6 +26,8 @@ import * as vscode from "vscode";
 
 import {
   buildGridReadyMessage,
+  gribFieldLabel,
+  resolveGribCompare,
   resolveRerenderOptions,
   type GridReadyMessage,
 } from "../../provider";
@@ -273,6 +275,36 @@ suite("Render pipeline", () => {
         "the webview would fail `new ImageData(rgba, w, h)`");
       assert.deepStrictEqual(echo.firstBytes, Array.from(message.rgba.slice(0, 4)));
     });
+  });
+
+  test("GRIB1: renderGridCombined produces a difference field (#239)", () => {
+    const native = loadNative();
+    assert.ok(native, "native module must load");
+    const bytes = fs.readFileSync(fixturePath("cmc_wind_300_2010052400_p012.grib"));
+    const handle = native.Grib1Handle.fromBytes(bytes);
+    const n = handle.messages().length;
+    assert.ok(n >= 1, "fixture should contain at least one message");
+
+    // A − A: every present cell is exactly zero, so the used range collapses —
+    // a property independent of how many messages the fixture holds.
+    const self = handle.renderGridCombined(0, 0, "a_minus_b", defaultRenderOptions());
+    assert.strictEqual(self.usedMin, 0, "self-difference minimum is 0");
+    assert.strictEqual(self.usedMax, 0, "self-difference maximum is 0");
+    assert.strictEqual(
+      self.rgba.length,
+      self.width * self.height * 4,
+      "combined render is a normal, paint-ready RGBA grid",
+    );
+
+    // Comparing distinct messages renders a valid grid of the same geometry.
+    const other = handle.renderGridCombined(0, n - 1, "a_minus_b", defaultRenderOptions());
+    assert.strictEqual(other.rgba.length, other.width * other.height * 4);
+
+    // A bad op is a clear error, not a silent mis-render.
+    assert.throws(
+      () => handle.renderGridCombined(0, 0, "product" as never, defaultRenderOptions()),
+      /unknown combine op/,
+    );
   });
 
   test("GRIB1 equirectangular: antimeridian-tight bounds echoed + manual override honored", () => {
@@ -543,6 +575,57 @@ suite("rerenderRequest option clamp", () => {
       undefined,
     );
   });
+
+  test("resolveGribCompare: valid rider passes, junk falls back to single render", () => {
+    // A well-formed rider passes through as a difference-map request.
+    assert.deepStrictEqual(
+      resolveGribCompare({ compare: { op: "a_minus_b", messageIndexB: 3 } }),
+      { op: "a_minus_b", messageIndexB: 3 },
+    );
+    // No rider → single render.
+    assert.strictEqual(resolveGribCompare({}), undefined);
+    assert.strictEqual(resolveGribCompare({ compare: undefined }), undefined);
+    // Unknown op → single render (never round-trips a value Rust would reject).
+    assert.strictEqual(
+      resolveGribCompare({ compare: { op: "product", messageIndexB: 1 } }),
+      undefined,
+    );
+    // A non-integer or negative index is rejected.
+    assert.strictEqual(
+      resolveGribCompare({ compare: { op: "ratio", messageIndexB: 1.5 } }),
+      undefined,
+    );
+    assert.strictEqual(
+      resolveGribCompare({ compare: { op: "ratio", messageIndexB: -1 } }),
+      undefined,
+    );
+    // messageIndexB 0 is a valid field (the first message).
+    assert.deepStrictEqual(
+      resolveGribCompare({ compare: { op: "mean", messageIndexB: 0 } }),
+      { op: "mean", messageIndexB: 0 },
+    );
+  });
+
+  test("gribFieldLabel: concise, skips placeholder level", () => {
+    const base = {
+      messageIndex: 3,
+      parameterAbbreviation: "TMP",
+      parameterName: "Temperature",
+      level: "500",
+      forecastDisplay: "+6h",
+    } as MessageMeta;
+    assert.strictEqual(gribFieldLabel(base), "#3 · TMP · 500 · +6h");
+    // A placeholder level ("—") is dropped rather than shown.
+    assert.strictEqual(
+      gribFieldLabel({ ...base, level: "—" } as MessageMeta),
+      "#3 · TMP · +6h",
+    );
+    // Falls back to the full name when there is no abbreviation.
+    assert.strictEqual(
+      gribFieldLabel({ ...base, parameterAbbreviation: "" } as MessageMeta),
+      "#3 · Temperature · 500 · +6h",
+    );
+  });
 });
 
 suite("overlay geometry", () => {
@@ -779,6 +862,55 @@ suite("render-panel HTML", () => {
       resolveRerenderOptions({ colormap: "turbo", reverseColormap: true }).reverseColormap,
       true,
     );
+  });
+
+  test("the Compare picker appears only with two or more fields (#239)", () => {
+    const html2 = renderImagePanelHtml(
+      { cspSource: "" } as unknown as vscode.Webview,
+      fakeMeta(),
+      "summary",
+      registry(),
+      undefined,
+      [
+        { index: 0, label: "#0 · A" },
+        { index: 1, label: "#1 · B" },
+      ],
+    );
+    assert.ok(/id="compare-op"/.test(html2), "the operation selector must exist");
+    assert.ok(/id="compare-field-b"/.test(html2), "the Field B selector must exist");
+    assert.ok(
+      /value="a_minus_b"/.test(html2) && /value="ratio"/.test(html2),
+      "the five combine operations must be offered",
+    );
+    // The op wire values in the picker must be the ones resolveGribCompare accepts.
+    for (const op of ["a_minus_b", "b_minus_a", "a_plus_b", "mean", "ratio"]) {
+      assert.ok(
+        html2.includes(`value="${op}"`),
+        `the picker must offer the "${op}" operation`,
+      );
+      assert.ok(
+        resolveGribCompare({ compare: { op, messageIndexB: 1 } }),
+        `resolveGribCompare must accept the picker's "${op}"`,
+      );
+    }
+
+    // A single-field file (or none) shows no Compare row at all.
+    const html1 = renderImagePanelHtml(
+      { cspSource: "" } as unknown as vscode.Webview,
+      fakeMeta(),
+      "summary",
+      registry(),
+      undefined,
+      [{ index: 0, label: "#0 · only" }],
+    );
+    assert.ok(!/id="compare-op"/.test(html1), "no Compare row for a lone field");
+    const htmlNone = renderImagePanelHtml(
+      { cspSource: "" } as unknown as vscode.Webview,
+      fakeMeta(),
+      "summary",
+      registry(),
+    );
+    assert.ok(!/id="compare-op"/.test(htmlNone), "no Compare row when unset");
   });
 
   test("azimuthal centre inputs expose the free-form fields currentOptions reads", () => {
