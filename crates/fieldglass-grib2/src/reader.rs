@@ -81,8 +81,9 @@ impl Grib2Reader {
     /// (complex packing, with and without spatial differencing — both
     /// splitting methods, inline missing-value management 0/1/2), 5.4 (IEEE
     /// floating point), 5.40 (JPEG 2000 packing), 5.41 (PNG packing), 5.42
-    /// (CCSDS / AEC packing), and 5.200 (run-length packing). Other packing
-    /// templates return [`FieldglassError::UnsupportedSection`].
+    /// (CCSDS / AEC packing), 5.61 (simple packing with logarithmic
+    /// pre-processing), and 5.200 (run-length packing). Other packing templates
+    /// return [`FieldglassError::UnsupportedSection`].
     pub fn decode_message_values(
         &self,
         message_index: usize,

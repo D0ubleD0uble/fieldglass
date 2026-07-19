@@ -473,6 +473,26 @@ fn runlength_4bit_regular_latlon_matches_eccodes() {
     );
 }
 
+// Log-preprocessing fixtures (#305, template 5.61); value decode pinned in
+// `decode_log_preprocessing.rs`. The §5 R/E/D/bits keys route through
+// `msg.drs.simple()` in the snapshot dispatch (None for this template), so
+// they are skipped here; the §5 parameters are cross-checked in the value test.
+#[test]
+fn log_regular_latlon_matches_eccodes() {
+    assert_fixture_matches_snapshot(
+        "log_regular_latlon.grib2",
+        include_bytes!("fixtures/log_regular_latlon.grib2"),
+    );
+}
+
+#[test]
+fn log_negative_regular_latlon_matches_eccodes() {
+    assert_fixture_matches_snapshot(
+        "log_negative_regular_latlon.grib2",
+        include_bytes!("fixtures/log_negative_regular_latlon.grib2"),
+    );
+}
+
 /// The real-model fixtures below are ~1 MB each — two orders of magnitude
 /// larger than the re-encoded ones — so read them at runtime rather than
 /// embedding them in the test binary with `include_bytes!`.
