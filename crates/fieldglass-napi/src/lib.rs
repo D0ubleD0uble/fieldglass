@@ -1,14 +1,14 @@
 #![deny(clippy::all)]
 
 use fieldglass_core::{
-    EqualEarth, Format, GaussianParams, GaussianProjector, GeostationaryParams,
+    CombineOp, EqualEarth, Format, GaussianParams, GaussianProjector, GeostationaryParams,
     GeostationaryProjector, LambertParams, LambertProjector, LatLonParams, MercatorParams,
     Mollweide, Orthographic, PlanarGridProjector, PolarStereoParams, PolarStereoProjector,
     PolarStereographic, ProjectedPolylines, Resampling, Robinson, RotatedLatLonParams,
     RotatedLatLonProjector, SourceGrid, SourceOverlayTarget, TargetRaster, WebMercator,
     colormap::{Colormap, ScaleMode, min_max_ignoring_mask, paint_grid_rgba},
-    detect_from_bytes, eastward_lon_span, latlon_inverse, lon_grid_is_global, mercator_inverse,
-    project_polylines,
+    combine_fields, detect_from_bytes, eastward_lon_span, latlon_inverse, lon_grid_is_global,
+    mercator_inverse, project_polylines,
     projection::GridIndex,
     warp::{TargetProjection, WarpedRaster, warp},
 };
@@ -1373,22 +1373,37 @@ impl Grib1Handle {
         message_index: u32,
         options: RenderOptions,
     ) -> napi::Result<RenderedGrid> {
-        let meta = self
-            .reader
-            .messages
-            .get(message_index as usize)
-            .map(|msg| {
-                let packing = self
-                    .reader
-                    .packing_label(message_index as usize)
-                    .map(friendly_packing);
-                build_grib1_message_meta(msg, packing)
-            })
-            .ok_or_else(|| {
-                napi::Error::from_reason(format!("message index {message_index} out of range"))
-            })?;
+        let meta = self.message_meta(message_index)?;
         let raw = self.cached_decode(message_index)?;
         render_with_options(&meta, raw.as_ref(), &options)
+    }
+
+    /// Render `message_index_a` combined element-wise with `message_index_b`
+    /// under `op` (see [`CombineOp`]) — the difference-map workflow. Both
+    /// messages must sit on the same grid; the result renders through the
+    /// normal pipeline (projection, overlays, palette, scaling, bounds) against
+    /// the primary message's geometry.
+    #[napi]
+    pub fn render_grid_combined(
+        &self,
+        message_index_a: u32,
+        message_index_b: u32,
+        op: String,
+        options: RenderOptions,
+    ) -> napi::Result<RenderedGrid> {
+        let op = parse_combine_op(&op)?;
+        let meta_a = self.message_meta(message_index_a)?;
+        let meta_b = self.message_meta(message_index_b)?;
+        let raw_a = self.cached_decode(message_index_a)?;
+        let raw_b = self.cached_decode(message_index_b)?;
+        render_combined(
+            &meta_a,
+            raw_a.as_ref(),
+            &meta_b,
+            raw_b.as_ref(),
+            op,
+            &options,
+        )
     }
 
     /// Project geographic polylines (coastline / graticule / user shapes)
@@ -1423,6 +1438,25 @@ impl Grib1Handle {
 }
 
 impl Grib1Handle {
+    /// Build one message's [`MessageMeta`], or an out-of-range error. The one
+    /// place `render_grid` / `render_grid_combined` / `project_overlay` get a
+    /// message's geometry, so they can't disagree.
+    fn message_meta(&self, message_index: u32) -> napi::Result<MessageMeta> {
+        self.reader
+            .messages
+            .get(message_index as usize)
+            .map(|msg| {
+                let packing = self
+                    .reader
+                    .packing_label(message_index as usize)
+                    .map(friendly_packing);
+                build_grib1_message_meta(msg, packing)
+            })
+            .ok_or_else(|| {
+                napi::Error::from_reason(format!("message index {message_index} out of range"))
+            })
+    }
+
     /// Get-or-build the decoded values for `message_index`. The cache is
     /// invalidated implicitly when the handle is dropped (which happens
     /// in `provider.ts` as soon as the document bytes change via setP1
@@ -1523,16 +1557,37 @@ impl Grib2Handle {
         message_index: u32,
         options: RenderOptions,
     ) -> napi::Result<RenderedGrid> {
-        let meta = self
-            .reader
-            .messages
-            .get(message_index as usize)
-            .map(build_grib2_message_meta)
-            .ok_or_else(|| {
-                napi::Error::from_reason(format!("message index {message_index} out of range"))
-            })?;
+        let meta = self.message_meta(message_index)?;
         let raw = self.cached_decode(message_index)?;
         render_with_options(&meta, raw.as_ref(), &options)
+    }
+
+    /// Render `message_index_a` combined element-wise with `message_index_b`
+    /// under `op` (see [`CombineOp`]) — the difference-map workflow. Sibling to
+    /// [`Grib1Handle::render_grid_combined`]; both messages must sit on the same
+    /// grid, and the result renders through the normal pipeline against the
+    /// primary message's geometry.
+    #[napi]
+    pub fn render_grid_combined(
+        &self,
+        message_index_a: u32,
+        message_index_b: u32,
+        op: String,
+        options: RenderOptions,
+    ) -> napi::Result<RenderedGrid> {
+        let op = parse_combine_op(&op)?;
+        let meta_a = self.message_meta(message_index_a)?;
+        let meta_b = self.message_meta(message_index_b)?;
+        let raw_a = self.cached_decode(message_index_a)?;
+        let raw_b = self.cached_decode(message_index_b)?;
+        render_combined(
+            &meta_a,
+            raw_a.as_ref(),
+            &meta_b,
+            raw_b.as_ref(),
+            op,
+            &options,
+        )
     }
 
     /// Project geographic polylines onto the same raster `render_grid`
@@ -1559,6 +1614,18 @@ impl Grib2Handle {
 }
 
 impl Grib2Handle {
+    /// Build one message's [`MessageMeta`], or an out-of-range error — the
+    /// single geometry source for `render_grid` / `render_grid_combined`.
+    fn message_meta(&self, message_index: u32) -> napi::Result<MessageMeta> {
+        self.reader
+            .messages
+            .get(message_index as usize)
+            .map(build_grib2_message_meta)
+            .ok_or_else(|| {
+                napi::Error::from_reason(format!("message index {message_index} out of range"))
+            })
+    }
+
     fn cached_decode(&self, message_index: u32) -> napi::Result<std::sync::Arc<Vec<Option<f64>>>> {
         if let Some(hit) = self
             .decoded
@@ -1720,6 +1787,37 @@ impl NetcdfHandle {
         let plane = self.slice_plane(&var, y, x, &slice_indices)?;
         let meta = self.slice_meta(&var, y, x)?;
         render_with_options(&meta, &plane, &options)
+    }
+
+    /// Render one slice combined element-wise with a second slice under `op`
+    /// (see [`CombineOp`]) — the difference-map workflow (#239). Field B is a
+    /// slice of `variableIndexB` at `sliceIndicesB`, sharing the same image axes
+    /// (`yDim` / `xDim`) as field A; the common case is two time steps of one
+    /// variable (`variableIndexB == variableIndexA`, different indices). Both
+    /// slices must resolve to the same grid; the combined field renders through
+    /// the normal pipeline against field A's geometry.
+    #[napi]
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_slice_combined(
+        &self,
+        variable_index_a: u32,
+        y_dim: u32,
+        x_dim: u32,
+        slice_indices_a: Vec<u32>,
+        variable_index_b: u32,
+        slice_indices_b: Vec<u32>,
+        op: String,
+        options: RenderOptions,
+    ) -> napi::Result<RenderedGrid> {
+        let op = parse_combine_op(&op)?;
+        let (y, x) = (y_dim as usize, x_dim as usize);
+        let var_a = self.renderable(variable_index_a)?;
+        let var_b = self.renderable(variable_index_b)?;
+        let plane_a = self.slice_plane(&var_a, y, x, &slice_indices_a)?;
+        let plane_b = self.slice_plane(&var_b, y, x, &slice_indices_b)?;
+        let meta_a = self.slice_meta(&var_a, y, x)?;
+        let meta_b = self.slice_meta(&var_b, y, x)?;
+        render_combined(&meta_a, &plane_a, &meta_b, &plane_b, op, &options)
     }
 
     /// Project geographic polylines onto the same raster `render_slice` produces
@@ -2567,6 +2665,86 @@ type ProjectionStage = (
 /// they use `flip_y` verbatim and never call this. (#286)
 fn source_flip_y(meta: &MessageMeta, flip_y: bool) -> bool {
     flip_y ^ meta.j_scans_positive.unwrap_or(false)
+}
+
+/// Validate a combine-op wire tag (see [`CombineOp`]) or return a napi error
+/// listing the valid ones, matching the colormap / scale-mode clamps.
+fn parse_combine_op(tag: &str) -> napi::Result<CombineOp> {
+    CombineOp::from_wire(tag).ok_or_else(|| {
+        napi::Error::from_reason(format!(
+            "unknown combine op {tag:?} (expected \"a_minus_b\", \"b_minus_a\", \
+             \"a_plus_b\", \"mean\", or \"ratio\")"
+        ))
+    })
+}
+
+/// Whether two messages sit on the same grid — identical dimensions and grid
+/// definition — so their decoded fields align cell-for-cell and combining them
+/// is meaningful. Compares every geometry-defining field of [`MessageMeta`];
+/// parameter, level, time, and packing metadata are deliberately ignored (two
+/// fields differing only in those are exactly what a difference map compares).
+///
+/// NB: when a new geometry field is added to `MessageMeta`, add it here too, or
+/// two grids differing only in that field would be wrongly treated as aligned.
+fn grids_match(a: &MessageMeta, b: &MessageMeta) -> bool {
+    a.grid_type == b.grid_type
+        && a.grid_ni == b.grid_ni
+        && a.grid_nj == b.grid_nj
+        && a.lat_first == b.lat_first
+        && a.lon_first == b.lon_first
+        && a.lat_last == b.lat_last
+        && a.lon_last == b.lon_last
+        && a.earth_radius_metres == b.earth_radius_metres
+        && a.lambert_lad == b.lambert_lad
+        && a.lambert_lov == b.lambert_lov
+        && a.lambert_dx_metres == b.lambert_dx_metres
+        && a.lambert_dy_metres == b.lambert_dy_metres
+        && a.lambert_latin1 == b.lambert_latin1
+        && a.lambert_latin2 == b.lambert_latin2
+        && a.gaussian_n_parallels == b.gaussian_n_parallels
+        && a.polar_stereo_lov == b.polar_stereo_lov
+        && a.polar_stereo_lad == b.polar_stereo_lad
+        && a.polar_stereo_dx_metres == b.polar_stereo_dx_metres
+        && a.polar_stereo_dy_metres == b.polar_stereo_dy_metres
+        && a.polar_stereo_south_pole == b.polar_stereo_south_pole
+        && a.rotated_south_pole_lat == b.rotated_south_pole_lat
+        && a.rotated_south_pole_lon == b.rotated_south_pole_lon
+        && a.rotated_angle_of_rotation == b.rotated_angle_of_rotation
+        && a.geos_sub_lon == b.geos_sub_lon
+        && a.geos_height == b.geos_height
+        && a.geos_r_eq == b.geos_r_eq
+        && a.geos_r_pol == b.geos_r_pol
+        && a.geos_sweep_x == b.geos_sweep_x
+        && a.geos_x0 == b.geos_x0
+        && a.geos_dx_rad == b.geos_dx_rad
+        && a.geos_y0 == b.geos_y0
+        && a.geos_dy_rad == b.geos_dy_rad
+        && a.j_scans_positive == b.j_scans_positive
+}
+
+/// Decode-domain core of the combined render: require identical grids, combine
+/// the two aligned fields under `op`, then run the result through the ordinary
+/// render pipeline against the **primary** field's geometry (`meta_a`). Because
+/// the combined field is just another `Vec<Option<f64>>`, projection, overlays,
+/// palette, scaling, and manual bounds all apply unchanged. Shared by the GRIB
+/// and NetCDF combined-render entry points.
+fn render_combined(
+    meta_a: &MessageMeta,
+    raw_a: &[Option<f64>],
+    meta_b: &MessageMeta,
+    raw_b: &[Option<f64>],
+    op: CombineOp,
+    options: &RenderOptions,
+) -> napi::Result<RenderedGrid> {
+    if !grids_match(meta_a, meta_b) {
+        return Err(napi::Error::from_reason(
+            "the two fields are on different grids; combining needs identical grid \
+             dimensions and definition"
+                .to_string(),
+        ));
+    }
+    let combined = combine_fields(raw_a, raw_b, op);
+    render_with_options(meta_a, &combined, options)
 }
 
 fn render_with_options(
@@ -4913,6 +5091,98 @@ mod netcdf_slice_tests {
             .expect("log10 with a positive range renders");
         assert_eq!((ok.used_min, ok.used_max), (1.0, 40.0));
         assert_eq!(ok.rgba.len(), (ok.width * ok.height * 4) as usize);
+    }
+
+    #[test]
+    fn parse_combine_op_accepts_the_five_ops_and_rejects_others() {
+        for tag in ["a_minus_b", "b_minus_a", "a_plus_b", "mean", "ratio"] {
+            assert!(parse_combine_op(tag).is_ok(), "{tag} should parse");
+        }
+        let err = parse_combine_op("product").expect_err("unknown op must error");
+        assert!(err.to_string().contains("unknown combine op"), "{err}");
+    }
+
+    #[test]
+    fn grids_match_requires_identical_geometry_not_identical_parameters() {
+        let a = base_netcdf_meta("sst", "K", 180, 89);
+        // Same grid, different parameter — exactly what a difference map compares.
+        let b = base_netcdf_meta("t2m", "K", 180, 89);
+        assert!(
+            grids_match(&a, &b),
+            "same grid, different parameter must match"
+        );
+
+        // Each geometry difference must break the match, or misaligned fields
+        // would combine cell-for-cell against the wrong locations.
+        let mut nj = base_netcdf_meta("sst", "K", 180, 90);
+        nj.parameter_name = "sst".into();
+        assert!(!grids_match(&a, &nj), "different Nj must not match");
+
+        let mut corner = base_netcdf_meta("sst", "K", 180, 89);
+        corner.lat_first = Some(88.0);
+        assert!(!grids_match(&a, &corner), "different corner must not match");
+
+        let mut scan = base_netcdf_meta("sst", "K", 180, 89);
+        scan.j_scans_positive = Some(true);
+        assert!(
+            !grids_match(&a, &scan),
+            "different scan direction must not match"
+        );
+
+        let mut proj = base_netcdf_meta("sst", "K", 180, 89);
+        proj.lambert_dx_metres = Some(3000.0);
+        assert!(
+            !grids_match(&a, &proj),
+            "different projection param must not match"
+        );
+    }
+
+    #[test]
+    fn slice_combined_self_difference_is_zero_and_rejects_a_bad_op() {
+        let handle = handle(ERSST);
+        let vars = handle.variables();
+        let sst = vars.iter().find(|v| v.name == "sst").expect("sst present");
+        let (y, x) = (
+            sst.detected_y_dim.unwrap() as u32,
+            sst.detected_x_dim.unwrap() as u32,
+        );
+        let indices = vec![0u32; sst.dims.len()];
+        let vi = sst.variable_index as u32;
+
+        // A − A: every present cell is exactly 0, so the used range collapses to
+        // (0, 0). This exercises the whole combined path end-to-end.
+        let combined = handle
+            .render_slice_combined(
+                vi,
+                y,
+                x,
+                indices.clone(),
+                vi,
+                indices.clone(),
+                "a_minus_b".to_string(),
+                opts("source"),
+            )
+            .expect("self-difference renders");
+        assert_eq!((combined.used_min, combined.used_max), (0.0, 0.0));
+        assert_eq!(
+            combined.rgba.len(),
+            (combined.width * combined.height * 4) as usize
+        );
+
+        // An unknown op is rejected before any decode work.
+        match handle.render_slice_combined(
+            vi,
+            y,
+            x,
+            indices.clone(),
+            vi,
+            indices,
+            "product".to_string(),
+            opts("source"),
+        ) {
+            Ok(_) => panic!("unknown combine op must error"),
+            Err(e) => assert!(e.to_string().contains("unknown combine op"), "{e}"),
+        }
     }
 
     /// End-to-end on the NetCDF-4 / HDF5 backing (#169): open the dimension-scale

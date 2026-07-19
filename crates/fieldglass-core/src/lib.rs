@@ -20,6 +20,7 @@ pub mod colormap;
 /// Generated colormap anchor tables (`tools/gen_colormaps.py`).
 #[cfg(feature = "render")]
 mod colormap_tables;
+pub mod combine;
 pub mod detect;
 pub mod error;
 pub mod metadata;
@@ -30,6 +31,7 @@ pub mod reader;
 #[cfg(feature = "render")]
 pub mod warp;
 
+pub use combine::{CombineOp, combine_fields};
 pub use detect::Format;
 pub use detect::detect_format;
 pub use detect::detect_from_bytes;
