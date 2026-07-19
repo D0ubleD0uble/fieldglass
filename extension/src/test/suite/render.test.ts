@@ -519,6 +519,30 @@ suite("rerenderRequest option clamp", () => {
       [10, 60, -140, -60],
     );
   });
+
+  test("scaleMode: only log10 passes; default and typo drop to linear", () => {
+    // Omitted → undefined (native default is linear), so an untouched panel
+    // renders exactly as before.
+    assert.strictEqual(resolveRerenderOptions({}).scaleMode, undefined);
+    // Explicit linear also normalises to undefined rather than round-tripping.
+    assert.strictEqual(
+      resolveRerenderOptions({ scaleMode: "linear" }).scaleMode,
+      undefined,
+    );
+    // Log10 is the one value that turns the mode on.
+    assert.strictEqual(
+      resolveRerenderOptions({ scaleMode: "log10" }).scaleMode,
+      "log10",
+    );
+    // A stale/typo'd value snaps to the default rather than reaching a Rust
+    // error, mirroring the projection/colormap clamps.
+    assert.strictEqual(
+      resolveRerenderOptions({
+        scaleMode: "symlog" as RenderOptions["scaleMode"],
+      }).scaleMode,
+      undefined,
+    );
+  });
 });
 
 suite("overlay geometry", () => {
@@ -732,6 +756,7 @@ suite("render-panel HTML", () => {
       "viridis must be the pre-selected default",
     );
     assert.ok(/id="reverse-colormap"/.test(html), "the reverse toggle must exist");
+    assert.ok(/id="scale-log"/.test(html), "the log10 scale toggle must exist");
     // The legend gradient is data, not CSS: the stops ride along in the script
     // payload and syncColorbar paints from them.
     assert.ok(/const COLORMAPS = \[/.test(html), "the registry must be embedded");

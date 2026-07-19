@@ -6,7 +6,7 @@ use fieldglass_core::{
     Mollweide, Orthographic, PlanarGridProjector, PolarStereoParams, PolarStereoProjector,
     PolarStereographic, ProjectedPolylines, Resampling, Robinson, RotatedLatLonParams,
     RotatedLatLonProjector, SourceGrid, SourceOverlayTarget, TargetRaster, WebMercator,
-    colormap::{Colormap, min_max_ignoring_mask, paint_grid_rgba},
+    colormap::{Colormap, ScaleMode, min_max_ignoring_mask, paint_grid_rgba},
     detect_from_bytes, eastward_lon_span, latlon_inverse, lon_grid_is_global, mercator_inverse,
     project_polylines,
     projection::GridIndex,
@@ -1151,6 +1151,17 @@ pub struct RenderOptions {
     /// Flip the colormap end-for-end (blue↔red on a diverging map, dark↔light
     /// on a sequential one). `None` is `false`.
     pub reverse_colormap: Option<bool>,
+    /// Value→colour scaling: `"linear"` (default) or `"log10"`. Under `"log10"`
+    /// the colour position is `log10(value)`, so quantities spanning orders of
+    /// magnitude (precipitation, AOD, chlorophyll) resolve across their whole
+    /// range; non-positive values have no logarithm and render as missing
+    /// (transparent). `None`/unknown is an error rather than a silent fallback,
+    /// matching the colormap field. Log10 needs a positive lower bound: with an
+    /// auto range whose minimum is ≤ 0 the render errors, directing the caller
+    /// to set a positive manual minimum (the panel disables the toggle in that
+    /// case). `used_min`/`used_max` are still echoed back in true (unlogged)
+    /// data units so the colorbar labels read correctly.
+    pub scale_mode: Option<String>,
 }
 
 /// One entry of the colormap registry, as the picker needs it.
@@ -2360,6 +2371,7 @@ struct ResolvedOptions {
     bounds: Option<RenderBounds>,
     colormap: &'static Colormap,
     reverse_colormap: bool,
+    scale: ScaleMode,
 }
 
 /// What the picker's `projection` string resolved to. Named `TargetKind`
@@ -2462,6 +2474,17 @@ impl ResolvedOptions {
                 ))
             })?,
         };
+        // An unknown scale mode is an error for the same reason an unknown
+        // colormap is: a typo should say so, not silently paint linearly.
+        let scale = match options.scale_mode.as_deref() {
+            None | Some("linear") => ScaleMode::Linear,
+            Some("log10") => ScaleMode::Log10,
+            Some(other) => {
+                return Err(napi::Error::from_reason(format!(
+                    "unknown scale mode {other:?} (expected \"linear\" or \"log10\")"
+                )));
+            }
+        };
         Ok(Self {
             projection,
             resampling,
@@ -2471,6 +2494,7 @@ impl ResolvedOptions {
             bounds: RenderBounds::from_options(options),
             colormap,
             reverse_colormap: options.reverse_colormap.unwrap_or(false),
+            scale,
         })
     }
 }
@@ -2576,6 +2600,20 @@ fn render_with_options(
         .unwrap_or((0.0, 1.0)),
     };
 
+    // Log10 has no logarithm for a non-positive lower bound. Rather than paint
+    // garbage, refuse with an actionable message: the caller (the panel) keeps
+    // the log toggle disabled in this case, but a direct API call gets told
+    // exactly what to do. A field with a positive floor — or a positive manual
+    // minimum over data that dips to/below zero — renders fine; the sub-zero
+    // cells simply drop out as missing in the painter.
+    if resolved.scale == ScaleMode::Log10 && used_min <= 0.0 {
+        return Err(napi::Error::from_reason(format!(
+            "log10 scaling needs a positive minimum, but the range starts at \
+             {used_min}; set a manual minimum > 0 or pick a field with \
+             positive values"
+        )));
+    }
+
     let rgba = paint_grid_rgba(
         &values,
         Some(&mask),
@@ -2586,6 +2624,7 @@ fn render_with_options(
         flip_y,
         resolved.colormap,
         resolved.reverse_colormap,
+        resolved.scale,
     );
 
     let (used_lat_min, used_lat_max, used_lon_min, used_lon_max) = match used_bounds {
@@ -3351,6 +3390,7 @@ mod resolved_options_tests {
             bounds_lon_max: None,
             colormap: None,
             reverse_colormap: None,
+            scale_mode: None,
         }
     }
 
@@ -3653,6 +3693,33 @@ mod resolved_options_tests {
     }
 
     #[test]
+    fn scale_mode_defaults_to_linear_and_resolves_log10() {
+        // Unset renders exactly as before.
+        let r = ResolvedOptions::parse(&opts("source", "nearest")).expect("default scale");
+        assert_eq!(r.scale, ScaleMode::Linear);
+
+        for (wire, want) in [("linear", ScaleMode::Linear), ("log10", ScaleMode::Log10)] {
+            let mut o = opts("source", "nearest");
+            o.scale_mode = Some(wire.to_string());
+            let r = ResolvedOptions::parse(&o).expect("valid scale mode");
+            assert_eq!(r.scale, want, "wire {wire:?}");
+        }
+    }
+
+    #[test]
+    fn rejects_unknown_scale_mode() {
+        let mut o = opts("source", "nearest");
+        o.scale_mode = Some("symlog".to_string());
+        let err = ResolvedOptions::parse(&o).expect_err("unknown scale mode must error");
+        let msg = err.to_string();
+        assert!(msg.contains("unknown scale mode"), "{msg}");
+        assert!(
+            msg.contains("log10"),
+            "message names the valid modes: {msg}"
+        );
+    }
+
+    #[test]
     fn rejects_unknown_projection() {
         let err = ResolvedOptions::parse(&opts("aitoff", "nearest"))
             .expect_err("unknown projection must error");
@@ -3760,6 +3827,7 @@ mod polar_stereo_warp_tests {
             bounds_lon_max: None,
             colormap: None,
             reverse_colormap: None,
+            scale_mode: None,
         };
         let latlon = [40.0, -100.0, 41.0, -99.0, 42.0, -98.0];
         let out = project_overlay_impl(&cmc_polar_meta(), &opts, &latlon, &[3])
@@ -4537,6 +4605,7 @@ mod overlay_projection_tests {
             bounds_lon_max: None,
             colormap: None,
             reverse_colormap: None,
+            scale_mode: None,
         }
     }
 
@@ -4690,6 +4759,7 @@ mod netcdf_slice_tests {
             bounds_lon_max: None,
             colormap: None,
             reverse_colormap: None,
+            scale_mode: None,
         }
     }
 
@@ -4791,6 +4861,58 @@ mod netcdf_slice_tests {
             .expect("equirectangular render");
         assert!(warped.width > 0 && warped.height > 0);
         assert!(warped.used_lat_min.is_some(), "warp echoes back its extent");
+    }
+
+    #[test]
+    fn log10_render_needs_a_positive_lower_bound() {
+        let handle = handle(ERSST);
+        let vars = handle.variables();
+        let sst = vars.iter().find(|v| v.name == "sst").expect("sst present");
+        let (y, x) = (
+            sst.detected_y_dim.unwrap() as u32,
+            sst.detected_x_dim.unwrap() as u32,
+        );
+        let indices = vec![0u32; sst.dims.len()];
+
+        let log_opts = |min: f64, max: f64| {
+            let mut o = opts("source");
+            o.scale_mode = Some("log10".to_string());
+            o.range_min = Some(min);
+            o.range_max = Some(max);
+            o
+        };
+
+        // A manual range that dips to/below zero has no logarithm: refuse with
+        // an actionable message rather than paint garbage. (`RenderedGrid` isn't
+        // `Debug`, so match rather than `expect_err`.)
+        match handle.render_slice(
+            sst.variable_index as u32,
+            y,
+            x,
+            indices.clone(),
+            log_opts(-5.0, 5.0),
+        ) {
+            Ok(_) => panic!("log10 with a non-positive minimum must error"),
+            Err(e) => assert!(
+                e.to_string()
+                    .contains("log10 scaling needs a positive minimum"),
+                "actionable message, got: {e}"
+            ),
+        }
+
+        // A positive manual range renders, and the true (unlogged) bounds are
+        // echoed back so the colorbar labels stay in data units.
+        let ok = handle
+            .render_slice(
+                sst.variable_index as u32,
+                y,
+                x,
+                indices,
+                log_opts(1.0, 40.0),
+            )
+            .expect("log10 with a positive range renders");
+        assert_eq!((ok.used_min, ok.used_max), (1.0, 40.0));
+        assert_eq!(ok.rgba.len(), (ok.width * ok.height * 4) as usize);
     }
 
     /// End-to-end on the NetCDF-4 / HDF5 backing (#169): open the dimension-scale

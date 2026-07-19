@@ -42,6 +42,65 @@ impl ColormapKind {
     }
 }
 
+/// How a value maps onto its `[0, 1]` colormap position: `Linear` spreads the
+/// range evenly, `Log10` spreads `log10(value)` evenly so quantities spanning
+/// orders of magnitude (precipitation, AOD, chlorophyll) get resolvable colour
+/// across their whole range. Under `Log10` a non-positive value has no
+/// logarithm and paints as missing (see [`scale_position`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ScaleMode {
+    #[default]
+    Linear,
+    Log10,
+}
+
+impl ScaleMode {
+    /// Stable lowercase tag for the napi / UI layer — the wire value.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ScaleMode::Linear => "linear",
+            ScaleMode::Log10 => "log10",
+        }
+    }
+}
+
+/// Normalised colormap position in `[0, 1]` for `v` given the display range
+/// `[min, max]` and the scaling mode, or `None` when `v` has no place on the
+/// ramp and must paint as missing.
+///
+/// - `Linear`: `(v - min) / (max - min)`, clamped. A degenerate `min == max`
+///   (constant field) maps everything to `0.0`, matching the renderer's
+///   long-standing behaviour.
+/// - `Log10`: `(log10(v) - log10(min)) / (log10(max) - log10(min))`, clamped.
+///   `v <= 0` returns `None` (no logarithm → missing). The caller must pass a
+///   positive `min`; the napi layer enforces this and errors otherwise, so a
+///   non-positive `min` never reaches here in the render pipeline.
+///
+/// Always returns `None` for a non-finite `v`, in either mode.
+pub fn scale_position(v: f64, min: f64, max: f64, scale: ScaleMode) -> Option<f64> {
+    if !v.is_finite() {
+        return None;
+    }
+    match scale {
+        ScaleMode::Linear => {
+            let span = max - min;
+            let t = if span > 0.0 { (v - min) / span } else { 0.0 };
+            Some(t.clamp(0.0, 1.0))
+        }
+        ScaleMode::Log10 => {
+            // No logarithm for non-positive values — they have no place on a
+            // log ramp and paint as missing.
+            if v <= 0.0 {
+                return None;
+            }
+            let (lmin, lmax, lv) = (min.log10(), max.log10(), v.log10());
+            let span = lmax - lmin;
+            let t = if span > 0.0 { (lv - lmin) / span } else { 0.0 };
+            Some(t.clamp(0.0, 1.0))
+        }
+    }
+}
+
 /// One named colormap: a stable `name` (the wire value), a human `label` for
 /// the picker, its `kind`, and the RGB anchor stops it interpolates.
 #[derive(Debug, Clone, Copy)]
@@ -191,6 +250,12 @@ pub fn min_max_ignoring_mask<I: IntoIterator<Item = Option<f64>>>(values: I) -> 
 /// as fully transparent (alpha = 0). When `min == max` (a constant field)
 /// every present cell paints at LUT index 0.
 ///
+/// `scale` selects linear or log10 value→colour mapping (see
+/// [`scale_position`]); under [`ScaleMode::Log10`] a non-positive value has no
+/// logarithm and paints transparent, exactly like a masked cell. `min`/`max`
+/// are always the true (unlogged) display range, so the caller's colorbar
+/// labels stay in data units.
+///
 /// Output length is `width * height * 4`. When `flip_y` is true, rows
 /// are emitted bottom-to-top — useful when the source grid scans
 /// south-to-north but the canvas wants north-up.
@@ -205,6 +270,7 @@ pub fn paint_grid_rgba(
     flip_y: bool,
     colormap: &Colormap,
     reversed: bool,
+    scale: ScaleMode,
 ) -> Vec<u8> {
     let w = width as usize;
     let h = height as usize;
@@ -227,8 +293,6 @@ pub fn paint_grid_rgba(
         );
     }
     let mut out = vec![0u8; total * 4];
-    let span = max - min;
-    let denom = if span > 0.0 { span } else { 1.0 };
     // Build the LUT once for the whole grid rather than per pixel.
     let lut = colormap.lut(reversed);
 
@@ -239,16 +303,21 @@ pub fn paint_grid_rgba(
         let o = out_idx * 4;
 
         let masked = mask.is_some_and(|m| m.get(i).copied().unwrap_or(0) == 0);
-        if masked || !v.is_finite() {
-            // transparent
+        // A masked cell, a non-finite value, or (under log10) a non-positive
+        // value has no colour and paints transparent so the background shows
+        // through.
+        let position = if masked {
+            None
+        } else {
+            scale_position(v, min, max, scale)
+        };
+        let Some(tt) = position else {
             out[o] = 0;
             out[o + 1] = 0;
             out[o + 2] = 0;
             out[o + 3] = 0;
             continue;
-        }
-        let t = if span > 0.0 { (v - min) / denom } else { 0.0 };
-        let tt = t.clamp(0.0, 1.0);
+        };
         let idx = (tt * 255.0).round() as usize;
         out[o] = lut[idx * 3];
         out[o + 1] = lut[idx * 3 + 1];
@@ -536,6 +605,7 @@ mod tests {
             false,
             default_colormap(),
             false,
+            ScaleMode::Linear,
         );
         assert_eq!(out.len(), 16);
         // Pixel 1 is masked → fully transparent.
@@ -549,7 +619,18 @@ mod tests {
         let values = vec![0.0, 1.0];
         let paint = |name: &str, reversed: bool| {
             let c = Colormap::by_name(name).expect("registered");
-            paint_grid_rgba(&values, None, 2, 1, 0.0, 1.0, false, c, reversed)
+            paint_grid_rgba(
+                &values,
+                None,
+                2,
+                1,
+                0.0,
+                1.0,
+                false,
+                c,
+                reversed,
+                ScaleMode::Linear,
+            )
         };
         let viridis = paint("viridis", false);
         let turbo = paint("turbo", false);
@@ -567,9 +648,31 @@ mod tests {
 
     #[test]
     fn paint_grid_rgba_returns_empty_for_zero_dims() {
-        let out = paint_grid_rgba(&[], None, 0, 10, 0.0, 1.0, false, default_colormap(), false);
+        let out = paint_grid_rgba(
+            &[],
+            None,
+            0,
+            10,
+            0.0,
+            1.0,
+            false,
+            default_colormap(),
+            false,
+            ScaleMode::Linear,
+        );
         assert!(out.is_empty());
-        let out = paint_grid_rgba(&[], None, 10, 0, 0.0, 1.0, false, default_colormap(), false);
+        let out = paint_grid_rgba(
+            &[],
+            None,
+            10,
+            0,
+            0.0,
+            1.0,
+            false,
+            default_colormap(),
+            false,
+            ScaleMode::Linear,
+        );
         assert!(out.is_empty());
     }
 
@@ -586,6 +689,7 @@ mod tests {
             false,
             default_colormap(),
             false,
+            ScaleMode::Linear,
         );
         let flipped = paint_grid_rgba(
             &values,
@@ -597,6 +701,7 @@ mod tests {
             true,
             default_colormap(),
             false,
+            ScaleMode::Linear,
         );
         // Top-left of flipped == row 1, col 0 of unflipped (= source pixel 2).
         // We can verify by checking that the bytes differ as expected.
@@ -606,5 +711,129 @@ mod tests {
         // Simpler check: the alpha byte of the top-left flipped pixel is
         // still 255 (it's a present cell).
         assert_eq!(flipped[3], 255);
+    }
+
+    #[test]
+    fn scale_position_linear_matches_the_old_formula() {
+        // Linear must be byte-for-byte the mapping the renderer always used:
+        // evenly spaced, clamped, constant field → 0.0, non-finite → None.
+        assert_eq!(scale_position(0.0, 0.0, 10.0, ScaleMode::Linear), Some(0.0));
+        assert_eq!(scale_position(5.0, 0.0, 10.0, ScaleMode::Linear), Some(0.5));
+        assert_eq!(
+            scale_position(10.0, 0.0, 10.0, ScaleMode::Linear),
+            Some(1.0)
+        );
+        // Out of range clamps to the ends.
+        assert_eq!(
+            scale_position(-3.0, 0.0, 10.0, ScaleMode::Linear),
+            Some(0.0)
+        );
+        assert_eq!(
+            scale_position(99.0, 0.0, 10.0, ScaleMode::Linear),
+            Some(1.0)
+        );
+        // Degenerate range → low end, never a divide-by-zero.
+        assert_eq!(scale_position(7.0, 7.0, 7.0, ScaleMode::Linear), Some(0.0));
+        // Non-finite has no place on the ramp.
+        assert_eq!(scale_position(f64::NAN, 0.0, 10.0, ScaleMode::Linear), None);
+    }
+
+    #[test]
+    fn scale_position_log10_spreads_decades_evenly() {
+        // Over [1, 100] the midpoint in log space is 10 (one decade up), not 50.
+        assert_eq!(scale_position(1.0, 1.0, 100.0, ScaleMode::Log10), Some(0.0));
+        assert_eq!(
+            scale_position(10.0, 1.0, 100.0, ScaleMode::Log10),
+            Some(0.5)
+        );
+        assert_eq!(
+            scale_position(100.0, 1.0, 100.0, ScaleMode::Log10),
+            Some(1.0)
+        );
+        // A positive value below/above the range clamps, it does not vanish.
+        assert_eq!(scale_position(0.1, 1.0, 100.0, ScaleMode::Log10), Some(0.0));
+        assert_eq!(
+            scale_position(1000.0, 1.0, 100.0, ScaleMode::Log10),
+            Some(1.0)
+        );
+    }
+
+    #[test]
+    fn scale_position_log10_drops_non_positive_and_non_finite() {
+        // No logarithm for zero or negatives → missing.
+        assert_eq!(scale_position(0.0, 1.0, 100.0, ScaleMode::Log10), None);
+        assert_eq!(scale_position(-5.0, 1.0, 100.0, ScaleMode::Log10), None);
+        assert_eq!(scale_position(f64::NAN, 1.0, 100.0, ScaleMode::Log10), None);
+        // Degenerate log range (min == max) → low end, no divide-by-zero.
+        assert_eq!(scale_position(4.0, 4.0, 4.0, ScaleMode::Log10), Some(0.0));
+    }
+
+    #[test]
+    fn paint_grid_rgba_log10_paints_known_indices() {
+        // A row of exact decades over [1, 100] lands on LUT entries 0, 128, 255
+        // under log10 — the acceptance case: known grid → expected colours.
+        let values = vec![1.0, 10.0, 100.0];
+        let out = paint_grid_rgba(
+            &values,
+            None,
+            3,
+            1,
+            1.0,
+            100.0,
+            false,
+            default_colormap(),
+            false,
+            ScaleMode::Log10,
+        );
+        let lut = default_colormap().lut(false);
+        let expect = |idx: usize| [lut[idx * 3], lut[idx * 3 + 1], lut[idx * 3 + 2], 255];
+        assert_eq!(&out[0..4], &expect(0));
+        assert_eq!(&out[4..8], &expect(128));
+        assert_eq!(&out[8..12], &expect(255));
+
+        // The same grid under linear does *not* put 10 at the midpoint — proving
+        // the mode actually changes the mapping rather than being a no-op.
+        let linear = paint_grid_rgba(
+            &values,
+            None,
+            3,
+            1,
+            1.0,
+            100.0,
+            false,
+            default_colormap(),
+            false,
+            ScaleMode::Linear,
+        );
+        assert_ne!(&linear[4..8], &out[4..8], "10 maps differently under log10");
+    }
+
+    #[test]
+    fn paint_grid_rgba_log10_paints_non_positive_transparent() {
+        // Zero and negative cells have no logarithm and must paint fully
+        // transparent, exactly like a masked cell — positives still colour.
+        let values = vec![0.0, -3.0, 10.0];
+        let out = paint_grid_rgba(
+            &values,
+            None,
+            3,
+            1,
+            1.0,
+            100.0,
+            false,
+            default_colormap(),
+            false,
+            ScaleMode::Log10,
+        );
+        assert_eq!(&out[0..4], &[0, 0, 0, 0], "zero → transparent");
+        assert_eq!(&out[4..8], &[0, 0, 0, 0], "negative → transparent");
+        assert_eq!(out[11], 255, "the positive cell is still painted");
+    }
+
+    #[test]
+    fn scale_mode_wire_tags_round_trip() {
+        assert_eq!(ScaleMode::Linear.as_str(), "linear");
+        assert_eq!(ScaleMode::Log10.as_str(), "log10");
+        assert_eq!(ScaleMode::default(), ScaleMode::Linear);
     }
 }

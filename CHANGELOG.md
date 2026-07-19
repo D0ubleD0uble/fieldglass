@@ -6,6 +6,10 @@ Versioning is plain [Semantic Versioning](https://semver.org/spec/v2.0.0.html), 
 
 ## [Unreleased]
 
+### Added
+
+- **Fields can now be coloured on a log10 scale.** The render panel painted every field on a linear scale, which flattens quantities that span orders of magnitude — precipitation, aerosol optical depth, chlorophyll — into the bottom of the colour ramp. A new Log₁₀ toggle in the Colors row maps colour by the base-10 logarithm of the value instead, so each decade gets its own share of the ramp. Non-positive values have no logarithm and render as missing (transparent), and the colorbar keeps its labels in the true, unlogged data units. Log needs a positive floor, so the toggle is disabled with a hint until the range starts above zero, either because the field is all-positive or because a positive manual minimum is set. Linear stays the default. Closes #235.
+
 ## [0.3.0] — 2026-07-18
 
 ### Added

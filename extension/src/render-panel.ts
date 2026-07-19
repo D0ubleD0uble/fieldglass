@@ -97,6 +97,7 @@ ${groups}
         </select>
       </label>
       <label><input type="checkbox" id="reverse-colormap"> Reverse</label>
+      <label><input type="checkbox" id="scale-log"> Log₁₀</label>
     </fieldset>
 `;
 }
@@ -310,6 +311,12 @@ export function renderImagePanelHtml(
           if (cmapEl && cmapEl.value) options.colormap = cmapEl.value;
           options.reverseColormap = !!(document.getElementById('reverse-colormap')
             && document.getElementById('reverse-colormap').checked);
+          // Log₁₀ scaling. Only send it when the toggle is both checked and
+          // enabled: it is disabled whenever the current range has no positive
+          // floor (log10 needs one), so this never round-trips a request the
+          // Rust side would reject. Otherwise the field maps linearly.
+          const logEl = document.getElementById('scale-log');
+          if (logEl && logEl.checked && !logEl.disabled) options.scaleMode = 'log10';
           // The azimuthal targets read a free-form centre; the lat/lon-box
           // targets ignore it. Orthographic takes a centre lat + lon; polar
           // stereographic takes a hemisphere (its pole) plus a central
@@ -417,9 +424,41 @@ export function renderImagePanelHtml(
           }
         }
 
+        // Whether log₁₀ scaling has a positive lower bound to work from. In
+        // manual mode that's a valid manual box whose minimum is > 0; in auto
+        // mode it's the last render's data minimum (echoed as usedMin) being
+        // > 0. Log10 has no logarithm for a non-positive floor, so the toggle
+        // is only offered when this holds.
+        function logHasPositiveFloor() {
+          const mode = document.querySelector('input[name="range-mode"]:checked');
+          if (mode && mode.value === 'manual') {
+            const min = Number((document.getElementById('range-min') || {}).value);
+            const max = Number((document.getElementById('range-max') || {}).value);
+            return Number.isFinite(min) && Number.isFinite(max) && max > min && min > 0;
+          }
+          return !!(lastPayload && typeof lastPayload.usedMin === 'number'
+            && lastPayload.usedMin > 0);
+        }
+
+        // Enable/disable the log toggle to match logHasPositiveFloor(), with a
+        // hint on why it's off, and drop the check when it becomes unavailable
+        // so a stale ✓ can't send a request Rust would reject.
+        function updateLogAvailability() {
+          const logEl = document.getElementById('scale-log');
+          if (!logEl) return;
+          const ok = logHasPositiveFloor();
+          logEl.disabled = !ok;
+          const label = logEl.closest ? logEl.closest('label') : null;
+          const hint = ok ? '' : 'Log₁₀ needs a positive range — set a manual minimum above 0';
+          logEl.title = hint;
+          if (label) label.title = hint;
+          if (!ok && logEl.checked) logEl.checked = false;
+        }
+
         function handleGridReady(msg) {
           lastPayload = msg;
           blit(msg);
+          updateLogAvailability();
           // Reproject the overlay only when the raster *geometry* changed
           // (projection / preset / flip-y / bounds). A range- or resampling-
           // only render leaves the geometry — and the existing overlay — valid,
@@ -434,7 +473,17 @@ export function renderImagePanelHtml(
         }
 
         function handleGridError(msg) {
-          setStatus('Error: ' + (msg.error || 'render failed'));
+          const err = msg.error || 'render failed';
+          setStatus('Error: ' + err);
+          // Self-heal the one render error the log toggle can cause: switching
+          // to a field with no positive floor while log was on. Drop log and
+          // re-render linearly rather than leaving the panel stuck on an error.
+          const logEl = document.getElementById('scale-log');
+          if (logEl && logEl.checked && /log10/.test(err)) {
+            logEl.checked = false;
+            logEl.disabled = true;
+            requestRender();
+          }
         }
 
         // An overlay projection failed on the provider side. Resolve the
@@ -708,6 +757,7 @@ export function renderImagePanelHtml(
             resampling: val('picker-resampling'),
             colormap: val('picker-colormap'),
             reverseColormap: chk('reverse-colormap'),
+            scaleLog: chk('scale-log'),
             flipY: chk('flip-y'),
             rangeMode: radio('range-mode'),
             rangeMin: val('range-min'),
@@ -764,6 +814,7 @@ export function renderImagePanelHtml(
           setVal('picker-resampling', s.resampling);
           setVal('picker-colormap', s.colormap);
           setChk('reverse-colormap', s.reverseColormap);
+          setChk('scale-log', s.scaleLog);
           setChk('flip-y', s.flipY);
           setRadio('range-mode', s.rangeMode);
           setVal('range-min', s.rangeMin);
@@ -832,6 +883,10 @@ export function renderImagePanelHtml(
             const el = document.getElementById(id);
             if (el) el.addEventListener('change', () => { syncColorbar(); requestRender(); });
           });
+          // The log toggle only changes the value→colour mapping, not the ramp,
+          // so it re-renders without touching the legend gradient.
+          const logToggle = document.getElementById('scale-log');
+          if (logToggle) logToggle.addEventListener('change', requestRender);
           syncColorbar();
           const sampPick = document.getElementById('picker-resampling');
           if (sampPick) sampPick.addEventListener('change', requestRender);
@@ -842,12 +897,16 @@ export function renderImagePanelHtml(
               const manual = document.getElementById('range-manual-fields');
               const isManual = el.value === 'manual' && el.checked;
               if (manual) manual.toggleAttribute('hidden', !isManual);
+              // Switching auto↔manual changes whether log has a positive floor.
+              updateLogAvailability();
               requestRender();
             });
           });
           ['range-min', 'range-max'].forEach((id) => {
             const el = document.getElementById(id);
-            if (el) el.addEventListener('change', requestRender);
+            // A manual minimum above 0 is what enables log on a field whose auto
+            // range dips to/below zero, so re-check availability as it's typed.
+            if (el) el.addEventListener('change', () => { updateLogAvailability(); requestRender(); });
           });
           document.querySelectorAll('input[name="bounds-mode"]').forEach((el) => {
             el.addEventListener('change', () => {

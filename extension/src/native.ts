@@ -147,6 +147,14 @@ export interface RenderOptions {
   colormap?: string;
   /** Flip the colormap end-for-end. Omitted is false. */
   reverseColormap?: boolean;
+  /** Value→colour scaling: "linear" (default) or "log10". Under "log10" the
+   *  colour position is log10(value), so quantities spanning orders of
+   *  magnitude resolve across their whole range; non-positive values render as
+   *  missing. Omitted/unknown is treated as "linear". Log10 needs a positive
+   *  minimum: an auto range whose minimum is ≤ 0 is an error on the Rust side,
+   *  so the panel keeps the toggle disabled until a positive manual minimum is
+   *  set. */
+  scaleMode?: "linear" | "log10";
 }
 
 /** One entry of the Rust colormap registry — everything the picker and the
