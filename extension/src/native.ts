@@ -340,6 +340,17 @@ export interface NetcdfHandle {
     sliceIndices: number[],
     options: RenderOptions,
   ): RenderedGrid;
+  /** Serialize one decoded slice as CSV — `"matrix"` or `"long"`
+   *  (`lat,lon,value`), missing points as empty cells. The slice is picked as
+   *  in {@link renderSlice}; the long format needs a georeferenced lat/lon
+   *  grid. See the GRIB counterparts. */
+  exportCsv(
+    variableIndex: number,
+    yDim: number,
+    xDim: number,
+    sliceIndices: number[],
+    format: string,
+  ): string;
   /** Render one slice combined element-wise with a second slice under `op`
    *  (#239). Field B is a slice of `variableIndexB` at `sliceIndicesB`, sharing
    *  the same image axes; the common case is two time steps of one variable.

@@ -37,7 +37,7 @@ For GRIB1, you can read every message's metadata and render its grid as a 2-D co
 | Contour lines | ✅ lat/lon family | ✅ lat/lon family | ✅ regular lat/lon |
 | Point probe (click to read value) | ✅ | ✅ | ✅ |
 | Resampling picker (nearest / bilinear) | ✅ | ✅ | ✅ regular lat/lon + WRF / GOES geostationary |
-| Export decoded field as CSV | ✅ matrix + `lat,lon,value` (lat/lon family) | ✅ matrix + `lat,lon,value` (lat/lon family) | ❌ Not yet |
+| Export decoded field as CSV | ✅ matrix + `lat,lon,value` (lat/lon family) | ✅ matrix + `lat,lon,value` (lat/lon family) | 🚧 reader API (`exportCsv`); no in-viewer button yet |
 
 Legend: ✅ supported — any following text names the scope · 🚧 partial / in progress · ❌ not yet · n/a not applicable to the format.
 
