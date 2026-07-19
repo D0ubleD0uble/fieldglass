@@ -260,3 +260,31 @@ reference value 270.466796875 exactly, for both fixtures. The
 `.eccodes.ref.json` metadata snapshots remain 2.34.1
 (`tools/regenerate-eccodes-snapshots.py`), which reads §0–§6 only and is
 unaffected.
+
+## Run-length packing fixtures (#301)
+
+Two hand-built fixtures pin the run-length packing decode (DRS template
+**5.200**, `grid_run_length`): runs of quantised level indices resolved through
+a level → value table, level 0 marking missing.
+
+| Fixture | DRS template | Exercises | Issue |
+|---|---|---|---|
+| `runlength_regular_latlon.grib2` | 5.200 (8-bit) | multi-digit base-`range` run, level-0 missing | #301 |
+| `runlength_4bit_regular_latlon.grib2` | 5.200 (4-bit) | sub-byte codes, base-10 multi-digit runs, single-point runs, negative decimal scale (raw byte 129 → −1) | #301 |
+
+eccodes 2.34.1 (the pin) **decodes** `grid_run_length` but cannot be coaxed
+into **encoding** it from the CLI — its run-length encoder only accepts values
+that already fall exactly on a preset level table, which `grib_set` has no way
+to establish. So these are hand-built by `tools/build_grib2_runlength_fixtures.py`
+(the sanctioned hand-built-fixture / decode-as-oracle path): §0–§4 are reused
+verbatim from `regular_latlon_surface.grib2`, and §5/§6/§7/§8 are synthesised —
+a template-5.200 §5, a no-bitmap §6 (run-length encodes missing as level 0, so
+no §6 bitmap is needed), and a run-length §7. §7 streams are kept a whole number
+of bytes, because a real encoder writes `floor(bits/8)` bytes and a partial
+trailing code would otherwise be invented on decode.
+
+The `<fixture>_expected.json` value oracles are eccodes **2.34.1**
+`grib_get_data` / `grib_get` (count, missing count, min/max/mean over present
+points, anchored samples, and the §5 run-length parameters); the builder
+asserts eccodes decodes exactly the field it encoded before writing them. The
+`.eccodes.ref.json` metadata snapshots are 2.34.1 as usual.

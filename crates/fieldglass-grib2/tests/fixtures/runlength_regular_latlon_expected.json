@@ -1,0 +1,28 @@
+{
+  "count": 496,
+  "missing_count": 46,
+  "min": 1.0,
+  "max": 5.0,
+  "mean": 4.111111111111111,
+  "samples": {
+    "0": 1.0,
+    "49": 1.0,
+    "50": null,
+    "95": null,
+    "96": 3.0,
+    "195": 3.0,
+    "196": 5.0,
+    "495": 5.0
+  },
+  "tolerance_absolute": 0.001,
+  "section5": {
+    "dataRepresentationTemplateNumber": 200,
+    "packingType": "grid_run_length",
+    "bitsPerValue": 8,
+    "maxLevelValue": 5,
+    "numberOfLevelValues": 5,
+    "decimalScaleFactor": 1,
+    "decimalScaleFactorSigned": 1
+  },
+  "source": "eccodes 2.34.1 grib_get_data + grib_get. Oracle for DRS template 5.200 (grid_run_length) at bitsPerValue=8. Hand-built: \u00a70-\u00a74 from regular_latlon_surface.grib2, \u00a75/\u00a76/\u00a77 synthesised by tools/build_grib2_runlength_fixtures.py (eccodes cannot CLI-encode run-length). Runs exercise a >range multi-digit run and a level-0 (missing) run. Provenance in NOTICE.md."
+}

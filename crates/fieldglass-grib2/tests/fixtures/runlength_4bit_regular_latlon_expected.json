@@ -1,0 +1,30 @@
+{
+  "count": 496,
+  "missing_count": 100,
+  "min": 10.0,
+  "max": 50.0,
+  "mean": 18.863636363636363,
+  "samples": {
+    "0": 10.0,
+    "199": 10.0,
+    "200": null,
+    "299": null,
+    "300": 30.0,
+    "449": 30.0,
+    "450": 50.0,
+    "451": 20.0,
+    "494": 20.0,
+    "495": 40.0
+  },
+  "tolerance_absolute": 0.001,
+  "section5": {
+    "dataRepresentationTemplateNumber": 200,
+    "packingType": "grid_run_length",
+    "bitsPerValue": 4,
+    "maxLevelValue": 5,
+    "numberOfLevelValues": 5,
+    "decimalScaleFactor": 129,
+    "decimalScaleFactorSigned": -1
+  },
+  "source": "eccodes 2.34.1 grib_get_data + grib_get. Oracle for DRS template 5.200 (grid_run_length) at bitsPerValue=4 with a negative decimal scale (raw byte 129 -> sign-magnitude -1). Hand-built by tools/build_grib2_runlength_fixtures.py. Exercises sub-byte code packing, base-10 multi-digit runs, single-point runs, and missing (level 0). Provenance in NOTICE.md."
+}

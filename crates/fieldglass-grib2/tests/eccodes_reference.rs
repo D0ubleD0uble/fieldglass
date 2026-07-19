@@ -452,6 +452,27 @@ fn ccsds_regular_latlon_24bit_matches_eccodes() {
     );
 }
 
+// Run-length packing fixtures (#301, template 5.200); value decode pinned in
+// `decode_runlength.rs`. bitsPerValue / decimalScaleFactor route through
+// `msg.drs.simple()` in the snapshot dispatch, which is `None` for run-length,
+// so those keys are skipped here (as for every non-simple packing) and the
+// §5 parameters are cross-checked in `decode_runlength.rs` instead.
+#[test]
+fn runlength_regular_latlon_matches_eccodes() {
+    assert_fixture_matches_snapshot(
+        "runlength_regular_latlon.grib2",
+        include_bytes!("fixtures/runlength_regular_latlon.grib2"),
+    );
+}
+
+#[test]
+fn runlength_4bit_regular_latlon_matches_eccodes() {
+    assert_fixture_matches_snapshot(
+        "runlength_4bit_regular_latlon.grib2",
+        include_bytes!("fixtures/runlength_4bit_regular_latlon.grib2"),
+    );
+}
+
 /// The real-model fixtures below are ~1 MB each — two orders of magnitude
 /// larger than the re-encoded ones — so read them at runtime rather than
 /// embedding them in the test binary with `include_bytes!`.

@@ -80,9 +80,9 @@ impl Grib2Reader {
     /// Currently supports DRS templates 5.0 (simple packing), 5.2 / 5.3
     /// (complex packing, with and without spatial differencing — both
     /// splitting methods, inline missing-value management 0/1/2), 5.4 (IEEE
-    /// floating point), 5.40 (JPEG 2000 packing), 5.41 (PNG packing), and
-    /// 5.42 (CCSDS / AEC packing). Other packing templates return
-    /// [`FieldglassError::UnsupportedSection`].
+    /// floating point), 5.40 (JPEG 2000 packing), 5.41 (PNG packing), 5.42
+    /// (CCSDS / AEC packing), and 5.200 (run-length packing). Other packing
+    /// templates return [`FieldglassError::UnsupportedSection`].
     pub fn decode_message_values(
         &self,
         message_index: usize,
@@ -140,7 +140,10 @@ impl Grib2Reader {
         let (ds_start, ds_end) = msg.ds_range;
         let ds_header = parse_section_header(&self.data[ds_start..ds_end])?;
         let ds_payload = parse_data_section_body(&self.data[ds_start..ds_end], ds_header)?;
-        decode_values(ds_payload, msg.drs.template, bitmap, expected_count)
+        // The DRS template is small for every packing except run-length, whose
+        // level table is heap-allocated; `decode_message_values` runs once per
+        // message render (not per point), so the clone is not on any hot path.
+        decode_values(ds_payload, msg.drs.template.clone(), bitmap, expected_count)
     }
 }
 

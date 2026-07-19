@@ -8,17 +8,23 @@
 //! orders), JPEG 2000 packing (template 5.40, whose §7 wraps the integer
 //! grid in a JPEG 2000 codestream, decoded with the pure-Rust `rust-j2k`
 //! crate), PNG packing (template 5.41, whose §7 wraps the integer grid in
-//! a PNG image), and CCSDS / AEC packing (template 5.42, whose §7 wraps the
-//! integer grid in a libaec-compatible adaptive-entropy-coding stream).
-//! Templates outside this set parse as
+//! a PNG image), CCSDS / AEC packing (template 5.42, whose §7 wraps the
+//! integer grid in a libaec-compatible adaptive-entropy-coding stream), and
+//! run-length packing (template 5.200, whose §7 is a run-length-encoded stream
+//! of quantised level indices resolved through a level → value table — JMA
+//! radar and nowcast products). Templates outside this set parse as
 //! [`DataRepresentationTemplate::Unsupported`] so message enumeration still
 //! works.
 //!
 //! Spec reference: WMO Manual on Codes Vol I.2 (FM 92 GRIB Edition 2),
-//! Section 5 layout + Templates 5.0 / 5.2 / 5.3 / 5.4 / 5.40 / 5.41 / 5.42.
+//! Section 5 layout + Templates 5.0 / 5.2 / 5.3 / 5.4 / 5.40 / 5.41 / 5.42 /
+//! 5.200.
 
 use crate::section::{SectionHeader, parse_section_header};
-use fieldglass_core::{FieldglassError, bits::sign_magnitude_i16};
+use fieldglass_core::{
+    FieldglassError,
+    bits::{sign_magnitude_i16, sign_magnitude_to_i64},
+};
 
 /// Section number for the Data Representation Section.
 pub const DRS_SECTION_NUMBER: u8 = 5;
@@ -57,6 +63,13 @@ const TEMPLATE_5_42_PAYLOAD_LEN: usize = 14;
 /// followed by the two JPEG 2000 descriptors — type-of-compression-used
 /// (octet 22) and target-compression-ratio (octet 23).
 const TEMPLATE_5_40_PAYLOAD_LEN: usize = 12;
+
+/// Template 5.200 fixed payload length — octets 12..=17, 6 bytes:
+/// bits-per-value (12), max-level-value (13–14), number-of-level-values
+/// (15–16), and decimal-scale-factor (17). The variable-length level-value
+/// list (2 bytes each) follows, so a full section is this plus
+/// `2 · number_of_level_values`.
+const TEMPLATE_5_200_FIXED_PAYLOAD_LEN: usize = 6;
 
 /// Template 5.0 — simple grid-point packing.
 ///
@@ -293,9 +306,47 @@ pub struct ComplexSpatialDiffTemplate {
     pub extra_descriptor_octets: u8,
 }
 
+/// Template 5.200 — grid-point run-length packing with level values.
+///
+/// Used by JMA for radar, rain-gauge analysis, and nowcast products. §7 is a
+/// stream of [`bits_per_value`]-wide unsigned codes, MSB-first. A code in
+/// `0..=max_level_value` is a *level index*; a level of `0` marks a missing
+/// point and a level `v` in `1..=number_of_level_values` resolves to
+/// `level_values[v - 1] · 10^-decimal_scale_factor`. A code greater than
+/// `max_level_value` is a *run-length digit*: the run for the preceding level
+/// is `1 + Σ (digit_i - max_level_value - 1) · range^i`, where
+/// `range = 2^bits_per_value - 1 - max_level_value` and the digits appear
+/// least-significant first. There is no `R`/`E` transform — only the decimal
+/// scale is applied. This is a distinct §7 codec, not a variant of the simple
+/// `R`/`E`/`D` families, so it holds its own level-value table rather than a
+/// reference value.
+///
+/// [`bits_per_value`]: RunLengthPackingTemplate::bits_per_value
+#[derive(Debug, Clone, PartialEq)]
+pub struct RunLengthPackingTemplate {
+    /// Number of bits used for each §7 code (octet 12) — `V` above.
+    pub bits_per_value: u8,
+    /// `MV` — the largest code value that denotes a level rather than a
+    /// run-length digit (octets 13–14). Codes above it are run-length digits.
+    pub max_level_value: u16,
+    /// `MVL` — the number of entries in the level-value table (octets 15–16).
+    pub number_of_level_values: u16,
+    /// Decimal scale factor `D` (octet 17), stored sign-magnitude in a single
+    /// octet: a raw byte above 127 is negative (`-(raw - 128)`). The value at
+    /// a point of level `v` is `level_values[v - 1] · 10^-D`.
+    pub decimal_scale_factor: i16,
+    /// The level → scaled-value table (octets 18…, 2 bytes each). Entry
+    /// `i` (zero-based) is the scaled integer for level index `i + 1`; level
+    /// `0` is reserved for missing and has no entry.
+    pub level_values: Vec<u16>,
+}
+
 /// Decoded template payload. Templates outside the supported set surface as
 /// [`DataRepresentationTemplate::Unsupported`].
-#[derive(Debug, Clone, Copy, PartialEq)]
+///
+/// Not `Copy`: [`RunLengthPackingTemplate`] carries a heap-allocated
+/// level-value table.
+#[derive(Debug, Clone, PartialEq)]
 pub enum DataRepresentationTemplate {
     Simple(SimplePackingTemplate),
     Complex(ComplexPackingTemplate),
@@ -304,11 +355,12 @@ pub enum DataRepresentationTemplate {
     Png(PngPackingTemplate),
     Ccsds(CcsdsPackingTemplate),
     Jpeg2000(Jpeg2000PackingTemplate),
+    RunLength(RunLengthPackingTemplate),
     Unsupported(u16),
 }
 
 /// Parsed contents of the Data Representation Section.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DataRepresentationSection {
     pub section_length: u32,
     /// Number of data values for which the §7 payload carries packed
@@ -331,6 +383,7 @@ impl DataRepresentationSection {
             DataRepresentationTemplate::Png(_) => "png".to_string(),
             DataRepresentationTemplate::Ccsds(_) => "ccsds".to_string(),
             DataRepresentationTemplate::Jpeg2000(_) => "jpeg".to_string(),
+            DataRepresentationTemplate::RunLength(_) => "run_length".to_string(),
             DataRepresentationTemplate::Unsupported(n) => format!("unsupported(5.{n})"),
         }
     }
@@ -397,6 +450,15 @@ impl DataRepresentationSection {
             _ => None,
         }
     }
+
+    /// Borrow the run-length-packing template if that's what the section
+    /// carries. Other templates return `None`.
+    pub fn run_length(&self) -> Option<&RunLengthPackingTemplate> {
+        match &self.template {
+            DataRepresentationTemplate::RunLength(t) => Some(t),
+            _ => None,
+        }
+    }
 }
 
 /// Parse the Data Representation Section starting at `bytes[0]`.
@@ -444,6 +506,7 @@ pub fn parse_data_representation_with_header(
         40 => DataRepresentationTemplate::Jpeg2000(parse_template_5_40(payload)?),
         41 => DataRepresentationTemplate::Png(parse_template_5_41(payload)?),
         42 => DataRepresentationTemplate::Ccsds(parse_template_5_42(payload)?),
+        200 => DataRepresentationTemplate::RunLength(parse_template_5_200(payload)?),
         other => DataRepresentationTemplate::Unsupported(other),
     };
 
@@ -613,6 +676,44 @@ fn parse_template_5_42(payload: &[u8]) -> Result<CcsdsPackingTemplate, Fieldglas
         ccsds_flags: payload[10],
         block_size: payload[11],
         reference_sample_interval,
+    })
+}
+
+fn parse_template_5_200(payload: &[u8]) -> Result<RunLengthPackingTemplate, FieldglassError> {
+    if payload.len() < TEMPLATE_5_200_FIXED_PAYLOAD_LEN {
+        return Err(FieldglassError::Parse(format!(
+            "DRS template 5.200 needs at least {TEMPLATE_5_200_FIXED_PAYLOAD_LEN} bytes of payload, got {}",
+            payload.len()
+        )));
+    }
+    let bits_per_value = payload[0];
+    let max_level_value = u16::from_be_bytes([payload[1], payload[2]]);
+    let number_of_level_values = u16::from_be_bytes([payload[3], payload[4]]);
+    // Single-octet sign-magnitude: a raw byte above 127 encodes a negative
+    // exponent (`-(raw - 128)`), matching eccodes' run-length accessor.
+    let decimal_scale_factor = sign_magnitude_to_i64(payload[5] as u32, 8) as i16;
+
+    // The level-value list is `number_of_level_values` big-endian u16s
+    // starting at octet 18 (payload index 6).
+    let list_len = number_of_level_values as usize * 2;
+    let want = TEMPLATE_5_200_FIXED_PAYLOAD_LEN + list_len;
+    if payload.len() < want {
+        return Err(FieldglassError::Parse(format!(
+            "DRS template 5.200 declares {number_of_level_values} level values (needs {want} payload bytes), got {}",
+            payload.len()
+        )));
+    }
+    let level_values = payload[TEMPLATE_5_200_FIXED_PAYLOAD_LEN..want]
+        .chunks_exact(2)
+        .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
+        .collect();
+
+    Ok(RunLengthPackingTemplate {
+        bits_per_value,
+        max_level_value,
+        number_of_level_values,
+        decimal_scale_factor,
+        level_values,
     })
 }
 
@@ -871,6 +972,105 @@ mod tests {
         assert!(
             err.to_string().contains("template 5.42 needs"),
             "error names template-5.42 shortfall, got: {err}",
+        );
+    }
+
+    /// Build a §5 with template 5.200 (run-length): a 6-byte fixed block plus
+    /// a `level_values` list. `decimal_scale_raw` is the raw octet (single-byte
+    /// sign-magnitude), so 129 encodes D = -1.
+    fn build_drs_5_200(
+        bits: u8,
+        max_level: u16,
+        level_values: &[u16],
+        decimal_scale_raw: u8,
+    ) -> Vec<u8> {
+        let mut buf: Vec<u8> = Vec::new();
+        let section_len = 17 + level_values.len() * 2;
+        buf.extend_from_slice(&(section_len as u32).to_be_bytes());
+        buf.push(DRS_SECTION_NUMBER);
+        buf.extend_from_slice(&496u32.to_be_bytes()); // num data points
+        buf.extend_from_slice(&200u16.to_be_bytes()); // template 5.200
+        buf.push(bits); // bits per value
+        buf.extend_from_slice(&max_level.to_be_bytes()); // max level value
+        buf.extend_from_slice(&(level_values.len() as u16).to_be_bytes()); // number of level values
+        buf.push(decimal_scale_raw); // decimal scale factor (raw)
+        for lv in level_values {
+            buf.extend_from_slice(&lv.to_be_bytes());
+        }
+        assert_eq!(buf.len(), section_len);
+        buf
+    }
+
+    #[test]
+    fn template_5_200_round_trips_synthesized_payload() {
+        let drs = parse_data_representation(&build_drs_5_200(8, 5, &[10, 20, 30, 40, 50], 1))
+            .expect("parse 5.200");
+        assert_eq!(drs.template_number, 200);
+        assert_eq!(drs.num_data_points, 496);
+        assert_eq!(drs.template_name(), "run_length");
+
+        let t = drs.run_length().expect("5.200 has run-length template");
+        assert_eq!(t.bits_per_value, 8);
+        assert_eq!(t.max_level_value, 5);
+        assert_eq!(t.number_of_level_values, 5);
+        assert_eq!(t.decimal_scale_factor, 1);
+        assert_eq!(t.level_values, vec![10, 20, 30, 40, 50]);
+        // Other accessors must not claim a run-length section.
+        assert!(drs.simple().is_none());
+        assert!(drs.ccsds().is_none());
+    }
+
+    #[test]
+    fn template_5_200_decodes_single_byte_sign_magnitude_decimal_scale() {
+        // Raw octet 129 → −(129 − 128) = −1, matching eccodes' run-length
+        // accessor. Octet 128 is negative zero → 0.
+        let neg = parse_data_representation(&build_drs_5_200(4, 2, &[1, 2], 129))
+            .expect("parse 5.200")
+            .run_length()
+            .expect("run-length")
+            .decimal_scale_factor;
+        assert_eq!(neg, -1);
+        let neg_zero = parse_data_representation(&build_drs_5_200(4, 2, &[1, 2], 128))
+            .expect("parse 5.200")
+            .run_length()
+            .expect("run-length")
+            .decimal_scale_factor;
+        assert_eq!(neg_zero, 0);
+    }
+
+    #[test]
+    fn rejects_5_200_when_fixed_block_truncated() {
+        // Declare a length that leaves fewer than the 6 fixed payload octets.
+        let mut buf: Vec<u8> = Vec::new();
+        buf.extend_from_slice(&14u32.to_be_bytes());
+        buf.push(DRS_SECTION_NUMBER);
+        buf.extend_from_slice(&0u32.to_be_bytes());
+        buf.extend_from_slice(&200u16.to_be_bytes()); // template 5.200
+        buf.extend_from_slice(&[0u8; 3]); // only 3 of the 6 fixed octets
+        let err = parse_data_representation(&buf).expect_err("must reject");
+        assert!(
+            err.to_string().contains("template 5.200 needs"),
+            "error names template-5.200 shortfall, got: {err}",
+        );
+    }
+
+    #[test]
+    fn rejects_5_200_when_level_list_truncated() {
+        // numberOfLevelValues = 5 needs 10 list octets, but only 4 follow.
+        let mut buf: Vec<u8> = Vec::new();
+        buf.extend_from_slice(&21u32.to_be_bytes());
+        buf.push(DRS_SECTION_NUMBER);
+        buf.extend_from_slice(&496u32.to_be_bytes());
+        buf.extend_from_slice(&200u16.to_be_bytes());
+        buf.push(8); // bits
+        buf.extend_from_slice(&5u16.to_be_bytes()); // max level
+        buf.extend_from_slice(&5u16.to_be_bytes()); // number of level values
+        buf.push(0); // decimal scale
+        buf.extend_from_slice(&[0u8; 4]); // only 2 of the 5 level values
+        let err = parse_data_representation(&buf).expect_err("must reject");
+        assert!(
+            err.to_string().contains("level values"),
+            "error names the level-value shortfall, got: {err}",
         );
     }
 
