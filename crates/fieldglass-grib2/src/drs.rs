@@ -12,16 +12,17 @@
 //! integer grid in a libaec-compatible adaptive-entropy-coding stream),
 //! run-length packing (template 5.200, whose §7 is a run-length-encoded stream
 //! of quantised level indices resolved through a level → value table — JMA
-//! radar and nowcast products), and simple packing with logarithmic
-//! pre-processing (template 5.61). The pre-standard local templates 5.40000
-//! (JPEG 2000) and 5.40010 (PNG) alias onto the 5.40 / 5.41 codecs. Templates
-//! outside this set parse as
+//! radar and nowcast products), simple packing with logarithmic
+//! pre-processing (template 5.61), and spectral (spherical-harmonic) packing
+//! (templates 5.50 simple and 5.51 complex, whose §7 decodes to coefficients).
+//! The pre-standard local templates 5.40000 (JPEG 2000) and 5.40010 (PNG) alias
+//! onto the 5.40 / 5.41 codecs. Templates outside this set parse as
 //! [`DataRepresentationTemplate::Unsupported`] so message enumeration still
 //! works.
 //!
 //! Spec reference: WMO Manual on Codes Vol I.2 (FM 92 GRIB Edition 2),
 //! Section 5 layout + Templates 5.0 / 5.2 / 5.3 / 5.4 / 5.40 / 5.41 / 5.42 /
-//! 5.61 / 5.200 (plus local 5.40000 / 5.40010).
+//! 5.50 / 5.51 / 5.61 / 5.200 (plus local 5.40000 / 5.40010).
 
 use crate::section::{SectionHeader, parse_section_header};
 use fieldglass_core::{
@@ -78,6 +79,13 @@ const TEMPLATE_5_61_PAYLOAD_LEN: usize = 13;
 /// block (R / E / D / bits, 9 bytes, no type-of-original-values octet) plus the
 /// 4-byte IEEE `realPartOf00` (the (0,0) coefficient, stored out of band).
 const TEMPLATE_5_50_PAYLOAD_LEN: usize = 13;
+
+/// Template 5.51 payload length — octets 12..=35, 24 bytes: the 9-byte
+/// simple-packing block (R / E / D / bits, no type octet), the 4-byte
+/// Laplacian scaling factor, the three 2-byte sub-truncation parameters
+/// (JS / KS / MS), the 4-byte sub-truncation value count (TS), and the 1-byte
+/// unpacked-subset precision.
+const TEMPLATE_5_51_PAYLOAD_LEN: usize = 24;
 
 /// Template 5.200 fixed payload length — octets 12..=17, 6 bytes:
 /// bits-per-value (12), max-level-value (13–14), number-of-level-values
@@ -382,6 +390,47 @@ pub struct SpectralSimplePackingTemplate {
     pub real_part_of_00: f32,
 }
 
+/// Template 5.51 — spectral (spherical-harmonic) complex packing.
+///
+/// Like 5.50 the message carries spherical-harmonic coefficients, but with a
+/// two-part §7: coefficients up to the sub-truncation `(JS, KS, MS)` are stored
+/// as raw IEEE floats, and the rest are simple-packed after division by a
+/// Laplacian operator `(n·(n+1))^P` (with `P` the [`laplacian_scaling_factor`]
+/// divided by 10⁶) — flattening the steep spectral fall-off before packing.
+/// The decode produces coefficients (see the `spectral` module), so it does not
+/// ride [`decode_values`](crate::ds::decode_values); like GRIB1 spectral
+/// messages, these do not render as a 2-D field until an inverse
+/// spherical-harmonic transform lands.
+///
+/// [`laplacian_scaling_factor`]: SpectralComplexPackingTemplate::laplacian_scaling_factor
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SpectralComplexPackingTemplate {
+    /// Reference value `R` (IEEE 32-bit float, octets 12–15).
+    pub reference_value: f32,
+    /// Binary scale factor `E` (sign-magnitude `i16`, octets 16–17).
+    pub binary_scale_factor: i16,
+    /// Decimal scale factor `D` (sign-magnitude `i16`, octets 18–19).
+    pub decimal_scale_factor: i16,
+    /// Number of bits used for each packed coefficient part (octet 20).
+    pub bits_per_value: u8,
+    /// Laplacian scaling factor `P·10⁶` (sign-magnitude `i32`, octets 21–24);
+    /// the operator exponent `P` is this divided by 10⁶.
+    pub laplacian_scaling_factor: i32,
+    /// Sub-truncation `JS` — the pentagonal resolution of the unpacked block
+    /// (octets 25–26).
+    pub js: u16,
+    /// Sub-truncation `KS` (octets 27–28).
+    pub ks: u16,
+    /// Sub-truncation `MS` (octets 29–30).
+    pub ms: u16,
+    /// `TS` — the count of values in the unpacked sub-truncation block
+    /// (octets 31–34), `(KS+1)·(KS+2)` for a triangular sub-truncation.
+    pub ts: u32,
+    /// Precision of the unpacked subset (octet 35) — WMO Code Table 5.7
+    /// (`1` = IEEE 32-bit).
+    pub unpacked_subset_precision: u8,
+}
+
 /// Template 5.200 — grid-point run-length packing with level values.
 ///
 /// Used by JMA for radar, rain-gauge analysis, and nowcast products. §7 is a
@@ -434,6 +483,7 @@ pub enum DataRepresentationTemplate {
     RunLength(RunLengthPackingTemplate),
     LogPreprocessing(LogPreprocessingPackingTemplate),
     SpectralSimple(SpectralSimplePackingTemplate),
+    SpectralComplex(SpectralComplexPackingTemplate),
     Unsupported(u16),
 }
 
@@ -466,6 +516,7 @@ impl DataRepresentationSection {
                 "simple_log_preprocessing".to_string()
             }
             DataRepresentationTemplate::SpectralSimple(_) => "spectral_simple".to_string(),
+            DataRepresentationTemplate::SpectralComplex(_) => "spectral_complex".to_string(),
             DataRepresentationTemplate::Unsupported(n) => format!("unsupported(5.{n})"),
         }
     }
@@ -559,6 +610,15 @@ impl DataRepresentationSection {
             _ => None,
         }
     }
+
+    /// Borrow the spectral complex-packing template if that's what the section
+    /// carries. Other templates return `None`.
+    pub fn spectral_complex(&self) -> Option<&SpectralComplexPackingTemplate> {
+        match &self.template {
+            DataRepresentationTemplate::SpectralComplex(t) => Some(t),
+            _ => None,
+        }
+    }
 }
 
 /// Parse the Data Representation Section starting at `bytes[0]`.
@@ -608,6 +668,7 @@ pub fn parse_data_representation_with_header(
         42 => DataRepresentationTemplate::Ccsds(parse_template_5_42(payload)?),
         61 => DataRepresentationTemplate::LogPreprocessing(parse_template_5_61(payload)?),
         50 => DataRepresentationTemplate::SpectralSimple(parse_template_5_50(payload)?),
+        51 => DataRepresentationTemplate::SpectralComplex(parse_template_5_51(payload)?),
         200 => DataRepresentationTemplate::RunLength(parse_template_5_200(payload)?),
         // Local-use (pre-standard NCEP) templates whose §5 and §7 are identical
         // to a registered image packing, so they decode through the same codec.
@@ -833,6 +894,41 @@ fn parse_template_5_50(payload: &[u8]) -> Result<SpectralSimplePackingTemplate, 
         decimal_scale_factor,
         bits_per_value: payload[8],
         real_part_of_00,
+    })
+}
+
+fn parse_template_5_51(payload: &[u8]) -> Result<SpectralComplexPackingTemplate, FieldglassError> {
+    if payload.len() < TEMPLATE_5_51_PAYLOAD_LEN {
+        return Err(FieldglassError::Parse(format!(
+            "DRS template 5.51 needs {TEMPLATE_5_51_PAYLOAD_LEN} bytes of payload, got {}",
+            payload.len()
+        )));
+    }
+    // Octets 12–20: the R / E / D / bits simple-packing block (no type octet,
+    // like 5.50). Then the Laplacian scaling factor and the sub-truncation
+    // descriptors.
+    let reference_value = f32::from_be_bytes([payload[0], payload[1], payload[2], payload[3]]);
+    let binary_scale_factor = sign_magnitude_i16(u16::from_be_bytes([payload[4], payload[5]]));
+    let decimal_scale_factor = sign_magnitude_i16(u16::from_be_bytes([payload[6], payload[7]]));
+    let laplacian_scaling_factor = sign_magnitude_to_i64(
+        u32::from_be_bytes([payload[9], payload[10], payload[11], payload[12]]),
+        32,
+    ) as i32;
+    let js = u16::from_be_bytes([payload[13], payload[14]]);
+    let ks = u16::from_be_bytes([payload[15], payload[16]]);
+    let ms = u16::from_be_bytes([payload[17], payload[18]]);
+    let ts = u32::from_be_bytes([payload[19], payload[20], payload[21], payload[22]]);
+    Ok(SpectralComplexPackingTemplate {
+        reference_value,
+        binary_scale_factor,
+        decimal_scale_factor,
+        bits_per_value: payload[8],
+        laplacian_scaling_factor,
+        js,
+        ks,
+        ms,
+        ts,
+        unpacked_subset_precision: payload[23],
     })
 }
 
@@ -1336,6 +1432,79 @@ mod tests {
         assert!(
             err.to_string().contains("template 5.50 needs"),
             "error names template-5.50 shortfall, got: {err}",
+        );
+    }
+
+    /// Build a §5 with template 5.51 (spectral complex): the 24-byte payload of
+    /// R / E / D / bits, the Laplacian scaling factor, JS / KS / MS, TS, and the
+    /// unpacked-subset precision.
+    fn build_drs_5_51(r: f32, bits: u8, laplacian: i32, ks: u16) -> Vec<u8> {
+        let mut buf: Vec<u8> = Vec::new();
+        let section_len: u32 = 35;
+        buf.extend_from_slice(&section_len.to_be_bytes());
+        buf.push(DRS_SECTION_NUMBER);
+        buf.extend_from_slice(&4160u32.to_be_bytes()); // num data points (T63)
+        buf.extend_from_slice(&51u16.to_be_bytes()); // template 5.51
+        buf.extend_from_slice(&r.to_be_bytes()); // R
+        buf.extend_from_slice(&0u16.to_be_bytes()); // E = 0
+        buf.extend_from_slice(&0u16.to_be_bytes()); // D = 0
+        buf.push(bits); // bits per value
+        // Laplacian scaling factor, encoded sign-magnitude (sign bit + magnitude).
+        let laplacian_raw = if laplacian < 0 {
+            0x8000_0000u32 | laplacian.unsigned_abs()
+        } else {
+            laplacian as u32
+        };
+        buf.extend_from_slice(&laplacian_raw.to_be_bytes());
+        buf.extend_from_slice(&ks.to_be_bytes()); // JS
+        buf.extend_from_slice(&ks.to_be_bytes()); // KS
+        buf.extend_from_slice(&ks.to_be_bytes()); // MS
+        buf.extend_from_slice(&((ks as u32 + 1) * (ks as u32 + 2)).to_be_bytes()); // TS
+        buf.push(1); // unpacked subset precision (IEEE 32-bit)
+        assert_eq!(buf.len() as u32, section_len);
+        buf
+    }
+
+    #[test]
+    fn template_5_51_round_trips_synthesized_payload() {
+        let drs =
+            parse_data_representation(&build_drs_5_51(-12.0, 16, 722_000, 20)).expect("parse 5.51");
+        assert_eq!(drs.template_number, 51);
+        assert_eq!(drs.template_name(), "spectral_complex");
+        let t = drs
+            .spectral_complex()
+            .expect("5.51 has spectral-complex template");
+        assert!((t.reference_value - (-12.0)).abs() < 1e-3);
+        assert_eq!(t.bits_per_value, 16);
+        assert_eq!(t.laplacian_scaling_factor, 722_000);
+        assert_eq!((t.js, t.ks, t.ms), (20, 20, 20));
+        assert_eq!(t.ts, 21 * 22);
+        assert_eq!(t.unpacked_subset_precision, 1);
+        assert!(drs.spectral_simple().is_none());
+        assert!(drs.simple().is_none());
+    }
+
+    #[test]
+    fn template_5_51_reads_negative_laplacian_sign_magnitude() {
+        // The Laplacian scaling factor is a 4-byte sign-magnitude integer.
+        let drs =
+            parse_data_representation(&build_drs_5_51(0.0, 16, -1_500_000, 4)).expect("parse 5.51");
+        let t = drs.spectral_complex().expect("spectral-complex");
+        assert_eq!(t.laplacian_scaling_factor, -1_500_000);
+    }
+
+    #[test]
+    fn rejects_5_51_when_payload_truncated() {
+        let mut buf: Vec<u8> = Vec::new();
+        buf.extend_from_slice(&30u32.to_be_bytes());
+        buf.push(DRS_SECTION_NUMBER);
+        buf.extend_from_slice(&0u32.to_be_bytes());
+        buf.extend_from_slice(&51u16.to_be_bytes()); // template 5.51
+        buf.extend_from_slice(&[0u8; 19]); // only 19 of the 24 payload octets
+        let err = parse_data_representation(&buf).expect_err("must reject");
+        assert!(
+            err.to_string().contains("template 5.51 needs"),
+            "error names template-5.51 shortfall, got: {err}",
         );
     }
 

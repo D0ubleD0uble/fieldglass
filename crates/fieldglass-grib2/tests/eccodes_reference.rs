@@ -518,6 +518,14 @@ fn spectral_simple_t63_matches_eccodes() {
     );
 }
 
+#[test]
+fn spectral_complex_t63_matches_eccodes() {
+    assert_fixture_matches_snapshot(
+        "spectral_complex_t63.grib2",
+        include_bytes!("fixtures/spectral_complex_t63.grib2"),
+    );
+}
+
 /// The real-model fixtures below are ~1 MB each — two orders of magnitude
 /// larger than the re-encoded ones — so read them at runtime rather than
 /// embedding them in the test binary with `include_bytes!`.

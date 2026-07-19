@@ -377,3 +377,13 @@ grib_get_data spectral_simple_t63.grib2 | tail -n +2 \
 
 The `.eccodes.ref.json` metadata snapshot is 2.34.1 as usual; it exercises
 §0–§4 parsing for a message that carries no `Ni`/`Nj` and no earth shape.
+
+`spectral_complex_t63.grib2` pins the complex spectral decode (§5 template
+5.51). It is eccodes 2.34.1's own `sh_pl_grib2.tmpl` sample (a T63
+pressure-level field, `J = K = M = 63`, sub-truncation `KS = 20`,
+`bitsPerValue = 16`, Laplacian `P = 0.722`, 4160 stored values), copied
+verbatim; ECMWF ships it under the Apache License 2.0. Its coefficient oracle
+`spectral_complex_t63.eccodes.ref.txt` is `grib_get_data | tail -n +2` as above,
+and the `.eccodes.ref.json` snapshot is 2.34.1. The §7 has two parts — an
+unpacked IEEE-float sub-truncation and a Laplacian-rescaled simple-packed
+remainder — so this fixture exercises the whole `decode_spectral_complex` path.

@@ -13,7 +13,7 @@ use crate::pds::{
     PDS_SECTION_NUMBER, ProductDefinitionSection, parse_product_definition_with_header,
 };
 use crate::section::parse_section_header;
-use crate::spectral::{SpectralCoefficients, decode_spectral_simple};
+use crate::spectral::{SpectralCoefficients, decode_spectral_complex, decode_spectral_simple};
 use fieldglass_core::FieldglassError;
 
 /// Hard cap on `ni · nj` for `decode_message_values`. Real grids top out
@@ -186,18 +186,21 @@ impl Grib2Reader {
             ))
         })?;
 
-        let t = msg.drs.spectral_simple().ok_or_else(|| {
-            FieldglassError::UnsupportedSection(format!(
-                "spherical-harmonic message {message_index} uses §5 packing {} — only \
-                 spectral_simple (template 5.50) decodes today",
-                msg.drs.template_name()
-            ))
-        })?;
-
         let (ds_start, ds_end) = msg.ds_range;
         let ds_header = parse_section_header(&self.data[ds_start..ds_end])?;
         let ds_payload = parse_data_section_body(&self.data[ds_start..ds_end], ds_header)?;
-        decode_spectral_simple(ds_payload, t, sh.j, sh.k, sh.m)
+
+        if let Some(t) = msg.drs.spectral_simple() {
+            decode_spectral_simple(ds_payload, t, sh.j, sh.k, sh.m)
+        } else if let Some(t) = msg.drs.spectral_complex() {
+            decode_spectral_complex(ds_payload, t, sh.j, sh.k, sh.m)
+        } else {
+            Err(FieldglassError::UnsupportedSection(format!(
+                "spherical-harmonic message {message_index} uses §5 packing {} — only \
+                 spectral_simple (5.50) and spectral_complex (5.51) decode today",
+                msg.drs.template_name()
+            )))
+        }
     }
 }
 

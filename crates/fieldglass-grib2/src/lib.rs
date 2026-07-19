@@ -7,7 +7,7 @@
 //! with logarithmic pre-processing** (5.61), and **run-length packing**
 //! (5.200), plus the pre-standard local image templates 5.40000 / 5.40010 (the
 //! latter one eccodes itself cannot decode). Spherical-harmonic **spectral**
-//! messages (§3.50 + §5.50) decode to coefficients via
+//! messages (§3.50 + §5.50 / 5.51) decode to coefficients via
 //! [`Grib2Reader::decode_spectral_message`]. Templates outside that set parse
 //! to the section level but `decode_message_values` returns
 //! [`fieldglass_core::FieldglassError::UnsupportedSection`].
@@ -33,7 +33,8 @@ pub use bms::{
 };
 pub use drs::{
     DRS_SECTION_NUMBER, DataRepresentationSection, DataRepresentationTemplate, IeeePackingTemplate,
-    SimplePackingTemplate, SpectralSimplePackingTemplate, parse_data_representation,
+    SimplePackingTemplate, SpectralComplexPackingTemplate, SpectralSimplePackingTemplate,
+    parse_data_representation,
 };
 pub use ds::{DS_SECTION_NUMBER, decode_values};
 pub use gds::{
@@ -53,7 +54,7 @@ pub use pds::{
 };
 pub use reader::{Grib2Message, Grib2Reader};
 pub use section::{SECTION_HEADER_LEN, SectionHeader, parse_section_header};
-pub use spectral::{SpectralCoefficients, decode_spectral_simple};
+pub use spectral::{SpectralCoefficients, decode_spectral_complex, decode_spectral_simple};
 pub use tables::{
     lookup_centre, lookup_data_type, lookup_discipline, lookup_earth_shape, lookup_ensemble_type,
     lookup_fixed_surface, lookup_generating_process_type, lookup_grid_template, lookup_parameter,
