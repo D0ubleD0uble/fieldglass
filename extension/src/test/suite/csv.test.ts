@@ -9,6 +9,7 @@ import * as path from "path";
 import * as vscode from "vscode";
 
 import { loadNative } from "../../native";
+import type { FieldglassApi } from "../../extension";
 
 const EXT_ID = "fieldglass.fieldglass";
 
@@ -126,5 +127,41 @@ suite("CSV export (NetCDF)", () => {
       () => handle.exportCsv(sst.variableIndex, y, x, indices, "tsv"),
       /unknown CSV format/,
     );
+  });
+});
+
+suite("Export CSV command (NetCDF slice)", () => {
+  test("handleExportSliceCsv reports a clear error when no NetCDF slice is open", async () => {
+    const ext = vscode.extensions.getExtension<FieldglassApi>("fieldglass.fieldglass");
+    assert.ok(ext, "extension is installed");
+    const provider = (await ext.activate()).provider;
+
+    // openCustomDocument does not register a NetCDF reader handle (that happens
+    // when the editor resolves), so the slice-export guard must fire cleanly.
+    const uri = vscode.Uri.file(fixturePath("regular_latlon_surface.grib2"));
+    const doc = await provider.openCustomDocument(
+      uri,
+      {} as vscode.CustomDocumentOpenContext,
+      new vscode.CancellationTokenSource().token,
+    );
+
+    const original = vscode.window.showErrorMessage;
+    let shown = "";
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (vscode.window as any).showErrorMessage = (msg: string) => {
+      shown = msg;
+      return Promise.resolve(undefined);
+    };
+    try {
+      await provider.handleExportSliceCsv(doc, {
+        variableIndex: 0,
+        yDim: 0,
+        xDim: 1,
+        sliceIndices: [0],
+      });
+    } finally {
+      vscode.window.showErrorMessage = original;
+    }
+    assert.match(shown, /NetCDF/);
   });
 });
