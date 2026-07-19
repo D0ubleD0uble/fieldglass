@@ -212,6 +212,8 @@ export function renderImagePanelHtml(
         // it, so the colours in the strip are the colours in the image.
         const COLORMAPS = ${colormapsJson(colormaps)};
         const SLICE = ${slice ? sliceJson(slice) : "null"};
+        // The field's units, for the point-probe readout (#172).
+        const UNITS = ${JSON.stringify(meta.parameterUnits || "")};
         let sliceState = SLICE ? Object.assign({}, SLICE.initial, {
           sliceIndices: SLICE.initial.sliceIndices.slice(),
         }) : null;
@@ -600,6 +602,9 @@ export function renderImagePanelHtml(
           lastPayload = msg;
           blit(msg);
           updateLogAvailability();
+          // The old probe readout referred to the previous field; clear it.
+          const probeEl = document.getElementById('probe');
+          if (probeEl) probeEl.textContent = '';
           // Reproject the overlay only when the raster *geometry* changed
           // (projection / preset / flip-y / bounds). A range- or resampling-
           // only render leaves the geometry — and the existing overlay — valid,
@@ -834,6 +839,42 @@ export function renderImagePanelHtml(
           const canvas = document.getElementById('canvas');
           const only = !!(document.getElementById('contours-only') || {}).checked;
           if (canvas) canvas.style.visibility = only ? 'hidden' : 'visible';
+        }
+
+        // --- Point probe (#172) ---------------------------------------------
+        function formatLatLon(lat, lon) {
+          if (lat == null || lon == null) return '';
+          return Math.abs(lat).toFixed(2) + '°' + (lat >= 0 ? 'N' : 'S') + ', ' +
+            Math.abs(lon).toFixed(2) + '°' + (lon >= 0 ? 'E' : 'W');
+        }
+
+        // A click maps to an output-raster pixel; ask the provider for the field
+        // there. currentOptions() carries the projection so the readout matches
+        // exactly what is on screen.
+        function requestProbe(clientX, clientY) {
+          if (!lastPayload || !lastPayload.width) return;
+          const canvas = document.getElementById('canvas');
+          const rect = canvas && canvas.getBoundingClientRect();
+          if (!rect || rect.width <= 0 || rect.height <= 0) return;
+          const px = Math.floor((clientX - rect.left) / rect.width * lastPayload.width);
+          const py = Math.floor((clientY - rect.top) / rect.height * lastPayload.height);
+          if (px < 0 || py < 0 || px >= lastPayload.width || py >= lastPayload.height) return;
+          vscode.postMessage(Object.assign(
+            { type: 'probeRequest', px: px, py: py, options: currentOptions() }, sliceFields()));
+        }
+
+        function handleProbeResult(msg) {
+          const el = document.getElementById('probe');
+          if (!el) return;
+          const r = msg.result;
+          if (!r) { el.textContent = ''; return; }
+          const coord = formatLatLon(r.lat, r.lon);
+          const value = r.value == null
+            ? 'no data'
+            : Number(r.value).toPrecision(5) + (UNITS ? ' ' + UNITS : '');
+          const grid = (r.gridI != null && r.gridJ != null)
+            ? ' · grid ' + r.gridI + ',' + r.gridJ : '';
+          el.textContent = (coord ? coord + ' · ' : '') + value + grid;
         }
 
         // Stroke the projected runs onto the overlay canvas. The overlay's
@@ -1222,6 +1263,12 @@ export function renderImagePanelHtml(
           if (contourWidth) contourWidth.addEventListener('input', drawOverlay);
           const contoursOnly = document.getElementById('contours-only');
           if (contoursOnly) contoursOnly.addEventListener('change', applyContoursOnly);
+          // Click the image to read the field there (#172). The overlay canvas
+          // sits on top, so listen on the wrapper to catch the click regardless.
+          const canvasWrap = document.querySelector('.canvas-wrap');
+          if (canvasWrap) {
+            canvasWrap.addEventListener('click', (ev) => requestProbe(ev.clientX, ev.clientY));
+          }
           // Keep the overlay aligned + crisp as the panel (and the displayed
           // image size) resizes.
           window.addEventListener('resize', drawOverlay);
@@ -1246,6 +1293,7 @@ export function renderImagePanelHtml(
           else if (msg.type === 'overlayReady') handleOverlayReady(msg);
           else if (msg.type === 'overlayError') handleOverlayError(msg);
           else if (msg.type === 'contourReady') handleContourReady(msg);
+          else if (msg.type === 'probeResult') handleProbeResult(msg);
           else if (msg.type === 'contourError') handleContourError(msg);
         });
 
@@ -1277,6 +1325,15 @@ export function renderImagePanelHtml(
     .projection { color: var(--vscode-descriptionForeground); font-size: 0.8rem; margin-bottom: 0.75rem; }
     .picker-note { display: block; color: var(--vscode-descriptionForeground); font-size: 0.8rem; margin-top: 0.25rem; }
     #status { font-size: 0.85rem; margin-bottom: 0.75rem; min-height: 1.1em; }
+    .probe-readout {
+      font-size: 0.85rem;
+      font-variant-numeric: tabular-nums;
+      min-height: 1.1em;
+      margin-top: -0.5rem;
+      margin-bottom: 0.5rem;
+      color: var(--vscode-descriptionForeground, inherit);
+    }
+    .canvas-wrap { cursor: crosshair; }
     .render-area {
       display: flex;
       align-items: flex-start;
@@ -1540,6 +1597,7 @@ ${slice ? netcdfCompareFieldsetHtml() : gribCompareFieldsetHtml(compareFields ??
     </fieldset>
   </div>
   <div id="status">Rendering…</div>
+  <div id="probe" class="probe-readout" aria-live="polite"></div>
   <div class="render-area">
     <div class="canvas-wrap">
       <canvas id="canvas" width="320" height="320"></canvas>

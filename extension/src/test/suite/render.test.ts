@@ -1184,6 +1184,32 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     assert.ok(manual.xy.length > 0, "manual-interval contours produce runs");
   });
 
+  test("probe reads the field under a NetCDF pixel (#172)", () => {
+    const handle = netcdfHandle();
+    const sst = handle.variables().find((v) => v.name === "sst");
+    assert.ok(sst);
+    const indices = sst.dims.map(() => 0);
+    const [y, x] = [sst.detectedYDim ?? 2, sst.detectedXDim ?? 3];
+    const opts = { projection: "source" as const, resampling: "nearest" as const, flipY: false };
+
+    // A pixel well inside the 180×89 grid resolves to a cell.
+    const r = handle.probe(sst.variableIndex, y, x, indices, opts, 90, 44);
+    assert.ok(r, "an in-grid pixel returns a result");
+    assert.strictEqual(r.gridI, 90);
+    assert.strictEqual(r.gridJ, 44);
+    // It is geolocated (regular lat/lon grid) and reports a value or a hole.
+    assert.strictEqual(typeof r.lat, "number");
+    assert.strictEqual(typeof r.lon, "number");
+    assert.ok(r.value === undefined || typeof r.value === "number");
+
+    // A click past the raster is nothing.
+    assert.strictEqual(
+      handle.probe(sst.variableIndex, y, x, indices, opts, 9999, 9999),
+      null,
+      "off-raster returns null",
+    );
+  });
+
   test("projectOverlay maps a coastline onto the synthesised lat/lon grid", () => {
     const handle = netcdfHandle();
     const sst = handle.variables().find((v) => v.name === "sst");
@@ -1237,6 +1263,8 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     for (const id of ["overlay-contours", "contour-interval", "contours-only", "color-contours"]) {
       assert.ok(html.includes(`id="${id}"`), `contour control ${id} must be present`);
     }
+    // The point-probe readout element (#172) is present.
+    assert.ok(html.includes('id="probe"'), "the probe readout element must be present");
     assert.ok(/id="compare-op"/.test(html), "the compare operation selector must exist");
     assert.ok(/id="compare-dims"/.test(html), "the Field B stepper container must exist");
     assert.ok(!/id="compare-field-b"/.test(html), "NetCDF uses steppers, not a message dropdown");

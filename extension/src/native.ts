@@ -202,6 +202,17 @@ export interface ProjectedOverlay {
   segLengths: Uint32Array;
 }
 
+/** The field under a rendered pixel (#172). `lat`/`lon` are undefined when the
+ *  grid can't be geolocated (a source view of a grid whose forward map isn't
+ *  wired); `value` is undefined off-grid or on a masked cell. */
+export interface ProbeResult {
+  lat?: number;
+  lon?: number;
+  value?: number;
+  gridI?: number;
+  gridJ?: number;
+}
+
 /** Element-wise combine operation on two aligned fields (#239). `aMinusB` is
  *  the difference / anomaly map. */
 export type CombineOp = "a_minus_b" | "b_minus_a" | "a_plus_b" | "mean" | "ratio";
@@ -235,6 +246,15 @@ export interface Grib1Handle {
     options: RenderOptions,
     interval?: number,
   ): ProjectedOverlay;
+  /** Read the field under a rendered pixel (#172): the point-probe readout.
+   *  `px`/`py` are output-raster pixels (post-flip). Undefined when the pixel is
+   *  off the raster or off the globe. */
+  probe(
+    messageIndex: number,
+    options: RenderOptions,
+    px: number,
+    py: number,
+  ): ProbeResult | null;
 }
 
 export interface Grib2Handle {
@@ -260,6 +280,15 @@ export interface Grib2Handle {
     options: RenderOptions,
     interval?: number,
   ): ProjectedOverlay;
+  /** Read the field under a rendered pixel (#172): the point-probe readout.
+   *  `px`/`py` are output-raster pixels (post-flip). Undefined when the pixel is
+   *  off the raster or off the globe. */
+  probe(
+    messageIndex: number,
+    options: RenderOptions,
+    px: number,
+    py: number,
+  ): ProbeResult | null;
 }
 
 export interface Grib1HandleCtor {
@@ -336,6 +365,16 @@ export interface NetcdfHandle {
     options: RenderOptions,
     interval?: number,
   ): ProjectedOverlay;
+  /** Point-probe readout for one slice (#172). Sibling to {@link Grib1Handle.probe}. */
+  probe(
+    variableIndex: number,
+    yDim: number,
+    xDim: number,
+    sliceIndices: number[],
+    options: RenderOptions,
+    px: number,
+    py: number,
+  ): ProbeResult | null;
 }
 
 export interface NetcdfHandleCtor {
