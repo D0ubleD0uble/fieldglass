@@ -74,6 +74,11 @@ const TEMPLATE_5_40_PAYLOAD_LEN: usize = 12;
 /// block, which appends the type octet that 5.61 omits.
 const TEMPLATE_5_61_PAYLOAD_LEN: usize = 13;
 
+/// Template 5.50 payload length — octets 12..=24, 13 bytes: the simple-packing
+/// block (R / E / D / bits, 9 bytes, no type-of-original-values octet) plus the
+/// 4-byte IEEE `realPartOf00` (the (0,0) coefficient, stored out of band).
+const TEMPLATE_5_50_PAYLOAD_LEN: usize = 13;
+
 /// Template 5.200 fixed payload length — octets 12..=17, 6 bytes:
 /// bits-per-value (12), max-level-value (13–14), number-of-level-values
 /// (15–16), and decimal-scale-factor (17). The variable-length level-value
@@ -350,6 +355,33 @@ pub struct LogPreprocessingPackingTemplate {
     pub pre_processing_parameter: f32,
 }
 
+/// Template 5.50 — spectral (spherical-harmonic) simple packing.
+///
+/// The message carries spherical-harmonic coefficients, not gridded values. The
+/// (0,0) coefficient's real part is stored out of band as [`real_part_of_00`];
+/// every other coefficient part is simple-packed in §7 with the usual
+/// `R` / `E` / `D` transform. The decode produces coefficients (see the
+/// `spectral` module), so it does not ride [`decode_values`](crate::ds::decode_values);
+/// like GRIB1 spectral messages, these do not render as a 2-D field until an
+/// inverse spherical-harmonic transform lands.
+///
+/// [`real_part_of_00`]: SpectralSimplePackingTemplate::real_part_of_00
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SpectralSimplePackingTemplate {
+    /// Reference value `R` (IEEE 32-bit float, octets 12–15).
+    pub reference_value: f32,
+    /// Binary scale factor `E` (sign-magnitude `i16`, octets 16–17).
+    pub binary_scale_factor: i16,
+    /// Decimal scale factor `D` (sign-magnitude `i16`, octets 18–19).
+    pub decimal_scale_factor: i16,
+    /// Number of bits used for each packed coefficient part (octet 20).
+    pub bits_per_value: u8,
+    /// Real part of the `(0, 0)` coefficient (IEEE 32-bit float, octets
+    /// 21–24), stored out of band and copied through unscaled as the first
+    /// decoded value.
+    pub real_part_of_00: f32,
+}
+
 /// Template 5.200 — grid-point run-length packing with level values.
 ///
 /// Used by JMA for radar, rain-gauge analysis, and nowcast products. §7 is a
@@ -401,6 +433,7 @@ pub enum DataRepresentationTemplate {
     Jpeg2000(Jpeg2000PackingTemplate),
     RunLength(RunLengthPackingTemplate),
     LogPreprocessing(LogPreprocessingPackingTemplate),
+    SpectralSimple(SpectralSimplePackingTemplate),
     Unsupported(u16),
 }
 
@@ -432,6 +465,7 @@ impl DataRepresentationSection {
             DataRepresentationTemplate::LogPreprocessing(_) => {
                 "simple_log_preprocessing".to_string()
             }
+            DataRepresentationTemplate::SpectralSimple(_) => "spectral_simple".to_string(),
             DataRepresentationTemplate::Unsupported(n) => format!("unsupported(5.{n})"),
         }
     }
@@ -516,6 +550,15 @@ impl DataRepresentationSection {
             _ => None,
         }
     }
+
+    /// Borrow the spectral simple-packing template if that's what the section
+    /// carries. Other templates return `None`.
+    pub fn spectral_simple(&self) -> Option<&SpectralSimplePackingTemplate> {
+        match &self.template {
+            DataRepresentationTemplate::SpectralSimple(t) => Some(t),
+            _ => None,
+        }
+    }
 }
 
 /// Parse the Data Representation Section starting at `bytes[0]`.
@@ -564,6 +607,7 @@ pub fn parse_data_representation_with_header(
         41 => DataRepresentationTemplate::Png(parse_template_5_41(payload)?),
         42 => DataRepresentationTemplate::Ccsds(parse_template_5_42(payload)?),
         61 => DataRepresentationTemplate::LogPreprocessing(parse_template_5_61(payload)?),
+        50 => DataRepresentationTemplate::SpectralSimple(parse_template_5_50(payload)?),
         200 => DataRepresentationTemplate::RunLength(parse_template_5_200(payload)?),
         // Local-use (pre-standard NCEP) templates whose §5 and §7 are identical
         // to a registered image packing, so they decode through the same codec.
@@ -766,6 +810,29 @@ fn parse_template_5_61(payload: &[u8]) -> Result<LogPreprocessingPackingTemplate
         decimal_scale_factor,
         bits_per_value: payload[8],
         pre_processing_parameter,
+    })
+}
+
+fn parse_template_5_50(payload: &[u8]) -> Result<SpectralSimplePackingTemplate, FieldglassError> {
+    if payload.len() < TEMPLATE_5_50_PAYLOAD_LEN {
+        return Err(FieldglassError::Parse(format!(
+            "DRS template 5.50 needs {TEMPLATE_5_50_PAYLOAD_LEN} bytes of payload, got {}",
+            payload.len()
+        )));
+    }
+    // Octets 12–20 are the simple-packing block (R / E / D / bits); like 5.61
+    // there is no type-of-original-values octet, so octets 21–24 carry the
+    // out-of-band (0, 0) coefficient directly.
+    let reference_value = f32::from_be_bytes([payload[0], payload[1], payload[2], payload[3]]);
+    let binary_scale_factor = sign_magnitude_i16(u16::from_be_bytes([payload[4], payload[5]]));
+    let decimal_scale_factor = sign_magnitude_i16(u16::from_be_bytes([payload[6], payload[7]]));
+    let real_part_of_00 = f32::from_be_bytes([payload[9], payload[10], payload[11], payload[12]]);
+    Ok(SpectralSimplePackingTemplate {
+        reference_value,
+        binary_scale_factor,
+        decimal_scale_factor,
+        bits_per_value: payload[8],
+        real_part_of_00,
     })
 }
 
@@ -1224,6 +1291,54 @@ mod tests {
         );
     }
 
+    /// Build a §5 with template 5.50 (spectral simple): the 9-byte
+    /// simple-packing block (no type octet) plus the 4-byte IEEE realPartOf00,
+    /// 24 bytes total.
+    fn build_drs_5_50(r: f32, bits: u8, real00: f32) -> Vec<u8> {
+        let mut buf: Vec<u8> = Vec::new();
+        let section_len: u32 = 24;
+        buf.extend_from_slice(&section_len.to_be_bytes());
+        buf.push(DRS_SECTION_NUMBER);
+        buf.extend_from_slice(&4160u32.to_be_bytes()); // num data points (T63)
+        buf.extend_from_slice(&50u16.to_be_bytes()); // template 5.50
+        buf.extend_from_slice(&r.to_be_bytes()); // R
+        buf.extend_from_slice(&0u16.to_be_bytes()); // E = 0
+        buf.extend_from_slice(&0u16.to_be_bytes()); // D = 0
+        buf.push(bits); // bits per value
+        buf.extend_from_slice(&real00.to_be_bytes()); // realPartOf00
+        assert_eq!(buf.len() as u32, section_len);
+        buf
+    }
+
+    #[test]
+    fn template_5_50_round_trips_synthesized_payload() {
+        let drs =
+            parse_data_representation(&build_drs_5_50(-12.765, 16, 288.234)).expect("parse 5.50");
+        assert_eq!(drs.template_number, 50);
+        assert_eq!(drs.template_name(), "spectral_simple");
+        let t = drs.spectral_simple().expect("5.50 has spectral template");
+        assert!((t.reference_value - (-12.765)).abs() < 1e-3);
+        assert_eq!(t.bits_per_value, 16);
+        assert!((t.real_part_of_00 - 288.234).abs() < 1e-3);
+        assert!(drs.simple().is_none());
+        assert!(drs.log_preprocessing().is_none());
+    }
+
+    #[test]
+    fn rejects_5_50_when_payload_truncated() {
+        let mut buf: Vec<u8> = Vec::new();
+        buf.extend_from_slice(&20u32.to_be_bytes());
+        buf.push(DRS_SECTION_NUMBER);
+        buf.extend_from_slice(&0u32.to_be_bytes());
+        buf.extend_from_slice(&50u16.to_be_bytes()); // template 5.50
+        buf.extend_from_slice(&[0u8; 9]); // only 9 of the 13 payload octets
+        let err = parse_data_representation(&buf).expect_err("must reject");
+        assert!(
+            err.to_string().contains("template 5.50 needs"),
+            "error names template-5.50 shortfall, got: {err}",
+        );
+    }
+
     /// Build a minimal §5 with template 5.2 — 47-byte section. Field values
     /// are arbitrary but distinct so the parser's octet mapping is pinned.
     fn build_drs_5_2() -> Vec<u8> {
@@ -1378,15 +1493,16 @@ mod tests {
     fn unsupported_template_round_trips_with_label() {
         let mut bytes = build_drs_5_0();
         // Template number lives at section octets 10–11 = bytes 9–10.
-        // 50 is unassigned in WMO Code Table 5.0 — a genuinely unsupported
-        // template (40/41/42 all decode now).
-        bytes[9..11].copy_from_slice(&50u16.to_be_bytes());
+        // 99 is unassigned in WMO Code Table 5.0 — a genuinely unsupported
+        // template (0/2/3/4/40/41/42/50/61/200 and the local 40000/40010 all
+        // decode now).
+        bytes[9..11].copy_from_slice(&99u16.to_be_bytes());
         let drs = parse_data_representation(&bytes).expect("parse");
         assert!(matches!(
             drs.template,
-            DataRepresentationTemplate::Unsupported(50)
+            DataRepresentationTemplate::Unsupported(99)
         ));
-        assert_eq!(drs.template_name(), "unsupported(5.50)");
+        assert_eq!(drs.template_name(), "unsupported(5.99)");
         assert!(drs.simple().is_none());
     }
 

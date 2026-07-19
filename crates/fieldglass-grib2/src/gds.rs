@@ -289,6 +289,31 @@ pub struct GaussianTemplate {
     pub is_reduced: bool,
 }
 
+/// Template 3.50 — spherical harmonic coefficients.
+///
+/// Not a grid: the message carries spectral coefficients truncated at the
+/// pentagonal resolution `(J, K, M)`, so there are no `Ni`/`Nj` and no corner
+/// coordinates. Only the triangular truncation `J = K = M` is defined for the
+/// coefficient traversal the decoder uses. Rendering needs an inverse
+/// spherical-harmonic transform (tracked separately); this template exists so
+/// spectral messages parse their truncation metadata and decode to
+/// coefficients rather than surfacing as an unsupported grid.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SphericalHarmonicTemplate {
+    /// `J` — pentagonal resolution parameter (octets 15–18).
+    pub j: u32,
+    /// `K` — pentagonal resolution parameter (octets 19–22).
+    pub k: u32,
+    /// `M` — pentagonal resolution parameter (octets 23–26).
+    pub m: u32,
+    /// Spectral data representation type (octet 27) — Code Table 3.6
+    /// (`1` = the associated Legendre functions of the first kind).
+    pub spectral_type: u8,
+    /// Spectral data representation mode (octet 28) — Code Table 3.7
+    /// (`1` = the complex coefficients stored for `m ≥ 0`).
+    pub spectral_mode: u8,
+}
+
 /// Parsed template payload. Templates outside the supported set surface as
 /// `Unsupported` so callers can still expose section-header fields and a
 /// useful name without erroring out.
@@ -301,6 +326,7 @@ pub enum GridTemplate {
     Lambert(LambertTemplate),
     Gaussian(GaussianTemplate),
     SpaceView(SpaceViewTemplate),
+    SphericalHarmonic(SphericalHarmonicTemplate),
     Unsupported(u16),
 }
 
@@ -328,12 +354,15 @@ impl GridDefinitionSection {
             GridTemplate::Lambert(t) => Some((t.nx, t.ny)),
             GridTemplate::Gaussian(t) => t.ni.map(|ni| (ni, t.nj)),
             GridTemplate::SpaceView(t) => Some((t.nx, t.ny)),
+            // Spherical harmonics are coefficients, not a gridded layout.
+            GridTemplate::SphericalHarmonic(_) => None,
             GridTemplate::Unsupported(_) => None,
         }
     }
 
     /// The §3 scanning-mode flags (Flag Table 3.4) the template carries.
-    /// `None` for templates that define no data-point layout (`Unsupported`).
+    /// `None` for templates that define no data-point layout (`Unsupported`,
+    /// spherical harmonics).
     pub fn scanning_mode(&self) -> Option<u8> {
         match &self.template {
             GridTemplate::LatLon(t) => Some(t.scanning_mode),
@@ -343,6 +372,7 @@ impl GridDefinitionSection {
             GridTemplate::Lambert(t) => Some(t.scanning_mode),
             GridTemplate::Gaussian(t) => Some(t.scanning_mode),
             GridTemplate::SpaceView(t) => Some(t.scanning_mode),
+            GridTemplate::SphericalHarmonic(_) => None,
             GridTemplate::Unsupported(_) => None,
         }
     }
@@ -362,6 +392,7 @@ impl GridDefinitionSection {
             GridTemplate::Lambert(t) => Some((t.la1, t.lo1, t.lad, t.lov)),
             GridTemplate::Gaussian(t) => Some((t.la1, t.lo1, t.la2, t.lo2)),
             GridTemplate::SpaceView(_) => None,
+            GridTemplate::SphericalHarmonic(_) => None,
             GridTemplate::Unsupported(_) => None,
         }
     }
@@ -377,7 +408,17 @@ impl GridDefinitionSection {
             GridTemplate::Lambert(_) => "lambert".to_string(),
             GridTemplate::Gaussian(_) => "gaussian".to_string(),
             GridTemplate::SpaceView(_) => "space_view".to_string(),
+            GridTemplate::SphericalHarmonic(_) => "spherical_harmonic".to_string(),
             GridTemplate::Unsupported(n) => format!("unsupported(3.{n})"),
+        }
+    }
+
+    /// Borrow the spherical-harmonic template if that's what the section
+    /// carries. Other templates return `None`.
+    pub fn spherical_harmonic(&self) -> Option<&SphericalHarmonicTemplate> {
+        match &self.template {
+            GridTemplate::SphericalHarmonic(t) => Some(t),
+            _ => None,
         }
     }
 }
@@ -462,6 +503,7 @@ pub fn parse_grid_definition_with_header(
         30 => GridTemplate::Lambert(parse_template_3_30(payload)?),
         40 => GridTemplate::Gaussian(parse_template_3_40(payload, optional_list_octet_size)?),
         90 => GridTemplate::SpaceView(parse_template_3_90(payload)?),
+        50 => GridTemplate::SphericalHarmonic(parse_template_3_50(payload)?),
         other => GridTemplate::Unsupported(other),
     };
 
@@ -603,6 +645,24 @@ fn parse_template_3_20(p: &[u8]) -> Result<PolarStereographicTemplate, Fieldglas
 
 /// Template 3.90 payload starts at GDS octet 15. Payload length = 66 bytes
 /// (octets 15..=80 of the section).
+fn parse_template_3_50(p: &[u8]) -> Result<SphericalHarmonicTemplate, FieldglassError> {
+    // J / K / M (4 bytes each) then the type and mode code octets: 14 bytes,
+    // section octets 15–28.
+    if p.len() < 14 {
+        return Err(FieldglassError::Parse(format!(
+            "GDS template 3.50 needs 14 bytes of payload, got {}",
+            p.len()
+        )));
+    }
+    Ok(SphericalHarmonicTemplate {
+        j: u32::from_be_bytes([p[0], p[1], p[2], p[3]]),
+        k: u32::from_be_bytes([p[4], p[5], p[6], p[7]]),
+        m: u32::from_be_bytes([p[8], p[9], p[10], p[11]]),
+        spectral_type: p[12],
+        spectral_mode: p[13],
+    })
+}
+
 fn parse_template_3_90(p: &[u8]) -> Result<SpaceViewTemplate, FieldglassError> {
     if p.len() < 66 {
         return Err(FieldglassError::Parse(format!(
@@ -742,6 +802,51 @@ mod tests {
         buf.push(0); // scanning mode
         assert_eq!(buf.len(), 72);
         buf
+    }
+
+    /// Build a §3 with template 3.50 (spherical harmonics): 14-byte header plus
+    /// J / K / M / type / mode, 28 bytes total.
+    fn build_gds_3_50(j: u32, k: u32, m: u32) -> Vec<u8> {
+        let mut buf: Vec<u8> = Vec::new();
+        push_be(&mut buf, 28, 4); // section length
+        buf.push(3); // section number
+        buf.push(0); // source
+        push_be(&mut buf, (j + 1) * (j + 2), 4); // num_data_points
+        buf.push(0); // optional list size
+        buf.push(0); // optional list interp
+        push_be(&mut buf, 50, 2); // template number 3.50
+        push_be(&mut buf, j, 4);
+        push_be(&mut buf, k, 4);
+        push_be(&mut buf, m, 4);
+        buf.push(1); // spectral type
+        buf.push(1); // spectral mode
+        assert_eq!(buf.len(), 28);
+        buf
+    }
+
+    #[test]
+    fn parses_template_3_50() {
+        let gds = parse_grid_definition(&build_gds_3_50(63, 63, 63)).expect("parse 3.50");
+        assert_eq!(gds.template_number, 50);
+        assert_eq!(gds.template_name(), "spherical_harmonic");
+        assert_eq!(gds.num_data_points, 64 * 65);
+        // A spectral message has no grid dimensions, scanning mode, or bounds.
+        assert_eq!(gds.dimensions(), None);
+        assert_eq!(gds.scanning_mode(), None);
+        assert_eq!(gds.bounds(), None);
+        let sh = gds.spherical_harmonic().expect("3.50 template");
+        assert_eq!((sh.j, sh.k, sh.m), (63, 63, 63));
+        assert_eq!(sh.spectral_type, 1);
+        assert_eq!(sh.spectral_mode, 1);
+    }
+
+    #[test]
+    fn rejects_short_template_3_50() {
+        let mut buf = build_gds_3_50(63, 63, 63);
+        // Declare a length that truncates the 14-byte template payload.
+        buf[3] = 20;
+        buf.truncate(20);
+        assert!(parse_grid_definition(&buf).is_err());
     }
 
     #[test]

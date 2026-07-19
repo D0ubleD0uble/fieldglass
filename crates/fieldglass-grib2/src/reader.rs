@@ -13,6 +13,7 @@ use crate::pds::{
     PDS_SECTION_NUMBER, ProductDefinitionSection, parse_product_definition_with_header,
 };
 use crate::section::parse_section_header;
+use crate::spectral::{SpectralCoefficients, decode_spectral_simple};
 use fieldglass_core::FieldglassError;
 
 /// Hard cap on `ni · nj` for `decode_message_values`. Real grids top out
@@ -93,6 +94,16 @@ impl Grib2Reader {
             .get(message_index)
             .ok_or(FieldglassError::OutOfRange)?;
 
+        // Spherical-harmonic messages carry coefficients, not a grid, so they
+        // have no dimensions and decode through `decode_spectral_message`.
+        if msg.gds.spherical_harmonic().is_some() {
+            return Err(FieldglassError::UnsupportedSection(
+                "message holds spherical-harmonic coefficients (§3.50), which are not values \
+                 on a grid — decode them with `Grib2Reader::decode_spectral_message`"
+                    .to_string(),
+            ));
+        }
+
         let (ni, nj) = msg.gds.dimensions().ok_or_else(|| {
             FieldglassError::Parse(
                 "grid template has no declared dimensions — reduced grids \
@@ -145,6 +156,48 @@ impl Grib2Reader {
         // level table is heap-allocated; `decode_message_values` runs once per
         // message render (not per point), so the clone is not on any hot path.
         decode_values(ds_payload, msg.drs.template.clone(), bitmap, expected_count)
+    }
+
+    /// Decode a spherical-harmonic message (§3.50 + §5.50) into its spectral
+    /// coefficients.
+    ///
+    /// A spectral message stores the field in wavenumber space, not on a grid,
+    /// so it has no `Ni`/`Nj` and cannot go through
+    /// [`Grib2Reader::decode_message_values`]. Turning the coefficients back
+    /// into a grid needs an inverse spherical-harmonic transform, which is not
+    /// implemented yet; what you get here is what eccodes' `grib_get_data`
+    /// prints for the same message. Errors if the message is not
+    /// spherical-harmonic, or its §5 packing is not one the spectral decoder
+    /// supports (only `spectral_simple` / template 5.50 today).
+    pub fn decode_spectral_message(
+        &self,
+        message_index: usize,
+    ) -> Result<SpectralCoefficients, FieldglassError> {
+        let msg = self
+            .messages
+            .get(message_index)
+            .ok_or(FieldglassError::OutOfRange)?;
+
+        let sh = msg.gds.spherical_harmonic().ok_or_else(|| {
+            FieldglassError::UnsupportedSection(format!(
+                "message {message_index} is a {} grid, not spherical-harmonic coefficients — \
+                 use `decode_message_values`",
+                msg.gds.template_name()
+            ))
+        })?;
+
+        let t = msg.drs.spectral_simple().ok_or_else(|| {
+            FieldglassError::UnsupportedSection(format!(
+                "spherical-harmonic message {message_index} uses §5 packing {} — only \
+                 spectral_simple (template 5.50) decodes today",
+                msg.drs.template_name()
+            ))
+        })?;
+
+        let (ds_start, ds_end) = msg.ds_range;
+        let ds_header = parse_section_header(&self.data[ds_start..ds_end])?;
+        let ds_payload = parse_data_section_body(&self.data[ds_start..ds_end], ds_header)?;
+        decode_spectral_simple(ds_payload, t, sh.j, sh.k, sh.m)
     }
 }
 
