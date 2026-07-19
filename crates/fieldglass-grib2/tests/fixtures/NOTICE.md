@@ -288,3 +288,39 @@ The `<fixture>_expected.json` value oracles are eccodes **2.34.1**
 points, anchored samples, and the §5 run-length parameters); the builder
 asserts eccodes decodes exactly the field it encoded before writing them. The
 `.eccodes.ref.json` metadata snapshots are 2.34.1 as usual.
+
+## Log-preprocessing fixtures (#305)
+
+Two fixtures pin the log-preprocessing decode (DRS template **5.61**,
+`grid_simple_log_preprocessing`): simple packing of the log-transformed field,
+decoded as simple unpacking then `Y = exp(X) − B` with `B` the §5
+`preProcessingParameter`.
+
+| Fixture | DRS template | Exercises | Issue |
+|---|---|---|---|
+| `log_regular_latlon.grib2` | 5.61 | `B = 0` branch (`Y = exp(X)`) | #305 |
+| `log_negative_regular_latlon.grib2` | 5.61 | `B ≠ 0` branch (`Y = exp(X) − B`) | #305 |
+
+eccodes 2.34.1 (the pin) both **encodes and decodes** this template, so — like
+the CCSDS fixtures — both are eccodes re-encodings of
+`regular_latlon_surface.grib2`, built by
+`tools/build_grib2_log_preprocessing_fixtures.py`, with eccodes' decode as the
+value oracle. `log_regular_latlon.grib2` re-packs the field directly
+(`grib_set -r -s packingType=grid_simple_log_preprocessing`); the field is
+all-positive, so the encoder chooses `preProcessingParameter = 0`.
+`log_negative_regular_latlon.grib2` first shifts the field by −300 K
+(`grib_set -s offsetValuesBy=-300`) so it holds non-positive values, which
+drives the encoder to a non-zero `preProcessingParameter` and exercises the
+subtraction branch.
+
+The `<fixture>_expected.json` value oracles are eccodes 2.34.1 `grib_get_data` /
+`grib_get`; because the decode reconstructs values through `exp()`, their
+tolerance is `0.01` rather than the linear packings' `0.001`. The
+`.eccodes.ref.json` metadata snapshots are 2.34.1 as usual.
+
+The WMO note flags 5.61 as experimental ("not validated … bilateral tests
+only"), and there is no known operational producer; a second independent oracle
+(e.g. wgrib2) would strengthen the cross-check but was not available in this
+environment. The decode is a small, deterministic transform over the
+already-validated simple-packing path, and both the eccodes decode and the
+closed-form `exp`/`exp − B` arithmetic (see the `ds.rs` unit tests) agree.

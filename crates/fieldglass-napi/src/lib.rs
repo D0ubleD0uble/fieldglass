@@ -230,6 +230,7 @@ fn friendly_packing(label: &str) -> String {
         "grid_png" | "png" => "PNG",
         "grid_ccsds" | "ccsds" => "CCSDS",
         "grid_run_length" | "run_length" => "Run-length",
+        "grid_simple_log_preprocessing" | "simple_log_preprocessing" => "Simple packing (log)",
         "grid_simple_matrix" => "Matrix of values",
         "grid_second_order" => "Second-order (SPD-2)",
         "grid_second_order_no_SPD" => "Second-order (no SPD)",
@@ -5075,6 +5076,14 @@ mod friendly_packing_tests {
         assert_eq!(friendly_packing("ccsds"), "CCSDS");
         assert_eq!(friendly_packing("grid_run_length"), "Run-length");
         assert_eq!(friendly_packing("run_length"), "Run-length");
+        assert_eq!(
+            friendly_packing("grid_simple_log_preprocessing"),
+            "Simple packing (log)"
+        );
+        assert_eq!(
+            friendly_packing("simple_log_preprocessing"),
+            "Simple packing (log)"
+        );
         assert_eq!(friendly_packing("grid_simple_matrix"), "Matrix of values");
         assert_eq!(
             friendly_packing("grid_second_order"),

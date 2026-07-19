@@ -1,0 +1,26 @@
+{
+  "count": 496,
+  "missing_count": 0,
+  "min": -29.533203424,
+  "max": 11.098139456,
+  "mean": -8.414740026823763,
+  "samples": {
+    "0": -21.000028813,
+    "1": -20.039249614,
+    "100": -21.370208305,
+    "250": -8.2521397789,
+    "495": 0.88223780243
+  },
+  "tolerance_absolute": 0.01,
+  "section5": {
+    "dataRepresentationTemplateNumber": 61,
+    "packingType": "grid_simple_log_preprocessing",
+    "referenceValue": 1.20563,
+    "binaryScaleFactor": -14,
+    "decimalScaleFactor": 0,
+    "bitsPerValue": 16,
+    "preProcessingParameter": 32.8721,
+    "typeOfPreProcessing": 1
+  },
+  "source": "eccodes 2.34.1 grib_get_data + grib_get. Oracle for DRS template 5.61 (grid_simple_log_preprocessing) with a non-zero preProcessingParameter. regular_latlon_surface.grib2 shifted by -300 K (`grib_set -s offsetValuesBy=-300`) so it holds non-positive values, then re-encoded via `grib_set -r -s packingType=grid_simple_log_preprocessing`. Exercises the decode Y = exp(X) - B branch. Provenance in NOTICE.md."
+}

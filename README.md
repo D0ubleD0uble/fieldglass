@@ -85,6 +85,7 @@ A GRIB2 message's §5 Data Representation Section selects a packing template. De
 | 5.41 — PNG | `grid_png` | ✅ | The integer grid is wrapped in a PNG image (decoded with the pure-Rust `png` crate); the simple-packing `R` / `E` / `D` transform then applies. Cross-validated against eccodes 2.34. |
 | 5.42 — CCSDS / AEC | `grid_ccsds` | ✅ | The integer grid is wrapped in a CCSDS adaptive-entropy-coding (libaec-compatible) stream, decoded with the pure-Rust `rust-aec` crate; the simple-packing `R` / `E` / `D` transform then applies. Cross-validated against eccodes 2.34. |
 | 5.200 — run-length | `grid_run_length` | ✅ | Runs of quantised level indices resolved through a level → value table (JMA radar, rain-gauge analysis, and nowcasts). Level 0 marks missing; a run is a level code followed by base-`range` length digits. No `R` / `E` transform — only the decimal scale. Cross-validated against eccodes 2.34. |
+| 5.61 — simple + log pre-processing | `grid_simple_log_preprocessing` | ✅ | Simple packing of the log-transformed field; decode is the simple-packing `R` / `E` / `D` value followed by `Y = exp(X) − B`, where `B` is the pre-processing parameter (`B = 0` for a positive field). Experimental (WMO: bilateral tests only), no known operational producer — decoded for census completeness. Cross-validated against eccodes 2.34. |
 
 ## Known limitations
 

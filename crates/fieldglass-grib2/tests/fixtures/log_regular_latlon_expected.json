@@ -1,0 +1,26 @@
+{
+  "count": 496,
+  "missing_count": 0,
+  "min": 270.46674579,
+  "max": 311.09875356,
+  "mean": 291.58522066959677,
+  "samples": {
+    "0": 279.0001263,
+    "1": 279.96071135,
+    "100": 278.62999527,
+    "250": 291.74786956,
+    "495": 300.88151142
+  },
+  "tolerance_absolute": 0.01,
+  "section5": {
+    "dataRepresentationTemplateNumber": 61,
+    "packingType": "grid_simple_log_preprocessing",
+    "referenceValue": 5.60015,
+    "binaryScaleFactor": -18,
+    "decimalScaleFactor": 0,
+    "bitsPerValue": 16,
+    "preProcessingParameter": 0.0,
+    "typeOfPreProcessing": 1
+  },
+  "source": "eccodes 2.34.1 grib_get_data + grib_get. Oracle for DRS template 5.61 (grid_simple_log_preprocessing). eccodes re-encode of regular_latlon_surface.grib2 via `grib_set -r -s packingType=grid_simple_log_preprocessing`. All-positive field so preProcessingParameter = 0 (decode Y = exp(X)). Provenance in NOTICE.md."
+}

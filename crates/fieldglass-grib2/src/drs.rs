@@ -64,6 +64,13 @@ const TEMPLATE_5_42_PAYLOAD_LEN: usize = 14;
 /// (octet 22) and target-compression-ratio (octet 23).
 const TEMPLATE_5_40_PAYLOAD_LEN: usize = 12;
 
+/// Template 5.61 payload length — octets 12..=24, 13 bytes: the simple-packing
+/// block *without* the type-of-original-values octet (R / E / D / bits, per
+/// eccodes' shared `template.5.packing.def`, 9 bytes) followed by the 4-byte
+/// IEEE `preProcessingParameter`. Note this is one octet shorter than the 5.0
+/// block, which appends the type octet that 5.61 omits.
+const TEMPLATE_5_61_PAYLOAD_LEN: usize = 13;
+
 /// Template 5.200 fixed payload length — octets 12..=17, 6 bytes:
 /// bits-per-value (12), max-level-value (13–14), number-of-level-values
 /// (15–16), and decimal-scale-factor (17). The variable-length level-value
@@ -306,6 +313,40 @@ pub struct ComplexSpatialDiffTemplate {
     pub extra_descriptor_octets: u8,
 }
 
+/// Template 5.61 — simple packing with logarithmic pre-processing.
+///
+/// §7 carries a simple-packed integer stream exactly like template 5.0, but
+/// the packed values are the *natural logarithm* of the field (shifted by
+/// [`pre_processing_parameter`] `B` so the log's argument stays positive). The
+/// decode is therefore simple unpacking followed by the inverse transform
+/// `Y = exp(X) - B`, where `X = (R + packed · 2^E) · 10^-D` is the ordinary
+/// simple-packing value. `B == 0` (the encoder's choice for an all-positive
+/// field) reduces this to `Y = exp(X)`.
+///
+/// The template is experimental (WMO flags it "not validated … bilateral
+/// tests only") and has no known operational producer; it is decoded for
+/// census completeness. Unlike 5.0, the §5 block has no type-of-original-values
+/// octet — the pre-processing parameter takes octets 21–24 directly after
+/// `bits_per_value`.
+///
+/// [`pre_processing_parameter`]: LogPreprocessingPackingTemplate::pre_processing_parameter
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LogPreprocessingPackingTemplate {
+    /// Reference value `R` (IEEE 32-bit float, octets 12–15).
+    pub reference_value: f32,
+    /// Binary scale factor `E` (sign-magnitude `i16`, octets 16–17).
+    pub binary_scale_factor: i16,
+    /// Decimal scale factor `D` (sign-magnitude `i16`, octets 18–19).
+    pub decimal_scale_factor: i16,
+    /// Number of bits used for each packed (log-domain) value (octet 20).
+    pub bits_per_value: u8,
+    /// Pre-processing parameter `B` (IEEE 32-bit float, octets 21–24): the
+    /// shift added inside the logarithm at encode time and subtracted after
+    /// the exponential at decode time. `0` when the source field was strictly
+    /// positive.
+    pub pre_processing_parameter: f32,
+}
+
 /// Template 5.200 — grid-point run-length packing with level values.
 ///
 /// Used by JMA for radar, rain-gauge analysis, and nowcast products. §7 is a
@@ -356,6 +397,7 @@ pub enum DataRepresentationTemplate {
     Ccsds(CcsdsPackingTemplate),
     Jpeg2000(Jpeg2000PackingTemplate),
     RunLength(RunLengthPackingTemplate),
+    LogPreprocessing(LogPreprocessingPackingTemplate),
     Unsupported(u16),
 }
 
@@ -384,6 +426,9 @@ impl DataRepresentationSection {
             DataRepresentationTemplate::Ccsds(_) => "ccsds".to_string(),
             DataRepresentationTemplate::Jpeg2000(_) => "jpeg".to_string(),
             DataRepresentationTemplate::RunLength(_) => "run_length".to_string(),
+            DataRepresentationTemplate::LogPreprocessing(_) => {
+                "simple_log_preprocessing".to_string()
+            }
             DataRepresentationTemplate::Unsupported(n) => format!("unsupported(5.{n})"),
         }
     }
@@ -459,6 +504,15 @@ impl DataRepresentationSection {
             _ => None,
         }
     }
+
+    /// Borrow the log-preprocessing template if that's what the section
+    /// carries. Other templates return `None`.
+    pub fn log_preprocessing(&self) -> Option<&LogPreprocessingPackingTemplate> {
+        match &self.template {
+            DataRepresentationTemplate::LogPreprocessing(t) => Some(t),
+            _ => None,
+        }
+    }
 }
 
 /// Parse the Data Representation Section starting at `bytes[0]`.
@@ -506,6 +560,7 @@ pub fn parse_data_representation_with_header(
         40 => DataRepresentationTemplate::Jpeg2000(parse_template_5_40(payload)?),
         41 => DataRepresentationTemplate::Png(parse_template_5_41(payload)?),
         42 => DataRepresentationTemplate::Ccsds(parse_template_5_42(payload)?),
+        61 => DataRepresentationTemplate::LogPreprocessing(parse_template_5_61(payload)?),
         200 => DataRepresentationTemplate::RunLength(parse_template_5_200(payload)?),
         other => DataRepresentationTemplate::Unsupported(other),
     };
@@ -676,6 +731,30 @@ fn parse_template_5_42(payload: &[u8]) -> Result<CcsdsPackingTemplate, Fieldglas
         ccsds_flags: payload[10],
         block_size: payload[11],
         reference_sample_interval,
+    })
+}
+
+fn parse_template_5_61(payload: &[u8]) -> Result<LogPreprocessingPackingTemplate, FieldglassError> {
+    if payload.len() < TEMPLATE_5_61_PAYLOAD_LEN {
+        return Err(FieldglassError::Parse(format!(
+            "DRS template 5.61 needs {TEMPLATE_5_61_PAYLOAD_LEN} bytes of payload, got {}",
+            payload.len()
+        )));
+    }
+    // Octets 12–20 are the simple-packing block (R / E / D / bits); unlike 5.0
+    // there is no type-of-original-values octet, so octets 21–24 carry the
+    // IEEE pre-processing parameter directly.
+    let reference_value = f32::from_be_bytes([payload[0], payload[1], payload[2], payload[3]]);
+    let binary_scale_factor = sign_magnitude_i16(u16::from_be_bytes([payload[4], payload[5]]));
+    let decimal_scale_factor = sign_magnitude_i16(u16::from_be_bytes([payload[6], payload[7]]));
+    let pre_processing_parameter =
+        f32::from_be_bytes([payload[9], payload[10], payload[11], payload[12]]);
+    Ok(LogPreprocessingPackingTemplate {
+        reference_value,
+        binary_scale_factor,
+        decimal_scale_factor,
+        bits_per_value: payload[8],
+        pre_processing_parameter,
     })
 }
 
@@ -1071,6 +1150,66 @@ mod tests {
         assert!(
             err.to_string().contains("level values"),
             "error names the level-value shortfall, got: {err}",
+        );
+    }
+
+    /// Build a §5 with template 5.61 (log pre-processing): the 9-byte
+    /// simple-packing block (no type octet) plus a 4-byte IEEE
+    /// `preProcessingParameter`, 24 bytes total.
+    fn build_drs_5_61(r: f32, e: i16, d: i16, bits: u8, ppp: f32) -> Vec<u8> {
+        let mut buf: Vec<u8> = Vec::new();
+        let section_len: u32 = 24;
+        buf.extend_from_slice(&section_len.to_be_bytes());
+        buf.push(DRS_SECTION_NUMBER);
+        buf.extend_from_slice(&496u32.to_be_bytes()); // num data points
+        buf.extend_from_slice(&61u16.to_be_bytes()); // template 5.61
+        buf.extend_from_slice(&r.to_be_bytes()); // R
+        buf.extend_from_slice(&(e as u16).to_be_bytes()); // E (sign-magnitude via i16 round-trip)
+        buf.extend_from_slice(&(d as u16).to_be_bytes()); // D
+        buf.push(bits); // bits per value
+        buf.extend_from_slice(&ppp.to_be_bytes()); // pre-processing parameter
+        assert_eq!(buf.len() as u32, section_len);
+        buf
+    }
+
+    #[test]
+    fn template_5_61_round_trips_synthesized_payload() {
+        // E/D encoded as plain positive values so the sign-magnitude round-trip
+        // is the identity here; the sign path is covered by the simple-packing
+        // tests that share `sign_magnitude_i16`.
+        let drs =
+            parse_data_representation(&build_drs_5_61(5.6, 0, 2, 16, 32.5)).expect("parse 5.61");
+        assert_eq!(drs.template_number, 61);
+        assert_eq!(drs.num_data_points, 496);
+        assert_eq!(drs.template_name(), "simple_log_preprocessing");
+
+        let t = drs
+            .log_preprocessing()
+            .expect("5.61 has log-preprocessing template");
+        assert!((t.reference_value - 5.6).abs() < 1e-4);
+        assert_eq!(t.binary_scale_factor, 0);
+        assert_eq!(t.decimal_scale_factor, 2);
+        assert_eq!(t.bits_per_value, 16);
+        assert!((t.pre_processing_parameter - 32.5).abs() < 1e-4);
+        // Other accessors must not claim a log-preprocessing section.
+        assert!(drs.simple().is_none());
+        assert!(drs.run_length().is_none());
+    }
+
+    #[test]
+    fn rejects_5_61_when_payload_truncated() {
+        // Declare length 21 (a full 5.0 block) so the 5.61 check fires on the
+        // missing pre-processing-parameter octets.
+        let mut buf: Vec<u8> = Vec::new();
+        buf.extend_from_slice(&21u32.to_be_bytes());
+        buf.push(DRS_SECTION_NUMBER);
+        buf.extend_from_slice(&0u32.to_be_bytes());
+        buf.extend_from_slice(&61u16.to_be_bytes()); // template 5.61
+        buf.extend_from_slice(&[0u8; 10]); // only 10 payload octets
+        let err = parse_data_representation(&buf).expect_err("must reject");
+        assert!(
+            err.to_string().contains("template 5.61 needs"),
+            "error names template-5.61 shortfall, got: {err}",
         );
     }
 

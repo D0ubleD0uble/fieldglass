@@ -10,8 +10,9 @@
 
 use crate::drs::{
     CcsdsPackingTemplate, ComplexPackingTemplate, ComplexSpatialDiffTemplate,
-    DataRepresentationTemplate, IeeePackingTemplate, Jpeg2000PackingTemplate, PngPackingTemplate,
-    RunLengthPackingTemplate, SimplePackingTemplate,
+    DataRepresentationTemplate, IeeePackingTemplate, Jpeg2000PackingTemplate,
+    LogPreprocessingPackingTemplate, PngPackingTemplate, RunLengthPackingTemplate,
+    SimplePackingTemplate,
 };
 use crate::section::{SECTION_HEADER_LEN, SectionHeader};
 use fieldglass_core::{
@@ -89,6 +90,9 @@ pub fn decode_values(
         DataRepresentationTemplate::RunLength(t) => {
             decode_run_length_packing(ds_payload, &t, bitmap, expected_count)
         }
+        DataRepresentationTemplate::LogPreprocessing(t) => {
+            decode_log_preprocessing(ds_payload, &t, bitmap, expected_count)
+        }
         DataRepresentationTemplate::Unsupported(n) => Err(FieldglassError::UnsupportedSection(
             format!("DRS template 5.{n} decoding is not implemented"),
         )),
@@ -150,6 +154,41 @@ fn decode_simple_packing(
     }
 
     Ok(interleave_with_bitmap(decoded, bitmap, expected_count))
+}
+
+/// Decode simple packing with logarithmic pre-processing (template 5.61). §7 is
+/// an ordinary simple-packing integer stream, so the decode is
+/// [`decode_simple_packing`] to recover the log-domain value
+/// `X = (R + packed · 2^E) · 10^-D`, followed by the inverse transform
+/// `Y = exp(X) - B`, where `B` is the pre-processing parameter. `B == 0`
+/// reduces to `Y = exp(X)`; the subtraction is applied unconditionally since
+/// subtracting zero is a no-op, matching eccodes'
+/// `DataG2SimplePackingWithPreprocessing`. Missing (bitmap) points pass through
+/// untouched, the same seam every other decoder uses.
+fn decode_log_preprocessing(
+    ds_payload: &[u8],
+    t: &LogPreprocessingPackingTemplate,
+    bitmap: Option<&[bool]>,
+    expected_count: usize,
+) -> Result<Vec<Option<f64>>, FieldglassError> {
+    // The §7 payload is packed exactly like template 5.0, so borrow that
+    // decoder for the log-domain values. Template 5.61 has no
+    // type-of-original-values octet; simple packing ignores that field anyway,
+    // so a placeholder is harmless.
+    let simple = SimplePackingTemplate {
+        reference_value: t.reference_value,
+        binary_scale_factor: t.binary_scale_factor,
+        decimal_scale_factor: t.decimal_scale_factor,
+        bits_per_value: t.bits_per_value,
+        original_field_type: 0,
+    };
+    let log_domain = decode_simple_packing(ds_payload, &simple, bitmap, expected_count)?;
+
+    let bias = t.pre_processing_parameter as f64;
+    Ok(log_domain
+        .into_iter()
+        .map(|v| v.map(|x| x.exp() - bias))
+        .collect())
 }
 
 /// Decode complex packing (template 5.2). The field is split into NG groups
@@ -1281,6 +1320,62 @@ mod tests {
         let template = run_length_template(8, 3, vec![10, 20, 30], 0);
         let packed = pack_bits(&[1, 1, 1], 8);
         assert!(decode_values(&packed, template, None, 2).is_err());
+    }
+
+    fn log_template(r: f32, e: i16, d: i16, bits: u8, ppp: f32) -> DataRepresentationTemplate {
+        DataRepresentationTemplate::LogPreprocessing(LogPreprocessingPackingTemplate {
+            reference_value: r,
+            binary_scale_factor: e,
+            decimal_scale_factor: d,
+            bits_per_value: bits,
+            pre_processing_parameter: ppp,
+        })
+    }
+
+    #[test]
+    fn log_preprocessing_zero_bias() {
+        // R=0, E=0, D=0 → simple value X = packed; ppp=0 → Y = exp(X).
+        let template = log_template(0.0, 0, 0, 8, 0.0);
+        let packed = pack_bits(&[0, 1, 2], 8);
+        let decoded = decode_values(&packed, template, None, 3).expect("decode");
+        assert!((decoded[0].unwrap() - 1.0).abs() < 1e-9); // exp(0)
+        assert!((decoded[1].unwrap() - 1f64.exp()).abs() < 1e-9);
+        assert!((decoded[2].unwrap() - 2f64.exp()).abs() < 1e-9);
+    }
+
+    #[test]
+    fn log_preprocessing_nonzero_bias() {
+        // ppp=1 → Y = exp(X) - 1.
+        let template = log_template(0.0, 0, 0, 8, 1.0);
+        let packed = pack_bits(&[0, 1, 2], 8);
+        let decoded = decode_values(&packed, template, None, 3).expect("decode");
+        assert!((decoded[0].unwrap() - 0.0).abs() < 1e-9); // exp(0) - 1
+        assert!((decoded[1].unwrap() - (1f64.exp() - 1.0)).abs() < 1e-9);
+        assert!((decoded[2].unwrap() - (2f64.exp() - 1.0)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn log_preprocessing_preserves_bitmap_missing() {
+        // A masked point stays missing through the exp transform.
+        let template = log_template(0.0, 0, 0, 8, 0.0);
+        let packed = pack_bits(&[0, 2], 8);
+        let bitmap = [true, false, true];
+        let decoded = decode_values(&packed, template, Some(&bitmap), 3).expect("decode");
+        assert!((decoded[0].unwrap() - 1.0).abs() < 1e-9);
+        assert_eq!(decoded[1], None);
+        assert!((decoded[2].unwrap() - 2f64.exp()).abs() < 1e-9);
+    }
+
+    #[test]
+    fn log_preprocessing_constant_field() {
+        // bits_per_value == 0 → simple decode yields the constant R·10^-D, then
+        // the exp transform applies. R=1, D=0, ppp=0 → Y = exp(1) everywhere.
+        let template = log_template(1.0, 0, 0, 0, 0.0);
+        let decoded = decode_values(&[], template, None, 4).expect("decode");
+        assert_eq!(decoded.len(), 4);
+        for v in decoded {
+            assert!((v.unwrap() - 1f64.exp()).abs() < 1e-9);
+        }
     }
 
     #[test]
