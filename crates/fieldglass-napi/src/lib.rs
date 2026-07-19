@@ -9,6 +9,7 @@ use fieldglass_core::{
     colormap::{Colormap, ScaleMode, min_max_ignoring_mask, paint_grid_rgba},
     combine_fields,
     contour::{contour_segments, nice_levels},
+    csv::{field_to_csv_long, field_to_csv_matrix},
     detect_from_bytes, eastward_lon_span, latlon_inverse, latlon_point, lon_grid_is_global,
     mercator_inverse, mercator_point, normalise_lon, project_polylines,
     projection::GridIndex,
@@ -1339,6 +1340,19 @@ impl Grib1Handle {
         Ok(decoded_grid_from(&raw, width, height))
     }
 
+    /// Serialize one message's decoded field as CSV — `"matrix"` (a 2-D grid of
+    /// values) or `"long"` (a `lat,lon,value` table), missing points as empty
+    /// value cells. The long format is available for the lat/lon grid family
+    /// only, like contours; the matrix format works for any grid with declared
+    /// dimensions. See the GRIB2 counterpart for details.
+    #[napi]
+    pub fn export_csv(&self, message_index: u32, format: String) -> napi::Result<String> {
+        let raw = self.cached_decode(message_index)?;
+        let meta = self.message_meta(message_index)?;
+        let (ni, nj) = grib1_dimensions(&self.reader, message_index as usize)?;
+        field_csv(&raw, &meta, ni, nj, &format)
+    }
+
     /// Patch the PDS `p1` (forecast period) octet of one message and
     /// return a fresh byte buffer. Callers reconstruct a new
     /// [`Grib1Handle`] from those bytes — handle state is immutable
@@ -1588,6 +1602,27 @@ impl Grib2Handle {
             napi::Error::from_reason("grid has no declared dimensions".to_string())
         })?;
         Ok(decoded_grid_from(&raw, ni, nj))
+    }
+
+    /// Serialize one message's decoded field as CSV. `format` is `"matrix"` (a
+    /// 2-D grid of values) or `"long"` (a `lat,lon,value` table); missing points
+    /// come out as empty value cells. The long format needs per-point
+    /// geolocation, so it is available only for the lat/lon grid family, like
+    /// contours — the matrix format works for any grid with declared
+    /// dimensions.
+    #[napi]
+    pub fn export_csv(&self, message_index: u32, format: String) -> napi::Result<String> {
+        let raw = self.cached_decode(message_index)?;
+        let meta = self.message_meta(message_index)?;
+        let msg = self
+            .reader
+            .messages
+            .get(message_index as usize)
+            .ok_or_else(|| napi::Error::from_reason("message index out of range".to_string()))?;
+        let (ni, nj) = msg.gds.dimensions().ok_or_else(|| {
+            napi::Error::from_reason("grid has no declared dimensions".to_string())
+        })?;
+        field_csv(&raw, &meta, ni, nj, &format)
     }
 
     #[napi]
@@ -3376,6 +3411,34 @@ fn project_overlay_impl(
 /// a different closure per grid type.
 type ForwardGeo = Box<dyn Fn(u32, u32) -> Option<(f64, f64)>>;
 
+/// Format a decoded field as CSV, shared by the GRIB handles. The `"long"`
+/// (`lat,lon,value`) format reuses [`forward_geolocation_for`], so it inherits
+/// that function's lat/lon-family gate; the `"matrix"` format needs no
+/// coordinates and works for any grid with declared dimensions.
+fn field_csv(
+    values: &[Option<f64>],
+    meta: &MessageMeta,
+    ni: u32,
+    nj: u32,
+    format: &str,
+) -> napi::Result<String> {
+    match format {
+        "matrix" => Ok(field_to_csv_matrix(values, ni as usize, nj as usize)),
+        "long" => {
+            let geo = forward_geolocation_for(meta, ni, nj)?;
+            Ok(field_to_csv_long(
+                values,
+                ni as usize,
+                nj as usize,
+                |i, j| geo(i as u32, j as u32),
+            ))
+        }
+        other => Err(napi::Error::from_reason(format!(
+            "unknown CSV format {other:?} (expected \"long\" or \"matrix\")"
+        ))),
+    }
+}
+
 fn forward_geolocation_for(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<ForwardGeo> {
     match meta.grid_type.as_deref().unwrap_or("") {
         "latlon" => {
@@ -4920,6 +4983,48 @@ mod polar_stereo_warp_tests {
             edition: Some(2),
             ..cmc_polar_meta()
         }
+    }
+
+    fn latlon_meta() -> MessageMeta {
+        MessageMeta {
+            grid_type: Some("latlon".to_string()),
+            ..rotated_latlon_meta()
+        }
+    }
+
+    #[test]
+    fn field_csv_matrix_format() {
+        // 2×2 grid with a missing hole at (i=1, j=0).
+        let values = vec![Some(1.0), None, Some(3.0), Some(4.0)];
+        let csv = field_csv(&values, &latlon_meta(), 2, 2, "matrix").expect("matrix");
+        assert_eq!(csv, "1,\n3,4\n");
+    }
+
+    #[test]
+    fn field_csv_long_format_has_header_and_values() {
+        let values = vec![Some(1.0), None, Some(3.0), Some(4.0)];
+        let csv = field_csv(&values, &latlon_meta(), 2, 2, "long").expect("long");
+        let mut lines = csv.lines();
+        assert_eq!(lines.next(), Some("lat,lon,value"));
+        // One row per grid point, values in scan order in the 3rd column;
+        // the missing point (i=1, j=0) has an empty value cell.
+        let value_col: Vec<&str> = lines.map(|l| l.rsplit(',').next().unwrap()).collect();
+        assert_eq!(value_col, vec!["1", "", "3", "4"]);
+    }
+
+    #[test]
+    fn field_csv_rejects_unknown_format() {
+        let err = field_csv(&[Some(1.0)], &latlon_meta(), 1, 1, "tsv").expect_err("bad format");
+        assert!(format!("{err}").contains("unknown CSV format"));
+    }
+
+    #[test]
+    fn field_csv_long_gates_non_latlon_grids() {
+        // The long format needs a forward geolocation, which projected grids
+        // don't wire yet — it must error rather than emit bad coordinates.
+        let err = field_csv(&[Some(1.0)], &cmc_polar_meta(), 1, 1, "long")
+            .expect_err("projected long export is gated");
+        assert!(format!("{err}").contains("not yet supported"));
     }
 
     #[test]
