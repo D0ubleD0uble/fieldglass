@@ -220,6 +220,11 @@ export type CombineOp = "a_minus_b" | "b_minus_a" | "a_plus_b" | "mean" | "ratio
 export interface Grib1Handle {
   messages(): MessageMeta[];
   decodeGrid(messageIndex: number): DecodedGrid;
+  /** Serialize one message's decoded field as CSV. `format` is `"matrix"`
+   *  (a 2-D grid of values) or `"long"` (a `lat,lon,value` table); missing
+   *  points are empty value cells. The long format is available for the
+   *  lat/lon grid family only. */
+  exportCsv(messageIndex: number, format: string): string;
   setP1(messageIndex: number, value: number): Buffer;
   renderGrid(messageIndex: number, options: RenderOptions): RenderedGrid;
   /** Render message A combined element-wise with message B under `op`. Both
@@ -260,6 +265,8 @@ export interface Grib1Handle {
 export interface Grib2Handle {
   messages(): MessageMeta[];
   decodeGrid(messageIndex: number): DecodedGrid;
+  /** Sibling to {@link Grib1Handle.exportCsv}. */
+  exportCsv(messageIndex: number, format: string): string;
   renderGrid(messageIndex: number, options: RenderOptions): RenderedGrid;
   /** Sibling to {@link Grib1Handle.renderGridCombined}. */
   renderGridCombined(

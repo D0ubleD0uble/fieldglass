@@ -101,11 +101,17 @@ interface RenderVariableMessage {
   variableIndex: number;
 }
 
+interface ExportCsvMessage {
+  type: "exportCsv";
+  messageIndex: number;
+}
+
 type WebviewMessage =
   | EditP1Message
   | ReadyMessage
   | DecodeGridMessage
-  | RenderVariableMessage;
+  | RenderVariableMessage
+  | ExportCsvMessage;
 
 export class FieldglassEditorProvider
   implements vscode.CustomEditorProvider<FieldglassDocument>
@@ -286,6 +292,10 @@ export class FieldglassEditorProvider
         if (!isNonNegativeInt(msg.messageIndex)) return;
         this.handleDecodeGrid(document, panel, msg.messageIndex);
         return;
+      case "exportCsv":
+        if (!isNonNegativeInt(msg.messageIndex)) return;
+        void this.handleExportCsv(document, msg.messageIndex);
+        return;
       case "renderVariable":
         if (!isNonNegativeInt(msg.variableIndex)) return;
         this.openNetcdfRenderPanel(document, msg.variableIndex);
@@ -347,6 +357,75 @@ export class FieldglassEditorProvider
     this.openRenderPanel(document, meta);
 
     panel.webview.postMessage({ type: "renderOpened", messageIndex });
+  }
+
+  /** Export one GRIB message's decoded field to a CSV file the user picks.
+   *  Asks for the layout (long `lat,lon,value` or a 2-D matrix), guards a
+   *  very large export behind a confirm, then streams the CSV to disk. */
+  private async handleExportCsv(
+    document: FieldglassDocument,
+    messageIndex: number
+  ): Promise<void> {
+    const handle = this._handlesByDoc.get(document.uri.toString());
+    if (!handle) {
+      void vscode.window.showErrorMessage(
+        "Fieldglass: CSV export is available for GRIB files only."
+      );
+      return;
+    }
+
+    const pick = await vscode.window.showQuickPick(
+      [
+        {
+          label: "Long — one lat,lon,value row per grid point",
+          format: "long",
+        },
+        { label: "Matrix — a 2-D grid of values", format: "matrix" },
+      ],
+      { placeHolder: "CSV layout" }
+    );
+    if (!pick) return;
+
+    let csv: string;
+    try {
+      csv = handle.exportCsv(messageIndex, pick.format);
+    } catch (err) {
+      void vscode.window.showErrorMessage(
+        `Fieldglass: CSV export failed: ${err instanceof Error ? err.message : err}`
+      );
+      return;
+    }
+
+    // Guard a large export: writing tens of megabytes is slow and easy to do
+    // by accident on a big grid, so confirm above ~50 MB.
+    const bytes = Buffer.byteLength(csv, "utf8");
+    const SIZE_LIMIT = 50 * 1024 * 1024;
+    if (bytes > SIZE_LIMIT) {
+      const proceed = await vscode.window.showWarningMessage(
+        `The exported CSV is about ${Math.round(bytes / (1024 * 1024))} MB. Export anyway?`,
+        { modal: true },
+        "Export"
+      );
+      if (proceed !== "Export") return;
+    }
+
+    const dest = await vscode.window.showSaveDialog({
+      filters: { "CSV files": ["csv"] },
+      saveLabel: "Export CSV",
+    });
+    if (!dest) return;
+
+    try {
+      await vscode.workspace.fs.writeFile(dest, Buffer.from(csv, "utf8"));
+    } catch (err) {
+      void vscode.window.showErrorMessage(
+        `Fieldglass: could not write CSV: ${err instanceof Error ? err.message : err}`
+      );
+      return;
+    }
+    void vscode.window.showInformationMessage(
+      `Fieldglass: exported CSV to ${dest.fsPath}`
+    );
   }
 
   /**
@@ -1482,11 +1561,12 @@ function renderHtml(
       const idx = m.messageIndex;
       const expansionInner = canRender
         ? `<button type="button" class="render-btn" data-message-index="${idx}">Render</button>
+           <button type="button" class="export-csv-btn" data-message-index="${idx}">Export CSV…</button>
            <div class="render-status" id="status-${idx}"></div>
            <div class="render-legend">
              Opens the rendered grid in a new editor tab. Painted in grid
              coordinates (no map reprojection); bitmap-masked points render
-             as transparent.
+             as transparent. Export CSV writes the decoded field to a file.
            </div>`
         : `<div class="render-na">Render not available — grid dimensions unknown for this message.</div>`;
       return `
@@ -1607,6 +1687,14 @@ function renderHtml(
               if (!Number.isFinite(idx)) return;
               setStatus(idx, 'Decoding message ' + idx + '…');
               vscode.postMessage({ type: 'decodeGrid', messageIndex: idx });
+            });
+          });
+          document.querySelectorAll('button.export-csv-btn').forEach((el) => {
+            el.addEventListener('click', (ev) => {
+              ev.stopPropagation();
+              const idx = Number(el.getAttribute('data-message-index'));
+              if (!Number.isFinite(idx)) return;
+              vscode.postMessage({ type: 'exportCsv', messageIndex: idx });
             });
           });
           // NetCDF: open the slice-picker render panel for a variable.
