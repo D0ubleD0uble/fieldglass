@@ -110,21 +110,11 @@ ${groups}
 `;
 }
 
-/** The Compare toolbar row (#239): an operation selector and a Field B picker
- *  for the difference-map workflow. Field A is the message the panel opened on;
- *  choosing an operation combines it element-wise with Field B and renders the
- *  result. Omitted entirely (empty string) when there is nothing to compare —
- *  fewer than two fields — so a single-message file shows no Compare row. */
-function compareFieldsetHtml(fields: CompareFieldOption[]): string {
-  if (fields.length < 2) {
-    return "";
-  }
-  const options = fields
-    .map((f) => `          <option value="${f.index}">${escapeHtml(f.label)}</option>`)
-    .join("\n");
-  return `    <fieldset>
-      <legend>Compare:</legend>
-      <label>Operation
+/** The shared operation selector for the Compare row (#239). Field A is the
+ *  field the panel opened on; choosing an operation combines it element-wise
+ *  with Field B. `(off)` (empty value) is the default — a plain single render. */
+function compareOpSelectHtml(): string {
+  return `      <label>Operation
         <select id="compare-op">
           <option value="" selected>(off)</option>
           <option value="a_minus_b">A − B</option>
@@ -133,12 +123,40 @@ function compareFieldsetHtml(fields: CompareFieldOption[]): string {
           <option value="mean">mean(A, B)</option>
           <option value="ratio">A / B</option>
         </select>
-      </label>
+      </label>`;
+}
+
+/** The GRIB Compare row: the operation selector plus a Field B message picker.
+ *  Omitted (empty string) when there is nothing to compare — fewer than two
+ *  messages — so a single-message file shows no Compare row. */
+function gribCompareFieldsetHtml(fields: CompareFieldOption[]): string {
+  if (fields.length < 2) {
+    return "";
+  }
+  const options = fields
+    .map((f) => `          <option value="${f.index}">${escapeHtml(f.label)}</option>`)
+    .join("\n");
+  return `    <fieldset>
+      <legend>Compare:</legend>
+${compareOpSelectHtml()}
       <label>Field B
         <select id="compare-field-b">
 ${options}
         </select>
       </label>
+    </fieldset>
+`;
+}
+
+/** The NetCDF Compare row: the operation selector plus a second set of index
+ *  steppers for Field B, which is the same variable at a different slice (the
+ *  "difference of two time steps / levels" case). The steppers are built
+ *  dynamically into `#compare-dims` by the panel script, mirroring Field A's. */
+function netcdfCompareFieldsetHtml(): string {
+  return `    <fieldset>
+      <legend>Compare:</legend>
+${compareOpSelectHtml()}
+      <span class="compare-b">Field B <span id="compare-dims"></span></span>
     </fieldset>
 `;
 }
@@ -197,6 +215,9 @@ export function renderImagePanelHtml(
         let sliceState = SLICE ? Object.assign({}, SLICE.initial, {
           sliceIndices: SLICE.initial.sliceIndices.slice(),
         }) : null;
+        // Field B's held indices for the compare picker (#239). Starts equal to
+        // Field A (a self-difference of zero) until the user steps it.
+        let compareIndices = SLICE ? SLICE.initial.sliceIndices.slice() : [];
 
         function sliceVariable(idx) {
           return SLICE ? SLICE.variables.find((v) => v.variableIndex === idx) : undefined;
@@ -214,8 +235,19 @@ export function renderImagePanelHtml(
         // provider validates the op and index and falls back to single render.
         function compareRequest() {
           const opEl = document.getElementById('compare-op');
+          if (!opEl || !opEl.value) return {};
+          if (SLICE) {
+            // NetCDF: Field B is the same variable at its own slice indices.
+            if (!sliceState) return {};
+            return { compare: {
+              op: opEl.value,
+              variableIndexB: sliceState.variableIndex,
+              sliceIndicesB: compareIndices.slice(),
+            } };
+          }
+          // GRIB: Field B is another message in the file.
           const bEl = document.getElementById('compare-field-b');
-          if (!opEl || !opEl.value || !bEl || bEl.value === '') return {};
+          if (!bEl || bEl.value === '') return {};
           return { compare: { op: opEl.value, messageIndexB: Number(bEl.value) } };
         }
 
@@ -236,20 +268,47 @@ export function renderImagePanelHtml(
           xSel.innerHTML = dimOptions;
           ySel.value = String(sliceState.yDim);
           xSel.value = String(sliceState.xDim);
-          // One slider + number per dimension that isn't an image axis.
+          wrap.innerHTML = dimStepperHtml(v, sliceState.yDim, sliceState.xDim, sliceState.sliceIndices);
+        }
+
+        // One slider + number per dimension that isn't an image axis, reading
+        // its value from the indices array. Shared by Field A (#slice-dims) and
+        // the compare Field B (#compare-dims); a container-delegated listener
+        // reads data-dim to drive the right index array, so both use data-dim.
+        function dimStepperHtml(v, yDim, xDim, indices) {
           let html = '';
           for (let i = 0; i < v.dims.length; i++) {
-            if (i === sliceState.yDim || i === sliceState.xDim) continue;
-            const len = v.dims[i].length;
-            const max = Math.max(0, len - 1);
-            const val = sliceState.sliceIndices[i] || 0;
+            if (i === yDim || i === xDim) continue;
+            const max = Math.max(0, v.dims[i].length - 1);
+            const val = indices[i] || 0;
             html += '<label class="slice-index">' + escapeAttr(v.dims[i].name) +
               ' <input type="range" class="slice-slider" data-dim="' + i + '" min="0" max="' + max +
               '" value="' + val + '">' +
               '<input type="number" class="slice-number" data-dim="' + i + '" min="0" max="' + max +
               '" value="' + val + '"><span class="slice-len">/' + max + '</span></label>';
           }
-          wrap.innerHTML = html;
+          return html;
+        }
+
+        // Field B's index steppers (the compare picker), same variable + image
+        // axes as Field A but its own held indices. Rebuilt alongside Field A's
+        // whenever the variable or axes change.
+        function buildCompareAxes() {
+          const wrap = document.getElementById('compare-dims');
+          if (!wrap || !sliceState) return;
+          const v = sliceVariable(sliceState.variableIndex);
+          if (!v) return;
+          wrap.innerHTML = dimStepperHtml(v, sliceState.yDim, sliceState.xDim, compareIndices);
+        }
+
+        function syncCompareIndex(dim, value) {
+          const v = sliceState ? sliceVariable(sliceState.variableIndex) : null;
+          const max = v ? Math.max(0, v.dims[dim].length - 1) : 0;
+          const clamped = Math.min(max, Math.max(0, Math.floor(Number(value) || 0)));
+          compareIndices[dim] = clamped;
+          document.querySelectorAll('#compare-dims [data-dim="' + dim + '"]').forEach((el) => {
+            if (el.value !== String(clamped)) el.value = String(clamped);
+          });
         }
 
         // Minimal attribute escaper for the option/label text we build in JS
@@ -266,8 +325,10 @@ export function renderImagePanelHtml(
           const max = v ? Math.max(0, v.dims[dim].length - 1) : 0;
           const clamped = Math.min(max, Math.max(0, Math.floor(Number(value) || 0)));
           sliceState.sliceIndices[dim] = clamped;
-          // Keep the paired slider + number input in lockstep.
-          document.querySelectorAll('[data-dim="' + dim + '"]').forEach((el) => {
+          // Keep the paired slider + number input in lockstep. Scoped to Field
+          // A's container so it never touches Field B's steppers (which share
+          // the same data-dim values).
+          document.querySelectorAll('#slice-dims [data-dim="' + dim + '"]').forEach((el) => {
             if (el.value !== String(clamped)) el.value = String(clamped);
           });
         }
@@ -294,7 +355,10 @@ export function renderImagePanelHtml(
                 xDim,
                 sliceIndices: v.dims.map(() => 0),
               };
+              // Field B follows the new variable's shape, reset alongside A.
+              compareIndices = v.dims.map(() => 0);
               buildSliceAxes();
+              buildCompareAxes();
               requestRender();
             });
           }
@@ -314,11 +378,13 @@ export function renderImagePanelHtml(
             sliceState.yDim = y;
             sliceState.xDim = x;
             buildSliceAxes();
+            buildCompareAxes();
             requestRender();
           };
           if (ySel) ySel.addEventListener('change', onAxisChange);
           if (xSel) xSel.addEventListener('change', onAxisChange);
           buildSliceAxes();
+          buildCompareAxes();
           // Delegate the dynamically-built index controls.
           // 'change' (slider release / number commit) rather than 'input' so a
           // slider drag doesn't fire a render per tick. 'input' still keeps the
@@ -334,6 +400,22 @@ export function renderImagePanelHtml(
               const t = ev.target;
               if (!t || t.dataset == null || t.dataset.dim == null) return;
               syncSliceIndex(Number(t.dataset.dim), t.value);
+              requestRender();
+            });
+          }
+          // Field B's compare steppers, wired the same way into their own
+          // container so they drive compareIndices independently.
+          const cwrap = document.getElementById('compare-dims');
+          if (cwrap) {
+            cwrap.addEventListener('input', (ev) => {
+              const t = ev.target;
+              if (!t || t.dataset == null || t.dataset.dim == null) return;
+              syncCompareIndex(Number(t.dataset.dim), t.value);
+            });
+            cwrap.addEventListener('change', (ev) => {
+              const t = ev.target;
+              if (!t || t.dataset == null || t.dataset.dim == null) return;
+              syncCompareIndex(Number(t.dataset.dim), t.value);
               requestRender();
             });
           }
@@ -819,6 +901,7 @@ export function renderImagePanelHtml(
             scaleLog: chk('scale-log'),
             compareOp: val('compare-op'),
             compareFieldB: val('compare-field-b'),
+            compareIndices: compareIndices.slice(),
             flipY: chk('flip-y'),
             rangeMode: radio('range-mode'),
             rangeMin: val('range-min'),
@@ -878,6 +961,8 @@ export function renderImagePanelHtml(
           setChk('scale-log', s.scaleLog);
           setVal('compare-op', s.compareOp);
           setVal('compare-field-b', s.compareFieldB);
+          // Restore Field B's indices before setupSlice builds its steppers.
+          if (Array.isArray(s.compareIndices)) compareIndices = s.compareIndices.slice();
           setChk('flip-y', s.flipY);
           setRadio('range-mode', s.rangeMode);
           setVal('range-min', s.rangeMin);
@@ -1274,7 +1359,7 @@ ${meta.reprojectable
       <label><input type="checkbox" id="flip-y"> Flip Y axis</label>
     </div>
 ${colormapFieldsetHtml(colormaps)}
-${compareFieldsetHtml(compareFields ?? [])}
+${slice ? netcdfCompareFieldsetHtml() : gribCompareFieldsetHtml(compareFields ?? [])}
     <fieldset>
       <legend>Color Range:</legend>
       <label><input type="radio" name="range-mode" value="auto" checked> Auto</label>
