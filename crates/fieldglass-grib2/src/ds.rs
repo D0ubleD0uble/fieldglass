@@ -11,7 +11,7 @@
 use crate::drs::{
     CcsdsPackingTemplate, ComplexPackingTemplate, ComplexSpatialDiffTemplate,
     DataRepresentationTemplate, IeeePackingTemplate, Jpeg2000PackingTemplate, PngPackingTemplate,
-    SimplePackingTemplate,
+    RunLengthPackingTemplate, SimplePackingTemplate,
 };
 use crate::section::{SECTION_HEADER_LEN, SectionHeader};
 use fieldglass_core::{
@@ -85,6 +85,9 @@ pub fn decode_values(
         }
         DataRepresentationTemplate::Jpeg2000(t) => {
             decode_jpeg2000_packing(ds_payload, &t, bitmap, expected_count)
+        }
+        DataRepresentationTemplate::RunLength(t) => {
+            decode_run_length_packing(ds_payload, &t, bitmap, expected_count)
         }
         DataRepresentationTemplate::Unsupported(n) => Err(FieldglassError::UnsupportedSection(
             format!("DRS template 5.{n} decoding is not implemented"),
@@ -851,6 +854,144 @@ fn decode_jpeg2000_packing(
     Ok(interleave_with_bitmap(decoded, bitmap, expected_count))
 }
 
+/// Decode run-length packing (template 5.200). §7 is a stream of
+/// `bits_per_value`-wide MSB-first codes. A code `v <= max_level_value` opens
+/// a run of level `v` (level `0` = missing); any immediately following codes
+/// greater than `max_level_value` are base-`range` run-length digits
+/// (least-significant first) that extend that run, where
+/// `range = 2^bits_per_value - 1 - max_level_value`. A level `v >= 1` resolves
+/// through the level-value table to `level_values[v - 1] · 10^-D`; level `0`
+/// and bitmap-masked points come back as `None` — the same missing seam every
+/// other decoder uses. There is no `R`/`E` transform.
+///
+/// This mirrors eccodes' `DataRunLengthPacking::unpack_double`, including its
+/// treatment of a zero max level or an empty code stream as a wholly-missing
+/// field.
+fn decode_run_length_packing(
+    ds_payload: &[u8],
+    t: &RunLengthPackingTemplate,
+    bitmap: Option<&[bool]>,
+    expected_count: usize,
+) -> Result<Vec<Option<f64>>, FieldglassError> {
+    if let Some(b) = bitmap
+        && b.len() != expected_count
+    {
+        return Err(FieldglassError::Parse(format!(
+            "bitmap length {} != grid-point count {expected_count}",
+            b.len()
+        )));
+    }
+    let present_count = match bitmap {
+        Some(b) => b.iter().filter(|p| **p).count(),
+        None => expected_count,
+    };
+
+    let bits = t.bits_per_value;
+    // A zero max level, or a §7 with no whole code in it, is a wholly-missing
+    // field. eccodes short-circuits both of these *before* validating the
+    // template, so a degenerate template (bad range / level count / bit width)
+    // with an empty code stream still decodes to all-missing rather than
+    // erroring — we match that ordering. The `bits == 0` guard comes first so
+    // the code-count division below can't divide by zero.
+    if bits == 0 || t.max_level_value == 0 {
+        return Ok(vec![None; expected_count]);
+    }
+    let num_codes = (ds_payload.len() * 8) / bits as usize;
+    if num_codes == 0 {
+        return Ok(vec![None; expected_count]);
+    }
+
+    // From here the stream carries at least one code, so the template must be
+    // valid. These checks only run in that case, mirroring eccodes.
+    if bits > 32 {
+        return Err(FieldglassError::Parse(format!(
+            "run-length packing: bits_per_value {bits} exceeds 32"
+        )));
+    }
+    if t.max_level_value > t.number_of_level_values {
+        return Err(FieldglassError::Parse(format!(
+            "run-length packing: max_level_value {} exceeds number_of_level_values {}",
+            t.max_level_value, t.number_of_level_values
+        )));
+    }
+
+    let max = t.max_level_value as u64;
+    // `range` (the base for run-length digits) must be positive, i.e. the
+    // largest code `2^bits - 1` must exceed `max_level_value`. eccodes computes
+    // this as a signed value and rejects `range <= 0`; guard the `max >= span`
+    // case first so the unsigned subtraction below can't underflow.
+    let span = (1u64 << bits) - 1;
+    if max >= span {
+        return Err(FieldglassError::Parse(format!(
+            "run-length packing: max_level_value {max} leaves no room for run digits below 2^{bits} - 1 = {span}"
+        )));
+    }
+    let range = span - max;
+
+    // levels[0] = missing; levels[v] = table[v - 1] · 10^-D for v in 1..=MVL.
+    let scale = 10f64.powi(-(t.decimal_scale_factor as i32));
+    let mut levels: Vec<Option<f64>> = Vec::with_capacity(t.level_values.len() + 1);
+    levels.push(None);
+    levels.extend(t.level_values.iter().map(|&lv| Some(lv as f64 * scale)));
+
+    let mut reader = BitReader::new(ds_payload);
+    let mut codes = Vec::with_capacity(num_codes);
+    for _ in 0..num_codes {
+        codes.push(reader.read_bits(bits)? as u64);
+    }
+
+    let mut decoded: Vec<Option<f64>> = Vec::with_capacity(present_count);
+    let mut i = 0;
+    while i < codes.len() {
+        let v = codes[i];
+        if v > max {
+            // A run-length digit with no open run: malformed stream.
+            return Err(FieldglassError::Parse(format!(
+                "run-length packing: code {v} at position {i} exceeds max_level_value {max} with no open run"
+            )));
+        }
+        i += 1;
+        // Run length: 1 for the level itself, plus base-`range` digits (LSB
+        // first). Saturating arithmetic keeps a hostile stream from panicking;
+        // an over-long run is caught by the present-count overflow check below.
+        let mut run = 1u64;
+        let mut factor = 1u64;
+        while i < codes.len() && codes[i] > max {
+            run = run.saturating_add(factor.saturating_mul(codes[i] - max - 1));
+            factor = factor.saturating_mul(range);
+            i += 1;
+        }
+        // `v <= max <= number_of_level_values == levels.len() - 1`, so this
+        // index is always in range; `get` keeps it total regardless.
+        let level = *levels.get(v as usize).ok_or_else(|| {
+            FieldglassError::Parse(format!(
+                "run-length packing: level index {v} has no table entry"
+            ))
+        })?;
+        for _ in 0..run {
+            if decoded.len() == present_count {
+                return Err(FieldglassError::Parse(format!(
+                    "run-length packing: decoded run overflows the {present_count} expected values"
+                )));
+            }
+            decoded.push(level);
+        }
+    }
+
+    if decoded.len() != present_count {
+        return Err(FieldglassError::Parse(format!(
+            "run-length packing: decoded {} values but {present_count} were expected",
+            decoded.len()
+        )));
+    }
+
+    Ok(interleave_present_points(
+        decoded.into_iter(),
+        bitmap,
+        expected_count,
+    ))
+}
+
 /// Spread `present` into the full grid using `bitmap` — `Some(value)` for
 /// flagged points, `None` for unflagged. Asserts shape internally; callers
 /// pre-check lengths.
@@ -974,6 +1115,172 @@ mod tests {
         for v in decoded {
             assert!((v.unwrap() - 0.7).abs() < 1e-9);
         }
+    }
+
+    fn run_length_template(
+        bits: u8,
+        max_level: u16,
+        level_values: Vec<u16>,
+        d: i16,
+    ) -> DataRepresentationTemplate {
+        DataRepresentationTemplate::RunLength(RunLengthPackingTemplate {
+            bits_per_value: bits,
+            max_level_value: max_level,
+            number_of_level_values: level_values.len() as u16,
+            decimal_scale_factor: d,
+            level_values,
+        })
+    }
+
+    /// Encode `(level, count)` runs into a §7 run-length payload. Asserts the
+    /// stream is a whole number of bytes — real encoders never emit a partial
+    /// trailing code, and `pack_bits` would zero-pad one into existence.
+    fn rle_codes(runs: &[(u16, u32)], bits: u8, max_level: u16) -> Vec<u8> {
+        let range = (1u32 << bits) - 1 - max_level as u32;
+        let mut codes: Vec<u32> = Vec::new();
+        for &(level, count) in runs {
+            codes.push(level as u32);
+            let mut rem = count - 1;
+            while rem > 0 {
+                codes.push(rem % range + max_level as u32 + 1);
+                rem /= range;
+            }
+        }
+        assert_eq!(
+            (codes.len() * bits as usize) % 8,
+            0,
+            "test runs are not byte-aligned",
+        );
+        pack_bits(&codes, bits)
+    }
+
+    #[test]
+    fn run_length_decodes_runs_and_missing() {
+        // levels [10,20,30], level 0 = missing. runs: 1×2, missing×3, 3×1.
+        let template = run_length_template(8, 3, vec![10, 20, 30], 0);
+        let packed = rle_codes(&[(1, 2), (0, 3), (3, 1)], 8, 3);
+        let decoded = decode_values(&packed, template, None, 6).expect("decode");
+        assert_eq!(
+            decoded,
+            vec![Some(10.0), Some(10.0), None, None, None, Some(30.0)],
+        );
+    }
+
+    #[test]
+    fn run_length_decodes_multidigit_run() {
+        // A run longer than `range` (251 > 250) needs a second base-`range`
+        // digit: 251 = 1 + 0·1 + 1·250.
+        let template = run_length_template(8, 5, vec![10, 20, 30, 40, 50], 1);
+        let packed = rle_codes(&[(2, 251)], 8, 5);
+        let decoded = decode_values(&packed, template, None, 251).expect("decode");
+        assert_eq!(decoded.len(), 251);
+        assert!(decoded.iter().all(|v| (v.unwrap() - 2.0).abs() < 1e-9));
+    }
+
+    #[test]
+    fn run_length_applies_negative_decimal_scale() {
+        // decimalScaleFactor = -1 → value = level_value · 10^1.
+        let template = run_length_template(8, 2, vec![3, 4], -1);
+        let packed = rle_codes(&[(1, 1), (2, 1)], 8, 2);
+        let decoded = decode_values(&packed, template, None, 2).expect("decode");
+        assert!((decoded[0].unwrap() - 30.0).abs() < 1e-9);
+        assert!((decoded[1].unwrap() - 40.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn run_length_interleaves_with_bitmap() {
+        // Present points decode to 10, 20; the bitmap spreads them with a gap.
+        let template = run_length_template(8, 3, vec![10, 20, 30], 0);
+        let packed = rle_codes(&[(1, 1), (2, 1)], 8, 3);
+        let bitmap = [true, false, true];
+        let decoded = decode_values(&packed, template, Some(&bitmap), 3).expect("decode");
+        assert_eq!(decoded, vec![Some(10.0), None, Some(20.0)]);
+    }
+
+    #[test]
+    fn run_length_all_missing_when_max_level_zero() {
+        let template = run_length_template(8, 0, vec![], 0);
+        let decoded = decode_values(&[0xFF], template, None, 4).expect("decode");
+        assert_eq!(decoded, vec![None; 4]);
+    }
+
+    #[test]
+    fn run_length_all_missing_when_bits_zero() {
+        let template = run_length_template(0, 3, vec![10, 20, 30], 0);
+        let decoded = decode_values(&[0xFF], template, None, 4).expect("decode");
+        assert_eq!(decoded, vec![None; 4]);
+    }
+
+    #[test]
+    fn run_length_all_missing_when_no_codes() {
+        // Empty §7 → no codes → wholly-missing field, matching eccodes.
+        let template = run_length_template(8, 3, vec![10, 20, 30], 0);
+        let decoded = decode_values(&[], template, None, 4).expect("decode");
+        assert_eq!(decoded, vec![None; 4]);
+    }
+
+    #[test]
+    fn run_length_rejects_zero_range() {
+        // 2^3 - 1 = 7 = max_level → no code values left for run digits.
+        let template = run_length_template(3, 7, vec![0; 7], 0);
+        assert!(decode_values(&[0xFF], template, None, 4).is_err());
+    }
+
+    #[test]
+    fn run_length_rejects_max_level_above_code_span() {
+        // max_level_value 10 exceeds the largest 3-bit code (7): the range
+        // subtraction must reject this rather than underflow.
+        let template = run_length_template(3, 10, vec![0; 10], 0);
+        assert!(decode_values(&[0xFF], template, None, 4).is_err());
+    }
+
+    #[test]
+    fn run_length_rejects_max_level_over_levels() {
+        // max_level_value 5 > number_of_level_values 3.
+        let template = run_length_template(8, 5, vec![10, 20, 30], 0);
+        assert!(decode_values(&[0x01], template, None, 4).is_err());
+    }
+
+    #[test]
+    fn run_length_rejects_bits_over_32() {
+        // Needs a payload holding at least one 33-bit code, else the empty-code
+        // short-circuit returns all-missing before the width is validated.
+        let template = run_length_template(33, 3, vec![10, 20, 30], 0);
+        assert!(decode_values(&[0xFF; 8], template, None, 4).is_err());
+    }
+
+    #[test]
+    fn run_length_empty_stream_is_all_missing_even_for_invalid_template() {
+        // eccodes short-circuits the empty-code-stream case to an all-missing
+        // field before validating the template, so a degenerate template with
+        // no §7 codes decodes to all-missing rather than erroring.
+        let template = run_length_template(8, 5, vec![10, 20, 30], 0); // max > levels
+        let decoded = decode_values(&[], template, None, 4).expect("decode");
+        assert_eq!(decoded, vec![None; 4]);
+    }
+
+    #[test]
+    fn run_length_rejects_orphan_run_digit() {
+        // First code (6) exceeds max_level (3) with no open run.
+        let template = run_length_template(8, 3, vec![10, 20, 30], 0);
+        let packed = pack_bits(&[6], 8);
+        assert!(decode_values(&packed, template, None, 2).is_err());
+    }
+
+    #[test]
+    fn run_length_rejects_too_few_values() {
+        // One code decodes to a single value but the grid expects three.
+        let template = run_length_template(8, 3, vec![10, 20, 30], 0);
+        let packed = pack_bits(&[1], 8);
+        assert!(decode_values(&packed, template, None, 3).is_err());
+    }
+
+    #[test]
+    fn run_length_rejects_too_many_values() {
+        // Three level codes decode to three values but the grid expects two.
+        let template = run_length_template(8, 3, vec![10, 20, 30], 0);
+        let packed = pack_bits(&[1, 1, 1], 8);
+        assert!(decode_values(&packed, template, None, 2).is_err());
     }
 
     #[test]
