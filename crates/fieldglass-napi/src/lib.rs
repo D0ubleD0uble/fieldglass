@@ -1894,6 +1894,37 @@ impl NetcdfHandle {
         render_with_options(&meta, &plane, &options)
     }
 
+    /// Serialize one decoded slice as CSV — `"matrix"` (a 2-D grid of values) or
+    /// `"long"` (a `lat,lon,value` table), missing points as empty value cells.
+    /// The slice is picked exactly like [`render_slice`](Self::render_slice)
+    /// (`yDim` / `xDim` are the image axes, `sliceIndices` fixes the rest). The
+    /// long format needs per-point geolocation, so it is available for a
+    /// georeferenced regular lat/lon grid; the matrix format works for any
+    /// decodable slice.
+    #[napi]
+    pub fn export_csv(
+        &self,
+        variable_index: u32,
+        y_dim: u32,
+        x_dim: u32,
+        slice_indices: Vec<u32>,
+        format: String,
+    ) -> napi::Result<String> {
+        let var = self.renderable(variable_index)?;
+        let (y, x) = (y_dim as usize, x_dim as usize);
+        let plane = self.slice_plane(&var, y, x, &slice_indices)?;
+        let meta = self.slice_meta(&var, y, x)?;
+        let ni = meta
+            .grid_ni
+            .ok_or_else(|| napi::Error::from_reason("slice has no x-axis size".to_string()))?
+            as u32;
+        let nj = meta
+            .grid_nj
+            .ok_or_else(|| napi::Error::from_reason("slice has no y-axis size".to_string()))?
+            as u32;
+        field_csv(&plane, &meta, ni, nj, &format)
+    }
+
     /// Render one slice combined element-wise with a second slice under `op`
     /// (see [`CombineOp`]) — the difference-map workflow (#239). Field B is a
     /// slice of `variableIndexB` at `sliceIndicesB`, sharing the same image axes

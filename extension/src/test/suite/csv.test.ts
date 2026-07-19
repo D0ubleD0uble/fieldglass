@@ -74,3 +74,57 @@ suite("CSV export", () => {
     assert.throws(() => handle.exportCsv(0, "tsv"), /unknown CSV format/);
   });
 });
+
+suite("CSV export (NetCDF)", () => {
+  function netcdfSst() {
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+    const bytes = fs.readFileSync(fixturePath("ersst_v5_187001_cdf1.nc"));
+    const handle = native.NetcdfHandle.fromBytes(bytes);
+    const sst = handle.variables().find((v) => v.name === "sst");
+    assert.ok(sst, "sst must be renderable");
+    const y = sst.detectedYDim ?? 2;
+    const x = sst.detectedXDim ?? 3;
+    const indices = sst.dims.map(() => 0);
+    return { handle, sst, y, x, indices };
+  }
+
+  test("exportCsv matrix is a rectangular grid of the slice", () => {
+    const { handle, sst, y, x, indices } = netcdfSst();
+    const csv = handle.exportCsv(sst.variableIndex, y, x, indices, "matrix");
+    const rows = csv.replace(/\n$/, "").split("\n").map((r) => r.split(","));
+    assert.ok(rows.length > 1, "more than one row");
+    const cols = rows[0].length;
+    assert.ok(cols > 1, "more than one column");
+    for (const r of rows) {
+      assert.strictEqual(r.length, cols, "every row has the same column count");
+    }
+  });
+
+  test("exportCsv long has a header and one row per grid point", () => {
+    const { handle, sst, y, x, indices } = netcdfSst();
+    const matrix = handle
+      .exportCsv(sst.variableIndex, y, x, indices, "matrix")
+      .replace(/\n$/, "")
+      .split("\n");
+    const cells = matrix.length * matrix[0].split(",").length;
+
+    const long = handle
+      .exportCsv(sst.variableIndex, y, x, indices, "long")
+      .replace(/\n$/, "")
+      .split("\n");
+    assert.strictEqual(long[0], "lat,lon,value", "header row");
+    assert.strictEqual(long.length - 1, cells, "one data row per grid point");
+    for (const line of long.slice(1)) {
+      assert.strictEqual(line.split(",").length, 3, `three columns in "${line}"`);
+    }
+  });
+
+  test("exportCsv rejects an unknown format", () => {
+    const { handle, sst, y, x, indices } = netcdfSst();
+    assert.throws(
+      () => handle.exportCsv(sst.variableIndex, y, x, indices, "tsv"),
+      /unknown CSV format/,
+    );
+  });
+});
