@@ -22,6 +22,7 @@ pub mod colormap;
 mod colormap_tables;
 pub mod combine;
 pub mod contour;
+pub mod csv;
 pub mod detect;
 pub mod error;
 pub mod metadata;
