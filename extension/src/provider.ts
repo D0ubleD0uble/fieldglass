@@ -470,13 +470,39 @@ export class FieldglassEditorProvider
       }
     };
 
+    // Project the field's contour isolines onto the current raster (#238).
+    // Unlike the geographic overlays this decodes values, so it rides the same
+    // handle as `paint`; `seq` lets the panel drop a superseded reply.
+    const projectContours = (req: ContourRequest) => {
+      const docHandle = this._handlesByDoc.get(document.uri.toString());
+      if (!docHandle) return;
+      const options = resolveRerenderOptions(req.options ?? {});
+      try {
+        const c = docHandle.projectContours(meta.messageIndex, options, resolveInterval(req.interval));
+        panel.webview.postMessage({
+          type: "contourReady",
+          messageIndex: meta.messageIndex,
+          seq: req.seq,
+          xy: c.xy,
+          segLengths: c.segLengths,
+        });
+      } catch (err) {
+        panel.webview.postMessage({
+          type: "contourError",
+          messageIndex: meta.messageIndex,
+          seq: req.seq,
+          error: `${err}`.replace(/^Error:\s*/, ""),
+        });
+      }
+    };
+
     // Respond for the panel's lifetime: webview is created with
     // retainContextWhenHidden=false so VS Code tears down the DOM/JS
     // context when the tab is hidden; each remount posts a fresh `ready`
     // carrying the webview's (state-restored) selections, so the repaint
     // shows what the user had rather than the defaults.
     const sub = panel.webview.onDidReceiveMessage(
-      (m: ({ type?: string } & Partial<RenderOptions>) | OverlayRequest) => {
+      (m: ({ type?: string } & Partial<RenderOptions>) | OverlayRequest | ContourRequest) => {
         if (!m || typeof m.type !== "string") return;
         if (m.type === "ready") {
           paint(resolveRerenderOptions(m as Partial<RenderOptions>), resolveGribCompare(m));
@@ -488,6 +514,10 @@ export class FieldglassEditorProvider
         }
         if (m.type === "overlayRequest") {
           projectOverlay(m as OverlayRequest);
+          return;
+        }
+        if (m.type === "contourRequest") {
+          projectContours(m as ContourRequest);
         }
       },
     );
@@ -804,11 +834,44 @@ export class FieldglassEditorProvider
       }
     };
 
+    // Contour isolines for the current slice, projected onto its raster (#238).
+    const projectContours = (req: ContourRequest) => {
+      const docHandle = this._netcdfHandlesByDoc.get(document.uri.toString());
+      if (!docHandle) return;
+      const spec = req.slice ?? initial;
+      const options = resolveRerenderOptions(req.options ?? {});
+      try {
+        const c = docHandle.projectContours(
+          spec.variableIndex,
+          spec.yDim,
+          spec.xDim,
+          spec.sliceIndices,
+          options,
+          resolveInterval(req.interval),
+        );
+        panel.webview.postMessage({
+          type: "contourReady",
+          messageIndex: spec.variableIndex,
+          seq: req.seq,
+          xy: c.xy,
+          segLengths: c.segLengths,
+        });
+      } catch (err) {
+        panel.webview.postMessage({
+          type: "contourError",
+          messageIndex: spec.variableIndex,
+          seq: req.seq,
+          error: `${err}`.replace(/^Error:\s*/, ""),
+        });
+      }
+    };
+
     const sub = panel.webview.onDidReceiveMessage(
       (
         m:
           | ({ type?: string; slice?: SliceSpec } & Partial<RenderOptions>)
-          | (OverlayRequest & { slice?: SliceSpec }),
+          | (OverlayRequest & { slice?: SliceSpec })
+          | (ContourRequest & { slice?: SliceSpec }),
       ) => {
         if (!m || typeof m.type !== "string") return;
         // `ready` carries the webview's (state-restored) selections and slice,
@@ -821,6 +884,10 @@ export class FieldglassEditorProvider
         }
         if (m.type === "overlayRequest") {
           projectOverlay(m as OverlayRequest & { slice?: SliceSpec });
+          return;
+        }
+        if (m.type === "contourRequest") {
+          projectContours(m as ContourRequest & { slice?: SliceSpec });
         }
       },
     );
@@ -867,6 +934,30 @@ export interface OverlayRequest {
   rivers?: boolean;
   graticule?: boolean;
   graticuleSpacing?: number;
+  /** The NetCDF slice, when this panel renders a variable (#122). */
+  slice?: SliceSpec;
+}
+
+/** `contourRequest` posted by the render panel when contours are on and the
+ *  field, range, projection, or interval changes (#238). Carries the render
+ *  options (for the projection + used range) and an optional manual level
+ *  interval; a NetCDF panel also carries its slice. */
+export interface ContourRequest {
+  type: "contourRequest";
+  seq?: number;
+  options?: Partial<RenderOptions>;
+  /** Manual level spacing; omitted / non-positive → automatic nice levels. */
+  interval?: number;
+  slice?: SliceSpec;
+}
+
+/** Sanitise the webview's contour interval into a positive number or
+ *  `undefined` (automatic levels) — never a zero, negative, or non-finite
+ *  value that would confuse the native level picker. */
+export function resolveInterval(interval: unknown): number | undefined {
+  return typeof interval === "number" && Number.isFinite(interval) && interval > 0
+    ? interval
+    : undefined;
 }
 
 /** The vector layers an `OverlayRequest` can ask for, paired with the asset

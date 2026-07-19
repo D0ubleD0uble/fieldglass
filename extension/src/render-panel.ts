@@ -607,10 +607,15 @@ export function renderImagePanelHtml(
           if (overlayKey() !== lastOverlayKey) {
             // Wipe the stale strokes immediately so the previous projection's
             // lines don't linger over the new raster while the async reproject
-            // is in flight.
+            // is in flight. Contours are geometry-bound too, so drop them until
+            // their re-fetch lands.
             clearOverlay();
+            lastContour = null;
             requestOverlay();
           }
+          // Contours track the field and the used range, so re-fetch on every
+          // render (a no-op when the toggle is off).
+          requestContours();
         }
 
         function handleGridError(msg) {
@@ -646,6 +651,11 @@ export function renderImagePanelHtml(
         // it can't be drawn against a newer raster (transient misalignment when
         // switching projections quickly).
         let overlaySeq = 0;
+        // Contour isolines (#238) are value-derived, so they carry their own
+        // projected runs and request counter, re-fetched on any render (the
+        // field, range, projection, or interval can all move them).
+        let lastContour = null;
+        let contourSeq = 0;
         // The geometry-affecting options behind the current overlay. A render
         // that changes only range/resampling leaves this unchanged, so we skip
         // a redundant reprojection round-trip.
@@ -686,6 +696,9 @@ export function renderImagePanelHtml(
             const el = document.getElementById('color-' + layer.id);
             if (el && !el.dataset.userSet) el.value = toHexColour(themedForeground());
           }
+          // Contours default to the themed foreground too (#238).
+          const contour = document.getElementById('color-contours');
+          if (contour && !contour.dataset.userSet) contour.value = toHexColour(themedForeground());
         }
 
         // An <input type="color"> only accepts #rrggbb. The themed foreground
@@ -776,6 +789,53 @@ export function renderImagePanelHtml(
           drawOverlay();
         }
 
+        function contoursEnabled() {
+          return !!(document.getElementById('overlay-contours') || {}).checked;
+        }
+
+        // Ask the provider for the field's contour isolines, projected onto the
+        // current raster. Re-fetched on every render (the levels track the used
+        // range) as well as on a contour-control change. Off → drop the runs.
+        function requestContours() {
+          if (!lastPayload || !contoursEnabled()) {
+            lastContour = null;
+            drawOverlay();
+            return;
+          }
+          contourSeq += 1;
+          const iv = Number((document.getElementById('contour-interval') || {}).value);
+          vscode.postMessage(Object.assign({
+            type: 'contourRequest',
+            seq: contourSeq,
+            options: currentOptions(),
+            // A positive interval overrides the automatic levels; blank = auto.
+            interval: Number.isFinite(iv) && iv > 0 ? iv : undefined,
+          }, sliceFields()));
+        }
+
+        function handleContourReady(msg) {
+          if (msg.seq !== contourSeq) return; // stale: a newer request superseded it
+          lastContour = msg;
+          drawOverlay();
+        }
+
+        // Contours can't be projected for every grid (projected + reduced grids
+        // aren't wired yet); surface why and drop them rather than dead-ending.
+        function handleContourError(msg) {
+          if (msg.seq !== contourSeq) return;
+          lastContour = null;
+          drawOverlay();
+          setStatus('Contours: ' + (msg.error || 'unavailable for this grid'));
+        }
+
+        // Contours-only mode hides the colour raster so the isolines read on a
+        // blank background; the overlay canvas (contours + coastlines) stays.
+        function applyContoursOnly() {
+          const canvas = document.getElementById('canvas');
+          const only = !!(document.getElementById('contours-only') || {}).checked;
+          if (canvas) canvas.style.visibility = only ? 'hidden' : 'visible';
+        }
+
         // Stroke the projected runs onto the overlay canvas. The overlay's
         // backing store is sized to the image's *displayed* pixels (× DPR) so
         // lines stay crisp instead of inheriting the image's pixelated upscale;
@@ -792,23 +852,12 @@ export function renderImagePanelHtml(
           o.width = Math.max(1, Math.round(o.clientWidth * dpr));
           o.height = Math.max(1, Math.round(o.clientHeight * dpr));
           ctx.clearRect(0, 0, o.width, o.height);
-          if (!lastOverlay || !lastOverlay.layers || !lastPayload.width) return;
+          if (!lastPayload.width) return;
           const sx = o.width / lastPayload.width;
           const sy = o.height / lastPayload.height;
-          const styles = overlayStrokeStyles();
-          for (const layer of lastOverlay.layers) {
-            // The provider labels each run with the layer id the styles key on;
-            // an unknown label falls back to the coastline's style rather than
-            // going unstroked.
-            const style = styles[layer.name] || styles.coastline;
-            ctx.save();
-            ctx.globalAlpha = style.alpha || 1;
-            ctx.strokeStyle = style.color;
-            ctx.lineWidth = style.width * dpr;
+          // Stroke one run set (flat xy + per-run vertex counts) as a path.
+          const strokeRuns = (xy, segs) => {
             ctx.beginPath();
-            // Tolerate either typed arrays or plain arrays from the serializer.
-            const xy = layer.xy || [];
-            const segs = layer.segLengths || [];
             let p = 0;
             for (let s = 0; s < segs.length; s++) {
               const n = segs[s];
@@ -819,6 +868,33 @@ export function renderImagePanelHtml(
               }
             }
             ctx.stroke();
+          };
+          // Contours sit under the geographic overlays so a coastline reads on
+          // top of them.
+          if (lastContour && lastContour.xy && contoursEnabled()) {
+            const colour = (document.getElementById('color-contours') || {}).value
+              || themedForeground();
+            const cw = Number((document.getElementById('width-contours') || {}).value);
+            ctx.save();
+            ctx.globalAlpha = 0.9;
+            ctx.strokeStyle = colour;
+            ctx.lineWidth = (Number.isFinite(cw) && cw > 0 ? cw : 0.8) * dpr;
+            strokeRuns(lastContour.xy || [], lastContour.segLengths || []);
+            ctx.restore();
+          }
+          if (!lastOverlay || !lastOverlay.layers) return;
+          const styles = overlayStrokeStyles();
+          for (const layer of lastOverlay.layers) {
+            // The provider labels each run with the layer id the styles key on;
+            // an unknown label falls back to the coastline's style rather than
+            // going unstroked.
+            const style = styles[layer.name] || styles.coastline;
+            ctx.save();
+            ctx.globalAlpha = style.alpha || 1;
+            ctx.strokeStyle = style.color;
+            ctx.lineWidth = style.width * dpr;
+            // Tolerate either typed arrays or plain arrays from the serializer.
+            strokeRuns(layer.xy || [], layer.segLengths || []);
             ctx.restore();
           }
         }
@@ -920,6 +996,11 @@ export function renderImagePanelHtml(
               return acc;
             }, {}),
             graticuleSpacing: val('graticule-spacing'),
+            contours: chk('overlay-contours'),
+            contourColor: val('color-contours'),
+            contourWidth: val('width-contours'),
+            contourInterval: val('contour-interval'),
+            contoursOnly: chk('contours-only'),
             slice: sliceState,
           });
         }
@@ -986,6 +1067,16 @@ export function renderImagePanelHtml(
             }
           }
           setVal('graticule-spacing', s.graticuleSpacing);
+          // Contours (#238): restore the toggle, style, interval, and mode.
+          setChk('overlay-contours', s.contours);
+          setVal('width-contours', s.contourWidth);
+          setVal('contour-interval', s.contourInterval);
+          setChk('contours-only', s.contoursOnly);
+          const cc = document.getElementById('color-contours');
+          if (cc && s.contourColor) {
+            cc.value = s.contourColor;
+            cc.dataset.userSet = '1';
+          }
           // Dependent visibility the change handlers would normally toggle.
           // (The projection-dependent groups are syncProjectionControls' job.)
           const rm = document.getElementById('range-manual-fields');
@@ -994,6 +1085,9 @@ export function renderImagePanelHtml(
           if (bm) bm.toggleAttribute('hidden', s.boundsMode !== 'manual');
           const gl = document.getElementById('graticule-spacing-label');
           if (gl) gl.classList.toggle('spacing-hidden', !s.graticule);
+          const cil = document.getElementById('contour-interval-label');
+          if (cil) cil.classList.toggle('spacing-hidden', !s.contours);
+          applyContoursOnly();
           // NetCDF slice: adopt the saved spec only if it still describes a
           // variable in this panel with sane axes; indices clamp per dimension.
           const v = SLICE && s.slice ? sliceVariable(s.slice.variableIndex) : undefined;
@@ -1104,6 +1198,30 @@ export function renderImagePanelHtml(
           }
           const spacing = document.getElementById('graticule-spacing');
           if (spacing) spacing.addEventListener('change', requestOverlay);
+          // Contours (#238): the toggle reveals the interval field and fetches
+          // (or drops) the isolines; the interval refetches; colour/width just
+          // repaint the cached runs; "only" hides the raster.
+          const contourToggle = document.getElementById('overlay-contours');
+          if (contourToggle) {
+            contourToggle.addEventListener('change', () => {
+              const label = document.getElementById('contour-interval-label');
+              if (label) label.classList.toggle('spacing-hidden', !contourToggle.checked);
+              requestContours();
+            });
+          }
+          const contourInterval = document.getElementById('contour-interval');
+          if (contourInterval) contourInterval.addEventListener('change', requestContours);
+          const contourColour = document.getElementById('color-contours');
+          if (contourColour) {
+            contourColour.addEventListener('input', () => {
+              contourColour.dataset.userSet = '1';
+              drawOverlay();
+            });
+          }
+          const contourWidth = document.getElementById('width-contours');
+          if (contourWidth) contourWidth.addEventListener('input', drawOverlay);
+          const contoursOnly = document.getElementById('contours-only');
+          if (contoursOnly) contoursOnly.addEventListener('change', applyContoursOnly);
           // Keep the overlay aligned + crisp as the panel (and the displayed
           // image size) resizes.
           window.addEventListener('resize', drawOverlay);
@@ -1127,6 +1245,8 @@ export function renderImagePanelHtml(
           else if (msg.type === 'gridError') handleGridError(msg);
           else if (msg.type === 'overlayReady') handleOverlayReady(msg);
           else if (msg.type === 'overlayError') handleOverlayError(msg);
+          else if (msg.type === 'contourReady') handleContourReady(msg);
+          else if (msg.type === 'contourError') handleContourError(msg);
         });
 
         restoreState();
@@ -1408,6 +1528,14 @@ ${slice ? netcdfCompareFieldsetHtml() : gribCompareFieldsetHtml(compareFields ??
         <input type="number" id="width-graticule" class="layer-width" value="0.6" min="0.2" max="5" step="0.1" aria-label="Graticule line weight">
         <label id="graticule-spacing-label" class="spacing-hidden">spacing
           <input type="number" id="graticule-spacing" value="30" min="5" max="90" step="5"></label>
+      </span>
+      <span class="overlay-layer">
+        <label><input type="checkbox" id="overlay-contours"> Contours</label>
+        <input type="color" id="color-contours" class="layer-color" aria-label="Contour colour">
+        <input type="number" id="width-contours" class="layer-width" value="0.8" min="0.2" max="5" step="0.1" aria-label="Contour line weight">
+        <label id="contour-interval-label" class="spacing-hidden">interval
+          <input type="number" id="contour-interval" min="0" step="any" placeholder="auto" title="Level spacing; blank picks ~8 nice levels"></label>
+        <label><input type="checkbox" id="contours-only"> only</label>
       </span>
     </fieldset>
   </div>
