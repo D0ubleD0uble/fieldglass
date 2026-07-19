@@ -6,6 +6,7 @@ import {
   loadNative,
   nativeBinaryName,
   type ColormapInfo,
+  type CombineOp,
   type DatasetMeta,
   type Grib1Handle,
   type Grib2Handle,
@@ -374,14 +375,23 @@ export class FieldglassEditorProvider
       { viewColumn: vscode.ViewColumn.Beside, preserveFocus: false },
       { enableScripts: true, retainContextWhenHidden: false, localResourceRoots: [] }
     );
+    // Every message in the file is a candidate "field B" for a difference map
+    // (#239); the picker only appears when there are at least two.
+    const compareFields = this._handlesByDoc
+      .get(document.uri.toString())
+      ?.messages()
+      .map((m) => ({ index: m.messageIndex, label: gribFieldLabel(m) }));
+
     panel.webview.html = renderImagePanelHtml(
       panel.webview,
       meta,
       describeProjection(meta),
       colormapRegistry(),
+      undefined,
+      compareFields,
     );
 
-    const paint = (options: RenderOptions) => {
+    const paint = (options: RenderOptions, compare?: GribCompare) => {
       const docHandle = this._handlesByDoc.get(document.uri.toString());
       if (!docHandle) {
         panel.webview.postMessage({
@@ -392,7 +402,17 @@ export class FieldglassEditorProvider
         return;
       }
       try {
-        const rendered = docHandle.renderGrid(meta.messageIndex, options);
+        // A difference map combines this message (A) with the chosen message
+        // (B); otherwise a plain single-field render. Both return the same
+        // paint-ready RGBA, so the panel displays them identically.
+        const rendered = compare
+          ? docHandle.renderGridCombined(
+              meta.messageIndex,
+              compare.messageIndexB,
+              compare.op,
+              options,
+            )
+          : docHandle.renderGrid(meta.messageIndex, options);
         panel.webview.postMessage(
           buildGridReadyMessage(rendered, meta, options),
         );
@@ -459,11 +479,11 @@ export class FieldglassEditorProvider
       (m: ({ type?: string } & Partial<RenderOptions>) | OverlayRequest) => {
         if (!m || typeof m.type !== "string") return;
         if (m.type === "ready") {
-          paint(resolveRerenderOptions(m as Partial<RenderOptions>));
+          paint(resolveRerenderOptions(m as Partial<RenderOptions>), resolveGribCompare(m));
           return;
         }
         if (m.type === "rerenderRequest") {
-          paint(resolveRerenderOptions(m as Partial<RenderOptions>));
+          paint(resolveRerenderOptions(m as Partial<RenderOptions>), resolveGribCompare(m));
           return;
         }
         if (m.type === "overlayRequest") {
@@ -919,6 +939,46 @@ function knownColormaps(): ReadonlySet<string> {
     knownColormapNames = new Set(native ? native.colormaps().map((c) => c.name) : []);
   }
   return knownColormapNames;
+}
+
+/** A validated GRIB difference-map request: combine field A (the panel's
+ *  message) with message B under `op`. */
+export interface GribCompare {
+  op: CombineOp;
+  messageIndexB: number;
+}
+
+/** The combine operations the Rust side accepts. */
+const COMBINE_OPS: ReadonlySet<string> = new Set([
+  "a_minus_b",
+  "b_minus_a",
+  "a_plus_b",
+  "mean",
+  "ratio",
+]);
+
+/** Validate a webview `compare` rider into a {@link GribCompare}, or `undefined`
+ *  for "no comparison" — an absent rider, an unknown op, or a non-integer index.
+ *  Same clamp philosophy as {@link resolveRerenderOptions}: a bad value falls
+ *  back to a plain single-field render rather than round-tripping an error. */
+export function resolveGribCompare(m: unknown): GribCompare | undefined {
+  const c = (m as { compare?: { op?: unknown; messageIndexB?: unknown } })?.compare;
+  if (!c || typeof c.op !== "string" || !COMBINE_OPS.has(c.op)) return undefined;
+  const b = c.messageIndexB;
+  if (typeof b !== "number" || !Number.isInteger(b) || b < 0) return undefined;
+  return { op: c.op as CombineOp, messageIndexB: b };
+}
+
+/** A concise picker label for a GRIB message: index, parameter, level, and
+ *  forecast, e.g. `#3 · TMP · 500 (hPa) · +6h`. */
+export function gribFieldLabel(m: MessageMeta): string {
+  const parts = [
+    `#${m.messageIndex}`,
+    m.parameterAbbreviation || m.parameterName,
+    m.level && m.level !== "—" ? m.level : "",
+    m.forecastDisplay,
+  ].filter((s) => !!s);
+  return parts.join(" · ");
 }
 
 export function resolveRerenderOptions(m: Partial<RenderOptions>): RenderOptions {

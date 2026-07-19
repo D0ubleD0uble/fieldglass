@@ -33,6 +33,14 @@ export interface SlicePanelData {
   initial: SliceSpec;
 }
 
+/** One selectable "field B" for the compare / difference-map picker (#239): a
+ *  GRIB message in the same file, with a human label. Field A is the message
+ *  the panel opened on. */
+export interface CompareFieldOption {
+  index: number;
+  label: string;
+}
+
 /** Returns the full HTML for the render-panel webview. The DOM mounts,
  *  the script posts `ready`, the provider responds with `gridReady`
  *  carrying paint-ready RGBA, and the canvas blits it. Picker changes
@@ -102,12 +110,46 @@ ${groups}
 `;
 }
 
+/** The Compare toolbar row (#239): an operation selector and a Field B picker
+ *  for the difference-map workflow. Field A is the message the panel opened on;
+ *  choosing an operation combines it element-wise with Field B and renders the
+ *  result. Omitted entirely (empty string) when there is nothing to compare —
+ *  fewer than two fields — so a single-message file shows no Compare row. */
+function compareFieldsetHtml(fields: CompareFieldOption[]): string {
+  if (fields.length < 2) {
+    return "";
+  }
+  const options = fields
+    .map((f) => `          <option value="${f.index}">${escapeHtml(f.label)}</option>`)
+    .join("\n");
+  return `    <fieldset>
+      <legend>Compare:</legend>
+      <label>Operation
+        <select id="compare-op">
+          <option value="" selected>(off)</option>
+          <option value="a_minus_b">A − B</option>
+          <option value="b_minus_a">B − A</option>
+          <option value="a_plus_b">A + B</option>
+          <option value="mean">mean(A, B)</option>
+          <option value="ratio">A / B</option>
+        </select>
+      </label>
+      <label>Field B
+        <select id="compare-field-b">
+${options}
+        </select>
+      </label>
+    </fieldset>
+`;
+}
+
 export function renderImagePanelHtml(
   webview: vscode.Webview,
   meta: MessageMeta,
   projectionSummary: string,
   colormaps: ColormapInfo[],
-  slice?: SlicePanelData
+  slice?: SlicePanelData,
+  compareFields?: CompareFieldOption[]
 ): string {
   const cspNonce = nonce();
   const csp = [
@@ -164,6 +206,17 @@ export function renderImagePanelHtml(
         // when this is a NetCDF panel, nothing otherwise.
         function sliceFields() {
           return sliceState ? { slice: sliceState } : {};
+        }
+
+        // The difference-map request rider (#239): when an operation is chosen
+        // and a Field B is selected, combine field A (this message) with B. Off
+        // (empty operation) or no picker → a plain single-field render. The
+        // provider validates the op and index and falls back to single render.
+        function compareRequest() {
+          const opEl = document.getElementById('compare-op');
+          const bEl = document.getElementById('compare-field-b');
+          if (!opEl || !opEl.value || !bEl || bEl.value === '') return {};
+          return { compare: { op: opEl.value, messageIndexB: Number(bEl.value) } };
         }
 
         // Rebuild the per-variable axis controls: the X / Y dimension selectors
@@ -372,7 +425,7 @@ export function renderImagePanelHtml(
             // Initial mount: provider posts ready-options-default automatically.
             return;
           }
-          vscode.postMessage(Object.assign({ type: 'rerenderRequest' }, currentOptions(), sliceFields()));
+          vscode.postMessage(Object.assign({ type: 'rerenderRequest' }, currentOptions(), sliceFields(), compareRequest()));
           setStatus('Rendering…');
         }
 
@@ -398,8 +451,14 @@ export function renderImagePanelHtml(
           if (cbMax) cbMax.textContent = payload.usedMax.toPrecision(4);
           const proj = document.getElementById('projection-summary');
           if (proj) proj.textContent = payload.projectionSummary || '';
+          // When a compare operation is active, name it up front so the status
+          // reflects that the image is a computed (e.g. difference) field.
+          const opEl = document.getElementById('compare-op');
+          const opText = opEl && opEl.value && opEl.selectedIndex >= 0
+            ? opEl.options[opEl.selectedIndex].text + ' · '
+            : '';
           setStatus(
-            payload.width + '×' + payload.height + ' · range ' +
+            opText + payload.width + '×' + payload.height + ' · range ' +
             payload.usedMin.toPrecision(4) + ' … ' + payload.usedMax.toPrecision(4),
           );
           // Pre-fill the manual-range inputs once so the user can switch
@@ -758,6 +817,8 @@ export function renderImagePanelHtml(
             colormap: val('picker-colormap'),
             reverseColormap: chk('reverse-colormap'),
             scaleLog: chk('scale-log'),
+            compareOp: val('compare-op'),
+            compareFieldB: val('compare-field-b'),
             flipY: chk('flip-y'),
             rangeMode: radio('range-mode'),
             rangeMin: val('range-min'),
@@ -815,6 +876,8 @@ export function renderImagePanelHtml(
           setVal('picker-colormap', s.colormap);
           setChk('reverse-colormap', s.reverseColormap);
           setChk('scale-log', s.scaleLog);
+          setVal('compare-op', s.compareOp);
+          setVal('compare-field-b', s.compareFieldB);
           setChk('flip-y', s.flipY);
           setRadio('range-mode', s.rangeMode);
           setVal('range-min', s.rangeMin);
@@ -887,6 +950,12 @@ export function renderImagePanelHtml(
           // so it re-renders without touching the legend gradient.
           const logToggle = document.getElementById('scale-log');
           if (logToggle) logToggle.addEventListener('change', requestRender);
+          // Compare picker (#239): changing the operation or Field B re-renders
+          // through the combined path (or back to single render when off).
+          ['compare-op', 'compare-field-b'].forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('change', requestRender);
+          });
           syncColorbar();
           const sampPick = document.getElementById('picker-resampling');
           if (sampPick) sampPick.addEventListener('change', requestRender);
@@ -979,7 +1048,7 @@ export function renderImagePanelHtml(
         attachControls();
         // Attach the (possibly restored) selections so the provider's first
         // paint honours them; a fresh panel just sends its defaults.
-        vscode.postMessage(Object.assign({ type: 'ready' }, currentOptions(), sliceFields()));
+        vscode.postMessage(Object.assign({ type: 'ready' }, currentOptions(), sliceFields(), compareRequest()));
       })();
     </script>
   `;
@@ -1205,6 +1274,7 @@ ${meta.reprojectable
       <label><input type="checkbox" id="flip-y"> Flip Y axis</label>
     </div>
 ${colormapFieldsetHtml(colormaps)}
+${compareFieldsetHtml(compareFields ?? [])}
     <fieldset>
       <legend>Color Range:</legend>
       <label><input type="radio" name="range-mode" value="auto" checked> Auto</label>
