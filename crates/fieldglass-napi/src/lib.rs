@@ -7,9 +7,12 @@ use fieldglass_core::{
     PolarStereographic, ProjectedPolylines, Resampling, Robinson, RotatedLatLonParams,
     RotatedLatLonProjector, SourceGrid, SourceOverlayTarget, TargetRaster, WebMercator,
     colormap::{Colormap, ScaleMode, min_max_ignoring_mask, paint_grid_rgba},
-    combine_fields, detect_from_bytes, eastward_lon_span, latlon_inverse, lon_grid_is_global,
-    mercator_inverse, project_polylines,
+    combine_fields,
+    contour::{contour_segments, nice_levels},
+    detect_from_bytes, eastward_lon_span, latlon_inverse, latlon_point, lon_grid_is_global,
+    mercator_inverse, mercator_point, project_polylines,
     projection::GridIndex,
+    rotated_latlon_point,
     warp::{TargetProjection, WarpedRaster, warp},
 };
 use fieldglass_grib1::{
@@ -1435,6 +1438,24 @@ impl Grib1Handle {
         project_overlay_impl(&meta, &options, latlon.as_ref(), ring_lengths.as_ref())
             .map(ProjectedOverlay::from_polylines)
     }
+
+    /// Extract contour isolines from this message and project them onto the same
+    /// raster `render_grid` produces, as pixel-space runs for the overlay canvas
+    /// (#238). `interval` sets a manual level spacing; `None` picks ~8 nice
+    /// levels over the used range. Errors for grid types whose forward
+    /// geolocation isn't wired yet (projected + reduced grids).
+    #[napi]
+    pub fn project_contours(
+        &self,
+        message_index: u32,
+        options: RenderOptions,
+        interval: Option<f64>,
+    ) -> napi::Result<ProjectedOverlay> {
+        let meta = self.message_meta(message_index)?;
+        let raw = self.cached_decode(message_index)?;
+        project_contours_impl(&meta, raw.as_ref(), &options, interval)
+            .map(ProjectedOverlay::from_polylines)
+    }
 }
 
 impl Grib1Handle {
@@ -1609,6 +1630,21 @@ impl Grib2Handle {
                 napi::Error::from_reason(format!("message index {message_index} out of range"))
             })?;
         project_overlay_impl(&meta, &options, latlon.as_ref(), ring_lengths.as_ref())
+            .map(ProjectedOverlay::from_polylines)
+    }
+
+    /// Contour isolines for this message, projected onto the render raster.
+    /// Sibling to [`Grib1Handle::project_contours`].
+    #[napi]
+    pub fn project_contours(
+        &self,
+        message_index: u32,
+        options: RenderOptions,
+        interval: Option<f64>,
+    ) -> napi::Result<ProjectedOverlay> {
+        let meta = self.message_meta(message_index)?;
+        let raw = self.cached_decode(message_index)?;
+        project_contours_impl(&meta, raw.as_ref(), &options, interval)
             .map(ProjectedOverlay::from_polylines)
     }
 }
@@ -1836,6 +1872,27 @@ impl NetcdfHandle {
         let var = self.renderable(variable_index)?;
         let meta = self.slice_meta(&var, y_dim as usize, x_dim as usize)?;
         project_overlay_impl(&meta, &options, latlon.as_ref(), ring_lengths.as_ref())
+            .map(ProjectedOverlay::from_polylines)
+    }
+
+    /// Contour isolines for one slice, projected onto the render raster (#238).
+    /// Sibling to [`Grib1Handle::project_contours`]; the slice's synthesised
+    /// `latlon` geometry means NetCDF grids are always contourable.
+    #[napi]
+    pub fn project_contours(
+        &self,
+        variable_index: u32,
+        y_dim: u32,
+        x_dim: u32,
+        slice_indices: Vec<u32>,
+        options: RenderOptions,
+        interval: Option<f64>,
+    ) -> napi::Result<ProjectedOverlay> {
+        let var = self.renderable(variable_index)?;
+        let (y, x) = (y_dim as usize, x_dim as usize);
+        let plane = self.slice_plane(&var, y, x, &slice_indices)?;
+        let meta = self.slice_meta(&var, y, x)?;
+        project_contours_impl(&meta, &plane, &options, interval)
             .map(ProjectedOverlay::from_polylines)
     }
 }
@@ -3234,6 +3291,188 @@ fn project_overlay_impl(
             Ok(built.project(resolved.flip_y, latlon, ring_lengths))
         }
     }
+}
+
+/// Build a grid-index → `(lat, lon)` forward map for the corner-pinned lat/lon
+/// family (regular lat/lon, Mercator, rotated lat/lon, Gaussian), whose forward
+/// maps are simple, round-trip-tested free functions. Projected grids (Lambert,
+/// polar stereographic, geostationary) and reduced grids return an error for
+/// now — their forward maps exist (`grid_point_lonlat`) but wiring them (and, for
+/// reduced grids, the per-row longitudes) is a follow-up. Contours therefore
+/// gate cleanly on grid type, like reprojection does.
+/// A source grid's forward geolocation: grid index `(i, j)` → `(lat, lon)`, or
+/// `None` for a malformed grid. Boxed so [`forward_geolocation_for`] can return
+/// a different closure per grid type.
+type ForwardGeo = Box<dyn Fn(u32, u32) -> Option<(f64, f64)>>;
+
+fn forward_geolocation_for(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<ForwardGeo> {
+    match meta.grid_type.as_deref().unwrap_or("") {
+        "latlon" => {
+            let p = LatLonParams {
+                ni,
+                nj,
+                lat_first: require_f64(meta.lat_first, "latFirst")?,
+                lon_first: require_f64(meta.lon_first, "lonFirst")?,
+                lat_last: require_f64(meta.lat_last, "latLast")?,
+                lon_last: require_f64(meta.lon_last, "lonLast")?,
+            };
+            Ok(Box::new(move |i, j| latlon_point(&p, i, j)))
+        }
+        "mercator" => {
+            let p = MercatorParams {
+                ni,
+                nj,
+                lat_first: require_f64(meta.lat_first, "latFirst")?,
+                lon_first: require_f64(meta.lon_first, "lonFirst")?,
+                lat_last: require_f64(meta.lat_last, "latLast")?,
+                lon_last: require_f64(meta.lon_last, "lonLast")?,
+            };
+            Ok(Box::new(move |i, j| mercator_point(&p, i, j)))
+        }
+        "rotated_latlon" => {
+            let p = RotatedLatLonParams {
+                ni,
+                nj,
+                lat_first: require_f64(meta.lat_first, "latFirst")?,
+                lon_first: require_f64(meta.lon_first, "lonFirst")?,
+                lat_last: require_f64(meta.lat_last, "latLast")?,
+                lon_last: require_f64(meta.lon_last, "lonLast")?,
+                south_pole_lat: require_f64(meta.rotated_south_pole_lat, "rotatedSouthPoleLat")?,
+                south_pole_lon: require_f64(meta.rotated_south_pole_lon, "rotatedSouthPoleLon")?,
+                angle_of_rotation: require_f64(
+                    meta.rotated_angle_of_rotation,
+                    "rotatedAngleOfRotation",
+                )?,
+            };
+            Ok(Box::new(move |i, j| rotated_latlon_point(&p, i, j)))
+        }
+        "gaussian" => {
+            let p = GaussianParams {
+                ni,
+                nj,
+                lat_first: require_f64(meta.lat_first, "latFirst")?,
+                lon_first: require_f64(meta.lon_first, "lonFirst")?,
+                lat_last: require_f64(meta.lat_last, "latLast")?,
+                lon_last: require_f64(meta.lon_last, "lonLast")?,
+                n_parallels: meta.gaussian_n_parallels.ok_or_else(|| {
+                    napi::Error::from_reason("missing gaussianNParallels".to_string())
+                })? as u32,
+            };
+            let projector = GaussianProjector::new(p);
+            Ok(Box::new(move |i, j| projector.grid_point_lonlat(i, j)))
+        }
+        other => Err(napi::Error::from_reason(format!(
+            "contours not yet supported for grid type {other:?} \
+             (only regular lat/lon, Mercator, rotated lat/lon, and Gaussian for now)"
+        ))),
+    }
+}
+
+/// `(lat, lon)` of a fractional grid position, bilinearly interpolated from the
+/// four surrounding integer grid points via `forward`. A contour vertex sits on
+/// a cell edge (one integer coordinate, one fractional), for which the bilinear
+/// collapses to a linear interpolation along that edge. Longitudes come from the
+/// forward map in the grid's own frame (monotonic within a cell), so the
+/// interpolation never straddles the ±180° seam.
+fn forward_bilinear(
+    forward: &dyn Fn(u32, u32) -> Option<(f64, f64)>,
+    ni: u32,
+    nj: u32,
+    fi: f64,
+    fj: f64,
+) -> Option<(f64, f64)> {
+    if ni < 2 || nj < 2 {
+        return None;
+    }
+    let i0 = (fi.floor().max(0.0) as u32).min(ni - 2);
+    let j0 = (fj.floor().max(0.0) as u32).min(nj - 2);
+    let fx = (fi - i0 as f64).clamp(0.0, 1.0);
+    let fy = (fj - j0 as f64).clamp(0.0, 1.0);
+    let a = forward(i0, j0)?;
+    let b = forward(i0 + 1, j0)?;
+    let c = forward(i0, j0 + 1)?;
+    let d = forward(i0 + 1, j0 + 1)?;
+    let bilerp = |va: f64, vb: f64, vc: f64, vd: f64| {
+        let top = va + (vb - va) * fx;
+        let bot = vc + (vd - vc) * fx;
+        top + (bot - top) * fy
+    };
+    Some((bilerp(a.0, b.0, c.0, d.0), bilerp(a.1, b.1, c.1, d.1)))
+}
+
+/// Contour levels at every multiple of `step` strictly inside `(min, max)`. The
+/// manual-interval override; guarded against a tiny step producing an unbounded
+/// list.
+fn levels_by_interval(min: f64, max: f64, step: f64) -> Vec<f64> {
+    if step <= 0.0 || !step.is_finite() || min >= max {
+        return Vec::new();
+    }
+    let start = (min / step).ceil() * step;
+    let mut levels = Vec::new();
+    let mut k = 0i64;
+    loop {
+        let v = start + k as f64 * step;
+        k += 1;
+        if v <= min {
+            continue;
+        }
+        if v >= max {
+            break;
+        }
+        levels.push(v);
+        if levels.len() > 2000 {
+            break;
+        }
+    }
+    levels
+}
+
+/// Extract contour isolines from a decoded field and project them onto the same
+/// raster the render / overlay use, returning pixel-space runs (#238). Levels
+/// come from `interval` (a manual spacing) when given and positive, else from
+/// [`nice_levels`] over the used range. The grid-space isolines are geolocated
+/// through [`forward_geolocation_for`] and then run through the ordinary overlay
+/// projection ([`project_overlay_impl`]), so they land on every target
+/// projection with the same visibility / seam handling as the coastlines.
+fn project_contours_impl(
+    meta: &MessageMeta,
+    raw: &[Option<f64>],
+    options: &RenderOptions,
+    interval: Option<f64>,
+) -> napi::Result<ProjectedPolylines> {
+    let ni = grid_ni(meta)?;
+    let nj = grid_nj(meta)?;
+    let forward = forward_geolocation_for(meta, ni, nj)?;
+
+    // Levels span the same range the image is painted over, so contours line up
+    // with the colours: a manual range override wins, else the present-cell min/max.
+    let (used_min, used_max) = match (options.range_min, options.range_max) {
+        (Some(min), Some(max)) if max > min => (min, max),
+        _ => min_max_ignoring_mask(raw.iter().copied()).unwrap_or((0.0, 1.0)),
+    };
+    let levels = match interval {
+        Some(step) if step > 0.0 => levels_by_interval(used_min, used_max, step),
+        _ => nice_levels(used_min, used_max, 8),
+    };
+
+    // Each contour segment becomes a two-vertex ring in `(lat, lon)` order (what
+    // `project_polylines` consumes); a vertex that can't be geolocated drops its
+    // segment rather than the whole contour.
+    let contours = contour_segments(raw, ni as usize, nj as usize, &levels);
+    let mut latlon: Vec<f64> = Vec::new();
+    let mut ring_lengths: Vec<u32> = Vec::new();
+    for level in &contours {
+        for seg in &level.segments {
+            let p0 = forward_bilinear(forward.as_ref(), ni, nj, seg[0].0, seg[0].1);
+            let p1 = forward_bilinear(forward.as_ref(), ni, nj, seg[1].0, seg[1].1);
+            if let (Some((lat0, lon0)), Some((lat1, lon1))) = (p0, p1) {
+                latlon.extend_from_slice(&[lat0, lon0, lat1, lon1]);
+                ring_lengths.push(2);
+            }
+        }
+    }
+
+    project_overlay_impl(meta, options, &latlon, &ring_lengths)
 }
 
 // --- Per-template warp-setup helpers ---------------------------------------
@@ -5182,6 +5421,87 @@ mod netcdf_slice_tests {
         ) {
             Ok(_) => panic!("unknown combine op must error"),
             Err(e) => assert!(e.to_string().contains("unknown combine op"), "{e}"),
+        }
+    }
+
+    /// A regular lat/lon meta over a small region, for the contour tests.
+    fn latlon_meta(ni: i32, nj: i32) -> MessageMeta {
+        let mut meta = base_netcdf_meta("t", "K", ni, nj);
+        meta.grid_type = Some("latlon".to_string());
+        meta.lat_first = Some(40.0);
+        meta.lat_last = Some(10.0);
+        meta.lon_first = Some(0.0);
+        meta.lon_last = Some(40.0);
+        meta
+    }
+
+    #[test]
+    fn levels_by_interval_walks_the_range_on_multiples() {
+        assert_eq!(levels_by_interval(0.0, 10.0, 2.0), vec![2.0, 4.0, 6.0, 8.0]);
+        // Endpoints are excluded; a start below the range is skipped.
+        assert_eq!(levels_by_interval(-3.0, 3.0, 3.0), vec![0.0]);
+        // Degenerate inputs yield nothing.
+        assert!(levels_by_interval(5.0, 5.0, 1.0).is_empty());
+        assert!(levels_by_interval(0.0, 10.0, 0.0).is_empty());
+        assert!(levels_by_interval(0.0, 10.0, -1.0).is_empty());
+    }
+
+    #[test]
+    fn forward_geolocation_latlon_places_corners_then_interior() {
+        let meta = latlon_meta(5, 4);
+        let fwd = forward_geolocation_for(&meta, 5, 4).expect("latlon forward map");
+        // Corner (0,0) is (latFirst, lonFirst); (4,3) is (latLast, lonLast).
+        assert_eq!(fwd(0, 0), Some((40.0, 0.0)));
+        assert_eq!(fwd(4, 3), Some((10.0, 40.0)));
+        // A fractional vertex on the bottom edge interpolates the longitude.
+        let (lat, lon) = forward_bilinear(fwd.as_ref(), 5, 4, 2.5, 0.0).expect("interior");
+        assert!(
+            (lat - 40.0).abs() < 1e-9,
+            "on the first row, lat = latFirst"
+        );
+        assert!(
+            (lon - 25.0).abs() < 1e-9,
+            "i=2.5 over 0..40/4 steps → lon 25, got {lon}"
+        );
+    }
+
+    #[test]
+    fn project_contours_latlon_runs_within_raster_and_gates_unknown_grids() {
+        // value = column index → a smooth west-to-east ramp with interior isolines.
+        let meta = latlon_meta(5, 4);
+        let raw: Vec<Option<f64>> = (0..5 * 4).map(|k| Some((k % 5) as f64)).collect();
+
+        let out = project_contours_impl(&meta, &raw, &opts("source"), None)
+            .expect("latlon contours project");
+        assert!(!out.xy.is_empty(), "a ramp field has interior contours");
+        assert_eq!(out.xy.len() % 2, 0, "xy is flat (x, y) pairs");
+        // Source projection paints grid (i, j) at pixel (i, j); every vertex is
+        // inside the raster (a small margin for edge rounding).
+        for pair in out.xy.chunks(2) {
+            assert!(
+                pair[0] >= -0.5 && pair[0] <= 5.5,
+                "x {} within raster",
+                pair[0]
+            );
+            assert!(
+                pair[1] >= -0.5 && pair[1] <= 4.5,
+                "y {} within raster",
+                pair[1]
+            );
+        }
+
+        // A manual interval selects the levels; a coarse interval still finds the
+        // interior crossings of a 0..4 ramp.
+        let manual = project_contours_impl(&meta, &raw, &opts("source"), Some(1.0))
+            .expect("manual-interval contours project");
+        assert!(!manual.xy.is_empty());
+
+        // A grid type whose forward map isn't wired yet is a clear error.
+        let mut lambert = latlon_meta(5, 4);
+        lambert.grid_type = Some("lambert".to_string());
+        match project_contours_impl(&lambert, &raw, &opts("source"), None) {
+            Ok(_) => panic!("lambert contours must error for now"),
+            Err(e) => assert!(e.to_string().contains("contours not yet supported"), "{e}"),
         }
     }
 

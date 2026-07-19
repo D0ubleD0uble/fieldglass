@@ -226,6 +226,15 @@ export interface Grib1Handle {
     latlon: Float64Array,
     ringLengths: Uint32Array,
   ): ProjectedOverlay;
+  /** Contour isolines for this message, projected onto the render raster (#238).
+   *  `interval` sets a manual level spacing; omitted picks ~8 nice levels over
+   *  the used range. Errors for grid types whose forward geolocation isn't wired
+   *  (projected + reduced grids). */
+  projectContours(
+    messageIndex: number,
+    options: RenderOptions,
+    interval?: number,
+  ): ProjectedOverlay;
 }
 
 export interface Grib2Handle {
@@ -244,6 +253,12 @@ export interface Grib2Handle {
     options: RenderOptions,
     latlon: Float64Array,
     ringLengths: Uint32Array,
+  ): ProjectedOverlay;
+  /** Sibling to {@link Grib1Handle.projectContours}. */
+  projectContours(
+    messageIndex: number,
+    options: RenderOptions,
+    interval?: number,
   ): ProjectedOverlay;
 }
 
@@ -310,6 +325,16 @@ export interface NetcdfHandle {
     options: RenderOptions,
     latlon: Float64Array,
     ringLengths: Uint32Array,
+  ): ProjectedOverlay;
+  /** Contour isolines for one slice, projected onto the render raster (#238).
+   *  NetCDF grids are always contourable (synthesised lat/lon geometry). */
+  projectContours(
+    variableIndex: number,
+    yDim: number,
+    xDim: number,
+    sliceIndices: number[],
+    options: RenderOptions,
+    interval?: number,
   ): ProjectedOverlay;
 }
 
