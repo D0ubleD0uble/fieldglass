@@ -1283,6 +1283,14 @@ export function renderImagePanelHtml(
             toolbar.addEventListener('change', snapshotState);
             toolbar.addEventListener('input', snapshotState);
           }
+          // NetCDF panels only: export the live slice as CSV. Carries the
+          // current {variableIndex, yDim, xDim, sliceIndices} via sliceFields().
+          const exportCsvBtn = document.getElementById('export-slice-csv');
+          if (exportCsvBtn) {
+            exportCsvBtn.addEventListener('click', () => {
+              vscode.postMessage(Object.assign({ type: 'exportSliceCsv' }, sliceFields()));
+            });
+          }
         }
 
         window.addEventListener('message', (event) => {
@@ -1487,6 +1495,7 @@ ${slice
       <label>Y axis (rows) <select id="slice-y"></select></label>
       <label>X axis (cols) <select id="slice-x"></select></label>
       <span id="slice-dims"></span>
+      <button type="button" id="export-slice-csv">Export CSV…</button>
     </div>`
     : ""}
     <div class="toolbar-row">

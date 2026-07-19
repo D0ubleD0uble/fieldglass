@@ -374,21 +374,12 @@ export class FieldglassEditorProvider
       return;
     }
 
-    const pick = await vscode.window.showQuickPick(
-      [
-        {
-          label: "Long — one lat,lon,value row per grid point",
-          format: "long",
-        },
-        { label: "Matrix — a 2-D grid of values", format: "matrix" },
-      ],
-      { placeHolder: "CSV layout" }
-    );
-    if (!pick) return;
+    const format = await this.pickCsvFormat();
+    if (!format) return;
 
     let csv: string;
     try {
-      csv = handle.exportCsv(messageIndex, pick.format);
+      csv = handle.exportCsv(messageIndex, format);
     } catch (err) {
       void vscode.window.showErrorMessage(
         `Fieldglass: CSV export failed: ${err instanceof Error ? err.message : err}`
@@ -396,6 +387,26 @@ export class FieldglassEditorProvider
       return;
     }
 
+    await this.saveCsv(csv);
+  }
+
+  /** Ask for a CSV layout (long / matrix). Returns the chosen format, or
+   *  `undefined` if the user cancelled. Shared by the GRIB and NetCDF export
+   *  commands. */
+  private async pickCsvFormat(): Promise<string | undefined> {
+    const pick = await vscode.window.showQuickPick(
+      [
+        { label: "Long — one lat,lon,value row per grid point", format: "long" },
+        { label: "Matrix — a 2-D grid of values", format: "matrix" },
+      ],
+      { placeHolder: "CSV layout" }
+    );
+    return pick?.format;
+  }
+
+  /** Confirm a large export, prompt for a destination, and write the CSV.
+   *  Shared by the GRIB and NetCDF export commands. */
+  private async saveCsv(csv: string): Promise<void> {
     // Guard a large export: writing tens of megabytes is slow and easy to do
     // by accident on a big grid, so confirm above ~50 MB.
     const bytes = Buffer.byteLength(csv, "utf8");
@@ -426,6 +437,42 @@ export class FieldglassEditorProvider
     void vscode.window.showInformationMessage(
       `Fieldglass: exported CSV to ${dest.fsPath}`
     );
+  }
+
+  /** Export the currently-viewed NetCDF slice as CSV (from the render panel's
+   *  "Export CSV…" button). `spec` is the live slice the panel drives. */
+  public async handleExportSliceCsv(
+    document: FieldglassDocument,
+    spec: { variableIndex: number; yDim: number; xDim: number; sliceIndices: number[] }
+  ): Promise<void> {
+    const handle = this._netcdfHandlesByDoc.get(document.uri.toString());
+    if (!handle) {
+      void vscode.window.showErrorMessage(
+        "Fieldglass: CSV export is available only for an open NetCDF slice."
+      );
+      return;
+    }
+
+    const format = await this.pickCsvFormat();
+    if (!format) return;
+
+    let csv: string;
+    try {
+      csv = handle.exportCsv(
+        spec.variableIndex,
+        spec.yDim,
+        spec.xDim,
+        spec.sliceIndices,
+        format
+      );
+    } catch (err) {
+      void vscode.window.showErrorMessage(
+        `Fieldglass: CSV export failed: ${err instanceof Error ? err.message : err}`
+      );
+      return;
+    }
+
+    await this.saveCsv(csv);
   }
 
   /**
@@ -1021,6 +1068,20 @@ export class FieldglassEditorProvider
         }
         if (m.type === "probeRequest") {
           probe(m as ProbeRequest & { slice?: SliceSpec });
+          return;
+        }
+        if (m.type === "exportSliceCsv") {
+          const spec = (m as { slice?: SliceSpec }).slice;
+          if (
+            spec &&
+            isNonNegativeInt(spec.variableIndex) &&
+            isNonNegativeInt(spec.yDim) &&
+            isNonNegativeInt(spec.xDim) &&
+            Array.isArray(spec.sliceIndices) &&
+            spec.sliceIndices.every((n) => isNonNegativeInt(n))
+          ) {
+            void this.handleExportSliceCsv(document, spec);
+          }
         }
       },
     );
