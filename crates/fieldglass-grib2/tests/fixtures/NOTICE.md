@@ -324,3 +324,33 @@ only"), and there is no known operational producer; a second independent oracle
 environment. The decode is a small, deterministic transform over the
 already-validated simple-packing path, and both the eccodes decode and the
 closed-form `exp`/`exp − B` arithmetic (see the `ds.rs` unit tests) agree.
+
+## Pre-standard local-template fixtures (#307)
+
+Two local-use (49152+) data-representation templates whose §5/§7 are identical
+to a registered image packing, so they decode through the same codec:
+
+| Fixture | DRS template | Decodes via | Oracle | Issue |
+|---|---|---|---|---|
+| `jpeg2000_local_40000.grib2` | 5.40000 | JPEG 2000 (5.40) | eccodes `grid_jpeg` | #307 |
+| `png_local_40010.grib2` | 5.40010 | PNG (5.41) | 5.41 decode of the same §7 | #307 |
+
+Each is the matching committed image fixture with only its §5
+data-representation-template number relabelled (octets 10–11), by
+`tools/build_grib2_local_template_fixtures.py`; the §7 codestream is untouched.
+`jpeg2000_local_40000.grib2` comes from `jpeg2000_regular_latlon.grib2`
+(40 → 40000) and `png_local_40010.grib2` from `png_eta_lambert.grib2`
+(41 → 40010).
+
+`template.5.40000.def` is literally `include template.5.40.def`, so eccodes
+decodes 5.40000 as `grid_jpeg` and is the value oracle (and the
+`.eccodes.ref.json` metadata snapshot). **eccodes has no `template.5.40010.def`
+and cannot decode that file at all** (it errors with "No final 7777"), which is
+the whole point — it is a genuinely exceed-eccodes decode. Its value oracle is
+therefore eccodes' decode of the *original* `png_eta_lambert.grib2` (5.41),
+whose §7 is byte-identical, and it is excluded from
+`tools/regenerate-eccodes-snapshots.py` (see `ECCODES_UNDECODABLE`) since no
+eccodes snapshot can be produced.
+
+The ECMWF second-order local templates 5.50001 / 5.50002 (`grid_second_order`)
+in the same issue are a separate, larger codec and are not covered here.
