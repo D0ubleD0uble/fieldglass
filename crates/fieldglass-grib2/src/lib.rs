@@ -3,9 +3,13 @@
 //! Current scope: full §0–§7 parsing for the message metadata, plus value
 //! decoding for **simple packing** (DRS template 5.0), **complex packing**
 //! (5.2 / 5.3), **IEEE floating point** (5.4), **JPEG 2000 packing** (5.40),
-//! **PNG packing** (5.41), and **CCSDS / AEC packing** (5.42) — every §5
-//! template eccodes can encode. Templates outside that set parse to the section
-//! level but `decode_message_values` returns
+//! **PNG packing** (5.41), **CCSDS / AEC packing** (5.42), **simple packing
+//! with logarithmic pre-processing** (5.61), and **run-length packing**
+//! (5.200), plus the pre-standard local image templates 5.40000 / 5.40010 (the
+//! latter one eccodes itself cannot decode). Spherical-harmonic **spectral**
+//! messages (§3.50 + §5.50) decode to coefficients via
+//! [`Grib2Reader::decode_spectral_message`]. Templates outside that set parse
+//! to the section level but `decode_message_values` returns
 //! [`fieldglass_core::FieldglassError::UnsupportedSection`].
 
 #![forbid(unsafe_code)]
@@ -20,6 +24,7 @@ pub mod lus;
 pub mod pds;
 pub mod reader;
 pub mod section;
+pub mod spectral;
 pub mod tables;
 
 pub use bms::{
@@ -28,13 +33,13 @@ pub use bms::{
 };
 pub use drs::{
     DRS_SECTION_NUMBER, DataRepresentationSection, DataRepresentationTemplate, IeeePackingTemplate,
-    SimplePackingTemplate, parse_data_representation,
+    SimplePackingTemplate, SpectralSimplePackingTemplate, parse_data_representation,
 };
 pub use ds::{DS_SECTION_NUMBER, decode_values};
 pub use gds::{
     GDS_SECTION_NUMBER, GaussianTemplate, GridDefinitionSection, GridTemplate, LambertTemplate,
     LatLonTemplate, SCAN_ALTERNATE_ROWS, SCAN_J_CONSECUTIVE, SpaceViewTemplate,
-    parse_grid_definition, undo_alternate_rows,
+    SphericalHarmonicTemplate, parse_grid_definition, undo_alternate_rows,
 };
 pub use ids::{IDS_MIN_LEN, IDS_SECTION_NUMBER, IdentificationSection, parse_identification};
 pub use is::{
@@ -48,6 +53,7 @@ pub use pds::{
 };
 pub use reader::{Grib2Message, Grib2Reader};
 pub use section::{SECTION_HEADER_LEN, SectionHeader, parse_section_header};
+pub use spectral::{SpectralCoefficients, decode_spectral_simple};
 pub use tables::{
     lookup_centre, lookup_data_type, lookup_discipline, lookup_earth_shape, lookup_ensemble_type,
     lookup_fixed_surface, lookup_generating_process_type, lookup_grid_template, lookup_parameter,

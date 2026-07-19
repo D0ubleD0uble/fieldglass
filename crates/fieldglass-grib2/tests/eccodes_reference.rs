@@ -86,6 +86,8 @@ fn assert_message_matches(
                 GridTemplate::Lambert(t) => check_u64(key, expected, t.shape_of_earth as u64),
                 GridTemplate::Gaussian(t) => check_u64(key, expected, t.shape_of_earth as u64),
                 GridTemplate::SpaceView(t) => check_u64(key, expected, t.shape_of_earth as u64),
+                // Spherical harmonics carry no earth shape (not a projected grid).
+                GridTemplate::SphericalHarmonic(_) => true,
                 GridTemplate::Unsupported(_) => true, // can't check
             },
             "numberOfDataPoints" => check_u64(key, expected, msg.gds.num_data_points as u64),
@@ -502,6 +504,17 @@ fn jpeg2000_local_40000_matches_eccodes() {
     assert_fixture_matches_snapshot(
         "jpeg2000_local_40000.grib2",
         include_bytes!("fixtures/jpeg2000_local_40000.grib2"),
+    );
+}
+
+// Spherical-harmonic spectral message (§3.50 + §5.50, #302); coefficient decode
+// pinned in `spectral.rs`. This exercises §0–§4 metadata parsing for a message
+// with no grid (no Ni/Nj, no earth shape).
+#[test]
+fn spectral_simple_t63_matches_eccodes() {
+    assert_fixture_matches_snapshot(
+        "spectral_simple_t63.grib2",
+        include_bytes!("fixtures/spectral_simple_t63.grib2"),
     );
 }
 

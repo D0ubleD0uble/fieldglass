@@ -232,6 +232,7 @@ fn friendly_packing(label: &str) -> String {
         "grid_ccsds" | "ccsds" => "CCSDS",
         "grid_run_length" | "run_length" => "Run-length",
         "grid_simple_log_preprocessing" | "simple_log_preprocessing" => "Simple packing (log)",
+        "spectral_simple" => "Spectral (spherical harmonic)",
         "grid_simple_matrix" => "Matrix of values",
         "grid_second_order" => "Second-order (SPD-2)",
         "grid_second_order_no_SPD" => "Second-order (no SPD)",
@@ -5188,6 +5189,10 @@ mod friendly_packing_tests {
         assert_eq!(
             friendly_packing("simple_log_preprocessing"),
             "Simple packing (log)"
+        );
+        assert_eq!(
+            friendly_packing("spectral_simple"),
+            "Spectral (spherical harmonic)"
         );
         assert_eq!(friendly_packing("grid_simple_matrix"), "Matrix of values");
         assert_eq!(

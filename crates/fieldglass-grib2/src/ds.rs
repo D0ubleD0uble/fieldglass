@@ -93,6 +93,13 @@ pub fn decode_values(
         DataRepresentationTemplate::LogPreprocessing(t) => {
             decode_log_preprocessing(ds_payload, &t, bitmap, expected_count)
         }
+        DataRepresentationTemplate::SpectralSimple(_) => Err(FieldglassError::UnsupportedSection(
+            "§7 holds spherical-harmonic coefficients (template 5.50), which are not values \
+             on a grid — decode them with `Grib2Reader::decode_spectral_message`. Rendering \
+             one as a 2-D field needs an inverse spherical-harmonic transform, which is not \
+             implemented yet."
+                .to_string(),
+        )),
         DataRepresentationTemplate::Unsupported(n) => Err(FieldglassError::UnsupportedSection(
             format!("DRS template 5.{n} decoding is not implemented"),
         )),

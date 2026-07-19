@@ -1,0 +1,27 @@
+{
+  "messages": [
+    {
+      "discipline": 0,
+      "editionNumber": 2,
+      "centre": 98,
+      "subCentre": 0,
+      "significanceOfReferenceTime": 1,
+      "dataDate": 20070424,
+      "dataTime": 1200,
+      "productionStatusOfProcessedData": 0,
+      "typeOfProcessedData": 255,
+      "gridDefinitionTemplateNumber": 50,
+      "numberOfDataPoints": 4160,
+      "productDefinitionTemplateNumber": 0,
+      "parameterCategory": 0,
+      "parameterNumber": 0,
+      "typeOfGeneratingProcess": 0,
+      "indicatorOfUnitOfTimeRange": 1,
+      "forecastTime": 0,
+      "typeOfFirstFixedSurface": 1,
+      "scaleFactorOfFirstFixedSurface": null,
+      "scaledValueOfFirstFixedSurface": null,
+      "bitMapIndicator": 255
+    }
+  ]
+}

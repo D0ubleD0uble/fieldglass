@@ -354,3 +354,26 @@ eccodes snapshot can be produced.
 
 The ECMWF second-order local templates 5.50001 / 5.50002 (`grid_second_order`)
 in the same issue are a separate, larger codec and are not covered here.
+
+## Spectral (spherical-harmonic) fixture (#302)
+
+`spectral_simple_t63.grib2` pins the spherical-harmonic decode (§3 template
+3.50 + §5 template 5.50, `spectral_simple`). It is eccodes 2.34.1's own
+`sh_sfc_grib2.tmpl` sample (a T63 surface field, `J = K = M = 63`, 4160 stored
+values = `(63+1)·(63+2)`) re-encoded to `spectral_simple` with
+`grib_set -r -s packingType=spectral_simple`; ECMWF ships the sample under the
+Apache License 2.0. `bitsPerValue = 16`; the real `(0,0)` coefficient is stored
+out of band in §5 (`realPartOf00`) and the rest are simple-packed in §7.
+
+`spectral_simple_t63.eccodes.ref.txt` is the 4160 coefficients as eccodes
+decodes them, one per line. A spectral message has no grid, so `grib_get_data`
+prints a bare `Value` column (no latitude/longitude) — this is a coefficient
+oracle, not a gridded one. Regenerate with:
+
+```sh
+grib_get_data spectral_simple_t63.grib2 | tail -n +2 \
+  > spectral_simple_t63.eccodes.ref.txt
+```
+
+The `.eccodes.ref.json` metadata snapshot is 2.34.1 as usual; it exercises
+§0–§4 parsing for a message that carries no `Ni`/`Nj` and no earth shape.
