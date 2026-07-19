@@ -2,7 +2,9 @@ use crate::bms::{BMS_SECTION_NUMBER, parse_bit_map_with_header};
 use crate::drs::{
     DRS_SECTION_NUMBER, DataRepresentationSection, parse_data_representation_with_header,
 };
-use crate::ds::{DS_SECTION_NUMBER, decode_values, parse_data_section_body};
+use crate::ds::{
+    DS_SECTION_NUMBER, decode_values, parse_data_section_body, undo_second_order_boustrophedonic,
+};
 use crate::gds::{GDS_SECTION_NUMBER, GridDefinitionSection, parse_grid_definition_with_header};
 use crate::ids::{IDS_SECTION_NUMBER, IdentificationSection, parse_identification_with_header};
 use crate::is::{
@@ -155,7 +157,13 @@ impl Grib2Reader {
         // The DRS template is small for every packing except run-length, whose
         // level table is heap-allocated; `decode_message_values` runs once per
         // message render (not per point), so the clone is not on any hot path.
-        decode_values(ds_payload, msg.drs.template.clone(), bitmap, expected_count)
+        let mut values =
+            decode_values(ds_payload, msg.drs.template.clone(), bitmap, expected_count)?;
+        // Second-order packing (template 5.50002) may store alternating rows
+        // right-to-left; undo it now that the grid width Ni is known. A no-op
+        // for every other template and for 5.50001.
+        undo_second_order_boustrophedonic(&mut values, &msg.drs.template, ni as usize);
+        Ok(values)
     }
 
     /// Decode a spherical-harmonic message (§3.50 + §5.50) into its spectral

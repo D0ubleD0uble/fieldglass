@@ -475,6 +475,32 @@ fn runlength_4bit_regular_latlon_matches_eccodes() {
     );
 }
 
+// Second-order fixtures (#307, templates 5.50001 / 5.50002); value decode
+// pinned in `decode_second_order.rs`.
+#[test]
+fn second_order_regular_latlon_matches_eccodes() {
+    assert_fixture_matches_snapshot(
+        "second_order_regular_latlon.grib2",
+        include_bytes!("fixtures/second_order_regular_latlon.grib2"),
+    );
+}
+
+#[test]
+fn second_order_no_boust_regular_latlon_matches_eccodes() {
+    assert_fixture_matches_snapshot(
+        "second_order_no_boust_regular_latlon.grib2",
+        include_bytes!("fixtures/second_order_no_boust_regular_latlon.grib2"),
+    );
+}
+
+#[test]
+fn second_order_boust_regular_latlon_matches_eccodes() {
+    assert_fixture_matches_snapshot(
+        "second_order_boust_regular_latlon.grib2",
+        include_bytes!("fixtures/second_order_boust_regular_latlon.grib2"),
+    );
+}
+
 // Log-preprocessing fixtures (#305, template 5.61); value decode pinned in
 // `decode_log_preprocessing.rs`. The §5 R/E/D/bits keys route through
 // `msg.drs.simple()` in the snapshot dispatch (None for this template), so

@@ -13,21 +13,23 @@
 //! run-length packing (template 5.200, whose §7 is a run-length-encoded stream
 //! of quantised level indices resolved through a level → value table — JMA
 //! radar and nowcast products), simple packing with logarithmic
-//! pre-processing (template 5.61), and spectral (spherical-harmonic) packing
-//! (templates 5.50 simple and 5.51 complex, whose §7 decodes to coefficients).
-//! The pre-standard local templates 5.40000 (JPEG 2000) and 5.40010 (PNG) alias
-//! onto the 5.40 / 5.41 codecs. Templates outside this set parse as
+//! pre-processing (template 5.61), spectral (spherical-harmonic) packing
+//! (templates 5.50 simple and 5.51 complex, whose §7 decodes to coefficients),
+//! and second-order (general-extended) packing (templates 5.50001 and 5.50002,
+//! the GRIB1 `grid_second_order` codec carried into GRIB2). The pre-standard
+//! local templates 5.40000 (JPEG 2000) and 5.40010 (PNG) alias onto the
+//! 5.40 / 5.41 codecs. Templates outside this set parse as
 //! [`DataRepresentationTemplate::Unsupported`] so message enumeration still
 //! works.
 //!
 //! Spec reference: WMO Manual on Codes Vol I.2 (FM 92 GRIB Edition 2),
 //! Section 5 layout + Templates 5.0 / 5.2 / 5.3 / 5.4 / 5.40 / 5.41 / 5.42 /
-//! 5.50 / 5.51 / 5.61 / 5.200 (plus local 5.40000 / 5.40010).
+//! 5.50 / 5.51 / 5.61 / 5.200 (plus local 5.40000 / 5.40010 / 5.50001 / 5.50002).
 
 use crate::section::{SectionHeader, parse_section_header};
 use fieldglass_core::{
     FieldglassError,
-    bits::{sign_magnitude_i16, sign_magnitude_to_i64},
+    bits::{BitReader, bits_to_bytes, sign_magnitude_i16, sign_magnitude_to_i64},
 };
 
 /// Section number for the Data Representation Section.
@@ -86,6 +88,17 @@ const TEMPLATE_5_50_PAYLOAD_LEN: usize = 13;
 /// (JS / KS / MS), the 4-byte sub-truncation value count (TS), and the 1-byte
 /// unpacked-subset precision.
 const TEMPLATE_5_51_PAYLOAD_LEN: usize = 24;
+
+/// Template 5.50001 fixed payload length up to (but not including) the SPD
+/// block — octets 12..=32, 21 bytes: the R / E / D block (8), then
+/// bits-per-value (1), width-of-first-order (1), number-of-groups (4),
+/// number-of-second-order-packed-values (4), width-of-widths (1),
+/// width-of-lengths (1), and order-of-SPD (1). When order-of-SPD > 0 a
+/// width-of-SPD octet (1) and the SPD seed block (variable) follow; both are
+/// absent from the wire otherwise (eccodes gates them behind `if (orderOfSPD)`).
+/// 5.50002 inserts a one-octet `secondOrderFlags` field before order-of-SPD, so
+/// its fixed prefix is one byte longer.
+const TEMPLATE_5_50001_FIXED_PAYLOAD_LEN: usize = 21;
 
 /// Template 5.200 fixed payload length — octets 12..=17, 6 bytes:
 /// bits-per-value (12), max-level-value (13–14), number-of-level-values
@@ -466,6 +479,65 @@ pub struct RunLengthPackingTemplate {
     pub level_values: Vec<u16>,
 }
 
+/// Templates 5.50001 / 5.50002 — second-order (general-extended) packing.
+///
+/// The GRIB1 general-extended second-order codec (`grid_second_order_*`)
+/// carried into GRIB2, split across §5 and §7. §5 (this struct) holds the
+/// `R` / `E` / `D` transform, the group-descriptor bit widths, the number of
+/// groups, and the spatial-predictor-differencing (SPD) seeds. §7 then carries
+/// — as byte-aligned blocks — the per-group widths, per-group lengths, and
+/// first-order (group reference) values, followed by the second-order packed
+/// per-point offsets (see [`super::ds`]). The value at a point is
+/// `(R + X · 2^E) · 10^-D`, where `X` is the SPD-reconstructed integer.
+///
+/// 5.50001 and 5.50002 share this layout; 5.50002 adds a `secondOrderFlags`
+/// octet whose bit 7 requests boustrophedonic (alternating-row) ordering, and
+/// 5.50001 (`grid_second_order_no_boustrophedonic`) omits it. The two templates
+/// decode identically apart from that row reordering, which is undone after the
+/// grid width is known (see [`super::ds::undo_second_order_boustrophedonic`]).
+///
+/// Not `Copy`: the SPD seeds are heap-allocated.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SecondOrderPackingTemplate {
+    /// Reference value `R` (IEEE 32-bit float, octets 12–15).
+    pub reference_value: f32,
+    /// Binary scale factor `E` (sign-magnitude `i16`, octets 16–17).
+    pub binary_scale_factor: i16,
+    /// Decimal scale factor `D` (sign-magnitude `i16`, octets 18–19).
+    pub decimal_scale_factor: i16,
+    /// Number of bits used for each packed value (octet 20). `0` is a
+    /// constant-field special case: §7 is empty and every point equals `R`.
+    pub bits_per_value: u8,
+    /// Width in bits of each first-order (group reference) value in §7
+    /// (octet 21).
+    pub width_of_first_order_values: u8,
+    /// NG — number of groups the field is split into (octets 22–25).
+    pub num_groups: u32,
+    /// Number of second-order packed values in §7 (octets 26–29) — the grid
+    /// point count less the `order_of_spd` SPD seeds.
+    pub num_second_order_packed_values: u32,
+    /// Width in bits of each group width in §7 (octet 30).
+    pub width_of_widths: u8,
+    /// Width in bits of each group length in §7 (octet 31).
+    pub width_of_lengths: u8,
+    /// Boustrophedonic (alternating-row) ordering requested — 5.50002 octet 32
+    /// bit 7. Always `false` for 5.50001, which has no `secondOrderFlags` octet.
+    pub boustrophedonic: bool,
+    /// Order of spatial-predictor differencing (WMO Code Table 5.6): `0`–`3`.
+    /// eccodes' `grid_second_order` encoder emits `2`.
+    pub order_of_spd: u8,
+    /// Width in bits of each SPD value (the seeds and the bias). Present only
+    /// when `order_of_spd > 0`; `0` otherwise.
+    pub width_of_spd: u8,
+    /// The `order_of_spd` SPD seeds — the first original scaled integers that
+    /// prime the inverse-differencing recurrence (each `width_of_spd` bits,
+    /// unsigned).
+    pub spd_seeds: Vec<i64>,
+    /// The SPD bias — the overall minimum difference added at each
+    /// reconstruction step (`width_of_spd` bits, sign-magnitude).
+    pub spd_bias: i64,
+}
+
 /// Decoded template payload. Templates outside the supported set surface as
 /// [`DataRepresentationTemplate::Unsupported`].
 ///
@@ -484,6 +556,7 @@ pub enum DataRepresentationTemplate {
     LogPreprocessing(LogPreprocessingPackingTemplate),
     SpectralSimple(SpectralSimplePackingTemplate),
     SpectralComplex(SpectralComplexPackingTemplate),
+    SecondOrder(SecondOrderPackingTemplate),
     Unsupported(u16),
 }
 
@@ -517,6 +590,7 @@ impl DataRepresentationSection {
             }
             DataRepresentationTemplate::SpectralSimple(_) => "spectral_simple".to_string(),
             DataRepresentationTemplate::SpectralComplex(_) => "spectral_complex".to_string(),
+            DataRepresentationTemplate::SecondOrder(_) => "second_order".to_string(),
             DataRepresentationTemplate::Unsupported(n) => format!("unsupported(5.{n})"),
         }
     }
@@ -619,6 +693,15 @@ impl DataRepresentationSection {
             _ => None,
         }
     }
+
+    /// Borrow the second-order-packing template if that's what the section
+    /// carries. Other templates return `None`.
+    pub fn second_order(&self) -> Option<&SecondOrderPackingTemplate> {
+        match &self.template {
+            DataRepresentationTemplate::SecondOrder(t) => Some(t),
+            _ => None,
+        }
+    }
 }
 
 /// Parse the Data Representation Section starting at `bytes[0]`.
@@ -670,6 +753,12 @@ pub fn parse_data_representation_with_header(
         50 => DataRepresentationTemplate::SpectralSimple(parse_template_5_50(payload)?),
         51 => DataRepresentationTemplate::SpectralComplex(parse_template_5_51(payload)?),
         200 => DataRepresentationTemplate::RunLength(parse_template_5_200(payload)?),
+        // Second-order (general-extended) packing — the GRIB1 `grid_second_order`
+        // codec carried into GRIB2. 5.50001 (`grid_second_order_no_boustrophedonic`)
+        // omits the `secondOrderFlags` octet that 5.50002 (`grid_second_order`)
+        // carries; both otherwise share the §5 layout.
+        50001 => DataRepresentationTemplate::SecondOrder(parse_template_5_50001(payload, false)?),
+        50002 => DataRepresentationTemplate::SecondOrder(parse_template_5_50001(payload, true)?),
         // Local-use (pre-standard NCEP) templates whose §5 and §7 are identical
         // to a registered image packing, so they decode through the same codec.
         // 5.40000 predates the registered JPEG 2000 template 5.40; 5.40010
@@ -967,6 +1056,107 @@ fn parse_template_5_200(payload: &[u8]) -> Result<RunLengthPackingTemplate, Fiel
         number_of_level_values,
         decimal_scale_factor,
         level_values,
+    })
+}
+
+/// Parse templates 5.50001 (`has_flags == false`) and 5.50002
+/// (`has_flags == true`) — second-order (general-extended) packing. The two
+/// share the §5 layout except that 5.50002 inserts a one-octet
+/// `secondOrderFlags` field (bit 7 = boustrophedonic ordering) just before
+/// `orderOfSPD`. All offsets below are payload-relative (payload octet 0 =
+/// section octet 12).
+fn parse_template_5_50001(
+    payload: &[u8],
+    has_flags: bool,
+) -> Result<SecondOrderPackingTemplate, FieldglassError> {
+    // The `secondOrderFlags` octet (5.50002 only) shifts everything after
+    // `widthOfLengths` forward by one byte.
+    let flags_len = usize::from(has_flags);
+    let fixed_len = TEMPLATE_5_50001_FIXED_PAYLOAD_LEN + flags_len;
+    if payload.len() < fixed_len {
+        return Err(FieldglassError::Parse(format!(
+            "DRS template 5.{} needs at least {fixed_len} bytes of payload before the SPD block, got {}",
+            if has_flags { 50002 } else { 50001 },
+            payload.len()
+        )));
+    }
+    let reference_value = f32::from_be_bytes([payload[0], payload[1], payload[2], payload[3]]);
+    let binary_scale_factor = sign_magnitude_i16(u16::from_be_bytes([payload[4], payload[5]]));
+    let decimal_scale_factor = sign_magnitude_i16(u16::from_be_bytes([payload[6], payload[7]]));
+    let bits_per_value = payload[8];
+    let width_of_first_order_values = payload[9];
+    let num_groups = u32::from_be_bytes([payload[10], payload[11], payload[12], payload[13]]);
+    let num_second_order_packed_values =
+        u32::from_be_bytes([payload[14], payload[15], payload[16], payload[17]]);
+    let width_of_widths = payload[18];
+    let width_of_lengths = payload[19];
+    // 5.50002: octet 20 is `secondOrderFlags`, boustrophedonic is bit 7 (0x80,
+    // the MSB, matching eccodes' `flagbit(secondOrderFlags, 7)`). 5.50001 has no
+    // such octet, so ordering is never boustrophedonic.
+    let boustrophedonic = has_flags && (payload[20] & 0x80) != 0;
+    // `order_of_spd` is the last byte of the fixed prefix (payload index
+    // 20 + flags_len). `width_of_spd` and the SPD seed block follow it on the
+    // wire ONLY when order_of_spd > 0 — eccodes gates them behind `if
+    // (orderOfSPD)` in `template.5.5000{1,2}.def` — so a valid no-SPD field
+    // (order_of_spd == 0) ends right here, with no width octet.
+    let order_of_spd = payload[20 + flags_len];
+
+    // The SPD block holds orderOfSPD unsigned seeds followed by one
+    // sign-magnitude bias, each widthOfSPD bits, in a byte-aligned block of
+    // ceil((orderOfSPD + 1) · widthOfSPD / 8) bytes.
+    let mut width_of_spd = 0u8;
+    let mut spd_seeds = Vec::new();
+    let mut spd_bias = 0i64;
+    if order_of_spd > 0 {
+        // widthOfSPD sits immediately after the fixed prefix.
+        if payload.len() <= fixed_len {
+            return Err(FieldglassError::Parse(format!(
+                "DRS template 5.{} declares orderOfSPD={order_of_spd} but has no widthOfSPD octet",
+                if has_flags { 50002 } else { 50001 },
+            )));
+        }
+        width_of_spd = payload[fixed_len];
+        if width_of_spd == 0 || width_of_spd > 32 {
+            return Err(FieldglassError::Parse(format!(
+                "DRS template 5.{} widthOfSPD={width_of_spd} out of the supported 1..=32 range",
+                if has_flags { 50002 } else { 50001 },
+            )));
+        }
+        let spd_count = order_of_spd as usize + 1;
+        let spd_bytes = bits_to_bytes(spd_count, width_of_spd as usize).ok_or_else(|| {
+            FieldglassError::Parse(format!(
+                "DRS second-order SPD byte length overflows ({spd_count}×{width_of_spd} bits)"
+            ))
+        })?;
+        let spd_start = fixed_len + 1;
+        if payload.len() < spd_start + spd_bytes {
+            return Err(FieldglassError::Parse(format!(
+                "DRS template 5.{} declares orderOfSPD={order_of_spd} but the section is too short for the SPD block",
+                if has_flags { 50002 } else { 50001 },
+            )));
+        }
+        let mut reader = BitReader::new(&payload[spd_start..spd_start + spd_bytes]);
+        for _ in 0..order_of_spd {
+            spd_seeds.push(reader.read_bits(width_of_spd)? as i64);
+        }
+        spd_bias = sign_magnitude_to_i64(reader.read_bits(width_of_spd)?, width_of_spd);
+    }
+
+    Ok(SecondOrderPackingTemplate {
+        reference_value,
+        binary_scale_factor,
+        decimal_scale_factor,
+        bits_per_value,
+        width_of_first_order_values,
+        num_groups,
+        num_second_order_packed_values,
+        width_of_widths,
+        width_of_lengths,
+        boustrophedonic,
+        order_of_spd,
+        width_of_spd,
+        spd_seeds,
+        spd_bias,
     })
 }
 
@@ -1759,5 +1949,147 @@ mod tests {
             .expect("5.40000 decodes via the JPEG 2000 template");
         assert_eq!(t.bits_per_value, 16);
         assert_eq!(t.type_of_compression_used, 0);
+    }
+
+    /// Build a minimal §5 for a second-order template. `flags` is `Some(byte)`
+    /// for 5.50002 (the `secondOrderFlags` octet) or `None` for 5.50001. SPD is
+    /// orderOfSPD=2, widthOfSPD=8, seeds [5, 9], bias raw byte 0x83 (−3).
+    fn build_drs_second_order(template: u16, flags: Option<u8>) -> Vec<u8> {
+        let mut payload: Vec<u8> = Vec::new();
+        payload.extend_from_slice(&270.5_f32.to_be_bytes()); // R
+        payload.extend_from_slice(&(0x8000u16 | 10).to_be_bytes()); // E = −10
+        payload.extend_from_slice(&0u16.to_be_bytes()); // D = 0
+        payload.push(16); // bitsPerValue
+        payload.push(14); // widthOfFirstOrderValues
+        payload.extend_from_slice(&15u32.to_be_bytes()); // numberOfGroups
+        payload.extend_from_slice(&494u32.to_be_bytes()); // numberOfSecondOrderPackedValues
+        payload.push(4); // widthOfWidths
+        payload.push(7); // widthOfLengths
+        if let Some(f) = flags {
+            payload.push(f); // secondOrderFlags
+        }
+        payload.push(2); // orderOfSPD
+        payload.push(8); // widthOfSPD
+        payload.extend_from_slice(&[5, 9, 0x83]); // SPD seeds [5, 9], bias −3
+
+        let section_len = (11 + payload.len()) as u32;
+        let mut buf: Vec<u8> = Vec::new();
+        buf.extend_from_slice(&section_len.to_be_bytes());
+        buf.push(DRS_SECTION_NUMBER);
+        buf.extend_from_slice(&496u32.to_be_bytes()); // num data points
+        buf.extend_from_slice(&template.to_be_bytes());
+        buf.extend_from_slice(&payload);
+        assert_eq!(buf.len() as u32, section_len);
+        buf
+    }
+
+    #[test]
+    fn template_5_50002_round_trips_synthesized_payload() {
+        // secondOrderFlags = 0x80 → boustrophedonic bit set.
+        let bytes = build_drs_second_order(50002, Some(0x80));
+        let drs = parse_data_representation(&bytes).expect("parse 5.50002");
+        assert_eq!(drs.template_number, 50002);
+        assert_eq!(drs.template_name(), "second_order");
+
+        let t = drs
+            .second_order()
+            .expect("5.50002 has second-order template");
+        assert!((t.reference_value - 270.5).abs() < 1e-3);
+        assert_eq!(t.binary_scale_factor, -10);
+        assert_eq!(t.decimal_scale_factor, 0);
+        assert_eq!(t.bits_per_value, 16);
+        assert_eq!(t.width_of_first_order_values, 14);
+        assert_eq!(t.num_groups, 15);
+        assert_eq!(t.num_second_order_packed_values, 494);
+        assert_eq!(t.width_of_widths, 4);
+        assert_eq!(t.width_of_lengths, 7);
+        assert!(t.boustrophedonic, "bit 7 of secondOrderFlags");
+        assert_eq!(t.order_of_spd, 2);
+        assert_eq!(t.width_of_spd, 8);
+        assert_eq!(t.spd_seeds, vec![5, 9]);
+        assert_eq!(t.spd_bias, -3);
+    }
+
+    #[test]
+    fn template_5_50001_has_no_flags_octet() {
+        // 5.50001 omits secondOrderFlags, so orderOfSPD sits one byte earlier
+        // and boustrophedonic is always false.
+        let bytes = build_drs_second_order(50001, None);
+        let drs = parse_data_representation(&bytes).expect("parse 5.50001");
+        assert_eq!(drs.template_number, 50001);
+        let t = drs
+            .second_order()
+            .expect("5.50001 has second-order template");
+        assert!(!t.boustrophedonic);
+        assert_eq!(t.order_of_spd, 2);
+        assert_eq!(t.width_of_spd, 8);
+        assert_eq!(t.spd_seeds, vec![5, 9]);
+        assert_eq!(t.spd_bias, -3);
+        assert_eq!(t.num_groups, 15);
+    }
+
+    #[test]
+    fn template_5_50002_clear_flag_is_not_boustrophedonic() {
+        let bytes = build_drs_second_order(50002, Some(0x00));
+        let drs = parse_data_representation(&bytes).expect("parse");
+        assert!(!drs.second_order().unwrap().boustrophedonic);
+    }
+
+    #[test]
+    fn template_5_50001_rejects_truncated_spd_block() {
+        // Chop the SPD block off entirely; the parser must reject rather than
+        // read past the section.
+        let mut bytes = build_drs_second_order(50001, None);
+        let new_len = (bytes.len() - 3) as u32;
+        bytes.truncate(bytes.len() - 3);
+        bytes[0..4].copy_from_slice(&new_len.to_be_bytes());
+        let err = parse_data_representation(&bytes).expect_err("must reject");
+        assert!(
+            err.to_string().contains("SPD"),
+            "error names the SPD shortfall, got: {err}",
+        );
+    }
+
+    #[test]
+    fn template_5_50001_order_of_spd_zero_has_no_width_octet() {
+        // A valid no-SPD field: orderOfSPD == 0, so widthOfSPD and the SPD seed
+        // block are absent from the wire and the §5 payload ends right after
+        // orderOfSPD (21 bytes). eccodes gates both behind `if (orderOfSPD)`, so
+        // the parser must accept the shorter section, not demand a width octet.
+        let mut payload: Vec<u8> = Vec::new();
+        payload.extend_from_slice(&270.5_f32.to_be_bytes()); // R
+        payload.extend_from_slice(&0u16.to_be_bytes()); // E = 0
+        payload.extend_from_slice(&0u16.to_be_bytes()); // D = 0
+        payload.push(16); // bitsPerValue
+        payload.push(14); // widthOfFirstOrderValues
+        payload.extend_from_slice(&15u32.to_be_bytes()); // numberOfGroups
+        payload.extend_from_slice(&496u32.to_be_bytes()); // numberOfSecondOrderPackedValues
+        payload.push(4); // widthOfWidths
+        payload.push(7); // widthOfLengths
+        payload.push(0); // orderOfSPD = 0 → section ends here, no widthOfSPD
+        assert_eq!(payload.len(), 21, "no-SPD 5.50001 prefix is 21 bytes");
+
+        let section_len = (11 + payload.len()) as u32;
+        let mut buf: Vec<u8> = Vec::new();
+        buf.extend_from_slice(&section_len.to_be_bytes());
+        buf.push(DRS_SECTION_NUMBER);
+        buf.extend_from_slice(&496u32.to_be_bytes()); // num data points
+        buf.extend_from_slice(&50001u16.to_be_bytes());
+        buf.extend_from_slice(&payload);
+
+        let drs = parse_data_representation(&buf).expect("no-SPD 5.50001 parses");
+        let t = drs.second_order().expect("second-order template");
+        assert_eq!(t.order_of_spd, 0);
+        assert_eq!(t.width_of_spd, 0, "absent widthOfSPD defaults to 0");
+        assert!(t.spd_seeds.is_empty());
+        assert_eq!(t.spd_bias, 0);
+        assert_eq!(t.num_groups, 15);
+    }
+
+    #[test]
+    fn second_order_accessor_is_none_for_other_templates() {
+        let bytes = build_drs_5_0();
+        let drs = parse_data_representation(&bytes).unwrap();
+        assert!(drs.second_order().is_none());
     }
 }

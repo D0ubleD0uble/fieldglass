@@ -234,6 +234,7 @@ fn friendly_packing(label: &str) -> String {
         "grid_simple_log_preprocessing" | "simple_log_preprocessing" => "Simple packing (log)",
         "spectral_simple" | "spectral_complex" => "Spectral (spherical harmonic)",
         "grid_simple_matrix" => "Matrix of values",
+        "second_order" => "Second-order",
         "grid_second_order" => "Second-order (SPD-2)",
         "grid_second_order_no_SPD" => "Second-order (no SPD)",
         "grid_second_order_SPD1" => "Second-order (SPD-1)",

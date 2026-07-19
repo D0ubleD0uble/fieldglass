@@ -353,7 +353,43 @@ whose §7 is byte-identical, and it is excluded from
 eccodes snapshot can be produced.
 
 The ECMWF second-order local templates 5.50001 / 5.50002 (`grid_second_order`)
-in the same issue are a separate, larger codec and are not covered here.
+in the same issue are a separate, larger codec; see the section below.
+
+## Second-order packing fixtures (#307)
+
+Three fixtures pin the second-order (general-extended) packing decode — the
+GRIB1 `grid_second_order` codec carried into GRIB2 across templates **5.50002**
+(`grid_second_order`) and **5.50001** (`grid_second_order_no_boustrophedonic`).
+Unlike run-length or log-preprocessing, eccodes 2.34.1 **can** CLI-encode this
+packing, so the fixtures are repacked from `regular_latlon_surface.grib2` by
+`tools/build_grib2_second_order_fixtures.py` rather than hand-built:
+
+| Fixture | DRS template | `packingType` | Exercises | Issue |
+|---|---|---|---|---|
+| `second_order_regular_latlon.grib2` | 5.50002 | `grid_second_order` | common case, `boustrophedonicOrdering = 0`, orderOfSPD = 2 | #307 |
+| `second_order_no_boust_regular_latlon.grib2` | 5.50001 | `grid_second_order_SPD2` | no `secondOrderFlags` octet | #307 |
+| `second_order_boust_regular_latlon.grib2` | 5.50002 | `grid_second_order` | `boustrophedonicOrdering = 1` (alternating-row) | #307 |
+
+```sh
+# 5.50002 grid_second_order (the common case, boustrophedonicOrdering=0)
+grib_set -r -s packingType=grid_second_order \
+  regular_latlon_surface.grib2 second_order_regular_latlon.grib2
+# 5.50001 grid_second_order_no_boustrophedonic (no secondOrderFlags octet)
+grib_set -r -s packingType=grid_second_order_no_boustrophedonic \
+  regular_latlon_surface.grib2 second_order_no_boust_regular_latlon.grib2
+# 5.50002 with boustrophedonicOrdering=1 — flip the flag WITHOUT -r so eccodes
+# reverses the odd rows on decode (a pure metadata flip, not a repack).
+grib_set -s secondOrderFlags=128 \
+  second_order_regular_latlon.grib2 second_order_boust_regular_latlon.grib2
+```
+
+Each `<name>_expected.json` carries the **full** eccodes `grib_get_data` decode
+(all 496 values, in scan order) plus the §5 parameters and summary stats, so
+`tests/decode_second_order.rs` asserts value-for-value agreement. The
+boustrophedonic fixture's oracle is eccodes' own decode of the flag-flipped
+message: `grib_set` without `-r` only sets the `secondOrderFlags` byte and
+leaves the §7 stream in place, so eccodes applies `data_apply_boustrophedonic`
+(reverse odd rows) on decode — the exact path Fieldglass must match.
 
 ## Spectral (spherical-harmonic) fixture (#302)
 

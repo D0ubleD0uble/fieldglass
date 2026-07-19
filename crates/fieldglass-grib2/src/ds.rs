@@ -12,12 +12,12 @@ use crate::drs::{
     CcsdsPackingTemplate, ComplexPackingTemplate, ComplexSpatialDiffTemplate,
     DataRepresentationTemplate, IeeePackingTemplate, Jpeg2000PackingTemplate,
     LogPreprocessingPackingTemplate, PngPackingTemplate, RunLengthPackingTemplate,
-    SimplePackingTemplate,
+    SecondOrderPackingTemplate, SimplePackingTemplate,
 };
 use crate::section::{SECTION_HEADER_LEN, SectionHeader};
 use fieldglass_core::{
     FieldglassError,
-    bits::{BitReader, sign_magnitude_to_i64},
+    bits::{BitReader, apply_spd_inverse, sign_magnitude_to_i64},
 };
 
 /// Section number for the Data Section.
@@ -92,6 +92,9 @@ pub fn decode_values(
         }
         DataRepresentationTemplate::LogPreprocessing(t) => {
             decode_log_preprocessing(ds_payload, &t, bitmap, expected_count)
+        }
+        DataRepresentationTemplate::SecondOrder(t) => {
+            decode_second_order(ds_payload, &t, bitmap, expected_count)
         }
         DataRepresentationTemplate::SpectralSimple(_)
         | DataRepresentationTemplate::SpectralComplex(_) => {
@@ -1039,6 +1042,201 @@ fn decode_run_length_packing(
         bitmap,
         expected_count,
     ))
+}
+
+/// Decode second-order (general-extended) packing (templates 5.50001 and
+/// 5.50002) — the GRIB1 `grid_second_order` codec carried into GRIB2.
+///
+/// §5 (the [`SecondOrderPackingTemplate`]) carries the `R` / `E` / `D`
+/// transform, the group-descriptor bit widths, the group count, and the
+/// spatial-predictor-differencing (SPD) seeds. §7 carries, as three
+/// byte-aligned blocks, the per-group widths (`num_groups` @ `width_of_widths`
+/// bits), per-group lengths (`num_groups` @ `width_of_lengths` bits), and
+/// first-order group reference values (`num_groups` @
+/// `width_of_first_order_values` bits), followed by the second-order packed
+/// per-point offsets (group `g` contributes `group_lengths[g]` values at
+/// `group_widths[g]` bits each, starting on a byte boundary). This matches
+/// eccodes' `unsigned_bits` accessors (each rounded up to a whole byte) and
+/// `DataG1SecondOrderGeneralExtendedPacking::unpack`, which reads the
+/// second-order stream from `byte_offset()`.
+///
+/// Expansion mirrors the GRIB1 decoder: each point starts at its group's
+/// first-order reference plus the packed offset, the `order_of_spd` SPD seeds
+/// prime the first slots, and [`apply_spd_inverse`] reconstructs the scaled
+/// integers before the `(R + X · 2^E) · 10^-D` transform. Boustrophedonic
+/// (alternating-row) ordering — 5.50002 only — is undone after the grid width
+/// is known; see [`undo_second_order_boustrophedonic`].
+fn decode_second_order(
+    ds_payload: &[u8],
+    t: &SecondOrderPackingTemplate,
+    bitmap: Option<&[bool]>,
+    expected_count: usize,
+) -> Result<Vec<Option<f64>>, FieldglassError> {
+    let present_count = check_bitmap_present_count(bitmap, expected_count)?;
+
+    // Constant field: no groups means §7 carries no data, so every present
+    // point is the reference value scaled by 10^-D — the same degenerate
+    // convention simple packing uses for bits_per_value == 0.
+    if t.num_groups == 0 {
+        let constant = t.reference_value as f64 * 10f64.powi(-(t.decimal_scale_factor as i32));
+        return Ok(materialise_constant(constant, bitmap, expected_count));
+    }
+
+    // Every bit-width field feeds `BitReader::read_bits`, whose contract tops
+    // out at 32 bits; a wider field is malformed. (widthOfSPD is validated at
+    // parse time.)
+    for (label, bits) in [
+        ("widthOfFirstOrderValues", t.width_of_first_order_values),
+        ("widthOfWidths", t.width_of_widths),
+        ("widthOfLengths", t.width_of_lengths),
+    ] {
+        if bits > 32 {
+            return Err(FieldglassError::Parse(format!(
+                "second-order packing: {label} field width {bits} exceeds 32 bits"
+            )));
+        }
+    }
+
+    let order_of_spd = t.order_of_spd as usize;
+    let num_groups = t.num_groups as usize;
+    // Every group covers at least one point, so NG can't legitimately exceed
+    // the present-point count — this bounds the per-group allocations below.
+    if num_groups > present_count {
+        return Err(FieldglassError::Parse(format!(
+            "second-order packing declares {num_groups} groups but only {present_count} values are present"
+        )));
+    }
+    if t.spd_seeds.len() != order_of_spd {
+        return Err(FieldglassError::Parse(format!(
+            "second-order packing: {} SPD seeds for orderOfSPD={order_of_spd}",
+            t.spd_seeds.len()
+        )));
+    }
+
+    // §7 blocks are byte-aligned, so realign after each — eccodes' `unsigned_bits`
+    // accessors round every block up to a whole byte, and the second-order data
+    // starts on a byte boundary.
+    let mut reader = BitReader::new(ds_payload);
+
+    // Block 1: group widths. Read into u32 (not u8) so a width_of_widths > 8
+    // can't silently truncate a stored value past the 32-bit ceiling checked in
+    // the decode loop below — matching how group lengths and first-order values
+    // are read.
+    let mut group_widths: Vec<u32> = Vec::with_capacity(num_groups);
+    for _ in 0..num_groups {
+        group_widths.push(reader.read_bits(t.width_of_widths)?);
+    }
+    reader.align_to_byte();
+
+    // Block 2: group lengths.
+    let mut group_lengths: Vec<u32> = Vec::with_capacity(num_groups);
+    for _ in 0..num_groups {
+        group_lengths.push(reader.read_bits(t.width_of_lengths)?);
+    }
+    reader.align_to_byte();
+
+    // Block 3: first-order (group reference) values.
+    let mut first_order: Vec<u32> = Vec::with_capacity(num_groups);
+    for _ in 0..num_groups {
+        first_order.push(reader.read_bits(t.width_of_first_order_values)?);
+    }
+    reader.align_to_byte();
+
+    // The group lengths plus the SPD seeds must reconstruct exactly the present
+    // points; validate before allocating so a malformed length can't drive a
+    // huge allocation.
+    let mut total_second = 0usize;
+    for &gl in &group_lengths {
+        total_second = total_second.checked_add(gl as usize).ok_or_else(|| {
+            FieldglassError::Parse("second-order packing: group lengths sum overflows usize".into())
+        })?;
+    }
+    let total_decoded = total_second.checked_add(order_of_spd).ok_or_else(|| {
+        FieldglassError::Parse("second-order packing: decoded count overflows usize".into())
+    })?;
+    if total_decoded != present_count {
+        return Err(FieldglassError::Parse(format!(
+            "second-order packing: group lengths + SPD reconstruct {total_decoded} values but {present_count} are required"
+        )));
+    }
+
+    // Block 4: second-order packed offsets, group by group. Slots [0..order]
+    // hold the SPD seeds; each group's points start at its first-order
+    // reference plus the packed offset (wrapping matches eccodes' implicit
+    // two's-complement C).
+    let mut x: Vec<i64> = vec![0; total_decoded];
+    let mut n = order_of_spd;
+    for g in 0..num_groups {
+        let w = group_widths[g];
+        if w > 32 {
+            return Err(FieldglassError::Parse(format!(
+                "second-order packing: group {g} width {w} exceeds 32 bits"
+            )));
+        }
+        let ref_val = first_order[g] as i64;
+        if w == 0 {
+            // Zero-width group: every point equals the first-order reference.
+            for _ in 0..group_lengths[g] {
+                x[n] = ref_val;
+                n += 1;
+            }
+        } else {
+            for _ in 0..group_lengths[g] {
+                let raw = reader.read_bits(w as u8)? as i64;
+                x[n] = ref_val.wrapping_add(raw);
+                n += 1;
+            }
+        }
+    }
+    debug_assert_eq!(n, total_decoded);
+
+    // Plant the SPD seeds and reverse the spatial differencing.
+    for (i, &seed) in t.spd_seeds.iter().enumerate() {
+        x[i] = seed;
+    }
+    apply_spd_inverse(&mut x, t.order_of_spd, t.spd_bias)?;
+
+    // Apply the R / E / D transform and spread across the grid per the bitmap.
+    let r = t.reference_value as f64;
+    let two_pow_e = 2f64.powi(t.binary_scale_factor as i32);
+    let d_inv = 10f64.powi(-(t.decimal_scale_factor as i32));
+    let decoded = x.into_iter().map(|v| (r + v as f64 * two_pow_e) * d_inv);
+    Ok(interleave_present_points(
+        decoded.map(Some),
+        bitmap,
+        expected_count,
+    ))
+}
+
+/// Undo the template-5.50002 boustrophedonic row ordering in place, once the
+/// grid width is known. Odd rows (`1, 3, 5, …`) are stored right-to-left, so
+/// reversing each restores scan order. A no-op for any other template, when the
+/// boustrophedonic flag is clear, or when `columns == 0`.
+///
+/// eccodes applies this as a post-decode wrapper over the second-order accessor
+/// (`data_apply_boustrophedonic` in `template.7.50002.def`), so doing it here —
+/// after [`decode_values`] returns and the reader supplies `columns` (the grid
+/// width Ni) — mirrors that layering. Crucially, `template.7.50002.def` applies
+/// `data_apply_bitmap` *before* `data_apply_boustrophedonic`, so the reversal is
+/// meant to run on the full grid *after* the §6 bitmap has spread the present
+/// points into place. [`decode_second_order`] does exactly that ordering
+/// (`interleave_present_points`, then this reversal on the length-`expected_count`
+/// output), so the row reversal is correct whether or not a bitmap is present.
+pub fn undo_second_order_boustrophedonic(
+    values: &mut [Option<f64>],
+    template: &DataRepresentationTemplate,
+    columns: usize,
+) {
+    let DataRepresentationTemplate::SecondOrder(t) = template else {
+        return;
+    };
+    if !t.boustrophedonic || columns == 0 {
+        return;
+    }
+    let rows = values.len() / columns;
+    for row in (1..rows).step_by(2) {
+        values[row * columns..(row + 1) * columns].reverse();
+    }
 }
 
 /// Spread `present` into the full grid using `bitmap` — `Some(value)` for
@@ -2450,5 +2648,76 @@ mod tests {
             err.to_string().contains("DS declares length"),
             "error names declared-length overshoot, got: {err}",
         );
+    }
+
+    fn second_order_template(num_groups: u32, boustrophedonic: bool) -> SecondOrderPackingTemplate {
+        SecondOrderPackingTemplate {
+            reference_value: 5.0,
+            binary_scale_factor: 0,
+            decimal_scale_factor: 0,
+            bits_per_value: 8,
+            width_of_first_order_values: 8,
+            num_groups,
+            num_second_order_packed_values: 0,
+            width_of_widths: 4,
+            width_of_lengths: 8,
+            boustrophedonic,
+            order_of_spd: 0,
+            width_of_spd: 0,
+            spd_seeds: vec![],
+            spd_bias: 0,
+        }
+    }
+
+    #[test]
+    fn second_order_ng0_is_constant_field() {
+        // NG == 0: §7 carries no data, every point is R · 10^-D.
+        let t = DataRepresentationTemplate::SecondOrder(second_order_template(0, false));
+        let decoded = decode_values(&[], t, None, 4).expect("decode");
+        assert_eq!(decoded, vec![Some(5.0); 4]);
+    }
+
+    #[test]
+    fn second_order_decodes_single_group_zero_width() {
+        // One zero-width group of 4 points, orderOfSPD=0, widthOfFirstOrder=8,
+        // firstOrderValues[0]=7 → every point decodes to R + 7 = 12.
+        let mut t = second_order_template(1, false);
+        t.width_of_widths = 8;
+        t.num_second_order_packed_values = 4;
+        // §7: groupWidths[0]=0 (1 byte), groupLengths[0]=4 (1 byte),
+        // firstOrderValues[0]=7 (1 byte). No second-order stream (width 0).
+        let payload = vec![0u8, 4u8, 7u8];
+        let template = DataRepresentationTemplate::SecondOrder(t);
+        let decoded = decode_values(&payload, template, None, 4).expect("decode");
+        assert_eq!(decoded, vec![Some(12.0); 4]);
+    }
+
+    #[test]
+    fn undo_boustrophedonic_reverses_odd_rows() {
+        // 2 columns × 3 rows: rows 1 (odd) reversed, rows 0 and 2 untouched.
+        let template = DataRepresentationTemplate::SecondOrder(second_order_template(1, true));
+        let mut v: Vec<Option<f64>> = (0..6).map(|i| Some(i as f64)).collect();
+        undo_second_order_boustrophedonic(&mut v, &template, 2);
+        let got: Vec<f64> = v.into_iter().map(|x| x.unwrap()).collect();
+        // row0 [0,1] kept; row1 [2,3]→[3,2]; row2 [4,5] kept.
+        assert_eq!(got, vec![0.0, 1.0, 3.0, 2.0, 4.0, 5.0]);
+    }
+
+    #[test]
+    fn undo_boustrophedonic_is_noop_when_flag_clear() {
+        let template = DataRepresentationTemplate::SecondOrder(second_order_template(1, false));
+        let mut v: Vec<Option<f64>> = (0..6).map(|i| Some(i as f64)).collect();
+        let before = v.clone();
+        undo_second_order_boustrophedonic(&mut v, &template, 2);
+        assert_eq!(v, before);
+    }
+
+    #[test]
+    fn undo_boustrophedonic_is_noop_for_other_templates() {
+        let template = simple_template(0.0, 0, 0, 8);
+        let mut v: Vec<Option<f64>> = (0..6).map(|i| Some(i as f64)).collect();
+        let before = v.clone();
+        undo_second_order_boustrophedonic(&mut v, &template, 2);
+        assert_eq!(v, before);
     }
 }
