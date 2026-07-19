@@ -12,8 +12,13 @@
 //! and copied through unscaled; every other coefficient part is simple-packed
 //! in §7 with the usual `value = (R + X · 2^E) · 10^-D` transform. This matches
 //! eccodes' `data_g2shsimple_packing` over `data_g2simple_packing`.
+//!
+//! Template 5.51 (`spectral_complex`): coefficients up to a sub-truncation
+//! `(JS, KS, MS)` are stored as raw IEEE floats, and the rest are simple-packed
+//! after division by a Laplacian operator `(n·(n+1))^P` — a faithful port of
+//! eccodes' `DataComplexPacking::unpack_real` (see [`decode_spectral_complex`]).
 
-use crate::drs::SpectralSimplePackingTemplate;
+use crate::drs::{SpectralComplexPackingTemplate, SpectralSimplePackingTemplate};
 use fieldglass_core::{FieldglassError, bits::BitReader};
 
 /// The decoded spherical-harmonic coefficients of one message.
@@ -150,6 +155,178 @@ pub fn decode_spectral_simple(
     })
 }
 
+/// Read a big-endian IEEE 32-bit float from `payload` at `*offset`, advancing
+/// `*offset` by four bytes. Errors rather than panics if the block is short.
+fn read_f32_be(payload: &[u8], offset: &mut usize) -> Result<f64, FieldglassError> {
+    let end = offset.checked_add(4).ok_or_else(|| {
+        FieldglassError::Parse("spectral_complex: unpacked-block offset overflow".to_string())
+    })?;
+    let bytes = payload.get(*offset..end).ok_or_else(|| {
+        FieldglassError::Parse(
+            "spectral_complex: unpacked sub-truncation block is truncated".to_string(),
+        )
+    })?;
+    let v = f32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as f64;
+    *offset = end;
+    Ok(v)
+}
+
+/// Decode a `spectral_complex` (template 5.51) data section into coefficients.
+///
+/// §7 has two parts: coefficients up to the triangular sub-truncation `KS` are
+/// stored as raw IEEE 32-bit floats (copied through unscaled), and the rest are
+/// simple-packed after division by the Laplacian operator `(n·(n+1))^P` — the
+/// packed value at degree `n` is `(R + X · 2^E) · 10^-D / (n·(n+1))^P`. This is
+/// a faithful port of eccodes' `DataComplexPacking::unpack_real` for GRIB2,
+/// where `GRIBEXShBugPresent` is a constant `0` (so the GRIB1 last-row scaling
+/// quirk is deliberately absent) and the packed imaginary part of zonal
+/// wavenumber 0 is forced back to zero.
+pub fn decode_spectral_complex(
+    ds_payload: &[u8],
+    t: &SpectralComplexPackingTemplate,
+    j: u32,
+    k: u32,
+    m: u32,
+) -> Result<SpectralCoefficients, FieldglassError> {
+    if j != k || j != m {
+        return Err(FieldglassError::UnsupportedSection(format!(
+            "spectral truncation J={j} K={k} M={m} is not triangular \
+             (only J = K = M is defined for spherical-harmonic packing)"
+        )));
+    }
+    if t.js != t.ks || t.js != t.ms {
+        return Err(FieldglassError::UnsupportedSection(format!(
+            "spectral_complex sub-truncation JS={} KS={} MS={} is not triangular",
+            t.js, t.ks, t.ms
+        )));
+    }
+    if t.bits_per_value > 32 {
+        return Err(FieldglassError::Parse(format!(
+            "spectral_complex: bits_per_value {} exceeds 32",
+            t.bits_per_value
+        )));
+    }
+    // The unpacked sub-truncation block is read as 4-byte IEEE floats
+    // (`unpackedSubsetPrecision == 1`), the only value WMO defines and eccodes
+    // supports. Reject anything else loudly rather than misreading the block at
+    // the wrong width.
+    if t.unpacked_subset_precision != 1 {
+        return Err(FieldglassError::UnsupportedSection(format!(
+            "spectral_complex: unpackedSubsetPrecision {} is unsupported (only 1 = IEEE 32-bit)",
+            t.unpacked_subset_precision
+        )));
+    }
+    let ks = t.ks as u32;
+    if ks > j {
+        return Err(FieldglassError::Parse(format!(
+            "spectral_complex sub-truncation KS={ks} exceeds the truncation T={j}"
+        )));
+    }
+
+    // Coefficient counts, checked + capped BEFORE any allocation or read so a
+    // hostile J/KS cannot overflow the multiply or size a huge `Vec`.
+    let n_values = triangular_value_count(j)?;
+    let unpacked_values = triangular_value_count(ks)?; // (KS+1)(KS+2)
+    let unpacked_bytes = unpacked_values.saturating_mul(4); // IEEE 32-bit
+    let d_inv = 10f64.powi(-(t.decimal_scale_factor as i32));
+
+    // Edge case: the sub-truncation is the whole field — everything is unpacked
+    // and multiplied by the decimal scale (eccodes' `pen_j == sub_j` branch).
+    if j == ks {
+        let block = ds_payload.get(..unpacked_bytes).ok_or_else(|| {
+            FieldglassError::Parse(format!(
+                "spectral_complex: §7 holds {} bytes but the unpacked block needs {unpacked_bytes}",
+                ds_payload.len()
+            ))
+        })?;
+        let coefficients = block
+            .chunks_exact(4)
+            .map(|c| f32::from_be_bytes([c[0], c[1], c[2], c[3]]) as f64 * d_inv)
+            .collect();
+        return Ok(SpectralCoefficients {
+            j,
+            k,
+            m,
+            coefficients,
+        });
+    }
+
+    // Bit budget: the unpacked block plus the packed real+imag parts.
+    let packed_parts = n_values - unpacked_values;
+    let available_bits = ds_payload.len().saturating_mul(8);
+    let required_bits = unpacked_bytes
+        .saturating_mul(8)
+        .saturating_add(packed_parts.saturating_mul(t.bits_per_value as usize));
+    if required_bits > available_bits {
+        return Err(FieldglassError::Parse(format!(
+            "spectral_complex truncation T={j}/KS={ks} needs {required_bits} bits but §7 holds only {available_bits}"
+        )));
+    }
+    let packed_bytes = &ds_payload[unpacked_bytes..];
+
+    let s = 2f64.powi(t.binary_scale_factor as i32);
+    let reference = t.reference_value as f64;
+    let p = t.laplacian_scaling_factor as f64 / 1e6;
+
+    // Laplacian de-scaling factors `1/(n·(n+1))^P`; degree 0 has none. Sized by
+    // the *initial* `maxv = J+1`, since the traversal below mutates `maxv`.
+    let maxv0 = j as usize + 1;
+    let mut scals = Vec::with_capacity(maxv0);
+    scals.push(0.0f64);
+    for n in 1..maxv0 {
+        let operator = ((n * (n + 1)) as f64).powf(p);
+        scals.push(if operator != 0.0 { 1.0 / operator } else { 0.0 });
+    }
+
+    // Direct port of eccodes' triangular traversal: `sub_k` shrinks the unpacked
+    // run each outer step, `maxv` shrinks and `mmax` grows so `lup` (the degree
+    // index into `scals`) stays in `0..=J`.
+    let mut out = Vec::with_capacity(n_values);
+    let mut hpos = 0usize; // byte cursor into the unpacked block at the payload start
+    let mut packed = BitReader::new(packed_bytes);
+    let mut sub_k: i64 = ks as i64;
+    let mut maxv: i64 = j as i64 + 1;
+    let mut mmax: i64 = 0;
+
+    while maxv > 0 {
+        let mut lup = mmax;
+        let unpacked_count = if sub_k >= 0 { sub_k + 1 } else { 0 };
+        for _ in 0..unpacked_count {
+            let re = read_f32_be(ds_payload, &mut hpos)?;
+            let im = read_f32_be(ds_payload, &mut hpos)?;
+            out.push(re);
+            out.push(im);
+            lup += 1;
+        }
+        if sub_k >= 0 {
+            sub_k -= 1;
+        }
+        for _ in unpacked_count..maxv {
+            let scale = scals[lup as usize];
+            let re = d_inv * ((packed.read_bits(t.bits_per_value)? as f64) * s + reference) * scale;
+            let mut im =
+                d_inv * ((packed.read_bits(t.bits_per_value)? as f64) * s + reference) * scale;
+            // Zonal wavenumber 0 has no imaginary part; it is packed anyway, so
+            // force it back to zero, matching eccodes.
+            if mmax == 0 {
+                im = 0.0;
+            }
+            out.push(re);
+            out.push(im);
+            lup += 1;
+        }
+        maxv -= 1;
+        mmax += 1;
+    }
+
+    Ok(SpectralCoefficients {
+        j,
+        k,
+        m,
+        coefficients: out,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -241,5 +418,82 @@ mod tests {
 
         let constant = template(3.0, 0, 0, 0, 9.0); // bits == 0
         assert!(decode_spectral_simple(&[], &constant, 500_000, 500_000, 500_000).is_err());
+    }
+
+    fn complex_template(
+        r: f32,
+        e: i16,
+        d: i16,
+        bits: u8,
+        laplacian: i32,
+        ks: u16,
+    ) -> SpectralComplexPackingTemplate {
+        SpectralComplexPackingTemplate {
+            reference_value: r,
+            binary_scale_factor: e,
+            decimal_scale_factor: d,
+            bits_per_value: bits,
+            laplacian_scaling_factor: laplacian,
+            js: ks,
+            ks,
+            ms: ks,
+            ts: (ks as u32 + 1) * (ks as u32 + 2),
+            unpacked_subset_precision: 1,
+        }
+    }
+
+    /// Big-endian IEEE-f32 bytes for a slice of values.
+    fn f32_be(values: &[f32]) -> Vec<u8> {
+        values.iter().flat_map(|v| v.to_be_bytes()).collect()
+    }
+
+    #[test]
+    fn complex_fully_unpacked_edge_case() {
+        // J == KS: the whole field is the unpacked IEEE block, scaled by 10^-D.
+        // J=1 → (1+1)(1+2) = 6 values.
+        let t = complex_template(0.0, 0, 1, 16, 2_000_000, 1); // D=1 → ×0.1
+        let block = f32_be(&[10.0, 20.0, 30.0, 40.0, 50.0, 60.0]);
+        let c = decode_spectral_complex(&block, &t, 1, 1, 1).expect("decode");
+        assert_eq!(c.coefficients.len(), 6);
+        for (got, want) in c.coefficients.iter().zip([1.0, 2.0, 3.0, 4.0, 5.0, 6.0]) {
+            assert!((got - want).abs() < 1e-5, "{got} vs {want}");
+        }
+    }
+
+    #[test]
+    fn complex_rejects_non_triangular_and_out_of_range() {
+        let t = complex_template(0.0, 0, 0, 16, 2_000_000, 4);
+        // Non-triangular main truncation.
+        assert!(decode_spectral_complex(&[0u8; 64], &t, 5, 5, 4).is_err());
+        // KS > J.
+        let big_ks = complex_template(0.0, 0, 0, 16, 2_000_000, 10);
+        assert!(decode_spectral_complex(&[0u8; 64], &big_ks, 3, 3, 3).is_err());
+        // bits > 32.
+        let wide = complex_template(0.0, 0, 0, 33, 2_000_000, 1);
+        assert!(decode_spectral_complex(&[0u8; 64], &wide, 3, 3, 3).is_err());
+        // Non-triangular sub-truncation.
+        let mut bad_sub = complex_template(0.0, 0, 0, 16, 2_000_000, 2);
+        bad_sub.ms = 3;
+        assert!(decode_spectral_complex(&[0u8; 64], &bad_sub, 5, 5, 5).is_err());
+    }
+
+    #[test]
+    fn complex_rejects_short_section() {
+        // J=4, KS=1: needs the unpacked block plus packed pairs; give nothing.
+        let t = complex_template(0.0, 0, 0, 16, 2_000_000, 1);
+        assert!(decode_spectral_complex(&[0u8; 4], &t, 4, 4, 4).is_err());
+    }
+
+    #[test]
+    fn complex_rejects_unsupported_unpacked_precision() {
+        // Only IEEE 32-bit (precision 1) unpacked floats are read; a message
+        // declaring 64-bit must fail loudly rather than misread the block.
+        let mut t = complex_template(0.0, 0, 0, 16, 2_000_000, 1);
+        t.unpacked_subset_precision = 2;
+        let err = decode_spectral_complex(&[0u8; 64], &t, 3, 3, 3).expect_err("must reject");
+        assert!(
+            format!("{err:?}").contains("unpackedSubsetPrecision"),
+            "error names the unsupported precision, got: {err:?}"
+        );
     }
 }
