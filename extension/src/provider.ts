@@ -933,6 +933,10 @@ export function resolveRerenderOptions(m: Partial<RenderOptions>): RenderOptions
   // Same clamp as the projection, for the same reason.
   const colormap =
     m.colormap !== undefined && knownColormaps().has(m.colormap) ? m.colormap : undefined;
+  // Only "log10" turns log scaling on; anything else (including a typo) drops to
+  // the native default of linear rather than round-tripping a value Rust would
+  // reject. Same clamp shape as the colormap above.
+  const scaleMode = m.scaleMode === "log10" ? "log10" : undefined;
   return {
     projection,
     projectionPreset: m.projectionPreset,
@@ -948,6 +952,7 @@ export function resolveRerenderOptions(m: Partial<RenderOptions>): RenderOptions
     boundsLonMax: m.boundsLonMax,
     colormap,
     reverseColormap: !!m.reverseColormap,
+    scaleMode,
   };
 }
 
