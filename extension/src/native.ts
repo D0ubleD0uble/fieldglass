@@ -202,11 +202,24 @@ export interface ProjectedOverlay {
   segLengths: Uint32Array;
 }
 
+/** Element-wise combine operation on two aligned fields (#239). `aMinusB` is
+ *  the difference / anomaly map. */
+export type CombineOp = "a_minus_b" | "b_minus_a" | "a_plus_b" | "mean" | "ratio";
+
 export interface Grib1Handle {
   messages(): MessageMeta[];
   decodeGrid(messageIndex: number): DecodedGrid;
   setP1(messageIndex: number, value: number): Buffer;
   renderGrid(messageIndex: number, options: RenderOptions): RenderedGrid;
+  /** Render message A combined element-wise with message B under `op`. Both
+   *  messages must sit on the same grid; the result renders through the normal
+   *  pipeline against A's geometry. */
+  renderGridCombined(
+    messageIndexA: number,
+    messageIndexB: number,
+    op: CombineOp,
+    options: RenderOptions,
+  ): RenderedGrid;
   projectOverlay(
     messageIndex: number,
     options: RenderOptions,
@@ -219,6 +232,13 @@ export interface Grib2Handle {
   messages(): MessageMeta[];
   decodeGrid(messageIndex: number): DecodedGrid;
   renderGrid(messageIndex: number, options: RenderOptions): RenderedGrid;
+  /** Sibling to {@link Grib1Handle.renderGridCombined}. */
+  renderGridCombined(
+    messageIndexA: number,
+    messageIndexB: number,
+    op: CombineOp,
+    options: RenderOptions,
+  ): RenderedGrid;
   projectOverlay(
     messageIndex: number,
     options: RenderOptions,
@@ -267,6 +287,20 @@ export interface NetcdfHandle {
     yDim: number,
     xDim: number,
     sliceIndices: number[],
+    options: RenderOptions,
+  ): RenderedGrid;
+  /** Render one slice combined element-wise with a second slice under `op`
+   *  (#239). Field B is a slice of `variableIndexB` at `sliceIndicesB`, sharing
+   *  the same image axes; the common case is two time steps of one variable.
+   *  Both slices must resolve to the same grid. */
+  renderSliceCombined(
+    variableIndexA: number,
+    yDim: number,
+    xDim: number,
+    sliceIndicesA: number[],
+    variableIndexB: number,
+    sliceIndicesB: number[],
+    op: CombineOp,
     options: RenderOptions,
   ): RenderedGrid;
   projectOverlay(
