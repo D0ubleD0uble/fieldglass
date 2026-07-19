@@ -496,13 +496,37 @@ export class FieldglassEditorProvider
       }
     };
 
+    // Read the field under a clicked pixel and post the readout back (#172).
+    const probe = (req: ProbeRequest) => {
+      const docHandle = this._handlesByDoc.get(document.uri.toString());
+      if (!docHandle) return;
+      try {
+        const result = docHandle.probe(
+          meta.messageIndex,
+          resolveRerenderOptions(req.options ?? {}),
+          Math.max(0, Math.floor(req.px)),
+          Math.max(0, Math.floor(req.py)),
+        );
+        panel.webview.postMessage({ type: "probeResult", messageIndex: meta.messageIndex, result });
+      } catch {
+        // A probe never blocks the user; swallow and report nothing.
+        panel.webview.postMessage({ type: "probeResult", messageIndex: meta.messageIndex, result: null });
+      }
+    };
+
     // Respond for the panel's lifetime: webview is created with
     // retainContextWhenHidden=false so VS Code tears down the DOM/JS
     // context when the tab is hidden; each remount posts a fresh `ready`
     // carrying the webview's (state-restored) selections, so the repaint
     // shows what the user had rather than the defaults.
     const sub = panel.webview.onDidReceiveMessage(
-      (m: ({ type?: string } & Partial<RenderOptions>) | OverlayRequest | ContourRequest) => {
+      (
+        m:
+          | ({ type?: string } & Partial<RenderOptions>)
+          | OverlayRequest
+          | ContourRequest
+          | ProbeRequest,
+      ) => {
         if (!m || typeof m.type !== "string") return;
         if (m.type === "ready") {
           paint(resolveRerenderOptions(m as Partial<RenderOptions>), resolveGribCompare(m));
@@ -518,6 +542,10 @@ export class FieldglassEditorProvider
         }
         if (m.type === "contourRequest") {
           projectContours(m as ContourRequest);
+          return;
+        }
+        if (m.type === "probeRequest") {
+          probe(m as ProbeRequest);
         }
       },
     );
@@ -866,12 +894,34 @@ export class FieldglassEditorProvider
       }
     };
 
+    // Point-probe readout for the current slice (#172).
+    const probe = (req: ProbeRequest) => {
+      const docHandle = this._netcdfHandlesByDoc.get(document.uri.toString());
+      if (!docHandle) return;
+      const spec = req.slice ?? initial;
+      try {
+        const result = docHandle.probe(
+          spec.variableIndex,
+          spec.yDim,
+          spec.xDim,
+          spec.sliceIndices,
+          resolveRerenderOptions(req.options ?? {}),
+          Math.max(0, Math.floor(req.px)),
+          Math.max(0, Math.floor(req.py)),
+        );
+        panel.webview.postMessage({ type: "probeResult", messageIndex: spec.variableIndex, result });
+      } catch {
+        panel.webview.postMessage({ type: "probeResult", messageIndex: spec.variableIndex, result: null });
+      }
+    };
+
     const sub = panel.webview.onDidReceiveMessage(
       (
         m:
           | ({ type?: string; slice?: SliceSpec } & Partial<RenderOptions>)
           | (OverlayRequest & { slice?: SliceSpec })
-          | (ContourRequest & { slice?: SliceSpec }),
+          | (ContourRequest & { slice?: SliceSpec })
+          | (ProbeRequest & { slice?: SliceSpec }),
       ) => {
         if (!m || typeof m.type !== "string") return;
         // `ready` carries the webview's (state-restored) selections and slice,
@@ -888,6 +938,10 @@ export class FieldglassEditorProvider
         }
         if (m.type === "contourRequest") {
           projectContours(m as ContourRequest & { slice?: SliceSpec });
+          return;
+        }
+        if (m.type === "probeRequest") {
+          probe(m as ProbeRequest & { slice?: SliceSpec });
         }
       },
     );
@@ -948,6 +1002,17 @@ export interface ContourRequest {
   options?: Partial<RenderOptions>;
   /** Manual level spacing; omitted / non-positive → automatic nice levels. */
   interval?: number;
+  slice?: SliceSpec;
+}
+
+/** `probeRequest` posted by the render panel when the user clicks the image to
+ *  read the field there (#172). Carries the clicked output-raster pixel, the
+ *  render options (for the projection), and the NetCDF slice when applicable. */
+export interface ProbeRequest {
+  type: "probeRequest";
+  px: number;
+  py: number;
+  options?: Partial<RenderOptions>;
   slice?: SliceSpec;
 }
 

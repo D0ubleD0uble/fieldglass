@@ -10,10 +10,10 @@ use fieldglass_core::{
     combine_fields,
     contour::{contour_segments, nice_levels},
     detect_from_bytes, eastward_lon_span, latlon_inverse, latlon_point, lon_grid_is_global,
-    mercator_inverse, mercator_point, project_polylines,
+    mercator_inverse, mercator_point, normalise_lon, project_polylines,
     projection::GridIndex,
     rotated_latlon_point,
-    warp::{TargetProjection, WarpedRaster, warp},
+    warp::{PreparedTarget, TargetProjection, WarpedRaster, warp},
 };
 use fieldglass_grib1::{
     Grib1Reader,
@@ -1456,6 +1456,22 @@ impl Grib1Handle {
         project_contours_impl(&meta, raw.as_ref(), &options, interval)
             .map(ProjectedOverlay::from_polylines)
     }
+
+    /// Read the field under a rendered pixel (#172): the point-probe readout.
+    /// `(px, py)` are output-raster pixels (post-flip). `None` when the pixel is
+    /// off the raster or off the globe.
+    #[napi]
+    pub fn probe(
+        &self,
+        message_index: u32,
+        options: RenderOptions,
+        px: u32,
+        py: u32,
+    ) -> napi::Result<Option<ProbeResult>> {
+        let meta = self.message_meta(message_index)?;
+        let raw = self.cached_decode(message_index)?;
+        probe_impl(&meta, raw.as_ref(), &options, px, py)
+    }
 }
 
 impl Grib1Handle {
@@ -1646,6 +1662,21 @@ impl Grib2Handle {
         let raw = self.cached_decode(message_index)?;
         project_contours_impl(&meta, raw.as_ref(), &options, interval)
             .map(ProjectedOverlay::from_polylines)
+    }
+
+    /// Point-probe readout for this message. Sibling to
+    /// [`Grib1Handle::probe`].
+    #[napi]
+    pub fn probe(
+        &self,
+        message_index: u32,
+        options: RenderOptions,
+        px: u32,
+        py: u32,
+    ) -> napi::Result<Option<ProbeResult>> {
+        let meta = self.message_meta(message_index)?;
+        let raw = self.cached_decode(message_index)?;
+        probe_impl(&meta, raw.as_ref(), &options, px, py)
     }
 }
 
@@ -1894,6 +1925,27 @@ impl NetcdfHandle {
         let meta = self.slice_meta(&var, y, x)?;
         project_contours_impl(&meta, &plane, &options, interval)
             .map(ProjectedOverlay::from_polylines)
+    }
+
+    /// Point-probe readout for one slice (#172). Sibling to
+    /// [`Grib1Handle::probe`].
+    #[napi]
+    #[allow(clippy::too_many_arguments)]
+    pub fn probe(
+        &self,
+        variable_index: u32,
+        y_dim: u32,
+        x_dim: u32,
+        slice_indices: Vec<u32>,
+        options: RenderOptions,
+        px: u32,
+        py: u32,
+    ) -> napi::Result<Option<ProbeResult>> {
+        let var = self.renderable(variable_index)?;
+        let (y, x) = (y_dim as usize, x_dim as usize);
+        let plane = self.slice_plane(&var, y, x, &slice_indices)?;
+        let meta = self.slice_meta(&var, y, x)?;
+        probe_impl(&meta, &plane, &options, px, py)
     }
 }
 
@@ -3124,6 +3176,23 @@ impl BuiltTarget {
             }
         }
     }
+
+    /// The `(lat, lon)` a single output pixel maps to — the inverse of the
+    /// target projection, the same map [`warp`] walks per pixel. `None` when the
+    /// pixel falls off the globe (e.g. outside an azimuthal disc). `py` is in
+    /// the raster's own orientation (row 0 = top), so a flipped render must
+    /// un-flip the click first.
+    fn pixel_to_lonlat(&self, px: u32, py: u32) -> Option<(f64, f64)> {
+        match self {
+            BuiltTarget::Equirect(t) => t.prepare().pixel_to_lonlat(px, py),
+            BuiltTarget::Mercator(t) => t.prepare().pixel_to_lonlat(px, py),
+            BuiltTarget::Ortho(t) => t.prepare().pixel_to_lonlat(px, py),
+            BuiltTarget::Polar(t) => t.prepare().pixel_to_lonlat(px, py),
+            BuiltTarget::Moll(t) => t.prepare().pixel_to_lonlat(px, py),
+            BuiltTarget::Robin(t) => t.prepare().pixel_to_lonlat(px, py),
+            BuiltTarget::EqEarth(t) => t.prepare().pixel_to_lonlat(px, py),
+        }
+    }
 }
 
 /// `(BuiltTarget, used extent)` — the concrete warp target plus the lat/lon
@@ -3473,6 +3542,116 @@ fn project_contours_impl(
     }
 
     project_overlay_impl(meta, options, &latlon, &ring_lengths)
+}
+
+/// The result of probing one output pixel (#172): the geographic point under
+/// the pixel, the source grid cell it fell on, and the decoded value there.
+#[napi(object)]
+pub struct ProbeResult {
+    /// Latitude under the pixel (degrees). `None` when the grid can't be
+    /// geolocated (a source-projection view of a grid whose forward map isn't
+    /// wired); the value is still reported.
+    pub lat: Option<f64>,
+    /// Longitude (degrees, normalised to `[-180, 180)`).
+    pub lon: Option<f64>,
+    /// The decoded value at the grid cell, or `None` when the pixel fell off the
+    /// grid or onto a masked cell.
+    pub value: Option<f64>,
+    /// The source grid column / row the pixel resolved to; `None` off-grid.
+    pub grid_i: Option<i32>,
+    pub grid_j: Option<i32>,
+}
+
+/// Sample the field under one output pixel `(px, py)` in the *displayed*
+/// raster (post-`flip_y`). Reproduces the warp's per-pixel map — output pixel →
+/// `(lat, lon)` → source grid index → value — so the readout matches exactly
+/// what the image shows. Returns `None` when the pixel is off the raster or off
+/// the globe (outside an azimuthal disc), so there is nothing to report.
+fn probe_impl(
+    meta: &MessageMeta,
+    raw: &[Option<f64>],
+    options: &RenderOptions,
+    px: u32,
+    py: u32,
+) -> napi::Result<Option<ProbeResult>> {
+    let resolved = ResolvedOptions::parse(options)?;
+    let ni = grid_ni(meta)?;
+    let nj = grid_nj(meta)?;
+    // Read the decoded value at an integer grid cell, `None` if out of range or
+    // masked.
+    let value_at = |gi: i64, gj: i64| -> Option<f64> {
+        if gi < 0 || gj < 0 || gi as u32 >= ni || gj as u32 >= nj {
+            return None;
+        }
+        raw.get(gj as usize * ni as usize + gi as usize)
+            .copied()
+            .flatten()
+    };
+
+    match resolved.projection {
+        TargetKind::Source => {
+            if px >= ni || py >= nj {
+                return Ok(None);
+            }
+            // The source view paints grid (i, j) at pixel (i, j), then flips
+            // vertically to face north-up; undo that flip to recover the row.
+            let flip = source_flip_y(meta, resolved.flip_y);
+            let gj = if flip { nj - 1 - py } else { py };
+            let (gi, gj) = (px, gj);
+            let value = value_at(gi as i64, gj as i64);
+            // Geolocate when the grid's forward map is wired (lat/lon family);
+            // otherwise report the value without a coordinate.
+            let latlon = forward_geolocation_for(meta, ni, nj)
+                .ok()
+                .and_then(|f| f(gi, gj));
+            let (lat, lon) = match latlon {
+                Some((la, lo)) => (Some(la), Some(normalise_lon(lo))),
+                None => (None, None),
+            };
+            Ok(Some(ProbeResult {
+                lat,
+                lon,
+                value,
+                grid_i: Some(gi as i32),
+                grid_j: Some(gj as i32),
+            }))
+        }
+        TargetKind::Warp(target) => {
+            let (inverse, bbox) = warp_setup_for(meta, ni, nj)?;
+            let (built, _) = build_warp_target(target, ni, nj, bbox, resolved.bounds)?;
+            let (w, h) = built.dims();
+            if px >= w || py >= h {
+                return Ok(None);
+            }
+            // Undo the render's vertical flip to reach the warp raster row.
+            let ry = if resolved.flip_y { h - 1 - py } else { py };
+            let Some((lat, lon)) = built.pixel_to_lonlat(px, ry) else {
+                // Off the globe (outside an azimuthal disc) — nothing there.
+                return Ok(None);
+            };
+            let lon_n = normalise_lon(lon);
+            match inverse(lat, lon) {
+                Some(idx) => {
+                    let (gi, gj) = (idx.i.round() as i64, idx.j.round() as i64);
+                    Ok(Some(ProbeResult {
+                        lat: Some(lat),
+                        lon: Some(lon_n),
+                        value: value_at(gi, gj),
+                        grid_i: Some(gi as i32),
+                        grid_j: Some(gj as i32),
+                    }))
+                }
+                // On the globe but off this grid's coverage.
+                None => Ok(Some(ProbeResult {
+                    lat: Some(lat),
+                    lon: Some(lon_n),
+                    value: None,
+                    grid_i: None,
+                    grid_j: None,
+                })),
+            }
+        }
+    }
 }
 
 // --- Per-template warp-setup helpers ---------------------------------------
@@ -5503,6 +5682,74 @@ mod netcdf_slice_tests {
             Ok(_) => panic!("lambert contours must error for now"),
             Err(e) => assert!(e.to_string().contains("contours not yet supported"), "{e}"),
         }
+    }
+
+    #[test]
+    fn probe_source_reads_the_cell_value_and_its_coordinate() {
+        // value = column index over the 5×4 lat/lon grid.
+        let meta = latlon_meta(5, 4);
+        let raw: Vec<Option<f64>> = (0..5 * 4).map(|k| Some((k % 5) as f64)).collect();
+
+        // Source view: pixel (i, j) is grid (i, j) (this grid scans N→S, no flip).
+        let r = probe_impl(&meta, &raw, &opts("source"), 2, 1)
+            .expect("probe ok")
+            .expect("pixel is on the grid");
+        assert_eq!(r.value, Some(2.0), "column-index ramp reads its column");
+        assert_eq!((r.grid_i, r.grid_j), (Some(2), Some(1)));
+        // Geolocated: row 1 of lat 40→10 over 4 rows = 30°, col 2 of lon 0→40 = 20°.
+        assert!((r.lat.unwrap() - 30.0).abs() < 1e-9, "lat {:?}", r.lat);
+        assert!((r.lon.unwrap() - 20.0).abs() < 1e-9, "lon {:?}", r.lon);
+
+        // Off the raster → nothing to report.
+        assert!(
+            probe_impl(&meta, &raw, &opts("source"), 99, 0)
+                .unwrap()
+                .is_none(),
+            "a click past the grid returns None"
+        );
+    }
+
+    #[test]
+    fn probe_equirectangular_maps_a_pixel_back_to_its_value() {
+        let meta = latlon_meta(5, 4);
+        let raw: Vec<Option<f64>> = (0..5 * 4).map(|k| Some((k % 5) as f64)).collect();
+
+        // Top-left pixel of the equirect raster is the grid's NW corner
+        // (lat_max, lon_min) → grid (0, 0) → value 0.
+        let r = probe_impl(&meta, &raw, &opts("equirectangular"), 0, 0)
+            .expect("probe ok")
+            .expect("corner is on the grid");
+        assert_eq!(r.value, Some(0.0));
+        assert!(
+            (r.lat.unwrap() - 40.0).abs() < 1.0,
+            "near the north edge, {:?}",
+            r.lat
+        );
+        assert!(
+            r.lon.unwrap().abs() < 1.0,
+            "near the west edge, {:?}",
+            r.lon
+        );
+    }
+
+    #[test]
+    fn probe_off_the_globe_and_off_the_raster_report_nothing() {
+        let meta = latlon_meta(5, 4);
+        let raw: Vec<Option<f64>> = (0..5 * 4).map(|_| Some(1.0)).collect();
+        // Orthographic fits a disc to a square raster; a corner pixel is outside
+        // the disc, so there is no point under it.
+        assert!(
+            probe_impl(&meta, &raw, &opts("orthographic"), 0, 0)
+                .unwrap()
+                .is_none(),
+            "an off-disc corner returns None"
+        );
+        // Past the raster edge is likewise nothing.
+        assert!(
+            probe_impl(&meta, &raw, &opts("equirectangular"), 999, 999)
+                .unwrap()
+                .is_none()
+        );
     }
 
     /// End-to-end on the NetCDF-4 / HDF5 backing (#169): open the dimension-scale
