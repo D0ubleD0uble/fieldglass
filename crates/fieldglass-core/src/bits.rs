@@ -42,6 +42,66 @@ pub fn bits_to_bytes(count: usize, bits_per_value: usize) -> Option<usize> {
         .map(|bits| bits.div_ceil(8))
 }
 
+/// Inverse spatial-predictor differencing of order `k` in place, mirroring
+/// eccodes' `DataG1SecondOrderGeneralExtendedPacking::unpack` (and the
+/// GRIB2 second-order templates 5.50001 / 5.50002, whose §7 shares the same
+/// codec). The first `order` slots of `x` hold the SPD seeds; the recurrence
+/// reconstructs the rest, adding `bias` at each step. The y/z/w initialisation
+/// re-uses values about to be overwritten — kept in this exact shape to stay
+/// bit-identical to eccodes. Wrapping arithmetic matches eccodes' implicit
+/// two's-complement C and avoids overflow panics on extreme (malformed) inputs.
+/// Orders 0–3 are defined by WMO Code Table 5.6; a higher order is a parse
+/// error.
+pub fn apply_spd_inverse(x: &mut [i64], order: u8, bias: i64) -> Result<(), FieldglassError> {
+    match order {
+        0 => Ok(()),
+        1 => {
+            // y = X[0]; for i=1..N: y += X[i] + bias; X[i] = y
+            let mut y = x[0];
+            for v in x.iter_mut().skip(1) {
+                y = y.wrapping_add(v.wrapping_add(bias));
+                *v = y;
+            }
+            Ok(())
+        }
+        2 => {
+            // y = X[1] - X[0];  z = X[1];
+            // for i=2..N: y += X[i] + bias; z += y; X[i] = z
+            if x.len() < 2 {
+                return Ok(());
+            }
+            let mut y = x[1].wrapping_sub(x[0]);
+            let mut z = x[1];
+            for v in x.iter_mut().skip(2) {
+                y = y.wrapping_add(v.wrapping_add(bias));
+                z = z.wrapping_add(y);
+                *v = z;
+            }
+            Ok(())
+        }
+        3 => {
+            // y = X[2] - X[1];  z = y - (X[1] - X[0]);  w = X[2];
+            // for i=3..N: z += X[i] + bias; y += z; w += y; X[i] = w
+            if x.len() < 3 {
+                return Ok(());
+            }
+            let mut y = x[2].wrapping_sub(x[1]);
+            let mut z = y.wrapping_sub(x[1].wrapping_sub(x[0]));
+            let mut w = x[2];
+            for v in x.iter_mut().skip(3) {
+                z = z.wrapping_add(v.wrapping_add(bias));
+                y = y.wrapping_add(z);
+                w = w.wrapping_add(y);
+                *v = w;
+            }
+            Ok(())
+        }
+        _ => Err(FieldglassError::Parse(format!(
+            "unsupported SPD order {order}"
+        ))),
+    }
+}
+
 /// IBM System/360 single-precision float → `f64`.
 /// Layout: sign (1) | characteristic (7, excess-64) | fraction (24), base 16.
 pub fn ibm_float_to_f64(raw: u32) -> f64 {
@@ -270,5 +330,59 @@ mod tests {
         assert_eq!(r.bit_offset, 0);
         // A valid read right afterwards still works.
         assert_eq!(r.read_bits(8).unwrap(), 0xAA);
+    }
+
+    #[test]
+    fn spd_inverse_order1_is_cumulative_sum_with_bias() {
+        // Order-1 reconstructs running sum y starting at X[0], adding
+        // X[i] + bias at each step. With bias=0 it's a plain cumulative sum.
+        let mut seq = vec![10i64, 1, 2, 3];
+        apply_spd_inverse(&mut seq, 1, 0).unwrap();
+        assert_eq!(seq, vec![10, 11, 13, 16]);
+
+        // Bias of 1 shifts each successive y by +1 cumulatively.
+        let mut seq = vec![10i64, 1, 2, 3];
+        apply_spd_inverse(&mut seq, 1, 1).unwrap();
+        // y starts at 10. y += 1+1=2 → 12; y += 2+1=3 → 15; y += 3+1=4 → 19.
+        assert_eq!(seq, vec![10, 12, 15, 19]);
+    }
+
+    // Overflow regression: pre-fix, plain `+=` would panic in debug. Values are
+    // unspecified at the i64 boundary; just verify the loop ran (tail slot
+    // mutated from its sentinel) without panicking.
+    #[test]
+    fn spd_inverse_order1_does_not_panic_on_overflow() {
+        let mut seq = vec![i64::MAX, 1, 2, 0];
+        apply_spd_inverse(&mut seq, 1, i64::MAX).unwrap();
+        assert_ne!(seq[3], 0, "tail slot must be reconstructed");
+    }
+
+    #[test]
+    fn spd_inverse_order3_does_not_panic_on_overflow() {
+        let mut seq = vec![i64::MIN, i64::MAX, i64::MIN, 1, 2, 0];
+        apply_spd_inverse(&mut seq, 3, i64::MIN).unwrap();
+        assert_ne!(seq[5], 0, "tail slot must be reconstructed");
+    }
+
+    #[test]
+    fn spd_inverse_order2_reconstructs_quadratic_with_zero_bias() {
+        // Values u[i] = i*i, second-order forward differences with bias 0,
+        // then the inverse. After SPD-2 inverse with seeds u[0]=0, u[1]=1,
+        // deltas [2,2,2,2] and bias=0:
+        //   y_init = X[1] - X[0] = 1; z_init = X[1] = 1
+        //   i=2: y += 2 → 3; z += 3 → 4
+        //   i=3: y += 2 → 5; z += 5 → 9
+        //   i=4: y += 2 → 7; z += 7 → 16
+        //   i=5: y += 2 → 9; z += 9 → 25
+        // → [0, 1, 4, 9, 16, 25]   (the squares!)
+        let mut seq = vec![0i64, 1, 2, 2, 2, 2];
+        apply_spd_inverse(&mut seq, 2, 0).unwrap();
+        assert_eq!(seq, vec![0, 1, 4, 9, 16, 25]);
+    }
+
+    #[test]
+    fn spd_inverse_rejects_order_above_3() {
+        let mut seq = vec![0i64, 1, 2, 3];
+        assert!(apply_spd_inverse(&mut seq, 4, 0).is_err());
     }
 }
