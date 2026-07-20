@@ -42,11 +42,15 @@ import pathlib
 import numpy as np
 
 T = 63
-FIXTURES = pathlib.Path(__file__).resolve().parent.parent / (
-    "crates/fieldglass-grib2/tests/fixtures"
-)
-COEFFS_REF = FIXTURES / "spectral_simple_t63.eccodes.ref.txt"
-OUT = FIXTURES / "spectral_render_t63.oracle.txt"
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+# (coefficient-oracle input, render-oracle output) for each spectral fixture —
+# both the GRIB2 and GRIB1 T63 fields, which share the ECMWF m-major layout.
+ORACLES = [
+    (ROOT / "crates/fieldglass-grib2/tests/fixtures/spectral_simple_t63.eccodes.ref.txt",
+     ROOT / "crates/fieldglass-grib2/tests/fixtures/spectral_render_t63.oracle.txt"),
+    (ROOT / "crates/fieldglass-grib1/tests/fixtures/spectral_simple_t63.eccodes.ref.txt",
+     ROOT / "crates/fieldglass-grib1/tests/fixtures/spectral_render_t63.oracle.txt"),
+]
 
 # The fixed test grid: 5-degree regular lat/lon, latitudes 90..-90 (37) and
 # longitudes 0..355 (72). Poles included (the recurrence handles mu = +/-1).
@@ -74,8 +78,8 @@ def plm_bar(mu: float) -> np.ndarray:
     return p
 
 
-def load_coeffs() -> np.ndarray:
-    raw = np.loadtxt(COEFFS_REF)
+def load_coeffs(path: pathlib.Path) -> np.ndarray:
+    raw = np.loadtxt(path)
     cilm = np.zeros((2, T + 1, T + 1))
     idx = 0
     for m in range(T + 1):
@@ -87,8 +91,7 @@ def load_coeffs() -> np.ndarray:
     return cilm
 
 
-def main() -> None:
-    cilm = load_coeffs()
+def synthesize(cilm: np.ndarray) -> list[float]:
     out = []
     for lat in GRID_LATS:
         p = plm_bar(np.sin(np.deg2rad(lat)))
@@ -102,11 +105,17 @@ def main() -> None:
                     np.dot(col, cilm[0, m:, m] * cm - cilm[1, m:, m] * sm)
                 )
             out.append(a)
-    OUT.write_text("\n".join(f"{v:.9e}" for v in out) + "\n")
-    arr = np.array(out)
-    print(f"wrote {OUT.name}: {len(out)} values "
-          f"({len(GRID_LATS)}x{len(GRID_LONS)} grid)")
-    print(f"field min/max/mean = {arr.min():.3f} / {arr.max():.3f} / {arr.mean():.3f}")
+    return out
+
+
+def main() -> None:
+    for coeff_file, out_file in ORACLES:
+        out = synthesize(load_coeffs(coeff_file))
+        out_file.write_text("\n".join(f"{v:.9e}" for v in out) + "\n")
+        arr = np.array(out)
+        print(f"wrote {out_file.relative_to(ROOT)}: {len(out)} values "
+              f"({len(GRID_LATS)}x{len(GRID_LONS)} grid), "
+              f"min/max/mean = {arr.min():.3f} / {arr.max():.3f} / {arr.mean():.3f}")
 
 
 if __name__ == "__main__":

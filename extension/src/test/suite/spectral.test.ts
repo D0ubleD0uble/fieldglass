@@ -63,6 +63,16 @@ suite("GRIB1 spectral editor opens", () => {
           "message table should show the spectral packing label",
         );
         assert.ok(html.includes("Temperature"), "message row should render");
+        // GRIB1 spectral messages also render via the inverse transform (#303),
+        // so they offer a Render button, not the unrenderable fallback.
+        assert.ok(
+          html.includes('class="render-btn"'),
+          "spectral message offers a Render button",
+        );
+        assert.ok(
+          !html.includes("Render not available"),
+          "spectral message is not marked unrenderable",
+        );
       } finally {
         panel.dispose();
       }
