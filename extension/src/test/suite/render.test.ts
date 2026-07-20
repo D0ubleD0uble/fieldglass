@@ -474,6 +474,26 @@ suite("Render pipeline", () => {
     );
   });
 
+  test("GRIB1: a spherical-harmonic message renders via inverse-transform synthesis (#303)", () => {
+    const native = loadNative();
+    assert.ok(native, "native module must load");
+    const bytes = fs.readFileSync(fixturePath("spectral_simple_t63.grib1"));
+    const handle = native.Grib1Handle.fromBytes(bytes);
+    const messages = handle.messages();
+    assert.strictEqual(messages[0].gridType, "spherical_harmonic", "T63 spectral");
+    assert.ok(messages[0].gridNi == null, "spectral message declares no Ni");
+
+    // GRIB1 spectral renders through the same shared inverse-transform engine.
+    const rendered = handle.renderGrid(0, defaultRenderOptions());
+    assert.strictEqual(rendered.width, 256);
+    assert.strictEqual(rendered.height, 128);
+    assert.strictEqual(rendered.rgba.length, rendered.width * rendered.height * 4);
+    assert.ok(
+      rendered.usedMin > 200 && rendered.usedMax < 350,
+      `spectral field range ${rendered.usedMin}..${rendered.usedMax} K`,
+    );
+  });
+
   test("NetCDF: openNetcdf returns populated DatasetMeta for classic CDF", () => {
     // NetCDF has no render-panel path today, but the editor opens these
     // files and the dataset table is populated from `openNetcdf`. Pin its

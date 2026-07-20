@@ -220,6 +220,32 @@ impl Grib1Reader {
         )
     }
 
+    /// Synthesize a spherical-harmonic message onto a regular lat/lon grid via
+    /// the inverse spherical-harmonic transform.
+    ///
+    /// Decodes the coefficients (see
+    /// [`decode_spectral_message`](Self::decode_spectral_message)) and evaluates
+    /// the field at every `(latitude, longitude)` in `latitudes_deg` ×
+    /// `longitudes_deg`, returning `latitudes_deg.len() · longitudes_deg.len()`
+    /// values in latitude-major scan order. GRIB1 spectral coefficients share
+    /// the ECMWF m-major layout the shared [`fieldglass_core::sht`] engine
+    /// expects, so the same transform (validated against ECMWF's definitive
+    /// spectral definition) applies.
+    pub fn synthesize_spectral_message(
+        &self,
+        message_index: usize,
+        latitudes_deg: &[f64],
+        longitudes_deg: &[f64],
+    ) -> Result<Vec<f64>, FieldglassError> {
+        let coeffs = self.decode_spectral_message(message_index)?;
+        fieldglass_core::sht::synthesize_spherical_harmonic(
+            &coeffs.coefficients,
+            coeffs.j as u32,
+            latitudes_deg,
+            longitudes_deg,
+        )
+    }
+
     /// Decode a `grid_simple_matrix` message that carries an `nr × nc` matrix at
     /// every grid point (`matrixOfValues = 1`). Returns a [`MatrixField`] whose
     /// `values` is `ni·nj·nr·nc` long. Use [`Grib1Reader::decode_message_values`]
