@@ -341,7 +341,7 @@ export class FieldglassEditorProvider
       });
       return;
     }
-    if (meta.gridNi == null || meta.gridNj == null) {
+    if (!messageIsRenderable(meta)) {
       panel.webview.postMessage({
         type: "gridError",
         messageIndex,
@@ -1585,6 +1585,19 @@ function renderDatasetBody(
   return sections.join("\n");
 }
 
+/** A message is renderable if it declares grid dimensions, or is a
+ *  spherical-harmonic (spectral) field — those have no grid, but `renderGrid`
+ *  synthesizes one via the inverse spherical-harmonic transform (#303). */
+function messageIsRenderable(m: {
+  gridNi: number | null;
+  gridNj: number | null;
+  gridType: string | null;
+}): boolean {
+  return (
+    (m.gridNi != null && m.gridNj != null) || m.gridType === "spherical_harmonic"
+  );
+}
+
 function renderHtml(
   webview: vscode.Webview,
   format: string,
@@ -1618,7 +1631,7 @@ function renderHtml(
       const fcstCell = editable
         ? `<input type="number" class="p1-input" data-message-index="${m.messageIndex}" min="0" max="255" step="1" value="${m.forecastHours}" />`
         : escapeHtml(m.forecastDisplay);
-      const canRender = m.gridNi != null && m.gridNj != null;
+      const canRender = messageIsRenderable(m);
       const idx = m.messageIndex;
       const expansionInner = canRender
         ? `<button type="button" class="render-btn" data-message-index="${idx}">Render</button>

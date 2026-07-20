@@ -447,6 +447,33 @@ suite("Render pipeline", () => {
     });
   });
 
+  test("GRIB2: a spherical-harmonic message renders via inverse-transform synthesis (#303)", () => {
+    const native = loadNative();
+    assert.ok(native, "native module must load");
+    const bytes = fs.readFileSync(fixturePath("spectral_simple_t63.grib2"));
+    const handle = native.Grib2Handle.fromBytes(bytes);
+    const messages = handle.messages();
+    assert.strictEqual(messages[0].gridType, "spherical_harmonic", "T63 spectral");
+    // The message itself has no grid (napi `None` surfaces as `undefined`)...
+    assert.ok(messages[0].gridNi == null, "spectral message declares no Ni");
+
+    // ...but renderGrid synthesizes a global lat/lon grid (T63 → 256×128) via
+    // the inverse spherical-harmonic transform and paints it.
+    const rendered = handle.renderGrid(0, defaultRenderOptions());
+    assert.strictEqual(rendered.width, 256);
+    assert.strictEqual(rendered.height, 128);
+    assert.strictEqual(
+      rendered.rgba.length,
+      rendered.width * rendered.height * 4,
+      "RGBA buffer matches the synthesized grid",
+    );
+    // A realistic ~281 K temperature field, not garbage.
+    assert.ok(
+      rendered.usedMin > 200 && rendered.usedMax < 350,
+      `spectral field range ${rendered.usedMin}..${rendered.usedMax} K`,
+    );
+  });
+
   test("NetCDF: openNetcdf returns populated DatasetMeta for classic CDF", () => {
     // NetCDF has no render-panel path today, but the editor opens these
     // files and the dataset table is populated from `openNetcdf`. Pin its
