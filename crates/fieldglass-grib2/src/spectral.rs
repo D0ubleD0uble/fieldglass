@@ -18,7 +18,10 @@
 //! after division by a Laplacian operator `(n·(n+1))^P` — a faithful port of
 //! eccodes' `DataComplexPacking::unpack_real` (see [`decode_spectral_complex`]).
 
-use crate::drs::{SpectralComplexPackingTemplate, SpectralSimplePackingTemplate};
+use crate::drs::{
+    BiFourierPackingTemplate, SpectralComplexPackingTemplate, SpectralSimplePackingTemplate,
+};
+use crate::gds::BiFourierTemplate;
 use fieldglass_core::{FieldglassError, bits::BitReader};
 
 /// The decoded spherical-harmonic coefficients of one message.
@@ -167,6 +170,22 @@ fn read_f32_be(payload: &[u8], offset: &mut usize) -> Result<f64, FieldglassErro
         )
     })?;
     let v = f32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as f64;
+    *offset = end;
+    Ok(v)
+}
+
+/// Read a big-endian IEEE 64-bit float from `payload` at `*offset`, advancing
+/// `*offset` by eight bytes. Errors rather than panics if the block is short.
+fn read_f64_be(payload: &[u8], offset: &mut usize) -> Result<f64, FieldglassError> {
+    let end = offset.checked_add(8).ok_or_else(|| {
+        FieldglassError::Parse("bifourier_complex: unpacked-block offset overflow".to_string())
+    })?;
+    let b = payload.get(*offset..end).ok_or_else(|| {
+        FieldglassError::Parse(
+            "bifourier_complex: unpacked sub-truncation block is truncated".to_string(),
+        )
+    })?;
+    let v = f64::from_be_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]);
     *offset = end;
     Ok(v)
 }
@@ -323,6 +342,299 @@ pub fn decode_spectral_complex(
         j,
         k,
         m,
+        coefficients: out,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Bi-Fourier spectral packing (§3.61/62/63 + §5.53)
+// ---------------------------------------------------------------------------
+
+/// Sentinel `laplacianScalingFactor` (§5.53) meaning "unset".
+const LAPLACIAN_UNSET: i32 = -2_147_483_647;
+
+// Bi-Fourier truncation shapes — WMO Code Table 3.25 / 5.25.
+const TRUNC_RECTANGLE: u8 = 77;
+const TRUNC_ELLIPSE: u8 = 88;
+const TRUNC_DIAMOND: u8 = 99;
+
+/// The decoded bi-Fourier spectral coefficients of one message.
+///
+/// `coefficients` is the flat sequence eccodes reports — four values per
+/// bi-Fourier `(i, j)` wavenumber pair, traversed by `j` (outer, `0..=bif_j`)
+/// then `i` (inner, `0..=itruncation_bif[j]`). Its length is the `size_bif` of
+/// eccodes' `DataG2BifourierPacking`, which equals §5 `numberOfValues`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BiFourierCoefficients {
+    /// Bi-Fourier resolution parameters `(N, M)` from §3 (`bif_i`, `bif_j`).
+    pub bif_i: u32,
+    pub bif_j: u32,
+    /// Truncation shape (Code Table 3.25): 77 rectangle, 88 ellipse, 99 diamond.
+    pub truncation_type: u8,
+    /// The flat coefficient sequence — see the type docs for the traversal.
+    pub coefficients: Vec<f64>,
+}
+
+impl BiFourierCoefficients {
+    /// Total number of coefficients decoded.
+    pub fn len(&self) -> usize {
+        self.coefficients.len()
+    }
+
+    /// Whether the message carries no coefficients at all.
+    pub fn is_empty(&self) -> bool {
+        self.coefficients.is_empty()
+    }
+}
+
+/// Upper bound on `size_bif` — the rectangle case `4·(bif_i+1)·(bif_j+1)`, which
+/// dominates the ellipse and diamond shapes. `bif_i`/`bif_j` are bare `u32` from
+/// §3, so a hostile message can declare an enormous truncation; this caps the
+/// coefficient count (and therefore each factor, so the geometry arrays too)
+/// with the same [`MAX_SPECTRAL_VALUES`] envelope the spherical-harmonic path
+/// uses, computed with overflow checking BEFORE any allocation.
+fn bifourier_max_count(bif_i: u32, bif_j: u32) -> Result<usize, FieldglassError> {
+    let a = bif_i as u64 + 1;
+    let b = bif_j as u64 + 1;
+    a.checked_mul(b)
+        .and_then(|p| p.checked_mul(4))
+        .filter(|&n| n <= MAX_SPECTRAL_VALUES)
+        .map(|n| n as usize)
+        .ok_or_else(|| {
+            FieldglassError::Parse(format!(
+                "bi-Fourier truncation N={bif_i} M={bif_j} declares more than \
+                 {MAX_SPECTRAL_VALUES} coefficients"
+            ))
+        })
+}
+
+/// Compute the bi-Fourier truncation limit arrays `itrunc[0..=nj]` and
+/// `jtrunc[0..=ni]` for a shape `kind`, a faithful port of eccodes'
+/// `rectangle` / `ellipse` / `diamond`. Diamond can yield `-1` on a zero axis,
+/// so the limits are `i64`. `ni`/`nj` must already be bounded by the caller.
+// The loop index IS the wavenumber the limit is computed from, so range loops
+// mirror eccodes and read clearer than an enumerate over the target array.
+#[allow(clippy::needless_range_loop)]
+fn bifourier_truncation(
+    kind: u8,
+    ni: usize,
+    nj: usize,
+) -> Result<(Vec<i64>, Vec<i64>), FieldglassError> {
+    let mut it = vec![0i64; nj + 1];
+    let mut jt = vec![0i64; ni + 1];
+    match kind {
+        TRUNC_RECTANGLE => {
+            it.iter_mut().for_each(|v| *v = ni as i64);
+            jt.iter_mut().for_each(|v| *v = nj as i64);
+        }
+        TRUNC_ELLIPSE => {
+            const ZEPS: f64 = 1e-10;
+            let (nif, njf) = (ni as f64, nj as f64);
+            for j in 1..nj {
+                let zi = nif / njf * (((nj * nj - j * j) as f64).max(0.0)).sqrt();
+                it[j] = (zi + ZEPS) as i64;
+            }
+            if nj == 0 {
+                it[0] = ni as i64;
+            } else {
+                it[0] = ni as i64;
+                it[nj] = 0;
+            }
+            for i in 1..ni {
+                let zj = njf / nif * (((ni * ni - i * i) as f64).max(0.0)).sqrt();
+                jt[i] = (zj + ZEPS) as i64;
+            }
+            if ni == 0 {
+                jt[0] = nj as i64;
+            } else {
+                jt[0] = nj as i64;
+                jt[ni] = 0;
+            }
+        }
+        TRUNC_DIAMOND => {
+            if nj == 0 {
+                it[0] = -1;
+            } else {
+                for j in 0..=nj {
+                    it[j] = ni as i64 - (j * ni / nj) as i64;
+                }
+            }
+            if ni == 0 {
+                jt[0] = -1;
+            } else {
+                for i in 0..=ni {
+                    jt[i] = nj as i64 - (i * nj / ni) as i64;
+                }
+            }
+        }
+        other => {
+            return Err(FieldglassError::UnsupportedSection(format!(
+                "bi-Fourier truncation type {other} is not 77 (rectangle), 88 (ellipse), \
+                 or 99 (diamond)"
+            )));
+        }
+    }
+    Ok((it, jt))
+}
+
+/// Decode a `bifourier_complex` (template 5.53) data section into coefficients.
+///
+/// The limited-area analogue of spherical-harmonic complex packing (5.51):
+/// coefficients inside the unpacked sub-truncation `(sub_i, sub_j)` are raw
+/// IEEE 32-bit floats, and the rest are simple-packed after division by the
+/// bi-Fourier Laplacian operator `(i²+j²)^P` (with `P` = `laplacianScalingFactor`
+/// / 10⁶) — the packed value is `((X · 2^E + R) · 10^-D) / (i²+j²)^P`. A faithful
+/// port of eccodes' `DataG2BifourierPacking::unpack_double`; the `laplam`
+/// least-squares regression there is encode-only and plays no part in decode.
+///
+/// `ds_payload` is §7 with its header stripped; `gds` supplies the full
+/// truncation `(bif_i, bif_j)` and its shape; `number_of_values` is §5's
+/// declared count, cross-checked against the reconstructed `size_bif`.
+pub fn decode_bifourier(
+    ds_payload: &[u8],
+    t: &BiFourierPackingTemplate,
+    gds: &BiFourierTemplate,
+    number_of_values: usize,
+) -> Result<BiFourierCoefficients, FieldglassError> {
+    // The unpacked subset is raw big-endian IEEE floats: precision 1 = 32-bit
+    // (4 bytes), 2 = 64-bit (8 bytes). ECMWF/ALADIN bi-Fourier fields use 64-bit
+    // for coefficient precision. IBM (0) and IEEE-128 (3) are not supported.
+    let unpacked_float_bytes: usize = match t.unpacked_subset_precision {
+        1 => 4,
+        2 => 8,
+        other => {
+            return Err(FieldglassError::UnsupportedSection(format!(
+                "bifourier_complex: unpackedSubsetPrecision {other} is unsupported \
+                 (only 1 = IEEE 32-bit and 2 = IEEE 64-bit)"
+            )));
+        }
+    };
+    if t.bits_per_value > 32 {
+        return Err(FieldglassError::Parse(format!(
+            "bifourier_complex: bits_per_value {} exceeds 32",
+            t.bits_per_value
+        )));
+    }
+    // Bound the attacker-controlled full truncation before allocating any
+    // geometry array or the coefficient buffer.
+    bifourier_max_count(gds.bif_i, gds.bif_j)?;
+
+    let bif_i = gds.bif_i as usize;
+    let bif_j = gds.bif_j as usize;
+    let sub_i = t.sub_i as usize;
+    let sub_j = t.sub_j as usize;
+    // Any nonzero packing-mode-for-axes means "keep the axes in the unpacked
+    // subset" — eccodes tests `if (bt->keepaxes)` on the raw value (1 is the only
+    // operational set value; 0 = axes packed), so match its truthiness exactly.
+    let keepaxes = t.packing_mode_for_axes != 0;
+
+    // Only `itrunc_bif` is needed for the `for_ij` bounds; the sub-truncation
+    // needs both limit arrays for `insub`.
+    let (itrunc_bif, _jtrunc_bif) = bifourier_truncation(gds.truncation_type, bif_i, bif_j)?;
+    let (itrunc_sub, jtrunc_sub) = bifourier_truncation(t.sub_truncation_type, sub_i, sub_j)?;
+
+    // Whether coefficient (i, j) lives in the unpacked subset. Preserve eccodes'
+    // short-circuit order so the sub arrays are only indexed within their
+    // `1+sub_j` / `1+sub_i` bounds. `keepaxes` forces the axes into the subset.
+    let insub = |i: usize, j: usize| -> bool {
+        let mut r = i <= sub_i && j <= sub_j;
+        if r {
+            r = (i as i64) <= itrunc_sub[j] && (j as i64) <= jtrunc_sub[i];
+        }
+        if keepaxes { r || i == 0 || j == 0 } else { r }
+    };
+
+    // Reconstruct size_bif (Σ 4·(itrunc_bif[j]+1)) and size_sub from the
+    // geometry; a `-1` diamond limit contributes zero. size_bif must match §5.
+    let mut size_bif = 0usize;
+    let mut size_sub = 0usize;
+    for (j, &itr_j) in itrunc_bif.iter().enumerate() {
+        let icount = (itr_j + 1).max(0) as usize;
+        size_bif += 4 * icount;
+        for i in 0..icount {
+            if insub(i, j) {
+                size_sub += 4;
+            }
+        }
+    }
+    if size_bif != number_of_values {
+        return Err(FieldglassError::Parse(format!(
+            "bifourier_complex: truncation reconstructs {size_bif} coefficients but §5 declares \
+             {number_of_values}"
+        )));
+    }
+
+    // §7 layout: `size_sub` unpacked IEEE coefficients (`unpacked_float_bytes`
+    // each), then `size_bif - size_sub` simple-packed coefficients
+    // (`bits_per_value` bits each).
+    let packed_coeffs = size_bif - size_sub;
+    let unpacked_bytes = size_sub.checked_mul(unpacked_float_bytes).ok_or_else(|| {
+        FieldglassError::Parse("bifourier_complex: unpacked block byte count overflows".into())
+    })?;
+    let available_bits = ds_payload.len().saturating_mul(8);
+    let required_bits = unpacked_bytes
+        .saturating_mul(8)
+        .saturating_add(packed_coeffs.saturating_mul(t.bits_per_value as usize));
+    if required_bits > available_bits {
+        return Err(FieldglassError::Parse(format!(
+            "bifourier_complex: needs {required_bits} bits but §7 holds only {available_bits}"
+        )));
+    }
+    // A packed coefficient needs a Laplacian exponent; the unset sentinel there
+    // is a malformed message (a fully-unpacked field never reads P).
+    if packed_coeffs > 0 && t.laplacian_scaling_factor == LAPLACIAN_UNSET {
+        return Err(FieldglassError::Parse(
+            "bifourier_complex: laplacianScalingFactor is unset but packed coefficients require it"
+                .into(),
+        ));
+    }
+
+    let s = 2f64.powi(t.binary_scale_factor as i32);
+    let r = t.reference_value as f64;
+    let d_inv = 10f64.powi(-(t.decimal_scale_factor as i32));
+    let p = t.laplacian_scaling_factor as f64 / 1e6;
+
+    // Two cursors: `hpos` walks the unpacked IEEE block at the payload start;
+    // `packed` walks the simple-packed remainder that follows it.
+    let mut hpos = 0usize;
+    let mut packed = BitReader::new(&ds_payload[unpacked_bytes..]);
+    let mut out = Vec::with_capacity(size_bif);
+
+    for (j, &itr_j) in itrunc_bif.iter().enumerate() {
+        let icount = (itr_j + 1).max(0) as usize;
+        for i in 0..icount {
+            if insub(i, j) {
+                for _ in 0..4 {
+                    let v = if unpacked_float_bytes == 4 {
+                        read_f32_be(ds_payload, &mut hpos)?
+                    } else {
+                        read_f64_be(ds_payload, &mut hpos)?
+                    };
+                    out.push(v);
+                }
+            } else {
+                let scale = ((i * i + j * j) as f64).powf(p);
+                if scale == 0.0 {
+                    // (0,0) is normally always in the unpacked subset; a packed
+                    // (0,0) with P > 0 would divide by zero.
+                    return Err(FieldglassError::Parse(
+                        "bifourier_complex: Laplacian operator is zero for a packed coefficient \
+                         (i = j = 0); cannot divide"
+                            .into(),
+                    ));
+                }
+                for _ in 0..4 {
+                    let dec = packed.read_bits(t.bits_per_value)? as f64;
+                    out.push(((dec * s + r) * d_inv) / scale);
+                }
+            }
+        }
+    }
+
+    Ok(BiFourierCoefficients {
+        bif_i: gds.bif_i,
+        bif_j: gds.bif_j,
+        truncation_type: gds.truncation_type,
         coefficients: out,
     })
 }
@@ -495,5 +807,80 @@ mod tests {
             format!("{err:?}").contains("unpackedSubsetPrecision"),
             "error names the unsupported precision, got: {err:?}"
         );
+    }
+
+    fn bf_template(
+        sub_trunc: u8,
+        keepaxes: u8,
+        laplacian: i32,
+        sub: u16,
+        precision: u8,
+    ) -> BiFourierPackingTemplate {
+        BiFourierPackingTemplate {
+            reference_value: 0.0,
+            binary_scale_factor: 0,
+            decimal_scale_factor: 0,
+            bits_per_value: 12,
+            sub_truncation_type: sub_trunc,
+            packing_mode_for_axes: keepaxes,
+            laplacian_scaling_factor: laplacian,
+            sub_i: sub,
+            sub_j: sub,
+            total_values_in_unpacked_subset: 0,
+            unpacked_subset_precision: precision,
+        }
+    }
+
+    fn bf_gds(bif_i: u32, bif_j: u32, truncation_type: u8) -> BiFourierTemplate {
+        BiFourierTemplate {
+            spectral_type: 2,
+            bif_i,
+            bif_j,
+            truncation_type,
+        }
+    }
+
+    #[test]
+    fn bifourier_rectangle_shape_counts() {
+        // Rectangle: itrunc[j] = ni for every j, so size_bif = 4·(ni+1)·(nj+1).
+        let (it, jt) = bifourier_truncation(TRUNC_RECTANGLE, 3, 4).unwrap();
+        assert_eq!(it, vec![3, 3, 3, 3, 3]);
+        assert_eq!(jt, vec![4, 4, 4, 4]);
+    }
+
+    #[test]
+    fn bifourier_rejects_hostile_truncation_without_allocating() {
+        // A u32::MAX truncation must be refused before the overflow-prone
+        // (bif_i+1)·(bif_j+1)·4 or any geometry allocation.
+        let t = bf_template(TRUNC_RECTANGLE, 1, 0, 2, 1);
+        let g = bf_gds(u32::MAX, u32::MAX, TRUNC_RECTANGLE);
+        assert!(decode_bifourier(&[0u8; 8], &t, &g, 0).is_err());
+    }
+
+    #[test]
+    fn bifourier_rejects_unsupported_precision() {
+        let t0 = bf_template(TRUNC_RECTANGLE, 1, 0, 2, 0); // IBM — unsupported
+        let g = bf_gds(2, 2, TRUNC_RECTANGLE);
+        let err = decode_bifourier(&[0u8; 512], &t0, &g, 36).expect_err("reject");
+        assert!(format!("{err:?}").contains("unpackedSubsetPrecision"));
+
+        let t3 = bf_template(TRUNC_RECTANGLE, 1, 0, 2, 3); // IEEE-128 — unsupported
+        assert!(decode_bifourier(&[0u8; 512], &t3, &g, 36).is_err());
+    }
+
+    #[test]
+    fn bifourier_rejects_unknown_truncation_type() {
+        let t = bf_template(42, 1, 0, 2, 1); // 42 is not 77/88/99
+        let g = bf_gds(2, 2, TRUNC_RECTANGLE);
+        assert!(decode_bifourier(&[0u8; 512], &t, &g, 36).is_err());
+    }
+
+    #[test]
+    fn bifourier_rejects_size_mismatch_with_declared_count() {
+        // Rectangle 2×2 → size_bif = 4·3·3 = 36; declaring anything else fails.
+        let t = bf_template(TRUNC_RECTANGLE, 1, 0, 2, 1);
+        let g = bf_gds(2, 2, TRUNC_RECTANGLE);
+        let err = decode_bifourier(&[0u8; 512], &t, &g, 99).expect_err("reject");
+        assert!(format!("{err:?}").contains("reconstructs 36"));
     }
 }

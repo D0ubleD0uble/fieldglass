@@ -89,6 +89,14 @@ const TEMPLATE_5_50_PAYLOAD_LEN: usize = 13;
 /// unpacked-subset precision.
 const TEMPLATE_5_51_PAYLOAD_LEN: usize = 24;
 
+/// Template 5.53 payload length — octets 12..=35, 24 bytes: the 9-byte
+/// simple-packing block (R / E / D / bits, no type octet), the
+/// biFourierSubTruncationType (1) and biFourierPackingModeForAxes (1) octets,
+/// the 4-byte two's-complement Laplacian scaling factor, the two 2-byte
+/// sub-truncation resolutions (NS / MS), the 4-byte unpacked-subset value count
+/// (TS), and the 1-byte unpacked-subset precision.
+const TEMPLATE_5_53_PAYLOAD_LEN: usize = 24;
+
 /// Template 5.50001 fixed payload length up to (but not including) the SPD
 /// block — octets 12..=32, 21 bytes: the R / E / D block (8), then
 /// bits-per-value (1), width-of-first-order (1), number-of-groups (4),
@@ -479,6 +487,53 @@ pub struct RunLengthPackingTemplate {
     pub level_values: Vec<u16>,
 }
 
+/// Template 5.53 — bi-Fourier spectral (`bifourier_complex`) packing.
+///
+/// The limited-area (ACCORD / ALADIN / AROME) analogue of spherical-harmonic
+/// complex packing (5.51): the message carries bi-Fourier spectral
+/// coefficients — 4-tuples per `(i, j)` wavenumber pair — not gridded values.
+/// §7 has two parts: the coefficients inside the unpacked sub-truncation
+/// `(sub_i, sub_j)` are stored as raw IEEE 32-bit floats, and the rest are
+/// simple-packed after division by a Laplacian operator `(i²+j²)^P` (with `P`
+/// the [`laplacian_scaling_factor`] divided by 10⁶). The decode produces
+/// coefficients (see the `bifourier` module); like the spherical-harmonic
+/// templates it does not ride [`decode_values`](crate::ds::decode_values), and
+/// there is no inverse transform to render the field yet.
+///
+/// [`laplacian_scaling_factor`]: BiFourierPackingTemplate::laplacian_scaling_factor
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BiFourierPackingTemplate {
+    /// Reference value `R` (IEEE 32-bit float, octets 12–15).
+    pub reference_value: f32,
+    /// Binary scale factor `E` (sign-magnitude `i16`, octets 16–17).
+    pub binary_scale_factor: i16,
+    /// Decimal scale factor `D` (sign-magnitude `i16`, octets 18–19).
+    pub decimal_scale_factor: i16,
+    /// Number of bits used for each packed coefficient part (octet 20).
+    pub bits_per_value: u8,
+    /// Type of bi-Fourier sub-truncation (octet 21) — Code Table 3.25
+    /// (`77` = rectangle, `88` = ellipse, `99` = diamond). Shapes the unpacked
+    /// subset `(sub_i, sub_j)`.
+    pub sub_truncation_type: u8,
+    /// Bi-Fourier packing mode for axes (octet 22) — Code Table 5.26. `1`
+    /// (`keepaxes`) forces the `i == 0` / `j == 0` axes into the unpacked
+    /// subset regardless of the sub-truncation.
+    pub packing_mode_for_axes: u8,
+    /// Laplacian scaling factor (**two's-complement** `signed[4]`, octets
+    /// 23–26), in units of 10⁻⁶; the operator exponent `P` is this divided by
+    /// 10⁶. The sentinel `-2_147_483_647` marks it unset.
+    pub laplacian_scaling_factor: i32,
+    /// `NS` — bi-Fourier sub-truncation resolution in `i` (octets 27–28).
+    pub sub_i: u16,
+    /// `MS` — bi-Fourier sub-truncation resolution in `j` (octets 29–30).
+    pub sub_j: u16,
+    /// `TS` — total number of values in the unpacked subset (octets 31–34).
+    pub total_values_in_unpacked_subset: u32,
+    /// Precision of the unpacked subset (octet 35) — WMO Code Table 5.7
+    /// (`1` = IEEE 32-bit, `2` = IEEE 64-bit; ECMWF/ALADIN fields use `2`).
+    pub unpacked_subset_precision: u8,
+}
+
 /// Templates 5.50001 / 5.50002 — second-order (general-extended) packing.
 ///
 /// The GRIB1 general-extended second-order codec (`grid_second_order_*`)
@@ -556,6 +611,7 @@ pub enum DataRepresentationTemplate {
     LogPreprocessing(LogPreprocessingPackingTemplate),
     SpectralSimple(SpectralSimplePackingTemplate),
     SpectralComplex(SpectralComplexPackingTemplate),
+    BiFourier(BiFourierPackingTemplate),
     SecondOrder(SecondOrderPackingTemplate),
     Unsupported(u16),
 }
@@ -590,6 +646,7 @@ impl DataRepresentationSection {
             }
             DataRepresentationTemplate::SpectralSimple(_) => "spectral_simple".to_string(),
             DataRepresentationTemplate::SpectralComplex(_) => "spectral_complex".to_string(),
+            DataRepresentationTemplate::BiFourier(_) => "bifourier_complex".to_string(),
             DataRepresentationTemplate::SecondOrder(_) => "second_order".to_string(),
             DataRepresentationTemplate::Unsupported(n) => format!("unsupported(5.{n})"),
         }
@@ -694,6 +751,15 @@ impl DataRepresentationSection {
         }
     }
 
+    /// Borrow the bi-Fourier spectral-packing template if that's what the
+    /// section carries. Other templates return `None`.
+    pub fn bifourier(&self) -> Option<&BiFourierPackingTemplate> {
+        match &self.template {
+            DataRepresentationTemplate::BiFourier(t) => Some(t),
+            _ => None,
+        }
+    }
+
     /// Borrow the second-order-packing template if that's what the section
     /// carries. Other templates return `None`.
     pub fn second_order(&self) -> Option<&SecondOrderPackingTemplate> {
@@ -752,6 +818,7 @@ pub fn parse_data_representation_with_header(
         61 => DataRepresentationTemplate::LogPreprocessing(parse_template_5_61(payload)?),
         50 => DataRepresentationTemplate::SpectralSimple(parse_template_5_50(payload)?),
         51 => DataRepresentationTemplate::SpectralComplex(parse_template_5_51(payload)?),
+        53 => DataRepresentationTemplate::BiFourier(parse_template_5_53(payload)?),
         200 => DataRepresentationTemplate::RunLength(parse_template_5_200(payload)?),
         // Second-order (general-extended) packing — the GRIB1 `grid_second_order`
         // codec carried into GRIB2. 5.50001 (`grid_second_order_no_boustrophedonic`)
@@ -1017,6 +1084,46 @@ fn parse_template_5_51(payload: &[u8]) -> Result<SpectralComplexPackingTemplate,
         ks,
         ms,
         ts,
+        unpacked_subset_precision: payload[23],
+    })
+}
+
+fn parse_template_5_53(payload: &[u8]) -> Result<BiFourierPackingTemplate, FieldglassError> {
+    if payload.len() < TEMPLATE_5_53_PAYLOAD_LEN {
+        return Err(FieldglassError::Parse(format!(
+            "DRS template 5.53 needs {TEMPLATE_5_53_PAYLOAD_LEN} bytes of payload, got {}",
+            payload.len()
+        )));
+    }
+    // Octets 12–20: the R / E / D / bits simple-packing block (no type octet,
+    // like 5.50 / 5.51). Then the bi-Fourier sub-truncation descriptors.
+    let reference_value = f32::from_be_bytes([payload[0], payload[1], payload[2], payload[3]]);
+    let binary_scale_factor = sign_magnitude_i16(u16::from_be_bytes([payload[4], payload[5]]));
+    let decimal_scale_factor = sign_magnitude_i16(u16::from_be_bytes([payload[6], payload[7]]));
+    // laplacianScalingFactor is eccodes' `signed[4]`, which — like every GRIB
+    // signed integer, and like the 5.51 Laplacian factor — is sign-magnitude,
+    // NOT two's-complement (verified against eccodes: a negative value encodes
+    // with the sign bit set and a small magnitude). Units of 10^-6.
+    let laplacian_scaling_factor = sign_magnitude_to_i64(
+        u32::from_be_bytes([payload[11], payload[12], payload[13], payload[14]]),
+        32,
+    ) as i32;
+    Ok(BiFourierPackingTemplate {
+        reference_value,
+        binary_scale_factor,
+        decimal_scale_factor,
+        bits_per_value: payload[8],
+        sub_truncation_type: payload[9],
+        packing_mode_for_axes: payload[10],
+        laplacian_scaling_factor,
+        sub_i: u16::from_be_bytes([payload[15], payload[16]]),
+        sub_j: u16::from_be_bytes([payload[17], payload[18]]),
+        total_values_in_unpacked_subset: u32::from_be_bytes([
+            payload[19],
+            payload[20],
+            payload[21],
+            payload[22],
+        ]),
         unpacked_subset_precision: payload[23],
     })
 }
@@ -1695,6 +1802,88 @@ mod tests {
         assert!(
             err.to_string().contains("template 5.51 needs"),
             "error names template-5.51 shortfall, got: {err}",
+        );
+    }
+
+    fn build_drs_5_53(
+        r: f32,
+        bits: u8,
+        sub_trunc: u8,
+        keepaxes: u8,
+        laplacian: i32,
+        sub: u16,
+        precision: u8,
+    ) -> Vec<u8> {
+        let mut buf: Vec<u8> = Vec::new();
+        let section_len: u32 = 35;
+        buf.extend_from_slice(&section_len.to_be_bytes());
+        buf.push(DRS_SECTION_NUMBER);
+        buf.extend_from_slice(&68u32.to_be_bytes()); // num data points
+        buf.extend_from_slice(&53u16.to_be_bytes()); // template 5.53
+        buf.extend_from_slice(&r.to_be_bytes()); // R
+        buf.extend_from_slice(&0u16.to_be_bytes()); // E = 0
+        buf.extend_from_slice(&0u16.to_be_bytes()); // D = 0
+        buf.push(bits); // bitsPerValue
+        buf.push(sub_trunc); // biFourierSubTruncationType
+        buf.push(keepaxes); // biFourierPackingModeForAxes
+        // laplacianScalingFactor: sign-magnitude `signed[4]`.
+        let laplacian_raw = if laplacian < 0 {
+            0x8000_0000u32 | laplacian.unsigned_abs()
+        } else {
+            laplacian as u32
+        };
+        buf.extend_from_slice(&laplacian_raw.to_be_bytes());
+        buf.extend_from_slice(&sub.to_be_bytes()); // NS
+        buf.extend_from_slice(&sub.to_be_bytes()); // MS
+        buf.extend_from_slice(&52u32.to_be_bytes()); // TS
+        buf.push(precision); // unpackedSubsetPrecision
+        assert_eq!(buf.len() as u32, section_len);
+        buf
+    }
+
+    #[test]
+    fn template_5_53_round_trips_synthesized_payload() {
+        let drs = parse_data_representation(&build_drs_5_53(270.5, 12, 77, 1, 1_506_732, 2, 2))
+            .expect("parse 5.53");
+        assert_eq!(drs.template_number, 53);
+        assert_eq!(drs.template_name(), "bifourier_complex");
+        let t = drs.bifourier().expect("5.53 has bi-Fourier template");
+        assert!((t.reference_value - 270.5).abs() < 1e-3);
+        assert_eq!(t.bits_per_value, 12);
+        assert_eq!(t.sub_truncation_type, 77);
+        assert_eq!(t.packing_mode_for_axes, 1);
+        assert_eq!(t.laplacian_scaling_factor, 1_506_732);
+        assert_eq!((t.sub_i, t.sub_j), (2, 2));
+        assert_eq!(t.total_values_in_unpacked_subset, 52);
+        assert_eq!(t.unpacked_subset_precision, 2);
+        assert!(drs.spectral_complex().is_none());
+        assert!(drs.simple().is_none());
+    }
+
+    #[test]
+    fn template_5_53_reads_negative_laplacian_sign_magnitude() {
+        // The Laplacian scaling factor is sign-magnitude (like 5.51), not
+        // two's-complement — a negative value must round-trip exactly.
+        let drs = parse_data_representation(&build_drs_5_53(0.0, 12, 88, 0, -250_024, 3, 1))
+            .expect("parse 5.53");
+        let t = drs.bifourier().expect("bi-Fourier template");
+        assert_eq!(t.laplacian_scaling_factor, -250_024);
+        assert_eq!(t.unpacked_subset_precision, 1);
+        assert_eq!(t.packing_mode_for_axes, 0);
+    }
+
+    #[test]
+    fn rejects_5_53_when_payload_truncated() {
+        let mut buf: Vec<u8> = Vec::new();
+        buf.extend_from_slice(&30u32.to_be_bytes());
+        buf.push(DRS_SECTION_NUMBER);
+        buf.extend_from_slice(&0u32.to_be_bytes());
+        buf.extend_from_slice(&53u16.to_be_bytes()); // template 5.53
+        buf.extend_from_slice(&[0u8; 19]); // only 19 of the 24 payload octets
+        let err = parse_data_representation(&buf).expect_err("must reject");
+        assert!(
+            err.to_string().contains("template 5.53 needs"),
+            "error names template-5.53 shortfall, got: {err}",
         );
     }
 

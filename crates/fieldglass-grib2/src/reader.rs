@@ -15,7 +15,10 @@ use crate::pds::{
     PDS_SECTION_NUMBER, ProductDefinitionSection, parse_product_definition_with_header,
 };
 use crate::section::parse_section_header;
-use crate::spectral::{SpectralCoefficients, decode_spectral_complex, decode_spectral_simple};
+use crate::spectral::{
+    BiFourierCoefficients, SpectralCoefficients, decode_bifourier, decode_spectral_complex,
+    decode_spectral_simple,
+};
 use fieldglass_core::FieldglassError;
 
 /// Hard cap on `ni · nj` for `decode_message_values`. Real grids top out
@@ -102,6 +105,15 @@ impl Grib2Reader {
             return Err(FieldglassError::UnsupportedSection(
                 "message holds spherical-harmonic coefficients (§3.50), which are not values \
                  on a grid — decode them with `Grib2Reader::decode_spectral_message`"
+                    .to_string(),
+            ));
+        }
+
+        // Bi-Fourier messages likewise carry coefficients, not a grid.
+        if msg.gds.bifourier().is_some() {
+            return Err(FieldglassError::UnsupportedSection(
+                "message holds bi-Fourier spectral coefficients (§3.61/62/63), which are not \
+                 values on a grid — decode them with `Grib2Reader::decode_bifourier_message`"
                     .to_string(),
             ));
         }
@@ -209,6 +221,48 @@ impl Grib2Reader {
                 msg.drs.template_name()
             )))
         }
+    }
+
+    /// Decode a bi-Fourier message (§3.61/62/63 + §5.53) into its spectral
+    /// coefficients.
+    ///
+    /// Like [`decode_spectral_message`](Self::decode_spectral_message), a
+    /// bi-Fourier message stores the field as spectral coefficients (four per
+    /// `(i, j)` wavenumber pair), not on a grid, so it has no `Ni`/`Nj` and
+    /// cannot go through [`decode_message_values`](Self::decode_message_values).
+    /// Recovering a grid needs an inverse bi-Fourier transform, which is not
+    /// implemented yet; what you get here is what eccodes' `grib_get_data`
+    /// prints for the same message. Errors if the message is not bi-Fourier, or
+    /// its §5 packing is not `bifourier_complex` (template 5.53).
+    pub fn decode_bifourier_message(
+        &self,
+        message_index: usize,
+    ) -> Result<BiFourierCoefficients, FieldglassError> {
+        let msg = self
+            .messages
+            .get(message_index)
+            .ok_or(FieldglassError::OutOfRange)?;
+
+        let bf = msg.gds.bifourier().ok_or_else(|| {
+            FieldglassError::UnsupportedSection(format!(
+                "message {message_index} is a {} grid, not bi-Fourier coefficients — \
+                 use `decode_message_values`",
+                msg.gds.template_name()
+            ))
+        })?;
+        let drs = msg.drs.bifourier().ok_or_else(|| {
+            FieldglassError::UnsupportedSection(format!(
+                "bi-Fourier message {message_index} uses §5 packing {} — only \
+                 bifourier_complex (5.53) decodes here",
+                msg.drs.template_name()
+            ))
+        })?;
+
+        let (ds_start, ds_end) = msg.ds_range;
+        let ds_header = parse_section_header(&self.data[ds_start..ds_end])?;
+        let ds_payload = parse_data_section_body(&self.data[ds_start..ds_end], ds_header)?;
+
+        decode_bifourier(ds_payload, drs, bf, msg.drs.num_data_points as usize)
     }
 }
 

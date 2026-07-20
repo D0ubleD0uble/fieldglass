@@ -106,6 +106,13 @@ pub fn decode_values(
                     .to_string(),
             ))
         }
+        DataRepresentationTemplate::BiFourier(_) => Err(FieldglassError::UnsupportedSection(
+            "§7 holds bi-Fourier spectral coefficients (template 5.53), which are not values \
+             on a grid — decode them with `Grib2Reader::decode_bifourier_message`. Rendering \
+             one as a 2-D field needs an inverse bi-Fourier transform, which is not \
+             implemented yet."
+                .to_string(),
+        )),
         DataRepresentationTemplate::Unsupported(n) => Err(FieldglassError::UnsupportedSection(
             format!("DRS template 5.{n} decoding is not implemented"),
         )),
