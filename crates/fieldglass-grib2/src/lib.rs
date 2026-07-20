@@ -1,16 +1,24 @@
 //! GRIB edition 2 reader.
 //!
-//! Current scope: full §0–§7 parsing for the message metadata, plus value
-//! decoding for **simple packing** (DRS template 5.0), **complex packing**
-//! (5.2 / 5.3), **IEEE floating point** (5.4), **JPEG 2000 packing** (5.40),
-//! **PNG packing** (5.41), **CCSDS / AEC packing** (5.42), **simple packing
-//! with logarithmic pre-processing** (5.61), and **run-length packing**
-//! (5.200), plus the pre-standard local image templates 5.40000 / 5.40010 (the
-//! latter one eccodes itself cannot decode). Spherical-harmonic **spectral**
-//! messages (§3.50 + §5.50 / 5.51) decode to coefficients via
-//! [`Grib2Reader::decode_spectral_message`]. Templates outside that set parse
-//! to the section level but `decode_message_values` returns
-//! [`fieldglass_core::FieldglassError::UnsupportedSection`].
+//! Full §0–§7 parsing for the message metadata, plus value decoding for **every
+//! registered §5 Data Representation template** (Code Table 5.0) — a claim no
+//! C-stack tool makes, in pure Rust with zero build flags. The scalar packings
+//! (one value per grid point) decode through
+//! [`Grib2Reader::decode_message_values`]: simple (5.0), complex with and
+//! without spatial differencing (5.2 / 5.3), IEEE floating point (5.4),
+//! JPEG 2000 (5.40), PNG (5.41), CCSDS / AEC (5.42), simple + logarithmic
+//! pre-processing (5.61), run-length (5.200), second-order (5.50001 / 5.50002),
+//! and the flat form of matrix-of-values (5.1). The non-scalar packings have
+//! their own entry points: spherical-harmonic spectral (§3.50 + 5.50 / 5.51) via
+//! [`Grib2Reader::decode_spectral_message`] — and
+//! [`Grib2Reader::synthesize_spectral_message`] runs the inverse transform back
+//! to a grid; bi-Fourier spectral (5.53) via
+//! [`Grib2Reader::decode_bifourier_message`]; and the true per-point matrix
+//! (5.1, `matrixBitmapsPresent = 1`) via
+//! [`Grib2Reader::decode_matrix_message`]. The pre-standard local image
+//! templates 5.40000 / 5.40010 decode too (the latter eccodes cannot). Value
+//! decoders are cross-checked against eccodes; for the handful eccodes cannot
+//! handle, against the definitive spec and independent implementations.
 
 #![forbid(unsafe_code)]
 

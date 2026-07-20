@@ -10,7 +10,15 @@ into a `Vec<Option<f64>>`. It implements the reader and metadata traits from
 carry the grid geometry needed for reprojection and overlays without any
 format-specific rendering code.
 
-Decoders are cross-checked against ECMWF eccodes.
+The non-gridded forms have their own entry points: spherical-harmonic **spectral**
+messages decode to coefficients (`decode_spectral_message`) and synthesize back
+onto a lat/lon grid via the shared inverse spherical-harmonic transform
+(`synthesize_spectral_message`) so they render like any other field, and true
+**matrix-of-values** messages (`matrixOfValues = 1`) decode to an `NR×NC` matrix
+per grid point (`decode_matrix_message`).
+
+Decoders are cross-checked against ECMWF eccodes; the spectral transform and the
+matrix reshape — which eccodes cannot perform — against the definitive spec.
 
 ## License
 
