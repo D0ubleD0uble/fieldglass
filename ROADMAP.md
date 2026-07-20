@@ -45,11 +45,20 @@ Where new templates, packings, and format changes are proposed and announced:
 A twice-yearly checkpoint after each WMO fast-track publication (May/June and
 November) is the natural rhythm for table regeneration and census review.
 
-## Phase 6 — Finish the GRIB2 §5 census
+## Phase 6 — Finish the GRIB2 §5 census ✅ complete (2026-07-20)
+
+**Done.** Every registered §5 Data Representation template (Code Table 5.0) now
+decodes, plus the pre-standard local templates — so Fieldglass "decodes every
+registered GRIB2 packing, pure Rust, zero build flags," the durable claim no
+C-stack tool makes. See the [GRIB2 packing modes](README.md#grib2-packing-modes)
+table for the shipped status. The table below records the census plan and the
+validation path taken for each; for the three eccodes cannot help with (it
+crashes on the true matrix, cannot synthesise spectral grids, ships no 5.40010
+definition) correctness was pinned to the definitive spec and independent
+implementations.
 
 Registered set (Code Table 5.0): 5.0–5.4, 5.40, 5.41, 5.42, 5.50, 5.51, 5.53,
-5.61, 5.200. Supported today: 5.0, 5.2, 5.3, 5.4, 5.40, 5.41, 5.42. Remaining,
-ordered by wild-data value:
+5.61, 5.200 — all now supported. The census, ordered by wild-data value:
 
 | Template | What / who uses it | Validation path |
 |---|---|---|
@@ -64,9 +73,13 @@ Out of scope: IEEE precision 3 (128-bit) — no known data; eccodes also rejects
 it. Keep the clean `UnsupportedSection` error.
 
 **Rendering spectral fields** (inverse spherical-harmonic transform → lat/lon
-grid) is the follow-on that turns 5.50/5.51 decode into something no other
-viewer offers, and the same transform unlocks 2-D rendering for GRIB1 spectral
-messages, whose coefficients already decode (`decode_spectral_message`).
+grid) — the follow-on that turns 5.50/5.51 decode into something no other viewer
+offers — **shipped too**: both GRIB1 and GRIB2 spherical-harmonic messages
+synthesize back onto a lat/lon grid and render through the normal pipeline
+(projection, overlays, contours, probe), via the shared `fieldglass-core::sht`
+engine validated against ECMWF's definitive spectral definition. Bi-Fourier
+(5.53) rendering — an inverse bi-Fourier transform — remains the one spectral
+form that decodes but does not yet render.
 
 ## Phase 7 — GRIB2 grid (§3) breadth
 
@@ -169,15 +182,14 @@ Regenerate on the twice-yearly WMO fast-track rhythm.
 
 ## Suggested sequencing
 
-1. **5.200 RLE** — real public JMA data, in-pin eccodes oracle, moderate
-   effort. Quick census win.
-2. **5.50/5.51 spectral decode**, then the **inverse spherical-harmonic
-   transform** (renders GRIB2 *and* GRIB1 spectral — a viewer first).
-3. **3.101 ICON** — ADR for out-of-band geometry first, then implementation.
-   Highest wild-data payoff in the plan.
-4. **3.150 HEALPix**, then 3.12 / 3.140 / NCEP locals.
-5. **5.53, 5.61, 5.1 + locals** — closes the census; README gains the
-   "every registered GRIB2 packing" claim.
+1. ~~**5.200 RLE**~~ — ✅ done. Real public JMA data, in-pin eccodes oracle.
+2. ~~**5.50/5.51 spectral decode**, then the **inverse spherical-harmonic
+   transform**~~ — ✅ done. Renders GRIB2 *and* GRIB1 spectral — a viewer first.
+3. ~~**5.53, 5.61, 5.1 + locals**~~ — ✅ done. **The §5 census is complete**;
+   the README carries the "decodes every registered GRIB2 packing" claim.
+4. **3.101 ICON** (next) — ADR for out-of-band geometry first, then
+   implementation. Highest wild-data payoff remaining in the plan.
+5. **3.150 HEALPix**, then 3.12 / 3.140 / NCEP locals.
 6. **NetCDF filters** (szip via existing rust-aec, zstd) and **curvilinear
    rendering** (shared with 3.204/ICON).
 7. **Phase T table generators** land incrementally alongside all of the above
