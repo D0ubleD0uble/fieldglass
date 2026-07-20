@@ -43,6 +43,15 @@ const DRS_MIN_LEN: usize = 11;
 /// Template 5.0 payload length — octets 12..=21 of the section, 10 bytes.
 const TEMPLATE_5_0_PAYLOAD_LEN: usize = 10;
 
+/// Template 5.1 fixed payload length up to (but excluding) the coordinate
+/// coefficient arrays — octets 12..=35, 24 bytes: the 9-byte common packing
+/// block (R / E / D / bits, no type octet), then matrixBitmapsPresent (1),
+/// numberOfCodedValues (4), NR (2), NC (2), the two coordinate-value-definition
+/// octets and their NC1 / NC2 counts (4), and the two physical-significance
+/// octets (2). The `coefsFirst[NC1]` / `coefsSecond[NC2]` IEEE-float arrays
+/// follow.
+const TEMPLATE_5_1_FIXED_PAYLOAD_LEN: usize = 24;
+
 /// Template 5.2 payload length — octets 12..=47 of the section, 36 bytes.
 const TEMPLATE_5_2_PAYLOAD_LEN: usize = 36;
 
@@ -136,6 +145,51 @@ pub struct SimplePackingTemplate {
     /// Type of original field values (octet 21) — WMO Code Table 5.1,
     /// `0` = floating point, `1` = integer.
     pub original_field_type: u8,
+}
+
+/// Template 5.1 — matrix values at grid point, simple packing
+/// (`grid_simple_matrix`). WMO provisions an `NR × NC` matrix at each grid
+/// point (e.g. ECMWF 2-D wave spectra); it is flagged experimental.
+///
+/// §7 is plain simple packing (`data_g2simple_packing`). When
+/// [`matrix_bitmaps_present`](Self::matrix_bitmaps_present) is `0`, §7 holds one
+/// value per grid point and the field decodes exactly like template 5.0 — the
+/// `NR`/`NC` and coordinate arrays are descriptive metadata. When it is `1`,
+/// secondary bitmaps delimit a genuine per-point matrix (the eccodes-unsupported
+/// variant); that reshape is not decoded here.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MatrixSimplePackingTemplate {
+    /// Reference value `R` (IEEE 32-bit float, octets 12–15).
+    pub reference_value: f32,
+    /// Binary scale factor `E` (sign-magnitude `i16`, octets 16–17).
+    pub binary_scale_factor: i16,
+    /// Decimal scale factor `D` (sign-magnitude `i16`, octets 18–19).
+    pub decimal_scale_factor: i16,
+    /// Number of bits used for each packed value (octet 20).
+    pub bits_per_value: u8,
+    /// Secondary (matrix) bitmaps present (octet 21). `0` = one value per grid
+    /// point (flat, like 5.0); `1` = secondary bitmaps delimit a per-point
+    /// matrix.
+    pub matrix_bitmaps_present: u8,
+    /// Number of data values encoded in §7 (octets 22–25).
+    pub number_of_coded_values: u32,
+    /// `NR` — first matrix dimension / rows (octets 26–27).
+    pub nr: u16,
+    /// `NC` — second matrix dimension / columns (octets 28–29).
+    pub nc: u16,
+    /// First-dimension coordinate-value definition (octet 30) — Code Table 5.2.
+    pub first_dim_coordinate_definition: u8,
+    /// Second-dimension coordinate-value definition (octet 32) — Code Table 5.2.
+    pub second_dim_coordinate_definition: u8,
+    /// First-dimension physical significance (octet 34) — Code Table 5.3.
+    pub first_dim_physical_significance: u8,
+    /// Second-dimension physical significance (octet 35) — Code Table 5.3.
+    pub second_dim_physical_significance: u8,
+    /// `NC1` coefficients defining the first-dimension coordinate function
+    /// (IEEE 32-bit floats, following the fixed header).
+    pub coefficients_first: Vec<f32>,
+    /// `NC2` coefficients defining the second-dimension coordinate function.
+    pub coefficients_second: Vec<f32>,
 }
 
 /// Template 5.41 — PNG packing.
@@ -601,6 +655,7 @@ pub struct SecondOrderPackingTemplate {
 #[derive(Debug, Clone, PartialEq)]
 pub enum DataRepresentationTemplate {
     Simple(SimplePackingTemplate),
+    MatrixSimple(MatrixSimplePackingTemplate),
     Complex(ComplexPackingTemplate),
     ComplexSpatialDiff(ComplexSpatialDiffTemplate),
     Ieee(IeeePackingTemplate),
@@ -634,6 +689,7 @@ impl DataRepresentationSection {
     pub fn template_name(&self) -> String {
         match &self.template {
             DataRepresentationTemplate::Simple(_) => "simple".to_string(),
+            DataRepresentationTemplate::MatrixSimple(_) => "grid_simple_matrix".to_string(),
             DataRepresentationTemplate::Complex(_) => "complex".to_string(),
             DataRepresentationTemplate::ComplexSpatialDiff(_) => "complex_spatial_diff".to_string(),
             DataRepresentationTemplate::Ieee(_) => "ieee".to_string(),
@@ -657,6 +713,15 @@ impl DataRepresentationSection {
     pub fn simple(&self) -> Option<&SimplePackingTemplate> {
         match &self.template {
             DataRepresentationTemplate::Simple(t) => Some(t),
+            _ => None,
+        }
+    }
+
+    /// Borrow the matrix-simple-packing template (5.1) if that's what the
+    /// section carries. Other templates return `None`.
+    pub fn matrix_simple(&self) -> Option<&MatrixSimplePackingTemplate> {
+        match &self.template {
+            DataRepresentationTemplate::MatrixSimple(t) => Some(t),
             _ => None,
         }
     }
@@ -809,6 +874,7 @@ pub fn parse_data_representation_with_header(
     let payload = &bytes[11..len];
     let template = match template_number {
         0 => DataRepresentationTemplate::Simple(parse_template_5_0(payload)?),
+        1 => DataRepresentationTemplate::MatrixSimple(parse_template_5_1(payload)?),
         2 => DataRepresentationTemplate::Complex(parse_template_5_2(payload)?),
         3 => DataRepresentationTemplate::ComplexSpatialDiff(parse_template_5_3(payload)?),
         4 => DataRepresentationTemplate::Ieee(parse_template_5_4(payload)?),
@@ -861,6 +927,70 @@ fn parse_template_5_0(payload: &[u8]) -> Result<SimplePackingTemplate, Fieldglas
         decimal_scale_factor,
         bits_per_value: payload[8],
         original_field_type: payload[9],
+    })
+}
+
+fn parse_template_5_1(payload: &[u8]) -> Result<MatrixSimplePackingTemplate, FieldglassError> {
+    if payload.len() < TEMPLATE_5_1_FIXED_PAYLOAD_LEN {
+        return Err(FieldglassError::Parse(format!(
+            "DRS template 5.1 needs at least {TEMPLATE_5_1_FIXED_PAYLOAD_LEN} bytes of payload, got {}",
+            payload.len()
+        )));
+    }
+    let reference_value = f32::from_be_bytes([payload[0], payload[1], payload[2], payload[3]]);
+    let binary_scale_factor = sign_magnitude_i16(u16::from_be_bytes([payload[4], payload[5]]));
+    let decimal_scale_factor = sign_magnitude_i16(u16::from_be_bytes([payload[6], payload[7]]));
+    let matrix_bitmaps_present = payload[9];
+    let number_of_coded_values =
+        u32::from_be_bytes([payload[10], payload[11], payload[12], payload[13]]);
+    let nr = u16::from_be_bytes([payload[14], payload[15]]);
+    let nc = u16::from_be_bytes([payload[16], payload[17]]);
+    let nc1 = payload[19] as usize;
+    let nc2 = payload[21] as usize;
+
+    // The coordinate-function coefficients (`coefsFirst[NC1]`, then
+    // `coefsSecond[NC2]`) are IEEE 32-bit floats immediately after the fixed
+    // header; bound their length before reading.
+    let coef_bytes = nc1
+        .checked_add(nc2)
+        .and_then(|n| n.checked_mul(4))
+        .ok_or_else(|| {
+            FieldglassError::Parse("DRS template 5.1 coefficient byte count overflows".into())
+        })?;
+    let need = TEMPLATE_5_1_FIXED_PAYLOAD_LEN + coef_bytes;
+    if payload.len() < need {
+        return Err(FieldglassError::Parse(format!(
+            "DRS template 5.1 declares NC1={nc1} + NC2={nc2} coefficients needing {need} payload \
+             bytes, got {}",
+            payload.len()
+        )));
+    }
+    let read_coefs = |start: usize, count: usize| -> Vec<f32> {
+        (0..count)
+            .map(|i| {
+                let o = start + i * 4;
+                f32::from_be_bytes([payload[o], payload[o + 1], payload[o + 2], payload[o + 3]])
+            })
+            .collect()
+    };
+    let coefficients_first = read_coefs(TEMPLATE_5_1_FIXED_PAYLOAD_LEN, nc1);
+    let coefficients_second = read_coefs(TEMPLATE_5_1_FIXED_PAYLOAD_LEN + nc1 * 4, nc2);
+
+    Ok(MatrixSimplePackingTemplate {
+        reference_value,
+        binary_scale_factor,
+        decimal_scale_factor,
+        bits_per_value: payload[8],
+        matrix_bitmaps_present,
+        number_of_coded_values,
+        nr,
+        nc,
+        first_dim_coordinate_definition: payload[18],
+        second_dim_coordinate_definition: payload[20],
+        first_dim_physical_significance: payload[22],
+        second_dim_physical_significance: payload[23],
+        coefficients_first,
+        coefficients_second,
     })
 }
 
@@ -1303,6 +1433,80 @@ mod tests {
         assert_eq!(t.bits_per_value, 16);
         assert_eq!(t.original_field_type, 0);
         assert_eq!(drs.template_name(), "simple");
+    }
+
+    fn build_drs_5_1(matrix_bitmaps: u8, nr: u16, nc: u16, nc1: u8, nc2: u8) -> Vec<u8> {
+        let mut payload: Vec<u8> = Vec::new();
+        payload.extend_from_slice(&280.0_f32.to_be_bytes()); // R
+        payload.extend_from_slice(&0u16.to_be_bytes()); // E = 0
+        payload.extend_from_slice(&0u16.to_be_bytes()); // D = 0
+        payload.push(12); // bitsPerValue
+        payload.push(matrix_bitmaps); // matrixBitmapsPresent
+        payload.extend_from_slice(&496u32.to_be_bytes()); // numberOfCodedValues
+        payload.extend_from_slice(&nr.to_be_bytes()); // NR
+        payload.extend_from_slice(&nc.to_be_bytes()); // NC
+        payload.push(0); // firstDimensionCoordinateValueDefinition
+        payload.push(nc1); // NC1
+        payload.push(0); // secondDimensionCoordinateValueDefinition
+        payload.push(nc2); // NC2
+        payload.push(0); // firstDimensionPhysicalSignificance
+        payload.push(0); // secondDimensionPhysicalSignificance
+        for i in 0..nc1 {
+            payload.extend_from_slice(&(1.0_f32 + i as f32).to_be_bytes());
+        }
+        for i in 0..nc2 {
+            payload.extend_from_slice(&(10.0_f32 + i as f32).to_be_bytes());
+        }
+
+        let section_len = (11 + payload.len()) as u32;
+        let mut buf: Vec<u8> = Vec::new();
+        buf.extend_from_slice(&section_len.to_be_bytes());
+        buf.push(DRS_SECTION_NUMBER);
+        buf.extend_from_slice(&496u32.to_be_bytes()); // num data points
+        buf.extend_from_slice(&1u16.to_be_bytes()); // template 5.1
+        buf.extend_from_slice(&payload);
+        assert_eq!(buf.len() as u32, section_len);
+        buf
+    }
+
+    #[test]
+    fn template_5_1_round_trips_with_coefficient_arrays() {
+        let drs = parse_data_representation(&build_drs_5_1(0, 2, 3, 1, 2)).expect("parse 5.1");
+        assert_eq!(drs.template_number, 1);
+        assert_eq!(drs.template_name(), "grid_simple_matrix");
+        let t = drs.matrix_simple().expect("5.1 has matrix template");
+        assert!((t.reference_value - 280.0).abs() < 1e-6);
+        assert_eq!(t.bits_per_value, 12);
+        assert_eq!(t.matrix_bitmaps_present, 0);
+        assert_eq!(t.number_of_coded_values, 496);
+        assert_eq!((t.nr, t.nc), (2, 3));
+        assert_eq!(t.coefficients_first, vec![1.0]);
+        assert_eq!(t.coefficients_second, vec![10.0, 11.0]);
+        assert!(drs.simple().is_none());
+    }
+
+    #[test]
+    fn template_5_1_reads_matrix_bitmaps_flag() {
+        let drs = parse_data_representation(&build_drs_5_1(1, 4, 5, 0, 0)).expect("parse 5.1");
+        let t = drs.matrix_simple().expect("matrix template");
+        assert_eq!(t.matrix_bitmaps_present, 1);
+        assert_eq!((t.nr, t.nc), (4, 5));
+        assert!(t.coefficients_first.is_empty());
+        assert!(t.coefficients_second.is_empty());
+    }
+
+    #[test]
+    fn rejects_5_1_when_coefficient_arrays_truncated() {
+        // Declare NC1=4 coefficients but chop the section short of them.
+        let mut buf = build_drs_5_1(0, 2, 3, 4, 0);
+        let new_len = 35u32; // fixed header (11 + 24) only, no coefficient bytes
+        buf.truncate(new_len as usize);
+        buf[0..4].copy_from_slice(&new_len.to_be_bytes());
+        let err = parse_data_representation(&buf).expect_err("must reject");
+        assert!(
+            err.to_string().contains("template 5.1"),
+            "error names template 5.1, got: {err}",
+        );
     }
 
     #[test]

@@ -451,3 +451,17 @@ The four cover the three truncation shapes (ellipse, diamond, rectangle),
 precisions (`unpackedSubsetPrecision` 2 = IEEE 64-bit, the sample default, and
 1 = IEEE 32-bit). Regenerate all four with
 `python3 tools/build_grib2_bifourier_fixtures.py`.
+
+## Matrix-of-values fixture (#306)
+
+`matrix_simple_regular_latlon.grib2` pins the flat form of the matrix-of-values
+decode (§5 template 5.1, `grid_simple_matrix`, `matrixBitmapsPresent = 0`). It is
+eccodes' `GRIB2.tmpl` sample re-encoded with `packingType = grid_simple_matrix`,
+`NR = 2`, `NC = 3`, `bitsPerValue = 12`, and a synthetic value array. Template
+5.1 is experimental and the CLI cannot set a values array, so it is encoded with
+the eccodes **Python wheel** (2.48.0); the value oracle
+`matrix_simple_regular_latlon.eccodes.ref.txt` is the value column of
+`grib_get_data` from the pinned **CLI 2.34.1**. In this flat form eccodes stores
+one simple-packed value per grid point (`numberOfCodedValues = numberOfDataPoints`,
+the `NR`/`NC` metadata not expanding the data), so the pinned CLI is a full value
+oracle. Regenerate with `python3 tools/build_grib2_matrix_fixtures.py`.
