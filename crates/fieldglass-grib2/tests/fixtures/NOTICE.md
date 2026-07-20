@@ -465,3 +465,23 @@ the eccodes **Python wheel** (2.48.0); the value oracle
 one simple-packed value per grid point (`numberOfCodedValues = numberOfDataPoints`,
 the `NR`/`NC` metadata not expanding the data), so the pinned CLI is a full value
 oracle. Regenerate with `python3 tools/build_grib2_matrix_fixtures.py`.
+
+## Spectral-render oracle (#303)
+
+`spectral_render_t63.oracle.txt` is the inverse-spherical-harmonic-transform
+oracle for the T63 field: the grid values of `spectral_simple_t63.grib2`
+synthesized onto a fixed 5° regular lat/lon grid (37 lats × 72 lons). eccodes
+**cannot** synthesize a grid from spectral coefficients (its geoiterator returns
+"not yet implemented" and re-packing to `grid_simple` fails), so — unlike every
+other fixture here — there is no eccodes oracle. Instead the field is computed
+directly from ECMWF's definitive spectral definition (the fully-normalized
+associated-Legendre recurrence and the real-field reconstruction) by
+`tools/build_grib2_spectral_render_oracle.py`, taking the committed coefficient
+oracle `spectral_simple_t63.eccodes.ref.txt` as input. The formula was
+cross-validated three ways during development: exact analytic single-coefficient
+cases (`P̄_0^0 = 1`, `P̄_1^0 = √3·μ`, `P̄_2^0 = √5·(3μ²−1)/2`), the fields those
+produce, and an independent pyshtools synthesis that reproduces this field to
+~5·10⁻⁸ once the ECMWF complex coefficients are mapped to pyshtools real
+coefficients (`m > 0` carries a `√2` complex→real factor, imaginary part negated)
+and scaled by `√(4π)`. Regenerate with
+`python3 tools/build_grib2_spectral_render_oracle.py` (needs numpy).
