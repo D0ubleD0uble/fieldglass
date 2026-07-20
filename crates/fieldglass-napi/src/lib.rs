@@ -5626,6 +5626,32 @@ mod netcdf_slice_tests {
     }
 
     #[test]
+    fn grib1_and_grib2_matrix_decodes_agree() {
+        // The same logical field (16×31, NR=1/NC=2, all-present, value k%256)
+        // encoded in both editions decodes identically through the two
+        // independent readers — a cross-edition check on the shared matrix
+        // reshape, the closest thing to an oracle for a variant eccodes crashes
+        // on.
+        let g1 = Grib1Reader::from_bytes(
+            include_bytes!("../../fieldglass-grib1/tests/fixtures/hand_matrix_of_values.grib1")
+                .to_vec(),
+        )
+        .expect("grib1 parse");
+        let g2 = Grib2Reader::from_bytes(
+            include_bytes!("../../fieldglass-grib2/tests/fixtures/matrix_reshape_16x31.grib2")
+                .to_vec(),
+        )
+        .expect("grib2 parse");
+        let f1 = g1.decode_matrix_message(0).expect("grib1 matrix decode");
+        let f2 = g2.decode_matrix_message(0).expect("grib2 matrix decode");
+        assert_eq!((f1.ni, f1.nj, f1.nr, f1.nc), (f2.ni, f2.nj, f2.nr, f2.nc));
+        assert_eq!(
+            f1.values, f2.values,
+            "GRIB1 and GRIB2 matrix decodes of the same field agree"
+        );
+    }
+
+    #[test]
     fn grib1_spectral_message_renders_via_synthesis() {
         // GRIB1 spherical-harmonic messages render through the same inverse
         // transform as GRIB2 (shared core engine). T63 → 256×128.

@@ -21,6 +21,7 @@ pub mod gds;
 pub mod ids;
 pub mod is;
 pub mod lus;
+pub mod matrix;
 pub mod pds;
 pub mod reader;
 pub mod section;
@@ -52,7 +53,7 @@ pub use pds::{
     ProductTemplate, StatisticalProcessing, Template40, Template48, Template411, TimeRangeSpec,
     parse_product_definition,
 };
-pub use reader::{Grib2Message, Grib2Reader};
+pub use reader::{Grib2Message, Grib2Reader, MatrixField};
 pub use section::{SECTION_HEADER_LEN, SectionHeader, parse_section_header};
 pub use spectral::{SpectralCoefficients, decode_spectral_complex, decode_spectral_simple};
 pub use tables::{

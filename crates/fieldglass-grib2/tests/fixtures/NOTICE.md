@@ -466,6 +466,19 @@ one simple-packed value per grid point (`numberOfCodedValues = numberOfDataPoint
 the `NR`/`NC` metadata not expanding the data), so the pinned CLI is a full value
 oracle. Regenerate with `python3 tools/build_grib2_matrix_fixtures.py`.
 
+`matrix_reshape_16x31.grib2` pins the **true** matrix form (`matrixBitmapsPresent
+= 1`): an `NR×NC` matrix at each grid point delimited by secondary bitmaps. Stock
+eccodes cannot represent this — it divides by zero and **crashes** — so there is
+no eccodes oracle. The fixture is hand-assembled by
+`tools/build_grib2_matrix_reshape_fixture.py` (byte-editing an eccodes
+`matrixBitmapsPresent = 0` skeleton, independently of the Rust decoder) to encode
+the **same logical field** as the GRIB1 `hand_matrix_of_values.grib1` fixture: a
+16×31 grid, NR=1/NC=2, all cells present, 8-bit, coded byte k = k % 256, so the
+decoded value at flat index k is k % 256. That is both a hand-computable oracle
+and a cross-edition check — the independently validated GRIB1 matrix decoder
+produces the identical field. Regenerate with
+`python3 tools/build_grib2_matrix_reshape_fixture.py`.
+
 ## Spectral-render oracle (#303)
 
 `spectral_render_t63.oracle.txt` is the inverse-spherical-harmonic-transform
