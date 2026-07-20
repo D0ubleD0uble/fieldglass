@@ -30,6 +30,7 @@ pub mod metadata;
 pub mod overlay;
 pub mod projection;
 pub mod reader;
+pub mod sht;
 #[cfg(feature = "render")]
 pub mod warp;
 

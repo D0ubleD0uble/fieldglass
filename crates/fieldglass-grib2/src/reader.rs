@@ -223,6 +223,32 @@ impl Grib2Reader {
         }
     }
 
+    /// Synthesize a spherical-harmonic message onto a regular lat/lon grid via
+    /// the inverse spherical-harmonic transform.
+    ///
+    /// Decodes the coefficients (see
+    /// [`decode_spectral_message`](Self::decode_spectral_message)) and evaluates
+    /// the field at every `(latitude, longitude)` in `latitudes_deg` ×
+    /// `longitudes_deg`, returning `latitudes_deg.len() · longitudes_deg.len()`
+    /// values in latitude-major scan order. This is the transform no other tool
+    /// in the ecosystem performs, letting a spectral message be turned back into
+    /// a grid for rendering. The numerics are validated against ECMWF's
+    /// definitive spectral definition (see [`fieldglass_core::sht`]).
+    pub fn synthesize_spectral_message(
+        &self,
+        message_index: usize,
+        latitudes_deg: &[f64],
+        longitudes_deg: &[f64],
+    ) -> Result<Vec<f64>, FieldglassError> {
+        let coeffs = self.decode_spectral_message(message_index)?;
+        fieldglass_core::sht::synthesize_spherical_harmonic(
+            &coeffs.coefficients,
+            coeffs.j,
+            latitudes_deg,
+            longitudes_deg,
+        )
+    }
+
     /// Decode a bi-Fourier message (§3.61/62/63 + §5.53) into its spectral
     /// coefficients.
     ///
