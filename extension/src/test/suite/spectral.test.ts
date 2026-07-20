@@ -69,3 +69,49 @@ suite("GRIB1 spectral editor opens", () => {
     });
   }
 });
+
+suite("GRIB2 spectral editor opens", () => {
+  let api: FieldglassApi;
+  let provider: FieldglassEditorProvider;
+
+  suiteSetup(async () => {
+    api = await activateExtension();
+    provider = api.provider;
+  });
+
+  // GRIB2 spherical-harmonic messages (§3.50 + §5.50/5.51) carry coefficients,
+  // not a grid, so they have no Ni/Nj. Opening one must not crash the editor —
+  // the regression class from #288 (a grid-less message reaching an
+  // `undefined.toFixed()` through a napi `Option` field that JS sees as
+  // `undefined`, not `null`). This is the Electron half of #302.
+  for (const fixture of ["spectral_simple_t63.grib2", "spectral_complex_t63.grib2"]) {
+    test(`resolveCustomEditor populates the table for ${fixture}`, async () => {
+      const uri = copyFixtureToTmp(fixture);
+      const doc = (await provider.openCustomDocument(
+        uri,
+        {} as vscode.CustomDocumentOpenContext,
+        new vscode.CancellationTokenSource().token,
+      )) as FieldglassDocument;
+
+      const panel = vscode.window.createWebviewPanel(
+        "fieldglass.viewer",
+        fixture,
+        vscode.ViewColumn.One,
+        {},
+      );
+      try {
+        // Must not throw ("editor could not be opened due to an unexpected error").
+        await provider.resolveCustomEditor(doc, panel);
+        const html = panel.webview.html;
+        assert.ok(html.length > 0, "webview html should be populated");
+        assert.ok(
+          html.includes("Spectral"),
+          "message table should show the spectral packing label",
+        );
+        assert.ok(html.includes("Temperature"), "message row should render");
+      } finally {
+        panel.dispose();
+      }
+    });
+  }
+});
