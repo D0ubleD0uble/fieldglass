@@ -109,6 +109,17 @@ suite("GRIB2 spectral editor opens", () => {
           "message table should show the spectral packing label",
         );
         assert.ok(html.includes("Temperature"), "message row should render");
+        // A spectral message has no grid, but the inverse-transform synthesis
+        // (#303) makes it renderable — the table must offer Render, not the
+        // "grid dimensions unknown" fallback.
+        assert.ok(
+          html.includes('class="render-btn"'),
+          "spectral message offers a Render button",
+        );
+        assert.ok(
+          !html.includes("Render not available"),
+          "spectral message is not marked unrenderable",
+        );
       } finally {
         panel.dispose();
       }

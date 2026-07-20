@@ -1634,6 +1634,17 @@ impl Grib2Handle {
         message_index: u32,
         options: RenderOptions,
     ) -> napi::Result<RenderedGrid> {
+        // Spherical-harmonic messages have no grid: synthesize one via the
+        // inverse transform, then render it as a regular lat/lon field.
+        if let Some(truncation) = self
+            .reader
+            .messages
+            .get(message_index as usize)
+            .and_then(|m| m.gds.spherical_harmonic())
+            .map(|sh| sh.j)
+        {
+            return self.render_spectral(message_index, truncation, &options);
+        }
         let meta = self.message_meta(message_index)?;
         let raw = self.cached_decode(message_index)?;
         render_with_options(&meta, raw.as_ref(), &options)
@@ -1731,6 +1742,34 @@ impl Grib2Handle {
             .ok_or_else(|| {
                 napi::Error::from_reason(format!("message index {message_index} out of range"))
             })
+    }
+
+    /// Render a spherical-harmonic message by synthesizing it onto a global
+    /// regular lat/lon grid (via the inverse transform) and painting that grid
+    /// through the normal pipeline. The synthesis resolution scales with the
+    /// truncation `T` but is capped for large `T`.
+    fn render_spectral(
+        &self,
+        message_index: u32,
+        truncation: u32,
+        options: &RenderOptions,
+    ) -> napi::Result<RenderedGrid> {
+        let (ni, nj) = spectral_render_dims(truncation);
+        // Latitudes 90..-90 (pole to pole), longitudes 0..360−Δ (global, no
+        // duplicated wrap column), matching lat_first/lat_last/lon_first/lon_last.
+        let lats: Vec<f64> = (0..nj)
+            .map(|i| 90.0 - (i as f64) * 180.0 / (nj as f64 - 1.0))
+            .collect();
+        let lons: Vec<f64> = (0..ni).map(|j| (j as f64) * 360.0 / ni as f64).collect();
+        let values = self
+            .reader
+            .synthesize_spectral_message(message_index as usize, &lats, &lons)
+            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        let raw: Vec<Option<f64>> = values.into_iter().map(Some).collect();
+        // Safe: `render_grid` only calls this after confirming the index resolves.
+        let msg = &self.reader.messages[message_index as usize];
+        let meta = spectral_render_meta(msg, ni as i32, nj as i32, *lons.last().unwrap());
+        render_with_options(&meta, &raw, options)
     }
 
     fn cached_decode(&self, message_index: u32) -> napi::Result<std::sync::Arc<Vec<Option<f64>>>> {
@@ -2463,6 +2502,38 @@ fn base_netcdf_meta(name: &str, units: &str, ni: i32, nj: i32) -> MessageMeta {
         packing: None,
         reprojectable: false,
         j_scans_positive: None,
+    }
+}
+
+/// Choose the global regular lat/lon grid to synthesize a spectral field onto.
+/// Resolution scales with the truncation `T` (≈ two grid points per wavenumber)
+/// but is capped so a large-`T` field cannot demand an enormous raster: at most
+/// 361 latitudes × 720 longitudes (0.5°).
+fn spectral_render_dims(truncation: u32) -> (usize, usize) {
+    let nj = (2 * (truncation as usize + 1)).clamp(4, 361);
+    let ni = (2 * nj).min(720);
+    (ni, nj)
+}
+
+/// Build the `"latlon"` [`MessageMeta`] for a synthesized spectral field: the
+/// real message's parameter/level/time metadata with the grid geometry replaced
+/// by the global regular lat/lon grid the field was synthesized onto.
+fn spectral_render_meta(
+    msg: &fieldglass_grib2::Grib2Message,
+    ni: i32,
+    nj: i32,
+    lon_last: f64,
+) -> MessageMeta {
+    MessageMeta {
+        grid_type: Some("latlon".to_string()),
+        grid_ni: Some(ni),
+        grid_nj: Some(nj),
+        lat_first: Some(90.0),
+        lon_first: Some(0.0),
+        lat_last: Some(-90.0),
+        lon_last: Some(lon_last),
+        reprojectable: true,
+        ..build_grib2_message_meta(msg)
     }
 }
 
@@ -5500,6 +5571,38 @@ mod netcdf_slice_tests {
             view,
             decoded: Mutex::new(std::collections::HashMap::new()),
         }
+    }
+
+    const SPECTRAL_T63: &[u8] =
+        include_bytes!("../../fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2");
+
+    fn grib2_handle(bytes: &[u8]) -> Grib2Handle {
+        Grib2Handle {
+            reader: Grib2Reader::from_bytes(bytes.to_vec()).unwrap(),
+            decoded: Mutex::new(std::collections::HashMap::new()),
+        }
+    }
+
+    #[test]
+    fn spectral_message_renders_via_synthesis() {
+        // A spherical-harmonic message has no grid; render_grid must synthesize
+        // one via the inverse transform and paint it. T63 → 256×128 grid.
+        let h = grib2_handle(SPECTRAL_T63);
+        let g = h.render_grid(0, opts("source")).expect("spectral renders");
+        assert_eq!((g.width, g.height), (256, 128));
+        assert_eq!(g.rgba.len(), (g.width * g.height * 4) as usize);
+        // The synthesized field is a realistic ~281 K temperature field.
+        assert!(
+            g.used_min > 200.0 && g.used_max < 350.0,
+            "spectral field range {}..{} K",
+            g.used_min,
+            g.used_max
+        );
+        // The synthesized global lat/lon grid also reprojects.
+        let w = h
+            .render_grid(0, opts("equirectangular"))
+            .expect("spectral reprojects");
+        assert!(w.width > 0 && w.height > 0);
     }
 
     fn opts(projection: &str) -> RenderOptions {
