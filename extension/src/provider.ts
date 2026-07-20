@@ -22,7 +22,12 @@ import {
   type OverlayGeometry,
   type VectorLayer,
 } from "./overlay";
-import { renderImagePanelHtml, type SlicePanelData, type SliceSpec } from "./render-panel";
+import {
+  renderImagePanelHtml,
+  sanitizePngName,
+  type SlicePanelData,
+  type SliceSpec,
+} from "./render-panel";
 
 const FORMAT_LABELS: Record<string, string> = {
   grib1: "GRIB Edition 1",
@@ -473,6 +478,47 @@ export class FieldglassEditorProvider
     }
 
     await this.saveCsv(csv);
+  }
+
+  /** Save a PNG the render panel composited (#243). The webview sends a
+   *  `data:image/png;base64,…` URL and a suggested name; we validate both,
+   *  decode the image, and write it where the user picks. */
+  public async handleExportPng(
+    document: FieldglassDocument,
+    msg: { dataUrl?: unknown; defaultName?: unknown }
+  ): Promise<void> {
+    const prefix = "data:image/png;base64,";
+    if (typeof msg.dataUrl !== "string" || !msg.dataUrl.startsWith(prefix)) {
+      void vscode.window.showErrorMessage(
+        "Fieldglass: PNG export produced no image (render the field first)."
+      );
+      return;
+    }
+    let buffer: Buffer;
+    try {
+      buffer = Buffer.from(msg.dataUrl.slice(prefix.length), "base64");
+    } catch {
+      void vscode.window.showErrorMessage("Fieldglass: could not decode the exported image.");
+      return;
+    }
+    const name = sanitizePngName(
+      typeof msg.defaultName === "string" ? msg.defaultName : "render.png"
+    );
+    const dest = await vscode.window.showSaveDialog({
+      defaultUri: vscode.Uri.joinPath(document.uri, "..", name),
+      filters: { "PNG image": ["png"] },
+      saveLabel: "Export PNG",
+    });
+    if (!dest) return;
+    try {
+      await vscode.workspace.fs.writeFile(dest, buffer);
+    } catch (err) {
+      void vscode.window.showErrorMessage(
+        `Fieldglass: could not write PNG: ${err instanceof Error ? err.message : err}`
+      );
+      return;
+    }
+    void vscode.window.showInformationMessage(`Fieldglass: exported PNG to ${dest.fsPath}`);
   }
 
   /**
@@ -1082,6 +1128,12 @@ export class FieldglassEditorProvider
           ) {
             void this.handleExportSliceCsv(document, spec);
           }
+        }
+        if (m.type === "exportPng") {
+          void this.handleExportPng(
+            document,
+            m as { dataUrl?: unknown; defaultName?: unknown },
+          );
         }
       },
     );

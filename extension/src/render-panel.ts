@@ -161,6 +161,18 @@ ${compareOpSelectHtml()}
 `;
 }
 
+/** Reduce an export filename to a safe basename ending in `.png`: strip any
+ *  path, keep only `[A-Za-z0-9._-]`, and default to `render.png` when nothing
+ *  usable remains. Shared by the panel (default name) and the provider (final
+ *  name before writing), so a hostile webview string can't steer the write. */
+export function sanitizePngName(name: string): string {
+  const base = (name.split(/[\\/]/).pop() ?? "").replace(/\.png$/i, "");
+  const cleaned = base
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/^[-.]+|[-.]+$/g, "");
+  return `${(cleaned || "render").toLowerCase()}.png`;
+}
+
 export function renderImagePanelHtml(
   webview: vscode.Webview,
   meta: MessageMeta,
@@ -189,6 +201,11 @@ export function renderImagePanelHtml(
     : meta.levelType;
   const subLine = [levelDescription, meta.referenceTime, meta.forecastDisplay]
     .filter((s) => !!s).join(" · ");
+  // A sensible default filename for the PNG export (#243), from the parameter
+  // and message index; the provider sanitises it again before writing.
+  const defaultPngName = sanitizePngName(
+    `${meta.parameterName ? meta.parameterName + "-" : ""}message-${meta.messageIndex}.png`,
+  );
 
   const script = `
     <script nonce="${cspNonce}">
@@ -214,6 +231,10 @@ export function renderImagePanelHtml(
         const SLICE = ${slice ? sliceJson(slice) : "null"};
         // The field's units, for the point-probe readout (#172).
         const UNITS = ${JSON.stringify(meta.parameterUnits || "")};
+        // Title / subtitle / default filename for the PNG export (#243).
+        const TITLE_LINE = ${JSON.stringify(titleLine)};
+        const SUB_LINE = ${JSON.stringify(subLine)};
+        const DEFAULT_PNG_NAME = ${JSON.stringify(defaultPngName)};
         let sliceState = SLICE ? Object.assign({}, SLICE.initial, {
           sliceIndices: SLICE.initial.sliceIndices.slice(),
         }) : null;
@@ -971,6 +992,80 @@ export function renderImagePanelHtml(
           strip.setAttribute('aria-label', entry.label + (reversed ? ' (reversed)' : '') + ' colormap');
         }
 
+        // Export the current render as a PNG (#243): composite the raster and
+        // overlay canvases at the raster's native resolution, then draw the
+        // colorbar and title/subtitle beside/above it, and hand the data URL to
+        // the host to save. The map is pixel-exact (canvas drawImage); the
+        // colorbar and title are redrawn (their on-screen form is DOM/CSS).
+        function exportPng() {
+          if (!lastPayload || !lastPayload.width) {
+            setStatus('Render the field before exporting a PNG.');
+            return;
+          }
+          const raster = document.getElementById('canvas');
+          const overlay = document.getElementById('overlay');
+          if (!raster) { setStatus('Export failed: no image.'); return; }
+          const W = lastPayload.width, H = lastPayload.height;
+          const margin = 14, titleH = SUB_LINE ? 46 : 30, gap = 16, cbW = 18, labelW = 64;
+          const outW = margin + W + gap + cbW + labelW + margin;
+          const outH = margin + titleH + H + margin;
+          const out = document.createElement('canvas');
+          out.width = outW; out.height = outH;
+          const g = out.getContext('2d');
+          if (!g) { setStatus('Export failed: no canvas context.'); return; }
+          g.fillStyle = '#ffffff';
+          g.fillRect(0, 0, outW, outH);
+          // Title + subtitle.
+          g.fillStyle = '#111111';
+          g.textBaseline = 'alphabetic';
+          g.textAlign = 'left';
+          g.font = '600 18px sans-serif';
+          g.fillText(TITLE_LINE, margin, margin + 18);
+          if (SUB_LINE) {
+            g.font = '12px sans-serif';
+            g.fillStyle = '#555555';
+            g.fillText(SUB_LINE, margin, margin + 36);
+          }
+          // Map: raster at native resolution, overlay scaled to align on top.
+          const mapY = margin + titleH;
+          g.drawImage(raster, margin, mapY, W, H);
+          if (overlay && overlay.width && overlay.height) {
+            g.drawImage(overlay, margin, mapY, W, H);
+          }
+          // Colorbar: gradient (bottom = min, top = max) + min/mid/max labels.
+          try {
+            const name = (document.getElementById('picker-colormap') || {}).value;
+            const entry = COLORMAPS.find((c) => c.name === name) || COLORMAPS[0];
+            if (entry) {
+              const rev = !!(document.getElementById('reverse-colormap')
+                && document.getElementById('reverse-colormap').checked);
+              const stops = rev ? entry.stops.slice().reverse() : entry.stops;
+              const cbX = margin + W + gap;
+              const grad = g.createLinearGradient(0, mapY + H, 0, mapY);
+              stops.forEach((c, i) => grad.addColorStop(stops.length > 1 ? i / (stops.length - 1) : 0, c));
+              g.fillStyle = grad;
+              g.fillRect(cbX, mapY, cbW, H);
+              g.strokeStyle = '#888888';
+              g.strokeRect(cbX, mapY, cbW, H);
+              g.fillStyle = '#111111';
+              g.font = '11px sans-serif';
+              const lx = cbX + cbW + 5;
+              const mid = (lastPayload.usedMin + lastPayload.usedMax) / 2;
+              g.textBaseline = 'top';
+              g.fillText(Number(lastPayload.usedMax).toPrecision(4), lx, mapY);
+              g.textBaseline = 'middle';
+              g.fillText(Number(mid).toPrecision(4), lx, mapY + H / 2);
+              g.textBaseline = 'bottom';
+              g.fillText(Number(lastPayload.usedMin).toPrecision(4), lx, mapY + H);
+            }
+          } catch (e) {
+            // The colorbar is best-effort; the map still exports without it.
+          }
+          const dataUrl = out.toDataURL('image/png');
+          vscode.postMessage({ type: 'exportPng', dataUrl: dataUrl, defaultName: DEFAULT_PNG_NAME });
+          setStatus('Exporting PNG…');
+        }
+
         function syncProjectionControls() {
           const projection = (document.getElementById('picker-projection') || {}).value || 'source';
           const ortho = document.getElementById('preset-ortho');
@@ -1291,6 +1386,10 @@ export function renderImagePanelHtml(
               vscode.postMessage(Object.assign({ type: 'exportSliceCsv' }, sliceFields()));
             });
           }
+          const exportPngBtn = document.getElementById('export-png');
+          if (exportPngBtn) {
+            exportPngBtn.addEventListener('click', exportPng);
+          }
         }
 
         window.addEventListener('message', (event) => {
@@ -1489,6 +1588,9 @@ export function renderImagePanelHtml(
   <div class="subtitle">${escapeHtml(subLine)}</div>
   <div class="projection" id="projection-summary">${escapeHtml(projectionSummary)}</div>
   <div class="toolbar" role="toolbar" aria-label="Render settings">
+    <div class="toolbar-row">
+      <button type="button" id="export-png">Export PNG…</button>
+    </div>
 ${slice
     ? `    <div class="toolbar-row" id="slice-row">
       <label>Variable <select id="slice-variable"></select></label>
