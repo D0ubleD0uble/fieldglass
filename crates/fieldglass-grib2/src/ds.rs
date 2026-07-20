@@ -73,13 +73,12 @@ pub fn decode_values(
             if t.matrix_bitmaps_present != 0 {
                 // A genuine per-point NR×NC matrix delimited by secondary
                 // bitmaps is not one value per grid point, so it cannot satisfy
-                // this scalar contract. eccodes cannot decode this variant
-                // either (its accessor asserts out), so there is no oracle; it
-                // is left for a dedicated matrix entry point.
+                // this scalar contract — decode it with
+                // `Grib2Reader::decode_matrix_message`.
                 return Err(FieldglassError::UnsupportedSection(format!(
                     "§7 is a grid_simple_matrix field with matrixBitmapsPresent=1 (NR={}, NC={}): \
-                     a per-grid-point {}×{} matrix delimited by secondary bitmaps is not a single \
-                     2-D field, and is not decoded yet.",
+                     a per-grid-point {}×{} matrix is not a single 2-D field — decode it via \
+                     `Grib2Reader::decode_matrix_message`.",
                     t.nr, t.nc, t.nr, t.nc
                 )));
             }

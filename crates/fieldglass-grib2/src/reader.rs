@@ -56,6 +56,25 @@ pub struct Grib2Message {
     pub ds_range: (usize, usize),
 }
 
+/// A decoded `grid_simple_matrix` field (template 5.1, `matrixBitmapsPresent =
+/// 1`): an `NR × NC` matrix at every grid point. `values` is `ni·nj·nr·nc` long,
+/// grid-point major (scan order) with each point's `nr·nc` matrix cells stored
+/// consecutively; `None` marks a bitmap-masked cell or absent grid point.
+/// Mirrors GRIB1's `MatrixField`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MatrixField {
+    /// Grid width `Ni`.
+    pub ni: usize,
+    /// Grid height `Nj`.
+    pub nj: usize,
+    /// First matrix dimension.
+    pub nr: usize,
+    /// Second matrix dimension.
+    pub nc: usize,
+    /// Flattened matrix values — see the type docs for the layout.
+    pub values: Vec<Option<f64>>,
+}
+
 /// Top-level reader for a GRIB2 file. Owns the underlying bytes and a
 /// per-message metadata vector populated by [`Grib2Reader::from_bytes`].
 pub struct Grib2Reader {
@@ -176,6 +195,83 @@ impl Grib2Reader {
         // for every other template and for 5.50001.
         undo_second_order_boustrophedonic(&mut values, &msg.drs.template, ni as usize);
         Ok(values)
+    }
+
+    /// Decode a `grid_simple_matrix` message (template 5.1) that carries an
+    /// `NR × NC` matrix at every grid point (`matrixBitmapsPresent = 1`).
+    ///
+    /// Returns a [`MatrixField`] whose `values` is `Ni·Nj·NR·NC` long, grid-point
+    /// major with each point's `NR·NC` matrix cells consecutive; `None` marks a
+    /// bitmap-masked cell or absent grid point. Use
+    /// [`decode_message_values`](Self::decode_message_values) for the flat
+    /// `matrixBitmapsPresent = 0` form — this errors on it. eccodes cannot decode
+    /// this variant (it crashes), so it follows the GRIBEX interpretation the
+    /// GRIB1 matrix path uses; see [`crate::matrix`].
+    pub fn decode_matrix_message(
+        &self,
+        message_index: usize,
+    ) -> Result<MatrixField, FieldglassError> {
+        let msg = self
+            .messages
+            .get(message_index)
+            .ok_or(FieldglassError::OutOfRange)?;
+        let t = msg.drs.matrix_simple().ok_or_else(|| {
+            FieldglassError::UnsupportedSection(format!(
+                "message {message_index} uses §5 packing {}, not grid_simple_matrix (5.1)",
+                msg.drs.template_name()
+            ))
+        })?;
+        if t.matrix_bitmaps_present == 0 {
+            return Err(FieldglassError::UnsupportedSection(
+                "grid_simple_matrix message has matrixBitmapsPresent = 0 (a scalar field); \
+                 decode it with `decode_message_values`, not as a matrix."
+                    .to_string(),
+            ));
+        }
+
+        let (ni, nj) = msg.gds.dimensions().ok_or_else(|| {
+            FieldglassError::Parse("matrix message has no declared grid dimensions".to_string())
+        })?;
+        let expected_count = (ni as usize).checked_mul(nj as usize).ok_or_else(|| {
+            FieldglassError::Parse(format!("grid dimensions {ni}×{nj} overflow usize"))
+        })?;
+        if expected_count > MAX_GRID_POINTS {
+            return Err(FieldglassError::Parse(format!(
+                "grid {ni}×{nj} = {expected_count} points exceeds cap of {MAX_GRID_POINTS}"
+            )));
+        }
+        // Keep the ni×nj geometry and the GDS-declared point count in agreement,
+        // like the scalar path — a corrupted ni/nj naming a huge grid unbacked by
+        // data is rejected here rather than driving a large allocation.
+        if expected_count != msg.gds.num_data_points as usize {
+            return Err(FieldglassError::Parse(format!(
+                "grid dimensions {ni}×{nj} = {expected_count} points disagree with the \
+                 GDS-declared {} data points",
+                msg.gds.num_data_points
+            )));
+        }
+
+        let (bms_start, bms_end) = msg.bms_range;
+        let bms_header = parse_section_header(&self.data[bms_start..bms_end])?;
+        let bms =
+            parse_bit_map_with_header(&self.data[bms_start..bms_end], bms_header, expected_count)?;
+        let bitmap = if bms.has_inline_bitmap() {
+            Some(bms.bitmap.as_slice())
+        } else {
+            None
+        };
+
+        let (ds_start, ds_end) = msg.ds_range;
+        let ds_header = parse_section_header(&self.data[ds_start..ds_end])?;
+        let ds_payload = parse_data_section_body(&self.data[ds_start..ds_end], ds_header)?;
+        let values = crate::matrix::decode_matrix_of_values(ds_payload, t, bitmap, expected_count)?;
+        Ok(MatrixField {
+            ni: ni as usize,
+            nj: nj as usize,
+            nr: t.nr as usize,
+            nc: t.nc as usize,
+            values,
+        })
     }
 
     /// Decode a spherical-harmonic message (§3.50 + §5.50) into its spectral

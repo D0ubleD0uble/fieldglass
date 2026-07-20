@@ -25,6 +25,7 @@ pub mod contour;
 pub mod csv;
 pub mod detect;
 pub mod error;
+pub mod matrix;
 pub mod metadata;
 #[cfg(feature = "render")]
 pub mod overlay;
