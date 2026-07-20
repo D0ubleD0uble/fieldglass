@@ -88,6 +88,8 @@ fn assert_message_matches(
                 GridTemplate::SpaceView(t) => check_u64(key, expected, t.shape_of_earth as u64),
                 // Spherical harmonics carry no earth shape (not a projected grid).
                 GridTemplate::SphericalHarmonic(_) => true,
+                // Bi-Fourier coefficients likewise carry no earth shape.
+                GridTemplate::BiFourier(_) => true,
                 GridTemplate::Unsupported(_) => true, // can't check
             },
             "numberOfDataPoints" => check_u64(key, expected, msg.gds.num_data_points as u64),

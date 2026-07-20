@@ -423,3 +423,31 @@ verbatim; ECMWF ships it under the Apache License 2.0. Its coefficient oracle
 and the `.eccodes.ref.json` snapshot is 2.34.1. The §7 has two parts — an
 unpacked IEEE-float sub-truncation and a Laplacian-rescaled simple-packed
 remainder — so this fixture exercises the whole `decode_spectral_complex` path.
+
+## Bi-Fourier packing fixtures (#304)
+
+`bifourier_ellipse_keepaxes.grib2`, `bifourier_diamond_no_axes.grib2`,
+`bifourier_rectangle_keepaxes.grib2`, and `bifourier_ellipse_ieee32.grib2` pin
+the bi-Fourier spectral decode (§3 template 3.63 `lambert_bf` + §5 template
+5.53 `bifourier_complex`) — the ACCORD/ALADIN/AROME limited-area form. They are
+**round-trips**: bi-Fourier has no public data and the eccodes CLI cannot set a
+coefficient array, so each is built by
+`tools/build_grib2_bifourier_fixtures.py` from eccodes' own
+`lambert_bf_grib2.tmpl` sample (Apache License 2.0) with a chosen truncation
+geometry and a synthetic coefficient array.
+
+Encoder/oracle version split (as for the second-order fixtures, see #307):
+
+- **Encoded** with the eccodes **Python wheel** (libeccodes **2.48.0**), because
+  only the array-set API (`codes_set_values`) can install the coefficient
+  array; the CLI has no equivalent.
+- **Value oracle** `<name>.eccodes.ref.txt` is `grib_get_data <f> | tail -n +2`
+  from the **pinned CLI eccodes 2.34.1**, which decodes the wheel-encoded bytes.
+  Bi-Fourier's only known decode fix (ECC-1207, empty non-packed truncation) was
+  fixed in 2.21.0, before the 2.34.1 pin, so the pin is a valid value oracle.
+
+The four cover the three truncation shapes (ellipse, diamond, rectangle),
+`biFourierPackingModeForAxes` both set and clear, and both unpacked-subset float
+precisions (`unpackedSubsetPrecision` 2 = IEEE 64-bit, the sample default, and
+1 = IEEE 32-bit). Regenerate all four with
+`python3 tools/build_grib2_bifourier_fixtures.py`.

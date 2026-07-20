@@ -233,6 +233,7 @@ fn friendly_packing(label: &str) -> String {
         "grid_run_length" | "run_length" => "Run-length",
         "grid_simple_log_preprocessing" | "simple_log_preprocessing" => "Simple packing (log)",
         "spectral_simple" | "spectral_complex" => "Spectral (spherical harmonic)",
+        "bifourier_complex" => "Bi-Fourier (spectral)",
         "grid_simple_matrix" => "Matrix of values",
         "second_order" => "Second-order",
         "grid_second_order" => "Second-order (SPD-2)",
@@ -5229,6 +5230,10 @@ mod friendly_packing_tests {
         assert_eq!(
             friendly_packing("spectral_complex"),
             "Spectral (spherical harmonic)"
+        );
+        assert_eq!(
+            friendly_packing("bifourier_complex"),
+            "Bi-Fourier (spectral)"
         );
         assert_eq!(friendly_packing("grid_simple_matrix"), "Matrix of values");
         assert_eq!(

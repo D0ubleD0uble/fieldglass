@@ -314,6 +314,35 @@ pub struct SphericalHarmonicTemplate {
     pub spectral_mode: u8,
 }
 
+/// Templates 3.61 / 3.62 / 3.63 — bi-Fourier spectral coefficients for
+/// limited-area (ACCORD / ALADIN / AROME) spectral models, on a Mercator
+/// (3.61), polar-stereographic (3.62), or Lambert (3.63) modelling subdomain.
+///
+/// Not a grid: like spherical harmonics (3.50) the message carries spectral
+/// coefficients — here 4-tuples per bi-Fourier `(i, j)` wavenumber pair —
+/// truncated at the resolution `(N, M)`, so there is no `Ni`/`Nj` and no corner
+/// coordinates. Only the four leading fields shared by all three templates (the
+/// `template.3.bf.def` head) are parsed; the projection tail that follows is not
+/// needed to decode the coefficients (§5.53), which is the only thing this
+/// template exists to support today (there is no inverse bi-Fourier transform to
+/// render the field). The three template numbers differ only in that discarded
+/// projection tail, so they share one parsed representation.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BiFourierTemplate {
+    /// Spectral data representation type (octet 15) — Code Table 3.6.
+    pub spectral_type: u8,
+    /// `N` — bi-Fourier resolution parameter in the `i` (zonal) direction
+    /// (octets 16–19), the `bif_i` of eccodes' `DataG2BifourierPacking`.
+    pub bif_i: u32,
+    /// `M` — bi-Fourier resolution parameter in the `j` (meridional) direction
+    /// (octets 20–23), the `bif_j` of eccodes' `DataG2BifourierPacking`.
+    pub bif_j: u32,
+    /// Type of bi-Fourier truncation (octet 24) — Code Table 3.25
+    /// (`77` = rectangle, `88` = ellipse, `99` = diamond). Drives the
+    /// coefficient traversal shape.
+    pub truncation_type: u8,
+}
+
 /// Parsed template payload. Templates outside the supported set surface as
 /// `Unsupported` so callers can still expose section-header fields and a
 /// useful name without erroring out.
@@ -327,6 +356,7 @@ pub enum GridTemplate {
     Gaussian(GaussianTemplate),
     SpaceView(SpaceViewTemplate),
     SphericalHarmonic(SphericalHarmonicTemplate),
+    BiFourier(BiFourierTemplate),
     Unsupported(u16),
 }
 
@@ -356,6 +386,8 @@ impl GridDefinitionSection {
             GridTemplate::SpaceView(t) => Some((t.nx, t.ny)),
             // Spherical harmonics are coefficients, not a gridded layout.
             GridTemplate::SphericalHarmonic(_) => None,
+            // Bi-Fourier coefficients are likewise not a gridded layout.
+            GridTemplate::BiFourier(_) => None,
             GridTemplate::Unsupported(_) => None,
         }
     }
@@ -373,6 +405,7 @@ impl GridDefinitionSection {
             GridTemplate::Gaussian(t) => Some(t.scanning_mode),
             GridTemplate::SpaceView(t) => Some(t.scanning_mode),
             GridTemplate::SphericalHarmonic(_) => None,
+            GridTemplate::BiFourier(_) => None,
             GridTemplate::Unsupported(_) => None,
         }
     }
@@ -393,6 +426,7 @@ impl GridDefinitionSection {
             GridTemplate::Gaussian(t) => Some((t.la1, t.lo1, t.la2, t.lo2)),
             GridTemplate::SpaceView(_) => None,
             GridTemplate::SphericalHarmonic(_) => None,
+            GridTemplate::BiFourier(_) => None,
             GridTemplate::Unsupported(_) => None,
         }
     }
@@ -409,6 +443,7 @@ impl GridDefinitionSection {
             GridTemplate::Gaussian(_) => "gaussian".to_string(),
             GridTemplate::SpaceView(_) => "space_view".to_string(),
             GridTemplate::SphericalHarmonic(_) => "spherical_harmonic".to_string(),
+            GridTemplate::BiFourier(_) => "bifourier".to_string(),
             GridTemplate::Unsupported(n) => format!("unsupported(3.{n})"),
         }
     }
@@ -418,6 +453,15 @@ impl GridDefinitionSection {
     pub fn spherical_harmonic(&self) -> Option<&SphericalHarmonicTemplate> {
         match &self.template {
             GridTemplate::SphericalHarmonic(t) => Some(t),
+            _ => None,
+        }
+    }
+
+    /// Borrow the bi-Fourier spectral template if that's what the section
+    /// carries. Other templates return `None`.
+    pub fn bifourier(&self) -> Option<&BiFourierTemplate> {
+        match &self.template {
+            GridTemplate::BiFourier(t) => Some(t),
             _ => None,
         }
     }
@@ -504,6 +548,11 @@ pub fn parse_grid_definition_with_header(
         40 => GridTemplate::Gaussian(parse_template_3_40(payload, optional_list_octet_size)?),
         90 => GridTemplate::SpaceView(parse_template_3_90(payload)?),
         50 => GridTemplate::SphericalHarmonic(parse_template_3_50(payload)?),
+        // Bi-Fourier spectral subdomains — 3.61 (Mercator), 3.62 (polar
+        // stereographic), 3.63 (Lambert). They share the `template.3.bf.def`
+        // head (spectralType / N / M / truncation-type); only the discarded
+        // projection tail differs, so one parser serves all three.
+        61..=63 => GridTemplate::BiFourier(parse_template_3_bf(payload)?),
         other => GridTemplate::Unsupported(other),
     };
 
@@ -660,6 +709,26 @@ fn parse_template_3_50(p: &[u8]) -> Result<SphericalHarmonicTemplate, Fieldglass
         m: u32::from_be_bytes([p[8], p[9], p[10], p[11]]),
         spectral_type: p[12],
         spectral_mode: p[13],
+    })
+}
+
+/// Templates 3.61 / 3.62 / 3.63 payloads all begin with the 10-byte
+/// `template.3.bf.def` head (GDS octets 15–24): spectralType (1),
+/// biFourierResolutionParameterN (4), biFourierResolutionParameterM (4),
+/// biFourierTruncationType (1). Only these four fields are read; the projection
+/// tail that follows is not needed to decode the §5.53 coefficients.
+fn parse_template_3_bf(p: &[u8]) -> Result<BiFourierTemplate, FieldglassError> {
+    if p.len() < 10 {
+        return Err(FieldglassError::Parse(format!(
+            "GDS bi-Fourier template needs 10 bytes of payload for its bf head, got {}",
+            p.len()
+        )));
+    }
+    Ok(BiFourierTemplate {
+        spectral_type: p[0],
+        bif_i: u32::from_be_bytes([p[1], p[2], p[3], p[4]]),
+        bif_j: u32::from_be_bytes([p[5], p[6], p[7], p[8]]),
+        truncation_type: p[9],
     })
 }
 
@@ -846,6 +915,46 @@ mod tests {
         // Declare a length that truncates the 14-byte template payload.
         buf[3] = 20;
         buf.truncate(20);
+        assert!(parse_grid_definition(&buf).is_err());
+    }
+
+    /// Build a §3 with a bi-Fourier template (default 3.63 / Lambert): the
+    /// 10-byte bf head (spectralType / N / M / truncation-type) plus a short
+    /// filler tail standing in for the discarded projection fields.
+    fn build_gds_3_bf(template_number: u16, n: u32, m: u32, trunc: u8) -> Vec<u8> {
+        let mut p: Vec<u8> = Vec::new();
+        p.push(2); // spectralType
+        push_be(&mut p, n, 4); // biFourierResolutionParameterN
+        push_be(&mut p, m, 4); // biFourierResolutionParameterM
+        p.push(trunc); // biFourierTruncationType
+        p.extend_from_slice(&[0u8; 20]); // discarded projection tail (filler)
+        wrap_gds(template_number, 4 * (n + 1) * (m + 1), &p)
+    }
+
+    #[test]
+    fn parses_bifourier_templates_3_61_62_63() {
+        for tn in [61u16, 62, 63] {
+            let gds = parse_grid_definition(&build_gds_3_bf(tn, 4, 4, 88)).expect("parse bf");
+            assert_eq!(gds.template_number, tn);
+            assert_eq!(gds.template_name(), "bifourier");
+            // Coefficients, not a grid: no dimensions, scanning mode, or bounds.
+            assert_eq!(gds.dimensions(), None);
+            assert_eq!(gds.scanning_mode(), None);
+            assert_eq!(gds.bounds(), None);
+            let bf = gds.bifourier().expect("bf template");
+            assert_eq!((bf.bif_i, bf.bif_j), (4, 4));
+            assert_eq!(bf.spectral_type, 2);
+            assert_eq!(bf.truncation_type, 88);
+            assert!(gds.spherical_harmonic().is_none());
+        }
+    }
+
+    #[test]
+    fn rejects_short_bifourier_template() {
+        let mut buf = build_gds_3_bf(63, 4, 4, 88);
+        // Declare a length that truncates the 10-byte bf head.
+        buf[0..4].copy_from_slice(&18u32.to_be_bytes());
+        buf.truncate(18);
         assert!(parse_grid_definition(&buf).is_err());
     }
 
