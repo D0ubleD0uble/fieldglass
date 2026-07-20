@@ -69,6 +69,32 @@ pub fn decode_values(
         DataRepresentationTemplate::Simple(t) => {
             decode_simple_packing(ds_payload, &t, bitmap, expected_count)
         }
+        DataRepresentationTemplate::MatrixSimple(t) => {
+            if t.matrix_bitmaps_present != 0 {
+                // A genuine per-point NR×NC matrix delimited by secondary
+                // bitmaps is not one value per grid point, so it cannot satisfy
+                // this scalar contract. eccodes cannot decode this variant
+                // either (its accessor asserts out), so there is no oracle; it
+                // is left for a dedicated matrix entry point.
+                return Err(FieldglassError::UnsupportedSection(format!(
+                    "§7 is a grid_simple_matrix field with matrixBitmapsPresent=1 (NR={}, NC={}): \
+                     a per-grid-point {}×{} matrix delimited by secondary bitmaps is not a single \
+                     2-D field, and is not decoded yet.",
+                    t.nr, t.nc, t.nr, t.nc
+                )));
+            }
+            // matrixBitmapsPresent = 0: §7 is plain simple packing, one value
+            // per grid point (NR/NC are descriptive metadata) — decode it
+            // exactly like template 5.0.
+            let simple = SimplePackingTemplate {
+                reference_value: t.reference_value,
+                binary_scale_factor: t.binary_scale_factor,
+                decimal_scale_factor: t.decimal_scale_factor,
+                bits_per_value: t.bits_per_value,
+                original_field_type: 0,
+            };
+            decode_simple_packing(ds_payload, &simple, bitmap, expected_count)
+        }
         DataRepresentationTemplate::Complex(t) => {
             decode_complex_packing(ds_payload, &t, bitmap, expected_count)
         }
@@ -1324,6 +1350,47 @@ mod tests {
             }
         }
         out
+    }
+
+    fn matrix_template(matrix_bitmaps: u8, bits: u8) -> DataRepresentationTemplate {
+        DataRepresentationTemplate::MatrixSimple(crate::drs::MatrixSimplePackingTemplate {
+            reference_value: 300.0,
+            binary_scale_factor: 0,
+            decimal_scale_factor: 0,
+            bits_per_value: bits,
+            matrix_bitmaps_present: matrix_bitmaps,
+            number_of_coded_values: 4,
+            nr: 2,
+            nc: 3,
+            first_dim_coordinate_definition: 0,
+            second_dim_coordinate_definition: 0,
+            first_dim_physical_significance: 0,
+            second_dim_physical_significance: 0,
+            coefficients_first: vec![],
+            coefficients_second: vec![],
+        })
+    }
+
+    #[test]
+    fn matrix_simple_flat_decodes_like_simple_packing() {
+        // matrixBitmapsPresent = 0 → one value per grid point, decoded as 5.0.
+        let packed = pack_bits(&[0, 5, 10, 20], 8);
+        let decoded = decode_values(&packed, matrix_template(0, 8), None, 4).expect("decode");
+        assert_eq!(
+            decoded,
+            vec![Some(300.0), Some(305.0), Some(310.0), Some(320.0)]
+        );
+    }
+
+    #[test]
+    fn matrix_simple_with_secondary_bitmaps_is_rejected() {
+        // matrixBitmapsPresent = 1 is the eccodes-unsupported true-matrix variant.
+        let err = decode_values(&[0u8; 8], matrix_template(1, 8), None, 4).expect_err("reject");
+        assert!(
+            matches!(err, FieldglassError::UnsupportedSection(_))
+                && format!("{err:?}").contains("matrixBitmapsPresent=1"),
+            "rejects the secondary-bitmap matrix variant, got: {err:?}"
+        );
     }
 
     #[test]
