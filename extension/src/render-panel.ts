@@ -465,6 +465,15 @@ export function renderImagePanelHtml(
           return projection === 'equirectangular' || projection === 'web_mercator';
         }
 
+        // Whether the displayed render uses log10 colour scaling: the toggle is
+        // checked and enabled (disabled means the range has no positive floor).
+        // Toggling it re-renders, so this always matches the on-screen image.
+        // One source for both the render request and the PNG colorbar (#331).
+        function isLog10Active() {
+          const logEl = document.getElementById('scale-log');
+          return !!(logEl && logEl.checked && !logEl.disabled);
+        }
+
         function currentOptions() {
           const projection = (document.getElementById('picker-projection') || {}).value || 'source';
           const resampling = (document.getElementById('picker-resampling') || {}).value || 'nearest';
@@ -481,8 +490,7 @@ export function renderImagePanelHtml(
           // enabled: it is disabled whenever the current range has no positive
           // floor (log10 needs one), so this never round-trips a request the
           // Rust side would reject. Otherwise the field maps linearly.
-          const logEl = document.getElementById('scale-log');
-          if (logEl && logEl.checked && !logEl.disabled) options.scaleMode = 'log10';
+          if (isLog10Active()) options.scaleMode = 'log10';
           // The azimuthal targets read a free-form centre; the lat/lon-box
           // targets ignore it. Orthographic takes a centre lat + lon; polar
           // stereographic takes a hemisphere (its pole) plus a central
@@ -1063,7 +1071,15 @@ export function renderImagePanelHtml(
               g.fillStyle = '#111111';
               g.font = '11px sans-serif';
               const lx = cbX + cbW + 5;
-              const mid = (lastPayload.usedMin + lastPayload.usedMax) / 2;
+              // The colorbar's mid-height maps to the value the colormap paints
+              // there: the geometric mean under log10 (mid-ramp = 10^((log min +
+              // log max)/2) = √(min·max)), the arithmetic mean when linear. Both
+              // usedMin/usedMax are > 0 under log10 (the toggle needs a positive
+              // floor), so √(min·max) is well-defined. Matches scale_position in
+              // fieldglass-core::colormap (#331).
+              const mid = isLog10Active()
+                ? Math.sqrt(lastPayload.usedMin * lastPayload.usedMax)
+                : (lastPayload.usedMin + lastPayload.usedMax) / 2;
               g.textBaseline = 'top';
               g.fillText(Number(lastPayload.usedMax).toPrecision(4), lx, mapY);
               g.textBaseline = 'middle';
