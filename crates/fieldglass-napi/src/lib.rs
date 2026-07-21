@@ -1326,6 +1326,11 @@ pub struct Grib1Handle {
     bytes: Vec<u8>,
     reader: Grib1Reader,
     decoded: Mutex<std::collections::HashMap<u32, std::sync::Arc<Vec<Option<f64>>>>>,
+    /// Synthesized spectral fields, keyed by message index — the output of the
+    /// (expensive) inverse spherical-harmonic transform, so a knob change
+    /// repaints from cache instead of re-running the synthesis (#334). Same
+    /// drop-invalidation as `decoded`.
+    synthesized: Mutex<std::collections::HashMap<u32, std::sync::Arc<Vec<Option<f64>>>>>,
 }
 
 #[napi]
@@ -1341,6 +1346,7 @@ impl Grib1Handle {
             bytes: owned,
             reader,
             decoded: Mutex::new(std::collections::HashMap::new()),
+            synthesized: Mutex::new(std::collections::HashMap::new()),
         })
     }
 
@@ -1566,18 +1572,39 @@ impl Grib1Handle {
         options: &RenderOptions,
     ) -> napi::Result<RenderedGrid> {
         let (ni, nj) = spectral_render_dims(truncation);
-        let lats: Vec<f64> = (0..nj)
-            .map(|i| 90.0 - (i as f64) * 180.0 / (nj as f64 - 1.0))
-            .collect();
-        let lons: Vec<f64> = (0..ni).map(|j| (j as f64) * 360.0 / ni as f64).collect();
+        let raw = self.cached_synthesize(message_index, truncation)?;
+        let base = self.message_meta(message_index)?;
+        finish_spectral_render(&raw, base, ni, nj, options)
+    }
+
+    /// Get-or-build the synthesized spectral field for `message_index` — the
+    /// inverse spherical-harmonic transform is the expensive step, so caching
+    /// its output turns a knob change from seconds of stall into a cache read.
+    /// Same drop-invalidation as [`cached_decode`](Self::cached_decode).
+    fn cached_synthesize(
+        &self,
+        message_index: u32,
+        truncation: u32,
+    ) -> napi::Result<std::sync::Arc<Vec<Option<f64>>>> {
+        if let Some(hit) = self
+            .synthesized
+            .lock()
+            .expect("synthesis cache mutex poisoned")
+            .get(&message_index)
+        {
+            return Ok(std::sync::Arc::clone(hit));
+        }
+        let (lats, lons) = spectral_synthesis_lats_lons(truncation);
         let values = self
             .reader
             .synthesize_spectral_message(message_index as usize, &lats, &lons)
             .map_err(|e| napi::Error::from_reason(e.to_string()))?;
-        let raw: Vec<Option<f64>> = values.into_iter().map(Some).collect();
-        let base = self.message_meta(message_index)?;
-        let meta = spectral_render_meta_from(base, ni as i32, nj as i32, *lons.last().unwrap());
-        render_with_options(&meta, &raw, options)
+        let arc = std::sync::Arc::new(values.into_iter().map(Some).collect::<Vec<_>>());
+        self.synthesized
+            .lock()
+            .expect("synthesis cache mutex poisoned")
+            .insert(message_index, std::sync::Arc::clone(&arc));
+        Ok(arc)
     }
 
     /// Get-or-build the decoded values for `message_index`. The cache is
@@ -1637,6 +1664,10 @@ impl Grib1Handle {
 pub struct Grib2Handle {
     reader: Grib2Reader,
     decoded: Mutex<std::collections::HashMap<u32, std::sync::Arc<Vec<Option<f64>>>>>,
+    /// Synthesized spectral fields, keyed by message index (see
+    /// [`Grib1Handle::synthesized`]) — the inverse spherical-harmonic transform
+    /// output, cached so a repaint skips re-running it (#334).
+    synthesized: Mutex<std::collections::HashMap<u32, std::sync::Arc<Vec<Option<f64>>>>>,
 }
 
 #[napi]
@@ -1648,6 +1679,7 @@ impl Grib2Handle {
         Ok(Self {
             reader,
             decoded: Mutex::new(std::collections::HashMap::new()),
+            synthesized: Mutex::new(std::collections::HashMap::new()),
         })
     }
 
@@ -1826,20 +1858,38 @@ impl Grib2Handle {
         options: &RenderOptions,
     ) -> napi::Result<RenderedGrid> {
         let (ni, nj) = spectral_render_dims(truncation);
-        // Latitudes 90..-90 (pole to pole), longitudes 0..360−Δ (global, no
-        // duplicated wrap column), matching lat_first/lat_last/lon_first/lon_last.
-        let lats: Vec<f64> = (0..nj)
-            .map(|i| 90.0 - (i as f64) * 180.0 / (nj as f64 - 1.0))
-            .collect();
-        let lons: Vec<f64> = (0..ni).map(|j| (j as f64) * 360.0 / ni as f64).collect();
+        let raw = self.cached_synthesize(message_index, truncation)?;
+        let base = self.message_meta(message_index)?;
+        finish_spectral_render(&raw, base, ni, nj, options)
+    }
+
+    /// Get-or-build the synthesized spectral field for `message_index` (see
+    /// [`Grib1Handle::cached_synthesize`]) — caches the inverse spherical-
+    /// harmonic transform so a repaint doesn't re-run it (#334).
+    fn cached_synthesize(
+        &self,
+        message_index: u32,
+        truncation: u32,
+    ) -> napi::Result<std::sync::Arc<Vec<Option<f64>>>> {
+        if let Some(hit) = self
+            .synthesized
+            .lock()
+            .expect("synthesis cache mutex poisoned")
+            .get(&message_index)
+        {
+            return Ok(std::sync::Arc::clone(hit));
+        }
+        let (lats, lons) = spectral_synthesis_lats_lons(truncation);
         let values = self
             .reader
             .synthesize_spectral_message(message_index as usize, &lats, &lons)
             .map_err(|e| napi::Error::from_reason(e.to_string()))?;
-        let raw: Vec<Option<f64>> = values.into_iter().map(Some).collect();
-        let base = self.message_meta(message_index)?;
-        let meta = spectral_render_meta_from(base, ni as i32, nj as i32, *lons.last().unwrap());
-        render_with_options(&meta, &raw, options)
+        let arc = std::sync::Arc::new(values.into_iter().map(Some).collect::<Vec<_>>());
+        self.synthesized
+            .lock()
+            .expect("synthesis cache mutex poisoned")
+            .insert(message_index, std::sync::Arc::clone(&arc));
+        Ok(arc)
     }
 
     fn cached_decode(&self, message_index: u32) -> napi::Result<std::sync::Arc<Vec<Option<f64>>>> {
@@ -2583,6 +2633,36 @@ fn spectral_render_dims(truncation: u32) -> (usize, usize) {
     let nj = (2 * (truncation as usize + 1)).clamp(4, 361);
     let ni = (2 * nj).min(720);
     (ni, nj)
+}
+
+/// The global synthesis grid's coordinates for `truncation`: latitudes 90..−90
+/// (pole to pole) and longitudes 0..360−Δ (no duplicated wrap column), matching
+/// the `lat_first`/`lat_last`/`lon_first`/`lon_last` the render meta declares.
+/// Shared by the GRIB1 and GRIB2 spectral synthesis paths.
+fn spectral_synthesis_lats_lons(truncation: u32) -> (Vec<f64>, Vec<f64>) {
+    let (ni, nj) = spectral_render_dims(truncation);
+    let lats: Vec<f64> = (0..nj)
+        .map(|i| 90.0 - (i as f64) * 180.0 / (nj as f64 - 1.0))
+        .collect();
+    let lons: Vec<f64> = (0..ni).map(|j| (j as f64) * 360.0 / ni as f64).collect();
+    (lats, lons)
+}
+
+/// Finish a spectral render: build the `"latlon"` render meta from `base` and
+/// the synthesis grid, then run the (already synthesized) field `raw` through
+/// the ordinary render pipeline. Shared by the GRIB1 and GRIB2 spectral paths.
+fn finish_spectral_render(
+    raw: &[Option<f64>],
+    base: MessageMeta,
+    ni: usize,
+    nj: usize,
+    options: &RenderOptions,
+) -> napi::Result<RenderedGrid> {
+    // Last longitude of the `0..360−Δ` grid — `lons.last()`, without rebuilding
+    // the vector (`(ni-1)·360/ni` is bit-identical to the synthesized value).
+    let lon_last = (ni as f64 - 1.0) * 360.0 / ni as f64;
+    let meta = spectral_render_meta_from(base, ni as i32, nj as i32, lon_last);
+    render_with_options(&meta, raw, options)
 }
 
 /// Build the `"latlon"` [`MessageMeta`] for a synthesized spectral field: the
@@ -5834,6 +5914,7 @@ mod netcdf_slice_tests {
         Grib2Handle {
             reader: Grib2Reader::from_bytes(bytes.to_vec()).unwrap(),
             decoded: Mutex::new(std::collections::HashMap::new()),
+            synthesized: Mutex::new(std::collections::HashMap::new()),
         }
     }
 
@@ -5842,6 +5923,7 @@ mod netcdf_slice_tests {
             bytes: bytes.to_vec(),
             reader: Grib1Reader::from_bytes(bytes.to_vec()).unwrap(),
             decoded: Mutex::new(std::collections::HashMap::new()),
+            synthesized: Mutex::new(std::collections::HashMap::new()),
         }
     }
 
@@ -5909,6 +5991,33 @@ mod netcdf_slice_tests {
             .render_grid(0, opts("equirectangular"))
             .expect("spectral reprojects");
         assert!(w.width > 0 && w.height > 0);
+    }
+
+    #[test]
+    fn spectral_render_caches_the_synthesized_field() {
+        // The inverse SHT runs once; a repaint (a knob change in practice) reuses
+        // the cached field and paints the identical image (#334).
+        let h = grib2_handle(SPECTRAL_T63);
+        assert!(
+            h.synthesized.lock().unwrap().is_empty(),
+            "nothing synthesized before the first render"
+        );
+        let a = h
+            .render_grid(0, opts("source"))
+            .expect("first spectral render");
+        assert!(
+            h.synthesized.lock().unwrap().contains_key(&0),
+            "the synthesized field is cached after the first render"
+        );
+        let b = h
+            .render_grid(0, opts("source"))
+            .expect("cached spectral render");
+        assert_eq!(
+            a.rgba.to_vec(),
+            b.rgba.to_vec(),
+            "cached repaint is identical"
+        );
+        assert_eq!((a.used_min, a.used_max), (b.used_min, b.used_max));
     }
 
     fn opts(projection: &str) -> RenderOptions {
