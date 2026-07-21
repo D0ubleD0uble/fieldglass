@@ -1208,6 +1208,32 @@ pub fn colormaps() -> Vec<ColormapInfo> {
         .collect()
 }
 
+/// One entry of the field-combine operation vocabulary, as the Compare picker
+/// needs it.
+#[napi(object)]
+pub struct CombineOpInfo {
+    /// Stable wire tag — what the combined-render entry points and
+    /// `resolveGribCompare` take (e.g. `"a_minus_b"`).
+    pub value: String,
+    /// Human-readable label for the operation menu (e.g. `A − B`).
+    pub label: String,
+}
+
+/// Every field-combine operation, in menu order (#239). The panel builds its
+/// Compare dropdown and its op-validation set from this, so `CombineOp` in
+/// `fieldglass-core` stays the single source of truth for the vocabulary and
+/// the copies can't drift.
+#[napi]
+pub fn combine_ops() -> Vec<CombineOpInfo> {
+    CombineOp::ALL
+        .iter()
+        .map(|op| CombineOpInfo {
+            value: op.as_str().to_string(),
+            label: op.label().to_string(),
+        })
+        .collect()
+}
+
 /// Output of [`Grib1Handle::render_grid`] / [`Grib2Handle::render_grid`].
 /// `rgba` is a paint-ready buffer the webview blits straight to canvas
 /// via `putImageData`.

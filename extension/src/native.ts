@@ -214,8 +214,19 @@ export interface ProbeResult {
 }
 
 /** Element-wise combine operation on two aligned fields (#239). `aMinusB` is
- *  the difference / anomaly map. */
+ *  the difference / anomaly map. The tags mirror `CombineOp` in
+ *  `fieldglass-core`; the runtime op list (picker + validation) comes from
+ *  {@link FieldglassNative.combineOps}, so a new op added in Rust surfaces here
+ *  as a compile error at any call site that hasn't been updated — never a
+ *  silent drift (#342). */
 export type CombineOp = "a_minus_b" | "b_minus_a" | "a_plus_b" | "mean" | "ratio";
+
+/** One entry of the Rust field-combine op vocabulary — what the Compare picker
+ *  and its validation need (#342). */
+export interface CombineOpInfo {
+  value: string;
+  label: string;
+}
 
 export interface Grib1Handle {
   messages(): MessageMeta[];
@@ -408,6 +419,8 @@ export interface FieldglassNative {
   openNetcdf(bytes: Uint8Array): DatasetMeta;
   /** The colormap registry, in picker order; the first entry is the default. */
   colormaps(): ColormapInfo[];
+  /** The field-combine op vocabulary, in menu order (#342). */
+  combineOps(): CombineOpInfo[];
   Grib1Handle: Grib1HandleCtor;
   Grib2Handle: Grib2HandleCtor;
   NetcdfHandle: NetcdfHandleCtor;

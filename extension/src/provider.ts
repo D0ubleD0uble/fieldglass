@@ -7,6 +7,7 @@ import {
   nativeBinaryName,
   type ColormapInfo,
   type CombineOp,
+  type CombineOpInfo,
   type DatasetMeta,
   type Grib1Handle,
   type Grib2Handle,
@@ -559,6 +560,7 @@ export class FieldglassEditorProvider
       meta,
       describeProjection(meta),
       colormapRegistry(),
+      combineOpRegistry(),
       undefined,
       compareFields,
     );
@@ -947,6 +949,7 @@ export class FieldglassEditorProvider
       meta,
       "NetCDF slice — latlon (synthesised geometry)",
       colormapRegistry(),
+      combineOpRegistry(),
       slice,
     );
 
@@ -1303,6 +1306,25 @@ function knownColormaps(): ReadonlySet<string> {
   return knownColormapNames;
 }
 
+/** The field-combine op vocabulary, straight from Rust (#342). Empty when the
+ *  native binding is unavailable, which leaves the Compare row with no
+ *  operations rather than offering ops the renderer can't run. */
+function combineOpRegistry(): CombineOpInfo[] {
+  const native = loadNative();
+  return native ? native.combineOps() : [];
+}
+
+/** The combine-op tags the Rust side accepts, read once from the registry.
+ *  Derived rather than hardcoded, so adding an op in Rust needs no matching
+ *  edit here and the picker can't offer a tag validation would reject. */
+let knownCombineOpTags: ReadonlySet<string> | undefined;
+function knownCombineOps(): ReadonlySet<string> {
+  if (!knownCombineOpTags) {
+    knownCombineOpTags = new Set(combineOpRegistry().map((o) => o.value));
+  }
+  return knownCombineOpTags;
+}
+
 /** A validated GRIB difference-map request: combine field A (the panel's
  *  message) with message B under `op`. */
 export interface GribCompare {
@@ -1310,22 +1332,15 @@ export interface GribCompare {
   messageIndexB: number;
 }
 
-/** The combine operations the Rust side accepts. */
-const COMBINE_OPS: ReadonlySet<string> = new Set([
-  "a_minus_b",
-  "b_minus_a",
-  "a_plus_b",
-  "mean",
-  "ratio",
-]);
-
 /** Validate a webview `compare` rider into a {@link GribCompare}, or `undefined`
  *  for "no comparison" — an absent rider, an unknown op, or a non-integer index.
  *  Same clamp philosophy as {@link resolveRerenderOptions}: a bad value falls
- *  back to a plain single-field render rather than round-tripping an error. */
+ *  back to a plain single-field render rather than round-tripping an error. The
+ *  accepted ops come from {@link knownCombineOps} (the Rust registry), so the
+ *  picker and this gate can't disagree. */
 export function resolveGribCompare(m: unknown): GribCompare | undefined {
   const c = (m as { compare?: { op?: unknown; messageIndexB?: unknown } })?.compare;
-  if (!c || typeof c.op !== "string" || !COMBINE_OPS.has(c.op)) return undefined;
+  if (!c || typeof c.op !== "string" || !knownCombineOps().has(c.op)) return undefined;
   const b = c.messageIndexB;
   if (typeof b !== "number" || !Number.isInteger(b) || b < 0) return undefined;
   return { op: c.op as CombineOp, messageIndexB: b };
@@ -1348,7 +1363,7 @@ export function resolveNetcdfCompare(m: unknown): NetcdfCompare | undefined {
   const c = (
     m as { compare?: { op?: unknown; variableIndexB?: unknown; sliceIndicesB?: unknown } }
   )?.compare;
-  if (!c || typeof c.op !== "string" || !COMBINE_OPS.has(c.op)) return undefined;
+  if (!c || typeof c.op !== "string" || !knownCombineOps().has(c.op)) return undefined;
   const vb = c.variableIndexB;
   if (typeof vb !== "number" || !Number.isInteger(vb) || vb < 0) return undefined;
   const idx = c.sliceIndicesB;
