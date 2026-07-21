@@ -45,10 +45,12 @@ default local/cloud gate is the Rust gates above plus `tsc --noEmit` and eslint.
   only; never rewrite already-released sections.
 
 ## GRIB2 packing modes table = single source of truth
-The README **GRIB2 packing modes** table is the only place that enumerates
-GRIB2 §5 decode status. When a template starts or stops decoding, update **only**
-that table row and `CHANGELOG.md [Unreleased]`. Other README mentions are
-deliberately packing-agnostic; an HTML comment by the table records this rule.
+The README **GRIB2 packing modes** table — plus the "every registered template"
+summary sentence in the paragraph directly above it — are the only places that
+state GRIB2 §5 decode coverage. When a template starts or stops decoding, update
+**only** that table row, that summary sentence, and `CHANGELOG.md [Unreleased]`.
+Every other README mention of §5 packing is deliberately coverage-agnostic and
+points at the table; an HTML comment by the table records this rule.
 
 ## Decode is decoupled from rendering
 - A new decode path (a GRIB1 packing, a GRIB2 §5 template, a NetCDF variable)
