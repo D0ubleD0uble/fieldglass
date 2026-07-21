@@ -367,7 +367,8 @@ export class FieldglassEditorProvider
 
   /** Export one GRIB message's decoded field to a CSV file the user picks.
    *  Asks for the layout (long `lat,lon,value` or a 2-D matrix), guards a
-   *  very large export behind a confirm, then streams the CSV to disk. */
+   *  very large export behind a confirm, then writes the CSV to disk. (The
+   *  whole field is serialized to a `Buffer` in one pass — not streamed.) */
   private async handleExportCsv(
     document: FieldglassDocument,
     messageIndex: number
@@ -383,7 +384,7 @@ export class FieldglassEditorProvider
     const format = await this.pickCsvFormat();
     if (!format) return;
 
-    let csv: string;
+    let csv: Buffer;
     try {
       csv = handle.exportCsv(messageIndex, format);
     } catch (err) {
@@ -412,10 +413,12 @@ export class FieldglassEditorProvider
 
   /** Confirm a large export, prompt for a destination, and write the CSV.
    *  Shared by the GRIB and NetCDF export commands. */
-  private async saveCsv(csv: string): Promise<void> {
+  private async saveCsv(csv: Buffer): Promise<void> {
     // Guard a large export: writing tens of megabytes is slow and easy to do
-    // by accident on a big grid, so confirm above ~50 MB.
-    const bytes = Buffer.byteLength(csv, "utf8");
+    // by accident on a big grid, so confirm above ~50 MB. `csv` already holds
+    // the UTF-8 bytes (from napi), so this is the exact write size — no scan or
+    // re-encode of a JS string (#341).
+    const bytes = csv.length;
     const SIZE_LIMIT = 50 * 1024 * 1024;
     if (bytes > SIZE_LIMIT) {
       const proceed = await vscode.window.showWarningMessage(
@@ -433,7 +436,7 @@ export class FieldglassEditorProvider
     if (!dest) return;
 
     try {
-      await vscode.workspace.fs.writeFile(dest, Buffer.from(csv, "utf8"));
+      await vscode.workspace.fs.writeFile(dest, csv);
     } catch (err) {
       void vscode.window.showErrorMessage(
         `Fieldglass: could not write CSV: ${err instanceof Error ? err.message : err}`
@@ -462,7 +465,7 @@ export class FieldglassEditorProvider
     const format = await this.pickCsvFormat();
     if (!format) return;
 
-    let csv: string;
+    let csv: Buffer;
     try {
       csv = handle.exportCsv(
         spec.variableIndex,

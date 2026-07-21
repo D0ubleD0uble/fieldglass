@@ -1375,11 +1375,15 @@ impl Grib1Handle {
     /// only, like contours; the matrix format works for any grid with declared
     /// dimensions. See the GRIB2 counterpart for details.
     #[napi]
-    pub fn export_csv(&self, message_index: u32, format: String) -> napi::Result<String> {
+    pub fn export_csv(
+        &self,
+        message_index: u32,
+        format: String,
+    ) -> napi::Result<napi::bindgen_prelude::Buffer> {
         let raw = self.cached_decode(message_index)?;
         let meta = self.message_meta(message_index)?;
         let (ni, nj) = grib1_dimensions(&self.reader, message_index as usize)?;
-        field_csv(&raw, &meta, ni, nj, &format)
+        field_csv(&raw, &meta, ni, nj, &format).map(csv_buffer)
     }
 
     /// Patch the PDS `p1` (forecast period) octet of one message and
@@ -1677,7 +1681,11 @@ impl Grib2Handle {
     /// contours — the matrix format works for any grid with declared
     /// dimensions.
     #[napi]
-    pub fn export_csv(&self, message_index: u32, format: String) -> napi::Result<String> {
+    pub fn export_csv(
+        &self,
+        message_index: u32,
+        format: String,
+    ) -> napi::Result<napi::bindgen_prelude::Buffer> {
         let raw = self.cached_decode(message_index)?;
         let meta = self.message_meta(message_index)?;
         let msg = self
@@ -1688,7 +1696,7 @@ impl Grib2Handle {
         let (ni, nj) = msg.gds.dimensions().ok_or_else(|| {
             napi::Error::from_reason("grid has no declared dimensions".to_string())
         })?;
-        field_csv(&raw, &meta, ni, nj, &format)
+        field_csv(&raw, &meta, ni, nj, &format).map(csv_buffer)
     }
 
     #[napi]
@@ -2012,7 +2020,7 @@ impl NetcdfHandle {
         x_dim: u32,
         slice_indices: Vec<u32>,
         format: String,
-    ) -> napi::Result<String> {
+    ) -> napi::Result<napi::bindgen_prelude::Buffer> {
         let var = self.renderable(variable_index)?;
         let (y, x) = (y_dim as usize, x_dim as usize);
         let plane = self.slice_plane(&var, y, x, &slice_indices)?;
@@ -2025,7 +2033,7 @@ impl NetcdfHandle {
             .grid_nj
             .ok_or_else(|| napi::Error::from_reason("slice has no y-axis size".to_string()))?
             as u32;
-        field_csv(&plane, &meta, ni, nj, &format)
+        field_csv(&plane, &meta, ni, nj, &format).map(csv_buffer)
     }
 
     /// Render one slice combined element-wise with a second slice under `op`
@@ -3698,6 +3706,15 @@ fn project_overlay_impl(
 /// `None` for a malformed grid. Boxed so [`forward_geolocation_for`] can return
 /// a different closure per grid type.
 type ForwardGeo = Box<dyn Fn(u32, u32) -> Option<(f64, f64)>>;
+
+/// Hand the CSV text to Node as a `Buffer` (its UTF-8 bytes, moved not copied).
+/// Returning a `Buffer` rather than a `String` keeps the export on the UTF-8
+/// side of the napi boundary: a `String` return would be widened to a UTF-16 JS
+/// string and then re-encoded to bytes for the file write, roughly tripling the
+/// transient memory of a large export (#341).
+fn csv_buffer(csv: String) -> napi::bindgen_prelude::Buffer {
+    csv.into_bytes().into()
+}
 
 /// Format a decoded field as CSV, shared by the GRIB handles. The `"long"`
 /// (`lat,lon,value`) format reuses [`forward_geolocation_for`], so it inherits

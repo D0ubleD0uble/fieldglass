@@ -12,14 +12,7 @@
 //! Rust's shortest round-trippable `f64` representation, so parsing a cell back
 //! with `str::parse::<f64>()` recovers the exact stored bit pattern.
 
-/// Format one value cell: the shortest round-trippable form, or empty for a
-/// missing point.
-fn cell(value: Option<f64>) -> String {
-    match value {
-        Some(v) => v.to_string(),
-        None => String::new(),
-    }
-}
+use std::fmt::Write as _;
 
 /// Serialize `values` (grid scan order, `i` fastest) as a 2-D matrix: `nj`
 /// rows, each `ni` comma-separated cells. A missing point is an empty cell.
@@ -27,14 +20,20 @@ fn cell(value: Option<f64>) -> String {
 /// `values` must hold exactly `ni · nj` entries; extra entries are ignored and
 /// a short slice stops early (the caller owns the shape).
 pub fn field_to_csv_matrix(values: &[Option<f64>], ni: usize, nj: usize) -> String {
-    let mut out = String::new();
+    // Reserve up front (≈8 chars per cell plus its comma/newline) and format
+    // each value straight into the buffer with `write!`, so a million-point
+    // export doesn't churn a temporary `String` per cell or repeatedly double
+    // and re-copy the output.
+    let mut out = String::with_capacity(ni.saturating_mul(nj).saturating_mul(9).saturating_add(nj));
     for j in 0..nj {
         for i in 0..ni {
             if i > 0 {
                 out.push(',');
             }
-            if let Some(v) = values.get(j * ni + i) {
-                out.push_str(&cell(*v));
+            // Present value → its shortest round-trippable form; a missing or
+            // out-of-range point leaves the cell empty.
+            if let Some(Some(v)) = values.get(j * ni + i) {
+                let _ = write!(out, "{v}");
             }
         }
         out.push('\n');
@@ -53,18 +52,22 @@ pub fn field_to_csv_long(
     nj: usize,
     coords: impl Fn(usize, usize) -> Option<(f64, f64)>,
 ) -> String {
-    let mut out = String::from("lat,lon,value\n");
+    // Reserve for the header plus ≈28 chars per row (lat, lon, value, commas,
+    // newline) and format straight into the buffer with `write!` — no temporary
+    // `String` per coordinate or value, no doubling reallocs.
+    let mut out =
+        String::with_capacity(ni.saturating_mul(nj).saturating_mul(28).saturating_add(16));
+    out.push_str("lat,lon,value\n");
     for j in 0..nj {
         for i in 0..ni {
             let Some((lat, lon)) = coords(i, j) else {
                 continue;
             };
             let value = values.get(j * ni + i).copied().flatten();
-            out.push_str(&lat.to_string());
-            out.push(',');
-            out.push_str(&lon.to_string());
-            out.push(',');
-            out.push_str(&cell(value));
+            let _ = write!(out, "{lat},{lon},");
+            if let Some(v) = value {
+                let _ = write!(out, "{v}");
+            }
             out.push('\n');
         }
     }
