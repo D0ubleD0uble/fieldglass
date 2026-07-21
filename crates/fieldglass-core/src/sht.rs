@@ -34,11 +34,13 @@
 
 use crate::error::FieldglassError;
 
-/// Upper bound on the truncation `T` this transform will accept, bounding the
-/// per-latitude `O(T²)` synthesis cost (the transform holds only an `O(T)`
-/// Legendre column at a time, never a full table). `T` is derived from
-/// attacker-controlled §3 fields, so it is capped up front. The largest
-/// operational spectral truncation (~T3999) is far below this.
+/// Upper bound on the truncation `T` this transform will accept. `T` is derived
+/// from attacker-controlled §3 fields, so it is capped up front to bound both
+/// the `O(T²)` per-latitude synthesis cost and the latitude-invariant tables the
+/// synthesis precomputes: an `O(T²)` Legendre-recurrence coefficient table — the
+/// same order as the input coefficient array, which is itself `(T+1)(T+2)`
+/// values — and an `O(T·nlon)` longitude-phase table. The largest operational
+/// spectral truncation (~T3999) is far below this cap.
 pub const MAX_TRUNCATION: u32 = 10_000;
 
 /// Number of stored real values (real *and* imaginary parts) for a triangular
@@ -79,6 +81,45 @@ pub fn synthesize_spherical_harmonic(
     let mut out = vec![0.0; latitudes_deg.len() * nlon];
     let lon_rad: Vec<f64> = longitudes_deg.iter().map(|l| l.to_radians()).collect();
 
+    // ── Latitude-invariant tables, hoisted out of the latitude loop ──────────
+    // The longitude phases and the Legendre-recurrence coefficients depend only
+    // on the column `m` (and the longitude, resp. `n`), never on `μ` — so
+    // recomputing them per latitude row wasted ~nlat× the trig and sqrt work
+    // (hundreds of millions of calls at high truncation). Each table entry is
+    // built with the identical expression it replaces, so the synthesis stays
+    // bit-for-bit unchanged; only the arithmetic count drops. See
+    // `MAX_TRUNCATION` for the table sizes.
+
+    // cos(mλ), sin(mλ) for every column `m` and longitude, laid out `m`-major.
+    let mut cos_tab = vec![0.0f64; (t + 1) * nlon];
+    let mut sin_tab = vec![0.0f64; (t + 1) * nlon];
+    for m in 0..=t {
+        let mf = m as f64;
+        let base = m * nlon;
+        for (lo, &lr) in lon_rad.iter().enumerate() {
+            let ang = mf * lr;
+            cos_tab[base + lo] = ang.cos();
+            sin_tab[base + lo] = ang.sin();
+        }
+    }
+
+    // The two-term normalised recurrence coefficients `a`, `b` for every
+    // `(n, m)` with `n ≥ m + 2`, pushed in the same `m`-major / `n`-ascending
+    // order the latitude loop reads them back (via a running cursor), so
+    // addressing them needs no `(n, m)` arithmetic. `T(T−1)/2` `(f64, f64)`.
+    let mut ab = Vec::with_capacity(t.saturating_sub(1) * t / 2);
+    for m in 0..=t {
+        let mf = m as f64;
+        for n in (m + 2)..=t {
+            let nf = n as f64;
+            let a = ((2.0 * nf + 1.0) * (2.0 * nf - 1.0) / ((nf - mf) * (nf + mf))).sqrt();
+            let b = ((2.0 * nf + 1.0) * (nf + mf - 1.0) * (nf - mf - 1.0)
+                / ((2.0 * nf - 3.0) * (nf - mf) * (nf + mf)))
+                .sqrt();
+            ab.push((a, b));
+        }
+    }
+
     for (li, &lat) in latitudes_deg.iter().enumerate() {
         let mu = lat.to_radians().sin();
         let s = (1.0 - mu * mu).max(0.0).sqrt();
@@ -90,6 +131,7 @@ pub fn synthesize_spherical_harmonic(
         // the coefficients against the Legendre column to a single complex
         // (re_m, im_m), then spread it over longitude.
         let mut idx = 0usize;
+        let mut abk = 0usize; // read cursor into `ab`, in lockstep with its build order
         let mut pmm = 1.0f64; // P̄_0^0
         for m in 0..=t {
             let mf = m as f64;
@@ -107,13 +149,11 @@ pub fn synthesize_spherical_harmonic(
                 im_m += p_prev1 * coefficients[idx + 1];
                 idx += 2;
 
-                // n = m + 2 ..= T via the two-term normalised recurrence.
-                for n in (m + 2)..=t {
-                    let nf = n as f64;
-                    let a = ((2.0 * nf + 1.0) * (2.0 * nf - 1.0) / ((nf - mf) * (nf + mf))).sqrt();
-                    let b = ((2.0 * nf + 1.0) * (nf + mf - 1.0) * (nf - mf - 1.0)
-                        / ((2.0 * nf - 3.0) * (nf - mf) * (nf + mf)))
-                        .sqrt();
+                // n = m + 2 ..= T via the two-term normalised recurrence, its
+                // latitude-invariant coefficients read from the precomputed table.
+                for _ in (m + 2)..=t {
+                    let (a, b) = ab[abk];
+                    abk += 1;
                     let p_n = a * mu * p_prev1 - b * p_prev2;
                     re_m += p_n * coefficients[idx];
                     im_m += p_n * coefficients[idx + 1];
@@ -130,10 +170,10 @@ pub fn synthesize_spherical_harmonic(
                     *cell += re_m;
                 }
             } else {
-                // A += 2·[Re_m·cos(mλ) − Im_m·sin(mλ)].
+                // A += 2·[Re_m·cos(mλ) − Im_m·sin(mλ)], phases from the table.
+                let base = m * nlon;
                 for (lo, cell) in row.iter_mut().enumerate() {
-                    let ang = mf * lon_rad[lo];
-                    *cell += 2.0 * (re_m * ang.cos() - im_m * ang.sin());
+                    *cell += 2.0 * (re_m * cos_tab[base + lo] - im_m * sin_tab[base + lo]);
                 }
             }
 
