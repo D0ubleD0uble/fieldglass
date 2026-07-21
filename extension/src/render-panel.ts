@@ -13,7 +13,7 @@
 import * as vscode from "vscode";
 
 import { escapeHtml, nonce } from "./html";
-import type { ColormapInfo, MessageMeta, NetcdfVariableMeta } from "./native";
+import type { ColormapInfo, CombineOpInfo, MessageMeta, NetcdfVariableMeta } from "./native";
 
 /** Which 2-D plane of an N-D NetCDF variable to draw: the variable, the two
  *  image axes (positions into the variable's dimensions), and the held index
@@ -113,15 +113,14 @@ ${groups}
 /** The shared operation selector for the Compare row (#239). Field A is the
  *  field the panel opened on; choosing an operation combines it element-wise
  *  with Field B. `(off)` (empty value) is the default — a plain single render. */
-function compareOpSelectHtml(): string {
+function compareOpSelectHtml(combineOps: CombineOpInfo[]): string {
+  const options = combineOps
+    .map((o) => `          <option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`)
+    .join("\n");
   return `      <label>Operation
         <select id="compare-op">
           <option value="" selected>(off)</option>
-          <option value="a_minus_b">A − B</option>
-          <option value="b_minus_a">B − A</option>
-          <option value="a_plus_b">A + B</option>
-          <option value="mean">mean(A, B)</option>
-          <option value="ratio">A / B</option>
+${options}
         </select>
       </label>`;
 }
@@ -129,7 +128,10 @@ function compareOpSelectHtml(): string {
 /** The GRIB Compare row: the operation selector plus a Field B message picker.
  *  Omitted (empty string) when there is nothing to compare — fewer than two
  *  messages — so a single-message file shows no Compare row. */
-function gribCompareFieldsetHtml(fields: CompareFieldOption[]): string {
+function gribCompareFieldsetHtml(
+  fields: CompareFieldOption[],
+  combineOps: CombineOpInfo[],
+): string {
   if (fields.length < 2) {
     return "";
   }
@@ -138,7 +140,7 @@ function gribCompareFieldsetHtml(fields: CompareFieldOption[]): string {
     .join("\n");
   return `    <fieldset>
       <legend>Compare:</legend>
-${compareOpSelectHtml()}
+${compareOpSelectHtml(combineOps)}
       <label>Field B
         <select id="compare-field-b">
 ${options}
@@ -152,10 +154,10 @@ ${options}
  *  steppers for Field B, which is the same variable at a different slice (the
  *  "difference of two time steps / levels" case). The steppers are built
  *  dynamically into `#compare-dims` by the panel script, mirroring Field A's. */
-function netcdfCompareFieldsetHtml(): string {
+function netcdfCompareFieldsetHtml(combineOps: CombineOpInfo[]): string {
   return `    <fieldset>
       <legend>Compare:</legend>
-${compareOpSelectHtml()}
+${compareOpSelectHtml(combineOps)}
       <span class="compare-b">Field B <span id="compare-dims"></span></span>
     </fieldset>
 `;
@@ -178,6 +180,7 @@ export function renderImagePanelHtml(
   meta: MessageMeta,
   projectionSummary: string,
   colormaps: ColormapInfo[],
+  combineOps: CombineOpInfo[],
   slice?: SlicePanelData,
   compareFields?: CompareFieldOption[]
 ): string {
@@ -1683,7 +1686,7 @@ ${meta.reprojectable
       <label><input type="checkbox" id="flip-y"> Flip Y axis</label>
     </div>
 ${colormapFieldsetHtml(colormaps)}
-${slice ? netcdfCompareFieldsetHtml() : gribCompareFieldsetHtml(compareFields ?? [])}
+${slice ? netcdfCompareFieldsetHtml(combineOps) : gribCompareFieldsetHtml(compareFields ?? [], combineOps)}
     <fieldset>
       <legend>Color Range:</legend>
       <label><input type="radio" name="range-mode" value="auto" checked> Auto</label>

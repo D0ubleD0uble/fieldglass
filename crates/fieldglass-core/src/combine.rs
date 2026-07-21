@@ -49,6 +49,29 @@ impl CombineOp {
         })
     }
 
+    /// Every operation, in menu order. This is the single source the napi layer
+    /// surfaces (see `combine_ops`) so the UI picker, its validation set, and
+    /// the tests all derive their op vocabulary from here rather than repeating
+    /// it — a new op added to the enum flows out automatically.
+    pub const ALL: [CombineOp; 5] = [
+        CombineOp::Difference,
+        CombineOp::ReverseDifference,
+        CombineOp::Sum,
+        CombineOp::Mean,
+        CombineOp::Ratio,
+    ];
+
+    /// Human-readable label for the operation menu (e.g. `A − B`).
+    pub fn label(&self) -> &'static str {
+        match self {
+            CombineOp::Difference => "A − B",
+            CombineOp::ReverseDifference => "B − A",
+            CombineOp::Sum => "A + B",
+            CombineOp::Mean => "mean(A, B)",
+            CombineOp::Ratio => "A / B",
+        }
+    }
+
     /// The scalar operation on two present values.
     fn apply(self, a: f64, b: f64) -> f64 {
         match self {
@@ -178,16 +201,30 @@ mod tests {
 
     #[test]
     fn wire_tags_round_trip() {
-        for op in [
-            CombineOp::Difference,
-            CombineOp::ReverseDifference,
-            CombineOp::Sum,
-            CombineOp::Mean,
-            CombineOp::Ratio,
-        ] {
+        for op in CombineOp::ALL {
             assert_eq!(CombineOp::from_wire(op.as_str()), Some(op));
         }
         assert_eq!(CombineOp::from_wire("product"), None);
         assert_eq!(CombineOp::from_wire(""), None);
+    }
+
+    #[test]
+    fn all_ops_have_distinct_non_empty_tags_and_labels() {
+        // `ALL` is the single source the napi/UI layer derives its op list from
+        // (see `combine_ops`), so every entry must carry a usable, unique wire
+        // tag and menu label.
+        let mut tags = std::collections::HashSet::new();
+        let mut labels = std::collections::HashSet::new();
+        for op in CombineOp::ALL {
+            assert!(!op.as_str().is_empty(), "{op:?} has an empty wire tag");
+            assert!(!op.label().is_empty(), "{op:?} has an empty label");
+            assert!(
+                tags.insert(op.as_str()),
+                "duplicate wire tag {}",
+                op.as_str()
+            );
+            assert!(labels.insert(op.label()), "duplicate label {}", op.label());
+        }
+        assert_eq!(tags.len(), CombineOp::ALL.len());
     }
 }

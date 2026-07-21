@@ -51,6 +51,12 @@ function registry() {
   return native.colormaps();
 }
 
+function combineOps() {
+  const native = loadNative();
+  assert.ok(native, "native binding required");
+  return native.combineOps();
+}
+
 const EXT_ID = "fieldglass.fieldglass";
 
 function fixturePath(name: string): string {
@@ -878,6 +884,7 @@ suite("render-panel HTML", () => {
       fakeMeta(),
       "summary",
       registry(),
+      combineOps(),
     );
     const select = /<select id="picker-projection">([\s\S]*?)<\/select>/.exec(html);
     assert.ok(select, "the projection picker must be in the panel HTML");
@@ -907,6 +914,7 @@ suite("render-panel HTML", () => {
       fakeMeta(),
       "summary",
       cmaps,
+      combineOps(),
     );
     const select = /<select id="picker-colormap">([\s\S]*?)<\/select>/.exec(html);
     assert.ok(select, "the colormap picker must be in the panel HTML");
@@ -963,6 +971,7 @@ suite("render-panel HTML", () => {
       fakeMeta(),
       "summary",
       registry(),
+      combineOps(),
       undefined,
       [
         { index: 0, label: "#0 · A" },
@@ -975,8 +984,11 @@ suite("render-panel HTML", () => {
       /value="a_minus_b"/.test(html2) && /value="ratio"/.test(html2),
       "the five combine operations must be offered",
     );
-    // The op wire values in the picker must be the ones resolveGribCompare accepts.
-    for (const op of ["a_minus_b", "b_minus_a", "a_plus_b", "mean", "ratio"]) {
+    // The picker's op wire values — sourced from Rust via combineOps() — must
+    // each be offered and accepted by resolveGribCompare (single source, #342).
+    const opTags = combineOps().map((o) => o.value);
+    assert.ok(opTags.length >= 5, "the combine-op registry must be populated");
+    for (const op of opTags) {
       assert.ok(
         html2.includes(`value="${op}"`),
         `the picker must offer the "${op}" operation`,
@@ -993,6 +1005,7 @@ suite("render-panel HTML", () => {
       fakeMeta(),
       "summary",
       registry(),
+      combineOps(),
       undefined,
       [{ index: 0, label: "#0 · only" }],
     );
@@ -1002,6 +1015,7 @@ suite("render-panel HTML", () => {
       fakeMeta(),
       "summary",
       registry(),
+      combineOps(),
     );
     assert.ok(!/id="compare-op"/.test(htmlNone), "no Compare row when unset");
   });
@@ -1012,6 +1026,7 @@ suite("render-panel HTML", () => {
       fakeMeta(),
       "summary",
       registry(),
+      combineOps(),
     );
     // The orthographic centre and the polar central meridian are free-form
     // number inputs (no preset <select> for the ortho centre any more); the
@@ -1295,6 +1310,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
       fakeNetcdfMeta(),
       "summary",
       registry(),
+      combineOps(),
       slice,
     );
     for (const id of ["slice-variable", "slice-y", "slice-x", "slice-dims"]) {
@@ -1321,7 +1337,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     assert.ok(/id="compare-op"/.test(html), "the compare operation selector must exist");
     assert.ok(/id="compare-dims"/.test(html), "the Field B stepper container must exist");
     assert.ok(!/id="compare-field-b"/.test(html), "NetCDF uses steppers, not a message dropdown");
-    for (const op of ["a_minus_b", "b_minus_a", "a_plus_b", "mean", "ratio"]) {
+    for (const { value: op } of combineOps()) {
       assert.ok(
         html.includes(`value="${op}"`),
         `the compare picker must offer the "${op}" operation`,
@@ -1333,6 +1349,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
       fakeNetcdfMeta(),
       "summary",
       registry(),
+      combineOps(),
     );
     assert.ok(/const SLICE = null/.test(gribHtml), "SLICE must be null without slice data");
     assert.ok(!/id="slice-variable"/.test(gribHtml), "no slice row without slice data");
