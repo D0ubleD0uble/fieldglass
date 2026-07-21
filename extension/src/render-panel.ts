@@ -449,6 +449,14 @@ export function renderImagePanelHtml(
           if (el) el.textContent = text;
         }
 
+        // Contour projection failures show in their own line, not #status, so a
+        // "not supported on this grid" message never clobbers the render summary
+        // (dimensions + range). Empty string hides the line (CSS :empty). #338
+        function setContourStatus(text) {
+          const el = document.getElementById('contour-status');
+          if (el) el.textContent = text;
+        }
+
         // The warped lat/lon targets (equirectangular + Web Mercator) both
         // render a lat/lon window: they accept a manual bounds box and show the
         // Bounds control. Keep the rule in one place so the two gates can't
@@ -823,6 +831,10 @@ export function renderImagePanelHtml(
         // current raster. Re-fetched on every render (the levels track the used
         // range) as well as on a contour-control change. Off → drop the runs.
         function requestContours() {
+          // Clear any prior contour error up front: this covers both turning
+          // contours off (below) and issuing a fresh request — a failure gets
+          // re-reported by handleContourError when the response comes back.
+          setContourStatus('');
           if (!lastPayload || !contoursEnabled()) {
             lastContour = null;
             drawOverlay();
@@ -851,7 +863,8 @@ export function renderImagePanelHtml(
           if (msg.seq !== contourSeq) return;
           lastContour = null;
           drawOverlay();
-          setStatus('Contours: ' + (msg.error || 'unavailable for this grid'));
+          // Its own line, so the render summary in #status survives (#338).
+          setContourStatus('Contours: ' + (msg.error || 'unavailable for this grid'));
         }
 
         // Contours-only mode hides the colour raster so the isolines read on a
@@ -1432,6 +1445,13 @@ export function renderImagePanelHtml(
     .projection { color: var(--vscode-descriptionForeground); font-size: 0.8rem; margin-bottom: 0.75rem; }
     .picker-note { display: block; color: var(--vscode-descriptionForeground); font-size: 0.8rem; margin-top: 0.25rem; }
     #status { font-size: 0.85rem; margin-bottom: 0.75rem; min-height: 1.1em; }
+    .contour-status {
+      font-size: 0.85rem;
+      color: var(--vscode-editorWarning-foreground, #cca700);
+      margin-top: -0.5rem;
+      margin-bottom: 0.5rem;
+    }
+    .contour-status:empty { display: none; }
     .probe-readout {
       font-size: 0.85rem;
       font-variant-numeric: tabular-nums;
@@ -1708,6 +1728,7 @@ ${slice ? netcdfCompareFieldsetHtml() : gribCompareFieldsetHtml(compareFields ??
     </fieldset>
   </div>
   <div id="status">Rendering…</div>
+  <div id="contour-status" class="contour-status" aria-live="polite"></div>
   <div id="probe" class="probe-readout" aria-live="polite"></div>
   <div class="render-area">
     <div class="canvas-wrap">
