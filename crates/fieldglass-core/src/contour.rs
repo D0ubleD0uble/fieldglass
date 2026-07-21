@@ -69,6 +69,18 @@ pub fn contour_segments(
     let finite_at =
         |i: usize, j: usize| -> Option<f64> { values[j * ni + i].filter(|v| v.is_finite()) };
 
+    // Sort the levels once so each cell can binary-search only the band its four
+    // corner values span — every other level gives case 0 or 15 (no crossing),
+    // so a dense level set (`levels_by_interval` allows thousands) no longer
+    // costs O(cells × levels). `total_cmp` is a total order, so NaN sorts to the
+    // end, outside every finite `[cmin, cmax]` band; such a level yields no
+    // segments, exactly as before (its `>=` comparisons made every case 0).
+    // `order` maps a sorted position back to the caller's level index, so `out`
+    // stays in input order.
+    let mut order: Vec<usize> = (0..levels.len()).collect();
+    order.sort_by(|&a, &b| levels[a].total_cmp(&levels[b]));
+    let sorted_levels: Vec<f64> = order.iter().map(|&k| levels[k]).collect();
+
     for j in 0..nj - 1 {
         for i in 0..ni - 1 {
             // Corners: bl (i,j), br (i+1,j), tr (i+1,j+1), tl (i,j+1).
@@ -86,8 +98,18 @@ pub fn contour_segments(
             let tr = ((i + 1) as f64, (j + 1) as f64);
             let tl = (i as f64, (j + 1) as f64);
 
-            for lvl in out.iter_mut() {
-                let level = lvl.level;
+            // Only levels within the cell's corner range can cross it. Binary-
+            // search that band in the sorted levels: `[lo, hi)` is every level
+            // in `[cmin, cmax]`. (The `case == 0 || case == 15` guard below
+            // still handles the band's own endpoints — `level == cmin` is a flat
+            // case-15 skip — so the segments are identical to scanning all
+            // levels, just far fewer comparisons.)
+            let cmin = v_bl.min(v_br).min(v_tr).min(v_tl);
+            let cmax = v_bl.max(v_br).max(v_tr).max(v_tl);
+            let lo = sorted_levels.partition_point(|&l| l < cmin);
+            let hi = sorted_levels.partition_point(|&l| l <= cmax);
+            for si in lo..hi {
+                let level = sorted_levels[si];
                 // Corner-above bits: bl=1, br=2, tr=4, tl=8.
                 let case = (v_bl >= level) as u8
                     | (((v_br >= level) as u8) << 1)
@@ -102,22 +124,23 @@ pub fn contour_segments(
                 let top = || interp(tl, v_tl, tr, v_tr, level); // tl–tr
                 let left = || interp(bl, v_bl, tl, v_tl, level); // bl–tl
 
+                let segments = &mut out[order[si]].segments;
                 match case {
-                    1 | 14 => lvl.segments.push([left(), bottom()]),
-                    2 | 13 => lvl.segments.push([bottom(), right()]),
-                    4 | 11 => lvl.segments.push([right(), top()]),
-                    7 | 8 => lvl.segments.push([left(), top()]),
-                    3 | 12 => lvl.segments.push([left(), right()]),
-                    6 | 9 => lvl.segments.push([bottom(), top()]),
+                    1 | 14 => segments.push([left(), bottom()]),
+                    2 | 13 => segments.push([bottom(), right()]),
+                    4 | 11 => segments.push([right(), top()]),
+                    7 | 8 => segments.push([left(), top()]),
+                    3 | 12 => segments.push([left(), right()]),
+                    6 | 9 => segments.push([bottom(), top()]),
                     // Saddles (opposite corners on the same side). The pairing
                     // is ambiguous; we pick one consistent resolution.
                     5 => {
-                        lvl.segments.push([left(), bottom()]);
-                        lvl.segments.push([right(), top()]);
+                        segments.push([left(), bottom()]);
+                        segments.push([right(), top()]);
                     }
                     10 => {
-                        lvl.segments.push([bottom(), right()]);
-                        lvl.segments.push([top(), left()]);
+                        segments.push([bottom(), right()]);
+                        segments.push([top(), left()]);
                     }
                     _ => unreachable!("marching-squares case {case} is 0..=15"),
                 }
@@ -212,6 +235,39 @@ mod tests {
         assert_eq!(out.len(), 2);
         assert!(out[0].segments.is_empty(), "below the field minimum");
         assert!(out[1].segments.is_empty(), "above the field maximum");
+    }
+
+    #[test]
+    fn unsorted_and_out_of_range_levels_map_back_to_input_order() {
+        // The per-cell band pruning sorts the levels internally; the output must
+        // still be one entry per input level, in input order, with the right
+        // segments — so unsorted and out-of-range levels are the regression to
+        // guard (#336). value = i over a 5×4 grid, so a level L ∈ (0, 4) crosses
+        // every row cell at i = L (3 vertical segments), and a level outside
+        // [0, 4] has no crossings.
+        let f = ramp(5, 4);
+        let levels = [3.5, -10.0, 1.5, 2.5, 99.0];
+        let out = contour_segments(&f, 5, 4, &levels);
+        assert_eq!(out.len(), levels.len());
+        for (k, &lvl) in levels.iter().enumerate() {
+            assert_eq!(out[k].level, lvl, "entry {k} keeps its input level {lvl}");
+            if lvl > 0.0 && lvl < 4.0 {
+                assert_eq!(out[k].segments.len(), 3, "level {lvl}: one segment per row");
+                for seg in &out[k].segments {
+                    for (x, _y) in seg {
+                        assert!(
+                            (x - lvl).abs() < 1e-9,
+                            "level {lvl} crosses at i={lvl}, got {x}"
+                        );
+                    }
+                }
+            } else {
+                assert!(
+                    out[k].segments.is_empty(),
+                    "out-of-range level {lvl} has no segments"
+                );
+            }
+        }
     }
 
     #[test]
