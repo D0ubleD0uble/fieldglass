@@ -12,7 +12,7 @@ use crate::drs::{
     CcsdsPackingTemplate, ComplexPackingTemplate, ComplexSpatialDiffTemplate,
     DataRepresentationTemplate, IeeePackingTemplate, Jpeg2000PackingTemplate,
     LogPreprocessingPackingTemplate, PngPackingTemplate, RunLengthPackingTemplate,
-    SecondOrderPackingTemplate, SimplePackingTemplate,
+    SecondOrderPackingTemplate, SimplePackingTemplate, red_scale,
 };
 use crate::section::{SECTION_HEADER_LEN, SectionHeader};
 use fieldglass_core::{
@@ -166,9 +166,11 @@ fn decode_simple_packing(
         None => expected_count,
     };
 
-    let r = t.reference_value as f64;
-    let two_pow_e = 2f64.powi(t.binary_scale_factor as i32);
-    let d_inv = 10f64.powi(-(t.decimal_scale_factor as i32));
+    let (r, two_pow_e, d_inv) = red_scale(
+        t.reference_value,
+        t.binary_scale_factor,
+        t.decimal_scale_factor,
+    );
 
     // Constant field: every present point equals R · 10^-D.
     if t.bits_per_value == 0 {
@@ -292,9 +294,11 @@ fn complex_scaled_to_values(
     bitmap: Option<&[bool]>,
     expected_count: usize,
 ) -> Vec<Option<f64>> {
-    let r = t.reference_value as f64;
-    let two_pow_e = 2f64.powi(t.binary_scale_factor as i32);
-    let d_inv = 10f64.powi(-(t.decimal_scale_factor as i32));
+    let (r, two_pow_e, d_inv) = red_scale(
+        t.reference_value,
+        t.binary_scale_factor,
+        t.decimal_scale_factor,
+    );
     let decoded = scaled
         .into_iter()
         .map(|s| s.map(|s| (r + s as f64 * two_pow_e) * d_inv));
@@ -696,9 +700,11 @@ fn decode_png_packing(
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
     let present_count = check_bitmap_present_count(bitmap, expected_count)?;
 
-    let r = t.reference_value as f64;
-    let two_pow_e = 2f64.powi(t.binary_scale_factor as i32);
-    let d_inv = 10f64.powi(-(t.decimal_scale_factor as i32));
+    let (r, two_pow_e, d_inv) = red_scale(
+        t.reference_value,
+        t.binary_scale_factor,
+        t.decimal_scale_factor,
+    );
 
     // Constant field: no PNG stream is written; every present point is R·10^-D.
     if t.bits_per_value == 0 {
@@ -794,9 +800,11 @@ fn decode_ccsds_packing(
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
     let present_count = check_bitmap_present_count(bitmap, expected_count)?;
 
-    let r = t.reference_value as f64;
-    let two_pow_e = 2f64.powi(t.binary_scale_factor as i32);
-    let d_inv = 10f64.powi(-(t.decimal_scale_factor as i32));
+    let (r, two_pow_e, d_inv) = red_scale(
+        t.reference_value,
+        t.binary_scale_factor,
+        t.decimal_scale_factor,
+    );
 
     // Constant field: bitsPerValue == 0 means §7 is empty and every present
     // point equals the reference value verbatim. This matches eccodes'
@@ -886,9 +894,11 @@ fn decode_jpeg2000_packing(
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
     let present_count = check_bitmap_present_count(bitmap, expected_count)?;
 
-    let r = t.reference_value as f64;
-    let two_pow_e = 2f64.powi(t.binary_scale_factor as i32);
-    let d_inv = 10f64.powi(-(t.decimal_scale_factor as i32));
+    let (r, two_pow_e, d_inv) = red_scale(
+        t.reference_value,
+        t.binary_scale_factor,
+        t.decimal_scale_factor,
+    );
 
     // Constant field: bitsPerValue == 0 means §7 is empty and every present
     // point equals the reference value verbatim, matching eccodes' `grid_jpeg`
@@ -957,18 +967,7 @@ fn decode_run_length_packing(
     bitmap: Option<&[bool]>,
     expected_count: usize,
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
-    if let Some(b) = bitmap
-        && b.len() != expected_count
-    {
-        return Err(FieldglassError::Parse(format!(
-            "bitmap length {} != grid-point count {expected_count}",
-            b.len()
-        )));
-    }
-    let present_count = match bitmap {
-        Some(b) => b.iter().filter(|p| **p).count(),
-        None => expected_count,
-    };
+    let present_count = check_bitmap_present_count(bitmap, expected_count)?;
 
     let bits = t.bits_per_value;
     // A zero max level, or a §7 with no whole code in it, is a wholly-missing
@@ -1229,9 +1228,11 @@ fn decode_second_order(
     apply_spd_inverse(&mut x, t.order_of_spd, t.spd_bias)?;
 
     // Apply the R / E / D transform and spread across the grid per the bitmap.
-    let r = t.reference_value as f64;
-    let two_pow_e = 2f64.powi(t.binary_scale_factor as i32);
-    let d_inv = 10f64.powi(-(t.decimal_scale_factor as i32));
+    let (r, two_pow_e, d_inv) = red_scale(
+        t.reference_value,
+        t.binary_scale_factor,
+        t.decimal_scale_factor,
+    );
     let decoded = x.into_iter().map(|v| (r + v as f64 * two_pow_e) * d_inv);
     Ok(interleave_present_points(
         decoded.map(Some),
