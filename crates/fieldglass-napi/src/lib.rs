@@ -3687,7 +3687,13 @@ fn field_csv(
     match format {
         "matrix" => Ok(field_to_csv_matrix(values, ni as usize, nj as usize)),
         "long" => {
-            let geo = forward_geolocation_for(meta, ni, nj)?;
+            let geo = forward_geolocation_for(meta, ni, nj, |gt| {
+                format!(
+                    "the long CSV format needs per-point coordinates, which grid type \
+                     {gt:?} doesn't provide (only {GEOLOCATABLE_FAMILIES}); export as the \
+                     Matrix format instead"
+                )
+            })?;
             Ok(field_to_csv_long(
                 values,
                 ni as usize,
@@ -3701,7 +3707,25 @@ fn field_csv(
     }
 }
 
-fn forward_geolocation_for(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<ForwardGeo> {
+/// The grid families that carry a forward geolocation map, as user-facing
+/// prose — shared by every geolocation-dependent feature's "unsupported grid"
+/// message so they name the same set. (Reduced grids reproject but aren't
+/// geolocated here, so they're deliberately absent.)
+const GEOLOCATABLE_FAMILIES: &str = "regular lat/lon, Mercator, rotated lat/lon, and Gaussian";
+
+/// Build the per-grid forward geolocation closure `(i, j) → (lat, lon)` for a
+/// grid whose family is geolocated (the lat/lon family). `unsupported` supplies
+/// the caller's own error message for a grid type outside that family, given the
+/// grid-type string — so the shared gate reads "contours not yet supported…" for
+/// the contour path and points long-CSV callers at the Matrix layout, instead of
+/// one feature's hard-coded wording leaking into the others (#337). A legitimate
+/// missing-coordinate error for a *supported* family still surfaces verbatim.
+fn forward_geolocation_for(
+    meta: &MessageMeta,
+    ni: u32,
+    nj: u32,
+    unsupported: impl Fn(&str) -> String,
+) -> napi::Result<ForwardGeo> {
     match meta.grid_type.as_deref().unwrap_or("") {
         "latlon" => {
             let p = LatLonParams {
@@ -3757,10 +3781,7 @@ fn forward_geolocation_for(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result
             let projector = GaussianProjector::new(p);
             Ok(Box::new(move |i, j| projector.grid_point_lonlat(i, j)))
         }
-        other => Err(napi::Error::from_reason(format!(
-            "contours not yet supported for grid type {other:?} \
-             (only regular lat/lon, Mercator, rotated lat/lon, and Gaussian for now)"
-        ))),
+        other => Err(napi::Error::from_reason(unsupported(other))),
     }
 }
 
@@ -3838,7 +3859,12 @@ fn project_contours_impl(
 ) -> napi::Result<ProjectedPolylines> {
     let ni = grid_ni(meta)?;
     let nj = grid_nj(meta)?;
-    let forward = forward_geolocation_for(meta, ni, nj)?;
+    let forward = forward_geolocation_for(meta, ni, nj, |gt| {
+        format!(
+            "contours not yet supported for grid type {gt:?} \
+             (only {GEOLOCATABLE_FAMILIES} for now)"
+        )
+    })?;
 
     // Levels span the same range the image is painted over, so contours line up
     // with the colours: a manual range override wins, else the present-cell min/max.
@@ -3927,8 +3953,9 @@ fn probe_impl(
             let (gi, gj) = (px, gj);
             let value = value_at(gi as i64, gj as i64);
             // Geolocate when the grid's forward map is wired (lat/lon family);
-            // otherwise report the value without a coordinate.
-            let latlon = forward_geolocation_for(meta, ni, nj)
+            // otherwise report the value without a coordinate. The error branch
+            // is discarded here (`.ok()`), so the message is never shown.
+            let latlon = forward_geolocation_for(meta, ni, nj, |_| String::new())
                 .ok()
                 .and_then(|f| f(gi, gj));
             let (lat, lon) = match latlon {
@@ -5297,11 +5324,21 @@ mod polar_stereo_warp_tests {
 
     #[test]
     fn field_csv_long_gates_non_latlon_grids() {
-        // The long format needs a forward geolocation, which projected grids
-        // don't wire yet — it must error rather than emit bad coordinates.
+        // The long format needs per-point geolocation, which projected grids
+        // don't provide yet — it must error rather than emit bad coordinates.
+        // The message must be about CSV and point at the Matrix layout, not leak
+        // the shared gate's contour wording (#337).
         let err = field_csv(&[Some(1.0)], &cmc_polar_meta(), 1, 1, "long")
             .expect_err("projected long export is gated");
-        assert!(format!("{err}").contains("not yet supported"));
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("long CSV") && msg.contains("Matrix"),
+            "actionable CSV-specific message, got: {msg}"
+        );
+        assert!(
+            !msg.contains("contour"),
+            "the CSV gate must not surface contour wording, got: {msg}"
+        );
     }
 
     #[test]
@@ -6141,7 +6178,8 @@ mod netcdf_slice_tests {
     #[test]
     fn forward_geolocation_latlon_places_corners_then_interior() {
         let meta = latlon_meta(5, 4);
-        let fwd = forward_geolocation_for(&meta, 5, 4).expect("latlon forward map");
+        let fwd =
+            forward_geolocation_for(&meta, 5, 4, |_| String::new()).expect("latlon forward map");
         // Corner (0,0) is (latFirst, lonFirst); (4,3) is (latLast, lonLast).
         assert_eq!(fwd(0, 0), Some((40.0, 0.0)));
         assert_eq!(fwd(4, 3), Some((10.0, 40.0)));
