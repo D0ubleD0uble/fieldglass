@@ -658,9 +658,14 @@ export function renderImagePanelHtml(
             lastContour = null;
             requestOverlay();
           }
-          // Contours track the field and the used range, so re-fetch on every
-          // render (a no-op when the toggle is off).
-          requestContours();
+          // Contours track the field, used range, projection, and interval —
+          // re-fetch only when one of those moved. A palette- or resampling-only
+          // repaint leaves the projected runs valid, so skip the marching-
+          // squares + projection round-trip (#336). contourKey returns null when
+          // contours are off, matching lastContourKey so nothing fires.
+          if (contourKey() !== lastContourKey) {
+            requestContours();
+          }
         }
 
         function handleGridError(msg) {
@@ -701,6 +706,10 @@ export function renderImagePanelHtml(
         // field, range, projection, or interval can all move them).
         let lastContour = null;
         let contourSeq = 0;
+        // The state the cached contour runs correspond to (geometry + used range
+        // + interval + field). A palette-only repaint leaves it unchanged, so we
+        // skip re-running marching squares + projection (#336). null = no runs.
+        let lastContourKey = null;
         // The geometry-affecting options behind the current overlay. A render
         // that changes only range/resampling leaves this unchanged, so we skip
         // a redundant reprojection round-trip.
@@ -799,6 +808,25 @@ export function renderImagePanelHtml(
           ]);
         }
 
+        // Everything the projected contour runs depend on: the overlay geometry
+        // (contours project through the same path), the used range the levels
+        // track, the manual interval, and the field being sliced. Returns null
+        // when contours are off or there is no field, so an off-to-off render
+        // compares equal and skips. A palette/colormap change moves none of
+        // this, so the cached runs stay valid (#336).
+        function contourKey() {
+          if (!contoursEnabled() || !lastPayload) return null;
+          const o = currentOptions();
+          const iv = Number((document.getElementById('contour-interval') || {}).value);
+          return JSON.stringify([
+            o.projection, o.projectionPreset, o.centerLat, o.centerLon, !!o.flipY,
+            o.boundsLatMin, o.boundsLatMax, o.boundsLonMin, o.boundsLonMax,
+            lastPayload.usedMin, lastPayload.usedMax,
+            Number.isFinite(iv) && iv > 0 ? iv : null,
+            sliceFields(),
+          ]);
+        }
+
         function clearOverlay() {
           lastOverlay = null;
           const o = document.getElementById('overlay');
@@ -848,9 +876,13 @@ export function renderImagePanelHtml(
           setContourStatus('');
           if (!lastPayload || !contoursEnabled()) {
             lastContour = null;
+            lastContourKey = null;
             drawOverlay();
             return;
           }
+          // Record the state these runs correspond to, so handleGridReady can
+          // skip the re-fetch when a later render doesn't move any of it (#336).
+          lastContourKey = contourKey();
           contourSeq += 1;
           const iv = Number((document.getElementById('contour-interval') || {}).value);
           vscode.postMessage(Object.assign({
