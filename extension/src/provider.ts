@@ -654,8 +654,14 @@ export class FieldglassEditorProvider
       const docHandle = this._handlesByDoc.get(document.uri.toString());
       if (!docHandle) return;
       const options = resolveRerenderOptions(req.options ?? {});
+      const interval = resolveInterval(req.interval);
+      // A difference-map contour traces the combined field, not field A (#329).
+      const compare = resolveGribCompare(req);
       try {
-        const c = docHandle.projectContours(meta.messageIndex, options, resolveInterval(req.interval));
+        const c = compare
+          ? docHandle.projectContoursCombined(
+              meta.messageIndex, compare.messageIndexB, compare.op, options, interval)
+          : docHandle.projectContours(meta.messageIndex, options, interval);
         panel.webview.postMessage({
           type: "contourReady",
           messageIndex: meta.messageIndex,
@@ -677,13 +683,16 @@ export class FieldglassEditorProvider
     const probe = (req: ProbeRequest) => {
       const docHandle = this._handlesByDoc.get(document.uri.toString());
       if (!docHandle) return;
+      const options = resolveRerenderOptions(req.options ?? {});
+      const px = Math.max(0, Math.floor(req.px));
+      const py = Math.max(0, Math.floor(req.py));
+      // A click on a difference map reads the combined field, not field A (#329).
+      const compare = resolveGribCompare(req);
       try {
-        const result = docHandle.probe(
-          meta.messageIndex,
-          resolveRerenderOptions(req.options ?? {}),
-          Math.max(0, Math.floor(req.px)),
-          Math.max(0, Math.floor(req.py)),
-        );
+        const result = compare
+          ? docHandle.probeCombined(
+              meta.messageIndex, compare.messageIndexB, compare.op, options, px, py)
+          : docHandle.probe(meta.messageIndex, options, px, py);
         panel.webview.postMessage({ type: "probeResult", messageIndex: meta.messageIndex, result });
       } catch {
         // A probe never blocks the user; swallow and report nothing.
@@ -1046,15 +1055,16 @@ export class FieldglassEditorProvider
       if (!docHandle) return;
       const spec = req.slice ?? initial;
       const options = resolveRerenderOptions(req.options ?? {});
+      const interval = resolveInterval(req.interval);
+      // A difference-map contour traces the combined field, not slice A (#329).
+      const compare = resolveNetcdfCompare(req);
       try {
-        const c = docHandle.projectContours(
-          spec.variableIndex,
-          spec.yDim,
-          spec.xDim,
-          spec.sliceIndices,
-          options,
-          resolveInterval(req.interval),
-        );
+        const c = compare
+          ? docHandle.projectContoursSliceCombined(
+              spec.variableIndex, spec.yDim, spec.xDim, spec.sliceIndices,
+              compare.variableIndexB, compare.sliceIndicesB, compare.op, options, interval)
+          : docHandle.projectContours(
+              spec.variableIndex, spec.yDim, spec.xDim, spec.sliceIndices, options, interval);
         panel.webview.postMessage({
           type: "contourReady",
           messageIndex: spec.variableIndex,
@@ -1077,16 +1087,18 @@ export class FieldglassEditorProvider
       const docHandle = this._netcdfHandlesByDoc.get(document.uri.toString());
       if (!docHandle) return;
       const spec = req.slice ?? initial;
+      const options = resolveRerenderOptions(req.options ?? {});
+      const px = Math.max(0, Math.floor(req.px));
+      const py = Math.max(0, Math.floor(req.py));
+      // A click on a difference map reads the combined field, not slice A (#329).
+      const compare = resolveNetcdfCompare(req);
       try {
-        const result = docHandle.probe(
-          spec.variableIndex,
-          spec.yDim,
-          spec.xDim,
-          spec.sliceIndices,
-          resolveRerenderOptions(req.options ?? {}),
-          Math.max(0, Math.floor(req.px)),
-          Math.max(0, Math.floor(req.py)),
-        );
+        const result = compare
+          ? docHandle.probeSliceCombined(
+              spec.variableIndex, spec.yDim, spec.xDim, spec.sliceIndices,
+              compare.variableIndexB, compare.sliceIndicesB, compare.op, options, px, py)
+          : docHandle.probe(
+              spec.variableIndex, spec.yDim, spec.xDim, spec.sliceIndices, options, px, py);
         panel.webview.postMessage({ type: "probeResult", messageIndex: spec.variableIndex, result });
       } catch {
         panel.webview.postMessage({ type: "probeResult", messageIndex: spec.variableIndex, result: null });

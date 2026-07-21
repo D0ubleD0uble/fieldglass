@@ -891,7 +891,9 @@ export function renderImagePanelHtml(
             options: currentOptions(),
             // A positive interval overrides the automatic levels; blank = auto.
             interval: Number.isFinite(iv) && iv > 0 ? iv : undefined,
-          }, sliceFields()));
+            // Carry the compare rider so a difference map contours the combined
+            // field, not field A (#329).
+          }, sliceFields(), compareRequest()));
         }
 
         function handleContourReady(msg) {
@@ -936,8 +938,11 @@ export function renderImagePanelHtml(
           const px = Math.floor((clientX - rect.left) / rect.width * lastPayload.width);
           const py = Math.floor((clientY - rect.top) / rect.height * lastPayload.height);
           if (px < 0 || py < 0 || px >= lastPayload.width || py >= lastPayload.height) return;
+          // Carry the compare rider so a click on a difference map reads the
+          // combined field, not field A (#329).
           vscode.postMessage(Object.assign(
-            { type: 'probeRequest', px: px, py: py, options: currentOptions() }, sliceFields()));
+            { type: 'probeRequest', px: px, py: py, options: currentOptions() },
+            sliceFields(), compareRequest()));
         }
 
         function handleProbeResult(msg) {

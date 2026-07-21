@@ -315,6 +315,35 @@ suite("Render pipeline", () => {
     );
   });
 
+  test("GRIB combined probe/contours read the difference field, not field A (#329)", () => {
+    const native = loadNative();
+    assert.ok(native, "native module must load");
+    const bytes = fs.readFileSync(fixturePath("cmc_wind_300_2010052400_p012.grib"));
+    const handle = native.Grib1Handle.fromBytes(bytes);
+    const options = defaultRenderOptions();
+
+    // Self-difference A−A is 0 at every present point, so a probed present pixel
+    // reads 0 — the combined value, not field A's value there.
+    const r = handle.probeCombined(0, 0, "a_minus_b", options, 1, 1);
+    if (r && r.value != null) {
+      assert.strictEqual(r.value, 0, "A−A probe reads the combined 0, not field A");
+    }
+    // A bad op errors here too, not a silent single-field fallback.
+    assert.throws(
+      () => handle.probeCombined(0, 0, "product" as never, options, 0, 0),
+      /unknown combine op/,
+    );
+    // Contours of the combined field are callable; they either return runs or
+    // report the same clear grid-type limitation as the single-field path
+    // (this fixture may be a projected grid, which isn't contourable yet).
+    try {
+      const c = handle.projectContoursCombined(0, 0, "a_plus_b", options, undefined);
+      assert.ok(Array.isArray(c.xy), "combined contours return pixel runs");
+    } catch (e) {
+      assert.match(`${e}`, /not yet supported/, "or a clear grid-type message");
+    }
+  });
+
   test("GRIB1 equirectangular: antimeridian-tight bounds echoed + manual override honored", () => {
     const native = loadNative();
     assert.ok(native, "native module must load");
