@@ -101,7 +101,7 @@ const TEMPLATE_5_51_PAYLOAD_LEN: usize = 24;
 /// Template 5.53 payload length — octets 12..=35, 24 bytes: the 9-byte
 /// simple-packing block (R / E / D / bits, no type octet), the
 /// biFourierSubTruncationType (1) and biFourierPackingModeForAxes (1) octets,
-/// the 4-byte two's-complement Laplacian scaling factor, the two 2-byte
+/// the 4-byte sign-magnitude Laplacian scaling factor, the two 2-byte
 /// sub-truncation resolutions (NS / MS), the 4-byte unpacked-subset value count
 /// (TS), and the 1-byte unpacked-subset precision.
 const TEMPLATE_5_53_PAYLOAD_LEN: usize = 24;
@@ -573,9 +573,11 @@ pub struct BiFourierPackingTemplate {
     /// (`keepaxes`) forces the `i == 0` / `j == 0` axes into the unpacked
     /// subset regardless of the sub-truncation.
     pub packing_mode_for_axes: u8,
-    /// Laplacian scaling factor (**two's-complement** `signed[4]`, octets
+    /// Laplacian scaling factor (**sign-magnitude** `signed[4]`, octets
     /// 23–26), in units of 10⁻⁶; the operator exponent `P` is this divided by
-    /// 10⁶. The sentinel `-2_147_483_647` marks it unset.
+    /// 10⁶. The sentinel `-2_147_483_647` marks it unset. Like every GRIB
+    /// signed integer (and the 5.51 factor), it is sign-magnitude, not
+    /// two's-complement — see the parse site.
     pub laplacian_scaling_factor: i32,
     /// `NS` — bi-Fourier sub-truncation resolution in `i` (octets 27–28).
     pub sub_i: u16,
@@ -614,13 +616,18 @@ pub struct SecondOrderPackingTemplate {
     pub binary_scale_factor: i16,
     /// Decimal scale factor `D` (sign-magnitude `i16`, octets 18–19).
     pub decimal_scale_factor: i16,
-    /// Number of bits used for each packed value (octet 20). `0` is a
-    /// constant-field special case: §7 is empty and every point equals `R`.
+    /// Number of bits used for each packed value (octet 20). Unlike simple
+    /// packing, second-order packing has no `bits_per_value == 0`
+    /// constant-field convention: a constant field is signalled by
+    /// `num_groups == 0` instead (see that field), and eccodes encodes such a
+    /// field as simple packing (`grid_simple`) rather than second-order anyway.
     pub bits_per_value: u8,
     /// Width in bits of each first-order (group reference) value in §7
     /// (octet 21).
     pub width_of_first_order_values: u8,
-    /// NG — number of groups the field is split into (octets 22–25).
+    /// NG — number of groups the field is split into (octets 22–25). `0` marks
+    /// a constant field: §7 carries no data and every present point equals
+    /// `R · 10^-D` (see [`super::ds`]).
     pub num_groups: u32,
     /// Number of second-order packed values in §7 (octets 26–29) — the grid
     /// point count less the `order_of_spd` SPD seeds.
