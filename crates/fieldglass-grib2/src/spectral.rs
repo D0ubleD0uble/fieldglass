@@ -20,6 +20,7 @@
 
 use crate::drs::{
     BiFourierPackingTemplate, SpectralComplexPackingTemplate, SpectralSimplePackingTemplate,
+    red_scale,
 };
 use crate::gds::BiFourierTemplate;
 use fieldglass_core::{FieldglassError, bits::BitReader};
@@ -123,9 +124,11 @@ pub fn decode_spectral_simple(
         }
     }
 
-    let r = t.reference_value as f64;
-    let two_pow_e = 2f64.powi(t.binary_scale_factor as i32);
-    let d_inv = 10f64.powi(-(t.decimal_scale_factor as i32));
+    let (r, two_pow_e, d_inv) = red_scale(
+        t.reference_value,
+        t.binary_scale_factor,
+        t.decimal_scale_factor,
+    );
 
     let mut out = Vec::with_capacity(n_values);
     out.push(t.real_part_of_00 as f64);

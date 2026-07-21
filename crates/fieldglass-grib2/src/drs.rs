@@ -918,6 +918,35 @@ pub fn parse_data_representation_with_header(
     })
 }
 
+/// The `R` / `E` / `D` header every §5 packing template opens with, at the
+/// front of the template payload: the IEEE-32 reference value `R` (payload
+/// octets 0–3), the sign-magnitude binary scale factor `E` (4–5), and decimal
+/// scale factor `D` (6–7). Returns `(R, E, D)`. Callers validate that `payload`
+/// is long enough (every template's minimum length covers these 8 octets).
+fn parse_packing_header(payload: &[u8]) -> (f32, i16, i16) {
+    let reference_value = f32::from_be_bytes([payload[0], payload[1], payload[2], payload[3]]);
+    let binary_scale_factor = sign_magnitude_i16(u16::from_be_bytes([payload[4], payload[5]]));
+    let decimal_scale_factor = sign_magnitude_i16(u16::from_be_bytes([payload[6], payload[7]]));
+    (reference_value, binary_scale_factor, decimal_scale_factor)
+}
+
+/// The `(R, 2^E, 10^-D)` triple the §5 `R` / `E` / `D` transform scales by: an
+/// integer `X` read from §7 unpacks to the value `(R + X·2^E)·10^-D`. The
+/// simple, complex, second-order, spectral, and matrix decoders all apply this,
+/// so the exponent computation lives here once (drift here is a decode bug
+/// everywhere).
+pub(crate) fn red_scale(
+    reference_value: f32,
+    binary_scale_factor: i16,
+    decimal_scale_factor: i16,
+) -> (f64, f64, f64) {
+    (
+        reference_value as f64,
+        2f64.powi(binary_scale_factor as i32),
+        10f64.powi(-(decimal_scale_factor as i32)),
+    )
+}
+
 fn parse_template_5_0(payload: &[u8]) -> Result<SimplePackingTemplate, FieldglassError> {
     if payload.len() < TEMPLATE_5_0_PAYLOAD_LEN {
         return Err(FieldglassError::Parse(format!(
@@ -925,9 +954,8 @@ fn parse_template_5_0(payload: &[u8]) -> Result<SimplePackingTemplate, Fieldglas
             payload.len()
         )));
     }
-    let reference_value = f32::from_be_bytes([payload[0], payload[1], payload[2], payload[3]]);
-    let binary_scale_factor = sign_magnitude_i16(u16::from_be_bytes([payload[4], payload[5]]));
-    let decimal_scale_factor = sign_magnitude_i16(u16::from_be_bytes([payload[6], payload[7]]));
+    let (reference_value, binary_scale_factor, decimal_scale_factor) =
+        parse_packing_header(payload);
     Ok(SimplePackingTemplate {
         reference_value,
         binary_scale_factor,
@@ -944,9 +972,8 @@ fn parse_template_5_1(payload: &[u8]) -> Result<MatrixSimplePackingTemplate, Fie
             payload.len()
         )));
     }
-    let reference_value = f32::from_be_bytes([payload[0], payload[1], payload[2], payload[3]]);
-    let binary_scale_factor = sign_magnitude_i16(u16::from_be_bytes([payload[4], payload[5]]));
-    let decimal_scale_factor = sign_magnitude_i16(u16::from_be_bytes([payload[6], payload[7]]));
+    let (reference_value, binary_scale_factor, decimal_scale_factor) =
+        parse_packing_header(payload);
     let matrix_bitmaps_present = payload[9];
     let number_of_coded_values =
         u32::from_be_bytes([payload[10], payload[11], payload[12], payload[13]]);
@@ -1008,9 +1035,8 @@ fn parse_template_5_2(payload: &[u8]) -> Result<ComplexPackingTemplate, Fieldgla
             payload.len()
         )));
     }
-    let reference_value = f32::from_be_bytes([payload[0], payload[1], payload[2], payload[3]]);
-    let binary_scale_factor = sign_magnitude_i16(u16::from_be_bytes([payload[4], payload[5]]));
-    let decimal_scale_factor = sign_magnitude_i16(u16::from_be_bytes([payload[6], payload[7]]));
+    let (reference_value, binary_scale_factor, decimal_scale_factor) =
+        parse_packing_header(payload);
     Ok(ComplexPackingTemplate {
         reference_value,
         binary_scale_factor,
@@ -1083,9 +1109,8 @@ fn parse_template_5_41(payload: &[u8]) -> Result<PngPackingTemplate, FieldglassE
         )));
     }
     // Octets 12–21 mirror simple packing (5.0): R, E, D, bits-per-value, type.
-    let reference_value = f32::from_be_bytes([payload[0], payload[1], payload[2], payload[3]]);
-    let binary_scale_factor = sign_magnitude_i16(u16::from_be_bytes([payload[4], payload[5]]));
-    let decimal_scale_factor = sign_magnitude_i16(u16::from_be_bytes([payload[6], payload[7]]));
+    let (reference_value, binary_scale_factor, decimal_scale_factor) =
+        parse_packing_header(payload);
     Ok(PngPackingTemplate {
         reference_value,
         binary_scale_factor,
@@ -1103,9 +1128,8 @@ fn parse_template_5_40(payload: &[u8]) -> Result<Jpeg2000PackingTemplate, Fieldg
         )));
     }
     // Octets 12–21 mirror simple packing (5.0): R, E, D, bits-per-value, type.
-    let reference_value = f32::from_be_bytes([payload[0], payload[1], payload[2], payload[3]]);
-    let binary_scale_factor = sign_magnitude_i16(u16::from_be_bytes([payload[4], payload[5]]));
-    let decimal_scale_factor = sign_magnitude_i16(u16::from_be_bytes([payload[6], payload[7]]));
+    let (reference_value, binary_scale_factor, decimal_scale_factor) =
+        parse_packing_header(payload);
     // Octets 22–23 are the JPEG 2000 descriptors.
     Ok(Jpeg2000PackingTemplate {
         reference_value,
@@ -1126,9 +1150,8 @@ fn parse_template_5_42(payload: &[u8]) -> Result<CcsdsPackingTemplate, Fieldglas
         )));
     }
     // Octets 12–21 mirror simple packing (5.0): R, E, D, bits-per-value, type.
-    let reference_value = f32::from_be_bytes([payload[0], payload[1], payload[2], payload[3]]);
-    let binary_scale_factor = sign_magnitude_i16(u16::from_be_bytes([payload[4], payload[5]]));
-    let decimal_scale_factor = sign_magnitude_i16(u16::from_be_bytes([payload[6], payload[7]]));
+    let (reference_value, binary_scale_factor, decimal_scale_factor) =
+        parse_packing_header(payload);
     // Octets 22–25 are the CCSDS / AEC descriptors.
     let reference_sample_interval = u16::from_be_bytes([payload[12], payload[13]]);
     Ok(CcsdsPackingTemplate {
@@ -1153,9 +1176,8 @@ fn parse_template_5_61(payload: &[u8]) -> Result<LogPreprocessingPackingTemplate
     // Octets 12–20 are the simple-packing block (R / E / D / bits); unlike 5.0
     // there is no type-of-original-values octet, so octets 21–24 carry the
     // IEEE pre-processing parameter directly.
-    let reference_value = f32::from_be_bytes([payload[0], payload[1], payload[2], payload[3]]);
-    let binary_scale_factor = sign_magnitude_i16(u16::from_be_bytes([payload[4], payload[5]]));
-    let decimal_scale_factor = sign_magnitude_i16(u16::from_be_bytes([payload[6], payload[7]]));
+    let (reference_value, binary_scale_factor, decimal_scale_factor) =
+        parse_packing_header(payload);
     let pre_processing_parameter =
         f32::from_be_bytes([payload[9], payload[10], payload[11], payload[12]]);
     Ok(LogPreprocessingPackingTemplate {
@@ -1177,9 +1199,8 @@ fn parse_template_5_50(payload: &[u8]) -> Result<SpectralSimplePackingTemplate, 
     // Octets 12–20 are the simple-packing block (R / E / D / bits); like 5.61
     // there is no type-of-original-values octet, so octets 21–24 carry the
     // out-of-band (0, 0) coefficient directly.
-    let reference_value = f32::from_be_bytes([payload[0], payload[1], payload[2], payload[3]]);
-    let binary_scale_factor = sign_magnitude_i16(u16::from_be_bytes([payload[4], payload[5]]));
-    let decimal_scale_factor = sign_magnitude_i16(u16::from_be_bytes([payload[6], payload[7]]));
+    let (reference_value, binary_scale_factor, decimal_scale_factor) =
+        parse_packing_header(payload);
     let real_part_of_00 = f32::from_be_bytes([payload[9], payload[10], payload[11], payload[12]]);
     Ok(SpectralSimplePackingTemplate {
         reference_value,
@@ -1200,9 +1221,8 @@ fn parse_template_5_51(payload: &[u8]) -> Result<SpectralComplexPackingTemplate,
     // Octets 12–20: the R / E / D / bits simple-packing block (no type octet,
     // like 5.50). Then the Laplacian scaling factor and the sub-truncation
     // descriptors.
-    let reference_value = f32::from_be_bytes([payload[0], payload[1], payload[2], payload[3]]);
-    let binary_scale_factor = sign_magnitude_i16(u16::from_be_bytes([payload[4], payload[5]]));
-    let decimal_scale_factor = sign_magnitude_i16(u16::from_be_bytes([payload[6], payload[7]]));
+    let (reference_value, binary_scale_factor, decimal_scale_factor) =
+        parse_packing_header(payload);
     let laplacian_scaling_factor = sign_magnitude_to_i64(
         u32::from_be_bytes([payload[9], payload[10], payload[11], payload[12]]),
         32,
@@ -1234,9 +1254,8 @@ fn parse_template_5_53(payload: &[u8]) -> Result<BiFourierPackingTemplate, Field
     }
     // Octets 12–20: the R / E / D / bits simple-packing block (no type octet,
     // like 5.50 / 5.51). Then the bi-Fourier sub-truncation descriptors.
-    let reference_value = f32::from_be_bytes([payload[0], payload[1], payload[2], payload[3]]);
-    let binary_scale_factor = sign_magnitude_i16(u16::from_be_bytes([payload[4], payload[5]]));
-    let decimal_scale_factor = sign_magnitude_i16(u16::from_be_bytes([payload[6], payload[7]]));
+    let (reference_value, binary_scale_factor, decimal_scale_factor) =
+        parse_packing_header(payload);
     // laplacianScalingFactor is eccodes' `signed[4]`, which — like every GRIB
     // signed integer, and like the 5.51 Laplacian factor — is sign-magnitude,
     // NOT two's-complement (verified against eccodes: a negative value encodes
@@ -1324,9 +1343,8 @@ fn parse_template_5_50001(
             payload.len()
         )));
     }
-    let reference_value = f32::from_be_bytes([payload[0], payload[1], payload[2], payload[3]]);
-    let binary_scale_factor = sign_magnitude_i16(u16::from_be_bytes([payload[4], payload[5]]));
-    let decimal_scale_factor = sign_magnitude_i16(u16::from_be_bytes([payload[6], payload[7]]));
+    let (reference_value, binary_scale_factor, decimal_scale_factor) =
+        parse_packing_header(payload);
     let bits_per_value = payload[8];
     let width_of_first_order_values = payload[9];
     let num_groups = u32::from_be_bytes([payload[10], payload[11], payload[12], payload[13]]);
