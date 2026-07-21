@@ -53,7 +53,10 @@
 
 use fieldglass_core::{
     FieldglassError,
-    bits::{BitReader, apply_spd_inverse, bits_to_bytes, sign_magnitude_to_i64},
+    bits::{
+        BitReader, apply_spd_inverse, bits_to_bytes, expand_second_order_groups,
+        sign_magnitude_to_i64,
+    },
 };
 
 use crate::bds::BdsHeader;
@@ -276,30 +279,21 @@ pub fn decode(
             "BDS group lengths sum {total_decoded} exceeds grid size {expected_count}"
         )));
     }
+    // SPD slots [0..order_of_spd] are planted below; second-order fills the
+    // rest via the shared group-reconstruction loop.
     let mut x: Vec<i64> = vec![0; total_decoded];
-
-    // SPD slots [0..order_of_spd] are filled below; second-order fills the rest.
-    let mut n = order_of_spd as usize;
-    for g in 0..num_groups {
-        let w = group_widths[g];
-        let count = group_lengths[g] as usize;
-        let ref_val = first_order[g] as i64;
-        if w == 0 {
-            // Zero-width group: every point equals the first-order reference.
-            for _ in 0..count {
-                x[n] = ref_val;
-                n += 1;
-            }
-        } else {
-            for _ in 0..count {
-                let raw = so_reader.read_bits(w)? as i64;
-                // wrapping_add matches eccodes' implicit 2's-complement C.
-                x[n] = ref_val.wrapping_add(raw);
-                n += 1;
-            }
-        }
-    }
-    debug_assert_eq!(n, total_decoded);
+    expand_second_order_groups(
+        &mut so_reader,
+        &mut x,
+        order_of_spd as usize,
+        (0..num_groups).map(|g| {
+            (
+                group_widths[g] as u32,
+                group_lengths[g] as usize,
+                first_order[g] as i64,
+            )
+        }),
+    )?;
 
     for (i, &seed) in spd_seeds.iter().enumerate() {
         x[i] = seed;

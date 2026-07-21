@@ -17,7 +17,7 @@ use crate::drs::{
 use crate::section::{SECTION_HEADER_LEN, SectionHeader};
 use fieldglass_core::{
     FieldglassError,
-    bits::{BitReader, apply_spd_inverse, sign_magnitude_to_i64},
+    bits::{BitReader, apply_spd_inverse, expand_second_order_groups, sign_magnitude_to_i64},
 };
 
 /// Section number for the Data Section.
@@ -1196,30 +1196,18 @@ fn decode_second_order(
     // reference plus the packed offset (wrapping matches eccodes' implicit
     // two's-complement C).
     let mut x: Vec<i64> = vec![0; total_decoded];
-    let mut n = order_of_spd;
-    for g in 0..num_groups {
-        let w = group_widths[g];
-        if w > 32 {
-            return Err(FieldglassError::Parse(format!(
-                "second-order packing: group {g} width {w} exceeds 32 bits"
-            )));
-        }
-        let ref_val = first_order[g] as i64;
-        if w == 0 {
-            // Zero-width group: every point equals the first-order reference.
-            for _ in 0..group_lengths[g] {
-                x[n] = ref_val;
-                n += 1;
-            }
-        } else {
-            for _ in 0..group_lengths[g] {
-                let raw = reader.read_bits(w as u8)? as i64;
-                x[n] = ref_val.wrapping_add(raw);
-                n += 1;
-            }
-        }
-    }
-    debug_assert_eq!(n, total_decoded);
+    expand_second_order_groups(
+        &mut reader,
+        &mut x,
+        order_of_spd,
+        (0..num_groups).map(|g| {
+            (
+                group_widths[g],
+                group_lengths[g] as usize,
+                first_order[g] as i64,
+            )
+        }),
+    )?;
 
     // Plant the SPD seeds and reverse the spatial differencing.
     for (i, &seed) in t.spd_seeds.iter().enumerate() {

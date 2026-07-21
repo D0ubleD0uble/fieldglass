@@ -42,6 +42,53 @@ pub fn bits_to_bytes(count: usize, bits_per_value: usize) -> Option<usize> {
         .map(|bits| bits.div_ceil(8))
 }
 
+/// Expand the second-order group structure into the scaled-integer grid `x`,
+/// filling from index `start` onward (`x[0..start]` holds the SPD seeds the
+/// caller plants). `groups` yields one `(width, count, reference)` per group, in
+/// order. Each group contributes `count` points: `reference` for a zero-width
+/// group, else `reference + read_bits(width)` (wrapping, to match eccodes'
+/// implicit two's-complement C). A width above 32 is a parse error — the bit
+/// reader returns a `u32`.
+///
+/// This is the group-reconstruction inner loop the GRIB1
+/// `grid_second_order_*` decoder and the GRIB2 second-order templates
+/// (5.50001 / 5.50002) share; the SPD seed-planting and the R/E/D scaling that
+/// bracket it stay in each edition's decoder, since they differ (boustrophedonic
+/// row order, the scaling entry point).
+pub fn expand_second_order_groups(
+    reader: &mut BitReader,
+    x: &mut [i64],
+    start: usize,
+    groups: impl Iterator<Item = (u32, usize, i64)>,
+) -> Result<(), FieldglassError> {
+    let mut n = start;
+    for (g, (width, count, reference)) in groups.enumerate() {
+        if width > 32 {
+            return Err(FieldglassError::Parse(format!(
+                "second-order packing: group {g} width {width} exceeds 32 bits"
+            )));
+        }
+        if width == 0 {
+            for _ in 0..count {
+                x[n] = reference;
+                n += 1;
+            }
+        } else {
+            for _ in 0..count {
+                let raw = reader.read_bits(width as u8)? as i64;
+                x[n] = reference.wrapping_add(raw);
+                n += 1;
+            }
+        }
+    }
+    debug_assert_eq!(
+        n,
+        x.len(),
+        "group lengths must fill x exactly past the SPD seeds"
+    );
+    Ok(())
+}
+
 /// Inverse spatial-predictor differencing of order `k` in place, mirroring
 /// eccodes' `DataG1SecondOrderGeneralExtendedPacking::unpack` (and the
 /// GRIB2 second-order templates 5.50001 / 5.50002, whose §7 shares the same
