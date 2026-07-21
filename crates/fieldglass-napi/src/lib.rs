@@ -1540,6 +1540,52 @@ impl Grib1Handle {
         let raw = self.cached_decode(message_index)?;
         probe_impl(&meta, raw.as_ref(), &options, px, py)
     }
+
+    /// Probe a difference/sum/… map under a pixel (#329): decode both fields,
+    /// combine them under `op`, then read the *combined* field there — so the
+    /// readout matches the displayed map, not field A. `None` off-raster/-globe;
+    /// errors if the two fields aren't on the same grid.
+    #[napi]
+    #[allow(clippy::too_many_arguments)]
+    pub fn probe_combined(
+        &self,
+        message_index_a: u32,
+        message_index_b: u32,
+        op: String,
+        options: RenderOptions,
+        px: u32,
+        py: u32,
+    ) -> napi::Result<Option<ProbeResult>> {
+        let op = parse_combine_op(&op)?;
+        let meta_a = self.message_meta(message_index_a)?;
+        let meta_b = self.message_meta(message_index_b)?;
+        let raw_a = self.cached_decode(message_index_a)?;
+        let raw_b = self.cached_decode(message_index_b)?;
+        let combined = combined_field(&meta_a, raw_a.as_ref(), &meta_b, raw_b.as_ref(), op)?;
+        probe_impl(&meta_a, &combined, &options, px, py)
+    }
+
+    /// Contour a difference/sum/… map (#329): decode both fields, combine under
+    /// `op`, and trace the *combined* field's isolines — so contours follow the
+    /// displayed map, not field A. Same geometry gate as [`Self::project_contours`].
+    #[napi]
+    pub fn project_contours_combined(
+        &self,
+        message_index_a: u32,
+        message_index_b: u32,
+        op: String,
+        options: RenderOptions,
+        interval: Option<f64>,
+    ) -> napi::Result<ProjectedOverlay> {
+        let op = parse_combine_op(&op)?;
+        let meta_a = self.message_meta(message_index_a)?;
+        let meta_b = self.message_meta(message_index_b)?;
+        let raw_a = self.cached_decode(message_index_a)?;
+        let raw_b = self.cached_decode(message_index_b)?;
+        let combined = combined_field(&meta_a, raw_a.as_ref(), &meta_b, raw_b.as_ref(), op)?;
+        project_contours_impl(&meta_a, &combined, &options, interval)
+            .map(ProjectedOverlay::from_polylines)
+    }
 }
 
 impl Grib1Handle {
@@ -1831,6 +1877,51 @@ impl Grib2Handle {
         let meta = self.message_meta(message_index)?;
         let raw = self.cached_decode(message_index)?;
         probe_impl(&meta, raw.as_ref(), &options, px, py)
+    }
+
+    /// Probe a difference/sum/… map (#329) — sibling to
+    /// [`Grib1Handle::probe_combined`]. Reads the combined field so the readout
+    /// matches the displayed map, not field A.
+    #[napi]
+    #[allow(clippy::too_many_arguments)]
+    pub fn probe_combined(
+        &self,
+        message_index_a: u32,
+        message_index_b: u32,
+        op: String,
+        options: RenderOptions,
+        px: u32,
+        py: u32,
+    ) -> napi::Result<Option<ProbeResult>> {
+        let op = parse_combine_op(&op)?;
+        let meta_a = self.message_meta(message_index_a)?;
+        let meta_b = self.message_meta(message_index_b)?;
+        let raw_a = self.cached_decode(message_index_a)?;
+        let raw_b = self.cached_decode(message_index_b)?;
+        let combined = combined_field(&meta_a, raw_a.as_ref(), &meta_b, raw_b.as_ref(), op)?;
+        probe_impl(&meta_a, &combined, &options, px, py)
+    }
+
+    /// Contour a difference/sum/… map (#329) — sibling to
+    /// [`Grib1Handle::project_contours_combined`]. Traces the combined field's
+    /// isolines so contours follow the displayed map, not field A.
+    #[napi]
+    pub fn project_contours_combined(
+        &self,
+        message_index_a: u32,
+        message_index_b: u32,
+        op: String,
+        options: RenderOptions,
+        interval: Option<f64>,
+    ) -> napi::Result<ProjectedOverlay> {
+        let op = parse_combine_op(&op)?;
+        let meta_a = self.message_meta(message_index_a)?;
+        let meta_b = self.message_meta(message_index_b)?;
+        let raw_a = self.cached_decode(message_index_a)?;
+        let raw_b = self.cached_decode(message_index_b)?;
+        let combined = combined_field(&meta_a, raw_a.as_ref(), &meta_b, raw_b.as_ref(), op)?;
+        project_contours_impl(&meta_a, &combined, &options, interval)
+            .map(ProjectedOverlay::from_polylines)
     }
 }
 
@@ -2176,6 +2267,67 @@ impl NetcdfHandle {
         let plane = self.slice_plane(&var, y, x, &slice_indices)?;
         let meta = self.slice_meta(&var, y, x)?;
         probe_impl(&meta, &plane, &options, px, py)
+    }
+
+    /// Probe a NetCDF difference/sum/… map under a pixel (#329): the two slices
+    /// are combined under `op` and the *combined* field is read, so the readout
+    /// matches the displayed map, not slice A. Sibling to
+    /// [`Self::render_slice_combined`].
+    #[napi]
+    #[allow(clippy::too_many_arguments)]
+    pub fn probe_slice_combined(
+        &self,
+        variable_index_a: u32,
+        y_dim: u32,
+        x_dim: u32,
+        slice_indices_a: Vec<u32>,
+        variable_index_b: u32,
+        slice_indices_b: Vec<u32>,
+        op: String,
+        options: RenderOptions,
+        px: u32,
+        py: u32,
+    ) -> napi::Result<Option<ProbeResult>> {
+        let op = parse_combine_op(&op)?;
+        let (y, x) = (y_dim as usize, x_dim as usize);
+        let var_a = self.renderable(variable_index_a)?;
+        let var_b = self.renderable(variable_index_b)?;
+        let plane_a = self.slice_plane(&var_a, y, x, &slice_indices_a)?;
+        let plane_b = self.slice_plane(&var_b, y, x, &slice_indices_b)?;
+        let meta_a = self.slice_meta(&var_a, y, x)?;
+        let meta_b = self.slice_meta(&var_b, y, x)?;
+        let combined = combined_field(&meta_a, &plane_a, &meta_b, &plane_b, op)?;
+        probe_impl(&meta_a, &combined, &options, px, py)
+    }
+
+    /// Contour a NetCDF difference/sum/… map (#329): the two slices are combined
+    /// under `op` and the *combined* field's isolines are traced. Sibling to
+    /// [`Self::project_contours`].
+    #[napi]
+    #[allow(clippy::too_many_arguments)]
+    pub fn project_contours_slice_combined(
+        &self,
+        variable_index_a: u32,
+        y_dim: u32,
+        x_dim: u32,
+        slice_indices_a: Vec<u32>,
+        variable_index_b: u32,
+        slice_indices_b: Vec<u32>,
+        op: String,
+        options: RenderOptions,
+        interval: Option<f64>,
+    ) -> napi::Result<ProjectedOverlay> {
+        let op = parse_combine_op(&op)?;
+        let (y, x) = (y_dim as usize, x_dim as usize);
+        let var_a = self.renderable(variable_index_a)?;
+        let var_b = self.renderable(variable_index_b)?;
+        let plane_a = self.slice_plane(&var_a, y, x, &slice_indices_a)?;
+        let plane_b = self.slice_plane(&var_b, y, x, &slice_indices_b)?;
+        let meta_a = self.slice_meta(&var_a, y, x)?;
+        let meta_b = self.slice_meta(&var_b, y, x)?;
+        let combined = combined_field(&meta_a, &plane_a, &meta_b, &plane_b, op)?;
+        project_contours_impl(&meta_a, &combined, &options, interval)
+            .map(ProjectedOverlay::from_polylines)
     }
 }
 
@@ -3250,6 +3402,28 @@ fn grids_match(a: &MessageMeta, b: &MessageMeta) -> bool {
 /// the combined field is just another `Vec<Option<f64>>`, projection, overlays,
 /// palette, scaling, and manual bounds all apply unchanged. Shared by the GRIB
 /// and NetCDF combined-render entry points.
+/// Combine two aligned fields (`A` `op` `B`) into one `Vec<Option<f64>>` on the
+/// primary field's geometry, requiring identical grids. Shared by every feature
+/// that operates on a difference/sum/… map — render, probe, and contours — so
+/// each of those runs the exact same combined field through its normal path
+/// (#329), and the grid-match check lives in one place.
+fn combined_field(
+    meta_a: &MessageMeta,
+    raw_a: &[Option<f64>],
+    meta_b: &MessageMeta,
+    raw_b: &[Option<f64>],
+    op: CombineOp,
+) -> napi::Result<Vec<Option<f64>>> {
+    if !grids_match(meta_a, meta_b) {
+        return Err(napi::Error::from_reason(
+            "the two fields are on different grids; combining needs identical grid \
+             dimensions and definition"
+                .to_string(),
+        ));
+    }
+    Ok(combine_fields(raw_a, raw_b, op))
+}
+
 fn render_combined(
     meta_a: &MessageMeta,
     raw_a: &[Option<f64>],
@@ -3258,14 +3432,7 @@ fn render_combined(
     op: CombineOp,
     options: &RenderOptions,
 ) -> napi::Result<RenderedGrid> {
-    if !grids_match(meta_a, meta_b) {
-        return Err(napi::Error::from_reason(
-            "the two fields are on different grids; combining needs identical grid \
-             dimensions and definition"
-                .to_string(),
-        ));
-    }
-    let combined = combine_fields(raw_a, raw_b, op);
+    let combined = combined_field(meta_a, raw_a, meta_b, raw_b, op)?;
     render_with_options(meta_a, &combined, options)
 }
 
@@ -6303,6 +6470,44 @@ mod netcdf_slice_tests {
             Ok(_) => panic!("unknown combine op must error"),
             Err(e) => assert!(e.to_string().contains("unknown combine op"), "{e}"),
         }
+    }
+
+    #[test]
+    fn probe_and_contours_read_the_combined_field_not_field_a() {
+        // The #329 fix: when a difference map is displayed, probe and contours
+        // must run on the *combined* field, not field A. These exercise the
+        // shared seam every combined entry point uses (`combined_field` feeding
+        // `probe_impl` / `project_contours_impl`).
+        let meta = latlon_meta(5, 4);
+        // A holds column+10 (10..14 across each row); B holds the column (0..4).
+        let a: Vec<Option<f64>> = (0..20).map(|k| Some((k % 5) as f64 + 10.0)).collect();
+        let b: Vec<Option<f64>> = (0..20).map(|k| Some((k % 5) as f64)).collect();
+
+        // A − B = 10 everywhere. Probing source pixel (2, 1) must read 10 (the
+        // difference), not A's 12 at that cell.
+        let diff = combined_field(&meta, &a, &meta, &b, CombineOp::Difference).expect("same grid");
+        let r = probe_impl(&meta, &diff, &opts("source"), 2, 1)
+            .expect("probe ok")
+            .expect("pixel on grid");
+        assert_eq!(r.value, Some(10.0), "probe reads A−B (10), not A (12)");
+
+        // Contours of A − B where B is a ramp and A is A+ramp cancel to a
+        // constant B... instead trace A + B (a ramp 10..18) so a level crosses.
+        let sum = combined_field(&meta, &a, &meta, &b, CombineOp::Sum).expect("same grid");
+        let contours = project_contours_impl(&meta, &sum, &opts("source"), Some(15.0))
+            .expect("combined contours project");
+        assert!(
+            !contours.xy.is_empty(),
+            "contours trace the combined field, which crosses level 15"
+        );
+
+        // Different grids are rejected before any probe/contour work.
+        let mut other = latlon_meta(5, 4);
+        other.grid_nj = Some(3);
+        assert!(
+            combined_field(&meta, &a, &other, &b, CombineOp::Difference).is_err(),
+            "combining mismatched grids errors"
+        );
     }
 
     /// A regular lat/lon meta over a small region, for the contour tests.

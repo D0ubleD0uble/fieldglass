@@ -272,6 +272,24 @@ export interface Grib1Handle {
     px: number,
     py: number,
   ): ProbeResult | null;
+  /** Probe a difference/sum/… map (#329): reads the combined field, so the
+   *  readout matches the displayed map, not field A. */
+  probeCombined(
+    messageIndexA: number,
+    messageIndexB: number,
+    op: string,
+    options: RenderOptions,
+    px: number,
+    py: number,
+  ): ProbeResult | null;
+  /** Contour a difference/sum/… map (#329): traces the combined field. */
+  projectContoursCombined(
+    messageIndexA: number,
+    messageIndexB: number,
+    op: string,
+    options: RenderOptions,
+    interval?: number,
+  ): ProjectedOverlay;
 }
 
 export interface Grib2Handle {
@@ -308,6 +326,23 @@ export interface Grib2Handle {
     px: number,
     py: number,
   ): ProbeResult | null;
+  /** Sibling to {@link Grib1Handle.probeCombined} (#329). */
+  probeCombined(
+    messageIndexA: number,
+    messageIndexB: number,
+    op: string,
+    options: RenderOptions,
+    px: number,
+    py: number,
+  ): ProbeResult | null;
+  /** Sibling to {@link Grib1Handle.projectContoursCombined} (#329). */
+  projectContoursCombined(
+    messageIndexA: number,
+    messageIndexB: number,
+    op: string,
+    options: RenderOptions,
+    interval?: number,
+  ): ProjectedOverlay;
 }
 
 export interface Grib1HandleCtor {
@@ -405,6 +440,32 @@ export interface NetcdfHandle {
     px: number,
     py: number,
   ): ProbeResult | null;
+  /** Probe a NetCDF difference/sum/… map (#329): reads the combined field of
+   *  slice A and slice B, so the readout matches the displayed map, not A. */
+  probeSliceCombined(
+    variableIndexA: number,
+    yDim: number,
+    xDim: number,
+    sliceIndicesA: number[],
+    variableIndexB: number,
+    sliceIndicesB: number[],
+    op: string,
+    options: RenderOptions,
+    px: number,
+    py: number,
+  ): ProbeResult | null;
+  /** Contour a NetCDF difference/sum/… map (#329): traces the combined field. */
+  projectContoursSliceCombined(
+    variableIndexA: number,
+    yDim: number,
+    xDim: number,
+    sliceIndicesA: number[],
+    variableIndexB: number,
+    sliceIndicesB: number[],
+    op: string,
+    options: RenderOptions,
+    interval?: number,
+  ): ProjectedOverlay;
 }
 
 export interface NetcdfHandleCtor {
