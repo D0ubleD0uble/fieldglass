@@ -34,8 +34,9 @@ from __future__ import annotations
 
 import json
 import struct
-import subprocess
 from pathlib import Path
+
+from eccodes_oracle import decoded_values, grib_get
 
 FIXTURES = (
     Path(__file__).resolve().parent.parent
@@ -63,29 +64,6 @@ def relabel_drt(src: Path, dst: Path, number: int) -> int:
     assert old is not None, f"{src.name}: no §5 found"
     dst.write_bytes(buf)
     return old
-
-
-def decoded_values(path: Path) -> list[float | None]:
-    out = subprocess.run(
-        ["grib_get_data", "-m", "9999", str(path)],
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout
-    vals: list[float | None] = []
-    for line in out.strip().splitlines()[1:]:
-        v = line.split()[2]
-        vals.append(None if v == "9999" else float(v))
-    return vals
-
-
-def grib_get(path: Path, keys: list[str]) -> list[str]:
-    return subprocess.run(
-        ["grib_get", "-p", ",".join(keys), str(path)],
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.split()
 
 
 def write_oracle(

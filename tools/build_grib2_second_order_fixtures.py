@@ -28,8 +28,9 @@ Usage:
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
+
+from eccodes_oracle import decoded_values, grib_get, grib_set
 
 FIXTURES = (
     Path(__file__).resolve().parent.parent
@@ -40,51 +41,6 @@ FIXTURES = (
 )
 SOURCE = FIXTURES / "regular_latlon_surface.grib2"
 NUM_VALUES = 16 * 31  # 496
-
-
-def grib_set(src: Path, dst: Path, sets: list[str]) -> None:
-    subprocess.run(
-        ["grib_set", "-r", *sum((["-s", s] for s in sets), []), str(src), str(dst)],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-
-
-def grib_set_no_repack(src: Path, dst: Path, sets: list[str]) -> None:
-    # `-r` re-packs the data section; for a pure metadata flip (setting the
-    # boustrophedonic flag on an already-second-order message) we must NOT
-    # re-pack, so eccodes reorders the stored data on decode instead.
-    subprocess.run(
-        ["grib_set", *sum((["-s", s] for s in sets), []), str(src), str(dst)],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-
-
-def grib_get(path: Path, keys: list[str]) -> list[str]:
-    out = subprocess.run(
-        ["grib_get", "-p", ",".join(keys), str(path)],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    return out.stdout.split()
-
-
-def decoded_values(path: Path) -> list[float | None]:
-    out = subprocess.run(
-        ["grib_get_data", "-m", "9999", str(path)],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    vals: list[float | None] = []
-    for line in out.stdout.strip().splitlines()[1:]:
-        v = line.split()[2]
-        vals.append(None if v == "9999" else float(v))
-    return vals
 
 
 def write_oracle(
@@ -176,7 +132,7 @@ def main() -> None:
     # so eccodes reverses the odd rows on decode. The oracle is that reordered
     # decode, exercising the alternating-row path.
     sob = FIXTURES / "second_order_boust_regular_latlon.grib2"
-    grib_set_no_repack(so2, sob, ["secondOrderFlags=128"])
+    grib_set(so2, sob, ["secondOrderFlags=128"], repack=False)
     assert int(grib_get(sob, ["boustrophedonicOrdering"])[0]) == 1
     write_oracle(
         sob,

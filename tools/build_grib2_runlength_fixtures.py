@@ -35,8 +35,9 @@ from __future__ import annotations
 
 import json
 import struct
-import subprocess
 from pathlib import Path
+
+from eccodes_oracle import decoded_values, grib_get
 
 FIXTURES = (
     Path(__file__).resolve().parent.parent
@@ -134,30 +135,6 @@ def build_message(runs, bits, max_level, level_values, decimal_scale_raw) -> byt
 
 def signed_decimal_scale(raw: int) -> int:
     return -(raw - 128) if raw > 127 else raw
-
-
-def grib_get(path: Path, keys: list[str]) -> list[str]:
-    out = subprocess.run(
-        ["grib_get", "-p", ",".join(keys), str(path)],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    return out.stdout.split()
-
-
-def decoded_values(path: Path) -> list[float | None]:
-    out = subprocess.run(
-        ["grib_get_data", "-m", "9999", str(path)],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    vals: list[float | None] = []
-    for line in out.stdout.strip().splitlines()[1:]:
-        v = line.split()[2]
-        vals.append(None if v == "9999" else float(v))
-    return vals
 
 
 def write_oracle(

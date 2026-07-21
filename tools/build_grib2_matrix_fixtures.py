@@ -19,10 +19,11 @@ Needs:       eccodes + numpy in this Python; grib_get_data on PATH (2.34.1).
 from __future__ import annotations
 
 import pathlib
-import subprocess
 import sys
 
 import numpy as np
+
+from eccodes_oracle import grib_get_data_rows
 
 try:
     import eccodes as ec
@@ -64,11 +65,7 @@ def main() -> None:
 
     # Value oracle from the pinned CLI (grib_get_data prints lat/lon/value rows;
     # take the trailing value column).
-    out = subprocess.run(
-        ["grib_get_data", str(grib_path)],
-        capture_output=True, text=True, check=True,
-    ).stdout.splitlines()[1:]
-    values = [line.split()[-1] for line in out if line.strip()]
+    values = [line.split()[-1] for line in grib_get_data_rows(grib_path)]
     (FIXTURES / "matrix_simple_regular_latlon.eccodes.ref.txt").write_text(
         "\n".join(values) + "\n"
     )

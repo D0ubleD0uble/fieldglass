@@ -23,10 +23,11 @@ from __future__ import annotations
 
 import math
 import pathlib
-import subprocess
 import sys
 
 import numpy as np
+
+from eccodes_oracle import grib_get, grib_get_data_rows
 
 try:
     import eccodes as ec
@@ -114,19 +115,16 @@ def build(name: str, *, bif_n, bif_m, bif_trunc, sub_n, sub_m, sub_trunc,
         ec.codes_write(h, f)
     ec.codes_release(h)
 
-    # Oracle: pinned CLI value column (drop the "Values" header line).
-    out = subprocess.run(
-        ["grib_get_data", str(grib_path)],
-        capture_output=True, text=True, check=True,
-    ).stdout.splitlines()[1:]
-    ref = [line.strip() for line in out if line.strip()]
+    # Oracle: pinned CLI value rows (drop the "Values" header line).
+    ref = [line.strip() for line in grib_get_data_rows(grib_path)]
     (FIXTURES / f"{name}.eccodes.ref.txt").write_text("\n".join(ref) + "\n")
 
-    ver = subprocess.run(
-        ["grib_get", "-p", "packingType,numberOfValues,totalNumberOfValuesInUnpackedSubset",
-         str(grib_path)],
-        capture_output=True, text=True, check=True,
-    ).stdout.strip()
+    ver = " ".join(
+        grib_get(
+            grib_path,
+            ["packingType", "numberOfValues", "totalNumberOfValuesInUnpackedSubset"],
+        )
+    )
     print(f"  {name}: size_bif={nv}, oracle values={len(ref)}, [{ver}]")
     assert len(ref) == nv, f"{name}: oracle count {len(ref)} != size_bif {nv}"
 

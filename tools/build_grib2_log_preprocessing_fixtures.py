@@ -27,8 +27,9 @@ Usage:
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
+
+from eccodes_oracle import decoded_values, grib_get, grib_set
 
 FIXTURES = (
     Path(__file__).resolve().parent.parent
@@ -38,23 +39,6 @@ FIXTURES = (
     / "fixtures"
 )
 SOURCE = FIXTURES / "regular_latlon_surface.grib2"
-
-
-def run(cmd: list[str]) -> str:
-    return subprocess.run(cmd, capture_output=True, text=True, check=True).stdout
-
-
-def grib_get(path: Path, keys: list[str]) -> list[str]:
-    return run(["grib_get", "-p", ",".join(keys), str(path)]).split()
-
-
-def decoded_values(path: Path) -> list[float | None]:
-    out = run(["grib_get_data", "-m", "9999", str(path)])
-    vals: list[float | None] = []
-    for line in out.strip().splitlines()[1:]:
-        v = line.split()[2]
-        vals.append(None if v == "9999" else float(v))
-    return vals
 
 
 def write_oracle(grib_path: Path, oracle_path: Path, samples: list[int], note: str) -> None:
@@ -102,10 +86,10 @@ def build(name: str, offset: float | None, samples: list[int], note: str) -> Non
     if offset is not None:
         # Shift the field so it holds non-positive values, forcing the encoder
         # to a non-zero preProcessingParameter.
-        run(["grib_set", "-s", f"offsetValuesBy={offset}", str(SOURCE), str(tmp)])
+        grib_set(SOURCE, tmp, [f"offsetValuesBy={offset}"], repack=False)
         src = tmp
     # `-r` repacks the values through the log pre-processing encoder.
-    run(["grib_set", "-r", "-s", "packingType=grid_simple_log_preprocessing", str(src), str(grib_path)])
+    grib_set(src, grib_path, ["packingType=grid_simple_log_preprocessing"])
     if tmp.exists():
         tmp.unlink()
     write_oracle(grib_path, FIXTURES / f"{name}_expected.json", samples, note)
