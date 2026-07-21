@@ -3959,7 +3959,22 @@ fn probe_impl(
             let lon_n = normalise_lon(lon);
             match inverse(lat, lon) {
                 Some(idx) => {
-                    let (gi, gj) = (idx.i.round() as i64, idx.j.round() as i64);
+                    // Resolve the fractional index to a cell exactly as the
+                    // Nearest-resampling warp does (`sample_source` in
+                    // fieldglass-core), so the probe reads back the same cell
+                    // the pixel was painted from. On a periodic (global) grid
+                    // the seam gap past the last column is on-grid and lands in
+                    // `(ni-1, ni)`, which `round` sends to `ni`; wrapping with
+                    // `rem_euclid` brings it back to column 0 instead of falling
+                    // off the grid and reporting "no data" for a painted pixel
+                    // (#332). A bounded grid clamps defensively against float
+                    // error at the edge, matching the renderer.
+                    let gi = if source_grid_is_periodic(meta, ni) {
+                        idx.i.round().rem_euclid(ni as f64) as i64
+                    } else {
+                        idx.i.round().clamp(0.0, (ni - 1) as f64) as i64
+                    };
+                    let gj = idx.j.round().clamp(0.0, (nj - 1) as f64) as i64;
                     Ok(Some(ProbeResult {
                         lat: Some(lat),
                         lon: Some(lon_n),
@@ -6248,6 +6263,47 @@ mod netcdf_slice_tests {
                 .unwrap()
                 .is_none()
         );
+    }
+
+    #[test]
+    fn probe_wraps_the_periodic_seam_on_a_global_grid() {
+        // A global 16×8 lat/lon grid: lon 0..337.5 in 22.5° steps, so the 22.5°
+        // seam gap past column 15 wraps back to column 0 (`lon_grid_is_global`).
+        // A world projection (Mollweide) rasters at ~2× the column count, so
+        // many output pixels land strictly inside that gap — where the inverse
+        // map returns a fractional column in (15, 16) and expects the caller to
+        // wrap. Value = column index, so every painted pixel of this fully
+        // populated field must read a real column, never "no data".
+        let mut meta = latlon_meta(16, 8);
+        meta.lat_first = Some(88.0);
+        meta.lat_last = Some(-88.0);
+        meta.lon_first = Some(0.0);
+        meta.lon_last = Some(337.5);
+        let raw: Vec<Option<f64>> = (0..16 * 8).map(|k| Some((k % 16) as f64)).collect();
+
+        // Sweep the whole raster. An on-globe pixel returns `Some`; an off-disc
+        // pixel returns the outer `None` and is skipped. Every painted pixel
+        // must resolve to a cell (`grid_i` in `0..ni`) and a value — the seam
+        // pixels used to round to column 16 (off-grid) and report "no data"
+        // (#332). The Mollweide raster is `2·max(ni,nj)` wide by `max(ni,nj)`
+        // tall = 32×16, so the sweep bounds cover it.
+        let mut painted = 0;
+        for py in 0..16 {
+            for px in 0..32 {
+                let Some(r) =
+                    probe_impl(&meta, &raw, &opts("mollweide"), px, py).expect("probe ok")
+                else {
+                    continue;
+                };
+                painted += 1;
+                assert!(
+                    matches!(r.grid_i, Some(i) if (0..16).contains(&i)) && r.value.is_some(),
+                    "painted pixel ({px},{py}) must resolve to an in-range cell, got {:?}",
+                    (r.grid_i, r.value)
+                );
+            }
+        }
+        assert!(painted > 0, "the global render has painted pixels");
     }
 
     /// End-to-end on the NetCDF-4 / HDF5 backing (#169): open the dimension-scale
