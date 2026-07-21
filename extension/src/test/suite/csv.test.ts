@@ -30,7 +30,7 @@ suite("CSV export", () => {
   test("exportCsv matrix round-trips against decodeGrid", () => {
     const handle = grib2Handle();
     const grid = handle.decodeGrid(0);
-    const csv = handle.exportCsv(0, "matrix");
+    const csv = handle.exportCsv(0, "matrix").toString("utf8");
 
     const rows = csv.replace(/\n$/, "").split("\n").map((r) => r.split(","));
     assert.strictEqual(rows.length, grid.height, "one row per grid row");
@@ -55,7 +55,7 @@ suite("CSV export", () => {
   test("exportCsv long has a header and one row per grid point", () => {
     const handle = grib2Handle();
     const grid = handle.decodeGrid(0);
-    const csv = handle.exportCsv(0, "long");
+    const csv = handle.exportCsv(0, "long").toString("utf8");
 
     const lines = csv.replace(/\n$/, "").split("\n");
     assert.strictEqual(lines[0], "lat,lon,value", "header row");
@@ -92,7 +92,7 @@ suite("CSV export (NetCDF)", () => {
 
   test("exportCsv matrix is a rectangular grid of the slice", () => {
     const { handle, sst, y, x, indices } = netcdfSst();
-    const csv = handle.exportCsv(sst.variableIndex, y, x, indices, "matrix");
+    const csv = handle.exportCsv(sst.variableIndex, y, x, indices, "matrix").toString("utf8");
     const rows = csv.replace(/\n$/, "").split("\n").map((r) => r.split(","));
     assert.ok(rows.length > 1, "more than one row");
     const cols = rows[0].length;
@@ -106,12 +106,14 @@ suite("CSV export (NetCDF)", () => {
     const { handle, sst, y, x, indices } = netcdfSst();
     const matrix = handle
       .exportCsv(sst.variableIndex, y, x, indices, "matrix")
+      .toString("utf8")
       .replace(/\n$/, "")
       .split("\n");
     const cells = matrix.length * matrix[0].split(",").length;
 
     const long = handle
       .exportCsv(sst.variableIndex, y, x, indices, "long")
+      .toString("utf8")
       .replace(/\n$/, "")
       .split("\n");
     assert.strictEqual(long[0], "lat,lon,value", "header row");

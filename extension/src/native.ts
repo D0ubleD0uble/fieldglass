@@ -231,11 +231,12 @@ export interface CombineOpInfo {
 export interface Grib1Handle {
   messages(): MessageMeta[];
   decodeGrid(messageIndex: number): DecodedGrid;
-  /** Serialize one message's decoded field as CSV. `format` is `"matrix"`
+  /** Serialize one message's decoded field as CSV, returned as its UTF-8 bytes
+   *  (a `Buffer` written straight to disk — see #341). `format` is `"matrix"`
    *  (a 2-D grid of values) or `"long"` (a `lat,lon,value` table); missing
    *  points are empty value cells. The long format is available for the
    *  lat/lon grid family only. */
-  exportCsv(messageIndex: number, format: string): string;
+  exportCsv(messageIndex: number, format: string): Buffer;
   setP1(messageIndex: number, value: number): Buffer;
   renderGrid(messageIndex: number, options: RenderOptions): RenderedGrid;
   /** Render message A combined element-wise with message B under `op`. Both
@@ -277,7 +278,7 @@ export interface Grib2Handle {
   messages(): MessageMeta[];
   decodeGrid(messageIndex: number): DecodedGrid;
   /** Sibling to {@link Grib1Handle.exportCsv}. */
-  exportCsv(messageIndex: number, format: string): string;
+  exportCsv(messageIndex: number, format: string): Buffer;
   renderGrid(messageIndex: number, options: RenderOptions): RenderedGrid;
   /** Sibling to {@link Grib1Handle.renderGridCombined}. */
   renderGridCombined(
@@ -361,7 +362,7 @@ export interface NetcdfHandle {
     xDim: number,
     sliceIndices: number[],
     format: string,
-  ): string;
+  ): Buffer;
   /** Render one slice combined element-wise with a second slice under `op`
    *  (#239). Field B is a slice of `variableIndexB` at `sliceIndicesB`, sharing
    *  the same image axes; the common case is two time steps of one variable.
