@@ -35,6 +35,11 @@ use fieldglass_netcdf::{
 use napi_derive::napi;
 use std::sync::Mutex;
 
+/// A message resolved for a feature: its field, the geometry meta to run it
+/// against, and the grid dimensions. Spectral messages resolve to the
+/// synthesized global lat/lon grid, everything else to its declared grid (#330).
+type ResolvedField = (std::sync::Arc<Vec<Option<f64>>>, MessageMeta, u32, u32);
+
 /// A single message's metadata, exposed to Node.js.
 #[napi(object)]
 pub struct MessageMeta {
@@ -1386,9 +1391,7 @@ impl Grib1Handle {
         message_index: u32,
         format: String,
     ) -> napi::Result<napi::bindgen_prelude::Buffer> {
-        let raw = self.cached_decode(message_index)?;
-        let meta = self.message_meta(message_index)?;
-        let (ni, nj) = grib1_dimensions(&self.reader, message_index as usize)?;
+        let (raw, meta, ni, nj) = self.resolved(message_index)?;
         field_csv(&raw, &meta, ni, nj, &format).map(csv_buffer)
     }
 
@@ -1431,22 +1434,11 @@ impl Grib1Handle {
         message_index: u32,
         options: RenderOptions,
     ) -> napi::Result<RenderedGrid> {
-        // Spherical-harmonic messages have no grid: synthesize one via the
-        // inverse transform, then render it as a regular lat/lon field.
-        if let Some(truncation) = self
-            .reader
-            .messages
-            .get(message_index as usize)
-            .and_then(|m| match &m.gds {
-                Some(fieldglass_grib1::GridDescription::SphericalHarmonic(sh)) => Some(sh.j as u32),
-                _ => None,
-            })
-        {
-            return self.render_spectral(message_index, truncation, &options);
-        }
-        let meta = self.message_meta(message_index)?;
-        let raw = self.cached_decode(message_index)?;
-        render_with_options(&meta, raw.as_ref(), &options)
+        // A spectral message has no grid of its own; `resolved` synthesizes one
+        // onto a global lat/lon grid and hands it back like any decoded field
+        // (#330), so this path never special-cases it.
+        let (raw, meta, _ni, _nj) = self.resolved(message_index)?;
+        render_with_options(&meta, &raw, &options)
     }
 
     /// Render `message_index_a` combined element-wise with `message_index_b`
@@ -1463,10 +1455,8 @@ impl Grib1Handle {
         options: RenderOptions,
     ) -> napi::Result<RenderedGrid> {
         let op = parse_combine_op(&op)?;
-        let meta_a = self.message_meta(message_index_a)?;
-        let meta_b = self.message_meta(message_index_b)?;
-        let raw_a = self.cached_decode(message_index_a)?;
-        let raw_b = self.cached_decode(message_index_b)?;
+        let (raw_a, meta_a, _, _) = self.resolved(message_index_a)?;
+        let (raw_b, meta_b, _, _) = self.resolved(message_index_b)?;
         render_combined(
             &meta_a,
             raw_a.as_ref(),
@@ -1489,20 +1479,7 @@ impl Grib1Handle {
         latlon: napi::bindgen_prelude::Float64Array,
         ring_lengths: napi::bindgen_prelude::Uint32Array,
     ) -> napi::Result<ProjectedOverlay> {
-        let meta = self
-            .reader
-            .messages
-            .get(message_index as usize)
-            .map(|msg| {
-                let packing = self
-                    .reader
-                    .packing_label(message_index as usize)
-                    .map(friendly_packing);
-                build_grib1_message_meta(msg, packing)
-            })
-            .ok_or_else(|| {
-                napi::Error::from_reason(format!("message index {message_index} out of range"))
-            })?;
+        let meta = self.resolved_meta(message_index)?;
         project_overlay_impl(&meta, &options, latlon.as_ref(), ring_lengths.as_ref())
             .map(ProjectedOverlay::from_polylines)
     }
@@ -1519,8 +1496,7 @@ impl Grib1Handle {
         options: RenderOptions,
         interval: Option<f64>,
     ) -> napi::Result<ProjectedOverlay> {
-        let meta = self.message_meta(message_index)?;
-        let raw = self.cached_decode(message_index)?;
+        let (raw, meta, _ni, _nj) = self.resolved(message_index)?;
         project_contours_impl(&meta, raw.as_ref(), &options, interval)
             .map(ProjectedOverlay::from_polylines)
     }
@@ -1536,8 +1512,7 @@ impl Grib1Handle {
         px: u32,
         py: u32,
     ) -> napi::Result<Option<ProbeResult>> {
-        let meta = self.message_meta(message_index)?;
-        let raw = self.cached_decode(message_index)?;
+        let (raw, meta, _ni, _nj) = self.resolved(message_index)?;
         probe_impl(&meta, raw.as_ref(), &options, px, py)
     }
 
@@ -1557,10 +1532,8 @@ impl Grib1Handle {
         py: u32,
     ) -> napi::Result<Option<ProbeResult>> {
         let op = parse_combine_op(&op)?;
-        let meta_a = self.message_meta(message_index_a)?;
-        let meta_b = self.message_meta(message_index_b)?;
-        let raw_a = self.cached_decode(message_index_a)?;
-        let raw_b = self.cached_decode(message_index_b)?;
+        let (raw_a, meta_a, _, _) = self.resolved(message_index_a)?;
+        let (raw_b, meta_b, _, _) = self.resolved(message_index_b)?;
         let combined = combined_field(&meta_a, raw_a.as_ref(), &meta_b, raw_b.as_ref(), op)?;
         probe_impl(&meta_a, &combined, &options, px, py)
     }
@@ -1578,10 +1551,8 @@ impl Grib1Handle {
         interval: Option<f64>,
     ) -> napi::Result<ProjectedOverlay> {
         let op = parse_combine_op(&op)?;
-        let meta_a = self.message_meta(message_index_a)?;
-        let meta_b = self.message_meta(message_index_b)?;
-        let raw_a = self.cached_decode(message_index_a)?;
-        let raw_b = self.cached_decode(message_index_b)?;
+        let (raw_a, meta_a, _, _) = self.resolved(message_index_a)?;
+        let (raw_b, meta_b, _, _) = self.resolved(message_index_b)?;
         let combined = combined_field(&meta_a, raw_a.as_ref(), &meta_b, raw_b.as_ref(), op)?;
         project_contours_impl(&meta_a, &combined, &options, interval)
             .map(ProjectedOverlay::from_polylines)
@@ -1611,16 +1582,51 @@ impl Grib1Handle {
     /// Render a GRIB1 spherical-harmonic message by synthesizing it onto a
     /// global regular lat/lon grid (via the shared inverse transform) and
     /// painting that grid through the normal pipeline. Mirrors the GRIB2 path.
-    fn render_spectral(
-        &self,
-        message_index: u32,
-        truncation: u32,
-        options: &RenderOptions,
-    ) -> napi::Result<RenderedGrid> {
-        let (ni, nj) = spectral_render_dims(truncation);
-        let raw = self.cached_synthesize(message_index, truncation)?;
-        let base = self.message_meta(message_index)?;
-        finish_spectral_render(&raw, base, ni, nj, options)
+    /// Truncation `T` for a spherical-harmonic (spectral) message, else `None`.
+    fn spectral_truncation(&self, message_index: u32) -> Option<u32> {
+        match self
+            .reader
+            .messages
+            .get(message_index as usize)
+            .map(|m| &m.gds)
+        {
+            Some(Some(fieldglass_grib1::GridDescription::SphericalHarmonic(sh))) => {
+                Some(sh.j as u32)
+            }
+            _ => None,
+        }
+    }
+
+    /// Resolve a message to a renderable field with its geometry (#330). A
+    /// spectral message is synthesized onto a global lat/lon grid (cached) and
+    /// gets that grid's meta; everything else is decoded on its declared grid.
+    /// Returns `(field, meta, ni, nj)` so render, combine, probe, contours,
+    /// overlay, and CSV all run the same resolved field with no per-feature
+    /// spectral branch.
+    fn resolved(&self, message_index: u32) -> napi::Result<ResolvedField> {
+        if let Some(truncation) = self.spectral_truncation(message_index) {
+            let (ni, nj) = spectral_render_dims(truncation);
+            let raw = self.cached_synthesize(message_index, truncation)?;
+            let meta = spectral_meta(self.message_meta(message_index)?, ni, nj);
+            Ok((raw, meta, ni as u32, nj as u32))
+        } else {
+            let raw = self.cached_decode(message_index)?;
+            let meta = self.message_meta(message_index)?;
+            let (ni, nj) = grib1_dimensions(&self.reader, message_index as usize)?;
+            Ok((raw, meta, ni, nj))
+        }
+    }
+
+    /// Just the resolved geometry of a message (#330) — the spectral synthesis
+    /// grid's meta for a spectral message, the declared meta otherwise — without
+    /// decoding or synthesizing any values. For the geometry-only overlay path.
+    fn resolved_meta(&self, message_index: u32) -> napi::Result<MessageMeta> {
+        if let Some(truncation) = self.spectral_truncation(message_index) {
+            let (ni, nj) = spectral_render_dims(truncation);
+            Ok(spectral_meta(self.message_meta(message_index)?, ni, nj))
+        } else {
+            self.message_meta(message_index)
+        }
     }
 
     /// Get-or-build the synthesized spectral field for `message_index` — the
@@ -1764,16 +1770,7 @@ impl Grib2Handle {
         message_index: u32,
         format: String,
     ) -> napi::Result<napi::bindgen_prelude::Buffer> {
-        let raw = self.cached_decode(message_index)?;
-        let meta = self.message_meta(message_index)?;
-        let msg = self
-            .reader
-            .messages
-            .get(message_index as usize)
-            .ok_or_else(|| napi::Error::from_reason("message index out of range".to_string()))?;
-        let (ni, nj) = msg.gds.dimensions().ok_or_else(|| {
-            napi::Error::from_reason("grid has no declared dimensions".to_string())
-        })?;
+        let (raw, meta, ni, nj) = self.resolved(message_index)?;
         field_csv(&raw, &meta, ni, nj, &format).map(csv_buffer)
     }
 
@@ -1783,20 +1780,11 @@ impl Grib2Handle {
         message_index: u32,
         options: RenderOptions,
     ) -> napi::Result<RenderedGrid> {
-        // Spherical-harmonic messages have no grid: synthesize one via the
-        // inverse transform, then render it as a regular lat/lon field.
-        if let Some(truncation) = self
-            .reader
-            .messages
-            .get(message_index as usize)
-            .and_then(|m| m.gds.spherical_harmonic())
-            .map(|sh| sh.j)
-        {
-            return self.render_spectral(message_index, truncation, &options);
-        }
-        let meta = self.message_meta(message_index)?;
-        let raw = self.cached_decode(message_index)?;
-        render_with_options(&meta, raw.as_ref(), &options)
+        // A spectral message has no grid of its own; `resolved` synthesizes one
+        // onto a global lat/lon grid and hands it back like any decoded field
+        // (#330), so this path never special-cases it.
+        let (raw, meta, _ni, _nj) = self.resolved(message_index)?;
+        render_with_options(&meta, &raw, &options)
     }
 
     /// Render `message_index_a` combined element-wise with `message_index_b`
@@ -1813,10 +1801,8 @@ impl Grib2Handle {
         options: RenderOptions,
     ) -> napi::Result<RenderedGrid> {
         let op = parse_combine_op(&op)?;
-        let meta_a = self.message_meta(message_index_a)?;
-        let meta_b = self.message_meta(message_index_b)?;
-        let raw_a = self.cached_decode(message_index_a)?;
-        let raw_b = self.cached_decode(message_index_b)?;
+        let (raw_a, meta_a, _, _) = self.resolved(message_index_a)?;
+        let (raw_b, meta_b, _, _) = self.resolved(message_index_b)?;
         render_combined(
             &meta_a,
             raw_a.as_ref(),
@@ -1837,14 +1823,7 @@ impl Grib2Handle {
         latlon: napi::bindgen_prelude::Float64Array,
         ring_lengths: napi::bindgen_prelude::Uint32Array,
     ) -> napi::Result<ProjectedOverlay> {
-        let meta = self
-            .reader
-            .messages
-            .get(message_index as usize)
-            .map(build_grib2_message_meta)
-            .ok_or_else(|| {
-                napi::Error::from_reason(format!("message index {message_index} out of range"))
-            })?;
+        let meta = self.resolved_meta(message_index)?;
         project_overlay_impl(&meta, &options, latlon.as_ref(), ring_lengths.as_ref())
             .map(ProjectedOverlay::from_polylines)
     }
@@ -1858,8 +1837,7 @@ impl Grib2Handle {
         options: RenderOptions,
         interval: Option<f64>,
     ) -> napi::Result<ProjectedOverlay> {
-        let meta = self.message_meta(message_index)?;
-        let raw = self.cached_decode(message_index)?;
+        let (raw, meta, _ni, _nj) = self.resolved(message_index)?;
         project_contours_impl(&meta, raw.as_ref(), &options, interval)
             .map(ProjectedOverlay::from_polylines)
     }
@@ -1874,8 +1852,7 @@ impl Grib2Handle {
         px: u32,
         py: u32,
     ) -> napi::Result<Option<ProbeResult>> {
-        let meta = self.message_meta(message_index)?;
-        let raw = self.cached_decode(message_index)?;
+        let (raw, meta, _ni, _nj) = self.resolved(message_index)?;
         probe_impl(&meta, raw.as_ref(), &options, px, py)
     }
 
@@ -1894,10 +1871,8 @@ impl Grib2Handle {
         py: u32,
     ) -> napi::Result<Option<ProbeResult>> {
         let op = parse_combine_op(&op)?;
-        let meta_a = self.message_meta(message_index_a)?;
-        let meta_b = self.message_meta(message_index_b)?;
-        let raw_a = self.cached_decode(message_index_a)?;
-        let raw_b = self.cached_decode(message_index_b)?;
+        let (raw_a, meta_a, _, _) = self.resolved(message_index_a)?;
+        let (raw_b, meta_b, _, _) = self.resolved(message_index_b)?;
         let combined = combined_field(&meta_a, raw_a.as_ref(), &meta_b, raw_b.as_ref(), op)?;
         probe_impl(&meta_a, &combined, &options, px, py)
     }
@@ -1915,10 +1890,8 @@ impl Grib2Handle {
         interval: Option<f64>,
     ) -> napi::Result<ProjectedOverlay> {
         let op = parse_combine_op(&op)?;
-        let meta_a = self.message_meta(message_index_a)?;
-        let meta_b = self.message_meta(message_index_b)?;
-        let raw_a = self.cached_decode(message_index_a)?;
-        let raw_b = self.cached_decode(message_index_b)?;
+        let (raw_a, meta_a, _, _) = self.resolved(message_index_a)?;
+        let (raw_b, meta_b, _, _) = self.resolved(message_index_b)?;
         let combined = combined_field(&meta_a, raw_a.as_ref(), &meta_b, raw_b.as_ref(), op)?;
         project_contours_impl(&meta_a, &combined, &options, interval)
             .map(ProjectedOverlay::from_polylines)
@@ -1942,16 +1915,50 @@ impl Grib2Handle {
     /// regular lat/lon grid (via the inverse transform) and painting that grid
     /// through the normal pipeline. The synthesis resolution scales with the
     /// truncation `T` but is capped for large `T`.
-    fn render_spectral(
-        &self,
-        message_index: u32,
-        truncation: u32,
-        options: &RenderOptions,
-    ) -> napi::Result<RenderedGrid> {
-        let (ni, nj) = spectral_render_dims(truncation);
-        let raw = self.cached_synthesize(message_index, truncation)?;
-        let base = self.message_meta(message_index)?;
-        finish_spectral_render(&raw, base, ni, nj, options)
+    /// Truncation `T` for a spherical-harmonic (spectral) message, else `None`.
+    fn spectral_truncation(&self, message_index: u32) -> Option<u32> {
+        self.reader
+            .messages
+            .get(message_index as usize)
+            .and_then(|m| m.gds.spherical_harmonic())
+            .map(|sh| sh.j)
+    }
+
+    /// Resolve a message to a renderable field + geometry (#330) — sibling to
+    /// [`Grib1Handle::resolved`]. Spectral messages are synthesized onto a
+    /// global lat/lon grid (cached) and get that grid's meta.
+    fn resolved(&self, message_index: u32) -> napi::Result<ResolvedField> {
+        if let Some(truncation) = self.spectral_truncation(message_index) {
+            let (ni, nj) = spectral_render_dims(truncation);
+            let raw = self.cached_synthesize(message_index, truncation)?;
+            let meta = spectral_meta(self.message_meta(message_index)?, ni, nj);
+            Ok((raw, meta, ni as u32, nj as u32))
+        } else {
+            let raw = self.cached_decode(message_index)?;
+            let meta = self.message_meta(message_index)?;
+            let msg = self
+                .reader
+                .messages
+                .get(message_index as usize)
+                .ok_or_else(|| {
+                    napi::Error::from_reason("message index out of range".to_string())
+                })?;
+            let (ni, nj) = msg.gds.dimensions().ok_or_else(|| {
+                napi::Error::from_reason("grid has no declared dimensions".to_string())
+            })?;
+            Ok((raw, meta, ni, nj))
+        }
+    }
+
+    /// Resolved geometry only (#330), no decode/synthesis — sibling to
+    /// [`Grib1Handle::resolved_meta`]. For the geometry-only overlay path.
+    fn resolved_meta(&self, message_index: u32) -> napi::Result<MessageMeta> {
+        if let Some(truncation) = self.spectral_truncation(message_index) {
+            let (ni, nj) = spectral_render_dims(truncation);
+            Ok(spectral_meta(self.message_meta(message_index)?, ni, nj))
+        } else {
+            self.message_meta(message_index)
+        }
     }
 
     /// Get-or-build the synthesized spectral field for `message_index` (see
@@ -2803,18 +2810,14 @@ fn spectral_synthesis_lats_lons(truncation: u32) -> (Vec<f64>, Vec<f64>) {
 /// Finish a spectral render: build the `"latlon"` render meta from `base` and
 /// the synthesis grid, then run the (already synthesized) field `raw` through
 /// the ordinary render pipeline. Shared by the GRIB1 and GRIB2 spectral paths.
-fn finish_spectral_render(
-    raw: &[Option<f64>],
-    base: MessageMeta,
-    ni: usize,
-    nj: usize,
-    options: &RenderOptions,
-) -> napi::Result<RenderedGrid> {
+/// The `"latlon"` render meta for a spectral field synthesized onto the
+/// `ni × nj` global grid: `base`'s parameter/level/time with the synthesis grid
+/// geometry. Shared by the resolve seam and the GRIB1/GRIB2 spectral paths.
+fn spectral_meta(base: MessageMeta, ni: usize, nj: usize) -> MessageMeta {
     // Last longitude of the `0..360−Δ` grid — `lons.last()`, without rebuilding
     // the vector (`(ni-1)·360/ni` is bit-identical to the synthesized value).
     let lon_last = (ni as f64 - 1.0) * 360.0 / ni as f64;
-    let meta = spectral_render_meta_from(base, ni as i32, nj as i32, lon_last);
-    render_with_options(&meta, raw, options)
+    spectral_render_meta_from(base, ni as i32, nj as i32, lon_last)
 }
 
 /// Build the `"latlon"` [`MessageMeta`] for a synthesized spectral field: the
@@ -6185,6 +6188,44 @@ mod netcdf_slice_tests {
             "cached repaint is identical"
         );
         assert_eq!((a.used_min, a.used_max), (b.used_min, b.used_max));
+    }
+
+    #[test]
+    fn spectral_features_work_through_the_resolve_seam() {
+        // #330: a spectral message has no grid, so every feature except render
+        // used to fail. The resolve seam synthesizes the field once and hands it
+        // (plus its lat/lon geometry) to CSV, probe, contours, and combine, which
+        // now work like any gridded message.
+        let h = grib2_handle(SPECTRAL_T63);
+
+        let csv = h
+            .export_csv(0, "matrix".to_string())
+            .expect("spectral CSV export");
+        assert!(!csv.is_empty(), "spectral CSV has content");
+
+        let r = h
+            .probe(0, opts("source"), 10, 10)
+            .expect("spectral probe ok");
+        assert!(
+            r.is_some_and(|p| p.value.is_some()),
+            "probe reads a value on the synthesized grid"
+        );
+
+        let c = h
+            .project_contours(0, opts("source"), None)
+            .expect("spectral contours project");
+        assert!(!c.xy.is_empty(), "the ~281 K field has isolines");
+
+        // Two spectral messages (here the same one) resolve to the same synthesis
+        // grid, so a difference map combines and renders too.
+        let d = h
+            .render_grid_combined(0, 0, "a_minus_b".to_string(), opts("source"))
+            .expect("spectral difference renders");
+        assert_eq!(
+            (d.used_min, d.used_max),
+            (0.0, 0.0),
+            "A−A is zero everywhere"
+        );
     }
 
     fn opts(projection: &str) -> RenderOptions {

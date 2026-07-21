@@ -344,6 +344,24 @@ suite("Render pipeline", () => {
     }
   });
 
+  test("GRIB2 spectral: CSV, probe, and contours work on the synthesized grid (#330)", () => {
+    const native = loadNative();
+    assert.ok(native, "native module must load");
+    const bytes = fs.readFileSync(fixturePath("spectral_simple_t63.grib2"));
+    const handle = native.Grib2Handle.fromBytes(bytes);
+    const options = defaultRenderOptions();
+
+    // A spectral message has no grid; the resolve seam synthesizes one, so these
+    // features (which used to fail before Render was the only one that worked)
+    // now run against the synthesized lat/lon grid.
+    const csv = handle.exportCsv(0, "matrix").toString("utf8");
+    assert.ok(csv.length > 0, "spectral CSV export produces content");
+    const r = handle.probe(0, options, 10, 10);
+    assert.ok(r != null && r.value != null, "spectral probe reads a value");
+    const c = handle.projectContours(0, options, undefined);
+    assert.ok(c.xy.length > 0, "spectral contours project onto the synthesized grid");
+  });
+
   test("GRIB1 equirectangular: antimeridian-tight bounds echoed + manual override honored", () => {
     const native = loadNative();
     assert.ok(native, "native module must load");
