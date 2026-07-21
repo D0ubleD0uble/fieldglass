@@ -1312,6 +1312,12 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     }
     // The point-probe readout element (#172) is present.
     assert.ok(html.includes('id="probe"'), "the probe readout element must be present");
+    // Contour errors show in their own line, not #status, so they don't
+    // clobber the render summary (#338).
+    assert.ok(
+      html.includes('id="contour-status"'),
+      "the contour-status line must be present",
+    );
     assert.ok(/id="compare-op"/.test(html), "the compare operation selector must exist");
     assert.ok(/id="compare-dims"/.test(html), "the Field B stepper container must exist");
     assert.ok(!/id="compare-field-b"/.test(html), "NetCDF uses steppers, not a message dropdown");
