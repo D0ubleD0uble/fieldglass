@@ -2961,48 +2961,173 @@ fn parse_combine_op(tag: &str) -> napi::Result<CombineOp> {
     })
 }
 
+/// The geometry-defining subset of a [`MessageMeta`]: the fields that must be
+/// identical for two decoded fields to align cell-for-cell, so that combining
+/// them (a difference map, a sum, a ratio) is meaningful. Everything else — the
+/// parameter, level, time, and packing metadata — is deliberately excluded,
+/// since two fields differing only in those are exactly what a difference map
+/// compares.
+///
+/// Each field borrows from a `MessageMeta` rather than owning, so building one
+/// to compare is allocation-free, and `#[derive(PartialEq)]` reproduces the old
+/// hand-written field-by-field `==` chain exactly. [`MessageMeta::geometry`] is
+/// the sole constructor: it destructures the whole struct with no `..` rest
+/// pattern, so adding a field to `MessageMeta` fails to compile until it is
+/// explicitly classified as geometry (a field here) or non-geometry (an
+/// `_`-ignored binding). That makes the old "remember to update `grids_match`"
+/// hazard impossible to get wrong — the compiler enforces completeness.
+#[derive(PartialEq)]
+struct GridGeometry<'a> {
+    grid_type: &'a Option<String>,
+    grid_ni: &'a Option<i32>,
+    grid_nj: &'a Option<i32>,
+    lat_first: &'a Option<f64>,
+    lon_first: &'a Option<f64>,
+    lat_last: &'a Option<f64>,
+    lon_last: &'a Option<f64>,
+    earth_radius_metres: &'a Option<f64>,
+    lambert_lad: &'a Option<f64>,
+    lambert_lov: &'a Option<f64>,
+    lambert_dx_metres: &'a Option<f64>,
+    lambert_dy_metres: &'a Option<f64>,
+    lambert_latin1: &'a Option<f64>,
+    lambert_latin2: &'a Option<f64>,
+    gaussian_n_parallels: &'a Option<i32>,
+    polar_stereo_lov: &'a Option<f64>,
+    polar_stereo_lad: &'a Option<f64>,
+    polar_stereo_dx_metres: &'a Option<f64>,
+    polar_stereo_dy_metres: &'a Option<f64>,
+    polar_stereo_south_pole: &'a Option<bool>,
+    rotated_south_pole_lat: &'a Option<f64>,
+    rotated_south_pole_lon: &'a Option<f64>,
+    rotated_angle_of_rotation: &'a Option<f64>,
+    geos_sub_lon: &'a Option<f64>,
+    geos_height: &'a Option<f64>,
+    geos_r_eq: &'a Option<f64>,
+    geos_r_pol: &'a Option<f64>,
+    geos_sweep_x: &'a Option<bool>,
+    geos_x0: &'a Option<f64>,
+    geos_dx_rad: &'a Option<f64>,
+    geos_y0: &'a Option<f64>,
+    geos_dy_rad: &'a Option<f64>,
+    j_scans_positive: &'a Option<bool>,
+}
+
+impl MessageMeta {
+    /// Borrow the geometry-defining fields as a [`GridGeometry`]. See that type
+    /// for why the exhaustive destructure below makes grid-match completeness a
+    /// compile-time guarantee.
+    fn geometry(&self) -> GridGeometry<'_> {
+        // Exhaustive destructure — deliberately no `..` rest pattern. Every
+        // field is either forwarded into the returned `GridGeometry` (it defines
+        // the grid) or bound to `_` (metadata or a value derived from the
+        // geometry, ignored for alignment). A field added to `MessageMeta`
+        // breaks this line until it is classified, which is the whole point.
+        let MessageMeta {
+            // Geometry — must match for two fields to align cell-for-cell.
+            grid_type,
+            grid_ni,
+            grid_nj,
+            lat_first,
+            lon_first,
+            lat_last,
+            lon_last,
+            earth_radius_metres,
+            lambert_lad,
+            lambert_lov,
+            lambert_dx_metres,
+            lambert_dy_metres,
+            lambert_latin1,
+            lambert_latin2,
+            gaussian_n_parallels,
+            polar_stereo_lov,
+            polar_stereo_lad,
+            polar_stereo_dx_metres,
+            polar_stereo_dy_metres,
+            polar_stereo_south_pole,
+            rotated_south_pole_lat,
+            rotated_south_pole_lon,
+            rotated_angle_of_rotation,
+            geos_sub_lon,
+            geos_height,
+            geos_r_eq,
+            geos_r_pol,
+            geos_sweep_x,
+            geos_x0,
+            geos_dx_rad,
+            geos_y0,
+            geos_dy_rad,
+            j_scans_positive,
+            // Non-geometry — deliberately ignored for alignment. `reprojectable`
+            // is a pure function of the geometry above (equal geometry ⇒ equal
+            // `reprojectable`); the rest (indices, parameter, level, time,
+            // format, packing) are exactly what a difference map holds constant.
+            message_index: _,
+            offset_bytes: _,
+            parameter_name: _,
+            parameter_units: _,
+            parameter_abbreviation: _,
+            level: _,
+            level_type: _,
+            reference_time: _,
+            forecast_hours: _,
+            forecast_display: _,
+            originating_centre: _,
+            format: _,
+            edition: _,
+            discipline: _,
+            total_length_bytes: _,
+            production_status: _,
+            data_type: _,
+            packing: _,
+            reprojectable: _,
+        } = self;
+        GridGeometry {
+            grid_type,
+            grid_ni,
+            grid_nj,
+            lat_first,
+            lon_first,
+            lat_last,
+            lon_last,
+            earth_radius_metres,
+            lambert_lad,
+            lambert_lov,
+            lambert_dx_metres,
+            lambert_dy_metres,
+            lambert_latin1,
+            lambert_latin2,
+            gaussian_n_parallels,
+            polar_stereo_lov,
+            polar_stereo_lad,
+            polar_stereo_dx_metres,
+            polar_stereo_dy_metres,
+            polar_stereo_south_pole,
+            rotated_south_pole_lat,
+            rotated_south_pole_lon,
+            rotated_angle_of_rotation,
+            geos_sub_lon,
+            geos_height,
+            geos_r_eq,
+            geos_r_pol,
+            geos_sweep_x,
+            geos_x0,
+            geos_dx_rad,
+            geos_y0,
+            geos_dy_rad,
+            j_scans_positive,
+        }
+    }
+}
+
 /// Whether two messages sit on the same grid — identical dimensions and grid
 /// definition — so their decoded fields align cell-for-cell and combining them
-/// is meaningful. Compares every geometry-defining field of [`MessageMeta`];
-/// parameter, level, time, and packing metadata are deliberately ignored (two
-/// fields differing only in those are exactly what a difference map compares).
-///
-/// NB: when a new geometry field is added to `MessageMeta`, add it here too, or
-/// two grids differing only in that field would be wrongly treated as aligned.
+/// is meaningful. Compares every geometry-defining field of [`MessageMeta`] via
+/// [`GridGeometry`]; parameter, level, time, and packing metadata are
+/// deliberately ignored (two fields differing only in those are exactly what a
+/// difference map compares).
 fn grids_match(a: &MessageMeta, b: &MessageMeta) -> bool {
-    a.grid_type == b.grid_type
-        && a.grid_ni == b.grid_ni
-        && a.grid_nj == b.grid_nj
-        && a.lat_first == b.lat_first
-        && a.lon_first == b.lon_first
-        && a.lat_last == b.lat_last
-        && a.lon_last == b.lon_last
-        && a.earth_radius_metres == b.earth_radius_metres
-        && a.lambert_lad == b.lambert_lad
-        && a.lambert_lov == b.lambert_lov
-        && a.lambert_dx_metres == b.lambert_dx_metres
-        && a.lambert_dy_metres == b.lambert_dy_metres
-        && a.lambert_latin1 == b.lambert_latin1
-        && a.lambert_latin2 == b.lambert_latin2
-        && a.gaussian_n_parallels == b.gaussian_n_parallels
-        && a.polar_stereo_lov == b.polar_stereo_lov
-        && a.polar_stereo_lad == b.polar_stereo_lad
-        && a.polar_stereo_dx_metres == b.polar_stereo_dx_metres
-        && a.polar_stereo_dy_metres == b.polar_stereo_dy_metres
-        && a.polar_stereo_south_pole == b.polar_stereo_south_pole
-        && a.rotated_south_pole_lat == b.rotated_south_pole_lat
-        && a.rotated_south_pole_lon == b.rotated_south_pole_lon
-        && a.rotated_angle_of_rotation == b.rotated_angle_of_rotation
-        && a.geos_sub_lon == b.geos_sub_lon
-        && a.geos_height == b.geos_height
-        && a.geos_r_eq == b.geos_r_eq
-        && a.geos_r_pol == b.geos_r_pol
-        && a.geos_sweep_x == b.geos_sweep_x
-        && a.geos_x0 == b.geos_x0
-        && a.geos_dx_rad == b.geos_dx_rad
-        && a.geos_y0 == b.geos_y0
-        && a.geos_dy_rad == b.geos_dy_rad
-        && a.j_scans_positive == b.j_scans_positive
+    a.geometry() == b.geometry()
 }
 
 /// Decode-domain core of the combined render: require identical grids, combine
@@ -5904,6 +6029,27 @@ mod netcdf_slice_tests {
         assert!(
             !grids_match(&a, &proj),
             "different projection param must not match"
+        );
+
+        // A geometry field buried deep in the struct (geostationary sweep) is
+        // covered too — the `GridGeometry` view compares it, so it must break
+        // the match. This is the case the old hand-maintained field list was
+        // most at risk of silently dropping.
+        let mut sweep = base_netcdf_meta("sst", "K", 180, 89);
+        sweep.geos_sweep_x = Some(true);
+        assert!(
+            !grids_match(&a, &sweep),
+            "different geostationary sweep axis must not match"
+        );
+
+        // Non-geometry metadata must NOT break the match: two fields differing
+        // only in packing or edition still sit on the same grid and can combine.
+        let mut packing = base_netcdf_meta("sst", "K", 180, 89);
+        packing.packing = Some("Complex packing".into());
+        packing.edition = Some(2);
+        assert!(
+            grids_match(&a, &packing),
+            "differing packing/edition metadata must still match"
         );
     }
 
