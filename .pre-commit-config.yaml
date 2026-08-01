@@ -133,8 +133,14 @@ repos:
       - id: check-added-large-files
         args: [--maxkb=2048]                  # block accidentally-staged big binaries
 
-  - repo: https://github.com/koalaman/shellcheck-precommit
-    rev: v0.10.0
+  # shellcheck-py ships the same ShellCheck binary as a Python wheel; the
+  # upstream koalaman hook runs it out of a Docker image, which made every run
+  # a Docker Hub pull. A registry timeout there fails the hook with exit 125
+  # before any file is linted — an infrastructure outage reported as a lint
+  # failure, red on master. The `v0.10.0.1` tag is ShellCheck v0.10.0 (the
+  # trailing `.1` is the packaging revision), so the lint itself is unchanged.
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
     hooks:
       - id: shellcheck
 
