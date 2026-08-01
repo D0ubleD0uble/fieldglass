@@ -917,11 +917,23 @@ fn decode_jpeg2000_packing(
         FieldglassError::UnsupportedSection(format!("JPEG 2000 packing: decode failed: {e}"))
     })?;
 
+    // `grid_jpeg` stores one scalar grid, so the codestream carries exactly one
+    // component. A multi-component codestream is a different kind of image
+    // (colour, say); silently reading the first plane would misreport it as the
+    // field, so reject it rather than guess which plane was meant.
+    if image.components.len() != 1 {
+        return Err(FieldglassError::UnsupportedSection(format!(
+            "JPEG 2000 packing: codestream holds {} components but grid_jpeg is single-component",
+            image.components.len()
+        )));
+    }
+    let component = image.component(0).expect("length checked to be 1");
+
     // Operational `grid_jpeg` always stores an unsigned component, and eccodes
     // reads the samples as unsigned offsets from `R`. A signed component would
     // make `rust_j2k` return negative samples, which the unsigned-offset
     // transform below would silently misread — so reject it rather than guess.
-    if image.signed {
+    if component.signed {
         return Err(FieldglassError::UnsupportedSection(
             "JPEG 2000 packing: signed component is unsupported".into(),
         ));
@@ -930,10 +942,10 @@ fn decode_jpeg2000_packing(
     // The codestream must hold exactly one sample per present point; a mismatch
     // means the §7 geometry disagrees with the field, which we reject rather
     // than misread.
-    if image.samples.len() != present_count {
+    if component.samples.len() != present_count {
         return Err(FieldglassError::Parse(format!(
             "JPEG 2000 packing: codestream holds {} samples but {present_count} values are required",
-            image.samples.len()
+            component.samples.len()
         )));
     }
 
@@ -941,7 +953,7 @@ fn decode_jpeg2000_packing(
     // unsigned component, and `rust_j2k` level-shifts unsigned components back
     // into `[0, 2^bits-1]`). Read them as such, mirroring eccodes.
     let mut decoded = Vec::with_capacity(present_count);
-    for &x in &image.samples {
+    for &x in &component.samples {
         decoded.push((r + x as f64 * two_pow_e) * d_inv);
     }
 
@@ -2648,6 +2660,27 @@ mod tests {
             "expected UnsupportedSection, got: {err:?}"
         );
         assert!(err.to_string().contains("JPEG 2000 packing"), "got: {err}");
+    }
+
+    #[test]
+    fn jpeg2000_packing_rejects_multi_component_codestream() {
+        // `grid_jpeg` is one scalar grid, so a codestream carrying more than
+        // one component is not this field. Reading the first plane as the
+        // values would misreport it, so the decode must reject instead. The
+        // fixture is a 4x2 three-component (RGB) codestream — see
+        // `tests/fixtures/NOTICE.md`.
+        let codestream =
+            include_bytes!("../tests/fixtures/jpeg2000_three_component.j2k").as_slice();
+        let err = decode_values(codestream, jpeg2000_template(0.0, 0, 0, 8), None, 8)
+            .expect_err("must reject");
+        assert!(
+            matches!(err, FieldglassError::UnsupportedSection(_)),
+            "expected UnsupportedSection, got: {err:?}"
+        );
+        assert!(
+            err.to_string().contains("3 components"),
+            "error names the component count, got: {err}"
+        );
     }
 
     #[test]

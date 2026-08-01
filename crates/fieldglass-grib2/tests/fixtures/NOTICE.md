@@ -498,3 +498,22 @@ produce, and an independent pyshtools synthesis that reproduces this field to
 coefficients (`m > 0` carries a `√2` complex→real factor, imaginary part negated)
 and scaled by `√(4π)`. Regenerate with
 `python3 tools/build_grib2_spectral_render_oracle.py` (needs numpy).
+
+## Multi-component JPEG 2000 codestream (rust-j2k 0.3.0)
+
+`jpeg2000_three_component.j2k` is a bare JPEG 2000 codestream (Annex A, no JP2
+boxes), not a GRIB2 message: a 4×2 three-component (RGB) image built with
+OpenJPEG's `opj_compress` from random bytes, since the samples are irrelevant —
+only the component count is under test. Generated with:
+
+```
+printf 'P6\n4 2\n255\n' > rgb.ppm && head -c 24 /dev/urandom >> rgb.ppm
+opj_compress -i rgb.ppm -o jpeg2000_three_component.j2k -r 1 -n 1
+```
+
+`grid_jpeg` (5.40) carries one scalar grid, so its codestream is
+single-component. rust-j2k 0.2.0 rejected a multi-component codestream in the
+decoder itself; 0.3.0 decodes all components, so the single-component
+expectation became fieldglass's to enforce, and this fixture is what exercises
+that rejection. There is no eccodes oracle: the fixture is a negative case, and
+eccodes cannot encode a multi-component `grid_jpeg` to compare against.
