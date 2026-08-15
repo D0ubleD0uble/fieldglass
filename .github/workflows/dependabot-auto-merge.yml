@@ -2,8 +2,12 @@ name: Dependabot auto-merge
 
 # Auto-approve and enable auto-merge for low-risk Dependabot updates so they
 # land without manual babysitting once CI is green. Branch protection still
-# gates the actual merge on required checks, and Dependabot keeps the branch
-# rebased while it waits. Higher-risk bumps stay manual (see the gate below).
+# gates the actual merge on required checks. Higher-risk bumps stay manual (see
+# the gate below).
+#
+# Arming auto-merge is not sufficient on its own: branch protection is strict,
+# and nothing here keeps the branch up to date once master moves. That is what
+# dependabot-refresh.yml is for.
 #
 # Runs on pull_request_target so the GITHUB_TOKEN has write scope (Dependabot
 # PRs otherwise get a read-only token). This is safe because the job never
