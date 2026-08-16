@@ -3,8 +3,8 @@
 #
 # Grouping: each ecosystem collapses its weekly minor/patch bumps into a small
 # number of grouped PRs (dev vs prod) instead of one PR per dependency. This
-# cuts the rebase churn that branch protection's "up to date" rule otherwise
-# forces on every wave, and keeps version-locked package sets (e.g. the
+# keeps each weekly wave down to a few CI runs rather than one per dependency,
+# and keeps version-locked package sets (e.g. the
 # typescript-eslint plugin + parser) in a single PR so they never conflict on
 # the shared lockfile. Major bumps are intentionally left out of the groups so
 # they arrive as individual PRs for deliberate review.
