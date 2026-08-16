@@ -5,9 +5,13 @@ name: Dependabot auto-merge
 # gates the actual merge on required checks. Higher-risk bumps stay manual (see
 # the gate below).
 #
-# Arming auto-merge is not sufficient on its own: branch protection is strict,
-# and nothing here keeps the branch up to date once master moves. That is what
-# dependabot-refresh.yml is for.
+# Arming auto-merge is enough on its own. Branch protection deliberately does
+# not set required_status_checks.strict, so a PR whose checks are green merges
+# even after master has moved past it. An earlier dependabot-refresh.yml existed
+# to rebase branches back up to date under the strict rule; it could not work,
+# because Dependabot ignores `@dependabot rebase` from anyone without push
+# access and GITHUB_TOKEN posts as github-actions[bot]. Dropping strict removed
+# the need for it.
 #
 # Runs on pull_request_target so the GITHUB_TOKEN has write scope (Dependabot
 # PRs otherwise get a read-only token). This is safe because the job never
