@@ -4169,6 +4169,36 @@ fn levels_by_interval(min: f64, max: f64, step: f64) -> Vec<f64> {
     }
     levels
 }
+/// Whether the contour pass may march the seam cell that wraps column `ni - 1`
+/// round to column `0`.
+///
+/// Two conditions, and both matter:
+///
+/// 1. The grid is periodic — decided by [`source_grid_is_periodic`], the same
+///    helper the probe uses (#332). That reads the GDS longitudes, which for a
+///    rotated grid are in *rotated* coordinates, the space the index actually
+///    wraps in. Deriving this from the forward map instead would compare
+///    *geographic* longitudes and could disagree with the probe about the very
+///    same grid.
+/// 2. The family's geographic longitude advances uniformly eastward with `i`.
+///    The seam interpolation runs in geographic lon (`forward` is the only
+///    coordinate the contour vertices ever see), so it is valid only where one
+///    step in `i` is one step east. A rotated grid's row is a small circle whose
+///    geographic longitude is neither uniform nor monotonic, so unwrapping its
+///    seam eastward could sweep most of the way round the globe and draw the
+///    rim-to-rim streak instead of closing a one-cell gap.
+///
+/// A rotated grid that is global in rotated longitude therefore keeps the seam
+/// gap for now — the pre-existing behaviour, not a regression. Closing it needs
+/// the seam interpolated in rotated space and rotated back, which is a larger
+/// change than the gap warrants.
+fn contour_seam_wraps(meta: &MessageMeta, ni: u32) -> bool {
+    let uniform_eastward_lon = matches!(
+        meta.grid_type.as_deref(),
+        Some("latlon") | Some("mercator") | Some("gaussian")
+    );
+    uniform_eastward_lon && source_grid_is_periodic(meta, ni)
+}
 
 /// Extract contour isolines from a decoded field and project them onto the same
 /// raster the render / overlay use, returning pixel-space runs (#238). Levels
@@ -4206,18 +4236,7 @@ fn project_contours_impl(
     // Each contour segment becomes a two-vertex ring in `(lat, lon)` order (what
     // `project_polylines` consumes); a vertex that can't be geolocated drops its
     // segment rather than the whole contour.
-    // Read the grid's own periodicity off the forward map rather than the GDS
-    // fields, so it holds for every geolocatable family (regular lat/lon,
-    // Mercator, rotated, Gaussian) without plumbing new metadata through. A
-    // global west-to-east grid wraps, so its isolines must cross the seam
-    // meridian instead of stopping a cell short of it — the same treatment the
-    // resampler already gives the raster via `SourceGrid::periodic_i`.
-    let periodic_i = match (forward(0, 0), forward(ni.saturating_sub(1), 0)) {
-        (Some((_, lon_first)), Some((_, lon_last))) => {
-            lon_grid_is_global(eastward_lon_span(lon_first, lon_last), ni)
-        }
-        _ => false,
-    };
+    let periodic_i = contour_seam_wraps(meta, ni);
     let contours = if periodic_i {
         contour_segments_global(raw, ni as usize, nj as usize, &levels)
     } else {
@@ -6640,6 +6659,73 @@ mod netcdf_slice_tests {
             (lon - 25.0).abs() < 1e-9,
             "i=2.5 over 0..40/4 steps → lon 25, got {lon}"
         );
+    }
+
+    /// The seam wrap must be decided the same way the probe decides it, and only
+    /// where the geographic longitude actually advances uniformly eastward with
+    /// `i`. A rotated grid fails the second condition: its row is a small circle
+    /// whose geographic longitude is neither uniform nor monotonic, so unwrapping
+    /// the seam eastward could sweep most of the way round the globe and draw a
+    /// rim-to-rim streak instead of closing a one-cell gap.
+    #[test]
+    fn the_contour_seam_wrap_skips_rotated_grids_even_when_globally_spanning() {
+        // Rotated, and global *in rotated longitude* (0..337.5 over 16 columns
+        // is a full turn once the 22.5 step is counted).
+        let mut rotated = global_latlon_meta(16, 4);
+        rotated.grid_type = Some("rotated_latlon".to_string());
+        assert!(
+            source_grid_is_periodic(&rotated, 16),
+            "the grid really is periodic in its own (rotated) longitude",
+        );
+        assert!(
+            !contour_seam_wraps(&rotated, 16),
+            "but the contour seam must not wrap it: the interpolation runs in \
+             geographic lon, which is not uniform along a rotated row",
+        );
+    }
+
+    /// The families whose geographic longitude is `lon_first + i * step` do wrap
+    /// — the behaviour the seam fix exists for. Guards against the rotated
+    /// exclusion above being widened into a blanket disable.
+    #[test]
+    fn the_contour_seam_wrap_covers_the_uniform_longitude_families() {
+        for family in ["latlon", "mercator", "gaussian"] {
+            let mut meta = global_latlon_meta(8, 4);
+            meta.grid_type = Some(family.to_string());
+            assert!(
+                contour_seam_wraps(&meta, 8),
+                "{family}: a global grid of this family must wrap the seam",
+            );
+            // Regional grids of the same family must not.
+            let mut regional = global_latlon_meta(8, 4);
+            regional.grid_type = Some(family.to_string());
+            regional.lon_last = Some(40.0);
+            assert!(
+                !contour_seam_wraps(&regional, 8),
+                "{family}: a regional grid must keep the bounded march",
+            );
+        }
+    }
+
+    /// Periodicity now has one owner. Before this, contours derived it from the
+    /// forward map while the probe read the GDS, so the two could disagree about
+    /// the same grid — on a rotated grid they read different coordinate spaces
+    /// entirely.
+    #[test]
+    fn contour_and_probe_agree_on_periodicity_for_the_families_contours_wrap() {
+        for family in ["latlon", "mercator", "gaussian"] {
+            for (lon_last, want) in [(360.0 - 360.0 / 8.0, true), (40.0, false)] {
+                let mut meta = global_latlon_meta(8, 4);
+                meta.grid_type = Some(family.to_string());
+                meta.lon_last = Some(lon_last);
+                assert_eq!(
+                    contour_seam_wraps(&meta, 8),
+                    source_grid_is_periodic(&meta, 8),
+                    "{family} lon_last={lon_last}: the two must not disagree",
+                );
+                assert_eq!(contour_seam_wraps(&meta, 8), want);
+            }
+        }
     }
 
     /// A global west-to-east grid: 4 columns at lon 0/90/180/270, so the gap
