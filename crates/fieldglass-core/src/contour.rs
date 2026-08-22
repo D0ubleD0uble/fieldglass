@@ -14,6 +14,9 @@
 /// A contour segment in fractional grid coordinates: two endpoints `(i, j)`
 /// where `i ∈ [0, ni-1]` and `j ∈ [0, nj-1]`. A vertex sits on a cell edge
 /// between two grid points, so its indices are generally fractional.
+///
+/// [`contour_segments_global`] widens `i` to `[0, ni]`: its seam cell spans the
+/// wrap from column `ni - 1` to column `0`, and reads `ni` at the far edge.
 pub type GridSegment = [(f64, f64); 2];
 
 /// One contour level and the line segments tracing it, in fractional grid
@@ -48,11 +51,51 @@ fn interp(pa: (f64, f64), va: f64, pb: (f64, f64), vb: f64, level: f64) -> (f64,
 ///
 /// A cell contributes segments only when all four of its corners are present
 /// and finite, so contours break around masked or non-finite data.
+///
+/// The grid is treated as **bounded**: the last column has no eastern
+/// neighbour, so `i` stays in `[0, ni - 1]`. For a global west-to-east grid,
+/// whose column `ni - 1` is adjacent to column `0`, use
+/// [`contour_segments_global`] instead — otherwise the isolines break at the
+/// seam meridian.
 pub fn contour_segments(
     values: &[Option<f64>],
     ni: usize,
     nj: usize,
     levels: &[f64],
+) -> Vec<ContourLevel> {
+    contour_segments_impl(values, ni, nj, levels, false)
+}
+
+/// [`contour_segments`] for a grid that is periodic in `i` — a global
+/// west-to-east grid whose next column past `ni - 1` is column `0` again (see
+/// [`crate::projection::lon_grid_is_global`]).
+///
+/// One extra cell is marched, spanning the seam gap between the last and first
+/// columns, so an isoline crossing the seam meridian is drawn instead of
+/// breaking there. That mirrors what the resampler already does for the raster
+/// (`SourceGrid::periodic_i`), which is why a global field could paint across
+/// the seam while its contours stopped a cell short of it.
+///
+/// The seam cell puts its vertices in `[ni - 1, ni]`, so on this entry point
+/// `i` ranges over `[0, ni]` rather than `[0, ni - 1]`. A caller mapping grid
+/// coordinates back to lon/lat must wrap `i = ni` round to column `0` (and
+/// carry the +360° with it), or the seam vertices collapse onto the last
+/// column.
+pub fn contour_segments_global(
+    values: &[Option<f64>],
+    ni: usize,
+    nj: usize,
+    levels: &[f64],
+) -> Vec<ContourLevel> {
+    contour_segments_impl(values, ni, nj, levels, true)
+}
+
+fn contour_segments_impl(
+    values: &[Option<f64>],
+    ni: usize,
+    nj: usize,
+    levels: &[f64],
+    periodic_i: bool,
 ) -> Vec<ContourLevel> {
     let mut out: Vec<ContourLevel> = levels
         .iter()
@@ -81,13 +124,21 @@ pub fn contour_segments(
     order.sort_by(|&a, &b| levels[a].total_cmp(&levels[b]));
     let sorted_levels: Vec<f64> = order.iter().map(|&k| levels[k]).collect();
 
+    // A periodic grid marches one extra cell per row: the seam cell whose west
+    // edge is column `ni - 1` and whose east edge is column `0` again. Its
+    // vertices still advance west-to-east in grid space (`ni - 1` → `ni`), so
+    // the caller's forward map sees a monotonic coordinate and can wrap it.
+    let cells_i = if periodic_i { ni } else { ni - 1 };
     for j in 0..nj - 1 {
-        for i in 0..ni - 1 {
-            // Corners: bl (i,j), br (i+1,j), tr (i+1,j+1), tl (i,j+1).
+        for i in 0..cells_i {
+            // Value columns wrap; position coordinates do not. On the seam cell
+            // `i_east` is column 0 while the x coordinate still reads `ni`.
+            let i_east = if i + 1 == ni { 0 } else { i + 1 };
+            // Corners: bl (i,j), br (i_east,j), tr (i_east,j+1), tl (i,j+1).
             let (Some(v_bl), Some(v_br), Some(v_tr), Some(v_tl)) = (
                 finite_at(i, j),
-                finite_at(i + 1, j),
-                finite_at(i + 1, j + 1),
+                finite_at(i_east, j),
+                finite_at(i_east, j + 1),
                 finite_at(i, j + 1),
             ) else {
                 // Any missing/non-finite corner → skip the whole cell.
@@ -220,6 +271,111 @@ fn nice_num(x: f64, round: bool) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A field that is genuinely periodic in `i`: one full cosine wave across
+    /// the grid, so the value at column `ni - 1` continues smoothly into column
+    /// `0`. A level crossed inside the seam gap therefore has a real isoline
+    /// there — one a bounded march cannot see, because it never looks at the
+    /// cell between the last column and the first.
+    fn periodic_wave(ni: usize, nj: usize) -> Vec<Option<f64>> {
+        (0..ni * nj)
+            .map(|k| {
+                let i = (k % ni) as f64;
+                let theta = std::f64::consts::TAU * i / ni as f64;
+                Some(theta.cos())
+            })
+            .collect()
+    }
+
+    /// The seam cell is the one a bounded march skips, so an isoline crossing
+    /// the seam meridian silently disappears. The raster already wraps here
+    /// (`SourceGrid::periodic_i`), which is why a global field could paint
+    /// across the seam while its contours stopped a cell short.
+    #[test]
+    fn global_contours_cross_the_seam_that_bounded_ones_break_at() {
+        let (ni, nj) = (8usize, 4usize);
+        let values = periodic_wave(ni, nj);
+        // cos crosses 0 twice: once mid-grid, once *inside the seam gap* only if
+        // the wrap cell is marched. Use a level the seam cell straddles: the
+        // last column is cos(7/8·τ) ≈ +0.707 and column 0 is cos(0) = 1.0, so
+        // 0.85 is crossed in the seam gap and nowhere else on that flank.
+        let level = 0.85;
+        let bounded = &contour_segments(&values, ni, nj, &[level])[0];
+        let global = &contour_segments_global(&values, ni, nj, &[level])[0];
+
+        let in_seam = |segs: &[GridSegment]| {
+            segs.iter()
+                .any(|s| s.iter().any(|&(x, _)| x > (ni - 1) as f64))
+        };
+        assert!(
+            !in_seam(&bounded.segments),
+            "the bounded march must not emit anything past column ni-1",
+        );
+        assert!(
+            in_seam(&global.segments),
+            "the global march must emit the seam-cell crossing, got {:?}",
+            global.segments,
+        );
+        // Every bounded segment survives unchanged; the seam is purely additive.
+        assert!(
+            global.segments.len() > bounded.segments.len(),
+            "global must add segments, not replace them",
+        );
+    }
+
+    /// The seam cell reads column 0 for its values but keeps advancing in grid
+    /// space, so its vertices land in `[ni-1, ni]`. A caller wraps that back to
+    /// column 0; if it were emitted as `[ni-1, ni-1]` the segment would be
+    /// degenerate and draw nothing.
+    #[test]
+    fn seam_vertices_stay_in_the_last_cell_and_never_exceed_ni() {
+        let (ni, nj) = (8usize, 4usize);
+        let values = periodic_wave(ni, nj);
+        let levels: Vec<f64> = vec![-0.5, 0.0, 0.5, 0.85];
+        for level in &contour_segments_global(&values, ni, nj, &levels) {
+            for seg in &level.segments {
+                for &(x, y) in seg {
+                    assert!(
+                        (0.0..=ni as f64).contains(&x),
+                        "x={x} outside [0, {ni}] at level {}",
+                        level.level,
+                    );
+                    assert!(
+                        (0.0..=(nj - 1) as f64).contains(&y),
+                        "y={y} outside [0, {}] at level {}",
+                        nj - 1,
+                        level.level,
+                    );
+                }
+            }
+        }
+    }
+
+    /// A regional grid is not periodic, so the two entry points must agree —
+    /// wrapping a bounded grid would draw a spurious isoline straight across
+    /// the map from its east edge back to its west one.
+    #[test]
+    fn a_bounded_grid_is_unchanged_by_the_global_entry_point_only_at_its_seam() {
+        // `ramp` is value = i, so column ni-1 (=7) and column 0 (=0) differ by
+        // the whole range: the wrap cell spans 7→0 and crosses every level.
+        // That is exactly the streak a caller must not draw on a regional grid,
+        // and the reason periodicity is decided by the caller, not guessed here.
+        let (ni, nj) = (8usize, 4usize);
+        let values = ramp(ni, nj);
+        let level = 3.5;
+        let bounded = &contour_segments(&values, ni, nj, &[level])[0];
+        let global = &contour_segments_global(&values, ni, nj, &[level])[0];
+        assert_eq!(
+            bounded.segments.len(),
+            (nj - 1),
+            "the ramp crosses once per row-cell",
+        );
+        assert!(
+            global.segments.len() > bounded.segments.len(),
+            "the wrap cell of a ramp crosses too — which is why only a caller \
+             that knows the grid is global may use this entry point",
+        );
+    }
 
     /// A field increasing left→right: `value = i`. A contour at a level between
     /// columns is a single vertical line — one segment per row-cell, each

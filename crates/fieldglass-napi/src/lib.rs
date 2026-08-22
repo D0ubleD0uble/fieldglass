@@ -8,7 +8,7 @@ use fieldglass_core::{
     RotatedLatLonProjector, SourceGrid, SourceOverlayTarget, TargetRaster, WebMercator,
     colormap::{Colormap, ScaleMode, min_max_ignoring_mask, paint_grid_rgba},
     combine_fields,
-    contour::{contour_segments, nice_levels},
+    contour::{contour_segments, contour_segments_global, nice_levels},
     csv::{field_to_csv_long, field_to_csv_matrix},
     detect_from_bytes, eastward_lon_span, latlon_inverse, latlon_point, lon_grid_is_global,
     mercator_inverse, mercator_point, normalise_lon, project_polylines,
@@ -4090,24 +4090,57 @@ fn forward_bilinear(
     nj: u32,
     fi: f64,
     fj: f64,
+    periodic_i: bool,
 ) -> Option<(f64, f64)> {
     if ni < 2 || nj < 2 {
         return None;
     }
-    let i0 = (fi.floor().max(0.0) as u32).min(ni - 2);
+    // On a periodic grid a seam vertex sits in `(ni - 1, ni)`: its west corner
+    // is the last column and its east corner is column 0 again. Saturating `i0`
+    // at `ni - 2` the way a bounded grid does would drag both corners back onto
+    // the last two columns, collapsing the whole seam cell onto the last column.
+    let seam = periodic_i && fi > (ni - 1) as f64;
+    let (i0, i1) = if seam {
+        (ni - 1, 0)
+    } else {
+        let i0 = (fi.floor().max(0.0) as u32).min(ni - 2);
+        (i0, i0 + 1)
+    };
     let j0 = (fj.floor().max(0.0) as u32).min(nj - 2);
     let fx = (fi - i0 as f64).clamp(0.0, 1.0);
     let fy = (fj - j0 as f64).clamp(0.0, 1.0);
     let a = forward(i0, j0)?;
-    let b = forward(i0 + 1, j0)?;
+    let mut b = forward(i1, j0)?;
     let c = forward(i0, j0 + 1)?;
-    let d = forward(i0 + 1, j0 + 1)?;
+    let mut d = forward(i1, j0 + 1)?;
+    if seam {
+        // Column 0 lies one full turn east of the last column, not `east_span`
+        // degrees west of it. Without the +360 the interpolation sweeps
+        // backwards across the entire map and the "seam" segment is drawn as a
+        // streak from one rim to the other.
+        b.1 = unwrap_east_of(a.1, b.1);
+        d.1 = unwrap_east_of(c.1, d.1);
+    }
     let bilerp = |va: f64, vb: f64, vc: f64, vd: f64| {
         let top = va + (vb - va) * fx;
         let bot = vc + (vd - vc) * fx;
         top + (bot - top) * fy
     };
-    Some((bilerp(a.0, b.0, c.0, d.0), bilerp(a.1, b.1, c.1, d.1)))
+    let lat = bilerp(a.0, b.0, c.0, d.0);
+    let lon = bilerp(a.1, b.1, c.1, d.1);
+    // Only the seam branch can push a longitude past +180 (it deliberately
+    // unwraps the eastern corner a full turn east), so normalise just that
+    // case. Every other vertex keeps the exact value it had before, which
+    // leaves the overwhelmingly common path bit-for-bit unchanged.
+    Some((lat, if seam { normalise_lon(lon) } else { lon }))
+}
+
+/// `lon` expressed as the first value east of `from` — i.e. `from + delta`
+/// where `delta ∈ [0, 360)`. Interpolating from the last column to column 0
+/// across the seam needs the eastern corner to read (say) 360.0 rather than
+/// 0.0, so the sweep is the quarter-degree gap and not 359.75° the wrong way.
+fn unwrap_east_of(from: f64, lon: f64) -> f64 {
+    from + (lon - from).rem_euclid(360.0)
 }
 
 /// Contour levels at every multiple of `step` strictly inside `(min, max)`. The
@@ -4173,13 +4206,29 @@ fn project_contours_impl(
     // Each contour segment becomes a two-vertex ring in `(lat, lon)` order (what
     // `project_polylines` consumes); a vertex that can't be geolocated drops its
     // segment rather than the whole contour.
-    let contours = contour_segments(raw, ni as usize, nj as usize, &levels);
+    // Read the grid's own periodicity off the forward map rather than the GDS
+    // fields, so it holds for every geolocatable family (regular lat/lon,
+    // Mercator, rotated, Gaussian) without plumbing new metadata through. A
+    // global west-to-east grid wraps, so its isolines must cross the seam
+    // meridian instead of stopping a cell short of it — the same treatment the
+    // resampler already gives the raster via `SourceGrid::periodic_i`.
+    let periodic_i = match (forward(0, 0), forward(ni.saturating_sub(1), 0)) {
+        (Some((_, lon_first)), Some((_, lon_last))) => {
+            lon_grid_is_global(eastward_lon_span(lon_first, lon_last), ni)
+        }
+        _ => false,
+    };
+    let contours = if periodic_i {
+        contour_segments_global(raw, ni as usize, nj as usize, &levels)
+    } else {
+        contour_segments(raw, ni as usize, nj as usize, &levels)
+    };
     let mut latlon: Vec<f64> = Vec::new();
     let mut ring_lengths: Vec<u32> = Vec::new();
     for level in &contours {
         for seg in &level.segments {
-            let p0 = forward_bilinear(forward.as_ref(), ni, nj, seg[0].0, seg[0].1);
-            let p1 = forward_bilinear(forward.as_ref(), ni, nj, seg[1].0, seg[1].1);
+            let p0 = forward_bilinear(forward.as_ref(), ni, nj, seg[0].0, seg[0].1, periodic_i);
+            let p1 = forward_bilinear(forward.as_ref(), ni, nj, seg[1].0, seg[1].1, periodic_i);
             if let (Some((lat0, lon0)), Some((lat1, lon1))) = (p0, p1) {
                 latlon.extend_from_slice(&[lat0, lon0, lat1, lon1]);
                 ring_lengths.push(2);
@@ -6582,7 +6631,7 @@ mod netcdf_slice_tests {
         assert_eq!(fwd(0, 0), Some((40.0, 0.0)));
         assert_eq!(fwd(4, 3), Some((10.0, 40.0)));
         // A fractional vertex on the bottom edge interpolates the longitude.
-        let (lat, lon) = forward_bilinear(fwd.as_ref(), 5, 4, 2.5, 0.0).expect("interior");
+        let (lat, lon) = forward_bilinear(fwd.as_ref(), 5, 4, 2.5, 0.0, false).expect("interior");
         assert!(
             (lat - 40.0).abs() < 1e-9,
             "on the first row, lat = latFirst"
@@ -6590,6 +6639,82 @@ mod netcdf_slice_tests {
         assert!(
             (lon - 25.0).abs() < 1e-9,
             "i=2.5 over 0..40/4 steps → lon 25, got {lon}"
+        );
+    }
+
+    /// A global west-to-east grid: 4 columns at lon 0/90/180/270, so the gap
+    /// past the last column closes the circle back to column 0.
+    /// `lon_grid_is_global(270, 4)` is true (see the projection tests).
+    fn global_latlon_meta(ni: i32, nj: i32) -> MessageMeta {
+        let mut meta = latlon_meta(ni, nj);
+        meta.lon_first = Some(0.0);
+        meta.lon_last = Some(360.0 - 360.0 / ni as f64);
+        meta
+    }
+
+    /// A seam vertex sits in `(ni-1, ni)`, where the west corner is the last
+    /// column and the east corner is column 0 one turn further east. Clamping
+    /// `i0` at `ni-2` (the bounded rule) drags both corners onto the last two
+    /// columns and the seam collapses; interpolating without the +360 sweeps
+    /// backwards across the whole map instead of across the seam gap.
+    #[test]
+    fn forward_bilinear_interpolates_across_the_periodic_seam() {
+        let meta = global_latlon_meta(4, 3);
+        let fwd =
+            forward_geolocation_for(&meta, 4, 3, |_| String::new()).expect("latlon forward map");
+        // Columns are 90° apart: 0, 90, 180, 270.
+        assert_eq!(fwd(0, 0).map(|p| p.1), Some(0.0));
+        assert_eq!(fwd(3, 0).map(|p| p.1), Some(270.0));
+
+        // Midway through the seam cell → 315°, which normalises to -45.
+        let (_, lon) = forward_bilinear(fwd.as_ref(), 4, 3, 3.5, 0.0, true).expect("seam vertex");
+        assert!(
+            (normalise_lon(315.0) - lon).abs() < 1e-9,
+            "the seam midpoint must read 315 (≡ -45), got {lon}",
+        );
+
+        // Without the periodic flag the same vertex clamps back onto the last
+        // column — the collapse that left a gap at the seam meridian.
+        let (_, bounded) =
+            forward_bilinear(fwd.as_ref(), 4, 3, 3.5, 0.0, false).expect("bounded vertex");
+        assert!(
+            (bounded - 270.0).abs() < 1e-9,
+            "the bounded rule clamps the seam vertex onto the last column \
+             (lon 270, un-normalised), got {bounded}",
+        );
+    }
+
+    /// End to end: a global field's isolines must not stop a cell short of the
+    /// seam. The bounded path drew nothing past the last column, so a contour
+    /// crossing the seam meridian simply vanished.
+    #[test]
+    fn project_contours_on_a_global_grid_crosses_the_seam() {
+        // One full cosine wave across the columns, so the field is genuinely
+        // periodic and a level is crossed inside the seam gap.
+        let (ni, nj) = (8i32, 4i32);
+        let meta = global_latlon_meta(ni, nj);
+        let raw: Vec<Option<f64>> = (0..(ni * nj) as usize)
+            .map(|k| {
+                let i = (k % ni as usize) as f64;
+                Some((std::f64::consts::TAU * i / ni as f64).cos())
+            })
+            .collect();
+
+        let out = project_contours_impl(&meta, &raw, &opts("source"), Some(0.25))
+            .expect("global contours project");
+        assert!(!out.xy.is_empty(), "a periodic field must produce isolines",);
+        // The seam cell contributes vertices; with the bounded march the run
+        // count is strictly lower. Compare against the same field declared
+        // regional, which is the pre-fix behaviour.
+        let mut regional = global_latlon_meta(ni, nj);
+        regional.lon_last = Some(40.0);
+        let bounded = project_contours_impl(&regional, &raw, &opts("source"), Some(0.25))
+            .expect("regional contours project");
+        assert!(
+            out.seg_lengths.len() > bounded.seg_lengths.len(),
+            "the global grid must add the seam-cell runs: global={} regional={}",
+            out.seg_lengths.len(),
+            bounded.seg_lengths.len(),
         );
     }
 
