@@ -1154,6 +1154,21 @@ export function renderImagePanelHtml(
           setStatus('Exporting PNG…');
         }
 
+        // The host owns the save dialog and the result notification, so the
+        // panel only learns how the export ended from this reply. Resolve the
+        // "Exporting PNG…" status either way — a cancel is not an error, but
+        // leaving it pending reads as one.
+        function handleExportPngDone(msg) {
+          const outcome = msg.outcome || {};
+          if (outcome.status === 'saved') {
+            setStatus('Exported PNG to ' + outcome.path);
+          } else if (outcome.status === 'cancelled') {
+            setStatus('PNG export cancelled.');
+          } else {
+            setStatus('Export failed: ' + (outcome.reason || 'unknown error'));
+          }
+        }
+
         function syncProjectionControls() {
           const projection = (document.getElementById('picker-projection') || {}).value || 'source';
           const ortho = document.getElementById('preset-ortho');
@@ -1490,6 +1505,7 @@ export function renderImagePanelHtml(
           else if (msg.type === 'contourReady') handleContourReady(msg);
           else if (msg.type === 'probeResult') handleProbeResult(msg);
           else if (msg.type === 'contourError') handleContourError(msg);
+          else if (msg.type === 'exportPngDone') handleExportPngDone(msg);
         });
 
         restoreState();

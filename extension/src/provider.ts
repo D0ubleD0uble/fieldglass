@@ -119,6 +119,14 @@ type WebviewMessage =
   | RenderVariableMessage
   | ExportCsvMessage;
 
+/** How a PNG export ended. The panel shows "Exporting PNG…" the moment it
+ *  hands the image over, and only this side knows what happened next, so the
+ *  outcome travels back as an `exportPngDone` message. */
+export type PngExportOutcome =
+  | { status: "saved"; path: string }
+  | { status: "cancelled" }
+  | { status: "failed"; reason: string };
+
 export class FieldglassEditorProvider
   implements vscode.CustomEditorProvider<FieldglassDocument>
 {
@@ -486,24 +494,30 @@ export class FieldglassEditorProvider
 
   /** Save a PNG the render panel composited (#243). The webview sends a
    *  `data:image/png;base64,…` URL and a suggested name; we validate both,
-   *  decode the image, and write it where the user picks. */
+   *  decode the image, and write it where the user picks.
+   *
+   *  Returns how it ended so the caller can tell the panel. The panel sets
+   *  "Exporting PNG…" when it posts the image and has no other way to learn
+   *  the outcome — the save dialog and the result notification both live on
+   *  this side — so without a reply that status sits there for good, reading
+   *  as a still-running export even after a save or a cancel. */
   public async handleExportPng(
     document: FieldglassDocument,
     msg: { dataUrl?: unknown; defaultName?: unknown }
-  ): Promise<void> {
+  ): Promise<PngExportOutcome> {
     const prefix = "data:image/png;base64,";
     if (typeof msg.dataUrl !== "string" || !msg.dataUrl.startsWith(prefix)) {
-      void vscode.window.showErrorMessage(
-        "Fieldglass: PNG export produced no image (render the field first)."
-      );
-      return;
+      const reason = "PNG export produced no image (render the field first).";
+      void vscode.window.showErrorMessage(`Fieldglass: ${reason}`);
+      return { status: "failed", reason };
     }
     let buffer: Buffer;
     try {
       buffer = Buffer.from(msg.dataUrl.slice(prefix.length), "base64");
     } catch {
-      void vscode.window.showErrorMessage("Fieldglass: could not decode the exported image.");
-      return;
+      const reason = "could not decode the exported image.";
+      void vscode.window.showErrorMessage(`Fieldglass: ${reason}`);
+      return { status: "failed", reason };
     }
     const name = sanitizePngName(
       typeof msg.defaultName === "string" ? msg.defaultName : "render.png"
@@ -513,16 +527,16 @@ export class FieldglassEditorProvider
       filters: { "PNG image": ["png"] },
       saveLabel: "Export PNG",
     });
-    if (!dest) return;
+    if (!dest) return { status: "cancelled" };
     try {
       await vscode.workspace.fs.writeFile(dest, buffer);
     } catch (err) {
-      void vscode.window.showErrorMessage(
-        `Fieldglass: could not write PNG: ${err instanceof Error ? err.message : err}`
-      );
-      return;
+      const reason = `could not write PNG: ${err instanceof Error ? err.message : err}`;
+      void vscode.window.showErrorMessage(`Fieldglass: ${reason}`);
+      return { status: "failed", reason };
     }
     void vscode.window.showInformationMessage(`Fieldglass: exported PNG to ${dest.fsPath}`);
+    return { status: "saved", path: dest.fsPath };
   }
 
   /**
@@ -1151,7 +1165,12 @@ export class FieldglassEditorProvider
           void this.handleExportPng(
             document,
             m as { dataUrl?: unknown; defaultName?: unknown },
-          );
+          ).then((outcome) => {
+            // Close the loop the panel opened with "Exporting PNG…". Without
+            // this the status never resolves, so a saved or cancelled export
+            // looks identical to one still in flight.
+            panel.webview.postMessage({ type: "exportPngDone", outcome });
+          });
         }
       },
     );
