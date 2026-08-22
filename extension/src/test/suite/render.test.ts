@@ -952,6 +952,61 @@ suite("render-panel HTML", () => {
     );
   });
 
+  test("a spectral message is offered the reprojection targets (#303)", () => {
+    // A spherical-harmonic message has no grid of its own, so `reprojectable`
+    // arrives false — but `renderGrid` synthesizes a regular lat/lon grid and
+    // paints that, and it reprojects like any other. Gating the picker on the
+    // raw flag left the flagship spectral render stuck on "Source projection"
+    // under a note claiming reprojection wasn't available, while the engine
+    // rendered every target fine.
+    const spectral = { ...fakeMeta(), gridType: "spherical_harmonic", reprojectable: false };
+    const html = renderImagePanelHtml(
+      { cspSource: "" } as unknown as vscode.Webview,
+      spectral,
+      "summary",
+      registry(),
+      combineOps(),
+    );
+    const select = /<select id="picker-projection">([\s\S]*?)<\/select>/.exec(html);
+    assert.ok(select, "the projection picker must be in the panel HTML");
+    const offered = [...select[1].matchAll(/<option value="([^"]+)"/g)].map((m) => m[1]);
+    assert.ok(
+      offered.includes("mollweide") && offered.includes("equirectangular"),
+      `a spectral message must offer the reprojection targets, got ${offered.join(", ")}`,
+    );
+    assert.ok(
+      !/Reprojection isn't available/.test(html),
+      "the source-only note must not appear for a spectral message",
+    );
+  });
+
+  test("a bi-Fourier message keeps the source-only picker (#304)", () => {
+    // The other grid-less packing, and the reason the fix keys on
+    // `spherical_harmonic` rather than "has no grid": bi-Fourier decodes only
+    // to coefficients and does not render at all, so it must keep the
+    // source-only picker and its note.
+    const bifourier = { ...fakeMeta(), gridType: "bifourier", reprojectable: false };
+    const html = renderImagePanelHtml(
+      { cspSource: "" } as unknown as vscode.Webview,
+      bifourier,
+      "summary",
+      registry(),
+      combineOps(),
+    );
+    const select = /<select id="picker-projection">([\s\S]*?)<\/select>/.exec(html);
+    assert.ok(select, "the projection picker must be in the panel HTML");
+    const offered = [...select[1].matchAll(/<option value="([^"]+)"/g)].map((m) => m[1]);
+    assert.deepStrictEqual(
+      offered,
+      ["source"],
+      `bi-Fourier must stay source-only, got ${offered.join(", ")}`,
+    );
+    assert.ok(
+      /Reprojection isn't available for bifourier grids yet\./.test(html),
+      "bi-Fourier must keep the source-only note",
+    );
+  });
+
   test("the colormap picker offers the whole Rust registry and defaults to viridis", () => {
     const cmaps = registry();
     assert.ok(cmaps.length >= 8, `expected the full registry, got ${cmaps.length}`);
