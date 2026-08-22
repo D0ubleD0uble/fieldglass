@@ -36,7 +36,9 @@ pub mod sht;
 pub mod warp;
 
 pub use combine::{CombineOp, combine_fields};
-pub use contour::{ContourLevel, GridSegment, contour_segments, nice_levels};
+pub use contour::{
+    ContourLevel, GridSegment, contour_segments, contour_segments_global, nice_levels,
+};
 pub use detect::Format;
 pub use detect::detect_format;
 pub use detect::detect_from_bytes;
