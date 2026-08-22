@@ -175,6 +175,25 @@ export function sanitizePngName(name: string): string {
   return `${(cleaned || "render").toLowerCase()}.png`;
 }
 
+/** Whether the panel should offer the reprojection targets.
+ *
+ *  `meta.reprojectable` describes the message's *own* grid. A spherical-harmonic
+ *  message has no grid, so it arrives false — but `renderGrid` synthesizes a
+ *  regular lat/lon grid via the inverse transform and paints that, and a
+ *  synthesized grid reprojects like any other (#303). Mirrors the same
+ *  special case `messageIsRenderable` makes in `provider.ts`.
+ *
+ *  Deliberately keyed on `spherical_harmonic` alone, not on "has no grid":
+ *  bi-Fourier messages (`gridType === "bifourier"`) also lack a grid, but they
+ *  decode only to coefficients and do not render at all, so they must keep the
+ *  source-only picker and its note. */
+function metaIsReprojectable(meta: {
+  reprojectable: boolean;
+  gridType: string | null;
+}): boolean {
+  return meta.reprojectable || meta.gridType === "spherical_harmonic";
+}
+
 export function renderImagePanelHtml(
   webview: vscode.Webview,
   meta: MessageMeta,
@@ -1680,7 +1699,7 @@ ${slice
       <label>Projection
         <select id="picker-projection">
           <option value="source" selected>Source projection</option>
-${meta.reprojectable
+${metaIsReprojectable(meta)
           ? `          <option value="equirectangular">Equirectangular</option>
           <option value="web_mercator">Web Mercator</option>
           <option value="orthographic">Orthographic</option>
@@ -1690,7 +1709,7 @@ ${meta.reprojectable
           <option value="equal_earth">Equal Earth</option>`
           : ""}
         </select>
-${meta.reprojectable
+${metaIsReprojectable(meta)
         ? ""
         : `        <span class="picker-note">Reprojection isn't available for ${escapeHtml(meta.gridType ?? "this")} grids yet.</span>`}
       </label>
