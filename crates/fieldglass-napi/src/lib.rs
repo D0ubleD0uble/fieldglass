@@ -538,10 +538,18 @@ fn render_level(common: &HorizontalProductCommon) -> String {
     }
 }
 
-/// Render forecast time as `(hours_as_i32, display_string)`. Hours are
-/// normalised for the common units (minute / hour / day) so the existing
-/// `forecast_hours` column stays meaningful for sorting; the display string
-/// preserves the original unit when the value can't be coerced.
+/// Render forecast time as `(hours_as_i32, display_string)`.
+///
+/// Hours are normalised for the units that convert cleanly, so the
+/// `forecast_hours` column is comparable across messages that state their lead
+/// time in different units. It is a **coarse** key, not the exact lead time:
+/// a sub-hour unit truncates toward zero, so a 0/15/30/45-minute nowcast series
+/// — MRMS states its lead in minutes — reports `0` for every step. The exact
+/// value is always in the display string, which keeps the producer's own unit
+/// (`"+30 Minute"`), and that is what the panel shows.
+///
+/// A unit with no clean conversion (month, year, decade, century, missing)
+/// yields no hours; its display still carries the raw value and unit label.
 fn render_forecast(common: &HorizontalProductCommon) -> (i32, String) {
     let unit_label = lookup_time_range_unit(common.forecast_time_unit);
     let raw = common.forecast_time;
@@ -560,7 +568,12 @@ fn render_forecast(common: &HorizontalProductCommon) -> (i32, String) {
         (Some(_), _) => format!("+{raw} {unit_label}"),
         (None, _) => format!("+{raw} {unit_label}"),
     };
-    let hours_i32 = hours.and_then(|h| i32::try_from(h).ok()).unwrap_or(0);
+    // Saturate rather than fall back to 0. A lead time too large for `i32` is
+    // still a *large* lead time; reporting it as 0 would place a nonsense
+    // far-future step alongside the analysis, which is exactly the reading the
+    // column exists to support. `None` (an unconvertible unit) keeps 0, since
+    // there is no hours value to represent — the display string carries it.
+    let hours_i32 = hours.map_or(0, |h| h.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
     (hours_i32, display)
 }
 
@@ -6659,6 +6672,112 @@ mod netcdf_slice_tests {
             (lon - 25.0).abs() < 1e-9,
             "i=2.5 over 0..40/4 steps → lon 25, got {lon}"
         );
+    }
+
+    /// `render_forecast` had no tests at all, despite seven unit branches, a
+    /// sign-magnitude value, and a fallback that silently produced 0.
+    fn forecast_common(unit: u8, time: i64) -> fieldglass_grib2::pds::HorizontalProductCommon {
+        use fieldglass_grib2::pds::{FixedSurface, HorizontalProductCommon};
+        let surface = FixedSurface {
+            surface_type: 1,
+            scale_factor: None,
+            scaled_value: None,
+        };
+        HorizontalProductCommon {
+            parameter_category: 0,
+            parameter_number: 0,
+            generating_process_type: 2,
+            background_process_id: 0,
+            forecast_process_id: 0,
+            obs_cutoff_hours: 0,
+            obs_cutoff_minutes: 0,
+            forecast_time_unit: unit,
+            forecast_time: time,
+            first_surface: surface,
+            second_surface: surface,
+        }
+    }
+
+    #[test]
+    fn render_forecast_normalises_each_convertible_unit() {
+        // (unit, raw) -> hours. Table 4.4: 0 min, 1 hour, 2 day, 10/11/12 the
+        // 3/6/12-hour units, 13 second.
+        for (unit, raw, want_hours) in [
+            (0u8, 60i64, 1i32),
+            (1, 24, 24),
+            (2, 2, 48),
+            (10, 2, 6),
+            (11, 2, 12),
+            (12, 2, 24),
+            (13, 7200, 2),
+        ] {
+            let (h, _) = render_forecast(&forecast_common(unit, raw));
+            assert_eq!(h, want_hours, "unit {unit} raw {raw}");
+        }
+    }
+
+    /// Only the hour unit renders as `+Nh`; every other unit keeps the
+    /// producer's own wording, so the exact lead time is never lost even when
+    /// the hours column rounds it away.
+    #[test]
+    fn render_forecast_display_keeps_the_producers_unit() {
+        assert_eq!(render_forecast(&forecast_common(1, 24)).1, "+24h");
+        assert_eq!(render_forecast(&forecast_common(0, 30)).1, "+30 Minute");
+        assert_eq!(render_forecast(&forecast_common(13, 90)).1, "+90 Second");
+        // eccc states a one-hour lead in minutes; the display shows what it said.
+        assert_eq!(render_forecast(&forecast_common(0, 60)).1, "+60 Minute");
+    }
+
+    /// The documented coarseness, pinned so it is a choice rather than a
+    /// surprise: a sub-hour nowcast series collapses to one hours value, and
+    /// the display string is the only exact record of the step.
+    #[test]
+    fn render_forecast_truncates_sub_hour_leads_toward_zero() {
+        for raw in [0i64, 15, 30, 45, 59] {
+            assert_eq!(render_forecast(&forecast_common(0, raw)).0, 0, "raw {raw}");
+        }
+        assert_eq!(render_forecast(&forecast_common(0, 60)).0, 1);
+        assert_eq!(render_forecast(&forecast_common(0, 119)).0, 1);
+        // Distinct steps, distinct displays — the exactness lives here.
+        assert_ne!(
+            render_forecast(&forecast_common(0, 15)).1,
+            render_forecast(&forecast_common(0, 45)).1,
+        );
+        // Negative (sign-magnitude on the wire) truncates toward zero too.
+        assert_eq!(render_forecast(&forecast_common(0, -90)).0, -1);
+    }
+
+    /// A unit with no clean hour conversion yields no hours, but must still
+    /// report the raw value and its label rather than inventing a lead time.
+    #[test]
+    fn render_forecast_leaves_unconvertible_units_to_the_display_string() {
+        for (unit, label) in [
+            (3u8, "Month"),
+            (4, "Year"),
+            (7, "Century"),
+            (255, "Missing"),
+        ] {
+            let (h, d) = render_forecast(&forecast_common(unit, 5));
+            assert_eq!(h, 0, "unit {unit} has no hours value");
+            assert_eq!(d, format!("+5 {label}"));
+        }
+    }
+
+    /// A lead time too large for `i32` is still a large lead time. Falling back
+    /// to 0 would file a nonsense far-future step next to the analysis, which is
+    /// the one reading the hours column exists to support.
+    #[test]
+    fn render_forecast_saturates_instead_of_reporting_zero_hours() {
+        // Days: 2e9 days * 24 overflows i32 by a wide margin.
+        let (h, d) = render_forecast(&forecast_common(2, 2_000_000_000));
+        assert_eq!(
+            h,
+            i32::MAX,
+            "an unrepresentable lead saturates, it does not become 0"
+        );
+        assert_eq!(d, "+2000000000 Day");
+        let (hn, _) = render_forecast(&forecast_common(2, -2_000_000_000));
+        assert_eq!(hn, i32::MIN);
     }
 
     /// The seam wrap must be decided the same way the probe decides it, and only
