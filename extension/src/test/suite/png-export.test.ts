@@ -77,6 +77,79 @@ suite("Export PNG", () => {
     }
   });
 
+  // The panel shows "Exporting PNG…" the instant it hands the image over and
+  // has no other way to learn what happened — the save dialog and the result
+  // notification both live host-side. Every path must therefore report an
+  // outcome, or that status sits pending for good and a completed export is
+  // indistinguishable from one still running.
+  test("handleExportPng reports saved with the path it wrote", async () => {
+    const { provider, doc } = await providerAndDoc();
+    const dest = vscode.Uri.file(path.join(os.tmpdir(), "fieldglass-png-outcome-saved.png"));
+    const origSave = vscode.window.showSaveDialog;
+    const origInfo = vscode.window.showInformationMessage;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (vscode.window as any).showSaveDialog = () => Promise.resolve(dest);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (vscode.window as any).showInformationMessage = () => Promise.resolve(undefined);
+    try {
+      const outcome = await provider.handleExportPng(doc, {
+        dataUrl: "data:image/png;base64," + PNG_B64,
+        defaultName: "field.png",
+      });
+      assert.strictEqual(outcome.status, "saved");
+      assert.strictEqual(
+        outcome.status === "saved" ? outcome.path : "",
+        dest.fsPath,
+        "the outcome carries the path so the panel can name it",
+      );
+    } finally {
+      vscode.window.showSaveDialog = origSave;
+      vscode.window.showInformationMessage = origInfo;
+      await vscode.workspace.fs.delete(dest).then(undefined, () => undefined);
+    }
+  });
+
+  test("handleExportPng reports cancelled when the save dialog is dismissed", async () => {
+    const { provider, doc } = await providerAndDoc();
+    const origSave = vscode.window.showSaveDialog;
+    const origErr = vscode.window.showErrorMessage;
+    let erred = false;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (vscode.window as any).showSaveDialog = () => Promise.resolve(undefined);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (vscode.window as any).showErrorMessage = () => {
+      erred = true;
+      return Promise.resolve(undefined);
+    };
+    try {
+      const outcome = await provider.handleExportPng(doc, {
+        dataUrl: "data:image/png;base64," + PNG_B64,
+      });
+      assert.strictEqual(outcome.status, "cancelled");
+      assert.ok(!erred, "dismissing the dialog is not an error");
+    } finally {
+      vscode.window.showSaveDialog = origSave;
+      vscode.window.showErrorMessage = origErr;
+    }
+  });
+
+  test("handleExportPng reports failed with a reason for a bad data URL", async () => {
+    const { provider, doc } = await providerAndDoc();
+    const origErr = vscode.window.showErrorMessage;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (vscode.window as any).showErrorMessage = () => Promise.resolve(undefined);
+    try {
+      const outcome = await provider.handleExportPng(doc, { dataUrl: "not a data url" });
+      assert.strictEqual(outcome.status, "failed");
+      assert.ok(
+        outcome.status === "failed" && outcome.reason.length > 0,
+        "a failure must carry a reason the panel can show",
+      );
+    } finally {
+      vscode.window.showErrorMessage = origErr;
+    }
+  });
+
   test("handleExportPng rejects a non-PNG data URL without reaching the save dialog", async () => {
     const { provider, doc } = await providerAndDoc();
     const origErr = vscode.window.showErrorMessage;
