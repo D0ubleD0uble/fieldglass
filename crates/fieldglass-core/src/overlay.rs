@@ -307,7 +307,9 @@ mod tests {
         // Neither run spans anything like the map: no streak survived.
         for run in [&out.xy[0..4], &out.xy[4..8]] {
             let (min_x, max_x) = run
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .fold((f64::MAX, f64::MIN), |(lo, hi), v| {
                     (lo.min(v[0]), hi.max(v[0]))
                 });
@@ -382,7 +384,7 @@ mod tests {
                 "{label}: must stay one unbroken run of every vertex"
             );
             // The whole piece sits on one rim — no vertex crossed the centre.
-            for v in out.xy.chunks_exact(2) {
+            for v in out.xy.as_chunks::<2>().0 {
                 assert_eq!(
                     v[0] < mid,
                     want_west_of_centre,
@@ -393,7 +395,9 @@ mod tests {
             // …and it is a small island, not a streak: it spans a sliver of map.
             let (min_x, max_x) = out
                 .xy
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .fold((f64::MAX, f64::MIN), |(lo, hi), v| {
                     (lo.min(v[0]), hi.max(v[0]))
                 });
