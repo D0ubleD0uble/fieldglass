@@ -195,9 +195,9 @@ dependencies = [
 
 [[package]]
 name = "rust-j2k"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b943f63afac98bb325a204f5bb88a599d54f8d354b1d1a0fb8e9d1d469f078e"
+checksum = "8c0ec3a9030b76dd9e9b9a0f6b4c71f3d7a2b41216d415ebf8375476469c0f57"
 
 [[package]]
 name = "serde"
