@@ -262,8 +262,10 @@ pub fn decode_spectral_complex(
             ))
         })?;
         let coefficients = block
-            .chunks_exact(4)
-            .map(|c| f32::from_be_bytes([c[0], c[1], c[2], c[3]]) as f64 * d_inv)
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|c| f32::from_be_bytes(*c) as f64 * d_inv)
             .collect();
         return Ok(SpectralCoefficients {
             j,

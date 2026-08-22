@@ -1309,8 +1309,10 @@ fn parse_template_5_200(payload: &[u8]) -> Result<RunLengthPackingTemplate, Fiel
         )));
     }
     let level_values = payload[TEMPLATE_5_200_FIXED_PAYLOAD_LEN..want]
-        .chunks_exact(2)
-        .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| u16::from_be_bytes(*pair))
         .collect();
 
     Ok(RunLengthPackingTemplate {
