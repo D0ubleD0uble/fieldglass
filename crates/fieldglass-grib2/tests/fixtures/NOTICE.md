@@ -534,3 +534,23 @@ decoder itself; 0.3.0 decodes all components, so the single-component
 expectation became fieldglass's to enforce, and this fixture is what exercises
 that rejection. There is no eccodes oracle: the fixture is a negative case, and
 eccodes cannot encode a multi-component `grid_jpeg` to compare against.
+
+## eccodes parameter-table snapshot (`eccodes_parameters.ref.json`)
+
+WMO GRIB2 Code Table 4.2 as **eccodes** transcribes it — every
+`definitions/grib2/tables/<version>/4.2.<discipline>.<category>.table` entry
+(name and units) from the highest table version the eccodes checkout ships,
+version 35 at the time of writing. Not a message fixture: it is an oracle for
+`crates/fieldglass-grib2/src/tables_wmo.rs`, which is generated independently
+from the WMO CSVs published by `wmo-im/GRIB2`.
+
+The point is that the two sources are independent transcriptions of the same
+standard, so agreement between them is real evidence. It earned its keep
+immediately: comparing the two found three long-standing curated entries whose
+triples were GRIB1 ON388 parameter codes copied onto GRIB2
+discipline/category/number, each naming the wrong quantity (#415).
+
+eccodes is Apache-2.0 and the table contents are factual data from the WMO
+Manual on Codes. Built by `tools/gen_eccodes_parameter_snapshot.py`
+(`ECCODES_DEFINITIONS=<path> python3 tools/gen_eccodes_parameter_snapshot.py`);
+committed so `tests/wmo_parameter_tables.rs` needs no eccodes at runtime.
