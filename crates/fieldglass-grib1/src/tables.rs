@@ -494,6 +494,33 @@ pub fn lookup_centre(id: u8) -> &'static str {
     }
 }
 
+/// Unit of time (WMO ON388 Table 4).
+///
+/// **Not** GRIB2's Code Table 4.4, despite the overlap: GRIB1 code 13 is
+/// 15 minutes where GRIB2 code 13 is a second, GRIB1 adds 14 for 30 minutes,
+/// and GRIB1 spells a second as 254 — a code GRIB2 does not define at all.
+/// Reading one table for the other edition silently misreports the lead time,
+/// so the two editions keep separate tables on purpose.
+pub fn lookup_time_unit(value: u8) -> &'static str {
+    match value {
+        0 => "minute",
+        1 => "hour",
+        2 => "day",
+        3 => "month",
+        4 => "year",
+        5 => "decade",
+        6 => "normal (30 years)",
+        7 => "century",
+        10 => "3 hours",
+        11 => "6 hours",
+        12 => "12 hours",
+        13 => "15 minutes",
+        14 => "30 minutes",
+        254 => "second",
+        _ => "unknown time unit",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
