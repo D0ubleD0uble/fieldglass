@@ -26,6 +26,7 @@ import * as vscode from "vscode";
 
 import {
   buildGridReadyMessage,
+  renderHtml,
   gribFieldLabel,
   resolveGribCompare,
   resolveInterval,
@@ -195,6 +196,7 @@ suite("Render pipeline", () => {
       levelType: "",
       referenceTime: "",
       forecastHours: 0,
+    p1Octet: null,
       forecastDisplay: "",
       originatingCentre: "",
       gridType: null,
@@ -894,6 +896,7 @@ suite("render-panel HTML", () => {
       levelType: "",
       referenceTime: "",
       forecastHours: 0,
+    p1Octet: null,
       forecastDisplay: "",
       originatingCentre: "",
       gridType: null,
@@ -1397,6 +1400,53 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
   // A spectral message reads level = levelType = "Ground or water surface", so
   // joining the two printed the surface name twice — in the panel header and in
   // the exported PNG, whose canvas is sized from that very line.
+  // The in-viewer P1 edit is dormant (`editable` is false), so this markup is
+  // never built today — which is exactly why it needs a test: whoever turns
+  // general PDS editing on inherits whatever shape it was left in. It was left
+  // showing `forecastHours`, a *normalised* value, while the edit writes the
+  // raw P1 octet: under a 3-hourly unit the box read 12 for a P1 of 4, so
+  // saving it untouched tripled the lead time.
+  test("the dormant P1 edit box carries the octet it writes, not normalised hours", () => {
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+    const bytes = fs.readFileSync(fixturePath("cmc_wind_300_2010052400_p012.grib"));
+    const messages = native.Grib1Handle.fromBytes(bytes).messages();
+
+    // This fixture is time range 10: P1 spans octets 19 and 20 as one 16-bit
+    // value, so no single octet can be offered and the cell stays read-only.
+    assert.strictEqual(messages[0].forecastDisplay, "+12h");
+    assert.ok(messages[0].p1Octet == null, "no writable octet for a 16-bit P1");
+
+    const html = renderHtml(
+      { cspSource: "" } as unknown as vscode.Webview,
+      "grib1",
+      "/tmp/example.grib1",
+      messages,
+      undefined,
+      undefined,
+      true, // editable — the dormant path
+      undefined,
+    );
+    assert.ok(!/class="p1-input"/.test(html), "a 16-bit P1 offers no edit box");
+    assert.ok(/\+12h/.test(html), "and shows the forecast instead");
+
+    // A one-octet P1 does get a box, carrying the octet itself.
+    const patched = messages.map((m) => ({ ...m, p1Octet: 4, forecastHours: 12 }));
+    const editable = renderHtml(
+      { cspSource: "" } as unknown as vscode.Webview,
+      "grib1",
+      "/tmp/example.grib1",
+      patched,
+      undefined,
+      undefined,
+      true,
+      undefined,
+    );
+    const input = /class="p1-input"[^>]*value="(\d+)"/.exec(editable);
+    assert.ok(input, "a one-octet P1 offers an edit box");
+    assert.strictEqual(input[1], "4", "the box carries the octet, not the 12 hours it means");
+  });
+
   test("the panel subtitle names the level once when level repeats levelType", () => {
     const native = loadNative();
     assert.ok(native, "native binding required");
@@ -1517,6 +1567,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
       levelType: "",
       referenceTime: "",
       forecastHours: 0,
+    p1Octet: null,
       forecastDisplay: "",
       originatingCentre: "",
       gridType: "latlon",

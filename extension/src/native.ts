@@ -27,6 +27,9 @@ export interface MessageMeta {
   levelType: string;
   referenceTime: string;
   forecastHours: number;
+  /** Raw GRIB1 P1 octet, or absent where editing one octet would be wrong
+   *  (GRIB2/NetCDF have no P1; time-range 10 spends two octets on one value). */
+  p1Octet: number | null;
   forecastDisplay: string;
   originatingCentre: string;
   gridType: string | null;
