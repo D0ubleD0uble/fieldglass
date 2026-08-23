@@ -4,6 +4,17 @@ All notable changes to Fieldglass are documented here. The format roughly follow
 
 Versioning is plain [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and every release is a stable one. Pre-1.0, a minor bump (`0.3.0` → `0.4.0`) may break the Rust API; a patch (`0.3.0` → `0.3.1`) does not. The same version numbers the extension and the library crates.
 
+## [Unreleased]
+
+### Changed
+
+- **Reading a NetCDF-4 file no longer re-walks it on every call.** The HDF5 reader re-derived structure it had already computed: decoding one variable walked the whole group tree to find its object header, walked that header for the shape and layout, then walked it again for the fill-value attributes, and resolving metadata walked every dataset twice more. Nothing was kept between calls, so the cost of reading a file with `D` variables grew as `D²`. The reader now remembers each file's traversal — the root address, the depth-first dataset list, every parsed object header, and each dataset's chunk index — and reuses it across metadata, shape, and value calls. A second pass over a file walks nothing at all. On the bundled fixtures, decoding every variable once fell from 42 to 8 structure walks (GOES-16 ABI, 5 variables) and from 110 to 12 (a 9-variable HDF5 file); a repeat pass costs zero. In memory this is only wasted CPU; over a byte-range transport each walk is a chain of dependent reads, so it is the whole cost.
+
+### Rust API
+
+- `Hdf5Probe` carries a private traversal memo, so it is no longer constructible as a struct literal — use `Hdf5Probe::new(superblock_version, offset_size, length_size)`. Its three superblock fields are unchanged and still public; the memo takes no part in `Clone`, `PartialEq`, or `Debug`. A new `Hdf5Probe::traversals()` reports how much of a file a probe has actually walked, for tests and measurement.
+- A probe is bound to its own file, which the traversal functions taking `bytes` and `probe` separately now enforce as far as they cheaply can: the memo binds to its slice length on first use and steps aside for any other length, so pairing a probe with a different file is slow rather than wrong. Two files of exactly equal length are indistinguishable that way and still alias.
+
 ## [0.4.0] — 2026-08-23
 
 ### Added
