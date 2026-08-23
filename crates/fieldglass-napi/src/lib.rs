@@ -2797,14 +2797,27 @@ fn base_netcdf_meta(name: &str, units: &str, ni: i32, nj: i32) -> MessageMeta {
     }
 }
 
+/// The global regular lat/lon grid every spectral field is synthesized onto:
+/// 0.5°, i.e. 720 longitudes × 361 latitudes.
+const SPECTRAL_SYNTHESIS_NI: usize = 720;
+const SPECTRAL_SYNTHESIS_NJ: usize = 361;
+
 /// Choose the global regular lat/lon grid to synthesize a spectral field onto.
-/// Resolution scales with the truncation `T` (≈ two grid points per wavenumber)
-/// but is capped so a large-`T` field cannot demand an enormous raster: at most
-/// 361 latitudes × 720 longitudes (0.5°).
-fn spectral_render_dims(truncation: u32) -> (usize, usize) {
-    let nj = (2 * (truncation as usize + 1)).clamp(4, 361);
-    let ni = (2 * nj).min(720);
-    (ni, nj)
+///
+/// `2(T+1)` latitudes is the smallest grid that holds everything a truncation
+/// `T` carries (≈ two grid points per wavenumber), and that used to be the grid
+/// itself below the cap — which put a T63 field on 256×128, a postage-stamp
+/// render whose PNG exported 382 pixels wide.
+///
+/// But a spectral message is a band-limited function, not a sampled grid: its
+/// coefficients can be evaluated anywhere, so any grid at or above the minimum
+/// reproduces the same field exactly, and a finer one is a sharper picture of
+/// it rather than interpolation between samples. Every field is therefore
+/// synthesized at 0.5° — which is also the ceiling a large truncation was
+/// already downsampled to, so `T ≥ 180` is unchanged and the cost of the
+/// densest case is unchanged with it.
+fn spectral_render_dims(_truncation: u32) -> (usize, usize) {
+    (SPECTRAL_SYNTHESIS_NI, SPECTRAL_SYNTHESIS_NJ)
 }
 
 /// The global synthesis grid's coordinates for `truncation`: latitudes 90..−90
@@ -6207,12 +6220,12 @@ mod netcdf_slice_tests {
     #[test]
     fn grib1_spectral_message_renders_via_synthesis() {
         // GRIB1 spherical-harmonic messages render through the same inverse
-        // transform as GRIB2 (shared core engine). T63 → 256×128.
+        // transform as GRIB2 (shared core engine), onto the 0.5° global grid.
         let h = grib1_handle(SPECTRAL_T63_GRIB1);
         let g = h
             .render_grid(0, opts("source"))
             .expect("grib1 spectral renders");
-        assert_eq!((g.width, g.height), (256, 128));
+        assert_eq!((g.width, g.height), (720, 361));
         assert_eq!(g.rgba.len(), (g.width * g.height * 4) as usize);
         assert!(
             g.used_min > 200.0 && g.used_max < 350.0,
@@ -6223,12 +6236,33 @@ mod netcdf_slice_tests {
     }
 
     #[test]
+    fn spectral_synthesis_grid_is_half_degree_for_every_truncation() {
+        // The floor and the ceiling are the same grid, so a small truncation is
+        // synthesized as densely as a large one. T63 used to land on 256×128 —
+        // faithful to the truncation, but a postage-stamp picture of it.
+        for truncation in [2_u32, 63, 106, 179, 180, 639, 1279] {
+            assert_eq!(
+                spectral_render_dims(truncation),
+                (720, 361),
+                "truncation {truncation}"
+            );
+        }
+        // The grid the coordinates are built on agrees with the declared dims,
+        // pole to pole and without a duplicated wrap column.
+        let (lats, lons) = spectral_synthesis_lats_lons(63);
+        assert_eq!((lons.len(), lats.len()), (720, 361));
+        assert_eq!((lats[0], lats[lats.len() - 1]), (90.0, -90.0));
+        assert_eq!(lons[0], 0.0);
+        assert!(lons[lons.len() - 1] < 360.0);
+    }
+
+    #[test]
     fn spectral_message_renders_via_synthesis() {
         // A spherical-harmonic message has no grid; render_grid must synthesize
-        // one via the inverse transform and paint it. T63 → 256×128 grid.
+        // one via the inverse transform and paint it, on the 0.5° global grid.
         let h = grib2_handle(SPECTRAL_T63);
         let g = h.render_grid(0, opts("source")).expect("spectral renders");
-        assert_eq!((g.width, g.height), (256, 128));
+        assert_eq!((g.width, g.height), (720, 361));
         assert_eq!(g.rgba.len(), (g.width * g.height * 4) as usize);
         // The synthesized field is a realistic ~281 K temperature field.
         assert!(
