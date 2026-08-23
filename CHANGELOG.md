@@ -6,6 +6,10 @@ Versioning is plain [Semantic Versioning](https://semver.org/spec/v2.0.0.html), 
 
 ## [Unreleased]
 
+### Added
+
+- **NetCDF-4 files carrying a fletcher32 checksum now open.** fletcher32 (HDF5 filter id 3) is a checksum rather than a compressor, but its presence in a pipeline used to fail the whole file — including files whose actual compression was deflate, which Fieldglass already decoded. It is now read: the four checksum bytes each chunk carries are verified and stripped, and a chunk whose bytes have been altered is reported as corrupt rather than decoded into plausible-looking numbers. Composes with deflate and shuffle in any order. Closes #412.
+
 ### Changed
 
 - **Reading a NetCDF-4 file no longer re-walks it on every call.** The HDF5 reader re-derived structure it had already computed: decoding one variable walked the whole group tree to find its object header, walked that header for the shape and layout, then walked it again for the fill-value attributes, and resolving metadata walked every dataset twice more. Nothing was kept between calls, so the cost of reading a file with `D` variables grew as `D²`. The reader now remembers each file's traversal — the root address, the depth-first dataset list, every parsed object header, and each dataset's chunk index — and reuses it across metadata, shape, and value calls. A second pass over a file walks nothing at all. On the bundled fixtures, decoding every variable once fell from 42 to 8 structure walks (GOES-16 ABI, 5 variables) and from 110 to 12 (a 9-variable HDF5 file); a repeat pass costs zero. In memory this is only wasted CPU; over a byte-range transport each walk is a chain of dependent reads, so it is the whole cost.

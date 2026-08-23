@@ -485,3 +485,36 @@ produces (auto mask+scale on): present / missing counts, value statistics, and
 anchored per-index samples. `tests/oisst_real_world.rs` asserts the HDF5
 backing, the dimension / variable resolution, the regular-grid coordinates, and
 the chunked + deflate + shuffle value decode against it.
+
+## fletcher32 checksum fixture (`hdf5_fletcher32.h5`)
+
+A synthetic `h5py` (libhdf5) file written with `libver='latest'` carrying the
+**fletcher32** checksum filter (id 3, target for #412). fletcher32 is not a
+compressor: it appends a four-byte checksum to each stored chunk, which reading
+verifies and strips.
+
+The same 8×8 `float32` field (`arange(64) * 0.5`, 4×8 chunks) is written five
+ways so the test compares them directly: `plain_deflate` (deflate alone, the
+baseline), `f32_deflate`, `f32_only` (no compressor, so the stored chunk is the
+element bytes verbatim plus four), `f32_shuffle_deflate`, and `f32_shuffle`
+(shuffle + fletcher32, no compressor). A sixth dataset, `f32_odd`, is a 7-byte
+`uint8` chunk that exercises the checksum's trailing-odd-byte branch, and is
+also the only single-chunk dataset here (7 B raw, 11 B stored) — so it covers
+the single-chunk index, whose chunk length comes from the layout message's
+filtered size rather than from the chunk shape. The rest hold two chunks and go
+through a fixed array.
+
+`f32_shuffle` is the dataset that earns its place: it is the only one on which
+a reader that returned the chunk unchanged is *visibly* wrong. The compressed
+pipelines absorb the four extra bytes in the zlib decoder and decode correctly
+anyway, whereas 132 bytes divides evenly by the 4-byte element and unshuffles
+into 33 elements instead of 32, silently.
+
+Built by `tools/build_hdf5_fixtures.py` (`build_fletcher32`, `track_times=False`
+for reproducibility). The builder asserts that libhdf5 really did put filter 3
+last in each pipeline and that `f32_only`'s stored chunk is exactly four bytes
+longer than its raw chunk, so a libhdf5 that stopped applying the filter fails
+the build rather than yielding a fixture that proves nothing. The checksum
+vectors pinned in `hdf5/filter.rs` come from libhdf5 itself via the same file's
+`fletcher32_oracle` helper. `tests/hdf5_fletcher32.rs` checks the decoded values
+and the corruption reports. Part of #412.
