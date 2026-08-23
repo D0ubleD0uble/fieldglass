@@ -16,6 +16,8 @@ fieldglass-core = { path = "../fieldglass-core", version = "=0.4.0", default-fea
 serde = { workspace = true }
 # DEFLATE (zlib) decode for the HDF5 deflate filter on chunked NetCDF-4 datasets.
 miniz_oxide = { workspace = true }
+# zstd decode for the HDF5 zstd filter (id 32015) on chunked NetCDF-4 datasets.
+ruzstd = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }

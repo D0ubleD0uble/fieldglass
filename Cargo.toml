@@ -42,3 +42,10 @@ rust-j2k = "=0.3.0"
 # chunked datasets. Already in the tree via the `png` crate; MIT-licensed, no C
 # deps. See crates/fieldglass-netcdf.
 miniz_oxide = "0.9"
+# Pure-Rust zstd decoder for the HDF5 zstd filter (id 32015), netcdf-c >= 4.9's
+# recommended compressor for new climate archives. MIT, no C deps and no build
+# script, so it preserves the six-target cross-compile ADR-0001 protects. A
+# caret range rather than an exact pin: unlike `rust-aec` / `rust-j2k` this is a
+# widely-used general-purpose crate, in the same class as `png` and
+# `miniz_oxide`. Decode only — we never write zstd.
+ruzstd = "0.9"

@@ -23,7 +23,9 @@ unlimited/`H5S_UNLIMITED` max dim), global + per-dataset attributes (#40), and
 contiguous storage with an explicit fill value (#121).
 
 ``track_times=False`` keeps object headers free of modification timestamps so
-the fixtures are reproducible. Run from the repo root (needs ``h5py``):
+the fixtures are reproducible. Run from the repo root (needs ``h5py``, and
+``hdf5plugin`` for the zstd fixture — libhdf5 cannot write filter 32015
+without it):
 
     python3 tools/build_hdf5_fixtures.py
 """
@@ -720,6 +722,78 @@ def build_fletcher32(name: str) -> None:
           f"[fletcher32; f32_only chunk {raw_bytes} B raw -> {stored} B stored]")
 
 
+def build_zstd(name: str) -> None:
+    """Datasets compressed with the **zstd** filter (id 32015, #413).
+
+    zstd landed in netcdf-c 4.9 and is DKRZ's recommended compressor for new
+    climate archives, so it turns up in recent NetCDF-4 output. h5py cannot
+    write it on its own — libhdf5 needs the plugin `hdf5plugin` supplies — so
+    this builder is the one here with a dependency beyond h5py/numpy.
+
+    Same shape as the fletcher32 fixture, and for the same reason: all the
+    datasets hold identical values so the test compares them directly rather
+    than against transcribed numbers.
+
+      * ``plain_deflate`` — deflate alone, the comparison baseline.
+      * ``zstd`` — zstd alone.
+      * ``shuffle_zstd`` — the composition netcdf-c actually writes, and the
+        one that pins the *order*: zstd is applied after shuffle, so reading
+        must undo zstd first. A reader that ran them the other way round would
+        fail loudly here rather than quietly returning rearranged bytes.
+      * ``zstd_fletcher32`` — zstd under a checksum (#412), so the two filters
+        added most recently are exercised together.
+      * ``zstd_high`` — level 19, a different frame layout from the default.
+    """
+    import hdf5plugin  # noqa: PLC0415 - optional, only this fixture needs it
+
+    path = FIXturesDir / name
+    values = np.arange(64, dtype="<f4").reshape(8, 8) * 0.5
+
+    with h5py.File(path, "w", libver="latest") as f:
+        f.attrs["title"] = np.bytes_(b"fieldglass zstd fixture")
+
+        def ds(nm, **kw):
+            return f.create_dataset(nm, data=values, chunks=(4, 8), track_times=False, **kw)
+
+        ds("plain_deflate", compression="gzip", compression_opts=4)
+        ds("zstd", **hdf5plugin.Zstd(clevel=3))
+        ds("shuffle_zstd", shuffle=True, **hdf5plugin.Zstd(clevel=3))
+        ds("zstd_fletcher32", fletcher32=True, **hdf5plugin.Zstd(clevel=3))
+        ds("zstd_high", **hdf5plugin.Zstd(clevel=19))
+
+    # Fail the build rather than emit a fixture that proves nothing: confirm
+    # libhdf5 really applied filter 32015, and that `shuffle_zstd` carries both
+    # filters in the order the test's ordering claim depends on.
+    with h5py.File(path, "r") as f:
+        for nm in ("zstd", "shuffle_zstd", "zstd_fletcher32", "zstd_high"):
+            plist = f[nm].id.get_create_plist()
+            ids = [plist.get_filter(i)[0] for i in range(plist.get_nfilters())]
+            if 32015 not in ids:
+                raise SystemExit(f"{nm}: zstd (32015) not applied, pipeline is {ids}")
+        plist = f["shuffle_zstd"].id.get_create_plist()
+        ids = [plist.get_filter(i)[0] for i in range(plist.get_nfilters())]
+        if ids != [2, 32015]:
+            raise SystemExit(f"shuffle_zstd: expected [2, 32015], got {ids}")
+
+        oracle = {
+            "source": f"h5py {h5py.__version__} (libhdf5 {h5py.version.hdf5_version}), "
+                      f"hdf5plugin {hdf5plugin.version}, libver='latest'",
+            "superblock_version": path.read_bytes()[
+                path.read_bytes().index(b"\x89HDF\r\n\x1a\n") + 8],
+            "note": "zstd filter (id 32015) alone and composed with shuffle and "
+                    "fletcher32; `plain_deflate` holds the same values without "
+                    "zstd, as the comparison baseline (#413)",
+            "raw_markers": {
+                "shuffle_zstd_pipeline": ids,
+                "zstd_stored_chunk_bytes": f["zstd"].id.get_chunk_info(0).size,
+            },
+            "objects": {n: dataset_oracle(f[n]) for n in f if isinstance(f[n], h5py.Dataset)},
+        }
+    (FIXturesDir / f"{name}.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n")
+    print(f"wrote {path} ({path.stat().st_size} B) + oracle [zstd 32015; "
+          f"shuffle_zstd pipeline {ids}]")
+
+
 def _find_all(raw: bytes, sig: bytes) -> list[int]:
     out, i = [], 0
     while (i := raw.find(sig, i)) >= 0:
@@ -753,6 +827,8 @@ def main() -> int:
     build_v2_btree("hdf5_v2_btree_index.h5")
     # fletcher32 checksum filter (id 3), alone and composed with deflate/shuffle.
     build_fletcher32("hdf5_fletcher32.h5")
+    # zstd filter (id 32015). Needs `hdf5plugin`, unlike every other builder here.
+    build_zstd("hdf5_zstd.h5")
     return 0
 
 

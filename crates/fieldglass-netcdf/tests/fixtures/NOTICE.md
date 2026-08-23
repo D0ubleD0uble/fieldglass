@@ -518,3 +518,26 @@ the build rather than yielding a fixture that proves nothing. The checksum
 vectors pinned in `hdf5/filter.rs` come from libhdf5 itself via the same file's
 `fletcher32_oracle` helper. `tests/hdf5_fletcher32.rs` checks the decoded values
 and the corruption reports. Part of #412.
+
+## zstd filter fixture (`hdf5_zstd.h5`)
+
+A synthetic `h5py` (libhdf5) file written with `libver='latest'` carrying the
+**zstd** filter (id 32015, target for #413) — the compressor netcdf-c >= 4.9
+recommends for new climate archives.
+
+The same 8x8 `float32` field (`arange(64) * 0.5`, 4x8 chunks) is written five
+ways: `plain_deflate` (the comparison baseline, no zstd), `zstd`,
+`shuffle_zstd`, `zstd_fletcher32`, and `zstd_high` (level 19, a different frame
+layout from the default).
+
+`shuffle_zstd` is the dataset that earns its place. netcdf-c writes shuffle
+then zstd, so reading has to undo zstd *first*; it is the one dataset here on
+which a reader that ran the pipeline in write order is visibly wrong, and the
+builder asserts its pipeline is exactly `[2, 32015]` so that ordering claim
+cannot quietly stop being tested.
+
+Unlike every other builder in `tools/build_hdf5_fixtures.py`, this one needs
+**`hdf5plugin`** in addition to `h5py`: libhdf5 cannot write filter 32015
+without the plugin it supplies. The builder fails the build rather than emit a
+fixture with the filter silently absent. `tests/hdf5_zstd.rs` checks the decoded
+values and the corrupt-frame report. Part of #413.

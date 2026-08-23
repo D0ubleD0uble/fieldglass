@@ -1,0 +1,245 @@
+{
+  "source": "h5py 3.16.0 (libhdf5 2.0.0), hdf5plugin 7.0.0, libver='latest'",
+  "superblock_version": 3,
+  "note": "zstd filter (id 32015) alone and composed with shuffle and fletcher32; `plain_deflate` holds the same values without zstd, as the comparison baseline (#413)",
+  "raw_markers": {
+    "shuffle_zstd_pipeline": [
+      2,
+      32015
+    ],
+    "zstd_stored_chunk_bytes": 88
+  },
+  "objects": {
+    "plain_deflate": {
+      "kind": "dataset",
+      "datatype": {
+        "class": "floating-point",
+        "size_bytes": 4,
+        "byte_order": "little-endian"
+      },
+      "dataspace": {
+        "class": "simple",
+        "rank": 2,
+        "dims": [
+          8,
+          8
+        ],
+        "max_dims": [
+          8,
+          8
+        ]
+      },
+      "storage": {
+        "layout": "chunked",
+        "chunks": [
+          4,
+          8
+        ],
+        "filters": [
+          "deflate"
+        ]
+      },
+      "fill_value": 0.0,
+      "attributes": [],
+      "values": {
+        "count": 64,
+        "present_count": 63,
+        "missing_count": 1,
+        "samples": {
+          "0": 0.0,
+          "1": 0.5,
+          "32": 16.0,
+          "62": 31.0,
+          "63": 31.5
+        },
+        "min": 0.5,
+        "max": 31.5,
+        "mean": 16.0
+      }
+    },
+    "shuffle_zstd": {
+      "kind": "dataset",
+      "datatype": {
+        "class": "floating-point",
+        "size_bytes": 4,
+        "byte_order": "little-endian"
+      },
+      "dataspace": {
+        "class": "simple",
+        "rank": 2,
+        "dims": [
+          8,
+          8
+        ],
+        "max_dims": [
+          8,
+          8
+        ]
+      },
+      "storage": {
+        "layout": "chunked",
+        "chunks": [
+          4,
+          8
+        ],
+        "filters": [
+          "shuffle"
+        ]
+      },
+      "fill_value": 0.0,
+      "attributes": [],
+      "values": {
+        "count": 64,
+        "present_count": 63,
+        "missing_count": 1,
+        "samples": {
+          "0": 0.0,
+          "1": 0.5,
+          "32": 16.0,
+          "62": 31.0,
+          "63": 31.5
+        },
+        "min": 0.5,
+        "max": 31.5,
+        "mean": 16.0
+      }
+    },
+    "zstd": {
+      "kind": "dataset",
+      "datatype": {
+        "class": "floating-point",
+        "size_bytes": 4,
+        "byte_order": "little-endian"
+      },
+      "dataspace": {
+        "class": "simple",
+        "rank": 2,
+        "dims": [
+          8,
+          8
+        ],
+        "max_dims": [
+          8,
+          8
+        ]
+      },
+      "storage": {
+        "layout": "chunked",
+        "chunks": [
+          4,
+          8
+        ],
+        "filters": []
+      },
+      "fill_value": 0.0,
+      "attributes": [],
+      "values": {
+        "count": 64,
+        "present_count": 63,
+        "missing_count": 1,
+        "samples": {
+          "0": 0.0,
+          "1": 0.5,
+          "32": 16.0,
+          "62": 31.0,
+          "63": 31.5
+        },
+        "min": 0.5,
+        "max": 31.5,
+        "mean": 16.0
+      }
+    },
+    "zstd_fletcher32": {
+      "kind": "dataset",
+      "datatype": {
+        "class": "floating-point",
+        "size_bytes": 4,
+        "byte_order": "little-endian"
+      },
+      "dataspace": {
+        "class": "simple",
+        "rank": 2,
+        "dims": [
+          8,
+          8
+        ],
+        "max_dims": [
+          8,
+          8
+        ]
+      },
+      "storage": {
+        "layout": "chunked",
+        "chunks": [
+          4,
+          8
+        ],
+        "filters": [
+          "fletcher32"
+        ]
+      },
+      "fill_value": 0.0,
+      "attributes": [],
+      "values": {
+        "count": 64,
+        "present_count": 63,
+        "missing_count": 1,
+        "samples": {
+          "0": 0.0,
+          "1": 0.5,
+          "32": 16.0,
+          "62": 31.0,
+          "63": 31.5
+        },
+        "min": 0.5,
+        "max": 31.5,
+        "mean": 16.0
+      }
+    },
+    "zstd_high": {
+      "kind": "dataset",
+      "datatype": {
+        "class": "floating-point",
+        "size_bytes": 4,
+        "byte_order": "little-endian"
+      },
+      "dataspace": {
+        "class": "simple",
+        "rank": 2,
+        "dims": [
+          8,
+          8
+        ],
+        "max_dims": [
+          8,
+          8
+        ]
+      },
+      "storage": {
+        "layout": "chunked",
+        "chunks": [
+          4,
+          8
+        ],
+        "filters": []
+      },
+      "fill_value": 0.0,
+      "attributes": [],
+      "values": {
+        "count": 64,
+        "present_count": 63,
+        "missing_count": 1,
+        "samples": {
+          "0": 0.0,
+          "1": 0.5,
+          "32": 16.0,
+          "62": 31.0,
+          "63": 31.5
+        },
+        "min": 0.5,
+        "max": 31.5,
+        "mean": 16.0
+      }
+    }
+  }
+}

@@ -10,8 +10,10 @@
 //!   bytes sit together (improving deflate); undone by transposing back.
 //! * **fletcher32** (filter id 3) — a checksum rather than a compressor: it
 //!   appends four bytes to the chunk, which reading verifies and strips (#412).
+//! * **zstd** (filter id 32015) — netcdf-c >= 4.9's recommended compressor for
+//!   new climate archives, undone with `ruzstd` (#413).
 //!
-//! Any other filter (szip, zstd, nbit, scale-offset, …) is recognised by id and
+//! Any other filter (szip, nbit, scale-offset, …) is recognised by id and
 //! rejected with a clear error rather than silently mis-decoded.
 //!
 //! Reference: HDF5 file format specification version 3, "Data Storage - Filter
@@ -24,12 +26,25 @@ use fieldglass_core::FieldglassError;
 const FILTER_DEFLATE: u16 = 1;
 const FILTER_SHUFFLE: u16 = 2;
 const FILTER_FLETCHER32: u16 = 3;
+/// Registered (not reserved) id: HDF5 allocates 32768+ to third parties, and
+/// the zstd filter's is 32015 from the earlier registered-filter range.
+const FILTER_ZSTD: u16 = 32015;
 
 /// Bytes fletcher32 appends to a chunk (`FLETCHER_LEN` in libhdf5).
 const FLETCHER32_LEN: usize = 4;
 
 /// Upper bound on filters in one pipeline — guards a corrupt count.
 const MAX_FILTERS: usize = 32;
+
+/// Ceiling on what one chunk may decompress to.
+///
+/// A compressed chunk is attacker-controlled: the ratio is unbounded, so a few
+/// kilobytes on disk can ask for an arbitrarily large allocation. Real HDF5
+/// chunks are small — libhdf5's own chunk cache defaults to 1 MiB — so 256 MiB
+/// is far past anything a genuine file contains while still refusing a bomb.
+/// The caller checks the decompressed length against the chunk's expected size
+/// afterwards, but that is after the allocation has already happened.
+const MAX_DECOMPRESSED_CHUNK: usize = 256 << 20;
 
 /// One stage of a filter pipeline.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -138,10 +153,11 @@ impl FilterPipeline {
                     unshuffle(&data, elem)
                 }
                 FILTER_FLETCHER32 => verify_fletcher32(&data)?,
+                FILTER_ZSTD => unzstd(&data)?,
                 other => {
                     return Err(FieldglassError::UnsupportedSection(format!(
                         "HDF5 filter id {other} is not supported (only deflate, \
-                         shuffle, and fletcher32 are decoded)"
+                         shuffle, fletcher32, and zstd are decoded)"
                     )));
                 }
             };
@@ -221,8 +237,46 @@ fn fletcher32(data: &[u8]) -> u32 {
 
 /// Inflate a zlib stream (the HDF5 deflate filter's on-disk form).
 fn inflate(data: &[u8]) -> Result<Vec<u8>, FieldglassError> {
-    miniz_oxide::inflate::decompress_to_vec_zlib(data)
+    inflate_bounded(data, MAX_DECOMPRESSED_CHUNK)
+}
+
+/// [`inflate`] with the ceiling supplied, so the bound itself is testable
+/// without building a 256 MiB stream.
+fn inflate_bounded(data: &[u8], limit: usize) -> Result<Vec<u8>, FieldglassError> {
+    // The unbounded `decompress_to_vec_zlib` would let a crafted chunk name its
+    // own allocation size.
+    miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(data, limit)
         .map_err(|e| FieldglassError::Parse(format!("deflate (zlib) inflate failed: {e:?}")))
+}
+
+/// Decompress a zstd frame (the HDF5 zstd filter's on-disk form).
+///
+/// Streamed rather than decoded in one shot so the output can be capped:
+/// `take` stops one byte past the ceiling, which distinguishes "too large" from
+/// a stream that merely ends there.
+fn unzstd(data: &[u8]) -> Result<Vec<u8>, FieldglassError> {
+    unzstd_bounded(data, MAX_DECOMPRESSED_CHUNK)
+}
+
+/// [`unzstd`] with the ceiling supplied, so the bound itself is testable
+/// without building a 256 MiB frame.
+fn unzstd_bounded(data: &[u8], limit: usize) -> Result<Vec<u8>, FieldglassError> {
+    use std::io::Read;
+
+    let mut decoder = ruzstd::decoding::StreamingDecoder::new(data)
+        .map_err(|e| FieldglassError::Parse(format!("zstd frame header: {e}")))?;
+    let mut out = Vec::new();
+    decoder
+        .by_ref()
+        .take(limit as u64 + 1)
+        .read_to_end(&mut out)
+        .map_err(|e| FieldglassError::Parse(format!("zstd decompress failed: {e}")))?;
+    if out.len() > limit {
+        return Err(FieldglassError::Parse(format!(
+            "zstd chunk decompresses past the {limit}-byte ceiling"
+        )));
+    }
+    Ok(out)
 }
 
 /// Undo the shuffle filter: bytes were grouped by position-within-element (all
@@ -459,6 +513,89 @@ mod tests {
         };
         // Three bytes cannot carry a four-byte checksum; this must not panic.
         let err = pipeline.reverse(vec![1, 2, 3], 0, 1).unwrap_err();
+        assert!(matches!(err, FieldglassError::Parse(_)), "got {err:?}");
+    }
+
+    /// A zstd frame round-trips through the pipeline, composed with shuffle
+    /// the way netcdf-c writes it.
+    #[test]
+    fn reverse_undoes_zstd_then_shuffle() {
+        let original: Vec<u8> = (0u8..64).collect();
+        let elem = 4;
+        let count = original.len() / elem;
+        let mut shuffled = vec![0u8; original.len()];
+        for e in 0..count {
+            for byte_pos in 0..elem {
+                shuffled[byte_pos * count + e] = original[e * elem + byte_pos];
+            }
+        }
+        let compressed = ruzstd::encoding::compress_to_vec(
+            shuffled.as_slice(),
+            ruzstd::encoding::CompressionLevel::Fastest,
+        );
+        let pipeline = FilterPipeline {
+            filters: vec![
+                Filter {
+                    id: FILTER_SHUFFLE,
+                    client_data: vec![elem as u32],
+                },
+                Filter {
+                    id: FILTER_ZSTD,
+                    client_data: vec![],
+                },
+            ],
+        };
+        assert_eq!(
+            pipeline.reverse(compressed, 0, elem).unwrap(),
+            original,
+            "zstd must be undone before shuffle"
+        );
+    }
+
+    /// The decompression ceiling is a real check, not a comment.
+    ///
+    /// A compressed chunk is attacker-controlled and its ratio is unbounded, so
+    /// without this a few kilobytes on disk can ask for an arbitrarily large
+    /// allocation. Tested through the `_bounded` helpers with a small limit —
+    /// building a 256 MiB stream to exercise the real constant would make the
+    /// suite pay for the guarantee on every run.
+    #[test]
+    fn zstd_refuses_to_decompress_past_the_ceiling() {
+        let big = vec![0u8; 4096]; // compresses tiny, expands past a small limit
+        let frame = ruzstd::encoding::compress_to_vec(
+            big.as_slice(),
+            ruzstd::encoding::CompressionLevel::Fastest,
+        );
+        assert!(frame.len() < big.len(), "the vector must actually expand");
+
+        assert_eq!(unzstd_bounded(&frame, big.len()).unwrap(), big);
+        let err = unzstd_bounded(&frame, 64).unwrap_err();
+        assert!(
+            matches!(&err, FieldglassError::Parse(m) if m.contains("ceiling")),
+            "expected a ceiling error, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn deflate_refuses_to_decompress_past_the_ceiling() {
+        let big = vec![0u8; 4096];
+        let stream = miniz_oxide::deflate::compress_to_vec_zlib(&big, 6);
+        assert!(stream.len() < big.len(), "the vector must actually expand");
+
+        assert_eq!(inflate_bounded(&stream, big.len()).unwrap(), big);
+        assert!(inflate_bounded(&stream, 64).is_err());
+    }
+
+    #[test]
+    fn rejects_a_zstd_frame_that_is_not_one() {
+        let pipeline = FilterPipeline {
+            filters: vec![Filter {
+                id: FILTER_ZSTD,
+                client_data: vec![],
+            }],
+        };
+        // No zstd magic: must be a clean error, not a panic.
+        let err = pipeline.reverse(vec![0u8; 32], 0, 4).unwrap_err();
         assert!(matches!(err, FieldglassError::Parse(_)), "got {err:?}");
     }
 
