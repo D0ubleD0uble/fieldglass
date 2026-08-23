@@ -149,7 +149,8 @@ def dataset_oracle(d: h5py.Dataset) -> dict:
         "storage": {
             "layout": "chunked" if d.chunks else "contiguous",
             "chunks": list(d.chunks) if d.chunks else None,
-            "filters": [n for n, on in (("shuffle", d.shuffle), ("deflate", d.compression == "gzip")) if on],
+            "filters": [n for n, on in (("shuffle", d.shuffle), ("deflate", d.compression == "gzip"),
+                                        ("fletcher32", d.fletcher32)) if on],
         },
         "fill_value": (float(d.fillvalue) if np.issubdtype(d.dtype, np.number) else None),
         "attributes": attr_oracle(d.attrs),
@@ -608,6 +609,112 @@ def build_v2_btree(name: str) -> None:
           f"type11={oracle['raw_markers']['BTHD_type11_filtered_chunks']}]")
 
 
+def fletcher32_oracle(payload: bytes) -> int:
+    """The fletcher32 checksum libhdf5 computes over `payload`.
+
+    Asks libhdf5 rather than reimplementing it: store the payload as a single
+    chunk with fletcher32 and no compressor, so the stored chunk is the payload
+    verbatim followed by the four checksum bytes, then read those back. Used to
+    generate the vectors pinned in `hdf5/filter.rs`."""
+    import struct
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        fn = Path(tmp) / "oracle.h5"
+        with h5py.File(fn, "w") as f:
+            f.create_dataset("v", data=np.frombuffer(payload, dtype="u1"),
+                             chunks=(len(payload),), fletcher32=True, track_times=False)
+        with h5py.File(fn, "r") as f:
+            ci = f["v"].id.get_chunk_info(0)
+            raw = fn.read_bytes()[ci.byte_offset:ci.byte_offset + ci.size]
+    if len(raw) != len(payload) + 4 or raw[:-4] != payload:
+        raise SystemExit("fletcher32 is not a plain 4-byte suffix on this libhdf5")
+    return struct.unpack("<I", raw[-4:])[0]
+
+
+def build_fletcher32(name: str) -> None:
+    """Datasets carrying the **fletcher32** checksum filter (id 3, #412).
+
+    fletcher32 is not a compressor: it appends a four-byte checksum to each
+    stored chunk, which reading verifies and strips. A file whose pipeline is
+    ``fletcher32 + deflate`` therefore failed outright before #412, even though
+    the actual compression was one already decoded.
+
+    The datasets all hold the *same* values, so the test can assert directly
+    that a checksummed pipeline decodes to what the plain one does:
+
+      * ``plain_deflate`` — deflate alone, the comparison baseline.
+      * ``f32_deflate`` — deflate + fletcher32, the case the issue is about.
+      * ``f32_only`` — fletcher32 alone: no compressor, so the stored chunk is
+        the raw element bytes plus exactly four.
+      * ``f32_shuffle_deflate`` — the full netCDF-4 stack.
+      * ``f32_shuffle`` — shuffle + fletcher32 with **no** compressor, which
+        libhdf5 does write. This is the dataset that makes a passthrough
+        implementation visibly wrong rather than accidentally right: fletcher32
+        is written last, so it reverses first, and a reader that returned the
+        chunk unchanged would hand unshuffle four extra bytes. 132 divides
+        evenly by the 4-byte element, so unshuffle regroups 33 elements instead
+        of 32 and returns wrong values with no error. With deflate in the
+        middle the extra bytes are simply absorbed by the zlib decoder, so the
+        compressed pipelines do *not* expose the bug.
+      * ``f32_odd`` — an odd-length chunk, so the checksum's trailing-byte
+        branch runs.
+
+    A separate builder rather than an extension of the two general fixtures:
+    adding datasets to those would shift every later dataset's decode index and
+    rewrite their oracles for a change that has nothing to do with them."""
+    path = FIXturesDir / name
+    values = np.arange(64, dtype="<f4").reshape(8, 8) * 0.5
+    odd = np.arange(7, dtype="u1")
+
+    with h5py.File(path, "w", libver="latest") as f:
+        f.attrs["title"] = np.bytes_(b"fieldglass fletcher32 fixture")
+
+        def ds(nm, data, **kw):
+            return f.create_dataset(nm, data=data, track_times=False, **kw)
+
+        ds("plain_deflate", values, chunks=(4, 8), compression="gzip", compression_opts=4)
+        ds("f32_deflate", values, chunks=(4, 8), compression="gzip", compression_opts=4,
+           fletcher32=True)
+        ds("f32_only", values, chunks=(4, 8), fletcher32=True)
+        ds("f32_shuffle_deflate", values, chunks=(4, 8), compression="gzip",
+           compression_opts=4, shuffle=True, fletcher32=True)
+        ds("f32_shuffle", values, chunks=(4, 8), shuffle=True, fletcher32=True)
+        ds("f32_odd", odd, chunks=(7,), fletcher32=True)
+
+    # Fail loudly if libhdf5 did not actually apply the filter, or applied it
+    # somewhere other than last: either would leave a fixture that passes the
+    # test while proving nothing about fletcher32.
+    with h5py.File(path, "r") as f:
+        for nm in ("f32_deflate", "f32_only", "f32_shuffle_deflate", "f32_shuffle", "f32_odd"):
+            plist = f[nm].id.get_create_plist()
+            ids = [plist.get_filter(i)[0] for i in range(plist.get_nfilters())]
+            if not ids or ids[-1] != 3:
+                raise SystemExit(f"{nm}: expected fletcher32 (3) last, got {ids}")
+        # With no compressor the suffix is directly visible: stored == raw + 4.
+        raw_bytes = int(np.prod(f["f32_only"].chunks)) * f["f32_only"].dtype.itemsize
+        stored = f["f32_only"].id.get_chunk_info(0).size
+        if stored != raw_bytes + 4:
+            raise SystemExit(f"f32_only: stored chunk {stored} B, expected {raw_bytes + 4} B "
+                             f"— fletcher32 is not a 4-byte suffix on this libhdf5")
+
+        oracle = {
+            "source": f"h5py {h5py.__version__} (libhdf5 {h5py.version.hdf5_version}), libver='latest'",
+            "superblock_version": path.read_bytes()[path.read_bytes().index(b"\x89HDF\r\n\x1a\n") + 8],
+            "note": "fletcher32 checksum filter (id 3) alone and composed with "
+                    "deflate and shuffle; `plain_deflate` holds the same values "
+                    "with no checksum, as the comparison baseline (#412)",
+            "raw_markers": {
+                "f32_only_stored_chunk_bytes": stored,
+                "f32_only_raw_chunk_bytes": raw_bytes,
+            },
+            "objects": {n: dataset_oracle(f[n]) for n in f if isinstance(f[n], h5py.Dataset)},
+        }
+    (FIXturesDir / f"{name}.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n")
+    print(f"wrote {path} ({path.stat().st_size} B) + oracle "
+          f"[fletcher32; f32_only chunk {raw_bytes} B raw -> {stored} B stored]")
+
+
 def _find_all(raw: bytes, sig: bytes) -> list[int]:
     out, i = [], 0
     while (i := raw.find(sig, i)) >= 0:
@@ -639,6 +746,8 @@ def main() -> int:
     build_implicit_index("hdf5_implicit_index.h5")
     # Version-4 v2 B-tree index (>1 unlimited dimension): unfiltered + filtered.
     build_v2_btree("hdf5_v2_btree_index.h5")
+    # fletcher32 checksum filter (id 3), alone and composed with deflate/shuffle.
+    build_fletcher32("hdf5_fletcher32.h5")
     return 0
 
 

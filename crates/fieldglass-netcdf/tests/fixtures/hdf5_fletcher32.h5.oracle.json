@@ -1,0 +1,294 @@
+{
+  "source": "h5py 3.16.0 (libhdf5 2.0.0), libver='latest'",
+  "superblock_version": 3,
+  "note": "fletcher32 checksum filter (id 3) alone and composed with deflate and shuffle; `plain_deflate` holds the same values with no checksum, as the comparison baseline (#412)",
+  "raw_markers": {
+    "f32_only_stored_chunk_bytes": 132,
+    "f32_only_raw_chunk_bytes": 128
+  },
+  "objects": {
+    "f32_deflate": {
+      "kind": "dataset",
+      "datatype": {
+        "class": "floating-point",
+        "size_bytes": 4,
+        "byte_order": "little-endian"
+      },
+      "dataspace": {
+        "class": "simple",
+        "rank": 2,
+        "dims": [
+          8,
+          8
+        ],
+        "max_dims": [
+          8,
+          8
+        ]
+      },
+      "storage": {
+        "layout": "chunked",
+        "chunks": [
+          4,
+          8
+        ],
+        "filters": [
+          "deflate",
+          "fletcher32"
+        ]
+      },
+      "fill_value": 0.0,
+      "attributes": [],
+      "values": {
+        "count": 64,
+        "present_count": 63,
+        "missing_count": 1,
+        "samples": {
+          "0": 0.0,
+          "1": 0.5,
+          "32": 16.0,
+          "62": 31.0,
+          "63": 31.5
+        },
+        "min": 0.5,
+        "max": 31.5,
+        "mean": 16.0
+      }
+    },
+    "f32_odd": {
+      "kind": "dataset",
+      "datatype": {
+        "class": "fixed-point unsigned",
+        "size_bytes": 1,
+        "byte_order": "not-applicable"
+      },
+      "dataspace": {
+        "class": "simple",
+        "rank": 1,
+        "dims": [
+          7
+        ],
+        "max_dims": [
+          7
+        ]
+      },
+      "storage": {
+        "layout": "chunked",
+        "chunks": [
+          7
+        ],
+        "filters": [
+          "fletcher32"
+        ]
+      },
+      "fill_value": 0.0,
+      "attributes": [],
+      "values": {
+        "count": 7,
+        "present_count": 6,
+        "missing_count": 1,
+        "samples": {
+          "0": 0.0,
+          "1": 1.0,
+          "3": 3.0,
+          "5": 5.0,
+          "6": 6.0
+        },
+        "min": 1.0,
+        "max": 6.0,
+        "mean": 3.5
+      }
+    },
+    "f32_only": {
+      "kind": "dataset",
+      "datatype": {
+        "class": "floating-point",
+        "size_bytes": 4,
+        "byte_order": "little-endian"
+      },
+      "dataspace": {
+        "class": "simple",
+        "rank": 2,
+        "dims": [
+          8,
+          8
+        ],
+        "max_dims": [
+          8,
+          8
+        ]
+      },
+      "storage": {
+        "layout": "chunked",
+        "chunks": [
+          4,
+          8
+        ],
+        "filters": [
+          "fletcher32"
+        ]
+      },
+      "fill_value": 0.0,
+      "attributes": [],
+      "values": {
+        "count": 64,
+        "present_count": 63,
+        "missing_count": 1,
+        "samples": {
+          "0": 0.0,
+          "1": 0.5,
+          "32": 16.0,
+          "62": 31.0,
+          "63": 31.5
+        },
+        "min": 0.5,
+        "max": 31.5,
+        "mean": 16.0
+      }
+    },
+    "f32_shuffle": {
+      "kind": "dataset",
+      "datatype": {
+        "class": "floating-point",
+        "size_bytes": 4,
+        "byte_order": "little-endian"
+      },
+      "dataspace": {
+        "class": "simple",
+        "rank": 2,
+        "dims": [
+          8,
+          8
+        ],
+        "max_dims": [
+          8,
+          8
+        ]
+      },
+      "storage": {
+        "layout": "chunked",
+        "chunks": [
+          4,
+          8
+        ],
+        "filters": [
+          "shuffle",
+          "fletcher32"
+        ]
+      },
+      "fill_value": 0.0,
+      "attributes": [],
+      "values": {
+        "count": 64,
+        "present_count": 63,
+        "missing_count": 1,
+        "samples": {
+          "0": 0.0,
+          "1": 0.5,
+          "32": 16.0,
+          "62": 31.0,
+          "63": 31.5
+        },
+        "min": 0.5,
+        "max": 31.5,
+        "mean": 16.0
+      }
+    },
+    "f32_shuffle_deflate": {
+      "kind": "dataset",
+      "datatype": {
+        "class": "floating-point",
+        "size_bytes": 4,
+        "byte_order": "little-endian"
+      },
+      "dataspace": {
+        "class": "simple",
+        "rank": 2,
+        "dims": [
+          8,
+          8
+        ],
+        "max_dims": [
+          8,
+          8
+        ]
+      },
+      "storage": {
+        "layout": "chunked",
+        "chunks": [
+          4,
+          8
+        ],
+        "filters": [
+          "shuffle",
+          "deflate",
+          "fletcher32"
+        ]
+      },
+      "fill_value": 0.0,
+      "attributes": [],
+      "values": {
+        "count": 64,
+        "present_count": 63,
+        "missing_count": 1,
+        "samples": {
+          "0": 0.0,
+          "1": 0.5,
+          "32": 16.0,
+          "62": 31.0,
+          "63": 31.5
+        },
+        "min": 0.5,
+        "max": 31.5,
+        "mean": 16.0
+      }
+    },
+    "plain_deflate": {
+      "kind": "dataset",
+      "datatype": {
+        "class": "floating-point",
+        "size_bytes": 4,
+        "byte_order": "little-endian"
+      },
+      "dataspace": {
+        "class": "simple",
+        "rank": 2,
+        "dims": [
+          8,
+          8
+        ],
+        "max_dims": [
+          8,
+          8
+        ]
+      },
+      "storage": {
+        "layout": "chunked",
+        "chunks": [
+          4,
+          8
+        ],
+        "filters": [
+          "deflate"
+        ]
+      },
+      "fill_value": 0.0,
+      "attributes": [],
+      "values": {
+        "count": 64,
+        "present_count": 63,
+        "missing_count": 1,
+        "samples": {
+          "0": 0.0,
+          "1": 0.5,
+          "32": 16.0,
+          "62": 31.0,
+          "63": 31.5
+        },
+        "min": 0.5,
+        "max": 31.5,
+        "mean": 16.0
+      }
+    }
+  }
+}
