@@ -370,11 +370,7 @@ mod tests {
     use super::*;
 
     fn probe() -> Hdf5Probe {
-        Hdf5Probe {
-            superblock_version: 0,
-            offset_size: 8,
-            length_size: 8,
-        }
+        Hdf5Probe::new(0, 8, 8)
     }
 
     #[test]

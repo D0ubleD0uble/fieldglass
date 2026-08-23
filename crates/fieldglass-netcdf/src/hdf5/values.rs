@@ -45,12 +45,7 @@ pub fn read_dataset_values(
     object_header_address: u64,
     probe: &Hdf5Probe,
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
-    let header = object_header::walk(
-        bytes,
-        object_header_address,
-        probe.offset_size,
-        probe.length_size,
-    )?;
+    let header = probe.header(bytes, object_header_address)?;
     let body = |msg_type: u16| {
         header
             .messages
@@ -262,26 +257,34 @@ fn assemble_chunked(
     // Every chunk index resolves to the same per-chunk record; only the way the
     // records are located differs. An unallocated index leaves the buffer as
     // all fill.
-    let chunks = match &chunked.index {
+    // The four traversed indexes (B-tree v1/v2, fixed and extensible array) are
+    // memoised on the probe by `(index address, rank)`: re-decoding a variable
+    // must not re-walk its chunk index (#414). Single-chunk and implicit are
+    // computed from the layout message itself, so there is nothing to remember.
+    let chunks: std::sync::Arc<Vec<ChunkRecord>> = match &chunked.index {
         ChunkIndex::BTreeV1(None)
         | ChunkIndex::SingleChunk(None)
         | ChunkIndex::Implicit(None)
         | ChunkIndex::FixedArray(None)
         | ChunkIndex::ExtensibleArray(None)
         | ChunkIndex::V2Btree(None) => return Ok(raw),
-        ChunkIndex::BTreeV1(Some(addr)) => collect_chunks(bytes, *addr, rank, osize)?,
+        ChunkIndex::BTreeV1(Some(addr)) => {
+            probe.cache().chunk_records(bytes.len(), *addr, rank, || {
+                collect_chunks(bytes, *addr, rank, osize)
+            })?
+        }
         ChunkIndex::SingleChunk(Some(single)) => {
             let size = single
                 .filtered_size
                 .unwrap_or(chunk_bytes as u64)
                 .try_into()
                 .map_err(|_| FieldglassError::Parse("single-chunk size exceeds u32".into()))?;
-            vec![ChunkRecord {
+            std::sync::Arc::new(vec![ChunkRecord {
                 address: single.address,
                 size,
                 filter_mask: single.filter_mask,
                 offset: vec![0u64; rank],
-            }]
+            }])
         }
         ChunkIndex::Implicit(Some(base)) => {
             // An implicit index is only ever written for unfiltered chunks; a
@@ -292,36 +295,53 @@ fn assemble_chunked(
                     "HDF5 implicit chunk index cannot carry a filter pipeline".into(),
                 ));
             }
-            collect_implicit_chunks(*base, shape, &chunked.chunk_dims, chunk_bytes)?
+            std::sync::Arc::new(collect_implicit_chunks(
+                *base,
+                shape,
+                &chunked.chunk_dims,
+                chunk_bytes,
+            )?)
         }
-        ChunkIndex::FixedArray(Some(addr)) => collect_fixed_array_chunks(
-            bytes,
-            *addr,
-            shape,
-            &chunked.chunk_dims,
-            chunk_bytes,
-            probe.offset_size,
-            probe.length_size,
-        )?,
-        ChunkIndex::ExtensibleArray(Some(addr)) => collect_extensible_array_chunks(
-            bytes,
-            *addr,
-            shape,
-            &chunked.chunk_dims,
-            chunk_bytes,
-            probe.offset_size,
-            probe.length_size,
-        )?,
-        ChunkIndex::V2Btree(Some(addr)) => collect_v2_btree_chunks(
-            bytes,
-            *addr,
-            &chunked.chunk_dims,
-            chunk_bytes,
-            probe.offset_size,
-            probe.length_size,
-        )?,
+        ChunkIndex::FixedArray(Some(addr)) => {
+            probe.cache().chunk_records(bytes.len(), *addr, rank, || {
+                collect_fixed_array_chunks(
+                    bytes,
+                    *addr,
+                    shape,
+                    &chunked.chunk_dims,
+                    chunk_bytes,
+                    probe.offset_size,
+                    probe.length_size,
+                )
+            })?
+        }
+        ChunkIndex::ExtensibleArray(Some(addr)) => {
+            probe.cache().chunk_records(bytes.len(), *addr, rank, || {
+                collect_extensible_array_chunks(
+                    bytes,
+                    *addr,
+                    shape,
+                    &chunked.chunk_dims,
+                    chunk_bytes,
+                    probe.offset_size,
+                    probe.length_size,
+                )
+            })?
+        }
+        ChunkIndex::V2Btree(Some(addr)) => {
+            probe.cache().chunk_records(bytes.len(), *addr, rank, || {
+                collect_v2_btree_chunks(
+                    bytes,
+                    *addr,
+                    &chunked.chunk_dims,
+                    chunk_bytes,
+                    probe.offset_size,
+                    probe.length_size,
+                )
+            })?
+        }
     };
-    for chunk in chunks {
+    for chunk in chunks.iter() {
         let expanded = if pipeline.filters.is_empty() {
             read_at(bytes, chunk.address, chunk.size as usize)?.to_vec()
         } else {
@@ -348,7 +368,8 @@ fn assemble_chunked(
 
 /// One leaf entry of a version-1 chunk B-tree: where a chunk lives and the
 /// element-space offset of its origin.
-struct ChunkRecord {
+#[derive(Debug)]
+pub(crate) struct ChunkRecord {
     address: u64,
     size: u32,
     filter_mask: u32,

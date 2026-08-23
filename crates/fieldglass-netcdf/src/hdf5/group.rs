@@ -84,7 +84,7 @@ pub fn list_group_children(
 ) -> Result<Vec<GroupChild>, FieldglassError> {
     let osize = probe.offset_size;
     let lsize = probe.length_size;
-    let header = object_header::walk(bytes, group_addr, osize, lsize)?;
+    let header = probe.header(bytes, group_addr)?;
 
     // A group uses exactly one of the two link layouts. Symbol Table wins if
     // present (legacy files); otherwise Link Info drives the modern path.
@@ -104,7 +104,7 @@ pub fn list_group_children(
     links
         .into_iter()
         .map(|(name, addr)| {
-            let kind = classify(bytes, addr, osize, lsize)?;
+            let kind = classify(bytes, addr, probe)?;
             Ok(GroupChild {
                 name,
                 object_header_address: addr,
@@ -139,6 +139,25 @@ pub fn list_all_children(
     bytes: &[u8],
     probe: &Hdf5Probe,
 ) -> Result<Vec<GroupChild>, FieldglassError> {
+    all_children(bytes, probe).map(|c| (*c).clone())
+}
+
+/// [`list_all_children`] without the copy, memoised on the probe (#414).
+///
+/// The walk is `O(datasets)` object headers and every metadata or decode call
+/// starts from it, so it is done once per file. Callers inside the crate take
+/// the shared `Arc`; the public function above hands out an owned clone to keep
+/// its signature.
+pub(crate) fn all_children(
+    bytes: &[u8],
+    probe: &Hdf5Probe,
+) -> Result<std::sync::Arc<Vec<GroupChild>>, FieldglassError> {
+    probe
+        .cache()
+        .children(bytes.len(), || walk_all_children(bytes, probe))
+}
+
+fn walk_all_children(bytes: &[u8], probe: &Hdf5Probe) -> Result<Vec<GroupChild>, FieldglassError> {
     /// One group's in-progress traversal: its children, the next to visit, and
     /// the path prefix (`""` for the root, `/G` for a nested group `G`).
     struct Frame {
@@ -202,8 +221,8 @@ pub fn list_all_children(
 }
 
 /// Classify a child by walking its object header and inspecting message types.
-fn classify(bytes: &[u8], addr: u64, osize: u8, lsize: u8) -> Result<ChildKind, FieldglassError> {
-    let header = object_header::walk(bytes, addr, osize, lsize)?;
+fn classify(bytes: &[u8], addr: u64, probe: &Hdf5Probe) -> Result<ChildKind, FieldglassError> {
+    let header = probe.header(bytes, addr)?;
     let has = |t: u16| header.messages.iter().any(|m| m.msg_type == t);
     // Groups carry link structures; datasets carry a dataspace; a committed
     // datatype is a bare datatype with no dataspace.
