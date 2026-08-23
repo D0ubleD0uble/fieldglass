@@ -550,7 +550,7 @@ export class FieldglassEditorProvider
    * changes (projection / resampling / range / flip-y) flow back as
    * `rerenderRequest` and trigger a fresh `renderGrid` call.
    */
-  private openRenderPanel(
+  public openRenderPanel(
     document: FieldglassDocument,
     meta: MessageMeta,
   ): void {
@@ -725,7 +725,8 @@ export class FieldglassEditorProvider
           | ({ type?: string } & Partial<RenderOptions>)
           | OverlayRequest
           | ContourRequest
-          | ProbeRequest,
+          | ProbeRequest
+          | { type?: string; dataUrl?: unknown; defaultName?: unknown },
       ) => {
         if (!m || typeof m.type !== "string") return;
         if (m.type === "ready") {
@@ -746,6 +747,20 @@ export class FieldglassEditorProvider
         }
         if (m.type === "probeRequest") {
           probe(m as ProbeRequest);
+          return;
+        }
+        if (m.type === "exportPng") {
+          // The Export PNG button lives in the panel HTML both render panels
+          // share, so a GRIB render offers it exactly like a NetCDF slice —
+          // but only the NetCDF handler listened for the message, so on a GRIB
+          // field the composited image went nowhere: no save dialog, and no
+          // reply to resolve the panel's "Exporting PNG…" status.
+          void this.handleExportPng(
+            document,
+            m as { dataUrl?: unknown; defaultName?: unknown },
+          ).then((outcome) => {
+            panel.webview.postMessage({ type: "exportPngDone", outcome });
+          });
         }
       },
     );

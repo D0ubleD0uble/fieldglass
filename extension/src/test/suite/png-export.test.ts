@@ -1,15 +1,21 @@
 // Tests for the render-panel PNG export (#243). The compositing itself is
-// canvas work in the webview (not reachable headlessly), so these pin the two
-// host-side pieces: the filename sanitiser and the provider handler that
-// decodes the data URL and writes exactly those bytes.
+// canvas work in the webview (not reachable headlessly), so these pin the
+// host-side pieces: the filename sanitiser, the provider handler that decodes
+// the data URL and writes exactly those bytes, and — the seam that had no
+// coverage at all — that each render panel actually *routes* the webview's
+// `exportPng` message to that handler. Calling the handler directly passes
+// whether or not any panel is wired to it, which is how the GRIB panel shipped
+// with a dead button.
 
 import * as assert from "assert";
+import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import * as vscode from "vscode";
 
 import type { FieldglassApi } from "../../extension";
 import type { FieldglassDocument, FieldglassEditorProvider } from "../../provider";
+import { loadNative, type MessageMeta } from "../../native";
 import { sanitizePngName } from "../../render-panel";
 
 // A minimal valid 1×1 PNG.
@@ -148,6 +154,85 @@ suite("Export PNG", () => {
     } finally {
       vscode.window.showErrorMessage = origErr;
     }
+  });
+
+  // The message-routing seam. Every test above calls `handleExportPng`
+  // directly, so all six passed while the GRIB panel dropped the message on
+  // the floor: the button composited an image, posted it, and nothing
+  // listened — no save dialog, and no `exportPngDone` to clear the panel's
+  // "Exporting PNG…" status. Drive the registered handler instead.
+  test("the GRIB render panel routes exportPng to the handler", async () => {
+    const { provider, doc } = await providerAndDoc();
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+    const bytes = fs.readFileSync(fixturePath("regular_latlon_surface.grib2"));
+    const meta: MessageMeta = native.Grib2Handle.fromBytes(bytes).messages()[0];
+
+    // A stand-in panel that records what the provider registers and posts.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let onMessage: ((m: any) => void) | undefined;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const posted: any[] = [];
+    const fakePanel = {
+      webview: {
+        html: "",
+        cspSource: "vscode-webview:",
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        onDidReceiveMessage: (cb: (m: any) => void) => {
+          onMessage = cb;
+          return { dispose: () => undefined };
+        },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        postMessage: (m: any) => {
+          posted.push(m);
+          return Promise.resolve(true);
+        },
+      },
+      onDidDispose: () => ({ dispose: () => undefined }),
+      dispose: () => undefined,
+    };
+
+    const dest = vscode.Uri.file(path.join(os.tmpdir(), "fieldglass-png-route-test.png"));
+    const origCreate = vscode.window.createWebviewPanel;
+    const origSave = vscode.window.showSaveDialog;
+    const origInfo = vscode.window.showInformationMessage;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (vscode.window as any).createWebviewPanel = () => fakePanel;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (vscode.window as any).showSaveDialog = () => Promise.resolve(dest);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (vscode.window as any).showInformationMessage = () => Promise.resolve(undefined);
+    try {
+      provider.openRenderPanel(doc, meta);
+      assert.ok(onMessage, "the render panel registers a message handler");
+
+      onMessage({
+        type: "exportPng",
+        dataUrl: "data:image/png;base64," + PNG_B64,
+        defaultName: "field.png",
+      });
+      // The handler is async; wait for the reply the panel needs to clear its
+      // status rather than for a fixed delay.
+      for (let i = 0; i < 200 && !posted.some((m) => m.type === "exportPngDone"); i++) {
+        await new Promise((r) => setTimeout(r, 10));
+      }
+    } finally {
+      vscode.window.createWebviewPanel = origCreate;
+      vscode.window.showSaveDialog = origSave;
+      vscode.window.showInformationMessage = origInfo;
+    }
+
+    const done = posted.find((m) => m.type === "exportPngDone");
+    assert.ok(done, "the panel is told how the export ended");
+    assert.strictEqual(done.outcome.status, "saved");
+    assert.strictEqual(done.outcome.path, dest.fsPath);
+    assert.ok(fs.existsSync(dest.fsPath), "the PNG was written");
+    assert.deepStrictEqual(
+      fs.readFileSync(dest.fsPath),
+      Buffer.from(PNG_B64, "base64"),
+      "the bytes the webview composited are the bytes on disk",
+    );
+    fs.unlinkSync(dest.fsPath);
   });
 
   test("handleExportPng rejects a non-PNG data URL without reaching the save dialog", async () => {
