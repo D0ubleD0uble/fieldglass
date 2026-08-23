@@ -72,6 +72,15 @@ impl Grib1Reader {
         self.messages.len()
     }
 
+    /// The file's raw bytes, which the reader already owns.
+    ///
+    /// Exposed so a caller that needs the original octets — patching a PDS
+    /// field, say — can borrow them instead of keeping a second copy of the
+    /// whole file alongside the reader (#411).
+    pub fn bytes(&self) -> &[u8] {
+        &self.data
+    }
+
     /// eccodes-style `packingType` label for one message's BDS, or `None` if
     /// the index is out of range or the BDS header can't be parsed. This is
     /// metadata only — it parses the 11-byte BDS header and never decodes

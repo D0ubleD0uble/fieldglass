@@ -52,10 +52,23 @@ achievable:
 
 ## Actions, in order
 
-1. **Stop the redundant copies.** The file is read whole by the extension,
-   copied at the napi boundary by `bytes.to_vec()`, and `Grib1Handle::from_bytes`
-   clones again: roughly 3× peak memory. Seam-independent, the immediate
-   partial fix for #114, no design work.
+1. ~~**Stop the redundant copies.**~~ Done in #411, as far as it goes without
+   the seam. Measured through the built addon, opening a large file:
+
+   - Every handle now holds the file **exactly once**, at 1.00× file size for
+     GRIB1, GRIB2 and NetCDF-4 alike. GRIB1 was the outlier at 1.96×, keeping a
+     second copy alongside the reader's; GRIB2 and NetCDF already held one.
+   - Peak is therefore **~2× file size**, not 3×: the extension's whole-file
+     read plus one copy in the reader. Removing that last copy is what needs
+     this seam — the reader would have to borrow the napi `Buffer`, making the
+     handle self-referential, which is why it is a design item and not a
+     cleanup.
+   - The editor also opened NetCDF files twice, once for the metadata table and
+     once for a render handle. It now builds one reader (110 MB NetCDF-4: 103 ms
+     to open, 40 ms after). Peak RSS never showed this — the first reader is
+     freed before the second allocates, so the allocator reuses the pages, and
+     only wall-clock or an allocation counter sees it. Worth remembering when
+     judging the seam by peak memory alone.
 2. ~~**Cache traversal results on the NetCDF reader.**~~ Done in #414. Worth
    knowing before building on it:
 

@@ -923,10 +923,10 @@ pub struct DatasetMeta {
 pub fn open_netcdf(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<DatasetMeta> {
     let reader = NetcdfReader::from_bytes(bytes.to_vec())
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
-    Ok(dataset_meta_from(reader))
+    Ok(dataset_meta_from(&reader))
 }
 
-fn dataset_meta_from(reader: NetcdfReader) -> DatasetMeta {
+fn dataset_meta_from(reader: &NetcdfReader) -> DatasetMeta {
     let label = reader.backing.label().to_string();
     // HDF5 / NetCDF-4: resolve the dimension-scale convention (decision 0003) to
     // the same dimensions / variables / attributes the classic backing exposes.
@@ -940,7 +940,7 @@ fn dataset_meta_from(reader: NetcdfReader) -> DatasetMeta {
             Err(e) => hdf5_unparsed_meta(label, superblock, &e.to_string()),
         };
     }
-    match reader.backing {
+    match &reader.backing {
         NetcdfBacking::Classic(h) => {
             let dim_names: Vec<String> = h.dimensions.iter().map(|d| d.name.clone()).collect();
             let dimensions = h
@@ -999,7 +999,7 @@ fn dataset_meta_from(reader: NetcdfReader) -> DatasetMeta {
                 hdf5_superblock_version: None,
             }
         }
-        // HDF5 is handled above, before this match consumes `reader.backing`.
+        // HDF5 is handled above, before this match is reached.
         NetcdfBacking::Hdf5(_) => unreachable!("HDF5 backing resolved before the match"),
     }
 }
@@ -1350,6 +1350,12 @@ pub struct DecodedGrid {
 /// so repeat `render_grid` calls with different `RenderOptions` skip the
 /// bit-unpack + bitmap-merge step every time the user wiggles a picker.
 ///
+/// The handle holds the file exactly once, inside the reader. It used to keep
+/// its own `Vec` alongside it as well, so opening a GRIB1 file cost two full
+/// copies on top of the buffer JS already holds; the one place that needed the
+/// original octets (the P1 edit) now borrows them from the reader and copies
+/// only when it is actually invoked (#411).
+///
 /// The cache is wrapped in a `Mutex` not because we expect contention
 /// — napi-rs runs class methods on the Node main thread — but because
 /// `#[napi]` requires the class to be `Send`. `RefCell` would be the
@@ -1358,7 +1364,6 @@ pub struct DecodedGrid {
 /// CAS per render).
 #[napi]
 pub struct Grib1Handle {
-    bytes: Vec<u8>,
     reader: Grib1Reader,
     decoded: Mutex<std::collections::HashMap<u32, std::sync::Arc<Vec<Option<f64>>>>>,
     /// Synthesized spectral fields, keyed by message index — the output of the
@@ -1374,11 +1379,9 @@ impl Grib1Handle {
     /// reader alive for the lifetime of the JS object.
     #[napi(factory)]
     pub fn from_bytes(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<Self> {
-        let owned = bytes.to_vec();
-        let reader = Grib1Reader::from_bytes(owned.clone())
+        let reader = Grib1Reader::from_bytes(bytes.to_vec())
             .map_err(|e| napi::Error::from_reason(e.to_string()))?;
         Ok(Self {
-            bytes: owned,
             reader,
             decoded: Mutex::new(std::collections::HashMap::new()),
             synthesized: Mutex::new(std::collections::HashMap::new()),
@@ -1435,6 +1438,17 @@ impl Grib1Handle {
         message_index: u32,
         value: u32,
     ) -> napi::Result<napi::bindgen_prelude::Buffer> {
+        self.patched_p1_bytes(message_index, value).map(Into::into)
+    }
+
+    /// [`set_p1`](Self::set_p1) without the JS `Buffer`, so the patch itself is
+    /// reachable from an ordinary Rust test.
+    ///
+    /// The copy happens here rather than being served from a copy the handle
+    /// keeps: the bytes come from the reader, which owns the only one (#411).
+    /// Editing is rare and already allocates a whole new file either way, so
+    /// this costs the same as before while the handle costs a file less.
+    fn patched_p1_bytes(&self, message_index: u32, value: u32) -> napi::Result<Vec<u8>> {
         if value > u8::MAX as u32 {
             return Err(napi::Error::from_reason(format!(
                 "p1 must fit in a u8 (0..=255), got {value}"
@@ -1450,10 +1464,10 @@ impl Grib1Handle {
                     self.reader.messages.len()
                 ))
             })?;
-        let mut out = self.bytes.clone();
+        let mut out = self.reader.bytes().to_vec();
         let off = msg.pds_p1_offset();
         out[off] = value as u8;
-        Ok(out.into())
+        Ok(out)
     }
 
     /// Compose decode + reprojection warp + viridis colormap into a
@@ -2139,6 +2153,19 @@ impl NetcdfHandle {
 
     /// The variables the picker can draw (numeric, ≥ 2-D, not coordinate
     /// variables), each with its dimensions and detected horizontal axes.
+    /// The dataset metadata — dimensions, global attributes, variables — from
+    /// the reader this handle already holds.
+    ///
+    /// Identical to what [`open_netcdf`] returns for the same bytes. It exists
+    /// so a caller that is going to keep a handle anyway does not have to build
+    /// a second reader to get the metadata: doing both parsed the whole file
+    /// twice and copied it twice, which on a 110 MB NetCDF-4 file was 86 ms of
+    /// work where 42 ms would do (#411).
+    #[napi]
+    pub fn metadata(&self) -> DatasetMeta {
+        dataset_meta_from(&self.reader)
+    }
+
     #[napi]
     pub fn variables(&self) -> Vec<NetcdfVariableMeta> {
         self.view
@@ -6203,9 +6230,51 @@ mod netcdf_slice_tests {
         }
     }
 
+    /// The P1 edit is the only caller that needs the file's original octets,
+    /// and it is what stopped the handle keeping a second copy of the whole
+    /// file (#411). The extension suite covers it end to end, but that suite is
+    /// off by default in the working loop, so pin the patch here too — this is
+    /// the gate that actually runs before every push.
+    #[test]
+    fn set_p1_patches_exactly_one_octet_of_the_original_file() {
+        let handle = grib1_handle(SPECTRAL_T63_GRIB1);
+        let original = SPECTRAL_T63_GRIB1;
+        let patched = handle
+            .patched_p1_bytes(0, 42)
+            .expect("message 0 exists and 42 fits in a u8");
+
+        assert_eq!(patched.len(), original.len(), "the file changed length");
+        let differing: Vec<usize> = (0..original.len())
+            .filter(|&i| patched[i] != original[i])
+            .collect();
+        let offset = handle.reader.messages[0].pds_p1_offset();
+        assert_eq!(
+            differing,
+            vec![offset],
+            "expected exactly the P1 octet to change"
+        );
+        assert_eq!(patched[offset], 42);
+
+        // Patching again starts from the original file, not from the previous
+        // patch — handle state is immutable across edits.
+        let again = handle.patched_p1_bytes(0, 7).expect("second edit");
+        assert_eq!(again[offset], 7);
+        assert_eq!(&again[..offset], &original[..offset]);
+        assert_eq!(&again[offset + 1..], &original[offset + 1..]);
+    }
+
+    #[test]
+    fn set_p1_rejects_a_value_that_does_not_fit_an_octet() {
+        let handle = grib1_handle(SPECTRAL_T63_GRIB1);
+        assert!(handle.patched_p1_bytes(0, 256).is_err());
+        assert!(
+            handle.patched_p1_bytes(9_999, 1).is_err(),
+            "index out of range"
+        );
+    }
+
     fn grib1_handle(bytes: &[u8]) -> Grib1Handle {
         Grib1Handle {
-            bytes: bytes.to_vec(),
             reader: Grib1Reader::from_bytes(bytes.to_vec()).unwrap(),
             decoded: Mutex::new(std::collections::HashMap::new()),
             synthesized: Mutex::new(std::collections::HashMap::new()),
