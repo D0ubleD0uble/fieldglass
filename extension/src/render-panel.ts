@@ -194,6 +194,26 @@ function metaIsReprojectable(meta: {
   return meta.reprojectable || meta.gridType === "spherical_harmonic";
 }
 
+/** Width of the exported PNG (#243).
+ *
+ *  The image has two things to fit: the map block (raster + colorbar + its
+ *  labels) and the title/subtitle header, which is drawn as one unwrapped
+ *  line. Sizing on the map block alone clipped the header on any field whose
+ *  raster is narrower than its own title — a synthesized spectral grid is
+ *  256 px wide, so its reference time ran off the right edge, while a
+ *  1440-wide GFS raster hid the defect entirely.
+ *
+ *  Serialized into the panel script (`exportCanvasWidth.toString()`) so the
+ *  webview runs this exact function rather than a copy of the rule. Keep it
+ *  free of closure references for that reason. */
+export function exportCanvasWidth(
+  mapBlockW: number,
+  headerW: number,
+  margin: number,
+): number {
+  return Math.max(mapBlockW, margin + headerW + margin);
+}
+
 export function renderImagePanelHtml(
   webview: vscode.Webview,
   meta: MessageMeta,
@@ -218,7 +238,11 @@ export function renderImagePanelHtml(
   // Together they read naturally as "300 (hPa) Isobaric level". For surface
   // types whose value is meaningless (level === "—") only the levelType is
   // informative, so drop the placeholder.
-  const levelDescription = meta.level && meta.level !== "—"
+  // Some level types have no meaningful value, and the decoder then reports the
+  // surface name in *both* fields (a spectral message reads level = levelType =
+  // "Ground or water surface"). Joining them blind printed it twice, in the
+  // panel header and the exported PNG alike.
+  const levelDescription = meta.level && meta.level !== "—" && meta.level !== meta.levelType
     ? [meta.level, meta.levelType].filter((s) => !!s).join(" ")
     : meta.levelType;
   const subLine = [levelDescription, meta.referenceTime, meta.forecastDisplay]
@@ -257,6 +281,9 @@ export function renderImagePanelHtml(
         const TITLE_LINE = ${JSON.stringify(titleLine)};
         const SUB_LINE = ${JSON.stringify(subLine)};
         const DEFAULT_PNG_NAME = ${JSON.stringify(defaultPngName)};
+        // Injected verbatim so the export sizes itself with the same function
+        // the host-side tests pin, instead of a re-implementation that can drift.
+        ${exportCanvasWidth.toString()}
         let sliceState = SLICE ? Object.assign({}, SLICE.initial, {
           sliceIndices: SLICE.initial.sliceIndices.slice(),
         }) : null;
@@ -1087,7 +1114,20 @@ export function renderImagePanelHtml(
           if (!raster) { setStatus('Export failed: no image.'); return; }
           const W = lastPayload.width, H = lastPayload.height;
           const margin = 14, titleH = SUB_LINE ? 46 : 30, gap = 16, cbW = 18, labelW = 64;
-          const outW = margin + W + gap + cbW + labelW + margin;
+          const mapBlockW = margin + W + gap + cbW + labelW + margin;
+          // Measure the header with the exact fonts fillText will use below;
+          // the title is bold 18px and the subtitle 12px.
+          let headerW = 0;
+          const measure = document.createElement('canvas').getContext('2d');
+          if (measure) {
+            measure.font = '600 18px sans-serif';
+            headerW = measure.measureText(TITLE_LINE).width;
+            if (SUB_LINE) {
+              measure.font = '12px sans-serif';
+              headerW = Math.max(headerW, measure.measureText(SUB_LINE).width);
+            }
+          }
+          const outW = Math.ceil(exportCanvasWidth(mapBlockW, headerW, margin));
           const outH = margin + titleH + H + margin;
           const out = document.createElement('canvas');
           out.width = outW; out.height = outH;

@@ -16,7 +16,7 @@ import * as vscode from "vscode";
 import type { FieldglassApi } from "../../extension";
 import type { FieldglassDocument, FieldglassEditorProvider } from "../../provider";
 import { loadNative, type MessageMeta } from "../../native";
-import { sanitizePngName } from "../../render-panel";
+import { exportCanvasWidth, sanitizePngName } from "../../render-panel";
 
 // A minimal valid 1×1 PNG.
 const PNG_B64 =
@@ -154,6 +154,28 @@ suite("Export PNG", () => {
     } finally {
       vscode.window.showErrorMessage = origErr;
     }
+  });
+
+  // The export canvas was sized from the map block alone (raster + colorbar +
+  // labels), so a field whose raster is narrower than its own header had the
+  // title and reference time clipped at the right edge. The synthesized
+  // spectral grid is 256 px wide and its subtitle ~456 px, which is where this
+  // showed up; a 1440-px GFS raster hides it completely.
+  const EXPORT_MARGIN = 14;
+  const mapBlock = (rasterW: number) =>
+    EXPORT_MARGIN + rasterW + 16 + 18 + 64 + EXPORT_MARGIN;
+
+  test("exportCanvasWidth widens the canvas when the header outruns the map block", () => {
+    const block = mapBlock(256);
+    assert.strictEqual(block, 382, "spectral T63 map block");
+    const width = exportCanvasWidth(block, 456, EXPORT_MARGIN);
+    assert.ok(width > block, "a header wider than the map block must widen the canvas");
+    assert.strictEqual(width, EXPORT_MARGIN + 456 + EXPORT_MARGIN, "and fit it with both margins");
+  });
+
+  test("exportCanvasWidth leaves a map block that already fits its header", () => {
+    const block = mapBlock(1440); // GFS 0.25°
+    assert.strictEqual(exportCanvasWidth(block, 456, EXPORT_MARGIN), block);
   });
 
   // The message-routing seam. Every test above calls `handleExportPng`
