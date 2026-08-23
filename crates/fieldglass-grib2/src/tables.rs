@@ -84,10 +84,10 @@ pub fn lookup_production_status(value: u8) -> &'static str {
         7 => "S2S test products",
         8 => "UERRA",
         9 => "UERRA test",
-        10 => "Climate Data Record",
-        11 => "Climate projections",
-        12 => "Climate Forecast System Reanalysis",
-        13 => "Climate Forecast System Reforecasts",
+        10 => "Copernicus regional reanalysis",
+        11 => "Copernicus regional reanalysis test",
+        12 => "Destination Earth",
+        13 => "Destination Earth test",
         255 => "Missing",
         _ => "Unknown",
     }
@@ -250,8 +250,8 @@ pub fn lookup_statistical_process(value: u8) -> &'static str {
         9 => "Ratio",
         10 => "Standardized anomaly",
         11 => "Summation",
-        12 => "Confidence index",
-        13 => "Quality indicator",
+        12 => "Return period",
+        13 => "Median",
         192..=254 => "Reserved for local use",
         255 => "Missing",
         _ => "Unknown statistical process",
@@ -500,10 +500,10 @@ mod tests {
             (7, "S2S test products"),
             (8, "UERRA"),
             (9, "UERRA test"),
-            (10, "Climate Data Record"),
-            (11, "Climate projections"),
-            (12, "Climate Forecast System Reanalysis"),
-            (13, "Climate Forecast System Reforecasts"),
+            (10, "Copernicus regional reanalysis"),
+            (11, "Copernicus regional reanalysis test"),
+            (12, "Destination Earth"),
+            (13, "Destination Earth test"),
         ] {
             assert_eq!(lookup_production_status(id), expected, "status {id}");
         }
@@ -780,8 +780,8 @@ mod tests {
             (9, "Ratio"),
             (10, "Standardized anomaly"),
             (11, "Summation"),
-            (12, "Confidence index"),
-            (13, "Quality indicator"),
+            (12, "Return period"),
+            (13, "Median"),
         ] {
             assert_eq!(
                 lookup_statistical_process(id),

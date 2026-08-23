@@ -16,54 +16,36 @@ use std::collections::BTreeMap;
 
 const SNAPSHOT: &str = include_str!("fixtures/eccodes_parameters.ref.json");
 
-/// Why a triple is allowed to differ from eccodes. Not free text: the kind is
-/// *checked*, so an exception cannot quietly come to cover a different
-/// disagreement than the one it was granted for.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Why {
-    /// `tables.rs` keeps a shorter hand-written label. It must still be
-    /// recognisably the same parameter: the three defects this comparison
-    /// found were entirely unrelated names, which the prefix rule below
-    /// excludes.
-    Shortening,
-    /// Same text, different character set — WMO writes the micro sign where
-    /// eccodes spells it `um`. Ours follows WMO, the authority we generate from.
-    MicroSign,
-}
-
-/// Triples where a difference from eccodes is intended, each with a checked
-/// reason. A blanket tolerance here would have hidden the three real defects
-/// this comparison exists to catch.
-const EXPECTED_DIFFERENCES: &[(u8, u8, u8, Why)] = &[
-    (0, 0, 3, Why::Shortening),  // drops "or equivalent potential temperature"
-    (0, 0, 7, Why::Shortening),  // "Dew-point depression" / "...(or deficit)"
-    (0, 1, 9, Why::Shortening),  // "(non-conv.)" / "(non-convective)"
-    (10, 0, 3, Why::Shortening), // "wind+swell" / "wind waves and swell"
-    (3, 1, 20, Why::MicroSign),  // 0.635 um
-    (3, 1, 21, Why::MicroSign),  // 0.810 um
-    (3, 1, 22, Why::MicroSign),  // 1.640 um
+/// A triple we intentionally word differently from eccodes, with **eccodes'
+/// exact text at the time the divergence was reviewed**.
+///
+/// The recorded text is the assertion, not a similarity rule. What actually
+/// went wrong in this table was a triple meaning something different from what
+/// we thought — so pinning the authority's wording is what catches it, however
+/// plausible our own label still looks. Same mechanism as
+/// `wmo_code_tables.rs`.
+const ACCEPTED: &[(u8, u8, u8, &str)] = &[
+    // `tables.rs` keeps a shorter hand-written label for these four.
+    (
+        0,
+        0,
+        3,
+        "Pseudo-adiabatic potential temperature or equivalent potential temperature",
+    ),
+    (0, 0, 7, "Dewpoint depression (or deficit)"),
+    (0, 1, 9, "Large-scale precipitation (non-convective)"),
+    (
+        10,
+        0,
+        3,
+        "Significant height of combined wind waves and swell",
+    ),
+    // WMO writes the micro sign where eccodes spells it `um`; ours follows WMO,
+    // the authority the table is generated from.
+    (3, 1, 20, "Aerosol optical thickness at 0.635 um"),
+    (3, 1, 21, "Aerosol optical thickness at 0.810 um"),
+    (3, 1, 22, "Aerosol optical thickness at 1.640 um"),
 ];
-
-/// Shortest normalized prefix two names must share for one to pass as a
-/// shortening of the other. The four real shortenings share at least 18
-/// characters and the three defects shared none, so this sits well clear of
-/// both populations.
-const SHORTENING_PREFIX: usize = 12;
-
-fn shared_prefix(a: &str, b: &str) -> usize {
-    a.bytes().zip(b.bytes()).take_while(|(x, y)| x == y).count()
-}
-
-/// Whether `ours` differs from `theirs` only in the way `why` licenses.
-fn difference_is_licensed(why: Why, ours: &str, theirs: &str) -> bool {
-    match why {
-        Why::MicroSign => normalize(&ours.replace('\u{3bc}', "u")) == normalize(theirs),
-        Why::Shortening => {
-            let (ours, theirs) = (normalize(ours), normalize(theirs));
-            ours.len() <= theirs.len() && shared_prefix(&ours, &theirs) >= SHORTENING_PREFIX
-        }
-    }
-}
 
 /// Names compare on letters and digits only: the two sources differ freely on
 /// hyphens, case, and spacing (`Dew-point` / `dewpoint`) without disagreeing
@@ -73,6 +55,24 @@ fn normalize(name: &str) -> String {
         .filter(|c| c.is_ascii_alphanumeric())
         .map(|c| c.to_ascii_lowercase())
         .collect()
+}
+
+/// Whether `ours` still visibly describes the same thing as `theirs`.
+///
+/// A recorded divergence pins the *authority's* wording, which catches a
+/// reassigned code — but on its own it says nothing about our side, so a label
+/// swapped for something unrelated would sail through. This is the other half:
+/// some substantial word of ours must still appear in the authority's text.
+/// Deliberately weak, because the accepted labels are heavy rewrites ("Oblate
+/// spheroid (WGS84)" for a 60-character geodetic definition); it only has to
+/// separate a rewrite from an unrelated name, and every defect found in #415
+/// shared no word at all.
+fn shares_a_substantial_word(ours: &str, theirs: &str) -> bool {
+    let haystack = normalize(theirs);
+    ours.split(|c: char| !c.is_ascii_alphanumeric())
+        .map(normalize)
+        .filter(|w| w.len() >= 5)
+        .any(|w| haystack.contains(&w))
 }
 
 fn eccodes_names() -> BTreeMap<(u8, u8, u8), String> {
@@ -120,21 +120,31 @@ fn every_shared_triple_agrees_with_eccodes() {
         if normalize(ours) == normalize(expected) {
             continue;
         }
-        // An exception only excuses the disagreement it was granted for. A
-        // curated shortening that silently became a different parameter — which
-        // is exactly what 10/1/2 was — no longer slips through.
-        if let Some(&(_, _, _, why)) = EXPECTED_DIFFERENCES
+        // An accepted divergence only excuses the disagreement it was reviewed
+        // against. If eccodes' wording changes, the triple has been reassigned
+        // and the entry needs looking at again.
+        match ACCEPTED
             .iter()
             .find(|&&(ed, ec, en, _)| (ed, ec, en) == (d, c, n))
         {
-            if difference_is_licensed(why, ours, expected) {
+            Some(&(_, _, _, reviewed)) if reviewed == expected => {
+                if shares_a_substantial_word(ours, expected) {
+                    continue;
+                }
+                unexpected.push(format!(
+                    "  {d}/{c}/{n}: accepted as a rewrite of eccodes {expected:?}, but \
+                     ours {ours:?} shares no word with it"
+                ));
                 continue;
             }
-            unexpected.push(format!(
-                "  {d}/{c}/{n}: listed as {why:?} but ours {ours:?} is not that \
-                 kind of difference from eccodes {expected:?}"
-            ));
-            continue;
+            Some(&(_, _, _, reviewed)) => {
+                unexpected.push(format!(
+                    "  {d}/{c}/{n}: reviewed against eccodes {reviewed:?}, but eccodes \
+                     now says {expected:?} — the triple has been reassigned"
+                ));
+                continue;
+            }
+            None => {}
         }
         unexpected.push(format!(
             "  {d}/{c}/{n}: ours {ours:?}, eccodes {expected:?}"
@@ -154,28 +164,32 @@ fn every_shared_triple_agrees_with_eccodes() {
     );
 }
 
-/// Each listed exception must still *be* a difference. Without this the list
-/// would quietly become a place where a real regression could hide: an entry
-/// that stopped differing would keep its licence to differ.
+/// Each accepted divergence must still be one, and must still be reviewed
+/// against what eccodes currently says. Without this the list would slowly
+/// become a place where a real regression could hide: an entry that stopped
+/// differing, or whose oracle text moved, would keep its licence to differ.
 #[test]
-fn every_expected_difference_is_still_a_difference() {
+fn every_accepted_divergence_is_still_a_divergence() {
     let oracle = eccodes_names();
-    for &(d, c, n, why) in EXPECTED_DIFFERENCES {
-        let (_, ours, _) = lookup_parameter(d, c, n)
-            .unwrap_or_else(|| panic!("{d}/{c}/{n} no longer resolves ({why:?})"));
+    for &(d, c, n, reviewed) in ACCEPTED {
+        let (_, ours, _) =
+            lookup_parameter(d, c, n).unwrap_or_else(|| panic!("{d}/{c}/{n} no longer resolves"));
         let expected = oracle
             .get(&(d, c, n))
-            .unwrap_or_else(|| panic!("{d}/{c}/{n} is not in the eccodes snapshot ({why:?})"));
+            .unwrap_or_else(|| panic!("{d}/{c}/{n} is not in the eccodes snapshot"));
+        assert_eq!(
+            expected, reviewed,
+            "{d}/{c}/{n}: eccodes' wording changed since this divergence was reviewed"
+        );
         assert_ne!(
             normalize(ours),
             normalize(expected),
-            "{d}/{c}/{n} now agrees with eccodes — drop it from \
-             EXPECTED_DIFFERENCES ({why:?})"
+            "{d}/{c}/{n} now agrees with eccodes — drop it from ACCEPTED"
         );
         assert!(
-            difference_is_licensed(why, ours, expected),
-            "{d}/{c}/{n} is listed as {why:?}, but ours {ours:?} is not that kind \
-             of difference from eccodes {expected:?}"
+            shares_a_substantial_word(ours, expected),
+            "{d}/{c}/{n}: ours {ours:?} shares no word with eccodes {expected:?} — that \
+             is not a shortening, it is a different parameter"
         );
     }
 }

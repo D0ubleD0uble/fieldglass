@@ -554,3 +554,25 @@ eccodes is Apache-2.0 and the table contents are factual data from the WMO
 Manual on Codes. Built by `tools/gen_eccodes_parameter_snapshot.py`
 (`ECCODES_DEFINITIONS=<path> python3 tools/gen_eccodes_parameter_snapshot.py`);
 committed so `tests/wmo_parameter_tables.rs` needs no eccodes at runtime.
+
+## WMO code-table snapshot (`wmo_code_tables.ref.json`)
+
+WMO GRIB2 Code Tables 0.0, 1.2, 1.3, 1.4, 3.1, 3.2, 4.3, 4.4, 4.5, 4.6 and 4.10
+from the same pinned `wmo-im/GRIB2` release (v37, MIT) the parameter tables are
+generated from. The oracle for the *hand-written* lookups in
+`crates/fieldglass-grib2/src/tables.rs`.
+
+Those tables stay hand-written because they carry deliberately short labels —
+WMO spells earth shape 3.2 code 9 as a 180-character geodetic definition, which
+does not belong in a metadata column. Hand-written also meant unverified, and
+sweeping them against this snapshot found six entries whose codes had been
+assigned to something else entirely: Table 1.3 codes 10-13 (Copernicus regional
+reanalysis and Destination Earth, carried as climate-record labels) and Table
+4.10 codes 12-13 (return period and median, carried as confidence index and
+quality indicator).
+
+Built by `tools/gen_wmo_code_table_snapshot.py`, which reuses the parameter
+generator's pinned tag and download so the two cannot drift apart; committed so
+`tests/wmo_code_tables.rs` needs no network. Divergences in that test record
+WMO's exact wording, so a reassigned code fails rather than passing on a stale
+review.
