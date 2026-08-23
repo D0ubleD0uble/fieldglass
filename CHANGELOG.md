@@ -4,7 +4,7 @@ All notable changes to Fieldglass are documented here. The format roughly follow
 
 Versioning is plain [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and every release is a stable one. Pre-1.0, a minor bump (`0.3.0` → `0.4.0`) may break the Rust API; a patch (`0.3.0` → `0.3.1`) does not. The same version numbers the extension and the library crates.
 
-## [0.4.0] — 2026-08-22
+## [0.4.0] — 2026-08-23
 
 ### Added
 
