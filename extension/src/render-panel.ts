@@ -167,11 +167,22 @@ ${compareOpSelectHtml(combineOps)}
  *  path, keep only `[A-Za-z0-9._-]`, and default to `render.png` when nothing
  *  usable remains. Shared by the panel (default name) and the provider (final
  *  name before writing), so a hostile webview string can't steer the write. */
+/** Longest stem `sanitizePngName` will produce, before `.png`. Comfortably
+ *  inside every filesystem's 255-byte component limit, and short enough that
+ *  the save dialog shows the whole name. */
+const MAX_PNG_NAME_STEM = 96;
+
 export function sanitizePngName(name: string): string {
   const base = (name.split(/[\\/]/).pop() ?? "").replace(/\.png$/i, "");
   const cleaned = base
     .replace(/[^A-Za-z0-9._-]+/g, "-")
-    .replace(/^[-.]+|[-.]+$/g, "");
+    .replace(/^[-.]+|[-.]+$/g, "")
+    // WMO parameter names run to 127 characters ("Shape factor with respect to
+    // temperature profile in thermocline"), so since the master tables landed
+    // the default name can be longer than is comfortable to read in a save
+    // dialog. Cap the stem and trim any separator the cut left dangling.
+    .slice(0, MAX_PNG_NAME_STEM)
+    .replace(/[-.]+$/g, "");
   return `${(cleaned || "render").toLowerCase()}.png`;
 }
 

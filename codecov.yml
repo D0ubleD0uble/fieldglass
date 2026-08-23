@@ -58,5 +58,6 @@ ignore:
   - "crates/fieldglass-napi/src/**"
   - "crates/fieldglass-netcdf/src/**"
   - "crates/fieldglass-grib1/src/tables_ecmwf.rs"
+  - "crates/fieldglass-grib2/src/tables_wmo.rs"
   - "crates/fieldglass-core/src/colormap_tables.rs"
   - "**/tests/**"

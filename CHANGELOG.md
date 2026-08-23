@@ -8,7 +8,15 @@ Versioning is plain [Semantic Versioning](https://semver.org/spec/v2.0.0.html), 
 
 ### Added
 
+- **GRIB2 fields are named from the full WMO master parameter tables.** Fieldglass carried 44 curated parameters, so most fields in a real ECMWF or NCEP file displayed as `Parameter 0/20/5` with no units. It now ships the complete WMO Code Table 4.2 — 1,387 parameters across all 60 discipline/category tables — generated from a pinned `wmo-im/GRIB2` release, along with Code Table 4.5 (fixed surface types) and 4.4 (time-range units). Deprecated entries are kept, since files in the wild still use them. WMO publishes no short names, so these entries show a name and units without an abbreviation; the curated short names (`TMP`, `UGRD`, …) are unchanged for the parameters that have them. Closes #415.
+
 - **NetCDF-4 files carrying a fletcher32 checksum now open.** fletcher32 (HDF5 filter id 3) is a checksum rather than a compressor, but its presence in a pipeline used to fail the whole file — including files whose actual compression was deflate, which Fieldglass already decoded. It is now read: the four checksum bytes each chunk carries are verified and stripped, and a chunk whose bytes have been altered is reported as corrupt rather than decoded into plausible-looking numbers. Composes with deflate and shuffle in any order. Closes #412.
+
+### Fixed
+
+- **Nine GRIB2 code-table entries named the wrong thing.** Six were in code tables whose codes the WMO has since assigned to something else: production status (Table 1.3) 10-13 read "Climate Data Record", "Climate projections", "Climate Forecast System Reanalysis" and "Reforecasts", where the WMO assigns 10-11 to Copernicus regional reanalysis and 12-13 to Destination Earth; statistical process (Table 4.10) 12 and 13 read "Confidence index" and "Quality indicator", where the WMO has "Return period" and "Median". A file using any of them was described with a label that has not been correct for several table revisions. All nine are now checked against the WMO tables on every test run, so the curated labels cannot drift from the standard again.
+
+- **Three GRIB2 parameters were named as the wrong quantity.** Their curated entries carried GRIB1 ON388 parameter codes on GRIB2 discipline/category/number triples: `10/1/2` was labelled "Sea surface temperature" but is the u-component of current, `2/0/5` was labelled "Soil moisture content" but is water runoff, and `0/3/9` was labelled "Density" but is geopotential height anomaly. A file carrying any of the three displayed a confident, wrong name and the wrong units. All three now resolve from the WMO master table, and the quantities they were mistaken for resolve at their real triples — including sea-surface temperature, which is `10/3/0` "Water temperature" and had never resolved before. Found by cross-checking the generated tables against eccodes, which is now a test.
 
 ### Changed
 

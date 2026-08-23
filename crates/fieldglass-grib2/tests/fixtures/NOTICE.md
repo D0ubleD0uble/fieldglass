@@ -534,3 +534,45 @@ decoder itself; 0.3.0 decodes all components, so the single-component
 expectation became fieldglass's to enforce, and this fixture is what exercises
 that rejection. There is no eccodes oracle: the fixture is a negative case, and
 eccodes cannot encode a multi-component `grid_jpeg` to compare against.
+
+## eccodes parameter-table snapshot (`eccodes_parameters.ref.json`)
+
+WMO GRIB2 Code Table 4.2 as **eccodes** transcribes it — every
+`definitions/grib2/tables/<version>/4.2.<discipline>.<category>.table` entry
+(name and units) from the highest table version the eccodes checkout ships,
+version 35 at the time of writing. Not a message fixture: it is an oracle for
+`crates/fieldglass-grib2/src/tables_wmo.rs`, which is generated independently
+from the WMO CSVs published by `wmo-im/GRIB2`.
+
+The point is that the two sources are independent transcriptions of the same
+standard, so agreement between them is real evidence. It earned its keep
+immediately: comparing the two found three long-standing curated entries whose
+triples were GRIB1 ON388 parameter codes copied onto GRIB2
+discipline/category/number, each naming the wrong quantity (#415).
+
+eccodes is Apache-2.0 and the table contents are factual data from the WMO
+Manual on Codes. Built by `tools/gen_eccodes_parameter_snapshot.py`
+(`ECCODES_DEFINITIONS=<path> python3 tools/gen_eccodes_parameter_snapshot.py`);
+committed so `tests/wmo_parameter_tables.rs` needs no eccodes at runtime.
+
+## WMO code-table snapshot (`wmo_code_tables.ref.json`)
+
+WMO GRIB2 Code Tables 0.0, 1.2, 1.3, 1.4, 3.1, 3.2, 4.3, 4.4, 4.5, 4.6 and 4.10
+from the same pinned `wmo-im/GRIB2` release (v37, MIT) the parameter tables are
+generated from. The oracle for the *hand-written* lookups in
+`crates/fieldglass-grib2/src/tables.rs`.
+
+Those tables stay hand-written because they carry deliberately short labels —
+WMO spells earth shape 3.2 code 9 as a 180-character geodetic definition, which
+does not belong in a metadata column. Hand-written also meant unverified, and
+sweeping them against this snapshot found six entries whose codes had been
+assigned to something else entirely: Table 1.3 codes 10-13 (Copernicus regional
+reanalysis and Destination Earth, carried as climate-record labels) and Table
+4.10 codes 12-13 (return period and median, carried as confidence index and
+quality indicator).
+
+Built by `tools/gen_wmo_code_table_snapshot.py`, which reuses the parameter
+generator's pinned tag and download so the two cannot drift apart; committed so
+`tests/wmo_code_tables.rs` needs no network. Divergences in that test record
+WMO's exact wording, so a reassigned code fails rather than passing on a stale
+review.

@@ -345,7 +345,7 @@ The same flow applies to either edition — only the source section module diffe
 4. Add the corresponding camelCase field to the `MessageMeta` interface in `extension/src/provider.ts`.
 5. Render it in the webview table in the same file.
 
-WMO ON388 / FM 92 lookup tables live in `crates/fieldglass-grib1/src/tables.rs` (GRIB1) and `crates/fieldglass-grib2/src/tables.rs` (GRIB2) — extend the tables there rather than hardcoding strings at the napi or TypeScript layer. ECMWF GRIB1 local parameter tables (128/129) are generated from eccodes into `tables_ecmwf.rs` by `tools/gen_ecmwf_tables.py` — regenerate that file rather than editing it by hand. The napi-rs bindings automatically convert `snake_case` Rust field names to `camelCase` TypeScript fields.
+WMO ON388 / FM 92 lookup tables live in `crates/fieldglass-grib1/src/tables.rs` (GRIB1) and `crates/fieldglass-grib2/src/tables.rs` (GRIB2) — extend the tables there rather than hardcoding strings at the napi or TypeScript layer. ECMWF GRIB1 local parameter tables (128/129) are generated from eccodes into `tables_ecmwf.rs` by `tools/gen_ecmwf_tables.py`, and the WMO GRIB2 master tables (Code Tables 4.2, 4.4, 4.5) into `tables_wmo.rs` by `tools/gen_wmo_grib2_tables.py` from a pinned `wmo-im/GRIB2` release — regenerate those files rather than editing them by hand. The napi-rs bindings automatically convert `snake_case` Rust field names to `camelCase` TypeScript fields.
 
 ## License
 

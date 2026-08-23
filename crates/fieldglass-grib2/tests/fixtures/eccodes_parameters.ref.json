@@ -1,0 +1,5731 @@
+{
+ "source": "eccodes definitions/grib2/tables/35/4.2.*.table",
+ "table_version": 35,
+ "note": "WMO Code Table 4.2 as eccodes transcribes it — the independent oracle for the WMO-CSV-generated tables_wmo.rs (#415).",
+ "parameters": {
+  "0/0/0": {
+   "name": "Temperature",
+   "units": "K"
+  },
+  "0/0/1": {
+   "name": "Virtual temperature",
+   "units": "K"
+  },
+  "0/0/2": {
+   "name": "Potential temperature",
+   "units": "K"
+  },
+  "0/0/3": {
+   "name": "Pseudo-adiabatic potential temperature or equivalent potential temperature",
+   "units": "K"
+  },
+  "0/0/4": {
+   "name": "Maximum temperature",
+   "units": "K"
+  },
+  "0/0/5": {
+   "name": "Minimum temperature",
+   "units": "K"
+  },
+  "0/0/6": {
+   "name": "Dewpoint temperature",
+   "units": "K"
+  },
+  "0/0/7": {
+   "name": "Dewpoint depression (or deficit)",
+   "units": "K"
+  },
+  "0/0/8": {
+   "name": "Lapse rate",
+   "units": "K/m"
+  },
+  "0/0/9": {
+   "name": "Temperature anomaly",
+   "units": "K"
+  },
+  "0/0/10": {
+   "name": "Latent heat net flux",
+   "units": "W m-2"
+  },
+  "0/0/11": {
+   "name": "Sensible heat net flux",
+   "units": "W m-2"
+  },
+  "0/0/12": {
+   "name": "Heat index",
+   "units": "K"
+  },
+  "0/0/13": {
+   "name": "Wind chill factor",
+   "units": "K"
+  },
+  "0/0/14": {
+   "name": "Minimum dewpoint depression",
+   "units": "K"
+  },
+  "0/0/15": {
+   "name": "Virtual potential temperature",
+   "units": "K"
+  },
+  "0/0/16": {
+   "name": "Snow phase change heat flux",
+   "units": "W m-2"
+  },
+  "0/0/17": {
+   "name": "Skin temperature",
+   "units": "K"
+  },
+  "0/0/18": {
+   "name": "Snow temperature (top of snow)",
+   "units": "K"
+  },
+  "0/0/19": {
+   "name": "Turbulent transfer coefficient for heat",
+   "units": "Numeric"
+  },
+  "0/0/20": {
+   "name": "Turbulent diffusion coefficient for heat",
+   "units": "m2/s"
+  },
+  "0/0/21": {
+   "name": "Apparent temperature",
+   "units": "K"
+  },
+  "0/0/22": {
+   "name": "Temperature tendency due to short-wave radiation",
+   "units": "K s-1"
+  },
+  "0/0/23": {
+   "name": "Temperature tendency due to long-wave radiation",
+   "units": "K s-1"
+  },
+  "0/0/24": {
+   "name": "Temperature tendency due to short-wave radiation, clear sky",
+   "units": "K s-1"
+  },
+  "0/0/25": {
+   "name": "Temperature tendency due to long-wave radiation, clear sky",
+   "units": "K s-1"
+  },
+  "0/0/26": {
+   "name": "Temperature tendency due to parameterization",
+   "units": "K s-1"
+  },
+  "0/0/27": {
+   "name": "Wet-bulb temperature",
+   "units": "K"
+  },
+  "0/0/28": {
+   "name": "Unbalanced component of temperature",
+   "units": "K"
+  },
+  "0/0/29": {
+   "name": "Temperature advection",
+   "units": "K s-1"
+  },
+  "0/0/30": {
+   "name": "Latent heat net flux due to evaporation",
+   "units": "W m-2"
+  },
+  "0/0/31": {
+   "name": "Latent heat net flux due to sublimation",
+   "units": "W m-2"
+  },
+  "0/0/32": {
+   "name": "Wet-bulb potential temperature",
+   "units": "K"
+  },
+  "0/0/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "0/1/0": {
+   "name": "Specific humidity",
+   "units": "kg/kg"
+  },
+  "0/1/1": {
+   "name": "Relative humidity",
+   "units": "%"
+  },
+  "0/1/2": {
+   "name": "Humidity mixing ratio",
+   "units": "kg/kg"
+  },
+  "0/1/3": {
+   "name": "Precipitable water",
+   "units": "kg m-2"
+  },
+  "0/1/4": {
+   "name": "Vapour pressure",
+   "units": "Pa"
+  },
+  "0/1/5": {
+   "name": "Saturation deficit",
+   "units": "Pa"
+  },
+  "0/1/6": {
+   "name": "Evaporation",
+   "units": "kg m-2"
+  },
+  "0/1/7": {
+   "name": "Precipitation rate",
+   "units": "kg m-2 s-1"
+  },
+  "0/1/8": {
+   "name": "Total precipitation",
+   "units": "kg m-2"
+  },
+  "0/1/9": {
+   "name": "Large-scale precipitation (non-convective)",
+   "units": "kg m-2"
+  },
+  "0/1/10": {
+   "name": "Convective precipitation",
+   "units": "kg m-2"
+  },
+  "0/1/11": {
+   "name": "Snow depth",
+   "units": "m"
+  },
+  "0/1/12": {
+   "name": "Snowfall rate water equivalent",
+   "units": "kg m-2 s-1"
+  },
+  "0/1/13": {
+   "name": "Water equivalent of accumulated snow depth",
+   "units": "kg m-2"
+  },
+  "0/1/14": {
+   "name": "Convective snow",
+   "units": "kg m-2"
+  },
+  "0/1/15": {
+   "name": "Large-scale snow",
+   "units": "kg m-2"
+  },
+  "0/1/16": {
+   "name": "Snow melt",
+   "units": "kg m-2"
+  },
+  "0/1/17": {
+   "name": "Snow age",
+   "units": "d"
+  },
+  "0/1/18": {
+   "name": "Absolute humidity",
+   "units": "kg m-3"
+  },
+  "0/1/19": {
+   "name": "Precipitation type",
+   "units": "Code table 4.201"
+  },
+  "0/1/20": {
+   "name": "Integrated liquid water",
+   "units": "kg m-2"
+  },
+  "0/1/21": {
+   "name": "Condensate",
+   "units": "kg/kg"
+  },
+  "0/1/22": {
+   "name": "Cloud mixing ratio",
+   "units": "kg/kg"
+  },
+  "0/1/23": {
+   "name": "Ice water mixing ratio",
+   "units": "kg/kg"
+  },
+  "0/1/24": {
+   "name": "Rain mixing ratio",
+   "units": "kg/kg"
+  },
+  "0/1/25": {
+   "name": "Snow mixing ratio",
+   "units": "kg/kg"
+  },
+  "0/1/26": {
+   "name": "Horizontal moisture convergence",
+   "units": "kg kg-1 s-1"
+  },
+  "0/1/27": {
+   "name": "Maximum relative humidity",
+   "units": "%"
+  },
+  "0/1/28": {
+   "name": "Maximum absolute humidity",
+   "units": "kg m-3"
+  },
+  "0/1/29": {
+   "name": "Total snowfall",
+   "units": "m"
+  },
+  "0/1/30": {
+   "name": "Precipitable water category",
+   "units": "Code table 4.202"
+  },
+  "0/1/31": {
+   "name": "Hail",
+   "units": "m"
+  },
+  "0/1/32": {
+   "name": "Graupel (snow pellets)",
+   "units": "kg/kg"
+  },
+  "0/1/33": {
+   "name": "Categorical rain",
+   "units": "Code table 4.222"
+  },
+  "0/1/34": {
+   "name": "Categorical freezing rain",
+   "units": "Code table 4.222"
+  },
+  "0/1/35": {
+   "name": "Categorical ice pellets",
+   "units": "Code table 4.222"
+  },
+  "0/1/36": {
+   "name": "Categorical snow",
+   "units": "Code table 4.222"
+  },
+  "0/1/37": {
+   "name": "Convective precipitation rate",
+   "units": "kg m-2 s-1"
+  },
+  "0/1/38": {
+   "name": "Horizontal moisture divergence",
+   "units": "kg kg-1 s-1"
+  },
+  "0/1/39": {
+   "name": "Per cent frozen precipitation",
+   "units": "%"
+  },
+  "0/1/40": {
+   "name": "Potential evaporation",
+   "units": "kg m-2"
+  },
+  "0/1/41": {
+   "name": "Potential evaporation rate",
+   "units": "W m-2"
+  },
+  "0/1/42": {
+   "name": "Snow cover",
+   "units": "%"
+  },
+  "0/1/43": {
+   "name": "Rain fraction of total cloud water",
+   "units": "Proportion"
+  },
+  "0/1/44": {
+   "name": "Rime factor",
+   "units": "Numeric"
+  },
+  "0/1/45": {
+   "name": "Total column integrated rain",
+   "units": "kg m-2"
+  },
+  "0/1/46": {
+   "name": "Total column integrated snow",
+   "units": "kg m-2"
+  },
+  "0/1/47": {
+   "name": "Large scale water precipitation (non-convective)",
+   "units": "kg m-2"
+  },
+  "0/1/48": {
+   "name": "Convective water precipitation",
+   "units": "kg m-2"
+  },
+  "0/1/49": {
+   "name": "Total water precipitation",
+   "units": "kg m-2"
+  },
+  "0/1/50": {
+   "name": "Total snow precipitation",
+   "units": "kg m-2"
+  },
+  "0/1/51": {
+   "name": "Total column water [Vertically integrated total water=vapour + cloud water/ice]",
+   "units": "kg m-2"
+  },
+  "0/1/52": {
+   "name": "Total precipitation rate",
+   "units": "kg m-2 s-1"
+  },
+  "0/1/53": {
+   "name": "Total snowfall rate water equivalent",
+   "units": "kg m-2 s-1"
+  },
+  "0/1/54": {
+   "name": "Large scale precipitation rate",
+   "units": "kg m-2 s-1"
+  },
+  "0/1/55": {
+   "name": "Convective snowfall rate water equivalent",
+   "units": "kg m-2 s-1"
+  },
+  "0/1/56": {
+   "name": "Large scale snowfall rate water equivalent",
+   "units": "kg m-2 s-1"
+  },
+  "0/1/57": {
+   "name": "Total snowfall rate",
+   "units": "m/s"
+  },
+  "0/1/58": {
+   "name": "Convective snowfall rate",
+   "units": "m/s"
+  },
+  "0/1/59": {
+   "name": "Large scale snowfall rate",
+   "units": "m/s"
+  },
+  "0/1/60": {
+   "name": "Snow depth water equivalent",
+   "units": "kg m-2"
+  },
+  "0/1/61": {
+   "name": "Snow density",
+   "units": "kg m-3"
+  },
+  "0/1/62": {
+   "name": "Snow evaporation",
+   "units": "kg m-2"
+  },
+  "0/1/63": {
+   "name": "Reserved",
+   "units": ""
+  },
+  "0/1/64": {
+   "name": "Total column integrated water vapour",
+   "units": "kg m-2"
+  },
+  "0/1/65": {
+   "name": "Rain precipitation rate",
+   "units": "kg m-2 s-1"
+  },
+  "0/1/66": {
+   "name": "Snow precipitation rate",
+   "units": "kg m-2 s-1"
+  },
+  "0/1/67": {
+   "name": "Freezing rain precipitation rate",
+   "units": "kg m-2 s-1"
+  },
+  "0/1/68": {
+   "name": "Ice pellets precipitation rate",
+   "units": "kg m-2 s-1"
+  },
+  "0/1/69": {
+   "name": "Total column integrated cloud water",
+   "units": "kg m-2"
+  },
+  "0/1/70": {
+   "name": "Total column integrated cloud ice",
+   "units": "kg m-2"
+  },
+  "0/1/71": {
+   "name": "Hail mixing ratio",
+   "units": "kg/kg"
+  },
+  "0/1/72": {
+   "name": "Total column integrated hail",
+   "units": "kg m-2"
+  },
+  "0/1/73": {
+   "name": "Hail precipitation rate",
+   "units": "kg m-2 s-1"
+  },
+  "0/1/74": {
+   "name": "Total column integrated graupel",
+   "units": "kg m-2"
+  },
+  "0/1/75": {
+   "name": "Graupel (snow pellets) precipitation rate",
+   "units": "kg m-2 s-1"
+  },
+  "0/1/76": {
+   "name": "Convective rain rate",
+   "units": "kg m-2 s-1"
+  },
+  "0/1/77": {
+   "name": "Large scale rain rate",
+   "units": "kg m-2 s-1"
+  },
+  "0/1/78": {
+   "name": "Total column integrated water (all components including precipitation)",
+   "units": "kg m-2"
+  },
+  "0/1/79": {
+   "name": "Evaporation rate",
+   "units": "kg m-2 s-1"
+  },
+  "0/1/80": {
+   "name": "Total condensate",
+   "units": "kg/kg"
+  },
+  "0/1/81": {
+   "name": "Total column-integrated condensate",
+   "units": "kg m-2"
+  },
+  "0/1/82": {
+   "name": "Cloud ice mixing-ratio",
+   "units": "kg/kg"
+  },
+  "0/1/83": {
+   "name": "Specific cloud liquid water content",
+   "units": "kg/kg"
+  },
+  "0/1/84": {
+   "name": "Specific cloud ice water content",
+   "units": "kg/kg"
+  },
+  "0/1/85": {
+   "name": "Specific rainwater content",
+   "units": "kg/kg"
+  },
+  "0/1/86": {
+   "name": "Specific snow water content",
+   "units": "kg/kg"
+  },
+  "0/1/87": {
+   "name": "Stratiform precipitation rate",
+   "units": "kg m-2 s-1"
+  },
+  "0/1/88": {
+   "name": "Categorical convective precipitation",
+   "units": "Code table 4.222"
+  },
+  "0/1/90": {
+   "name": "Total kinematic moisture flux",
+   "units": "kg kg-1 m s-1"
+  },
+  "0/1/91": {
+   "name": "u-component (zonal) kinematic moisture flux",
+   "units": "kg kg-1 m s-1"
+  },
+  "0/1/92": {
+   "name": "v-component (meridional) kinematic moisture flux",
+   "units": "kg kg-1 m s-1"
+  },
+  "0/1/93": {
+   "name": "Relative humidity with respect to water",
+   "units": "%"
+  },
+  "0/1/94": {
+   "name": "Relative humidity with respect to ice",
+   "units": "%"
+  },
+  "0/1/95": {
+   "name": "Freezing or frozen precipitation rate",
+   "units": "kg m-2 s-1"
+  },
+  "0/1/96": {
+   "name": "Mass density of rain",
+   "units": "kg m-3"
+  },
+  "0/1/97": {
+   "name": "Mass density of snow",
+   "units": "kg m-3"
+  },
+  "0/1/98": {
+   "name": "Mass density of graupel",
+   "units": "kg m-3"
+  },
+  "0/1/99": {
+   "name": "Mass density of hail",
+   "units": "kg m-3"
+  },
+  "0/1/100": {
+   "name": "Specific number concentration of rain",
+   "units": "kg-1"
+  },
+  "0/1/101": {
+   "name": "Specific number concentration of snow",
+   "units": "kg-1"
+  },
+  "0/1/102": {
+   "name": "Specific number concentration of graupel",
+   "units": "kg-1"
+  },
+  "0/1/103": {
+   "name": "Specific number concentration of hail",
+   "units": "kg-1"
+  },
+  "0/1/104": {
+   "name": "Number density of rain",
+   "units": "m-3"
+  },
+  "0/1/105": {
+   "name": "Number density of snow",
+   "units": "m-3"
+  },
+  "0/1/106": {
+   "name": "Number density of graupel",
+   "units": "m-3"
+  },
+  "0/1/107": {
+   "name": "Number density of hail",
+   "units": "m-3"
+  },
+  "0/1/108": {
+   "name": "Specific humidity tendency due to parameterization",
+   "units": "kg kg-1 s-1"
+  },
+  "0/1/109": {
+   "name": "Mass density of liquid water coating on hail expressed as mass of liquid water per unit volume of air",
+   "units": "kg m-3"
+  },
+  "0/1/110": {
+   "name": "Specific mass of liquid water coating on hail expressed as mass of liquid water per unit mass of moist air",
+   "units": "kg kg-1"
+  },
+  "0/1/111": {
+   "name": "Mass mixing ratio of liquid water coating on hail expressed as mass of liquid water per unit mass of dry air",
+   "units": "kg kg-1"
+  },
+  "0/1/112": {
+   "name": "Mass density of liquid water coating on graupel expressed as mass of liquid water per unit volume of air",
+   "units": "kg m-3"
+  },
+  "0/1/113": {
+   "name": "Specific mass of liquid water coating on graupel expressed as mass of liquid water per unit mass of moist air",
+   "units": "kg kg-1"
+  },
+  "0/1/114": {
+   "name": "Mass mixing ratio of liquid water coating on graupel expressed as mass of liquid water per unit mass of dry air",
+   "units": "kg kg-1"
+  },
+  "0/1/115": {
+   "name": "Mass density of liquid water coating on snow expressed as mass of liquid water per unit volume of air",
+   "units": "kg m-3"
+  },
+  "0/1/116": {
+   "name": "Specific mass of liquid water coating on snow expressed as mass of liquid water per unit mass of moist air",
+   "units": "kg kg-1"
+  },
+  "0/1/117": {
+   "name": "Mass mixing ratio of liquid water coating on snow expressed as mass of liquid water per unit mass of dry air",
+   "units": "kg kg-1"
+  },
+  "0/1/118": {
+   "name": "Unbalanced component of specific humidity",
+   "units": "kg kg-1"
+  },
+  "0/1/119": {
+   "name": "Unbalanced component of specific cloud liquid water content",
+   "units": "kg kg-1"
+  },
+  "0/1/120": {
+   "name": "Unbalanced component of specific cloud ice water content",
+   "units": "kg kg-1"
+  },
+  "0/1/121": {
+   "name": "Fraction of snow cover",
+   "units": "Proportion"
+  },
+  "0/1/122": {
+   "name": "Precipitation intensity index",
+   "units": "Code table 4.247"
+  },
+  "0/1/123": {
+   "name": "Dominant precipitation type",
+   "units": "Code table 4.201"
+  },
+  "0/1/124": {
+   "name": "Presence of showers",
+   "units": "Code table 4.222"
+  },
+  "0/1/125": {
+   "name": "Presence of blowing snow",
+   "units": "Code table 4.222"
+  },
+  "0/1/126": {
+   "name": "Presence of blizzard",
+   "units": "Code table 4.222"
+  },
+  "0/1/127": {
+   "name": "Ice pellets (non-water equivalent) precipitation rate",
+   "units": "m/s"
+  },
+  "0/1/128": {
+   "name": "Total solid precipitation rate",
+   "units": "kg m-2 s-1"
+  },
+  "0/1/129": {
+   "name": "Effective radius of cloud water",
+   "units": "m"
+  },
+  "0/1/130": {
+   "name": "Effective radius of rain",
+   "units": "m"
+  },
+  "0/1/131": {
+   "name": "Effective radius of cloud ice",
+   "units": "m"
+  },
+  "0/1/132": {
+   "name": "Effective radius of snow",
+   "units": "m"
+  },
+  "0/1/133": {
+   "name": "Effective radius of graupel",
+   "units": "m"
+  },
+  "0/1/134": {
+   "name": "Effective radius of hail",
+   "units": "m"
+  },
+  "0/1/135": {
+   "name": "Effective radius of subgrid liquid clouds",
+   "units": "m"
+  },
+  "0/1/136": {
+   "name": "Effective radius of subgrid ice clouds",
+   "units": "m"
+  },
+  "0/1/137": {
+   "name": "Effective aspect ratio of rain",
+   "units": "-"
+  },
+  "0/1/138": {
+   "name": "Effective aspect ratio of cloud ice",
+   "units": "-"
+  },
+  "0/1/139": {
+   "name": "Effective aspect ratio of snow",
+   "units": "-"
+  },
+  "0/1/140": {
+   "name": "Effective aspect ratio of graupel",
+   "units": "-"
+  },
+  "0/1/141": {
+   "name": "Effective aspect ratio of hail",
+   "units": "-"
+  },
+  "0/1/142": {
+   "name": "Effective aspect ratio of subgrid ice clouds",
+   "units": "-"
+  },
+  "0/1/143": {
+   "name": "Potential evaporation rate",
+   "units": "kg m-2 s-1"
+  },
+  "0/1/144": {
+   "name": "Specific rain water content (convective)",
+   "units": "kg kg-1"
+  },
+  "0/1/145": {
+   "name": "Specific snow water content (convective)",
+   "units": "kg kg-1"
+  },
+  "0/1/146": {
+   "name": "Cloud ice precipitation rate",
+   "units": "kg m-2 s-1"
+  },
+  "0/1/147": {
+   "name": "Character of precipitation",
+   "units": "Code table 4.249"
+  },
+  "0/1/148": {
+   "name": "Snow evaporation rate",
+   "units": "kg m-2 s-1"
+  },
+  "0/1/149": {
+   "name": "Cloud water mixing ratio",
+   "units": "kg kg-1"
+  },
+  "0/1/150": {
+   "name": "Column integrated eastward water vapour mass flux",
+   "units": "kg m-1 s-1"
+  },
+  "0/1/151": {
+   "name": "Column integrated northward water vapour mass flux",
+   "units": "kg m-1 s-1"
+  },
+  "0/1/152": {
+   "name": "Column integrated eastward cloud liquid water mass flux",
+   "units": "kg m-1 s-1"
+  },
+  "0/1/153": {
+   "name": "Column integrated northward cloud liquid water mass flux",
+   "units": "kg m-1 s-1"
+  },
+  "0/1/154": {
+   "name": "Column integrated eastward cloud ice mass flux",
+   "units": "kg m-1 s-1"
+  },
+  "0/1/155": {
+   "name": "Column integrated northward cloud ice mass flux",
+   "units": "kg m-1 s-1"
+  },
+  "0/1/156": {
+   "name": "Column integrated eastward rain mass flux",
+   "units": "kg m-1 s-1"
+  },
+  "0/1/157": {
+   "name": "Column integrated northward rain mass flux",
+   "units": "kg m-1 s-1"
+  },
+  "0/1/158": {
+   "name": "Column integrated eastward snow mass flux",
+   "units": "kg m-1 s-1"
+  },
+  "0/1/159": {
+   "name": "Column integrated northward snow mass flux",
+   "units": "kg m-1 s-1"
+  },
+  "0/1/160": {
+   "name": "Column integrated divergence of water vapour mass flux",
+   "units": "kg m-2 s-1"
+  },
+  "0/1/161": {
+   "name": "Column integrated divergence of cloud liquid water mass flux",
+   "units": "kg m-2 s-1"
+  },
+  "0/1/162": {
+   "name": "Column integrated divergence of cloud ice mass flux",
+   "units": "kg m-2 s-1"
+  },
+  "0/1/163": {
+   "name": "Column integrated divergence of rain mass flux",
+   "units": "kg m-2 s-1"
+  },
+  "0/1/164": {
+   "name": "Column integrated divergence of snow mass flux",
+   "units": "kg m-2 s-1"
+  },
+  "0/1/165": {
+   "name": "Column integrated divergence of total water mass flux",
+   "units": "kg m-2 s-1"
+  },
+  "0/1/166": {
+   "name": "Column integrated water vapour flux",
+   "units": "kg m-2 s-1"
+  },
+  "0/1/167": {
+   "name": "Total column supercooled liquid water",
+   "units": "kg m-2"
+  },
+  "0/1/168": {
+   "name": "Saturation specific humidity with respect to water",
+   "units": "kg m-3"
+  },
+  "0/1/169": {
+   "name": "Total column integrated saturation specific humidity with respect to water",
+   "units": "kg m-2"
+  },
+  "0/1/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "0/2/0": {
+   "name": "Wind direction (from which blowing)",
+   "units": "degree true"
+  },
+  "0/2/1": {
+   "name": "Wind speed",
+   "units": "m/s"
+  },
+  "0/2/2": {
+   "name": "u-component of wind",
+   "units": "m/s"
+  },
+  "0/2/3": {
+   "name": "v-component of wind",
+   "units": "m/s"
+  },
+  "0/2/4": {
+   "name": "Stream function",
+   "units": "m2/s"
+  },
+  "0/2/5": {
+   "name": "Velocity potential",
+   "units": "m2/s"
+  },
+  "0/2/6": {
+   "name": "Montgomery stream function",
+   "units": "m2 s-2"
+  },
+  "0/2/7": {
+   "name": "Sigma coordinate vertical velocity",
+   "units": "/s"
+  },
+  "0/2/8": {
+   "name": "Vertical velocity (pressure)",
+   "units": "Pa/s"
+  },
+  "0/2/9": {
+   "name": "Vertical velocity (geometric)",
+   "units": "m/s"
+  },
+  "0/2/10": {
+   "name": "Absolute vorticity",
+   "units": "/s"
+  },
+  "0/2/11": {
+   "name": "Absolute divergence",
+   "units": "/s"
+  },
+  "0/2/12": {
+   "name": "Relative vorticity",
+   "units": "/s"
+  },
+  "0/2/13": {
+   "name": "Relative divergence",
+   "units": "/s"
+  },
+  "0/2/14": {
+   "name": "Potential vorticity",
+   "units": "K m2 kg-1 s-1"
+  },
+  "0/2/15": {
+   "name": "Vertical u-component shear",
+   "units": "/s"
+  },
+  "0/2/16": {
+   "name": "Vertical v-component shear",
+   "units": "/s"
+  },
+  "0/2/17": {
+   "name": "Momentum flux, u-component",
+   "units": "N m-2"
+  },
+  "0/2/18": {
+   "name": "Momentum flux, v-component",
+   "units": "N m-2"
+  },
+  "0/2/19": {
+   "name": "Wind mixing energy",
+   "units": "J"
+  },
+  "0/2/20": {
+   "name": "Boundary layer dissipation",
+   "units": "W m-2"
+  },
+  "0/2/21": {
+   "name": "Maximum wind speed",
+   "units": "m/s"
+  },
+  "0/2/22": {
+   "name": "Wind speed (gust)",
+   "units": "m/s"
+  },
+  "0/2/23": {
+   "name": "u-component of wind (gust)",
+   "units": "m/s"
+  },
+  "0/2/24": {
+   "name": "v-component of wind (gust)",
+   "units": "m/s"
+  },
+  "0/2/25": {
+   "name": "Vertical speed shear",
+   "units": "/s"
+  },
+  "0/2/26": {
+   "name": "Horizontal momentum flux",
+   "units": "N m-2"
+  },
+  "0/2/27": {
+   "name": "u-component storm motion",
+   "units": "m/s"
+  },
+  "0/2/28": {
+   "name": "v-component storm motion",
+   "units": "m/s"
+  },
+  "0/2/29": {
+   "name": "Drag coefficient",
+   "units": "Numeric"
+  },
+  "0/2/30": {
+   "name": "Frictional velocity",
+   "units": "m/s"
+  },
+  "0/2/31": {
+   "name": "Turbulent diffusion coefficient for momentum",
+   "units": "m2/s"
+  },
+  "0/2/32": {
+   "name": "Eta coordinate vertical velocity",
+   "units": "/s"
+  },
+  "0/2/33": {
+   "name": "Wind fetch",
+   "units": "m"
+  },
+  "0/2/34": {
+   "name": "Normal wind component",
+   "units": "m/s"
+  },
+  "0/2/35": {
+   "name": "Tangential wind component",
+   "units": "m/s"
+  },
+  "0/2/36": {
+   "name": "Amplitude function for Rossby wave envelope for meridional wind",
+   "units": "m/s"
+  },
+  "0/2/37": {
+   "name": "Northward turbulent surface stress",
+   "units": "N m-2 s"
+  },
+  "0/2/38": {
+   "name": "Eastward turbulent surface stress",
+   "units": "N m-2 s"
+  },
+  "0/2/39": {
+   "name": "Eastward wind tendency due to parameterization",
+   "units": "m s-2"
+  },
+  "0/2/40": {
+   "name": "Northward wind tendency due to parameterization",
+   "units": "m s-2"
+  },
+  "0/2/41": {
+   "name": "u-component of geostrophic wind",
+   "units": "m s-1"
+  },
+  "0/2/42": {
+   "name": "v-component of geostrophic wind",
+   "units": "m s-1"
+  },
+  "0/2/43": {
+   "name": "Geostrophic wind direction",
+   "units": "degree true"
+  },
+  "0/2/44": {
+   "name": "Geostrophic wind speed",
+   "units": "m s-1"
+  },
+  "0/2/45": {
+   "name": "Unbalanced component of divergence",
+   "units": "s-1"
+  },
+  "0/2/46": {
+   "name": "Vorticity advection",
+   "units": "s-2"
+  },
+  "0/2/47": {
+   "name": "Surface roughness for heat",
+   "units": "m"
+  },
+  "0/2/48": {
+   "name": "Surface roughness for moisture",
+   "units": "m"
+  },
+  "0/2/49": {
+   "name": "Wind stress",
+   "units": "N m-2"
+  },
+  "0/2/50": {
+   "name": "Eastward wind stress",
+   "units": "N m-2"
+  },
+  "0/2/51": {
+   "name": "Northward wind stress",
+   "units": "N m-2"
+  },
+  "0/2/52": {
+   "name": "u-component of wind stress",
+   "units": "N m-2"
+  },
+  "0/2/53": {
+   "name": "v-component of wind stress",
+   "units": "N m-2"
+  },
+  "0/2/54": {
+   "name": "Natural logarithm of surface roughness length for heat",
+   "units": "Numeric"
+  },
+  "0/2/55": {
+   "name": "Natural logarithm of surface roughness length for moisture",
+   "units": "Numeric"
+  },
+  "0/2/56": {
+   "name": "u-component of neutral wind",
+   "units": "m s-1"
+  },
+  "0/2/57": {
+   "name": "v-component of neutral wind",
+   "units": "m s-1"
+  },
+  "0/2/58": {
+   "name": "Magnitude of turbulent surface stress",
+   "units": "N m-2"
+  },
+  "0/2/59": {
+   "name": "Vertical divergence",
+   "units": "s-1"
+  },
+  "0/2/60": {
+   "name": "Drag thermal coefficient",
+   "units": "Numeric"
+  },
+  "0/2/61": {
+   "name": "Drag evaporation coefficient",
+   "units": "Numeric"
+  },
+  "0/2/62": {
+   "name": "Eastward turbulent surface stress",
+   "units": "N m-2"
+  },
+  "0/2/63": {
+   "name": "Northward turbulent surface stress",
+   "units": "N m-2"
+  },
+  "0/2/64": {
+   "name": "Eastward turbulent surface stress due to orographic form drag",
+   "units": "N m-2"
+  },
+  "0/2/65": {
+   "name": "Northward turbulent surface stress due to orographic form drag",
+   "units": "N m-2"
+  },
+  "0/2/66": {
+   "name": "Eastward turbulent surface stress due to surface roughness",
+   "units": "N m-2"
+  },
+  "0/2/67": {
+   "name": "Northward turbulent surface stress due to surface roughness",
+   "units": "N m-2"
+  },
+  "0/2/68": {
+   "name": "Convective gust",
+   "units": "m s-1"
+  },
+  "0/2/69": {
+   "name": "Turbulent gust",
+   "units": "m s-1"
+  },
+  "0/2/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "0/3/0": {
+   "name": "Pressure",
+   "units": "Pa"
+  },
+  "0/3/1": {
+   "name": "Pressure reduced to MSL",
+   "units": "Pa"
+  },
+  "0/3/2": {
+   "name": "Pressure tendency",
+   "units": "Pa/s"
+  },
+  "0/3/3": {
+   "name": "ICAO Standard Atmosphere Reference Height",
+   "units": "m"
+  },
+  "0/3/4": {
+   "name": "Geopotential",
+   "units": "m2 s-2"
+  },
+  "0/3/5": {
+   "name": "Geopotential height",
+   "units": "gpm"
+  },
+  "0/3/6": {
+   "name": "Geometric height",
+   "units": "m"
+  },
+  "0/3/7": {
+   "name": "Standard deviation of height",
+   "units": "m"
+  },
+  "0/3/8": {
+   "name": "Pressure anomaly",
+   "units": "Pa"
+  },
+  "0/3/9": {
+   "name": "Geopotential height anomaly",
+   "units": "gpm"
+  },
+  "0/3/10": {
+   "name": "Density",
+   "units": "kg m-3"
+  },
+  "0/3/11": {
+   "name": "Altimeter setting",
+   "units": "Pa"
+  },
+  "0/3/12": {
+   "name": "Thickness",
+   "units": "m"
+  },
+  "0/3/13": {
+   "name": "Pressure altitude",
+   "units": "m"
+  },
+  "0/3/14": {
+   "name": "Density altitude",
+   "units": "m"
+  },
+  "0/3/15": {
+   "name": "5-wave geopotential height",
+   "units": "gpm"
+  },
+  "0/3/16": {
+   "name": "Zonal flux of gravity wave stress",
+   "units": "N m-2"
+  },
+  "0/3/17": {
+   "name": "Meridional flux of gravity wave stress",
+   "units": "N m-2"
+  },
+  "0/3/18": {
+   "name": "Planetary boundary layer height",
+   "units": "m"
+  },
+  "0/3/19": {
+   "name": "5-wave geopotential height anomaly",
+   "units": "gpm"
+  },
+  "0/3/20": {
+   "name": "Standard deviation of subgrid-scale orography",
+   "units": "m"
+  },
+  "0/3/21": {
+   "name": "Angle of subgrid-scale orography",
+   "units": "rad"
+  },
+  "0/3/22": {
+   "name": "Slope of subgrid-scale orography",
+   "units": "Numeric"
+  },
+  "0/3/23": {
+   "name": "Gravity wave dissipation",
+   "units": "W m-2"
+  },
+  "0/3/24": {
+   "name": "Anisotropy of subgrid-scale orography",
+   "units": "Numeric"
+  },
+  "0/3/25": {
+   "name": "Natural logarithm of pressure in Pa",
+   "units": "Numeric"
+  },
+  "0/3/26": {
+   "name": "Exner pressure",
+   "units": "Numeric"
+  },
+  "0/3/27": {
+   "name": "Updraught mass flux",
+   "units": "kg m-2 s-1"
+  },
+  "0/3/28": {
+   "name": "Downdraught mass flux",
+   "units": "kg m-2 s-1"
+  },
+  "0/3/29": {
+   "name": "Updraught detrainment rate",
+   "units": "kg m-3 s-1"
+  },
+  "0/3/30": {
+   "name": "Downdraught detrainment rate",
+   "units": "kg m-3 s-1"
+  },
+  "0/3/31": {
+   "name": "Unbalanced component of logarithm of surface pressure",
+   "units": "-"
+  },
+  "0/3/32": {
+   "name": "Saturation water vapour pressure",
+   "units": "Pa"
+  },
+  "0/3/33": {
+   "name": "Geometric altitude above mean sea level",
+   "units": "m"
+  },
+  "0/3/34": {
+   "name": "Geometric height above ground level",
+   "units": "m"
+  },
+  "0/3/35": {
+   "name": "Column integrated divergence of total mass flux",
+   "units": "kg m-2 s-1"
+  },
+  "0/3/36": {
+   "name": "Column integrated eastward total mass flux",
+   "units": "kg m-1 s-1"
+  },
+  "0/3/37": {
+   "name": "Column integrated northward total mass flux",
+   "units": "kg m-1 s-1"
+  },
+  "0/3/38": {
+   "name": "Standard deviation of filtered subgrid orography",
+   "units": "m"
+  },
+  "0/3/39": {
+   "name": "Column integrated mass of atmosphere",
+   "units": "kg m-2"
+  },
+  "0/3/40": {
+   "name": "Column integrated eastward geopotential flux",
+   "units": "W m-1"
+  },
+  "0/3/41": {
+   "name": "Column integrated northward geopotential flux",
+   "units": "W m-1"
+  },
+  "0/3/42": {
+   "name": "Column integrated divergence of water geopotential flux",
+   "units": "W m-2"
+  },
+  "0/3/43": {
+   "name": "Column integrated divergence of geopotential flux",
+   "units": "W m-2"
+  },
+  "0/3/44": {
+   "name": "Height of zero-degree wet-bulb temperature",
+   "units": "m"
+  },
+  "0/3/45": {
+   "name": "Height of one-degree wet-bulb temperature",
+   "units": "m"
+  },
+  "0/3/46": {
+   "name": "Pressure departure from hydrostatic state",
+   "units": "Pa"
+  },
+  "0/3/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "0/4/0": {
+   "name": "Net short-wave radiation flux (surface)",
+   "units": "W m-2"
+  },
+  "0/4/1": {
+   "name": "Net short-wave radiation flux (top of atmosphere)",
+   "units": "W m-2"
+  },
+  "0/4/2": {
+   "name": "Short-wave radiation flux",
+   "units": "W m-2"
+  },
+  "0/4/3": {
+   "name": "Global radiation flux",
+   "units": "W m-2"
+  },
+  "0/4/4": {
+   "name": "Brightness temperature",
+   "units": "K"
+  },
+  "0/4/5": {
+   "name": "Radiance (with respect to wave number)",
+   "units": "W m-1 sr-1"
+  },
+  "0/4/6": {
+   "name": "Radiance (with respect to wavelength)",
+   "units": "W m-3 sr-1"
+  },
+  "0/4/7": {
+   "name": "Downward short-wave radiation flux",
+   "units": "W m-2"
+  },
+  "0/4/8": {
+   "name": "Upward short-wave radiation flux",
+   "units": "W m-2"
+  },
+  "0/4/9": {
+   "name": "Net short wave radiation flux",
+   "units": "W m-2"
+  },
+  "0/4/10": {
+   "name": "Photosynthetically active radiation",
+   "units": "W m-2"
+  },
+  "0/4/11": {
+   "name": "Net short-wave radiation flux, clear sky",
+   "units": "W m-2"
+  },
+  "0/4/12": {
+   "name": "Downward UV radiation",
+   "units": "W m-2"
+  },
+  "0/4/13": {
+   "name": "Direct short-wave radiation flux",
+   "units": "W m-2"
+  },
+  "0/4/14": {
+   "name": "Diffuse short-wave radiation flux",
+   "units": "W m-2"
+  },
+  "0/4/15": {
+   "name": "Upward UV radiation emitted/reflected from the Earth's surface",
+   "units": "W m-2"
+  },
+  "0/4/50": {
+   "name": "UV index (under clear sky)",
+   "units": "Numeric"
+  },
+  "0/4/51": {
+   "name": "UV index",
+   "units": "Numeric"
+  },
+  "0/4/52": {
+   "name": "Downward short-wave radiation flux, clear sky",
+   "units": "W m-2"
+  },
+  "0/4/53": {
+   "name": "Upward short-wave radiation flux, clear sky",
+   "units": "W m-2"
+  },
+  "0/4/54": {
+   "name": "Direct normal short-wave radiation flux",
+   "units": "W m-2"
+  },
+  "0/4/55": {
+   "name": "UV visible albedo for diffuse radiation",
+   "units": "%"
+  },
+  "0/4/56": {
+   "name": "UV visible albedo for direct radiation",
+   "units": "%"
+  },
+  "0/4/57": {
+   "name": "UV visible albedo for direct radiation, geometric component",
+   "units": "%"
+  },
+  "0/4/58": {
+   "name": "UV visible albedo for direct radiation, isotropic component",
+   "units": "%"
+  },
+  "0/4/59": {
+   "name": "UV visible albedo for direct radiation, volumetric component",
+   "units": "%"
+  },
+  "0/4/60": {
+   "name": "Photosynthetically active radiation flux, clear sky",
+   "units": "W m-2"
+  },
+  "0/4/61": {
+   "name": "Direct short-wave radiation flux, clear sky",
+   "units": "W m-2"
+  },
+  "0/4/62": {
+   "name": "Direct normal short-wave radiation flux, clear sky",
+   "units": "W m-2"
+  },
+  "0/4/63": {
+   "name": "Diffuse short-wave radiation flux, clear sky",
+   "units": "W m-2"
+  },
+  "0/4/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "0/5/0": {
+   "name": "Net long-wave radiation flux (surface)",
+   "units": "W m-2"
+  },
+  "0/5/1": {
+   "name": "Net long-wave radiation flux (top of atmosphere)",
+   "units": "W m-2"
+  },
+  "0/5/2": {
+   "name": "Long-wave radiation flux",
+   "units": "W m-2"
+  },
+  "0/5/3": {
+   "name": "Downward long-wave radiation flux",
+   "units": "W m-2"
+  },
+  "0/5/4": {
+   "name": "Upward long-wave radiation flux",
+   "units": "W m-2"
+  },
+  "0/5/5": {
+   "name": "Net long-wave radiation flux",
+   "units": "W m-2"
+  },
+  "0/5/6": {
+   "name": "Net long-wave radiation flux, clear sky",
+   "units": "W m-2"
+  },
+  "0/5/7": {
+   "name": "Brightness temperature",
+   "units": "K"
+  },
+  "0/5/8": {
+   "name": "Downward long-wave radiation flux, clear sky",
+   "units": "W m-2"
+  },
+  "0/5/9": {
+   "name": "Near IR albedo for diffuse radiation",
+   "units": "%"
+  },
+  "0/5/10": {
+   "name": "Near IR albedo for direct radiation",
+   "units": "%"
+  },
+  "0/5/11": {
+   "name": "Near IR albedo for direct radiation, geometric component",
+   "units": "%"
+  },
+  "0/5/12": {
+   "name": "Near IR albedo for direct radiation, isotropic component",
+   "units": "%"
+  },
+  "0/5/13": {
+   "name": "Near IR albedo for direct radiation, volumetric component",
+   "units": "%"
+  },
+  "0/5/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "0/6/0": {
+   "name": "Cloud ice",
+   "units": "kg m-2"
+  },
+  "0/6/1": {
+   "name": "Total cloud cover",
+   "units": "%"
+  },
+  "0/6/2": {
+   "name": "Convective cloud cover",
+   "units": "%"
+  },
+  "0/6/3": {
+   "name": "Low cloud cover",
+   "units": "%"
+  },
+  "0/6/4": {
+   "name": "Medium cloud cover",
+   "units": "%"
+  },
+  "0/6/5": {
+   "name": "High cloud cover",
+   "units": "%"
+  },
+  "0/6/6": {
+   "name": "Cloud water",
+   "units": "kg m-2"
+  },
+  "0/6/7": {
+   "name": "Cloud amount",
+   "units": "%"
+  },
+  "0/6/8": {
+   "name": "Cloud type",
+   "units": "Code table 4.203"
+  },
+  "0/6/9": {
+   "name": "Thunderstorm maximum tops",
+   "units": "m"
+  },
+  "0/6/10": {
+   "name": "Thunderstorm coverage",
+   "units": "Code table 4.204"
+  },
+  "0/6/11": {
+   "name": "Cloud base",
+   "units": "m"
+  },
+  "0/6/12": {
+   "name": "Cloud top",
+   "units": "m"
+  },
+  "0/6/13": {
+   "name": "Ceiling",
+   "units": "m"
+  },
+  "0/6/14": {
+   "name": "Non-convective cloud cover",
+   "units": "%"
+  },
+  "0/6/15": {
+   "name": "Cloud work function",
+   "units": "J/kg"
+  },
+  "0/6/16": {
+   "name": "Convective cloud efficiency",
+   "units": "Proportion"
+  },
+  "0/6/17": {
+   "name": "Total condensate",
+   "units": "kg/kg"
+  },
+  "0/6/18": {
+   "name": "Total column-integrated cloud water",
+   "units": "kg m-2"
+  },
+  "0/6/19": {
+   "name": "Total column-integrated cloud ice",
+   "units": "kg m-2"
+  },
+  "0/6/20": {
+   "name": "Total column-integrated condensate",
+   "units": "kg m-2"
+  },
+  "0/6/21": {
+   "name": "Ice fraction of total condensate",
+   "units": "Proportion"
+  },
+  "0/6/22": {
+   "name": "Cloud cover",
+   "units": "%"
+  },
+  "0/6/23": {
+   "name": "Cloud ice mixing ratio",
+   "units": "kg/kg"
+  },
+  "0/6/24": {
+   "name": "Sunshine",
+   "units": "Numeric"
+  },
+  "0/6/25": {
+   "name": "Horizontal extent of cumulonimbus (CB)",
+   "units": "%"
+  },
+  "0/6/26": {
+   "name": "Height of convective cloud base",
+   "units": "m"
+  },
+  "0/6/27": {
+   "name": "Height of convective cloud top",
+   "units": "m"
+  },
+  "0/6/28": {
+   "name": "Number of cloud droplets per unit mass of air",
+   "units": "/kg"
+  },
+  "0/6/29": {
+   "name": "Number of cloud ice particles per unit mass of air",
+   "units": "/kg"
+  },
+  "0/6/30": {
+   "name": "Number density of cloud droplets",
+   "units": "m-3"
+  },
+  "0/6/31": {
+   "name": "Number density of cloud ice particles",
+   "units": "m-3"
+  },
+  "0/6/32": {
+   "name": "Fraction of cloud cover",
+   "units": "Numeric"
+  },
+  "0/6/33": {
+   "name": "Sunshine duration",
+   "units": "s"
+  },
+  "0/6/34": {
+   "name": "Surface long-wave effective total cloudiness",
+   "units": "Numeric"
+  },
+  "0/6/35": {
+   "name": "Surface short-wave effective total cloudiness",
+   "units": "Numeric"
+  },
+  "0/6/36": {
+   "name": "Fraction of stratiform precipitation cover",
+   "units": "Proportion"
+  },
+  "0/6/37": {
+   "name": "Fraction of convective precipitation cover",
+   "units": "Proportion"
+  },
+  "0/6/38": {
+   "name": "Mass density of cloud droplets",
+   "units": "kg m-3"
+  },
+  "0/6/39": {
+   "name": "Mass density of cloud ice",
+   "units": "kg m-3"
+  },
+  "0/6/40": {
+   "name": "Mass density of convective cloud water droplets",
+   "units": "kg m-3"
+  },
+  "0/6/47": {
+   "name": "Volume fraction of cloud water droplets",
+   "units": "Numeric"
+  },
+  "0/6/48": {
+   "name": "Volume fraction of cloud ice particles",
+   "units": "Numeric"
+  },
+  "0/6/49": {
+   "name": "Volume fraction of cloud (ice and/or water)",
+   "units": "Numeric"
+  },
+  "0/6/50": {
+   "name": "Fog",
+   "units": "%"
+  },
+  "0/6/51": {
+   "name": "Sunshine duration fraction",
+   "units": "Proportion"
+  },
+  "0/6/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "0/7/0": {
+   "name": "Parcel lifted index (to 500 hPa)",
+   "units": "K"
+  },
+  "0/7/1": {
+   "name": "Best lifted index (to 500 hPa)",
+   "units": "K"
+  },
+  "0/7/2": {
+   "name": "K index",
+   "units": "K"
+  },
+  "0/7/3": {
+   "name": "KO index",
+   "units": "K"
+  },
+  "0/7/4": {
+   "name": "Total totals index",
+   "units": "K"
+  },
+  "0/7/5": {
+   "name": "Sweat index",
+   "units": "Numeric"
+  },
+  "0/7/6": {
+   "name": "Convective available potential energy",
+   "units": "J/kg"
+  },
+  "0/7/7": {
+   "name": "Convective inhibition",
+   "units": "J/kg"
+  },
+  "0/7/8": {
+   "name": "Storm relative helicity",
+   "units": "J/kg"
+  },
+  "0/7/9": {
+   "name": "Energy helicity index",
+   "units": "Numeric"
+  },
+  "0/7/10": {
+   "name": "Surface lifted index",
+   "units": "K"
+  },
+  "0/7/11": {
+   "name": "Best (4-layer) lifted index",
+   "units": "K"
+  },
+  "0/7/12": {
+   "name": "Richardson number",
+   "units": "Numeric"
+  },
+  "0/7/13": {
+   "name": "Showalter index",
+   "units": "K"
+  },
+  "0/7/14": {
+   "name": "Reserved",
+   "units": ""
+  },
+  "0/7/15": {
+   "name": "Updraught helicity",
+   "units": "m2 s-2"
+  },
+  "0/7/16": {
+   "name": "Bulk Richardson number",
+   "units": "Numeric"
+  },
+  "0/7/17": {
+   "name": "Gradient Richardson number",
+   "units": "Numeric"
+  },
+  "0/7/18": {
+   "name": "Flux Richardson number",
+   "units": "Numeric"
+  },
+  "0/7/19": {
+   "name": "Convective available potential energy - shear",
+   "units": "m2 s-2"
+  },
+  "0/7/20": {
+   "name": "Thunderstorm intensity index",
+   "units": "Code table 4.246"
+  },
+  "0/7/21": {
+   "name": "Storm severity index",
+   "units": "Numeric"
+  },
+  "0/7/22": {
+   "name": "Reciprocal Obukhov length",
+   "units": "m-1"
+  },
+  "0/7/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "0/13/0": {
+   "name": "Aerosol type",
+   "units": "Code table 4.205"
+  },
+  "0/13/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "0/14/0": {
+   "name": "Total ozone",
+   "units": "DU"
+  },
+  "0/14/1": {
+   "name": "Ozone mixing ratio",
+   "units": "kg/kg"
+  },
+  "0/14/2": {
+   "name": "Total column integrated ozone",
+   "units": "DU"
+  },
+  "0/14/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "0/15/0": {
+   "name": "Base spectrum width",
+   "units": "m/s"
+  },
+  "0/15/1": {
+   "name": "Base reflectivity",
+   "units": "dB"
+  },
+  "0/15/2": {
+   "name": "Base radial velocity",
+   "units": "m/s"
+  },
+  "0/15/3": {
+   "name": "Vertically integrated liquid water (VIL)",
+   "units": "kg m-2"
+  },
+  "0/15/4": {
+   "name": "Layer-maximum base reflectivity",
+   "units": "dB"
+  },
+  "0/15/5": {
+   "name": "Precipitation",
+   "units": "kg m-2"
+  },
+  "0/15/6": {
+   "name": "Radar spectra (1)",
+   "units": "-"
+  },
+  "0/15/7": {
+   "name": "Radar spectra (2)",
+   "units": "-"
+  },
+  "0/15/8": {
+   "name": "Radar spectra (3)",
+   "units": "-"
+  },
+  "0/15/9": {
+   "name": "Reflectivity of cloud droplets",
+   "units": "dB"
+  },
+  "0/15/10": {
+   "name": "Reflectivity of cloud ice",
+   "units": "dB"
+  },
+  "0/15/11": {
+   "name": "Reflectivity of snow",
+   "units": "dB"
+  },
+  "0/15/12": {
+   "name": "Reflectivity of rain",
+   "units": "dB"
+  },
+  "0/15/13": {
+   "name": "Reflectivity of graupel",
+   "units": "dB"
+  },
+  "0/15/14": {
+   "name": "Reflectivity of hail",
+   "units": "dB"
+  },
+  "0/15/15": {
+   "name": "Hybrid scan reflectivity",
+   "units": "dB"
+  },
+  "0/15/16": {
+   "name": "Hybrid scan reflectivity height",
+   "units": "m"
+  },
+  "0/15/17": {
+   "name": "Precipitation rate",
+   "units": "kg m-2 s-1"
+  },
+  "0/15/18": {
+   "name": "Radar data quality index",
+   "units": "proportion"
+  },
+  "0/15/19": {
+   "name": "Radar data quality flag",
+   "units": "Code Table 4.106"
+  },
+  "0/15/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "0/16/0": {
+   "name": "Equivalent radar reflectivity factor for rain",
+   "units": "mm6 m-3"
+  },
+  "0/16/1": {
+   "name": "Equivalent radar reflectivity factor for snow",
+   "units": "mm6 m-3"
+  },
+  "0/16/2": {
+   "name": "Equivalent radar reflectivity factor for parameterized convection",
+   "units": "mm6 m-3"
+  },
+  "0/16/3": {
+   "name": "Echo top",
+   "units": "m"
+  },
+  "0/16/4": {
+   "name": "Reflectivity",
+   "units": "dB"
+  },
+  "0/16/5": {
+   "name": "Composite reflectivity",
+   "units": "dB"
+  },
+  "0/16/6": {
+   "name": "Precipitation rate",
+   "units": "kg m-2 s-1"
+  },
+  "0/16/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "0/17/0": {
+   "name": "Lightning strike density",
+   "units": "m-2 s-1"
+  },
+  "0/17/1": {
+   "name": "Lightning potential index (LPI)",
+   "units": "J kg-1"
+  },
+  "0/17/2": {
+   "name": "Cloud-to-ground lightning flash density",
+   "units": "km-2 day-1"
+  },
+  "0/17/3": {
+   "name": "Cloud-to-cloud lightning flash density",
+   "units": "km-2 day-1"
+  },
+  "0/17/4": {
+   "name": "Total lightning flash density",
+   "units": "km-2 day-1"
+  },
+  "0/17/5": {
+   "name": "Subgrid-scale lightning potential index",
+   "units": "J kg-1"
+  },
+  "0/17/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "0/18/0": {
+   "name": "Air activity concentration of caesium 137",
+   "units": "Bq m-3"
+  },
+  "0/18/1": {
+   "name": "Air activity concentration of iodine 131",
+   "units": "Bq m-3"
+  },
+  "0/18/2": {
+   "name": "Air activity concentration of radioactive pollutant",
+   "units": "Bq m-3"
+  },
+  "0/18/3": {
+   "name": "Ground deposition activity of caesium 137",
+   "units": "Bq m-2"
+  },
+  "0/18/4": {
+   "name": "Ground deposition activity of iodine 131",
+   "units": "Bq m-2"
+  },
+  "0/18/5": {
+   "name": "Ground deposition activity of radioactive pollutant",
+   "units": "Bq m-2"
+  },
+  "0/18/6": {
+   "name": "Time-integrated air activity concentration of caesium pollutant",
+   "units": "Bq s m-3"
+  },
+  "0/18/7": {
+   "name": "Time-integrated air activity concentration of iodine pollutant",
+   "units": "Bq s m-3"
+  },
+  "0/18/8": {
+   "name": "Time-integrated air activity concentration of radioactive pollutant",
+   "units": "Bq s m-3"
+  },
+  "0/18/9": {
+   "name": "Reserved",
+   "units": ""
+  },
+  "0/18/10": {
+   "name": "Air activity concentration",
+   "units": "Bq m-3"
+  },
+  "0/18/11": {
+   "name": "Wet deposition activity",
+   "units": "Bq m-2"
+  },
+  "0/18/12": {
+   "name": "Dry deposition activity",
+   "units": "Bq m-2"
+  },
+  "0/18/13": {
+   "name": "Total deposition activity (wet + dry)",
+   "units": "Bq m-2"
+  },
+  "0/18/14": {
+   "name": "Specific activity concentration",
+   "units": "Bq kg-1"
+  },
+  "0/18/15": {
+   "name": "Maximum of air activity concentration in layer",
+   "units": "Bq m-3"
+  },
+  "0/18/16": {
+   "name": "Height of maximum air activity concentration",
+   "units": "m"
+  },
+  "0/18/17": {
+   "name": "Column-integrated air activity concentration",
+   "units": "Bq m-2"
+  },
+  "0/18/18": {
+   "name": "Column-averaged air activity concentration in layer",
+   "units": "Bq m-3"
+  },
+  "0/18/19": {
+   "name": "Deposition activity arrival",
+   "units": "s"
+  },
+  "0/18/20": {
+   "name": "Deposition activity ended",
+   "units": "s"
+  },
+  "0/18/21": {
+   "name": "Cloud activity arrival",
+   "units": "s"
+  },
+  "0/18/22": {
+   "name": "Cloud activity ended",
+   "units": "s"
+  },
+  "0/18/23": {
+   "name": "Effective dose rate",
+   "units": "nSv h-1"
+  },
+  "0/18/24": {
+   "name": "Thyroid dose rate (adult)",
+   "units": "nSv h-1"
+  },
+  "0/18/25": {
+   "name": "Gamma dose rate (adult)",
+   "units": "nSv h-1"
+  },
+  "0/18/26": {
+   "name": "Activity emission",
+   "units": "Bq s-1"
+  },
+  "0/18/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "0/19/0": {
+   "name": "Visibility",
+   "units": "m"
+  },
+  "0/19/1": {
+   "name": "Albedo",
+   "units": "%"
+  },
+  "0/19/2": {
+   "name": "Thunderstorm probability",
+   "units": "%"
+  },
+  "0/19/3": {
+   "name": "Mixed layer depth",
+   "units": "m"
+  },
+  "0/19/4": {
+   "name": "Volcanic ash",
+   "units": "Code table 4.206"
+  },
+  "0/19/5": {
+   "name": "Icing top",
+   "units": "m"
+  },
+  "0/19/6": {
+   "name": "Icing base",
+   "units": "m"
+  },
+  "0/19/7": {
+   "name": "Icing",
+   "units": "Code table 4.207"
+  },
+  "0/19/8": {
+   "name": "Turbulence top",
+   "units": "m"
+  },
+  "0/19/9": {
+   "name": "Turbulence base",
+   "units": "m"
+  },
+  "0/19/10": {
+   "name": "Turbulence",
+   "units": "Code table 4.208"
+  },
+  "0/19/11": {
+   "name": "Turbulent kinetic energy",
+   "units": "J/kg"
+  },
+  "0/19/12": {
+   "name": "Planetary boundary-layer regime",
+   "units": "Code table 4.209"
+  },
+  "0/19/13": {
+   "name": "Contrail intensity",
+   "units": "Code table 4.210"
+  },
+  "0/19/14": {
+   "name": "Contrail engine type",
+   "units": "Code table 4.211"
+  },
+  "0/19/15": {
+   "name": "Contrail top",
+   "units": "m"
+  },
+  "0/19/16": {
+   "name": "Contrail base",
+   "units": "m"
+  },
+  "0/19/17": {
+   "name": "Maximum snow albedo",
+   "units": "%"
+  },
+  "0/19/18": {
+   "name": "Snow free albedo",
+   "units": "%"
+  },
+  "0/19/19": {
+   "name": "Snow albedo",
+   "units": "%"
+  },
+  "0/19/20": {
+   "name": "Icing",
+   "units": "%"
+  },
+  "0/19/21": {
+   "name": "In-cloud turbulence",
+   "units": "%"
+  },
+  "0/19/22": {
+   "name": "Clear air turbulence (CAT)",
+   "units": "%"
+  },
+  "0/19/23": {
+   "name": "Supercooled large droplet probability",
+   "units": "%"
+  },
+  "0/19/24": {
+   "name": "Convective turbulent kinetic energy",
+   "units": "J/kg"
+  },
+  "0/19/25": {
+   "name": "Weather",
+   "units": "Code table 4.225"
+  },
+  "0/19/26": {
+   "name": "Convective outlook",
+   "units": "Code table 4.224"
+  },
+  "0/19/27": {
+   "name": "Icing scenario",
+   "units": "Code table 4.227"
+  },
+  "0/19/28": {
+   "name": "Mountain wave turbulence (eddy dissipation rate)",
+   "units": "m2/3 s-1"
+  },
+  "0/19/29": {
+   "name": "Clear air turbulence (CAT)",
+   "units": "m2/3 s-1"
+  },
+  "0/19/30": {
+   "name": "Eddy dissipation parameter",
+   "units": "m2/3 s-1"
+  },
+  "0/19/31": {
+   "name": "Maximum of eddy dissipation parameter in layer",
+   "units": "m2/3 s-1"
+  },
+  "0/19/32": {
+   "name": "Highest freezing level",
+   "units": "m"
+  },
+  "0/19/33": {
+   "name": "Visibility through liquid fog",
+   "units": "m"
+  },
+  "0/19/34": {
+   "name": "Visibility through ice fog",
+   "units": "m"
+  },
+  "0/19/35": {
+   "name": "Visibility through blowing snow",
+   "units": "m"
+  },
+  "0/19/36": {
+   "name": "Presence of snow squalls",
+   "units": "Code table 4.222"
+  },
+  "0/19/37": {
+   "name": "Icing severity",
+   "units": "Code table 4.228"
+  },
+  "0/19/38": {
+   "name": "Sky transparency index",
+   "units": "Code table 4.214"
+  },
+  "0/19/39": {
+   "name": "Seeing index",
+   "units": "Code table 4.214"
+  },
+  "0/19/40": {
+   "name": "Snow level",
+   "units": "m"
+  },
+  "0/19/41": {
+   "name": "Duct base height",
+   "units": "m"
+  },
+  "0/19/42": {
+   "name": "Trapping layer base height",
+   "units": "m"
+  },
+  "0/19/43": {
+   "name": "Trapping layer top height",
+   "units": "m"
+  },
+  "0/19/44": {
+   "name": "Mean vertical gradient of refractivity inside trapping layer",
+   "units": "m-1"
+  },
+  "0/19/45": {
+   "name": "Minimum vertical gradient of refractivity inside trapping layer",
+   "units": "m-1"
+  },
+  "0/19/46": {
+   "name": "Net radiation flux",
+   "units": "W m-2"
+  },
+  "0/19/47": {
+   "name": "Global irradiance on tilted surfaces",
+   "units": "W m-2"
+  },
+  "0/19/48": {
+   "name": "Top of persistent contrails",
+   "units": "m"
+  },
+  "0/19/49": {
+   "name": "Base of persistent contrails",
+   "units": "m"
+  },
+  "0/19/50": {
+   "name": "Convectively-induced turbulence (CIT) (eddy dissipation rate)",
+   "units": "m2/3 s-1"
+  },
+  "0/19/51": {
+   "name": "Visibility through precipitation",
+   "units": "m"
+  },
+  "0/19/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "0/20/0": {
+   "name": "Mass density (concentration)",
+   "units": "kg m-3"
+  },
+  "0/20/1": {
+   "name": "Column-integrated mass density",
+   "units": "kg m-2"
+  },
+  "0/20/2": {
+   "name": "Mass mixing ratio (mass fraction in air)",
+   "units": "kg/kg"
+  },
+  "0/20/3": {
+   "name": "Atmosphere emission mass flux",
+   "units": "kg m-2 s-1"
+  },
+  "0/20/4": {
+   "name": "Atmosphere net production mass flux",
+   "units": "kg m-2 s-1"
+  },
+  "0/20/5": {
+   "name": "Atmosphere net production and emission mass flux",
+   "units": "kg m-2 s-1"
+  },
+  "0/20/6": {
+   "name": "Surface dry deposition mass flux",
+   "units": "kg m-2 s-1"
+  },
+  "0/20/7": {
+   "name": "Surface wet deposition mass flux",
+   "units": "kg m-2 s-1"
+  },
+  "0/20/8": {
+   "name": "Atmosphere re-emission mass flux",
+   "units": "kg m-2 s-1"
+  },
+  "0/20/9": {
+   "name": "Wet deposition by large-scale precipitation mass flux",
+   "units": "kg m-2 s-1"
+  },
+  "0/20/10": {
+   "name": "Wet deposition by convective precipitation mass flux",
+   "units": "kg m-2 s-1"
+  },
+  "0/20/11": {
+   "name": "Sedimentation mass flux",
+   "units": "kg m-2 s-1"
+  },
+  "0/20/12": {
+   "name": "Dry deposition mass flux",
+   "units": "kg m-2 s-1"
+  },
+  "0/20/13": {
+   "name": "Transfer from hydrophobic to hydrophilic",
+   "units": "kg kg-1 s-1"
+  },
+  "0/20/14": {
+   "name": "Transfer from SO2 (sulphur dioxide) to SO4 (sulphate)",
+   "units": "kg kg-1 s-1"
+  },
+  "0/20/15": {
+   "name": "Dry deposition velocity",
+   "units": "m/s"
+  },
+  "0/20/16": {
+   "name": "Mass mixing ratio with respect to dry air",
+   "units": "kg/kg"
+  },
+  "0/20/17": {
+   "name": "Mass mixing ratio with respect to wet air",
+   "units": "kg/kg"
+  },
+  "0/20/18": {
+   "name": "Potential of hydrogen (pH)",
+   "units": "pH"
+  },
+  "0/20/50": {
+   "name": "Amount in atmosphere",
+   "units": "mol"
+  },
+  "0/20/51": {
+   "name": "Concentration in air",
+   "units": "mol m-3"
+  },
+  "0/20/52": {
+   "name": "Volume mixing ratio (fraction in air)",
+   "units": "mol/mol"
+  },
+  "0/20/53": {
+   "name": "Chemical gross production rate of concentration",
+   "units": "mol m-3 s-1"
+  },
+  "0/20/54": {
+   "name": "Chemical gross destruction rate of concentration",
+   "units": "mol m-3 s-1"
+  },
+  "0/20/55": {
+   "name": "Surface flux",
+   "units": "mol m-2 s-1"
+  },
+  "0/20/56": {
+   "name": "Changes of amount in atmosphere",
+   "units": "mol/s"
+  },
+  "0/20/57": {
+   "name": "Total yearly average burden of the atmosphere",
+   "units": "mol"
+  },
+  "0/20/58": {
+   "name": "Total yearly averaged atmospheric loss",
+   "units": "mol/s"
+  },
+  "0/20/59": {
+   "name": "Aerosol number concentration",
+   "units": "m-3"
+  },
+  "0/20/60": {
+   "name": "Aerosol specific number concentration",
+   "units": "kg-1"
+  },
+  "0/20/61": {
+   "name": "Maximum of mass density in layer",
+   "units": "kg m-3"
+  },
+  "0/20/62": {
+   "name": "Height of maximum mass density",
+   "units": "m"
+  },
+  "0/20/63": {
+   "name": "Column-averaged mass density in layer",
+   "units": "kg m-3"
+  },
+  "0/20/64": {
+   "name": "Mole fraction with respect to dry air",
+   "units": "mol/mol"
+  },
+  "0/20/65": {
+   "name": "Mole fraction with respect to wet air",
+   "units": "mol/mol"
+  },
+  "0/20/66": {
+   "name": "Column-integrated in-cloud scavenging rate by precipitation",
+   "units": "kg m-2 s-1"
+  },
+  "0/20/67": {
+   "name": "Column-integrated below-cloud scavenging rate by precipitation",
+   "units": "kg m-2 s-1"
+  },
+  "0/20/68": {
+   "name": "Column-integrated release rate from evaporating precipitation",
+   "units": "kg m-2 s-1"
+  },
+  "0/20/69": {
+   "name": "Column-integrated in-cloud scavenging rate by large-scale precipitation",
+   "units": "kg m-2 s-1"
+  },
+  "0/20/70": {
+   "name": "Column-integrated below-cloud scavenging rate by large-scale precipitation",
+   "units": "kg m-2 s-1"
+  },
+  "0/20/71": {
+   "name": "Column-integrated release rate from evaporating large-scale precipitation",
+   "units": "kg m-2 s-1"
+  },
+  "0/20/72": {
+   "name": "Column-integrated in-cloud scavenging rate by convective precipitation",
+   "units": "kg m-2 s-1"
+  },
+  "0/20/73": {
+   "name": "Column-integrated below-cloud scavenging rate by convective precipitation",
+   "units": "kg m-2 s-1"
+  },
+  "0/20/74": {
+   "name": "Column-integrated release rate from evaporating convective precipitation",
+   "units": "kg m-2 s-1"
+  },
+  "0/20/75": {
+   "name": "Wildfire flux",
+   "units": "kg m-2 s-1"
+  },
+  "0/20/76": {
+   "name": "Emission rate",
+   "units": "kg kg-1 s-1"
+  },
+  "0/20/77": {
+   "name": "Surface emission flux",
+   "units": "kg m-2 s-1"
+  },
+  "0/20/78": {
+   "name": "Column integrated eastward mass flux",
+   "units": "kg m-1 s-1"
+  },
+  "0/20/79": {
+   "name": "Column integrated northward mass flux",
+   "units": "kg m-1 s-1"
+  },
+  "0/20/80": {
+   "name": "Column integrated divergence of mass flux",
+   "units": "kg m-2 s-1"
+  },
+  "0/20/81": {
+   "name": "Column integrated net source",
+   "units": "kg m-2 s-1"
+  },
+  "0/20/82": {
+   "name": "Sink mass flux",
+   "units": "kg m-2 s-1"
+  },
+  "0/20/83": {
+   "name": "Source mass flux",
+   "units": "kg m-2 s-1"
+  },
+  "0/20/84": {
+   "name": "Volume-mean total column mixing ratio",
+   "units": "mol mol-1"
+  },
+  "0/20/100": {
+   "name": "Surface area density (aerosol)",
+   "units": "m-1"
+  },
+  "0/20/101": {
+   "name": "Vertical visual range",
+   "units": "m"
+  },
+  "0/20/102": {
+   "name": "Aerosol optical thickness",
+   "units": "Numeric"
+  },
+  "0/20/103": {
+   "name": "Single scattering albedo",
+   "units": "Numeric"
+  },
+  "0/20/104": {
+   "name": "Asymmetry factor",
+   "units": "Numeric"
+  },
+  "0/20/105": {
+   "name": "Aerosol extinction coefficient",
+   "units": "m-1"
+  },
+  "0/20/106": {
+   "name": "Aerosol absorption coefficient",
+   "units": "m-1"
+  },
+  "0/20/107": {
+   "name": "Aerosol lidar backscatter from satellite",
+   "units": "m-1 sr-1"
+  },
+  "0/20/108": {
+   "name": "Aerosol lidar backscatter from the ground",
+   "units": "m-1 sr-1"
+  },
+  "0/20/109": {
+   "name": "Aerosol lidar extinction from satellite",
+   "units": "m-1"
+  },
+  "0/20/110": {
+   "name": "Aerosol lidar extinction from the ground",
+   "units": "m-1"
+  },
+  "0/20/111": {
+   "name": "Angstrom exponent",
+   "units": "Numeric"
+  },
+  "0/20/112": {
+   "name": "Absorption aerosol optical thickness",
+   "units": "Numeric"
+  },
+  "0/20/113": {
+   "name": "Aerosol backscatter coefficient",
+   "units": "m-1 sr-1"
+  },
+  "0/20/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "0/21/0": {
+   "name": "Column integrated potential + internal energy",
+   "units": "J m-2"
+  },
+  "0/21/1": {
+   "name": "Column integrated kinetic energy",
+   "units": "J m-2"
+  },
+  "0/21/2": {
+   "name": "Column integrated total energy",
+   "units": "J m-2"
+  },
+  "0/21/3": {
+   "name": "Column integrated enthalpy",
+   "units": "J m-2"
+  },
+  "0/21/4": {
+   "name": "Column integrated water enthalpy",
+   "units": "J m-2"
+  },
+  "0/21/5": {
+   "name": "Column integrated eastward enthalpy flux",
+   "units": "W m-1"
+  },
+  "0/21/6": {
+   "name": "Column integrated northward enthalpy flux",
+   "units": "W m-1"
+  },
+  "0/21/7": {
+   "name": "Column integrated eastward potential energy flux",
+   "units": "W m-1"
+  },
+  "0/21/8": {
+   "name": "Column integrated northward potential energy flux",
+   "units": "W m-1"
+  },
+  "0/21/9": {
+   "name": "Column integrated eastward kinetic energy flux",
+   "units": "W m-1"
+  },
+  "0/21/10": {
+   "name": "Column integrated northward kinetic energy flux",
+   "units": "W m-1"
+  },
+  "0/21/11": {
+   "name": "Column integrated eastward total energy flux",
+   "units": "W m-1"
+  },
+  "0/21/12": {
+   "name": "Column integrated northward total energy flux",
+   "units": "W m-1"
+  },
+  "0/21/13": {
+   "name": "Divergence of column integrated enthalpy flux",
+   "units": "W m-2"
+  },
+  "0/21/14": {
+   "name": "Divergence of column integrated potential energy flux",
+   "units": "W m-2"
+  },
+  "0/21/15": {
+   "name": "Divergence of column integrated water potential energy flux",
+   "units": "W m-2"
+  },
+  "0/21/16": {
+   "name": "Divergence of column integrated kinetic energy flux",
+   "units": "W m-2"
+  },
+  "0/21/17": {
+   "name": "Divergence of column integrated total energy flux",
+   "units": "W m-2"
+  },
+  "0/21/18": {
+   "name": "Divergence of column integrated water enthalpy flux",
+   "units": "W m-2"
+  },
+  "0/21/19": {
+   "name": "Column integrated eastward heat flux",
+   "units": "W m-1"
+  },
+  "0/21/20": {
+   "name": "Column integrated northward heat flux",
+   "units": "W m-1"
+  },
+  "0/21/21": {
+   "name": "Column integrated potential+internal+latent energy",
+   "units": "J m-2"
+  },
+  "0/21/22": {
+   "name": "Eady growth rate",
+   "units": "day-1"
+  },
+  "0/21/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "0/22/0": {
+   "name": "Standard Precipitation Index (SPI)",
+   "units": "dimensionless"
+  },
+  "0/22/1": {
+   "name": "Standardized Precipitation Evapotranspiration Index (SPEI)",
+   "units": "dimensionless"
+  },
+  "0/22/2": {
+   "name": "Standardized Streamflow Index (SSFI)",
+   "units": "dimensionless"
+  },
+  "0/22/3": {
+   "name": "Standardized Reservoir Supply Index (SRSI)",
+   "units": "dimensionless"
+  },
+  "0/22/4": {
+   "name": "Standardized Water-level Index (SWI)",
+   "units": "dimensionless"
+  },
+  "0/22/5": {
+   "name": "Standardized Snowmelt and Rain Index (SMRI)",
+   "units": "dimensionless"
+  },
+  "0/22/6": {
+   "name": "Streamflow Drought Index (SDI)",
+   "units": "dimensionless"
+  },
+  "0/22/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "0/190/0": {
+   "name": "Arbitrary text string",
+   "units": "CCITT IA5"
+  },
+  "0/190/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "0/191/0": {
+   "name": "Seconds prior to initial reference time (defined in Section 1)",
+   "units": "s"
+  },
+  "0/191/1": {
+   "name": "Geographical latitude",
+   "units": "deg N"
+  },
+  "0/191/2": {
+   "name": "Geographical longitude",
+   "units": "deg E"
+  },
+  "0/191/3": {
+   "name": "Days since last observation",
+   "units": "d"
+  },
+  "0/191/4": {
+   "name": "Tropical cyclone density track",
+   "units": "Numeric"
+  },
+  "0/191/5": {
+   "name": "Hurricane track in spatiotemporal vicinity",
+   "units": "boolean"
+  },
+  "0/191/6": {
+   "name": "Tropical storm track in spatiotemporal vicinity",
+   "units": "boolean"
+  },
+  "0/191/7": {
+   "name": "Tropical depression track in spatiotemporal vicinity",
+   "units": "boolean"
+  },
+  "0/191/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "1/0/0": {
+   "name": "Flash flood guidance (Encoded as an accumulation over a floating subinterval of time between the reference time and valid time)",
+   "units": "kg m-2"
+  },
+  "1/0/1": {
+   "name": "Flash flood runoff (Encoded as an accumulation over a floating subinterval of time)",
+   "units": "kg m-2"
+  },
+  "1/0/2": {
+   "name": "Remotely-sensed snow cover",
+   "units": "Code table 4.215"
+  },
+  "1/0/3": {
+   "name": "Elevation of snow-covered terrain",
+   "units": "Code table 4.216"
+  },
+  "1/0/4": {
+   "name": "Snow water equivalent per cent of normal",
+   "units": "%"
+  },
+  "1/0/5": {
+   "name": "Baseflow-groundwater runoff",
+   "units": "kg m-2"
+  },
+  "1/0/6": {
+   "name": "Storm surface runoff",
+   "units": "kg m-2"
+  },
+  "1/0/7": {
+   "name": "Discharge from rivers or streams",
+   "units": "m3/s"
+  },
+  "1/0/8": {
+   "name": "Groundwater upper storage",
+   "units": "kg m-2"
+  },
+  "1/0/9": {
+   "name": "Groundwater lower storage",
+   "units": "kg m-2"
+  },
+  "1/0/10": {
+   "name": "Side flow into river channel",
+   "units": "m3 s-1 m-1"
+  },
+  "1/0/11": {
+   "name": "River storage of water",
+   "units": "m3"
+  },
+  "1/0/12": {
+   "name": "Floodplain storage of water",
+   "units": "m3"
+  },
+  "1/0/13": {
+   "name": "Water on soil surface",
+   "units": "kg m-2"
+  },
+  "1/0/14": {
+   "name": "Upstream accumulated precipitation",
+   "units": "kg m-2"
+  },
+  "1/0/15": {
+   "name": "Upstream accumulated snow melt",
+   "units": "kg m-2"
+  },
+  "1/0/16": {
+   "name": "Percolation rate",
+   "units": "kg m-2 s-1"
+  },
+  "1/0/17": {
+   "name": "River outflow of water",
+   "units": "m3 s-1"
+  },
+  "1/0/18": {
+   "name": "Floodplain outflow of water",
+   "units": "m3 s-1"
+  },
+  "1/0/19": {
+   "name": "Floodpath outflow of water",
+   "units": "m3 s-1"
+  },
+  "1/0/20": {
+   "name": "Water on surface",
+   "units": "kg m-2"
+  },
+  "1/0/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "1/1/0": {
+   "name": "Conditional per cent precipitation amount fractile for an overall period (Encoded as an accumulation)",
+   "units": "kg m-2"
+  },
+  "1/1/1": {
+   "name": "Per cent precipitation in a sub-period of an overall period (Encoded as per cent accumulation over the sub-period)",
+   "units": "%"
+  },
+  "1/1/2": {
+   "name": "Probability of 0.01 inch of precipitation (POP)",
+   "units": "%"
+  },
+  "1/1/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "1/2/0": {
+   "name": "Water depth",
+   "units": "m"
+  },
+  "1/2/1": {
+   "name": "Water temperature",
+   "units": "K"
+  },
+  "1/2/2": {
+   "name": "Water fraction",
+   "units": "Proportion"
+  },
+  "1/2/3": {
+   "name": "Sediment thickness",
+   "units": "m"
+  },
+  "1/2/4": {
+   "name": "Sediment temperature",
+   "units": "K"
+  },
+  "1/2/5": {
+   "name": "Ice thickness",
+   "units": "m"
+  },
+  "1/2/6": {
+   "name": "Ice temperature",
+   "units": "K"
+  },
+  "1/2/7": {
+   "name": "Ice cover",
+   "units": "Proportion"
+  },
+  "1/2/8": {
+   "name": "Land cover (0 = water, 1 = land)",
+   "units": "Proportion"
+  },
+  "1/2/9": {
+   "name": "Shape factor with respect to salinity profile",
+   "units": "-"
+  },
+  "1/2/10": {
+   "name": "Shape factor with respect to temperature profile in thermocline",
+   "units": "-"
+  },
+  "1/2/11": {
+   "name": "Attenuation coefficient of water with respect to solar radiation",
+   "units": "m-1"
+  },
+  "1/2/12": {
+   "name": "Salinity",
+   "units": "kg/kg"
+  },
+  "1/2/13": {
+   "name": "Cross-sectional area of flow in channel",
+   "units": "m2"
+  },
+  "1/2/14": {
+   "name": "Snow temperature",
+   "units": "K"
+  },
+  "1/2/15": {
+   "name": "Lake depth",
+   "units": "m"
+  },
+  "1/2/16": {
+   "name": "River depth",
+   "units": "m"
+  },
+  "1/2/17": {
+   "name": "Floodplain depth",
+   "units": "m"
+  },
+  "1/2/18": {
+   "name": "Floodplain flooded fraction",
+   "units": "proportion"
+  },
+  "1/2/19": {
+   "name": "Floodplain flooded area",
+   "units": "m2"
+  },
+  "1/2/20": {
+   "name": "River fraction",
+   "units": "proportion"
+  },
+  "1/2/21": {
+   "name": "River area",
+   "units": "m2"
+  },
+  "1/2/22": {
+   "name": "Fraction of river coverage plus river related flooding",
+   "units": "proportion"
+  },
+  "1/2/23": {
+   "name": "Area of river coverage plus river related flooding",
+   "units": "m2"
+  },
+  "1/2/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "2/0/0": {
+   "name": "Land cover (0 = sea, 1 = land)",
+   "units": "Proportion"
+  },
+  "2/0/1": {
+   "name": "Surface roughness",
+   "units": "m"
+  },
+  "2/0/2": {
+   "name": "Soil temperature",
+   "units": "K"
+  },
+  "2/0/3": {
+   "name": "Soil moisture content",
+   "units": "kg m-2"
+  },
+  "2/0/4": {
+   "name": "Vegetation",
+   "units": "%"
+  },
+  "2/0/5": {
+   "name": "Water runoff",
+   "units": "kg m-2"
+  },
+  "2/0/6": {
+   "name": "Evapotranspiration",
+   "units": "kg-2 s-1"
+  },
+  "2/0/7": {
+   "name": "Model terrain height",
+   "units": "m"
+  },
+  "2/0/8": {
+   "name": "Land use",
+   "units": "Code table 4.212"
+  },
+  "2/0/9": {
+   "name": "Volumetric soil moisture content",
+   "units": "Proportion"
+  },
+  "2/0/10": {
+   "name": "Ground heat flux",
+   "units": "W m-2"
+  },
+  "2/0/11": {
+   "name": "Moisture availability",
+   "units": "%"
+  },
+  "2/0/12": {
+   "name": "Exchange coefficient",
+   "units": "kg m-2 s-1"
+  },
+  "2/0/13": {
+   "name": "Plant canopy surface water",
+   "units": "kg m-2"
+  },
+  "2/0/14": {
+   "name": "Blackadar's mixing length scale",
+   "units": "m"
+  },
+  "2/0/15": {
+   "name": "Canopy conductance",
+   "units": "m/s"
+  },
+  "2/0/16": {
+   "name": "Minimal stomatal resistance",
+   "units": "s/m"
+  },
+  "2/0/17": {
+   "name": "Wilting point",
+   "units": "Proportion"
+  },
+  "2/0/18": {
+   "name": "Solar parameter in canopy conductance",
+   "units": "Proportion"
+  },
+  "2/0/19": {
+   "name": "Temperature parameter in canopy",
+   "units": "Proportion"
+  },
+  "2/0/20": {
+   "name": "Humidity parameter in canopy conductance",
+   "units": "Proportion"
+  },
+  "2/0/21": {
+   "name": "Soil moisture parameter in canopy conductance",
+   "units": "Proportion"
+  },
+  "2/0/22": {
+   "name": "Soil moisture",
+   "units": "kg m-3"
+  },
+  "2/0/23": {
+   "name": "Column-integrated soil water",
+   "units": "kg m-2"
+  },
+  "2/0/24": {
+   "name": "Heat flux",
+   "units": "W m-2"
+  },
+  "2/0/25": {
+   "name": "Volumetric soil moisture",
+   "units": "m3 m-3"
+  },
+  "2/0/26": {
+   "name": "Wilting point",
+   "units": "kg m-3"
+  },
+  "2/0/27": {
+   "name": "Volumetric wilting point",
+   "units": "m3 m-3"
+  },
+  "2/0/28": {
+   "name": "Leaf area index",
+   "units": "Numeric"
+  },
+  "2/0/29": {
+   "name": "Evergreen forest cover",
+   "units": "Proportion"
+  },
+  "2/0/30": {
+   "name": "Deciduous forest cover",
+   "units": "Proportion"
+  },
+  "2/0/31": {
+   "name": "Normalized differential vegetation index (NDVI)",
+   "units": "Numeric"
+  },
+  "2/0/32": {
+   "name": "Root depth of vegetation",
+   "units": "m"
+  },
+  "2/0/33": {
+   "name": "Water runoff and drainage",
+   "units": "kg m-2"
+  },
+  "2/0/34": {
+   "name": "Surface water runoff",
+   "units": "kg m-2"
+  },
+  "2/0/35": {
+   "name": "Tile class",
+   "units": "Code table 4.243"
+  },
+  "2/0/36": {
+   "name": "Tile fraction",
+   "units": "Proportion"
+  },
+  "2/0/37": {
+   "name": "Tile percentage",
+   "units": "%"
+  },
+  "2/0/38": {
+   "name": "Soil volumetric ice content (water equivalent)",
+   "units": "m3 m-3"
+  },
+  "2/0/39": {
+   "name": "Evapotranspiration rate",
+   "units": "kg m-2 s-1"
+  },
+  "2/0/40": {
+   "name": "Potential evapotranspiration rate",
+   "units": "kg m-2 s-1"
+  },
+  "2/0/41": {
+   "name": "Snow melt rate",
+   "units": "kg m-2 s-1"
+  },
+  "2/0/42": {
+   "name": "Water runoff and drainage rate",
+   "units": "kg m-2 s-1"
+  },
+  "2/0/43": {
+   "name": "Drainage direction",
+   "units": "Code table 4.250"
+  },
+  "2/0/44": {
+   "name": "Upstream area",
+   "units": "m2"
+  },
+  "2/0/45": {
+   "name": "Wetland cover",
+   "units": "Proportion"
+  },
+  "2/0/46": {
+   "name": "Wetland type",
+   "units": "Code table 4.239"
+  },
+  "2/0/47": {
+   "name": "Irrigation cover",
+   "units": "Proportion"
+  },
+  "2/0/48": {
+   "name": "C4 crop cover",
+   "units": "Proportion"
+  },
+  "2/0/49": {
+   "name": "C4 grass cover",
+   "units": "Proportion"
+  },
+  "2/0/50": {
+   "name": "Skin reservoir content",
+   "units": "kg m-2"
+  },
+  "2/0/51": {
+   "name": "Surface runoff rate",
+   "units": "kg m-2 s-1"
+  },
+  "2/0/52": {
+   "name": "Subsurface runoff rate",
+   "units": "kg m-2 s-1"
+  },
+  "2/0/53": {
+   "name": "Low-vegetation cover",
+   "units": "Proportion"
+  },
+  "2/0/54": {
+   "name": "High-vegetation cover",
+   "units": "Proportion"
+  },
+  "2/0/55": {
+   "name": "Leaf area index, low-vegetation",
+   "units": "m2 m-2"
+  },
+  "2/0/56": {
+   "name": "Leaf area index, high-vegetation",
+   "units": "m2 m-2"
+  },
+  "2/0/57": {
+   "name": "Type of low-vegetation",
+   "units": "Code table 4.234"
+  },
+  "2/0/58": {
+   "name": "Type of high-vegetation",
+   "units": "Code table 4.234"
+  },
+  "2/0/59": {
+   "name": "Net ecosystem exchange flux",
+   "units": "kg m-2 s-1"
+  },
+  "2/0/60": {
+   "name": "Gross primary production flux",
+   "units": "kg m-2 s-1"
+  },
+  "2/0/61": {
+   "name": "Ecosystem respiration flux",
+   "units": "kg m-2 s-1"
+  },
+  "2/0/62": {
+   "name": "Emissivity",
+   "units": "Proportion"
+  },
+  "2/0/63": {
+   "name": "Canopy air temperature",
+   "units": "K"
+  },
+  "2/0/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "2/3/0": {
+   "name": "Soil type",
+   "units": "Code table 4.213"
+  },
+  "2/3/1": {
+   "name": "Upper layer soil temperature",
+   "units": "K"
+  },
+  "2/3/2": {
+   "name": "Upper layer soil moisture",
+   "units": "kg m-3"
+  },
+  "2/3/3": {
+   "name": "Lower layer soil moisture",
+   "units": "kg m-3"
+  },
+  "2/3/4": {
+   "name": "Bottom layer soil temperature",
+   "units": "K"
+  },
+  "2/3/5": {
+   "name": "Liquid volumetric soil moisture (non-frozen)",
+   "units": "Proportion"
+  },
+  "2/3/6": {
+   "name": "Number of soil layers in root zone",
+   "units": "Numeric"
+  },
+  "2/3/7": {
+   "name": "Transpiration stress-onset (soil moisture)",
+   "units": "Proportion"
+  },
+  "2/3/8": {
+   "name": "Direct evaporation cease (soil moisture)",
+   "units": "Proportion"
+  },
+  "2/3/9": {
+   "name": "Soil porosity",
+   "units": "Proportion"
+  },
+  "2/3/10": {
+   "name": "Liquid volumetric soil moisture (non-frozen)",
+   "units": "m3 m-3"
+  },
+  "2/3/11": {
+   "name": "Volumetric transpiration stress-onset (soil moisture)",
+   "units": "m3 m-3"
+  },
+  "2/3/12": {
+   "name": "Transpiration stress-onset (soil moisture)",
+   "units": "kg m-3"
+  },
+  "2/3/13": {
+   "name": "Volumetric direct evaporation cease (soil moisture)",
+   "units": "m3 m-3"
+  },
+  "2/3/14": {
+   "name": "Direct evaporation cease (soil moisture)",
+   "units": "kg m-3"
+  },
+  "2/3/15": {
+   "name": "Soil porosity",
+   "units": "m3 m-3"
+  },
+  "2/3/16": {
+   "name": "Volumetric saturation of soil moisture",
+   "units": "m3 m-3"
+  },
+  "2/3/17": {
+   "name": "Saturation of soil moisture",
+   "units": "kg m-3"
+  },
+  "2/3/18": {
+   "name": "Soil temperature",
+   "units": "K"
+  },
+  "2/3/19": {
+   "name": "Soil moisture",
+   "units": "kg m-3"
+  },
+  "2/3/20": {
+   "name": "Column-integrated soil moisture",
+   "units": "kg m-2"
+  },
+  "2/3/21": {
+   "name": "Soil ice",
+   "units": "kg m-3"
+  },
+  "2/3/22": {
+   "name": "Column-integrated soil ice",
+   "units": "kg m-2"
+  },
+  "2/3/23": {
+   "name": "Liquid water in snow pack",
+   "units": "kg m-2"
+  },
+  "2/3/24": {
+   "name": "Frost index",
+   "units": "K day-1"
+  },
+  "2/3/25": {
+   "name": "Snow depth at elevation bands",
+   "units": "kg m-2"
+  },
+  "2/3/26": {
+   "name": "Soil heat flux",
+   "units": "W m-2"
+  },
+  "2/3/27": {
+   "name": "Soil depth",
+   "units": "m"
+  },
+  "2/3/28": {
+   "name": "Snow temperature",
+   "units": "K"
+  },
+  "2/3/29": {
+   "name": "Ice temperature",
+   "units": "K"
+  },
+  "2/3/30": {
+   "name": "Soil wetness index",
+   "units": "Numeric"
+  },
+  "2/3/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "2/4/0": {
+   "name": "Fire outlook",
+   "units": "Code table 4.224"
+  },
+  "2/4/1": {
+   "name": "Fire outlook due to dry thunderstorm",
+   "units": "Code table 4.224"
+  },
+  "2/4/2": {
+   "name": "Haines index",
+   "units": "Numeric"
+  },
+  "2/4/3": {
+   "name": "Fire burned area",
+   "units": "%"
+  },
+  "2/4/4": {
+   "name": "Fosberg index",
+   "units": "Numeric"
+  },
+  "2/4/5": {
+   "name": "Forest Fire Weather Index (as defined by the Canadian Forest Service)",
+   "units": "Numeric"
+  },
+  "2/4/6": {
+   "name": "Fine Fuel Moisture Code (as defined by the Canadian Forest Service)",
+   "units": "Numeric"
+  },
+  "2/4/7": {
+   "name": "Duff Moisture Code (as defined by the Canadian Forest Service)",
+   "units": "Numeric"
+  },
+  "2/4/8": {
+   "name": "Drought Code (as defined by the Canadian Forest Service)",
+   "units": "Numeric"
+  },
+  "2/4/9": {
+   "name": "Initial Fire Spread Index (as defined by the Canadian Forest Service)",
+   "units": "Numeric"
+  },
+  "2/4/10": {
+   "name": "Fire Buildup Index (as defined by the Canadian Forest Service)",
+   "units": "Numeric"
+  },
+  "2/4/11": {
+   "name": "Fire Daily Severity Rating (as defined by the Canadian Forest Service)",
+   "units": "Numeric"
+  },
+  "2/4/12": {
+   "name": "Keetch-Byram drought index",
+   "units": "Numeric"
+  },
+  "2/4/13": {
+   "name": "Drought factor (as defined by the Australian forest service )",
+   "units": "Numeric"
+  },
+  "2/4/14": {
+   "name": "Rate of spread (as defined by the Australian forest service )",
+   "units": "m/s"
+  },
+  "2/4/15": {
+   "name": "Fire danger index (as defined by the Australian forest service )",
+   "units": "Numeric"
+  },
+  "2/4/16": {
+   "name": "Spread component (as defined by the US Forest Service National Fire Danger Rating System)",
+   "units": "Numeric"
+  },
+  "2/4/17": {
+   "name": "Burning index (as defined by the US Forest Service National Fire Danger Rating System)",
+   "units": "Numeric"
+  },
+  "2/4/18": {
+   "name": "Ignition component (as defined by the US Forest Service National Fire Danger Rating System)",
+   "units": "%"
+  },
+  "2/4/19": {
+   "name": "Energy release component (as defined by the US Forest Service National Fire Danger Rating System)",
+   "units": "Joule/m2"
+  },
+  "2/4/20": {
+   "name": "Burning area",
+   "units": "%"
+  },
+  "2/4/21": {
+   "name": "Burnable area",
+   "units": "%"
+  },
+  "2/4/22": {
+   "name": "Unburnable area",
+   "units": "%"
+  },
+  "2/4/23": {
+   "name": "Fuel load",
+   "units": "kg m-2"
+  },
+  "2/4/24": {
+   "name": "Combustion completeness",
+   "units": "%"
+  },
+  "2/4/25": {
+   "name": "Fuel moisture content",
+   "units": "kg kg-1"
+  },
+  "2/4/26": {
+   "name": "Wildfire potential (as defined by the US NOAA Global Systems Laboratory)",
+   "units": "Numeric"
+  },
+  "2/4/27": {
+   "name": "Live leaf fuel load",
+   "units": "kg m-2"
+  },
+  "2/4/28": {
+   "name": "Live wood fuel load",
+   "units": "kg m-2"
+  },
+  "2/4/29": {
+   "name": "Dead leaf fuel load",
+   "units": "kg m-2"
+  },
+  "2/4/30": {
+   "name": "Dead wood fuel load",
+   "units": "kg m-2"
+  },
+  "2/4/31": {
+   "name": "Live fuel moisture content",
+   "units": "kg kg-1"
+  },
+  "2/4/32": {
+   "name": "Fine dead leaf moisture content",
+   "units": "kg kg-1"
+  },
+  "2/4/33": {
+   "name": "Dense dead leaf moisture content",
+   "units": "kg kg-1"
+  },
+  "2/4/34": {
+   "name": "Fine dead wood moisture content",
+   "units": "kg kg-1"
+  },
+  "2/4/35": {
+   "name": "Dense dead wood moisture content",
+   "units": "kg kg-1"
+  },
+  "2/4/36": {
+   "name": "Fire radiative power",
+   "units": "W"
+  },
+  "2/4/37": {
+   "name": "Live fuel moisture content in low vegetation",
+   "units": "kg kg-1"
+  },
+  "2/4/38": {
+   "name": "Live fuel moisture content in high vegetation",
+   "units": "kg kg-1"
+  },
+  "2/4/39": {
+   "name": "Mean height of maximum injection",
+   "units": "m"
+  },
+  "2/4/40": {
+   "name": "Injection height",
+   "units": "m"
+  },
+  "2/4/41": {
+   "name": "Plume bottom height",
+   "units": "m"
+  },
+  "2/4/42": {
+   "name": "Plume top height",
+   "units": "m"
+  },
+  "2/4/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "2/5/0": {
+   "name": "Glacier cover",
+   "units": "Proportion"
+  },
+  "2/5/1": {
+   "name": "Glacier temperature",
+   "units": "K"
+  },
+  "2/5/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "2/6/0": {
+   "name": "Urban cover",
+   "units": "Proportion"
+  },
+  "2/6/1": {
+   "name": "Road cover",
+   "units": "Proportion"
+  },
+  "2/6/2": {
+   "name": "Building cover",
+   "units": "Proportion"
+  },
+  "2/6/3": {
+   "name": "Building height",
+   "units": "m"
+  },
+  "2/6/4": {
+   "name": "Vertical-to-horizontal area fraction",
+   "units": "m2 m-2"
+  },
+  "2/6/5": {
+   "name": "Standard deviation of building height",
+   "units": "m"
+  },
+  "2/6/6": {
+   "name": "Distance downward from roof surface",
+   "units": "m"
+  },
+  "2/6/7": {
+   "name": "Distance inward from outer wall surface",
+   "units": "m"
+  },
+  "2/6/8": {
+   "name": "Distance downward from road surface",
+   "units": "m"
+  },
+  "2/6/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "2/7/0": {
+   "name": "Heat net flux",
+   "units": "W m-2"
+  },
+  "2/7/1": {
+   "name": "Latent heat net flux",
+   "units": "W m-2"
+  },
+  "2/7/2": {
+   "name": "Sensible heat net flux",
+   "units": "W m-2"
+  },
+  "2/7/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "3/0/0": {
+   "name": "Scaled radiance",
+   "units": "Numeric"
+  },
+  "3/0/1": {
+   "name": "Scaled albedo",
+   "units": "Numeric"
+  },
+  "3/0/2": {
+   "name": "Scaled brightness temperature",
+   "units": "Numeric"
+  },
+  "3/0/3": {
+   "name": "Scaled precipitable water",
+   "units": "Numeric"
+  },
+  "3/0/4": {
+   "name": "Scaled lifted index",
+   "units": "Numeric"
+  },
+  "3/0/5": {
+   "name": "Scaled cloud top pressure",
+   "units": "Numeric"
+  },
+  "3/0/6": {
+   "name": "Scaled skin temperature",
+   "units": "Numeric"
+  },
+  "3/0/7": {
+   "name": "Cloud mask",
+   "units": "Code table 4.217"
+  },
+  "3/0/8": {
+   "name": "Pixel scene type",
+   "units": "Code table 4.218"
+  },
+  "3/0/9": {
+   "name": "Fire detection indicator",
+   "units": "Code table 4.223"
+  },
+  "3/0/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "3/1/0": {
+   "name": "Estimated precipitation",
+   "units": "kg m-2"
+  },
+  "3/1/1": {
+   "name": "Instantaneous rain rate",
+   "units": "kg m-2 s-1"
+  },
+  "3/1/2": {
+   "name": "Cloud top height",
+   "units": "m"
+  },
+  "3/1/3": {
+   "name": "Cloud top height quality indicator",
+   "units": "Code table 4.219"
+  },
+  "3/1/4": {
+   "name": "Estimated u-component of wind",
+   "units": "m/s"
+  },
+  "3/1/5": {
+   "name": "Estimated v-component of wind",
+   "units": "m/s"
+  },
+  "3/1/6": {
+   "name": "Number of pixel used",
+   "units": "Numeric"
+  },
+  "3/1/7": {
+   "name": "Solar zenith angle",
+   "units": "deg"
+  },
+  "3/1/8": {
+   "name": "Relative azimuth angle",
+   "units": "deg"
+  },
+  "3/1/9": {
+   "name": "Reflectance in 0.6 micron channel",
+   "units": "%"
+  },
+  "3/1/10": {
+   "name": "Reflectance in 0.8 micron channel",
+   "units": "%"
+  },
+  "3/1/11": {
+   "name": "Reflectance in 1.6 micron channel",
+   "units": "%"
+  },
+  "3/1/12": {
+   "name": "Reflectance in 3.9 micron channel",
+   "units": "%"
+  },
+  "3/1/13": {
+   "name": "Atmospheric divergence",
+   "units": "/s"
+  },
+  "3/1/14": {
+   "name": "Cloudy brightness temperature",
+   "units": "K"
+  },
+  "3/1/15": {
+   "name": "Clear-sky brightness temperature",
+   "units": "K"
+  },
+  "3/1/16": {
+   "name": "Cloudy radiance (with respect to wave number)",
+   "units": "W m-1 sr-1"
+  },
+  "3/1/17": {
+   "name": "Clear-sky radiance (with respect to wave number)",
+   "units": "W m-1 sr-1"
+  },
+  "3/1/18": {
+   "name": "Reserved",
+   "units": ""
+  },
+  "3/1/19": {
+   "name": "Wind speed",
+   "units": "m/s"
+  },
+  "3/1/20": {
+   "name": "Aerosol optical thickness at 0.635 um",
+   "units": ""
+  },
+  "3/1/21": {
+   "name": "Aerosol optical thickness at 0.810 um",
+   "units": ""
+  },
+  "3/1/22": {
+   "name": "Aerosol optical thickness at 1.640 um",
+   "units": ""
+  },
+  "3/1/23": {
+   "name": "Angstrom coefficient",
+   "units": ""
+  },
+  "3/1/24": {
+   "name": "Cosine of the solar zenith angle",
+   "units": "Numeric"
+  },
+  "3/1/27": {
+   "name": "Bidirectional reflectance factor",
+   "units": "Numeric"
+  },
+  "3/1/28": {
+   "name": "Brightness temperature",
+   "units": "K"
+  },
+  "3/1/29": {
+   "name": "Scaled radiance",
+   "units": "Numeric"
+  },
+  "3/1/30": {
+   "name": "Reflectance in 0.4 micron channel",
+   "units": "%"
+  },
+  "3/1/31": {
+   "name": "Cloudy reflectance",
+   "units": "%"
+  },
+  "3/1/32": {
+   "name": "Clear reflectance",
+   "units": "%"
+  },
+  "3/1/98": {
+   "name": "Correlation coefficient between MPE rain-rates for the co-located IR data and the microwave data rain-rates",
+   "units": "Numeric"
+  },
+  "3/1/99": {
+   "name": "Standard deviation between MPE rain-rates for the co-located IR data and the microwave data rain-rates",
+   "units": "kg m-2 s-1"
+  },
+  "3/1/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "3/2/0": {
+   "name": "Clear sky probability",
+   "units": "%"
+  },
+  "3/2/1": {
+   "name": "Cloud top temperature",
+   "units": "K"
+  },
+  "3/2/2": {
+   "name": "Cloud top pressure",
+   "units": "Pa"
+  },
+  "3/2/3": {
+   "name": "Cloud type",
+   "units": "Code table 4.218"
+  },
+  "3/2/4": {
+   "name": "Cloud phase",
+   "units": "Code table 4.218"
+  },
+  "3/2/5": {
+   "name": "Cloud optical depth",
+   "units": "Numeric"
+  },
+  "3/2/6": {
+   "name": "Cloud particle effective radius",
+   "units": "m"
+  },
+  "3/2/7": {
+   "name": "Cloud liquid water path",
+   "units": "kg m-2"
+  },
+  "3/2/8": {
+   "name": "Cloud ice water path",
+   "units": "kg m-2"
+  },
+  "3/2/9": {
+   "name": "Cloud albedo",
+   "units": "Numeric"
+  },
+  "3/2/10": {
+   "name": "Cloud emissivity",
+   "units": "Numeric"
+  },
+  "3/2/11": {
+   "name": "Effective absorption optical depth ratio",
+   "units": "Numeric"
+  },
+  "3/2/30": {
+   "name": "Measurement cost",
+   "units": "Numeric"
+  },
+  "3/2/31": {
+   "name": "Upper layer cloud optical depth",
+   "units": "Numeric"
+  },
+  "3/2/32": {
+   "name": "Upper layer cloud top pressure",
+   "units": "Pa"
+  },
+  "3/2/33": {
+   "name": "Upper layer cloud effective radius",
+   "units": "m"
+  },
+  "3/2/34": {
+   "name": "Error in upper layer cloud optical depth",
+   "units": "Numeric"
+  },
+  "3/2/35": {
+   "name": "Error in upper layer cloud top pressure",
+   "units": "Pa"
+  },
+  "3/2/36": {
+   "name": "Error in upper layer cloud effective radius",
+   "units": "m"
+  },
+  "3/2/37": {
+   "name": "Lower layer cloud optical depth",
+   "units": "Numeric"
+  },
+  "3/2/38": {
+   "name": "Lower layer cloud top pressure",
+   "units": "Pa"
+  },
+  "3/2/39": {
+   "name": "Error in lower layer cloud optical depth",
+   "units": "Numeric"
+  },
+  "3/2/40": {
+   "name": "Error in lower layer cloud top pressure",
+   "units": "Pa"
+  },
+  "3/2/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "3/3/0": {
+   "name": "Probability of encountering marginal visual flight rule conditions",
+   "units": "%"
+  },
+  "3/3/1": {
+   "name": "Probability of encountering low instrument flight rule conditions",
+   "units": "%"
+  },
+  "3/3/2": {
+   "name": "Probability of encountering instrument flight rule conditions",
+   "units": "%"
+  },
+  "3/3/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "3/4/0": {
+   "name": "Volcanic ash probability",
+   "units": "%"
+  },
+  "3/4/1": {
+   "name": "Volcanic ash cloud top temperature",
+   "units": "K"
+  },
+  "3/4/2": {
+   "name": "Volcanic ash cloud top pressure",
+   "units": "Pa"
+  },
+  "3/4/3": {
+   "name": "Volcanic ash cloud top height",
+   "units": "m"
+  },
+  "3/4/4": {
+   "name": "Volcanic ash cloud emissivity",
+   "units": "Numeric"
+  },
+  "3/4/5": {
+   "name": "Volcanic ash effective absorption optical depth ratio",
+   "units": "Numeric"
+  },
+  "3/4/6": {
+   "name": "Volcanic ash cloud optical depth",
+   "units": "Numeric"
+  },
+  "3/4/7": {
+   "name": "Volcanic ash column density",
+   "units": "kg m-2"
+  },
+  "3/4/8": {
+   "name": "Volcanic ash particle effective radius",
+   "units": "m"
+  },
+  "3/4/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "3/5/0": {
+   "name": "Interface sea-surface temperature",
+   "units": "K"
+  },
+  "3/5/1": {
+   "name": "Skin sea-surface temperature",
+   "units": "K"
+  },
+  "3/5/2": {
+   "name": "Sub-skin sea-surface temperature",
+   "units": "K"
+  },
+  "3/5/3": {
+   "name": "Foundation sea-surface temperature",
+   "units": "K"
+  },
+  "3/5/4": {
+   "name": "Estimated bias between sea-surface temperature and standard",
+   "units": "K"
+  },
+  "3/5/5": {
+   "name": "Estimated standard deviation between sea surface temperature and standard",
+   "units": "K"
+  },
+  "3/5/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "3/6/0": {
+   "name": "Global solar irradiance",
+   "units": "W m-2"
+  },
+  "3/6/1": {
+   "name": "Global solar exposure",
+   "units": "J m-2"
+  },
+  "3/6/2": {
+   "name": "Direct solar irradiance",
+   "units": "W m-2"
+  },
+  "3/6/3": {
+   "name": "Direct solar exposure",
+   "units": "J m-2"
+  },
+  "3/6/4": {
+   "name": "Diffuse solar irradiance",
+   "units": "W m-2"
+  },
+  "3/6/5": {
+   "name": "Diffuse solar exposure",
+   "units": "J m-2"
+  },
+  "3/6/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "4/0/0": {
+   "name": "Temperature",
+   "units": "K"
+  },
+  "4/0/1": {
+   "name": "Electron temperature",
+   "units": "K"
+  },
+  "4/0/2": {
+   "name": "Proton temperature",
+   "units": "K"
+  },
+  "4/0/3": {
+   "name": "Ion temperature",
+   "units": "K"
+  },
+  "4/0/4": {
+   "name": "Parallel temperature",
+   "units": "K"
+  },
+  "4/0/5": {
+   "name": "Perpendicular temperature",
+   "units": "K"
+  },
+  "4/0/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "4/1/0": {
+   "name": "Velocity magnitude (speed)",
+   "units": "m s-1"
+  },
+  "4/1/1": {
+   "name": "1st vector component of velocity (coordinate system dependent)",
+   "units": "m s-1"
+  },
+  "4/1/2": {
+   "name": "2nd vector component of velocity (coordinate system dependent)",
+   "units": "m s-1"
+  },
+  "4/1/3": {
+   "name": "3rd vector component of velocity (coordinate system dependent)",
+   "units": "m s-1"
+  },
+  "4/1/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "4/2/0": {
+   "name": "Particle number density",
+   "units": "m-3"
+  },
+  "4/2/1": {
+   "name": "Electron density",
+   "units": "m-3"
+  },
+  "4/2/2": {
+   "name": "Proton density",
+   "units": "m-3"
+  },
+  "4/2/3": {
+   "name": "Ion density",
+   "units": "m-3"
+  },
+  "4/2/4": {
+   "name": "Vertical total electron content",
+   "units": "TECU"
+  },
+  "4/2/5": {
+   "name": "HF absorption frequency",
+   "units": "Hz"
+  },
+  "4/2/6": {
+   "name": "HF absorption",
+   "units": "dB"
+  },
+  "4/2/7": {
+   "name": "Spread F",
+   "units": "m"
+  },
+  "4/2/8": {
+   "name": "h'F",
+   "units": "m"
+  },
+  "4/2/9": {
+   "name": "Critical frequency",
+   "units": "Hz"
+  },
+  "4/2/10": {
+   "name": "Maximal usable frequency (MUF)",
+   "units": "Hz"
+  },
+  "4/2/11": {
+   "name": "Peak height (hm)",
+   "units": "m"
+  },
+  "4/2/12": {
+   "name": "Peak density (Nm)",
+   "units": "m-3"
+  },
+  "4/2/13": {
+   "name": "Equivalent slab thickness (tau)",
+   "units": "km"
+  },
+  "4/2/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "4/3/0": {
+   "name": "Magnetic field magnitude",
+   "units": "T"
+  },
+  "4/3/1": {
+   "name": "1st vector component of magnetic field",
+   "units": "T"
+  },
+  "4/3/2": {
+   "name": "2nd vector component of magnetic field",
+   "units": "T"
+  },
+  "4/3/3": {
+   "name": "3rd vector component of magnetic field",
+   "units": "T"
+  },
+  "4/3/4": {
+   "name": "Electric field magnitude",
+   "units": "V m-1"
+  },
+  "4/3/5": {
+   "name": "1st vector component of electric field",
+   "units": "V m-1"
+  },
+  "4/3/6": {
+   "name": "2nd vector component of electric field",
+   "units": "V m-1"
+  },
+  "4/3/7": {
+   "name": "3rd vector component of electric field",
+   "units": "V m-1"
+  },
+  "4/3/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "4/4/0": {
+   "name": "Proton flux (differential)",
+   "units": "(m2 s sr eV)-1"
+  },
+  "4/4/1": {
+   "name": "Proton flux (integral)",
+   "units": "(m2 s sr )-1"
+  },
+  "4/4/2": {
+   "name": "Electron flux (differential)",
+   "units": "(m2 s sr eV)-1"
+  },
+  "4/4/3": {
+   "name": "Electron flux (integral)",
+   "units": "(m2 s sr)-1"
+  },
+  "4/4/4": {
+   "name": "Heavy ion flux (differential)",
+   "units": "(m2 s sr eV/nuc)-1"
+  },
+  "4/4/5": {
+   "name": "Heavy ion flux (integral)",
+   "units": "(m2 s sr)-1"
+  },
+  "4/4/6": {
+   "name": "Cosmic ray neutron flux",
+   "units": "h-1"
+  },
+  "4/4/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "4/5/0": {
+   "name": "Amplitude",
+   "units": "dB"
+  },
+  "4/5/1": {
+   "name": "Phase",
+   "units": "rad"
+  },
+  "4/5/2": {
+   "name": "Frequency",
+   "units": "Hz"
+  },
+  "4/5/3": {
+   "name": "Wavelength",
+   "units": "m"
+  },
+  "4/5/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "4/6/0": {
+   "name": "Integrated solar irradiance",
+   "units": "W m-2"
+  },
+  "4/6/1": {
+   "name": "Solar X-ray flux (XRS long)",
+   "units": "W m-2"
+  },
+  "4/6/2": {
+   "name": "Solar X-ray flux (XRS short)",
+   "units": "W m-2"
+  },
+  "4/6/3": {
+   "name": "Solar EUV irradiance",
+   "units": "W m-2"
+  },
+  "4/6/4": {
+   "name": "Solar spectral irradiance",
+   "units": "W m-2 nm-1"
+  },
+  "4/6/5": {
+   "name": "F10.7",
+   "units": "W m-2 Hz-1"
+  },
+  "4/6/6": {
+   "name": "Solar radio emissions",
+   "units": "W m-2 Hz-1"
+  },
+  "4/6/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "4/7/0": {
+   "name": "Limb intensity",
+   "units": "J m-2 s-1"
+  },
+  "4/7/1": {
+   "name": "Disk intensity",
+   "units": "J m-2 s-1"
+  },
+  "4/7/2": {
+   "name": "Disk intensity day",
+   "units": "J m-2 s-1"
+  },
+  "4/7/3": {
+   "name": "Disk intensity night",
+   "units": "J m-2 s-1"
+  },
+  "4/7/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "4/8/0": {
+   "name": "X-ray radiance",
+   "units": "W sr-1 m-2"
+  },
+  "4/8/1": {
+   "name": "EUV radiance",
+   "units": "W sr-1 m-2"
+  },
+  "4/8/2": {
+   "name": "H-alpha radiance",
+   "units": "W sr-1 m-2"
+  },
+  "4/8/3": {
+   "name": "White light radiance",
+   "units": "W sr-1 m-2"
+  },
+  "4/8/4": {
+   "name": "CaII-K radiance",
+   "units": "W sr-1 m-2"
+  },
+  "4/8/5": {
+   "name": "White light coronagraph radiance",
+   "units": "W sr-1 m-2"
+  },
+  "4/8/6": {
+   "name": "Heliospheric radiance",
+   "units": "W sr-1 m-2"
+  },
+  "4/8/7": {
+   "name": "Thematic mask",
+   "units": "Numeric"
+  },
+  "4/8/8": {
+   "name": "Solar induced chlorophyll fluorescence",
+   "units": "W m-2 sr-1 m-1"
+  },
+  "4/8/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "4/9/0": {
+   "name": "Pedersen conductivity",
+   "units": "S m-1"
+  },
+  "4/9/1": {
+   "name": "Hall conductivity",
+   "units": "S m-1"
+  },
+  "4/9/2": {
+   "name": "Parallel conductivity",
+   "units": "S m-1"
+  },
+  "4/9/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "4/10/0": {
+   "name": "Scintillation index (sigma phi)",
+   "units": "rad"
+  },
+  "4/10/1": {
+   "name": "Scintillation index S4",
+   "units": "Numeric"
+  },
+  "4/10/2": {
+   "name": "Rate of change of TEC index (ROTI)",
+   "units": "TECU/min"
+  },
+  "4/10/3": {
+   "name": "Disturbance ionosphere index spatial gradient (DIXSG)",
+   "units": "Numeric"
+  },
+  "4/10/4": {
+   "name": "Along arc TEC rate (AATR)",
+   "units": "TECU/min"
+  },
+  "4/10/5": {
+   "name": "Kp",
+   "units": "Numeric"
+  },
+  "4/10/6": {
+   "name": "Equatorial disturbance storm time index (Dst)",
+   "units": "nT"
+  },
+  "4/10/7": {
+   "name": "Auroral electrojet (AE)",
+   "units": "nT"
+  },
+  "4/10/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "10/0/0": {
+   "name": "Wave spectra (1)",
+   "units": "-"
+  },
+  "10/0/1": {
+   "name": "Wave spectra (2)",
+   "units": "-"
+  },
+  "10/0/2": {
+   "name": "Wave spectra (3)",
+   "units": "-"
+  },
+  "10/0/3": {
+   "name": "Significant height of combined wind waves and swell",
+   "units": "m"
+  },
+  "10/0/4": {
+   "name": "Direction of wind waves",
+   "units": "degree true"
+  },
+  "10/0/5": {
+   "name": "Significant height of wind waves",
+   "units": "m"
+  },
+  "10/0/6": {
+   "name": "Mean period of wind waves",
+   "units": "s"
+  },
+  "10/0/7": {
+   "name": "Direction of swell waves",
+   "units": "degree true"
+  },
+  "10/0/8": {
+   "name": "Significant height of swell waves",
+   "units": "m"
+  },
+  "10/0/9": {
+   "name": "Mean period of swell waves",
+   "units": "s"
+  },
+  "10/0/10": {
+   "name": "Primary wave direction",
+   "units": "degree true"
+  },
+  "10/0/11": {
+   "name": "Primary wave mean period",
+   "units": "s"
+  },
+  "10/0/12": {
+   "name": "Secondary wave direction",
+   "units": "degree true"
+  },
+  "10/0/13": {
+   "name": "Secondary wave mean period",
+   "units": "s"
+  },
+  "10/0/14": {
+   "name": "Mean direction of combined wind waves and swell",
+   "units": "degree true"
+  },
+  "10/0/15": {
+   "name": "Mean period of combined wind waves and swell",
+   "units": "s"
+  },
+  "10/0/16": {
+   "name": "Coefficient of drag with waves",
+   "units": "-"
+  },
+  "10/0/17": {
+   "name": "Friction velocity",
+   "units": "m/s"
+  },
+  "10/0/18": {
+   "name": "Wave stress",
+   "units": "N m-2"
+  },
+  "10/0/19": {
+   "name": "Normalized wave stress",
+   "units": "-"
+  },
+  "10/0/20": {
+   "name": "Mean square slope of waves",
+   "units": "-"
+  },
+  "10/0/21": {
+   "name": "u-component surface Stokes drift",
+   "units": "m/s"
+  },
+  "10/0/22": {
+   "name": "v-component surface Stokes drift",
+   "units": "m/s"
+  },
+  "10/0/23": {
+   "name": "Period of maximum individual wave height",
+   "units": "s"
+  },
+  "10/0/24": {
+   "name": "Maximum individual wave height",
+   "units": "m"
+  },
+  "10/0/25": {
+   "name": "Inverse mean wave frequency",
+   "units": "s"
+  },
+  "10/0/26": {
+   "name": "Inverse mean frequency of wind waves",
+   "units": "s"
+  },
+  "10/0/27": {
+   "name": "Inverse mean frequency of total swell",
+   "units": "s"
+  },
+  "10/0/28": {
+   "name": "Mean zero-crossing wave period",
+   "units": "s"
+  },
+  "10/0/29": {
+   "name": "Mean zero-crossing period of wind waves",
+   "units": "s"
+  },
+  "10/0/30": {
+   "name": "Mean zero-crossing period of total swell",
+   "units": "s"
+  },
+  "10/0/31": {
+   "name": "Wave directional width",
+   "units": "-"
+  },
+  "10/0/32": {
+   "name": "Directional width of wind waves",
+   "units": "-"
+  },
+  "10/0/33": {
+   "name": "Directional width of total swell",
+   "units": "-"
+  },
+  "10/0/34": {
+   "name": "Peak wave period",
+   "units": "s"
+  },
+  "10/0/35": {
+   "name": "Peak period of wind waves",
+   "units": "s"
+  },
+  "10/0/36": {
+   "name": "Peak period of total swell",
+   "units": "s"
+  },
+  "10/0/37": {
+   "name": "Altimeter wave height",
+   "units": "m"
+  },
+  "10/0/38": {
+   "name": "Altimeter corrected wave height",
+   "units": "m"
+  },
+  "10/0/39": {
+   "name": "Altimeter range relative correction",
+   "units": "-"
+  },
+  "10/0/40": {
+   "name": "10-metre neutral wind speed over waves",
+   "units": "m/s"
+  },
+  "10/0/41": {
+   "name": "10-metre wind direction over waves",
+   "units": "deg"
+  },
+  "10/0/42": {
+   "name": "Wave energy spectrum",
+   "units": "m2 s rad-1"
+  },
+  "10/0/43": {
+   "name": "Kurtosis of the sea-surface elevation due to waves",
+   "units": "-"
+  },
+  "10/0/44": {
+   "name": "Benjamin-Feir index",
+   "units": "-"
+  },
+  "10/0/45": {
+   "name": "Spectral peakedness factor",
+   "units": "/s"
+  },
+  "10/0/46": {
+   "name": "Peak wave direction",
+   "units": "deg"
+  },
+  "10/0/47": {
+   "name": "Significant wave height of first swell partition",
+   "units": "m"
+  },
+  "10/0/48": {
+   "name": "Significant wave height of second swell partition",
+   "units": "m"
+  },
+  "10/0/49": {
+   "name": "Significant wave height of third swell partition",
+   "units": "m"
+  },
+  "10/0/50": {
+   "name": "Mean wave period of first swell partition",
+   "units": "s"
+  },
+  "10/0/51": {
+   "name": "Mean wave period of second swell partition",
+   "units": "s"
+  },
+  "10/0/52": {
+   "name": "Mean wave period of third swell partition",
+   "units": "s"
+  },
+  "10/0/53": {
+   "name": "Mean wave direction of first swell partition",
+   "units": "deg"
+  },
+  "10/0/54": {
+   "name": "Mean wave direction of second swell partition",
+   "units": "deg"
+  },
+  "10/0/55": {
+   "name": "Mean wave direction of third swell partition",
+   "units": "deg"
+  },
+  "10/0/56": {
+   "name": "Wave directional width of first swell partition",
+   "units": "-"
+  },
+  "10/0/57": {
+   "name": "Wave directional width of second swell partition",
+   "units": "-"
+  },
+  "10/0/58": {
+   "name": "Wave directional width of third swell partition",
+   "units": "-"
+  },
+  "10/0/59": {
+   "name": "Wave frequency width of first swell partition",
+   "units": "-"
+  },
+  "10/0/60": {
+   "name": "Wave frequency width of second swell partition",
+   "units": "-"
+  },
+  "10/0/61": {
+   "name": "Wave frequency width of third swell partition",
+   "units": "-"
+  },
+  "10/0/62": {
+   "name": "Wave frequency width",
+   "units": "-"
+  },
+  "10/0/63": {
+   "name": "Frequency width of wind waves",
+   "units": "-"
+  },
+  "10/0/64": {
+   "name": "Frequency width of total swell",
+   "units": "-"
+  },
+  "10/0/65": {
+   "name": "Peak wave period of first swell partition",
+   "units": "s"
+  },
+  "10/0/66": {
+   "name": "Peak wave period of second swell partition",
+   "units": "s"
+  },
+  "10/0/67": {
+   "name": "Peak wave period of third swell partition",
+   "units": "s"
+  },
+  "10/0/68": {
+   "name": "Peak wave direction of first swell partition",
+   "units": "degree true"
+  },
+  "10/0/69": {
+   "name": "Peak wave direction of second swell partition",
+   "units": "degree true"
+  },
+  "10/0/70": {
+   "name": "Peak wave direction of third swell partition",
+   "units": "degree true"
+  },
+  "10/0/71": {
+   "name": "Peak direction of wind waves",
+   "units": "degree true"
+  },
+  "10/0/72": {
+   "name": "Peak direction of total swell",
+   "units": "degree true"
+  },
+  "10/0/73": {
+   "name": "Whitecap fraction",
+   "units": "fraction"
+  },
+  "10/0/74": {
+   "name": "Mean direction of total swell",
+   "units": "degree"
+  },
+  "10/0/75": {
+   "name": "Mean direction of wind waves",
+   "units": "degree"
+  },
+  "10/0/76": {
+   "name": "Charnock",
+   "units": "Numeric"
+  },
+  "10/0/77": {
+   "name": "Wave Spectral Skewness",
+   "units": "Numeric"
+  },
+  "10/0/78": {
+   "name": "Wave energy flux magnitude",
+   "units": "W m-1"
+  },
+  "10/0/79": {
+   "name": "Wave energy flux mean direction",
+   "units": "degree true"
+  },
+  "10/0/80": {
+   "name": "Ratio of wave angular and frequency width",
+   "units": "Numeric"
+  },
+  "10/0/81": {
+   "name": "Free convective velocity over the oceans",
+   "units": "m s-1"
+  },
+  "10/0/82": {
+   "name": "Air density over the oceans",
+   "units": "kg m-3"
+  },
+  "10/0/83": {
+   "name": "Normalized energy flux into waves",
+   "units": "Numeric"
+  },
+  "10/0/84": {
+   "name": "Normalized stress into ocean",
+   "units": "Numeric"
+  },
+  "10/0/85": {
+   "name": "Normalized energy flux into ocean",
+   "units": "Numeric"
+  },
+  "10/0/86": {
+   "name": "Surface elevation variance due to waves (over all frequencies and directions)",
+   "units": "m2 s rad-1"
+  },
+  "10/0/87": {
+   "name": "Wave induced mean sea level correction",
+   "units": "m"
+  },
+  "10/0/88": {
+   "name": "Spectral width index",
+   "units": "Numeric"
+  },
+  "10/0/89": {
+   "name": "Number of events in freak waves statistics",
+   "units": "Numeric"
+  },
+  "10/0/90": {
+   "name": "u-component of surface momentum flux into ocean",
+   "units": "N m-2"
+  },
+  "10/0/91": {
+   "name": "v-component of surface momentum flux into ocean",
+   "units": "N m-2"
+  },
+  "10/0/92": {
+   "name": "Wave turbulent energy flux into ocean",
+   "units": "W m-2"
+  },
+  "10/0/93": {
+   "name": "Envelop maximum individual wave height",
+   "units": "m"
+  },
+  "10/0/94": {
+   "name": "Time domain maximum individual crest height",
+   "units": "m"
+  },
+  "10/0/95": {
+   "name": "Time domain maximum individual wave height",
+   "units": "m"
+  },
+  "10/0/96": {
+   "name": "Space time maximum individual crest height",
+   "units": "m"
+  },
+  "10/0/97": {
+   "name": "Space time maximum individual wave height",
+   "units": "m"
+  },
+  "10/0/98": {
+   "name": "Goda peakedness factor",
+   "units": "Numeric"
+  },
+  "10/0/99": {
+   "name": "Benjamin-Feir index 2D (BFI2D)",
+   "units": "Numeric"
+  },
+  "10/0/100": {
+   "name": "Crest-trough correlation",
+   "units": "Numeric"
+  },
+  "10/0/101": {
+   "name": "X component of the wave radiative stress to sea-ice",
+   "units": "N m-2"
+  },
+  "10/0/102": {
+   "name": "Y component of the wave radiative stress to sea-ice",
+   "units": "N m-2"
+  },
+  "10/0/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "10/1/0": {
+   "name": "Current direction",
+   "units": "degree true"
+  },
+  "10/1/1": {
+   "name": "Current speed",
+   "units": "m/s"
+  },
+  "10/1/2": {
+   "name": "u-component of current",
+   "units": "m/s"
+  },
+  "10/1/3": {
+   "name": "v-component of current",
+   "units": "m/s"
+  },
+  "10/1/4": {
+   "name": "Rip current occurrence probability",
+   "units": "%"
+  },
+  "10/1/5": {
+   "name": "Eastward current",
+   "units": "m s-1"
+  },
+  "10/1/6": {
+   "name": "Northward current",
+   "units": "m s-1"
+  },
+  "10/1/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "10/2/0": {
+   "name": "Ice cover",
+   "units": "Proportion"
+  },
+  "10/2/1": {
+   "name": "Ice thickness",
+   "units": "m"
+  },
+  "10/2/2": {
+   "name": "Direction of ice drift",
+   "units": "degree true"
+  },
+  "10/2/3": {
+   "name": "Speed of ice drift",
+   "units": "m/s"
+  },
+  "10/2/4": {
+   "name": "u-component of ice drift",
+   "units": "m/s"
+  },
+  "10/2/5": {
+   "name": "v-component of ice drift",
+   "units": "m/s"
+  },
+  "10/2/6": {
+   "name": "Ice growth rate",
+   "units": "m/s"
+  },
+  "10/2/7": {
+   "name": "Ice divergence",
+   "units": "/s"
+  },
+  "10/2/8": {
+   "name": "Ice temperature",
+   "units": "K"
+  },
+  "10/2/9": {
+   "name": "Module of ice internal pressure",
+   "units": "Pa m"
+  },
+  "10/2/10": {
+   "name": "Zonal vector component of vertically integrated ice internal pressure",
+   "units": "Pa m"
+  },
+  "10/2/11": {
+   "name": "Meridional vector component of vertically integrated ice internal pressure",
+   "units": "Pa m"
+  },
+  "10/2/12": {
+   "name": "Compressive ice strength",
+   "units": "N/m"
+  },
+  "10/2/13": {
+   "name": "Snow temperature (over sea ice)",
+   "units": "K"
+  },
+  "10/2/14": {
+   "name": "Albedo",
+   "units": "Numeric"
+  },
+  "10/2/15": {
+   "name": "Sea ice volume per unit area",
+   "units": "m3 m-2"
+  },
+  "10/2/16": {
+   "name": "Snow volume over sea ice per unit area",
+   "units": "m3 m-2"
+  },
+  "10/2/17": {
+   "name": "Sea ice heat content",
+   "units": "J m-2"
+  },
+  "10/2/18": {
+   "name": "Snow over sea ice heat content",
+   "units": "J m-2"
+  },
+  "10/2/19": {
+   "name": "Ice freeboard thickness",
+   "units": "m"
+  },
+  "10/2/20": {
+   "name": "Ice melt pond fraction",
+   "units": "fraction"
+  },
+  "10/2/21": {
+   "name": "Ice melt pond depth",
+   "units": "m"
+  },
+  "10/2/22": {
+   "name": "Ice melt pond volume per unit area",
+   "units": "m3 m-2"
+  },
+  "10/2/23": {
+   "name": "Sea ice fraction tendency due to parameterization",
+   "units": "s-1"
+  },
+  "10/2/24": {
+   "name": "x-component of ice drift",
+   "units": "m s-1"
+  },
+  "10/2/25": {
+   "name": "y-component of ice drift",
+   "units": "m s-1"
+  },
+  "10/2/26": {
+   "name": "Sea ice salinity",
+   "units": "g kg-1"
+  },
+  "10/2/27": {
+   "name": "Freezing/melting potential",
+   "units": "W m-2"
+  },
+  "10/2/28": {
+   "name": "Melt onset date",
+   "units": "Numeric"
+  },
+  "10/2/29": {
+   "name": "Freeze onset date",
+   "units": "Numeric"
+  },
+  "10/2/30": {
+   "name": "Sea-ice breakup memory",
+   "units": "Numeric"
+  },
+  "10/2/31": {
+   "name": "Downward short-wave radiation flux",
+   "units": "W m-2"
+  },
+  "10/2/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "10/3/0": {
+   "name": "Water temperature",
+   "units": "K"
+  },
+  "10/3/1": {
+   "name": "Deviation of sea level from mean",
+   "units": "m"
+  },
+  "10/3/2": {
+   "name": "Heat exchange coefficient",
+   "units": "-"
+  },
+  "10/3/3": {
+   "name": "Practical salinity",
+   "units": "Numeric"
+  },
+  "10/3/4": {
+   "name": "Downward heat flux",
+   "units": "W m-2"
+  },
+  "10/3/5": {
+   "name": "Eastward surface stress",
+   "units": "N m-2"
+  },
+  "10/3/6": {
+   "name": "Northward surface stress",
+   "units": "N m-2"
+  },
+  "10/3/7": {
+   "name": "x-component surface stress",
+   "units": "N m-2"
+  },
+  "10/3/8": {
+   "name": "y-component surface stress",
+   "units": "N m-2"
+  },
+  "10/3/9": {
+   "name": "Thermosteric change in sea surface height",
+   "units": "m"
+  },
+  "10/3/10": {
+   "name": "Halosteric change in sea surface height",
+   "units": "m"
+  },
+  "10/3/11": {
+   "name": "Steric change in sea surface height",
+   "units": "m"
+  },
+  "10/3/12": {
+   "name": "Sea salt flux",
+   "units": "kg m-2 s-1"
+  },
+  "10/3/13": {
+   "name": "Net upward water flux",
+   "units": "kg m-2 s-1"
+  },
+  "10/3/14": {
+   "name": "Eastward surface water velocity",
+   "units": "m s-1"
+  },
+  "10/3/15": {
+   "name": "Northward surface water velocity",
+   "units": "m s-1"
+  },
+  "10/3/16": {
+   "name": "x-component of surface water velocity",
+   "units": "m s-1"
+  },
+  "10/3/17": {
+   "name": "y-component of surface water velocity",
+   "units": "m s-1"
+  },
+  "10/3/18": {
+   "name": "Heat flux correction",
+   "units": "W m-2"
+  },
+  "10/3/19": {
+   "name": "Sea surface height tendency due to parameterization",
+   "units": "m s-1"
+  },
+  "10/3/20": {
+   "name": "Deviation of sea level from mean with inverse barometer correction",
+   "units": "m"
+  },
+  "10/3/21": {
+   "name": "Salinity",
+   "units": "kg kg-1"
+  },
+  "10/3/22": {
+   "name": "Downward short-wave radiation flux",
+   "units": "W m-2"
+  },
+  "10/3/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "10/4/0": {
+   "name": "Main thermocline depth",
+   "units": "m"
+  },
+  "10/4/1": {
+   "name": "Main thermocline anomaly",
+   "units": "m"
+  },
+  "10/4/2": {
+   "name": "Transient thermocline depth",
+   "units": "m"
+  },
+  "10/4/3": {
+   "name": "Salinity",
+   "units": "kg/kg"
+  },
+  "10/4/4": {
+   "name": "Ocean vertical heat diffusivity",
+   "units": "m2/s"
+  },
+  "10/4/5": {
+   "name": "Ocean vertical salt diffusivity",
+   "units": "m2/s"
+  },
+  "10/4/6": {
+   "name": "Ocean vertical momentum diffusivity",
+   "units": "m2/s"
+  },
+  "10/4/7": {
+   "name": "Bathymetry",
+   "units": "m"
+  },
+  "10/4/11": {
+   "name": "Shape factor with respect to salinity profile",
+   "units": "-"
+  },
+  "10/4/12": {
+   "name": "Shape factor with respect to temperature profile in thermocline",
+   "units": "-"
+  },
+  "10/4/13": {
+   "name": "Attenuation coefficient of water with respect to solar radiation",
+   "units": "/m"
+  },
+  "10/4/14": {
+   "name": "Water depth",
+   "units": "m"
+  },
+  "10/4/15": {
+   "name": "Water temperature",
+   "units": "K"
+  },
+  "10/4/16": {
+   "name": "Water density (rho)",
+   "units": "kg m-3"
+  },
+  "10/4/17": {
+   "name": "Water density anomaly (sigma)",
+   "units": "kg m-3"
+  },
+  "10/4/18": {
+   "name": "Water potential temperature (theta)",
+   "units": "K"
+  },
+  "10/4/19": {
+   "name": "Water potential density (rho theta)",
+   "units": "kg m-3"
+  },
+  "10/4/20": {
+   "name": "Water potential density anomaly (sigma theta)",
+   "units": "kg m-3"
+  },
+  "10/4/21": {
+   "name": "Practical salinity",
+   "units": "Numeric"
+  },
+  "10/4/22": {
+   "name": "Water column-integrated heat content",
+   "units": "J m-2"
+  },
+  "10/4/23": {
+   "name": "Eastward water velocity",
+   "units": "m s-1"
+  },
+  "10/4/24": {
+   "name": "Northward water velocity",
+   "units": "m s-1"
+  },
+  "10/4/25": {
+   "name": "x-component water velocity",
+   "units": "m s-1"
+  },
+  "10/4/26": {
+   "name": "y-component water velocity",
+   "units": "m s-1"
+  },
+  "10/4/27": {
+   "name": "Upward water velocity",
+   "units": "m s-1"
+  },
+  "10/4/28": {
+   "name": "Vertical eddy diffusivity",
+   "units": "m2 s-1"
+  },
+  "10/4/29": {
+   "name": "Bottom pressure equivalent height",
+   "units": "m"
+  },
+  "10/4/30": {
+   "name": "Fresh water flux into sea water from rivers",
+   "units": "kg m-2 s-1"
+  },
+  "10/4/31": {
+   "name": "Fresh water flux correction",
+   "units": "kg m-2 s-1"
+  },
+  "10/4/32": {
+   "name": "Virtual salt flux into sea water",
+   "units": "g kg-1 m-2 s-1"
+  },
+  "10/4/33": {
+   "name": "Virtual salt flux correction",
+   "units": "g kg-1 m-2 s-1"
+  },
+  "10/4/34": {
+   "name": "Seawater temperature tendency due to Newtonian relaxation",
+   "units": "K s-1"
+  },
+  "10/4/35": {
+   "name": "Seawater salinity tendency due to Newtonian relaxation",
+   "units": "g kg-1 s-1"
+  },
+  "10/4/36": {
+   "name": "Seawater temperature tendency due to parameterization",
+   "units": "K s-1"
+  },
+  "10/4/37": {
+   "name": "Seawater salinity tendency due to parameterization",
+   "units": "g kg-1 s-1"
+  },
+  "10/4/38": {
+   "name": "Eastward sea water velocity tendency due to parameterization",
+   "units": "m s-2"
+  },
+  "10/4/39": {
+   "name": "Northward sea water velocity tendency due to parameterization",
+   "units": "m s-2"
+  },
+  "10/4/40": {
+   "name": "Seawater temperature tendency due to direct bias correction",
+   "units": "K s-1"
+  },
+  "10/4/41": {
+   "name": "Seawater salinity tendency due to direct bias correction",
+   "units": "g kg-1 s-1"
+  },
+  "10/4/42": {
+   "name": "Seawater meridional volume transport",
+   "units": "m3 m-2 s-1"
+  },
+  "10/4/43": {
+   "name": "Seawater zonal volume transport",
+   "units": "m3 m-2 s-1"
+  },
+  "10/4/44": {
+   "name": "Seawater column integrated meridional volume transport",
+   "units": "m3 m-1 s-1"
+  },
+  "10/4/45": {
+   "name": "Seawater column integrated zonal volume transport",
+   "units": "m3 m-1 s-1"
+  },
+  "10/4/46": {
+   "name": "Seawater meridional mass transport",
+   "units": "kg m-2 s-1"
+  },
+  "10/4/47": {
+   "name": "Seawater zonal mass transport",
+   "units": "kg m-2 s-1"
+  },
+  "10/4/48": {
+   "name": "Seawater column integrated meridional mass transport",
+   "units": "kg m-1 s-1"
+  },
+  "10/4/49": {
+   "name": "Seawater column integrated zonal mass transport",
+   "units": "kg m-1 s-1"
+  },
+  "10/4/50": {
+   "name": "Seawater column integrated practical salinity",
+   "units": "g kg-1 m"
+  },
+  "10/4/51": {
+   "name": "Seawater column integrated salinity",
+   "units": "kg kg-1 m"
+  },
+  "10/4/52": {
+   "name": "Mixed layer depth",
+   "units": "m"
+  },
+  "10/4/53": {
+   "name": "Normal component of water velocity",
+   "units": "m s-1"
+  },
+  "10/4/54": {
+   "name": "Tangential component of water velocity",
+   "units": "m s-1"
+  },
+  "10/4/55": {
+   "name": "Sea water upward volume transport",
+   "units": "m3 m-2 s-1"
+  },
+  "10/4/56": {
+   "name": "Sea water upward mass transport",
+   "units": "kg m-2 s-1"
+  },
+  "10/4/57": {
+   "name": "Sea water age since surface contact",
+   "units": "s"
+  },
+  "10/4/58": {
+   "name": "Sea water downward short-wave radiation flux",
+   "units": "W m-2"
+  },
+  "10/4/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "10/191/0": {
+   "name": "Seconds prior to initial reference time (defined in Section 1)",
+   "units": "s"
+  },
+  "10/191/1": {
+   "name": "Meridional overturning stream function",
+   "units": "m3/s"
+  },
+  "10/191/2": {
+   "name": "Reserved",
+   "units": ""
+  },
+  "10/191/3": {
+   "name": "Days since last observation",
+   "units": "d"
+  },
+  "10/191/4": {
+   "name": "Barotropic stream function",
+   "units": "m3 s-1"
+  },
+  "10/191/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "20/0/0": {
+   "name": "Universal thermal climate index",
+   "units": "K"
+  },
+  "20/0/1": {
+   "name": "Mean radiant temperature",
+   "units": "K"
+  },
+  "20/0/2": {
+   "name": "Wet-bulb globe temperature",
+   "units": "K"
+  },
+  "20/0/3": {
+   "name": "Globe temperature",
+   "units": "K"
+  },
+  "20/0/4": {
+   "name": "Humidex",
+   "units": "K"
+  },
+  "20/0/5": {
+   "name": "Effective temperature",
+   "units": "K"
+  },
+  "20/0/6": {
+   "name": "Normal effective temperature",
+   "units": "K"
+  },
+  "20/0/7": {
+   "name": "Standard effective temperature",
+   "units": "K"
+  },
+  "20/0/8": {
+   "name": "Physiological equivalent temperature",
+   "units": "K"
+  },
+  "20/0/9": {
+   "name": "UV biologically effective dose",
+   "units": "W m-2"
+  },
+  "20/0/10": {
+   "name": "UV biologically effective dose, clear-sky",
+   "units": "W m-2"
+  },
+  "20/0/11": {
+   "name": "Excess heat factor",
+   "units": "K2"
+  },
+  "20/0/12": {
+   "name": "Excess cold factor",
+   "units": "K2"
+  },
+  "20/0/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "20/1/0": {
+   "name": "Malaria cases",
+   "units": "Fraction"
+  },
+  "20/1/1": {
+   "name": "Malaria circumsporozoite protein rate",
+   "units": "Fraction"
+  },
+  "20/1/2": {
+   "name": "Plasmodium falciparum entomological inoculation rate",
+   "units": "Bites per day per person"
+  },
+  "20/1/3": {
+   "name": "Human bite rate by anopheles vectors",
+   "units": "Bites per day per person"
+  },
+  "20/1/4": {
+   "name": "Malaria immunity",
+   "units": "Fraction"
+  },
+  "20/1/5": {
+   "name": "Falciparum parasite rates",
+   "units": "Fraction"
+  },
+  "20/1/6": {
+   "name": "Detectable falciparum parasite ratio (after day 10)",
+   "units": "Fraction"
+  },
+  "20/1/7": {
+   "name": "Anopheles vector to host ratio",
+   "units": "Fraction"
+  },
+  "20/1/8": {
+   "name": "Anopheles vector number",
+   "units": "Number m-2"
+  },
+  "20/1/9": {
+   "name": "Fraction of malarial vector reproductive habitat",
+   "units": "Fraction"
+  },
+  "20/1/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "20/2/0": {
+   "name": "Population density",
+   "units": "Person m-2"
+  },
+  "20/2/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "20/3/0": {
+   "name": "Renewable power capacity",
+   "units": "W"
+  },
+  "20/3/1": {
+   "name": "Renewable power production rate",
+   "units": "W"
+  },
+  "20/3/2": {
+   "name": "Wind power capacity",
+   "units": "W"
+  },
+  "20/3/3": {
+   "name": "Wind power production rate",
+   "units": "W"
+  },
+  "20/3/4": {
+   "name": "Solar photovoltaic (PV) power capacity",
+   "units": "W"
+  },
+  "20/3/5": {
+   "name": "Solar photovoltaic (PV) power production rate",
+   "units": "W"
+  },
+  "20/3/6": {
+   "name": "Solar non-photovoltaic (PV) power capacity",
+   "units": "W"
+  },
+  "20/3/7": {
+   "name": "Solar non-photovoltaic (PV) power production rate",
+   "units": "W"
+  },
+  "20/3/8": {
+   "name": "Concentrated solar power (CSP) power capacity",
+   "units": "W"
+  },
+  "20/3/9": {
+   "name": "Concentrated solar power (CSP) power production rate",
+   "units": "W"
+  },
+  "20/3/255": {
+   "name": "Missing",
+   "units": ""
+  },
+  "20/4/0": {
+   "name": "Reserved",
+   "units": "-"
+  },
+  "20/4/1": {
+   "name": "Downburst",
+   "units": "Code table 4.253"
+  },
+  "20/4/2": {
+   "name": "Lightning (electrical storm)",
+   "units": "Code table 4.253"
+  },
+  "20/4/3": {
+   "name": "Thunderstorm",
+   "units": "Code table 4.253"
+  },
+  "20/4/4": {
+   "name": "Coastal flood",
+   "units": "Code table 4.253"
+  },
+  "20/4/5": {
+   "name": "Estuarine (coastal) flood",
+   "units": "Code table 4.253"
+  },
+  "20/4/6": {
+   "name": "Flash flood",
+   "units": "Code table 4.253"
+  },
+  "20/4/7": {
+   "name": "Fluvial (riverine) flood",
+   "units": "Code table 4.253"
+  },
+  "20/4/8": {
+   "name": "Groundwater flood",
+   "units": "Code table 4.253"
+  },
+  "20/4/9": {
+   "name": "Ice-jam flood including debris",
+   "units": "Code table 4.253"
+  },
+  "20/4/10": {
+   "name": "Ponding (drainage) flood",
+   "units": "Code table 4.253"
+  },
+  "20/4/11": {
+   "name": "Snowmelt flood",
+   "units": "Code table 4.253"
+  },
+  "20/4/12": {
+   "name": "Surface water flooding",
+   "units": "Code table 4.253"
+  },
+  "20/4/13": {
+   "name": "Glacial lake outburst flood",
+   "units": "Code table 4.253"
+  },
+  "20/4/14": {
+   "name": "Black carbon (brown clouds)",
+   "units": "Code table 4.253"
+  },
+  "20/4/15": {
+   "name": "Dust storm or sandstorm",
+   "units": "Code table 4.253"
+  },
+  "20/4/16": {
+   "name": "Fog",
+   "units": "Code table 4.253"
+  },
+  "20/4/17": {
+   "name": "Haze",
+   "units": "Code table 4.253"
+  },
+  "20/4/18": {
+   "name": "Polluted air",
+   "units": "Code table 4.253"
+  },
+  "20/4/19": {
+   "name": "Sand haze",
+   "units": "Code table 4.253"
+  },
+  "20/4/20": {
+   "name": "Smoke",
+   "units": "Code table 4.253"
+  },
+  "20/4/21": {
+   "name": "Ocean acidification",
+   "units": "Code table 4.253"
+  },
+  "20/4/22": {
+   "name": "Rogue wave",
+   "units": "Code table 4.253"
+  },
+  "20/4/23": {
+   "name": "Sea water intrusion",
+   "units": "Code table 4.253"
+  },
+  "20/4/24": {
+   "name": "Sea ice (ice bergs)",
+   "units": "Code table 4.253"
+  },
+  "20/4/25": {
+   "name": "Ice flow",
+   "units": "Code table 4.253"
+  },
+  "20/4/26": {
+   "name": "Seiche",
+   "units": "Code table 4.253"
+  },
+  "20/4/27": {
+   "name": "Storm surge",
+   "units": "Code table 4.253"
+  },
+  "20/4/28": {
+   "name": "Storm tides",
+   "units": "Code table 4.253"
+  },
+  "20/4/29": {
+   "name": "Tsunami",
+   "units": "Code table 4.253"
+  },
+  "20/4/30": {
+   "name": "Depression or cyclone (low pressure area) (pressure-related)",
+   "units": "Code table 4.253"
+  },
+  "20/4/31": {
+   "name": "Extra-tropical cyclone (pressure-related)",
+   "units": "Code table 4.253"
+  },
+  "20/4/32": {
+   "name": "Sub-tropical cyclone (pressure-related)",
+   "units": "Code table 4.253"
+  },
+  "20/4/33": {
+   "name": "Acid rain",
+   "units": "Code table 4.253"
+  },
+  "20/4/34": {
+   "name": "Blizzard",
+   "units": "Code table 4.253"
+  },
+  "20/4/35": {
+   "name": "Drought",
+   "units": "Code table 4.253"
+  },
+  "20/4/36": {
+   "name": "Hail",
+   "units": "Code table 4.253"
+  },
+  "20/4/37": {
+   "name": "Ice storm",
+   "units": "Code table 4.253"
+  },
+  "20/4/38": {
+   "name": "Snow",
+   "units": "Code table 4.253"
+  },
+  "20/4/39": {
+   "name": "Snowstorm",
+   "units": "Code table 4.253"
+  },
+  "20/4/40": {
+   "name": "Cold wave",
+   "units": "Code table 4.253"
+  },
+  "20/4/41": {
+   "name": "Dzud",
+   "units": "Code table 4.253"
+  },
+  "20/4/42": {
+   "name": "Freeze",
+   "units": "Code table 4.253"
+  },
+  "20/4/43": {
+   "name": "Frost (hoar frost)",
+   "units": "Code table 4.253"
+  },
+  "20/4/44": {
+   "name": "Freezing rain (supercooled rain)",
+   "units": "Code table 4.253"
+  },
+  "20/4/45": {
+   "name": "Glaze",
+   "units": "Code table 4.253"
+  },
+  "20/4/46": {
+   "name": "Ground frost",
+   "units": "Code table 4.253"
+  },
+  "20/4/47": {
+   "name": "Heatwave",
+   "units": "Code table 4.253"
+  },
+  "20/4/48": {
+   "name": "Icing (including ice)",
+   "units": "Code table 4.253"
+  },
+  "20/4/49": {
+   "name": "Thaw",
+   "units": "Code table 4.253"
+  },
+  "20/4/50": {
+   "name": "Avalanche",
+   "units": "Code table 4.253"
+  },
+  "20/4/51": {
+   "name": "Mud flow",
+   "units": "Code table 4.253"
+  },
+  "20/4/52": {
+   "name": "Rock slide",
+   "units": "Code table 4.253"
+  },
+  "20/4/53": {
+   "name": "Derecho",
+   "units": "Code table 4.253"
+  },
+  "20/4/54": {
+   "name": "Gale (strong gale)",
+   "units": "Code table 4.253"
+  },
+  "20/4/55": {
+   "name": "Squall",
+   "units": "Code table 4.253"
+  },
+  "20/4/56": {
+   "name": "Subtropical storm",
+   "units": "Code table 4.253"
+  },
+  "20/4/57": {
+   "name": "Tropical cyclone (cyclonic wind, rain [storm] surge) (wind-related)",
+   "units": "Code table 4.253"
+  },
+  "20/4/58": {
+   "name": "Tropical storm (wind-related)",
+   "units": "Code table 4.253"
+  },
+  "20/4/59": {
+   "name": "Tornado",
+   "units": "Code table 4.253"
+  },
+  "20/4/60": {
+   "name": "Wind",
+   "units": "Code table 4.253"
+  },
+  "20/4/255": {
+   "name": "Missing",
+   "units": "-"
+  },
+  "20/5/0": {
+   "name": "Reserved",
+   "units": ""
+  },
+  "20/5/1": {
+   "name": "Household air pollution",
+   "units": "Code table 4.253"
+  },
+  "20/5/2": {
+   "name": "Air pollution (point source)",
+   "units": "Code table 4.253"
+  },
+  "20/5/3": {
+   "name": "Ambient (outdoor) air pollution",
+   "units": "Code table 4.253"
+  },
+  "20/5/4": {
+   "name": "Land degradation",
+   "units": "Code table 4.253"
+  },
+  "20/5/5": {
+   "name": "Soil degradation",
+   "units": "Code table 4.253"
+  },
+  "20/5/6": {
+   "name": "Runoff / nonpoint source pollution",
+   "units": "Code table 4.253"
+  },
+  "20/5/7": {
+   "name": "Salinity",
+   "units": "Code table 4.253"
+  },
+  "20/5/8": {
+   "name": "Biodiversity loss",
+   "units": "Code table 4.253"
+  },
+  "20/5/9": {
+   "name": "Deforestation",
+   "units": "Code table 4.253"
+  },
+  "20/5/10": {
+   "name": "Forest declines and diebacks",
+   "units": "Code table 4.253"
+  },
+  "20/5/11": {
+   "name": "Forest disturbances",
+   "units": "Code table 4.253"
+  },
+  "20/5/12": {
+   "name": "Forest invasive species",
+   "units": "Code table 4.253"
+  },
+  "20/5/13": {
+   "name": "Wildfires",
+   "units": "Code table 4.253"
+  },
+  "20/5/14": {
+   "name": "Desertification",
+   "units": "Code table 4.253"
+  },
+  "20/5/15": {
+   "name": "Loss of mangroves",
+   "units": "Code table 4.253"
+  },
+  "20/5/16": {
+   "name": "Wetland loss/degradation",
+   "units": "Code table 4.253"
+  },
+  "20/5/17": {
+   "name": "Coral bleaching",
+   "units": "Code table 4.253"
+  },
+  "20/5/18": {
+   "name": "Compressive soils",
+   "units": "Code table 4.253"
+  },
+  "20/5/19": {
+   "name": "Soil erosion",
+   "units": "Code table 4.253"
+  },
+  "20/5/20": {
+   "name": "Coastal erosion and shoreline change",
+   "units": "Code table 4.253"
+  },
+  "20/5/21": {
+   "name": "Permafrost loss",
+   "units": "Code table 4.253"
+  },
+  "20/5/22": {
+   "name": "Sand mining",
+   "units": "Code table 4.253"
+  },
+  "20/5/23": {
+   "name": "Sea level rise",
+   "units": "Code table 4.253"
+  },
+  "20/5/24": {
+   "name": "Eutrophication",
+   "units": "Code table 4.253"
+  },
+  "20/5/255": {
+   "name": "Missing",
+   "units": "-"
+  },
+  "191/0/0": {
+   "name": "Stochastically Perturbed Parametrization Tendency (SPPT)",
+   "units": "Numeric"
+  },
+  "191/0/1": {
+   "name": "Stochastically Perturbed Parameterizations (SPP)",
+   "units": "Numeric"
+  },
+  "191/0/2": {
+   "name": "Stochastic Kinetic Energy Backscatter  (SKEB)",
+   "units": "Numeric"
+  },
+  "191/0/3": {
+   "name": "Stochastic Trigger of Convection (STC)",
+   "units": "Numeric"
+  },
+  "191/0/4": {
+   "name": "Stochastic boundary-layer Humidity (SHUM)",
+   "units": "Numeric"
+  },
+  "191/0/5": {
+   "name": "Stochastic Total Tendency Perturbations (STTP)",
+   "units": "Numeric"
+  },
+  "191/0/255": {
+   "name": "Missing",
+   "units": ""
+  }
+ }
+}
