@@ -63,6 +63,17 @@ repos:
         entry: bash -c 'cd extension && npx --no-install eslint .'
         pass_filenames: false
 
+      - id: verusfmt
+        name: verusfmt (verification crate)
+        language: system
+        # Only the verification crate is written in Verus syntax, and rustfmt
+        # does not understand it — verusfmt is the formatter for `verus! { }`
+        # blocks, and the two are designed to coexist. Scoped by path so a
+        # contributor who never touches this crate never needs the tool.
+        files: ^crates/fieldglass-verify/src/.*\.rs$
+        entry: bash -c 'command -v verusfmt >/dev/null 2>&1 || { echo "verusfmt not found — see docs/verification.md (it formats verus! blocks; rustfmt cannot)"; exit 1; }; verusfmt --check "$@"' --
+        pass_filenames: true
+
       - id: architecture-diagrams
         name: architecture diagrams in sync with source
         language: system

@@ -1,0 +1,83 @@
+name: Verify
+
+# Formal verification of the decode kernel with Verus (#197, milestone
+# "Formal verification of the decode kernel").
+#
+# Non-blocking on purpose. The policy is incremental: unverified code is fine,
+# but verified code must stay verified. Until the proof suite is broad enough
+# that a failure always means a real regression rather than a toolchain
+# hiccup, this reports without gating merges — see docs/verification.md.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'crates/fieldglass-verify/**'
+      - 'scripts/verify.sh'
+      - '.github/workflows/verify.yml'
+  pull_request:
+    paths:
+      - 'crates/fieldglass-verify/**'
+      - 'scripts/verify.sh'
+      - '.github/workflows/verify.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verus:
+    name: Verus (non-blocking)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Reports, does not gate. Remove once the suite is broad enough that a red
+    # run always means a real regression.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Verus ships as a prebuilt release pinned to one rustup toolchain, which
+      # scripts/verify.sh knows; keep the two in step by reading it from there
+      # rather than repeating the version in a second place.
+      - name: Read the pinned Verus toolchain
+        id: pin
+        run: |
+          set -euo pipefail
+          toolchain="$(grep -oP 'VERUS_TOOLCHAIN="\K[^"]+' scripts/verify.sh)"
+          echo "toolchain=${toolchain%%-x86_64*}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up the Verus-required Rust toolchain
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: ${{ steps.pin.outputs.toolchain }}
+
+      - name: Install Verus and verify
+        run: ./scripts/verify.sh --install
+
+  # The point of keeping Verus out of the workspace is that the shipped build
+  # never sees it. Assert that, rather than trusting it: `vstd` must not appear
+  # in the workspace dependency graph, and the workspace must still build.
+  isolation:
+    name: Verus stays out of the shipped build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Rust stable
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: stable
+
+      - name: No Verus crate reaches the workspace graph
+        run: |
+          set -euo pipefail
+          for crate in vstd verus_builtin verus_builtin_macros; do
+            if cargo tree -e normal --workspace --locked 2>/dev/null | grep -q "^\|.*${crate} "; then
+              echo "::error::${crate} has leaked into the shipped dependency graph"
+              exit 1
+            fi
+          done
+          echo "no Verus crates in the workspace graph"
+
+      - name: Workspace still builds without it
+        run: cargo build --workspace --locked
