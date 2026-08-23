@@ -43,9 +43,12 @@ classDiagram
     GridTemplate --> LambertTemplate
     GridTemplate --> GaussianTemplate
     GridTemplate --> SpaceViewTemplate
+    GridTemplate --> SphericalHarmonicTemplate
+    GridTemplate --> BiFourierTemplate
 ```
 
-`ProductTemplate` and `DataRepresentationTemplate` to a product and a packing:
+`ProductTemplate` and `DataRepresentationTemplate` to a product and a packing
+(the README "GRIB2 packing modes" table says which of these decode):
 
 ```mermaid
 classDiagram
@@ -55,9 +58,19 @@ classDiagram
     ProductTemplate --> Template411
 
     DataRepresentationTemplate --> SimplePackingTemplate
+    DataRepresentationTemplate --> MatrixSimplePackingTemplate
     DataRepresentationTemplate --> ComplexPackingTemplate
     DataRepresentationTemplate --> ComplexSpatialDiffTemplate
     DataRepresentationTemplate --> IeeePackingTemplate
+    DataRepresentationTemplate --> PngPackingTemplate
+    DataRepresentationTemplate --> CcsdsPackingTemplate
+    DataRepresentationTemplate --> Jpeg2000PackingTemplate
+    DataRepresentationTemplate --> RunLengthPackingTemplate
+    DataRepresentationTemplate --> LogPreprocessingPackingTemplate
+    DataRepresentationTemplate --> SpectralSimplePackingTemplate
+    DataRepresentationTemplate --> SpectralComplexPackingTemplate
+    DataRepresentationTemplate --> BiFourierPackingTemplate
+    DataRepresentationTemplate --> SecondOrderPackingTemplate
 ```
 
 ## GRIB1 message
@@ -79,9 +92,13 @@ classDiagram
     Grib1Message o-- GridDescription
 
     GridDescription --> LatLonGrid
+    GridDescription --> RotatedLatLonGrid
+    GridDescription --> ReducedLatLonGrid
     GridDescription --> GaussianGrid
+    GridDescription --> ReducedGaussianGrid
     GridDescription --> PolarStereoGrid
     GridDescription --> LambertGrid
+    GridDescription --> SphericalHarmonicGrid
 ```
 
 ## NetCDF reader
@@ -117,7 +134,9 @@ classDiagram
 
 Each handle wraps a format reader and a memoized decode cache, and hands
 JavaScript plain metadata structs. Decoding a field caches it, so a second
-request for the same field is free.
+request for the same field is free. `Grib2Handle` keeps a second cache for
+spectral messages, whose coefficients are synthesized onto a fixed lat/lon grid
+before rendering.
 
 ```mermaid
 classDiagram
@@ -127,12 +146,21 @@ classDiagram
     }
     class Grib2Handle {
         -Mutex~HashMap~ decoded
+        -Mutex~HashMap~ synthesized
+    }
+    class NetcdfHandle {
+        -DatasetView view
+        -Mutex~HashMap~ decoded
     }
     Grib1Handle *-- Grib1Reader
     Grib2Handle *-- Grib2Reader
+    NetcdfHandle *-- NetcdfReader
     Grib1Handle ..> DecodedGrid : produces
     Grib2Handle ..> DecodedGrid : produces
+    Grib1Handle ..> RenderedGrid : produces
     Grib2Handle ..> RenderedGrid : produces
+    NetcdfHandle ..> RenderedGrid : produces
+    NetcdfHandle ..> NetcdfVariableMeta : produces
     NetcdfReader ..> DatasetMeta : produces
 ```
 
