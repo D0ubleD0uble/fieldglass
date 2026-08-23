@@ -1392,6 +1392,53 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     assert.ok(out.xy.length > 0, "coastline should project onto the slice raster");
   });
 
+  // A spectral message reads level = levelType = "Ground or water surface", so
+  // joining the two printed the surface name twice — in the panel header and in
+  // the exported PNG, whose canvas is sized from that very line.
+  test("the panel subtitle names the level once when level repeats levelType", () => {
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+    const bytes = fs.readFileSync(fixturePath("spectral_simple_t63.grib2"));
+    const meta = native.Grib2Handle.fromBytes(bytes).messages()[0];
+    assert.strictEqual(
+      meta.level,
+      meta.levelType,
+      "fixture precondition: the decoder reports the surface name in both fields",
+    );
+    const html = renderImagePanelHtml(
+      { cspSource: "" } as unknown as vscode.Webview,
+      meta,
+      "summary",
+      registry(),
+      combineOps(),
+    );
+    const subtitle = /<div class="subtitle">([^<]*)<\/div>/.exec(html);
+    assert.ok(subtitle, "the panel header has a subtitle line");
+    const repeats = subtitle[1].split(meta.levelType).length - 1;
+    assert.strictEqual(repeats, 1, `the subtitle repeats the level: ${subtitle[1]}`);
+  });
+
+  // The webview is handed the sizing function itself, not a copy of the rule.
+  // If that injection is ever dropped the export silently goes back to sizing
+  // on the map block, which is the clipping bug all over again.
+  test("the panel script sizes its PNG export with exportCanvasWidth", () => {
+    const html = renderImagePanelHtml(
+      { cspSource: "" } as unknown as vscode.Webview,
+      fakeNetcdfMeta(),
+      "summary",
+      registry(),
+      combineOps(),
+    );
+    assert.ok(/function exportCanvasWidth\s*\(/.test(html), "the helper is injected");
+    // Anchor on the assignment, not on a bare call: the serialized function's
+    // own parameter list reads `exportCanvasWidth(mapBlockW, headerW, margin)`
+    // too, so matching that alone passes even when nothing calls it.
+    assert.ok(
+      /const outW = Math\.ceil\(exportCanvasWidth\(/.test(html),
+      "and the export sizes itself with it",
+    );
+  });
+
   test("the panel HTML embeds the slice picker controls when given slice data", () => {
     const handle = netcdfHandle();
     const variables = handle.variables();
