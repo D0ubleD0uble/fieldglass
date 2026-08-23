@@ -128,8 +128,8 @@ fn hdf5_dataset_address(
     probe: &hdf5::Hdf5Probe,
     var_index: usize,
 ) -> Result<u64, FieldglassError> {
-    hdf5::group::list_all_children(bytes, probe)?
-        .into_iter()
+    hdf5::group::all_children(bytes, probe)?
+        .iter()
         .filter(|c| c.kind == hdf5::group::ChildKind::Dataset)
         .nth(var_index)
         .map(|c| c.object_header_address)

@@ -118,12 +118,7 @@ fn attribute_message_bodies(
     object_header_address: u64,
     probe: &Hdf5Probe,
 ) -> Result<Vec<Vec<u8>>, FieldglassError> {
-    let header = object_header::walk(
-        bytes,
-        object_header_address,
-        probe.offset_size,
-        probe.length_size,
-    )?;
+    let header = probe.header(bytes, object_header_address)?;
 
     let mut bodies: Vec<Vec<u8>> = header
         .messages

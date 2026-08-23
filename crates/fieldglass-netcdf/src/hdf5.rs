@@ -16,6 +16,7 @@
 use fieldglass_core::FieldglassError;
 
 pub mod attribute;
+pub(crate) mod cache;
 pub mod dataset;
 pub mod dataspace;
 pub mod datatype;
@@ -31,8 +32,17 @@ pub mod values;
 /// HDF5 signature: `\x89HDF\r\n\x1a\n`.
 pub const HDF5_SIGNATURE: [u8; 8] = [0x89, b'H', b'D', b'F', b'\r', b'\n', 0x1a, b'\n'];
 
-/// What we surface from the HDF5 header. Deliberately tiny.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// The per-file HDF5 handle: what we surface from the superblock, plus the
+/// traversal memo the deep walk fills as it goes (#414).
+///
+/// The superblock fields are deliberately tiny. The memo is private and carries
+/// no meaning of its own — it only remembers work already done for *these*
+/// bytes, so two probes with the same three fields are equal and a clone starts
+/// cold. Because it is keyed by file offset, a probe is only valid against the
+/// byte slice [`probe`] was called on; that was already true (the offset sizes
+/// come from that file's superblock), but a memo turns a mismatch into stale
+/// data rather than a parse error.
+#[derive(Default)]
 pub struct Hdf5Probe {
     /// Superblock version byte. Versions 0 and 1 share a layout; versions 2
     /// and 3 introduce a different header. We don't go beyond reporting it.
@@ -41,6 +51,83 @@ pub struct Hdf5Probe {
     pub offset_size: u8,
     /// Size of file lengths in bytes (typically 8).
     pub length_size: u8,
+    /// Per-file traversal memo. Not part of the probe's identity.
+    cache: cache::Hdf5Cache,
+}
+
+impl Hdf5Probe {
+    /// A probe with the given superblock fields and an empty memo. Prefer
+    /// [`probe`], which reads them from a real superblock; this exists for
+    /// tests and for callers driving the traversal against a hand-built file.
+    pub fn new(superblock_version: u8, offset_size: u8, length_size: u8) -> Self {
+        Self {
+            superblock_version,
+            offset_size,
+            length_size,
+            cache: cache::Hdf5Cache::default(),
+        }
+    }
+
+    /// The object header at `offset`, parsed once per file.
+    ///
+    /// The traversal calls this instead of [`object_header::walk`] directly, so
+    /// every path that reaches a given header — group classification, dataset
+    /// shape, attributes, value decode — shares one parse.
+    pub(crate) fn header(
+        &self,
+        bytes: &[u8],
+        offset: u64,
+    ) -> Result<std::sync::Arc<object_header::ObjectHeader>, FieldglassError> {
+        self.cache
+            .header(bytes, offset, self.offset_size, self.length_size)
+    }
+
+    /// How many structure walks this probe has actually performed — object
+    /// headers parsed plus chunk indexes collected — as opposed to served from
+    /// its memo.
+    ///
+    /// Instrumentation for tests and measurement: it says what a call really
+    /// cost in file traversal, which a wall-clock timing cannot separate from
+    /// I/O noise, and which is the whole cost once the bytes arrive over a
+    /// byte-range transport. It is not part of the probe's identity, so it
+    /// survives neither [`Clone`] nor equality.
+    pub fn traversals(&self) -> u64 {
+        self.cache.traversals()
+    }
+
+    /// Access to the memo for the traversal modules.
+    pub(crate) fn cache(&self) -> &cache::Hdf5Cache {
+        &self.cache
+    }
+}
+
+// The memo is not part of the probe's identity: equality compares the
+// superblock fields, `Debug` prints them, and a clone starts with a cold cache
+// rather than sharing (or copying) another probe's work.
+impl Clone for Hdf5Probe {
+    fn clone(&self) -> Self {
+        Self::new(self.superblock_version, self.offset_size, self.length_size)
+    }
+}
+
+impl PartialEq for Hdf5Probe {
+    fn eq(&self, other: &Self) -> bool {
+        self.superblock_version == other.superblock_version
+            && self.offset_size == other.offset_size
+            && self.length_size == other.length_size
+    }
+}
+
+impl Eq for Hdf5Probe {}
+
+impl std::fmt::Debug for Hdf5Probe {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Hdf5Probe")
+            .field("superblock_version", &self.superblock_version)
+            .field("offset_size", &self.offset_size)
+            .field("length_size", &self.length_size)
+            .finish()
+    }
 }
 
 /// HDF5 stores the signature at one of a sequence of offsets — 0, 512, 1024,
@@ -100,11 +187,7 @@ pub fn probe(bytes: &[u8]) -> Result<Hdf5Probe, FieldglassError> {
         }
     };
 
-    Ok(Hdf5Probe {
-        superblock_version: version,
-        offset_size,
-        length_size,
-    })
+    Ok(Hdf5Probe::new(version, offset_size, length_size))
 }
 
 /// File offset of the root group's object header, read from the superblock.
@@ -115,6 +198,12 @@ pub fn probe(bytes: &[u8]) -> Result<Hdf5Probe, FieldglassError> {
 /// dedicated superblock field. Reading it is superblock-level work, not deep
 /// parsing, so it lives here alongside [`probe`].
 pub fn root_group_address(bytes: &[u8], probe: &Hdf5Probe) -> Result<u64, FieldglassError> {
+    // Memoised: the whole-file walk bootstraps from here, and it is on the hot
+    // path of every metadata and decode call (#414).
+    probe.cache().root(|| read_root_group_address(bytes, probe))
+}
+
+fn read_root_group_address(bytes: &[u8], probe: &Hdf5Probe) -> Result<u64, FieldglassError> {
     let base = find_signature(bytes).ok_or(FieldglassError::InvalidMagic)?;
     let o = probe.offset_size as usize;
     if o == 0 || o > 8 {

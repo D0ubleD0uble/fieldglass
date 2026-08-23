@@ -7,7 +7,6 @@
 use super::Hdf5Probe;
 use super::dataspace::{self, Dataspace};
 use super::datatype::{self, Datatype};
-use super::object_header;
 use fieldglass_core::FieldglassError;
 
 const MSG_DATASPACE: u16 = 0x0001;
@@ -26,12 +25,7 @@ pub fn describe(
     object_header_address: u64,
     probe: &Hdf5Probe,
 ) -> Result<DatasetShape, FieldglassError> {
-    let header = object_header::walk(
-        bytes,
-        object_header_address,
-        probe.offset_size,
-        probe.length_size,
-    )?;
+    let header = probe.header(bytes, object_header_address)?;
     let body = |msg_type: u16, label: &str| {
         header
             .messages

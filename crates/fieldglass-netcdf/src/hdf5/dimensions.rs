@@ -125,10 +125,10 @@ struct DatasetInfo {
 
 /// Resolve the root group's dimensions, variables, and global attributes.
 pub fn resolve(bytes: &[u8], probe: &Hdf5Probe) -> Result<Hdf5Metadata, FieldglassError> {
-    let datasets: Vec<DatasetInfo> = group::list_all_children(bytes, probe)?
-        .into_iter()
+    let datasets: Vec<DatasetInfo> = group::all_children(bytes, probe)?
+        .iter()
         .filter(|c| c.kind == ChildKind::Dataset)
-        .map(|child| describe(bytes, probe, child))
+        .map(|child| describe(bytes, probe, child.clone()))
         .collect::<Result<_, _>>()?;
 
     // Pass 1: a table from each scale's object-header address to its name, plus
