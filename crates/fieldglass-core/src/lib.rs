@@ -32,6 +32,7 @@ pub mod overlay;
 pub mod projection;
 pub mod reader;
 pub mod sht;
+pub mod units;
 #[cfg(feature = "render")]
 pub mod warp;
 
