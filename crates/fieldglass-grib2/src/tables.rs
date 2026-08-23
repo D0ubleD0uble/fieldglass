@@ -177,7 +177,7 @@ pub fn lookup_time_range_unit(value: u8) -> &'static str {
         12 => "12 hours",
         13 => "Second",
         255 => "Missing",
-        _ => "Unknown time-range unit",
+        other => crate::tables_wmo::time_range_unit(other).unwrap_or("Unknown time-range unit"),
     }
 }
 
@@ -216,7 +216,7 @@ pub fn lookup_fixed_surface(value: u8) -> &'static str {
         // enumerate centre extensions; surface them as the WMO range label.
         192..=254 => "Reserved for local use",
         255 => "Missing",
-        _ => "Unknown fixed surface",
+        other => crate::tables_wmo::fixed_surface(other).unwrap_or("Unknown fixed surface"),
     }
 }
 
@@ -316,7 +316,6 @@ pub fn lookup_parameter(
         (0, 3, 2) => ("PTEND", "Pressure tendency", "Pa s⁻¹"),
         (0, 3, 5) => ("HGT", "Geopotential height", "gpm"),
         (0, 3, 6) => ("DIST", "Geometric height", "m"),
-        (0, 3, 9) => ("DEN", "Density", "kg m⁻³"),
 
         // Category 6: Cloud
         (0, 6, 1) => ("TCDC", "Total cloud cover", "%"),
@@ -330,13 +329,16 @@ pub fn lookup_parameter(
 
         // Discipline 2 — Land surface
         (2, 0, 0) => ("LAND", "Land cover (0=sea, 1=land)", "proportion"),
-        (2, 0, 5) => ("SOILM", "Soil moisture content", "kg m⁻²"),
 
         // Discipline 10 — Oceanographic
         (10, 0, 3) => ("WVHGT", "Significant height of combined wind+swell", "m"),
-        (10, 1, 2) => ("SST", "Sea surface temperature", "K"),
 
-        _ => return None,
+        // Everything else falls through to the generated WMO master table,
+        // which has no short names of its own.
+        _ => {
+            let (name, units) = crate::tables_wmo::parameter(discipline, category, number)?;
+            ("", name, units)
+        }
     };
     Some(entry)
 }
@@ -608,9 +610,45 @@ mod tests {
             lookup_parameter(0, 3, 5),
             Some(("HGT", "Geopotential height", "gpm"))
         );
+        // Sea-surface temperature is 10/3/0 "Water temperature", from the
+        // generated WMO table — it was long carried at 10/1/2, which is the
+        // u-component of current (see `curated_grib1_transcriptions_corrected`).
+        assert_eq!(
+            lookup_parameter(10, 3, 0),
+            Some(("", "Water temperature", "K"))
+        );
+    }
+
+    /// Three curated entries named the wrong parameter: their triples were
+    /// GRIB1 ON388 codes transcribed onto GRIB2 discipline/category/number.
+    /// Both WMO Code Table 4.2 (v37) and eccodes disagreed with all three, so
+    /// they are gone and the generated master table now answers instead.
+    ///
+    /// Pinned here rather than left to the bulk table so a future edit that
+    /// reintroduces a hand-written arm for one of these triples fails loudly.
+    #[test]
+    fn curated_grib1_transcriptions_corrected() {
+        // Was "Density" (GRIB1 ON388 code 89). Density is 0/3/10.
+        assert_eq!(
+            lookup_parameter(0, 3, 9),
+            Some(("", "Geopotential height anomaly", "gpm"))
+        );
+        assert_eq!(lookup_parameter(0, 3, 10), Some(("", "Density", "kg m-3")));
+
+        // Was "Soil moisture content" (GRIB1 ON388 code 86). It is 2/0/3.
+        assert_eq!(
+            lookup_parameter(2, 0, 5),
+            Some(("", "Water runoff", "kg m-2"))
+        );
+        assert_eq!(
+            lookup_parameter(2, 0, 3),
+            Some(("", "Soil moisture content", "kg m-2"))
+        );
+
+        // Was "Sea surface temperature". 10/1/2 is a current component.
         assert_eq!(
             lookup_parameter(10, 1, 2),
-            Some(("SST", "Sea surface temperature", "K"))
+            Some(("", "u-component of current", "m/s"))
         );
     }
 
@@ -812,7 +850,6 @@ mod tests {
             ((0, 3, 2), ("PTEND", "Pressure tendency", "Pa s⁻¹")),
             ((0, 3, 5), ("HGT", "Geopotential height", "gpm")),
             ((0, 3, 6), ("DIST", "Geometric height", "m")),
-            ((0, 3, 9), ("DEN", "Density", "kg m⁻³")),
             ((0, 6, 1), ("TCDC", "Total cloud cover", "%")),
             ((0, 6, 3), ("LCDC", "Low cloud cover", "%")),
             ((0, 6, 4), ("MCDC", "Medium cloud cover", "%")),
@@ -827,13 +864,11 @@ mod tests {
                 (2, 0, 0),
                 ("LAND", "Land cover (0=sea, 1=land)", "proportion"),
             ),
-            ((2, 0, 5), ("SOILM", "Soil moisture content", "kg m⁻²")),
             // Discipline 10 — Oceanographic
             (
                 (10, 0, 3),
                 ("WVHGT", "Significant height of combined wind+swell", "m"),
             ),
-            ((10, 1, 2), ("SST", "Sea surface temperature", "K")),
         ] {
             assert_eq!(
                 lookup_parameter(d, c, n),
