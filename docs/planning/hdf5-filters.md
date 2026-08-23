@@ -2,15 +2,15 @@
 
 *Verified against the code 2026-08-23.*
 
-`crates/fieldglass-netcdf/src/hdf5/filter.rs` decodes three filters: deflate
-(id 1), shuffle (id 2), and fletcher32 (id 3, #412). Any other filter in a
-pipeline fails the whole file. Chunk indexing is already ahead of the field (all five v4 index
+`crates/fieldglass-netcdf/src/hdf5/filter.rs` decodes four filters: deflate
+(id 1), shuffle (id 2), fletcher32 (id 3, #412), and zstd (id 32015, #413).
+Any other filter in a pipeline fails the whole file. Chunk indexing is already ahead of the field (all five v4 index
 types plus the v1 B-tree), so filters are the gap that blocks real files.
 
 | ID | Filter | Why it matters | Cost |
 |---|---|---|---|
 | 3 | fletcher32 | ~~A checksum, not compression. Its presence fails files whose compression we handle fine.~~ **Done (#412).** | Not the no-op it looks like: it *appends* 4 bytes, so reading must strip them, and libhdf5 accepts two checksum byte orders (a pre-1.6.3 bug). See below. |
-| 32015 | zstd | netcdf-c ≥ 4.9; DKRZ-recommended for climate archives. | Pure-Rust decoder (`ruzstd`). Small; needs an ADR-0001-style pin note. |
+| 32015 | zstd | ~~netcdf-c ≥ 4.9; DKRZ-recommended for climate archives.~~ **Done (#413)** via `ruzstd` 0.9 (MIT, pure Rust, one transitive dep). | Cross-compile verified to `x86_64-pc-windows-msvc` and `wasm32` with no C toolchain, which is ADR-0001's actual deciding criterion. |
 | 307 | bzip2 | Rare. | Pure-Rust decoder (`bzip2-rs`). Small. |
 | 4 | szip | Common across the NASA EOS archive (AIRS, MODIS). | Same entropy coder as GRIB2 5.42, different framing, plus an upstream change. Multi-week. See below. |
 
@@ -37,6 +37,34 @@ applies to any future "checksum, not compression" filter:
   computed it inconsistently across endianness, and the fix kept those files
   readable (`H5Zfletcher32.c`, "the reversed checksum"). A reader that accepts
   only the correct one rejects valid old files.
+
+## Decompression is bounded (#413)
+
+Adding a second compressor made the shape of the risk obvious enough to fix for
+both: a compressed chunk is attacker-controlled and its expansion ratio is
+unbounded, so a few kilobytes on disk could name an arbitrarily large
+allocation. `inflate` had used the unbounded `decompress_to_vec_zlib` since the
+deflate filter shipped.
+
+Both codecs now stop at `MAX_DECOMPRESSED_CHUNK` (256 MiB) — far past any real
+HDF5 chunk, libhdf5's own chunk cache defaults to 1 MiB — and the ceiling is
+exercised by unit tests through `_bounded` helpers that take the limit as an
+argument, so the guarantee is tested without the suite paying to build a
+256 MiB stream.
+
+zstd needs a **second, separate** ceiling, and this is the part worth carrying
+to the next codec. A zstd frame header declares its own window size, and the
+decoder sizes that buffer during frame init — before any output exists, so an
+output bound cannot see it. The two are independent: a *small* window producing
+enormous output is precisely what a bomb is. `MAX_ZSTD_WINDOW` (64 MiB) bounds
+it, deliberately tighter than `ruzstd`'s own 100 MiB default, because a
+guarantee inherited from an upstream default is one a version bump can widen
+without anyone noticing.
+
+Ask of any future codec here: *what does it allocate from a header, before it
+produces a byte of output?* That allocation needs its own bound, and a test that
+distinguishes your bound from the library's — one that merely proves "an absurd
+value is rejected" will pass against the library's default and tell you nothing.
 
 ## Why szip is a project, not a quick win
 
