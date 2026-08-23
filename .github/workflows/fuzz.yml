@@ -19,8 +19,45 @@ permissions:
   contents: read
 
 jobs:
+  # `cargo fuzz run` has no `--locked` (cargo-fuzz 0.13.2 exposes no such
+  # flag), so a stale fuzz lockfile is silently re-resolved and rewritten mid-
+  # run: #398 found the GRIB2 lock pinning rust-j2k 0.2.0 for a whole release
+  # cycle while the workspace pinned =0.3.0, and building the target dirtied
+  # the tree. `cargo metadata --locked` is the equivalent check — it resolves
+  # without building and exits non-zero when the lock disagrees with the
+  # manifest — so drift fails loudly here instead of being absorbed.
+  #
+  # The fuzz jobs depend on this, which does mean a bumped dependency whose
+  # fuzz lock was not refreshed blocks fuzzing until someone runs
+  # `cargo update` in that directory. Dependabot now watches these lockfiles
+  # (see .github/dependabot.yml), so that should be rare rather than routine.
+  lockfiles:
+    name: Fuzz lockfiles in sync
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Stable is enough: this resolves the dependency graph, it does not
+      # build the nightly-only fuzz target.
+      - name: Set up Rust stable
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: stable
+
+      - name: Each fuzz crate's Cargo.lock matches its manifest
+        run: |
+          set -euo pipefail
+          for manifest in crates/*/fuzz/Cargo.toml; do
+            echo "::group::${manifest}"
+            cargo metadata --locked --format-version 1 \
+              --manifest-path "${manifest}" > /dev/null
+            echo "::endgroup::"
+          done
+
   grib1-decode:
     name: GRIB1 decode (cargo-fuzz, time-boxed)
+    needs: lockfiles
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -59,6 +96,7 @@ jobs:
 
   grib2-decode:
     name: GRIB2 decode (cargo-fuzz, time-boxed)
+    needs: lockfiles
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -96,6 +134,7 @@ jobs:
 
   netcdf-parse:
     name: NetCDF parse (cargo-fuzz, time-boxed)
+    needs: lockfiles
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

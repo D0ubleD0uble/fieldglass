@@ -76,6 +76,26 @@ updates:
         dependency-type: development
         update-types: [minor, patch]
 
+  # cargo-fuzz targets. Each is its own workspace (excluded from the root one
+  # so the stable gates never build a nightly-only libFuzzer target) with its
+  # own Cargo.lock, which the root `cargo` entry above therefore never touches.
+  # Left alone, those locks drift: #398 found the GRIB2 one still pinning
+  # rust-j2k 0.2.0 a whole release cycle after the workspace moved to =0.3.0.
+  # The glob picks up any fuzz crate added later without another edit here.
+  - package-ecosystem: cargo
+    directories:
+      - /crates/*/fuzz
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 3
+    labels: [dependencies, rust]
+    groups:
+      cargo-fuzz:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
   # GitHub Actions workflows themselves.
   - package-ecosystem: github-actions
     directory: /
