@@ -43,3 +43,12 @@ eccodes 2.34.1's own sample (`sh_sfc_grib1.tmpl`), ECMWF, Apache 2.0. Used to
 verify a grid-less message opens in the editor and reports it can't render
 rather than crashing. Canonical copy:
 `crates/fieldglass-grib1/tests/fixtures/NOTICE.md`.
+
+## `netcdf4_dimscale.nc`
+
+Synthetic NetCDF-4 / HDF5 file written by `h5py` (libhdf5) carrying the
+dimension-scale convention, so the extension tests cover the HDF5 backing as
+well as classic. `dataset_meta_from` returns early for HDF5, a different path
+from the classic one, and the metadata-parity test (#411) needs both. Built by
+`tools/build_netcdf4_dimscale_fixture.py`; canonical copy:
+`crates/fieldglass-netcdf/tests/fixtures/NOTICE.md`.

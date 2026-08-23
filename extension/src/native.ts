@@ -382,6 +382,11 @@ export interface NetcdfVariableMeta {
 }
 
 export interface NetcdfHandle {
+  /** Dataset metadata from the reader this handle already holds — the same
+   *  value {@link FieldglassNative.openNetcdf} returns for the same bytes.
+   *  Preferred when a handle is being kept anyway: calling both parses and
+   *  copies the whole file twice. */
+  metadata(): DatasetMeta;
   variables(): NetcdfVariableMeta[];
   renderSlice(
     variableIndex: number,

@@ -194,17 +194,21 @@ export class FieldglassEditorProvider
     let dataset: DatasetMeta | undefined;
     let netcdfVariables: NetcdfVariableMeta[] | undefined;
     if (native && format === "netcdf") {
+      // One reader for the whole open. The handle is retained for rendering
+      // anyway, and it can answer for the metadata too — calling `openNetcdf`
+      // as well built a second reader over the same bytes, parsing and copying
+      // the file twice for a value we already had (#411).
+      const ncHandle = this.openOrReuseNetcdfHandle(document);
       try {
-        dataset = native.openNetcdf(document.bytes);
+        dataset = ncHandle?.metadata();
       } catch (err) {
-        console.error("[Fieldglass] openNetcdf failed:", err);
+        console.error("[Fieldglass] NetcdfHandle.metadata failed:", err);
         // Leave `dataset` undefined; the renderer will fall back to the
         // "no messages found" status string with the format badge intact.
       }
       // The renderable-variable list drives the "Render" affordances in the
       // metadata view. A backing without a render path yet (HDF5, #169) returns
       // an empty list, so the dump shows without render buttons.
-      const ncHandle = this.openOrReuseNetcdfHandle(document);
       try {
         netcdfVariables = ncHandle?.variables();
       } catch (err) {

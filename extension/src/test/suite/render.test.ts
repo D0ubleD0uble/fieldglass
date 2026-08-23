@@ -568,6 +568,30 @@ suite("Render pipeline", () => {
     assert.ok(dataset.dimensions.length > 0, "expected at least one dimension");
     assert.ok(dataset.variables.length > 0, "expected at least one variable");
   });
+
+  test("NetCDF: NetcdfHandle.metadata matches openNetcdf", () => {
+    // The editor now takes its dataset table from the handle it keeps for
+    // rendering, rather than opening the file a second time through
+    // `openNetcdf` (#411). That is only sound if the two agree, so pin it —
+    // for both backings, since they take different paths through
+    // `dataset_meta_from`.
+    const native = loadNative();
+    assert.ok(native, "native module must load");
+    for (const fixture of ["netcdf_classic_dummy.nc", "netcdf4_dimscale.nc"]) {
+      const bytes = fs.readFileSync(fixturePath(fixture));
+      const viaOpen = native.openNetcdf(bytes);
+      const viaHandle = native.NetcdfHandle.fromBytes(bytes).metadata();
+      assert.deepStrictEqual(
+        JSON.parse(JSON.stringify(viaHandle)),
+        JSON.parse(JSON.stringify(viaOpen)),
+        `${fixture}: handle metadata diverged from openNetcdf`,
+      );
+      assert.ok(
+        viaHandle.variables.length > 0,
+        `${fixture}: empty metadata would make this comparison vacuous`,
+      );
+    }
+  });
 });
 
 suite("rerenderRequest option clamp", () => {
