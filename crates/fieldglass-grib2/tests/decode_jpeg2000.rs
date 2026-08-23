@@ -13,7 +13,7 @@
 //! against the eccodes oracle that gates that dependency. Provenance in
 //! `tests/fixtures/NOTICE.md`.
 
-use fieldglass_grib2::Grib2Reader;
+use fieldglass_grib2::{Grib2Reader, GridTemplate};
 use serde_json::Value;
 use std::path::Path;
 
@@ -35,7 +35,28 @@ fn load(fixture: &str) -> (Vec<u8>, Value) {
 
 #[test]
 fn jpeg2000_decodes_against_eccodes_oracle() {
-    let fixture = "jpeg2000_regular_latlon.grib2";
+    // Re-encoded 16×31 regular lat/lon: the small, controlled case.
+    check_against_oracle("jpeg2000_regular_latlon.grib2");
+}
+
+#[test]
+fn jpeg2000_on_a_lambert_grid_decodes_against_eccodes_oracle() {
+    // Real NCEP RAP surface temperature: JPEG 2000 on a 451×337 Lambert
+    // (3.30) grid. The synthetic fixtures cover the packing on a lat/lon grid
+    // and other packings on Lambert; nothing covered a producer shipping this
+    // combination, which is what RAP actually emits.
+    let fixture = "rap_jpeg2000_lambert.grib2";
+    check_against_oracle(fixture);
+
+    let bytes = std::fs::read(Path::new("tests/fixtures").join(fixture)).expect("fixture");
+    let reader = Grib2Reader::from_bytes(bytes).expect("fixture parses");
+    assert!(
+        matches!(reader.messages[0].gds.template, GridTemplate::Lambert(_)),
+        "{fixture}: GDS template 3.30 (Lambert Conformal)"
+    );
+}
+
+fn check_against_oracle(fixture: &str) {
     let (bytes, oracle) = load(fixture);
     let reader = Grib2Reader::from_bytes(bytes).expect("fixture parses");
     assert_eq!(
