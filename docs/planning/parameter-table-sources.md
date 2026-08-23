@@ -47,6 +47,23 @@ Two things worth carrying into the remaining generators:
   wrong quantity, one of them labelling a current component as sea-surface
   temperature. A generator is only as trustworthy as its oracle; build the
   oracle from a different source than the generator.
+- **Units need normalising for display, not in the table.** WMO is not
+  self-consistent (`m/s` and `m s-1` both appear), so #432 typesets them at the
+  display seam, keeping the generated file byte-identical to its pinned tag.
+  Build that as an allow-list of unit symbols rather than a structural rule:
+  the real table contains `CCITT IA5` (a character encoding), `m2/3 s-1` (a
+  *fractional* exponent), and `Code table 4.253` (a cross-reference), each of
+  which an obvious "letter then digit means exponent" rule corrupts. Rewrite a
+  string only when every token is a known unit, and leave it alone otherwise —
+  a missed normalisation is always defensible, a corrupted one is not.
+- **There is a third notation waiting.** eccodes writes exponents Fortran-style
+  (`kg m**-2`), which is already in the tree: `grib1/src/tables_ecmwf.rs` has
+  193 of them. The ECMWF and DWD local GRIB2 tables (#424, #425) come from the
+  same eccodes source, so they will bring that form into GRIB2, where
+  `normalize_units` currently passes it through untouched — safe, but leaving a
+  third style in the same column. Whichever of those lands first should add the
+  `**` rule and extend the snapshot; the units those tables introduce will also
+  need adding to the allow-list, and the snapshot diff is what will show which.
 - **`Status` has upstream typos.** `Operationaal`, `Oprational`, `Operation`
   and `operational` all appear in v37 beside `Operational`. Any filter on that
   column has to fold case and tolerate them, or it silently drops entries.
