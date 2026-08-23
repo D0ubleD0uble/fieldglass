@@ -268,9 +268,11 @@ fn assemble_chunked(
         | ChunkIndex::FixedArray(None)
         | ChunkIndex::ExtensibleArray(None)
         | ChunkIndex::V2Btree(None) => return Ok(raw),
-        ChunkIndex::BTreeV1(Some(addr)) => probe
-            .cache()
-            .chunk_records(*addr, rank, || collect_chunks(bytes, *addr, rank, osize))?,
+        ChunkIndex::BTreeV1(Some(addr)) => {
+            probe.cache().chunk_records(bytes.len(), *addr, rank, || {
+                collect_chunks(bytes, *addr, rank, osize)
+            })?
+        }
         ChunkIndex::SingleChunk(Some(single)) => {
             let size = single
                 .filtered_size
@@ -300,19 +302,21 @@ fn assemble_chunked(
                 chunk_bytes,
             )?)
         }
-        ChunkIndex::FixedArray(Some(addr)) => probe.cache().chunk_records(*addr, rank, || {
-            collect_fixed_array_chunks(
-                bytes,
-                *addr,
-                shape,
-                &chunked.chunk_dims,
-                chunk_bytes,
-                probe.offset_size,
-                probe.length_size,
-            )
-        })?,
+        ChunkIndex::FixedArray(Some(addr)) => {
+            probe.cache().chunk_records(bytes.len(), *addr, rank, || {
+                collect_fixed_array_chunks(
+                    bytes,
+                    *addr,
+                    shape,
+                    &chunked.chunk_dims,
+                    chunk_bytes,
+                    probe.offset_size,
+                    probe.length_size,
+                )
+            })?
+        }
         ChunkIndex::ExtensibleArray(Some(addr)) => {
-            probe.cache().chunk_records(*addr, rank, || {
+            probe.cache().chunk_records(bytes.len(), *addr, rank, || {
                 collect_extensible_array_chunks(
                     bytes,
                     *addr,
@@ -324,16 +328,18 @@ fn assemble_chunked(
                 )
             })?
         }
-        ChunkIndex::V2Btree(Some(addr)) => probe.cache().chunk_records(*addr, rank, || {
-            collect_v2_btree_chunks(
-                bytes,
-                *addr,
-                &chunked.chunk_dims,
-                chunk_bytes,
-                probe.offset_size,
-                probe.length_size,
-            )
-        })?,
+        ChunkIndex::V2Btree(Some(addr)) => {
+            probe.cache().chunk_records(bytes.len(), *addr, rank, || {
+                collect_v2_btree_chunks(
+                    bytes,
+                    *addr,
+                    &chunked.chunk_dims,
+                    chunk_bytes,
+                    probe.offset_size,
+                    probe.length_size,
+                )
+            })?
+        }
     };
     for chunk in chunks.iter() {
         let expanded = if pipeline.filters.is_empty() {

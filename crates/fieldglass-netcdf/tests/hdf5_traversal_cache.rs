@@ -255,3 +255,73 @@ fn the_memo_is_not_part_of_the_probes_identity() {
         "Debug should print the superblock fields only"
     );
 }
+
+/// A probe paired with a *different* file must not be answered from the first
+/// file's memo.
+///
+/// The traversal functions are public and take `(bytes, .., probe)`
+/// separately, so nothing stops a caller from reusing a probe across files. It
+/// was always a misuse — the probe carries its own file's offset sizes — but
+/// before the memo it merely parsed the wrong layout, which fails loudly.
+/// Served from a memo keyed by file offset it would instead return the first
+/// file's structure for the second: a wrong answer wearing the right shape.
+///
+/// The memo binds to its slice length and steps aside for any other, so the
+/// second file is walked properly. Asserted against a fresh probe's answer,
+/// which is the ground truth.
+#[test]
+fn a_probe_does_not_answer_for_another_file() {
+    let (first_name, first) = FIXTURES[0];
+    let own = reader(first);
+    let probe = probe_of(&own);
+    let _ = own.decode_variable_values(0);
+    let warm = probe.traversals();
+    assert!(warm > 0, "{first_name}: memo did not warm");
+
+    for (name, other) in FIXTURES.iter().skip(1) {
+        if other.len() == first.len() {
+            // Equal-length files alias by construction; the doc says so.
+            continue;
+        }
+        // Ground truth is what this probe would answer with a cold memo — the
+        // same superblock fields, no remembered offsets. That is exactly the
+        // behaviour before the memo existed, and it is usually an error, since
+        // the probe carries the *first* file's offset sizes. Either way it must
+        // not be the first file's structure.
+        let cold = Hdf5Probe::new(
+            probe.superblock_version,
+            probe.offset_size,
+            probe.length_size,
+        );
+        let truth = fieldglass_netcdf::list_all_children(other, &cold);
+        let via_warm_probe = fieldglass_netcdf::list_all_children(other, probe);
+        assert_eq!(
+            format!("{via_warm_probe:?}"),
+            format!("{truth:?}"),
+            "{name}: a warm probe answered differently from a cold one with the \
+             same superblock fields"
+        );
+
+        let own_structure = fieldglass_netcdf::list_all_children(first, probe);
+        assert_ne!(
+            format!("{via_warm_probe:?}"),
+            format!("{own_structure:?}"),
+            "{name}: served {first_name}'s remembered structure for a different file"
+        );
+    }
+
+    // Walking the foreign slices costs real walks, and the counter says so.
+    // What must not have happened is any disturbance to the memo belonging to
+    // this probe's own file: decoding it again is still free.
+    let before = probe.traversals();
+    let _ = own.decode_variable_values(0);
+    assert_eq!(
+        probe.traversals(),
+        before,
+        "{first_name}: serving other files evicted the probe's own memo"
+    );
+    assert!(
+        before > warm,
+        "{first_name}: the foreign walks should have been counted as real work"
+    );
+}
