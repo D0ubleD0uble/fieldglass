@@ -77,13 +77,36 @@ jobs:
       - name: No Verus crate reaches the workspace graph
         run: |
           set -euo pipefail
+          # `--prefix none` drops cargo's tree drawing, so each line is
+          # "name version" and the crate name is exactly field 1. Matching the
+          # whole field avoids a regex whose meaning varies between grep
+          # implementations — an earlier version of this check used one that
+          # GNU grep read as "match every line", so it reported a leak that was
+          # not there.
+          cargo tree -e normal --workspace --locked --prefix none \
+            | awk '{print $1}' | sort -u > /tmp/workspace-crates.txt
+
+          leaked=0
           for crate in vstd verus_builtin verus_builtin_macros; do
-            if cargo tree -e normal --workspace --locked 2>/dev/null | grep -q "^\|.*${crate} "; then
+            if grep -qxF "${crate}" /tmp/workspace-crates.txt; then
               echo "::error::${crate} has leaked into the shipped dependency graph"
-              exit 1
+              leaked=1
             fi
           done
-          echo "no Verus crates in the workspace graph"
+          if [[ "${leaked}" -ne 0 ]]; then
+            exit 1
+          fi
+
+          # And prove the check can fail: the crate list must be non-empty and
+          # contain the workspace's own crates, or the greps above matched
+          # nothing because there was nothing to match.
+          for crate in fieldglass-core fieldglass-grib2 fieldglass-netcdf; do
+            grep -qxF "${crate}" /tmp/workspace-crates.txt || {
+              echo "::error::${crate} missing from the graph — this check is not looking at anything"
+              exit 1
+            }
+          done
+          echo "no Verus crates in the workspace graph ($(wc -l < /tmp/workspace-crates.txt) crates checked)"
 
       - name: Workspace still builds without it
         run: cargo build --workspace --locked
