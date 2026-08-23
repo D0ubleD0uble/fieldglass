@@ -571,6 +571,14 @@ fn hrrr_complex_spd_lambert_matches_eccodes() {
 }
 
 #[test]
+fn rap_jpeg2000_lambert_matches_eccodes() {
+    assert_fixture_matches_snapshot(
+        "rap_jpeg2000_lambert.grib2",
+        &read_fixture("rap_jpeg2000_lambert.grib2"),
+    );
+}
+
+#[test]
 fn ecmwf_ccsds_latlon_matches_eccodes() {
     assert_fixture_matches_snapshot(
         "ecmwf_ccsds_latlon.grib2",
