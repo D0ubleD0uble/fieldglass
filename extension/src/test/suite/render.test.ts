@@ -510,11 +510,13 @@ suite("Render pipeline", () => {
     // The message itself has no grid (napi `None` surfaces as `undefined`)...
     assert.ok(messages[0].gridNi == null, "spectral message declares no Ni");
 
-    // ...but renderGrid synthesizes a global lat/lon grid (T63 → 256×128) via
-    // the inverse spherical-harmonic transform and paints it.
+    // ...but renderGrid synthesizes the global 0.5° lat/lon grid via the
+    // inverse spherical-harmonic transform and paints it. The grid does not
+    // scale with the truncation: the coefficients are a band-limited function,
+    // so evaluating them densely is exact rather than interpolated.
     const rendered = handle.renderGrid(0, defaultRenderOptions());
-    assert.strictEqual(rendered.width, 256);
-    assert.strictEqual(rendered.height, 128);
+    assert.strictEqual(rendered.width, 720);
+    assert.strictEqual(rendered.height, 361);
     assert.strictEqual(
       rendered.rgba.length,
       rendered.width * rendered.height * 4,
@@ -538,8 +540,8 @@ suite("Render pipeline", () => {
 
     // GRIB1 spectral renders through the same shared inverse-transform engine.
     const rendered = handle.renderGrid(0, defaultRenderOptions());
-    assert.strictEqual(rendered.width, 256);
-    assert.strictEqual(rendered.height, 128);
+    assert.strictEqual(rendered.width, 720);
+    assert.strictEqual(rendered.height, 361);
     assert.strictEqual(rendered.rgba.length, rendered.width * rendered.height * 4);
     assert.ok(
       rendered.usedMin > 200 && rendered.usedMax < 350,
