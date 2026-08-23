@@ -14,6 +14,8 @@ Versioning is plain [Semantic Versioning](https://semver.org/spec/v2.0.0.html), 
 
 ### Fixed
 
+- **Nine GRIB2 code-table entries named the wrong thing.** Six were in code tables whose codes the WMO has since assigned to something else: production status (Table 1.3) 10-13 read "Climate Data Record", "Climate projections", "Climate Forecast System Reanalysis" and "Reforecasts", where the WMO assigns 10-11 to Copernicus regional reanalysis and 12-13 to Destination Earth; statistical process (Table 4.10) 12 and 13 read "Confidence index" and "Quality indicator", where the WMO has "Return period" and "Median". A file using any of them was described with a label that has not been correct for several table revisions. All nine are now checked against the WMO tables on every test run, so the curated labels cannot drift from the standard again.
+
 - **Three GRIB2 parameters were named as the wrong quantity.** Their curated entries carried GRIB1 ON388 parameter codes on GRIB2 discipline/category/number triples: `10/1/2` was labelled "Sea surface temperature" but is the u-component of current, `2/0/5` was labelled "Soil moisture content" but is water runoff, and `0/3/9` was labelled "Density" but is geopotential height anomaly. A file carrying any of the three displayed a confident, wrong name and the wrong units. All three now resolve from the WMO master table, and the quantities they were mistaken for resolve at their real triples — including sea-surface temperature, which is `10/3/0` "Water temperature" and had never resolved before. Found by cross-checking the generated tables against eccodes, which is now a test.
 
 ### Changed
