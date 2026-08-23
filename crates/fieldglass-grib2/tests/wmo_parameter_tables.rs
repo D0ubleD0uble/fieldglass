@@ -16,42 +16,54 @@ use std::collections::BTreeMap;
 
 const SNAPSHOT: &str = include_str!("fixtures/eccodes_parameters.ref.json");
 
-/// Triples where a difference from eccodes is intended. Every one is listed
-/// individually with its reason: a blanket tolerance would have hidden the
-/// three real defects this comparison exists to catch.
-const EXPECTED_DIFFERENCES: &[(u8, u8, u8, &str)] = &[
-    // `tables.rs` keeps a shorter hand-written label for these four, which is
-    // what the metadata table has always shown.
-    (
-        0,
-        0,
-        3,
-        "curated short form of 'or equivalent potential temperature'",
-    ),
-    (
-        0,
-        0,
-        7,
-        "curated 'Dew-point depression' vs eccodes 'Dewpoint depression (or deficit)'",
-    ),
-    (
-        0,
-        1,
-        9,
-        "curated abbreviates '(non-convective)' to '(non-conv.)'",
-    ),
-    (
-        10,
-        0,
-        3,
-        "curated abbreviates 'wind waves and swell' to 'wind+swell'",
-    ),
-    // WMO writes the micro sign; eccodes spells it `um` in ASCII. Ours follows
-    // WMO, which is the authority the table is generated from.
-    (3, 1, 20, "'0.635 μm' vs ASCII 'um'"),
-    (3, 1, 21, "'0.810 μm' vs ASCII 'um'"),
-    (3, 1, 22, "'1.640 μm' vs ASCII 'um'"),
+/// Why a triple is allowed to differ from eccodes. Not free text: the kind is
+/// *checked*, so an exception cannot quietly come to cover a different
+/// disagreement than the one it was granted for.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Why {
+    /// `tables.rs` keeps a shorter hand-written label. It must still be
+    /// recognisably the same parameter: the three defects this comparison
+    /// found were entirely unrelated names, which the prefix rule below
+    /// excludes.
+    Shortening,
+    /// Same text, different character set — WMO writes the micro sign where
+    /// eccodes spells it `um`. Ours follows WMO, the authority we generate from.
+    MicroSign,
+}
+
+/// Triples where a difference from eccodes is intended, each with a checked
+/// reason. A blanket tolerance here would have hidden the three real defects
+/// this comparison exists to catch.
+const EXPECTED_DIFFERENCES: &[(u8, u8, u8, Why)] = &[
+    (0, 0, 3, Why::Shortening),  // drops "or equivalent potential temperature"
+    (0, 0, 7, Why::Shortening),  // "Dew-point depression" / "...(or deficit)"
+    (0, 1, 9, Why::Shortening),  // "(non-conv.)" / "(non-convective)"
+    (10, 0, 3, Why::Shortening), // "wind+swell" / "wind waves and swell"
+    (3, 1, 20, Why::MicroSign),  // 0.635 um
+    (3, 1, 21, Why::MicroSign),  // 0.810 um
+    (3, 1, 22, Why::MicroSign),  // 1.640 um
 ];
+
+/// Shortest normalized prefix two names must share for one to pass as a
+/// shortening of the other. The four real shortenings share at least 18
+/// characters and the three defects shared none, so this sits well clear of
+/// both populations.
+const SHORTENING_PREFIX: usize = 12;
+
+fn shared_prefix(a: &str, b: &str) -> usize {
+    a.bytes().zip(b.bytes()).take_while(|(x, y)| x == y).count()
+}
+
+/// Whether `ours` differs from `theirs` only in the way `why` licenses.
+fn difference_is_licensed(why: Why, ours: &str, theirs: &str) -> bool {
+    match why {
+        Why::MicroSign => normalize(&ours.replace('\u{3bc}', "u")) == normalize(theirs),
+        Why::Shortening => {
+            let (ours, theirs) = (normalize(ours), normalize(theirs));
+            ours.len() <= theirs.len() && shared_prefix(&ours, &theirs) >= SHORTENING_PREFIX
+        }
+    }
+}
 
 /// Names compare on letters and digits only: the two sources differ freely on
 /// hyphens, case, and spacing (`Dew-point` / `dewpoint`) without disagreeing
@@ -108,10 +120,20 @@ fn every_shared_triple_agrees_with_eccodes() {
         if normalize(ours) == normalize(expected) {
             continue;
         }
-        if EXPECTED_DIFFERENCES
+        // An exception only excuses the disagreement it was granted for. A
+        // curated shortening that silently became a different parameter — which
+        // is exactly what 10/1/2 was — no longer slips through.
+        if let Some(&(_, _, _, why)) = EXPECTED_DIFFERENCES
             .iter()
-            .any(|&(ed, ec, en, _)| (ed, ec, en) == (d, c, n))
+            .find(|&&(ed, ec, en, _)| (ed, ec, en) == (d, c, n))
         {
+            if difference_is_licensed(why, ours, expected) {
+                continue;
+            }
+            unexpected.push(format!(
+                "  {d}/{c}/{n}: listed as {why:?} but ours {ours:?} is not that \
+                 kind of difference from eccodes {expected:?}"
+            ));
             continue;
         }
         unexpected.push(format!(
@@ -140,15 +162,20 @@ fn every_expected_difference_is_still_a_difference() {
     let oracle = eccodes_names();
     for &(d, c, n, why) in EXPECTED_DIFFERENCES {
         let (_, ours, _) = lookup_parameter(d, c, n)
-            .unwrap_or_else(|| panic!("{d}/{c}/{n} no longer resolves ({why})"));
+            .unwrap_or_else(|| panic!("{d}/{c}/{n} no longer resolves ({why:?})"));
         let expected = oracle
             .get(&(d, c, n))
-            .unwrap_or_else(|| panic!("{d}/{c}/{n} is not in the eccodes snapshot ({why})"));
+            .unwrap_or_else(|| panic!("{d}/{c}/{n} is not in the eccodes snapshot ({why:?})"));
         assert_ne!(
             normalize(ours),
             normalize(expected),
             "{d}/{c}/{n} now agrees with eccodes — drop it from \
-             EXPECTED_DIFFERENCES ({why})"
+             EXPECTED_DIFFERENCES ({why:?})"
+        );
+        assert!(
+            difference_is_licensed(why, ours, expected),
+            "{d}/{c}/{n} is listed as {why:?}, but ours {ours:?} is not that kind \
+             of difference from eccodes {expected:?}"
         );
     }
 }

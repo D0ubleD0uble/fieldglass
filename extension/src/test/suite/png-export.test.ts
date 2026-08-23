@@ -49,6 +49,21 @@ suite("Export PNG", () => {
     assert.strictEqual(sanitizePngName("../../etc/passwd"), "passwd.png");
     assert.strictEqual(sanitizePngName("Temp 2m (K).png"), "temp-2m-k.png");
     assert.strictEqual(sanitizePngName("a/b/c/My Field"), "my-field.png");
+  });
+
+  test("sanitizePngName caps a very long parameter name", () => {
+    // The WMO master tables (#415) brought names up to 127 characters, which
+    // the default export name is built from.
+    const longest = "Shape factor with respect to temperature profile in thermocline";
+    const name = sanitizePngName(`${longest}-message-3.png`);
+    assert.ok(name.endsWith(".png"));
+    assert.ok(
+      name.length <= 100,
+      `expected a capped name, got ${name.length} characters: ${name}`,
+    );
+    assert.ok(name.startsWith("shape-factor-with-respect-to-temperature"));
+    // The cut must not leave a dangling separator before the extension.
+    assert.ok(!/[-.]\.png$/.test(name), `dangling separator in ${name}`);
     assert.strictEqual(sanitizePngName(""), "render.png");
     assert.strictEqual(sanitizePngName("...png"), "render.png");
   });
