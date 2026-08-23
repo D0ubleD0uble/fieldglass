@@ -1,0 +1,35 @@
+# Verification-only crate (issue #197). Deliberately **not** a member of the
+# root workspace — like the `fuzz/` crates, it is listed nowhere in
+# `../../Cargo.toml`, so it forms its own workspace with its own `Cargo.lock`.
+#
+# That isolation is the point. `vstd` is transparent to a stock build and does
+# cross-compile to the release targets (measured, see docs/verification.md), but
+# `fieldglass-core` is published to crates.io, and a published crate should not
+# carry a date-stamped pre-1.0 dependency that tracks Verus's release cadence.
+# Keeping it out here means `cargo build`, `cargo test --workspace`, `cargo
+# deny`, and the six-target cross-compile of ADR-0001 never see Verus at all.
+# Its own workspace root, the same way each `fuzz/` crate is one.
+[workspace]
+
+[package]
+name       = "fieldglass-verify"
+version    = "0.0.0"
+publish    = false
+edition    = "2021"
+license    = "MIT OR Apache-2.0"
+description = "Formal verification of the fieldglass decode kernel (Verus). Not published."
+
+[dependencies]
+# Pinned exactly, and pinned *together with* the Verus toolchain in
+# `scripts/verify.sh`: vstd is versioned by release date and is only guaranteed
+# to work with a matching verus. Bump both together, never one alone.
+vstd = "=0.0.0-2026-08-09-0044"
+
+[package.metadata.verus]
+verify = true
+
+[lints.rust]
+# Verus sets `--cfg verus_only` while verifying, so ghost-only imports can be
+# gated to keep a stock `cargo build` compiling. Declaring the cfg here stops
+# rustc warning about it being unknown.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(verus_only)'] }

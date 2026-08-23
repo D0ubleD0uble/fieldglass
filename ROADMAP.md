@@ -112,7 +112,7 @@ milestone.
 | zstd filter (#413) | Containers | netcdf-c ≥ 4.9 default for new climate archives; pure-Rust decoder available. |
 | Cache traversal results on the NetCDF reader (#414) | Containers | Every decode call re-walks the file; free in memory, the whole cost once files are remote. |
 | WMO master parameter tables (#415) | Tables | 44 named GRIB2 parameters today, about 1,430 in the WMO master set. Largest visible change per hour in the plan. |
-| Bootstrap Verus in the workspace (#197) | Trust | Enables the whole verification track; must leave the stock build and the six release targets untouched. |
+| ~~Bootstrap Verus in the workspace (#197)~~ **Done** | Trust | Enabled the verification track. The proofs sit in a crate outside the workspace, and CI asserts no Verus crate reaches the shipped graph, so the stock build and six release targets are untouched. |
 
 ## Next
 

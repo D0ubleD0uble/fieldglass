@@ -1,0 +1,112 @@
+name: Verify
+
+# Formal verification of the decode kernel with Verus (#197, milestone
+# "Formal verification of the decode kernel").
+#
+# Non-blocking on purpose. The policy is incremental: unverified code is fine,
+# but verified code must stay verified. Until the proof suite is broad enough
+# that a failure always means a real regression rather than a toolchain
+# hiccup, this reports without gating merges — see docs/verification.md.
+
+# The path filter tracks what the proofs actually cover. Today they cover only
+# code inside `crates/fieldglass-verify`, so that is the filter. The moment a
+# proof references shipped code — which is what #199 decides — this filter must
+# widen to include that crate, or verification silently stops guarding the thing
+# it exists to guard while continuing to report green. Widen it in the same PR
+# that moves the first proof onto shipped code.
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'crates/fieldglass-verify/**'
+      - 'scripts/verify.sh'
+      - '.github/workflows/verify.yml'
+  pull_request:
+    paths:
+      - 'crates/fieldglass-verify/**'
+      - 'scripts/verify.sh'
+      - '.github/workflows/verify.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verus:
+    name: Verus (non-blocking)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Reports, does not gate. Remove once the suite is broad enough that a red
+    # run always means a real regression.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Verus ships as a prebuilt release pinned to one rustup toolchain, which
+      # scripts/verify.sh knows; keep the two in step by reading it from there
+      # rather than repeating the version in a second place.
+      - name: Read the pinned Verus toolchain
+        id: pin
+        run: |
+          set -euo pipefail
+          toolchain="$(grep -oP 'VERUS_TOOLCHAIN="\K[^"]+' scripts/verify.sh)"
+          echo "toolchain=${toolchain%%-x86_64*}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up the Verus-required Rust toolchain
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: ${{ steps.pin.outputs.toolchain }}
+
+      - name: Install Verus and verify
+        run: ./scripts/verify.sh --install
+
+  # The point of keeping Verus out of the workspace is that the shipped build
+  # never sees it. Assert that, rather than trusting it: `vstd` must not appear
+  # in the workspace dependency graph, and the workspace must still build.
+  isolation:
+    name: Verus stays out of the shipped build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Rust stable
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: stable
+
+      - name: No Verus crate reaches the workspace graph
+        run: |
+          set -euo pipefail
+          # `--prefix none` drops cargo's tree drawing, so each line is
+          # "name version" and the crate name is exactly field 1. Matching the
+          # whole field avoids a regex whose meaning varies between grep
+          # implementations — an earlier version of this check used one that
+          # GNU grep read as "match every line", so it reported a leak that was
+          # not there.
+          cargo tree -e normal --workspace --locked --prefix none \
+            | awk '{print $1}' | sort -u > /tmp/workspace-crates.txt
+
+          leaked=0
+          for crate in vstd verus_builtin verus_builtin_macros; do
+            if grep -qxF "${crate}" /tmp/workspace-crates.txt; then
+              echo "::error::${crate} has leaked into the shipped dependency graph"
+              leaked=1
+            fi
+          done
+          if [[ "${leaked}" -ne 0 ]]; then
+            exit 1
+          fi
+
+          # And prove the check can fail: the crate list must be non-empty and
+          # contain the workspace's own crates, or the greps above matched
+          # nothing because there was nothing to match.
+          for crate in fieldglass-core fieldglass-grib2 fieldglass-netcdf; do
+            grep -qxF "${crate}" /tmp/workspace-crates.txt || {
+              echo "::error::${crate} missing from the graph — this check is not looking at anything"
+              exit 1
+            }
+          done
+          echo "no Verus crates in the workspace graph ($(wc -l < /tmp/workspace-crates.txt) crates checked)"
+
+      - name: Workspace still builds without it
+        run: cargo build --workspace --locked
