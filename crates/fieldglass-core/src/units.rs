@@ -24,6 +24,13 @@
 //! whole string is returned untouched. Unrecognised input degrades to exactly
 //! what WMO published, which is always defensible; the failure mode is a missed
 //! normalisation, never a corrupted one.
+//!
+//! That leaves one thing to watch: a future WMO tag can introduce a unit symbol
+//! this list has never seen, and it will pass through in ASCII rather than
+//! failing. The snapshot in `fieldglass-grib2/tests/unit_notation.rs` is what
+//! surfaces it — the set of distinct unit strings changes, the snapshot diffs,
+//! and the un-normalised entry is visible in the diff for whoever bumps the
+//! tag.
 
 use std::borrow::Cow;
 
@@ -260,6 +267,63 @@ mod tests {
     fn a_trailing_hyphen_is_not_an_exponent() {
         assert_eq!(normalize_units("m-"), "m-");
         assert_eq!(normalize_units("kg- m"), "kg- m");
+    }
+
+    /// `normalize_units` is public and takes arbitrary text, so it has to be
+    /// panic-free on input that is not a unit string at all.
+    ///
+    /// The specific hazard is `split_at` on a byte index: the exponent split
+    /// counts trailing digits as *chars* and subtracts from a *byte* length.
+    /// That is only sound because digits are ASCII, so the two agree over the
+    /// digit run — which is exactly the kind of reasoning worth a test rather
+    /// than a comment. The cases below put multi-byte characters immediately
+    /// before a digit run, where a wrong index would land mid-character.
+    #[test]
+    fn arbitrary_input_does_not_panic() {
+        for input in [
+            "",
+            " ",
+            "\t",
+            "m-",
+            "m-0",
+            "-1",
+            "/",
+            "//",
+            "a/b/c",
+            "m/",
+            "m/-2",
+            "m--2",
+            "m2-3",
+            // Multi-byte immediately before the digits.
+            "°2",
+            "µ2",
+            "℃3",
+            "日本語2",
+            "🌡2",
+            "\u{feff}m-2",
+            "K\u{301}2",
+            // Exponents at and beyond the integer range.
+            "m-2147483648",
+            "m2147483647",
+            "m-99999999999999999999",
+            "kg-000002",
+        ] {
+            let _ = normalize_units(input);
+        }
+
+        // Exhaustive over short strings from an alphabet chosen to hit every
+        // branch: symbol, hyphen, solidus, digit, multi-byte, separator.
+        let alphabet = ['m', 'k', 'g', '-', '/', '2', '°', ' '];
+        for a in alphabet {
+            for b in alphabet {
+                for c in alphabet {
+                    for d in alphabet {
+                        let s: String = [a, b, c, d].iter().collect();
+                        let _ = normalize_units(&s);
+                    }
+                }
+            }
+        }
     }
 
     #[test]
