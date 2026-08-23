@@ -46,6 +46,22 @@ const MAX_FILTERS: usize = 32;
 /// afterwards, but that is after the allocation has already happened.
 const MAX_DECOMPRESSED_CHUNK: usize = 256 << 20;
 
+/// Ceiling on the window a zstd frame may ask the decoder to buffer.
+///
+/// A separate bound from [`MAX_DECOMPRESSED_CHUNK`], because the two bound
+/// different things: the window is a back-reference buffer sized from the frame
+/// *header*, before any output exists, so the output ceiling cannot see it. The
+/// two are also genuinely independent — a small window producing enormous
+/// output is precisely what a decompression bomb is.
+///
+/// An encoder sets the window to about the size of the data it is compressing,
+/// so a window this large already implies a single HDF5 chunk of 64 MiB, which
+/// no sane writer produces (libhdf5's own chunk cache defaults to 1 MiB). This
+/// is deliberately tighter than `ruzstd`'s 100 MiB default: the guarantee
+/// should be ours, and stated, rather than inherited from an upstream default
+/// that a version bump could quietly widen.
+const MAX_ZSTD_WINDOW: u64 = 64 << 20;
+
 /// One stage of a filter pipeline.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Filter {
@@ -263,8 +279,13 @@ fn unzstd(data: &[u8]) -> Result<Vec<u8>, FieldglassError> {
 fn unzstd_bounded(data: &[u8], limit: usize) -> Result<Vec<u8>, FieldglassError> {
     use std::io::Read;
 
-    let mut decoder = ruzstd::decoding::StreamingDecoder::new(data)
-        .map_err(|e| FieldglassError::Parse(format!("zstd frame header: {e}")))?;
+    // Two ceilings, because a crafted frame has two ways to ask for memory.
+    // [`MAX_ZSTD_WINDOW`] bounds the buffer sized from the frame header, which
+    // is allocated before any output exists and so is invisible to the `take`
+    // below; [`MAX_DECOMPRESSED_CHUNK`] bounds the output itself.
+    let mut decoder =
+        ruzstd::decoding::StreamingDecoder::new_with_max_window_size(data, MAX_ZSTD_WINDOW)
+            .map_err(|e| FieldglassError::Parse(format!("zstd frame header: {e}")))?;
     let mut out = Vec::new();
     decoder
         .by_ref()
@@ -584,6 +605,57 @@ mod tests {
 
         assert_eq!(inflate_bounded(&stream, big.len()).unwrap(), big);
         assert!(inflate_bounded(&stream, 64).is_err());
+    }
+
+    /// A frame header declaring an enormous window is refused before anything
+    /// is allocated for it.
+    ///
+    /// This is the decompression bomb the output ceiling cannot catch: the
+    /// window buffer is sized from the header, so the failure has to happen
+    /// during frame init, not while reading output.
+    #[test]
+    fn rejects_a_zstd_frame_demanding_an_enormous_window() {
+        // Hand-built zstd frame header (RFC 8878 §3.1.1): magic, then a frame
+        // header descriptor of 0 (no content size, not single-segment, no
+        // dictionary, no checksum) so a window descriptor follows. That byte is
+        // `exponent << 3 | mantissa`, and window = 2^(10 + exponent) scaled by
+        // the mantissa — exponent 31 asks for 2 TiB.
+        let frame = [0x28u8, 0xB5, 0x2F, 0xFD, 0x00, 0xF8];
+        let err = unzstd(&frame).unwrap_err();
+        assert!(
+            matches!(&err, FieldglassError::Parse(m) if m.contains("frame header")),
+            "expected the header to be rejected, got {err:?}"
+        );
+
+        // The ceiling is *ours*, not whatever the decoder defaults to. This
+        // window is 72 MiB — inside `ruzstd`'s 100 MiB default, outside our
+        // 64 MiB one — so it fails only because we set the bound ourselves. If
+        // a future bump changed the upstream default, this would still hold.
+        // The ceiling is *ours*, not whatever the decoder defaults to. This
+        // frame is otherwise complete and valid — same header, then one raw
+        // block of four bytes — and declares a 72 MiB window, inside `ruzstd`'s
+        // 100 MiB default but outside our 64 MiB one. Under the default it
+        // decodes to `AA BB CC DD`; it fails here only because we set the
+        // bound, so a future bump that widened the upstream default could not
+        // pass this test unnoticed.
+        let valid_but_wide = [
+            0x28u8, 0xB5, 0x2F, 0xFD, // magic
+            0x00, // frame header descriptor: no content size, no dictionary
+            0x81, // window descriptor: exponent 16, mantissa 1 => 72 MiB
+            0x21, 0x00, 0x00, // block header: last block, raw, 4 bytes
+            0xAA, 0xBB, 0xCC, 0xDD, // the block's literal bytes
+        ];
+        let err = unzstd(&valid_but_wide).unwrap_err();
+        assert!(
+            matches!(&err, FieldglassError::Parse(m) if m.contains("frame header")),
+            "expected our window bound to refuse this frame, got {err:?}"
+        );
+
+        let ok = ruzstd::encoding::compress_to_vec(
+            [0u8; 128].as_slice(),
+            ruzstd::encoding::CompressionLevel::Fastest,
+        );
+        assert!(unzstd(&ok).is_ok(), "an ordinary frame must still decode");
     }
 
     #[test]
