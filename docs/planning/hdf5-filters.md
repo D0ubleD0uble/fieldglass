@@ -2,20 +2,41 @@
 
 *Verified against the code 2026-08-23.*
 
-`crates/fieldglass-netcdf/src/hdf5/filter.rs` decodes exactly two filters:
-deflate (id 1) and shuffle (id 2). Any other filter in a pipeline fails the
-whole file. Chunk indexing is already ahead of the field (all five v4 index
+`crates/fieldglass-netcdf/src/hdf5/filter.rs` decodes three filters: deflate
+(id 1), shuffle (id 2), and fletcher32 (id 3, #412). Any other filter in a
+pipeline fails the whole file. Chunk indexing is already ahead of the field (all five v4 index
 types plus the v1 B-tree), so filters are the gap that blocks real files.
 
 | ID | Filter | Why it matters | Cost |
 |---|---|---|---|
-| 3 | fletcher32 | A checksum, not compression. Its presence fails files whose compression we handle fine. | Verify or skip the trailing 4 bytes. One afternoon. |
+| 3 | fletcher32 | ~~A checksum, not compression. Its presence fails files whose compression we handle fine.~~ **Done (#412).** | Not the no-op it looks like: it *appends* 4 bytes, so reading must strip them, and libhdf5 accepts two checksum byte orders (a pre-1.6.3 bug). See below. |
 | 32015 | zstd | netcdf-c ≥ 4.9; DKRZ-recommended for climate archives. | Pure-Rust decoder (`ruzstd`). Small; needs an ADR-0001-style pin note. |
 | 307 | bzip2 | Rare. | Pure-Rust decoder (`bzip2-rs`). Small. |
 | 4 | szip | Common across the NASA EOS archive (AIRS, MODIS). | Same entropy coder as GRIB2 5.42, different framing, plus an upstream change. Multi-week. See below. |
 
 Blosc/LZ4: rare in NetCDF, defer. This set would exceed default netcdf-c
 installs, which frequently lack working szip/zstd plugins at runtime.
+
+## fletcher32: what it turned out to be (#412)
+
+Worth recording, because the issue's own framing was wrong and the same trap
+applies to any future "checksum, not compression" filter:
+
+- It is **not** size-neutral. libhdf5 appends a four-byte checksum to the
+  stored chunk (`FLETCHER_LEN`), so reading shortens the chunk by four. A
+  passthrough leaves the pipeline four bytes long.
+- Being wrong here is quiet. With a compressor in the pipeline the extra bytes
+  are absorbed by the zlib decoder and the values come out right anyway; it is
+  the *uncompressed* `shuffle + fletcher32` case — which libhdf5 does write —
+  where 132 bytes divides evenly by a 4-byte element and unshuffles into one
+  element too many with no error.
+- The checksum covers the **filtered** bytes, not the values: fletcher32 is
+  written last, so it reverses first.
+- libhdf5 accepts either of two stored values, the computed checksum or the
+  same with the bytes of each 16-bit half swapped. Releases before 1.6.3
+  computed it inconsistently across endianness, and the fix kept those files
+  readable (`H5Zfletcher32.c`, "the reversed checksum"). A reader that accepts
+  only the correct one rejects valid old files.
 
 ## Why szip is a project, not a quick win
 
