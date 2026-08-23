@@ -124,7 +124,7 @@ Problems we are confident we can solve; shape known, timing not.
 | Curvilinear NetCDF grids (#218) | Geometry | Ocean tripolar and satellite-swath files. First consumer of the spatial-index seam; coordinates arrive in-band, so no acquisition policy is needed. |
 | Verify the core decode arithmetic (#199, #200, #201) | Trust | Simple-packing scaling, inverse spatial differencing, and complex-packing group expansion: the three paths every GRIB value passes through. |
 | Verify bitmap decoders and HDF5 unshuffle (#202, #203) | Trust | Bounds-safety on the two paths that index by untrusted counts. |
-| Local parameter tables: ECMWF (#424), DWD (#425), NCEP (#426) | Tables | Short names and local parameters for the three largest publishers. One generator per PR. |
+| GRIB2 local parameter tables: ECMWF (#424), DWD (#425), NCEP (#426) | Tables | Short names and local parameters — the codes at or above 192, which each centre defines for itself — for the three largest publishers. ECMWF's GRIB1 table already ships; this is the GRIB2 side. One generator per PR. |
 | Transverse Mercator (3.12, #422) and Lambert azimuthal equal-area (3.140, #423) | Geometry | UK Met Office UKV; CEMS/EFAS and OSI SAF sea ice. Formula-defined, self-contained. |
 | ADR: byte access and the remote seam (#417) | Containers | Records the prefetch-then-decode-sync decision and the constraint decoders must keep, before any reader is migrated. |
 
