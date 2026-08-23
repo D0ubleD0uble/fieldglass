@@ -8,6 +8,12 @@ name: Verify
 # that a failure always means a real regression rather than a toolchain
 # hiccup, this reports without gating merges — see docs/verification.md.
 
+# The path filter tracks what the proofs actually cover. Today they cover only
+# code inside `crates/fieldglass-verify`, so that is the filter. The moment a
+# proof references shipped code — which is what #199 decides — this filter must
+# widen to include that crate, or verification silently stops guarding the thing
+# it exists to guard while continuing to report green. Widen it in the same PR
+# that moves the first proof onto shipped code.
 on:
   push:
     branches: [master]

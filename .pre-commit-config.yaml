@@ -65,14 +65,18 @@ repos:
 
       - id: verusfmt
         name: verusfmt (verification crate)
-        language: system
-        # Only the verification crate is written in Verus syntax, and rustfmt
-        # does not understand it — verusfmt is the formatter for `verus! { }`
-        # blocks, and the two are designed to coexist. Scoped by path so a
-        # contributor who never touches this crate never needs the tool.
+        # `language: rust` rather than `system`: pre-commit builds verusfmt into
+        # its own cached environment, so CI and a fresh clone both get it
+        # without a bespoke install step, pinned the same way the fetched hooks
+        # below are. rustfmt does not understand `verus! { }` blocks — verusfmt
+        # is their formatter and the two are designed to coexist.
+        #
+        # Path-scoped: only the verification crate is written in Verus syntax,
+        # so a contributor who never touches it never pays for the build.
+        language: rust
+        additional_dependencies: ["cli:verusfmt:0.7.2"]
         files: ^crates/fieldglass-verify/src/.*\.rs$
-        entry: bash -c 'command -v verusfmt >/dev/null 2>&1 || { echo "verusfmt not found — see docs/verification.md (it formats verus! blocks; rustfmt cannot)"; exit 1; }; verusfmt --check "$@"' --
-        pass_filenames: true
+        entry: verusfmt --check
 
       - id: architecture-diagrams
         name: architecture diagrams in sync with source
