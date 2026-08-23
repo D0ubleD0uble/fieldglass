@@ -69,6 +69,13 @@ shipped `fieldglass-core` functions instead needs one of:
 with a real proof in hand. Deciding it here, before anything non-trivial has
 been proved, would be guessing.
 
+**Whichever way it goes, widen the CI path filter in the same PR.** The Verify
+workflow only runs on changes under `crates/fieldglass-verify/`, which is
+correct while that is all the proofs cover. The moment a proof references
+shipped code, a change to that code will not trigger verification — and the job
+will keep reporting green while guarding nothing. That is the failure mode this
+whole setup is meant to avoid, so it is called out in the workflow itself too.
+
 ## Pinning
 
 Verus, `vstd`, and the Rust toolchain are pinned **together** and bumped
@@ -117,11 +124,18 @@ Two things that make a proof worth having, both learned bootstrapping this:
 ## Formatting
 
 `verusfmt` formats `verus! { }` blocks; `rustfmt` does not understand them, and
-the two are designed to coexist. A pre-commit hook runs it, scoped to
-`crates/fieldglass-verify/src/`, so a contributor who never touches this crate
-never needs the tool. If you do, install it from
-[verus-lang/verusfmt](https://github.com/verus-lang/verusfmt/releases) — the
-repo pins **0.7.2**.
+the two are designed to coexist.
+
+Nothing to install: the pre-commit hook declares `verusfmt` **0.7.2** as a Rust
+`additional_dependencies`, so pre-commit builds it into its own cached
+environment on first use — locally and in CI alike, pinned the same way the
+fetched hooks are. It is scoped to `crates/fieldglass-verify/src/`, so a
+contributor who never touches this crate never pays for that build.
+
+That detail matters more than it looks: an earlier draft ran `verusfmt` from
+`PATH` and failed with an install hint when it was missing. CI runs
+`pre-commit run --all-files`, so that version would have turned the main lint
+job red on every pull request.
 
 ## What gets verified next
 
