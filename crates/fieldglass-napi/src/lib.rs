@@ -53,6 +53,17 @@ pub struct MessageMeta {
     pub reference_time: String,
     pub forecast_hours: i32,
     pub forecast_display: String,
+    /// Raw P1 octet (GRIB1 PDS octet 19), for the dormant in-viewer edit of
+    /// that byte. `None` wherever writing one octet would not mean what the
+    /// reader sees: GRIB2 and NetCDF have no P1, and GRIB1 time-range 10
+    /// spends octets 19 *and* 20 on a single 16-bit value, so editing octet 19
+    /// alone would move the lead by multiples of 256.
+    ///
+    /// Deliberately not `forecast_hours`: that is normalised to hours while
+    /// the edit writes the octet. Under a 3-hourly unit the two differ by 3×,
+    /// so opening the box and saving an untouched value would have tripled the
+    /// lead time.
+    pub p1_octet: Option<i32>,
     pub originating_centre: String,
     pub grid_type: Option<String>,
     pub grid_ni: Option<i32>,
@@ -417,6 +428,7 @@ fn build_grib1_message_meta(
         // 0 is the same convention the GRIB2 side uses for that case: there is
         // no hours value to show, and `forecast_display` carries the truth.
         forecast_hours: fieldglass_grib1::forecast_hours(&msg.pds).unwrap_or(0),
+        p1_octet: (msg.pds.time_range != 10).then_some(msg.pds.p1 as i32),
         forecast_display: fieldglass_grib1::forecast_display(&msg.pds),
         originating_centre: lookup_centre(msg.pds.originating_centre).to_string(),
         grid_type,
@@ -786,6 +798,8 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
     );
 
     MessageMeta {
+        // GRIB2 has no P1 octet — the lead time lives in the product template.
+        p1_octet: None,
         message_index: msg.message_index as i32,
         offset_bytes: msg.byte_offset as i32,
         parameter_name: product.parameter_name,
@@ -2745,6 +2759,7 @@ fn classify_cf_mapping(name: Option<&str>) -> CfMapping {
 /// with its dimension can't desync the raster from its declared size.
 fn base_netcdf_meta(name: &str, units: &str, ni: i32, nj: i32) -> MessageMeta {
     MessageMeta {
+        p1_octet: None,
         earth_radius_metres: None,
         message_index: 0,
         offset_bytes: 0,
@@ -3370,6 +3385,7 @@ impl MessageMeta {
             reference_time: _,
             forecast_hours: _,
             forecast_display: _,
+            p1_octet: _,
             originating_centre: _,
             format: _,
             edition: _,
@@ -5106,6 +5122,7 @@ mod polar_stereo_warp_tests {
     /// minimal.
     fn cmc_polar_meta() -> MessageMeta {
         MessageMeta {
+            p1_octet: None,
             earth_radius_metres: None,
             message_index: 0,
             offset_bytes: 0,
@@ -5963,6 +5980,7 @@ mod overlay_projection_tests {
     /// predictable pixel: `px = lon + 180`, `py = 90 - lat`.
     fn global_latlon_meta() -> MessageMeta {
         MessageMeta {
+            p1_octet: None,
             earth_radius_metres: None,
             message_index: 0,
             offset_bytes: 0,
@@ -6236,6 +6254,32 @@ mod netcdf_slice_tests {
             g.used_min,
             g.used_max
         );
+    }
+
+    #[test]
+    fn p1_octet_is_the_writable_byte_and_absent_where_it_would_lie() {
+        const CMC_WIND: &[u8] = include_bytes!(
+            "../../fieldglass-grib1/tests/fixtures/cmc_wind_300_2010052400_p012.grib"
+        );
+        const ECMWF_GRIB1: &[u8] =
+            include_bytes!("../../fieldglass-grib1/tests/fixtures/ecmwf_lfpw_msg0.grib1");
+
+        // A plain one-octet P1: the edit box can show the byte it writes.
+        let m = &grib1_handle(ECMWF_GRIB1).messages()[0];
+        assert_eq!(m.forecast_display, "+24h");
+        assert_eq!(m.p1_octet, Some(24));
+
+        // Time range 10 spends octets 19 and 20 on one 16-bit P1, so writing
+        // octet 19 alone would shift the lead by multiples of 256. No octet is
+        // offered, and the message stays read-only.
+        let m = &grib1_handle(CMC_WIND).messages()[0];
+        assert_eq!(m.forecast_display, "+12h");
+        assert_eq!(m.forecast_hours, 12);
+        assert_eq!(m.p1_octet, None);
+
+        // GRIB2 has no P1 at all.
+        let m = &grib2_handle(SPECTRAL_T63).messages()[0];
+        assert_eq!(m.p1_octet, None);
     }
 
     #[test]
@@ -7464,6 +7508,7 @@ mod space_view_geos_tests {
     fn space_view_meta() -> MessageMeta {
         let g = space_view_scan_grid(&space_view_template()).unwrap();
         MessageMeta {
+            p1_octet: None,
             earth_radius_metres: None,
             message_index: 0,
             offset_bytes: 0,

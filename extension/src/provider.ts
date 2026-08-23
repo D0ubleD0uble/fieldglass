@@ -1546,6 +1546,7 @@ function syntheticNetcdfMeta(v: NetcdfVariableMeta, messageIndex = v.variableInd
     levelType: "",
     referenceTime: "",
     forecastHours: 0,
+    p1Octet: null,
     forecastDisplay: "",
     originatingCentre: "",
     gridType: "latlon",
@@ -1714,7 +1715,9 @@ function messageIsRenderable(m: {
   );
 }
 
-function renderHtml(
+/** Exported for tests: the P1 edit path is dormant (`editable` is false at the
+ *  call site), so nothing else exercises the markup it would produce. */
+export function renderHtml(
   webview: vscode.Webview,
   format: string,
   filePath: string,
@@ -1744,8 +1747,14 @@ function renderHtml(
         ? `${m.gridNi}×${m.gridNj}` : "—";
       const gridBounds = (m.latFirst != null && m.lonFirst != null)
         ? `${fmt1(m.latFirst)},${fmt1(m.lonFirst)} → ${fmt1(m.latLast)},${fmt1(m.lonLast)}` : "—";
-      const fcstCell = editable
-        ? `<input type="number" class="p1-input" data-message-index="${m.messageIndex}" min="0" max="255" step="1" value="${m.forecastHours}" />`
+      // The edit writes the raw P1 octet, so the box has to show that octet —
+      // not `forecastHours`, which is normalised (a 3-hourly unit reports 12
+      // for a P1 of 4, and saving the untouched box would have tripled the
+      // lead). `p1Octet` is absent wherever a one-octet edit is meaningless,
+      // and those messages stay read-only. napi `None` arrives as `undefined`,
+      // so this must be a nullish check, not `!== null`.
+      const fcstCell = editable && m.p1Octet != null
+        ? `<input type="number" class="p1-input" data-message-index="${m.messageIndex}" min="0" max="255" step="1" value="${m.p1Octet}" />`
         : escapeHtml(m.forecastDisplay);
       const canRender = messageIsRenderable(m);
       const idx = m.messageIndex;
