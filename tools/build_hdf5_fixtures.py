@@ -658,7 +658,12 @@ def build_fletcher32(name: str) -> None:
         middle the extra bytes are simply absorbed by the zlib decoder, so the
         compressed pipelines do *not* expose the bug.
       * ``f32_odd`` — an odd-length chunk, so the checksum's trailing-byte
-        branch runs.
+        branch runs. It is also the only single-chunk dataset here (7 B raw,
+        11 B stored), which covers the **single-chunk** index: that path takes
+        the chunk's length from the layout message's filtered size rather than
+        from the chunk shape, and a reader using the shape would read 7 bytes,
+        split at 3, and fail the checksum. The others hold two chunks and go
+        through a fixed array.
 
     A separate builder rather than an extension of the two general fixtures:
     adding datasets to those would shift every later dataset's decode index and

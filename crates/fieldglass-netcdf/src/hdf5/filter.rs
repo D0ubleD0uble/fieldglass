@@ -347,6 +347,52 @@ mod tests {
         assert_eq!(fletcher32(&long), 0x19eb_a5b9);
     }
 
+    /// The accumulators must not overflow between the folds.
+    ///
+    /// libhdf5 folds every 360 words because that is the largest block for
+    /// which `sum2` provably stays inside 32 bits, and this is a
+    /// re-derivation of that bound in a language where getting it wrong is a
+    /// panic in debug builds rather than a silent wrap. All-`0xFF` input is the
+    /// worst case: every word contributes the maximum. Several blocks' worth,
+    /// and each length either side of a fold boundary.
+    #[test]
+    fn fletcher32_does_not_overflow_on_worst_case_input() {
+        for len in [719, 720, 721, 1440, 4096, 65_536] {
+            let worst = vec![0xFFu8; len];
+            // The assertion is that this returns at all: an overflow here
+            // panics under `cargo test`'s debug profile.
+            let c = fletcher32(&worst);
+            assert!(c > 0, "len {len} produced a suspiciously empty checksum");
+        }
+    }
+
+    /// A chunk whose mask says fletcher32 was not applied carries no checksum
+    /// suffix, so reading must not strip four bytes off it. HDF5 records a
+    /// filter that was skipped on write in the per-chunk mask; the pipeline
+    /// honours that generally, and this pins it for the filter whose whole job
+    /// is a trailing suffix.
+    #[test]
+    fn a_masked_out_fletcher32_leaves_the_chunk_alone() {
+        let body: Vec<u8> = (0u8..32).collect();
+        let compressed = miniz_oxide::deflate::compress_to_vec_zlib(&body, 6);
+        let pipeline = FilterPipeline {
+            filters: vec![
+                Filter {
+                    id: FILTER_DEFLATE,
+                    client_data: vec![6],
+                },
+                Filter {
+                    id: FILTER_FLETCHER32,
+                    client_data: vec![],
+                },
+            ],
+        };
+        // Bit 1 = the second filter (fletcher32) was not applied to this chunk,
+        // so the bytes are the deflate stream with nothing appended.
+        let out = pipeline.reverse(compressed, 0b10, 1).unwrap();
+        assert_eq!(out, body);
+    }
+
     #[test]
     fn fletcher32_strips_the_checksum_and_verifies_it() {
         let body = b"the quick brown fox".to_vec();

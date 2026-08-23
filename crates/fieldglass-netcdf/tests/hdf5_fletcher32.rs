@@ -95,6 +95,12 @@ fn every_checksummed_pipeline_decodes_like_the_plain_one() {
 
 /// An odd-length chunk, so the checksum's trailing-byte branch runs on a real
 /// file rather than only in the unit tests.
+///
+/// This is also the fixture's only single-chunk dataset, so it covers the
+/// chunk-index path that takes the stored length from the layout message's
+/// filtered size (11 B) instead of the chunk shape (7 B). A reader using the
+/// shape would split three bytes short and fail the checksum, so this passing
+/// is what says that path reads the right length.
 #[test]
 fn an_odd_length_chunk_decodes() {
     let decoded = decode_all(FLETCHER32);

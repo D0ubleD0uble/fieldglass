@@ -498,7 +498,11 @@ ways so the test compares them directly: `plain_deflate` (deflate alone, the
 baseline), `f32_deflate`, `f32_only` (no compressor, so the stored chunk is the
 element bytes verbatim plus four), `f32_shuffle_deflate`, and `f32_shuffle`
 (shuffle + fletcher32, no compressor). A sixth dataset, `f32_odd`, is a 7-byte
-`uint8` chunk that exercises the checksum's trailing-odd-byte branch.
+`uint8` chunk that exercises the checksum's trailing-odd-byte branch, and is
+also the only single-chunk dataset here (7 B raw, 11 B stored) — so it covers
+the single-chunk index, whose chunk length comes from the layout message's
+filtered size rather than from the chunk shape. The rest hold two chunks and go
+through a fixed array.
 
 `f32_shuffle` is the dataset that earns its place: it is the only one on which
 a reader that returned the chunk unchanged is *visibly* wrong. The compressed
