@@ -44,8 +44,20 @@ Bump versions in lockstep:
 | `crates/fieldglass-{grib1,grib2,napi,netcdf}/Cargo.toml` | internal `version = "=X.Y.Z"` pins to match |
 | `extension/package.json` | `version` field |
 | `Cargo.lock` | `cargo check --workspace` to refresh |
-| `crates/fieldglass-{grib1,grib2,netcdf}/fuzz/Cargo.lock` | refresh each — the fuzz crates are excluded from the workspace, so `cargo check --workspace` does **not** touch their locks, yet each lock still records the resolved `fieldglass-*` version. Run `cargo update -w` in each `fuzz/` dir (or `cargo check`) so the committed locks aren't left on the old version. |
+| `crates/fieldglass-{grib1,grib2,netcdf}/fuzz/Cargo.lock` | refresh each — the fuzz crates are excluded from the workspace, so `cargo check --workspace` does **not** touch their locks, yet each lock still records the resolved `fieldglass-*` version. Run `cargo update -w` in each `fuzz/` dir (or `cargo check`) so the committed locks aren't left on the old version. Forgetting now fails the **Fuzz lockfiles in sync** job rather than being silently re-resolved at fuzz time, so CI catches it — but it blocks the fuzz jobs until fixed. |
 | `extension/package-lock.json` | `cd extension && npm install --package-lock-only` to refresh |
+
+Two versions in the tree deliberately **do not** move with the release, and
+both look like omissions if you are sweeping for the old number:
+
+- `crates/fieldglass-napi/package.json` — the napi crate's npm manifest, on its
+  own `0.1.0`. It is build tooling for `napi build`, never published (the crate
+  carries `publish = false`), and nothing reads its version. Bumping it is
+  harmless but meaningless; leaving it alone is correct.
+- `rust-j2k = "=X.Y.Z"` in the workspace `Cargo.toml` — an **external**
+  dependency that happens to be pinned exactly, not one of ours. It moves only
+  when that crate is upgraded, and when it does, the fuzz lockfiles have to
+  move with it (see the row above; that skew was #398).
 
 Promote the CHANGELOG: rename `## [Unreleased]` to `## [X.Y.Z] — YYYY-MM-DD`
 (today's date), fix the link references at the bottom of the file, and review
@@ -105,6 +117,13 @@ Verify the prep merge commit (`$RELEASE_SHA`), not whatever has landed on
   ```
 
   Wait for completion (typically ~5 min). The six native builds + six `.vsix` packages should all be green; the "Publish to Marketplace + GitHub Release" job should appear with a dash (skipped) — that's the gate working as designed.
+
+- [ ] **Manual pass over what changed** — [RELEASE-TEST-PLAN.md](RELEASE-TEST-PLAN.md)
+  is the per-cycle plan: it is rewritten each release to cover everything that
+  landed since the last tag, grouped so each file is opened once. Work it top
+  to bottom and record the outcome. The smoke test below is the floor — the
+  minimum for a release whose diff is small — not a substitute for the plan
+  when the cycle shipped user-facing features.
 
 - [ ] **Manual smoke test in a dev host (F5)** — open one fixture from each format and exercise the user-facing path:
   - GRIB1: render a temperature message from a multi-message file; toggle projection picker (Source / Equirectangular) and resampling (Nearest / Bilinear); confirm the canvas paints and the caption reads correctly on both picker positions.
@@ -201,6 +220,11 @@ gh run watch
 - [ ] **crates.io shows the new version** for all four library crates — `cargo info fieldglass-core` should report `X.Y.Z`, and likewise for `-grib1`, `-grib2`, `-netcdf`.
 - [ ] **Marketplace listing updated** at `https://marketplace.visualstudio.com/items?itemName=fieldglass.fieldglass` — the new version number, screenshot, and README all reflect what shipped.
 - [ ] **Install from Marketplace and round-trip** a real file from each format in a clean VS Code install. The full chain — Marketplace → `.vsix` selection by platform → activation → file open → render — is something only a real install can validate.
+- [ ] **Reset the manual test plan** — [RELEASE-TEST-PLAN.md](RELEASE-TEST-PLAN.md)
+  describes the cycle that just shipped, so it is stale the moment the tag
+  lands. Rewrite it against the new baseline as the next cycle's features
+  merge, rather than leaving the previous release's plan in place to be
+  mistaken for current.
 - [ ] **Linked issues already closed** — issues with `Closes #N` in their PR auto-closed when that PR merged to `master`, so this needs no action in the normal case. Just spot-check the CHANGELOG's `Closes #N` references are in fact closed; a still-open one means its PR didn't carry the keyword.
 
 ## When things break
