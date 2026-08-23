@@ -413,7 +413,10 @@ fn build_grib1_message_meta(
         level: fieldglass_grib1::level_value_str(&msg.pds),
         level_type: fieldglass_grib1::level_type_str(&msg.pds),
         reference_time: fieldglass_grib1::reference_time(&msg.pds),
-        forecast_hours: fieldglass_grib1::forecast_hours(&msg.pds),
+        // `None` is a unit with no fixed length in hours (a monthly mean, say).
+        // 0 is the same convention the GRIB2 side uses for that case: there is
+        // no hours value to show, and `forecast_display` carries the truth.
+        forecast_hours: fieldglass_grib1::forecast_hours(&msg.pds).unwrap_or(0),
         forecast_display: fieldglass_grib1::forecast_display(&msg.pds),
         originating_centre: lookup_centre(msg.pds.originating_centre).to_string(),
         grid_type,

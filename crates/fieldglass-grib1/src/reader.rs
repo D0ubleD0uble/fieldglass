@@ -422,48 +422,91 @@ fn scan_messages(data: &[u8]) -> Result<Vec<Grib1Message>, FieldglassError> {
 /// Convert the PDS time unit + P1 to a number of forecast hours.
 /// Uses WMO ON388 Table 4 time unit codes. Ignores `time_range` — for a
 /// user-facing string that handles ranges/accumulations use [`forecast_display`].
-pub fn forecast_hours(pds: &ProductDefinition) -> i32 {
-    p1_to_hours(pds.time_unit, pds.p1 as i32)
+pub fn forecast_hours(pds: &ProductDefinition) -> Option<i32> {
+    p1_to_hours(pds.time_unit, forecast_p1(pds))
 }
 
-fn p1_to_hours(time_unit: u8, p: i32) -> i32 {
-    match time_unit {
-        0 => p / 60,
-        1 => p,
-        2 => p * 24,
-        10 => p * 3,
-        11 => p * 6,
-        12 => p * 12,
-        13 => (p as f64 / 3600.0).round() as i32,
-        _ => p,
+/// P1 as a single number.
+///
+/// Time-range indicator 10 spends both P1 and P2 octets on one 16-bit value,
+/// so reading octet 19 alone reports a 12-hour forecast as 0 — the display
+/// string handled this and the hours number did not, leaving the two
+/// disagreeing about the same message.
+fn forecast_p1(pds: &ProductDefinition) -> i32 {
+    if pds.time_range == 10 {
+        ((pds.p1 as u16) << 8 | pds.p2 as u16) as i32
+    } else {
+        pds.p1 as i32
     }
+}
+
+/// Convert a GRIB1 unit/value pair to whole hours, or `None` when the unit has
+/// no fixed length in hours (month, year, decade, normal, century) or is not a
+/// code this table knows.
+///
+/// The units are WMO ON388 Table 4, which is *not* GRIB2's Table 4.4 even
+/// where the numbers overlap: 13 is 15 minutes here and a second there, 14 is
+/// 30 minutes and has no GRIB2 counterpart, and a second is 254. Reading the
+/// GRIB2 table for a GRIB1 message reported a 2-hour nowcast step (unit 13,
+/// P1 = 8) as `+0h` and a 2-hour lead expressed in seconds (unit 254,
+/// P1 = 7200) as `+7200h`.
+///
+/// Everything convertible goes through seconds so the sub-hourly units are
+/// exact, and the result rounds to the nearest hour: a 30-minute unit can land
+/// on a half hour, where truncating would call 90 minutes `+1h`. A lead too
+/// large for `i32` saturates rather than wrapping — it is still a large lead.
+fn p1_to_hours(time_unit: u8, p: i32) -> Option<i32> {
+    let p = p as i64;
+    let seconds: i64 = match time_unit {
+        0 => p * 60,
+        1 => p * 3_600,
+        2 => p * 86_400,
+        10 => p * 3 * 3_600,
+        11 => p * 6 * 3_600,
+        12 => p * 12 * 3_600,
+        13 => p * 15 * 60,
+        14 => p * 30 * 60,
+        254 => p,
+        _ => return None,
+    };
+    let hours = (seconds as f64 / 3_600.0).round();
+    Some(hours.clamp(i32::MIN as f64, i32::MAX as f64) as i32)
 }
 
 /// Format the PDS time information for display, branching on the time-range
 /// indicator (WMO ON388 Table 5) so accumulations and ranges show both bounds
 /// rather than collapsing to P1 only.
 pub fn forecast_display(pds: &ProductDefinition) -> String {
-    let p1 = pds.p1 as i32;
+    let unit = crate::tables::lookup_time_unit(pds.time_unit);
+    let p1 = forecast_p1(pds);
     let p2 = pds.p2 as i32;
-    let h1 = p1_to_hours(pds.time_unit, p1);
-    let h2 = p1_to_hours(pds.time_unit, p2);
+
+    // A unit with no fixed length in hours keeps its own number and label
+    // rather than being printed as hours, which is what turned a 6-month mean
+    // into "+6h". Same rule as the GRIB2 side.
+    let one = |v: i32| match p1_to_hours(pds.time_unit, v) {
+        Some(h) => format!("{h}h"),
+        None => format!("{v} {unit}"),
+    };
+    let pair = |a: i32, b: i32| match (p1_to_hours(pds.time_unit, a), p1_to_hours(pds.time_unit, b))
+    {
+        (Some(x), Some(y)) => format!("{x}–{y}h"),
+        _ => format!("{a}–{b} {unit}"),
+    };
 
     match pds.time_range {
-        0 => format!("+{h1}h"),
+        // 10 spends both octets on one 16-bit P1; `forecast_p1` already
+        // assembled it, so it formats exactly like a plain forecast.
+        0 | 10 => format!("+{}", one(p1)),
         1 => "analysis".to_string(),
-        2 => format!("{h1}–{h2}h valid"),
-        3 => format!("{h1}–{h2}h average"),
-        4 => format!("{h1}–{h2}h accum"),
-        5 => format!("{h1}–{h2}h diff"),
-        6 => format!("−{h1} to −{h2}h average"),
-        7 => format!("−{h1} to +{h2}h average"),
-        // P1 occupies both P1 and P2 octets as a single 16-bit value.
-        10 => {
-            let combined = ((pds.p1 as u16) << 8 | pds.p2 as u16) as i32;
-            format!("+{}h", p1_to_hours(pds.time_unit, combined))
-        }
+        2 => format!("{} valid", pair(p1, p2)),
+        3 => format!("{} average", pair(p1, p2)),
+        4 => format!("{} accum", pair(p1, p2)),
+        5 => format!("{} diff", pair(p1, p2)),
+        6 => format!("−{} to −{} average", one(p1), one(p2)),
+        7 => format!("−{} to +{} average", one(p1), one(p2)),
         51 => "climatological mean".to_string(),
-        _ => format!("+{h1}h"),
+        _ => format!("+{}", one(p1)),
     }
 }
 
@@ -716,6 +759,53 @@ mod forecast_display_tests {
     #[test]
     fn average_range_shows_both_bounds() {
         assert_eq!(forecast_display(&pds_time(1, 3, 6, 12)), "6–12h average");
+    }
+
+    #[test]
+    fn grib1_time_unit_table_is_not_the_grib2_one() {
+        // ON388 Table 4: 13 is 15 minutes (a second in GRIB2's 4.4), 14 is
+        // 30 minutes, and a second is 254. Reading GRIB2's table here reported
+        // the first as +0h and the third as +7200h.
+        assert_eq!(forecast_display(&pds_time(13, 0, 8, 0)), "+2h");
+        assert_eq!(forecast_display(&pds_time(14, 0, 4, 0)), "+2h");
+        // 7200 s = 2 h. P1 is one octet, so a seconds lead needs time range
+        // 10 (16-bit P1) to express anything but a few minutes.
+        assert_eq!(forecast_display(&pds_time(254, 10, 0x1C, 0x20)), "+2h");
+        assert_eq!(p1_to_hours(13, 8), Some(2));
+        assert_eq!(p1_to_hours(14, 4), Some(2));
+        assert_eq!(p1_to_hours(254, 7200), Some(2));
+    }
+
+    #[test]
+    fn sub_hourly_leads_round_rather_than_truncate() {
+        // 90 minutes is nearer two hours than one; truncation called it +1h.
+        assert_eq!(p1_to_hours(14, 3), Some(2)); // 3 × 30 min
+        assert_eq!(p1_to_hours(0, 90), Some(2)); // 90 min
+        assert_eq!(p1_to_hours(13, 2), Some(1)); // 30 min → 1h (nearest)
+    }
+
+    #[test]
+    fn calendar_units_keep_their_own_label_instead_of_becoming_hours() {
+        // A 6-month mean read "+6h" — a lead time invented out of the unit
+        // code. There is no hours value for a month, so say month.
+        assert_eq!(p1_to_hours(3, 6), None);
+        assert_eq!(forecast_display(&pds_time(3, 0, 6, 0)), "+6 month");
+        assert_eq!(forecast_display(&pds_time(4, 0, 1, 0)), "+1 year");
+        assert_eq!(forecast_display(&pds_time(3, 4, 0, 6)), "0–6 month accum");
+        // An unknown code is not silently reported as hours either.
+        assert_eq!(p1_to_hours(200, 5), None);
+    }
+
+    #[test]
+    fn sixteen_bit_p1_reaches_the_hours_number_too() {
+        // Time range 10 spends both octets on one P1. The display always
+        // assembled it; `forecast_hours` read octet 19 alone, so a +12h
+        // forecast reported 0 hours in the numeric column.
+        let pds = pds_time(1, 10, 0, 12);
+        assert_eq!(forecast_display(&pds), "+12h");
+        assert_eq!(forecast_hours(&pds), Some(12));
+        let big = pds_time(1, 10, 1, 44); // 0x012C = 300
+        assert_eq!(forecast_hours(&big), Some(300));
     }
 
     #[test]
