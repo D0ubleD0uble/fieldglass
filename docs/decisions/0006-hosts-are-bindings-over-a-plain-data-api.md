@@ -45,8 +45,10 @@ No host type appears in it.
 `GridGeometry`, the typed enum over grid families, lives in `core` behind the
 `render` feature so the format crates can convert into it (`From<GridTemplate>`
 in grib2, `From<GridDescription>` in grib1, the CF and WRF resolvers in
-netcdf). `Session` builds every host DTO as a view of it; nothing in Rust reads
-a DTO back.
+netcdf). `Session` builds the API DTOs (`Message`, `Georef`, `Field`, …) as views of
+it; a host derives its own types from those, never from `core`, and nothing
+in Rust reads a DTO back. Dependencies point down only: `core` knows no DTO,
+`fieldglass` knows no host.
 
 `fieldglass-napi` and `fieldglass-wasm` keep only the four per-host parts:
 buffer conversion, error mapping, forwarding, and packaging. They depend on

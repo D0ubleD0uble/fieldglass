@@ -22,8 +22,10 @@ classDiagram
 ## Core owns the geometry; `MessageMeta` becomes a view
 
 The centre of #464. Every format's typed grid description converts into one
-`GridGeometry`; the hosts' DTOs are built *from* it and nothing in Rust reads
-them back.
+`GridGeometry`. The `fieldglass` umbrella builds **one** API view of it,
+`Georef`, inside `Message`; hosts derive their own types from the API DTOs,
+never from core, and nothing in Rust reads a DTO back. Dependencies only
+point down: core knows no DTO, `fieldglass` knows no host.
 
 ```mermaid
 classDiagram
@@ -50,11 +52,15 @@ classDiagram
         +(ni, nj) raster shape rule
     }
 
+    class Message {
+        <<planned #464, crate fieldglass>>
+        API DTO: index, parameter, level, time, packing, Georef
+    }
     GridTemplate ..> GridGeometry : From (grib2)
     GridDescription ..> GridGeometry : From (grib1)
     RenderableVariable ..> GridGeometry : From (netcdf, CF + WRF + 2-D coords)
-    GridGeometry ..> MessageMeta : view (napi)
-    GridGeometry ..> Georef : view (wasm)
+    GridGeometry ..> Georef : view, built in fieldglass
+    Message *-- Georef
 ```
 
 The synthesised grids (spectral today, HEALPix after #443) keep their pattern:
@@ -85,7 +91,10 @@ classDiagram
 Both hosts bind one `Session` in the `fieldglass` umbrella crate (ADR-0006);
 their DTOs are derived from its serde types (napi's `native.ts` is generated
 from the JSON schema), only the buffer handoff and the error mapping are
-hand-written, and both run the crate's conformance suite. napi keeps its caches (the extension wiggles a picker and
+hand-written, and both run the crate's conformance suite. wasm returns the
+API `Message` as-is. napi keeps `MessageMeta` only as a compatibility mapping
+from `Message` while the extension still uses its field names; it is a napi
+detail, not something `fieldglass` or `core` knows about. napi keeps its caches (the extension wiggles a picker and
 expects a free repaint). wasm keeps none: the host owns every field it
 decoded and passes it back for render, probe, and contours, so memory is the
 app's decision.
@@ -170,7 +179,14 @@ classDiagram
     Session ..> Palette : palette(opts)
     Palette ..> RenderedGrid : CPU painter (oracle)
     WasmHandle ..> Palette : to GPU as LUT texture + uniforms
-    Grib2Handle ..> MessageMeta : view of GridGeometry
+    class MessageMeta {
+        <<napi, transitional>>
+        compat view of Message for the extension's field names
+        deleted once native.ts is generated from the API schema
+    }
+    Session ..> Message
+    Message ..> MessageMeta : napi maps, downward only
+    Grib2Handle ..> MessageMeta
     Grib2Handle ..> RenderedGrid
     WasmHandle ..> Field : host owns
     Field *-- Georef
