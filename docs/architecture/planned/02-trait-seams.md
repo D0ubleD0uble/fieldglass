@@ -8,7 +8,8 @@ family are unchanged and stay in the guarded diagram.
 ## Grid geometry becomes a type, and inverse lookup becomes a seam
 
 Today the nine per-family warp setups live in `napi` and take a flat 65-field
-`MessageMeta`. After #464 `core` owns `GridGeometry`, one variant per family,
+`MessageMeta`. After #460 (which creates it) and #464 (which moves napi onto
+it) `core` owns `GridGeometry`, one variant per family,
 built straight from the typed GDS, and the inverse map is a seam with two kinds
 of implementer: a formula (`PlanarGridProjector`, today) and a lookup
 (`SpatialIndex`, #437) for grids that are only a list of cell centres.
@@ -16,7 +17,7 @@ of implementer: a formula (`PlanarGridProjector`, today) and a lookup
 ```mermaid
 classDiagram
     class GridGeometry {
-        <<planned #464>>
+        <<planned #460 then #464>>
         +inverse(lat, lon) Option~GridIndex~
         +forward(i, j) Option~(lat, lon)~
         +lonlat_bbox()
@@ -101,6 +102,11 @@ classDiagram
         +String key
         +Range range
         +Option~u32~ sub_index
+        +Expect expect (discipline, parameter, level from the sidecar line)
+    }
+    class Expect {
+        <<planned #461>>
+        the plan is a claim: the decoder checks magic, §0 length, and these
     }
     Manifest <|.. Wgrib2Idx
     Manifest <|.. EcmwfIndex
@@ -108,6 +114,7 @@ classDiagram
     Manifest <|.. ZarrV2
     Manifest <|.. KerchunkRefs
     Manifest ..> PlanItem : produces
+    PlanItem *-- Expect
 ```
 
 ## Decode options
@@ -128,7 +135,8 @@ sequenceDiagram
     M->>J: decode_with(bytes, resolution_reduction = r)
     J-->>M: ni/2^r × nj/2^r samples
     M->>G: derive(gds, r) — first point kept, dx·2^r, last point recomputed
-    M-->>H: (values, mask, derived geometry)
+    M-->>H: DisplayField (values, mask, derived geometry)
+    Note over H: render / warp only — probe, csv, contours, stats take a Field
 ```
 
 ## Presentation is data, not a seam

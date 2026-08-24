@@ -29,7 +29,7 @@ them back.
 classDiagram
     direction LR
     class GridGeometry {
-        <<enum, planned #464>>
+        <<enum, planned #460 then #464>>
     }
     GridGeometry --> LatLonParams
     GridGeometry --> GaussianParams
@@ -83,8 +83,9 @@ classDiagram
 ## The two host boundaries after #464
 
 Both hosts bind one `Session` in the `fieldglass` umbrella crate (ADR-0006);
-their DTOs are derived from its serde types, and only the buffer handoff is
-hand-written. napi keeps its caches (the extension wiggles a picker and
+their DTOs are derived from its serde types (napi's `native.ts` is generated
+from the JSON schema), only the buffer handoff and the error mapping are
+hand-written, and both run the crate's conformance suite. napi keeps its caches (the extension wiggles a picker and
 expects a free repaint). wasm keeps none: the host owns every field it
 decoded and passes it back for render, probe, and contours, so memory is the
 app's decision.
@@ -101,19 +102,30 @@ classDiagram
         no cache
         +count() u32
         +message(i) JSON
-        +decode(i, opts) Field
+        +decode(i, opts) Field | DisplayField
         +warp(field, opts) Field
         +render(field, opts) RGBA
+        +palette(opts) Palette
         +probe(field, lat, lon)
         +contours(field, levels)
     }
     class Field {
         <<planned #460>>
-        +Float32Array values
+        +Float64Array | Float32Array values (follows the source)
         +Uint8Array mask
         +u32 ni, nj
         +Georef grid
         +Stats stats
+    }
+    class DisplayField {
+        <<planned #463>>
+        reduced-resolution decode: render and warp only
+        +Georef grid (derived, not the GDS)
+    }
+    class Error {
+        <<planned #464, crate fieldglass>>
+        +code() stable
+        +message()
     }
     class Georef {
         <<planned #460>>
@@ -127,9 +139,17 @@ classDiagram
     class Session {
         <<planned #464, crate fieldglass>>
         +open(bytes)
-        +message(i)
-        +decode(i, opts) Field
-        +warp / render / probe / contours / overlay / csv
+        +count() / message(i)
+        +decode(i, opts) Field | DisplayField
+        +warp / render / palette / probe / contours / overlay / csv
+    }
+    class FormatReader {
+        <<trait>>
+    }
+    class ConformanceSuite {
+        <<planned #464, crate fieldglass>>
+        fixtures + expected output per Session operation
+        seeded by the pre-#464 characterisation snapshot
     }
     class Palette {
         <<planned #485, core>>
@@ -142,7 +162,11 @@ classDiagram
     }
     Grib2Handle *-- Session
     WasmHandle *-- Session
-    Session *-- Grib2Reader
+    Session o-- FormatReader : one reader per open
+    Session ..> Error
+    ConformanceSuite ..> Grib2Handle : run through
+    ConformanceSuite ..> WasmHandle : run through
+    DisplayField --|> Field : subset, not passable to probe / csv / contours / stats
     Session ..> Palette : palette(opts)
     Palette ..> RenderedGrid : CPU painter (oracle)
     WasmHandle ..> Palette : to GPU as LUT texture + uniforms
