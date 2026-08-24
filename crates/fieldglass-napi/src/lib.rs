@@ -2,11 +2,11 @@
 
 use fieldglass_core::{
     CombineOp, EqualEarth, Format, GaussianParams, GaussianProjector, GeostationaryParams,
-    GeostationaryProjector, LambertParams, LambertProjector, LatLonParams, MercatorParams,
-    Mollweide, Orthographic, PlanarGridProjector, PolarStereoParams, PolarStereoProjector,
-    PolarStereographic, ProjectedPolylines, Resampling, Robinson, RotatedLatLonParams,
-    RotatedLatLonProjector, SourceGrid, SourceOverlayTarget, TargetRaster,
-    TransverseMercatorParams, TransverseMercatorProjector, WebMercator,
+    GeostationaryProjector, LambertAzimuthalParams, LambertAzimuthalProjector, LambertParams,
+    LambertProjector, LatLonParams, MercatorParams, Mollweide, Orthographic, PlanarGridProjector,
+    PolarStereoParams, PolarStereoProjector, PolarStereographic, ProjectedPolylines, Resampling,
+    Robinson, RotatedLatLonParams, RotatedLatLonProjector, SourceGrid, SourceOverlayTarget,
+    TargetRaster, TransverseMercatorParams, TransverseMercatorProjector, WebMercator,
     cct_tables::lookup_sub_centre,
     colormap::{Colormap, ScaleMode, min_max_ignoring_mask, paint_grid_rgba},
     combine_fields,
@@ -144,6 +144,20 @@ pub struct MessageMeta {
     /// `true` ⇒ south-pole projection, `false` ⇒ north-pole.
     pub polar_stereo_south_pole: Option<bool>,
     // -------------------------------------------------------------------
+    // Lambert azimuthal equal-area parameters (GRIB2 §3.140 only). Both
+    // semi-axes travel for the same reason as transverse Mercator: eccodes
+    // projects an oblate §3.140 on the true spheroid, so a mean radius would
+    // disagree with the oracle as well as with the ground.
+    // -------------------------------------------------------------------
+    pub lambert_azimuthal_semi_major_metres: Option<f64>,
+    pub lambert_azimuthal_semi_minor_metres: Option<f64>,
+    /// The tangent point: `standardParallel` latitude and `centralLongitude`.
+    pub lambert_azimuthal_standard_parallel: Option<f64>,
+    pub lambert_azimuthal_central_longitude: Option<f64>,
+    /// Grid spacing in metres, carrying the scanning-mode sign.
+    pub lambert_azimuthal_dx_metres: Option<f64>,
+    pub lambert_azimuthal_dy_metres: Option<f64>,
+    // -------------------------------------------------------------------
     // Transverse Mercator projection parameters (GRIB2 §3.12 only; `None`
     // for every other grid type). Unlike Lambert and polar stereographic,
     // §3.12 states the grid origin in the projection plane rather than as a
@@ -256,13 +270,14 @@ fn grid_is_reprojectable(
         // Space view carries its scan-angle increments through the same
         // planar spacing slots; an orthographic view (no camera altitude)
         // leaves them `None` and so does not reproject.
-        // Transverse Mercator joins them: its scan sign is baked into the
-        // spacings the same way, and §3.12 states its origin in the plane, so
-        // an i-negative scan is already accounted for rather than unsupported.
+        // Transverse Mercator and Lambert azimuthal equal-area join them: their
+        // scan sign is baked into the spacings the same way, so an i-negative
+        // scan is already accounted for rather than unsupported.
         Some("lambert")
         | Some("polar_stereo")
         | Some("space_view")
-        | Some("transverse_mercator") => {
+        | Some("transverse_mercator")
+        | Some("lambert_azimuthal") => {
             matches!((planar_dx, planar_dy), (Some(dx), Some(dy)) if dx != 0.0 && dy != 0.0)
         }
         _ => false,
@@ -505,6 +520,12 @@ fn build_grib1_message_meta(
         polar_stereo_dx_metres,
         polar_stereo_dy_metres,
         polar_stereo_south_pole,
+        lambert_azimuthal_semi_major_metres: None,
+        lambert_azimuthal_semi_minor_metres: None,
+        lambert_azimuthal_standard_parallel: None,
+        lambert_azimuthal_central_longitude: None,
+        lambert_azimuthal_dx_metres: None,
+        lambert_azimuthal_dy_metres: None,
         transverse_mercator_semi_major_metres: None,
         transverse_mercator_semi_minor_metres: None,
         transverse_mercator_lat_ref: None,
@@ -786,6 +807,53 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
         _ => None,
     };
 
+    let lambert_azimuthal = match &msg.gds.template {
+        fieldglass_grib2::GridTemplate::LambertAzimuthal(t) => Some(t),
+        _ => None,
+    };
+    // §3.140 stores Dx/Dy as unsigned magnitudes, like the other planar
+    // templates; the scan direction is in the flags.
+    let lambert_azimuthal_inc = lambert_azimuthal.map(|t| {
+        signed_grid_increments(
+            t.dx_metres,
+            t.dy_metres,
+            t.scanning_mode & 0x80 != 0,
+            t.scanning_mode & 0x40 != 0,
+        )
+    });
+    // §3.140 states a real geographic first point, so `bounds()` already
+    // carries `La1`/`Lo1`; only the *last* point has to be derived, and it is
+    // computable rather than substituted. Skipped when the projector is
+    // unusable, which would otherwise report `NaN` corners.
+    let lambert_azimuthal_last =
+        lambert_azimuthal
+            .zip(lambert_azimuthal_inc)
+            .and_then(|(t, (dx, dy))| {
+                let projector = LambertAzimuthalProjector::new(LambertAzimuthalParams {
+                    semi_major_m: t.earth_major_m,
+                    semi_minor_m: t.earth_minor_m,
+                    ni: t.nx,
+                    nj: t.ny,
+                    lat_first: t.la1,
+                    lon_first: t.lo1,
+                    standard_parallel: t.standard_parallel,
+                    central_longitude: t.central_longitude,
+                    dx_metres: dx,
+                    dy_metres: dy,
+                });
+                if !projector.is_well_defined() {
+                    return None;
+                }
+                let (lat_last, lon_last) = projector.last_grid_point_lonlat();
+                if !lat_last.is_finite() || !lon_last.is_finite() {
+                    return None;
+                }
+                Some((lat_last, normalise_lon(lon_last)))
+            });
+    // Same gate as transverse Mercator: spacings alone would advertise a
+    // reprojection that resolves no point.
+    let lambert_azimuthal_reprojectable_inc = lambert_azimuthal_last.and(lambert_azimuthal_inc);
+
     let transverse_mercator = match &msg.gds.template {
         fieldglass_grib2::GridTemplate::TransverseMercator(t) => Some(t),
         _ => None,
@@ -923,11 +991,13 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
             .map(|(dx, _)| dx)
             .or(lambert_dx_metres)
             .or(transverse_mercator_reprojectable_inc.map(|(dx, _)| dx))
+            .or(lambert_azimuthal_reprojectable_inc.map(|(dx, _)| dx))
             .or(space_view.map(|g| g.dx_rad)),
         polar_stereo_inc
             .map(|(_, dy)| dy)
             .or(lambert_dy_metres)
             .or(transverse_mercator_reprojectable_inc.map(|(_, dy)| dy))
+            .or(lambert_azimuthal_reprojectable_inc.map(|(_, dy)| dy))
             .or(space_view.map(|g| g.dy_rad)),
         i_scan_negative,
     );
@@ -958,9 +1028,11 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
             .or_else(|| bounds.map(|(_, lo1, _, _)| lo1)),
         lat_last: transverse_mercator_corners
             .map(|(_, _, la2, _)| la2)
+            .or(lambert_azimuthal_last.map(|(la2, _)| la2))
             .or_else(|| bounds.map(|(_, _, la2, _)| la2)),
         lon_last: transverse_mercator_corners
             .map(|(_, _, _, lo2)| lo2)
+            .or(lambert_azimuthal_last.map(|(_, lo2)| lo2))
             .or_else(|| bounds.map(|(_, _, _, lo2)| lo2)),
         format: "grib2".to_string(),
         edition: Some(i32::from(msg.is.edition)),
@@ -981,6 +1053,12 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
         polar_stereo_dx_metres: polar_stereo_inc.map(|(dx, _)| dx),
         polar_stereo_dy_metres: polar_stereo_inc.map(|(_, dy)| dy),
         polar_stereo_south_pole: polar_stereo.map(|t| t.south_pole),
+        lambert_azimuthal_semi_major_metres: lambert_azimuthal.map(|t| t.earth_major_m),
+        lambert_azimuthal_semi_minor_metres: lambert_azimuthal.map(|t| t.earth_minor_m),
+        lambert_azimuthal_standard_parallel: lambert_azimuthal.map(|t| t.standard_parallel),
+        lambert_azimuthal_central_longitude: lambert_azimuthal.map(|t| t.central_longitude),
+        lambert_azimuthal_dx_metres: lambert_azimuthal_inc.map(|(dx, _)| dx),
+        lambert_azimuthal_dy_metres: lambert_azimuthal_inc.map(|(_, dy)| dy),
         transverse_mercator_semi_major_metres: transverse_mercator.map(|t| t.earth_major_m),
         transverse_mercator_semi_minor_metres: transverse_mercator.map(|t| t.earth_minor_m),
         transverse_mercator_lat_ref: transverse_mercator.map(|t| t.lat_ref),
@@ -2980,6 +3058,12 @@ fn base_netcdf_meta(name: &str, units: &str, ni: i32, nj: i32) -> MessageMeta {
         polar_stereo_dx_metres: None,
         polar_stereo_dy_metres: None,
         polar_stereo_south_pole: None,
+        lambert_azimuthal_semi_major_metres: None,
+        lambert_azimuthal_semi_minor_metres: None,
+        lambert_azimuthal_standard_parallel: None,
+        lambert_azimuthal_central_longitude: None,
+        lambert_azimuthal_dx_metres: None,
+        lambert_azimuthal_dy_metres: None,
         transverse_mercator_semi_major_metres: None,
         transverse_mercator_semi_minor_metres: None,
         transverse_mercator_lat_ref: None,
@@ -3505,6 +3589,12 @@ struct GridGeometry<'a> {
     polar_stereo_dx_metres: &'a Option<f64>,
     polar_stereo_dy_metres: &'a Option<f64>,
     polar_stereo_south_pole: &'a Option<bool>,
+    lambert_azimuthal_semi_major_metres: &'a Option<f64>,
+    lambert_azimuthal_semi_minor_metres: &'a Option<f64>,
+    lambert_azimuthal_standard_parallel: &'a Option<f64>,
+    lambert_azimuthal_central_longitude: &'a Option<f64>,
+    lambert_azimuthal_dx_metres: &'a Option<f64>,
+    lambert_azimuthal_dy_metres: &'a Option<f64>,
     transverse_mercator_semi_major_metres: &'a Option<f64>,
     transverse_mercator_semi_minor_metres: &'a Option<f64>,
     transverse_mercator_lat_ref: &'a Option<f64>,
@@ -3563,6 +3653,12 @@ impl MessageMeta {
             polar_stereo_dx_metres,
             polar_stereo_dy_metres,
             polar_stereo_south_pole,
+            lambert_azimuthal_semi_major_metres,
+            lambert_azimuthal_semi_minor_metres,
+            lambert_azimuthal_standard_parallel,
+            lambert_azimuthal_central_longitude,
+            lambert_azimuthal_dx_metres,
+            lambert_azimuthal_dy_metres,
             transverse_mercator_semi_major_metres,
             transverse_mercator_semi_minor_metres,
             transverse_mercator_lat_ref,
@@ -3634,6 +3730,12 @@ impl MessageMeta {
             polar_stereo_dx_metres,
             polar_stereo_dy_metres,
             polar_stereo_south_pole,
+            lambert_azimuthal_semi_major_metres,
+            lambert_azimuthal_semi_minor_metres,
+            lambert_azimuthal_standard_parallel,
+            lambert_azimuthal_central_longitude,
+            lambert_azimuthal_dx_metres,
+            lambert_azimuthal_dy_metres,
             transverse_mercator_semi_major_metres,
             transverse_mercator_semi_minor_metres,
             transverse_mercator_lat_ref,
@@ -4165,6 +4267,7 @@ fn warp_setup_for(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetu
         "lambert" => lambert_warp_setup(meta, ni, nj),
         "polar_stereo" => polar_stereo_warp_setup(meta, ni, nj),
         "transverse_mercator" => transverse_mercator_warp_setup(meta, ni, nj),
+        "lambert_azimuthal" => lambert_azimuthal_warp_setup(meta, ni, nj),
         "space_view" => geostationary_warp_setup(meta, ni, nj),
         other => Err(napi::Error::from_reason(format!(
             "reprojection not yet supported for grid type {other:?}"
@@ -4893,6 +4996,45 @@ fn polar_stereo_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result
     Ok((inverse, bbox))
 }
 
+fn lambert_azimuthal_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
+    let p = LambertAzimuthalParams {
+        semi_major_m: require_f64(
+            meta.lambert_azimuthal_semi_major_metres,
+            "lambertAzimuthalSemiMajorMetres",
+        )?,
+        semi_minor_m: require_f64(
+            meta.lambert_azimuthal_semi_minor_metres,
+            "lambertAzimuthalSemiMinorMetres",
+        )?,
+        ni,
+        nj,
+        lat_first: require_f64(meta.lat_first, "latFirst")?,
+        lon_first: require_f64(meta.lon_first, "lonFirst")?,
+        standard_parallel: require_f64(
+            meta.lambert_azimuthal_standard_parallel,
+            "lambertAzimuthalStandardParallel",
+        )?,
+        central_longitude: require_f64(
+            meta.lambert_azimuthal_central_longitude,
+            "lambertAzimuthalCentralLongitude",
+        )?,
+        dx_metres: require_nonzero_spacing(
+            meta.lambert_azimuthal_dx_metres,
+            "lambertAzimuthalDxMetres",
+        )?,
+        dy_metres: require_nonzero_spacing(
+            meta.lambert_azimuthal_dy_metres,
+            "lambertAzimuthalDyMetres",
+        )?,
+    };
+
+    let projector = LambertAzimuthalProjector::new(p);
+    let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
+        Box::new(move |lat, lon| projector.inverse(lat, lon));
+    let bbox: BboxThunk = Box::new(move || LambertAzimuthalProjector::new(p).lonlat_bbox());
+    Ok((inverse, bbox))
+}
+
 fn transverse_mercator_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
     let p = TransverseMercatorParams {
         semi_major_m: require_f64(
@@ -5443,6 +5585,12 @@ mod polar_stereo_warp_tests {
             polar_stereo_dx_metres: Some(60_000.0),
             polar_stereo_dy_metres: Some(60_000.0),
             polar_stereo_south_pole: Some(false),
+            lambert_azimuthal_semi_major_metres: None,
+            lambert_azimuthal_semi_minor_metres: None,
+            lambert_azimuthal_standard_parallel: None,
+            lambert_azimuthal_central_longitude: None,
+            lambert_azimuthal_dx_metres: None,
+            lambert_azimuthal_dy_metres: None,
             transverse_mercator_semi_major_metres: None,
             transverse_mercator_semi_minor_metres: None,
             transverse_mercator_lat_ref: None,
@@ -5972,6 +6120,12 @@ mod polar_stereo_warp_tests {
             lon_first: Some(0.0),
             lat_last: Some(0.0),
             lon_last: Some(30.0),
+            lambert_azimuthal_semi_major_metres: None,
+            lambert_azimuthal_semi_minor_metres: None,
+            lambert_azimuthal_standard_parallel: None,
+            lambert_azimuthal_central_longitude: None,
+            lambert_azimuthal_dx_metres: None,
+            lambert_azimuthal_dy_metres: None,
             transverse_mercator_semi_major_metres: None,
             transverse_mercator_semi_minor_metres: None,
             transverse_mercator_lat_ref: None,
@@ -6185,6 +6339,19 @@ mod reprojectable_tests {
             None,
             false
         ));
+        // Lambert azimuthal equal-area joins them on the same terms.
+        assert!(grid_is_reprojectable(
+            Some("lambert_azimuthal"),
+            Some(200_000.0),
+            Some(200_000.0),
+            false
+        ));
+        assert!(!grid_is_reprojectable(
+            Some("lambert_azimuthal"),
+            Some(0.0),
+            Some(200_000.0),
+            false
+        ));
         // Orthographic space view (no camera altitude) leaves the increments
         // unset, so it does not reproject.
         assert!(!grid_is_reprojectable(
@@ -6339,6 +6506,12 @@ mod overlay_projection_tests {
             polar_stereo_dx_metres: None,
             polar_stereo_dy_metres: None,
             polar_stereo_south_pole: None,
+            lambert_azimuthal_semi_major_metres: None,
+            lambert_azimuthal_semi_minor_metres: None,
+            lambert_azimuthal_standard_parallel: None,
+            lambert_azimuthal_central_longitude: None,
+            lambert_azimuthal_dx_metres: None,
+            lambert_azimuthal_dy_metres: None,
             transverse_mercator_semi_major_metres: None,
             transverse_mercator_semi_minor_metres: None,
             transverse_mercator_lat_ref: None,
@@ -7921,6 +8094,12 @@ mod space_view_geos_tests {
             polar_stereo_dx_metres: None,
             polar_stereo_dy_metres: None,
             polar_stereo_south_pole: None,
+            lambert_azimuthal_semi_major_metres: None,
+            lambert_azimuthal_semi_minor_metres: None,
+            lambert_azimuthal_standard_parallel: None,
+            lambert_azimuthal_central_longitude: None,
+            lambert_azimuthal_dx_metres: None,
+            lambert_azimuthal_dy_metres: None,
             transverse_mercator_semi_major_metres: None,
             transverse_mercator_semi_minor_metres: None,
             transverse_mercator_lat_ref: None,

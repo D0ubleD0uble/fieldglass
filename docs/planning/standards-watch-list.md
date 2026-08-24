@@ -16,6 +16,23 @@ A twice-yearly checkpoint after each WMO fast-track publication (May/June and
 November) is the natural rhythm for table regeneration, census review, and a
 roadmap revision.
 
+## Where the reference stack is wrong
+
+eccodes is the oracle for most of this repo, so the places it cannot be one are
+worth writing down — a future contributor's instinct will be to "fix" our code
+to match it.
+
+| Template | What eccodes does | Since |
+|---|---|---|
+| §3.12 transverse Mercator | No geoiterator at all. `codes_grib_iterator_new` answers `Function not yet implemented`, at the pinned 2.34.1 and still at 2.48, so `grib_get_data` reports no latitudes or longitudes. | #422 |
+| §3.140 Lambert azimuthal, **south-polar** | Refuses. Its polar-aspect guard tests `cosb1 == 0.0`, which holds at +90° but not at −90° — `authalic_q(-1)` is not the exact negation of the `qp` it is divided by, so `cosb1` lands at ~1.5e-8 and the projected plane inflates by eight orders of magnitude. `codes_get_array(h, "latitudes")` answers `Invalid value: arcsin argument=7.60531e+06`. The oblique and north-polar aspects are fine, and agree with PROJ to 0.0006 mm. | #423 |
+
+Both are checked against **PROJ** instead, with the oracle values committed so
+PROJ is not a test-time dependency. Compare in the *same* geographic frame on
+both sides: going to `+proj=longlat +datum=WGS84` from a non-WGS84 ellipsoid
+adds a datum shift that reads exactly like a projection bug (78 m, for Airy
+1830).
+
 When bumping `wmo-im/CCT`, read the generated diff rather than accepting it:
 `tools/gen_wmo_cct_tables.py` carries sixteen overrides that restore detail WMO
 does not publish, and each is pinned to the upstream text it was written
