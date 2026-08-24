@@ -8,7 +8,7 @@
 # framing). Everything lands in samples/, which is git-ignored except its README.
 #
 # All endpoints are public and need NO credentials (NOAA NOMADS / AWS Open Data,
-# ECMWF open data, ECCC datamart). Large files are trimmed to a single GRIB2
+# ECMWF open data, ECCC datamart, DWD opendata). Large files are trimmed to a single GRIB2
 # message via their .idx/.index sidecar and an HTTP Range request, so nothing
 # here downloads more than a few MB.
 #
@@ -18,8 +18,8 @@
 #   DATE=20260629 CYCLE=00 tools/fetch_samples.sh   # pin a run (see note below)
 #
 # Run availability: defaults to yesterday's 00Z, which is safe for the NCEP/ECMWF
-# models. MRMS, NBM, and ECCC keep only ~1-2 days of data — if one 404s, re-run
-# that model with today's DATE.
+# models. MRMS, NBM, ECCC and ICON keep only ~1-2 days of data — if one 404s,
+# re-run that model with today's DATE.
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -167,6 +167,24 @@ get_oisst() { # NetCDF-4, regular 1/4° global lat/lon — real full OISST analy
   fi
 }
 
+get_icon() { # simple packing (5.0), regular lat/lon (3.0) — DWD ICON-D2, local params
+  info "DWD ICON-D2 modified cloud cover (opendata.dwd.de, regular lat/lon)"
+  # The reason this one is here is §1: centre 78 with localTablesVersion 1, on
+  # a local triple (0/6/199) that only the DWD table names (#425). Open a
+  # different parameter and the message table shows what the WMO master set
+  # gives you instead. DWD open data is free to use with attribution
+  # (GeoNutzV); nothing from it is committed.
+  local base="https://opendata.dwd.de/weather/nwp/icon-d2/grib/${CYCLE}"
+  local name="icon-d2_germany_regular-lat-lon_single-level_${DATE}${CYCLE}_000_2d_clct_mod.grib2.bz2"
+  if curl -fsSL "${base}/clct_mod/${name}" -o "$OUT/icon.grib2.bz2" \
+     && bunzip2 -f "$OUT/icon.grib2.bz2"; then
+    ok "icon.grib2 ($(du -h "$OUT/icon.grib2" | cut -f1))"
+  else
+    warn "ICON-D2 fetch failed (opendata.dwd.de keeps only ~24h; try today's DATE)"
+    rm -f "$OUT/icon.grib2.bz2"
+  fi
+}
+
 get_wrf() { # NetCDF classic, WRF Lambert (MAP_PROJ attrs) — synthetic stand-in
   info "WRF wrfout stand-in (copied from the committed test fixture)"
   # Real wrfout files are self-generated model output with no public
@@ -181,7 +199,7 @@ get_wrf() { # NetCDF classic, WRF Lambert (MAP_PROJ attrs) — synthetic stand-i
   fi
 }
 
-ALL=(gfs hrrr nam rap nbm mrms ecmwf eccc goes oisst wrf)
+ALL=(gfs hrrr nam rap nbm mrms ecmwf eccc icon goes oisst wrf)
 targets=("$@"); [ ${#targets[@]} -eq 0 ] && targets=("${ALL[@]}")
 
 info "run: ${DATE} ${CYCLE}Z  ->  $OUT"

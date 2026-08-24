@@ -5,13 +5,13 @@
 //! (Apache-2.0; the definitions are factual data from the centre's parameter
 //! database).
 //!
-//! 2813 parameters on the triple alone and 13 gated on the
-//! centre's local table version. 696 further triples are deliberately
-//! absent: eccodes resolves them using §4 keys this seam does not carry, so it
-//! reports `unknown` for them too unless those keys match. See the generator's
+//! 2813 parameters on the triple alone, 13 gated on the centre's local
+//! table version. 696 further triples are deliberately absent: eccodes
+//! resolves them using §4 keys this seam does not carry, so it reports
+//! `unknown` for them too unless those keys match. See the generator's
 //! module docs for the full rule.
 
-/// Look up a ECMF local parameter, or `None` when this table does not
+/// Look up a local ECMF parameter, or `None` when this table does not
 /// define the triple for that local table version.
 pub(crate) fn lookup(
     local_tables_version: u8,

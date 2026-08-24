@@ -37,6 +37,7 @@ pub mod spectral;
 pub mod tables;
 pub mod tables_cct;
 mod tables_ecmf;
+mod tables_edzw;
 mod tables_local;
 /// Generated WMO master code tables (Table 4.2 / 4.4 / 4.5). Private: callers
 /// go through [`tables`], which layers the curated entries over these.

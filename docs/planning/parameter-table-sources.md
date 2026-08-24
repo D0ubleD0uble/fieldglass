@@ -32,34 +32,48 @@ via the script rather than editing output by hand.
 
 The dispatch seam for this landed in #439: `lookup_parameter` takes an
 `Originator`, and `tables_local::lookup` is where a centre table plugs in.
-Surveying the eccodes local concepts first showed the centres do **not** all fit
-that seam equally:
-
-| Centre | local entries | at 192+ | keyed by the triple alone? |
-|---|---|---|---|
-| ECMWF (#424) | 3,360 | 3,320 | yes |
-| NCEP (#426) | 319 | 314 | yes |
-
-| DWD/ICON (#425) | 1,827 | 758 | **no** |
+ECMWF (#424) and DWD (#425) are in; NCEP (#426) is the remaining one.
 
 The seam keys on the three §1 fields eccodes itself resolves a local concept
-on — centre, sub-centre and `localTablesVersion` (ECMWF gates 132 entries on
-the last, across versions 1 and 228). `masterTablesVersion` is deliberately not
-a key: WMO only adds or deprecates, never renumbers, so latest wins.
+on — centre, sub-centre and `localTablesVersion` (ECMWF gates 13 entries on the
+last; DWD gates none). `masterTablesVersion` is deliberately not a key: WMO only
+adds or deprecates, never renumbers, so latest wins.
 
-DWD is the outlier twice over. 1,069 of its entries sit on *standard* codes, which
-the ≥192 rule never routes to a centre; and 158 of its triples map to more than one
-parameter — `(0, 0, 0)` alone has 17 candidates, separated by
-`typeOfFirstFixedSurface`, `scaledValueOfFirstFixedSurface`,
-`typeOfStatisticalProcessing` and `typeOfGeneratingProcess`. So #424 and #426 are
-pure data changes against the seam as it stands, while #425 needs a decision about
-§4 context and about whether a centre may override a master entry at all. Do the
-two that fit first.
+What each centre actually contributes, as `tools/gen_localconcepts_tables.py`
+measures it at eccodes 2.34.1 — concept blocks in the first two columns,
+distinct triples in the rest. The NCEP row is a dry run of the same generator;
+#426 is about whether wgrib2's table beats it, not about whether this one
+works:
 
-Note the residue even in the two that fit: 40 ECMWF and 5 NCEP entries sit below
-192 and so are never routed to a centre. That is a handful of missing names, not
-a wrong one, which is the right way round — but it means neither generator will
-reproduce its eccodes source exactly, and the diff should not be read as a bug.
+| Centre | blocks | outside 192-254 | emitted | §4-keyed | ambiguous | placeholder |
+|---|---|---|---|---|---|---|
+| ECMWF (#424) | 3,601 | 63 | 2,826 | 48 | 6 | 642 |
+| DWD/ICON (#425) | 1,704 | 983 | 213 | 100 | 50 | 254 |
+| NCEP (#426) | 319 | 6 | 313 | 0 | 0 | 0 |
+
+Two corrections to the pre-implementation survey this table replaces. It quoted
+3,360 ECMWF and 1,827 DWD entries, with 40 and 1,069 below 192; those came from
+counting the concept files a different way, and the generator's numbers are the
+ones the shipped tables are built from. And it read DWD's ambiguity as a reason
+to defer the centre entirely. In practice the generator's existing skip rules
+handle it: the ≥192 rule drops the standard-code majority, the §4 rule drops the
+17-way `(0, 0, 0)` collisions, and what is left — 213 triples — is unambiguous
+and matches eccodes exactly. DWD needed no decision about §4 context after all;
+it needed the same rules applied and the residue measured.
+
+The residue is the point, though. DWD publishes 129 parameter groups for
+ICON-D2 and this table names nine of them: `CLCT_MOD`, `CLDEPTH`, `FRESHSNW`,
+`Q_SEDIM`, `SDI_2`, `SOILTYP`, `TQC_DIA`, `TQI_DIA`, `TQV_DIA`. The headline
+fields — `T_2M`, `TOT_PREC`, `PMSL`, `W_SO` — sit on standard triples the WMO
+master set already names correctly, so what the local table adds there is DWD's
+abbreviation, not the name, and the ≥192 rule keeps it out. That is names we do
+not gain, never names we get wrong; the ECMWF residue (47 blocks below 192) is
+the same trade at a hundredth the scale.
+
+A third thing #425 turned up, which #426 should expect: DWD fills whole local
+categories with `DUMMY_1` … `DUMMY_508` placeholders, 254 of which land on
+otherwise-emittable triples. They are `Experimental product` in another
+spelling, and the generator skips them by the same rule.
 
 ## What #415 turned up
 
@@ -102,7 +116,10 @@ Two things worth carrying into the remaining generators:
   | eccodes DWD/ICON (#425) | — | — | — |
 
   So the two ASCII families do not mix: a table is written one way or the
-  other. Chained solidi are ON388-only, which is what bounds the "everything
+  other. DWD writes neither, using the bare `kg kg-1` form WMO's master table
+  also uses, so #425 added no notation and needed no new unit symbols; the four
+  strings it did add to the passthrough set (`Pa-3h`, `10-7 s-2`, `Pa(O3)`,
+  `Km kg-1 s-1`) are pinned in `grib2/tests/unit_notation.rs`. Chained solidi are ON388-only, which is what bounds the "everything
   past the first solidus is a denominator" rule to six strings that could be
   checked one by one against the quantity (`kg/m2/s` is precipitation rate,
   `m2/s/kg` potential vorticity).

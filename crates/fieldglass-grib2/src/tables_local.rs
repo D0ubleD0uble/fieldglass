@@ -7,33 +7,37 @@
 //!
 //! #439 landed this registry empty so the generators behind it would be pure
 //! data changes — a generated module and one `match` arm here, with no
-//! call-site churn and nothing to re-review about dispatch. ECMWF (#424) is
-//! the first to arrive; DWD/ICON (#425) and NCEP (#426) follow.
+//! call-site churn and nothing to re-review about dispatch. ECMWF (#424) and
+//! DWD/ICON (#425) have arrived; NCEP (#426) follows.
 //!
-//! # What the centre tables actually look like
+//! # What reaches this seam, and what does not
 //!
 //! Surveying the eccodes local concepts before building this seam turned up a
-//! split that matters for what plugs in here:
+//! split that matters for what plugs in here. These are the numbers
+//! `tools/gen_localconcepts_tables.py` reports at eccodes 2.34.1 — concept
+//! blocks in the first two columns, distinct triples in the rest, because a
+//! triple several blocks claim is one triple and several blocks:
 //!
-//! | Centre | local entries | keyed by the triple alone? |
-//! |---|---|---|
-//! | ECMWF (#424) | 3,320 of 3,360 sit at 192+ | yes |
-//! | NCEP (#426) | 314 of 319 sit at 192+ | yes |
-//! | DWD/ICON (#425) | 1,069 of 1,827 sit **below** 192 | **no** |
+//! | Centre | blocks | outside 192-254 | emitted | §4-keyed | ambiguous | placeholder |
+//! |---|---|---|---|---|---|---|
+//! | ECMWF (#424) | 3,601 | 63 | 2,826 | 48 | 6 | 642 |
+//! | DWD/ICON (#425) | 1,704 | 983 | 213 | 100 | 50 | 254 |
 //!
-//! ECMWF and NCEP fit this seam as it stands. DWD does not, twice over: most
-//! of its table sits on standard codes this seam never routes here, and 158 of
-//! its triples map to more than one parameter — `(0, 0, 0)` alone has 17
-//! candidates, separated by `typeOfFirstFixedSurface`,
-//! `scaledValueOfFirstFixedSurface`, `typeOfStatisticalProcessing` and
-//! `typeOfGeneratingProcess`. Resolving those needs §4 context this signature
-//! does not carry, which is why [`Originator`] is a struct: adding a field is
-//! not a breaking change for the centres that do fit.
+//! ECMWF fits this seam almost whole. DWD does not, and the reason is worth
+//! keeping: most of its table sits on *standard* codes, which the ≥192 rule
+//! never routes to a centre, and 50 of its remaining triples are claimed by
+//! several blocks at once — `(0, 0, 0)` alone has 17 candidates, separated by
+//! `typeOfFirstFixedSurface`, `scaledValueOfFirstFixedSurface`,
+//! `typeOfStatisticalProcessing` and `typeOfGeneratingProcess`. Resolving those
+//! needs §4 context this signature does not carry, which is why [`Originator`]
+//! is a struct: adding a field is not a breaking change for what already fits.
 //!
-//! ECMWF has the same shape in miniature — 54 of its 3,522 routable triples
-//! constrain §4 keys or are claimed by several blocks — and the generator drops
-//! exactly those. The result is a table that is silent wherever eccodes is
-//! silent, rather than one that guesses; see `tools/gen_localconcepts_tables.py`.
+//! So the DWD table names the genuinely local part of ICON — tendencies,
+//! sub-grid diagnostics, `FRESHSNW`, `CLCT_MOD` — and leaves `T_2M`,
+//! `TOT_PREC`, `PMSL` and the rest to the WMO master set, which already names
+//! them correctly. The generator drops exactly what it cannot key, so the table
+//! is silent wherever eccodes is silent rather than guessing; see
+//! `tools/gen_localconcepts_tables.py`.
 
 use crate::tables::Originator;
 
@@ -55,9 +59,19 @@ pub(crate) fn lookup(
             category,
             number,
         ),
+        CENTRE_DWD => crate::tables_edzw::lookup(
+            originator.local_tables_version,
+            discipline,
+            category,
+            number,
+        ),
         _ => None,
     }
 }
 
 /// WMO Common Code Table C-11 code for ECMWF.
 const CENTRE_ECMWF: u16 = 98;
+
+/// WMO Common Code Table C-11 code for Offenbach (RSMC) - DWD, whose eccodes
+/// concept directory is `edzw`.
+const CENTRE_DWD: u16 = 78;

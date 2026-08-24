@@ -62,6 +62,7 @@ variable's real physical units, not raw integer codes.
 | `mrms.grib2`  | **PNG (5.41)**, regular lat/lon (3.0) | equirect, Web Mercator | CONUS reflectivity. Note: MRMS marks no-coverage with a **−999 sentinel** that isn't a GRIB bitmap, so auto-range spans −999; set a manual range (e.g. 0..70) to see the reflectivity. |
 | `ecmwf.grib2` | CCSDS / AEC (5.42), regular lat/lon (3.0) | equirect, orthographic | global field, decodes without a libaec/native dependency, coastlines align |
 | `eccc.grib2`  | JPEG 2000 (5.40), rotated lat/lon (3.1) — HRDPS | equirect | rotated source unrotates so coastlines land correctly (the reprojection, not the raw tilted grid) |
+| `icon.grib2`  | simple (5.0), regular lat/lon (3.0) — DWD ICON-D2 | equirect | German-domain cloud cover, coastlines along the North Sea and Baltic. The point of this one is the **message table**: centre reads `Offenbach (RSMC) - DWD` and the parameter reads `CLCT_MOD / Modified cloud cover for media`, from DWD's local table rather than the WMO master set (#425). |
 
 ### NetCDF
 
