@@ -57,38 +57,29 @@ fn the_master_table_never_defines_a_local_use_code() {
     );
 }
 
-/// With the registry empty, every triple resolves the same for every centre.
-/// This is what "behaviour-preserving until #424 lands" means, stated as a
-/// test rather than as a claim in the commit message.
+/// A centre with no table of its own resolves exactly as the master set does,
+/// for every triple. This is the guarantee that adding ECMWF (#424) could not
+/// quietly change what any other file shows.
 #[test]
-fn resolution_does_not_yet_depend_on_the_centre() {
-    // A spread of real centres: NCEP, ECMWF, DWD, JMA, NASA, and one that does
-    // not exist.
-    let centres = [7u16, 98, 78, 34, 173, 60_000];
-    for discipline in [0u8, 1, 2, 3, 10, 192, 255] {
-        for category in [0u8, 1, 2, 3, 191, 192, 255] {
-            for number in [0u8, 1, 8, 191, 192, 254, 255] {
-                let baseline = lookup_parameter(MASTER_ONLY, discipline, category, number);
-                for centre in centres {
-                    for sub_centre in [0u16, 4] {
-                        // Every field of the originator is varied, not just the
-                        // centre: each of the three is a resolution key, so a
-                        // sweep that pinned two of them would stop proving that
-                        // resolution is independent of the originator.
-                        for local_tables_version in [0u8, 1, 228] {
-                            assert_eq!(
-                                lookup_parameter(
-                                    Originator::new(centre, sub_centre, local_tables_version),
-                                    discipline,
-                                    category,
-                                    number
-                                ),
-                                baseline,
-                                "{discipline}/{category}/{number} resolved differently for \
-                                 centre {centre}/{sub_centre} at local table version \
-                                 {local_tables_version}, but no local table is registered"
-                            );
-                        }
+fn a_centre_without_a_table_resolves_as_the_master_set() {
+    // NCEP, DWD, JMA, NASA, and one that does not exist. None has a table yet.
+    for centre in [7u16, 78, 34, 173, 60_000] {
+        for discipline in [0u8, 1, 2, 3, 10, 192, 255] {
+            for category in [0u8, 1, 2, 3, 191, 192, 255] {
+                for number in [0u8, 1, 8, 191, 192, 254, 255] {
+                    let baseline = lookup_parameter(MASTER_ONLY, discipline, category, number);
+                    for local_tables_version in [0u8, 1, 228] {
+                        assert_eq!(
+                            lookup_parameter(
+                                Originator::new(centre, 0, local_tables_version),
+                                discipline,
+                                category,
+                                number
+                            ),
+                            baseline,
+                            "{discipline}/{category}/{number} resolved differently for \
+                             centre {centre}, which has no local table"
+                        );
                     }
                 }
             }
@@ -96,11 +87,47 @@ fn resolution_does_not_yet_depend_on_the_centre() {
     }
 }
 
-/// Local code space resolves to nothing at all while the registry is empty —
-/// so a file using one still renders its numeric triple rather than picking up
-/// a neighbouring master entry.
+/// ECMWF may differ from the master set **only** inside local code space. A
+/// centre table that shadowed a standard parameter would be a silent
+/// regression for every ECMWF file, so this sweeps the whole triple space
+/// rather than spot-checking.
 #[test]
-fn local_use_codes_resolve_to_nothing_yet() {
+fn the_ecmwf_table_never_changes_a_standard_triple() {
+    let mut local_hits = 0usize;
+    for discipline in 0..=255u8 {
+        for category in 0..=255u8 {
+            for number in 0..=255u8 {
+                let master = lookup_parameter(MASTER_ONLY, discipline, category, number);
+                let ecmwf =
+                    lookup_parameter(Originator::new(98, 0, 1), discipline, category, number);
+                let local_space = [discipline, category, number]
+                    .iter()
+                    .any(|&c| (192..=254).contains(&c));
+                if local_space {
+                    if ecmwf != master {
+                        local_hits += 1;
+                    }
+                } else {
+                    assert_eq!(
+                        ecmwf, master,
+                        "{discipline}/{category}/{number} is standard code space, but ECMWF \
+                         resolves it differently"
+                    );
+                }
+            }
+        }
+    }
+    assert!(
+        local_hits > 3_000,
+        "only {local_hits} triples resolve through the ECMWF table — it is not wired in"
+    );
+}
+
+/// Local code space still resolves to nothing for a centre with no table, so a
+/// file from one renders its numeric triple rather than picking up another
+/// centre's meaning.
+#[test]
+fn local_use_codes_resolve_to_nothing_without_a_centre_table() {
     for discipline in [192u8, 200, 254] {
         assert_eq!(lookup_parameter(MASTER_ONLY, discipline, 0, 0), None);
     }
@@ -110,6 +137,12 @@ fn local_use_codes_resolve_to_nothing_yet() {
     for number in [192u8, 200, 254] {
         assert_eq!(lookup_parameter(MASTER_ONLY, 0, 0, number), None);
     }
+    // And an ECMWF triple means nothing to a different centre.
+    assert!(lookup_parameter(Originator::new(98, 0, 0), 192, 128, 4).is_some());
+    assert_eq!(
+        lookup_parameter(Originator::new(7, 0, 0), 192, 128, 4),
+        None
+    );
 }
 
 /// A standard triple still hits the master set, which is the other half of the

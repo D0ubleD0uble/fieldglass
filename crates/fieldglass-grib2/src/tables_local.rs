@@ -5,12 +5,10 @@
 //! the file. Resolving one needs the originating centre, which is what
 //! [`Originator`] carries in from §1.
 //!
-//! This registry is deliberately empty. #439 lands the seam on its own so that
-//! the generators behind it — ECMWF (#424), DWD/ICON (#425) and NCEP (#426) —
-//! are pure data changes that add a module and one `match` arm here, with no
-//! call-site churn and nothing to re-review about dispatch. Until one lands,
-//! [`lookup`] answers `None` for everything and the resolution is exactly what
-//! it was before.
+//! #439 landed this registry empty so the generators behind it would be pure
+//! data changes — a generated module and one `match` arm here, with no
+//! call-site churn and nothing to re-review about dispatch. ECMWF (#424) is
+//! the first to arrive; DWD/ICON (#425) and NCEP (#426) follow.
 //!
 //! # What the centre tables actually look like
 //!
@@ -31,6 +29,11 @@
 //! `typeOfGeneratingProcess`. Resolving those needs §4 context this signature
 //! does not carry, which is why [`Originator`] is a struct: adding a field is
 //! not a breaking change for the centres that do fit.
+//!
+//! ECMWF has the same shape in miniature — 54 of its 3,522 routable triples
+//! constrain §4 keys or are claimed by several blocks — and the generator drops
+//! exactly those. The result is a table that is silent wherever eccodes is
+//! silent, rather than one that guesses; see `tools/gen_localconcepts_tables.py`.
 
 use crate::tables::Originator;
 
@@ -45,8 +48,16 @@ pub(crate) fn lookup(
     category: u8,
     number: u8,
 ) -> Option<(&'static str, &'static str, &'static str)> {
-    // No centre tables yet. Named bindings rather than `_` so the eventual
-    // `match originator.centre { ... }` reads as a change of body, not of shape.
-    let (_, _, _, _) = (originator, discipline, category, number);
-    None
+    match originator.centre {
+        CENTRE_ECMWF => crate::tables_ecmf::lookup(
+            originator.local_tables_version,
+            discipline,
+            category,
+            number,
+        ),
+        _ => None,
+    }
 }
+
+/// WMO Common Code Table C-11 code for ECMWF.
+const CENTRE_ECMWF: u16 = 98;
