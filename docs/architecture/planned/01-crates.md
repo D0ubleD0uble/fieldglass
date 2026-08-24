@@ -29,7 +29,7 @@ flowchart TB
     end
     api["fieldglass #464<br/><i>umbrella: Session, plain-data DTOs, conformance suite</i>"]
     fetchplan["fieldglass-fetchplan #461<br/><i>manifests in, byte ranges out; no I/O</i>"]
-    core["fieldglass-core<br/><i>traits, GridGeometry, projection, warp, render orchestration</i>"]
+    core["fieldglass-core<br/><i>traits, GridGeometry, projection, warp, Palette</i>"]
     verify["fieldglass-verify #205<br/><i>Verus proofs; own workspace, never shipped</i>"]
 
     ext --> napi

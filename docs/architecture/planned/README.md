@@ -20,9 +20,11 @@ Snapshot date: 2026-08-24. Milestones covered:
   top level of `docs/architecture/`; nothing here is checked against the
   source, because most of the nodes do not exist yet. Do not move a file from
   here to the parent directory: fold its delta into the guarded diagram instead.
-- **Every planned node names its milestone or issue.** In class diagrams the
-  annotation is `<<planned #N>>`; in flowcharts the node is dashed and its
-  label carries `#N`. A node with no tag exists today and is drawn for context.
+- **Every planned Fieldglass node names its milestone or issue.** In class
+  diagrams the annotation is `<<planned #N>>`; in flowcharts the node is
+  dashed and its label carries `#N`. A node with no tag exists today and is
+  drawn for context. Nodes that belong to a consumer (the extension, the
+  browser app) are tagged by the box they sit in, not by an issue here.
 - **When a milestone closes, delete its delta here** in the same PR that
   updates the guarded diagram. This directory should shrink to empty, not grow
   into a second architecture.

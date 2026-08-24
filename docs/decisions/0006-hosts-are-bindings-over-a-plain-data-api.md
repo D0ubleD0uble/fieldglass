@@ -40,12 +40,15 @@ a host needs — `open`, `count`, `message(i)`, `decode(i, opts)`, `warp`,
 `render`, `probe`, `contours`, `overlay`, `csv` — taking `&[u8]` and returning
 owned plain data. It depends on `core` and the format crates, and it is the
 crate a Rust user reaches for; the format crates stay independently usable.
-No host type appears in it.
+No host type appears in it. The operation list is the shape, not a frozen
+signature: as with ADR-0005's `ByteSource`, the exact methods and DTO fields
+are fixed by #464 with a real consumer, not argued here in advance.
 
-`GridGeometry`, the typed enum over grid families, lives in `core` behind the
-`render` feature so the format crates can convert into it (`From<GridTemplate>`
-in grib2, `From<GridDescription>` in grib1, the CF and WRF resolvers in
-netcdf). `Session` builds the API DTOs (`Message`, `Georef`, `Field`, …) as views of
+`GridGeometry`, the typed enum over grid families, lives in `core`'s
+always-on `projection` module, **not** behind the `render` feature: the
+format crates take `core` with `default-features = false`, and they are the
+ones that convert into it (`From<GridTemplate>` in grib2,
+`From<GridDescription>` in grib1, the CF and WRF resolvers in netcdf). `Session` builds the API DTOs (`Message`, `Georef`, `Field`, …) as views of
 it; a host derives its own types from those, never from `core`, and nothing
 in Rust reads a DTO back. Dependencies point down only: `core` knows no DTO,
 `fieldglass` knows no host.
@@ -72,9 +75,10 @@ Every type on the `Session` surface:
 `Error` is one enum with a stable `code()` and a `message()`.
 
 The rules are what make derivation possible: napi's `serde-json` feature
-returns any `Serialize` type, `serde-wasm-bindgen` or `tsify` derives the JS
-side, `pythonize` the Python side, and `#[repr(C)]` is compatible with all of
-them. TypeScript declarations are generated from the JSON schema rather than
+converts a `serde_json::Value`, so a derived DTO crosses as
+`serde_json::to_value(dto)` (verified against napi 3.12); `serde-wasm-bindgen`
+or `tsify` derives the JS side, `pythonize` the Python side, and `#[repr(C)]`
+is compatible with all of them. TypeScript declarations are generated from the JSON schema rather than
 kept by hand in `native.ts`.
 
 ### 3. A conformance suite is part of the API, not of any host

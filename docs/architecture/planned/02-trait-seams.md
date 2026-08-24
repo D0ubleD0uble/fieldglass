@@ -30,7 +30,7 @@ classDiagram
     class PlanarGridProjector {
         <<trait>>
         +forward_xy(lat, lon) required
-        +inverse(lat, lon) provided, once for all planar grids
+        +inverse(lat, lon) provided once for all planar grids (#486)
     }
     class SpatialIndex {
         <<planned #437>>
@@ -54,8 +54,8 @@ classDiagram
 Two things this fixes on the way. The four planar `inverse()` bodies are
 today the same ~25 lines each (guards, forward, `(x − origin) / spacing`,
 edge snap); the forward direction is already a provided method on
-`PlanarGridProjector`, and the inverse joins it, so the edge-snap rule exists
-once. And `GridIndex` is fractional because the raster grids are: a lookup
+`PlanarGridProjector`, and the inverse joins it (#486), so the edge-snap rule
+exists once. And `GridIndex` is fractional because the raster grids are: a lookup
 grid returns the nearest cell centre, where the fractional part and the
 "next column" neighbour mean nothing, so `GridGeometry::Lookup` reports
 `NearestOnly` and `warp` refuses or degrades bilinear against it rather than
