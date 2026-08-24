@@ -183,6 +183,12 @@ def render(entries: dict[tuple[int, int, int], tuple[str, str, str]]) -> str:
 //! ambiguous. See the generator's module docs for why wgrib2 rather than
 //! eccodes, and for what the centre-0 rows in the same file are not.
 
+/// The local table versions this centre gates entries on: none, and it cannot
+/// be otherwise — [`lookup`] below takes no version to gate on. That is the
+/// structural reason, not a claim about today's data; gating NCEP would mean
+/// changing the signature, which changes this line with it (#476).
+pub(crate) const GATED_VERSIONS: &[u8] = &[];
+
 /// Look up a local NCEP parameter, or `None` when this table does not define
 /// the triple.
 pub(crate) fn lookup(

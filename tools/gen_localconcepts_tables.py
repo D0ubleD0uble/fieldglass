@@ -305,6 +305,11 @@ fn gated(
         gated_call = ""
         gated_fn = ""
 
+    # The versions a sweep has to visit to see every entry. Derived from the
+    # emitted rows rather than restated, so it cannot fall out of step with them
+    # (#476) — a hand-kept copy is exactly the enumeration that goes stale.
+    gated_versions = ", ".join(str(v) for v in sorted({v for v, _ in gated}))
+
     return f'''//! {centre.upper()} local GRIB2 parameters, generated from eccodes.
 //!
 //! Do not edit: regenerate with `python3 tools/gen_localconcepts_tables.py {centre}`.
@@ -313,6 +318,12 @@ fn gated(
 //! database).
 //!
 {coverage_note}
+
+/// The local table versions this centre gates entries on, beyond the ungated
+/// ones every version sees. A caller that wants to reach every entry — the unit
+/// sweep in `tests/unit_notation.rs` is the one that does — visits version 0
+/// plus each of these.
+pub(crate) const GATED_VERSIONS: &[u8] = &[{gated_versions}];
 
 /// Look up a local {centre.upper()} parameter, or `None` when this table does not
 /// define the triple for that local table version.

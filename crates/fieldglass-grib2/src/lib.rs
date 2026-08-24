@@ -81,6 +81,7 @@ pub use tables::{
 /// Originating centres come from the generated CCT table (#440), not the
 /// hand-written `tables` module.
 pub use tables_cct::lookup_centre;
+pub use tables_local::{LOCAL_TABLE_CENTRES, LocalTableCentre};
 
 use fieldglass_core::{DataMessage, FormatReader, GridDefinition, Level, Metadata, Parameter};
 
