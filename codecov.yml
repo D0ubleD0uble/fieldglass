@@ -50,6 +50,12 @@ flag_management:
 #    (from eccodes via `tools/gen_ecmwf_tables.py`) — ~500 data match arms.
 #    The dispatch is exercised by `tables.rs` tests; counting each data arm
 #    as a line to cover would punish the table for being a table.
+#  - `crates/fieldglass-grib1/src/tables_cct.rs`,
+#    `crates/fieldglass-grib2/src/tables_cct.rs` and
+#    `crates/fieldglass-core/src/cct_tables.rs`: the WMO Common Code Table
+#    centre and sub-centre tables (from `tools/gen_wmo_cct_tables.py`). Data
+#    arms only; `tests/wmo_cct_tables.rs` checks every one of them against the
+#    generated oracle, which is a stronger guarantee than line coverage.
 #  - `crates/fieldglass-core/src/colormap_tables.rs`: likewise a generated
 #    table (from matplotlib via `tools/gen_colormaps.py`) — RGB anchor stops
 #    and nothing else. The code that reads it lives in `colormap.rs` and is
@@ -59,5 +65,8 @@ ignore:
   - "crates/fieldglass-netcdf/src/**"
   - "crates/fieldglass-grib1/src/tables_ecmwf.rs"
   - "crates/fieldglass-grib2/src/tables_wmo.rs"
+  - "crates/fieldglass-grib1/src/tables_cct.rs"
+  - "crates/fieldglass-grib2/src/tables_cct.rs"
+  - "crates/fieldglass-core/src/cct_tables.rs"
   - "crates/fieldglass-core/src/colormap_tables.rs"
   - "**/tests/**"

@@ -15,6 +15,7 @@
 //!   decode-side consumers need it.
 
 pub mod bits;
+pub mod cct_tables;
 #[cfg(feature = "render")]
 pub mod colormap;
 /// Generated colormap anchor tables (`tools/gen_colormaps.py`).

@@ -35,6 +35,7 @@ pub mod reader;
 pub mod section;
 pub mod spectral;
 pub mod tables;
+pub mod tables_cct;
 /// Generated WMO master code tables (Table 4.2 / 4.4 / 4.5). Private: callers
 /// go through [`tables`], which layers the curated entries over these.
 mod tables_wmo;
@@ -68,11 +69,14 @@ pub use reader::{Grib2Message, Grib2Reader, MatrixField};
 pub use section::{SECTION_HEADER_LEN, SectionHeader, parse_section_header};
 pub use spectral::{SpectralCoefficients, decode_spectral_complex, decode_spectral_simple};
 pub use tables::{
-    lookup_centre, lookup_data_type, lookup_discipline, lookup_earth_shape, lookup_ensemble_type,
+    lookup_data_type, lookup_discipline, lookup_earth_shape, lookup_ensemble_type,
     lookup_fixed_surface, lookup_generating_process_type, lookup_grid_template, lookup_parameter,
     lookup_production_status, lookup_reference_time_significance, lookup_statistical_process,
     lookup_time_range_unit,
 };
+/// Originating centres come from the generated CCT table (#440), not the
+/// hand-written `tables` module.
+pub use tables_cct::lookup_centre;
 
 use fieldglass_core::{DataMessage, FormatReader, GridDefinition, Level, Metadata, Parameter};
 

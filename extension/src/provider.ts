@@ -1511,15 +1511,22 @@ function isNonNegativeInt(n: unknown): n is number {
   return typeof n === "number" && Number.isInteger(n) && n >= 0;
 }
 
-/// Compose the "Center" table cell: centre name plus, when available, the
-/// GRIB2 production status (Code Table 1.3) so operational vs. research
-/// products are visible at a glance without adding another column.
+/// Compose the "Center" table cell: centre name, the sub-centre that produced
+/// the field when the file names one, and the GRIB2 production status (Code
+/// Table 1.3) so operational vs. research products are visible at a glance
+/// without adding another column.
+///
+/// `subCentre` is a napi `Option`, which reaches JS as `undefined` rather than
+/// `null` — hence the nullish check (#288).
 function formatCentreCell(m: MessageMeta): string {
+  const centre = m.subCentre != null && m.subCentre !== ""
+    ? `${m.originatingCentre} (${m.subCentre})`
+    : m.originatingCentre;
   const status = m.productionStatus;
   if (status && status !== "Missing" && status !== "Unknown") {
-    return `${m.originatingCentre} · ${status}`;
+    return `${centre} · ${status}`;
   }
-  return m.originatingCentre;
+  return centre;
 }
 
 /** The slice the render panel opens on: the variable's CF-detected horizontal
