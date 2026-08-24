@@ -438,8 +438,20 @@ impl LambertConstants {
     /// or a parallel at a pole (`cos → 0`, so `F = cos·tanⁿ / n` blows up). The
     /// `/ n` in `f_const` would then divide by zero, yielding `inf`/`NaN` that
     /// silently render blank; callers should reject the grid instead.
+    ///
+    /// A declared Earth radius of zero (or less) is the quieter case, and the
+    /// reason the radius is checked here rather than left to the `is_finite`
+    /// tests above: it scales `rho0` to zero without making anything infinite,
+    /// so every point on the cone inverts to the pole. That reads as a real
+    /// coordinate to anything downstream — a rendered map, a CSV row — instead
+    /// of as a broken grid.
     fn well_defined(&self) -> bool {
-        self.n.is_finite() && self.n != 0.0 && self.f_const.is_finite() && self.rho0.is_finite()
+        self.earth_r.is_finite()
+            && self.earth_r > 0.0
+            && self.n.is_finite()
+            && self.n != 0.0
+            && self.f_const.is_finite()
+            && self.rho0.is_finite()
     }
 }
 
