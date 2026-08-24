@@ -93,7 +93,7 @@ def build(fixture: Path, sample_indices: list[int], note: str) -> Path:
         ),
     }
     out = fixture.with_name(f"{fixture.stem}_expected.json")
-    out.write_text(json.dumps(oracle, indent=2) + "\n")
+    out.write_text(json.dumps(oracle, indent=2) + "\n", encoding="utf-8")
     return out
 
 

@@ -391,6 +391,7 @@ def build_oracle(centre: str, ungated, gated) -> dict:
                 check=True,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
             ).stdout.split("\n")
             # `stdout` ends with a newline, so the split leaves one empty tail.
             if lines and lines[-1] == "":

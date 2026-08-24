@@ -11,7 +11,7 @@
 //! Data generated from eccodes' `definitions/grib1/2.98.128.table` and
 //! `2.98.129.table` (Apache-2.0; the parameter definitions are factual data
 //! from the ECMWF parameter database). Regenerate after an eccodes upgrade:
-//! `python3 tools/gen_ecmwf_tables.py > crates/fieldglass-grib1/src/tables_ecmwf.rs && cargo fmt`.
+//! `python3 tools/gen_ecmwf_tables.py && cargo fmt`.
 
 use crate::tables::ParameterEntry;
 

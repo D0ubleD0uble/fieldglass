@@ -111,7 +111,7 @@ def synthesize(cilm: np.ndarray) -> list[float]:
 def main() -> None:
     for coeff_file, out_file in ORACLES:
         out = synthesize(load_coeffs(coeff_file))
-        out_file.write_text("\n".join(f"{v:.9e}" for v in out) + "\n")
+        out_file.write_text("\n".join(f"{v:.9e}" for v in out) + "\n", encoding="utf-8")
         arr = np.array(out)
         print(f"wrote {out_file.relative_to(ROOT)}: {len(out)} values "
               f"({len(GRID_LATS)}x{len(GRID_LONS)} grid), "

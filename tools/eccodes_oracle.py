@@ -27,6 +27,7 @@ def grib_get(path: Path, keys: list[str]) -> list[str]:
         ["grib_get", "-p", ",".join(keys), str(path)],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         check=True,
     )
     return out.stdout.split()
@@ -42,6 +43,7 @@ def decoded_values(path: Path) -> list[float | None]:
         ["grib_get_data", "-m", MISSING_SENTINEL, str(path)],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         check=True,
     )
     vals: list[float | None] = []
@@ -62,6 +64,7 @@ def grib_get_data_rows(path: Path) -> list[str]:
         ["grib_get_data", str(path)],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         check=True,
     )
     return [line for line in out.stdout.splitlines()[1:] if line.strip()]
@@ -80,4 +83,4 @@ def grib_set(path_in: Path, path_out: Path, sets: list[str], *, repack: bool = T
         args.append("-r")
     args += sum((["-s", s] for s in sets), [])
     args += [str(path_in), str(path_out)]
-    subprocess.run(args, capture_output=True, text=True, check=True)
+    subprocess.run(args, capture_output=True, text=True, encoding="utf-8", check=True)

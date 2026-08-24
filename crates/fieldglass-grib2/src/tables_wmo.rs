@@ -17,8 +17,7 @@
 //! Regenerate:
 //!
 //! ```text
-//! python3 tools/gen_wmo_grib2_tables.py > crates/fieldglass-grib2/src/tables_wmo.rs
-//! cargo fmt
+//! python3 tools/gen_wmo_grib2_tables.py && cargo fmt
 //! ```
 
 /// WMO Code Table 4.2 — parameter by discipline, category, and number.

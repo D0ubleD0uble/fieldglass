@@ -154,7 +154,7 @@ pub(crate) const COLORMAPS: &[Colormap] = &[
         f"/// `{const.lower()}` anchors — {licence}.\n{fmt_table(const, anchors)}"
         for const, anchors, licence in tables
     )
-    OUT.write_text(header + "\n" + body)
+    OUT.write_text(header + "\n" + body, encoding="utf-8")
     print(f"wrote {OUT} ({len(SPECS)} colormaps)")
 
 

@@ -123,7 +123,7 @@ def main() -> int:
     }
     (FIXTURES / "cf_packed_data.nc.oracle.json").write_text(
         json.dumps(doc, indent=2) + "\n"
-    )
+    , encoding="utf-8")
     print(f"wrote {NC} and its oracle")
     return 0
 

@@ -16,8 +16,13 @@ Covers, from that one download:
 
 Regenerate:
 
-    python3 tools/gen_wmo_grib2_tables.py > crates/fieldglass-grib2/src/tables_wmo.rs
-    cargo fmt
+    python3 tools/gen_wmo_grib2_tables.py && cargo fmt
+
+The file is written directly rather than piped from stdout. A redirected stdout
+takes its encoding from the platform locale, which on a machine that is neither
+UTF-8 nor `C`/`POSIX` silently substitutes the non-ASCII this table carries —
+14 lines of it at v37 — and quietly breaks the byte-reproducibility the pinned
+tag exists to give (#451).
 
 Two things about the upstream data that are worth knowing before editing:
 
@@ -51,6 +56,7 @@ from pathlib import Path
 # Pinned upstream. Bump deliberately, and re-run the spot-check test: WMO
 # fast-track updates land twice a year (see docs/planning/standards-watch-list.md).
 WMO_TAG = "v37"
+OUT = Path("crates/fieldglass-grib2/src/tables_wmo.rs")
 SOURCE_URL = "https://github.com/wmo-im/GRIB2/archive/refs/tags/v37.tar.gz"
 
 # Rows whose "name" is one of these carry no information a reader wants; they
@@ -229,8 +235,7 @@ def main() -> int:
         "//! Regenerate:",
         "//!",
         "//! ```text",
-        "//! python3 tools/gen_wmo_grib2_tables.py > crates/fieldglass-grib2/src/tables_wmo.rs",
-        "//! cargo fmt",
+        "//! python3 tools/gen_wmo_grib2_tables.py && cargo fmt",
         "//! ```",
         "",
     ]
@@ -245,10 +250,10 @@ def main() -> int:
         "WMO Code Table 4.4 — indicator of unit of time range.",
         time_units,
     )
-    sys.stdout.write("\n".join(lines).rstrip("\n") + "\n")
+    OUT.write_text("\n".join(lines).rstrip("\n") + "\n", encoding="utf-8")
     print(
         f"generated {count} parameters / {len(surfaces)} surfaces / "
-        f"{len(time_units)} time units from wmo-im/GRIB2 {WMO_TAG}",
+        f"{len(time_units)} time units from wmo-im/GRIB2 {WMO_TAG} -> {OUT}",
         file=sys.stderr,
     )
     return 0

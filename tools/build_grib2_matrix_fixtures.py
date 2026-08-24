@@ -68,7 +68,7 @@ def main() -> None:
     values = [line.split()[-1] for line in grib_get_data_rows(grib_path)]
     (FIXTURES / "matrix_simple_regular_latlon.eccodes.ref.txt").write_text(
         "\n".join(values) + "\n"
-    )
+    , encoding="utf-8")
     print(f"wrote {grib_path.name}: {meta}")
     print(f"oracle values: {len(values)} (numberOfDataPoints={ndp})")
     assert len(values) == ndp, f"oracle {len(values)} != numberOfDataPoints {ndp}"

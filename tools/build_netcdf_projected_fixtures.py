@@ -227,7 +227,7 @@ def build_wrf() -> None:
         "dx": dx, "dy": dy, "nx": nx, "ny": ny,
         "samples": interior_samples(xlat, xlong),
     }
-    (FIXTURES / "wrf_lambert.nc.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n")
+    (FIXTURES / "wrf_lambert.nc.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n", encoding="utf-8")
     print(f"  wrote {path.name} ({path.stat().st_size} bytes) + oracle")
 
 
@@ -262,7 +262,7 @@ def build_wrf_polar() -> None:
         "dx": dx, "dy": dy, "nx": nx, "ny": ny,
         "samples": interior_samples(xlat, xlong),
     }
-    (FIXTURES / "wrf_polar.nc.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n")
+    (FIXTURES / "wrf_polar.nc.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n", encoding="utf-8")
     print(f"  wrote {path.name} ({path.stat().st_size} bytes) + oracle")
 
 
@@ -301,7 +301,7 @@ def build_wrf_mercator() -> None:
         "lon_last": float(xlong[ny - 1, nx - 1]),
         "samples": interior_samples(xlat, xlong),
     }
-    (FIXTURES / "wrf_mercator.nc.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n")
+    (FIXTURES / "wrf_mercator.nc.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n", encoding="utf-8")
     print(f"  wrote {path.name} ({path.stat().st_size} bytes) + oracle")
 
 
@@ -340,7 +340,7 @@ def build_wrf_latlon() -> None:
         "lat_last": float(xlat[ny - 1, nx - 1]), "lon_last": float(xlong[ny - 1, nx - 1]),
         "samples": interior_samples(xlat, xlong),
     }
-    (FIXTURES / "wrf_latlon.nc.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n")
+    (FIXTURES / "wrf_latlon.nc.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n", encoding="utf-8")
     print(f"  wrote {path.name} ({path.stat().st_size} bytes) + oracle")
 
 
@@ -441,7 +441,7 @@ def build_goes() -> None:
         "y_scale_factor": ys, "y_add_offset": yo,
         "samples": samples,
     }
-    (FIXTURES / "goes_geostationary.nc.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n")
+    (FIXTURES / "goes_geostationary.nc.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n", encoding="utf-8")
     print(f"  wrote {path.name} ({path.stat().st_size} bytes) + oracle")
 
 

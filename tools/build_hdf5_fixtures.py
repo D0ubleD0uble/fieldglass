@@ -200,7 +200,7 @@ def build(name: str, libver: str, *, dense_and_chunked: bool,
             ],
             "objects": {n: dataset_oracle(f[n]) for n in f if isinstance(f[n], h5py.Dataset)},
         }
-    (FIXturesDir / f"{name}.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n")
+    (FIXturesDir / f"{name}.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n", encoding="utf-8")
     print(f"wrote {path} ({len(raw)} B) + oracle "
           f"[sb_v{oracle['superblock_version']}, {oracle['object_header_style']}, "
           f"FRHP={oracle['raw_markers']['FRHP_fractal_heap_dense_attrs']}]")
@@ -241,7 +241,7 @@ def build_btreev2_multilevel(name: str, n_attrs: int) -> None:
         "attribute_value_rule": "a{i:04d} -> int32 i, for i in 0..attribute_count",
         "sampled_attributes": {f"a{i:04d}": i for i in sample_indices(n_attrs)},
     }
-    (FIXturesDir / f"{name}.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n")
+    (FIXturesDir / f"{name}.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n", encoding="utf-8")
     print(f"wrote {path} ({len(raw)} B) + oracle "
           f"[{n_attrs} attrs, attr-name B-tree v2 depth={depth}]")
 
@@ -310,7 +310,7 @@ def build_child_indirect(name: str, n_attrs: int, vlen: int) -> None:
         "sampled_attributes": [f"a{i:04d}" for i in sample_indices(n_attrs)],
         "attribute_fractal_heap": heap,
     }
-    (FIXturesDir / f"{name}.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n")
+    (FIXturesDir / f"{name}.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n", encoding="utf-8")
     print(f"wrote {path} ({len(raw)} B) + oracle "
           f"[{n_attrs} attrs × int32[{vlen}], FRHP cur_rows={heap['cur_rows']} "
           f"max_dblock_rows={heap['max_dblock_rows']} FHIB={heap['indirect_block_count']}]")
@@ -360,7 +360,7 @@ def build_v4_chunk_index(name: str) -> None:
             "raw_markers": {"FAHD_fixed_array_header": b"FAHD" in raw},
             "objects": {n: dataset_oracle(f[n]) for n in f if isinstance(f[n], h5py.Dataset)},
         }
-    (FIXturesDir / f"{name}.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n")
+    (FIXturesDir / f"{name}.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n", encoding="utf-8")
     print(f"wrote {path} ({len(raw)} B) + oracle "
           f"[v4 single-chunk + fixed-array, FAHD={oracle['raw_markers']['FAHD_fixed_array_header']}]")
 
@@ -401,7 +401,7 @@ def build_extensible_array(name: str) -> None:
             },
             "objects": {n: dataset_oracle(f[n]) for n in f if isinstance(f[n], h5py.Dataset)},
         }
-    (FIXturesDir / f"{name}.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n")
+    (FIXturesDir / f"{name}.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n", encoding="utf-8")
     print(f"wrote {path} ({len(raw)} B) + oracle "
           f"[EA direct + secondary, EASB={oracle['raw_markers']['EASB_secondary_block']}]")
 
@@ -466,7 +466,7 @@ def build_extensible_array_filtered(name: str) -> None:
             },
             "objects": {n: dataset_oracle(f[n]) for n in f if isinstance(f[n], h5py.Dataset)},
         }
-    (FIXturesDir / f"{name}.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n")
+    (FIXturesDir / f"{name}.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n", encoding="utf-8")
     print(f"wrote {path} ({len(raw)} B) + oracle "
           f"[filtered EA iblock + direct + secondary, EASB={oracle['raw_markers']['EASB_secondary_block']}]")
 
@@ -533,7 +533,7 @@ def build_implicit_index(name: str) -> None:
             },
             "objects": {n: dataset_oracle(f[n]) for n in f if isinstance(f[n], h5py.Dataset)},
         }
-    (FIXturesDir / f"{name}.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n")
+    (FIXturesDir / f"{name}.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n", encoding="utf-8")
     print(f"wrote {path} ({len(raw)} B) + oracle [v4 implicit index, no FAHD/EAHD]")
 
 
@@ -605,7 +605,7 @@ def build_v2_btree(name: str) -> None:
             },
             "objects": {n: dataset_oracle(f[n]) for n in f if isinstance(f[n], h5py.Dataset)},
         }
-    (FIXturesDir / f"{name}.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n")
+    (FIXturesDir / f"{name}.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n", encoding="utf-8")
     print(f"wrote {path} ({len(raw)} B) + oracle [v4 v2-B-tree chunk index, "
           f"type10={oracle['raw_markers']['BTHD_type10_unfiltered_chunks']}, "
           f"type11={oracle['raw_markers']['BTHD_type11_filtered_chunks']}]")
@@ -717,7 +717,7 @@ def build_fletcher32(name: str) -> None:
             },
             "objects": {n: dataset_oracle(f[n]) for n in f if isinstance(f[n], h5py.Dataset)},
         }
-    (FIXturesDir / f"{name}.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n")
+    (FIXturesDir / f"{name}.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n", encoding="utf-8")
     print(f"wrote {path} ({path.stat().st_size} B) + oracle "
           f"[fletcher32; f32_only chunk {raw_bytes} B raw -> {stored} B stored]")
 
@@ -789,7 +789,7 @@ def build_zstd(name: str) -> None:
             },
             "objects": {n: dataset_oracle(f[n]) for n in f if isinstance(f[n], h5py.Dataset)},
         }
-    (FIXturesDir / f"{name}.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n")
+    (FIXturesDir / f"{name}.oracle.json").write_text(json.dumps(oracle, indent=2) + "\n", encoding="utf-8")
     print(f"wrote {path} ({path.stat().st_size} B) + oracle [zstd 32015; "
           f"shuffle_zstd pipeline {ids}]")
 

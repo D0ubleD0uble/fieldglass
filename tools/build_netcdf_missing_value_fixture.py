@@ -85,7 +85,7 @@ def main() -> int:
     }
     (FIXTURES / "missing_value.oracle.json").write_text(
         json.dumps(doc, indent=2) + "\n"
-    )
+    , encoding="utf-8")
     print("wrote missing_value_classic.nc, missing_value_nc4.nc and the oracle")
     return 0
 

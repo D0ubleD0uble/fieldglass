@@ -109,7 +109,7 @@ def build(layer: str) -> None:
     # Trailing newline: the repo's end-of-file hook adds one, so emitting it here
     # keeps a fresh run byte-identical to what is committed.
     body = json.dumps({"source": description, "lines": lines}, separators=(",", ":"))
-    out.write_text(body + "\n")
+    out.write_text(body + "\n", encoding="utf-8")
     points = sum(len(line) for line in lines) // 2
     print(f"{out.name}: {len(lines)} lines, {points} points, {out.stat().st_size} bytes")
 

@@ -96,6 +96,7 @@ def grib_dump_json(path: Path) -> dict:
         ["grib_dump", "-j", str(path)],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         check=True,
     )
     return json.loads(result.stdout)
@@ -134,7 +135,7 @@ def main() -> int:
         dump = grib_dump_json(grib)
         curated = curate(dump["messages"])
         ref_path = grib.with_suffix(".grib2.eccodes.ref.json")
-        ref_path.write_text(json.dumps({"messages": curated}, indent=2) + "\n")
+        ref_path.write_text(json.dumps({"messages": curated}, indent=2) + "\n", encoding="utf-8")
         print(f"wrote {ref_path.relative_to(repo_root)} ({len(curated)} msg)")
     return 0
 
