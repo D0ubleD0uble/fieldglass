@@ -49,13 +49,15 @@ pub struct IdentificationSection {
 }
 
 impl IdentificationSection {
-    /// Who wrote this message, for centre-local parameter resolution (#439).
+    /// Who wrote this message and which of their tables to read, for
+    /// centre-local parameter resolution (#439).
     ///
-    /// The two codes are only ever meaningful together — a sub-centre is
-    /// numbered within its centre — so pairing them here keeps call sites from
-    /// doing it, and from doing it in the wrong order.
+    /// The three codes are only meaningful together — a sub-centre is numbered
+    /// within its centre, and a local table version within both — so grouping
+    /// them here keeps call sites from doing it, and from doing it in the
+    /// wrong order.
     pub fn originator(&self) -> crate::tables::Originator {
-        crate::tables::Originator::new(self.centre, self.sub_centre)
+        crate::tables::Originator::new(self.centre, self.sub_centre, self.local_tables_version)
     }
 }
 

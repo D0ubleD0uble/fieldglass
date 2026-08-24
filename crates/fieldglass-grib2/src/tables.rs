@@ -222,25 +222,41 @@ pub fn lookup_statistical_process(value: u8) -> &'static str {
     }
 }
 
-/// Who wrote the message, for resolving centre-local parameter tables (#439).
+/// Who wrote the message and which of their tables to read, for resolving
+/// centre-local parameters (#439).
 ///
-/// A struct rather than two arguments for two reasons. `centre` and
-/// `sub_centre` are both `u16`, so as a positional pair they are silently
-/// swappable at every call site. And the centres that will plug into
-/// [`crate::tables_local`] do not all resolve on the same keys — DWD needs §4
-/// context on top of the triple — so this is the place that grows a field
-/// rather than every signature that threads it.
+/// These are the three §1 fields eccodes keys a local concept on. `centre` and
+/// `sub_centre` because a centre may delegate parameter space to one of its
+/// sub-centres, and `local_tables_version` because a centre may revise its own
+/// table without WMO involvement — ECMWF gates 132 of its entries on it, across
+/// two versions, so dropping it would make those unresolvable.
+/// `master_tables_version` is deliberately absent: WMO only ever adds or
+/// deprecates entries, never renumbers them, so "latest wins" and the version
+/// does not select between meanings.
+///
+/// A struct rather than positional arguments for two reasons. `centre` and
+/// `sub_centre` are both `u16`, so as a pair they are silently swappable at
+/// every call site. And the centres that plug into the local registry do not
+/// all resolve on the same keys — DWD needs §4 context on top of the triple —
+/// so this is the one place that grows a field, rather than every signature
+/// that threads it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Originator {
     /// §1 octets 6-7, WMO Common Code Table C-11.
     pub centre: u16,
     /// §1 octets 8-9, WMO Common Code Table C-12. 0 means "no sub-centre".
     pub sub_centre: u16,
+    /// §1 octet 11. The centre's own table revision; 0 or 255 mean "not used".
+    pub local_tables_version: u8,
 }
 
 impl Originator {
-    pub fn new(centre: u16, sub_centre: u16) -> Self {
-        Self { centre, sub_centre }
+    pub fn new(centre: u16, sub_centre: u16, local_tables_version: u8) -> Self {
+        Self {
+            centre,
+            sub_centre,
+            local_tables_version,
+        }
     }
 }
 
@@ -448,14 +464,14 @@ mod tests {
     /// entry, and a standard code still reaches the master set.
     #[test]
     fn a_local_code_prefers_the_centre_table() {
-        let ncep = Originator::new(7, 0);
+        let ncep = Originator::new(7, 0, 0);
         assert_eq!(
             resolve_parameter(ncep, 0, 192, 1, stub_local),
             Some(("LOCAL", "A centre-local parameter", "K")),
         );
         // Another centre gets nothing from NCEP's table.
         assert_eq!(
-            resolve_parameter(Originator::new(98, 0), 0, 192, 1, stub_local),
+            resolve_parameter(Originator::new(98, 0, 0), 0, 192, 1, stub_local),
             None
         );
         // And with no local table at all, the same triple is unresolved.
@@ -466,7 +482,7 @@ mod tests {
     /// local table cannot shadow a WMO parameter even if it tries.
     #[test]
     fn a_standard_code_never_reaches_the_centre_table() {
-        let ncep = Originator::new(7, 0);
+        let ncep = Originator::new(7, 0, 0);
         assert_eq!(
             resolve_parameter(ncep, 0, 0, 0, stub_local),
             Some(("TMP", "Temperature", "K")),
@@ -480,7 +496,7 @@ mod tests {
     /// table is non-empty but incomplete.
     #[test]
     fn an_undefined_local_code_falls_through() {
-        let ncep = Originator::new(7, 0);
+        let ncep = Originator::new(7, 0, 0);
         // The master set defines nothing at 192+, so this is None — but it is
         // None by falling through, not by the centre answering.
         assert_eq!(resolve_parameter(ncep, 0, 192, 99, stub_local), None);
@@ -506,6 +522,37 @@ mod tests {
         assert!(!is_local_use(0, 0, 255));
     }
 
+    /// The local table version reaches the table too. ECMWF gates 132 of its
+    /// entries on it across two versions, so a centre really can mean different
+    /// parameters by one triple depending on which revision wrote the file.
+    #[test]
+    fn the_local_table_version_reaches_the_local_table() {
+        fn by_version(
+            originator: Originator,
+            _: u8,
+            _: u8,
+            _: u8,
+        ) -> Option<(&'static str, &'static str, &'static str)> {
+            match originator.local_tables_version {
+                1 => Some(("V1", "As table version 1 defines it", "K")),
+                228 => Some(("V228", "As table version 228 defines it", "m")),
+                _ => None,
+            }
+        }
+        let at =
+            |version| resolve_parameter(Originator::new(98, 0, version), 0, 192, 0, by_version);
+        assert_eq!(at(1), Some(("V1", "As table version 1 defines it", "K")));
+        assert_eq!(
+            at(228),
+            Some(("V228", "As table version 228 defines it", "m"))
+        );
+        assert_eq!(
+            at(0),
+            None,
+            "a file declaring no local table gets no local entry"
+        );
+    }
+
     /// A sub-centre reaches the table too — some centres delegate parameter
     /// space to one, so it has to be part of the key rather than dropped.
     #[test]
@@ -522,11 +569,11 @@ mod tests {
             }
         }
         assert_eq!(
-            resolve_parameter(Originator::new(7, 4), 0, 192, 0, by_sub_centre),
+            resolve_parameter(Originator::new(7, 4, 0), 0, 192, 0, by_sub_centre),
             Some(("EMC", "Environmental Modeling Center", "")),
         );
         assert_eq!(
-            resolve_parameter(Originator::new(7, 0), 0, 192, 0, by_sub_centre),
+            resolve_parameter(Originator::new(7, 0, 0), 0, 192, 0, by_sub_centre),
             None
         );
     }

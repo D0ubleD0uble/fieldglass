@@ -36,7 +36,7 @@ pub mod section;
 pub mod spectral;
 pub mod tables;
 pub mod tables_cct;
-pub mod tables_local;
+mod tables_local;
 /// Generated WMO master code tables (Table 4.2 / 4.4 / 4.5). Private: callers
 /// go through [`tables`], which layers the curated entries over these.
 mod tables_wmo;

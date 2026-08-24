@@ -39,7 +39,13 @@ that seam equally:
 |---|---|---|---|
 | ECMWF (#424) | 3,360 | 3,320 | yes |
 | NCEP (#426) | 319 | 314 | yes |
+
 | DWD/ICON (#425) | 1,827 | 758 | **no** |
+
+The seam keys on the three §1 fields eccodes itself resolves a local concept
+on — centre, sub-centre and `localTablesVersion` (ECMWF gates 132 entries on
+the last, across versions 1 and 228). `masterTablesVersion` is deliberately not
+a key: WMO only adds or deprecates, never renumbers, so latest wins.
 
 DWD is the outlier twice over. 1,069 of its entries sit on *standard* codes, which
 the ≥192 rule never routes to a centre; and 158 of its triples map to more than one
@@ -49,6 +55,11 @@ parameter — `(0, 0, 0)` alone has 17 candidates, separated by
 pure data changes against the seam as it stands, while #425 needs a decision about
 §4 context and about whether a centre may override a master entry at all. Do the
 two that fit first.
+
+Note the residue even in the two that fit: 40 ECMWF and 5 NCEP entries sit below
+192 and so are never routed to a centre. That is a handful of missing names, not
+a wrong one, which is the right way round — but it means neither generator will
+reproduce its eccodes source exactly, and the diff should not be read as a bug.
 
 ## What #415 turned up
 

@@ -20,6 +20,7 @@ use std::collections::BTreeMap;
 const MASTER_ONLY: Originator = Originator {
     centre: 0,
     sub_centre: 0,
+    local_tables_version: 0,
 };
 
 const SNAPSHOT: &str = include_str!("fixtures/eccodes_parameters.ref.json");

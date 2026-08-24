@@ -20,6 +20,7 @@ use fieldglass_grib2::{Grib2Reader, Originator, lookup_parameter};
 const MASTER_ONLY: Originator = Originator {
     centre: 0,
     sub_centre: 0,
+    local_tables_version: 0,
 };
 
 /// The property the whole design rests on: WMO's master table and local code
@@ -70,17 +71,24 @@ fn resolution_does_not_yet_depend_on_the_centre() {
                 let baseline = lookup_parameter(MASTER_ONLY, discipline, category, number);
                 for centre in centres {
                     for sub_centre in [0u16, 4] {
-                        assert_eq!(
-                            lookup_parameter(
-                                Originator::new(centre, sub_centre),
-                                discipline,
-                                category,
-                                number
-                            ),
-                            baseline,
-                            "{discipline}/{category}/{number} resolved differently for \
-                             centre {centre}/{sub_centre}, but no local table is registered"
-                        );
+                        // Every field of the originator is varied, not just the
+                        // centre: each of the three is a resolution key, so a
+                        // sweep that pinned two of them would stop proving that
+                        // resolution is independent of the originator.
+                        for local_tables_version in [0u8, 1, 228] {
+                            assert_eq!(
+                                lookup_parameter(
+                                    Originator::new(centre, sub_centre, local_tables_version),
+                                    discipline,
+                                    category,
+                                    number
+                                ),
+                                baseline,
+                                "{discipline}/{category}/{number} resolved differently for \
+                                 centre {centre}/{sub_centre} at local table version \
+                                 {local_tables_version}, but no local table is registered"
+                            );
+                        }
                     }
                 }
             }
@@ -109,11 +117,11 @@ fn local_use_codes_resolve_to_nothing_yet() {
 #[test]
 fn standard_codes_still_resolve_against_the_master_set() {
     assert_eq!(
-        lookup_parameter(Originator::new(7, 4), 0, 0, 0),
+        lookup_parameter(Originator::new(7, 4, 0), 0, 0, 0),
         Some(("TMP", "Temperature", "K"))
     );
     assert_eq!(
-        lookup_parameter(Originator::new(98, 0), 0, 2, 2),
+        lookup_parameter(Originator::new(98, 0, 0), 0, 2, 2),
         Some(("UGRD", "U-component of wind", "m s⁻¹"))
     );
     // And one that comes from the generated WMO table rather than the curated
@@ -134,7 +142,11 @@ fn a_real_message_carries_its_originator_to_the_lookup() {
     let originator = msg.ids.originator();
     assert_eq!(originator.centre, msg.ids.centre);
     assert_eq!(originator.sub_centre, msg.ids.sub_centre);
-    assert_eq!(originator, Originator::new(98, 0), "the fixture is ECMWF");
+    assert_eq!(
+        originator,
+        Originator::new(98, 0, 0),
+        "the fixture is ECMWF"
+    );
 
     // §1 is the only place the centre comes from, so a message resolving its
     // own parameter must go through it.
@@ -164,7 +176,7 @@ fn a_real_message_carries_its_originator_to_the_lookup() {
 fn the_missing_sentinel_is_not_local_use() {
     for (discipline, category, number) in [(255u8, 0u8, 0u8), (0, 255, 0), (0, 0, 255)] {
         assert_eq!(
-            lookup_parameter(Originator::new(7, 0), discipline, category, number),
+            lookup_parameter(Originator::new(7, 0, 0), discipline, category, number),
             None,
             "{discipline}/{category}/{number} must not resolve"
         );
