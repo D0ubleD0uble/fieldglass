@@ -24,6 +24,8 @@ Versioning is plain [Semantic Versioning](https://semver.org/spec/v2.0.0.html), 
 
 ### Changed
 
+- **GRIB1 units read consistently too.** The units column was typeset for GRIB2 but shown raw for GRIB1, whose tables carry two more ASCII notations: the ECMWF local tables are generated from eccodes, which writes exponents Fortran-style (`kg m**-2`), and WMO ON388 chains solidi (`kg/m2/s`). Both are now typeset at display time, so `kg m**-2`, `kg m-2` and `kg/m2` all read `kg m⁻²` whichever edition the file is. The generated tables are untouched and stay reproducible from their upstream. Strings that are not products of units — `m of water equivalent`, `(0 - 1)`, `log10(kg/m3)`, the one entry written `K*m/s` — are shown exactly as published. Closes #441.
+
 - **A compressed NetCDF-4 chunk can no longer name its own allocation size.** Both decompressors now stop at 256 MiB per chunk. A compressed chunk is attacker-controlled and its expansion ratio is unbounded, so a few kilobytes on disk could previously ask for an arbitrarily large allocation; the ceiling is far past any real HDF5 chunk, whose default cache size in libhdf5 is 1 MiB.
 
 - **Opening a GRIB1 file uses half the memory it did.** The handle kept its own copy of the whole file alongside the reader's, so a GRIB1 file cost two full copies on top of the buffer the editor already holds. It now keeps one: the single place that needed the original octets borrows them from the reader. On a 205 MB file, opening went from 402 MB of allocation to 206 MB, and peak memory from 642 MB to 445 MB. GRIB2 and NetCDF-4 already held exactly one copy and are unchanged. Part of #114; closes #411.
