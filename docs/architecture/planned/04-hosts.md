@@ -51,7 +51,8 @@ sequenceDiagram
     W->>B: GET model.grib2 (Range: bytes=offset-)
     B-->>W: one GRIB2 message
     W->>H: open(bytes)
-    W->>H: decode(0, { reduce })
+    W->>H: decode(0, { reduce, dtype })
+    Note over W,H: verify GRIB magic, §0 length, parameter vs the plan
     H-->>W: Field { values, mask, georef, stats }
     W-->>A: Field (transfer, zero-copy)
     A->>G: upload R32F + R8 mask, proj4 → mesh
@@ -71,7 +72,12 @@ Notes that shape the two hosts:
   app asks for a window at a pixel size, which is what a map view needs.
 - **Zoom.** For 5.40 (JPEG 2000) fields #463 lets the app decode at a lower
   wavelet level when the view is coarser than the grid; the returned georef is
-  derived, not the message's GDS.
+  derived, not the message's GDS, and the field is display-only: probe, CSV,
+  contours, and stats always use the full-resolution decode.
+- **Precision.** `Field.values` is f64 unless the packing provably fits f32;
+  the R32F texture upload is a downcast the app asks for explicitly.
+- **Trust.** A `.idx` range is a claim; the decoder checks the fetched bytes
+  against it (magic, length, parameter) and errors on a mismatch.
 - **The extension later.** "Open URL…" in VS Code (#247) is the same
   `fetchplan` call from TypeScript with `fetch()` in the extension host, then
   the existing napi path. Nothing new in Rust.

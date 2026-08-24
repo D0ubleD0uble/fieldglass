@@ -59,7 +59,9 @@ Every type on the `Session` surface:
 
 - has no generics, lifetimes, or trait objects;
 - carries fields as contiguous `Vec<f32>` / `Vec<f64>` plus a `Vec<u8>` mask,
-  never `Vec<Option<f64>>`;
+  never `Vec<Option<f64>>`; the element type follows the source (f32 only
+  when the packing's precision provably fits, f64 otherwise), and a narrower
+  type is a downcast the host asks for by name, never a default;
 - uses strings only for labels (`kind`, `units`, `parameter`, `proj4`);
 - is an enum with stable discriminants where it enumerates, and is
   `#[non_exhaustive]`;
@@ -135,8 +137,15 @@ host error type; every API type passes the rules test; `native.ts` is
 generated; napi and wasm both pass the conformance suite.
 
 **What this asks of #460.** `Field` and `Georef` are the first types designed
-under decision 2: contiguous `f32` values, a separate `u8` mask, scalar
-georeferencing, strings only for `kind` and `proj4`.
+under decision 2: contiguous values whose type follows the source, a separate
+`u8` mask, scalar georeferencing, strings only for `kind` and `proj4`. A
+field decoded at reduced resolution (#463) is display-only and cannot be
+passed to `probe`, `csv`, `contours`, or `stats`; the type system says so.
+
+**What this asks of #464 before it moves anything.** A characterisation
+snapshot of render, probe, contour, and CSV output on master, since the
+existing oracles stop at decoded values. That snapshot seeds the conformance
+suite in decision 3.
 
 ## When to revisit
 
