@@ -15,7 +15,7 @@ use fieldglass_core::{
     detect_from_bytes, eastward_lon_span, latlon_inverse, latlon_point, lon_grid_is_global,
     mercator_inverse, mercator_point, normalise_lon, project_polylines,
     projection::GridIndex,
-    rotated_latlon_point,
+    rotated_latlon_point, signed_grid_increments,
     units::normalize_units,
     warp::{PreparedTarget, TargetProjection, WarpedRaster, warp},
 };
@@ -360,12 +360,16 @@ fn build_grib1_message_meta(
         Some(gds) => {
             let dims = gds.dimensions();
             let bounds = gds.bounds();
+            // The first point comes from `first_point`, which survives a
+            // projection too degenerate to place the far corner — `bounds`
+            // reports a pair, so it has to give up both (#472).
+            let first = gds.first_point();
             (
                 Some(gds.grid_type_name().to_string()),
                 dims.map(|(ni, _)| ni as i32),
                 dims.map(|(_, nj)| nj as i32),
-                bounds.map(|(la1, _, _, _)| la1),
-                bounds.map(|(_, lo1, _, _)| lo1),
+                first.map(|(la1, _)| la1),
+                first.map(|(_, lo1)| lo1),
                 bounds.map(|(_, _, la2, _)| la2),
                 bounds.map(|(_, _, _, lo2)| lo2),
             )
@@ -686,34 +690,6 @@ fn render_forecast(common: &HorizontalProductCommon) -> (i32, String) {
     (hours_i32, display)
 }
 
-/// Apply the GRIB scanning-mode sign to a planar projection's grid spacings.
-///
-/// Both GRIB1 and GRIB2 store Dx/Dy as unsigned magnitudes and carry the scan
-/// direction in separate flags. The planar projectors (`PolarStereoProjector`,
-/// `LambertProjector`) map a point to a grid index by `i = (x - origin_x) / dx`,
-/// `j = (y - origin_y) / dy` in the LoV-oriented projection plane, so the
-/// increment sign *is* the scan direction: `i` runs −x when it scans negatively,
-/// and `j` runs −y (north→south) unless it scans positively. Default-scan grids
-/// keep positive values.
-fn signed_grid_increments(
-    dx: f64,
-    dy: f64,
-    i_scans_negatively: bool,
-    j_scans_positively: bool,
-) -> (f64, f64) {
-    let sdx = if i_scans_negatively {
-        -dx.abs()
-    } else {
-        dx.abs()
-    };
-    let sdy = if j_scans_positively {
-        dy.abs()
-    } else {
-        -dy.abs()
-    };
-    (sdx, sdy)
-}
-
 /// The geostationary scan-angle grid derived from a GRIB2 §3.90 space-view
 /// template, ready to populate the `geos_*` `MessageMeta` fields and rebuild a
 /// `GeostationaryProjector`.
@@ -821,37 +797,11 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
             t.scanning_mode & 0x40 != 0,
         )
     });
-    // §3.140 states a real geographic first point, so `bounds()` already
-    // carries `La1`/`Lo1`; only the *last* point has to be derived, and it is
-    // computable rather than substituted. Skipped when the projector is
-    // unusable, which would otherwise report `NaN` corners.
-    let lambert_azimuthal_last =
-        lambert_azimuthal
-            .zip(lambert_azimuthal_inc)
-            .and_then(|(t, (dx, dy))| {
-                let projector = LambertAzimuthalProjector::new(LambertAzimuthalParams {
-                    semi_major_m: t.earth_major_m,
-                    semi_minor_m: t.earth_minor_m,
-                    ni: t.nx,
-                    nj: t.ny,
-                    lat_first: t.la1,
-                    lon_first: t.lo1,
-                    standard_parallel: t.standard_parallel,
-                    central_longitude: t.central_longitude,
-                    dx_metres: dx,
-                    dy_metres: dy,
-                });
-                if !projector.is_well_defined() {
-                    return None;
-                }
-                let (lat_last, lon_last) = projector.last_grid_point_lonlat();
-                if !lat_last.is_finite() || !lon_last.is_finite() {
-                    return None;
-                }
-                Some((lat_last, normalise_lon(lon_last)))
-            });
-    // Same gate as transverse Mercator: spacings alone would advertise a
-    // reprojection that resolves no point.
+    // §3.140's corners now come from `bounds()` like every other geographic
+    // planar template (#472); what is still needed here is whether the
+    // projection can place the far corner at all, since spacings alone would
+    // advertise a reprojection that resolves no point.
+    let lambert_azimuthal_last = lambert_azimuthal.and_then(|t| t.last_point());
     let lambert_azimuthal_reprojectable_inc = lambert_azimuthal_last.and(lambert_azimuthal_inc);
 
     let transverse_mercator = match &msg.gds.template {
@@ -1020,19 +970,22 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
         grid_type: Some(grid_type),
         grid_ni: dims.map(|(ni, _)| ni as i32),
         grid_nj: dims.map(|(_, nj)| nj as i32),
+        // The declared first point comes from `first_point`, not from
+        // `bounds`: a grid whose projection is too degenerate to place its far
+        // corner has no corner *pair* to report, but it still states where it
+        // starts, and dropping that would lose a fact the message spells out
+        // (#472).
         lat_first: transverse_mercator_corners
             .map(|(la1, _, _, _)| la1)
-            .or_else(|| bounds.map(|(la1, _, _, _)| la1)),
+            .or_else(|| msg.gds.first_point().map(|(la1, _)| la1)),
         lon_first: transverse_mercator_corners
             .map(|(_, lo1, _, _)| lo1)
-            .or_else(|| bounds.map(|(_, lo1, _, _)| lo1)),
+            .or_else(|| msg.gds.first_point().map(|(_, lo1)| lo1)),
         lat_last: transverse_mercator_corners
             .map(|(_, _, la2, _)| la2)
-            .or(lambert_azimuthal_last.map(|(la2, _)| la2))
             .or_else(|| bounds.map(|(_, _, la2, _)| la2)),
         lon_last: transverse_mercator_corners
             .map(|(_, _, _, lo2)| lo2)
-            .or(lambert_azimuthal_last.map(|(_, lo2)| lo2))
             .or_else(|| bounds.map(|(_, _, _, lo2)| lo2)),
         format: "grib2".to_string(),
         edition: Some(i32::from(msg.is.edition)),
@@ -8873,6 +8826,72 @@ mod planar_geolocation_tests {
             .err()
             .expect("a shapeless spheroid has no forward map");
         assert!(err.reason.contains("degenerate"), "{}", err.reason);
+    }
+
+    /// #472: the "last point" columns report the grid's real far corner, not
+    /// the projection parameters standing in for it.
+    ///
+    /// Lambert and polar stereographic state only a first point, and used to
+    /// report `LaD`/`LoV` in the last-point slot — degrees, so it looked
+    /// plausible, but a latitude of true scale in a column labelled "last
+    /// point", and 265 in a longitude column that everywhere else runs ±180.
+    #[test]
+    fn a_lambert_message_reports_its_real_last_grid_point() {
+        let (meta, ni, nj) = grib2_geometry(ETA_LAMBERT);
+        assert_eq!((ni, nj), (93, 65));
+
+        // eccodes 2.34.1's own iterator, last row of `grib_get_data`.
+        let (want_lat, want_lon) = (57.289_403_949, -49.385_097_250);
+        let (got_lat, got_lon) = (
+            meta.lat_last.expect("latLast reported"),
+            meta.lon_last.expect("lonLast reported"),
+        );
+        assert!(
+            (got_lat - want_lat).abs() < 1e-6 && (got_lon - want_lon).abs() < 1e-6,
+            "reported ({got_lat}, {got_lon}), eccodes says ({want_lat}, {want_lon})"
+        );
+
+        // The projection parameters are not lost — they are reported under
+        // their own names, which is where they belonged all along.
+        assert_eq!(meta.lambert_lad, Some(25.0));
+        assert_eq!(meta.lambert_lov, Some(265.0));
+
+        // Two independent paths to the same corner: the metadata column and
+        // the forward geolocation the contours and CSV export read (#470).
+        let forward = forward_map(&meta, ni, nj);
+        let (fwd_lat, fwd_lon) = forward(ni - 1, nj - 1).expect("last grid point geolocates");
+        assert!(
+            (fwd_lat - got_lat).abs() < 1e-9 && (fwd_lon - got_lon).abs() < 1e-9,
+            "the reported corner and the forward map disagree: \
+             ({got_lat}, {got_lon}) vs ({fwd_lat}, {fwd_lon})"
+        );
+    }
+
+    /// The blast radius #472 names: `latLast`/`lonLast` are part of the
+    /// geometry key that decides whether two fields may be combined. Real
+    /// corners are a stronger key than substituted parameters — two grids that
+    /// differ only in extent used to compare equal when their `LaD`/`LoV`
+    /// matched — but the change has to keep aligning what did align.
+    #[test]
+    fn combining_two_lambert_messages_still_aligns() {
+        let handle = grib2_handle(ETA_LAMBERT);
+        let (values, meta, _, _) = handle.resolved(0).expect("message 0 resolves");
+
+        let combined = combined_field(&meta, &values, &meta, &values, CombineOp::Difference)
+            .expect("a message aligns with itself");
+        assert_eq!(combined.len(), values.len());
+        assert!(
+            combined.iter().flatten().all(|v| *v == 0.0),
+            "A − A is zero at every present point"
+        );
+
+        // And a grid whose far corner really is elsewhere is still refused.
+        let mut elsewhere = grib2_geometry(ETA_LAMBERT).0;
+        elsewhere.lat_last = Some(meta.lat_last.unwrap() + 5.0);
+        assert!(
+            combined_field(&meta, &values, &elsewhere, &values, CombineOp::Difference).is_err(),
+            "a different extent must not silently combine"
+        );
     }
 
     /// A declared Earth radius of zero is refused, on both the sphere-based

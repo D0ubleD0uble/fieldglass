@@ -1,6 +1,6 @@
 use fieldglass_core::{
     FieldglassError, LambertParams, LambertProjector, PlanarGridProjector, PolarStereoParams,
-    PolarStereoProjector, bits::ibm_float_to_f64,
+    PolarStereoProjector, bits::ibm_float_to_f64, signed_grid_increments,
 };
 
 // ---------------------------------------------------------------------------
@@ -206,7 +206,17 @@ impl PolarStereoGrid {
     /// unlike a lat/lon grid there is no La2/Lo2 to read. The opposite corner
     /// is recovered by forward-projecting the origin to plane metres, stepping
     /// `(Nx-1)·Dx` / `(Ny-1)·Dy`, and inverse-projecting back to lat/lon.
-    fn last_point(&self) -> (f64, f64) {
+    fn last_point(&self) -> Option<(f64, f64)> {
+        // Dx/Dy are unsigned magnitudes; the scanning mode says which way the
+        // grid runs from its first point, so the walk has to carry that sign or
+        // a north→south grid reports a corner on the wrong side of its origin
+        // (#472). The warp has always applied it — this is the same rule.
+        let (dx, dy) = signed_grid_increments(
+            self.dx_m as f64,
+            self.dy_m as f64,
+            self.scanning_mode.i_negative,
+            self.scanning_mode.j_positive,
+        );
         let projector = PolarStereoProjector::new(PolarStereoParams {
             earth_radius_m: self.resolution_flags.earth_radius_m(),
             ni: self.nx,
@@ -217,15 +227,14 @@ impl PolarStereoGrid {
             // GRIB1 polar stereo fixes the latitude of true scale at ±60°
             // (there is no LaD field); the projector takes the magnitude.
             lad: 60.0,
-            dx_metres: self.dx_m as f64,
-            dy_metres: self.dy_m as f64,
+            dx_metres: dx,
+            dy_metres: dy,
             south_pole: self.south_pole,
         });
-        let (lat, lon) = projector.last_grid_point_lonlat();
         // The inverse is `lov + atan2(..)` and can land outside [-180, 180]
         // (e.g. lov=247 yields ~328°); normalise so the reported corner is
         // consistent with the first point's longitude convention.
-        (lat, normalise_longitude(lon))
+        finite_lonlat(projector.last_grid_point_lonlat())
     }
 }
 
@@ -263,7 +272,14 @@ impl LambertGrid {
     /// point; the opposite corner is recovered from the projection. `LaD`
     /// (latitude of true scale) is taken as the first standard parallel,
     /// matching how the warp path builds [`LambertParams`].
-    fn last_point(&self) -> (f64, f64) {
+    fn last_point(&self) -> Option<(f64, f64)> {
+        // Scan-signed, for the reason in [`PolarStereoGrid::last_point`].
+        let (dx, dy) = signed_grid_increments(
+            self.dx_m as f64,
+            self.dy_m as f64,
+            self.scanning_mode.i_negative,
+            self.scanning_mode.j_positive,
+        );
         let projector = LambertProjector::new(LambertParams {
             earth_radius_m: self.resolution_flags.earth_radius_m(),
             ni: self.nx,
@@ -272,13 +288,15 @@ impl LambertGrid {
             lon_first: self.lon_first,
             lad: self.latin1,
             lov: self.lov,
-            dx_metres: self.dx_m as f64,
-            dy_metres: self.dy_m as f64,
+            dx_metres: dx,
+            dy_metres: dy,
             latin1: self.latin1,
             latin2: self.latin2,
         });
-        let (lat, lon) = projector.last_grid_point_lonlat();
-        (lat, normalise_longitude(lon))
+        // A collapsed cone (both standard parallels on the equator, say)
+        // inverts to `NaN`, which used to reach the message table as the text
+        // "NaN"; report no corner instead.
+        finite_lonlat(projector.last_grid_point_lonlat())
     }
 }
 
@@ -382,6 +400,22 @@ impl GridDescription {
     ///
     /// For [`Self::RotatedLatLon`] these are the corner coordinates in the
     /// rotated frame, not geographic; unrotating them is the reprojector's job.
+    /// The `(lat, lon)` of the declared first grid point. Unlike
+    /// [`Self::bounds`] this survives a projection too degenerate to place the
+    /// far corner: the message states where the grid starts either way.
+    pub fn first_point(&self) -> Option<(f64, f64)> {
+        match self {
+            Self::LatLon(g) => Some((g.lat_first, g.lon_first)),
+            Self::RotatedLatLon(g) => Some((g.lat_first, g.lon_first)),
+            Self::ReducedLatLon(g) => Some((g.lat_first, g.lon_first)),
+            Self::Gaussian(g) => Some((g.lat_first, g.lon_first)),
+            Self::ReducedGaussian(g) => Some((g.lat_first, g.lon_first)),
+            Self::PolarStereographic(g) => Some((g.lat_first, g.lon_first)),
+            Self::LambertConformal(g) => Some((g.lat_first, g.lon_first)),
+            Self::SphericalHarmonic(_) | Self::Unsupported { .. } => None,
+        }
+    }
+
     pub fn bounds(&self) -> Option<(f64, f64, f64, f64)> {
         match self {
             Self::LatLon(g) => Some((g.lat_first, g.lon_first, g.lat_last, g.lon_last)),
@@ -389,14 +423,16 @@ impl GridDescription {
             Self::ReducedLatLon(g) => Some((g.lat_first, g.lon_first, g.lat_last, g.lon_last)),
             Self::Gaussian(g) => Some((g.lat_first, g.lon_first, g.lat_last, g.lon_last)),
             Self::ReducedGaussian(g) => Some((g.lat_first, g.lon_first, g.lat_last, g.lon_last)),
-            Self::PolarStereographic(g) => {
-                let (lat_last, lon_last) = g.last_point();
-                Some((g.lat_first, g.lon_first, lat_last, lon_last))
-            }
-            Self::LambertConformal(g) => {
-                let (lat_last, lon_last) = g.last_point();
-                Some((g.lat_first, g.lon_first, lat_last, lon_last))
-            }
+            // Neither states a second corner, so it is derived from the
+            // projection; a grid whose projection cannot place one reports no
+            // pair at all rather than a `NaN` (its declared first point is
+            // still available from [`Self::first_point`]).
+            Self::PolarStereographic(g) => g
+                .last_point()
+                .map(|(la2, lo2)| (g.lat_first, g.lon_first, la2, lo2)),
+            Self::LambertConformal(g) => g
+                .last_point()
+                .map(|(la2, lo2)| (g.lat_first, g.lon_first, la2, lo2)),
             // Spectral coefficients have no corner coordinates: the field is
             // global by construction and lives in wavenumber space.
             Self::SphericalHarmonic(_) => None,
@@ -714,6 +750,11 @@ fn read_signed_magnitude_24(b: &[u8]) -> i32 {
 }
 
 /// Wrap a longitude in degrees into the half-open range (-180, 180].
+/// A derived corner, or `None` when the projection could not place one.
+fn finite_lonlat((lat, lon): (f64, f64)) -> Option<(f64, f64)> {
+    (lat.is_finite() && lon.is_finite()).then(|| (lat, normalise_longitude(lon)))
+}
+
 fn normalise_longitude(lon: f64) -> f64 {
     let wrapped = (lon + 180.0).rem_euclid(360.0) - 180.0;
     // rem_euclid maps exactly 180 to -180; prefer +180 as the upper bound.
@@ -1201,6 +1242,75 @@ mod grid_variant_tests {
             panic!("expected Unsupported variant");
         };
         assert_eq!(grid_type, 13);
+    }
+
+    /// The scanning mode decides which way the walk to the far corner runs.
+    /// Dx/Dy are unsigned magnitudes, so a north→south grid that ignored the
+    /// flag would report a corner on the wrong side of its own first point —
+    /// and disagree with the warp, which has always applied the sign (#472).
+    /// A collapsed cone used to put the text "NaN" in the message table's
+    /// coordinate columns. The corner is now simply absent, and the first
+    /// point — which the message states outright — survives.
+    #[test]
+    fn a_degenerate_lambert_reports_no_corner_rather_than_nan() {
+        let mut body = Vec::new();
+        body.extend(u16be(10)); // nx
+        body.extend(u16be(10)); // ny
+        body.extend(sm24(45_000)); // lat_first
+        body.extend(sm24(-110_000)); // lon_first
+        body.push(0x88);
+        body.extend(sm24(-95_000)); // lov
+        body.extend(u24(12_000)); // dx
+        body.extend(u24(12_000)); // dy
+        body.push(0x00);
+        body.push(0x40); // scanning mode
+        body.extend(sm24(0)); // latin1 = 0
+        body.extend(sm24(0)); // latin2 = 0
+        body.extend(sm24(0)); // lat south pole
+        body.extend(sm24(0)); // lon south pole
+        let parsed = parse_grid_description(&build_gds(3, &body)).expect("parses");
+        assert_eq!(parsed.bounds(), None, "no corner pair for a collapsed cone");
+        assert_eq!(
+            parsed.first_point(),
+            Some((45.0, -110.0)),
+            "the declared first point is still reported"
+        );
+    }
+
+    #[test]
+    fn polar_stereo_bounds_follow_the_scanning_mode() {
+        let corner_for = |scanning_mode: u8| {
+            let mut body = Vec::new();
+            body.extend(u16be(200)); // nx
+            body.extend(u16be(200)); // ny
+            body.extend(sm24(60_000)); // lat_first = 60°N
+            body.extend(sm24(-100_000)); // lon_first
+            body.push(0x88);
+            body.extend(sm24(-100_000)); // lov
+            body.extend(u24(20_000)); // dx = 20 km
+            body.extend(u24(20_000)); // dy = 20 km
+            body.push(0x00); // projection centre: north pole on plane
+            body.push(scanning_mode);
+            let parsed = parse_grid_description(&build_gds(5, &body)).expect("parses");
+            let (_, _, la2, lo2) = parsed.bounds().expect("polar stereo has bounds");
+            (la2, lo2)
+        };
+
+        // 0x40 = j scans positive, 0x00 = north→south. The first point sits on
+        // the LoV meridian, which lies at negative y in a north-polar plane, so
+        // stepping +y runs toward the pole and stepping −y runs away from it:
+        // the two corners land on opposite sides of the origin, tens of degrees
+        // apart. Before the sign was applied both read the +j answer.
+        let (plus_lat, plus_lon) = corner_for(0x40);
+        let (minus_lat, minus_lon) = corner_for(0x00);
+        assert!(
+            plus_lat > minus_lat + 10.0,
+            "a +j grid reaches higher latitudes than a -j one: {plus_lat} vs {minus_lat}"
+        );
+        assert!(
+            (plus_lon - minus_lon).abs() > 10.0,
+            "and a different meridian: {plus_lon} vs {minus_lon}"
+        );
     }
 
     #[test]

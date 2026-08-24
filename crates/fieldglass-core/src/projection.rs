@@ -864,6 +864,40 @@ impl PolarStereoProjector {
 // Planar grids (Lambert, polar stereographic): shared corner geometry
 // ---------------------------------------------------------------------------
 
+/// Apply the GRIB scanning-mode sign to a planar projection's grid spacings.
+///
+/// Both GRIB1 and GRIB2 store Dx/Dy as unsigned magnitudes and carry the scan
+/// direction in separate flags. The planar projectors map a point to a grid
+/// index by `i = (x - origin_x) / dx`, `j = (y - origin_y) / dy` in the
+/// LoV-oriented projection plane, so the increment sign *is* the scan
+/// direction: `i` runs −x when it scans negatively, and `j` runs −y
+/// (north→south) unless it scans positively. Default-scan grids keep positive
+/// values.
+///
+/// Every caller that walks from the first scanned point to another grid point
+/// needs this, which is why it lives beside the projectors rather than in one
+/// of the format crates: the grid's declared corner is the *first scanned*
+/// point, so stepping the wrong way puts the far corner on the wrong side of
+/// it entirely.
+pub fn signed_grid_increments(
+    dx: f64,
+    dy: f64,
+    i_scans_negatively: bool,
+    j_scans_positively: bool,
+) -> (f64, f64) {
+    let sdx = if i_scans_negatively {
+        -dx.abs()
+    } else {
+        dx.abs()
+    };
+    let sdy = if j_scans_positively {
+        dy.abs()
+    } else {
+        -dy.abs()
+    };
+    (sdx, sdy)
+}
+
 /// A projection whose source grid lies on a plane in metres — a fixed origin
 /// at the first scanned point and constant `(dx, dy)` spacing. Lambert
 /// conformal and polar stereographic both qualify; lat/lon and Gaussian grids
