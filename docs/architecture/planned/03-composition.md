@@ -6,9 +6,7 @@ GRIB1 and the NetCDF reader are unchanged except where drawn.
 ## GRIB2 grid templates gain HEALPix
 
 `GridTemplate` gets one variant (#442). Everything else in the GRIB2 message
-is as today. (The guarded diagram is missing `TransverseMercatorTemplate` and
-`LambertAzimuthalTemplate`, which already exist; that is a gap in the current
-diagram, not a plan.)
+is as today.
 
 ```mermaid
 classDiagram
