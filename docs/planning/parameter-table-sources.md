@@ -56,14 +56,37 @@ Two things worth carrying into the remaining generators:
   which an obvious "letter then digit means exponent" rule corrupts. Rewrite a
   string only when every token is a known unit, and leave it alone otherwise —
   a missed normalisation is always defensible, a corrupted one is not.
-- **There is a third notation waiting.** eccodes writes exponents Fortran-style
-  (`kg m**-2`), which is already in the tree: `grib1/src/tables_ecmwf.rs` has
-  193 of them. The ECMWF and DWD local GRIB2 tables (#424, #425) come from the
-  same eccodes source, so they will bring that form into GRIB2, where
-  `normalize_units` currently passes it through untouched — safe, but leaving a
-  third style in the same column. Whichever of those lands first should add the
-  `**` rule and extend the snapshot; the units those tables introduce will also
-  need adding to the allow-list, and the snapshot diff is what will show which.
+- **The third and fourth notations are handled (#441).** eccodes writes
+  exponents Fortran-style (`kg m**-2`) and ON388 chains solidi (`kg/m2/s`);
+  `normalize_units` now reads both, and GRIB1 goes through the same display
+  seam as GRIB2. Surveying all four corpora first is what made the second rule
+  safe to write, and the shape is worth knowing before #424-#426:
+
+  | Corpus | `**` | solidus | chained solidus |
+  |---|---|---|---|
+  | WMO GRIB2 master (v37) | — | 16 strings | — |
+  | ON388 GRIB1 (`grib1/src/tables.rs`) | — | ~20 strings | 6 strings |
+  | eccodes ECMWF (`grib1/src/tables_ecmwf.rs`, and #424) | 61 distinct | — | — |
+  | eccodes NCEP (#426) | 28 distinct | — | — |
+  | eccodes DWD/ICON (#425) | — | — | — |
+
+  So the two ASCII families do not mix: a table is written one way or the
+  other. Chained solidi are ON388-only, which is what bounds the "everything
+  past the first solidus is a denominator" rule to six strings that could be
+  checked one by one against the quantity (`kg/m2/s` is precipitation rate,
+  `m2/s/kg` potential vorticity).
+
+- **The all-or-nothing rule is what makes the eccodes tables safe.** Their
+  `units` field is not always a product of units, and the strings that are not
+  would each be corrupted by an eager `**` rule: `10**-6 W m**-2 sr**-1 m**-1`
+  leads with a scale factor, `kg m**-3 -1000` carries an additive offset,
+  `kg (kg s**-1)**-1` and `log10(kg m**-3)` nest a group. All pass through
+  whole today and are pinned in
+  `fieldglass-core/src/units.rs::star_star_strings_that_are_not_plain_products_pass_through`.
+  #424-#426 should expect them, and should add the symbols their tables
+  introduce (`um`, `mm`, `nuc`, …) to the allow-list — the snapshot diff is
+  what shows which are missing, since a missing symbol silently degrades to
+  passthrough rather than failing.
 - **`Status` has upstream typos.** `Operationaal`, `Oprational`, `Operation`
   and `operational` all appear in v37 beside `Operational`. Any filter on that
   column has to fold case and tolerate them, or it silently drops entries.
