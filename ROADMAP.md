@@ -126,7 +126,6 @@ Problems we are confident we can solve; shape known, timing not.
 | Verify bitmap decoders and HDF5 unshuffle (#202, #203) | Trust | Bounds-safety on the two paths that index by untrusted counts. |
 | GRIB2 local parameter tables: ECMWF (#424), DWD (#425), NCEP (#426) | Tables | Short names and local parameters — the codes at or above 192, which each centre defines for itself — for the three largest publishers. ECMWF's GRIB1 table already ships; this is the GRIB2 side. One generator per PR. |
 | Transverse Mercator (3.12, #422) and Lambert azimuthal equal-area (3.140, #423) | Geometry | UK Met Office UKV; CEMS/EFAS and OSI SAF sea ice. Formula-defined, self-contained. |
-| ADR: byte access and the remote seam (#417) | Containers | Records the prefetch-then-decode-sync decision and the constraint decoders must keep, before any reader is migrated. |
 
 ## Later
 
@@ -146,10 +145,15 @@ first.
   re-costing it.
 - **Verify NetCDF classic length arithmetic (#204)**, closing the
   verification milestone (#205).
-- **Remote data: HTTP range (#247), S3 (#252), Zarr (#246).** Gated on the
-  byte-access ADR and one migrated reader.
+- **Remote data: HTTP range (#247), S3 (#252), Zarr (#246).** The decision is
+  made — [ADR-0005](docs/decisions/0005-byte-access-and-the-remote-seam.md):
+  prefetch the ranges an operation needs, decode synchronously, behind a
+  `ByteSource` trait. Gated now on the trait landing (#438) and one migrated
+  reader.
 - **New host surfaces.** PyO3 bindings and a wasm build; the format crates
-  are already pure byte-in, values-out engines. Gated on the same seam.
+  are already pure byte-in, values-out engines. Gated on the same seam — and
+  the reason ADR-0005 keeps decode synchronous, since blocking inside a read
+  is impossible in wasm.
 - **GRIB1 completion.** Second-order packing under a masking bitmap, and the
   remaining predefined ON388 grids (21–26, 61–64).
 - **Bi-Fourier rendering (5.53).** The last template that decodes without
