@@ -62,9 +62,9 @@ fn the_master_table_never_defines_a_local_use_code() {
 /// #425) could not quietly change what any other file shows.
 #[test]
 fn a_centre_without_a_table_resolves_as_the_master_set() {
-    // NCEP, JMA, NASA, and one that does not exist. None has a table yet;
-    // DWD (78) had one added in #425 and now belongs in the sweep below.
-    for centre in [7u16, 34, 173, 60_000] {
+    // JMA, NASA, and one that does not exist. None has a table; ECMWF (98),
+    // DWD (78) and NCEP (7) all do, and belong in the sweep below instead.
+    for centre in [34u16, 173, 60_000] {
         for discipline in [0u8, 1, 2, 3, 10, 192, 255] {
             for category in [0u8, 1, 2, 3, 191, 192, 255] {
                 for number in [0u8, 1, 8, 191, 192, 254, 255] {
@@ -100,7 +100,11 @@ fn a_centre_without_a_table_resolves_as_the_master_set() {
 /// outside 192-254 moved.
 #[test]
 fn a_centre_table_never_changes_a_standard_triple() {
-    for (centre, name, floor) in [(98u16, "ECMWF", 2_500usize), (78, "DWD", 200)] {
+    for (centre, name, floor) in [
+        (98u16, "ECMWF", 2_500usize),
+        (78, "DWD", 200),
+        (7, "NCEP", 450),
+    ] {
         let mut local_hits = 0usize;
         for discipline in 0..=255u8 {
             for category in 0..=255u8 {
@@ -150,11 +154,12 @@ fn local_use_codes_resolve_to_nothing_without_a_centre_table() {
     for number in [192u8, 200, 254] {
         assert_eq!(lookup_parameter(MASTER_ONLY, 0, 0, number), None);
     }
-    // And an ECMWF triple means nothing to a different centre — including one
-    // that has a table of its own, which is the case a single-table registry
-    // could not distinguish from "no table at all".
+    // And an ECMWF triple means nothing to a different centre — including ones
+    // that have tables of their own, which is the case a single-table registry
+    // could not distinguish from "no table at all". `(192, 128, 4)` is in
+    // ECMWF's local discipline space, which neither DWD nor NCEP uses at all.
     assert!(lookup_parameter(Originator::new(98, 0, 0), 192, 128, 4).is_some());
-    for other in [7u16, 78] {
+    for other in [7u16, 78, 34] {
         assert_eq!(
             lookup_parameter(Originator::new(other, 0, 0), 192, 128, 4),
             None
@@ -243,4 +248,64 @@ fn the_missing_sentinel_is_not_local_use() {
         None,
         "192 is local space, unregistered"
     );
+}
+
+/// Local code space is genuinely contested, which is what makes the dispatch
+/// load-bearing rather than decorative.
+///
+/// With three centre tables in, 120 triples mean different things to different
+/// centres — `(0, 0, 192)` is DWD's `DT_CON` and NCEP's `SNOHF`, `(0, 1, 195)`
+/// is DWD's `CLW_CON` and NCEP's `CSNOW`. Before #426 there were far fewer, and
+/// two tests had quietly baked in "at most one centre defines any triple";
+/// both had to be rewritten. Asserting the contested count keeps that
+/// assumption from being made a third time, and makes the number visible to
+/// whoever adds the fourth table.
+#[test]
+fn local_code_space_is_contested_between_centres() {
+    let centres = [(98u16, "ECMWF"), (78, "DWD"), (7, "NCEP")];
+    let mut contested = 0usize;
+    for discipline in 0..=255u8 {
+        for category in 0..=255u8 {
+            for number in 0..=255u8 {
+                if ![discipline, category, number]
+                    .iter()
+                    .any(|&c| (192..=254).contains(&c))
+                {
+                    continue;
+                }
+                let answers: Vec<_> = centres
+                    .iter()
+                    .filter_map(|(code, _)| {
+                        lookup_parameter(Originator::new(*code, 0, 1), discipline, category, number)
+                    })
+                    .collect();
+                if answers.len() > 1 {
+                    contested += 1;
+                }
+            }
+        }
+    }
+    assert!(
+        contested >= 100,
+        "only {contested} triples are claimed by more than one centre — either a \
+         table is not wired in, or local code space stopped overlapping"
+    );
+
+    // Spot-checks with the values written out, because "contested" is only
+    // meaningful if the answers really are different quantities.
+    for (discipline, category, number, dwd, ncep) in [
+        (0u8, 0u8, 192u8, "DT_CON", "SNOHF"),
+        (0, 1, 195, "CLW_CON", "CSNOW"),
+        (0, 3, 192, "PP", "MSLET"),
+    ] {
+        let of = |centre| {
+            lookup_parameter(Originator::new(centre, 0, 1), discipline, category, number)
+                .unwrap_or_else(|| {
+                    panic!("centre {centre} does not define {discipline}/{category}/{number}")
+                })
+                .0
+        };
+        assert_eq!(of(78), dwd);
+        assert_eq!(of(7), ncep);
+    }
 }

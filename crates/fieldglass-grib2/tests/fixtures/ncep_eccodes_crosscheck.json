@@ -1,0 +1,2403 @@
+{
+ "wgrib2": "v3.8.0",
+ "eccodes": "2.34.1",
+ "eccodesConcepts": "kwbc",
+ "centreCode": 7,
+ "resolved": {
+  "0/0/192": [
+   "snohf",
+   "Snow phase change heat flux",
+   "W m**-2"
+  ],
+  "0/0/193": [
+   "ttrad",
+   "Temperature tendency by all radiation",
+   "K s**-1"
+  ],
+  "0/0/194": [
+   "rev",
+   "Relative Error Variance",
+   "~"
+  ],
+  "0/0/195": [
+   "lrghr",
+   "Large Scale Condensate Heating rate",
+   "K s**-1"
+  ],
+  "0/0/196": [
+   "cnvhr",
+   "Deep Convective Heating rate",
+   "K s**-1"
+  ],
+  "0/0/197": [
+   "thflx",
+   "Total Downward Heat Flux at Surface",
+   "W m**-2"
+  ],
+  "0/0/198": [
+   "ttdia",
+   "Temperature Tendency By All Physics",
+   "K s**-1"
+  ],
+  "0/0/199": [
+   "ttphy",
+   "Temperature Tendency By Non-radiation Physics",
+   "K s**-1"
+  ],
+  "0/0/200": [
+   "tsd1d",
+   "Standard Dev. of IR Temp. over 1x1 deg. area",
+   "K"
+  ],
+  "0/0/201": [
+   "shahr",
+   "Shallow Convective Heating rate",
+   "K s**-1"
+  ],
+  "0/0/202": [
+   "vdfhr",
+   "Vertical Diffusion Heating rate",
+   "K s**-1"
+  ],
+  "0/0/203": [
+   "thz0",
+   "Potential temperature at top of viscous sublayer",
+   "K"
+  ],
+  "0/0/204": [
+   "tchp",
+   "Tropical Cyclone Heat Potential",
+   "J m**-2 K**-1"
+  ],
+  "0/0/205": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/0/206": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/1/192": [
+   "crain",
+   "Categorical rain",
+   "(Code table 4.222)"
+  ],
+  "0/1/193": [
+   "cfrzr",
+   "Categorical freezing rain",
+   "(Code table 4.222)"
+  ],
+  "0/1/194": [
+   "cicep",
+   "Categorical ice pellets",
+   "(Code table 4.222)"
+  ],
+  "0/1/195": [
+   "csnow",
+   "Categorical snow",
+   "(Code table 4.222)"
+  ],
+  "0/1/196": [
+   "cprat",
+   "Convective precipitation rate",
+   "kg m**-2 s**-1"
+  ],
+  "0/1/197": [
+   "mconv",
+   "Horizontal moisture convergence",
+   "kg kg**-1 s**-1"
+  ],
+  "0/1/198": [
+   "minrh",
+   "Minimum Relative Humidity",
+   "%"
+  ],
+  "0/1/199": [
+   "pevap",
+   "Potential evaporation",
+   "kg m**-2"
+  ],
+  "0/1/200": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/1/201": [
+   "snowc",
+   "Snow cover",
+   "%"
+  ],
+  "0/1/202": [
+   "frain",
+   "Rain fraction of total cloud water",
+   "Proportion"
+  ],
+  "0/1/203": [
+   "rime",
+   "Rime factor",
+   "Numeric"
+  ],
+  "0/1/204": [
+   "tcolr",
+   "Total column integrated rain",
+   "kg m**-2"
+  ],
+  "0/1/205": [
+   "tcols",
+   "Total column integrated snow",
+   "kg m**-2"
+  ],
+  "0/1/206": [
+   "tipd",
+   "Total Icing Potential Diagnostic",
+   "dimensionless"
+  ],
+  "0/1/207": [
+   "ncip",
+   "Number concentration for ice particles",
+   "dimensionless"
+  ],
+  "0/1/208": [
+   "snot",
+   "Snow temperature",
+   "K"
+  ],
+  "0/1/209": [
+   "tclsw",
+   "Total column-integrated supercooled liquid water",
+   "kg m**-2"
+  ],
+  "0/1/210": [
+   "tcolm",
+   "Total column-integrated melting ice",
+   "kg m**-2"
+  ],
+  "0/1/211": [
+   "emnp",
+   "Evaporation - Precipitation",
+   "cm per day"
+  ],
+  "0/1/212": [
+   "sbsno",
+   "Sublimation (evaporation from snow)",
+   "W m**-2"
+  ],
+  "0/1/213": [
+   "cnvmr",
+   "Deep Convective Moistening Rate",
+   "kg (kg s**-1)**-1"
+  ],
+  "0/1/214": [
+   "shamr",
+   "Shallow Convective Moistening Rate",
+   "kg (kg s**-1)**-1"
+  ],
+  "0/1/215": [
+   "vdfmr",
+   "Vertical Diffusion Moistening Rate",
+   "kg (kg s**-1)**-1"
+  ],
+  "0/1/216": [
+   "condp",
+   "Condensation Pressure of Parcali Lifted From Indicate Surface",
+   "Pa"
+  ],
+  "0/1/217": [
+   "lrgmr",
+   "Large scale moistening rate",
+   "kg (kg s**-1)**-1"
+  ],
+  "0/1/218": [
+   "qz0",
+   "Specific humidity at top of viscous sublayer",
+   "kg kg**-1"
+  ],
+  "0/1/219": [
+   "qmax",
+   "Maximum specific humidity at 2m",
+   "kg kg**-1"
+  ],
+  "0/1/220": [
+   "qmin",
+   "Minimum specific humidity at 2m",
+   "kg kg**-1"
+  ],
+  "0/1/221": [
+   "arain",
+   "Liquid precipitation (rainfall)",
+   "kg m**-2"
+  ],
+  "0/1/222": [
+   "snowt",
+   "Snow temperature, depth-avg",
+   "K"
+  ],
+  "0/1/223": [
+   "apcpn",
+   "Total precipitation (nearest grid point)",
+   "kg m**-2"
+  ],
+  "0/1/224": [
+   "acpcpn",
+   "Convective precipitation (nearest grid point)",
+   "kg m**-2"
+  ],
+  "0/1/225": [
+   "frzr",
+   "Freezing Rain",
+   "kg m**-2"
+  ],
+  "0/1/226": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/1/227": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/1/228": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/1/229": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/1/230": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/1/231": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/1/232": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/1/233": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/1/234": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/1/235": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/1/241": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/1/242": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/1/245": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/2/192": [
+   "vwsh",
+   "Vertical speed shear",
+   "s**-1"
+  ],
+  "0/2/193": [
+   "mflx",
+   "Horizontal momentum flux",
+   "N m**-2"
+  ],
+  "0/2/194": [
+   "ustm",
+   "U-component storm motion",
+   "m s**-1"
+  ],
+  "0/2/195": [
+   "vstm",
+   "V-component storm motion",
+   "m s**-1"
+  ],
+  "0/2/196": [
+   "cd",
+   "Drag coefficient",
+   "Numeric"
+  ],
+  "0/2/197": [
+   "fricv",
+   "Frictional velocity",
+   "m s**-1"
+  ],
+  "0/2/198": [
+   "lauv",
+   "Latitude of U Wind Component of Velocity",
+   "deg"
+  ],
+  "0/2/199": [
+   "louv",
+   "Longitude of U Wind Component of Velocity",
+   "deg"
+  ],
+  "0/2/200": [
+   "lavv",
+   "Latitude of V Wind Component of Velocity",
+   "deg"
+  ],
+  "0/2/201": [
+   "lovv",
+   "Longitude of V Wind Component of Velocity",
+   "deg"
+  ],
+  "0/2/202": [
+   "lapp",
+   "Latitude of Pressure Point",
+   "deg"
+  ],
+  "0/2/203": [
+   "lopp",
+   "Longitude of Pressure Point",
+   "deg"
+  ],
+  "0/2/204": [
+   "vedh",
+   "Vertical Eddy Diffusivity Heat exchange",
+   "m**2 s**-1"
+  ],
+  "0/2/205": [
+   "covmz",
+   "Covariance between Meridional and Zonal Components of the wind.",
+   "m**2 s**-2"
+  ],
+  "0/2/206": [
+   "covtz",
+   "Covariance between Temperature and Zonal Components of the wind.",
+   "K m s**-1"
+  ],
+  "0/2/207": [
+   "covtm",
+   "Covariance between Temperature and Meridional Components of the wind.",
+   "K m s**-1"
+  ],
+  "0/2/208": [
+   "vdfua",
+   "Vertical Diffusion Zonal Acceleration",
+   "m s**-2"
+  ],
+  "0/2/209": [
+   "vdfva",
+   "Vertical Diffusion Meridional Acceleration",
+   "m s**-2"
+  ],
+  "0/2/210": [
+   "gwdu",
+   "Gravity wave drag zonal acceleration",
+   "m s**-2"
+  ],
+  "0/2/211": [
+   "gwdv",
+   "Gravity wave drag meridional acceleration",
+   "m s**-2"
+  ],
+  "0/2/212": [
+   "cnvu",
+   "Convective zonal momentum mixing acceleration",
+   "m s**-2"
+  ],
+  "0/2/213": [
+   "cnvv",
+   "Convective meridional momentum mixing acceleration",
+   "m s**-2"
+  ],
+  "0/2/214": [
+   "wtend",
+   "Tendency of vertical velocity",
+   "m s**-2"
+  ],
+  "0/2/215": [
+   "omgalf",
+   "Omega (Dp/Dt) divide by density",
+   "K"
+  ],
+  "0/2/216": [
+   "cngwdu",
+   "Convective Gravity wave drag zonal acceleration",
+   "m s**-2"
+  ],
+  "0/2/217": [
+   "cngwdv",
+   "Convective Gravity wave drag meridional acceleration",
+   "m s**-2"
+  ],
+  "0/2/218": [
+   "lmv",
+   "Velocity Point Model Surface",
+   "~"
+  ],
+  "0/2/219": [
+   "pvmww",
+   "Potential Vorticity (Mass-Weighted)",
+   "(s m**-1)**-1"
+  ],
+  "0/2/220": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/2/221": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/2/222": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/2/223": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/2/224": [
+   "VRATE",
+   "Ventilation Rate",
+   "m**2 s**-1"
+  ],
+  "0/2/225": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/2/226": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/2/227": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/2/228": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/2/229": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/2/230": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/2/231": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/2/232": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/2/233": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/2/234": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/2/235": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/2/236": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/2/237": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/3/192": [
+   "mslet",
+   "MSLP (Eta model reduction)",
+   "Pa"
+  ],
+  "0/3/193": [
+   "5wavh",
+   "5-wave geopotential height",
+   "gpm"
+  ],
+  "0/3/194": [
+   "u-gwd",
+   "Zonal flux of gravity wave stress",
+   "N m**-2"
+  ],
+  "0/3/195": [
+   "v-gwd",
+   "Meridional flux of gravity wave stress",
+   "N m**-2"
+  ],
+  "0/3/196": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/3/197": [
+   "5wava",
+   "5-wave geopotential height anomaly",
+   "gpm"
+  ],
+  "0/3/198": [
+   "mslma",
+   "MSLP (MAPS System Reduction)",
+   "Pa"
+  ],
+  "0/3/199": [
+   "tslsa",
+   "3-hr pressure tendency (Std. Atmos. Reduction)",
+   "Pa s**-1"
+  ],
+  "0/3/200": [
+   "plpl",
+   "Pressure of level from which parcel was lifted",
+   "Pa"
+  ],
+  "0/3/201": [
+   "lpsx",
+   "X-gradient of Log Pressure",
+   "m**-1"
+  ],
+  "0/3/202": [
+   "lpsy",
+   "Y-gradient of Log Pressure",
+   "m**-1"
+  ],
+  "0/3/203": [
+   "hgtx",
+   "X-gradient of Height",
+   "m**-1"
+  ],
+  "0/3/204": [
+   "hgty",
+   "Y-gradient of Height",
+   "m**-1"
+  ],
+  "0/3/205": [
+   "layth",
+   "Layer Thickness",
+   "m"
+  ],
+  "0/3/206": [
+   "nlgsp",
+   "Natural Log of Surface Pressure",
+   "ln(kPa)"
+  ],
+  "0/3/207": [
+   "cnvumf",
+   "Convective updraft mass flux",
+   "kg (m**2 s-1)**-1"
+  ],
+  "0/3/208": [
+   "cnvdmf",
+   "Convective downdraft mass flux",
+   "kg (m**2 s-1)**-1"
+  ],
+  "0/3/209": [
+   "cnvdemf",
+   "Convective detrainment mass flux",
+   "kg (m**2 s-1)**-1"
+  ],
+  "0/3/210": [
+   "lmh",
+   "Mass Point Model Surface",
+   "~"
+  ],
+  "0/3/211": [
+   "hgtn",
+   "Geopotential Height (nearest grid point)",
+   "gpm"
+  ],
+  "0/3/212": [
+   "presn",
+   "Pressure (nearest grid point)",
+   "Pa"
+  ],
+  "0/3/213": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/3/214": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/3/215": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/3/216": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/3/217": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/3/218": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/3/219": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/3/220": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/3/221": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/3/222": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/4/192": [
+   "dswrf",
+   "Downward short-wave radiation flux",
+   "W m**-2"
+  ],
+  "0/4/193": [
+   "uswrf",
+   "Upward short-wave radiation flux",
+   "W m**-2"
+  ],
+  "0/4/194": [
+   "duvb",
+   "UV-B downward solar flux",
+   "W m**-2"
+  ],
+  "0/4/195": [
+   "cduvb",
+   "Clear sky UV-B downward solar flux",
+   "W m**-2"
+  ],
+  "0/4/196": [
+   "csdsf",
+   "Clear Sky Downward Solar Flux",
+   "W m**-2"
+  ],
+  "0/4/197": [
+   "swhr",
+   "Solar Radiative Heating Rate",
+   "K s**-1"
+  ],
+  "0/4/198": [
+   "csusf",
+   "Clear Sky Upward Solar Flux",
+   "W m**-2"
+  ],
+  "0/4/199": [
+   "cfnsf",
+   "Cloud Forcing Net Solar Flux",
+   "W m**-2"
+  ],
+  "0/4/200": [
+   "vbdsf",
+   "Visible Beam Downward Solar Flux",
+   "W m**-2"
+  ],
+  "0/4/201": [
+   "vddsf",
+   "Visible Diffuse Downward Solar Flux",
+   "W m**-2"
+  ],
+  "0/4/202": [
+   "nbdsf",
+   "Near IR Beam Downward Solar Flux",
+   "W m**-2"
+  ],
+  "0/4/203": [
+   "nddsf",
+   "Near IR Diffuse Downward Solar Flux",
+   "W m**-2"
+  ],
+  "0/4/204": [
+   "dtrf",
+   "Downward Total radiation Flux",
+   "W m**-2"
+  ],
+  "0/4/205": [
+   "utrf",
+   "Upward Total radiation Flux",
+   "W m**-2"
+  ],
+  "0/5/192": [
+   "dlwrf",
+   "Downward long-wave radiation flux",
+   "W m**-2"
+  ],
+  "0/5/193": [
+   "ulwrf",
+   "Upward long-wave radiation flux",
+   "W m**-2"
+  ],
+  "0/5/194": [
+   "lwhr",
+   "Long-Wave Radiative Heating Rate",
+   "K s**-1"
+  ],
+  "0/5/195": [
+   "csulf",
+   "Clear Sky Upward Long Wave Flux",
+   "W m**-2"
+  ],
+  "0/5/196": [
+   "csdlf",
+   "Clear Sky Downward Long Wave Flux",
+   "W m**-2"
+  ],
+  "0/5/197": [
+   "cfnlf",
+   "Cloud Forcing Net Long Wave Flux",
+   "W m**-2"
+  ],
+  "0/6/192": [
+   "cdlyr",
+   "Non-convective cloud cover",
+   "%"
+  ],
+  "0/6/193": [
+   "cwork",
+   "Cloud work function",
+   "J kg**-1"
+  ],
+  "0/6/194": [
+   "cuefi",
+   "Convective cloud efficiency",
+   "Proportion"
+  ],
+  "0/6/195": [
+   "tcond",
+   "Condensate",
+   "kg kg**-1"
+  ],
+  "0/6/196": [
+   "tcolw",
+   "Total column-integrated cloud water",
+   "kg m**-2"
+  ],
+  "0/6/197": [
+   "tcoli",
+   "Total column-integrated cloud ice",
+   "kg m**-2"
+  ],
+  "0/6/198": [
+   "tcolc",
+   "Total column-integrated condensate",
+   "kg m**-2"
+  ],
+  "0/6/199": [
+   "fice",
+   "Ice fraction of total condensate",
+   "Proportion"
+  ],
+  "0/6/200": [
+   "mflux",
+   "Convective Cloud Mass Flux",
+   "Pa s**-1"
+  ],
+  "0/6/201": [
+   "SUNSD",
+   "Sunshine Duration",
+   "s"
+  ],
+  "0/7/192": [
+   "lftx",
+   "Surface lifted index",
+   "K"
+  ],
+  "0/7/193": [
+   "4lftx",
+   "Best (4-layer) lifted index",
+   "K"
+  ],
+  "0/7/194": [
+   "ri",
+   "Richardson Number",
+   "Numeric"
+  ],
+  "0/7/195": [
+   "cwdi",
+   "Convective Weather Detection Index",
+   "~"
+  ],
+  "0/7/196": [
+   "uvi",
+   "UV index",
+   "Numeric"
+  ],
+  "0/7/197": [
+   "uphl",
+   "Updraft Helicity",
+   "m**2 s**-2"
+  ],
+  "0/7/198": [
+   "lai",
+   "Leaf Area Index",
+   "~"
+  ],
+  "0/7/199": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/7/200": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/7/201": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/7/202": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/7/203": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/7/204": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/7/205": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/7/206": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/7/207": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/7/208": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/7/209": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/7/210": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/7/211": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/7/212": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/13/192": [
+   "pmtc",
+   "Particulate matter (coarse)",
+   "(10**-6 g) m**-3"
+  ],
+  "0/13/193": [
+   "pmtf",
+   "Particulate matter (fine)",
+   "(10**-6 g) m**-3"
+  ],
+  "0/13/194": [
+   "lpmtf",
+   "Particulate matter (fine)",
+   "log10((10**-6g) m**-3)"
+  ],
+  "0/13/195": [
+   "lipmf",
+   "Integrated column particulate matter (fine)",
+   "log10((10**-6g) m**-3)"
+  ],
+  "0/14/192": [
+   "o3mr",
+   "Ozone mixing ratio",
+   "kg kg**-1"
+  ],
+  "0/14/193": [
+   "ozcon",
+   "Ozone Concentration (PPB)",
+   "ppb"
+  ],
+  "0/14/194": [
+   "ozcat",
+   "Categorical Ozone Concentration",
+   "dimensionless"
+  ],
+  "0/14/195": [
+   "vdfoz",
+   "Ozone vertical diffusion",
+   "kg (kg s**-1)**-1"
+  ],
+  "0/14/196": [
+   "poz",
+   "Ozone production",
+   "kg (kg s**-1)**-1"
+  ],
+  "0/14/197": [
+   "toz",
+   "Ozone tendency",
+   "kg (kg s**-1)**-1"
+  ],
+  "0/14/198": [
+   "pozt",
+   "Ozone production from temperature term",
+   "kg (kg s**-1)**-1"
+  ],
+  "0/14/199": [
+   "pozo",
+   "Ozone production from col ozone term",
+   "kg (kg s**-1)**-1"
+  ],
+  "0/14/200": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/14/201": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/14/202": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/14/203": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/14/204": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/16/192": [
+   "refzr",
+   "Derived radar reflectivity backscatter from rain",
+   "mm**6 m**-3"
+  ],
+  "0/16/193": [
+   "refzi",
+   "Derived radar reflectivity backscatter from ice",
+   "mm**6 m**-3"
+  ],
+  "0/16/194": [
+   "refzc",
+   "Derived radar reflectivity backscatter from parameterized convection",
+   "mm**6 m**-3"
+  ],
+  "0/16/195": [
+   "refd",
+   "Derived radar reflectivity",
+   "dB"
+  ],
+  "0/16/196": [
+   "refc",
+   "Maximum/Composite radar reflectivity",
+   "dB"
+  ],
+  "0/16/197": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/16/198": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/17/192": [
+   "ltng",
+   "Lightning",
+   "dimensionless"
+  ],
+  "0/19/192": [
+   "mxsalb",
+   "Maximum snow albedo",
+   "%"
+  ],
+  "0/19/193": [
+   "snfalb",
+   "Snow free albedo",
+   "%"
+  ],
+  "0/19/194": [
+   "srcono",
+   "Slight risk convective outlook",
+   "categorical"
+  ],
+  "0/19/195": [
+   "mrcono",
+   "Moderate risk convective outlook",
+   "categorical"
+  ],
+  "0/19/196": [
+   "hrcono",
+   "High risk convective outlook",
+   "categorical"
+  ],
+  "0/19/197": [
+   "torprob",
+   "Tornado probability",
+   "%"
+  ],
+  "0/19/198": [
+   "hailprob",
+   "Hail probability",
+   "%"
+  ],
+  "0/19/199": [
+   "windprob",
+   "Wind probability",
+   "%"
+  ],
+  "0/19/200": [
+   "storprob",
+   "Significant Tornado probability",
+   "%"
+  ],
+  "0/19/201": [
+   "shailpro",
+   "Significant Hail probability",
+   "%"
+  ],
+  "0/19/202": [
+   "swindpro",
+   "Significant Wind probability",
+   "%"
+  ],
+  "0/19/203": [
+   "tstmc",
+   "Categorical Thunderstorm (1-yes, 0-no)",
+   "categorical"
+  ],
+  "0/19/204": [
+   "mixly",
+   "Number of mixed layers next to surface",
+   "Integer"
+  ],
+  "0/19/205": [
+   "flght",
+   "Flight Category",
+   "~"
+  ],
+  "0/19/206": [
+   "cicel",
+   "Confidence - Ceiling",
+   "~"
+  ],
+  "0/19/207": [
+   "civis",
+   "Confidence - Visibility",
+   "~"
+  ],
+  "0/19/208": [
+   "ciflt",
+   "Confidence - Flight Category",
+   "~"
+  ],
+  "0/19/209": [
+   "lavni",
+   "Low-Level aviation interest",
+   "~"
+  ],
+  "0/19/210": [
+   "havni",
+   "High-Level aviation interest",
+   "~"
+  ],
+  "0/19/211": [
+   "sbsalb",
+   "Visible, Black Sky Albedo",
+   "%"
+  ],
+  "0/19/212": [
+   "swsalb",
+   "Visible, White Sky Albedo",
+   "%"
+  ],
+  "0/19/213": [
+   "nbsalb",
+   "Near IR, Black Sky Albedo",
+   "%"
+  ],
+  "0/19/214": [
+   "nwsalb",
+   "Near IR, White Sky Albedo",
+   "%"
+  ],
+  "0/19/215": [
+   "prsvr",
+   "Total Probability of Severe Thunderstorms (Days 2,3)",
+   "%"
+  ],
+  "0/19/216": [
+   "prsigsvr",
+   "Total Probability of Extreme Severe Thunderstorms (Days 2,3)",
+   "%"
+  ],
+  "0/19/217": [
+   "sipd",
+   "Supercooled Large Droplet (SLD) Potential",
+   "~"
+  ],
+  "0/19/218": [
+   "epsr",
+   "Radiative emissivity",
+   "~"
+  ],
+  "0/19/219": [
+   "tpfi",
+   "Turbulence Potential Forecast Index",
+   "~"
+  ],
+  "0/19/220": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/19/221": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/19/222": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/19/232": [
+   "vaftd",
+   "Volcanic Ash Forecast Transport and Dispersion",
+   "log10(kg m**-3)"
+  ],
+  "0/19/233": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/19/234": [
+   "ICSEV",
+   "Icing severity",
+   "Numeric"
+  ],
+  "0/19/235": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/19/236": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/19/237": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/19/238": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/19/239": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/19/240": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/191/192": [
+   "nlat",
+   "Latitude (-90 to +90)",
+   "deg"
+  ],
+  "0/191/193": [
+   "elon",
+   "East Longitude (0 - 360)",
+   "deg"
+  ],
+  "0/191/194": [
+   "tsec",
+   "Seconds prior to initial reference time (defined in Section 1)",
+   "s"
+  ],
+  "0/191/195": [
+   "mlyno",
+   "Model Layer number (From bottom up)",
+   "~"
+  ],
+  "0/191/196": [
+   "nlatn",
+   "Latitude (nearest neighbor) (-90 to +90)",
+   "deg"
+  ],
+  "0/191/197": [
+   "elonn",
+   "East Longitude (nearest neighbor) (0 - 360)",
+   "deg"
+  ],
+  "0/192/1": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/192/2": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/192/3": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/192/4": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/192/5": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/192/6": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/192/7": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/192/8": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/192/9": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/192/10": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/192/11": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/192/12": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/192/13": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "0/192/14": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "1/0/192": [
+   "bgrun",
+   "Baseflow-groundwater runoff",
+   "kg m**-2"
+  ],
+  "1/0/193": [
+   "ssrun",
+   "Storm surface runoff",
+   "kg m**-2"
+  ],
+  "1/0/194": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "1/0/196": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "1/1/192": [
+   "cpozp",
+   "Probability of Freezing Precipitation",
+   "%"
+  ],
+  "1/1/193": [
+   "cpofp",
+   "Percent frozen precipitation",
+   "%"
+  ],
+  "1/1/194": [
+   "ppffg",
+   "Probability of precipitation exceeding flash flood guidance values",
+   "%"
+  ],
+  "1/1/195": [
+   "cwr",
+   "Probability of Wetting Rain, exceeding in 0.10 in a given time period",
+   "%"
+  ],
+  "1/1/196": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "1/1/197": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "2/0/192": [
+   "soilw",
+   "Volumetric soil moisture content",
+   "Proportion"
+  ],
+  "2/0/193": [
+   "gflux",
+   "Ground heat flux",
+   "W m**-2"
+  ],
+  "2/0/194": [
+   "mstav",
+   "Moisture availability",
+   "%"
+  ],
+  "2/0/195": [
+   "sfexc",
+   "Exchange coefficient",
+   "kg m**-2 s**-1"
+  ],
+  "2/0/196": [
+   "cnwat",
+   "Plant canopy surface water",
+   "kg m**-2"
+  ],
+  "2/0/197": [
+   "bmixl",
+   "Blackadar mixing length scale",
+   "m"
+  ],
+  "2/0/198": [
+   "vgtyp",
+   "Vegetation Type",
+   "Integer(0-13)"
+  ],
+  "2/0/199": [
+   "ccond",
+   "Canopy conductance",
+   "m s**-1"
+  ],
+  "2/0/200": [
+   "rsmin",
+   "Minimal stomatal resistance",
+   "s m**-1"
+  ],
+  "2/0/201": [
+   "wilt",
+   "Wilting Point",
+   "Fraction"
+  ],
+  "2/0/202": [
+   "rcs",
+   "Solar parameter in canopy conductance",
+   "Proportion"
+  ],
+  "2/0/203": [
+   "rct",
+   "Temperature parameter in canopy conductance",
+   "Proportion"
+  ],
+  "2/0/204": [
+   "rcq",
+   "Humidity parameter in canopy conductance",
+   "Proportion"
+  ],
+  "2/0/205": [
+   "rcsol",
+   "Soil moisture parameter in canopy conductance",
+   "Proportion"
+  ],
+  "2/0/206": [
+   "rdrip",
+   "Rate of water dropping from canopy to ground",
+   "~"
+  ],
+  "2/0/207": [
+   "icwat",
+   "Ice-free water surface",
+   "%"
+  ],
+  "2/0/208": [
+   "akhs",
+   "Surface exchange coefficients for T and Q divided by delta z",
+   "m s**-1"
+  ],
+  "2/0/209": [
+   "akms",
+   "Surface exchange coefficients for U and V divided by delta z",
+   "m s**-1"
+  ],
+  "2/0/210": [
+   "vegt",
+   "Vegetation canopy temperature",
+   "K"
+  ],
+  "2/0/211": [
+   "sstor",
+   "Surface water storage",
+   "kg m**-2"
+  ],
+  "2/0/212": [
+   "lsoil",
+   "Liquid soil moisture content (non-frozen)",
+   "kg m**-2"
+  ],
+  "2/0/213": [
+   "ewatr",
+   "Open water evaporation (standing water)",
+   "W m**-2"
+  ],
+  "2/0/214": [
+   "gwrec",
+   "Groundwater recharge",
+   "kg m**-2"
+  ],
+  "2/0/215": [
+   "qrec",
+   "Flood plain recharge",
+   "kg m**-2"
+  ],
+  "2/0/216": [
+   "sfcrh",
+   "Roughness length for heat",
+   "m"
+  ],
+  "2/0/217": [
+   "ndvi",
+   "Normalized Difference Vegetation Index",
+   "~"
+  ],
+  "2/0/218": [
+   "landn",
+   "Land-sea coverage (nearest neighbor) [land=1,sea=0]",
+   "~"
+  ],
+  "2/0/219": [
+   "amixl",
+   "Asymptotic mixing length scale",
+   "m"
+  ],
+  "2/0/220": [
+   "wvinc",
+   "Water vapor added by precip assimilation",
+   "kg m**-2"
+  ],
+  "2/0/221": [
+   "wcinc",
+   "Water condensate added by precip assimilation",
+   "kg m**-2"
+  ],
+  "2/0/222": [
+   "wvconv",
+   "Water Vapor Flux Convergence (Vertical Int)",
+   "kg m**-2"
+  ],
+  "2/0/223": [
+   "wcconv",
+   "Water Condensate Flux Convergence (Vertical Int)",
+   "kg m**-2"
+  ],
+  "2/0/224": [
+   "wvuflx",
+   "Water Vapor Zonal Flux (Vertical Int)",
+   "kg m**-2"
+  ],
+  "2/0/225": [
+   "wvvflx",
+   "Water Vapor Meridional Flux (Vertical Int)",
+   "kg m**-2"
+  ],
+  "2/0/226": [
+   "wcuflx",
+   "Water Condensate Zonal Flux (Vertical Int)",
+   "kg m**-2"
+  ],
+  "2/0/227": [
+   "wcvflx",
+   "Water Condensate Meridional Flux (Vertical Int)",
+   "kg m**-2"
+  ],
+  "2/0/228": [
+   "acond",
+   "Aerodynamic conductance",
+   "m s**-1"
+  ],
+  "2/0/229": [
+   "evcw",
+   "Canopy water evaporation",
+   "W m**-2"
+  ],
+  "2/0/230": [
+   "trans",
+   "Transpiration",
+   "W m**-2"
+  ],
+  "2/0/231": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "2/0/232": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "2/0/233": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "2/0/234": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "2/0/235": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "2/0/236": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "2/0/237": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "2/0/238": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "2/0/239": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "2/1/192": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "2/3/192": [
+   "soill",
+   "Liquid volumetric soil moisture (non-frozen)",
+   "Proportion"
+  ],
+  "2/3/193": [
+   "rlyrs",
+   "Number of soil layers in root zone",
+   "Numeric"
+  ],
+  "2/3/194": [
+   "sltyp",
+   "Surface Slope Type",
+   "Index"
+  ],
+  "2/3/195": [
+   "smref",
+   "Transpiration stress-onset (soil moisture)",
+   "Proportion"
+  ],
+  "2/3/196": [
+   "smdry",
+   "Direct evaporation cease (soil moisture)",
+   "Proportion"
+  ],
+  "2/3/197": [
+   "poros",
+   "Soil porosity",
+   "Proportion"
+  ],
+  "2/3/198": [
+   "evbs",
+   "Direct evaporation from bare soil",
+   "W m**-2"
+  ],
+  "2/3/199": [
+   "lspa",
+   "Land Surface Precipitation Accumulation",
+   "kg m**-2"
+  ],
+  "2/3/200": [
+   "baret",
+   "Bare soil surface skin temperature",
+   "K"
+  ],
+  "2/3/201": [
+   "avsft",
+   "Average surface skin temperature",
+   "K"
+  ],
+  "2/3/202": [
+   "radt",
+   "Effective radiative skin temperature",
+   "K"
+  ],
+  "2/3/203": [
+   "fldcp",
+   "Field Capacity",
+   "Fraction"
+  ],
+  "2/3/204": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "3/1/192": [
+   "usct",
+   "Scatterometer Estimated U Wind Component",
+   "m s**-1"
+  ],
+  "3/1/193": [
+   "vsct",
+   "Scatterometer Estimated V Wind Component",
+   "m s**-1"
+  ],
+  "3/1/194": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "3/192/0": [
+   "SBT122",
+   "Simulated Brightness Temperature for GOES 12, Channel 2",
+   "K"
+  ],
+  "3/192/1": [
+   "SBT123",
+   "Simulated Brightness Temperature for GOES 12, Channel 3",
+   "K"
+  ],
+  "3/192/2": [
+   "SBT124",
+   "Simulated Brightness Temperature for GOES 12, Channel 4",
+   "K"
+  ],
+  "3/192/3": [
+   "SBT126",
+   "Simulated Brightness Temperature for GOES 12, Channel 6",
+   "K"
+  ],
+  "3/192/4": [
+   "SBC123",
+   "Simulated Brightness Counts for GOES 12, Channel 3",
+   "Byte"
+  ],
+  "3/192/5": [
+   "SBC124",
+   "Simulated Brightness Counts for GOES 12, Channel 4",
+   "Byte"
+  ],
+  "3/192/6": [
+   "SBT112",
+   "Simulated Brightness Temperature for GOES 11, Channel 2",
+   "K"
+  ],
+  "3/192/7": [
+   "SBT113",
+   "Simulated Brightness Temperature for GOES 11, Channel 3",
+   "K"
+  ],
+  "3/192/8": [
+   "SBT114",
+   "Simulated Brightness Temperature for GOES 11, Channel 4",
+   "K"
+  ],
+  "3/192/9": [
+   "SBT115",
+   "Simulated Brightness Temperature for GOES 11, Channel 5",
+   "K"
+  ],
+  "3/192/10": [
+   "AMSRE9",
+   "Simulated Brightness Temperature for AMSRE on Aqua, Channel 9",
+   "K"
+  ],
+  "3/192/11": [
+   "AMSRE10",
+   "Simulated Brightness Temperature for AMSRE on Aqua, Channel 10",
+   "K"
+  ],
+  "3/192/12": [
+   "AMSRE11",
+   "Simulated Brightness Temperature for AMSRE on Aqua, Channel 11",
+   "K"
+  ],
+  "3/192/13": [
+   "AMSRE12",
+   "Simulated Brightness Temperature for AMSRE on Aqua, Channel 12",
+   "K"
+  ],
+  "3/192/14": [
+   "SRFA161",
+   "Simulated Reflectance Factor for ABI GOES-16, Band-1",
+   "~"
+  ],
+  "3/192/15": [
+   "SRFA162",
+   "Simulated Reflectance Factor for ABI GOES-16, Band-2",
+   "~"
+  ],
+  "3/192/16": [
+   "SRFA163",
+   "Simulated Reflectance Factor for ABI GOES-16, Band-3",
+   "~"
+  ],
+  "3/192/17": [
+   "SRFA164",
+   "Simulated Reflectance Factor for ABI GOES-16, Band-4",
+   "~"
+  ],
+  "3/192/18": [
+   "SRFA165",
+   "Simulated Reflectance Factor for ABI GOES-16, Band-5",
+   "~"
+  ],
+  "3/192/19": [
+   "SRFA166",
+   "Simulated Reflectance Factor for ABI GOES-16, Band-6",
+   "~"
+  ],
+  "3/192/20": [
+   "SBTA167",
+   "Simulated Brightness Temperature for ABI GOES-16, Band-7",
+   "K"
+  ],
+  "3/192/21": [
+   "SBTA168",
+   "Simulated Brightness Temperature for ABI GOES-16, Band-8",
+   "K"
+  ],
+  "3/192/22": [
+   "SBTA169",
+   "Simulated Brightness Temperature for ABI GOES-16, Band-9",
+   "K"
+  ],
+  "3/192/23": [
+   "SBTA1610",
+   "Simulated Brightness Temperature for ABI GOES-16, Band-10",
+   "K"
+  ],
+  "3/192/24": [
+   "SBTA1611",
+   "Simulated Brightness Temperature for ABI GOES-16, Band-11",
+   "K"
+  ],
+  "3/192/25": [
+   "SBTA1612",
+   "Simulated Brightness Temperature for ABI GOES-16, Band-12",
+   "K"
+  ],
+  "3/192/26": [
+   "SBTA1613",
+   "Simulated Brightness Temperature for ABI GOES-16, Band-13",
+   "K"
+  ],
+  "3/192/27": [
+   "SBTA1614",
+   "Simulated Brightness Temperature for ABI GOES-16, Band-14",
+   "K"
+  ],
+  "3/192/28": [
+   "SBTA1615",
+   "Simulated Brightness Temperature for ABI GOES-16, Band-15",
+   "K"
+  ],
+  "3/192/29": [
+   "SBTA1616",
+   "Simulated Brightness Temperature for ABI GOES-16, Band-16",
+   "K"
+  ],
+  "3/192/30": [
+   "SRFA171",
+   "Simulated Reflectance Factor for ABI GOES-17, Band-1",
+   "~"
+  ],
+  "3/192/31": [
+   "SRFA172",
+   "Simulated Reflectance Factor for ABI GOES-17, Band-2",
+   "~"
+  ],
+  "3/192/32": [
+   "SRFA173",
+   "Simulated Reflectance Factor for ABI GOES-17, Band-3",
+   "~"
+  ],
+  "3/192/33": [
+   "SRFA174",
+   "Simulated Reflectance Factor for ABI GOES-17, Band-4",
+   "~"
+  ],
+  "3/192/34": [
+   "SRFA175",
+   "Simulated Reflectance Factor for ABI GOES-17, Band-5",
+   "~"
+  ],
+  "3/192/35": [
+   "SRFA176",
+   "Simulated Reflectance Factor for ABI GOES-17, Band-6",
+   "~"
+  ],
+  "3/192/36": [
+   "SBTA177",
+   "Simulated Brightness Temperature for ABI GOES-17, Band-7",
+   "K"
+  ],
+  "3/192/37": [
+   "SBTA178",
+   "Simulated Brightness Temperature for ABI GOES-17, Band-8",
+   "K"
+  ],
+  "3/192/38": [
+   "SBTA179",
+   "Simulated Brightness Temperature for ABI GOES-17, Band-9",
+   "K"
+  ],
+  "3/192/39": [
+   "SBTA1710",
+   "Simulated Brightness Temperature for ABI GOES-17, Band-10",
+   "K"
+  ],
+  "3/192/40": [
+   "SBTA1711",
+   "Simulated Brightness Temperature for ABI GOES-17, Band-11",
+   "K"
+  ],
+  "3/192/41": [
+   "SBTA1712",
+   "Simulated Brightness Temperature for ABI GOES-17, Band-12",
+   "K"
+  ],
+  "3/192/42": [
+   "SBTA1713",
+   "Simulated Brightness Temperature for ABI GOES-17, Band-13",
+   "K"
+  ],
+  "3/192/43": [
+   "SBTA1714",
+   "Simulated Brightness Temperature for ABI GOES-17, Band-14",
+   "K"
+  ],
+  "3/192/44": [
+   "SBTA1715",
+   "Simulated Brightness Temperature for ABI GOES-17, Band-15",
+   "K"
+  ],
+  "3/192/45": [
+   "SBTA1716",
+   "Simulated Brightness Temperature for ABI GOES-17, Band-16",
+   "K"
+  ],
+  "3/192/46": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "3/192/47": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "3/192/48": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "3/192/49": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "3/192/50": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "3/192/51": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "3/192/52": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "3/192/53": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "3/192/54": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "3/192/55": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "3/192/56": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "3/192/57": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "3/192/58": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "3/192/59": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "3/192/60": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "3/192/61": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "3/192/62": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "3/192/63": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "3/192/64": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "3/192/65": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "3/192/66": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "3/192/67": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "3/192/68": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "3/192/69": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "3/192/70": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "3/192/71": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "3/192/72": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "3/192/73": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "3/192/74": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "3/192/75": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "3/192/76": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "3/192/77": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "3/192/78": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "3/192/79": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "3/192/80": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "3/192/81": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "3/192/82": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "3/192/83": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "3/192/84": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "3/192/85": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "10/0/192": [
+   "wstp",
+   "Wave Steepness",
+   "~"
+  ],
+  "10/0/193": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "10/1/192": [
+   "omlu",
+   "Ocean Mixed Layer U Velocity",
+   "m s**-1"
+  ],
+  "10/1/193": [
+   "omlv",
+   "Ocean Mixed Layer V Velocity",
+   "m s**-1"
+  ],
+  "10/1/194": [
+   "ubaro",
+   "Barotropic U velocity",
+   "m s**-1"
+  ],
+  "10/1/195": [
+   "vbaro",
+   "Barotropic V velocity",
+   "m s**-1"
+  ],
+  "10/3/192": [
+   "surge",
+   "Storm Surge",
+   "m"
+  ],
+  "10/3/193": [
+   "etsrg",
+   "Extra Tropical Storm Surge",
+   "m"
+  ],
+  "10/3/194": [
+   "elevhtml",
+   "Ocean Surface Elevation Relative to Geoid",
+   "m"
+  ],
+  "10/3/195": [
+   "sshg",
+   "Sea Surface Height Relative to Geoid",
+   "m"
+  ],
+  "10/3/196": [
+   "p2omlt",
+   "Ocean Mixed Layer Potential Density (Reference 2000m)<br",
+   "kg m**-3"
+  ],
+  "10/3/197": [
+   "aohflx",
+   "Net Air-Ocean Heat Flux",
+   "W m**-2"
+  ],
+  "10/3/198": [
+   "ashfl",
+   "Assimilative Heat Flux",
+   "W m**-2"
+  ],
+  "10/3/199": [
+   "sstt",
+   "Surface Temperature Trend",
+   "degreeperday"
+  ],
+  "10/3/200": [
+   "ssst",
+   "Surface Salinity Trend",
+   "psuperday"
+  ],
+  "10/3/201": [
+   "keng",
+   "Kinetic Energy",
+   "J kg**-1"
+  ],
+  "10/3/202": [
+   "sltfl",
+   "Salt Flux",
+   "kg (m**2 s**-1)**-1"
+  ],
+  "10/3/203": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "10/3/204": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "10/3/205": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "10/3/206": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "10/3/207": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "10/3/208": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "10/3/209": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "10/3/210": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "10/3/242": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "10/3/243": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "10/3/244": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "10/3/245": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "10/3/246": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "10/3/247": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "10/3/248": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "10/3/249": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "10/3/250": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "10/3/251": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "10/3/252": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "10/3/253": [
+   "unknown",
+   "unknown",
+   "unknown"
+  ],
+  "10/4/192": [
+   "wtmpc",
+   "3-D Temperature",
+   "deg C"
+  ],
+  "10/4/193": [
+   "salin",
+   "3-D Salinity",
+   "~"
+  ],
+  "10/4/194": [
+   "bkeng",
+   "Barotropic Kinetic Energy",
+   "J kg**-1"
+  ],
+  "10/4/195": [
+   "dbss",
+   "Geometric Depth Below Sea Surface",
+   "m"
+  ],
+  "10/4/196": [
+   "intfd",
+   "Interface Depths",
+   "m"
+  ],
+  "10/4/197": [
+   "ohc",
+   "Ocean Heat Content",
+   "J m**-2"
+  ]
+ }
+}
