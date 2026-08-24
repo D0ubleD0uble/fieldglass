@@ -55,7 +55,12 @@ const UNIT_SYMBOLS: &[&str] = &[
     // Prefixed forms that appear in the table as single symbols
     "km", "cm", "mm", "nm", "nT", "nSv", "hPa", "kPa", "MPa", "kt", // Time
     "d", "h", "min", "day", "week", "month", "year", // Meteorological and domain units
-    "gpm", "dB", "DU", "TECU", "eV", "nuc", "pH", "deg", "degree", "°", "%",
+    "gpm", "dB", "DU", "TECU", "eV", "nuc", "pH", "deg", "degC", "degree", "degrees", "radian",
+    "°", "%",
+    // Introduced by the ECMWF local table (#424): `Nm` is the normal metre
+    // (aerosol number concentrations are written `Nm**-3`), and `radian` and
+    // `degC` are spellings ECMWF uses where WMO writes `rad` and `K`.
+    "Nm", "ppb", "ppm", "psu",
     // Countable "units" that WMO writes as words but that do take exponents
     "Person", "Number", "Bites", // Spelled-out forms upstream occasionally uses
     "Joule",

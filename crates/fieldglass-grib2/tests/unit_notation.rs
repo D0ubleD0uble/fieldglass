@@ -19,15 +19,32 @@ use fieldglass_core::units::normalize_units;
 use fieldglass_grib2::{Originator, lookup_parameter};
 use std::collections::BTreeSet;
 
-/// The sweeps below check the WMO master set, so they resolve as a centre with
-/// no local table of its own. Centre 0 is the WMO Secretariat, which will never
-/// have one — the point is that nothing here routes through `tables_local`.
-const MASTER_ONLY: Originator = Originator {
-    centre: 0,
-    sub_centre: 0,
-    local_tables_version: 0,
-};
-
+/// The centres the sweeps below resolve as. Centre 0 is the WMO Secretariat,
+/// which has no local table and so reaches the master set; 98 is ECMWF, whose
+/// 2,826 local parameters (#424) carry units in eccodes' Fortran notation and
+/// so have to go through the same display normalisation as everything else.
+/// Both table versions appear because thirteen ECMWF entries are gated on one.
+///
+/// Sweeping the master set alone would have left the entire ECMWF unit
+/// vocabulary unpinned — 59 of its 69 distinct strings — which is exactly the
+/// silent gap this snapshot exists to close.
+const SWEPT: [Originator; 3] = [
+    Originator {
+        centre: 0,
+        sub_centre: 0,
+        local_tables_version: 0,
+    },
+    Originator {
+        centre: 98,
+        sub_centre: 0,
+        local_tables_version: 0,
+    },
+    Originator {
+        centre: 98,
+        sub_centre: 0,
+        local_tables_version: 1,
+    },
+];
 const SNAPSHOT: &str = include_str!("fixtures/unit_notation.snapshot.txt");
 const SNAPSHOT_PATH: &str = "tests/fixtures/unit_notation.snapshot.txt";
 
@@ -37,10 +54,12 @@ fn distinct_units() -> BTreeSet<String> {
     for discipline in 0..=255u8 {
         for category in 0..=255u8 {
             for number in 0..=255u8 {
-                if let Some((_, _, unit)) =
-                    lookup_parameter(MASTER_ONLY, discipline, category, number)
-                {
-                    units.insert(unit.to_string());
+                for originator in SWEPT {
+                    if let Some((_, _, unit)) =
+                        lookup_parameter(originator, discipline, category, number)
+                    {
+                        units.insert(unit.to_string());
+                    }
                 }
             }
         }
