@@ -131,6 +131,13 @@ sequenceDiagram
     M-->>H: (values, mask, derived geometry)
 ```
 
+## Presentation is data, not a seam
+
+`Palette` (the painter's LUT + scale rule, extracted as an API type) is
+deliberately not a trait: there is one painter, and a GPU host consumes the
+painter's table rather than implementing a second colour path. See
+[`03-composition.md`](03-composition.md).
+
 ## Verification (milestone 7)
 
 Not a runtime seam, but a boundary worth drawing: which functions carry a

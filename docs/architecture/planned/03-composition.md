@@ -131,9 +131,21 @@ classDiagram
         +decode(i, opts) Field
         +warp / render / probe / contours / overlay / csv
     }
+    class Palette {
+        <<planned, core>>
+        +[u8; 256*4] lut
+        +f64 t0, t1 (transformed domain)
+        +ScaleMode scale
+        +[u8; 4] masked_rgba
+        +normalise(v) f32
+        +paint(values, mask, w, h) RGBA
+    }
     Grib2Handle *-- Session
     WasmHandle *-- Session
     Session *-- Grib2Reader
+    Session ..> Palette : palette(opts)
+    Palette ..> RenderedGrid : CPU painter (oracle)
+    WasmHandle ..> Palette : to GPU as LUT texture + uniforms
     Grib2Handle ..> MessageMeta : view of GridGeometry
     Grib2Handle ..> RenderedGrid
     WasmHandle ..> Field : host owns
@@ -143,3 +155,9 @@ classDiagram
 
 `RenderedGrid` / `TargetRaster` gain caller-controlled `width` × `height` for
 the box targets (#465); the default stays the source `ni × nj`.
+
+Colour exists once. `Palette` is what the CPU painter already builds
+internally (a 256-entry LUT plus the scale rule), extracted as an API type.
+`render()` paints through it, and a GPU host uploads the same table and
+applies the same two-line normalisation in a shader snippet the package
+ships, so the CPU output is the oracle for the GPU output.

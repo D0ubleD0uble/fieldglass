@@ -22,7 +22,7 @@ flowchart LR
         cat["sources.json<br/>(catalog is data)"] --> plan["fetchplan #461<br/>.idx → ranges"]
         plan --> fetch["fetch() with Range<br/>public bucket, CORS"]
         fetch --> wb["wasm handle #460<br/>no cache"]
-        wb --> gpu["Float32 texture + mask<br/>colour in shader"]
+        wb --> gpu["values + mask textures<br/>+ Palette LUT texture<br/>shipped shader snippet"]
         wb -. CPU fallback .-> canvas2["RGBA → canvas"]
     end
     classDef planned stroke-dasharray: 6 4
@@ -54,9 +54,12 @@ sequenceDiagram
     W->>H: decode(0, { reduce, dtype })
     Note over W,H: verify GRIB magic, §0 length, parameter vs the plan
     H-->>W: Field { values, mask, georef, stats }
-    W-->>A: Field (transfer, zero-copy)
-    A->>G: upload R32F + R8 mask, proj4 → mesh
-    Note over A,G: restyle = uniform change, no re-decode
+    W->>H: palette(opts)
+    H-->>W: Palette { lut, t0, t1, scale, masked }
+    W-->>A: Field + Palette (transfer, zero-copy)
+    A->>G: upload values + R8 mask + 256×1 LUT, proj4 → mesh
+    Note over A,G: restyle = new Palette (4 KB), no re-decode
+    Note over A,G: shader = shipped snippet: normalise, NEAREST LUT lookup
 ```
 
 Notes that shape the two hosts:
@@ -76,6 +79,8 @@ Notes that shape the two hosts:
   contours, and stats always use the full-resolution decode.
 - **Precision.** `Field.values` is f64 unless the packing provably fits f32;
   the R32F texture upload is a downcast the app asks for explicitly.
+- **Colour.** Decided once, in Rust: `Palette` feeds both the CPU painter
+  and the GPU lookup, and the app's `readPixels` is tested against `render()`.
 - **Trust.** A `.idx` range is a claim; the decoder checks the fetched bytes
   against it (magic, length, parameter) and errors on a mismatch.
 - **The extension later.** "Open URL…" in VS Code (#247) is the same

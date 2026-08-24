@@ -82,6 +82,13 @@ Fixtures and expected outputs for every `Session` operation live in the
 Adding a host is then a checklist: implement the buffer handoff, map the
 error, pass the suite.
 
+The same rule covers presentation. Colour, scale, and mask handling are
+decided in Rust and exported as data (a `Palette`: LUT, transformed domain,
+scale kind, masked colour); a GPU path consumes that data through a shader
+snippet the package ships, and never re-derives it. The CPU painter reads the
+same `Palette`, so it is the oracle a host's GPU output is tested against
+rather than a second implementation.
+
 ### 4. What was rejected
 
 **Keep hand-writing each host.** The status quo, and it works for one host.
