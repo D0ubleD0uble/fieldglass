@@ -9,47 +9,49 @@ consumer of the format crates and the reason the render orchestration moves
 from `napi` into `core` (#464).
 
 ```mermaid
-flowchart TD
-    app["fieldglass-app<br/><i>browser map creator (external, private)</i>"]
-    ext["VS Code extension<br/><i>TypeScript</i>"]
-    napi["fieldglass-napi<br/><i>N-API boundary (Node addon)</i>"]
-    wasm["fieldglass-wasm #460<br/><i>wasm-bindgen façade, publish = false</i>"]
+flowchart TB
+    subgraph consumers[" "]
+        direction LR
+        ext["VS Code extension<br/><i>TypeScript</i>"]
+        app["fieldglass-app<br/><i>browser map creator (external, private)</i>"]
+    end
+    subgraph hosts["hosts"]
+        direction LR
+        napi["fieldglass-napi<br/><i>N-API boundary (Node addon)</i>"]
+        wasm["fieldglass-wasm #460<br/><i>wasm-bindgen façade, publish = false</i>"]
+    end
+    subgraph formats["format crates"]
+        direction LR
+        grib1["fieldglass-grib1"]
+        grib2["fieldglass-grib2"]
+        netcdf["fieldglass-netcdf"]
+        zarr["fieldglass-zarr #246<br/><i>chunk codecs</i>"]
+    end
     fetchplan["fieldglass-fetchplan #461<br/><i>manifests in, byte ranges out; no I/O</i>"]
-    zarr["fieldglass-zarr #246<br/><i>bytes-in chunk decode: zstd, blosc, shuffle</i>"]
-    grib1["fieldglass-grib1<br/><i>GRIB1 decode</i>"]
-    grib2["fieldglass-grib2<br/><i>GRIB2 decode</i>"]
-    netcdf["fieldglass-netcdf<br/><i>NetCDF classic + NetCDF-4 / HDF5</i>"]
     core["fieldglass-core<br/><i>traits, GridGeometry, projection, warp, render orchestration</i>"]
     verify["fieldglass-verify #205<br/><i>Verus proofs; own workspace, never shipped</i>"]
 
     ext --> napi
     app --> wasm
-    napi --> grib1
-    napi --> grib2
-    napi --> netcdf
-    napi --> zarr
-    napi --> core
-    wasm --> grib1
-    wasm --> grib2
-    wasm --> netcdf
-    wasm --> zarr
+    hosts --> formats
     wasm --> fetchplan
-    wasm --> core
-    grib1 --> core
-    grib2 --> core
-    netcdf --> core
-    zarr --> core
     fetchplan --> grib2
+    formats --> core
+    hosts --> core
+    verify -. proves the decode kernel .-> formats
     verify -. proves .-> core
-    verify -. proves .-> grib1
-    verify -. proves .-> grib2
-    verify -. proves .-> netcdf
 
     classDef planned stroke-dasharray: 6 4
     classDef external fill:none,stroke-dasharray: 2 3
+    classDef group fill:none
     class wasm,fetchplan,zarr,verify planned
     class app,ext external
+    class consumers,hosts,formats group
 ```
+
+Edges into or out of a box apply to every crate in it: each host depends on
+all four format crates and on `core`; each format crate depends on `core`
+and on no other format crate.
 
 **What each new crate is for**
 
