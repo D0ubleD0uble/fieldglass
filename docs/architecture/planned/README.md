@@ -12,7 +12,7 @@ Snapshot date: 2026-08-24. Milestones covered:
 | --- | --- | --- |
 | [7](https://github.com/D0ubleD0uble/fieldglass/milestone/7) | Formal verification of the decode kernel (Verus) | `fieldglass-verify` proofs over the decode arithmetic, outside the workspace. |
 | [10](https://github.com/D0ubleD0uble/fieldglass/milestone/10) | Grid geometry, local tables, and the byte-access seam | The spatial-index seam behind `SourceGrid`; HEALPix (§3.150) and 2-D coordinate curvilinear grids as its first consumers. |
-| [11](https://github.com/D0ubleD0uble/fieldglass/milestone/11) | fieldglass-wasm: browser host surface | A second host (`fieldglass-wasm`), the `GridGeometry` type both hosts share, `fieldglass-fetchplan`, and Zarr re-scoped to codecs. |
+| [11](https://github.com/D0ubleD0uble/fieldglass/milestone/11) | fieldglass-wasm: browser host surface | A second host (`fieldglass-wasm`), the `fieldglass` umbrella crate both hosts bind (ADR-0006), the `GridGeometry` type in core, `fieldglass-fetchplan`, and Zarr re-scoped to codecs. |
 
 ## Rules
 

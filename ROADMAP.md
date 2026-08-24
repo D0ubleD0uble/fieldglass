@@ -150,10 +150,13 @@ first.
   prefetch the ranges an operation needs, decode synchronously, behind a
   `ByteSource` trait. Gated now on the trait landing (#438) and one migrated
   reader.
-- **New host surfaces.** PyO3 bindings and a wasm build; the format crates
-  are already pure byte-in, values-out engines. Gated on the same seam — and
-  the reason ADR-0005 keeps decode synchronous, since blocking inside a read
-  is impossible in wasm.
+- **New host surfaces.** A wasm build (milestone 11), then PyO3 bindings and
+  a CLI (#254); the format crates are already pure byte-in, values-out
+  engines. Gated on the same seam — and the reason ADR-0005 keeps decode
+  synchronous, since blocking inside a read is impossible in wasm. Each host
+  is a binding over one `fieldglass` umbrella crate
+  ([ADR-0006](docs/decisions/0006-hosts-are-bindings-over-a-plain-data-api.md)),
+  so a new host is buffer handoff and error mapping, not a second engine.
 - **GRIB1 completion.** Second-order packing under a masking bitmap, and the
   remaining predefined ON388 grids (21–26, 61–64).
 - **Bi-Fourier rendering (5.53).** The last template that decodes without

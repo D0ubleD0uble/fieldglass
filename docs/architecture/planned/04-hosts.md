@@ -7,8 +7,10 @@ each host does *around* the Rust, not inside it.
 ## Who does what
 
 ADR-0005 fixes the split: the host fetches and owns memory; Rust is a pure
-function of bytes. Both hosts follow it, but they differ in what they cache
-and in how a file arrives.
+function of bytes. ADR-0006 fixes what a host *is*: a binding over
+`fieldglass::Session` that hand-writes only the buffer handoff and the error
+mapping. Both hosts follow both, but they differ in what they cache and in
+how a file arrives.
 
 ```mermaid
 flowchart LR
@@ -73,3 +75,7 @@ Notes that shape the two hosts:
 - **The extension later.** "Open URL…" in VS Code (#247) is the same
   `fetchplan` call from TypeScript with `fetch()` in the extension host, then
   the existing napi path. Nothing new in Rust.
+- **Other hosts.** PyO3 (numpy for the three buffers), a CLI and MCP surface
+  (`serde_json` of the same DTOs, #254), and a C ABI (`#[repr(C)]` on types
+  that already qualify) are each one more binding of `Session`, not a new
+  layer in this diagram.

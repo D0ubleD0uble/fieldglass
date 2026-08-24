@@ -82,9 +82,12 @@ classDiagram
 
 ## The two host boundaries after #464
 
-napi keeps its caches (the extension wiggles a picker and expects a free
-repaint). wasm keeps none: the host owns every field it decoded and passes it
-back for render, probe, and contours, so memory is the app's decision.
+Both hosts bind one `Session` in the `fieldglass` umbrella crate (ADR-0006);
+their DTOs are derived from its serde types, and only the buffer handoff is
+hand-written. napi keeps its caches (the extension wiggles a picker and
+expects a free repaint). wasm keeps none: the host owns every field it
+decoded and passes it back for render, probe, and contours, so memory is the
+app's decision.
 
 ```mermaid
 classDiagram
@@ -121,8 +124,16 @@ classDiagram
         +bool periodic_x
         +scan flags
     }
-    Grib2Handle *-- Grib2Reader
-    WasmHandle *-- Grib2Reader
+    class Session {
+        <<planned #464, crate fieldglass>>
+        +open(bytes)
+        +message(i)
+        +decode(i, opts) Field
+        +warp / render / probe / contours / overlay / csv
+    }
+    Grib2Handle *-- Session
+    WasmHandle *-- Session
+    Session *-- Grib2Reader
     Grib2Handle ..> MessageMeta : view of GridGeometry
     Grib2Handle ..> RenderedGrid
     WasmHandle ..> Field : host owns
