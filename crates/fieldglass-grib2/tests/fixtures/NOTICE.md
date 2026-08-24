@@ -597,3 +597,28 @@ is claimed by exactly one concept block, so eccodes has nothing else to match.
 That was confirmed rather than assumed: regenerating both snapshots against
 `regular_latlon_surface.grib2`, whose `typeOfFirstFixedSurface` differs from
 the base above, reproduces all 3,039 entries unchanged.
+
+## `transverse_mercator_ukv.grib2`
+
+Synthetic, built by `tools/build_grib2_transverse_mercator_fixture.py`. GDS
+template **3.12** (transverse Mercator) on a 24 x 30 grid at 48 km, carrying the
+British National Grid parameters a real Met Office UKV message carries — 49degN
+2degW, scale factor 0.9996012717, 400 km / -100 km false origin, Airy 1830
+declared as `shapeOfTheEarth = 3` — over the same extent as the UKV domain. The
+values are a temperature ramp, so a transposed or flipped raster cannot pass.
+
+Hand-built because eccodes ships no §3.12 sample and real UKV GRIB is not
+redistributable. Encoded with the eccodes **2.48** Python wheel, which is the
+only interface that can set the template's IEEE-float scale factor and its four
+signed corner coordinates; the pinned 2.34.1 CLI reads every key back, and that
+is what `transverse_mercator_ukv.grib2.eccodes.ref.json` pins.
+
+**eccodes is not the geolocation oracle for this fixture, at any version.** It
+ships no transverse-Mercator geoiterator: `codes_grib_iterator_new` on a §3.12
+message answers "Function not yet implemented" at 2.34.1 and still at 2.48, so
+`grib_get_data` cannot report latitudes and longitudes for it the way it does
+for Lambert or space view. The projection is checked against **PROJ 9.4.0**
+instead, in `fieldglass-core/src/projection.rs` — `cs2cs` from the equivalent
+`+proj=tmerc` definition to `+proj=longlat` on the *same* spheroid, so no datum
+shift enters the comparison. eccodes remains the oracle for the message's
+metadata and for its decoded values.

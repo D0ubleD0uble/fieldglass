@@ -5,7 +5,8 @@ use fieldglass_core::{
     GeostationaryProjector, LambertParams, LambertProjector, LatLonParams, MercatorParams,
     Mollweide, Orthographic, PlanarGridProjector, PolarStereoParams, PolarStereoProjector,
     PolarStereographic, ProjectedPolylines, Resampling, Robinson, RotatedLatLonParams,
-    RotatedLatLonProjector, SourceGrid, SourceOverlayTarget, TargetRaster, WebMercator,
+    RotatedLatLonProjector, SourceGrid, SourceOverlayTarget, TargetRaster,
+    TransverseMercatorParams, TransverseMercatorProjector, WebMercator,
     cct_tables::lookup_sub_centre,
     colormap::{Colormap, ScaleMode, min_max_ignoring_mask, paint_grid_rgba},
     combine_fields,
@@ -143,6 +144,32 @@ pub struct MessageMeta {
     /// `true` ⇒ south-pole projection, `false` ⇒ north-pole.
     pub polar_stereo_south_pole: Option<bool>,
     // -------------------------------------------------------------------
+    // Transverse Mercator projection parameters (GRIB2 §3.12 only; `None`
+    // for every other grid type). Unlike Lambert and polar stereographic,
+    // §3.12 states the grid origin in the projection plane rather than as a
+    // corner latitude and longitude, so `x1`/`y1` travel with the rest — and
+    // both semi-axes travel rather than `earth_radius_metres`, because the
+    // projection runs on the spheroid (see `TransverseMercatorParams`).
+    // -------------------------------------------------------------------
+    /// Semi-major and semi-minor axes in metres, as the message declares them.
+    pub transverse_mercator_semi_major_metres: Option<f64>,
+    pub transverse_mercator_semi_minor_metres: Option<f64>,
+    /// Reference point (`LaR`, `LoR`) in degrees; `lon_ref` is the central
+    /// meridian.
+    pub transverse_mercator_lat_ref: Option<f64>,
+    pub transverse_mercator_lon_ref: Option<f64>,
+    /// Scale factor at the central meridian (`m`).
+    pub transverse_mercator_scale_factor: Option<f64>,
+    /// False easting and northing (`XR`, `YR`) in metres.
+    pub transverse_mercator_false_easting_metres: Option<f64>,
+    pub transverse_mercator_false_northing_metres: Option<f64>,
+    /// First scanned grid point (`X1`, `Y1`) in projection metres.
+    pub transverse_mercator_x1_metres: Option<f64>,
+    pub transverse_mercator_y1_metres: Option<f64>,
+    /// Grid spacing in metres, carrying the scanning-mode sign.
+    pub transverse_mercator_dx_metres: Option<f64>,
+    pub transverse_mercator_dy_metres: Option<f64>,
+    // -------------------------------------------------------------------
     // Rotated latitude/longitude projection parameters (only populated for
     // GRIB2 §3.1 rotated lat/lon grids; `None` for every other grid type).
     // The grid's corner coordinates (lat/lon first/last) are in the rotated
@@ -229,7 +256,13 @@ fn grid_is_reprojectable(
         // Space view carries its scan-angle increments through the same
         // planar spacing slots; an orthographic view (no camera altitude)
         // leaves them `None` and so does not reproject.
-        Some("lambert") | Some("polar_stereo") | Some("space_view") => {
+        // Transverse Mercator joins them: its scan sign is baked into the
+        // spacings the same way, and §3.12 states its origin in the plane, so
+        // an i-negative scan is already accounted for rather than unsupported.
+        Some("lambert")
+        | Some("polar_stereo")
+        | Some("space_view")
+        | Some("transverse_mercator") => {
             matches!((planar_dx, planar_dy), (Some(dx), Some(dy)) if dx != 0.0 && dy != 0.0)
         }
         _ => false,
@@ -472,6 +505,17 @@ fn build_grib1_message_meta(
         polar_stereo_dx_metres,
         polar_stereo_dy_metres,
         polar_stereo_south_pole,
+        transverse_mercator_semi_major_metres: None,
+        transverse_mercator_semi_minor_metres: None,
+        transverse_mercator_lat_ref: None,
+        transverse_mercator_lon_ref: None,
+        transverse_mercator_scale_factor: None,
+        transverse_mercator_false_easting_metres: None,
+        transverse_mercator_false_northing_metres: None,
+        transverse_mercator_x1_metres: None,
+        transverse_mercator_y1_metres: None,
+        transverse_mercator_dx_metres: None,
+        transverse_mercator_dy_metres: None,
         rotated_south_pole_lat,
         rotated_south_pole_lon,
         rotated_angle_of_rotation,
@@ -741,6 +785,59 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
         fieldglass_grib2::GridTemplate::Lambert(t) => Some(t),
         _ => None,
     };
+
+    let transverse_mercator = match &msg.gds.template {
+        fieldglass_grib2::GridTemplate::TransverseMercator(t) => Some(t),
+        _ => None,
+    };
+    // §3.12 stores Di/Dj as unsigned magnitudes like the other planar
+    // templates, so the scan sign goes in the same way — but its origin is
+    // `X1`/`Y1` in the projection plane, not a corner latitude, so there is no
+    // forward projection between the message and the projector.
+    let transverse_mercator_inc = transverse_mercator.map(|t| {
+        signed_grid_increments(
+            t.di_metres,
+            t.dj_metres,
+            t.scanning_mode & 0x80 != 0,
+            t.scanning_mode & 0x40 != 0,
+        )
+    });
+    // `GridDefinitionSection::bounds` reports `None` for §3.12 because the
+    // template has no corner latitudes to report. The message table still
+    // wants them, and here they are computable: invert the first and last
+    // scanned points through the projection. Skipped for a grid the projector
+    // rejects, which would otherwise report `NaN` corners.
+    let transverse_mercator_corners =
+        transverse_mercator
+            .zip(transverse_mercator_inc)
+            .and_then(|(t, (dx, dy))| {
+                let projector = TransverseMercatorProjector::new(TransverseMercatorParams {
+                    semi_major_m: t.earth_major_m,
+                    semi_minor_m: t.earth_minor_m,
+                    ni: t.ni,
+                    nj: t.nj,
+                    lat_ref: t.lat_ref,
+                    lon_ref: t.lon_ref,
+                    scale_factor: t.scale_factor,
+                    false_easting_m: t.false_easting_m,
+                    false_northing_m: t.false_northing_m,
+                    x1_metres: t.x1_metres,
+                    y1_metres: t.y1_metres,
+                    dx_metres: dx,
+                    dy_metres: dy,
+                });
+                if !projector.is_well_defined() {
+                    return None;
+                }
+                let (lat_first, lon_first) = projector.grid_point_lonlat(0, 0);
+                let (lat_last, lon_last) = projector.last_grid_point_lonlat();
+                Some((
+                    lat_first,
+                    normalise_lon(lon_first),
+                    lat_last,
+                    normalise_lon(lon_last),
+                ))
+            });
     let lambert_lad = lambert.map(|t| t.lad);
     let lambert_lov = lambert.map(|t| t.lov);
     // GRIB2 §3.30 stores Dx/Dy as unsigned magnitudes; bake the scan sign in
@@ -790,6 +887,13 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
 
     // §3.90 space view: reconstruct the scan-angle grid for the geostationary
     // warp (sub-satellite point, ellipsoid, camera height, scan increments).
+    // Offer the spacings to the reprojectable check only when the projection
+    // is actually usable. A §3.12 message declaring a nonsense spheroid has
+    // perfectly good `Di`/`Dj`, so spacing alone would advertise a reprojection
+    // that resolves no point and paints an empty raster.
+    let transverse_mercator_reprojectable_inc =
+        transverse_mercator_corners.and(transverse_mercator_inc);
+
     let space_view = match &msg.gds.template {
         fieldglass_grib2::GridTemplate::SpaceView(t) => space_view_scan_grid(t),
         _ => None,
@@ -818,10 +922,12 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
         polar_stereo_inc
             .map(|(dx, _)| dx)
             .or(lambert_dx_metres)
+            .or(transverse_mercator_reprojectable_inc.map(|(dx, _)| dx))
             .or(space_view.map(|g| g.dx_rad)),
         polar_stereo_inc
             .map(|(_, dy)| dy)
             .or(lambert_dy_metres)
+            .or(transverse_mercator_reprojectable_inc.map(|(_, dy)| dy))
             .or(space_view.map(|g| g.dy_rad)),
         i_scan_negative,
     );
@@ -844,10 +950,18 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
         grid_type: Some(grid_type),
         grid_ni: dims.map(|(ni, _)| ni as i32),
         grid_nj: dims.map(|(_, nj)| nj as i32),
-        lat_first: bounds.map(|(la1, _, _, _)| la1),
-        lon_first: bounds.map(|(_, lo1, _, _)| lo1),
-        lat_last: bounds.map(|(_, _, la2, _)| la2),
-        lon_last: bounds.map(|(_, _, _, lo2)| lo2),
+        lat_first: transverse_mercator_corners
+            .map(|(la1, _, _, _)| la1)
+            .or_else(|| bounds.map(|(la1, _, _, _)| la1)),
+        lon_first: transverse_mercator_corners
+            .map(|(_, lo1, _, _)| lo1)
+            .or_else(|| bounds.map(|(_, lo1, _, _)| lo1)),
+        lat_last: transverse_mercator_corners
+            .map(|(_, _, la2, _)| la2)
+            .or_else(|| bounds.map(|(_, _, la2, _)| la2)),
+        lon_last: transverse_mercator_corners
+            .map(|(_, _, _, lo2)| lo2)
+            .or_else(|| bounds.map(|(_, _, _, lo2)| lo2)),
         format: "grib2".to_string(),
         edition: Some(i32::from(msg.is.edition)),
         discipline: Some(lookup_discipline(msg.is.discipline).to_string()),
@@ -867,6 +981,17 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
         polar_stereo_dx_metres: polar_stereo_inc.map(|(dx, _)| dx),
         polar_stereo_dy_metres: polar_stereo_inc.map(|(_, dy)| dy),
         polar_stereo_south_pole: polar_stereo.map(|t| t.south_pole),
+        transverse_mercator_semi_major_metres: transverse_mercator.map(|t| t.earth_major_m),
+        transverse_mercator_semi_minor_metres: transverse_mercator.map(|t| t.earth_minor_m),
+        transverse_mercator_lat_ref: transverse_mercator.map(|t| t.lat_ref),
+        transverse_mercator_lon_ref: transverse_mercator.map(|t| t.lon_ref),
+        transverse_mercator_scale_factor: transverse_mercator.map(|t| t.scale_factor),
+        transverse_mercator_false_easting_metres: transverse_mercator.map(|t| t.false_easting_m),
+        transverse_mercator_false_northing_metres: transverse_mercator.map(|t| t.false_northing_m),
+        transverse_mercator_x1_metres: transverse_mercator.map(|t| t.x1_metres),
+        transverse_mercator_y1_metres: transverse_mercator.map(|t| t.y1_metres),
+        transverse_mercator_dx_metres: transverse_mercator_inc.map(|(dx, _)| dx),
+        transverse_mercator_dy_metres: transverse_mercator_inc.map(|(_, dy)| dy),
         rotated_south_pole_lat,
         rotated_south_pole_lon,
         rotated_angle_of_rotation,
@@ -2855,6 +2980,17 @@ fn base_netcdf_meta(name: &str, units: &str, ni: i32, nj: i32) -> MessageMeta {
         polar_stereo_dx_metres: None,
         polar_stereo_dy_metres: None,
         polar_stereo_south_pole: None,
+        transverse_mercator_semi_major_metres: None,
+        transverse_mercator_semi_minor_metres: None,
+        transverse_mercator_lat_ref: None,
+        transverse_mercator_lon_ref: None,
+        transverse_mercator_scale_factor: None,
+        transverse_mercator_false_easting_metres: None,
+        transverse_mercator_false_northing_metres: None,
+        transverse_mercator_x1_metres: None,
+        transverse_mercator_y1_metres: None,
+        transverse_mercator_dx_metres: None,
+        transverse_mercator_dy_metres: None,
         rotated_south_pole_lat: None,
         rotated_south_pole_lon: None,
         rotated_angle_of_rotation: None,
@@ -3369,6 +3505,17 @@ struct GridGeometry<'a> {
     polar_stereo_dx_metres: &'a Option<f64>,
     polar_stereo_dy_metres: &'a Option<f64>,
     polar_stereo_south_pole: &'a Option<bool>,
+    transverse_mercator_semi_major_metres: &'a Option<f64>,
+    transverse_mercator_semi_minor_metres: &'a Option<f64>,
+    transverse_mercator_lat_ref: &'a Option<f64>,
+    transverse_mercator_lon_ref: &'a Option<f64>,
+    transverse_mercator_scale_factor: &'a Option<f64>,
+    transverse_mercator_false_easting_metres: &'a Option<f64>,
+    transverse_mercator_false_northing_metres: &'a Option<f64>,
+    transverse_mercator_x1_metres: &'a Option<f64>,
+    transverse_mercator_y1_metres: &'a Option<f64>,
+    transverse_mercator_dx_metres: &'a Option<f64>,
+    transverse_mercator_dy_metres: &'a Option<f64>,
     rotated_south_pole_lat: &'a Option<f64>,
     rotated_south_pole_lon: &'a Option<f64>,
     rotated_angle_of_rotation: &'a Option<f64>,
@@ -3416,6 +3563,17 @@ impl MessageMeta {
             polar_stereo_dx_metres,
             polar_stereo_dy_metres,
             polar_stereo_south_pole,
+            transverse_mercator_semi_major_metres,
+            transverse_mercator_semi_minor_metres,
+            transverse_mercator_lat_ref,
+            transverse_mercator_lon_ref,
+            transverse_mercator_scale_factor,
+            transverse_mercator_false_easting_metres,
+            transverse_mercator_false_northing_metres,
+            transverse_mercator_x1_metres,
+            transverse_mercator_y1_metres,
+            transverse_mercator_dx_metres,
+            transverse_mercator_dy_metres,
             rotated_south_pole_lat,
             rotated_south_pole_lon,
             rotated_angle_of_rotation,
@@ -3476,6 +3634,17 @@ impl MessageMeta {
             polar_stereo_dx_metres,
             polar_stereo_dy_metres,
             polar_stereo_south_pole,
+            transverse_mercator_semi_major_metres,
+            transverse_mercator_semi_minor_metres,
+            transverse_mercator_lat_ref,
+            transverse_mercator_lon_ref,
+            transverse_mercator_scale_factor,
+            transverse_mercator_false_easting_metres,
+            transverse_mercator_false_northing_metres,
+            transverse_mercator_x1_metres,
+            transverse_mercator_y1_metres,
+            transverse_mercator_dx_metres,
+            transverse_mercator_dy_metres,
             rotated_south_pole_lat,
             rotated_south_pole_lon,
             rotated_angle_of_rotation,
@@ -3995,6 +4164,7 @@ fn warp_setup_for(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetu
         "rotated_latlon" => rotated_latlon_warp_setup(meta, ni, nj),
         "lambert" => lambert_warp_setup(meta, ni, nj),
         "polar_stereo" => polar_stereo_warp_setup(meta, ni, nj),
+        "transverse_mercator" => transverse_mercator_warp_setup(meta, ni, nj),
         "space_view" => geostationary_warp_setup(meta, ni, nj),
         other => Err(napi::Error::from_reason(format!(
             "reprojection not yet supported for grid type {other:?}"
@@ -4723,6 +4893,59 @@ fn polar_stereo_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result
     Ok((inverse, bbox))
 }
 
+fn transverse_mercator_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
+    let p = TransverseMercatorParams {
+        semi_major_m: require_f64(
+            meta.transverse_mercator_semi_major_metres,
+            "transverseMercatorSemiMajorMetres",
+        )?,
+        semi_minor_m: require_f64(
+            meta.transverse_mercator_semi_minor_metres,
+            "transverseMercatorSemiMinorMetres",
+        )?,
+        ni,
+        nj,
+        lat_ref: require_f64(meta.transverse_mercator_lat_ref, "transverseMercatorLatRef")?,
+        lon_ref: require_f64(meta.transverse_mercator_lon_ref, "transverseMercatorLonRef")?,
+        scale_factor: require_nonzero_spacing(
+            meta.transverse_mercator_scale_factor,
+            "transverseMercatorScaleFactor",
+        )?,
+        false_easting_m: require_f64(
+            meta.transverse_mercator_false_easting_metres,
+            "transverseMercatorFalseEastingMetres",
+        )?,
+        false_northing_m: require_f64(
+            meta.transverse_mercator_false_northing_metres,
+            "transverseMercatorFalseNorthingMetres",
+        )?,
+        x1_metres: require_f64(
+            meta.transverse_mercator_x1_metres,
+            "transverseMercatorX1Metres",
+        )?,
+        y1_metres: require_f64(
+            meta.transverse_mercator_y1_metres,
+            "transverseMercatorY1Metres",
+        )?,
+        dx_metres: require_nonzero_spacing(
+            meta.transverse_mercator_dx_metres,
+            "transverseMercatorDxMetres",
+        )?,
+        dy_metres: require_nonzero_spacing(
+            meta.transverse_mercator_dy_metres,
+            "transverseMercatorDyMetres",
+        )?,
+    };
+
+    let projector = TransverseMercatorProjector::new(p);
+    let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
+        Box::new(move |lat, lon| projector.inverse(lat, lon));
+    // Same antimeridian-aware four-corner walk as `lambert_warp_setup`; built
+    // lazily, only for a box target.
+    let bbox: BboxThunk = Box::new(move || TransverseMercatorProjector::new(p).lonlat_bbox());
+    Ok((inverse, bbox))
+}
+
 fn geostationary_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
     let p = GeostationaryParams {
         ni,
@@ -5220,6 +5443,17 @@ mod polar_stereo_warp_tests {
             polar_stereo_dx_metres: Some(60_000.0),
             polar_stereo_dy_metres: Some(60_000.0),
             polar_stereo_south_pole: Some(false),
+            transverse_mercator_semi_major_metres: None,
+            transverse_mercator_semi_minor_metres: None,
+            transverse_mercator_lat_ref: None,
+            transverse_mercator_lon_ref: None,
+            transverse_mercator_scale_factor: None,
+            transverse_mercator_false_easting_metres: None,
+            transverse_mercator_false_northing_metres: None,
+            transverse_mercator_x1_metres: None,
+            transverse_mercator_y1_metres: None,
+            transverse_mercator_dx_metres: None,
+            transverse_mercator_dy_metres: None,
             rotated_south_pole_lat: None,
             rotated_south_pole_lon: None,
             rotated_angle_of_rotation: None,
@@ -5738,6 +5972,17 @@ mod polar_stereo_warp_tests {
             lon_first: Some(0.0),
             lat_last: Some(0.0),
             lon_last: Some(30.0),
+            transverse_mercator_semi_major_metres: None,
+            transverse_mercator_semi_minor_metres: None,
+            transverse_mercator_lat_ref: None,
+            transverse_mercator_lon_ref: None,
+            transverse_mercator_scale_factor: None,
+            transverse_mercator_false_easting_metres: None,
+            transverse_mercator_false_northing_metres: None,
+            transverse_mercator_x1_metres: None,
+            transverse_mercator_y1_metres: None,
+            transverse_mercator_dx_metres: None,
+            transverse_mercator_dy_metres: None,
             rotated_south_pole_lat: Some(0.0),
             rotated_south_pole_lon: Some(0.0),
             rotated_angle_of_rotation: Some(0.0),
@@ -5925,6 +6170,21 @@ mod reprojectable_tests {
             false
         ));
         assert!(!grid_is_reprojectable(Some("lambert"), None, None, false));
+        // Transverse Mercator joins the planar family: usable spacings
+        // reproject, and an i-negative scan is fine because the sign is baked
+        // into them.
+        assert!(grid_is_reprojectable(
+            Some("transverse_mercator"),
+            Some(-48_000.0),
+            Some(-48_000.0),
+            true
+        ));
+        assert!(!grid_is_reprojectable(
+            Some("transverse_mercator"),
+            None,
+            None,
+            false
+        ));
         // Orthographic space view (no camera altitude) leaves the increments
         // unset, so it does not reproject.
         assert!(!grid_is_reprojectable(
@@ -6079,6 +6339,17 @@ mod overlay_projection_tests {
             polar_stereo_dx_metres: None,
             polar_stereo_dy_metres: None,
             polar_stereo_south_pole: None,
+            transverse_mercator_semi_major_metres: None,
+            transverse_mercator_semi_minor_metres: None,
+            transverse_mercator_lat_ref: None,
+            transverse_mercator_lon_ref: None,
+            transverse_mercator_scale_factor: None,
+            transverse_mercator_false_easting_metres: None,
+            transverse_mercator_false_northing_metres: None,
+            transverse_mercator_x1_metres: None,
+            transverse_mercator_y1_metres: None,
+            transverse_mercator_dx_metres: None,
+            transverse_mercator_dy_metres: None,
             rotated_south_pole_lat: None,
             rotated_south_pole_lon: None,
             rotated_angle_of_rotation: None,
@@ -7650,6 +7921,17 @@ mod space_view_geos_tests {
             polar_stereo_dx_metres: None,
             polar_stereo_dy_metres: None,
             polar_stereo_south_pole: None,
+            transverse_mercator_semi_major_metres: None,
+            transverse_mercator_semi_minor_metres: None,
+            transverse_mercator_lat_ref: None,
+            transverse_mercator_lon_ref: None,
+            transverse_mercator_scale_factor: None,
+            transverse_mercator_false_easting_metres: None,
+            transverse_mercator_false_northing_metres: None,
+            transverse_mercator_x1_metres: None,
+            transverse_mercator_y1_metres: None,
+            transverse_mercator_dx_metres: None,
+            transverse_mercator_dy_metres: None,
             rotated_south_pole_lat: None,
             rotated_south_pole_lon: None,
             rotated_angle_of_rotation: None,

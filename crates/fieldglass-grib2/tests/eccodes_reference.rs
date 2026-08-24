@@ -80,6 +80,9 @@ fn assert_message_matches(
                 GridTemplate::LatLon(t) => check_u64(key, expected, t.shape_of_earth as u64),
                 GridTemplate::RotatedLatLon(t) => check_u64(key, expected, t.shape_of_earth as u64),
                 GridTemplate::Mercator(t) => check_u64(key, expected, t.shape_of_earth as u64),
+                GridTemplate::TransverseMercator(t) => {
+                    check_u64(key, expected, t.shape_of_earth as u64)
+                }
                 GridTemplate::PolarStereographic(t) => {
                     check_u64(key, expected, t.shape_of_earth as u64)
                 }
@@ -583,5 +586,18 @@ fn ecmwf_ccsds_latlon_matches_eccodes() {
     assert_fixture_matches_snapshot(
         "ecmwf_ccsds_latlon.grib2",
         &read_fixture("ecmwf_ccsds_latlon.grib2"),
+    );
+}
+
+/// The §3.12 fixture's metadata, cross-checked against eccodes' own decode of
+/// it. eccodes cannot geolocate a transverse Mercator message — it ships no
+/// iterator for the template — but it reads every §1/§3/§4 key, which is what
+/// this pins. The projection itself is checked against PROJ in
+/// `fieldglass-core`.
+#[test]
+fn transverse_mercator_ukv_matches_eccodes() {
+    assert_fixture_matches_snapshot(
+        "transverse_mercator_ukv.grib2",
+        include_bytes!("fixtures/transverse_mercator_ukv.grib2"),
     );
 }

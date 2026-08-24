@@ -97,6 +97,7 @@ classDiagram
 
     PlanarGridProjector <|.. LambertProjector
     PlanarGridProjector <|.. PolarStereoProjector
+    PlanarGridProjector <|.. TransverseMercatorProjector
 
     PreparedTarget --|> ForwardMap : requires (supertrait)
 ```

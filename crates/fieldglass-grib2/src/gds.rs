@@ -48,6 +48,24 @@ fn read_metre_increment(bytes: &[u8]) -> f64 {
     raw as f64 / 1.0e3
 }
 
+/// Convert a 4-byte sign-magnitude projection coordinate in units of 10^-2 m
+/// (§3.12's `XR`, `YR`, `X1`, `Y1`, `X2`, `Y2`) to metres.
+///
+/// Two things differ from [`read_metre_increment`], and both bite: the divisor
+/// is a hundred rather than a thousand, and the field is signed. A real UKV
+/// message carries `X1 = 0x816b28c0`, which read as unsigned is +2.17e7 m
+/// rather than -238 000 m — a grid placed a third of the way round the planet.
+fn read_signed_centimetres(bytes: &[u8]) -> f64 {
+    let raw = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+    sign_magnitude_to_i64(raw, 32) as f64 / 1.0e2
+}
+
+/// Convert a 4-byte unsigned grid increment in units of 10^-2 m to metres.
+fn read_centimetre_increment(bytes: &[u8]) -> f64 {
+    let raw = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+    raw as f64 / 1.0e2
+}
+
 fn read_u32_or_missing(bytes: &[u8]) -> Option<u32> {
     let raw = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
     if raw == U32_MISSING { None } else { Some(raw) }
@@ -343,6 +361,55 @@ pub struct BiFourierTemplate {
     pub truncation_type: u8,
 }
 
+/// Template 3.12 — transverse Mercator. The UTM / British National Grid
+/// construction: the projection cylinder wraps along a meridian rather than
+/// the equator, with a scale factor at that meridian and false easting and
+/// northing offsets.
+///
+/// Three things make it unlike the other projected templates in this module:
+///
+/// * The grid corners are **projection coordinates in metres** (`X1`..`Y2`),
+///   not latitudes and longitudes, so [`GridDefinitionSection::bounds`]
+///   reports the reference point and its offsets instead.
+/// * Every linear field is in units of 10^-2 m, where 3.10/3.20/3.30 use
+///   10^-3 m, and all but `Di`/`Dj` are signed.
+/// * The scale factor is an IEEE 32-bit float rather than a scaled integer,
+///   so it is the message, not this parser, that rounds `0.9996012717` to
+///   `0.99960124`.
+#[derive(Debug, Clone, Copy)]
+pub struct TransverseMercatorTemplate {
+    pub shape_of_earth: u8,
+    /// Semi-major and semi-minor axes in metres, from [`resolve_earth_shape`].
+    /// Both are carried rather than a single mean radius: the Krüger series
+    /// this feeds is exact on the spheroid and degenerates to the spherical
+    /// formulae when they are equal, so there is nothing to gain by averaging
+    /// them first — and a UKV grid on Airy 1830 lands about 2.8 km out if you
+    /// do.
+    pub earth_major_m: f64,
+    pub earth_minor_m: f64,
+    pub ni: u32,
+    pub nj: u32,
+    /// `LaR` / `LoR` — the reference point the cylinder is tangent at, in
+    /// degrees. Both are sign-magnitude, longitude included.
+    pub lat_ref: f64,
+    pub lon_ref: f64,
+    pub resolution_flags: u8,
+    /// `m` — scale factor at the reference meridian.
+    pub scale_factor: f64,
+    /// `XR` / `YR` — false easting and northing in metres.
+    pub false_easting_m: f64,
+    pub false_northing_m: f64,
+    pub scanning_mode: u8,
+    /// `Di` / `Dj` — grid spacing in metres.
+    pub di_metres: f64,
+    pub dj_metres: f64,
+    /// `X1`..`Y2` — first and last grid point in projection metres.
+    pub x1_metres: f64,
+    pub y1_metres: f64,
+    pub x2_metres: f64,
+    pub y2_metres: f64,
+}
+
 /// Parsed template payload. Templates outside the supported set surface as
 /// `Unsupported` so callers can still expose section-header fields and a
 /// useful name without erroring out.
@@ -351,6 +418,7 @@ pub enum GridTemplate {
     LatLon(LatLonTemplate),
     RotatedLatLon(RotatedLatLonTemplate),
     Mercator(MercatorTemplate),
+    TransverseMercator(TransverseMercatorTemplate),
     PolarStereographic(PolarStereographicTemplate),
     Lambert(LambertTemplate),
     Gaussian(GaussianTemplate),
@@ -380,6 +448,7 @@ impl GridDefinitionSection {
             GridTemplate::LatLon(t) => Some((t.ni, t.nj)),
             GridTemplate::RotatedLatLon(t) => Some((t.ni, t.nj)),
             GridTemplate::Mercator(t) => Some((t.ni, t.nj)),
+            GridTemplate::TransverseMercator(t) => Some((t.ni, t.nj)),
             GridTemplate::PolarStereographic(t) => Some((t.nx, t.ny)),
             GridTemplate::Lambert(t) => Some((t.nx, t.ny)),
             GridTemplate::Gaussian(t) => t.ni.map(|ni| (ni, t.nj)),
@@ -400,6 +469,7 @@ impl GridDefinitionSection {
             GridTemplate::LatLon(t) => Some(t.scanning_mode),
             GridTemplate::RotatedLatLon(t) => Some(t.scanning_mode),
             GridTemplate::Mercator(t) => Some(t.scanning_mode),
+            GridTemplate::TransverseMercator(t) => Some(t.scanning_mode),
             GridTemplate::PolarStereographic(t) => Some(t.scanning_mode),
             GridTemplate::Lambert(t) => Some(t.scanning_mode),
             GridTemplate::Gaussian(t) => Some(t.scanning_mode),
@@ -421,6 +491,14 @@ impl GridDefinitionSection {
             GridTemplate::LatLon(t) => Some((t.la1, t.lo1, t.la2, t.lo2)),
             GridTemplate::RotatedLatLon(t) => Some((t.la1, t.lo1, t.la2, t.lo2)),
             GridTemplate::Mercator(t) => Some((t.la1, t.lo1, t.la2, t.lo2)),
+            // Transverse Mercator carries no corner latitudes at all — `X1`
+            // and `Y1` are projection metres — and unlike Lambert and polar
+            // stereographic below, substituting the projection parameters
+            // would put a false easting of 400 000 in a field the message
+            // table prints as a longitude. Callers that want its corners
+            // invert them through `TransverseMercatorProjector`, the same way
+            // space view derives its own.
+            GridTemplate::TransverseMercator(_) => None,
             GridTemplate::PolarStereographic(t) => Some((t.la1, t.lo1, t.lad, t.lov)),
             GridTemplate::Lambert(t) => Some((t.la1, t.lo1, t.lad, t.lov)),
             GridTemplate::Gaussian(t) => Some((t.la1, t.lo1, t.la2, t.lo2)),
@@ -438,6 +516,7 @@ impl GridDefinitionSection {
             GridTemplate::LatLon(_) => "latlon".to_string(),
             GridTemplate::RotatedLatLon(_) => "rotated_latlon".to_string(),
             GridTemplate::Mercator(_) => "mercator".to_string(),
+            GridTemplate::TransverseMercator(_) => "transverse_mercator".to_string(),
             GridTemplate::PolarStereographic(_) => "polar_stereo".to_string(),
             GridTemplate::Lambert(_) => "lambert".to_string(),
             GridTemplate::Gaussian(_) => "gaussian".to_string(),
@@ -543,6 +622,7 @@ pub fn parse_grid_definition_with_header(
         0 => GridTemplate::LatLon(parse_template_3_0(payload)?),
         1 => GridTemplate::RotatedLatLon(parse_template_3_1(payload)?),
         10 => GridTemplate::Mercator(parse_template_3_10(payload)?),
+        12 => GridTemplate::TransverseMercator(parse_template_3_12(payload)?),
         20 => GridTemplate::PolarStereographic(parse_template_3_20(payload)?),
         30 => GridTemplate::Lambert(parse_template_3_30(payload)?),
         40 => GridTemplate::Gaussian(parse_template_3_40(payload, optional_list_octet_size)?),
@@ -659,6 +739,47 @@ fn parse_template_3_10(p: &[u8]) -> Result<MercatorTemplate, FieldglassError> {
         orientation: read_lon_degrees(&p[46..50]),
         di_metres: read_metre_increment(&p[50..54]),
         dj_metres: read_metre_increment(&p[54..58]),
+    })
+}
+
+/// Template 3.12 payload starts at GDS octet 15. Payload length = 70 bytes
+/// (octets 15..=84 of the section), which is why a §3.12 GDS is 84 octets long.
+///
+/// The offsets are those of `grib2/template.3.12.def`, checked against an
+/// eccodes-encoded message rather than counted off the WMO table: shape of the
+/// earth occupies `p[0..16]`, then Ni, Nj, `LaR`, `LoR`, the resolution flags,
+/// the IEEE scale factor, `XR`, `YR`, the scanning mode, `Di`, `Dj`, and the
+/// four corner coordinates.
+fn parse_template_3_12(p: &[u8]) -> Result<TransverseMercatorTemplate, FieldglassError> {
+    if p.len() < 70 {
+        return Err(FieldglassError::Parse(format!(
+            "GDS template 3.12 needs 70 bytes of payload, got {}",
+            p.len()
+        )));
+    }
+    let (major, minor) = resolve_earth_shape(p);
+    Ok(TransverseMercatorTemplate {
+        shape_of_earth: p[0],
+        earth_major_m: major,
+        earth_minor_m: minor,
+        ni: u32::from_be_bytes([p[16], p[17], p[18], p[19]]),
+        nj: u32::from_be_bytes([p[20], p[21], p[22], p[23]]),
+        lat_ref: read_lat_degrees(&p[24..28]),
+        // `read_lat_degrees` for a longitude on purpose: §3.12 declares `LoR`
+        // signed, and a UKV message really does carry -2° as `0x801e8480`.
+        // Reading it unsigned gives 2149.48°.
+        lon_ref: read_lat_degrees(&p[28..32]),
+        resolution_flags: p[32],
+        scale_factor: read_ieee_f32(&p[33..37]) as f64,
+        false_easting_m: read_signed_centimetres(&p[37..41]),
+        false_northing_m: read_signed_centimetres(&p[41..45]),
+        scanning_mode: p[45],
+        di_metres: read_centimetre_increment(&p[46..50]),
+        dj_metres: read_centimetre_increment(&p[50..54]),
+        x1_metres: read_signed_centimetres(&p[54..58]),
+        y1_metres: read_signed_centimetres(&p[58..62]),
+        x2_metres: read_signed_centimetres(&p[62..66]),
+        y2_metres: read_signed_centimetres(&p[66..70]),
     })
 }
 

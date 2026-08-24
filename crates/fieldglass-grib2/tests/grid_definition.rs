@@ -1,6 +1,7 @@
 //! Integration coverage for §3 GDS template parsing across the three
 //! fixtures shipped with the crate.
 
+use fieldglass_core::{PlanarGridProjector, TransverseMercatorParams, TransverseMercatorProjector};
 use fieldglass_grib2::{Grib2Reader, GridTemplate, lookup_earth_shape, lookup_grid_template};
 
 const GFS_LATLON: &[u8] = include_bytes!("fixtures/gfs_c255_latlon.grib2");
@@ -8,6 +9,7 @@ const ETA_LAMBERT: &[u8] = include_bytes!("fixtures/eta_lambert_msg0.grib2");
 const ECMWF_GAUSSIAN: &[u8] = include_bytes!("fixtures/reduced_gaussian_pressure_level.grib2");
 const ROTATED_LATLON: &[u8] = include_bytes!("fixtures/rotated_latlon_surface.grib2");
 const POLAR_STEREO: &[u8] = include_bytes!("fixtures/polar_stereographic_surface.grib2");
+const TRANSVERSE_MERCATOR: &[u8] = include_bytes!("fixtures/transverse_mercator_ukv.grib2");
 
 #[test]
 fn gfs_latlon_decodes_template_3_0() {
@@ -153,4 +155,196 @@ fn polar_stereographic_decodes_template_3_20() {
     assert_eq!(msg.gds.dimensions(), Some((16, 31)));
     assert_eq!(msg.gds.template_name(), "polar_stereo");
     assert_eq!(lookup_grid_template(20), "Polar stereographic");
+}
+
+/// §3.12 — transverse Mercator, the template UKV is published on.
+///
+/// The values are asserted against the fixture builder's own inputs rather
+/// than against eccodes' decode of them, because that is where the interesting
+/// failures live: §3.12 units are 10^-2 m where every other planar template
+/// uses 10^-3 m, and all but `Di`/`Dj` are signed sign-magnitude. Reading the
+/// longitude of the reference point unsigned turns -2° into 2149.48°, and
+/// reading `X1` unsigned turns -238 km into +21 700 km — both of which parse
+/// cleanly and place the grid somewhere else entirely.
+#[test]
+fn ukv_decodes_template_3_12() {
+    let reader = Grib2Reader::from_bytes(TRANSVERSE_MERCATOR.to_vec()).expect("parse");
+    let msg = &reader.messages[0];
+
+    assert_eq!(msg.gds.template_number, 12);
+    assert_eq!(msg.gds.num_data_points, 24 * 30);
+    // 14 fixed octets + a 70-byte template payload.
+    assert_eq!(msg.gds.section_length, 84);
+
+    let t = match msg.gds.template {
+        GridTemplate::TransverseMercator(t) => t,
+        other => panic!("expected TransverseMercator, got {other:?}"),
+    };
+
+    assert_eq!(t.ni, 24);
+    assert_eq!(t.nj, 30);
+    assert_eq!(t.scanning_mode, 0);
+
+    // Airy 1830, declared as shape 3 with the axes in km — so they arrive
+    // rounded to the metre, which is the encoder's limit and not ours.
+    assert_eq!(t.shape_of_earth, 3);
+    assert!((t.earth_major_m - 6_377_563.0).abs() < 1e-6);
+    assert!((t.earth_minor_m - 6_356_257.0).abs() < 1e-6);
+
+    // Sign-magnitude, longitude included.
+    assert!((t.lat_ref - 49.0).abs() < 1e-9);
+    assert!(
+        (t.lon_ref - (-2.0)).abs() < 1e-9,
+        "lon_ref was {} — read as unsigned it would be 2149.48",
+        t.lon_ref
+    );
+
+    // The scale factor is an IEEE-32 float on the wire, so 0.9996012717 comes
+    // back as its nearest f32. Asserting the exact stored value rather than the
+    // intended one keeps the test honest about where the rounding happened.
+    assert!((t.scale_factor - 0.999_601_244_926_452_6).abs() < 1e-15);
+
+    // Units of 10^-2 m throughout, signed except the increments.
+    assert!((t.false_easting_m - 400_000.0).abs() < 1e-6);
+    assert!((t.false_northing_m - (-100_000.0)).abs() < 1e-6);
+    assert!((t.di_metres - 48_000.0).abs() < 1e-6);
+    assert!((t.dj_metres - 48_000.0).abs() < 1e-6);
+    assert!((t.x1_metres - (-238_000.0)).abs() < 1e-6);
+    assert!((t.y1_metres - 1_222_000.0).abs() < 1e-6);
+    assert!((t.x2_metres - 866_000.0).abs() < 1e-6);
+    assert!((t.y2_metres - (-170_000.0)).abs() < 1e-6);
+
+    assert_eq!(msg.gds.dimensions(), Some((24, 30)));
+    assert_eq!(msg.gds.scanning_mode(), Some(0));
+    assert_eq!(msg.gds.template_name(), "transverse_mercator");
+    assert_eq!(lookup_grid_template(12), "Transverse Mercator");
+    // §3.12 carries no corner latitudes, and substituting the projection
+    // parameters would put a 400 000 m false easting in a field the message
+    // table prints as a longitude. Corners come from the projector instead.
+    assert_eq!(msg.gds.bounds(), None);
+}
+
+/// The §3.12 fixture's data decodes to what eccodes decodes it to, and does so
+/// in scan order. The values are a ramp on purpose: a constant field survives a
+/// transposed or flipped raster unchanged, so it could not catch the scan-order
+/// mistake a new grid template is most likely to introduce.
+#[test]
+fn ukv_template_3_12_values_match_eccodes() {
+    let reader = Grib2Reader::from_bytes(TRANSVERSE_MERCATOR.to_vec()).expect("parse");
+    let values = reader.decode_message_values(0).expect("decode");
+    assert_eq!(values.len(), 24 * 30);
+
+    // `grib_get_data` at eccodes 2.34.1, points 1, 2, 360 and 720. Quantised to
+    // 16 bits by the encoder, so the tolerance is the quantisation step rather
+    // than float noise.
+    for (index, expected) in [
+        (0usize, 273.149_993_90_f64),
+        (1, 273.177_825_93),
+        (359, 283.122_161_87),
+        (719, 293.122_161_87),
+    ] {
+        let got = values[index].unwrap_or_else(|| panic!("point {index} decoded as missing"));
+        assert!(
+            (got - expected).abs() < 1e-4,
+            "point {index}: got {got}, eccodes says {expected}"
+        );
+    }
+    assert!(
+        values.iter().all(Option::is_some),
+        "the fixture carries no bitmap, so no point may decode as missing"
+    );
+}
+
+/// The §3.12 grid walk lands on the last grid point the message itself
+/// declares.
+///
+/// `X2`/`Y2` are redundant with `X1 + (Ni-1)·Di` and `Y1 ± (Nj-1)·Dj`, which
+/// makes them free oracle: they are the encoder's own statement of where the
+/// scan ends, so walking to a different corner means the scanning-mode sign was
+/// applied the wrong way round. That is the failure a value check cannot see —
+/// the field decodes perfectly and renders upside down.
+#[test]
+fn the_template_3_12_scan_walk_ends_where_the_message_says_it_does() {
+    let reader = Grib2Reader::from_bytes(TRANSVERSE_MERCATOR.to_vec()).expect("parse");
+    let t = match reader.messages[0].gds.template {
+        GridTemplate::TransverseMercator(t) => t,
+        other => panic!("expected TransverseMercator, got {other:?}"),
+    };
+
+    // The same sign convention `fieldglass-napi` applies: §3.12 stores the
+    // increments as unsigned magnitudes and the direction in the scanning mode.
+    let i_scans_negatively = t.scanning_mode & 0x80 != 0;
+    let j_scans_positively = t.scanning_mode & 0x40 != 0;
+    let dx = if i_scans_negatively {
+        -t.di_metres
+    } else {
+        t.di_metres
+    };
+    let dy = if j_scans_positively {
+        t.dj_metres
+    } else {
+        -t.dj_metres
+    };
+
+    let projector = TransverseMercatorProjector::new(TransverseMercatorParams {
+        semi_major_m: t.earth_major_m,
+        semi_minor_m: t.earth_minor_m,
+        ni: t.ni,
+        nj: t.nj,
+        lat_ref: t.lat_ref,
+        lon_ref: t.lon_ref,
+        scale_factor: t.scale_factor,
+        false_easting_m: t.false_easting_m,
+        false_northing_m: t.false_northing_m,
+        x1_metres: t.x1_metres,
+        y1_metres: t.y1_metres,
+        dx_metres: dx,
+        dy_metres: dy,
+    });
+    assert!(projector.is_well_defined());
+
+    let (x2, y2) = projector.grid_corners_xy()[3];
+    assert!(
+        (x2 - t.x2_metres).abs() < 1e-6 && (y2 - t.y2_metres).abs() < 1e-6,
+        "walked to ({x2}, {y2}), message declares ({}, {})",
+        t.x2_metres,
+        t.y2_metres
+    );
+
+    // And the corner geolocations are the ones PROJ 9.4.0 reports for this
+    // grid — the same oracle `fieldglass-core`'s own tests use, repeated here
+    // through the parsed message so the whole chain is covered, not just the
+    // projector.
+    let (lat, lon) = projector.grid_point_lonlat(0, 0);
+    assert!((lat - 60.374_180_125).abs() < 1e-7 && (lon - (-13.611_297_212)).abs() < 1e-7);
+}
+
+/// A §3.12 GDS truncated inside its payload must be rejected, not read past.
+/// §3.12 is the longest of the planar templates at 84 octets, so a producer
+/// that writes a 3.10-sized section and calls it 3.12 is the realistic way to
+/// arrive here.
+#[test]
+fn a_truncated_template_3_12_is_rejected() {
+    // Section header (length, number 3), source, point count, optional-list
+    // octets, template number 12 — then a payload one byte short of the 70
+    // the template needs.
+    let payload_len = 69usize;
+    let section_len = 14 + payload_len;
+    let mut gds = Vec::with_capacity(section_len);
+    gds.extend_from_slice(&(section_len as u32).to_be_bytes());
+    gds.push(3);
+    gds.push(0);
+    gds.extend_from_slice(&720u32.to_be_bytes());
+    gds.push(0);
+    gds.push(0);
+    gds.extend_from_slice(&12u16.to_be_bytes());
+    gds.resize(section_len, 0);
+
+    let err = fieldglass_grib2::parse_grid_definition(&gds)
+        .expect_err("a 70-byte payload cannot fit in 69 bytes");
+    let text = format!("{err}");
+    assert!(
+        text.contains("3.12") && text.contains("70"),
+        "unexpected error: {text}"
+    );
 }
