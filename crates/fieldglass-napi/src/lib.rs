@@ -2525,8 +2525,10 @@ impl NetcdfHandle {
     }
 
     /// Contour isolines for one slice, projected onto the render raster (#238).
-    /// Sibling to [`Grib1Handle::project_contours`]; the slice's synthesised
-    /// `latlon` geometry means NetCDF grids are always contourable.
+    /// Sibling to [`Grib1Handle::project_contours`]. The slice's geometry is
+    /// synthesised from the file's coordinates or projection attributes, so a
+    /// NetCDF grid is contourable wherever that synthesis lands on a geolocated
+    /// family ([`GEOLOCATABLE_GRIDS`]) — every one but a GOES scan-angle grid.
     #[napi]
     pub fn project_contours(
         &self,
@@ -4360,8 +4362,8 @@ fn field_csv(
             let geo = forward_geolocation_for(meta, ni, nj, |gt| {
                 format!(
                     "the long CSV format needs per-point coordinates, which grid type \
-                     {gt:?} doesn't provide (only {GEOLOCATABLE_FAMILIES}); export as the \
-                     Matrix format instead"
+                     {gt:?} doesn't provide (only {}); export as the Matrix format instead",
+                    geolocatable_families()
                 )
             })?;
             Ok(field_to_csv_long(
@@ -4377,26 +4379,64 @@ fn field_csv(
     }
 }
 
-/// The grid families that carry a forward geolocation map, as user-facing
-/// prose — shared by every geolocation-dependent feature's "unsupported grid"
-/// message so they name the same set. (Reduced grids reproject but aren't
-/// geolocated here, so they're deliberately absent.)
-const GEOLOCATABLE_FAMILIES: &str = "regular lat/lon, Mercator, rotated lat/lon, and Gaussian";
+/// The grid types that carry a forward geolocation map, each paired with the
+/// name it goes by in user-facing prose.
+///
+/// One table, two jobs: it is the admission gate in [`forward_geolocation_for`]
+/// *and* the source of every "unsupported grid" message, so the dispatch and the
+/// prose can no longer drift apart the way they did before #470 (contours and
+/// long CSV both refused the planar grids their projectors had geolocated since
+/// #422/#423).
+///
+/// Two families are absent on purpose. Reduced grids widen to a regular raster
+/// for the warp, but placing their *points* needs the per-row longitudes the
+/// widening throws away. Space view (§3.90) has grid points off the disc
+/// entirely, which have no geographic position at all.
+const GEOLOCATABLE_GRIDS: &[(&str, &str)] = &[
+    ("latlon", "regular lat/lon"),
+    ("mercator", "Mercator"),
+    ("rotated_latlon", "rotated lat/lon"),
+    ("gaussian", "Gaussian"),
+    ("lambert", "Lambert conformal"),
+    ("polar_stereo", "polar stereographic"),
+    ("transverse_mercator", "transverse Mercator"),
+    ("lambert_azimuthal", "Lambert azimuthal equal-area"),
+];
+
+/// [`GEOLOCATABLE_GRIDS`] as an Oxford-comma list ("a, b, and c") for the
+/// "unsupported grid" messages.
+fn geolocatable_families() -> String {
+    let names: Vec<&str> = GEOLOCATABLE_GRIDS.iter().map(|(_, name)| *name).collect();
+    match names.split_last() {
+        None => String::new(),
+        Some((last, [])) => (*last).to_string(),
+        Some((last, rest)) => format!("{}, and {last}", rest.join(", ")),
+    }
+}
 
 /// Build the per-grid forward geolocation closure `(i, j) → (lat, lon)` for a
-/// grid whose family is geolocated (the lat/lon family). `unsupported` supplies
-/// the caller's own error message for a grid type outside that family, given the
-/// grid-type string — so the shared gate reads "contours not yet supported…" for
-/// the contour path and points long-CSV callers at the Matrix layout, instead of
-/// one feature's hard-coded wording leaking into the others (#337). A legitimate
-/// missing-coordinate error for a *supported* family still surfaces verbatim.
+/// grid whose family is geolocated ([`GEOLOCATABLE_GRIDS`]). `unsupported`
+/// supplies the caller's own error message for a grid type outside that set,
+/// given the grid-type string — so the shared gate reads "contours not yet
+/// supported…" for the contour path and points long-CSV callers at the Matrix
+/// layout, instead of one feature's hard-coded wording leaking into the others
+/// (#337). A legitimate missing-coordinate error for a *supported* family still
+/// surfaces verbatim.
+///
+/// The table is checked before the dispatch rather than left to the fall-through
+/// arm: that way the list the error message reads out is the same list that
+/// decides what is refused.
 fn forward_geolocation_for(
     meta: &MessageMeta,
     ni: u32,
     nj: u32,
     unsupported: impl Fn(&str) -> String,
 ) -> napi::Result<ForwardGeo> {
-    match meta.grid_type.as_deref().unwrap_or("") {
+    let grid_type = meta.grid_type.as_deref().unwrap_or("");
+    if !GEOLOCATABLE_GRIDS.iter().any(|(gt, _)| *gt == grid_type) {
+        return Err(napi::Error::from_reason(unsupported(grid_type)));
+    }
+    match grid_type {
         "latlon" => {
             let p = LatLonParams {
                 ni,
@@ -4451,8 +4491,43 @@ fn forward_geolocation_for(
             let projector = GaussianProjector::new(p);
             Ok(Box::new(move |i, j| projector.grid_point_lonlat(i, j)))
         }
+        // The planar family (#470). Every one of them walks the same
+        // `origin + i·dx` line in projected metres and inverts it, so they share
+        // one wrapper — and they read their parameters through the very helpers
+        // the warp setups use, so a grid can't geolocate one way for the image
+        // and another for the contours drawn over it.
+        "lambert" => Ok(planar_forward(LambertProjector::new(lambert_params(
+            meta, ni, nj,
+        )?))),
+        "polar_stereo" => Ok(planar_forward(PolarStereoProjector::new(
+            polar_stereo_params(meta, ni, nj)?,
+        ))),
+        "transverse_mercator" => Ok(planar_forward(TransverseMercatorProjector::new(
+            transverse_mercator_params(meta, ni, nj)?,
+        ))),
+        "lambert_azimuthal" => Ok(planar_forward(LambertAzimuthalProjector::new(
+            lambert_azimuthal_params(meta, ni, nj)?,
+        ))),
+        // Unreachable: the table gate above admits only the arms listed here.
         other => Err(napi::Error::from_reason(unsupported(other))),
     }
+}
+
+/// Wrap a planar projector as a [`ForwardGeo`], built once and reused for every
+/// grid point.
+///
+/// Two things happen here that the geographic families don't need. Longitudes
+/// are normalised: a planar inverse reports `lov ± 180°`, so the CMC grid
+/// (`lov` = 247°) would otherwise export points at longitude 427. And
+/// non-finite results become `None` — a degenerate cone (Lambert with
+/// `latin1 = −latin2`) inverts to NaN, which would reach a CSV cell as the text
+/// `NaN`; `None` drops the row instead, and drops the contour segment, exactly
+/// as an ungeolocatable point does elsewhere.
+fn planar_forward<P: PlanarGridProjector + 'static>(projector: P) -> ForwardGeo {
+    Box::new(move |i, j| {
+        let (lat, lon) = projector.grid_point_lonlat(i, j);
+        (lat.is_finite() && lon.is_finite()).then(|| (lat, normalise_lon(lon)))
+    })
 }
 
 /// `(lat, lon)` of a fractional grid position, bilinearly interpolated from the
@@ -4488,8 +4563,11 @@ fn forward_bilinear(
     let fy = (fj - j0 as f64).clamp(0.0, 1.0);
     let a = forward(i0, j0)?;
     let mut b = forward(i1, j0)?;
-    let c = forward(i0, j0 + 1)?;
+    let mut c = forward(i0, j0 + 1)?;
     let mut d = forward(i1, j0 + 1)?;
+    // Either branch below leaves a corner longitude outside [-180, 180), so
+    // remember whether one ran and normalise only then.
+    let mut unwrapped = seam;
     if seam {
         // Column 0 lies one full turn east of the last column, not `east_span`
         // degrees west of it. Without the +360 the interpolation sweeps
@@ -4497,6 +4575,18 @@ fn forward_bilinear(
         // streak from one rim to the other.
         b.1 = unwrap_east_of(a.1, b.1);
         d.1 = unwrap_east_of(c.1, d.1);
+    } else if cell_crosses_lon_cut([a.1, b.1, c.1, d.1]) {
+        // The forward map's own ±180° cut runs through this cell: one corner
+        // reads +179.9 and its neighbour a few kilometres away reads -179.9. A
+        // vertex interpolated between them lands near 0°, drawing the same
+        // rim-to-rim streak the seam branch exists to prevent. Planar grids meet
+        // this on any Pacific-crossing domain (the CMC polar grid's top row runs
+        // straight across the antimeridian); pull the other three corners onto
+        // whichever turn is nearest `a` and the cell is contiguous again.
+        b.1 = unwrap_near(a.1, b.1);
+        c.1 = unwrap_near(a.1, c.1);
+        d.1 = unwrap_near(a.1, d.1);
+        unwrapped = true;
     }
     let bilerp = |va: f64, vb: f64, vc: f64, vd: f64| {
         let top = va + (vb - va) * fx;
@@ -4505,11 +4595,35 @@ fn forward_bilinear(
     };
     let lat = bilerp(a.0, b.0, c.0, d.0);
     let lon = bilerp(a.1, b.1, c.1, d.1);
-    // Only the seam branch can push a longitude past +180 (it deliberately
-    // unwraps the eastern corner a full turn east), so normalise just that
-    // case. Every other vertex keeps the exact value it had before, which
-    // leaves the overwhelmingly common path bit-for-bit unchanged.
-    Some((lat, if seam { normalise_lon(lon) } else { lon }))
+    // Only an unwrapped cell can push a longitude past ±180 (the branches above
+    // deliberately move a corner a whole turn), so normalise just those. Every
+    // other vertex keeps the exact value it had before, which leaves the
+    // overwhelmingly common path bit-for-bit unchanged.
+    Some((lat, if unwrapped { normalise_lon(lon) } else { lon }))
+}
+
+/// Whether a grid cell's four corner longitudes straddle the ±180° cut.
+///
+/// No real grid cell spans half the globe, so a corner spread wider than 180°
+/// is the cut running through the cell, not geometry — the giveaway that the
+/// corners sit on different turns and must be unwrapped before interpolating.
+/// (The one grid whose cell genuinely reaches that far is a polar one at the
+/// pole itself, where longitude is degenerate anyway and the nearest-turn
+/// unwrap still keeps the vertex beside its corners.)
+fn cell_crosses_lon_cut(lons: [f64; 4]) -> bool {
+    let (min, max) = lons
+        .iter()
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), &l| {
+            (lo.min(l), hi.max(l))
+        });
+    max - min > 180.0
+}
+
+/// `lon` moved onto whichever turn sits nearest `from` — i.e. `from + delta`
+/// where `delta ∈ [-180, 180)`. The two-sided counterpart of
+/// [`unwrap_east_of`], for a cut that a cell straddles in either direction.
+fn unwrap_near(from: f64, lon: f64) -> f64 {
+    from + normalise_lon(lon - from)
 }
 
 /// `lon` expressed as the first value east of `from` — i.e. `from + delta`
@@ -4594,8 +4708,8 @@ fn project_contours_impl(
     let nj = grid_nj(meta)?;
     let forward = forward_geolocation_for(meta, ni, nj, |gt| {
         format!(
-            "contours not yet supported for grid type {gt:?} \
-             (only {GEOLOCATABLE_FAMILIES} for now)"
+            "contours not yet supported for grid type {gt:?} (only {} for now)",
+            geolocatable_families()
         )
     })?;
 
@@ -4924,8 +5038,12 @@ fn rotated_latlon_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Resu
     Ok((inverse, bbox))
 }
 
-fn lambert_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
-    let p = LambertParams {
+/// Lambert conformal (GRIB2 §3.30 / GRIB1 grid type 3) parameters read out of a
+/// message's metadata. Shared by [`lambert_warp_setup`] and
+/// [`forward_geolocation_for`] so the warp and the forward geolocation read the
+/// same slots and can't disagree about the same grid (#470).
+fn lambert_params(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<LambertParams> {
+    Ok(LambertParams {
         earth_radius_m: meta
             .earth_radius_metres
             .unwrap_or(fieldglass_core::DEFAULT_EARTH_RADIUS_M),
@@ -4939,7 +5057,11 @@ fn lambert_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<Warp
         dy_metres: require_nonzero_spacing(meta.lambert_dy_metres, "lambertDyMetres")?,
         latin1: require_f64(meta.lambert_latin1, "lambertLatin1")?,
         latin2: require_f64(meta.lambert_latin2, "lambertLatin2")?,
-    };
+    })
+}
+
+fn lambert_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
+    let p = lambert_params(meta, ni, nj)?;
 
     // `LambertProjector` precomputes the cone constants + origin once for the
     // inverse closure. The bbox thunk builds its own throwaway projector only
@@ -4952,8 +5074,10 @@ fn lambert_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<Warp
     Ok((inverse, bbox))
 }
 
-fn polar_stereo_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
-    let p = PolarStereoParams {
+/// Polar stereographic (GRIB2 §3.20 / GRIB1 grid type 5) parameters, shared by
+/// the warp setup and the forward geolocation map — see [`lambert_params`].
+fn polar_stereo_params(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<PolarStereoParams> {
+    Ok(PolarStereoParams {
         earth_radius_m: meta
             .earth_radius_metres
             .unwrap_or(fieldglass_core::DEFAULT_EARTH_RADIUS_M),
@@ -4968,7 +5092,11 @@ fn polar_stereo_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result
         south_pole: meta
             .polar_stereo_south_pole
             .ok_or_else(|| napi::Error::from_reason("missing polarStereoSouthPole".to_string()))?,
-    };
+    })
+}
+
+fn polar_stereo_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
+    let p = polar_stereo_params(meta, ni, nj)?;
 
     let projector = PolarStereoProjector::new(p);
     let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
@@ -4996,8 +5124,14 @@ fn polar_stereo_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result
     Ok((inverse, bbox))
 }
 
-fn lambert_azimuthal_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
-    let p = LambertAzimuthalParams {
+/// Lambert azimuthal equal-area (§3.140) parameters, shared by the warp setup
+/// and the forward geolocation map — see [`lambert_params`].
+fn lambert_azimuthal_params(
+    meta: &MessageMeta,
+    ni: u32,
+    nj: u32,
+) -> napi::Result<LambertAzimuthalParams> {
+    Ok(LambertAzimuthalParams {
         semi_major_m: require_f64(
             meta.lambert_azimuthal_semi_major_metres,
             "lambertAzimuthalSemiMajorMetres",
@@ -5026,7 +5160,11 @@ fn lambert_azimuthal_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::R
             meta.lambert_azimuthal_dy_metres,
             "lambertAzimuthalDyMetres",
         )?,
-    };
+    })
+}
+
+fn lambert_azimuthal_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
+    let p = lambert_azimuthal_params(meta, ni, nj)?;
 
     let projector = LambertAzimuthalProjector::new(p);
     let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
@@ -5035,8 +5173,14 @@ fn lambert_azimuthal_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::R
     Ok((inverse, bbox))
 }
 
-fn transverse_mercator_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
-    let p = TransverseMercatorParams {
+/// Transverse Mercator (§3.12) parameters, shared by the warp setup and the
+/// forward geolocation map — see [`lambert_params`].
+fn transverse_mercator_params(
+    meta: &MessageMeta,
+    ni: u32,
+    nj: u32,
+) -> napi::Result<TransverseMercatorParams> {
+    Ok(TransverseMercatorParams {
         semi_major_m: require_f64(
             meta.transverse_mercator_semi_major_metres,
             "transverseMercatorSemiMajorMetres",
@@ -5077,7 +5221,11 @@ fn transverse_mercator_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi:
             meta.transverse_mercator_dy_metres,
             "transverseMercatorDyMetres",
         )?,
-    };
+    })
+}
+
+fn transverse_mercator_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
+    let p = transverse_mercator_params(meta, ni, nj)?;
 
     let projector = TransverseMercatorProjector::new(p);
     let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
@@ -6189,13 +6337,29 @@ mod polar_stereo_warp_tests {
     }
 
     #[test]
-    fn field_csv_long_gates_non_latlon_grids() {
-        // The long format needs per-point geolocation, which projected grids
-        // don't provide yet — it must error rather than emit bad coordinates.
-        // The message must be about CSV and point at the Matrix layout, not leak
-        // the shared gate's contour wording (#337).
-        let err = field_csv(&[Some(1.0)], &cmc_polar_meta(), 1, 1, "long")
-            .expect_err("projected long export is gated");
+    fn field_csv_long_gates_grids_without_a_forward_map() {
+        // A projected grid geolocates now (#470), so the long format exports it
+        // rather than refusing.
+        let csv = field_csv(&[Some(1.0)], &cmc_polar_meta(), 1, 1, "long")
+            .expect("a polar-stereographic grid exports the long format");
+        let first = csv.lines().nth(1).expect("one data row");
+        let cells: Vec<f64> = first
+            .split(',')
+            .map(|c| c.parse().expect("numeric"))
+            .collect();
+        assert!(
+            (cells[0] - 11.43).abs() < 1e-6 && (cells[1] + 110.27).abs() < 1e-6,
+            "the row carries the grid's own first point, got: {first}"
+        );
+
+        // Space view (§3.90) still has no forward map — part of its scan-angle
+        // grid is off the disc — so it must error rather than emit bad
+        // coordinates. The message must be about CSV and point at the Matrix
+        // layout, not leak the shared gate's contour wording (#337).
+        let mut space_view = cmc_polar_meta();
+        space_view.grid_type = Some("space_view".to_string());
+        let err = field_csv(&[Some(1.0)], &space_view, 1, 1, "long")
+            .expect_err("a grid without coordinates is gated");
         let msg = format!("{err}");
         assert!(
             msg.contains("long CSV") && msg.contains("Matrix"),
@@ -7582,11 +7746,13 @@ mod netcdf_slice_tests {
             .expect("manual-interval contours project");
         assert!(!manual.xy.is_empty());
 
-        // A grid type whose forward map isn't wired yet is a clear error.
-        let mut lambert = latlon_meta(5, 4);
-        lambert.grid_type = Some("lambert".to_string());
-        match project_contours_impl(&lambert, &raw, &opts("source"), None) {
-            Ok(_) => panic!("lambert contours must error for now"),
+        // A grid type whose forward map isn't wired is still a clear error. The
+        // planar family gained one in #470, so the holdout here is space view:
+        // part of its scan-angle grid is off the disc, with no position at all.
+        let mut space_view = latlon_meta(5, 4);
+        space_view.grid_type = Some("space_view".to_string());
+        match project_contours_impl(&space_view, &raw, &opts("source"), None) {
+            Ok(_) => panic!("space view contours must error for now"),
             Err(e) => assert!(e.to_string().contains("contours not yet supported"), "{e}"),
         }
     }
@@ -7858,6 +8024,41 @@ mod netcdf_slice_tests {
         let meta = wrf_t2_meta_after_renders(WRF, "lambert");
         assert_eq!(meta.lambert_latin1, Some(30.0));
         assert_eq!(meta.lambert_latin2, Some(60.0));
+    }
+
+    /// The WRF Lambert slice is the NetCDF half of #470: the same forward
+    /// geolocation the GRIB planar grids gained also reaches `exportCsv` and
+    /// `projectContours` here, where a `wrfout` file's `MAP_PROJ` synthesises a
+    /// projected grid rather than a lat/lon one.
+    #[test]
+    fn wrf_lambert_slice_exports_long_csv_and_contours() {
+        let handle = handle(WRF);
+        let vars = handle.variables();
+        let t2 = vars.iter().find(|v| v.name == "T2").expect("T2 present");
+        let indices = vec![0u32; t2.dims.len()];
+        let idx = t2.variable_index as u32;
+
+        let csv = handle
+            .export_csv(idx, 1, 2, indices.clone(), "long".to_string())
+            .expect("a WRF Lambert slice exports the long format");
+        let csv = std::str::from_utf8(&csv).expect("CSV is UTF-8");
+        let rows: Vec<&str> = csv.trim_end_matches('\n').split('\n').skip(1).collect();
+        assert_eq!(rows.len(), 6 * 5, "one row per grid point");
+        for row in &rows {
+            let cells: Vec<f64> = row
+                .split(',')
+                .map(|c| c.parse().expect("numeric cell"))
+                .collect();
+            assert!(
+                (-90.0..=90.0).contains(&cells[0]) && (-180.0..180.0).contains(&cells[1]),
+                "row {row} carries a real coordinate"
+            );
+        }
+
+        let runs = handle
+            .project_contours(idx, 1, 2, indices, opts("source"), None)
+            .expect("a WRF Lambert slice contours");
+        assert!(!runs.xy.is_empty(), "the synthetic T2 field has isolines");
     }
 
     /// WRF polar stereographic (#220): `T2` resolves to a reprojectable
@@ -8173,5 +8374,376 @@ mod space_view_geos_tests {
         let (lat_min, lat_max, lon_min, lon_max) = bbox();
         assert_eq!((lat_min, lat_max), (-90.0, 90.0));
         assert_eq!((lon_min, lon_max), (-165.0, 15.0));
+    }
+}
+
+/// Forward geolocation of the planar family — the map that long-format CSV,
+/// contours and the source-projection probe all read (#470).
+///
+/// The projection maths itself is covered in `fieldglass-core` and cross-checked
+/// against eccodes in the format crates' own suites. What is under test here is
+/// the *wiring*: that a message's metadata reaches the right projector
+/// parameters, and that the coordinates handed to a CSV row are the ones eccodes
+/// reports for that same grid point.
+#[cfg(test)]
+mod planar_geolocation_tests {
+    use super::*;
+
+    /// NOAA Eta, GDS template 3.30 (Lambert conformal), 93×65 at 81.271 km.
+    const ETA_LAMBERT: &[u8] =
+        include_bytes!("../../fieldglass-grib2/tests/fixtures/eta_lambert_msg0.grib2");
+    /// EFAS, GDS template 3.140 (Lambert azimuthal equal-area), 20×16.
+    const LAMBERT_AZIMUTHAL: &[u8] =
+        include_bytes!("../../fieldglass-grib2/tests/fixtures/lambert_azimuthal_efas.grib2");
+    /// UKV, GDS template 3.12 (transverse Mercator), 24×30.
+    const TRANSVERSE_MERCATOR: &[u8] =
+        include_bytes!("../../fieldglass-grib2/tests/fixtures/transverse_mercator_ukv.grib2");
+    /// CMC 300 hPa wind, GRIB1 grid type 5 (polar stereographic), 135×95 at
+    /// 60 km. Its top row runs across the antimeridian, which is why it is the
+    /// fixture for the longitude-cut cases below.
+    const CMC_POLAR: &[u8] =
+        include_bytes!("../../fieldglass-grib1/tests/fixtures/cmc_wind_300_2010052400_p012.grib");
+
+    fn grib2_handle(bytes: &[u8]) -> Grib2Handle {
+        Grib2Handle {
+            reader: Grib2Reader::from_bytes(bytes.to_vec()).expect("grib2 parse"),
+            decoded: Mutex::new(std::collections::HashMap::new()),
+            synthesized: Mutex::new(std::collections::HashMap::new()),
+        }
+    }
+
+    fn grib1_handle(bytes: &[u8]) -> Grib1Handle {
+        Grib1Handle {
+            reader: Grib1Reader::from_bytes(bytes.to_vec()).expect("grib1 parse"),
+            decoded: Mutex::new(std::collections::HashMap::new()),
+            synthesized: Mutex::new(std::collections::HashMap::new()),
+        }
+    }
+
+    /// `(meta, ni, nj)` for message 0 of a GRIB2 fixture.
+    fn grib2_geometry(bytes: &[u8]) -> (MessageMeta, u32, u32) {
+        let (_, meta, ni, nj) = grib2_handle(bytes).resolved(0).expect("message 0 resolves");
+        (meta, ni, nj)
+    }
+
+    /// Nearest-neighbour render options onto `projection`, north-up left as the
+    /// caller finds it — contours only read the projection here.
+    fn render_options(projection: &str) -> RenderOptions {
+        RenderOptions {
+            projection: projection.to_string(),
+            projection_preset: None,
+            center_lat: None,
+            center_lon: None,
+            resampling: "nearest".to_string(),
+            flip_y: false,
+            range_min: None,
+            range_max: None,
+            bounds_lat_min: None,
+            bounds_lat_max: None,
+            bounds_lon_min: None,
+            bounds_lon_max: None,
+            colormap: None,
+            reverse_colormap: None,
+            scale_mode: None,
+        }
+    }
+
+    fn forward_map(meta: &MessageMeta, ni: u32, nj: u32) -> ForwardGeo {
+        forward_geolocation_for(meta, ni, nj, |gt| format!("no forward map for {gt:?}"))
+            .expect("the planar family geolocates")
+    }
+
+    /// The long CSV of the committed Lambert fixture carries the coordinates
+    /// eccodes reports for the same grid points — the acceptance criterion of
+    /// #470, checked against an outside oracle rather than against our own
+    /// projector.
+    ///
+    /// Reference values from eccodes 2.34.1:
+    /// `grib_get_data -L "%.9f %.9f" eta_lambert_msg0.grib2`, longitudes folded
+    /// from eccodes' 0–360 convention into the ±180 one this binding reports.
+    #[test]
+    fn the_lambert_long_csv_carries_the_coordinates_eccodes_reports() {
+        let handle = grib2_handle(ETA_LAMBERT);
+        let (values, meta, ni, nj) = handle.resolved(0).expect("message 0 resolves");
+        assert_eq!((ni, nj), (93, 65));
+        assert_eq!(meta.grid_type.as_deref(), Some("lambert"));
+
+        let csv = handle
+            .export_csv(0, "long".to_string())
+            .expect("long CSV now exports for a Lambert grid");
+        let csv = std::str::from_utf8(&csv).expect("CSV is UTF-8");
+        let lines: Vec<&str> = csv.trim_end_matches('\n').split('\n').collect();
+        assert_eq!(lines[0], "lat,lon,value");
+        assert_eq!(
+            lines.len() - 1,
+            (ni * nj) as usize,
+            "one row per grid point, none dropped for want of a coordinate"
+        );
+
+        for (i, j, lat, lon) in [
+            (0u32, 0u32, 12.190000000_f64, -133.459000000_f64),
+            (92, 0, 14.334642470, -65.091275135),
+            (0, 64, 54.535803478, -152.855459065),
+            (92, 64, 57.289403949, -49.385097250),
+            (46, 32, 40.605725570, -100.554702247),
+        ] {
+            let row = lines[1 + (j * ni + i) as usize];
+            let cells: Vec<&str> = row.split(',').collect();
+            assert_eq!(cells.len(), 3, "row ({i},{j}) is lat,lon,value: {row}");
+            let (got_lat, got_lon) = (
+                cells[0].parse::<f64>().expect("lat parses"),
+                cells[1].parse::<f64>().expect("lon parses"),
+            );
+            assert!(
+                (got_lat - lat).abs() < 1e-6 && (got_lon - lon).abs() < 1e-6,
+                "({i},{j}) exported ({got_lat}, {got_lon}), eccodes says ({lat}, {lon})"
+            );
+            // The value column still belongs to the same point it always did.
+            let want = values[(j * ni + i) as usize].expect("fixture has no bitmap");
+            let got = cells[2].parse::<f64>().expect("value parses");
+            assert!(
+                (got - want).abs() < 1e-9,
+                "row ({i},{j}) value {got} ≠ {want}"
+            );
+        }
+    }
+
+    /// Polar stereographic geolocates as eccodes does, through the GRIB1 meta
+    /// path (its earth radius comes from the GDS resolution flags, and Dx/Dy
+    /// carry the scan sign). Tolerance 2e-3: eccodes' own iterator works from
+    /// the same integer-metre spacings, and the fixture's declared corner is
+    /// given to 3 decimals.
+    ///
+    /// eccodes 2.34.1: `grib_get_data -L "%.9f %.9f" cmc_wind_300_…grib`.
+    #[test]
+    fn polar_stereographic_geolocates_as_eccodes_does() {
+        let handle = grib1_handle(CMC_POLAR);
+        let (_, meta, ni, nj) = handle.resolved(0).expect("message 0 resolves");
+        assert_eq!((ni, nj), (135, 95));
+        assert_eq!(meta.grid_type.as_deref(), Some("polar_stereo"));
+        let forward = forward_map(&meta, ni, nj);
+
+        for (i, j, lat, lon) in [
+            (0u32, 0u32, 27.203000000_f64, -135.213000000_f64),
+            (134, 0, 19.925909679, -73.552939656),
+            (0, 94, 60.485093888, 177.136689840),
+            (134, 94, 43.064248041, -31.886937598),
+            (67, 47, 53.346329051, -95.593023496),
+        ] {
+            let (got_lat, got_lon) = forward(i, j).expect("every point geolocates");
+            assert!(
+                (got_lat - lat).abs() < 2e-3 && (got_lon - lon).abs() < 2e-3,
+                "({i},{j}) gave ({got_lat:.6}, {got_lon:.6}), eccodes says ({lat}, {lon})"
+            );
+        }
+    }
+
+    /// Lambert azimuthal equal-area, against the same eccodes readings the
+    /// `fieldglass-grib2` GDS suite pins — here through the napi metadata rather
+    /// than hand-built parameters, which is the half #470 had to wire up.
+    #[test]
+    fn lambert_azimuthal_geolocates_as_eccodes_does() {
+        let (meta, ni, nj) = grib2_geometry(LAMBERT_AZIMUTHAL);
+        assert_eq!((ni, nj), (20, 16));
+        assert_eq!(meta.grid_type.as_deref(), Some("lambert_azimuthal"));
+        let forward = forward_map(&meta, ni, nj);
+
+        for (i, j, lat, lon) in [
+            (0u32, 0u32, 34.999999991_f64, -10.000000000_f64),
+            (19, 0, 34.622366847, 31.637938749),
+            (0, 15, 60.108219531, -24.240260690),
+            (19, 15, 59.435027618, 46.673881242),
+        ] {
+            let (got_lat, got_lon) = forward(i, j).expect("every point geolocates");
+            assert!(
+                (got_lat - lat).abs() < 1e-7 && (got_lon - lon).abs() < 1e-7,
+                "({i},{j}) gave ({got_lat}, {got_lon}), eccodes says ({lat}, {lon})"
+            );
+        }
+    }
+
+    /// Every planar family's forward map inverts back to the grid point it came
+    /// from, through the *warp's* inverse — the check that stands in for an
+    /// eccodes oracle on transverse Mercator, which eccodes 2.34.1 has no
+    /// geo-iterator for. A forward map wired to the wrong metadata slot (dy for
+    /// dx, false easting for northing) fails to invert here.
+    #[test]
+    fn every_planar_forward_map_inverts_back_to_its_grid_point() {
+        let cmc = grib1_handle(CMC_POLAR).resolved(0).expect("cmc resolves");
+        let cases: Vec<(&str, MessageMeta, u32, u32)> = vec![
+            {
+                let (m, ni, nj) = grib2_geometry(ETA_LAMBERT);
+                ("lambert", m, ni, nj)
+            },
+            {
+                let (m, ni, nj) = grib2_geometry(LAMBERT_AZIMUTHAL);
+                ("lambert_azimuthal", m, ni, nj)
+            },
+            {
+                let (m, ni, nj) = grib2_geometry(TRANSVERSE_MERCATOR);
+                ("transverse_mercator", m, ni, nj)
+            },
+            ("polar_stereo", cmc.1, cmc.2, cmc.3),
+        ];
+
+        for (name, meta, ni, nj) in cases {
+            assert_eq!(meta.grid_type.as_deref(), Some(name), "fixture grid type");
+            let forward = forward_map(&meta, ni, nj);
+            let (inverse, _bbox) = warp_setup_for(&meta, ni, nj).expect("warp setup");
+
+            for (i, j) in [
+                (0, 0),
+                (ni - 1, 0),
+                (0, nj - 1),
+                (ni - 1, nj - 1),
+                (ni / 2, nj / 2),
+            ] {
+                let (lat, lon) = forward(i, j).unwrap_or_else(|| panic!("{name} ({i},{j})"));
+                assert!(
+                    (-90.0..=90.0).contains(&lat) && (-180.0..180.0).contains(&lon),
+                    "{name} ({i},{j}) geolocated off the globe: ({lat}, {lon})"
+                );
+                let idx = inverse(lat, lon)
+                    .unwrap_or_else(|| panic!("{name} ({i},{j}) inverted off the grid"));
+                assert!(
+                    (idx.i - i as f64).abs() < 1e-3 && (idx.j - j as f64).abs() < 1e-3,
+                    "{name} ({i},{j}) round-tripped to ({}, {})",
+                    idx.i,
+                    idx.j
+                );
+            }
+        }
+    }
+
+    /// Contours on the Lambert fixture: the refusal #470 was filed for is gone,
+    /// and the isolines land inside the raster they are drawn over.
+    #[test]
+    fn contours_project_onto_a_lambert_grid() {
+        let handle = grib2_handle(ETA_LAMBERT);
+        let (values, meta, ni, nj) = handle.resolved(0).expect("message 0 resolves");
+        let options = render_options("source");
+
+        let runs = project_contours_impl(&meta, &values, &options, None)
+            .expect("contours no longer refuse a Lambert grid");
+        assert!(
+            !runs.xy.is_empty(),
+            "the Eta surface-pressure field has isolines"
+        );
+        assert_eq!(runs.xy.len() % 2, 0, "xy is a flat (x, y) list");
+        for xy in runs.xy.as_chunks::<2>().0 {
+            assert!(
+                xy[0] >= -1.0
+                    && xy[0] <= ni as f64 + 1.0
+                    && xy[1] >= -1.0
+                    && xy[1] <= nj as f64 + 1.0,
+                "contour vertex ({}, {}) lies outside the {ni}×{nj} source raster",
+                xy[0],
+                xy[1]
+            );
+        }
+
+        // An equirectangular target is the other consumer of the same vertices.
+        let warped = render_options("equirectangular");
+        let runs = project_contours_impl(&meta, &values, &warped, Some(500.0))
+            .expect("manual-interval contours on a warped target");
+        assert!(!runs.xy.is_empty(), "500 Pa isolines cross the Eta field");
+    }
+
+    /// A cell the ±180° cut runs through interpolates *across* the cut, not the
+    /// long way round the globe. The CMC polar grid's top rows cross the
+    /// antimeridian, so the naive average of two corners a few kilometres apart
+    /// lands half a world away — the streak this guards against.
+    #[test]
+    fn a_cell_straddling_the_longitude_cut_interpolates_across_it() {
+        let handle = grib1_handle(CMC_POLAR);
+        let (_, meta, ni, nj) = handle.resolved(0).expect("message 0 resolves");
+        let forward = forward_map(&meta, ni, nj);
+        let lon = |i, j| forward(i, j).expect("every point geolocates").1;
+
+        // The first cell whose two upper corners sit on opposite sides of the
+        // cut — a contour vertex on that edge is the one that used to jump. The
+        // search finding a cell at all is part of the assertion: without one the
+        // test would pass vacuously.
+        let straddle = (0..nj - 1)
+            .flat_map(|j| (0..ni - 1).map(move |i| (i, j)))
+            .find(|&(i, j)| (lon(i + 1, j) - lon(i, j)).abs() > 180.0);
+        let (i, j) = straddle.expect("the CMC polar grid crosses the antimeridian");
+        let (west, east) = (lon(i, j), lon(i + 1, j));
+        assert!(
+            cell_crosses_lon_cut([west, east, lon(i, j + 1), lon(i + 1, j + 1)]),
+            "the cut runs through cell ({i},{j}): {west}..{east}"
+        );
+
+        let (_, mid) = forward_bilinear(forward.as_ref(), ni, nj, i as f64 + 0.5, j as f64, false)
+            .expect("the cell's midpoint geolocates");
+        // Half the short way from the west corner to the east one.
+        let want = normalise_lon(west + normalise_lon(east - west) * 0.5);
+        assert!(
+            normalise_lon(mid - want).abs() < 1e-9,
+            "cell ({i},{j}) spans {west}..{east}; its midpoint read {mid}, want {want}"
+        );
+        // What it used to read: the plain average of two corners on opposite
+        // turns, most of a hemisphere from either of them.
+        let naive = (west + east) / 2.0;
+        assert!(
+            normalise_lon(naive - want).abs() > 90.0,
+            "this cell should be one the naive average gets badly wrong, \
+             got {naive} against {want}"
+        );
+        // The vertex an unstraddled cell reports is untouched by any of this.
+        let m = ni / 2;
+        let (_, plain) = forward_bilinear(forward.as_ref(), ni, nj, m as f64 + 0.5, 0.0, false)
+            .expect("a mid-grid vertex geolocates");
+        let (w, e) = (lon(m, 0), lon(m + 1, 0));
+        assert!(
+            (plain - (w + e) / 2.0).abs() < 1e-9,
+            "an ordinary cell still interpolates plainly: {plain} vs {w}..{e}"
+        );
+    }
+
+    /// The table is the gate: every grid type it names resolves to a forward
+    /// map, and the refusal message for one it doesn't name reads the same list
+    /// back. A family added to the dispatch without a table row simply never
+    /// arrives here, and a row without a dispatch arm fails the first half.
+    #[test]
+    fn the_geolocatable_table_gates_the_dispatch_and_writes_the_message() {
+        let prose = geolocatable_families();
+        for (grid_type, name) in GEOLOCATABLE_GRIDS {
+            assert!(
+                prose.contains(name),
+                "{grid_type} is geolocatable but {name:?} is missing from {prose:?}"
+            );
+        }
+        assert!(
+            prose.starts_with("regular lat/lon, Mercator") && prose.contains(", and "),
+            "the families read as a list: {prose}"
+        );
+
+        // The types `warp_setup_for` handles that deliberately have no forward
+        // map: reduced grids (their per-row longitudes are lost in the widening)
+        // and space view (points off the disc have no position at all).
+        for grid_type in [
+            "reduced_latlon",
+            "reduced_gaussian",
+            "space_view",
+            "bifourier",
+            "",
+        ] {
+            let mut meta = grib2_geometry(ETA_LAMBERT).0;
+            meta.grid_type = Some(grid_type.to_string());
+            let err = forward_geolocation_for(&meta, 93, 65, |gt| {
+                format!(
+                    "no coordinates for {gt:?} (only {})",
+                    geolocatable_families()
+                )
+            })
+            .err()
+            .unwrap_or_else(|| panic!("{grid_type} must not geolocate"));
+            let message = err.reason;
+            assert!(
+                message.contains(grid_type) && message.contains(&prose),
+                "the refusal for {grid_type:?} should name the grid and the supported list: {message}"
+            );
+        }
     }
 }
