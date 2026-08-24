@@ -3,6 +3,7 @@
     {
       "discipline": 0,
       "editionNumber": 2,
+      "totalLength": 91839,
       "centre": 7,
       "subCentre": 0,
       "significanceOfReferenceTime": 1,
@@ -13,6 +14,8 @@
       "gridDefinitionTemplateNumber": 30,
       "shapeOfTheEarth": 6,
       "numberOfDataPoints": 151987,
+      "Ni": 451,
+      "Nj": 337,
       "latitudeOfFirstGridPointInDegrees": 16.281,
       "longitudeOfFirstGridPointInDegrees": 233.862,
       "productDefinitionTemplateNumber": 0,
@@ -24,6 +27,11 @@
       "typeOfFirstFixedSurface": 1,
       "scaleFactorOfFirstFixedSurface": 0,
       "scaledValueOfFirstFixedSurface": 0,
+      "dataRepresentationTemplateNumber": 40,
+      "referenceValue": 271.458,
+      "binaryScaleFactor": -4,
+      "decimalScaleFactor": 0,
+      "bitsPerValue": 10,
       "bitMapIndicator": 255
     }
   ]

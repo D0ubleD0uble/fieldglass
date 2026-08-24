@@ -20,12 +20,30 @@
 //!
 //! The key-to-parser-field mapping is intentionally explicit in
 //! [`assert_message_matches`]: when eccodes adds a new key we want surfaced,
-//! add it to both `CURATED_KEYS` (in the regen script) and the dispatch
-//! match here.
+//! add it to both `GRIB2_KEYS` (in the regen script) and the dispatch match
+//! here. [`the_cross_check_compares_every_key_it_ships`] then holds the two
+//! together — a key that reaches no fixture, or reaches one and is skipped by
+//! every arm, is coverage in name only, which is how §5 came to be listed here
+//! for years while being compared nowhere (#475).
 
 use fieldglass_grib2::{Grib2Reader, GridTemplate, parse_bit_map};
 use serde_json::Value;
+use std::cell::RefCell;
+use std::collections::BTreeSet;
 use std::path::Path;
+
+thread_local! {
+    /// Keys that a `check_*` actually compared, as opposed to keys an arm
+    /// declared not applicable to this template. Every arm of the dispatch can
+    /// return a bare `true`, which is indistinguishable from a passing
+    /// comparison unless something counts — see
+    /// [`the_cross_check_compares_every_key_it_ships`].
+    static COMPARED: RefCell<BTreeSet<String>> = const { RefCell::new(BTreeSet::new()) };
+}
+
+fn record(key: &str) {
+    COMPARED.with(|keys| keys.borrow_mut().insert(key.to_string()));
+}
 
 /// Float tolerance for fields encoded as scaled integers by GRIB2 but
 /// emitted as decimals by eccodes (e.g. 2.5° increments stored as
@@ -205,24 +223,41 @@ fn assert_message_matches(
                 None => true,
             },
 
-            // §5 Data Representation
+            // §5 Data Representation. These four route through
+            // [`packing_params`] rather than `drs.simple()`: R / E / D / bits
+            // are the first fields of nearly every §5 template, so reading them
+            // only for 5.0 left the packing parameters of complex, CCSDS, PNG,
+            // JPEG 2000, spectral and second-order messages unchecked — most of
+            // the corpus.
             "dataRepresentationTemplateNumber" => {
                 check_u64(key, expected, msg.drs.template_number as u64)
             }
-            "referenceValue" => match msg.drs.simple() {
-                Some(t) => check_f64(key, expected, t.reference_value as f64),
+            "referenceValue" => match packing_params(&msg.drs) {
+                Some(p) => check_f64(key, expected, p.reference_value as f64),
                 None => true,
             },
-            "binaryScaleFactor" => match msg.drs.simple() {
-                Some(t) => check_i64(key, expected, t.binary_scale_factor as i64),
+            "binaryScaleFactor" => match packing_params(&msg.drs) {
+                Some(p) => check_i64(key, expected, p.binary_scale_factor as i64),
                 None => true,
             },
-            "decimalScaleFactor" => match msg.drs.simple() {
-                Some(t) => check_i64(key, expected, t.decimal_scale_factor as i64),
-                None => true,
+            "decimalScaleFactor" => match &msg.drs.template {
+                // Template 5.200 spends one octet on `D` and declares it
+                // `unsigned[1]`, so eccodes' *key* reports the raw byte (129)
+                // while eccodes' own run-length decoder folds the same byte
+                // sign-magnitude to -1 (`DataRunLengthPacking.cc`: `if (dsf >
+                // 127) dsf = -(dsf - 128)`). We fold it at parse time, so
+                // re-encode rather than skip — the comparison is still real,
+                // and a parser that stopped folding would still fail it.
+                fieldglass_grib2::DataRepresentationTemplate::RunLength(t) => {
+                    check_u64(key, expected, sign_magnitude_octet(t.decimal_scale_factor))
+                }
+                _ => match packing_params(&msg.drs) {
+                    Some(p) => check_i64(key, expected, p.decimal_scale_factor as i64),
+                    None => true,
+                },
             },
-            "bitsPerValue" => match msg.drs.simple() {
-                Some(t) => check_u64(key, expected, t.bits_per_value as u64),
+            "bitsPerValue" => match packing_params(&msg.drs) {
+                Some(p) => check_u64(key, expected, p.bits_per_value as u64),
                 None => true,
             },
 
@@ -248,7 +283,123 @@ fn assert_message_matches(
     }
 }
 
+/// A signed scale factor back in the single sign-magnitude octet it was read
+/// from: the high bit is the sign, the rest the magnitude.
+fn sign_magnitude_octet(value: i16) -> u64 {
+    if value < 0 {
+        128 + value.unsigned_abs() as u64
+    } else {
+        value as u64
+    }
+}
+
+/// The reference value, scale factors and value width — the four parameters
+/// almost every §5 template opens with, whichever template it is.
+///
+/// IEEE (5.4) genuinely has none of them: it stores raw floats. Run-length
+/// (5.200) has a width and a decimal scale but no reference value or binary
+/// scale, and eccodes reports the pair it does have through the same key names,
+/// so it is served here with the two it lacks left at their neutral values —
+/// which is what eccodes prints for them too.
+struct PackingParams {
+    reference_value: f32,
+    binary_scale_factor: i16,
+    decimal_scale_factor: i16,
+    bits_per_value: u8,
+}
+
+fn packing_params(drs: &fieldglass_grib2::DataRepresentationSection) -> Option<PackingParams> {
+    use fieldglass_grib2::DataRepresentationTemplate as T;
+    let params = |reference_value, binary_scale_factor, decimal_scale_factor, bits_per_value| {
+        Some(PackingParams {
+            reference_value,
+            binary_scale_factor,
+            decimal_scale_factor,
+            bits_per_value,
+        })
+    };
+    match &drs.template {
+        T::Simple(t) => params(
+            t.reference_value,
+            t.binary_scale_factor,
+            t.decimal_scale_factor,
+            t.bits_per_value,
+        ),
+        T::MatrixSimple(t) => params(
+            t.reference_value,
+            t.binary_scale_factor,
+            t.decimal_scale_factor,
+            t.bits_per_value,
+        ),
+        T::Complex(t) => params(
+            t.reference_value,
+            t.binary_scale_factor,
+            t.decimal_scale_factor,
+            t.bits_per_value,
+        ),
+        // 5.3 is 5.2 plus the differencing descriptors, and carries the
+        // complex parameters verbatim.
+        T::ComplexSpatialDiff(t) => params(
+            t.complex.reference_value,
+            t.complex.binary_scale_factor,
+            t.complex.decimal_scale_factor,
+            t.complex.bits_per_value,
+        ),
+        T::Png(t) => params(
+            t.reference_value,
+            t.binary_scale_factor,
+            t.decimal_scale_factor,
+            t.bits_per_value,
+        ),
+        T::Ccsds(t) => params(
+            t.reference_value,
+            t.binary_scale_factor,
+            t.decimal_scale_factor,
+            t.bits_per_value,
+        ),
+        T::Jpeg2000(t) => params(
+            t.reference_value,
+            t.binary_scale_factor,
+            t.decimal_scale_factor,
+            t.bits_per_value,
+        ),
+        T::LogPreprocessing(t) => params(
+            t.reference_value,
+            t.binary_scale_factor,
+            t.decimal_scale_factor,
+            t.bits_per_value,
+        ),
+        T::SpectralSimple(t) => params(
+            t.reference_value,
+            t.binary_scale_factor,
+            t.decimal_scale_factor,
+            t.bits_per_value,
+        ),
+        T::SpectralComplex(t) => params(
+            t.reference_value,
+            t.binary_scale_factor,
+            t.decimal_scale_factor,
+            t.bits_per_value,
+        ),
+        T::BiFourier(t) => params(
+            t.reference_value,
+            t.binary_scale_factor,
+            t.decimal_scale_factor,
+            t.bits_per_value,
+        ),
+        T::SecondOrder(t) => params(
+            t.reference_value,
+            t.binary_scale_factor,
+            t.decimal_scale_factor,
+            t.bits_per_value,
+        ),
+        T::RunLength(t) => params(0.0, 0, t.decimal_scale_factor, t.bits_per_value),
+        T::Ieee(_) | T::Unsupported(_) => None,
+    }
+}
+
 fn check_u64(key: &str, expected: &Value, actual: u64) -> bool {
+    record(key);
     let exp = expected
         .as_u64()
         .or_else(|| expected.as_i64().map(|i| i as u64))
@@ -261,6 +412,7 @@ fn check_u64(key: &str, expected: &Value, actual: u64) -> bool {
 }
 
 fn check_i64(key: &str, expected: &Value, actual: i64) -> bool {
+    record(key);
     let exp = expected
         .as_i64()
         .unwrap_or_else(|| panic!("snapshot {key:?} is not an integer: {expected}"));
@@ -272,6 +424,7 @@ fn check_i64(key: &str, expected: &Value, actual: i64) -> bool {
 }
 
 fn check_f64(key: &str, expected: &Value, actual: f64) -> bool {
+    record(key);
     let exp = expected
         .as_f64()
         .unwrap_or_else(|| panic!("snapshot {key:?} is not a number: {expected}"));
@@ -411,6 +564,52 @@ fn every_fixture_matches_eccodes() {
         checked > 40,
         "only {checked} fixtures were cross-checked — the directory walk found \
          too few, so this proves nothing (skipped: {skipped:?})"
+    );
+}
+
+/// The cross-check compares every key it ships — no key is carried in the
+/// snapshots but skipped by every fixture.
+///
+/// Every arm of [`assert_message_matches`] can return a bare `true` meaning
+/// "not applicable to this template", which is indistinguishable from a passing
+/// comparison. A key whose arm never matches any committed fixture would sit in
+/// the snapshots looking like coverage and assert nothing — the same shape of
+/// gap as the enumeration #471 replaced, one level down. Added with the GRIB1
+/// counterpart (#475).
+#[test]
+fn the_cross_check_compares_every_key_it_ships() {
+    COMPARED.with(|keys| keys.borrow_mut().clear());
+    let mut shipped: BTreeSet<String> = BTreeSet::new();
+    for fixture in fixture_names() {
+        if NO_ECCODES_SNAPSHOT.iter().any(|(name, _)| *name == fixture) {
+            continue;
+        }
+        let bytes = read_fixture(&fixture);
+        assert_fixture_matches_snapshot(&fixture, &bytes);
+        for message in snapshot_for(&fixture)["messages"]
+            .as_array()
+            .expect("messages array")
+        {
+            for (key, value) in message.as_object().expect("message object") {
+                if !value.is_null() {
+                    shipped.insert(key.clone());
+                }
+            }
+        }
+    }
+    let compared = COMPARED.with(|keys| keys.borrow().clone());
+    let never_compared: Vec<&String> = shipped.difference(&compared).collect();
+    assert!(
+        never_compared.is_empty(),
+        "{} snapshot keys are never compared against the parser by any fixture, \
+         so they are coverage in name only: {never_compared:?}",
+        never_compared.len()
+    );
+    assert!(
+        compared.len() >= 30,
+        "only {} distinct keys were compared ({compared:?}) — too few for this \
+         to be a cross-check of the parser",
+        compared.len()
     );
 }
 

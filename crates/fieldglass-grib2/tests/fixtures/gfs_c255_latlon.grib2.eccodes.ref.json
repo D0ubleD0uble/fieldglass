@@ -3,6 +3,7 @@
     {
       "discipline": 0,
       "editionNumber": 2,
+      "totalLength": 8306,
       "centre": 7,
       "subCentre": 0,
       "significanceOfReferenceTime": 1,
@@ -30,6 +31,11 @@
       "typeOfFirstFixedSurface": 242,
       "scaleFactorOfFirstFixedSurface": 0,
       "scaledValueOfFirstFixedSurface": 0,
+      "dataRepresentationTemplateNumber": 3,
+      "referenceValue": 535023,
+      "binaryScaleFactor": 0,
+      "decimalScaleFactor": 1,
+      "bitsPerValue": 20,
       "bitMapIndicator": 0
     }
   ]
