@@ -11,6 +11,12 @@
 //! `unknown` for them too unless those keys match. See the generator's
 //! module docs for the full rule.
 
+/// The local table versions this centre gates entries on, beyond the ungated
+/// ones every version sees. A caller that wants to reach every entry — the unit
+/// sweep in `tests/unit_notation.rs` is the one that does — visits version 0
+/// plus each of these.
+pub(crate) const GATED_VERSIONS: &[u8] = &[];
+
 /// Look up a local EDZW parameter, or `None` when this table does not
 /// define the triple for that local table version.
 pub(crate) fn lookup(

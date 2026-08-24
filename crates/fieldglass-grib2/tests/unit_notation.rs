@@ -16,61 +16,91 @@
 //! --test unit_notation` and read the diff before committing it.
 
 use fieldglass_core::units::normalize_units;
-use fieldglass_grib2::{Originator, lookup_parameter};
+use fieldglass_grib2::{LOCAL_TABLE_CENTRES, Originator, lookup_parameter};
 use std::collections::BTreeSet;
 
-/// The centres the sweeps below resolve as. Centre 0 is the WMO Secretariat,
-/// which has no local table and so reaches the master set; 98 is ECMWF, whose
-/// 2,826 local parameters (#424) carry units in eccodes' Fortran notation; 78
-/// is DWD, whose 213 (#425) carry a third notation again — bare negative
-/// exponents, `kg kg-1` — and one string, `Pa-3h`, that is not a product of
-/// units at all; 7 is NCEP, whose 479 (#426) come from wgrib2 rather than
-/// eccodes and use a *fourth*, `kg/m^2/s`. Both ECMWF table versions appear
-/// because thirteen of its entries are gated on one; DWD and NCEP gate
-/// nothing.
+/// Every originator the sweep resolves as, derived from the dispatch registry
+/// rather than listed here (#476).
 ///
-/// Sweeping the master set alone would have left the entire ECMWF unit
-/// vocabulary unpinned — 59 of its 69 distinct strings — which is exactly the
-/// silent gap this snapshot exists to close.
-const SWEPT: [Originator; 5] = [
-    Originator {
+/// Centre 0 is the WMO Secretariat, which has no local table and so reaches the
+/// master set. The rest come from [`LOCAL_TABLE_CENTRES`] — every centre with a
+/// local table, at version 0 plus each version it gates entries on.
+///
+/// This used to be a hand-written array, and it was wrong twice over. It grew
+/// from three entries to five across #425 and #426, and only remembering caught
+/// either omission — a centre left out has its entire unit vocabulary silently
+/// unpinned, since the snapshot never sees those strings. It also never swept
+/// ECMWF's `localTablesVersion = 228`, whose two entries were unreachable from
+/// versions 0 and 1: the units happened to be covered elsewhere, but nothing
+/// said so.
+///
+/// Sweeping the master set alone would leave the entire ECMWF unit vocabulary
+/// unpinned — 59 of its 69 distinct strings — which is the silent gap this
+/// snapshot exists to close, one size larger.
+fn swept() -> Vec<Originator> {
+    let mut out = vec![Originator {
         centre: 0,
         sub_centre: 0,
         local_tables_version: 0,
-    },
-    Originator {
-        centre: 98,
-        sub_centre: 0,
-        local_tables_version: 0,
-    },
-    Originator {
-        centre: 98,
-        sub_centre: 0,
-        local_tables_version: 1,
-    },
-    Originator {
-        centre: 78,
-        sub_centre: 0,
-        local_tables_version: 0,
-    },
-    Originator {
-        centre: 7,
-        sub_centre: 0,
-        local_tables_version: 1,
-    },
-];
+    }];
+    for table in LOCAL_TABLE_CENTRES {
+        // Version 0 reaches everything the centre does not gate; each gated
+        // version reaches the entries pinned to it.
+        for version in std::iter::once(0).chain(table.gated_versions.iter().copied()) {
+            out.push(Originator {
+                centre: table.centre,
+                sub_centre: 0,
+                local_tables_version: version,
+            });
+        }
+    }
+    out
+}
+
 const SNAPSHOT: &str = include_str!("fixtures/unit_notation.snapshot.txt");
 const SNAPSHOT_PATH: &str = "tests/fixtures/unit_notation.snapshot.txt";
 
+/// The sweep really does visit every centre with a table, and every version
+/// each of them gates on.
+///
+/// Tautological given [`swept`] reads the registry — which is the point. It is
+/// asserted so that a future change routing the sweep back through a hand-kept
+/// list fails here rather than silently narrowing what the snapshot covers.
+#[test]
+fn the_sweep_covers_every_centre_with_a_local_table() {
+    let swept = swept();
+    assert!(
+        !LOCAL_TABLE_CENTRES.is_empty(),
+        "no centre tables are registered, so the sweep proves nothing"
+    );
+    for table in LOCAL_TABLE_CENTRES {
+        for version in std::iter::once(0).chain(table.gated_versions.iter().copied()) {
+            assert!(
+                swept
+                    .iter()
+                    .any(|originator| originator.centre == table.centre
+                        && originator.local_tables_version == version),
+                "centre {} version {version} has entries but is never swept",
+                table.centre
+            );
+        }
+    }
+    // Plus the WMO Secretariat, which reaches the master set.
+    assert!(swept.iter().any(|originator| originator.centre == 0));
+}
+
 /// Every distinct unit string the parameter table can return.
 fn distinct_units() -> BTreeSet<String> {
+    // Built once, outside the loop. Rebuilding it per triple allocates 16.7
+    // million vectors and takes the sweep from half a second to two.
+    let swept = swept();
     let mut units = BTreeSet::new();
     for discipline in 0..=255u8 {
         for category in 0..=255u8 {
             for number in 0..=255u8 {
-                for originator in SWEPT {
+                for originator in &swept {
                     if let Some((_, _, unit)) =
-                        lookup_parameter(originator, discipline, category, number)
+                        lookup_parameter(*originator, discipline, category, number)
                     {
                         units.insert(unit.to_string());
                     }
