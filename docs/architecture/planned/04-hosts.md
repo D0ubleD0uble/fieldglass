@@ -38,7 +38,7 @@ Rust is synchronous; every network wait is in the Worker's JavaScript.
 sequenceDiagram
     participant A as app (main thread)
     participant W as Worker (JS)
-    participant P as fetchplan (wasm)
+    participant P as fetchplan (via fieldglass, in wasm)
     participant B as bucket (HTTPS)
     participant H as wasm handle
     participant G as GPU
