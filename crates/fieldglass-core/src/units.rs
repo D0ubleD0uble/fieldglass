@@ -9,8 +9,12 @@
 //!
 //! # Why this is not a regex
 //!
-//! Upstream is not consistent — `m/s` and `m s-1` both appear, as do `J/kg` and
-//! `J kg-1` — but it also contains strings that a structural rule mangles:
+//! Upstream is not consistent. `m/s` and `m s-1` both appear, as do `J/kg` and
+//! `J kg-1`; eccodes adds a third spelling, Fortran's `**` exponent operator
+//! (`m**2 s**-1`), which is what the ECMWF and NCEP local tables are written in
+//! (#441). WMO also chains solidi, so `kg/m2/s` is a single product with two
+//! denominators. But the same corpus contains strings that a structural rule
+//! mangles:
 //!
 //! - `CCITT IA5` is a character encoding. Any "letter followed by digit means
 //!   exponent" rule renders it `CCITT IA⁵`.
@@ -18,6 +22,8 @@
 //!   by what follows" turns it into nonsense.
 //! - `(m2 s sr eV/nuc)-1` nests a solidus inside a parenthesised group.
 //! - `Code table 4.253` is a cross-reference, not a unit at all.
+//! - `10**-6 W m**-2 sr**-1 m**-1` leads with a numeric scale factor, not a unit.
+//! - `kg m**-3 -1000` carries a trailing offset.
 //!
 //! So the rule here is the other way round: a token is rewritten only when its
 //! symbol is a **recognised unit**, and if any token in the string is not, the
@@ -25,12 +31,12 @@
 //! what WMO published, which is always defensible; the failure mode is a missed
 //! normalisation, never a corrupted one.
 //!
-//! That leaves one thing to watch: a future WMO tag can introduce a unit symbol
-//! this list has never seen, and it will pass through in ASCII rather than
-//! failing. The snapshot in `fieldglass-grib2/tests/unit_notation.rs` is what
-//! surfaces it — the set of distinct unit strings changes, the snapshot diffs,
-//! and the un-normalised entry is visible in the diff for whoever bumps the
-//! tag.
+//! That leaves one thing to watch: a future WMO or eccodes tag can introduce a
+//! unit symbol this list has never seen, and it will pass through in ASCII
+//! rather than failing. The snapshots in `fieldglass-grib2/tests/unit_notation.rs`
+//! and `fieldglass-grib1/tests/unit_notation.rs` are what surface it — the set
+//! of distinct unit strings changes, the snapshot diffs, and the un-normalised
+//! entry is visible in the diff for whoever bumps the tag.
 
 use std::borrow::Cow;
 
@@ -114,40 +120,42 @@ fn is_normalisable(units: &str) -> bool {
     units.split_whitespace().all(|t| rewrite_token(t).is_some())
 }
 
+/// A numerator of `1` is dimensionless: ON388 writes both `/s` and `1/s`, and
+/// they have to land on the same `s⁻¹`. Only meaningful as a numerator — a bare
+/// `1` is not a unit and stays unrecognised.
+const DIMENSIONLESS: &str = "1";
+
 /// Rewrite one whitespace-delimited token, or `None` if it is not a unit.
 fn rewrite_token(token: &str) -> Option<String> {
-    // `A/B` — a solidus inside one token is division: `J/kg` is `J kg⁻¹`.
-    if let Some((numerator, denominator)) = token.split_once('/') {
-        // A leading solidus (`/s`, `/kg`) is a bare reciprocal.
-        if numerator.is_empty() {
+    // A solidus inside one token is division, and ON388 chains them: `J/kg` is
+    // `J kg⁻¹`, `kg/m2/s` is `kg m⁻² s⁻¹`. Everything past the first solidus is
+    // a denominator — there is no bracketing in this notation, so a second
+    // solidus can only be another division.
+    if let Some((numerator, denominators)) = token.split_once('/') {
+        let mut out = String::new();
+        // An empty or dimensionless numerator (`/s`, `1/m`) is a bare reciprocal.
+        if !numerator.is_empty() && numerator != DIMENSIONLESS {
+            let (symbol, exponent) = split_exponent(numerator)?;
+            out.push_str(symbol);
+            out.push_str(&superscript(exponent));
+        }
+        for denominator in denominators.split('/') {
             let (symbol, exponent) = split_exponent(denominator)?;
-            return Some(format!("{symbol}{}", superscript(-exponent)));
+            if !out.is_empty() {
+                out.push(' ');
+            }
+            out.push_str(symbol);
+            out.push_str(&superscript(-exponent));
         }
-        if denominator.contains('/') {
-            return None;
-        }
-        let (num_symbol, num_exponent) = split_exponent(numerator)?;
-        let (den_symbol, den_exponent) = split_exponent(denominator)?;
-        let numerator = if num_exponent == 1 {
-            num_symbol.to_string()
-        } else {
-            format!("{num_symbol}{}", superscript(num_exponent))
-        };
-        return Some(format!(
-            "{numerator} {den_symbol}{}",
-            superscript(-den_exponent)
-        ));
+        return Some(out);
     }
 
     let (symbol, exponent) = split_exponent(token)?;
-    if exponent == 1 {
-        Some(symbol.to_string())
-    } else {
-        Some(format!("{symbol}{}", superscript(exponent)))
-    }
+    Some(format!("{symbol}{}", superscript(exponent)))
 }
 
-/// Split `kg-2` into `("kg", -2)`, `m2` into `("m", 2)`, `Pa` into `("Pa", 1)`.
+/// Split `kg-2` and `kg**-2` into `("kg", -2)`, `m2` into `("m", 2)`, `Pa`
+/// into `("Pa", 1)`.
 ///
 /// `None` when the alphabetic part is not a recognised unit symbol, which is
 /// what keeps `IA5` from becoming `IA⁵`.
@@ -159,11 +167,20 @@ fn split_exponent(token: &str) -> Option<(&str, i32)> {
             .take_while(|c| c.is_ascii_digit())
             .count();
     let (head, digits) = token.split_at(digits_start);
-    let (symbol, sign) = match head.strip_suffix('-') {
-        Some(symbol) if !digits.is_empty() => (symbol, -1),
+    let (head, sign) = match head.strip_suffix('-') {
+        Some(head) if !digits.is_empty() => (head, -1),
         // A trailing `-` with no digits is not an exponent.
         Some(_) => return None,
         None => (head, 1),
+    };
+    // eccodes writes exponents Fortran-style — `m**2`, `kg m**-1` — where the
+    // `**` is the operator and not part of the symbol. Strip it, but only with
+    // an exponent behind it, so a dangling `m**` is left alone the same way a
+    // dangling `m-` is.
+    let symbol = match head.strip_suffix("**") {
+        Some(symbol) if !digits.is_empty() => symbol,
+        Some(_) => return None,
+        None => head,
     };
     if !UNIT_SYMBOLS.contains(&symbol) {
         return None;
@@ -224,6 +241,107 @@ mod tests {
                 normalize_units(solidus),
                 normalize_units(ascii),
                 "{solidus:?} and {ascii:?} must render the same"
+            );
+        }
+    }
+
+    /// eccodes' Fortran `**` operator, which is what the ECMWF GRIB1 local
+    /// tables (and, from #424-#426, the GRIB2 local ones) are written in.
+    /// Every case here is a real string from `tables_ecmwf.rs`.
+    #[test]
+    fn fortran_star_star_exponents_typeset() {
+        assert_eq!(normalize_units("m**2 s**-1"), "m² s⁻¹");
+        assert_eq!(normalize_units("s**-1"), "s⁻¹");
+        assert_eq!(normalize_units("kg m**-2"), "kg m⁻²");
+        assert_eq!(normalize_units("kg m**-2 s**-1"), "kg m⁻² s⁻¹");
+        assert_eq!(normalize_units("K m**2 kg**-1 s**-1"), "K m² kg⁻¹ s⁻¹");
+        assert_eq!(normalize_units("N m**-2 s"), "N m⁻² s");
+        assert_eq!(normalize_units("m**3 m**-3"), "m³ m⁻³");
+        assert_eq!(normalize_units("m**2"), "m²");
+    }
+
+    /// The acceptance criterion for #441: all three upstream spellings of one
+    /// quantity have to land on the same typeset string.
+    #[test]
+    fn all_three_upstream_spellings_converge() {
+        for [solidus, ascii, fortran] in [
+            ["kg/m2", "kg m-2", "kg m**-2"],
+            ["m/s", "m s-1", "m s**-1"],
+            ["J/kg", "J kg-1", "J kg**-1"],
+            ["m2/s", "m2 s-1", "m**2 s**-1"],
+        ] {
+            let expected = normalize_units(fortran).into_owned();
+            assert_eq!(normalize_units(solidus), expected, "{solidus:?}");
+            assert_eq!(normalize_units(ascii), expected, "{ascii:?}");
+            assert_ne!(expected, fortran, "{fortran:?} was not rewritten at all");
+        }
+    }
+
+    /// A `**` with no exponent behind it is not an exponent, for the same
+    /// reason a trailing `-` is not: it is malformed, and malformed input is
+    /// safer left alone than guessed at.
+    #[test]
+    fn a_dangling_star_star_is_not_an_exponent() {
+        assert_eq!(normalize_units("m**"), "m**");
+        assert_eq!(normalize_units("m** s"), "m** s");
+        assert_eq!(normalize_units("m**-"), "m**-");
+        // Three stars is not the operator, so `m*` is the symbol, and it is not
+        // one we know.
+        assert_eq!(normalize_units("m***2"), "m***2");
+        assert_eq!(normalize_units("m*2"), "m*2");
+    }
+
+    /// ON388 chains solidi: everything after the first is another denominator.
+    /// The notation has no bracketing, so there is nothing else it could mean.
+    #[test]
+    fn chained_solidi_are_all_denominators() {
+        assert_eq!(normalize_units("kg/m2/s"), "kg m⁻² s⁻¹");
+        assert_eq!(normalize_units("kg/kg/s"), "kg kg⁻¹ s⁻¹");
+        assert_eq!(normalize_units("W/m/sr"), "W m⁻¹ sr⁻¹");
+        assert_eq!(normalize_units("W/m3/sr"), "W m⁻³ sr⁻¹");
+        assert_eq!(normalize_units("m2/s/kg"), "m² s⁻¹ kg⁻¹");
+        // And it agrees with the exponent spelling of the same quantity.
+        assert_eq!(
+            normalize_units("kg/m2/s"),
+            normalize_units("kg m**-2 s**-1")
+        );
+    }
+
+    /// ON388 writes the same reciprocal both ways, `/s` and `1/s`. A leading
+    /// `1` is dimensionless, so both have to reach `s⁻¹`.
+    #[test]
+    fn a_dimensionless_numerator_is_a_reciprocal() {
+        assert_eq!(normalize_units("1/s"), "s⁻¹");
+        assert_eq!(normalize_units("1/m"), "m⁻¹");
+        assert_eq!(normalize_units("1/s2"), "s⁻²");
+        assert_eq!(normalize_units("1/s/m"), "s⁻¹ m⁻¹");
+        assert_eq!(normalize_units("1/s"), normalize_units("/s"));
+        // Only as a numerator. A bare `1` is a number, not a unit, and a
+        // denominator of `1` is not something upstream writes.
+        assert_eq!(normalize_units("1"), "1");
+        assert_eq!(normalize_units("m/1"), "m/1");
+    }
+
+    /// Real strings from the eccodes local tables that #424-#426 will pull in.
+    /// None of them is a plain product of units, so each must survive whole —
+    /// these are the ones an eager `**` rule would corrupt.
+    #[test]
+    fn star_star_strings_that_are_not_plain_products_pass_through() {
+        for input in [
+            // A numeric scale factor in front of the unit.
+            "10**-6 W m**-2 sr**-1 m**-1",
+            // A trailing additive offset.
+            "kg m**-3 -1000",
+            // Parenthesised groups, one with a nested exponent.
+            "kg (kg s**-1)**-1",
+            "kg (m**2 s**-1)**-1",
+            "log10(kg m**-3)",
+            "(10**-6 g) m**-3",
+        ] {
+            assert_eq!(
+                normalize_units(input),
+                input,
+                "{input:?} must pass through untouched"
             );
         }
     }
@@ -294,6 +412,14 @@ mod tests {
             "m/-2",
             "m--2",
             "m2-3",
+            "m**",
+            "**",
+            "**2",
+            "**-2",
+            "m**-",
+            "m**/s",
+            "/**2",
+            "m**2**3",
             // Multi-byte immediately before the digits.
             "°2",
             "µ2",
@@ -313,7 +439,7 @@ mod tests {
 
         // Exhaustive over short strings from an alphabet chosen to hit every
         // branch: symbol, hyphen, solidus, digit, multi-byte, separator.
-        let alphabet = ['m', 'k', 'g', '-', '/', '2', '°', ' '];
+        let alphabet = ['m', '*', '-', '/', '2', '°', ' '];
         for a in alphabet {
             for b in alphabet {
                 for c in alphabet {
