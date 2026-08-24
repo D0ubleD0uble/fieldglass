@@ -6,6 +6,13 @@
 //! fixture with our parser, and asserts that the two agree on every key
 //! present in the snapshot.
 //!
+//! **The fixture list comes from the directory, not from here** (#471). It used
+//! to be 34 hand-written one-line tests, and a fixture added without one was
+//! simply not cross-checked — eight had accumulated that way. An enumeration
+//! can fail open; a walk cannot. A fixture eccodes genuinely cannot decode goes
+//! in [`NO_ECCODES_SNAPSHOT`] with its reason, and that list is itself checked
+//! for staleness.
+//!
 //! The snapshots are checked into git so this test has zero runtime
 //! dependencies — eccodes is only required when regenerating snapshots
 //! via `tools/regenerate-eccodes-snapshots.py` (typically after upgrading
@@ -300,266 +307,34 @@ fn assert_fixture_matches_snapshot(fixture: &str, bytes: &[u8]) {
     }
 }
 
-#[test]
-fn regular_latlon_surface_matches_eccodes() {
-    assert_fixture_matches_snapshot(
-        "regular_latlon_surface.grib2",
-        include_bytes!("fixtures/regular_latlon_surface.grib2"),
-    );
-}
-
-#[test]
-fn gfs_c255_latlon_matches_eccodes() {
-    assert_fixture_matches_snapshot(
-        "gfs_c255_latlon.grib2",
-        include_bytes!("fixtures/gfs_c255_latlon.grib2"),
-    );
-}
-
-#[test]
-fn eta_lambert_msg0_matches_eccodes() {
-    assert_fixture_matches_snapshot(
-        "eta_lambert_msg0.grib2",
-        include_bytes!("fixtures/eta_lambert_msg0.grib2"),
-    );
-}
-
-#[test]
-fn reduced_gaussian_pressure_level_matches_eccodes() {
-    assert_fixture_matches_snapshot(
-        "reduced_gaussian_pressure_level.grib2",
-        include_bytes!("fixtures/reduced_gaussian_pressure_level.grib2"),
-    );
-}
-
-#[test]
-fn rotated_latlon_surface_matches_eccodes() {
-    assert_fixture_matches_snapshot(
-        "rotated_latlon_surface.grib2",
-        include_bytes!("fixtures/rotated_latlon_surface.grib2"),
-    );
-}
-
-#[test]
-fn polar_stereographic_surface_matches_eccodes() {
-    assert_fixture_matches_snapshot(
-        "polar_stereographic_surface.grib2",
-        include_bytes!("fixtures/polar_stereographic_surface.grib2"),
-    );
-}
-
 // §5 packing fixtures: these cross-check that §0–§4 metadata and the §5
 // template number parse for templates 5.2 / 5.3 / 5.40 / 5.41 / 5.42. The
 // value decode for each is pinned to the sibling `*_expected.json` oracle in
 // the matching `decode_*.rs` test (complex → `decode_complex.rs` /
 // `decode_complex_spd.rs`; JPEG 2000 5.40 → `decode_jpeg2000.rs`; PNG 5.41 →
 // `decode_png.rs`; CCSDS 5.42 → `decode_ccsds.rs`).
-#[test]
-fn complex_regular_latlon_matches_eccodes() {
-    assert_fixture_matches_snapshot(
-        "complex_regular_latlon.grib2",
-        include_bytes!("fixtures/complex_regular_latlon.grib2"),
-    );
-}
-
-#[test]
-fn complex_spd2_regular_latlon_matches_eccodes() {
-    assert_fixture_matches_snapshot(
-        "complex_spd2_regular_latlon.grib2",
-        include_bytes!("fixtures/complex_spd2_regular_latlon.grib2"),
-    );
-}
-
 // Missing-value management / row-by-row splitting fixtures (#217); value
 // decode pinned in `decode_complex_missing.rs`.
-#[test]
-fn complex_mvm1_regular_latlon_matches_eccodes() {
-    assert_fixture_matches_snapshot(
-        "complex_mvm1_regular_latlon.grib2",
-        include_bytes!("fixtures/complex_mvm1_regular_latlon.grib2"),
-    );
-}
-
-#[test]
-fn complex_spd2_mvm1_regular_latlon_matches_eccodes() {
-    assert_fixture_matches_snapshot(
-        "complex_spd2_mvm1_regular_latlon.grib2",
-        include_bytes!("fixtures/complex_spd2_mvm1_regular_latlon.grib2"),
-    );
-}
-
-#[test]
-fn complex_mvm2_regular_latlon_matches_eccodes() {
-    assert_fixture_matches_snapshot(
-        "complex_mvm2_regular_latlon.grib2",
-        include_bytes!("fixtures/complex_mvm2_regular_latlon.grib2"),
-    );
-}
-
-#[test]
-fn complex_rowbyrow_regular_latlon_matches_eccodes() {
-    assert_fixture_matches_snapshot(
-        "complex_rowbyrow_regular_latlon.grib2",
-        include_bytes!("fixtures/complex_rowbyrow_regular_latlon.grib2"),
-    );
-}
-
 // NG == 0 constant-field fixtures (#222, eccodes ECC-2095); value decode
 // pinned in `decode_complex_constant.rs`.
-#[test]
-fn complex_ng0_regular_latlon_matches_eccodes() {
-    assert_fixture_matches_snapshot(
-        "complex_ng0_regular_latlon.grib2",
-        include_bytes!("fixtures/complex_ng0_regular_latlon.grib2"),
-    );
-}
-
-#[test]
-fn complex_spd2_ng0_regular_latlon_matches_eccodes() {
-    assert_fixture_matches_snapshot(
-        "complex_spd2_ng0_regular_latlon.grib2",
-        include_bytes!("fixtures/complex_spd2_ng0_regular_latlon.grib2"),
-    );
-}
-
-#[test]
-fn jpeg2000_regular_latlon_matches_eccodes() {
-    assert_fixture_matches_snapshot(
-        "jpeg2000_regular_latlon.grib2",
-        include_bytes!("fixtures/jpeg2000_regular_latlon.grib2"),
-    );
-}
-
-#[test]
-fn png_eta_lambert_matches_eccodes() {
-    assert_fixture_matches_snapshot(
-        "png_eta_lambert.grib2",
-        include_bytes!("fixtures/png_eta_lambert.grib2"),
-    );
-}
-
-#[test]
-fn ccsds_regular_latlon_matches_eccodes() {
-    assert_fixture_matches_snapshot(
-        "ccsds_regular_latlon.grib2",
-        include_bytes!("fixtures/ccsds_regular_latlon.grib2"),
-    );
-}
-
-#[test]
-fn ccsds_regular_latlon_8bit_matches_eccodes() {
-    assert_fixture_matches_snapshot(
-        "ccsds_regular_latlon_8bit.grib2",
-        include_bytes!("fixtures/ccsds_regular_latlon_8bit.grib2"),
-    );
-}
-
-#[test]
-fn ccsds_regular_latlon_24bit_matches_eccodes() {
-    assert_fixture_matches_snapshot(
-        "ccsds_regular_latlon_24bit.grib2",
-        include_bytes!("fixtures/ccsds_regular_latlon_24bit.grib2"),
-    );
-}
-
 // Run-length packing fixtures (#301, template 5.200); value decode pinned in
 // `decode_runlength.rs`. bitsPerValue / decimalScaleFactor route through
 // `msg.drs.simple()` in the snapshot dispatch, which is `None` for run-length,
 // so those keys are skipped here (as for every non-simple packing) and the
 // §5 parameters are cross-checked in `decode_runlength.rs` instead.
-#[test]
-fn runlength_regular_latlon_matches_eccodes() {
-    assert_fixture_matches_snapshot(
-        "runlength_regular_latlon.grib2",
-        include_bytes!("fixtures/runlength_regular_latlon.grib2"),
-    );
-}
-
-#[test]
-fn runlength_4bit_regular_latlon_matches_eccodes() {
-    assert_fixture_matches_snapshot(
-        "runlength_4bit_regular_latlon.grib2",
-        include_bytes!("fixtures/runlength_4bit_regular_latlon.grib2"),
-    );
-}
-
 // Second-order fixtures (#307, templates 5.50001 / 5.50002); value decode
 // pinned in `decode_second_order.rs`.
-#[test]
-fn second_order_regular_latlon_matches_eccodes() {
-    assert_fixture_matches_snapshot(
-        "second_order_regular_latlon.grib2",
-        include_bytes!("fixtures/second_order_regular_latlon.grib2"),
-    );
-}
-
-#[test]
-fn second_order_no_boust_regular_latlon_matches_eccodes() {
-    assert_fixture_matches_snapshot(
-        "second_order_no_boust_regular_latlon.grib2",
-        include_bytes!("fixtures/second_order_no_boust_regular_latlon.grib2"),
-    );
-}
-
-#[test]
-fn second_order_boust_regular_latlon_matches_eccodes() {
-    assert_fixture_matches_snapshot(
-        "second_order_boust_regular_latlon.grib2",
-        include_bytes!("fixtures/second_order_boust_regular_latlon.grib2"),
-    );
-}
-
 // Log-preprocessing fixtures (#305, template 5.61); value decode pinned in
 // `decode_log_preprocessing.rs`. The §5 R/E/D/bits keys route through
 // `msg.drs.simple()` in the snapshot dispatch (None for this template), so
 // they are skipped here; the §5 parameters are cross-checked in the value test.
-#[test]
-fn log_regular_latlon_matches_eccodes() {
-    assert_fixture_matches_snapshot(
-        "log_regular_latlon.grib2",
-        include_bytes!("fixtures/log_regular_latlon.grib2"),
-    );
-}
-
-#[test]
-fn log_negative_regular_latlon_matches_eccodes() {
-    assert_fixture_matches_snapshot(
-        "log_negative_regular_latlon.grib2",
-        include_bytes!("fixtures/log_negative_regular_latlon.grib2"),
-    );
-}
-
 // Pre-standard local JPEG 2000 (5.40000, part of #307); value decode pinned in
 // `decode_local_templates.rs`. eccodes decodes it as `grid_jpeg`. The sibling
 // local PNG (5.40010) has no snapshot here: eccodes cannot decode it at all, so
 // it is cross-checked against the original 5.41 fixture's decode in that test.
-#[test]
-fn jpeg2000_local_40000_matches_eccodes() {
-    assert_fixture_matches_snapshot(
-        "jpeg2000_local_40000.grib2",
-        include_bytes!("fixtures/jpeg2000_local_40000.grib2"),
-    );
-}
-
 // Spherical-harmonic spectral message (§3.50 + §5.50, #302); coefficient decode
 // pinned in `spectral.rs`. This exercises §0–§4 metadata parsing for a message
 // with no grid (no Ni/Nj, no earth shape).
-#[test]
-fn spectral_simple_t63_matches_eccodes() {
-    assert_fixture_matches_snapshot(
-        "spectral_simple_t63.grib2",
-        include_bytes!("fixtures/spectral_simple_t63.grib2"),
-    );
-}
-
-#[test]
-fn spectral_complex_t63_matches_eccodes() {
-    assert_fixture_matches_snapshot(
-        "spectral_complex_t63.grib2",
-        include_bytes!("fixtures/spectral_complex_t63.grib2"),
-    );
-}
-
 /// The real-model fixtures below are ~1 MB each — two orders of magnitude
 /// larger than the re-encoded ones — so read them at runtime rather than
 /// embedding them in the test binary with `include_bytes!`.
@@ -568,50 +343,106 @@ fn read_fixture(fixture: &str) -> Vec<u8> {
     std::fs::read(&path).unwrap_or_else(|e| panic!("read fixture {}: {e}", path.display()))
 }
 
+/// Fixtures with no snapshot, and why. eccodes must be unable to decode them —
+/// nothing else is a reason to skip the cross-check.
+///
+/// Keep in step with `ECCODES_UNDECODABLE` in
+/// `tools/regenerate-eccodes-snapshots.py`. The two lists cannot import each
+/// other across languages, so [`the_exemption_list_has_no_stale_entries`]
+/// checks this one against the filesystem instead: an entry that has acquired
+/// a snapshot is an exemption that has outlived its reason.
+const NO_ECCODES_SNAPSHOT: &[(&str, &str)] = &[(
+    "png_local_40010.grib2",
+    "local template 5.40010, which eccodes has no definition for — it errors \
+     with \"No final 7777\". Decode is cross-checked against a different oracle \
+     in `decode_png.rs`.",
+)];
+
+/// Every committed GRIB2 fixture is cross-checked against eccodes.
+///
+/// This walks the fixture directory rather than naming files, which is the
+/// whole point (#471). The 34 tests this replaced were identical one-line calls
+/// enumerated by hand, so a fixture added without one was simply not checked
+/// and nothing anywhere noticed — eight had accumulated that way, including
+/// both `matrix_*` fixtures and all four bi-Fourier ones. Enumeration cannot
+/// fail open; a directory walk can only fail closed.
 #[test]
-fn hrrr_complex_spd_lambert_matches_eccodes() {
-    assert_fixture_matches_snapshot(
-        "hrrr_complex_spd_lambert.grib2",
-        &read_fixture("hrrr_complex_spd_lambert.grib2"),
+fn every_fixture_matches_eccodes() {
+    let mut checked = 0usize;
+    let mut skipped = Vec::new();
+    let mut failures = Vec::new();
+    for fixture in fixture_names() {
+        if let Some((_, why)) = NO_ECCODES_SNAPSHOT
+            .iter()
+            .find(|(name, _)| *name == fixture)
+        {
+            skipped.push((fixture, *why));
+            continue;
+        }
+        // Every fixture is checked even after one fails, and the failures are
+        // reported together. Stopping at the first is the diagnostic the 34
+        // named tests gave for free, and it matters most exactly when this test
+        // matters most: an eccodes bump moves many fixtures at once, and
+        // finding that out one `cargo test` at a time is the slow way.
+        let bytes = read_fixture(&fixture);
+        let name = fixture.clone();
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            assert_fixture_matches_snapshot(&name, &bytes)
+        })) {
+            Ok(()) => checked += 1,
+            Err(payload) => {
+                let why = payload
+                    .downcast_ref::<String>()
+                    .cloned()
+                    .or_else(|| payload.downcast_ref::<&str>().map(|s| (*s).to_string()))
+                    .unwrap_or_else(|| "(non-string panic)".to_string());
+                failures.push(format!("  {why}"));
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{} of {} fixtures disagree with their eccodes snapshot:\n{}",
+        failures.len(),
+        failures.len() + checked,
+        failures.join("\n")
+    );
+    assert!(
+        checked > 40,
+        "only {checked} fixtures were cross-checked — the directory walk found \
+         too few, so this proves nothing (skipped: {skipped:?})"
     );
 }
 
+/// An exemption that has acquired a snapshot is stale, and a name that is not a
+/// fixture is a typo. Both would silently shrink the set above.
 #[test]
-fn rap_jpeg2000_lambert_matches_eccodes() {
-    assert_fixture_matches_snapshot(
-        "rap_jpeg2000_lambert.grib2",
-        &read_fixture("rap_jpeg2000_lambert.grib2"),
-    );
+fn the_exemption_list_has_no_stale_entries() {
+    let fixtures = fixture_names();
+    for (name, why) in NO_ECCODES_SNAPSHOT {
+        assert!(
+            fixtures.iter().any(|f| f == name),
+            "{name} is exempted but is not a fixture"
+        );
+        assert!(
+            !Path::new("tests/fixtures")
+                .join(format!("{name}.eccodes.ref.json"))
+                .exists(),
+            "{name} is exempted ({why}) but now has a snapshot — drop the exemption"
+        );
+    }
 }
 
-#[test]
-fn ecmwf_ccsds_latlon_matches_eccodes() {
-    assert_fixture_matches_snapshot(
-        "ecmwf_ccsds_latlon.grib2",
-        &read_fixture("ecmwf_ccsds_latlon.grib2"),
-    );
-}
-
-/// The §3.12 fixture's metadata, cross-checked against eccodes' own decode of
-/// it. eccodes cannot geolocate a transverse Mercator message — it ships no
-/// iterator for the template — but it reads every §1/§3/§4 key, which is what
-/// this pins. The projection itself is checked against PROJ in
-/// `fieldglass-core`.
-#[test]
-fn transverse_mercator_ukv_matches_eccodes() {
-    assert_fixture_matches_snapshot(
-        "transverse_mercator_ukv.grib2",
-        include_bytes!("fixtures/transverse_mercator_ukv.grib2"),
-    );
-}
-
-/// The §3.140 fixture's metadata, cross-checked against eccodes' decode.
-/// eccodes geolocates this template too, so its `latitudes`/`longitudes` are
-/// the projection oracle in `fieldglass-core`; this pins the §1/§3/§4 keys.
-#[test]
-fn lambert_azimuthal_efas_matches_eccodes() {
-    assert_fixture_matches_snapshot(
-        "lambert_azimuthal_efas.grib2",
-        include_bytes!("fixtures/lambert_azimuthal_efas.grib2"),
-    );
+/// Every `*.grib2` under `tests/fixtures`, sorted so a failure is reproducible.
+fn fixture_names() -> Vec<String> {
+    let dir = Path::new("tests/fixtures");
+    let mut names: Vec<String> = std::fs::read_dir(dir)
+        .unwrap_or_else(|e| panic!("read {}: {e}", dir.display()))
+        .filter_map(|entry| {
+            let name = entry.ok()?.file_name().to_string_lossy().into_owned();
+            name.ends_with(".grib2").then_some(name)
+        })
+        .collect();
+    names.sort();
+    names
 }
