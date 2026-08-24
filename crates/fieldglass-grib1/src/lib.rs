@@ -9,6 +9,7 @@ pub mod pds;
 pub mod predefined;
 pub mod reader;
 pub mod tables;
+pub mod tables_cct;
 mod tables_ecmwf;
 
 pub use bds::{

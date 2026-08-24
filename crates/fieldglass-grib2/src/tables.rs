@@ -23,42 +23,6 @@ pub fn lookup_discipline(discipline: u8) -> &'static str {
     }
 }
 
-/// Look up an originating/generating centre (WMO Common Code Table C-1).
-///
-/// Subset of the full WMO list — the centres most commonly seen in publicly
-/// distributed GRIB2 products. Codes in the C-1 table are 16-bit on the
-/// wire even though the WMO assignments below 256 are stable across
-/// editions. Returns `None` for unknown codes; callers should fall back to
-/// rendering the numeric id.
-pub fn lookup_centre(centre: u16) -> Option<&'static str> {
-    let name = match centre {
-        7 => "US National Weather Service - NCEP",
-        8 => "US NWS Telecommunications Gateway",
-        9 => "US National Weather Service - Other",
-        34 => "Tokyo (RSMC) - JMA",
-        38 => "Beijing (RSMC) - CMA",
-        40 => "Seoul - KMA",
-        46 => "INPE",
-        54 => "Montreal (RSMC) - CMC",
-        58 => "Fleet Numerical Meteorology and Oceanography Center",
-        59 => "NOAA Forecast Systems Laboratory",
-        60 => "NCAR",
-        74 => "UK Met Office - Exeter (RSMC)",
-        78 => "Offenbach (RSMC) - DWD",
-        80 => "Rome (RSMC)",
-        82 => "Norrköping - SMHI",
-        85 => "Toulouse (RSMC) - Météo-France",
-        86 => "Helsinki - FMI",
-        88 => "Oslo - MET Norway",
-        94 => "Copenhagen - DMI",
-        97 => "European Space Agency (ESA)",
-        98 => "European Centre for Medium-Range Weather Forecasts (ECMWF)",
-        173 => "NASA",
-        _ => return None,
-    };
-    Some(name)
-}
-
 /// Significance of reference time (WMO Code Table 1.2).
 pub fn lookup_reference_time_significance(value: u8) -> &'static str {
     match value {
@@ -386,20 +350,6 @@ mod tests {
     }
 
     #[test]
-    fn known_centres() {
-        assert_eq!(
-            lookup_centre(98),
-            Some("European Centre for Medium-Range Weather Forecasts (ECMWF)")
-        );
-        assert_eq!(lookup_centre(7), Some("US National Weather Service - NCEP"));
-    }
-
-    #[test]
-    fn unknown_centre_returns_none() {
-        assert_eq!(lookup_centre(0xFFFE), None);
-    }
-
-    #[test]
     fn reference_time_significance_table() {
         assert_eq!(lookup_reference_time_significance(0), "Analysis");
         assert_eq!(lookup_reference_time_significance(1), "Start of forecast");
@@ -422,42 +372,6 @@ mod tests {
         assert_eq!(lookup_data_type(200), "Reserved for local use");
         assert_eq!(lookup_data_type(255), "Missing");
         assert_eq!(lookup_data_type(99), "Unknown");
-    }
-
-    /// Pin every centre arm we curated. Each arm is a constant mapping with
-    /// no logic — the value of this test is catching accidental edits to the
-    /// centre IDs (e.g. swapping 78 and 80 during a refactor).
-    #[test]
-    fn centre_lookup_pins_curated_ids() {
-        for (id, expected) in [
-            (7u16, "US National Weather Service - NCEP"),
-            (8, "US NWS Telecommunications Gateway"),
-            (9, "US National Weather Service - Other"),
-            (34, "Tokyo (RSMC) - JMA"),
-            (38, "Beijing (RSMC) - CMA"),
-            (40, "Seoul - KMA"),
-            (46, "INPE"),
-            (54, "Montreal (RSMC) - CMC"),
-            (58, "Fleet Numerical Meteorology and Oceanography Center"),
-            (59, "NOAA Forecast Systems Laboratory"),
-            (60, "NCAR"),
-            (74, "UK Met Office - Exeter (RSMC)"),
-            (78, "Offenbach (RSMC) - DWD"),
-            (80, "Rome (RSMC)"),
-            (82, "Norrköping - SMHI"),
-            (85, "Toulouse (RSMC) - Météo-France"),
-            (86, "Helsinki - FMI"),
-            (88, "Oslo - MET Norway"),
-            (94, "Copenhagen - DMI"),
-            (97, "European Space Agency (ESA)"),
-            (
-                98,
-                "European Centre for Medium-Range Weather Forecasts (ECMWF)",
-            ),
-            (173, "NASA"),
-        ] {
-            assert_eq!(lookup_centre(id), Some(expected), "centre {id}");
-        }
     }
 
     #[test]

@@ -6,6 +6,7 @@ use fieldglass_core::{
     Mollweide, Orthographic, PlanarGridProjector, PolarStereoParams, PolarStereoProjector,
     PolarStereographic, ProjectedPolylines, Resampling, Robinson, RotatedLatLonParams,
     RotatedLatLonProjector, SourceGrid, SourceOverlayTarget, TargetRaster, WebMercator,
+    cct_tables::lookup_sub_centre,
     colormap::{Colormap, ScaleMode, min_max_ignoring_mask, paint_grid_rgba},
     combine_fields,
     contour::{contour_segments, contour_segments_global, nice_levels},
@@ -17,10 +18,7 @@ use fieldglass_core::{
     units::normalize_units,
     warp::{PreparedTarget, TargetProjection, WarpedRaster, warp},
 };
-use fieldglass_grib1::{
-    Grib1Reader,
-    tables::{lookup_centre, lookup_parameter},
-};
+use fieldglass_grib1::{Grib1Reader, tables::lookup_parameter, tables_cct::lookup_centre};
 use fieldglass_grib2::{
     Grib2Reader, HorizontalProductCommon, ProductDefinitionSection,
     lookup_centre as lookup_grib2_centre, lookup_discipline, lookup_fixed_surface,
@@ -66,6 +64,11 @@ pub struct MessageMeta {
     /// lead time.
     pub p1_octet: Option<i32>,
     pub originating_centre: String,
+    /// Sub-centre name (WMO Common Code Table C-12), or `None` when the field
+    /// is 0 ("no sub-centre") or the pair is unassigned. Resolved from the
+    /// **pair**: the same sub-centre code means different things under
+    /// different centres (#440).
+    pub sub_centre: Option<String>,
     pub grid_type: Option<String>,
     pub grid_ni: Option<i32>,
     pub grid_nj: Option<i32>,
@@ -438,7 +441,11 @@ fn build_grib1_message_meta(
         forecast_hours: fieldglass_grib1::forecast_hours(&msg.pds).unwrap_or(0),
         p1_octet: (msg.pds.time_range != 10).then_some(msg.pds.p1 as i32),
         forecast_display: fieldglass_grib1::forecast_display(&msg.pds),
-        originating_centre: lookup_centre(msg.pds.originating_centre).to_string(),
+        originating_centre: lookup_centre(msg.pds.originating_centre)
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("Centre {}", msg.pds.originating_centre)),
+        sub_centre: lookup_sub_centre(msg.pds.originating_centre.into(), msg.pds.sub_centre.into())
+            .map(str::to_string),
         grid_type,
         grid_ni,
         grid_nj,
@@ -828,6 +835,7 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
         forecast_hours: product.forecast_hours,
         forecast_display: product.forecast_display,
         originating_centre: centre,
+        sub_centre: lookup_sub_centre(msg.ids.centre, msg.ids.sub_centre).map(str::to_string),
         grid_type: Some(grid_type),
         grid_ni: dims.map(|(ni, _)| ni as i32),
         grid_nj: dims.map(|(_, nj)| nj as i32),
@@ -2816,6 +2824,7 @@ fn base_netcdf_meta(name: &str, units: &str, ni: i32, nj: i32) -> MessageMeta {
         forecast_hours: 0,
         forecast_display: String::new(),
         originating_centre: String::new(),
+        sub_centre: None,
         grid_type: None,
         grid_ni: Some(ni),
         grid_nj: Some(nj),
@@ -3431,6 +3440,7 @@ impl MessageMeta {
             forecast_display: _,
             p1_octet: _,
             originating_centre: _,
+            sub_centre: _,
             format: _,
             edition: _,
             discipline: _,
@@ -5179,6 +5189,7 @@ mod polar_stereo_warp_tests {
             forecast_hours: 0,
             forecast_display: String::new(),
             originating_centre: String::new(),
+            sub_centre: None,
             grid_type: Some("polar_stereo".to_string()),
             grid_ni: Some(135),
             grid_nj: Some(95),
@@ -6037,6 +6048,7 @@ mod overlay_projection_tests {
             forecast_hours: 0,
             forecast_display: String::new(),
             originating_centre: String::new(),
+            sub_centre: None,
             grid_type: Some("latlon".to_string()),
             grid_ni: Some(361),
             grid_nj: Some(181),
@@ -7607,6 +7619,7 @@ mod space_view_geos_tests {
             forecast_hours: 0,
             forecast_display: String::new(),
             originating_centre: String::new(),
+            sub_centre: None,
             grid_type: Some("space_view".to_string()),
             grid_ni: Some(11),
             grid_nj: Some(11),

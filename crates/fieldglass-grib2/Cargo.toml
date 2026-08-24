@@ -19,4 +19,7 @@ rust-aec = { workspace = true }
 rust-j2k = { workspace = true }
 
 [dev-dependencies]
+# The CCT centre tables land in three crates from one generator, so the test
+# that checks them against the shared oracle needs to see the GRIB1 one too.
+fieldglass-grib1 = { path = "../fieldglass-grib1", version = "=0.4.0" }
 serde_json = { workspace = true }

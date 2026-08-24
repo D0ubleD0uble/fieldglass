@@ -32,6 +32,8 @@ export interface MessageMeta {
   p1Octet: number | null;
   forecastDisplay: string;
   originatingCentre: string;
+  /** Sub-centre name (WMO C-12), or absent when the field is 0 or unassigned. */
+  subCentre?: string;
   gridType: string | null;
   gridNi: number | null;
   gridNj: number | null;

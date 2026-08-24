@@ -1511,15 +1511,22 @@ function isNonNegativeInt(n: unknown): n is number {
   return typeof n === "number" && Number.isInteger(n) && n >= 0;
 }
 
-/// Compose the "Center" table cell: centre name plus, when available, the
-/// GRIB2 production status (Code Table 1.3) so operational vs. research
-/// products are visible at a glance without adding another column.
+/// Compose the "Center" table cell: centre name, the sub-centre that produced
+/// the field when the file names one, and the GRIB2 production status (Code
+/// Table 1.3) so operational vs. research products are visible at a glance
+/// without adding another column.
+///
+/// `subCentre` is a napi `Option`, which reaches JS as `undefined` rather than
+/// `null` — hence the nullish check (#288).
 function formatCentreCell(m: MessageMeta): string {
+  const centre = m.subCentre != null && m.subCentre !== ""
+    ? `${m.originatingCentre} (${m.subCentre})`
+    : m.originatingCentre;
   const status = m.productionStatus;
   if (status && status !== "Missing" && status !== "Unknown") {
-    return `${m.originatingCentre} · ${status}`;
+    return `${centre} · ${status}`;
   }
-  return m.originatingCentre;
+  return centre;
 }
 
 /** The slice the render panel opens on: the variable's CF-detected horizontal
@@ -1786,7 +1793,7 @@ export function renderHtml(
         <td>${gridDims}</td>
         <td>${gridBounds}</td>
         <td>${escapeHtml(m.packing ?? "—")}</td>
-        <td>${escapeHtml(formatCentreCell(m))}</td>
+        <td class="centre-cell">${escapeHtml(formatCentreCell(m))}</td>
       </tr>
       <tr class="expand-row" id="expand-${idx}" hidden>
         <td class="expand-cell" colspan="${COLSPAN}">
@@ -1997,6 +2004,11 @@ export function renderHtml(
       background: var(--vscode-list-activeSelectionBackground);
       color: var(--vscode-list-activeSelectionForeground);
     }
+    /* The centre column carries WMO's own wording since #440 - up to 82
+       characters, plus a sub-centre in parentheses. On a no-wrap cell in a
+       full-width table that pushes the whole table past the viewport, so this
+       one column wraps and is capped instead. */
+    td.centre-cell { white-space: normal; max-width: 22rem; }
     tr.expand-row td.expand-cell {
       background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
       padding: 0.75rem 1rem;
