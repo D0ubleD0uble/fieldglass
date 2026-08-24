@@ -124,10 +124,15 @@ fn no_rewritten_unit_still_uses_ascii_notation() {
         if normalised == unit {
             continue; // deliberately left alone; covered by the snapshot
         }
-        assert!(
-            !normalised.contains('/'),
-            "{unit:?} normalised to {normalised:?}, which still has a solidus"
-        );
+        // `*` as well as `/` since #441: a future WMO tag could introduce the
+        // Fortran `**` form the ECMWF and NCEP tables are written in, and a
+        // half-stripped `*` would be as wrong here as a leftover solidus.
+        for ascii in ['/', '*'] {
+            assert!(
+                !normalised.contains(ascii),
+                "{unit:?} normalised to {normalised:?}, which still has {ascii:?}"
+            );
+        }
         assert!(
             !normalised
                 .as_bytes()
