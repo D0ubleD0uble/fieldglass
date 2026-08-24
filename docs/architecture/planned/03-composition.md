@@ -198,7 +198,7 @@ classDiagram
     Grib2Handle ..> MessageMeta
     Grib2Handle ..> RenderedGrid
     WasmHandle ..> Field : returns to the host, takes it back by reference
-    WasmHandle ..> Palette : returns; the app uploads it
+    WasmHandle ..> Palette : returns it, the app uploads it
     Field *-- Georef
     DisplayField *-- Georef
 ```
