@@ -13,6 +13,11 @@ workspace down to one file's contents. Read them in order:
 | [`02-trait-seams.md`](02-trait-seams.md) | Dispatch | The traits a reader calls through to pick a packing, projection, or target at runtime. |
 | [`03-composition.md`](03-composition.md) | Per format | How a file parses into one message that holds its sections. |
 
+The same altitudes drawn for the **open milestones** are under
+[`planned/`](planned/README.md). Those are not drift-guarded (the guard reads
+only this directory's top level) and each planned node names its issue; when a
+milestone closes its delta is folded into the diagrams here and deleted there.
+
 ## Keeping these honest
 
 The diagrams are curated, not exhaustive. They trace the *seams and section
