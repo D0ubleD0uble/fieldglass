@@ -74,6 +74,23 @@ fn eta_lambert_decodes_template_3_30() {
     assert_eq!(msg.gds.dimensions(), Some((93, 65)));
     assert_eq!(msg.gds.template_name(), "lambert");
     assert_eq!(lookup_grid_template(30), "Lambert conformal");
+
+    // §3.30 states only the first grid point, so `bounds()` derives the last
+    // one from the projection (#472) rather than reporting `LaD`/`LoV` in its
+    // place — a latitude of true scale in a column labelled "last point".
+    // eccodes 2.34.1's own iterator on this fixture
+    // (`grib_get_data -L "%.9f %.9f"`, last row) gives
+    // (57.289403949, 310.614902750); the longitude here is the ±180 form.
+    let (la1, lo1, la2, lo2) = msg.gds.bounds().expect("Lambert has bounds");
+    assert!((la1 - 12.190).abs() < 1e-3 && (lo1 - 226.541).abs() < 1e-3);
+    assert!(
+        (la2 - 57.289_403_949).abs() < 1e-6 && (lo2 - (-49.385_097_250)).abs() < 1e-6,
+        "derived last point ({la2}, {lo2}) should match eccodes' iterator"
+    );
+    assert!(
+        (la2 - t.lad).abs() > 1.0,
+        "the last point must no longer be LaD"
+    );
 }
 
 #[test]
@@ -453,6 +470,19 @@ fn the_template_3_140_grid_geolocates_as_eccodes_does() {
             "({i}, {j}) gave ({got_lat}, {got_lon}), eccodes says ({lat}, {lon})"
         );
     }
+
+    // And the section reports that same corner (#472): §3.140 used to put its
+    // tangent point in the last-point slot at the crate level, while the napi
+    // layer substituted the derived one — two answers to one question.
+    let (la1, lo1, la2, lo2) = reader.messages[0]
+        .gds
+        .bounds()
+        .expect("Lambert azimuthal has bounds");
+    assert!((la1 - 34.999_999_991).abs() < 1e-7 && (lo1 - (-10.0)).abs() < 1e-7);
+    assert!(
+        (la2 - 59.435_027_618).abs() < 1e-7 && (lo2 - 46.673_881_242).abs() < 1e-7,
+        "bounds' last point ({la2}, {lo2}) should be the grid's own far corner"
+    );
 }
 
 /// A §3.140 GDS truncated inside its payload must be rejected, not read past.

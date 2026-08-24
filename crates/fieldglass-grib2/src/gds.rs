@@ -10,7 +10,11 @@
 //! Section 3 layout + Templates 3.0 / 3.1 / 3.10 / 3.20 / 3.30 / 3.40 / 3.90.
 
 use crate::section::{SectionHeader, parse_section_header};
-use fieldglass_core::{FieldglassError, bits::sign_magnitude_to_i64};
+use fieldglass_core::{
+    FieldglassError, LambertAzimuthalParams, LambertAzimuthalProjector, LambertParams,
+    LambertProjector, PlanarGridProjector, PolarStereoParams, PolarStereoProjector,
+    bits::sign_magnitude_to_i64, normalise_lon, signed_grid_increments,
+};
 
 /// Section number for the Grid Definition Section.
 pub const GDS_SECTION_NUMBER: u8 = 3;
@@ -472,6 +476,107 @@ pub struct GridDefinitionSection {
     pub template: GridTemplate,
 }
 
+impl LambertTemplate {
+    /// Geographic `(lat, lon)` of the last scanned grid point — the corner
+    /// diagonally opposite the declared first point.
+    ///
+    /// §3.30 states no second corner (unlike §3.0, which carries La2/Lo2), so
+    /// it is recovered the way `fieldglass-grib1` recovers its Lambert corner:
+    /// forward-project the first point to plane metres, step `(Nx-1)·Dx` and
+    /// `(Ny-1)·Dy` along the grid's own scan, and invert. `None` for a
+    /// degenerate cone, which would otherwise report `NaN`.
+    pub fn last_point(&self) -> Option<(f64, f64)> {
+        let (dx, dy) = signed_grid_increments(
+            self.dx_metres,
+            self.dy_metres,
+            self.scanning_mode & 0x80 != 0,
+            self.scanning_mode & 0x40 != 0,
+        );
+        let projector = LambertProjector::new(LambertParams {
+            earth_radius_m: self.earth_radius_m,
+            ni: self.nx,
+            nj: self.ny,
+            lat_first: self.la1,
+            lon_first: self.lo1,
+            lad: self.lad,
+            lov: self.lov,
+            dx_metres: dx,
+            dy_metres: dy,
+            latin1: self.latin1,
+            latin2: self.latin2,
+        });
+        finite_lonlat(
+            projector.is_well_defined(),
+            projector.last_grid_point_lonlat(),
+        )
+    }
+}
+
+impl LambertAzimuthalTemplate {
+    /// Geographic `(lat, lon)` of the last scanned grid point. §3.140 states a
+    /// real first point but no second one, so the corner is derived the same
+    /// way §3.20 and §3.30 derive theirs.
+    pub fn last_point(&self) -> Option<(f64, f64)> {
+        let (dx, dy) = signed_grid_increments(
+            self.dx_metres,
+            self.dy_metres,
+            self.scanning_mode & 0x80 != 0,
+            self.scanning_mode & 0x40 != 0,
+        );
+        let projector = LambertAzimuthalProjector::new(LambertAzimuthalParams {
+            semi_major_m: self.earth_major_m,
+            semi_minor_m: self.earth_minor_m,
+            ni: self.nx,
+            nj: self.ny,
+            lat_first: self.la1,
+            lon_first: self.lo1,
+            standard_parallel: self.standard_parallel,
+            central_longitude: self.central_longitude,
+            dx_metres: dx,
+            dy_metres: dy,
+        });
+        finite_lonlat(
+            projector.is_well_defined(),
+            projector.last_grid_point_lonlat(),
+        )
+    }
+}
+
+impl PolarStereographicTemplate {
+    /// Geographic `(lat, lon)` of the last scanned grid point. Same derivation
+    /// as [`LambertTemplate::last_point`] — §3.20 likewise states only the
+    /// first point.
+    pub fn last_point(&self) -> Option<(f64, f64)> {
+        let (dx, dy) = signed_grid_increments(
+            self.dx_metres,
+            self.dy_metres,
+            self.scanning_mode & 0x80 != 0,
+            self.scanning_mode & 0x40 != 0,
+        );
+        let projector = PolarStereoProjector::new(PolarStereoParams {
+            earth_radius_m: self.earth_radius_m,
+            ni: self.nx,
+            nj: self.ny,
+            lat_first: self.la1,
+            lon_first: self.lo1,
+            lov: self.lov,
+            lad: self.lad,
+            dx_metres: dx,
+            dy_metres: dy,
+            south_pole: self.south_pole,
+        });
+        finite_lonlat(true, projector.last_grid_point_lonlat())
+    }
+}
+
+/// A derived corner, or `None` when the projection cannot place one. The
+/// inverse is `lov + atan2(…)` and can land outside [-180, 180] (a grid with
+/// `LoV` = 247° yields ~328°), so the longitude is normalised to the same
+/// convention the declared first point uses.
+fn finite_lonlat(well_defined: bool, (lat, lon): (f64, f64)) -> Option<(f64, f64)> {
+    (well_defined && lat.is_finite() && lon.is_finite()).then(|| (lat, normalise_lon(lon)))
+}
+
 impl GridDefinitionSection {
     /// `(ni, nj)` if the template carries explicit dimensions. Reduced
     /// Gaussian grids return `None` because Ni varies per row.
@@ -520,6 +625,32 @@ impl GridDefinitionSection {
     /// `(la1, lo1, lad, lov)`, the natural projection parameters that pair
     /// with the metadata the napi layer surfaces. Space view carries no
     /// corner coordinates (only a sub-satellite point) and returns `None`.
+    /// The `(lat, lon)` of the declared first grid point, for the templates
+    /// that state one.
+    ///
+    /// Distinct from [`Self::bounds`], and the reason it exists: a projected
+    /// grid always declares where it *starts*, even when its projection is too
+    /// degenerate to place the corner it ends at. `bounds` reports a pair, so
+    /// it has to give up both; this gives up only what the message does not
+    /// state. §3.12 is absent because its origin is `X1`/`Y1` in projection
+    /// metres — a caller wanting that inverts it through the projector.
+    pub fn first_point(&self) -> Option<(f64, f64)> {
+        match &self.template {
+            GridTemplate::LatLon(t) => Some((t.la1, t.lo1)),
+            GridTemplate::RotatedLatLon(t) => Some((t.la1, t.lo1)),
+            GridTemplate::Mercator(t) => Some((t.la1, t.lo1)),
+            GridTemplate::PolarStereographic(t) => Some((t.la1, t.lo1)),
+            GridTemplate::Lambert(t) => Some((t.la1, t.lo1)),
+            GridTemplate::LambertAzimuthal(t) => Some((t.la1, t.lo1)),
+            GridTemplate::Gaussian(t) => Some((t.la1, t.lo1)),
+            GridTemplate::TransverseMercator(_)
+            | GridTemplate::SpaceView(_)
+            | GridTemplate::SphericalHarmonic(_)
+            | GridTemplate::BiFourier(_)
+            | GridTemplate::Unsupported(_) => None,
+        }
+    }
+
     pub fn bounds(&self) -> Option<(f64, f64, f64, f64)> {
         match &self.template {
             GridTemplate::LatLon(t) => Some((t.la1, t.lo1, t.la2, t.lo2)),
@@ -533,13 +664,23 @@ impl GridDefinitionSection {
             // invert them through `TransverseMercatorProjector`, the same way
             // space view derives its own.
             GridTemplate::TransverseMercator(_) => None,
-            GridTemplate::PolarStereographic(t) => Some((t.la1, t.lo1, t.lad, t.lov)),
-            GridTemplate::Lambert(t) => Some((t.la1, t.lo1, t.lad, t.lov)),
-            // §3.140's first point is geographic, so unlike §3.12 the first
-            // half of this is a real corner; the second is the tangent point,
-            // the same substitution the two templates above make.
+            // Both state only the first grid point, and both can derive the
+            // last one from their projection (#472). They used to report
+            // `LaD`/`LoV` in its place — degrees, so it looked plausible, but a
+            // latitude of true scale in a column labelled "last point", and the
+            // same two values are already reported as the projection parameters
+            // they are. A grid whose projection cannot place the corner reports
+            // the first point alone rather than a substitute.
+            GridTemplate::PolarStereographic(t) => {
+                t.last_point().map(|(la2, lo2)| (t.la1, t.lo1, la2, lo2))
+            }
+            GridTemplate::Lambert(t) => t.last_point().map(|(la2, lo2)| (t.la1, t.lo1, la2, lo2)),
+            // §3.140 likewise states a real first point and no second one.
+            // It used to report the tangent point in the corner's place; the
+            // napi layer already replaced that with the derived corner, and now
+            // the crate does, so both agree (#472).
             GridTemplate::LambertAzimuthal(t) => {
-                Some((t.la1, t.lo1, t.standard_parallel, t.central_longitude))
+                t.last_point().map(|(la2, lo2)| (t.la1, t.lo1, la2, lo2))
             }
             GridTemplate::Gaussian(t) => Some((t.la1, t.lo1, t.la2, t.lo2)),
             GridTemplate::SpaceView(_) => None,
@@ -1313,6 +1454,46 @@ mod tests {
         assert_eq!(gds.template_name(), "mercator");
     }
 
+    /// A cone too degenerate to place the far corner still reports the corner
+    /// the message states. `bounds` gives up the pair, because it *is* a pair;
+    /// `first_point` gives up only the half the message does not state.
+    #[test]
+    fn a_degenerate_lambert_keeps_its_declared_first_point() {
+        // latin1 == latin2 == 0 collapses the cone (n = sin 0 = 0).
+        let mut p = Vec::new();
+        p.push(6u8); // shape of earth
+        p.extend([0u8; 15]);
+        push_be(&mut p, 10, 4); // nx
+        push_be(&mut p, 10, 4); // ny
+        p.extend_from_slice(&signed_lat_bytes(45_000_000)); // la1
+        push_be(&mut p, 250_000_000, 4); // lo1
+        p.push(0x30); // resolution
+        p.extend_from_slice(&signed_lat_bytes(0)); // LaD = 0
+        push_be(&mut p, 265_000_000, 4); // LoV
+        push_be(&mut p, 12_000_000, 4); // Dx
+        push_be(&mut p, 12_000_000, 4); // Dy
+        p.push(0); // projection centre
+        p.push(64); // scanning mode
+        p.extend_from_slice(&signed_lat_bytes(0)); // Latin1 = 0
+        p.extend_from_slice(&signed_lat_bytes(0)); // Latin2 = 0
+        p.extend_from_slice(&signed_lat_bytes(0)); // lat south pole
+        push_be(&mut p, 0, 4); // lon south pole
+        let bytes = wrap_gds(30, 100, &p);
+        let gds = parse_grid_definition(&bytes).expect("parse 3.30");
+        let GridTemplate::Lambert(t) = gds.template else {
+            panic!("expected Lambert");
+        };
+        assert!((t.la1 - 45.0).abs() < 1e-9 && (t.lo1 - 250.0).abs() < 1e-9);
+        assert_eq!(
+            t.last_point(),
+            None,
+            "a collapsed cone cannot place the far corner"
+        );
+        assert_eq!(gds.bounds(), None, "so there is no corner pair to report");
+        let (la1, lo1) = gds.first_point().expect("the first point is stated");
+        assert!((la1 - 45.0).abs() < 1e-9 && (lo1 - 250.0).abs() < 1e-9);
+    }
+
     #[test]
     fn template_3_20_round_trips_polar_stereo_south_pole_flag() {
         let mut p: Vec<u8> = Vec::new();
@@ -1343,8 +1524,19 @@ mod tests {
         assert!((t.dx_metres - 12_700.0).abs() < 1e-6);
         assert!(t.south_pole, "projection-centre bit 1 set → south pole");
         assert_eq!(gds.dimensions(), Some((512, 512)));
-        // Polar stereo borrows Lambert's (la1, lo1, lad, lov) bounds shape.
-        assert_eq!(gds.bounds(), Some((-20.0, 225.0, -60.0, 100.0)));
+        // The last point is derived from the projection, not substituted with
+        // `LaD`/`LoV` as it was before #472. Checked against eccodes' own
+        // point iterator: encoding this exact grid (via the eccodes 2.48
+        // Python wheel, which can write the 512×512 values array) and running
+        // `grib_get_data` from the pinned 2.34.1 CLI reports the last point as
+        // (6.919425280, 182.657847210), i.e. -177.342152790 in the ±180
+        // convention this crate reports.
+        let (la1, lo1, la2, lo2) = gds.bounds().expect("polar stereo has bounds");
+        assert_eq!((la1, lo1), (-20.0, 225.0), "first point unchanged");
+        assert!(
+            (la2 - 6.919_425_280).abs() < 1e-6 && (lo2 - (-177.342_152_790)).abs() < 1e-6,
+            "derived last point ({la2}, {lo2}) should match eccodes' iterator"
+        );
         assert_eq!(gds.template_name(), "polar_stereo");
     }
 
