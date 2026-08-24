@@ -7,8 +7,8 @@
 //!
 //! #439 landed this registry empty so the generators behind it would be pure
 //! data changes — a generated module and one `match` arm here, with no
-//! call-site churn and nothing to re-review about dispatch. ECMWF (#424) and
-//! DWD/ICON (#425) have arrived; NCEP (#426) follows.
+//! call-site churn and nothing to re-review about dispatch. ECMWF (#424),
+//! DWD/ICON (#425) and NCEP (#426) have all arrived.
 //!
 //! # What reaches this seam, and what does not
 //!
@@ -22,6 +22,11 @@
 //! |---|---|---|---|---|---|---|
 //! | ECMWF (#424) | 3,601 | 63 | 2,826 | 48 | 6 | 642 |
 //! | DWD/ICON (#425) | 1,704 | 983 | 213 | 100 | 50 | 254 |
+//!
+//! NCEP is not in that table because it does not come from eccodes: wgrib2's
+//! `gribtable.dat` carries 479 routable entries where eccodes' `kwbc` concepts
+//! carry 313, a strict superset, with NCEP's own uppercase abbreviations. See
+//! `tools/gen_ncep_tables.py`.
 //!
 //! ECMWF fits this seam almost whole. DWD does not, and the reason is worth
 //! keeping: most of its table sits on *standard* codes, which the ≥192 rule
@@ -65,6 +70,10 @@ pub(crate) fn lookup(
             category,
             number,
         ),
+        // NCEP's table takes no version: wgrib2 records one for its own
+        // bookkeeping, eccodes' concepts gate none of them, and every NCEP
+        // sample in the tree declares 1 anyway.
+        CENTRE_NCEP => crate::tables_ncep::lookup(discipline, category, number),
         _ => None,
     }
 }
@@ -75,3 +84,8 @@ const CENTRE_ECMWF: u16 = 98;
 /// WMO Common Code Table C-11 code for Offenbach (RSMC) - DWD, whose eccodes
 /// concept directory is `edzw`.
 const CENTRE_DWD: u16 = 78;
+
+/// WMO Common Code Table C-11 code for the US National Weather Service, NCEP.
+/// Its sub-centres — NBM is 14, and there are a dozen more — share it, which is
+/// why nothing here keys on the sub-centre.
+const CENTRE_NCEP: u16 = 7;

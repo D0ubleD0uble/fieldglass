@@ -653,3 +653,24 @@ polar-aspect guard tests `cosb1 == 0.0`, which holds at +90deg but not at
 `codes_get_array(h, "latitudes")` answers
 `Invalid value: arcsin argument=7.60531e+06` and refuses to build the iterator.
 That case is pinned against PROJ instead.
+
+## `ncep_eccodes_crosscheck.json`
+
+Not a GRIB file: what eccodes answers for each of the 479 triples the generated
+NCEP table (`tables_ncep.rs`) ships. Built by
+`tools/gen_ncep_tables.py --crosscheck`, the same way as the localConcepts
+oracles — rewrite §1 `centre` and the parameter triple on
+`reduced_gaussian_pressure_level.grib2` with `grib_set`, read `shortName`,
+`name` and `units` back with `grib_get`, one key per pass.
+
+Its role is different from the other two snapshots. The table itself comes from
+**wgrib2** v3.8.0 (`wgrib2/gribtables/ncep/gribtable.dat`, a work of the U.S.
+federal government and in the public domain), not from eccodes — so eccodes
+here is an independent transcription of the same NCO documentation through a
+different pipeline, and `tests/ncep_local_parameters.rs` asserts the two agree
+about what each triple *means*. They do, for 310 of the 313 they share, once
+case is folded; the three that differ are eccodes preferring an alternative
+name, and are pinned individually.
+
+166 of the 479 entries record `unknown` — eccodes does not define them at all.
+That is the coverage wgrib2 buys, and it is asserted rather than described.

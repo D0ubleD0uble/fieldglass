@@ -41,15 +41,15 @@ adds or deprecates, never renumbers, so latest wins.
 
 What each centre actually contributes, as `tools/gen_localconcepts_tables.py`
 measures it at eccodes 2.34.1 — concept blocks in the first two columns,
-distinct triples in the rest. The NCEP row is a dry run of the same generator;
-#426 is about whether wgrib2's table beats it, not about whether this one
-works:
+distinct triples in the rest. The NCEP row is a dry run of the same generator,
+kept because it is the number wgrib2 had to beat — and did, 479 to 313, which
+is why `tables_ncep.rs` comes from `tools/gen_ncep_tables.py` instead:
 
 | Centre | blocks | outside 192-254 | emitted | §4-keyed | ambiguous | placeholder |
 |---|---|---|---|---|---|---|
 | ECMWF (#424) | 3,601 | 63 | 2,826 | 48 | 6 | 642 |
 | DWD/ICON (#425) | 1,704 | 983 | 213 | 100 | 50 | 254 |
-| NCEP (#426) | 319 | 6 | 313 | 0 | 0 | 0 |
+| NCEP via eccodes (not shipped) | 319 | 6 | 313 | 0 | 0 | 0 |
 
 Two corrections to the pre-implementation survey this table replaces. It quoted
 3,360 ECMWF and 1,827 DWD entries, with 40 and 1,069 below 192; those came from
@@ -112,14 +112,24 @@ Two things worth carrying into the remaining generators:
   | WMO GRIB2 master (v37) | — | 16 strings | — |
   | ON388 GRIB1 (`grib1/src/tables.rs`) | — | ~20 strings | 6 strings |
   | eccodes ECMWF (`grib1/src/tables_ecmwf.rs`, and #424) | 61 distinct | — | — |
-  | eccodes NCEP (#426) | 28 distinct | — | — |
+  | eccodes NCEP (unused) | 28 distinct | — | — |
+  | wgrib2 NCEP (`grib2/src/tables_ncep.rs`, #426) | — | 33 strings | 6 strings |
   | eccodes DWD/ICON (#425) | — | — | — |
 
   So the two ASCII families do not mix: a table is written one way or the
   other. DWD writes neither, using the bare `kg kg-1` form WMO's master table
   also uses, so #425 added no notation and needed no new unit symbols; the four
   strings it did add to the passthrough set (`Pa-3h`, `10-7 s-2`, `Pa(O3)`,
-  `Km kg-1 s-1`) are pinned in `grib2/tests/unit_notation.rs`. Chained solidi are ON388-only, which is what bounds the "everything
+  `Km kg-1 s-1`) are pinned in `grib2/tests/unit_notation.rs`.
+
+  **wgrib2 writes a fifth: the caret**, in 15 of its 62 distinct strings —
+  `kg/m^2/s`, `m^2/s^2`, `mm^6/m^3`.
+  `normalize_units` reads it as of #426, alongside `**` and the bare form, and
+  the change is purely additive — not one previously pinned string moved.
+  wgrib2 also writes `*` as an explicit product in 8 strings (`K*m/s`,
+  `J/m^2*K`), which is deliberately *not* read: nothing else in any corpus does, and it would collide
+  with the `**` operator. Those pass through, as do NCEP's prose dimensionless
+  markers (`-`, `non-dim`, `Categorical`, `Integer(0-13)`). Chained solidi are ON388-only, which is what bounds the "everything
   past the first solidus is a denominator" rule to six strings that could be
   checked one by one against the quantity (`kg/m2/s` is precipitation rate,
   `m2/s/kg` potential vorticity).

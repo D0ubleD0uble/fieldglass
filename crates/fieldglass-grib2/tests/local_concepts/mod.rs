@@ -134,20 +134,29 @@ impl Oracle {
         }
     }
 
-    /// The table answers for its own centre and no other, and the sub-centre
-    /// does not gate it — these tables are centre-wide.
+    /// This centre's answer is this centre's alone, and the sub-centre does not
+    /// gate it — these tables are centre-wide.
+    ///
+    /// Note what this does *not* assert. Another centre may define the same
+    /// triple, and increasingly does as tables land: `(0, 1, 203)` is DWD's
+    /// `FRESHSNW` and NCEP's `RIME`, `(0, 3, 192)` is NCEP's `MSLET` and DWD's
+    /// `PP`. Two centres disagreeing about one triple is the entire reason the
+    /// seam is keyed on the centre, so the property is that they get *different*
+    /// answers — asserting `None` for everyone else only held while the registry
+    /// was nearly empty, and would fail again with every centre added.
     pub fn assert_scoped_to_its_centre(&self, sample: (u8, u8, u8), others: &[u16]) {
         let (discipline, category, number) = sample;
         let mine = Originator::new(self.centre_code, 0, 0);
+        let ours = lookup_parameter(mine, discipline, category, number);
         assert!(
-            lookup_parameter(mine, discipline, category, number).is_some(),
+            ours.is_some(),
             "the sample triple {discipline}/{category}/{number} is not in this table"
         );
         for &other in others {
-            assert_eq!(
+            assert_ne!(
                 lookup_parameter(Originator::new(other, 0, 0), discipline, category, number),
-                None,
-                "centre {other} must not read centre {}'s table",
+                ours,
+                "centre {other} read centre {}'s answer for {discipline}/{category}/{number}",
                 self.centre_code
             );
         }

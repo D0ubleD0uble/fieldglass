@@ -55,6 +55,10 @@ flag_management:
 #    parameter tables (from `tools/gen_localconcepts_tables.py`) — 2,826 and
 #    213 data arms, every one checked against eccodes' own concept engine by
 #    `tests/ecmwf_local_parameters.rs` and `tests/dwd_local_parameters.rs`.
+#  - `crates/fieldglass-grib2/src/tables_ncep.rs`: the NCEP local parameter
+#    table (from `tools/gen_ncep_tables.py`, out of wgrib2) — 479 data arms,
+#    cross-checked against eccodes' independent transcription of the same NCO
+#    tables by `tests/ncep_local_parameters.rs`.
 #  - `crates/fieldglass-grib1/src/tables_cct.rs`,
 #    `crates/fieldglass-grib2/src/tables_cct.rs` and
 #    `crates/fieldglass-core/src/cct_tables.rs`: the WMO Common Code Table
@@ -72,6 +76,7 @@ ignore:
   - "crates/fieldglass-grib2/src/tables_wmo.rs"
   - "crates/fieldglass-grib2/src/tables_ecmf.rs"
   - "crates/fieldglass-grib2/src/tables_edzw.rs"
+  - "crates/fieldglass-grib2/src/tables_ncep.rs"
   - "crates/fieldglass-grib1/src/tables_cct.rs"
   - "crates/fieldglass-grib2/src/tables_cct.rs"
   - "crates/fieldglass-core/src/cct_tables.rs"
