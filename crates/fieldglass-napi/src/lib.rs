@@ -494,11 +494,16 @@ fn build_grib1_message_meta(
 /// `forecast_*`) shape the JS layer consumes. Splitting the rendering out
 /// of [`open_grib2`] keeps the loop body short and lets future templates
 /// reuse the same projection.
-fn grib2_product_fields(discipline: u8, pds: &ProductDefinitionSection) -> Grib2ProductFields {
+fn grib2_product_fields(
+    originator: fieldglass_grib2::Originator,
+    discipline: u8,
+    pds: &ProductDefinitionSection,
+) -> Grib2ProductFields {
     let Some(common) = pds.common() else {
         return Grib2ProductFields::placeholder();
     };
     let (abbreviation, name, units) = match lookup_grib2_parameter(
+        originator,
         discipline,
         common.parameter_category,
         common.parameter_number,
@@ -730,7 +735,7 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
         .unwrap_or_else(|| format!("Centre {}", msg.ids.centre));
     let dims = msg.gds.dimensions();
     let bounds = msg.gds.bounds();
-    let product = grib2_product_fields(msg.is.discipline, &msg.pds);
+    let product = grib2_product_fields(msg.ids.originator(), msg.is.discipline, &msg.pds);
 
     let lambert = match &msg.gds.template {
         fieldglass_grib2::GridTemplate::Lambert(t) => Some(t),

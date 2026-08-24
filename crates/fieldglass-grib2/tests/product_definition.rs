@@ -36,6 +36,7 @@ fn gfs_latlon_pds_template_4_0_decodes() {
     assert_eq!(common.parameter_number, 0); // PRES
     assert_eq!(
         lookup_parameter(
+            msg.ids.originator(),
             msg.is.discipline,
             common.parameter_category,
             common.parameter_number
@@ -92,6 +93,7 @@ fn ecmwf_reduced_gaussian_pds_template_4_0_decodes() {
     assert_eq!(msg.is.discipline, 0);
     assert_eq!(
         lookup_parameter(
+            msg.ids.originator(),
             msg.is.discipline,
             common.parameter_category,
             common.parameter_number
@@ -258,6 +260,7 @@ fn template_4_8_round_trips_via_full_reader() {
     let common = msg.pds.common().unwrap();
     assert_eq!(
         lookup_parameter(
+            msg.ids.originator(),
             msg.is.discipline,
             common.parameter_category,
             common.parameter_number
@@ -335,6 +338,7 @@ fn template_4_11_round_trips_via_full_reader() {
     let common = msg.pds.common().unwrap();
     assert_eq!(
         lookup_parameter(
+            msg.ids.originator(),
             msg.is.discipline,
             common.parameter_category,
             common.parameter_number

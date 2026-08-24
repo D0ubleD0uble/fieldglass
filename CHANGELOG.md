@@ -37,6 +37,7 @@ Versioning is plain [Semantic Versioning](https://semver.org/spec/v2.0.0.html), 
 
 ### Rust API
 
+- `fieldglass_grib2::lookup_parameter` takes an `Originator` (the §1 originating centre, sub-centre and local table version) as its first argument. Codes WMO reserves for local use — 192-254 in any of discipline, category or parameter number — are offered to that centre's table before the WMO set; everything else resolves exactly as before. `IdentificationSection::originator()` builds one from a parsed message. No centre tables are registered yet (#424-#426), so resolution is unchanged for every input today.
 - `fieldglass_grib1::tables::lookup_centre` is gone, replaced by `fieldglass_grib1::tables_cct::lookup_centre`. It returns `Option<&'static str>` rather than falling back to the string `"Unknown centre"`, matching the GRIB2 side; render the numeric id when it returns `None`.
 - `fieldglass_grib2::lookup_centre` keeps its signature but is now re-exported from the generated `tables_cct` module, and its names are WMO's own — `"European Centre for Medium Range Weather Forecasts (ECMWF) (RSMC)"` rather than the previous curated spelling.
 - `fieldglass_core::cct_tables::lookup_sub_centre(centre, sub_centre)` is new. It takes both codes: sub-centre numbering is per-centre, so a lookup on the sub-centre alone cannot be correct.

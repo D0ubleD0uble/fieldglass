@@ -222,18 +222,114 @@ pub fn lookup_statistical_process(value: u8) -> &'static str {
     }
 }
 
-/// Look up a GRIB2 parameter by `(discipline, category, number)` and return
-/// `(short_name, long_name, units)` for the curated subset.
+/// Who wrote the message and which of their tables to read, for resolving
+/// centre-local parameters (#439).
 ///
-/// Covers the parameters routinely emitted by NCEP GFS, ECMWF, and the
-/// reanalysis archives — temperature, moisture, momentum, mass, and the
-/// common derived radar / land-surface fields. Unrecognised triples return
-/// `None`; callers should render the numeric triple as a fallback.
+/// These are the three §1 fields eccodes keys a local concept on. `centre` and
+/// `sub_centre` because a centre may delegate parameter space to one of its
+/// sub-centres, and `local_tables_version` because a centre may revise its own
+/// table without WMO involvement — ECMWF gates 132 of its entries on it, across
+/// two versions, so dropping it would make those unresolvable.
+/// `master_tables_version` is deliberately absent: WMO only ever adds or
+/// deprecates entries, never renumbers them, so "latest wins" and the version
+/// does not select between meanings.
+///
+/// A struct rather than positional arguments for two reasons. `centre` and
+/// `sub_centre` are both `u16`, so as a pair they are silently swappable at
+/// every call site. And the centres that plug into the local registry do not
+/// all resolve on the same keys — DWD needs §4 context on top of the triple —
+/// so this is the one place that grows a field, rather than every signature
+/// that threads it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Originator {
+    /// §1 octets 6-7, WMO Common Code Table C-11.
+    pub centre: u16,
+    /// §1 octets 8-9, WMO Common Code Table C-12. 0 means "no sub-centre".
+    pub sub_centre: u16,
+    /// §1 octet 11. The centre's own table revision; 0 or 255 mean "not used".
+    pub local_tables_version: u8,
+}
+
+impl Originator {
+    pub fn new(centre: u16, sub_centre: u16, local_tables_version: u8) -> Self {
+        Self {
+            centre,
+            sub_centre,
+            local_tables_version,
+        }
+    }
+}
+
+/// The codes WMO reserves for local use, in every one of discipline, category
+/// and parameter number.
+///
+/// 255 is deliberately outside it: WMO assigns 255 to "missing" in each of the
+/// three tables, so a file setting it is declining to say, not pointing at a
+/// centre's own definition. Routing it to a local table would invite a centre
+/// entry to put a confident name on an absent value.
+const LOCAL_USE: std::ops::RangeInclusive<u8> = 192..=254;
+
+/// Whether a triple names local code space, and so should be offered to the
+/// originating centre's table before the WMO set.
+///
+/// Any one of the three being local is enough — a local discipline makes the
+/// whole triple the centre's to define, and so does a local category under a
+/// standard discipline.
+fn is_local_use(discipline: u8, category: u8, number: u8) -> bool {
+    LOCAL_USE.contains(&discipline) || LOCAL_USE.contains(&category) || LOCAL_USE.contains(&number)
+}
+
+/// Look up a GRIB2 parameter by `(discipline, category, number)` and return
+/// `(short_name, long_name, units)`.
+///
+/// Resolution follows `docs/planning/parameter-table-sources.md`, which is
+/// eccodes' and netCDF-java's rule: a triple in local code space is offered to
+/// the originating centre's table first, and everything else — plus anything
+/// the centre does not define — resolves against the curated subset and then
+/// the generated WMO master table.
+///
+/// The two ranges do not in fact overlap: the master table stops at 191 in all
+/// three dimensions, so a local entry can never shadow a WMO one. That is
+/// asserted in `tests/local_parameter_dispatch.rs` rather than relied on
+/// silently, because it is a property of the upstream data and not of this
+/// code.
+///
+/// Unrecognised triples return `None`; callers should render the numeric
+/// triple as a fallback.
 pub fn lookup_parameter(
+    originator: Originator,
     discipline: u8,
     category: u8,
     number: u8,
 ) -> Option<(&'static str, &'static str, &'static str)> {
+    resolve_parameter(
+        originator,
+        discipline,
+        category,
+        number,
+        crate::tables_local::lookup,
+    )
+}
+
+/// The resolution policy, with the centre-local table injected.
+///
+/// Split out from [`lookup_parameter`] so the policy can be exercised against
+/// a stub table while the real registry is still empty (#439 lands the seam
+/// before #424-#426 land any data). Testing the policy through a stub is the
+/// only way to prove the ordering now; once a real centre table exists this
+/// keeps working unchanged.
+fn resolve_parameter(
+    originator: Originator,
+    discipline: u8,
+    category: u8,
+    number: u8,
+    local: impl Fn(Originator, u8, u8, u8) -> Option<(&'static str, &'static str, &'static str)>,
+) -> Option<(&'static str, &'static str, &'static str)> {
+    if is_local_use(discipline, category, number)
+        && let Some(entry) = local(originator, discipline, category, number)
+    {
+        return Some(entry);
+    }
     let entry = match (discipline, category, number) {
         // Discipline 0 — Meteorological products
         // Category 0: Temperature
@@ -342,6 +438,144 @@ mod tests {
     #[test]
     fn unknown_falls_back() {
         assert_eq!(lookup_discipline(99), "Unknown discipline");
+    }
+
+    /// A stand-in centre table, so the resolution *order* can be proven while
+    /// the real registry is still empty (#439 lands the seam ahead of
+    /// #424-#426). Answers for one centre only, so "the centre is consulted"
+    /// and "the right centre is consulted" are separable.
+    fn stub_local(
+        originator: Originator,
+        discipline: u8,
+        category: u8,
+        number: u8,
+    ) -> Option<(&'static str, &'static str, &'static str)> {
+        match (originator.centre, discipline, category, number) {
+            // A genuinely local triple, which is the case the seam exists for.
+            (7, 0, 192, 1) => Some(("LOCAL", "A centre-local parameter", "K")),
+            // A standard triple the master set also defines. A centre must not
+            // be able to take this one over — asserted below.
+            (7, 0, 0, 0) => Some(("SHADOW", "Must never be reached", "K")),
+            _ => None,
+        }
+    }
+
+    /// The acceptance criterion for #439: a local code prefers the centre's
+    /// entry, and a standard code still reaches the master set.
+    #[test]
+    fn a_local_code_prefers_the_centre_table() {
+        let ncep = Originator::new(7, 0, 0);
+        assert_eq!(
+            resolve_parameter(ncep, 0, 192, 1, stub_local),
+            Some(("LOCAL", "A centre-local parameter", "K")),
+        );
+        // Another centre gets nothing from NCEP's table.
+        assert_eq!(
+            resolve_parameter(Originator::new(98, 0, 0), 0, 192, 1, stub_local),
+            None
+        );
+        // And with no local table at all, the same triple is unresolved.
+        assert_eq!(resolve_parameter(ncep, 0, 192, 1, |_, _, _, _| None), None);
+    }
+
+    /// The other half: a standard code is never offered to the centre, so a
+    /// local table cannot shadow a WMO parameter even if it tries.
+    #[test]
+    fn a_standard_code_never_reaches_the_centre_table() {
+        let ncep = Originator::new(7, 0, 0);
+        assert_eq!(
+            resolve_parameter(ncep, 0, 0, 0, stub_local),
+            Some(("TMP", "Temperature", "K")),
+            "0/0/0 is master space; the stub's SHADOW entry must not win"
+        );
+    }
+
+    /// A local code the centre does *not* define falls through to the master
+    /// chain rather than stopping at the centre — which is what "try local
+    /// first, then fall back" means, and is only observable when the local
+    /// table is non-empty but incomplete.
+    #[test]
+    fn an_undefined_local_code_falls_through() {
+        let ncep = Originator::new(7, 0, 0);
+        // The master set defines nothing at 192+, so this is None — but it is
+        // None by falling through, not by the centre answering.
+        assert_eq!(resolve_parameter(ncep, 0, 192, 99, stub_local), None);
+        // Same triple shape below 192 still resolves, proving the fall-through
+        // path is live rather than short-circuited.
+        assert_eq!(
+            resolve_parameter(ncep, 0, 1, 8, stub_local),
+            Some(("APCP", "Total precipitation", "kg m⁻²")),
+        );
+    }
+
+    /// Any one of the three components being in local space is enough.
+    #[test]
+    fn local_use_is_any_of_the_three_components() {
+        assert!(is_local_use(192, 0, 0));
+        assert!(is_local_use(0, 192, 0));
+        assert!(is_local_use(0, 0, 192));
+        assert!(is_local_use(0, 0, 254));
+        assert!(!is_local_use(191, 191, 191));
+        // 255 is "missing" in each table, not local use.
+        assert!(!is_local_use(255, 0, 0));
+        assert!(!is_local_use(0, 255, 0));
+        assert!(!is_local_use(0, 0, 255));
+    }
+
+    /// The local table version reaches the table too. ECMWF gates 132 of its
+    /// entries on it across two versions, so a centre really can mean different
+    /// parameters by one triple depending on which revision wrote the file.
+    #[test]
+    fn the_local_table_version_reaches_the_local_table() {
+        fn by_version(
+            originator: Originator,
+            _: u8,
+            _: u8,
+            _: u8,
+        ) -> Option<(&'static str, &'static str, &'static str)> {
+            match originator.local_tables_version {
+                1 => Some(("V1", "As table version 1 defines it", "K")),
+                228 => Some(("V228", "As table version 228 defines it", "m")),
+                _ => None,
+            }
+        }
+        let at =
+            |version| resolve_parameter(Originator::new(98, 0, version), 0, 192, 0, by_version);
+        assert_eq!(at(1), Some(("V1", "As table version 1 defines it", "K")));
+        assert_eq!(
+            at(228),
+            Some(("V228", "As table version 228 defines it", "m"))
+        );
+        assert_eq!(
+            at(0),
+            None,
+            "a file declaring no local table gets no local entry"
+        );
+    }
+
+    /// A sub-centre reaches the table too — some centres delegate parameter
+    /// space to one, so it has to be part of the key rather than dropped.
+    #[test]
+    fn the_sub_centre_reaches_the_local_table() {
+        fn by_sub_centre(
+            originator: Originator,
+            _: u8,
+            _: u8,
+            _: u8,
+        ) -> Option<(&'static str, &'static str, &'static str)> {
+            match originator.sub_centre {
+                4 => Some(("EMC", "Environmental Modeling Center", "")),
+                _ => None,
+            }
+        }
+        assert_eq!(
+            resolve_parameter(Originator::new(7, 4, 0), 0, 192, 0, by_sub_centre),
+            Some(("EMC", "Environmental Modeling Center", "")),
+        );
+        assert_eq!(
+            resolve_parameter(Originator::new(7, 0, 0), 0, 192, 0, by_sub_centre),
+            None
+        );
     }
 
     #[test]
@@ -511,24 +745,27 @@ mod tests {
 
     #[test]
     fn parameter_lookup_hits_common_ncep_triples() {
-        assert_eq!(lookup_parameter(0, 0, 0), Some(("TMP", "Temperature", "K")));
         assert_eq!(
-            lookup_parameter(0, 1, 8),
+            lookup_parameter(Originator::default(), 0, 0, 0),
+            Some(("TMP", "Temperature", "K"))
+        );
+        assert_eq!(
+            lookup_parameter(Originator::default(), 0, 1, 8),
             Some(("APCP", "Total precipitation", "kg m⁻²"))
         );
         assert_eq!(
-            lookup_parameter(0, 2, 2),
+            lookup_parameter(Originator::default(), 0, 2, 2),
             Some(("UGRD", "U-component of wind", "m s⁻¹"))
         );
         assert_eq!(
-            lookup_parameter(0, 3, 5),
+            lookup_parameter(Originator::default(), 0, 3, 5),
             Some(("HGT", "Geopotential height", "gpm"))
         );
         // Sea-surface temperature is 10/3/0 "Water temperature", from the
         // generated WMO table — it was long carried at 10/1/2, which is the
         // u-component of current (see `curated_grib1_transcriptions_corrected`).
         assert_eq!(
-            lookup_parameter(10, 3, 0),
+            lookup_parameter(Originator::default(), 10, 3, 0),
             Some(("", "Water temperature", "K"))
         );
     }
@@ -544,32 +781,35 @@ mod tests {
     fn curated_grib1_transcriptions_corrected() {
         // Was "Density" (GRIB1 ON388 code 89). Density is 0/3/10.
         assert_eq!(
-            lookup_parameter(0, 3, 9),
+            lookup_parameter(Originator::default(), 0, 3, 9),
             Some(("", "Geopotential height anomaly", "gpm"))
         );
-        assert_eq!(lookup_parameter(0, 3, 10), Some(("", "Density", "kg m-3")));
+        assert_eq!(
+            lookup_parameter(Originator::default(), 0, 3, 10),
+            Some(("", "Density", "kg m-3"))
+        );
 
         // Was "Soil moisture content" (GRIB1 ON388 code 86). It is 2/0/3.
         assert_eq!(
-            lookup_parameter(2, 0, 5),
+            lookup_parameter(Originator::default(), 2, 0, 5),
             Some(("", "Water runoff", "kg m-2"))
         );
         assert_eq!(
-            lookup_parameter(2, 0, 3),
+            lookup_parameter(Originator::default(), 2, 0, 3),
             Some(("", "Soil moisture content", "kg m-2"))
         );
 
         // Was "Sea surface temperature". 10/1/2 is a current component.
         assert_eq!(
-            lookup_parameter(10, 1, 2),
+            lookup_parameter(Originator::default(), 10, 1, 2),
             Some(("", "u-component of current", "m/s"))
         );
     }
 
     #[test]
     fn parameter_lookup_misses_return_none() {
-        assert_eq!(lookup_parameter(0, 0, 250), None);
-        assert_eq!(lookup_parameter(255, 0, 0), None);
+        assert_eq!(lookup_parameter(Originator::default(), 0, 0, 250), None);
+        assert_eq!(lookup_parameter(Originator::default(), 255, 0, 0), None);
     }
 
     // -----------------------------------------------------------------------
@@ -785,7 +1025,7 @@ mod tests {
             ),
         ] {
             assert_eq!(
-                lookup_parameter(d, c, n),
+                lookup_parameter(Originator::default(), d, c, n),
                 Some(expected),
                 "parameter ({d}/{c}/{n})"
             );
