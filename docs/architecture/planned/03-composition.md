@@ -132,7 +132,7 @@ classDiagram
         +warp / render / probe / contours / overlay / csv
     }
     class Palette {
-        <<planned, core>>
+        <<planned #485, core>>
         +[u8; 256*4] lut
         +f64 t0, t1 (transformed domain)
         +ScaleMode scale
