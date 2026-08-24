@@ -65,6 +65,7 @@ pub fn lookup_grid_template(template: u16) -> &'static str {
         2 => "Stretched latitude/longitude",
         3 => "Stretched and rotated latitude/longitude",
         10 => "Mercator",
+        12 => "Transverse Mercator",
         20 => "Polar stereographic",
         30 => "Lambert conformal",
         31 => "Albers equal area",
