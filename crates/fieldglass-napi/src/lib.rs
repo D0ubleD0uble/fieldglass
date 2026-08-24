@@ -1648,9 +1648,10 @@ impl Grib1Handle {
 
     /// Serialize one message's decoded field as CSV — `"matrix"` (a 2-D grid of
     /// values) or `"long"` (a `lat,lon,value` table), missing points as empty
-    /// value cells. The long format is available for the lat/lon grid family
-    /// only, like contours; the matrix format works for any grid with declared
-    /// dimensions. See the GRIB2 counterpart for details.
+    /// value cells. The long format needs per-point coordinates, so it covers
+    /// the same families as contours ([`GEOLOCATABLE_GRIDS`]); the matrix format
+    /// works for any grid with declared dimensions. See the GRIB2 counterpart
+    /// for details.
     #[napi]
     pub fn export_csv(
         &self,
@@ -2038,9 +2039,9 @@ impl Grib2Handle {
     /// Serialize one message's decoded field as CSV. `format` is `"matrix"` (a
     /// 2-D grid of values) or `"long"` (a `lat,lon,value` table); missing points
     /// come out as empty value cells. The long format needs per-point
-    /// geolocation, so it is available only for the lat/lon grid family, like
-    /// contours — the matrix format works for any grid with declared
-    /// dimensions.
+    /// geolocation, so it covers the same families as contours
+    /// ([`GEOLOCATABLE_GRIDS`]: the lat/lon family and the projected planar
+    /// ones) — the matrix format works for any grid with declared dimensions.
     #[napi]
     pub fn export_csv(
         &self,
@@ -2447,9 +2448,11 @@ impl NetcdfHandle {
     /// `"long"` (a `lat,lon,value` table), missing points as empty value cells.
     /// The slice is picked exactly like [`render_slice`](Self::render_slice)
     /// (`yDim` / `xDim` are the image axes, `sliceIndices` fixes the rest). The
-    /// long format needs per-point geolocation, so it is available for a
-    /// georeferenced regular lat/lon grid; the matrix format works for any
-    /// decodable slice.
+    /// long format needs per-point geolocation, so it covers any slice whose
+    /// synthesised geometry lands on a geolocated family
+    /// ([`GEOLOCATABLE_GRIDS`]) — a regular lat/lon grid, or a WRF file's
+    /// Lambert / polar stereographic / Mercator projection; the matrix format
+    /// works for any decodable slice.
     #[napi]
     pub fn export_csv(
         &self,
@@ -4324,13 +4327,6 @@ fn project_overlay_impl(
     }
 }
 
-/// Build a grid-index → `(lat, lon)` forward map for the corner-pinned lat/lon
-/// family (regular lat/lon, Mercator, rotated lat/lon, Gaussian), whose forward
-/// maps are simple, round-trip-tested free functions. Projected grids (Lambert,
-/// polar stereographic, geostationary) and reduced grids return an error for
-/// now — their forward maps exist (`grid_point_lonlat`) but wiring them (and, for
-/// reduced grids, the per-row longitudes) is a follow-up. Contours therefore
-/// gate cleanly on grid type, like reprojection does.
 /// A source grid's forward geolocation: grid index `(i, j)` → `(lat, lon)`, or
 /// `None` for a malformed grid. Boxed so [`forward_geolocation_for`] can return
 /// a different closure per grid type.
@@ -4347,7 +4343,7 @@ fn csv_buffer(csv: String) -> napi::bindgen_prelude::Buffer {
 
 /// Format a decoded field as CSV, shared by the GRIB handles. The `"long"`
 /// (`lat,lon,value`) format reuses [`forward_geolocation_for`], so it inherits
-/// that function's lat/lon-family gate; the `"matrix"` format needs no
+/// that function's gate ([`GEOLOCATABLE_GRIDS`]); the `"matrix"` format needs no
 /// coordinates and works for any grid with declared dimensions.
 fn field_csv(
     values: &[Option<f64>],
@@ -4562,8 +4558,10 @@ fn planar_forward<P: PlanarGridProjector + 'static>(projector: P) -> ForwardGeo 
 /// four surrounding integer grid points via `forward`. A contour vertex sits on
 /// a cell edge (one integer coordinate, one fractional), for which the bilinear
 /// collapses to a linear interpolation along that edge. Longitudes come from the
-/// forward map in the grid's own frame (monotonic within a cell), so the
-/// interpolation never straddles the ±180° seam.
+/// forward map in the grid's own frame, which is monotonic within a cell for
+/// the corner-pinned families. Where it is not — a rotated or planar grid whose
+/// own ±180° cut runs through the cell — the corners are pulled onto a common
+/// turn first; see [`cell_crosses_lon_cut`].
 fn forward_bilinear(
     forward: &dyn Fn(u32, u32) -> Option<(f64, f64)>,
     ni: u32,
@@ -5066,15 +5064,35 @@ fn rotated_latlon_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Resu
     Ok((inverse, bbox))
 }
 
+/// The Earth radius a message declares, or the WMO mean sphere when it declares
+/// none.
+///
+/// A declared radius of zero or less is not a sphere, and it fails quietly: the
+/// projection constants stay finite, so nothing downstream can tell that every
+/// grid point now inverts to the pole. GRIB2 §3 lets a message say so — shape
+/// code 1 with a scaled value of zero reads back as `Some(0.0)` — so refuse it
+/// where both the warp and the forward geolocation read the field, rather than
+/// letting either produce coordinates from it.
+fn require_earth_radius(meta: &MessageMeta) -> napi::Result<f64> {
+    let radius = meta
+        .earth_radius_metres
+        .unwrap_or(fieldglass_core::DEFAULT_EARTH_RADIUS_M);
+    if radius.is_finite() && radius > 0.0 {
+        return Ok(radius);
+    }
+    Err(napi::Error::from_reason(format!(
+        "the message declares an Earth radius of {radius} m, which describes no sphere \
+         to place its grid points on"
+    )))
+}
+
 /// Lambert conformal (GRIB2 §3.30 / GRIB1 grid type 3) parameters read out of a
 /// message's metadata. Shared by [`lambert_warp_setup`] and
 /// [`forward_geolocation_for`] so the warp and the forward geolocation read the
 /// same slots and can't disagree about the same grid (#470).
 fn lambert_params(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<LambertParams> {
     Ok(LambertParams {
-        earth_radius_m: meta
-            .earth_radius_metres
-            .unwrap_or(fieldglass_core::DEFAULT_EARTH_RADIUS_M),
+        earth_radius_m: require_earth_radius(meta)?,
         ni,
         nj,
         lat_first: require_f64(meta.lat_first, "latFirst")?,
@@ -5106,9 +5124,7 @@ fn lambert_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<Warp
 /// the warp setup and the forward geolocation map — see [`lambert_params`].
 fn polar_stereo_params(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<PolarStereoParams> {
     Ok(PolarStereoParams {
-        earth_radius_m: meta
-            .earth_radius_metres
-            .unwrap_or(fieldglass_core::DEFAULT_EARTH_RADIUS_M),
+        earth_radius_m: require_earth_radius(meta)?,
         ni,
         nj,
         lat_first: require_f64(meta.lat_first, "latFirst")?,
@@ -8072,14 +8088,38 @@ mod netcdf_slice_tests {
         let csv = std::str::from_utf8(&csv).expect("CSV is UTF-8");
         let rows: Vec<&str> = csv.trim_end_matches('\n').split('\n').skip(1).collect();
         assert_eq!(rows.len(), 6 * 5, "one row per grid point");
-        for row in &rows {
+
+        // The file carries its own answer: `wrfout` writes the latitude and
+        // longitude of every mass point in `XLAT` / `XLONG`, while the grid the
+        // export geolocates through is synthesised from the `MAP_PROJ` global
+        // attributes. The two are derived independently, so this is the WRF
+        // oracle — and a wiring slip (dx↔dy, LaD vs LoV, the wrong origin
+        // corner) would still leave every point on the globe and pass a bounds
+        // check. Tolerance 2e-3°: the file stores the coordinates as float32.
+        let coordinate_plane = |name: &str| -> Vec<Option<f64>> {
+            let var = vars
+                .iter()
+                .find(|v| v.name == name)
+                .expect("coordinate present");
+            let renderable = handle
+                .renderable(var.variable_index as u32)
+                .expect("coordinate is renderable");
+            handle
+                .slice_plane(&renderable, 1, 2, &vec![0u32; var.dims.len()])
+                .expect("coordinate slice")
+        };
+        let (xlat, xlong) = (coordinate_plane("XLAT"), coordinate_plane("XLONG"));
+        for (k, row) in rows.iter().enumerate() {
             let cells: Vec<f64> = row
                 .split(',')
                 .map(|c| c.parse().expect("numeric cell"))
                 .collect();
+            let (want_lat, want_lon) = (xlat[k].expect("XLAT"), xlong[k].expect("XLONG"));
             assert!(
-                (-90.0..=90.0).contains(&cells[0]) && (-180.0..180.0).contains(&cells[1]),
-                "row {row} carries a real coordinate"
+                (cells[0] - want_lat).abs() < 2e-3 && (cells[1] - want_lon).abs() < 2e-3,
+                "row {k} exported ({}, {}); the file's own XLAT/XLONG say ({want_lat}, {want_lon})",
+                cells[0],
+                cells[1]
             );
         }
 
@@ -8670,6 +8710,79 @@ mod planar_geolocation_tests {
             );
         }
 
+        // Every vertex lands where the marching squares put it. The source
+        // projection paints grid `(i, j)` at pixel `(i, j)` (flipped to face
+        // north-up), so a vertex that has been geolocated forward and inverted
+        // back must return to its own grid position — a half-cell offset or a
+        // flipped axis in the forward map would still satisfy the bounds check
+        // above, and this catches it.
+        let (min, max) = min_max_ignoring_mask(values.iter().copied()).expect("field has values");
+        let grid_space =
+            contour_segments(&values, ni as usize, nj as usize, &nice_levels(min, max, 8));
+        let expected: Vec<(f64, f64)> = grid_space
+            .iter()
+            .flat_map(|level| level.segments.iter())
+            .flat_map(|seg| seg.iter().copied())
+            .collect();
+        // Walk the two lists together by *segment*: `project_polylines` keeps
+        // ring order, and each contour segment is its own two-vertex ring, so a
+        // segment that survives appears whole and in place.
+        assert!(
+            runs.seg_lengths.iter().all(|&n| n == 2),
+            "each contour segment projects as its own two-vertex run"
+        );
+        let flip = source_flip_y(&meta, false);
+        let pixel_of = |(fi, fj): (f64, f64)| (fi, if flip { (nj - 1) as f64 - fj } else { fj });
+        let got = runs.xy.as_chunks::<2>().0;
+        let (mut cursor, mut worst) = (0usize, 0.0f64);
+        let mut dropped: Vec<[(f64, f64); 2]> = Vec::new();
+        for seg in expected.as_chunks::<2>().0 {
+            let want = [pixel_of(seg[0]), pixel_of(seg[1])];
+            let off = |k: usize| match got.get(cursor + k) {
+                Some(p) => (p[0] - want[k].0).abs().max((p[1] - want[k].1).abs()),
+                None => f64::INFINITY,
+            };
+            let (a, b) = (off(0), off(1));
+            if a < 1e-2 && b < 1e-2 {
+                worst = worst.max(a).max(b);
+                cursor += 2;
+            } else {
+                dropped.push([seg[0], seg[1]]);
+            }
+        }
+        assert_eq!(
+            cursor,
+            got.len(),
+            "every projected vertex accounted for by a grid-space segment"
+        );
+        assert!(
+            worst < 1e-2,
+            "surviving contour vertices drift {worst} px from their grid position"
+        );
+
+        // The few that don't survive lie *on* the grid rim. A contour vertex is
+        // interpolated along the chord between two grid points, and on a
+        // projected grid a column is a curve in lat/lon, so a rim chord can fall
+        // a hair outside the grid and invert to nothing. That costs the
+        // outermost stub of an isoline; an interior drop would instead mean the
+        // forward and inverse maps disagree about the same grid.
+        let touches_rim = |(fi, fj): (f64, f64)| {
+            fi <= 1e-9 || fi >= (ni - 1) as f64 - 1e-9 || fj <= 1e-9 || fj >= (nj - 1) as f64 - 1e-9
+        };
+        assert!(
+            dropped.len() * 20 < expected.len() / 2,
+            "{} of {} segments dropped — more than the rim can account for",
+            dropped.len(),
+            expected.len() / 2
+        );
+        for seg in &dropped {
+            assert!(
+                touches_rim(seg[0]) || touches_rim(seg[1]),
+                "interior segment {seg:?} was dropped, so the forward and inverse \
+                 maps disagree about this grid"
+            );
+        }
+
         // An equirectangular target is the other consumer of the same vertices.
         let warped = render_options("equirectangular");
         let runs = project_contours_impl(&meta, &values, &warped, Some(500.0))
@@ -8760,6 +8873,48 @@ mod planar_geolocation_tests {
             .err()
             .expect("a shapeless spheroid has no forward map");
         assert!(err.reason.contains("degenerate"), "{}", err.reason);
+    }
+
+    /// A declared Earth radius of zero is refused, on both the sphere-based
+    /// families and both the forward and the warp path.
+    ///
+    /// This is the quiet half of the degenerate case: the cone constants stay
+    /// finite, so nothing goes NaN — every grid point simply inverts to the
+    /// pole, and a CSV row of `-90,117.9,101333` looks exactly like a position.
+    /// GRIB2 §3 lets a message declare it (shape code 1 with a scaled value of
+    /// zero), so this is reachable from a file, not only from a synthetic meta.
+    #[test]
+    fn a_zero_earth_radius_is_refused_on_both_sphere_families() {
+        let (mut lambert, ni, nj) = grib2_geometry(ETA_LAMBERT);
+        lambert.earth_radius_metres = Some(0.0);
+        let err = forward_geolocation_for(&lambert, ni, nj, |gt| format!("unsupported {gt}"))
+            .err()
+            .expect("a radius-less sphere has no forward map");
+        assert!(
+            err.reason.contains("Earth radius"),
+            "the message should say why, got: {}",
+            err.reason
+        );
+        // The warp reads the same helper, so it refuses the grid too rather
+        // than painting the pole across the raster.
+        assert!(
+            warp_setup_for(&lambert, ni, nj).is_err(),
+            "the warp refuses it"
+        );
+
+        // Polar stereographic has no constants check of its own, which is why
+        // the radius is validated where the parameters are read.
+        let (_, mut polar, pni, pnj) = grib1_handle(CMC_POLAR).resolved(0).expect("cmc resolves");
+        polar.earth_radius_metres = Some(-1.0);
+        assert!(
+            forward_geolocation_for(&polar, pni, pnj, |gt| format!("unsupported {gt}")).is_err(),
+            "a negative radius is refused as well"
+        );
+
+        // A message that declares no radius still falls back to the mean sphere.
+        let (mut silent, ni, nj) = grib2_geometry(ETA_LAMBERT);
+        silent.earth_radius_metres = None;
+        assert!(forward_geolocation_for(&silent, ni, nj, |_| String::new()).is_ok());
     }
 
     /// The table is the gate: every grid type it names resolves to a forward

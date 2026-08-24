@@ -239,8 +239,8 @@ export interface Grib1Handle {
   /** Serialize one message's decoded field as CSV, returned as its UTF-8 bytes
    *  (a `Buffer` written straight to disk — see #341). `format` is `"matrix"`
    *  (a 2-D grid of values) or `"long"` (a `lat,lon,value` table); missing
-   *  points are empty value cells. The long format is available for the
-   *  lat/lon grid family only. */
+   *  points are empty value cells. The long format needs per-point
+   *  coordinates, so it covers the same grids as `projectContours`. */
   exportCsv(messageIndex: number, format: string): Buffer;
   setP1(messageIndex: number, value: number): Buffer;
   renderGrid(messageIndex: number, options: RenderOptions): RenderedGrid;
@@ -399,8 +399,8 @@ export interface NetcdfHandle {
   ): RenderedGrid;
   /** Serialize one decoded slice as CSV — `"matrix"` or `"long"`
    *  (`lat,lon,value`), missing points as empty cells. The slice is picked as
-   *  in {@link renderSlice}; the long format needs a georeferenced lat/lon
-   *  grid. See the GRIB counterparts. */
+   *  in {@link renderSlice}; the long format needs geolocated geometry — a
+   *  regular lat/lon grid, or a WRF projection. See the GRIB counterparts. */
   exportCsv(
     variableIndex: number,
     yDim: number,
@@ -431,7 +431,8 @@ export interface NetcdfHandle {
     ringLengths: Uint32Array,
   ): ProjectedOverlay;
   /** Contour isolines for one slice, projected onto the render raster (#238).
-   *  NetCDF grids are always contourable (synthesised lat/lon geometry). */
+   *  A slice is contourable wherever its synthesised geometry lands on a
+   *  geolocated family — every one but a GOES scan-angle grid. */
   projectContours(
     variableIndex: number,
     yDim: number,
