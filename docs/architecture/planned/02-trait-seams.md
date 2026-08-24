@@ -5,50 +5,63 @@ Only the seams that change are drawn; `FormatReader` / `DataMessage`,
 `Grib1Packing`, and the `TargetProjection` / `PreparedTarget` / `ForwardMap`
 family are unchanged and stay in the guarded diagram.
 
-## Grid geometry becomes a type, and inverse lookup becomes a seam
+## Grid geometry becomes a type; the inverse stays a closure
 
 Today the nine per-family warp setups live in `napi` and take a flat 65-field
 `MessageMeta`. After #460 (which creates it) and #464 (which moves napi onto
-it) `core` owns `GridGeometry`, one variant per family,
-built straight from the typed GDS, and the inverse map is a seam with two kinds
-of implementer: a formula (`PlanarGridProjector`, today) and a lookup
-(`SpatialIndex`, #437) for grids that are only a list of cell centres.
+it) `core` owns `GridGeometry`, one variant per family, built straight from
+the typed GDS. The seam `warp` consumes is unchanged: `SourceGrid::inverse_at`
+is already a closure, so `GridGeometry::inverse_at()` is a `match` per variant
+returning that closure, not a new trait. Behind it are two kinds of inverse: a
+formula (the projectors, closed-form functions for lat/lon and Mercator) and a
+lookup (`SpatialIndex`, #437) for grids that are only a list of cell centres.
 
 ```mermaid
 classDiagram
     class GridGeometry {
         <<planned #460 then #464>>
-        +inverse(lat, lon) Option~GridIndex~
+        +inverse_at() Inverse closure for SourceGrid
         +forward(i, j) Option~(lat, lon)~
         +lonlat_bbox()
         +reprojectable() bool
+        +resampling() Any | NearestOnly
         +proj4() Option~String~
-    }
-    class InverseMap {
-        <<trait, planned #437>>
-        +inverse_at(lat, lon) Option~GridIndex~
     }
     class PlanarGridProjector {
         <<trait>>
+        +forward_xy(lat, lon) required
+        +inverse(lat, lon) provided, once for all planar grids
     }
     class SpatialIndex {
         <<planned #437>>
         cell centres, k-d tree or HEALPix buckets
+        nearest cell only: no fractional index, no bilinear
     }
 
-    GridGeometry --> InverseMap : dispatches to
-    InverseMap <|.. LambertProjector
-    InverseMap <|.. PolarStereoProjector
-    InverseMap <|.. TransverseMercatorProjector
-    InverseMap <|.. LambertAzimuthalProjector
-    InverseMap <|.. GaussianProjector
-    InverseMap <|.. RotatedLatLonProjector
-    InverseMap <|.. GeostationaryProjector
-    InverseMap <|.. SpatialIndex
-    PlanarGridProjector --|> InverseMap : refines
+    GridGeometry ..> PlanarGridProjector : Lambert, polar stereo, transverse Mercator, Lambert azimuthal
+    GridGeometry ..> GaussianProjector
+    GridGeometry ..> RotatedLatLonProjector
+    GridGeometry ..> GeostationaryProjector
+    GridGeometry ..> latlon_inverse : closed form
+    GridGeometry ..> mercator_inverse : closed form
+    GridGeometry ..> SpatialIndex : Lookup variant
+    PlanarGridProjector <|.. LambertProjector
+    PlanarGridProjector <|.. PolarStereoProjector
+    PlanarGridProjector <|.. TransverseMercatorProjector
+    PlanarGridProjector <|.. LambertAzimuthalProjector
 ```
 
-The consumers of the lookup seam, in the order they are filed:
+Two things this fixes on the way. The four planar `inverse()` bodies are
+today the same ~25 lines each (guards, forward, `(x − origin) / spacing`,
+edge snap); the forward direction is already a provided method on
+`PlanarGridProjector`, and the inverse joins it, so the edge-snap rule exists
+once. And `GridIndex` is fractional because the raster grids are: a lookup
+grid returns the nearest cell centre, where the fractional part and the
+"next column" neighbour mean nothing, so `GridGeometry::Lookup` reports
+`NearestOnly` and `warp` refuses or degrades bilinear against it rather than
+blending across a tripolar fold.
+
+The consumers of the lookup, in the order they are filed:
 
 | Consumer | Issue | Where the cell centres come from |
 | --- | --- | --- |
@@ -56,13 +69,6 @@ The consumers of the lookup seam, in the order they are filed:
 | HEALPix §3.150 | #442, #443 | `pix2ang` in core; synthesised onto lat/lon at decode, like spectral |
 | GRIB2 §3.204 NCEP curvilinear | #418 | lat/lon carried as two extra fields |
 | ICON §3.101 unstructured | #420, #419 | out-of-band grid file, ADR pending |
-
-Lat/lon and Mercator have closed-form inverses as functions today
-(`latlon_inverse`, `mercator_inverse`), not projector structs; #437 either
-wraps them as implementers or `GridGeometry::inverse()` keeps two paths. The
-diagram assumes the former. Whether `InverseMap` is a new trait or
-`PlanarGridProjector` widened is #437's call; the diagram assumes a new supertrait so the planar projectors keep their
-forward maps, which `SpatialIndex` cannot offer.
 
 ## Byte access grows its planned implementers
 
