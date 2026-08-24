@@ -1,0 +1,35 @@
+{
+  "messages": [
+    {
+      "editionNumber": 1,
+      "table2Version": 128,
+      "centre": 98,
+      "subCentre": 0,
+      "generatingProcessIdentifier": 128,
+      "indicatorOfParameter": 130,
+      "indicatorOfTypeOfLevel": 1,
+      "level": 2,
+      "timeRangeIndicator": 0,
+      "dataDate": 20070424,
+      "dataTime": 1200,
+      "decimalScaleFactor": 0,
+      "GDSPresent": 1,
+      "bitmapPresent": 0,
+      "gridType": "sh",
+      "Nj": 0,
+      "numberOfDataPoints": 4160,
+      "N": 1958,
+      "J": 63,
+      "K": 63,
+      "M": 63,
+      "packingType": "spectral_complex",
+      "sphericalHarmonics": 1,
+      "complexPacking": 1,
+      "integerPointValues": 0,
+      "additionalFlagPresent": 0,
+      "bitsPerValue": 16,
+      "binaryScaleFactor": -11,
+      "referenceValue": -16.4687
+    }
+  ]
+}
