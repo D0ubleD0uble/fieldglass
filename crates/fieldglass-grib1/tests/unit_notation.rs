@@ -32,13 +32,18 @@ const CENTRE_WMO: u8 = 0;
 
 /// Every distinct unit string the GRIB1 tables can return.
 ///
-/// Table versions 1-3 are the ON388 international table and 128/129 the ECMWF
-/// local ones; those five cover every entry either file defines.
+/// Versions 1-3 are the ON388 international table and 128/129 the ECMWF local
+/// ones. `lookup_parameter` only branches on the ECMWF pair, so enumerating
+/// every combination is redundant today — which is the point: if that routing
+/// ever changes, the snapshot widens rather than silently going on testing a
+/// narrower table than its own doc comment claims.
 fn distinct_units() -> BTreeSet<String> {
     let mut units = BTreeSet::new();
-    for (centre, version) in [(CENTRE_WMO, 2), (CENTRE_ECMWF, 128), (CENTRE_ECMWF, 129)] {
-        for id in 0..=255u8 {
-            units.insert(lookup_parameter(id, version, centre).units.to_string());
+    for centre in [CENTRE_WMO, CENTRE_ECMWF] {
+        for version in [1, 2, 3, 128, 129] {
+            for id in 0..=255u8 {
+                units.insert(lookup_parameter(id, version, centre).units.to_string());
+            }
         }
     }
     units
