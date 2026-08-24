@@ -1,7 +1,10 @@
 //! Integration coverage for §3 GDS template parsing across the three
 //! fixtures shipped with the crate.
 
-use fieldglass_core::{PlanarGridProjector, TransverseMercatorParams, TransverseMercatorProjector};
+use fieldglass_core::{
+    LambertAzimuthalParams, LambertAzimuthalProjector, PlanarGridProjector,
+    TransverseMercatorParams, TransverseMercatorProjector,
+};
 use fieldglass_grib2::{Grib2Reader, GridTemplate, lookup_earth_shape, lookup_grid_template};
 
 const GFS_LATLON: &[u8] = include_bytes!("fixtures/gfs_c255_latlon.grib2");
@@ -10,6 +13,7 @@ const ECMWF_GAUSSIAN: &[u8] = include_bytes!("fixtures/reduced_gaussian_pressure
 const ROTATED_LATLON: &[u8] = include_bytes!("fixtures/rotated_latlon_surface.grib2");
 const POLAR_STEREO: &[u8] = include_bytes!("fixtures/polar_stereographic_surface.grib2");
 const TRANSVERSE_MERCATOR: &[u8] = include_bytes!("fixtures/transverse_mercator_ukv.grib2");
+const LAMBERT_AZIMUTHAL: &[u8] = include_bytes!("fixtures/lambert_azimuthal_efas.grib2");
 
 #[test]
 fn gfs_latlon_decodes_template_3_0() {
@@ -345,6 +349,132 @@ fn a_truncated_template_3_12_is_rejected() {
     let text = format!("{err}");
     assert!(
         text.contains("3.12") && text.contains("70"),
+        "unexpected error: {text}"
+    );
+}
+
+/// §3.140 — Lambert azimuthal equal-area, the template EFAS and OSI SAF use.
+///
+/// The trap it shares with §3.12 is that `Lo1`, `standardParallel` and
+/// `centralLongitude` are all signed sign-magnitude, so a western value parses
+/// as a large positive one if read unsigned. The trap it does *not* share is
+/// the unit: these grid lengths really are millimetres, where §3.12's are
+/// centimetres — which is why the two are parsed by different readers rather
+/// than one shared helper.
+#[test]
+fn efas_decodes_template_3_140() {
+    let reader = Grib2Reader::from_bytes(LAMBERT_AZIMUTHAL.to_vec()).expect("parse");
+    let msg = &reader.messages[0];
+
+    assert_eq!(msg.gds.template_number, 140);
+    assert_eq!(msg.gds.num_data_points, 20 * 16);
+    // 14 fixed octets + a 50-byte template payload.
+    assert_eq!(msg.gds.section_length, 64);
+
+    let t = match msg.gds.template {
+        GridTemplate::LambertAzimuthal(t) => t,
+        other => panic!("expected LambertAzimuthal, got {other:?}"),
+    };
+
+    assert_eq!(t.nx, 20);
+    assert_eq!(t.ny, 16);
+    assert_eq!(t.scanning_mode, 64);
+
+    // GRS80 from the fixed shape code 4, so the axes are exact.
+    assert_eq!(t.shape_of_earth, 4);
+    assert!((t.earth_major_m - 6_378_137.0).abs() < 1e-6);
+    assert!((t.earth_minor_m - 6_356_752.314).abs() < 1e-6);
+
+    assert!((t.la1 - 35.0).abs() < 1e-9);
+    assert!(
+        (t.lo1 - (-10.0)).abs() < 1e-9,
+        "lo1 was {} — read as unsigned it would be 2157.48",
+        t.lo1
+    );
+    assert!((t.standard_parallel - 52.0).abs() < 1e-9);
+    assert!((t.central_longitude - 10.0).abs() < 1e-9);
+    assert!((t.dx_metres - 200_000.0).abs() < 1e-6);
+    assert!((t.dy_metres - 200_000.0).abs() < 1e-6);
+
+    assert_eq!(msg.gds.dimensions(), Some((20, 16)));
+    assert_eq!(msg.gds.scanning_mode(), Some(64));
+    assert_eq!(msg.gds.template_name(), "lambert_azimuthal");
+    assert_eq!(lookup_grid_template(140), "Lambert azimuthal equal area");
+}
+
+/// The §3.140 grid geolocates to what eccodes' own
+/// `lambert_azimuthal_equal_area` iterator reports, through the parsed message
+/// rather than through hand-built parameters — so the whole chain is covered.
+#[test]
+fn the_template_3_140_grid_geolocates_as_eccodes_does() {
+    let reader = Grib2Reader::from_bytes(LAMBERT_AZIMUTHAL.to_vec()).expect("parse");
+    let t = match reader.messages[0].gds.template {
+        GridTemplate::LambertAzimuthal(t) => t,
+        other => panic!("expected LambertAzimuthal, got {other:?}"),
+    };
+
+    // The same sign convention `fieldglass-napi` applies.
+    let dx = if t.scanning_mode & 0x80 != 0 {
+        -t.dx_metres
+    } else {
+        t.dx_metres
+    };
+    let dy = if t.scanning_mode & 0x40 != 0 {
+        t.dy_metres
+    } else {
+        -t.dy_metres
+    };
+
+    let projector = LambertAzimuthalProjector::new(LambertAzimuthalParams {
+        semi_major_m: t.earth_major_m,
+        semi_minor_m: t.earth_minor_m,
+        ni: t.nx,
+        nj: t.ny,
+        lat_first: t.la1,
+        lon_first: t.lo1,
+        standard_parallel: t.standard_parallel,
+        central_longitude: t.central_longitude,
+        dx_metres: dx,
+        dy_metres: dy,
+    });
+    assert!(projector.is_well_defined());
+
+    // eccodes 2.34.1, read at full precision through the `latitudes` and
+    // `longitudes` array keys.
+    for (i, j, lat, lon) in [
+        (0u32, 0u32, 34.999999991_f64, -10.000000000_f64),
+        (19, 0, 34.622366847, 31.637938749),
+        (0, 15, 60.108219531, -24.240260690),
+        (19, 15, 59.435027618, 46.673881242),
+    ] {
+        let (got_lat, got_lon) = projector.grid_point_lonlat(i, j);
+        assert!(
+            (got_lat - lat).abs() < 1e-7 && (got_lon - lon).abs() < 1e-7,
+            "({i}, {j}) gave ({got_lat}, {got_lon}), eccodes says ({lat}, {lon})"
+        );
+    }
+}
+
+/// A §3.140 GDS truncated inside its payload must be rejected, not read past.
+#[test]
+fn a_truncated_template_3_140_is_rejected() {
+    let payload_len = 49usize;
+    let section_len = 14 + payload_len;
+    let mut gds = Vec::with_capacity(section_len);
+    gds.extend_from_slice(&(section_len as u32).to_be_bytes());
+    gds.push(3);
+    gds.push(0);
+    gds.extend_from_slice(&320u32.to_be_bytes());
+    gds.push(0);
+    gds.push(0);
+    gds.extend_from_slice(&140u16.to_be_bytes());
+    gds.resize(section_len, 0);
+
+    let err = fieldglass_grib2::parse_grid_definition(&gds)
+        .expect_err("a 50-byte payload cannot fit in 49 bytes");
+    let text = format!("{err}");
+    assert!(
+        text.contains("3.140") && text.contains("50"),
         "unexpected error: {text}"
     );
 }

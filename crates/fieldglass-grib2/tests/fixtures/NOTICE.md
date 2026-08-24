@@ -622,3 +622,34 @@ instead, in `fieldglass-core/src/projection.rs` — `cs2cs` from the equivalent
 `+proj=tmerc` definition to `+proj=longlat` on the *same* spheroid, so no datum
 shift enters the comparison. eccodes remains the oracle for the message's
 metadata and for its decoded values.
+
+## `lambert_azimuthal_efas.grib2`
+
+Synthetic, built by `tools/build_grib2_lambert_azimuthal_fixture.py`. GDS
+template **3.140** (Lambert azimuthal equal-area) on a 20 x 16 grid at 200 km,
+carrying ETRS89-LAEA's parameters (EPSG:3035, the European statistical grid the
+CEMS/EFAS flood archive is published on): tangent at 52degN 10degE on GRS80, the
+same extent as the EFAS domain at two orders of magnitude coarser resolution.
+The values are a ramp, so a transposed or flipped raster cannot pass. Scanning
+mode 64 (+i, +j), chosen to differ from `transverse_mercator_ukv.grib2`'s mode 0
+so the two fixtures cover both j directions.
+
+Hand-built because eccodes ships no §3.140 sample and neither EFAS nor the OSI
+SAF products are redistributable here. Encoded with the eccodes **2.48** Python
+wheel; the pinned 2.34.1 CLI reads every key back, which is what
+`lambert_azimuthal_efas.grib2.eccodes.ref.json` pins.
+
+Unlike §3.12, **eccodes is the geolocation oracle here**: it ships a real
+`lambert_azimuthal_equal_area` geoiterator, and it branches on
+`grib_is_earth_oblate` to run the authalic-latitude algorithm for an oblate
+shape. Its latitudes and longitudes agree with PROJ 9.4.0 to 0.0006 mm over all
+320 grid points, and `fieldglass-core`'s tests pin eccodes' answers.
+
+One exception, worth recording because it bounds where that oracle can be
+trusted: eccodes cannot geolocate a **south-polar** §3.140 at all. Its
+polar-aspect guard tests `cosb1 == 0.0`, which holds at +90deg but not at
+-90deg — `authalic_q(-1)` is not the exact negation of the `qp` it is divided by
+— so the projected plane inflates by eight orders of magnitude and
+`codes_get_array(h, "latitudes")` answers
+`Invalid value: arcsin argument=7.60531e+06` and refuses to build the iterator.
+That case is pinned against PROJ instead.

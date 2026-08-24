@@ -410,6 +410,37 @@ pub struct TransverseMercatorTemplate {
     pub y2_metres: f64,
 }
 
+/// Template 3.140 — Lambert azimuthal equal-area. The plane is tangent at one
+/// point and area is preserved exactly, which is why Europe's statistical grids
+/// (ETRS89-LAEA, EPSG:3035) and the CEMS/EFAS flood archive use it, along with
+/// EUMETSAT OSI SAF sea-ice products.
+///
+/// Unlike §3.12 the corners are geographic, so `La1`/`Lo1` are a real first grid
+/// point. Shared with §3.12, though, is that every angular field is signed
+/// sign-magnitude — longitude included. The grid lengths here are millimetres,
+/// the same as 3.10/3.20/3.30 and *not* the same as 3.12.
+#[derive(Debug, Clone, Copy)]
+pub struct LambertAzimuthalTemplate {
+    pub shape_of_earth: u8,
+    /// Semi-major and semi-minor axes in metres. Both are carried, not a mean
+    /// radius: eccodes projects an oblate §3.140 on the true spheroid, and the
+    /// mean-radius approximation is 13.5 km out over the EFAS domain.
+    pub earth_major_m: f64,
+    pub earth_minor_m: f64,
+    pub nx: u32,
+    pub ny: u32,
+    pub la1: f64,
+    pub lo1: f64,
+    /// The tangent point: `standardParallel` is its latitude, `centralLongitude`
+    /// its longitude. Both in degrees.
+    pub standard_parallel: f64,
+    pub central_longitude: f64,
+    pub resolution_flags: u8,
+    pub dx_metres: f64,
+    pub dy_metres: f64,
+    pub scanning_mode: u8,
+}
+
 /// Parsed template payload. Templates outside the supported set surface as
 /// `Unsupported` so callers can still expose section-header fields and a
 /// useful name without erroring out.
@@ -421,6 +452,7 @@ pub enum GridTemplate {
     TransverseMercator(TransverseMercatorTemplate),
     PolarStereographic(PolarStereographicTemplate),
     Lambert(LambertTemplate),
+    LambertAzimuthal(LambertAzimuthalTemplate),
     Gaussian(GaussianTemplate),
     SpaceView(SpaceViewTemplate),
     SphericalHarmonic(SphericalHarmonicTemplate),
@@ -451,6 +483,7 @@ impl GridDefinitionSection {
             GridTemplate::TransverseMercator(t) => Some((t.ni, t.nj)),
             GridTemplate::PolarStereographic(t) => Some((t.nx, t.ny)),
             GridTemplate::Lambert(t) => Some((t.nx, t.ny)),
+            GridTemplate::LambertAzimuthal(t) => Some((t.nx, t.ny)),
             GridTemplate::Gaussian(t) => t.ni.map(|ni| (ni, t.nj)),
             GridTemplate::SpaceView(t) => Some((t.nx, t.ny)),
             // Spherical harmonics are coefficients, not a gridded layout.
@@ -472,6 +505,7 @@ impl GridDefinitionSection {
             GridTemplate::TransverseMercator(t) => Some(t.scanning_mode),
             GridTemplate::PolarStereographic(t) => Some(t.scanning_mode),
             GridTemplate::Lambert(t) => Some(t.scanning_mode),
+            GridTemplate::LambertAzimuthal(t) => Some(t.scanning_mode),
             GridTemplate::Gaussian(t) => Some(t.scanning_mode),
             GridTemplate::SpaceView(t) => Some(t.scanning_mode),
             GridTemplate::SphericalHarmonic(_) => None,
@@ -501,6 +535,12 @@ impl GridDefinitionSection {
             GridTemplate::TransverseMercator(_) => None,
             GridTemplate::PolarStereographic(t) => Some((t.la1, t.lo1, t.lad, t.lov)),
             GridTemplate::Lambert(t) => Some((t.la1, t.lo1, t.lad, t.lov)),
+            // §3.140's first point is geographic, so unlike §3.12 the first
+            // half of this is a real corner; the second is the tangent point,
+            // the same substitution the two templates above make.
+            GridTemplate::LambertAzimuthal(t) => {
+                Some((t.la1, t.lo1, t.standard_parallel, t.central_longitude))
+            }
             GridTemplate::Gaussian(t) => Some((t.la1, t.lo1, t.la2, t.lo2)),
             GridTemplate::SpaceView(_) => None,
             GridTemplate::SphericalHarmonic(_) => None,
@@ -519,6 +559,7 @@ impl GridDefinitionSection {
             GridTemplate::TransverseMercator(_) => "transverse_mercator".to_string(),
             GridTemplate::PolarStereographic(_) => "polar_stereo".to_string(),
             GridTemplate::Lambert(_) => "lambert".to_string(),
+            GridTemplate::LambertAzimuthal(_) => "lambert_azimuthal".to_string(),
             GridTemplate::Gaussian(_) => "gaussian".to_string(),
             GridTemplate::SpaceView(_) => "space_view".to_string(),
             GridTemplate::SphericalHarmonic(_) => "spherical_harmonic".to_string(),
@@ -625,6 +666,7 @@ pub fn parse_grid_definition_with_header(
         12 => GridTemplate::TransverseMercator(parse_template_3_12(payload)?),
         20 => GridTemplate::PolarStereographic(parse_template_3_20(payload)?),
         30 => GridTemplate::Lambert(parse_template_3_30(payload)?),
+        140 => GridTemplate::LambertAzimuthal(parse_template_3_140(payload)?),
         40 => GridTemplate::Gaussian(parse_template_3_40(payload, optional_list_octet_size)?),
         90 => GridTemplate::SpaceView(parse_template_3_90(payload)?),
         50 => GridTemplate::SphericalHarmonic(parse_template_3_50(payload)?),
@@ -739,6 +781,39 @@ fn parse_template_3_10(p: &[u8]) -> Result<MercatorTemplate, FieldglassError> {
         orientation: read_lon_degrees(&p[46..50]),
         di_metres: read_metre_increment(&p[50..54]),
         dj_metres: read_metre_increment(&p[54..58]),
+    })
+}
+
+/// Template 3.140 payload starts at GDS octet 15. Payload length = 50 bytes
+/// (octets 15..=64 of the section), so a §3.140 GDS is 64 octets long.
+///
+/// Offsets checked against an eccodes-encoded message, as for §3.12. The trap
+/// here is the same one and only one of the two: `Lo1`, `standardParallel` and
+/// `centralLongitude` are all declared signed, so a message with a western
+/// central meridian carries `0x80989680` for -10°, which read unsigned is
+/// 2157.48°. The grid lengths, unlike §3.12's, really are millimetres.
+fn parse_template_3_140(p: &[u8]) -> Result<LambertAzimuthalTemplate, FieldglassError> {
+    if p.len() < 50 {
+        return Err(FieldglassError::Parse(format!(
+            "GDS template 3.140 needs 50 bytes of payload, got {}",
+            p.len()
+        )));
+    }
+    let (major, minor) = resolve_earth_shape(p);
+    Ok(LambertAzimuthalTemplate {
+        shape_of_earth: p[0],
+        earth_major_m: major,
+        earth_minor_m: minor,
+        nx: u32::from_be_bytes([p[16], p[17], p[18], p[19]]),
+        ny: u32::from_be_bytes([p[20], p[21], p[22], p[23]]),
+        la1: read_lat_degrees(&p[24..28]),
+        lo1: read_lat_degrees(&p[28..32]),
+        standard_parallel: read_lat_degrees(&p[32..36]),
+        central_longitude: read_lat_degrees(&p[36..40]),
+        resolution_flags: p[40],
+        dx_metres: read_metre_increment(&p[41..45]),
+        dy_metres: read_metre_increment(&p[45..49]),
+        scanning_mode: p[49],
     })
 }
 

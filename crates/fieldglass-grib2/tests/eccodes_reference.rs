@@ -87,6 +87,9 @@ fn assert_message_matches(
                     check_u64(key, expected, t.shape_of_earth as u64)
                 }
                 GridTemplate::Lambert(t) => check_u64(key, expected, t.shape_of_earth as u64),
+                GridTemplate::LambertAzimuthal(t) => {
+                    check_u64(key, expected, t.shape_of_earth as u64)
+                }
                 GridTemplate::Gaussian(t) => check_u64(key, expected, t.shape_of_earth as u64),
                 GridTemplate::SpaceView(t) => check_u64(key, expected, t.shape_of_earth as u64),
                 // Spherical harmonics carry no earth shape (not a projected grid).
@@ -599,5 +602,16 @@ fn transverse_mercator_ukv_matches_eccodes() {
     assert_fixture_matches_snapshot(
         "transverse_mercator_ukv.grib2",
         include_bytes!("fixtures/transverse_mercator_ukv.grib2"),
+    );
+}
+
+/// The §3.140 fixture's metadata, cross-checked against eccodes' decode.
+/// eccodes geolocates this template too, so its `latitudes`/`longitudes` are
+/// the projection oracle in `fieldglass-core`; this pins the §1/§3/§4 keys.
+#[test]
+fn lambert_azimuthal_efas_matches_eccodes() {
+    assert_fixture_matches_snapshot(
+        "lambert_azimuthal_efas.grib2",
+        include_bytes!("fixtures/lambert_azimuthal_efas.grib2"),
     );
 }
