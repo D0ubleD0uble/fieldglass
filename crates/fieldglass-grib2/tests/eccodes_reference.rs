@@ -613,6 +613,291 @@ fn the_cross_check_compares_every_key_it_ships() {
     );
 }
 
+/// Fixtures whose *values* have no comparable eccodes oracle, and why. The
+/// metadata cross-check above still covers them.
+///
+/// Kept honest by [`the_value_exemptions_have_not_outlived_their_reason`],
+/// which re-derives each claim rather than trusting the comment.
+const NO_VALUE_CHECK: &[(&str, &str)] = &[
+    (
+        "matrix_reshape_16x31.grib2",
+        "eccodes does not decode the true matrix form (`matrixBitmapsPresent = 1`) \
+         — it reports 496 zeros for a field that is nothing of the kind, so there \
+         is no oracle here to compare against. The decode is pinned against the \
+         independently-checked GRIB1 matrix decoder in `decode_matrix.rs`.",
+    ),
+    (
+        "complex_spd2_ng0_regular_latlon.grib2",
+        "the pinned eccodes 2.34.1 predates ECC-2095 (fixed in 2.42.0) and \
+         mis-decodes `numberOfGroupsOfDataValues = 0` for template 5.3: it \
+         reads past the truncated §7 and returns garbage without erroring, \
+         reporting a minimum of 284.271 for a field that is 270.466796875 \
+         everywhere. The value oracle is `<fixture>_expected.json`, decoded \
+         with eccodes 2.47.3 — see NOTICE.md — and checked in \
+         `decode_complex_constant.rs`.",
+    ),
+    (
+        "reduced_gaussian_pressure_level.grib2",
+        "`decode_message_values` refuses it: reduced GRIB2 grids are parsed and \
+         cross-checked as metadata but not yet decoded, where the GRIB1 reader \
+         decodes its reduced grids natively. The exemption is the gap, and the \
+         staleness test below fails the day it closes.",
+    ),
+];
+
+/// Every committed GRIB2 fixture decodes to the values eccodes decodes.
+///
+/// The metadata pass (#475) compares two readings of the same octets; this
+/// compares two decodes of the same packed field, which is where a packing bug
+/// actually shows. It is the same walk, for the same reason: a fixture added
+/// without a value oracle would otherwise be checked by nothing but whatever
+/// per-fixture test its author happened to write (#481).
+///
+/// Three shapes of message route to their own entry point, because a field of
+/// coefficients is not values on a grid: the §3.50 spectral fixtures go through
+/// `decode_spectral_message` and the four §3.6x bi-Fourier ones through
+/// `decode_bifourier_message`, each producing the flat coefficient list eccodes
+/// reports for those messages.
+///
+/// **What this cannot see.** `grib_dump -j` prints values to six significant
+/// figures, so the comparison is to a relative 1e-5 — enough for the errors a
+/// packing bug actually makes (a wrong scale factor moves values by a power of
+/// two or ten; a wrong bit width by orders of magnitude) and not a bit-exact
+/// oracle. The per-fixture `<fixture>_expected.json` files remain the exact
+/// check where one exists; this is the floor under every fixture, including the
+/// ones nobody wrote an oracle for.
+#[test]
+fn every_fixture_decodes_to_the_values_eccodes_decodes() {
+    let mut checked = 0usize;
+    let (mut compared_stats, mut compared_points) = (0usize, 0usize);
+    let mut failures = Vec::new();
+    for fixture in fixture_names() {
+        if NO_ECCODES_SNAPSHOT.iter().any(|(n, _)| *n == fixture)
+            || NO_VALUE_CHECK.iter().any(|(n, _)| *n == fixture)
+        {
+            continue;
+        }
+        let bytes = read_fixture(&fixture);
+        let name = fixture.clone();
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            assert_values_match_snapshot(&name, &bytes)
+        })) {
+            Ok((stats, points)) => {
+                checked += 1;
+                compared_stats += stats;
+                compared_points += points;
+            }
+            Err(payload) => failures.push(format!("  {}", panic_message(payload))),
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{} of {} fixtures decode to different values than eccodes:\n{}",
+        failures.len(),
+        failures.len() + checked,
+        failures.join("\n")
+    );
+    assert!(
+        checked >= 38,
+        "only {checked} fixtures were value-checked — too few to prove anything"
+    );
+    // The same guard the metadata pass carries: every branch of the comparison
+    // is skippable when the snapshot omits a key, so count what was really
+    // compared rather than trusting that the walk implies it.
+    assert!(
+        compared_stats >= 95 && compared_points >= 600,
+        "the value check made {compared_stats} statistic and {compared_points} \
+         point comparisons — too few to be checking the corpus"
+    );
+}
+
+/// Decode one fixture and compare it with the snapshot's `values` block.
+fn assert_values_match_snapshot(fixture: &str, bytes: &[u8]) -> (usize, usize) {
+    let (mut stats, mut points) = (0usize, 0usize);
+    let reader = Grib2Reader::from_bytes(bytes.to_vec())
+        .unwrap_or_else(|e| panic!("{fixture}: parse failed: {e}"));
+    let snap = snapshot_for(fixture);
+    let blocks = snap["values"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{fixture}: snapshot has no `values` array"));
+    for (i, block) in blocks.iter().enumerate() {
+        let Some(block) = block.as_object() else {
+            // eccodes decoded nothing for this message; the metadata pass still
+            // covers it and its own test pins whatever it does carry.
+            continue;
+        };
+        let (decoded, kind) = decode_for_comparison(&reader, i)
+            .unwrap_or_else(|e| panic!("{fixture}: message {i} decode failed: {e}"));
+        let (s, p) = compare_values(fixture, &decoded, block, kind);
+        stats += s;
+        points += p;
+    }
+    (stats, points)
+}
+
+/// What a decoded message holds, which decides whether eccodes' statistics are
+/// about the same quantity as ours.
+#[derive(Clone, Copy, PartialEq)]
+enum Decoded {
+    /// Values on a grid: eccodes' `minimum`/`maximum`/`average` are the
+    /// statistics of exactly this list.
+    Field,
+    /// Spherical-harmonic coefficients. eccodes still fills `average`, but with
+    /// the mean of the *field* those coefficients describe (289.097 K for the
+    /// T63 fixtures) rather than the mean of the coefficients (0.0668) — a
+    /// different quantity, so only the coefficients themselves are compared.
+    Coefficients,
+}
+
+/// The decoded field as a flat list, whichever entry point the message needs.
+/// `None` marks a bitmap-masked point, which is what eccodes writes its missing
+/// sentinel into.
+fn decode_for_comparison(
+    reader: &Grib2Reader,
+    index: usize,
+) -> Result<(Vec<Option<f64>>, Decoded), fieldglass_core::FieldglassError> {
+    let coefficients = |values: Vec<f64>| {
+        Ok((
+            values.into_iter().map(Some).collect::<Vec<_>>(),
+            Decoded::Coefficients,
+        ))
+    };
+    match &reader.messages[index].gds.template {
+        // eccodes reports a spectral message's `values` as the coefficient
+        // list, real and imaginary interleaved — the same order and length
+        // `decode_spectral_message` produces.
+        GridTemplate::SphericalHarmonic(_) => {
+            coefficients(reader.decode_spectral_message(index)?.coefficients)
+        }
+        GridTemplate::BiFourier(_) => {
+            coefficients(reader.decode_bifourier_message(index)?.coefficients)
+        }
+        _ => Ok((reader.decode_message_values(index)?, Decoded::Field)),
+    }
+}
+
+/// Compare a decoded field against the snapshot's value block: the point
+/// count, how many the bitmap masks, the statistics over the present points,
+/// and the sampled points themselves.
+///
+/// Statistics alone would not see a permutation — a scan-order bug leaves the
+/// min, max and mean exactly where they were — so the sample is the half of
+/// this that catches one.
+fn compare_values(
+    fixture: &str,
+    decoded: &[Option<f64>],
+    block: &serde_json::Map<String, Value>,
+    kind: Decoded,
+) -> (usize, usize) {
+    let (mut stats, mut points) = (0usize, 0usize);
+    let number = |key: &str| block.get(key).and_then(Value::as_f64);
+
+    if let Some(count) = number("count") {
+        assert_eq!(
+            decoded.len(),
+            count as usize,
+            "{fixture}: decoded {} points, eccodes decoded {count}",
+            decoded.len()
+        );
+    }
+    if let Some(missing) = number("numberOfMissing") {
+        let ours = decoded.iter().filter(|v| v.is_none()).count();
+        assert_eq!(
+            ours, missing as usize,
+            "{fixture}: {ours} masked points, eccodes says {missing}"
+        );
+    }
+
+    let present: Vec<f64> = decoded.iter().flatten().copied().collect();
+    if !present.is_empty() && kind == Decoded::Field {
+        // eccodes prints its statistics to six significant figures, so they are
+        // compared relatively; an absolute floor keeps a field of near-zero
+        // values from demanding impossible precision.
+        let close = |got: f64, want: f64| (got - want).abs() <= 1e-5 * want.abs().max(1e-3);
+        if let Some(want) = number("minimum") {
+            let got = present.iter().copied().fold(f64::INFINITY, f64::min);
+            assert!(close(got, want), "{fixture}: minimum {got}, eccodes {want}");
+            stats += 1;
+        }
+        if let Some(want) = number("maximum") {
+            let got = present.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+            assert!(close(got, want), "{fixture}: maximum {got}, eccodes {want}");
+            stats += 1;
+        }
+        if let Some(want) = number("average") {
+            let got = present.iter().sum::<f64>() / present.len() as f64;
+            assert!(close(got, want), "{fixture}: average {got}, eccodes {want}");
+            stats += 1;
+        }
+    }
+
+    let Some(sample) = block.get("sample").and_then(Value::as_array) else {
+        return (stats, points);
+    };
+    for entry in sample {
+        let pair = entry.as_array().expect("sample entry is [index, value]");
+        let index = pair[0].as_u64().expect("sample index") as usize;
+        let want = &pair[1];
+        let got = decoded[index];
+        if want.is_null() {
+            assert!(
+                got.is_none(),
+                "{fixture}: point {index} is masked for eccodes, we decoded {got:?}"
+            );
+            points += 1;
+            continue;
+        }
+        let want = want.as_f64().expect("sample value is a number");
+        let got =
+            got.unwrap_or_else(|| panic!("{fixture}: point {index} masked, eccodes has {want}"));
+        assert!(
+            (got - want).abs() <= 1e-5 * want.abs().max(1e-3),
+            "{fixture}: point {index} decoded {got}, eccodes decoded {want}"
+        );
+        points += 1;
+    }
+    (stats, points)
+}
+
+/// The message from a caught panic, for the aggregated failure report.
+fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {
+    payload
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| payload.downcast_ref::<&str>().map(|s| (*s).to_string()))
+        .unwrap_or_else(|| "(non-string panic)".to_string())
+}
+
+/// A value exemption has to keep earning itself: an exempt fixture must either
+/// still be undecodable, or still have the alternative oracle its reason names.
+/// Anything else is an exemption that has outlived its reason — the failure
+/// mode #471 and #475 were both about, one level further down.
+#[test]
+fn the_value_exemptions_have_not_outlived_their_reason() {
+    let fixtures = fixture_names();
+    for (name, why) in NO_VALUE_CHECK {
+        assert!(
+            fixtures.iter().any(|f| f == name),
+            "{name} is exempted from the value check but is not a fixture"
+        );
+        let bytes = read_fixture(name);
+        let decodes = Grib2Reader::from_bytes(bytes.to_vec())
+            .ok()
+            .and_then(|r| decode_for_comparison(&r, 0).ok())
+            .is_some();
+        if !decodes {
+            continue; // "we cannot decode it" — still true.
+        }
+        let oracle = Path::new("tests/fixtures").join(name.replace(".grib2", "_expected.json"));
+        assert!(
+            oracle.exists(),
+            "{name} decodes and has no {} to check it against, so its exemption \
+             ({why}) covers nothing",
+            oracle.display()
+        );
+    }
+}
+
 /// An exemption that has acquired a snapshot is stale, and a name that is not a
 /// fixture is a typo. Both would silently shrink the set above.
 #[test]

@@ -38,5 +38,84 @@
       "bitsPerValue": 20,
       "bitMapIndicator": 0
     }
+  ],
+  "values": [
+    {
+      "count": 10512,
+      "numberOfMissing": 7665,
+      "minimum": 53502.3,
+      "maximum": 99919.6,
+      "average": 91821.8,
+      "sample": [
+        [
+          0,
+          null
+        ],
+        [
+          657,
+          null
+        ],
+        [
+          1314,
+          null
+        ],
+        [
+          1971,
+          null
+        ],
+        [
+          2628,
+          null
+        ],
+        [
+          3285,
+          null
+        ],
+        [
+          3942,
+          null
+        ],
+        [
+          4599,
+          null
+        ],
+        [
+          5256,
+          95060.4
+        ],
+        [
+          5913,
+          null
+        ],
+        [
+          6570,
+          null
+        ],
+        [
+          7227,
+          null
+        ],
+        [
+          7884,
+          null
+        ],
+        [
+          8541,
+          null
+        ],
+        [
+          9198,
+          null
+        ],
+        [
+          9855,
+          null
+        ],
+        [
+          10511,
+          null
+        ]
+      ]
+    }
   ]
 }

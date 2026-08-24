@@ -41,5 +41,14 @@
       "binaryScaleFactor": -2,
       "referenceValue": 0.209608
     }
+  ],
+  "values": [
+    {
+      "count": 12825,
+      "numberOfMissing": 0,
+      "minimum": 0.209608,
+      "maximum": 75.2096,
+      "average": 22.1783
+    }
   ]
 }
