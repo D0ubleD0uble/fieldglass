@@ -24,13 +24,15 @@ use std::collections::BTreeSet;
 /// 2,826 local parameters (#424) carry units in eccodes' Fortran notation; 78
 /// is DWD, whose 213 (#425) carry a third notation again — bare negative
 /// exponents, `kg kg-1` — and one string, `Pa-3h`, that is not a product of
-/// units at all. Both ECMWF table versions appear because thirteen of its
-/// entries are gated on one; DWD gates nothing.
+/// units at all; 7 is NCEP, whose 479 (#426) come from wgrib2 rather than
+/// eccodes and use a *fourth*, `kg/m^2/s`. Both ECMWF table versions appear
+/// because thirteen of its entries are gated on one; DWD and NCEP gate
+/// nothing.
 ///
 /// Sweeping the master set alone would have left the entire ECMWF unit
 /// vocabulary unpinned — 59 of its 69 distinct strings — which is exactly the
 /// silent gap this snapshot exists to close.
-const SWEPT: [Originator; 4] = [
+const SWEPT: [Originator; 5] = [
     Originator {
         centre: 0,
         sub_centre: 0,
@@ -50,6 +52,11 @@ const SWEPT: [Originator; 4] = [
         centre: 78,
         sub_centre: 0,
         local_tables_version: 0,
+    },
+    Originator {
+        centre: 7,
+        sub_centre: 0,
+        local_tables_version: 1,
     },
 ];
 const SNAPSHOT: &str = include_str!("fixtures/unit_notation.snapshot.txt");
@@ -148,6 +155,30 @@ fn the_strings_that_look_like_units_but_are_not_survive_untouched() {
         // they stay out rather than growing the list for nothing.
         "klux",
         "Degree",
+        // NCEP's contributions (#426), from wgrib2 rather than eccodes. Its
+        // notation is the caret form, which `normalize_units` now reads, but
+        // the same table carries three families that it must not:
+        //
+        //  * `*` as an explicit product. `K*m/s` is kelvin-metres per second
+        //    and `J/m^2*K` is joules per square metre per kelvin, but nothing
+        //    else in any corpus writes a product that way, and reading `*` as
+        //    one would collide with the `**` exponent operator eccodes uses.
+        "K*m/s",
+        "Pa*Pa",
+        "kg/kg*Pa/s",
+        "J/m^2*K",
+        //  * A leading scale factor, and logarithms of one.
+        "10^-6g/m^3",
+        "log10(kg/m^3)",
+        "ln(kPa)",
+        //  * Prose for a dimensionless or coded quantity. `-` and `non-dim`
+        //    are NCEP's spellings of what WMO writes as `Numeric`, and
+        //    `Integer(0-13)` names a code range.
+        "-",
+        "non-dim",
+        "Categorical",
+        "Integer(0-13)",
+        "ppbV",
     ] {
         assert_eq!(
             normalize_units(input),

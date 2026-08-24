@@ -159,8 +159,8 @@ fn rewrite_token(token: &str) -> Option<String> {
     Some(format!("{symbol}{}", superscript(exponent)))
 }
 
-/// Split `kg-2` and `kg**-2` into `("kg", -2)`, `m2` into `("m", 2)`, `Pa`
-/// into `("Pa", 1)`.
+/// Split `kg-2`, `kg**-2` and `kg^-2` into `("kg", -2)`, `m2` into `("m", 2)`,
+/// `Pa` into `("Pa", 1)`.
 ///
 /// `None` when the alphabetic part is not a recognised unit symbol, which is
 /// what keeps `IA5` from becoming `IA⁵`.
@@ -178,11 +178,12 @@ fn split_exponent(token: &str) -> Option<(&str, i32)> {
         Some(_) => return None,
         None => (head, 1),
     };
-    // eccodes writes exponents Fortran-style — `m**2`, `kg m**-1` — where the
-    // `**` is the operator and not part of the symbol. Strip it, but only with
-    // an exponent behind it, so a dangling `m**` is left alone the same way a
-    // dangling `m-` is.
-    let symbol = match head.strip_suffix("**") {
+    // eccodes writes exponents Fortran-style — `m**2`, `kg m**-1` — and wgrib2
+    // writes them with a caret — `m^2`, `kg/m^2/s`, the notation NCEP's tables
+    // use (#426). In both the operator is not part of the symbol. Strip either,
+    // but only with an exponent behind it, so a dangling `m**` or `m^` is left
+    // alone the same way a dangling `m-` is.
+    let symbol = match head.strip_suffix("**").or_else(|| head.strip_suffix('^')) {
         Some(symbol) if !digits.is_empty() => symbol,
         Some(_) => return None,
         None => head,
