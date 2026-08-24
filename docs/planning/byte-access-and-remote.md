@@ -1,6 +1,8 @@
 # Byte access and the remote seam
 
-*Assessment 2026-08-23. Input to a future ADR-0005.*
+*Assessment 2026-08-23. The decision it fed is
+[ADR-0005](../decisions/0005-byte-access-and-the-remote-seam.md) (#417); this page
+stays as the assessment, not as the record.*
 
 "Remote" here means **HTTP range / object-store access**. Remote
 *filesystems* (SSH, virtual workspaces) already work, because the extension
@@ -12,12 +14,13 @@ The readers take `from_bytes(Vec<u8>)` and index `&self.data[a..b]`, but
 decode is already range-addressed: `Grib2Message` stores `lus_range`,
 `bms_range`, and `ds_range`, and decode slices `self.data[range]`. HDF5 chunk
 reads already go through a plan/fetch split (`collect_*_chunks` produces
-`ChunkRecord { address, size }`, then `assemble_chunked` reads each).
+`ChunkRecord { address, size, filter_mask, offset }`, then `assemble_chunked`
+reads each).
 Replacing `Vec<u8>` with a `ByteSource` trait is a wide mechanical diff, not a
 redesign; deferring it costs linearly in new call sites.
 
-The `#[allow(dead_code)]` on `Grib2Reader.data` is stale; the field is used in
-every decode path.
+The `#[allow(dead_code)]` on `Grib2Reader.data` was stale — the field is used in
+every decode path — and was removed alongside ADR-0005.
 
 ## The real question is the sync/async boundary
 
@@ -94,8 +97,14 @@ achievable:
    - `Hdf5Probe::traversals()` counts walks actually performed. It is how the
      win was measured, and it is the metric to hold when the seam moves: over a
      byte-range transport each walk is a chain of dependent round-trips.
-3. **ADR-0005.** Record the prefetch-sync decision, the `ByteSource` shape,
-   the record-discovered-addresses constraint, and the `.idx` sidecar plan.
+3. ~~**ADR-0005.**~~ Done in #417 —
+   [`docs/decisions/0005-byte-access-and-the-remote-seam.md`](../decisions/0005-byte-access-and-the-remote-seam.md).
+   That record is now the decision; this page stays as the assessment it was
+   drawn from. Two details checking it against the source firmed up:
+   `ChunkRecord` carries `filter_mask` and a rank-length `offset` as well as
+   `{address, size}`, and the `#[allow(dead_code)]` was indeed stale — removed
+   with the ADR, since a record describing how the reader owns its bytes should
+   not sit beside an attribute claiming the field is unused.
 4. **Migrate one reader as proof, when there is a consumer.** GRIB2 is the
    natural candidate: its messages already carry ranges, so the reader is the
    only thing that touches the buffer.
