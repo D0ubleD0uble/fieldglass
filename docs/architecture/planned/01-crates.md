@@ -38,7 +38,7 @@ flowchart TB
     api --> formats
     api --> core
     api --> fetchplan
-    fetchplan --> grib2
+    fetchplan --> core
     formats --> core
     verify -. proves the decode kernel .-> formats
     verify -. proves .-> core
@@ -62,7 +62,7 @@ depends on `core` and on no other format crate; each host depends on
 | --- | --- | --- | --- |
 | `fieldglass` | 11 | format crates, `core`, `fetchplan` | The umbrella and public Rust API (ADR-0006): `Session`, the plain serde-derivable DTOs, `Error`, the fetch-plan surface, and the conformance fixtures every host runs. |
 | `fieldglass-wasm` | 11 | `fieldglass` | A cdylib for `wasm32-unknown-unknown`; buffer handoff and error mapping only. The host owns memory and fetching. |
-| `fieldglass-fetchplan` | 11 | `grib2` (parameter tables for `.idx` vocabulary, #426) | Pure: reads `.idx` / `.index` / Zarr / kerchunk manifests and returns ranges. No I/O, no clock, so it is testable against fixtures and usable from both hosts. |
+| `fieldglass-fetchplan` | 11 | `core` | Pure: reads `.idx` / `.index` / Zarr / kerchunk manifests and returns ranges. No I/O, no clock, no format crate: parameter-level matching goes through a `ParameterResolver` trait the umbrella implements with grib2's tables (#426), so this crate stays syntax only. |
 | `fieldglass-zarr` | 11 (re-scoped) | `core` | Chunk codecs only (zstd via `ruzstd`, blosc, shuffle, v3 shard inner chunks). Addressing lives in `fetchplan`; directory walking is the napi host's concern. |
 | `fieldglass-verify` | 7 | `vstd` only; reads the kernel sources | Deliberately outside the workspace so `cargo build`, `cargo deny`, and the six-target cross-compile never see Verus. Already exists (#197); the proofs (#199–#204) are what is planned. |
 

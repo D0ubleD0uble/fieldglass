@@ -86,7 +86,11 @@ classDiagram
 ## Fetch planning is a seam of its own
 
 `fieldglass-fetchplan` (#461) reads a manifest and returns ranges. Every
-cloud-native convention is one dialect. The GRIB dialects ship first; the Zarr
+cloud-native convention is one dialect. The crate is syntax only: matching a
+sidecar's `TMP` / `2 m above ground` to a WMO parameter needs the NCEP table
+in `fieldglass-grib2` (#426), and that dependency would drag the decoder and
+its codecs into a pure planner, so semantic matching is a trait the umbrella
+implements. The GRIB dialects ship first; the Zarr
 dialects land with the codec crate (#246) so both are tested against the same
 fixtures.
 
@@ -95,8 +99,17 @@ classDiagram
     class Manifest {
         <<trait, planned #461>>
         +items() Vec~PlanItem~
-        +select(query) Vec~PlanItem~
+        +select(query, &dyn ParameterResolver) Vec~PlanItem~
     }
+    class ParameterResolver {
+        <<trait, planned #461>>
+        +resolve(abbrev, level_str) Option~ParameterId~
+    }
+    class UmbrellaResolver {
+        <<planned #464, crate fieldglass>>
+        grib2 tables (#426) behind the trait
+    }
+    ParameterResolver <|.. UmbrellaResolver
     class PlanItem {
         <<planned #461>>
         +String key
