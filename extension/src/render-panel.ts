@@ -959,8 +959,9 @@ export function renderImagePanelHtml(
           drawOverlay();
         }
 
-        // Contours can't be projected for every grid (projected + reduced grids
-        // aren't wired yet); surface why and drop them rather than dead-ending.
+        // Contours can't be projected for every grid (reduced and geostationary
+        // scan-angle grids aren't wired); surface why and drop them rather than
+        // dead-ending.
         function handleContourError(msg) {
           if (msg.seq !== contourSeq) return;
           lastContour = null;

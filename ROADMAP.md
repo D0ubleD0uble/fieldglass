@@ -174,7 +174,9 @@ Zoom and pan (#245) · animate over time (#170) · cross-sections (#171) ·
 zonal average plots (#240) · vector plots from u/v pairs (#241) · line plots
 through the probe point (#172) · GMT CPT colour tables (#236) · export at a
 chosen size (#403) · CSV export for the remaining grid families (#244) ·
-GRIB1 metadata editing (#46) · contours for projected and reduced grids.
+GRIB1 metadata editing (#46) · contours and long-format CSV for reduced grids
+(the projected families landed in #470; a reduced grid still needs its per-row
+longitudes to place a point).
 
 ## Done
 
