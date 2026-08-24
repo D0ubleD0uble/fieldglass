@@ -117,8 +117,11 @@ fn the_ecmwf_table_never_changes_a_standard_triple() {
             }
         }
     }
+    // 2,826 entries ship, of which the two gated on table version 228 do not
+    // resolve at the version 1 used above — so a floor rather than an exact
+    // count, which `ecmwf_local_parameters.rs` pins entry by entry anyway.
     assert!(
-        local_hits > 3_000,
+        local_hits > 2_500,
         "only {local_hits} triples resolve through the ECMWF table — it is not wired in"
     );
 }
