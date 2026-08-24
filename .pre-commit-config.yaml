@@ -85,6 +85,13 @@ repos:
         entry: python3 tools/check_architecture_diagrams.py
         pass_filenames: false
 
+      - id: generator-encoding
+        name: generators name their text encoding
+        language: system
+        files: ^tools/.*\.py$
+        entry: python3 tools/check_generator_encoding.py
+        pass_filenames: false
+
       # ── Pre-push (slower) hooks
       - id: architecture-diagrams-selftest
         name: architecture diagram checker self-test
@@ -92,6 +99,14 @@ repos:
         language: system
         files: ^tools/(check_architecture_diagrams|test_check_architecture_diagrams)\.py$
         entry: python3 tools/test_check_architecture_diagrams.py
+        pass_filenames: false
+
+      - id: generator-encoding-selftest
+        name: generator encoding checker self-test
+        stages: [pre-push]
+        language: system
+        files: ^tools/(check_generator_encoding|test_check_generator_encoding)\.py$
+        entry: python3 tools/test_check_generator_encoding.py
         pass_filenames: false
 
       - id: cargo-test

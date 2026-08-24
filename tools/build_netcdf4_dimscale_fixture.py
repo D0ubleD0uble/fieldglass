@@ -125,7 +125,7 @@ def main() -> int:
     path = FIXTURES_DIR / NAME
     build(path)
     data = oracle(path)
-    (FIXTURES_DIR / f"{NAME}.oracle.json").write_text(json.dumps(data, indent=2) + "\n")
+    (FIXTURES_DIR / f"{NAME}.oracle.json").write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     size = path.stat().st_size
     print(f"wrote {path} ({size} B) + oracle [{data['format']}, {data['source']}]")
     return 0

@@ -96,7 +96,7 @@ def write_oracle(
         },
         "source": note,
     }
-    oracle_path.write_text(json.dumps(oracle, indent=2) + "\n")
+    oracle_path.write_text(json.dumps(oracle, indent=2) + "\n", encoding="utf-8")
 
 
 def main() -> None:

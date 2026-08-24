@@ -169,7 +169,7 @@ def write_oracle(
         },
         "source": note,
     }
-    oracle_path.write_text(json.dumps(oracle, indent=2) + "\n")
+    oracle_path.write_text(json.dumps(oracle, indent=2) + "\n", encoding="utf-8")
 
 
 def build(name, runs, bits, max_level, level_values, decimal_scale_raw, samples, note):

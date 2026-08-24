@@ -104,7 +104,7 @@ def main() -> int:
         }
         ds.close()
         out_path = fixtures_dir / f"{name}.values.json"
-        out_path.write_text(json.dumps(doc, indent=2) + "\n")
+        out_path.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
         print(f"wrote {out_path} ({len(doc['variables'])} variables)")
     return 0
 

@@ -76,7 +76,7 @@ def write_oracle(grib_path: Path, oracle_path: Path, samples: list[int], note: s
         },
         "source": note,
     }
-    oracle_path.write_text(json.dumps(oracle, indent=2) + "\n")
+    oracle_path.write_text(json.dumps(oracle, indent=2) + "\n", encoding="utf-8")
 
 
 def build(name: str, offset: float | None, samples: list[int], note: str) -> None:

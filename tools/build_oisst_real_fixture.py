@@ -215,7 +215,7 @@ def main() -> int:
         "ice": packed_field_oracle(ice_raw, s_ice),
     }
     (FIXTURES / "oisst_avhrr_v2.nc.oracle.json").write_text(
-        json.dumps(oracle, indent=2) + "\n")
+        json.dumps(oracle, indent=2) + "\n", encoding="utf-8")
     src.close()
     so, io = oracle["sst"], oracle["ice"]
     print(f"  wrote {out.name} ({out.stat().st_size} bytes) + oracle")

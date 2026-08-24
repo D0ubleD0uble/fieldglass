@@ -2,14 +2,26 @@
 """Generate crates/fieldglass-grib1/src/tables_ecmwf.rs from the eccodes
 ECMWF local parameter tables (2.98.128 / 2.98.129).
 
+Regenerate:
+
+    python3 tools/gen_ecmwf_tables.py && cargo fmt
+
 Line format: `<code> <abbrev> <name> (<units>)`. Units are the final
 balanced-parenthesis group; the name is everything between the abbrev and
 that group. `~` abbreviations / units mean "unset" -> empty string.
+
+The file is written directly rather than piped from stdout, and both the read
+and the write name their encoding. A redirected stdout, and a `open()` with no
+`encoding=`, both take it from the platform locale — which on a machine that is
+neither UTF-8 nor `C`/`POSIX` silently substitutes characters rather than
+failing, and this table carries one such line (#451).
 """
 import re
 import sys
+from pathlib import Path
 
 SRC = "/usr/share/eccodes/definitions/grib1"
+OUT = Path("crates/fieldglass-grib1/src/tables_ecmwf.rs")
 
 
 def split_units(rest: str):
@@ -33,7 +45,7 @@ def split_units(rest: str):
 
 def parse_table(version: int):
     entries = []
-    with open(f"{SRC}/2.98.{version}.table") as fh:
+    with open(f"{SRC}/2.98.{version}.table", encoding="utf-8") as fh:
         for line in fh:
             line = line.rstrip("\n")
             if not line.strip() or line.lstrip().startswith("#"):
@@ -100,7 +112,7 @@ def main():
 //! Data generated from eccodes' `definitions/grib1/2.98.128.table` and
 //! `2.98.129.table` (Apache-2.0; the parameter definitions are factual data
 //! from the ECMWF parameter database). Regenerate after an eccodes upgrade:
-//! `python3 tools/gen_ecmwf_tables.py > crates/fieldglass-grib1/src/tables_ecmwf.rs && cargo fmt`.
+//! `python3 tools/gen_ecmwf_tables.py && cargo fmt`.
 
 use crate::tables::ParameterEntry;
 
@@ -123,7 +135,8 @@ pub fn lookup(table_version: u8, id: u8) -> Option<ParameterEntry> {
         + emit_fn("ecmwf_129", 129, t129)
         + "\n"
     )
-    sys.stdout.write(out)
+    OUT.write_text(out, encoding="utf-8")
+    print(f"wrote {OUT}", file=sys.stderr)
     sys.stderr.write(f"128: {len(t128)} entries, 129: {len(t129)} entries\n")
 
 

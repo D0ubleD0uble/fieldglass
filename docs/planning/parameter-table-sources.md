@@ -75,6 +75,28 @@ categories with `DUMMY_1` … `DUMMY_508` placeholders, 254 of which land on
 otherwise-emittable triples. They are `Experimental product` in another
 spelling, and the generator skips them by the same rule.
 
+## Every generator names its encoding
+
+Python's text I/O defaults to the platform locale. On CI and on any UTF-8 or
+`C`/`POSIX` machine that is UTF-8 — PEP 540 turns UTF-8 mode on for the latter —
+so the default is right and nothing goes wrong. Elsewhere, most obviously
+Windows, it is not, and the failure is silent: the pre-#451 GRIB1 ECMWF
+generator run with a cp1252 stdout wrote `\x85` where the file should carry
+`\xe2\x80\xa6`, producing a Rust source file that is not valid UTF-8 and a
+regeneration diff that reads as corruption rather than as an upstream edit.
+
+So every read, every write, and every `subprocess.run(..., text=True)` in
+`tools/` states its encoding, whether or not the file has non-ASCII in it today
+— `tools/check_generator_encoding.py` is a pre-commit hook that says so. The
+subprocess half is the one that is easy to miss: the oracle generators read
+parameter names straight out of `grib_get`'s stdout, and `text=True` decodes it
+with the locale encoding just as `open()` would.
+
+Generators write their file directly rather than being piped (`python3 tools/gen_X.py`,
+not `python3 tools/gen_X.py > out.rs`), because a redirected stdout takes its
+encoding from the locale and there is no keyword argument to fix that at the
+call site.
+
 ## What #415 turned up
 
 Two things worth carrying into the remaining generators:

@@ -243,6 +243,7 @@ def build_crosscheck(entries: dict[tuple[int, int, int], tuple[str, str, str]]) 
                 check=True,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
             ).stdout.split("\n")
             if lines and lines[-1] == "":
                 lines.pop()

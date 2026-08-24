@@ -117,7 +117,7 @@ def build(name: str, *, bif_n, bif_m, bif_trunc, sub_n, sub_m, sub_trunc,
 
     # Oracle: pinned CLI value rows (drop the "Values" header line).
     ref = [line.strip() for line in grib_get_data_rows(grib_path)]
-    (FIXTURES / f"{name}.eccodes.ref.txt").write_text("\n".join(ref) + "\n")
+    (FIXTURES / f"{name}.eccodes.ref.txt").write_text("\n".join(ref) + "\n", encoding="utf-8")
 
     ver = " ".join(
         grib_get(

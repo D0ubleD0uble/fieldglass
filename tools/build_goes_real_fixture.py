@@ -243,7 +243,7 @@ def main() -> int:
         ),
     }
     (FIXTURES / "goes16_abi_cmip.nc.oracle.json").write_text(
-        json.dumps(oracle, indent=2) + "\n")
+        json.dumps(oracle, indent=2) + "\n", encoding="utf-8")
     src.close()
     print(f"  wrote {out.name} ({out.stat().st_size} bytes) + oracle")
     return 0

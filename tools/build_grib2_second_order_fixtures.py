@@ -89,7 +89,7 @@ def write_oracle(
         },
         "source": note,
     }
-    oracle_path.write_text(json.dumps(oracle, indent=2) + "\n")
+    oracle_path.write_text(json.dumps(oracle, indent=2) + "\n", encoding="utf-8")
     print(
         f"wrote {grib_path.name} ({grib_path.stat().st_size} bytes) + oracle "
         f"[{packing}, NG={ng}, SPD={spd}, boust={boust}]"
