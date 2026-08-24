@@ -26,6 +26,28 @@ classDiagram
     DataMessage  <|.. Grib2Message
 ```
 
+## Byte access
+
+`ByteSource` is where bytes come from ([ADR-0005](../decisions/0005-byte-access-and-the-remote-seam.md),
+#438). Unlike the other seams here it does not dispatch on a code in the file —
+it dispatches on where the file *is*. A reader resolves the ranges an operation
+needs, prefetches them in one batch, and reads them back synchronously, so a
+transport can be swapped underneath without any decoder learning it exists.
+
+The implementers today are the byte buffers the readers already hold, which is
+what makes the migration incremental: passing a `Vec<u8>` where a `ByteSource`
+is wanted already works. HTTP range (#247), object stores (#252) and Zarr (#246)
+each add one more.
+
+```mermaid
+classDiagram
+    class ByteSource {
+        <<trait>>
+    }
+
+    ByteSource <|.. Vec
+```
+
 ## GRIB1 packing
 
 The BDS flag byte names the packing. The reader matches it to one `Grib1Packing`
