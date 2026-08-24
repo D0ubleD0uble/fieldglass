@@ -4496,21 +4496,49 @@ fn forward_geolocation_for(
         // one wrapper — and they read their parameters through the very helpers
         // the warp setups use, so a grid can't geolocate one way for the image
         // and another for the contours drawn over it.
-        "lambert" => Ok(planar_forward(LambertProjector::new(lambert_params(
-            meta, ni, nj,
-        )?))),
+        "lambert" => {
+            let projector = LambertProjector::new(lambert_params(meta, ni, nj)?);
+            require_well_defined(projector.is_well_defined(), grid_type)?;
+            Ok(planar_forward(projector))
+        }
+        // Polar stereographic has no degenerate case to check: its scale factor
+        // is `(1 + sin|LaD|)/2`, which no declarable `LaD` drives to zero.
         "polar_stereo" => Ok(planar_forward(PolarStereoProjector::new(
             polar_stereo_params(meta, ni, nj)?,
         ))),
-        "transverse_mercator" => Ok(planar_forward(TransverseMercatorProjector::new(
-            transverse_mercator_params(meta, ni, nj)?,
-        ))),
-        "lambert_azimuthal" => Ok(planar_forward(LambertAzimuthalProjector::new(
-            lambert_azimuthal_params(meta, ni, nj)?,
-        ))),
+        "transverse_mercator" => {
+            let projector =
+                TransverseMercatorProjector::new(transverse_mercator_params(meta, ni, nj)?);
+            require_well_defined(projector.is_well_defined(), grid_type)?;
+            Ok(planar_forward(projector))
+        }
+        "lambert_azimuthal" => {
+            let projector = LambertAzimuthalProjector::new(lambert_azimuthal_params(meta, ni, nj)?);
+            require_well_defined(projector.is_well_defined(), grid_type)?;
+            Ok(planar_forward(projector))
+        }
         // Unreachable: the table gate above admits only the arms listed here.
         other => Err(napi::Error::from_reason(unsupported(other))),
     }
+}
+
+/// Refuse a grid whose projection constants are degenerate — standard parallels
+/// that collapse the Lambert cone, a spheroid with no shape.
+///
+/// The warp already refuses these: the same constants leave
+/// `Projector::inverse` returning `None` for every pixel. The forward direction
+/// needs the check made explicitly, because a degenerate *spheroidal* family
+/// (transverse Mercator, Lambert azimuthal) produces finite, meaningless
+/// coordinates rather than the NaN [`planar_forward`] filters out — numbers that
+/// would reach a CSV cell looking exactly like a position.
+fn require_well_defined(ok: bool, grid_type: &str) -> napi::Result<()> {
+    if ok {
+        return Ok(());
+    }
+    Err(napi::Error::from_reason(format!(
+        "grid type {grid_type:?} declares degenerate projection parameters, so its \
+         grid points have no geographic position"
+    )))
 }
 
 /// Wrap a planar projector as a [`ForwardGeo`], built once and reused for every
@@ -8699,6 +8727,39 @@ mod planar_geolocation_tests {
             (plain - (w + e) / 2.0).abs() < 1e-9,
             "an ordinary cell still interpolates plainly: {plain} vs {w}..{e}"
         );
+    }
+
+    /// A grid whose projection constants are degenerate is refused outright,
+    /// rather than exporting the coordinates such a projector still produces.
+    /// The Lambert cone collapses when both standard parallels sit on the
+    /// equator (`n = sin 0 = 0`); the spheroidal families collapse when the
+    /// declared spheroid has no shape, and those produce *finite* nonsense, so
+    /// only the explicit check catches them.
+    #[test]
+    fn a_degenerate_projection_is_refused_rather_than_geolocated() {
+        let (lambert, ni, nj) = grib2_geometry(ETA_LAMBERT);
+        let mut flat_cone = grib2_geometry(ETA_LAMBERT).0;
+        flat_cone.lambert_latin1 = Some(0.0);
+        flat_cone.lambert_latin2 = Some(0.0);
+        let err = forward_geolocation_for(&flat_cone, ni, nj, |gt| format!("unsupported {gt}"))
+            .err()
+            .expect("a collapsed cone has no forward map");
+        assert!(
+            err.reason.contains("degenerate"),
+            "the message should say why, got: {}",
+            err.reason
+        );
+        // The grid it was cloned from still geolocates, so the refusal is about
+        // the parameters and not the family.
+        assert!(forward_geolocation_for(&lambert, ni, nj, |_| String::new()).is_ok());
+
+        let (mut laea, ni, nj) = grib2_geometry(LAMBERT_AZIMUTHAL);
+        laea.lambert_azimuthal_semi_major_metres = Some(0.0);
+        laea.lambert_azimuthal_semi_minor_metres = Some(0.0);
+        let err = forward_geolocation_for(&laea, ni, nj, |gt| format!("unsupported {gt}"))
+            .err()
+            .expect("a shapeless spheroid has no forward map");
+        assert!(err.reason.contains("degenerate"), "{}", err.reason);
     }
 
     /// The table is the gate: every grid type it names resolves to a forward
