@@ -59,6 +59,22 @@ fn overrides() -> BTreeMap<u16, (String, String)> {
         .collect()
 }
 
+/// Fold the handful of diacritics WMO's own ASCII transcription drops, so an
+/// override can be compared against the name it restores.
+fn ascii_fold(value: &str) -> String {
+    value
+        .chars()
+        .map(|c| match c {
+            'ö' => 'o',
+            'é' => 'e',
+            'ü' => 'u',
+            'å' => 'a',
+            'ø' => 'o',
+            other => other,
+        })
+        .collect()
+}
+
 /// Every GRIB2 code the CCT assigns resolves, and to WMO's own text unless it
 /// is one of the declared overrides.
 #[test]
@@ -133,12 +149,21 @@ fn every_override_still_sits_on_the_text_it_was_written_for() {
              {found:?} — re-review it rather than letting it pin a stale name",
             oracle()["tag"].as_str().unwrap_or("?")
         );
-        // An override may only *add* to what WMO says. `Norrköping - SMHI` is
-        // not a literal extension of `Norrkoping`, so compare with the ASCII
-        // fold WMO itself applied rather than by prefix.
+        // An override may only *add* to what WMO says — it may not contradict
+        // it. Checking that the replacement is merely *longer* would let
+        // "Beijing (RSMC) - some other agency" through, so the rule is
+        // containment. `Norrköping - SMHI` does not literally contain
+        // `Norrkoping`, because the ASCII fold is exactly what the override
+        // undoes, so fold the replacement the same way before comparing.
+        let folded = ascii_fold(replacement);
+        assert!(
+            folded.contains(&ascii_fold(expected_upstream)),
+            "override {code} ({replacement:?}) does not contain the WMO name \
+             {expected_upstream:?} — an override may add detail, never replace it"
+        );
         assert!(
             replacement.len() > expected_upstream.len(),
-            "override {code} ({replacement:?}) is not more informative than {expected_upstream:?}"
+            "override {code} ({replacement:?}) adds nothing to {expected_upstream:?}"
         );
     }
 }

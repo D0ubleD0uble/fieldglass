@@ -310,6 +310,10 @@ def main() -> int:
     subs = parse_sub_centres(csvs["C12.csv"])
 
     centres1, centres2 = apply_overrides(raw1), apply_overrides(raw2)
+    # Explicit UTF-8 on every write: the names carry `ö`, `é` and `ü`, and
+    # `write_text` would otherwise use the platform's locale encoding — which
+    # silently breaks the byte-identical-regeneration guarantee off a UTF-8
+    # machine, or raises on one that cannot represent them at all.
     GRIB1_OUT.write_text(
         render_centres(
             centres1,
@@ -317,7 +321,8 @@ def main() -> int:
             table="C-1",
             source="C01.csv",
             width="u8",
-        )
+        ),
+        encoding="utf-8",
     )
     GRIB2_OUT.write_text(
         render_centres(
@@ -326,9 +331,10 @@ def main() -> int:
             table="C-11",
             source="C11.csv",
             width="u16",
-        )
+        ),
+        encoding="utf-8",
     )
-    CORE_OUT.write_text(render_sub_centres(subs))
+    CORE_OUT.write_text(render_sub_centres(subs), encoding="utf-8")
 
     # The oracle carries the *unmodified* upstream text plus the overrides, so
     # the test can check both that the table matches WMO and that every
@@ -346,7 +352,8 @@ def main() -> int:
             ensure_ascii=False,
             sort_keys=False,
         )
-        + "\n"
+        + "\n",
+        encoding="utf-8",
     )
     print(
         f"{CCT_TAG}: {len(centres1)} GRIB1 centres, {len(centres2)} GRIB2 centres, "

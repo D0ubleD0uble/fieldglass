@@ -1793,7 +1793,7 @@ export function renderHtml(
         <td>${gridDims}</td>
         <td>${gridBounds}</td>
         <td>${escapeHtml(m.packing ?? "—")}</td>
-        <td>${escapeHtml(formatCentreCell(m))}</td>
+        <td class="centre-cell">${escapeHtml(formatCentreCell(m))}</td>
       </tr>
       <tr class="expand-row" id="expand-${idx}" hidden>
         <td class="expand-cell" colspan="${COLSPAN}">
@@ -2004,6 +2004,11 @@ export function renderHtml(
       background: var(--vscode-list-activeSelectionBackground);
       color: var(--vscode-list-activeSelectionForeground);
     }
+    /* The centre column carries WMO's own wording since #440 - up to 82
+       characters, plus a sub-centre in parentheses. On a no-wrap cell in a
+       full-width table that pushes the whole table past the viewport, so this
+       one column wraps and is capped instead. */
+    td.centre-cell { white-space: normal; max-width: 22rem; }
     tr.expand-row td.expand-cell {
       background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
       padding: 0.75rem 1rem;
