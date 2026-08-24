@@ -15,6 +15,7 @@
 //!   decode-side consumers need it.
 
 pub mod bits;
+pub mod bytes;
 pub mod cct_tables;
 #[cfg(feature = "render")]
 pub mod colormap;
@@ -37,6 +38,7 @@ pub mod units;
 #[cfg(feature = "render")]
 pub mod warp;
 
+pub use bytes::{ByteRange, ByteSource};
 pub use combine::{CombineOp, combine_fields};
 pub use contour::{
     ContourLevel, GridSegment, contour_segments, contour_segments_global, nice_levels,
