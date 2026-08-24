@@ -29,5 +29,14 @@
       "bitsPerValue": 16,
       "bitMapIndicator": 255
     }
+  ],
+  "values": [
+    {
+      "count": 4160,
+      "numberOfMissing": null,
+      "minimum": null,
+      "maximum": null,
+      "average": 289.097
+    }
   ]
 }

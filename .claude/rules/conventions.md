@@ -63,7 +63,8 @@ points at the table; an HTML comment by the table records this rule.
 ## eccodes validation
 - GRIB decoders are cross-checked against eccodes (pinned to 2.34.1). The test
   suite needs **no** eccodes at runtime — it uses committed fixtures and
-  `.eccodes.ref.json` snapshots. eccodes is only needed to (re)generate fixtures,
+  `.eccodes.ref.json` snapshots, which carry both the metadata keys and a
+  value-level block (count, masked count, statistics, sampled points). eccodes is only needed to (re)generate fixtures,
   snapshots, or tables.
 - eccodes can decode more packings than it can encode. For the ones it can't
   encode, hand-build a minimal fixture and use eccodes' *decode* as the oracle.
