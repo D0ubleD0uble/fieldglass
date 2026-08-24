@@ -15,7 +15,7 @@
 //! padded to 4-byte boundaries — including odd-length strings, attribute
 //! values, and the implicit "fill to next word" after each variable record.
 
-use fieldglass_core::FieldglassError;
+use fieldglass_core::{ByteRange, ByteSource, FieldglassError};
 
 /// Three on-disk variants of NetCDF classic. They differ in the width of size
 /// and offset fields and (for CDF-5) the set of supported numeric types.
@@ -303,6 +303,89 @@ pub fn decode_variable_values(
     data: &[u8],
     var_index: usize,
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
+    decode_variable_values_from(header, &data, var_index)
+}
+
+/// The byte ranges a decode of `var_index` will read, derived from the header
+/// alone (#438).
+///
+/// NetCDF classic is the one format Fieldglass reads for which ADR-0005's
+/// *strong* form holds: every offset is in the header, so a complete fetch plan
+/// exists before a single data byte is touched. A fixed variable is one
+/// contiguous range; a record variable is `numrecs` ranges a `recsize` stride
+/// apart, because classic interleaves each record variable's per-record slab.
+///
+/// This is the function a remote transport calls to know what to fetch, and
+/// `decode_variable_values_from` reads exactly these ranges and no others —
+/// which is asserted rather than assumed, in `classic_byte_source.rs`.
+pub fn variable_plan(
+    header: &ClassicHeader,
+    var_index: usize,
+) -> Result<Vec<ByteRange>, FieldglassError> {
+    let (var, layout) = variable_layout(header, var_index)?;
+    let _ = var;
+    Ok(layout.ranges)
+}
+
+/// Decode a variable's values through a [`ByteSource`].
+///
+/// Prefetches the whole plan in one call, then reads it back synchronously —
+/// the shape ADR-0005 fixes. For an in-memory source the prefetch is a no-op
+/// and each read is a slice, so the local path costs exactly what it did before
+/// the seam existed.
+pub fn decode_variable_values_from<S: ByteSource>(
+    header: &ClassicHeader,
+    source: &S,
+    var_index: usize,
+) -> Result<Vec<Option<f64>>, FieldglassError> {
+    let (var, layout) = variable_layout(header, var_index)?;
+    if layout.total == 0 {
+        return Ok(Vec::new());
+    }
+
+    // One resolve for the whole variable, before any of it is read. A remote
+    // source turns this into its requests; `Vec<u8>` ignores it.
+    source.prefetch(&layout.ranges)?;
+
+    let fills = var.missing_sentinels();
+    let elem = var.nc_type.element_size();
+    let mut out: Vec<Option<f64>> = Vec::with_capacity(layout.total);
+    for range in &layout.ranges {
+        let bytes = source.read(*range)?;
+        decode_slab(&bytes, elem, var.nc_type, &fills, &mut out);
+    }
+
+    // The one silent-truncation path the seam introduces, closed. `decode_slab`
+    // does not bounds-check — the range was bounded when the source served it —
+    // so a source that returns fewer bytes than it was asked for would yield a
+    // short variable that looks like a complete one. An in-memory source cannot
+    // do that; a transport with a truncated response can.
+    if out.len() != layout.total {
+        return Err(FieldglassError::Parse(format!(
+            "variable {:?} decoded {} of {} elements: the source served short",
+            var.name,
+            out.len(),
+            layout.total
+        )));
+    }
+    Ok(out)
+}
+
+/// What a decode of one variable needs: its ranges and its element count.
+struct VariableLayout {
+    ranges: Vec<ByteRange>,
+    total: usize,
+}
+
+/// Resolve a variable's fetch plan and element count without reading any data.
+///
+/// Split out of the decode so the plan can be asked for on its own — a remote
+/// transport wants the ranges without the values, and the test that the two
+/// agree needs both from one place.
+fn variable_layout(
+    header: &ClassicHeader,
+    var_index: usize,
+) -> Result<(&Variable, VariableLayout), FieldglassError> {
     let var = header
         .variables
         .get(var_index)
@@ -360,45 +443,51 @@ pub fn decode_variable_values(
         )));
     }
     if total == 0 {
-        return Ok(Vec::new());
+        return Ok((
+            var,
+            VariableLayout {
+                ranges: Vec::new(),
+                total: 0,
+            },
+        ));
     }
 
-    let fills = var.missing_sentinels();
     let begin = nonneg_to_usize(var.begin, "variable begin")?;
-    let mut out: Vec<Option<f64>> = Vec::with_capacity(total);
+    let span = |count: usize| -> Result<u64, FieldglassError> {
+        count
+            .checked_mul(elem)
+            .map(|bytes| bytes as u64)
+            .ok_or_else(|| FieldglassError::Parse("variable slab size overflows usize".to_string()))
+    };
 
-    if is_record_var {
+    let ranges = if is_record_var {
         // Record variable: `numrecs` records laid `recsize` bytes apart, where
         // `recsize` is the sum of every record variable's per-record `vsize`.
+        // One range per record, because the records are not contiguous.
         let numrecs = nonneg_to_usize(numrecs, "numrecs")?;
         let per_record = total / numrecs; // shape[0] == numrecs, so this is exact
         let recsize = record_size(header)?;
-        for r in 0..numrecs {
-            let rec_offset = r
-                .checked_mul(recsize)
-                .and_then(|o| begin.checked_add(o))
-                .ok_or_else(|| {
-                    FieldglassError::Parse(format!(
-                        "variable {:?} record {r} offset overflows usize",
-                        var.name
-                    ))
-                })?;
-            read_slab(
-                data,
-                rec_offset,
-                per_record,
-                elem,
-                var.nc_type,
-                &fills,
-                &mut out,
-            )?;
-        }
+        let len = span(per_record)?;
+        (0..numrecs)
+            .map(|r| {
+                let start = r
+                    .checked_mul(recsize)
+                    .and_then(|o| begin.checked_add(o))
+                    .ok_or_else(|| {
+                        FieldglassError::Parse(format!(
+                            "variable {:?} record {r} offset overflows usize",
+                            var.name
+                        ))
+                    })?;
+                Ok(ByteRange::new(start as u64, len))
+            })
+            .collect::<Result<Vec<_>, FieldglassError>>()?
     } else {
         // Fixed (non-record) variable: one contiguous slab at `begin`.
-        read_slab(data, begin, total, elem, var.nc_type, &fills, &mut out)?;
-    }
+        vec![ByteRange::new(begin as u64, span(total)?)]
+    };
 
-    Ok(out)
+    Ok((var, VariableLayout { ranges, total }))
 }
 
 /// Sum of every record variable's per-record `vsize` — the byte stride from
@@ -423,33 +512,23 @@ fn record_size(header: &ClassicHeader) -> Result<usize, FieldglassError> {
     Ok(total)
 }
 
-/// Read `count` big-endian elements of `nc_type` starting at byte offset
-/// `start`, decode each to `f64`, mask any sentinel (`fills`) to `None`, and
-/// append to `out`.
-fn read_slab(
-    data: &[u8],
-    start: usize,
-    count: usize,
+/// Decode a fetched slab: every whole `elem`-byte element in `bytes`, widened
+/// to `f64`, with any sentinel (`fills`) masked to `None`, appended to `out`.
+///
+/// No bounds check, because there is nothing left to check — the range was
+/// bounded when [`ByteSource::read`] served it, and a short read is that
+/// function's error to report, not this one's. A trailing partial element is
+/// dropped rather than read out of bounds; `variable_layout` only ever asks for
+/// whole elements, so it cannot happen from a plan this module built.
+fn decode_slab(
+    bytes: &[u8],
     elem: usize,
     nc_type: NcType,
     fills: &[f64],
     out: &mut Vec<Option<f64>>,
-) -> Result<(), FieldglassError> {
-    let span = count
-        .checked_mul(elem)
-        .ok_or_else(|| FieldglassError::Parse("variable slab size overflows usize".to_string()))?;
-    let end = start
-        .checked_add(span)
-        .ok_or_else(|| FieldglassError::Parse("variable slab end overflows usize".to_string()))?;
-    if end > data.len() {
-        return Err(FieldglassError::Parse(format!(
-            "variable data region [{start}, {end}) exceeds file size {}",
-            data.len()
-        )));
-    }
-    for i in 0..count {
-        let off = start + i * elem;
-        let v = decode_element_f64(&data[off..off + elem], nc_type);
+) {
+    for chunk in bytes.chunks_exact(elem) {
+        let v = decode_element_f64(chunk, nc_type);
         // Mask on value equality, matching how `libnetcdf` / numpy compare a
         // masked array against `_FillValue` / `missing_value` (so a `NaN`
         // sentinel, like `NaN == NaN`, masks nothing). The compare is in the
@@ -458,7 +537,6 @@ fn read_slab(
         // pipeline carries.
         out.push(if fills.contains(&v) { None } else { Some(v) });
     }
-    Ok(())
 }
 
 /// Decode a single element of `nc_type` from exactly its `element_size()`
