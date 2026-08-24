@@ -576,3 +576,24 @@ generator's pinned tag and download so the two cannot drift apart; committed so
 `tests/wmo_code_tables.rs` needs no network. Divergences in that test record
 WMO's exact wording, so a reassigned code fails rather than passing on a stale
 review.
+
+## `localconcepts_ecmf.ref.json`, `localconcepts_edzw.ref.json`
+
+Not GRIB files: cross-check snapshots of what eccodes' own concept engine
+answers for every triple the generated ECMWF (`tables_ecmf.rs`) and DWD
+(`tables_edzw.rs`) local parameter tables ship. Built by
+`tools/gen_localconcepts_tables.py <centre> --oracle`, which rewrites §1
+`centre`, `localTablesVersion` and the parameter triple of
+`reduced_gaussian_pressure_level.grib2` with `grib_set` and reads
+`shortName`, `name` and `units` back with `grib_get`, one key per pass.
+
+Derived from eccodes **2.34.1** (`definitions/grib2/localConcepts/{ecmf,edzw}/`),
+Apache 2.0; the parameter definitions themselves are factual data from each
+centre's parameter database. Committing the snapshot is what lets the test
+suite run with no eccodes installed.
+
+The choice of base message does not affect the answers — every emitted triple
+is claimed by exactly one concept block, so eccodes has nothing else to match.
+That was confirmed rather than assumed: regenerating both snapshots against
+`regular_latlon_surface.grib2`, whose `typeOfFirstFixedSurface` differs from
+the base above, reproduces all 3,039 entries unchanged.

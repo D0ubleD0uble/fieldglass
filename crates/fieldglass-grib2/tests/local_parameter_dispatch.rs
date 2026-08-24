@@ -1,17 +1,17 @@
 //! Centre-local parameter dispatch (#439).
 //!
-//! #439 lands the seam that #424-#426 plug centre tables into, and lands it
-//! empty: `tables_local::lookup` answers `None` for everything, so resolution
-//! today is exactly what it was before. That makes the seam the hard thing to
-//! test — a registry with no entries proves nothing about ordering.
+//! #439 landed the seam that #424-#426 plug centre tables into, and landed it
+//! empty. ECMWF (#424) and DWD (#425) have since filled it, so what is tested
+//! here is the *policy*: local code space routes to the originating centre and
+//! nowhere else, standard code space never moves, and a centre with no table of
+//! its own resolves exactly as it did before any of this existed.
 //!
-//! So the policy is tested two ways. The properties that hold *because the
-//! registry is empty* are asserted here directly. The ordering that only shows
-//! up once a centre table exists is asserted against a stub table through
-//! `resolve_parameter`, the same function `lookup_parameter` calls, in
-//! `tables.rs`'s own unit tests — a stub cannot be injected from an
-//! integration test, and testing the ordering through a private seam is worth
-//! more than not testing it at all.
+//! The ordering inside `resolve_parameter` — local table consulted before the
+//! master set — is asserted against a stub table in `tables.rs`'s own unit
+//! tests, because a stub cannot be injected from an integration test. What the
+//! two real tables give this file instead is scale: every one of the 16.7
+//! million triples is swept for both of them, which is what makes "nothing
+//! outside 192-254 moved" a fact rather than a spot-check.
 
 use fieldglass_grib2::{Grib2Reader, Originator, lookup_parameter};
 
@@ -58,12 +58,13 @@ fn the_master_table_never_defines_a_local_use_code() {
 }
 
 /// A centre with no table of its own resolves exactly as the master set does,
-/// for every triple. This is the guarantee that adding ECMWF (#424) could not
-/// quietly change what any other file shows.
+/// for every triple. This is the guarantee that adding a centre table (#424,
+/// #425) could not quietly change what any other file shows.
 #[test]
 fn a_centre_without_a_table_resolves_as_the_master_set() {
-    // NCEP, DWD, JMA, NASA, and one that does not exist. None has a table yet.
-    for centre in [7u16, 78, 34, 173, 60_000] {
+    // NCEP, JMA, NASA, and one that does not exist. None has a table yet;
+    // DWD (78) had one added in #425 and now belongs in the sweep below.
+    for centre in [7u16, 34, 173, 60_000] {
         for discipline in [0u8, 1, 2, 3, 10, 192, 255] {
             for category in [0u8, 1, 2, 3, 191, 192, 255] {
                 for number in [0u8, 1, 8, 191, 192, 254, 255] {
@@ -87,43 +88,52 @@ fn a_centre_without_a_table_resolves_as_the_master_set() {
     }
 }
 
-/// ECMWF may differ from the master set **only** inside local code space. A
-/// centre table that shadowed a standard parameter would be a silent
-/// regression for every ECMWF file, so this sweeps the whole triple space
+/// A centre table may differ from the master set **only** inside local code
+/// space. One that shadowed a standard parameter would be a silent regression
+/// for every file from that centre, so this sweeps the whole triple space
 /// rather than spot-checking.
+///
+/// The floors are floors rather than exact counts: two ECMWF entries are gated
+/// on table version 228 and so do not resolve at the version 1 used here, and
+/// `ecmwf_local_parameters.rs` and `dwd_local_parameters.rs` pin both tables
+/// entry by entry anyway. What this adds is the negative half — that nothing
+/// outside 192-254 moved.
 #[test]
-fn the_ecmwf_table_never_changes_a_standard_triple() {
-    let mut local_hits = 0usize;
-    for discipline in 0..=255u8 {
-        for category in 0..=255u8 {
-            for number in 0..=255u8 {
-                let master = lookup_parameter(MASTER_ONLY, discipline, category, number);
-                let ecmwf =
-                    lookup_parameter(Originator::new(98, 0, 1), discipline, category, number);
-                let local_space = [discipline, category, number]
-                    .iter()
-                    .any(|&c| (192..=254).contains(&c));
-                if local_space {
-                    if ecmwf != master {
-                        local_hits += 1;
-                    }
-                } else {
-                    assert_eq!(
-                        ecmwf, master,
-                        "{discipline}/{category}/{number} is standard code space, but ECMWF \
-                         resolves it differently"
+fn a_centre_table_never_changes_a_standard_triple() {
+    for (centre, name, floor) in [(98u16, "ECMWF", 2_500usize), (78, "DWD", 200)] {
+        let mut local_hits = 0usize;
+        for discipline in 0..=255u8 {
+            for category in 0..=255u8 {
+                for number in 0..=255u8 {
+                    let master = lookup_parameter(MASTER_ONLY, discipline, category, number);
+                    let local = lookup_parameter(
+                        Originator::new(centre, 0, 1),
+                        discipline,
+                        category,
+                        number,
                     );
+                    let local_space = [discipline, category, number]
+                        .iter()
+                        .any(|&c| (192..=254).contains(&c));
+                    if local_space {
+                        if local != master {
+                            local_hits += 1;
+                        }
+                    } else {
+                        assert_eq!(
+                            local, master,
+                            "{discipline}/{category}/{number} is standard code space, but \
+                             {name} resolves it differently"
+                        );
+                    }
                 }
             }
         }
+        assert!(
+            local_hits > floor,
+            "only {local_hits} triples resolve through the {name} table — it is not wired in"
+        );
     }
-    // 2,826 entries ship, of which the two gated on table version 228 do not
-    // resolve at the version 1 used above — so a floor rather than an exact
-    // count, which `ecmwf_local_parameters.rs` pins entry by entry anyway.
-    assert!(
-        local_hits > 2_500,
-        "only {local_hits} triples resolve through the ECMWF table — it is not wired in"
-    );
 }
 
 /// Local code space still resolves to nothing for a centre with no table, so a
@@ -140,12 +150,16 @@ fn local_use_codes_resolve_to_nothing_without_a_centre_table() {
     for number in [192u8, 200, 254] {
         assert_eq!(lookup_parameter(MASTER_ONLY, 0, 0, number), None);
     }
-    // And an ECMWF triple means nothing to a different centre.
+    // And an ECMWF triple means nothing to a different centre — including one
+    // that has a table of its own, which is the case a single-table registry
+    // could not distinguish from "no table at all".
     assert!(lookup_parameter(Originator::new(98, 0, 0), 192, 128, 4).is_some());
-    assert_eq!(
-        lookup_parameter(Originator::new(7, 0, 0), 192, 128, 4),
-        None
-    );
+    for other in [7u16, 78] {
+        assert_eq!(
+            lookup_parameter(Originator::new(other, 0, 0), 192, 128, 4),
+            None
+        );
+    }
 }
 
 /// A standard triple still hits the master set, which is the other half of the

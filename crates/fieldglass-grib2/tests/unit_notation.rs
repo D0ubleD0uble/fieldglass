@@ -21,14 +21,16 @@ use std::collections::BTreeSet;
 
 /// The centres the sweeps below resolve as. Centre 0 is the WMO Secretariat,
 /// which has no local table and so reaches the master set; 98 is ECMWF, whose
-/// 2,826 local parameters (#424) carry units in eccodes' Fortran notation and
-/// so have to go through the same display normalisation as everything else.
-/// Both table versions appear because thirteen ECMWF entries are gated on one.
+/// 2,826 local parameters (#424) carry units in eccodes' Fortran notation; 78
+/// is DWD, whose 213 (#425) carry a third notation again — bare negative
+/// exponents, `kg kg-1` — and one string, `Pa-3h`, that is not a product of
+/// units at all. Both ECMWF table versions appear because thirteen of its
+/// entries are gated on one; DWD gates nothing.
 ///
 /// Sweeping the master set alone would have left the entire ECMWF unit
 /// vocabulary unpinned — 59 of its 69 distinct strings — which is exactly the
 /// silent gap this snapshot exists to close.
-const SWEPT: [Originator; 3] = [
+const SWEPT: [Originator; 4] = [
     Originator {
         centre: 0,
         sub_centre: 0,
@@ -43,6 +45,11 @@ const SWEPT: [Originator; 3] = [
         centre: 98,
         sub_centre: 0,
         local_tables_version: 1,
+    },
+    Originator {
+        centre: 78,
+        sub_centre: 0,
+        local_tables_version: 0,
     },
 ];
 const SNAPSHOT: &str = include_str!("fixtures/unit_notation.snapshot.txt");
@@ -102,9 +109,9 @@ fn the_whole_table_normalises_as_pinned() {
 }
 
 /// The strings a structural rule mangles. Each of these is real — it appears in
-/// WMO Code Table 4.2 — and each would be corrupted by an obvious-looking
-/// implementation, so they are pinned separately from the bulk snapshot where
-/// they are easy to miss.
+/// WMO Code Table 4.2 or in a centre-local table — and each would be corrupted
+/// by an obvious-looking implementation, so they are pinned separately from the
+/// bulk snapshot where they are easy to miss.
 #[test]
 fn the_strings_that_look_like_units_but_are_not_survive_untouched() {
     for input in [
@@ -125,6 +132,22 @@ fn the_strings_that_look_like_units_but_are_not_survive_untouched() {
         "Proportion",
         "Bites per day per person",
         "",
+        // DWD's contributions (#425). `Pa-3h` is a pressure change *over three
+        // hours*, so the trailing `-3h` is a period and not an exponent;
+        // `10-7 s-2` leads with a scale factor the way ECMWF's `10**-6 …` does;
+        // `Pa(O3)` names the species in parentheses; and `Km kg-1 s-1` is the
+        // frontogenesis function, where upstream ran two symbols together and
+        // `Km` could as easily be kilometre as kelvin-metre. Guessing at any of
+        // them buys a prettier string and risks a wrong one.
+        "Pa-3h",
+        "10-7 s-2",
+        "Pa(O3)",
+        "Km kg-1 s-1",
+        // Prefixed forms outside the allow-list. Nothing would change if they
+        // were added — neither takes an exponent anywhere in the table — so
+        // they stay out rather than growing the list for nothing.
+        "klux",
+        "Degree",
     ] {
         assert_eq!(
             normalize_units(input),
