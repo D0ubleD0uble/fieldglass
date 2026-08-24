@@ -30,6 +30,26 @@ the twice-yearly WMO fast-track rhythm (see
 Keep generated files out of patch coverage in `codecov.yml`, and regenerate
 via the script rather than editing output by hand.
 
+The dispatch seam for this landed in #439: `lookup_parameter` takes an
+`Originator`, and `tables_local::lookup` is where a centre table plugs in.
+Surveying the eccodes local concepts first showed the centres do **not** all fit
+that seam equally:
+
+| Centre | local entries | at 192+ | keyed by the triple alone? |
+|---|---|---|---|
+| ECMWF (#424) | 3,360 | 3,320 | yes |
+| NCEP (#426) | 319 | 314 | yes |
+| DWD/ICON (#425) | 1,827 | 758 | **no** |
+
+DWD is the outlier twice over. 1,069 of its entries sit on *standard* codes, which
+the ≥192 rule never routes to a centre; and 158 of its triples map to more than one
+parameter — `(0, 0, 0)` alone has 17 candidates, separated by
+`typeOfFirstFixedSurface`, `scaledValueOfFirstFixedSurface`,
+`typeOfStatisticalProcessing` and `typeOfGeneratingProcess`. So #424 and #426 are
+pure data changes against the seam as it stands, while #425 needs a decision about
+§4 context and about whether a centre may override a master entry at all. Do the
+two that fit first.
+
 ## What #415 turned up
 
 Two things worth carrying into the remaining generators:

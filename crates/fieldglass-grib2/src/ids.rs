@@ -49,6 +49,17 @@ pub struct IdentificationSection {
 }
 
 impl IdentificationSection {
+    /// Who wrote this message, for centre-local parameter resolution (#439).
+    ///
+    /// The two codes are only ever meaningful together — a sub-centre is
+    /// numbered within its centre — so pairing them here keeps call sites from
+    /// doing it, and from doing it in the wrong order.
+    pub fn originator(&self) -> crate::tables::Originator {
+        crate::tables::Originator::new(self.centre, self.sub_centre)
+    }
+}
+
+impl IdentificationSection {
     /// Render the reference time as ISO-8601 (`YYYY-MM-DDTHH:MM:SSZ`).
     /// Bytes are emitted verbatim — no validation of calendar legality.
     pub fn reference_time_iso8601(&self) -> String {

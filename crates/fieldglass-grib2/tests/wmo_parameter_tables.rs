@@ -10,9 +10,17 @@
 //! The snapshot is committed, so this needs no eccodes at runtime; regenerate
 //! it with `tools/gen_eccodes_parameter_snapshot.py` after an eccodes upgrade.
 
-use fieldglass_grib2::lookup_parameter;
+use fieldglass_grib2::{Originator, lookup_parameter};
 use serde_json::Value;
 use std::collections::BTreeMap;
+
+/// The sweeps below check the WMO master set, so they resolve as a centre with
+/// no local table of its own. Centre 0 is the WMO Secretariat, which will never
+/// have one — the point is that nothing here routes through `tables_local`.
+const MASTER_ONLY: Originator = Originator {
+    centre: 0,
+    sub_centre: 0,
+};
 
 const SNAPSHOT: &str = include_str!("fixtures/eccodes_parameters.ref.json");
 
@@ -113,7 +121,7 @@ fn every_shared_triple_agrees_with_eccodes() {
     let mut compared = 0usize;
     let mut unexpected = Vec::new();
     for (&(d, c, n), expected) in &oracle {
-        let Some((_, ours, _)) = lookup_parameter(d, c, n) else {
+        let Some((_, ours, _)) = lookup_parameter(MASTER_ONLY, d, c, n) else {
             continue; // eccodes carries reserved / missing rows we omit
         };
         compared += 1;
@@ -172,8 +180,8 @@ fn every_shared_triple_agrees_with_eccodes() {
 fn every_accepted_divergence_is_still_a_divergence() {
     let oracle = eccodes_names();
     for &(d, c, n, reviewed) in ACCEPTED {
-        let (_, ours, _) =
-            lookup_parameter(d, c, n).unwrap_or_else(|| panic!("{d}/{c}/{n} no longer resolves"));
+        let (_, ours, _) = lookup_parameter(MASTER_ONLY, d, c, n)
+            .unwrap_or_else(|| panic!("{d}/{c}/{n} no longer resolves"));
         let expected = oracle
             .get(&(d, c, n))
             .unwrap_or_else(|| panic!("{d}/{c}/{n} is not in the eccodes snapshot"));
@@ -203,7 +211,7 @@ fn the_master_table_is_the_expected_size() {
     for d in 0..=255u8 {
         for c in 0..=255u8 {
             for n in 0..=255u8 {
-                if lookup_parameter(d, c, n).is_some() {
+                if lookup_parameter(MASTER_ONLY, d, c, n).is_some() {
                     resolved += 1;
                 }
             }
