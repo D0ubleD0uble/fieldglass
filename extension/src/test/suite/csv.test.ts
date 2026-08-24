@@ -76,6 +76,48 @@ suite("CSV export", () => {
   });
 });
 
+suite("CSV export (Lambert)", () => {
+  function lambertHandle() {
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+    const bytes = fs.readFileSync(fixturePath("eta_lambert_msg0.grib2"));
+    return native.Grib2Handle.fromBytes(bytes);
+  }
+
+  // A projected grid used to refuse the long format for want of per-point
+  // coordinates (#470). Its projector has reported them since #422/#423, so the
+  // export now carries a latitude and longitude on every row.
+  test("exportCsv long geolocates a Lambert grid (#470)", () => {
+    const handle = lambertHandle();
+    const meta = handle.messages()[0];
+    assert.strictEqual(meta.gridType, "lambert");
+
+    const csv = handle.exportCsv(0, "long").toString("utf8");
+    const lines = csv.replace(/\n$/, "").split("\n");
+    assert.strictEqual(lines[0], "lat,lon,value");
+    assert.strictEqual(
+      lines.length - 1,
+      93 * 65,
+      "one data row per grid point, none dropped for want of a coordinate"
+    );
+
+    // Corners against eccodes 2.34.1 (`grib_get_data`), longitudes folded into
+    // the ±180 convention this binding reports.
+    for (const [i, j, lat, lon] of [
+      [0, 0, 12.19, -133.459],
+      [92, 0, 14.33464247, -65.091275135],
+      [0, 64, 54.535803478, -152.855459065],
+      [92, 64, 57.289403949, -49.38509725],
+    ] as const) {
+      const [gotLat, gotLon] = lines[1 + j * 93 + i].split(",").map(Number);
+      assert.ok(
+        Math.abs(gotLat - lat) < 1e-6 && Math.abs(gotLon - lon) < 1e-6,
+        `(${i},${j}) exported (${gotLat}, ${gotLon}); eccodes says (${lat}, ${lon})`
+      );
+    }
+  });
+});
+
 suite("CSV export (NetCDF)", () => {
   function netcdfSst() {
     const native = loadNative();

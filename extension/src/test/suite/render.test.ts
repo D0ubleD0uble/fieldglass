@@ -335,15 +335,12 @@ suite("Render pipeline", () => {
       () => handle.probeCombined(0, 0, "product" as never, options, 0, 0),
       /unknown combine op/,
     );
-    // Contours of the combined field are callable; they either return runs or
-    // report the same clear grid-type limitation as the single-field path
-    // (this fixture may be a projected grid, which isn't contourable yet).
-    try {
-      const c = handle.projectContoursCombined(0, 0, "a_plus_b", options, undefined);
-      assert.ok(Array.isArray(c.xy), "combined contours return pixel runs");
-    } catch (e) {
-      assert.match(`${e}`, /not yet supported/, "or a clear grid-type message");
-    }
+    // Contours of the combined field return runs. This fixture is a
+    // polar-stereographic grid, which the contour path refused until #470 wired
+    // the planar families' forward geolocation in.
+    const c = handle.projectContoursCombined(0, 0, "a_plus_b", options, undefined);
+    assert.ok(c.xy.length > 0, "A+A over a real wind field crosses interior levels");
+    assert.strictEqual(c.xy.length % 2, 0, "xy is a flat (x, y) list");
   });
 
   test("GRIB2 spectral: CSV, probe, and contours work on the synthesized grid (#330)", () => {
@@ -362,6 +359,36 @@ suite("Render pipeline", () => {
     assert.ok(r != null && r.value != null, "spectral probe reads a value");
     const c = handle.projectContours(0, options, undefined);
     assert.ok(c.xy.length > 0, "spectral contours project onto the synthesized grid");
+  });
+
+  test("GRIB2 Lambert: contours and the source probe geolocate the grid (#470)", () => {
+    const native = loadNative();
+    assert.ok(native, "native module must load");
+    const bytes = fs.readFileSync(fixturePath("eta_lambert_msg0.grib2"));
+    const handle = native.Grib2Handle.fromBytes(bytes);
+    assert.strictEqual(handle.messages()[0].gridType, "lambert");
+    const options = defaultRenderOptions();
+
+    // Both used to refuse a planar grid for want of per-point coordinates.
+    const source = handle.projectContours(0, options, undefined);
+    assert.ok(source.xy.length > 0, "contours project onto the Lambert source raster");
+    assert.strictEqual(source.xy.length % 2, 0, "xy is a flat (x, y) list");
+
+    const warped = handle.projectContours(0, { ...options, projection: "equirectangular" }, undefined);
+    assert.ok(warped.xy.length > 0, "and onto a reprojected target");
+
+    // The source-projection probe reads the same forward map, so a pixel over
+    // the grid now reports where it is as well as what it is.
+    const probe = handle.probe(0, options, 46, 32);
+    assert.ok(probe, "a pixel inside the raster probes");
+    assert.ok(
+      probe.lat != null && Math.abs(probe.lat - 40.605725) < 1e-3,
+      `probe latitude ${probe.lat} should be the grid point's own`
+    );
+    assert.ok(
+      probe.lon != null && Math.abs(probe.lon - -100.554702) < 1e-3,
+      `probe longitude ${probe.lon} should be the grid point's own`
+    );
   });
 
   test("GRIB1 equirectangular: antimeridian-tight bounds echoed + manual override honored", () => {

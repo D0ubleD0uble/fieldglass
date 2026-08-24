@@ -21,6 +21,16 @@ PDS template **4.0**, DRS template **5.0 (simple packing)**. Apache 2.0
 (eccodes redistribution). Canonical copy:
 `crates/fieldglass-grib2/tests/fixtures/NOTICE.md`.
 
+## `eta_lambert_msg0.grib2`
+
+First GRIB2 message of NOAA Eta-model output (NAM predecessor) on a 93×65
+Lambert conformal grid, GDS template **3.30** — the planar-grid fixture behind
+the long-format CSV and contour tests (#470). From the
+[`pygrib` sample-data corpus](https://github.com/jswhit/pygrib/tree/master/sampledata);
+U.S. government work in the public domain, redistributed by pygrib under its
+3-Clause BSD license. Canonical copy:
+`crates/fieldglass-grib2/tests/fixtures/NOTICE.md`.
+
 ## `netcdf_classic_dummy.nc`
 
 Minimal CDF-1 classic NetCDF from the Unidata `netcdf4-python` test corpus
