@@ -22,6 +22,17 @@ paths.
 - Never write personal data (emails, names, private paths) into tracked files;
   use the repo's configured noreply git identity.
 
+## Versioning
+- One workspace version, bumped in lockstep, with `=` pins between the
+  workspace crates. The set on crates.io is exactly the set the test suite
+  ran; cargo never resolves a combination that was not tested. Publishing an
+  unchanged crate is free, so a crate gets a new number even when nothing in
+  it changed.
+- Revisit at 1.0, or earlier if `core` stabilises while the storage-convention
+  crates (`fetchplan`, `zarr`) still track moving specs, or if a crate gains
+  consumers that do not take the rest. Then per-crate versions with
+  `release-plz` or `cargo-release`; not before.
+
 ## Quality gates (must pass before opening a PR)
 Enforced by pre-commit (commit stage) and pre-push:
 - `cargo fmt --all -- --check`

@@ -39,8 +39,10 @@ classDiagram
     GridTemplate --> LatLonTemplate
     GridTemplate --> RotatedLatLonTemplate
     GridTemplate --> MercatorTemplate
+    GridTemplate --> TransverseMercatorTemplate
     GridTemplate --> PolarStereographicTemplate
     GridTemplate --> LambertTemplate
+    GridTemplate --> LambertAzimuthalTemplate
     GridTemplate --> GaussianTemplate
     GridTemplate --> SpaceViewTemplate
     GridTemplate --> SphericalHarmonicTemplate
