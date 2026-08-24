@@ -57,8 +57,11 @@ The consumers of the lookup seam, in the order they are filed:
 | GRIB2 §3.204 NCEP curvilinear | #418 | lat/lon carried as two extra fields |
 | ICON §3.101 unstructured | #420, #419 | out-of-band grid file, ADR pending |
 
-Whether `InverseMap` is a new trait or `PlanarGridProjector` widened is #437's
-call; the diagram assumes a new supertrait so the planar projectors keep their
+Lat/lon and Mercator have closed-form inverses as functions today
+(`latlon_inverse`, `mercator_inverse`), not projector structs; #437 either
+wraps them as implementers or `GridGeometry::inverse()` keeps two paths. The
+diagram assumes the former. Whether `InverseMap` is a new trait or
+`PlanarGridProjector` widened is #437's call; the diagram assumes a new supertrait so the planar projectors keep their
 forward maps, which `SpatialIndex` cannot offer.
 
 ## Byte access grows its planned implementers
@@ -141,15 +144,18 @@ message's own GDS.
 ```mermaid
 sequenceDiagram
     participant H as host
+    participant S as Session (fieldglass)
     participant M as Grib2Message
     participant J as rust_j2k
-    participant G as GridGeometry
-    H->>M: decode_with(DecodeOptions { reduce: r })
+    participant G as GridGeometry (From, in grib2)
+    H->>S: decode(i, { reduce: r })
+    S->>M: decode_with(DecodeOptions { reduce: r })
     M->>J: decode_with(bytes, resolution_reduction = r)
     J-->>M: ni/2^r × nj/2^r samples
-    M->>G: derive(gds, r) — first point kept, dx·2^r, last point recomputed
-    M-->>H: DisplayField (values, mask, derived geometry)
-    Note over H: render / warp only — probe, csv, contours, stats take a Field
+    M->>G: from(gds, r) — first point kept, dx·2^r, last point recomputed
+    M-->>S: values, mask, derived geometry
+    S-->>H: DisplayField
+    Note over H,S: render / warp only — probe, csv, contours, stats take a Field
 ```
 
 ## Presentation is data, not a seam

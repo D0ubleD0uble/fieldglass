@@ -19,7 +19,7 @@ flowchart LR
         nb --> canvas["RGBA → canvas<br/>overlays, probe, contours"]
     end
     subgraph browser["fieldglass-app (planned, milestone 11)"]
-        cat["sources.json<br/>(catalog is data)"] --> plan["fetchplan #461<br/>.idx → ranges"]
+        cat["sources.json<br/>(catalog is data)"] --> plan["fetchplan #461, inside the wasm module<br/>.idx → ranges + expect"]
         plan --> fetch["fetch() with Range<br/>public bucket, CORS"]
         fetch --> wb["wasm handle #460<br/>no cache"]
         wb --> gpu["values + mask textures<br/>+ Palette LUT texture<br/>shipped shader snippet"]
@@ -46,17 +46,17 @@ sequenceDiagram
     A->>W: want(source, run, field, level)
     W->>B: GET model.grib2.idx
     B-->>W: idx text
-    W->>P: Wgrib2Idx::select(field, level)
-    P-->>W: PlanItem { range: OpenEnded(offset) }
+    W->>P: Wgrib2Idx::select(query, resolver)
+    P-->>W: PlanItem { range: OpenEnded(offset), expect }
     W->>B: GET model.grib2 (Range: bytes=offset-)
     B-->>W: one GRIB2 message
     W->>H: open(bytes)
-    W->>H: decode(0, { reduce, dtype })
-    Note over W,H: verify GRIB magic, §0 length, parameter vs the plan
+    W->>H: decode(0, { reduce, dtype, expect })
+    Note over H: Session verifies GRIB magic, §0 length, parameter against expect
     H-->>W: Field { values, mask, georef, stats }
     W->>H: palette(opts)
     H-->>W: Palette { lut, t0, t1, scale, masked }
-    W-->>A: Field + Palette (transfer, zero-copy)
+    W-->>A: Field + Palette (one copy out of wasm memory, then transfer)
     A->>G: upload values + R8 mask + 256×1 LUT, proj4 → mesh
     Note over A,G: restyle = new Palette (4 KB), no re-decode
     Note over A,G: shader = shipped snippet: normalise, NEAREST LUT lookup

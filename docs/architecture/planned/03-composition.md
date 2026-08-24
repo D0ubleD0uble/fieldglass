@@ -59,7 +59,7 @@ classDiagram
     GridTemplate ..> GridGeometry : From (grib2)
     GridDescription ..> GridGeometry : From (grib1)
     RenderableVariable ..> GridGeometry : From (netcdf, CF + WRF + 2-D coords)
-    GridGeometry ..> Georef : view, built in fieldglass
+    Georef ..> GridGeometry : From, impl in fieldglass
     Message *-- Georef
 ```
 
@@ -152,9 +152,6 @@ classDiagram
         +decode(i, opts) Field | DisplayField
         +warp / render / palette / probe / contours / overlay / csv
     }
-    class FormatReader {
-        <<trait>>
-    }
     class ConformanceSuite {
         <<planned #464, crate fieldglass>>
         fixtures + expected output per Session operation
@@ -169,28 +166,41 @@ classDiagram
         +normalise(v) f32
         +paint(values, mask, w, h) RGBA
     }
-    Grib2Handle *-- Session
-    WasmHandle *-- Session
-    Session o-- FormatReader : one reader per open
-    Session ..> Error
-    ConformanceSuite ..> Grib2Handle : run through
-    ConformanceSuite ..> WasmHandle : run through
-    DisplayField --|> Field : subset, not passable to probe / csv / contours / stats
-    Session ..> Palette : palette(opts)
-    Palette ..> RenderedGrid : CPU painter (oracle)
-    WasmHandle ..> Palette : to GPU as LUT texture + uniforms
     class MessageMeta {
         <<napi, transitional>>
         compat view of Message for the extension's field names
         deleted once native.ts is generated from the API schema
     }
+    class RenderedGrid {
+        <<napi, transitional>>
+        compat view of Raster, same fate as MessageMeta
+    }
+    class Raster {
+        <<planned #464, crate fieldglass>>
+        API DTO: rgba, width, height, used range, used bounds
+    }
+    Grib2Handle *-- Session
+    WasmHandle *-- Session
+    Session o-- Grib1Reader : one of, per open
+    Session o-- Grib2Reader : one of, per open
+    Session o-- NetcdfReader : one of, per open
+    Session ..> Error
     Session ..> Message
-    Message ..> MessageMeta : napi maps, downward only
+    Session ..> Field
+    Session ..> DisplayField
+    Session ..> Palette : palette(opts)
+    Session ..> Raster : render(), paints through Palette
+    Grib2Handle ..> ConformanceSuite : passes
+    WasmHandle ..> ConformanceSuite : passes
+    DisplayField ..> Field : same layout, distinct type — not accepted by probe / csv / contours / stats
+    MessageMeta ..> Message : built from (napi)
+    RenderedGrid ..> Raster : built from (napi)
     Grib2Handle ..> MessageMeta
     Grib2Handle ..> RenderedGrid
-    WasmHandle ..> Field : host owns
+    WasmHandle ..> Field : returns to the host, takes it back by reference
+    WasmHandle ..> Palette : returns; the app uploads it
     Field *-- Georef
-    WasmHandle ..> Field : takes back by reference
+    DisplayField *-- Georef
 ```
 
 `RenderedGrid` / `TargetRaster` gain caller-controlled `width` × `height` for
