@@ -638,6 +638,43 @@ impl GridDefinitionSection {
         }
     }
 
+    /// How big the field is, for the templates [`Self::dimensions`] cannot
+    /// answer for.
+    ///
+    /// Three templates are not laid out in rows and columns, so `Ni × Nj` is
+    /// not just unknown for them but meaningless — and a display that shows
+    /// `—` implies the message does not say how big it is, when in fact it
+    /// says so precisely, in that family's own units. Spectral fields are
+    /// sized by their truncation, HEALPix by `Nside`.
+    ///
+    /// Returns `None` for every template that *does* have dimensions, so a
+    /// caller reads one or the other and never has to choose between two
+    /// answers. Formatting lives here rather than in a host because the
+    /// convention is per-family domain knowledge — `T639` is not a string a
+    /// UI should be assembling from parts it half-understands.
+    pub fn size_label(&self) -> Option<String> {
+        match &self.template {
+            // Triangular truncation (J = K = M) is what real data carries and
+            // the only shape the coefficient traversal is defined for, so it
+            // gets the conventional `T` form. A pentagonal message still
+            // parses, and says so rather than being flattened to a wrong `T`.
+            GridTemplate::SphericalHarmonic(t) => Some(if t.j == t.k && t.k == t.m {
+                format!("T{}", t.j)
+            } else {
+                format!("J{} K{} M{}", t.j, t.k, t.m)
+            }),
+            // Bi-Fourier is resolved separately in each direction, and there
+            // is no single-letter convention for it, so both are named. This
+            // field cannot be rendered (there is no inverse transform), but
+            // its size is still something the message states.
+            GridTemplate::BiFourier(t) => Some(format!("N{} M{}", t.bif_i, t.bif_j)),
+            // `Nside` is the HEALPix resolution: the pixel count follows from
+            // it as 12·Nside², so naming it names the size.
+            GridTemplate::Healpix(t) => Some(format!("Nside {}", t.nside)),
+            _ => None,
+        }
+    }
+
     /// The §3 scanning-mode flags (Flag Table 3.4) the template carries.
     /// `None` for templates that define no data-point layout (`Unsupported`,
     /// spherical harmonics).

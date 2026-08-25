@@ -10,6 +10,8 @@ use fieldglass_grib1::{Grib1Reader, GridDescription};
 
 const SPECTRAL_T63: &[u8] = include_bytes!("fixtures/spectral_complex_t63.grib1");
 const SPECTRAL_SIMPLE_T63: &[u8] = include_bytes!("fixtures/spectral_simple_t63.grib1");
+/// A gridded GRIB1 message, for the other half of the `size_label` contract.
+const ECMWF_GRIDDED: &[u8] = include_bytes!("fixtures/ecmwf_lfpw_msg0.grib1");
 
 /// The same field re-encoded by eccodes as `spectral_simple`.
 fn simple_reference() -> Vec<f64> {
@@ -166,4 +168,27 @@ fn spectral_message_is_kept_off_the_scalar_grid_path() {
 fn packing_type_label_names_the_spectral_variant() {
     let reader = Grib1Reader::from_bytes(SPECTRAL_T63.to_vec()).expect("parse");
     assert_eq!(reader.packing_label(0), Some("spectral_complex"));
+}
+
+/// A spectral message states its size as a truncation, and says so where a
+/// gridded message would report `Ni × Nj` (#416).
+///
+/// GRIB1's only grid-less type. The display seam shows one or the other, so
+/// `dimensions` returning nothing while `size_label` answers is the contract
+/// that keeps a spectral message from reporting a dash for a size the file
+/// spells out.
+#[test]
+fn spectral_states_its_truncation_where_a_grid_states_dimensions() {
+    let reader = Grib1Reader::from_bytes(SPECTRAL_SIMPLE_T63.to_vec()).expect("parse");
+    let gds = reader.messages[0].gds.as_ref().expect("spectral GDS");
+
+    assert_eq!(gds.dimensions(), None, "coefficients are not a raster");
+    assert_eq!(gds.size_label().as_deref(), Some("T63"));
+
+    // A gridded message answers the other way round, so a caller never has to
+    // choose between two competing sizes.
+    let gridded = Grib1Reader::from_bytes(ECMWF_GRIDDED.to_vec()).expect("parse");
+    let gds = gridded.messages[0].gds.as_ref().expect("GDS");
+    assert!(gds.dimensions().is_some());
+    assert_eq!(gds.size_label(), None);
 }

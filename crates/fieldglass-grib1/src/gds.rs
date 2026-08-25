@@ -373,6 +373,29 @@ impl GridDescription {
         }
     }
 
+    /// How big the field is, for the one grid type [`Self::dimensions`]
+    /// cannot answer for.
+    ///
+    /// Spectral coefficients are not laid out in rows and columns, so `Ni × Nj`
+    /// is meaningless for them — but the message states its size precisely, as
+    /// a truncation. Mirrors `fieldglass_grib2::gds::GridDefinition::size_label`;
+    /// GRIB1 has only the one such grid type.
+    ///
+    /// Returns `None` for every grid that *does* have dimensions, so a caller
+    /// reads one or the other.
+    pub fn size_label(&self) -> Option<String> {
+        match self {
+            // Triangular (J = K = M) is what real data carries; a pentagonal
+            // message says so rather than being flattened to a wrong `T`.
+            Self::SphericalHarmonic(g) => Some(if g.j == g.k && g.k == g.m {
+                format!("T{}", g.j)
+            } else {
+                format!("J{} K{} M{}", g.j, g.k, g.m)
+            }),
+            _ => None,
+        }
+    }
+
     /// Number of stored data points. For regular grids this is `Ni·Nj`; for
     /// reduced grids it is the sum of the `PL` list, since rows differ in width.
     pub fn num_data_points(&self) -> Option<usize> {

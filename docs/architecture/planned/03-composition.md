@@ -44,6 +44,7 @@ classDiagram
     GridGeometry --> GeostationaryParams
     GridGeometry --> Lookup : #437
     GridGeometry --> Spectral : truncation
+    GridGeometry --> Healpix : Nside
     GridGeometry --> Unsupported : label
 
     class Lookup {
@@ -63,10 +64,20 @@ classDiagram
     Message *-- Georef
 ```
 
-The synthesised grids (spectral today, HEALPix after #443) keep their pattern:
+The synthesised grids (spectral and HEALPix, both shipped) keep their pattern:
 the decode seam resamples onto a regular lat/lon grid and the field carries a
 `GridGeometry::LatLon` for that grid, so probe, contours, CSV, and overlays
 need no special case.
+
+That grid is the one thing downstream may *align* on — `spectral_render_dims`
+ignores the truncation, so two spectral fields at different truncations land on
+the same raster and genuinely do combine, while two HEALPix fields at different
+`Nside` do not. But it is not the size the file states, and a message view that
+reported only the synthesised raster would be describing Fieldglass rather than
+the data. So the native size survives beside it: a `Healpix` variant carrying
+`Nside` alongside the `Spectral` variant already carrying its truncation, which
+is what `GridDefinition::size_label` reads today and what `Georef` derives from
+after #464 (#416).
 
 ## NetCDF: curvilinear grids
 

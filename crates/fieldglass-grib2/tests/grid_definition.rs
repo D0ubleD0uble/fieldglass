@@ -508,3 +508,66 @@ fn a_truncated_template_3_140_is_rejected() {
         "unexpected error: {text}"
     );
 }
+
+const SPECTRAL_T63: &[u8] = include_bytes!("fixtures/spectral_simple_t63.grib2");
+const BIFOURIER: &[u8] = include_bytes!("fixtures/bifourier_rectangle_keepaxes.grib2");
+const HEALPIX_N2: &[u8] = include_bytes!("fixtures/healpix_n2_ring.grib2");
+const HEALPIX_N4: &[u8] = include_bytes!("fixtures/healpix_n4_nested.grib2");
+
+/// `size_label` answers where `dimensions` does not, on every fixture the crate
+/// ships (#416).
+///
+/// The two are near-complements, and asserting that across the real corpus is
+/// what stops a future template being added to one and forgotten in the other —
+/// which would show a field as either sizeless or double-sized.
+///
+/// **Reduced Gaussian is the one grid neither answers for**, and it is not an
+/// oversight of this test but a gap this test found: `ni` is `None` because the
+/// row width varies, so `dimensions` gives nothing, and `size_label` does not
+/// cover it either because naming it properly means telling a classic `N320`
+/// from an octahedral `O320`, which needs the `PL` list rather than the
+/// template and wants eccodes' `gridName` as an oracle. Tracked as #500; pinned
+/// here so the gap is visible rather than implied by an absence.
+#[test]
+fn size_label_and_dimensions_are_complements() {
+    let reader = Grib2Reader::from_bytes(ECMWF_GAUSSIAN.to_vec()).expect("parse");
+    let gds = &reader.messages[0].gds;
+    assert_eq!(
+        gds.dimensions(),
+        None,
+        "reduced Gaussian has no constant Ni"
+    );
+    assert_eq!(gds.size_label(), None, "and is not labelled yet either");
+
+    let gridded: &[(&str, &[u8])] = &[
+        ("latlon", GFS_LATLON),
+        ("lambert", ETA_LAMBERT),
+        ("rotated", ROTATED_LATLON),
+        ("polar stereo", POLAR_STEREO),
+        ("transverse mercator", TRANSVERSE_MERCATOR),
+        ("lambert azimuthal", LAMBERT_AZIMUTHAL),
+    ];
+    for (name, bytes) in gridded {
+        let reader = Grib2Reader::from_bytes(bytes.to_vec()).expect("parse");
+        let gds = &reader.messages[0].gds;
+        assert!(gds.dimensions().is_some(), "{name} has dimensions");
+        assert_eq!(gds.size_label(), None, "{name} needs no size label");
+    }
+
+    let gridless: &[(&str, &[u8], &str)] = &[
+        ("spectral", SPECTRAL_T63, "T63"),
+        ("bi-Fourier", BIFOURIER, "N3 M4"),
+        ("HEALPix Nside 2", HEALPIX_N2, "Nside 2"),
+        ("HEALPix Nside 4", HEALPIX_N4, "Nside 4"),
+    ];
+    for (name, bytes, expected) in gridless {
+        let reader = Grib2Reader::from_bytes(bytes.to_vec()).expect("parse");
+        let gds = &reader.messages[0].gds;
+        assert_eq!(gds.dimensions(), None, "{name} has no Ni x Nj");
+        assert_eq!(
+            gds.size_label().as_deref(),
+            Some(*expected),
+            "{name} states its own size"
+        );
+    }
+}
