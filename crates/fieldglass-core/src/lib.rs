@@ -41,6 +41,7 @@ pub mod overlay;
 pub mod projection;
 pub mod reader;
 pub mod sht;
+pub mod spatial_index;
 pub mod units;
 #[cfg(feature = "render")]
 pub mod warp;
@@ -63,7 +64,7 @@ pub use metadata::Parameter;
 pub use overlay::{ProjectedPolylines, SourceOverlayTarget, project_polylines};
 pub use projection::{
     DEFAULT_EARTH_RADIUS_M, GaussianParams, GaussianProjector, GeostationaryParams,
-    GeostationaryProjector, GridGeometry, GridIndex, LambertAzimuthalParams,
+    GeostationaryProjector, GridGeometry, GridIndex, GridResampling, LambertAzimuthalParams,
     LambertAzimuthalProjector, LambertParams, LambertProjector, LatLonParams, MercatorParams,
     PlanarGridProjector, PolarStereoParams, PolarStereoProjector, RotatedLatLonParams,
     RotatedLatLonProjector, TransverseMercatorParams, TransverseMercatorProjector,
@@ -77,6 +78,7 @@ pub use projection::{
 };
 pub use reader::DataMessage;
 pub use reader::FormatReader;
+pub use spatial_index::SpatialIndex;
 #[cfg(feature = "render")]
 pub use warp::{
     EqualEarth, ForwardMap, Mollweide, Orthographic, PolarStereographic, PreparedTarget,
