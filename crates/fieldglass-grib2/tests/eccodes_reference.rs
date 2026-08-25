@@ -644,6 +644,14 @@ const NO_VALUE_CHECK: &[(&str, &str)] = &[
          decodes its reduced grids natively. The exemption is the gap, and the \
          staleness test below fails the day it closes.",
     ),
+    (
+        "octahedral_gaussian_o32.grib2",
+        "the same gap as the classic grid above, for the same reason — it is \
+         reduced, so `decode_message_values` refuses it. It is here for the \
+         metadata pass: eccodes 2.34.1 ships no octahedral sample, so without \
+         it the `O` half of `size_label` had nothing to be wrong against \
+         (#500). It leaves the exemption list with the classic one.",
+    ),
 ];
 
 /// Every committed GRIB2 fixture decodes to the values eccodes decodes.

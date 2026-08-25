@@ -79,6 +79,16 @@ the data. So the native size survives beside it: a `Healpix` variant carrying
 is what `GridDefinition::size_label` reads today and what `Georef` derives from
 after #464 (#416).
 
+Reduced Gaussian is the same question with the answer the other way round, and
+it constrains the conversion rather than the view: `GaussianParams::ni` is a
+plain `u32`, so the variant as drawn can only hold a *regular* grid, while the
+rows of a reduced one differ in width. Converting one means choosing what `ni`
+means — GRIB1 supplies the widest row, because that is the raster it expands
+into, and GRIB2 has no answer at all since it does not yet decode reduced grids.
+Whichever is chosen, the grid's own name (`N32`, `O32`, and `F32` for the
+regular case eccodes also names) is not recoverable from `ni` and `nj`, so it
+travels beside them the way `Nside` does (#500).
+
 ## NetCDF: curvilinear grids
 
 #445 adds the third geolocation model alongside ADR-0004's two. The reader

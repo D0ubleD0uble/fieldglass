@@ -709,3 +709,33 @@ these, and separately asserts `nest2ring` is a bijection and that `ang2pix`
 inverts `pix2ang` for every pixel at six resolutions — properties that need no
 oracle and would catch a scheme that agreed with eccodes only where it was
 sampled.
+
+## `regular_gaussian_f32.grib2`
+
+Copied verbatim from the eccodes distribution's encoding samples
+(`samples/regular_gg_sfc_grib2.tmpl`). Single message, GDS template **3.40**
+(Gaussian latitude/longitude) on a *regular* 128×64 grid — `Ni` present, no
+`PL` list — which eccodes names `F32`. Here to hold the `is_reduced` guard in
+`size_label` honest: a regular Gaussian grid must report its dimensions and no
+name at all (#500). Note that eccodes' similarly named `gg_sfc_grib2.tmpl` is
+*not* regular; it is `reduced_gg` with `Ni` missing. eccodes and its samples are
+released under the Apache 2.0 license.
+
+## `octahedral_gaussian_o32.grib2`
+
+Hand-built by `tools/build_grib2_octahedral_fixture.py` from the eccodes sample
+`samples/reduced_gg_pl_32_grib2.tmpl`, replacing the `PL` list with the
+octahedral row widths (`20, 24, … 144, 144, … 20`) and setting a value ramp so
+`numberOfDataPoints` and the values array stay consistent with the new 5248-point
+sum. eccodes 2.34.1 ships **no** octahedral sample — every `reduced_gg_*`
+template answers `isOctahedral = 0` — so without this the `O` branch of the grid
+naming had nothing to be wrong against (#500).
+
+Encoded with the `eccodes` PyPI wheel (2.48), because setting `pl` needs
+`codes_set_array` and the CLI has no equivalent; **verified with the pinned
+2.34.1**, which reads back `gridName = O32`, `isOctahedral = 1`, `N = 32`,
+`Nj = 64`. The pin is a valid oracle here: it has answered `isOctahedral` since
+grib_api 1.14.0 and `gridName` since 1.14.4. The builder asserts those four keys
+rather than printing them, so a run that quietly produced a classic grid fails
+instead of leaving the branch untested. eccodes and its samples are released
+under the Apache 2.0 license.

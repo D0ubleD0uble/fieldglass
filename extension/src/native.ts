@@ -37,9 +37,10 @@ export interface MessageMeta {
   gridType: string | null;
   gridNi: number | null;
   gridNj: number | null;
-  /** The field's size in its own family's units when it has no raster shape —
-   *  spectral truncation (`T63`), HEALPix `Nside`. Shown where `gridNi×gridNj`
-   *  would go, so a grid-less message states its size instead of a dash. */
+  /** How the file names its own grid, where `gridNi×gridNj` is not how it is
+   *  described — a spectral truncation (`T63`), a HEALPix `Nside`, a reduced
+   *  Gaussian's `N32`/`O32`. Shown where the dimensions would go, and
+   *  preferred over them where both exist. */
   gridSizeLabel: string | null;
   latFirst: number | null;
   lonFirst: number | null;
