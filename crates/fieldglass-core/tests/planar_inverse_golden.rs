@@ -1,4 +1,3 @@
-#![cfg(feature = "render")]
 //! Characterisation golden for the four planar inverses.
 //!
 //! #486 pulled `inverse` out of `LambertProjector`, `PolarStereoProjector`,
@@ -128,162 +127,248 @@ fn ukv() -> TransverseMercatorParams {
 /// otherwise be an ordinary-looking hash change.
 const ALL_REJECTED: u64 = 0xf69bbbe95fd1b93f;
 
-fn check(name: &str, p: &dyn PlanarGridProjector, want: u64) {
+/// Whether a case's parameters describe a usable grid or a degenerate one.
+#[derive(PartialEq)]
+enum Kind {
+    Live,
+    Rejects,
+}
+use Kind::{Live, Rejects};
+
+struct Case {
+    name: &'static str,
+    kind: Kind,
+    projector: Box<dyn PlanarGridProjector>,
+    golden: u64,
+}
+
+fn case(
+    name: &'static str,
+    kind: Kind,
+    projector: impl PlanarGridProjector + 'static,
+    golden: u64,
+) -> Case {
+    Case {
+        name,
+        kind,
+        projector: Box::new(projector),
+        golden,
+    }
+}
+
+/// One table, read by every test below. A projector added here is covered by
+/// all of them — which is the point. The extraction made `inverse` free to
+/// inherit, so the way a new planar projector now goes wrong is by *forgetting*
+/// to override a hook, and nothing about writing one would remind you. The
+/// Lambert azimuthal case is precedent: the default snap was three orders of
+/// magnitude too tight for it, and the symptom was a missing outer row.
+fn cases() -> Vec<Case> {
+    vec![
+        case(
+            "lambert",
+            Live,
+            LambertProjector::new(lambert()),
+            0x87ce7e8b13c2aa2a,
+        ),
+        case(
+            "lambert_degenerate_parallels",
+            Rejects,
+            LambertProjector::new(LambertParams {
+                latin1: 25.0,
+                latin2: -25.0,
+                ..lambert()
+            }),
+            0xf69bbbe95fd1b93f,
+        ),
+        case(
+            "lambert_ni1",
+            Rejects,
+            LambertProjector::new(LambertParams { ni: 1, ..lambert() }),
+            0xf69bbbe95fd1b93f,
+        ),
+        case(
+            "lambert_dx0",
+            Rejects,
+            LambertProjector::new(LambertParams {
+                dx_metres: 0.0,
+                ..lambert()
+            }),
+            0xf69bbbe95fd1b93f,
+        ),
+        case(
+            "lambert_negdy",
+            Live,
+            LambertProjector::new(LambertParams {
+                dy_metres: -81_271.0,
+                ..lambert()
+            }),
+            0xe33d1c8c0e101c0c,
+        ),
+        case(
+            "polar_north",
+            Live,
+            PolarStereoProjector::new(cmc_polar()),
+            0xc5f27eda623b4ee7,
+        ),
+        case(
+            "polar_south",
+            Live,
+            PolarStereoProjector::new(PolarStereoParams {
+                south_pole: true,
+                lat_first: -11.43,
+                ..cmc_polar()
+            }),
+            0xd495da8d33b4bf50,
+        ),
+        case(
+            "polar_nj1",
+            Rejects,
+            PolarStereoProjector::new(PolarStereoParams {
+                nj: 1,
+                ..cmc_polar()
+            }),
+            0xf69bbbe95fd1b93f,
+        ),
+        case(
+            "polar_dy0",
+            Rejects,
+            PolarStereoProjector::new(PolarStereoParams {
+                dy_metres: 0.0,
+                ..cmc_polar()
+            }),
+            0xf69bbbe95fd1b93f,
+        ),
+        case(
+            "laea_efas",
+            Live,
+            LambertAzimuthalProjector::new(efas()),
+            0x38c9da30a7138a4a,
+        ),
+        case(
+            "laea_ni1",
+            Rejects,
+            LambertAzimuthalProjector::new(LambertAzimuthalParams { ni: 1, ..efas() }),
+            0xf69bbbe95fd1b93f,
+        ),
+        case(
+            "laea_dx0",
+            Rejects,
+            LambertAzimuthalProjector::new(LambertAzimuthalParams {
+                dx_metres: 0.0,
+                ..efas()
+            }),
+            0xf69bbbe95fd1b93f,
+        ),
+        case(
+            "laea_negdy",
+            Live,
+            LambertAzimuthalProjector::new(LambertAzimuthalParams {
+                dy_metres: -200_000.0,
+                ..efas()
+            }),
+            0x3a68ac1f214a5f4e,
+        ),
+        case(
+            "laea_south_tangent",
+            Live,
+            LambertAzimuthalProjector::new(LambertAzimuthalParams {
+                standard_parallel: -90.0,
+                lat_first: -60.0,
+                ..efas()
+            }),
+            0x7e17e890478be1d1,
+        ),
+        case(
+            "tmerc_ukv",
+            Live,
+            TransverseMercatorProjector::new(ukv()),
+            0xd1782da097605475,
+        ),
+        case(
+            "tmerc_sf0",
+            Rejects,
+            TransverseMercatorProjector::new(TransverseMercatorParams {
+                scale_factor: 0.0,
+                ..ukv()
+            }),
+            0xf69bbbe95fd1b93f,
+        ),
+        case(
+            "tmerc_sfnan",
+            Rejects,
+            TransverseMercatorProjector::new(TransverseMercatorParams {
+                scale_factor: f64::NAN,
+                ..ukv()
+            }),
+            0xf69bbbe95fd1b93f,
+        ),
+        case(
+            "tmerc_nj1",
+            Rejects,
+            TransverseMercatorProjector::new(TransverseMercatorParams { nj: 1, ..ukv() }),
+            0xf69bbbe95fd1b93f,
+        ),
+        case(
+            "tmerc_dx0",
+            Rejects,
+            TransverseMercatorProjector::new(TransverseMercatorParams {
+                dx_metres: 0.0,
+                ..ukv()
+            }),
+            0xf69bbbe95fd1b93f,
+        ),
+        case(
+            "tmerc_posdy",
+            Live,
+            TransverseMercatorProjector::new(TransverseMercatorParams {
+                dy_metres: 48_000.0,
+                ..ukv()
+            }),
+            0x49406a239fba2285,
+        ),
+        case(
+            "laea_asymmetric_spacing",
+            Live,
+            LambertAzimuthalProjector::new(LambertAzimuthalParams {
+                dx_metres: 250_000.0,
+                dy_metres: -80_000.0,
+                lat_first: 60.0,
+                ..efas()
+            }),
+            0x3fbfdd8f1d9f4c3d,
+        ),
+        case(
+            "lambert_asymmetric_spacing",
+            Live,
+            LambertProjector::new(LambertParams {
+                dx_metres: 120_000.0,
+                dy_metres: -40_000.0,
+                ..lambert()
+            }),
+            0x75a4bb1ffaa325a2,
+        ),
+    ]
+}
+
+fn fold(p: &dyn PlanarGridProjector) -> u64 {
     let mut h: u64 = 0xcbf29ce484222325;
     let corners = p.grid_corners_lonlat();
     for (lat, lon) in probes(&corners) {
         mix(&mut h, p.inverse(lat, lon));
     }
-    assert_eq!(
-        h, want,
-        "{name} inverts differently than the pre-#486 recording"
-    );
+    h
 }
 
 #[test]
 fn the_planar_inverses_match_their_pre_extraction_recording() {
-    check(
-        "lambert",
-        &LambertProjector::new(lambert()),
-        0x87ce7e8b13c2aa2a,
-    );
-    check(
-        "lambert_degenerate_parallels",
-        &LambertProjector::new(LambertParams {
-            latin1: 25.0,
-            latin2: -25.0,
-            ..lambert()
-        }),
-        0xf69bbbe95fd1b93f,
-    );
-    check(
-        "lambert_ni1",
-        &LambertProjector::new(LambertParams { ni: 1, ..lambert() }),
-        0xf69bbbe95fd1b93f,
-    );
-    check(
-        "lambert_dx0",
-        &LambertProjector::new(LambertParams {
-            dx_metres: 0.0,
-            ..lambert()
-        }),
-        0xf69bbbe95fd1b93f,
-    );
-    check(
-        "lambert_negdy",
-        &LambertProjector::new(LambertParams {
-            dy_metres: -81_271.0,
-            ..lambert()
-        }),
-        0xe33d1c8c0e101c0c,
-    );
-    check(
-        "polar_north",
-        &PolarStereoProjector::new(cmc_polar()),
-        0xc5f27eda623b4ee7,
-    );
-    check(
-        "polar_south",
-        &PolarStereoProjector::new(PolarStereoParams {
-            south_pole: true,
-            lat_first: -11.43,
-            ..cmc_polar()
-        }),
-        0xd495da8d33b4bf50,
-    );
-    check(
-        "polar_nj1",
-        &PolarStereoProjector::new(PolarStereoParams {
-            nj: 1,
-            ..cmc_polar()
-        }),
-        0xf69bbbe95fd1b93f,
-    );
-    check(
-        "polar_dy0",
-        &PolarStereoProjector::new(PolarStereoParams {
-            dy_metres: 0.0,
-            ..cmc_polar()
-        }),
-        0xf69bbbe95fd1b93f,
-    );
-    check(
-        "laea_efas",
-        &LambertAzimuthalProjector::new(efas()),
-        0x38c9da30a7138a4a,
-    );
-    check(
-        "laea_ni1",
-        &LambertAzimuthalProjector::new(LambertAzimuthalParams { ni: 1, ..efas() }),
-        0xf69bbbe95fd1b93f,
-    );
-    check(
-        "laea_dx0",
-        &LambertAzimuthalProjector::new(LambertAzimuthalParams {
-            dx_metres: 0.0,
-            ..efas()
-        }),
-        0xf69bbbe95fd1b93f,
-    );
-    check(
-        "laea_negdy",
-        &LambertAzimuthalProjector::new(LambertAzimuthalParams {
-            dy_metres: -200_000.0,
-            ..efas()
-        }),
-        0x3a68ac1f214a5f4e,
-    );
-    check(
-        "laea_south_tangent",
-        &LambertAzimuthalProjector::new(LambertAzimuthalParams {
-            standard_parallel: -90.0,
-            lat_first: -60.0,
-            ..efas()
-        }),
-        0x7e17e890478be1d1,
-    );
-    check(
-        "tmerc_ukv",
-        &TransverseMercatorProjector::new(ukv()),
-        0xd1782da097605475,
-    );
-    check(
-        "tmerc_sf0",
-        &TransverseMercatorProjector::new(TransverseMercatorParams {
-            scale_factor: 0.0,
-            ..ukv()
-        }),
-        0xf69bbbe95fd1b93f,
-    );
-    check(
-        "tmerc_sfnan",
-        &TransverseMercatorProjector::new(TransverseMercatorParams {
-            scale_factor: f64::NAN,
-            ..ukv()
-        }),
-        0xf69bbbe95fd1b93f,
-    );
-    check(
-        "tmerc_nj1",
-        &TransverseMercatorProjector::new(TransverseMercatorParams { nj: 1, ..ukv() }),
-        0xf69bbbe95fd1b93f,
-    );
-    check(
-        "tmerc_dx0",
-        &TransverseMercatorProjector::new(TransverseMercatorParams {
-            dx_metres: 0.0,
-            ..ukv()
-        }),
-        0xf69bbbe95fd1b93f,
-    );
-    check(
-        "tmerc_posdy",
-        &TransverseMercatorProjector::new(TransverseMercatorParams {
-            dy_metres: 48_000.0,
-            ..ukv()
-        }),
-        0x49406a239fba2285,
-    );
+    for c in cases() {
+        assert_eq!(
+            fold(c.projector.as_ref()),
+            c.golden,
+            "{} inverts differently than the pre-#486 recording",
+            c.name
+        );
+    }
 }
 
 /// Every degenerate parameter set must actually reach the reject path, and no
@@ -291,43 +376,23 @@ fn the_planar_inverses_match_their_pre_extraction_recording() {
 /// projector started refusing everything, since a hash is a hash.
 #[test]
 fn the_degenerate_grids_reject_and_the_live_ones_do_not() {
-    let live: [&dyn PlanarGridProjector; 8] = [
-        &LambertProjector::new(lambert()),
-        &LambertProjector::new(LambertParams {
-            dy_metres: -81_271.0,
-            ..lambert()
-        }),
-        &PolarStereoProjector::new(cmc_polar()),
-        &PolarStereoProjector::new(PolarStereoParams {
-            south_pole: true,
-            lat_first: -11.43,
-            ..cmc_polar()
-        }),
-        &LambertAzimuthalProjector::new(efas()),
-        &LambertAzimuthalProjector::new(LambertAzimuthalParams {
-            standard_parallel: -90.0,
-            lat_first: -60.0,
-            ..efas()
-        }),
-        &TransverseMercatorProjector::new(ukv()),
-        &TransverseMercatorProjector::new(TransverseMercatorParams {
-            dy_metres: 48_000.0,
-            ..ukv()
-        }),
-    ];
-    for p in live {
-        let mut h: u64 = 0xcbf29ce484222325;
-        for (lat, lon) in probes(&p.grid_corners_lonlat()) {
-            mix(&mut h, p.inverse(lat, lon));
-        }
-        assert_ne!(h, ALL_REJECTED, "a live grid placed no point at all");
+    for c in cases() {
+        let refuses_all = c.golden == ALL_REJECTED;
+        assert_eq!(
+            refuses_all,
+            c.kind == Rejects,
+            "{} is marked {} but {} every point",
+            c.name,
+            if c.kind == Rejects { "Rejects" } else { "Live" },
+            if refuses_all { "refuses" } else { "places" }
+        );
     }
 }
 
-/// The point of the extraction: `inverse` is now the trait's, and every
-/// projector's own `inverse` is the same call. A forwarder that stopped
-/// forwarding would pass every hash above only if it happened to reproduce the
-/// body exactly, which is the drift this checks for directly.
+/// The point of the extraction: `inverse` is the trait's, and every projector's
+/// own `inverse` is the same call. A forwarder that stopped forwarding would
+/// pass the hashes above only if it happened to reproduce the body exactly,
+/// which is the drift this checks for directly.
 #[test]
 fn the_inherent_inverse_is_the_trait_inverse() {
     macro_rules! same {
@@ -349,58 +414,57 @@ fn the_inherent_inverse_is_the_trait_inverse() {
 }
 
 /// The edge snap exists so the outermost row and column are not dropped to
-/// background. It is the one hook whose *unit* differs between projectors, so
-/// it gets a direct assertion rather than only a hash: every grid must place
-/// its own first and last points.
+/// background, and `snap_eps` is the one hook whose *unit* differs between
+/// projectors. Inheriting the wrong default is silent until a render shows a
+/// missing outer row, so every live grid in the table must place its own four
+/// corners.
 #[test]
-fn every_grid_places_its_own_corners() {
-    macro_rules! corners {
-        ($name:expr, $p:expr) => {{
-            let p = $p;
-            let (ni, nj) = p.grid_dims();
-            for (lat, lon) in p.grid_corners_lonlat() {
-                let g = p
-                    .inverse(lat, lon)
-                    .unwrap_or_else(|| panic!("{} dropped its own corner {lat},{lon}", $name));
-                assert!(
-                    g.i >= 0.0 && g.i <= ni as f64 - 1.0 && g.j >= 0.0 && g.j <= nj as f64 - 1.0,
-                    "{} corner {lat},{lon} landed at {},{}",
-                    $name,
-                    g.i,
-                    g.j
-                );
+fn every_live_grid_places_its_own_corners() {
+    for c in cases().iter().filter(|c| c.kind == Live) {
+        let p = c.projector.as_ref();
+        let (ni, nj) = p.grid_dims();
+        for (lat, lon) in p.grid_corners_lonlat() {
+            // A polar grid reaching across the equator loses that corner to
+            // #488; see the test below.
+            if !p.accepts(lat, lon) {
+                continue;
             }
-        }};
+            let g = p
+                .inverse(lat, lon)
+                .unwrap_or_else(|| panic!("{} dropped its own corner {lat},{lon}", c.name));
+            assert!(
+                g.i >= 0.0 && g.i <= ni as f64 - 1.0 && g.j >= 0.0 && g.j <= nj as f64 - 1.0,
+                "{} corner {lat},{lon} landed at {},{}",
+                c.name,
+                g.i,
+                g.j
+            );
+        }
     }
-    corners!("lambert", LambertProjector::new(lambert()));
-    // The reason `SnapEps::Metres` exists: a nanometre of a 200 km cell is
-    // below this projection's own series error, and the outer row was dropped.
-    corners!("laea", LambertAzimuthalProjector::new(efas()));
-    corners!("tmerc", TransverseMercatorProjector::new(ukv()));
 }
 
-/// The polar case is held out of the test above because it fails, and it fails
-/// on `master` too: this extraction is bit-identical and did not cause it. The
-/// CMC 135x95 grid behind the GRIB1 fixtures reaches -4.718 degN, and
+/// The one corner the test above skips, asserted directly. It fails on `master`
+/// too — this extraction is bit-identical and did not cause it. The CMC 135x95
+/// grid behind the GRIB1 fixtures reaches -4.718 degN, and
 /// `PolarStereoProjector::accepts` refuses the whole opposite hemisphere to
-/// guard against a singularity that is only at the antipodal pole — the forward
+/// guard against a singularity that is only at the antipodal pole; the forward
 /// map is finite all the way to -89.999. 328 of its 12,825 points, 2.6%, are
 /// unreachable by the warp and render as background.
 ///
-/// Asserted as it currently behaves rather than deleted, so fixing #488 fails
-/// this test and forces it to be moved up into `every_grid_places_its_own_corners`.
+/// Asserted as it currently behaves rather than left implicit, so fixing #488
+/// fails this test and forces the skip above to be reconsidered with it.
 #[test]
 fn a_polar_grid_across_the_equator_drops_its_own_corner_until_488() {
     let p = PolarStereoProjector::new(cmc_polar());
-    let corners = p.grid_corners_lonlat();
-    let southern = corners
-        .iter()
+    let southern = p
+        .grid_corners_lonlat()
+        .into_iter()
         .find(|(lat, _)| *lat < 0.0)
         .expect("the CMC grid has a corner south of the equator");
     assert!(
         p.inverse(southern.0, southern.1).is_none(),
-        "#488 is fixed — move the polar case back into \
-         every_grid_places_its_own_corners and delete this test"
+        "#488 is fixed — drop the `accepts` skip in every_live_grid_places_its_own_corners \
+         and delete this test"
     );
 }
 
