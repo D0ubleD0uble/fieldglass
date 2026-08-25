@@ -103,8 +103,9 @@ mod tests {
             detect_from_bytes(b"\x89HDF\r\n\x1a\n"),
             Format::NetCdf
         ));
-        // CDF-3 and CDF-4 were never assigned.
+        // CDF-3 and CDF-4 were never assigned; netCDF-4 is HDF5, not a CDF.
         assert!(matches!(detect_from_bytes(b"CDF\x03"), Format::Unknown));
+        assert!(matches!(detect_from_bytes(b"CDF\x04"), Format::Unknown));
     }
 
     #[test]
