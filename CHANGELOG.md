@@ -53,7 +53,7 @@ Versioning is plain [Semantic Versioning](https://semver.org/spec/v2.0.0.html), 
 
 ### Rust API
 
-- `fieldglass_core::colormap::Palette` is new: the 256-entry RGBA lookup table, the already-transformed display domain (`t0`/`t1`), the scale mode, and the masked pixel, as one serialisable value. It is what `paint_grid_rgba` built internally, exposed so a GPU caller can upload the table and apply the same normalisation instead of writing a second colour implementation. `Palette::index` gives the exact byte the CPU painter emits; `Palette::normalise` is the `f32` form a shader mirrors, which agrees to within one table entry. `paint_grid_rgba` and `scale_position` are unchanged in signature and in output.
+- `fieldglass_core::colormap::Palette` is new: the 256-entry RGBA lookup table, the already-transformed display domain (`t0`/`t1`), the scale mode, and the masked pixel, as one serialisable value. It is what `paint_grid_rgba` built internally, exposed so a GPU caller can upload the table and apply the same normalisation instead of writing a second colour implementation. `Palette::index` gives the exact byte the CPU painter emits; `Palette::normalise` is the `f32` form a shader mirrors, which agrees to within one table entry — though only because the arithmetic stays in `f64`; the type documents what a shader has to do to keep that bound. `paint_grid_rgba` and `scale_position` are unchanged in signature and in output.
 - `ScaleMode` now derives `Serialize`/`Deserialize`, with the lowercase wire tags it already reported from `as_str` (`"linear"`, `"log10"`).
 - `serde_json` is built with `float_roundtrip` across the workspace. Its default float parser is not correctly rounded, so an `f64` written by `to_string` could read back one ULP away.
 

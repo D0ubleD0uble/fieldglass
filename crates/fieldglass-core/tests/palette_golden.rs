@@ -310,3 +310,80 @@ fn the_f32_normalise_stays_within_one_entry_of_the_painted_index() {
         differed as f64 / N as f64
     );
 }
+
+/// The dimensions reach the painter from a file's grid description, and on
+/// wasm32 — the host `Palette` exists for — `usize` is 32 bits, so their
+/// product need not fit. Sizing the buffer must fail closed; wrapping would
+/// allocate a short one and then index off the end of it.
+#[test]
+fn a_grid_too_large_to_address_paints_nothing() {
+    let pal = Palette::build(&colormaps()[0], false, 0.0, 1.0, ScaleMode::Linear);
+    // Unaddressable on any target: the byte count passes `u64`.
+    let mut cases = vec![(u32::MAX, u32::MAX), (0, 10), (10, 0)];
+    // Addressable on a 64-bit host, so only a 32-bit one refuses it — which is
+    // the case that matters, since wasm32 is where this runs.
+    if usize::BITS == 32 {
+        cases.push((u32::MAX, 5));
+        cases.push((70_000, 70_000));
+    }
+    for (w, h) in cases {
+        assert!(
+            pal.paint(&[], None, w, h, false).is_empty(),
+            "{w}x{h} produced a buffer"
+        );
+    }
+}
+
+/// `normalise` is within one lookup entry of `index` because the arithmetic is
+/// still `f64` and only the result is narrowed. A shader that does the
+/// subtraction and division in `f32` has no such bound — it loses the *domain*
+/// once the `f32` gap at `t0` passes one lookup step. The doc on `normalise`
+/// tells a GPU host to rebase (`v - t0`) rather than upload raw values against
+/// raw bounds; this is the measurement that instruction rests on, kept so it is
+/// not folklore.
+#[test]
+fn f32_arithmetic_loses_the_domain_where_the_docs_say_it_does() {
+    // (t0, t1, whether f32 arithmetic should still hold to one entry)
+    let cases = [
+        (0.0f64, 1.0f64, true),
+        (250.0, 320.0, true),         // temperature, K
+        (95_000.0, 105_000.0, true),  // surface pressure, Pa
+        (5.0e4, 5.0e4 + 100.0, true), // geopotential, m²/s², ordinary range
+        (5.0e4, 5.0e4 + 0.01, false), // …under a tight manual range
+        (1.0e7, 1.0e7 + 1.0, false),
+    ];
+    for (t0, t1, expect_tight) in cases {
+        let pal = Palette::build(&colormaps()[0], false, t0, t1, ScaleMode::Linear);
+        let mut worst = 0i32;
+        let mut s: u64 = 0x9E3779B97F4A7C15;
+        for _ in 0..200_000 {
+            s = s
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            let u = ((s >> 11) as f64) / ((1u64 << 53) as f64);
+            let v = t0 + u * (t1 - t0);
+            let painted = i32::from(pal.index(v).expect("in-range value has a colour"));
+            // Exactly what a naive shader computes: everything in f32.
+            let t = ((v as f32) - (t0 as f32)) / ((t1 as f32) - (t0 as f32));
+            let shader = (t.clamp(0.0, 1.0) * 255.0).round() as i32;
+            worst = worst.max((shader - painted).abs());
+        }
+        // The threshold the doc states: one lookup step against the f32 gap.
+        let resolvable = (t1 - t0) >= 255.0 * t0.abs() * 2f64.powi(-23);
+        assert_eq!(
+            resolvable, expect_tight,
+            "domain [{t0}, {t1}] classified wrong by the stated rule"
+        );
+        if expect_tight {
+            assert!(
+                worst <= 1,
+                "[{t0}, {t1}]: f32 arithmetic was {worst} entries out"
+            );
+        } else {
+            assert!(
+                worst > 1,
+                "[{t0}, {t1}]: f32 arithmetic held after all — restate the rule"
+            );
+        }
+    }
+}

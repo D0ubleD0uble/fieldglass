@@ -353,13 +353,24 @@ impl Palette {
     /// Where `v` sits on the ramp, in `[0, 1]`, or `None` when it has no place
     /// there (non-finite, or non-positive under `Log10`).
     ///
-    /// `f32` because this is the shader-facing form: a GPU host computes the
-    /// identical two lines in single precision. That costs it up to one LUT
-    /// entry against [`index`](Self::index) — for uniformly distributed
-    /// positions, about six in a million land on the other side of the rounding
-    /// boundary. Never more than one entry: `palette_golden.rs` pins that bound,
-    /// and it is the tolerance a shader's output is judged against. Use `index`
-    /// when you need the exact byte the CPU painter would emit.
+    /// `f32` because this is the shader-facing form. The arithmetic still
+    /// happens in `f64` here and only the result is narrowed, so the answer is
+    /// within one lookup-table entry of [`index`](Self::index) — for uniformly
+    /// distributed positions about six in a million land on the other side of
+    /// the rounding boundary, and never more than one entry away.
+    /// `palette_golden.rs` pins that bound. Use `index` when you need the exact
+    /// byte the CPU painter would emit.
+    ///
+    /// **That bound does not survive being moved into a shader.** A GPU that
+    /// subtracts and divides in `f32` loses the domain, not just the result:
+    /// once the `f32` gap at [`t0`](Self::t0) grows past one lookup step —
+    /// roughly `t1 - t0 < 255 * t0.abs() * 2f64.powi(-23)` — the error is
+    /// unbounded within the ramp. Measured at up to 127 entries, half the
+    /// table, for a manual range of 1.0 over values near `1e7`; geopotential in
+    /// m²/s², pressure in Pa, and radiances all reach that regime under a tight
+    /// manual range. `t0`/`t1` are `f64` for this reason. A shader must be
+    /// handed a rebased domain — upload `v - t0`, so the cancellation happens
+    /// here in `f64` — rather than the raw values and the raw bounds.
     pub fn normalise(&self, v: f64) -> Option<f32> {
         self.position(v).map(|t| t as f32)
     }
@@ -411,12 +422,24 @@ impl Palette {
         height: u32,
         flip_y: bool,
     ) -> Vec<u8> {
-        let w = width as usize;
-        let h = height as usize;
-        let total = w * h;
+        // `usize` is 32 bits on wasm32 — the host this type exists for — and
+        // both dimensions can be a `u32` read straight out of a file's grid
+        // description. Size the buffer in `u64` and refuse one this target
+        // cannot address, rather than wrap into a short buffer and index off
+        // the end of it.
+        let Some(total) = u64::from(width)
+            .checked_mul(u64::from(height))
+            .and_then(|px| px.checked_mul(4))
+            .and_then(|bytes| usize::try_from(bytes).ok())
+            .map(|bytes| bytes / 4)
+        else {
+            return Vec::new();
+        };
         if total == 0 {
             return Vec::new();
         }
+        let w = width as usize;
+        let h = height as usize;
         debug_assert_eq!(
             values.len(),
             total,
