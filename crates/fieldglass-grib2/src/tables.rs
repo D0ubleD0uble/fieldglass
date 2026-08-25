@@ -360,7 +360,9 @@ fn resolve_parameter(
             "Water equivalent of accumulated snow depth",
             "kg m⁻²",
         ),
-        (0, 1, 22) => ("CLWMR", "Cloud mixing ratio", "kg kg⁻¹"),
+        // CLMR, not the ON388 GRIB1 form CLWMR (parameter 153) this once
+        // carried: NCO Code Table 4.2-0-1 number 22 is CLMR (#469).
+        (0, 1, 22) => ("CLMR", "Cloud mixing ratio", "kg kg⁻¹"),
 
         // Category 2: Momentum
         (0, 2, 0) => ("WDIR", "Wind direction (from which blowing)", "° true"),
@@ -392,13 +394,23 @@ fn resolve_parameter(
         (2, 0, 0) => ("LAND", "Land cover (0=sea, 1=land)", "proportion"),
 
         // Discipline 10 — Oceanographic
-        (10, 0, 3) => ("WVHGT", "Significant height of combined wind+swell", "m"),
+        // HTSGW. This once read WVHGT, which is NCO Code Table 4.2-10-0
+        // number *5*, "Significant height of wind waves" — a different
+        // parameter, so the entry paired one parameter's abbreviation with
+        // another's name (#469; same class as the three #415 corrected).
+        (10, 0, 3) => ("HTSGW", "Significant height of combined wind+swell", "m"),
 
-        // Everything else falls through to the generated WMO master table,
-        // which has no short names of its own.
+        // Everything else falls through to the generated WMO master table.
+        // WMO publishes no short names, so the abbreviation comes from a
+        // second generated table (wgrib2's centre-0 rows, #469) and is only
+        // ever consulted for a triple WMO has already named — 1220 of the
+        // 1387 master parameters. The remaining 167 keep an empty
+        // abbreviation, which the display seam already handles.
         _ => {
             let (name, units) = crate::tables_wmo::parameter(discipline, category, number)?;
-            ("", name, units)
+            let abbreviation =
+                crate::tables_wmo_short::short_name(discipline, category, number).unwrap_or("");
+            (abbreviation, name, units)
         }
     };
     Some(entry)
@@ -767,14 +779,76 @@ mod tests {
         // u-component of current (see `curated_grib1_transcriptions_corrected`).
         assert_eq!(
             lookup_parameter(Originator::default(), 10, 3, 0),
-            Some(("", "Water temperature", "K"))
+            Some(("WTMP", "Water temperature", "K"))
+        );
+    }
+
+    /// Walk every `(discipline, category, number)` there is.
+    ///
+    /// The two properties below are about the *whole* join between WMO's
+    /// parameter table and wgrib2's short names, not about any triple a person
+    /// would think to pick, so they are asserted exhaustively. The public-seam
+    /// half of #469 — coverage counts and spot checks against NCO — lives in
+    /// `tests/wmo_master_short_names.rs`; these two are here because they need
+    /// `tables_wmo_short` in view, which is private to the crate.
+    fn every_triple() -> impl Iterator<Item = (u8, u8, u8)> {
+        (0..=255u8).flat_map(|d| (0..=255u8).flat_map(move |c| (0..=255u8).map(move |n| (d, c, n))))
+    }
+
+    /// A short name may only ever name a parameter WMO has already defined.
+    ///
+    /// This is what makes joining a second upstream safe: `resolve_parameter`
+    /// consults the short-name table only after `tables_wmo::parameter` has
+    /// answered, so a centre-0 row for a triple WMO does not carry is dead
+    /// rather than dangerous. Measured at wgrib2 v3.8.0 against WMO v37 there
+    /// are none; if a future bump on either pin adds one, this says so instead
+    /// of the arm sitting there unreachable and unnoticed.
+    #[test]
+    fn no_short_name_invents_a_parameter() {
+        let orphans: Vec<_> = every_triple()
+            .filter(|&(d, c, n)| {
+                crate::tables_wmo_short::short_name(d, c, n).is_some()
+                    && crate::tables_wmo::parameter(d, c, n).is_none()
+            })
+            .collect();
+        assert!(
+            orphans.is_empty(),
+            "wgrib2 centre-0 rows with no WMO master entry: {orphans:?}"
+        );
+    }
+
+    /// Every abbreviation the user sees equals the generated one.
+    ///
+    /// #469 asked whether the curated arms should win over wgrib2. The answer
+    /// is to remove the question: measuring found 39 of the 41 already agreed,
+    /// and the two that did not were both wrong — `CLWMR` at 0/1/22 and
+    /// `WVHGT` at 10/0/3 were ON388 GRIB1 abbreviations transcribed onto GRIB2
+    /// triples, the failure `curated_grib1_transcriptions_corrected` records
+    /// three earlier instances of. With those corrected there is nothing left
+    /// to arbitrate, so no precedence rule exists to get wrong. This keeps it
+    /// that way: a hand-written arm that disagrees with the generated table
+    /// fails here rather than quietly shadowing it.
+    #[test]
+    fn curated_abbreviations_never_shadow_the_generated_table() {
+        let disagreements: Vec<_> = every_triple()
+            .filter_map(|(d, c, n)| {
+                let generated = crate::tables_wmo_short::short_name(d, c, n)?;
+                let (shown, _, _) = lookup_parameter(Originator::default(), d, c, n)?;
+                (shown != generated).then_some(((d, c, n), shown, generated))
+            })
+            .collect();
+        assert!(
+            disagreements.is_empty(),
+            "shown abbreviation differs from the generated table: {disagreements:?}"
         );
     }
 
     /// Three curated entries named the wrong parameter: their triples were
     /// GRIB1 ON388 codes transcribed onto GRIB2 discipline/category/number.
     /// Both WMO Code Table 4.2 (v37) and eccodes disagreed with all three, so
-    /// they are gone and the generated master table now answers instead.
+    /// they are gone and the generated master table now answers instead —
+    /// with an abbreviation of its own since #469, which is why these read
+    /// three columns rather than two.
     ///
     /// Pinned here rather than left to the bulk table so a future edit that
     /// reintroduces a hand-written arm for one of these triples fails loudly.
@@ -783,27 +857,27 @@ mod tests {
         // Was "Density" (GRIB1 ON388 code 89). Density is 0/3/10.
         assert_eq!(
             lookup_parameter(Originator::default(), 0, 3, 9),
-            Some(("", "Geopotential height anomaly", "gpm"))
+            Some(("GPA", "Geopotential height anomaly", "gpm"))
         );
         assert_eq!(
             lookup_parameter(Originator::default(), 0, 3, 10),
-            Some(("", "Density", "kg m-3"))
+            Some(("DEN", "Density", "kg m-3"))
         );
 
         // Was "Soil moisture content" (GRIB1 ON388 code 86). It is 2/0/3.
         assert_eq!(
             lookup_parameter(Originator::default(), 2, 0, 5),
-            Some(("", "Water runoff", "kg m-2"))
+            Some(("WATR", "Water runoff", "kg m-2"))
         );
         assert_eq!(
             lookup_parameter(Originator::default(), 2, 0, 3),
-            Some(("", "Soil moisture content", "kg m-2"))
+            Some(("SOILM", "Soil moisture content", "kg m-2"))
         );
 
         // Was "Sea surface temperature". 10/1/2 is a current component.
         assert_eq!(
             lookup_parameter(Originator::default(), 10, 1, 2),
-            Some(("", "u-component of current", "m/s"))
+            Some(("UOGRD", "u-component of current", "m/s"))
         );
     }
 
@@ -983,7 +1057,7 @@ mod tests {
                     "kg m⁻²",
                 ),
             ),
-            ((0, 1, 22), ("CLWMR", "Cloud mixing ratio", "kg kg⁻¹")),
+            ((0, 1, 22), ("CLMR", "Cloud mixing ratio", "kg kg⁻¹")),
             (
                 (0, 2, 0),
                 ("WDIR", "Wind direction (from which blowing)", "° true"),
@@ -1022,7 +1096,7 @@ mod tests {
             // Discipline 10 — Oceanographic
             (
                 (10, 0, 3),
-                ("WVHGT", "Significant height of combined wind+swell", "m"),
+                ("HTSGW", "Significant height of combined wind+swell", "m"),
             ),
         ] {
             assert_eq!(

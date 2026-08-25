@@ -58,12 +58,12 @@ entries. So `centre == 7` is exactly the local set, which is what this reads.
     table for NCEP files alone.
 
     They are not nothing, though — quite the opposite. WMO publishes no short
-    names, so 1,346 of the 1,387 generated master parameters currently show an
-    empty abbreviation, and these 1,230 rows would fill almost all of it with
-    the forms every NCEP product listing uses. That is a change to the *master*
-    table's short-name column for every centre, not a local table, so it is a
-    separate issue rather than a quiet widening of this one — but the source is
-    already downloaded here when it happens.
+    names, so 1,346 of the 1,387 generated master parameters used to show an
+    empty abbreviation, and these 1,230 rows fill almost all of it with the
+    forms every NCEP product listing uses. That is a change to the *master*
+    table's short-name column for every centre rather than a local table, so it
+    went through its own review as #469: `gen_wmo_short_names.py` reads them,
+    through this module's `parse` so there is one pin and one download.
   * **Only codes 192-254**, and never a component of 255. One row is dropped by
     this rule: `(255, 255, 255) IMGD "Image data"`, which is the all-missing
     sentinel rather than a parameter.
@@ -87,6 +87,7 @@ import re
 import subprocess
 import sys
 import urllib.request
+from collections.abc import Callable
 from pathlib import Path
 
 # The pinned wgrib2 release. Bump deliberately and re-read the diff.
@@ -130,11 +131,20 @@ def fetch_table() -> str:
         return response.read().decode("utf-8")
 
 
-def parse(text: str) -> dict[tuple[int, int, int], tuple[str, str, str]]:
-    """Read the brace records into `{triple: (abbrev, name, units)}`.
+def parse(
+    text: str,
+    centre: int = NCEP_CENTRE,
+    keep: Callable[[tuple[int, int, int]], bool] = lambda triple: routable(triple),
+) -> dict[tuple[int, int, int], tuple[str, str, str]]:
+    """Read the brace records at `centre` into `{triple: (abbrev, name, units)}`.
 
     Every line must parse. A record shape wgrib2 changes under us is a table
     silently missing rows, which is the failure this refuses to have.
+
+    `centre` and `keep` are parameters because the same file carries two tables
+    this repo generates from: the NCEP local set at centre 7, and the WMO master
+    short names at centre 0 that `gen_wmo_short_names.py` reads through here.
+    One parser, one pin, one download per run.
     """
     out: dict[tuple[int, int, int], tuple[str, str, str]] = {}
     for number, line in enumerate(text.splitlines(), start=1):
@@ -143,14 +153,14 @@ def parse(text: str) -> dict[tuple[int, int, int], tuple[str, str, str]]:
         match = RECORD.match(line)
         if match is None:
             raise SystemExit(f"{SOURCE_URL}:{number}: unrecognised record: {line!r}")
-        discipline, _mv, _mn, _mx, centre, _ltv, category, num = (
+        discipline, _mv, _mn, _mx, row_centre, _ltv, category, num = (
             int(value) for value in match.groups()[:8]
         )
         abbrev, name, units = match.groups()[8:]
-        if centre != NCEP_CENTRE:
+        if row_centre != centre:
             continue
         triple = (discipline, category, num)
-        if not routable(triple):
+        if not keep(triple):
             continue
         if triple in out:
             raise SystemExit(f"{triple} is defined twice; the table is no longer unambiguous")

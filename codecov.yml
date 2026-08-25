@@ -59,6 +59,11 @@ flag_management:
 #    table (from `tools/gen_ncep_tables.py`, out of wgrib2) — 479 data arms,
 #    cross-checked against eccodes' independent transcription of the same NCO
 #    tables by `tests/ncep_local_parameters.rs`.
+#  - `crates/fieldglass-grib2/src/tables_wmo_short.rs`: the short-name column
+#    of the WMO master parameter table (from `tools/gen_wmo_short_names.py`,
+#    out of wgrib2's centre-0 rows) — 1,220 data arms. Every one is reached by
+#    the exhaustive walks in `tests/wmo_master_short_names.rs` and in
+#    `tables.rs`, which is a stronger guarantee than line coverage.
 #  - `crates/fieldglass-grib1/src/tables_cct.rs`,
 #    `crates/fieldglass-grib2/src/tables_cct.rs` and
 #    `crates/fieldglass-core/src/cct_tables.rs`: the WMO Common Code Table
@@ -77,6 +82,7 @@ ignore:
   - "crates/fieldglass-grib2/src/tables_ecmf.rs"
   - "crates/fieldglass-grib2/src/tables_edzw.rs"
   - "crates/fieldglass-grib2/src/tables_ncep.rs"
+  - "crates/fieldglass-grib2/src/tables_wmo_short.rs"
   - "crates/fieldglass-grib1/src/tables_cct.rs"
   - "crates/fieldglass-grib2/src/tables_cct.rs"
   - "crates/fieldglass-core/src/cct_tables.rs"
