@@ -27,9 +27,11 @@ tag exists to give (#451).
 Two things about the upstream data that are worth knowing before editing:
 
   * **There is no abbreviation column.** WMO publishes names and units, not
-    short names, so every entry here has only those two. The curated table in
-    `tables.rs` keeps its NCEP-style abbreviations and wins for the triples it
-    covers; centre-specific short names are separate issues (#424-#426).
+    short names, so every entry here has only those two. The third column is
+    joined on at lookup time from a second upstream — wgrib2's centre-0 rows,
+    generated separately by `gen_wmo_short_names.py` (#469) — precisely so this
+    file stays byte-reproducible from its own pinned WMO tag. Centre-specific
+    short names are separate again (#424-#426).
   * **`Status` has typos upstream** — `Operationaal`, `Oprational`,
     `Operation`, `operational` all appear alongside `Operational` in v37. Any
     filter on that column must fold case and tolerate them, which is one
