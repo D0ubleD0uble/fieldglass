@@ -117,6 +117,7 @@ fn assert_message_matches(
                 }
                 GridTemplate::Gaussian(t) => check_u64(key, expected, t.shape_of_earth as u64),
                 GridTemplate::SpaceView(t) => check_u64(key, expected, t.shape_of_earth as u64),
+                GridTemplate::Healpix(t) => check_u64(key, expected, t.shape_of_earth as u64),
                 // Spherical harmonics carry no earth shape (not a projected grid).
                 GridTemplate::SphericalHarmonic(_) => true,
                 // Bi-Fourier coefficients likewise carry no earth shape.

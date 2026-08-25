@@ -674,3 +674,38 @@ name, and are pinned individually.
 
 166 of the 479 entries record `unknown` — eccodes does not define them at all.
 That is the coverage wgrib2 buys, and it is asserted rather than described.
+
+## `healpix_n{2,4}_{ring,nested}.grib2`
+
+Hand-built by `tools/build_grib2_healpix_fixtures.py`: eccodes ships no HEALPix
+sample, so each starts from the stock `GRIB2` sample with `gridType` switched to
+`healpix`, `Nside` and `ordering` set, and values set to a ramp (pixel `k` holds
+`k`) so a reindexing bug shows as a value in the wrong place rather than as
+plausible noise. Two resolutions so a test cannot pass by hard-coding one
+`Nside`, and both orderings.
+
+`longitudeOfFirstGridPoint` is set explicitly to 45°. The GRIB2 sample carries
+0, and the two eccodes versions disagree about that: 2.34.1 accepts it silently,
+while 2.48 rejects the message with `key longitudeOfFirstGridPointInDegrees
+should be 45`. The newer behaviour is right — HEALPix fixes that line — so the
+fixtures state it rather than inheriting the sample's.
+
+### Two oracles, and why
+
+`{fixture}.coords.json` holds the pixel centres. **RING comes from the pinned
+eccodes 2.34.1 `grib_get_data`**, the usual convention. **NESTED comes from the
+newer `eccodes` PyPI wheel (2.48)**, because 2.34.1 decodes NESTED *metadata*
+but its geoiterator refuses to place the pixels:
+
+    ECCODES ERROR : HEALPix Geoiterator: Only ring ordering is supported
+
+So the pin is not a valid position oracle for NESTED, the same situation as
+ECC-2095 elsewhere in this file, and each `.coords.json` records which version
+produced it. The metadata `.eccodes.ref.json` snapshots stay on the pin, as
+everywhere else.
+
+`crates/fieldglass-core/tests/healpix.rs` checks every pixel of all four against
+these, and separately asserts `nest2ring` is a bijection and that `ang2pix`
+inverts `pix2ang` for every pixel at six resolutions — properties that need no
+oracle and would catch a scheme that agreed with eccodes only where it was
+sampled.
