@@ -21,7 +21,13 @@ repository = "https://github.com/D0ubleD0uble/fieldglass"
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+# `float_roundtrip` because serde_json's default float parser is not correctly
+# rounded: `to_string` emits the shortest exact representation, but reading it
+# back can land one ULP away. Two places care. API types (ADR-0006 decision 2)
+# have to survive a JSON round trip bit-for-bit, and the `.eccodes.ref.json`
+# oracles are compared against decoded f64s, so the oracle itself must parse
+# exactly. Costs a slower parse and nothing else.
+serde_json = { version = "1", features = ["float_roundtrip"] }
 thiserror = "2"
 # Pure-Rust PNG codec for GRIB2 DRS template 5.41 decode (no C deps; MIT/Apache,
 # cross-compiles to every release target). See crates/fieldglass-grib2.
