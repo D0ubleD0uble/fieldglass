@@ -1,0 +1,114 @@
+{
+  "messages": [
+    {
+      "discipline": 0,
+      "editionNumber": 2,
+      "totalLength": 725,
+      "centre": 98,
+      "subCentre": 0,
+      "significanceOfReferenceTime": 1,
+      "dataDate": 20070323,
+      "dataTime": 1200,
+      "productionStatusOfProcessedData": 0,
+      "typeOfProcessedData": 2,
+      "gridDefinitionTemplateNumber": 150,
+      "shapeOfTheEarth": 0,
+      "numberOfDataPoints": 192,
+      "longitudeOfFirstGridPointInDegrees": 45,
+      "productDefinitionTemplateNumber": 0,
+      "parameterCategory": 0,
+      "parameterNumber": 0,
+      "typeOfGeneratingProcess": 0,
+      "indicatorOfUnitOfTimeRange": 1,
+      "forecastTime": 0,
+      "typeOfFirstFixedSurface": 1,
+      "scaleFactorOfFirstFixedSurface": null,
+      "scaledValueOfFirstFixedSurface": null,
+      "dataRepresentationTemplateNumber": 0,
+      "referenceValue": 0,
+      "binaryScaleFactor": -16,
+      "decimalScaleFactor": 0,
+      "bitsPerValue": 24,
+      "bitMapIndicator": 255
+    }
+  ],
+  "values": [
+    {
+      "count": 192,
+      "numberOfMissing": 0,
+      "minimum": 0,
+      "maximum": 191,
+      "average": 95.5,
+      "sample": [
+        [
+          0,
+          0
+        ],
+        [
+          12,
+          12
+        ],
+        [
+          24,
+          24
+        ],
+        [
+          36,
+          36
+        ],
+        [
+          48,
+          48
+        ],
+        [
+          60,
+          60
+        ],
+        [
+          72,
+          72
+        ],
+        [
+          84,
+          84
+        ],
+        [
+          96,
+          96
+        ],
+        [
+          108,
+          108
+        ],
+        [
+          120,
+          120
+        ],
+        [
+          132,
+          132
+        ],
+        [
+          144,
+          144
+        ],
+        [
+          156,
+          156
+        ],
+        [
+          168,
+          168
+        ],
+        [
+          180,
+          180
+        ],
+        [
+          191,
+          191
+        ]
+      ]
+    }
+  ]
+}

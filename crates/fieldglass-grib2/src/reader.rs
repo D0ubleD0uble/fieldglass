@@ -5,7 +5,9 @@ use crate::drs::{
 use crate::ds::{
     DS_SECTION_NUMBER, decode_values, parse_data_section_body, undo_second_order_boustrophedonic,
 };
-use crate::gds::{GDS_SECTION_NUMBER, GridDefinitionSection, parse_grid_definition_with_header};
+use crate::gds::{
+    GDS_SECTION_NUMBER, GridDefinitionSection, GridTemplate, parse_grid_definition_with_header,
+};
 use crate::ids::{IDS_SECTION_NUMBER, IdentificationSection, parse_identification_with_header};
 use crate::is::{
     END_SECTION_LEN, GRIB2_EDITION, INDICATOR_SECTION_LEN, IndicatorSection, parse_indicator,
@@ -136,20 +138,42 @@ impl Grib2Reader {
             ));
         }
 
-        let (ni, nj) = msg.gds.dimensions().ok_or_else(|| {
-            FieldglassError::Parse(
-                "grid template has no declared dimensions — reduced grids \
-                 are not yet supported for decode"
-                    .to_string(),
-            )
-        })?;
-        // checked_mul guards 32-bit usize overflow; MAX_GRID_POINTS guards OOM.
-        let expected_count = (ni as usize).checked_mul(nj as usize).ok_or_else(|| {
-            FieldglassError::Parse(format!("grid dimensions {ni}×{nj} overflow usize"))
-        })?;
+        // How many values the grid layout says the message holds. Rasters get
+        // it from `ni × nj`; HEALPix has no raster shape but states `Nside`,
+        // and `12·Nside²` is the same fact by a different route. Either way it
+        // is cross-checked against §3's own count below, so a template that
+        // disagrees with its section is refused rather than decoded.
+        let (shape, expected_count, row_width) = match msg.gds.template {
+            GridTemplate::Healpix(t) => {
+                let npix = usize::try_from(t.npix()).map_err(|_| {
+                    FieldglassError::Parse(format!(
+                        "HEALPix Nside {} implies more points than this platform can address",
+                        t.nside
+                    ))
+                })?;
+                // No rows to alternate: HEALPix is one list of pixels, so the
+                // boustrophedonic undo below has nothing to act on.
+                (format!("HEALPix Nside {}", t.nside), npix, None)
+            }
+            _ => {
+                let (ni, nj) = msg.gds.dimensions().ok_or_else(|| {
+                    FieldglassError::Parse(
+                        "grid template has no declared dimensions — reduced grids \
+                         are not yet supported for decode"
+                            .to_string(),
+                    )
+                })?;
+                // checked_mul guards 32-bit usize overflow; MAX_GRID_POINTS
+                // guards OOM.
+                let count = (ni as usize).checked_mul(nj as usize).ok_or_else(|| {
+                    FieldglassError::Parse(format!("grid dimensions {ni}×{nj} overflow usize"))
+                })?;
+                (format!("grid dimensions {ni}×{nj}"), count, Some(ni))
+            }
+        };
         if expected_count > MAX_GRID_POINTS {
             return Err(FieldglassError::Parse(format!(
-                "grid {ni}×{nj} = {expected_count} points exceeds cap of {MAX_GRID_POINTS}"
+                "{shape} = {expected_count} points exceeds cap of {MAX_GRID_POINTS}"
             )));
         }
         // The grid geometry (ni×nj) must agree with the point count the GDS
@@ -162,7 +186,7 @@ impl Grib2Reader {
         // from dimensions() above and never reach here.)
         if expected_count != msg.gds.num_data_points as usize {
             return Err(FieldglassError::Parse(format!(
-                "grid dimensions {ni}×{nj} = {expected_count} points disagree with the \
+                "{shape} = {expected_count} points disagree with the \
                  GDS-declared {} data points",
                 msg.gds.num_data_points
             )));
@@ -191,8 +215,11 @@ impl Grib2Reader {
             decode_values(ds_payload, msg.drs.template.clone(), bitmap, expected_count)?;
         // Second-order packing (template 5.50002) may store alternating rows
         // right-to-left; undo it now that the grid width Ni is known. A no-op
-        // for every other template and for 5.50001.
-        undo_second_order_boustrophedonic(&mut values, &msg.drs.template, ni as usize);
+        // for every other template and for 5.50001, and inapplicable to a grid
+        // with no rows.
+        if let Some(ni) = row_width {
+            undo_second_order_boustrophedonic(&mut values, &msg.drs.template, ni as usize);
+        }
         Ok(values)
     }
 

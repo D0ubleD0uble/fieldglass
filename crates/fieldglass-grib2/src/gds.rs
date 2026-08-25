@@ -445,6 +445,39 @@ pub struct LambertAzimuthalTemplate {
     pub scanning_mode: u8,
 }
 
+/// GRIB2 §3.150 — the HEALPix grid.
+///
+/// Unlike every other gridded template this is not a raster: the field is a
+/// single list of `12·Nside²` equal-area pixels with no `(ni, nj)`, so
+/// [`GridDefinitionSection::dimensions`] reports `None` and the layout is the
+/// pixel count alone. Placing a pixel is `fieldglass_core::healpix`'s job.
+#[derive(Debug, Clone, Copy)]
+pub struct HealpixTemplate {
+    pub shape_of_earth: u8,
+    pub resolution_flags: u8,
+    /// Pixels along one side of each of the twelve base pixels. The field has
+    /// `12·Nside²` points.
+    pub nside: u32,
+    /// Longitude of the centre line of the first rhomboid, degrees. The
+    /// standard fixes this at 45; a message stating anything else is describing
+    /// a grid this decoder has no oracle for, so it is carried rather than
+    /// assumed.
+    pub lon_first: f64,
+    /// Code table 3.8 — where in its cell a value sits. 4 is "at the centre",
+    /// which is what HEALPix means and what every real message states.
+    pub grid_point_position: u8,
+    /// `true` for NESTED, `false` for RING (code table 3.12).
+    pub nested: bool,
+    pub scanning_mode: u8,
+}
+
+impl HealpixTemplate {
+    /// Number of pixels the field carries: `12·Nside²`.
+    pub fn npix(&self) -> u64 {
+        fieldglass_core::healpix::npix(self.nside)
+    }
+}
+
 /// Parsed template payload. Templates outside the supported set surface as
 /// `Unsupported` so callers can still expose section-header fields and a
 /// useful name without erroring out.
@@ -461,6 +494,7 @@ pub enum GridTemplate {
     SpaceView(SpaceViewTemplate),
     SphericalHarmonic(SphericalHarmonicTemplate),
     BiFourier(BiFourierTemplate),
+    Healpix(HealpixTemplate),
     Unsupported(u16),
 }
 
@@ -595,6 +629,11 @@ impl GridDefinitionSection {
             GridTemplate::SphericalHarmonic(_) => None,
             // Bi-Fourier coefficients are likewise not a gridded layout.
             GridTemplate::BiFourier(_) => None,
+            // HEALPix is a list of pixels, not rows and columns. Reporting
+            // `(npix, 1)` here would make it look like a one-row raster to
+            // every consumer that keys on this; #443 synthesises a real
+            // lat/lon grid instead.
+            GridTemplate::Healpix(_) => None,
             GridTemplate::Unsupported(_) => None,
         }
     }
@@ -615,6 +654,7 @@ impl GridDefinitionSection {
             GridTemplate::SpaceView(t) => Some(t.scanning_mode),
             GridTemplate::SphericalHarmonic(_) => None,
             GridTemplate::BiFourier(_) => None,
+            GridTemplate::Healpix(t) => Some(t.scanning_mode),
             GridTemplate::Unsupported(_) => None,
         }
     }
@@ -647,6 +687,9 @@ impl GridDefinitionSection {
             | GridTemplate::SpaceView(_)
             | GridTemplate::SphericalHarmonic(_)
             | GridTemplate::BiFourier(_)
+            // A HEALPix message states no corner: pixel 0 is wherever the
+            // ordering puts it, which `healpix::pix2ang` answers.
+            | GridTemplate::Healpix(_)
             | GridTemplate::Unsupported(_) => None,
         }
     }
@@ -686,6 +729,9 @@ impl GridDefinitionSection {
             GridTemplate::SpaceView(_) => None,
             GridTemplate::SphericalHarmonic(_) => None,
             GridTemplate::BiFourier(_) => None,
+            // A HEALPix message states no corners; its extent is the whole
+            // sphere, which is not what this reports.
+            GridTemplate::Healpix(_) => None,
             GridTemplate::Unsupported(_) => None,
         }
     }
@@ -704,6 +750,7 @@ impl GridDefinitionSection {
             GridTemplate::Gaussian(_) => "gaussian".to_string(),
             GridTemplate::SpaceView(_) => "space_view".to_string(),
             GridTemplate::SphericalHarmonic(_) => "spherical_harmonic".to_string(),
+            GridTemplate::Healpix(_) => "healpix".to_string(),
             GridTemplate::BiFourier(_) => "bifourier".to_string(),
             GridTemplate::Unsupported(n) => format!("unsupported(3.{n})"),
         }
@@ -816,6 +863,7 @@ pub fn parse_grid_definition_with_header(
         // head (spectralType / N / M / truncation-type); only the discarded
         // projection tail differs, so one parser serves all three.
         61..=63 => GridTemplate::BiFourier(parse_template_3_bf(payload)?),
+        150 => GridTemplate::Healpix(parse_template_3_150(payload)?),
         other => GridTemplate::Unsupported(other),
     };
 
@@ -1156,6 +1204,62 @@ fn parse_template_3_40(
         n_parallels: u32::from_be_bytes([p[53], p[54], p[55], p[56]]),
         scanning_mode: p[57],
         is_reduced,
+    })
+}
+
+/// §3.150 (HEALPix). Payload after the 16-octet shape-of-the-earth block and
+/// the resolution flags: `Nside`, the first rhomboid's longitude, the point
+/// position, the ordering, and the scanning mode — 28 octets in all.
+fn parse_template_3_150(p: &[u8]) -> Result<HealpixTemplate, FieldglassError> {
+    if p.len() < 28 {
+        return Err(FieldglassError::Parse(format!(
+            "GDS template 3.150 needs 28 bytes of payload, got {}",
+            p.len()
+        )));
+    }
+    let nside = u32::from_be_bytes([p[17], p[18], p[19], p[20]]);
+    if nside == 0 {
+        return Err(FieldglassError::Parse(
+            "GDS template 3.150 states Nside = 0, which is not a grid".to_string(),
+        ));
+    }
+    // `12·Nside²` passes `u64::MAX` above 2^31, and these are four untrusted
+    // octets. The decode cap (`MAX_GRID_POINTS`) refuses anything remotely this
+    // large anyway, so the only messages this turns away are malformed ones.
+    if nside > (1 << 24) {
+        return Err(FieldglassError::Parse(format!(
+            "GDS template 3.150 states Nside {nside}, which implies more pixels than any grid holds"
+        )));
+    }
+    Ok(HealpixTemplate {
+        shape_of_earth: p[0],
+        resolution_flags: p[16],
+        nside,
+        lon_first: read_lon_degrees(&p[21..25]),
+        grid_point_position: p[25],
+        // Code table 3.12: 0 ring, 1 nested. Anything else is a value the
+        // standard does not define; treating it as ring would silently
+        // reorder the field, so it is refused.
+        nested: match p[26] {
+            0 => false,
+            1 if nside.is_power_of_two() => true,
+            // NESTED is a quadtree over each base face, so it exists only for
+            // a power-of-two Nside; RING works for any. Refused here rather
+            // than left to fail pixel by pixel, which would render as an empty
+            // field rather than as a malformed message.
+            1 => {
+                return Err(FieldglassError::Parse(format!(
+                    "GDS template 3.150 states nested ordering with Nside {nside}, which is not a \
+                     power of two"
+                )));
+            }
+            other => {
+                return Err(FieldglassError::Parse(format!(
+                    "GDS template 3.150 states ordering {other}, which is neither ring (0) nor nested (1)"
+                )));
+            }
+        },
+        scanning_mode: p[27],
     })
 }
 
