@@ -13,7 +13,7 @@ pub mod reader;
 
 pub use classic::{Attribute, ClassicHeader, ClassicVersion, Dimension, NcType, Variable};
 pub use geometry::{
-    AxisKind, DatasetView, DimView, RenderableVariable, SliceGeometry, VarView,
+    AxisKind, CurvilinearCoords, DatasetView, DimView, RenderableVariable, SliceGeometry, VarView,
     corner_and_regularity, detect_axis, extract_plane, synthesize_geometry,
 };
 pub use hdf5::attribute::{Hdf5Attribute, RawAttribute, list_attributes, raw_attribute};

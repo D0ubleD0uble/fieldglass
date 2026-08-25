@@ -1245,7 +1245,7 @@ pub trait PlanarGridProjector {
 ///
 /// `total_cmp`: callers feed finite longitudes, but a total order degrades
 /// gracefully instead of panicking if a stray NaN ever slips through.
-fn enclosing_lon_arc(lons: &mut [f64]) -> (f64, f64) {
+pub(crate) fn enclosing_lon_arc(lons: &mut [f64]) -> (f64, f64) {
     lons.sort_by(|a, b| a.total_cmp(b));
     let n = lons.len();
     let mut gap_start = 0usize; // index just after the largest gap
@@ -2722,10 +2722,9 @@ impl GridGeometry {
             Self::Gaussian(p) => GaussianProjector::new(*p).grid_point_lonlat(i, j),
             Self::Lambert(p) => Some(LambertProjector::new(*p).grid_point_lonlat(i, j)),
             Self::PolarStereo(p) => Some(PolarStereoProjector::new(*p).grid_point_lonlat(i, j)),
-            // A lookup grid could answer this from its own centres, but no
-            // consumer needs it yet and exposing it would fix the storage
-            // layout before there is one to fix. #445 is where that is decided.
-            Self::Lookup(_) => None,
+            // Answered from the index's own centres (#445). The longitude
+            // comes back normalised to [-180, 180]; see `SpatialIndex::centre`.
+            Self::Lookup(ix) => ix.centre(i, j),
             Self::Unsupported { .. } => None,
         }
     }
@@ -2816,9 +2815,10 @@ impl GridGeometry {
                 p.lat_last,
                 p.lon_last,
             )),
-            // Its extent is the extent of its own centres, which #445 will
-            // want; leaving it `None` until then keeps the storage question open.
-            Self::Lookup(_) => None,
+            // The extent of its own centres (#445), widened to the full circle
+            // when they surround a pole and the enclosing arc stops meaning
+            // anything — the same degeneracy `PolarStereo` handles below.
+            Self::Lookup(ix) => ix.lonlat_bbox(),
             Self::Lambert(p) => Some(LambertProjector::new(*p).lonlat_bbox()),
             Self::PolarStereo(p) => {
                 let proj = PolarStereoProjector::new(*p);
