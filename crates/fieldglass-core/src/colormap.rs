@@ -22,6 +22,7 @@
 //! = 0) so the editor background shows through.
 
 use crate::colormap_tables::COLORMAPS;
+use serde::{Deserialize, Serialize};
 
 /// How a colormap is meant to be read: a sequential ramp runs low → high, a
 /// diverging one runs from one hue through a neutral midpoint to another and
@@ -47,7 +48,8 @@ impl ColormapKind {
 /// orders of magnitude (precipitation, AOD, chlorophyll) get resolvable colour
 /// across their whole range. Under `Log10` a non-positive value has no
 /// logarithm and paints as missing (see [`scale_position`]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum ScaleMode {
     #[default]
     Linear,
@@ -78,27 +80,50 @@ impl ScaleMode {
 ///
 /// Always returns `None` for a non-finite `v`, in either mode.
 pub fn scale_position(v: f64, min: f64, max: f64, scale: ScaleMode) -> Option<f64> {
+    let (t0, t1) = transformed_domain(min, max, scale);
+    position_in(v, t0, t1, scale)
+}
+
+/// The display range in the space the scale interpolates over: `[min, max]`
+/// unchanged under [`ScaleMode::Linear`], `log10` of each bound under
+/// [`ScaleMode::Log10`]. A [`Palette`] stores the result so the two logarithms
+/// are taken once per grid rather than once per pixel.
+///
+/// A non-positive bound under `Log10` has no logarithm and yields `-inf` (for
+/// `0.0`) or `NaN`; that is the same degenerate domain the per-pixel form
+/// produced, and [`position_in`] treats it the same way. Callers that care
+/// reject a non-positive minimum before they get here.
+fn transformed_domain(min: f64, max: f64, scale: ScaleMode) -> (f64, f64) {
+    match scale {
+        ScaleMode::Linear => (min, max),
+        ScaleMode::Log10 => (min.log10(), max.log10()),
+    }
+}
+
+/// Position of `v` in an already-[`transformed_domain`] `[t0, t1]`, or `None`
+/// when `v` has no place on the ramp.
+///
+/// The one place the normalisation rule is written: [`scale_position`] and
+/// [`Palette::normalise`] both route through it, so the CPU painter and a host
+/// that reads a `Palette` cannot disagree about where a value sits.
+fn position_in(v: f64, t0: f64, t1: f64, scale: ScaleMode) -> Option<f64> {
     if !v.is_finite() {
         return None;
     }
-    match scale {
-        ScaleMode::Linear => {
-            let span = max - min;
-            let t = if span > 0.0 { (v - min) / span } else { 0.0 };
-            Some(t.clamp(0.0, 1.0))
-        }
+    let tv = match scale {
+        ScaleMode::Linear => v,
         ScaleMode::Log10 => {
             // No logarithm for non-positive values — they have no place on a
             // log ramp and paint as missing.
             if v <= 0.0 {
                 return None;
             }
-            let (lmin, lmax, lv) = (min.log10(), max.log10(), v.log10());
-            let span = lmax - lmin;
-            let t = if span > 0.0 { (lv - lmin) / span } else { 0.0 };
-            Some(t.clamp(0.0, 1.0))
+            v.log10()
         }
-    }
+    };
+    let span = t1 - t0;
+    let t = if span > 0.0 { (tv - t0) / span } else { 0.0 };
+    Some(t.clamp(0.0, 1.0))
 }
 
 /// One named colormap: a stable `name` (the wire value), a human `label` for
@@ -244,6 +269,264 @@ pub fn min_max_ignoring_mask<I: IntoIterator<Item = Option<f64>>>(values: I) -> 
     if seen { Some((min, max)) } else { None }
 }
 
+/// Bytes in a [`Palette`] lookup table: 256 entries of RGBA.
+pub const PALETTE_LUT_LEN: usize = 256 * 4;
+
+/// Everything colour: the 256-entry RGBA lookup table, the domain values are
+/// normalised against, and the pixel a masked cell paints as.
+///
+/// This is what the painter always built internally, promoted to a type so it
+/// can leave the crate as *data*. A GPU host uploads [`lut`](Self::lut) as a
+/// 256×1 RGBA texture and applies [`normalise`](Self::normalise)'s two lines in
+/// a shader; the CPU painter reads the same struct, so it is the oracle the
+/// shader is checked against rather than a second colour implementation
+/// (ADR-0006 decision 3).
+///
+/// [`t0`](Self::t0) and [`t1`](Self::t1) are in the *transformed* domain — the
+/// `log10` under [`ScaleMode::Log10`] is taken here, once per grid, not once
+/// per value. They are therefore not the caller's display range: read that back
+/// from wherever the range came from, not from a `Palette`.
+///
+/// Construct one with [`build`](Self::build); the struct is `#[non_exhaustive]`
+/// so fields can be added without breaking a host.
+///
+/// A JSON round trip is bit-exact only where `serde_json` is built with its
+/// `float_roundtrip` feature — the default parser is not correctly rounded and
+/// reads [`t0`](Self::t0)/[`t1`](Self::t1) back up to one ULP away. This
+/// workspace enables it; a downstream crate that serialises a `Palette` should
+/// too.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct Palette {
+    /// 256 RGBA entries, low → high, already mirrored when the caller asked for
+    /// a reversed ramp. Every entry is opaque; transparency is
+    /// [`masked_rgba`](Self::masked_rgba)'s job, not the table's.
+    #[serde(with = "lut_bytes")]
+    pub lut: [u8; PALETTE_LUT_LEN],
+    /// Low end of the transformed domain.
+    pub t0: f64,
+    /// High end of the transformed domain.
+    pub t1: f64,
+    /// Which transform [`t0`](Self::t0)/[`t1`](Self::t1) are expressed in, and
+    /// the one a value must be put through before it can be placed between
+    /// them.
+    pub scale: ScaleMode,
+    /// The pixel a masked, non-finite, or (under `Log10`) non-positive cell
+    /// paints as. Fully transparent, so the editor background shows through.
+    pub masked_rgba: [u8; 4],
+}
+
+impl Palette {
+    /// Build the table and domain for one grid: evaluate `colormap`'s ramp into
+    /// 256 RGBA entries (mirrored when `reversed`) and transform the display
+    /// range `[min, max]` once.
+    ///
+    /// `min`/`max` are always the true, unlogged display range, so a caller's
+    /// colorbar labels stay in data units.
+    pub fn build(
+        colormap: &Colormap,
+        reversed: bool,
+        min: f64,
+        max: f64,
+        scale: ScaleMode,
+    ) -> Self {
+        // The ramp is evaluated in exactly one place — `Colormap::entry`, via
+        // `lut` — and widened to RGBA here. `css_stops` and `sample` read that
+        // same table, so the legend, a point sample, and the painted grid
+        // cannot drift apart.
+        let rgb = colormap.lut(reversed);
+        let mut lut = [0u8; PALETTE_LUT_LEN];
+        for i in 0..256 {
+            lut[i * 4..i * 4 + 3].copy_from_slice(&rgb[i * 3..i * 3 + 3]);
+            lut[i * 4 + 3] = 255;
+        }
+        let (t0, t1) = transformed_domain(min, max, scale);
+        Self {
+            lut,
+            t0,
+            t1,
+            scale,
+            masked_rgba: [0, 0, 0, 0],
+        }
+    }
+
+    /// Where `v` sits on the ramp, in `[0, 1]`, or `None` when it has no place
+    /// there (non-finite, or non-positive under `Log10`).
+    ///
+    /// `f32` because this is the shader-facing form. The arithmetic still
+    /// happens in `f64` here and only the result is narrowed, so the answer is
+    /// within one lookup-table entry of [`index`](Self::index) — for uniformly
+    /// distributed positions about six in a million land on the other side of
+    /// the rounding boundary, and never more than one entry away.
+    /// `palette_golden.rs` pins that bound. Use `index` when you need the exact
+    /// byte the CPU painter would emit.
+    ///
+    /// **That bound does not survive being moved into a shader.** A GPU that
+    /// subtracts and divides in `f32` loses the domain, not just the result:
+    /// once the `f32` gap at [`t0`](Self::t0) grows past one lookup step —
+    /// roughly `t1 - t0 < 255 * t0.abs() * 2f64.powi(-23)` — the error is
+    /// unbounded within the ramp. Measured at up to 127 entries, half the
+    /// table, for a manual range of 1.0 over values near `1e7`; geopotential in
+    /// m²/s², pressure in Pa, and radiances all reach that regime under a tight
+    /// manual range. `t0`/`t1` are `f64` for this reason. A shader must be
+    /// handed a rebased domain — upload `v - t0`, so the cancellation happens
+    /// here in `f64` — rather than the raw values and the raw bounds.
+    pub fn normalise(&self, v: f64) -> Option<f32> {
+        self.position(v).map(|t| t as f32)
+    }
+
+    /// [`normalise`](Self::normalise) in the painter's own precision.
+    fn position(&self, v: f64) -> Option<f64> {
+        position_in(v, self.t0, self.t1, self.scale)
+    }
+
+    /// The lookup-table entry `v` paints from, or `None` when it has no colour.
+    pub fn index(&self, v: f64) -> Option<u8> {
+        // `t` is clamped to `[0, 1]`, so the product lands in `[0, 255]` and the
+        // saturating float→int cast never truncates. A `NaN` `t` — reachable
+        // only from a degenerate `log10` domain — casts to 0, which is the
+        // entry the painter has always given it.
+        self.position(v).map(|t| (t * 255.0).round() as u8)
+    }
+
+    /// The RGBA pixel for one value: its table entry, or
+    /// [`masked_rgba`](Self::masked_rgba) when it has no colour.
+    pub fn rgba(&self, v: f64) -> [u8; 4] {
+        match self.index(v) {
+            Some(i) => {
+                let o = i as usize * 4;
+                [
+                    self.lut[o],
+                    self.lut[o + 1],
+                    self.lut[o + 2],
+                    self.lut[o + 3],
+                ]
+            }
+            None => self.masked_rgba,
+        }
+    }
+
+    /// Paint a row-major grid into an RGBA byte buffer suitable for
+    /// `ImageData`. Each pixel is 4 bytes (`r, g, b, a`); a cell that is masked
+    /// (`mask[i] == 0`), non-finite, or non-positive under `Log10` paints as
+    /// [`masked_rgba`](Self::masked_rgba).
+    ///
+    /// Output length is `width * height * 4`. When `flip_y` is true, rows are
+    /// emitted bottom-to-top — useful when the source grid scans south-to-north
+    /// but the canvas wants north-up.
+    pub fn paint(
+        &self,
+        values: &[f64],
+        mask: Option<&[u8]>,
+        width: u32,
+        height: u32,
+        flip_y: bool,
+    ) -> Vec<u8> {
+        // `usize` is 32 bits on wasm32 — the host this type exists for — and
+        // both dimensions can be a `u32` read straight out of a file's grid
+        // description. Size the buffer in `u64` and refuse one this target
+        // cannot address, rather than wrap into a short buffer and index off
+        // the end of it.
+        let Some(total) = u64::from(width)
+            .checked_mul(u64::from(height))
+            .and_then(|px| px.checked_mul(4))
+            .and_then(|bytes| usize::try_from(bytes).ok())
+            .map(|bytes| bytes / 4)
+        else {
+            return Vec::new();
+        };
+        if total == 0 {
+            return Vec::new();
+        }
+        let w = width as usize;
+        let h = height as usize;
+        debug_assert_eq!(
+            values.len(),
+            total,
+            "Palette::paint: values.len()={} != width*height={total}; trailing pixels would silently render as transparent",
+            values.len(),
+        );
+        if let Some(m) = mask {
+            debug_assert_eq!(
+                m.len(),
+                total,
+                "Palette::paint: mask.len()={} != width*height={total}",
+                m.len(),
+            );
+        }
+        let mut out = vec![0u8; total * 4];
+
+        for (i, &v) in values.iter().enumerate().take(total) {
+            let row = i / w;
+            let col = i - row * w;
+            let out_idx = if flip_y { (h - 1 - row) * w + col } else { i };
+            let o = out_idx * 4;
+
+            let masked = mask.is_some_and(|m| m.get(i).copied().unwrap_or(0) == 0);
+            let px = if masked {
+                self.masked_rgba
+            } else {
+                self.rgba(v)
+            };
+            out[o..o + 4].copy_from_slice(&px);
+        }
+        out
+    }
+}
+
+/// `[u8; 1024]` is past the 32-element ceiling serde derives array impls up to,
+/// so the table serialises as a byte string (or a number sequence, in a
+/// self-describing format like JSON) and reads back from either.
+mod lut_bytes {
+    use super::PALETTE_LUT_LEN;
+    use serde::de::{Error as DeError, SeqAccess, Visitor};
+    use serde::{Deserializer, Serializer};
+    use std::fmt;
+
+    pub fn serialize<S: Serializer>(
+        lut: &[u8; PALETTE_LUT_LEN],
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        serializer.serialize_bytes(lut)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<[u8; PALETTE_LUT_LEN], D::Error> {
+        struct LutVisitor;
+
+        impl<'de> Visitor<'de> for LutVisitor {
+            type Value = [u8; PALETTE_LUT_LEN];
+
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "{PALETTE_LUT_LEN} colormap lookup-table bytes")
+            }
+
+            fn visit_bytes<E: DeError>(self, v: &[u8]) -> Result<Self::Value, E> {
+                v.try_into().map_err(|_| E::invalid_length(v.len(), &self))
+            }
+
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                let mut lut = [0u8; PALETTE_LUT_LEN];
+                for (i, slot) in lut.iter_mut().enumerate() {
+                    *slot = seq
+                        .next_element()?
+                        .ok_or_else(|| A::Error::invalid_length(i, &self))?;
+                }
+                // A longer table is malformed, not a table with a tail to
+                // ignore: silently truncating it would hand back colours the
+                // sender did not mean.
+                if seq.next_element::<u8>()?.is_some() {
+                    return Err(A::Error::invalid_length(PALETTE_LUT_LEN + 1, &self));
+                }
+                Ok(lut)
+            }
+        }
+
+        deserializer.deserialize_bytes(LutVisitor)
+    }
+}
+
 /// Paint a row-major grid into an RGBA byte buffer suitable for
 /// `ImageData`, colouring it with `colormap` (mirrored when `reversed`).
 /// Each pixel is 4 bytes (`r, g, b, a`); masked or non-finite values render
@@ -259,6 +542,11 @@ pub fn min_max_ignoring_mask<I: IntoIterator<Item = Option<f64>>>(values: I) -> 
 /// Output length is `width * height * 4`. When `flip_y` is true, rows
 /// are emitted bottom-to-top — useful when the source grid scans
 /// south-to-north but the canvas wants north-up.
+///
+/// A thin wrapper over [`Palette::build`] + [`Palette::paint`], kept because
+/// most callers paint one grid once and never need the table back. Reach for
+/// `Palette` directly when the table itself is the point — a GPU upload, or a
+/// restyle that must not re-decode.
 #[allow(clippy::too_many_arguments)]
 pub fn paint_grid_rgba(
     values: &[f64],
@@ -272,59 +560,7 @@ pub fn paint_grid_rgba(
     reversed: bool,
     scale: ScaleMode,
 ) -> Vec<u8> {
-    let w = width as usize;
-    let h = height as usize;
-    let total = w * h;
-    if total == 0 {
-        return Vec::new();
-    }
-    debug_assert_eq!(
-        values.len(),
-        total,
-        "paint_grid_rgba: values.len()={} != width*height={total}; trailing pixels would silently render as transparent",
-        values.len(),
-    );
-    if let Some(m) = mask {
-        debug_assert_eq!(
-            m.len(),
-            total,
-            "paint_grid_rgba: mask.len()={} != width*height={total}",
-            m.len(),
-        );
-    }
-    let mut out = vec![0u8; total * 4];
-    // Build the LUT once for the whole grid rather than per pixel.
-    let lut = colormap.lut(reversed);
-
-    for (i, &v) in values.iter().enumerate().take(total) {
-        let row = i / w;
-        let col = i - row * w;
-        let out_idx = if flip_y { (h - 1 - row) * w + col } else { i };
-        let o = out_idx * 4;
-
-        let masked = mask.is_some_and(|m| m.get(i).copied().unwrap_or(0) == 0);
-        // A masked cell, a non-finite value, or (under log10) a non-positive
-        // value has no colour and paints transparent so the background shows
-        // through.
-        let position = if masked {
-            None
-        } else {
-            scale_position(v, min, max, scale)
-        };
-        let Some(tt) = position else {
-            out[o] = 0;
-            out[o + 1] = 0;
-            out[o + 2] = 0;
-            out[o + 3] = 0;
-            continue;
-        };
-        let idx = (tt * 255.0).round() as usize;
-        out[o] = lut[idx * 3];
-        out[o + 1] = lut[idx * 3 + 1];
-        out[o + 2] = lut[idx * 3 + 2];
-        out[o + 3] = 255;
-    }
-    out
+    Palette::build(colormap, reversed, min, max, scale).paint(values, mask, width, height, flip_y)
 }
 
 #[cfg(test)]

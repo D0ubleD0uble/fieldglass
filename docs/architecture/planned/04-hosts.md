@@ -58,7 +58,7 @@ sequenceDiagram
     H-->>W: Palette { lut, t0, t1, scale, masked }
     W-->>A: Field + Palette (one copy out of wasm memory, then transfer)
     A->>G: upload values + R8 mask + 256×1 LUT, proj4 → mesh
-    Note over A,G: restyle = new Palette (4 KB), no re-decode
+    Note over A,G: restyle = new Palette (1 KB of LUT), no re-decode
     Note over A,G: shader = shipped snippet: normalise, NEAREST LUT lookup
 ```
 
@@ -81,6 +81,19 @@ Notes that shape the two hosts:
   the R32F texture upload is a downcast the app asks for explicitly.
 - **Colour.** Decided once, in Rust: `Palette` feeds both the CPU painter
   and the GPU lookup, and the app's `readPixels` is tested against `render()`.
+  The tolerance is one LUT entry, not zero: `Palette::normalise` narrows to
+  `f32` and that moves the index for about six positions in a million against
+  `Palette::index`, the exact byte the painter emits.
+  **That bound holds only if the shader is handed a rebased domain.** A shader
+  that subtracts and divides raw `f32` values against raw `f32` bounds loses the
+  domain, not just the last bit: once the `f32` gap at `t0` passes one lookup
+  step — about `t1 - t0 < 255 · |t0| · 2⁻²³` — the error is unbounded within the
+  ramp, measured at 127 entries for a manual range of 1.0 over values near
+  `1e7`. Geopotential in m²/s², pressure in Pa and radiances all reach that
+  regime under a tight manual range, so the app uploads `v − t0` and the
+  cancellation stays in `f64`. `t0`/`t1` are `f64` for this reason. Both the
+  bound and the breakdown are pinned by
+  `crates/fieldglass-core/tests/palette_golden.rs`.
 - **Trust.** A `.idx` range is a claim; the decoder checks the fetched bytes
   against it (magic, length, parameter) and errors on a mismatch.
 - **The extension later.** "Open URL…" in VS Code (#247) is the same

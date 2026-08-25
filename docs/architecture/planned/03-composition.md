@@ -158,13 +158,15 @@ classDiagram
         seeded by the pre-#464 characterisation snapshot
     }
     class Palette {
-        <<planned #485, core>>
+        core, shipped #485
         +[u8; 256*4] lut
         +f64 t0, t1 (transformed domain)
         +ScaleMode scale
         +[u8; 4] masked_rgba
-        +normalise(v) f32
-        +paint(values, mask, w, h) RGBA
+        +build(colormap, reversed, min, max, scale) Palette
+        +normalise(v) f32 — shader-facing
+        +index(v) u8 — what the CPU painter emits
+        +paint(values, mask, w, h, flip_y) RGBA
     }
     class MessageMeta {
         <<napi, transitional>>
