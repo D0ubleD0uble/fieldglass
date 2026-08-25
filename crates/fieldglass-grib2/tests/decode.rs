@@ -86,22 +86,31 @@ fn eta_lambert_decodes_msl_pressure_via_simple_packing() {
 }
 
 #[test]
-fn ecmwf_reduced_gaussian_decode_unsupported_for_reduced_grids() {
-    // Reduced Gaussian grids carry per-row Ni in §3's optional list — the
-    // GDS reports no dimensions, so decode rejects before walking §7.
-    // (The byte-level path is still simple packing; this test pins the
-    // reader's behaviour for the "no dims" branch.)
+fn ecmwf_reduced_gaussian_decodes_on_its_own_row_layout() {
+    // Reduced Gaussian grids carry per-row Ni in §3's optional list, so the
+    // field is `sum(PL)` values long and the dimensions the GDS reports are the
+    // raster those rows expand into rather than a shape the message contains.
+    // Decode is sized to the storage layout (#503); the geometry and the
+    // eccodes value cross-check live in `decode_reduced_gaussian.rs`.
     let reader = Grib2Reader::from_bytes(ECMWF_GAUSSIAN.to_vec()).expect("parse");
     let msg = &reader.messages[0];
     assert_eq!(msg.drs.template_number, 0, "ECMWF uses simple packing");
+    let pl = msg
+        .gds
+        .points_per_row()
+        .expect("a reduced grid lists its row widths");
+    let stored: usize = pl.iter().map(|&n| n as usize).sum();
+    let (ni, nj) = msg.gds.dimensions().expect("a row-expanded raster shape");
     assert!(
-        msg.gds.dimensions().is_none(),
-        "reduced Gaussian has no constant Ni",
+        stored < ni as usize * nj as usize,
+        "the raster is larger than the field: {stored} points in a {ni}x{nj} shape",
     );
-    let err = reader.decode_message_values(0).expect_err("must reject");
+
+    let decoded = reader.decode_message_values(0).expect("decode");
+    assert_eq!(decoded.len(), stored, "sum(PL), not Ni*Nj");
     assert!(
-        err.to_string().contains("no declared dimensions"),
-        "decode names the missing-dims path, got: {err}",
+        decoded.iter().all(|v| v.is_some()),
+        "no bitmap → all points present",
     );
 }
 

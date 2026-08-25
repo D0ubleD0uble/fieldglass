@@ -267,7 +267,7 @@ export interface Grib1Handle {
   /** Contour isolines for this message, projected onto the render raster (#238).
    *  `interval` sets a manual level spacing; omitted picks ~8 nice levels over
    *  the used range. Errors for grid types whose forward geolocation isn't wired
-   *  (reduced grids, geostationary scan-angle grids). */
+   *  (geostationary scan-angle grids). */
   projectContours(
     messageIndex: number,
     options: RenderOptions,

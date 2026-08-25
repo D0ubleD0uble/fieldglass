@@ -637,21 +637,6 @@ const NO_VALUE_CHECK: &[(&str, &str)] = &[
          with eccodes 2.47.3 — see NOTICE.md — and checked in \
          `decode_complex_constant.rs`.",
     ),
-    (
-        "reduced_gaussian_pressure_level.grib2",
-        "`decode_message_values` refuses it: reduced GRIB2 grids are parsed and \
-         cross-checked as metadata but not yet decoded, where the GRIB1 reader \
-         decodes its reduced grids natively. The exemption is the gap, and the \
-         staleness test below fails the day it closes.",
-    ),
-    (
-        "octahedral_gaussian_o32.grib2",
-        "the same gap as the classic grid above, for the same reason — it is \
-         reduced, so `decode_message_values` refuses it. It is here for the \
-         metadata pass: eccodes 2.34.1 ships no octahedral sample, so without \
-         it the `O` half of `size_label` had nothing to be wrong against \
-         (#500). It leaves the exemption list with the classic one.",
-    ),
 ];
 
 /// Every committed GRIB2 fixture decodes to the values eccodes decodes.
@@ -707,14 +692,14 @@ fn every_fixture_decodes_to_the_values_eccodes_decodes() {
         failures.join("\n")
     );
     assert!(
-        checked >= 38,
+        checked >= 46,
         "only {checked} fixtures were value-checked — too few to prove anything"
     );
     // The same guard the metadata pass carries: every branch of the comparison
     // is skippable when the snapshot omits a key, so count what was really
     // compared rather than trusting that the walk implies it.
     assert!(
-        compared_stats >= 95 && compared_points >= 600,
+        compared_stats >= 120 && compared_points >= 770,
         "the value check made {compared_stats} statistic and {compared_points} \
          point comparisons — too few to be checking the corpus"
     );

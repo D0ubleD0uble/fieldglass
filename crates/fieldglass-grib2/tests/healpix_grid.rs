@@ -11,7 +11,7 @@ use fieldglass_grib2::{Grib2Reader, GridTemplate, gds::GridDefinitionSection};
 
 fn gds_of(bytes: &[u8]) -> GridDefinitionSection {
     let reader = Grib2Reader::from_bytes(bytes.to_vec()).expect("fixture parses");
-    reader.messages[0].gds
+    reader.messages[0].gds.clone()
 }
 
 macro_rules! fixture {

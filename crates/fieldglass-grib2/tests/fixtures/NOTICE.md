@@ -727,7 +727,9 @@ Hand-built by `tools/build_grib2_octahedral_fixture.py` from the eccodes sample
 `samples/reduced_gg_pl_32_grib2.tmpl`, replacing the `PL` list with the
 octahedral row widths (`20, 24, … 144, 144, … 20`) and setting a value ramp so
 `numberOfDataPoints` and the values array stay consistent with the new 5248-point
-sum. eccodes 2.34.1 ships **no** octahedral sample — every `reduced_gg_*`
+sum. The ramp is `index mod 50`, a sawtooth rather than a monotone count, so a
+decode that dropped, duplicated or reordered a point cannot hide behind it — it
+is the value oracle `decode_reduced_gaussian.rs` walks point for point (#503). eccodes 2.34.1 ships **no** octahedral sample — every `reduced_gg_*`
 template answers `isOctahedral = 0` — so without this the `O` branch of the grid
 naming had nothing to be wrong against (#500).
 

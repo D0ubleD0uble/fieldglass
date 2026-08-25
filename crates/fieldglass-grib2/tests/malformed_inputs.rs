@@ -235,3 +235,98 @@ fn grid_dimensions_disagreeing_with_num_data_points_rejected_before_allocation()
         "error should name the dimensions/num_data_points mismatch, got: {msg}"
     );
 }
+
+/// A reduced grid's stored field and the raster it expands into are two
+/// different sizes, and it is the raster a consumer allocates (#503).
+///
+/// `sum(PL)` is what the cap in front of the decode has always measured, and it
+/// stays small here: 4,000 rows of one point each, plus one row of 65,535. That
+/// is a 69,535-point field — but the widest row is what every row widens to, so
+/// the raster is 65,535 × 4,001 ≈ 262 million points, comfortably past the cap.
+/// A file describing it is 8 KB. Without the raster check the reader would hand
+/// that field to `expand_reduced_to_regular` and the expansion would ask for
+/// ~4 GiB.
+///
+/// Built by splicing a §3 onto a real message so the scan reaches the decode:
+/// the hostile part is the `PL` list, not the framing.
+#[test]
+fn a_reduced_grid_whose_raster_exceeds_the_cap_is_refused_before_expansion() {
+    const ROWS: u32 = 4001;
+    const WIDEST: u32 = 65_535;
+
+    let widths: Vec<u32> = std::iter::repeat_n(1u32, ROWS as usize - 1)
+        .chain(std::iter::once(WIDEST))
+        .collect();
+    let stored: u32 = widths.iter().sum();
+    assert!(
+        (stored as usize) < 200_000_000,
+        "the stored field must pass the sum(PL) cap, or this proves nothing"
+    );
+
+    let bytes = splice_reduced_gds(FIXTURE_REDUCED, &widths, stored);
+    let reader = Grib2Reader::from_bytes(bytes).expect("the framing is well-formed");
+    let gds = &reader.messages[0].gds;
+    assert_eq!(
+        gds.points_per_row().map(<[u32]>::len),
+        Some(ROWS as usize),
+        "the hostile PL list is read as a PL list",
+    );
+    assert_eq!(gds.dimensions(), Some((WIDEST, ROWS)));
+
+    let err = reader
+        .decode_message_values(0)
+        .expect_err("an over-cap raster must error, not allocate");
+    let FieldglassError::Parse(msg) = err else {
+        panic!("expected Parse error, got {err:?}");
+    };
+    assert!(
+        msg.contains("raster") && msg.contains("cap"),
+        "the error should name the raster cap, got: {msg}"
+    );
+}
+
+const FIXTURE_REDUCED: &[u8] = include_bytes!("fixtures/reduced_gaussian_pressure_level.grib2");
+
+/// Replace `message`'s §3 with a reduced Gaussian one carrying `widths`, and
+/// declare `num_data_points`. Every other section is carried over untouched, so
+/// the result scans like the fixture it came from.
+fn splice_reduced_gds(message: &[u8], widths: &[u32], num_data_points: u32) -> Vec<u8> {
+    // §0 is 16 octets; sections then run <length: u32><number: u8><body>.
+    let mut cursor = 16usize;
+    let mut out = message[..16].to_vec();
+    loop {
+        if &message[cursor..cursor + 4] == b"7777" {
+            out.extend_from_slice(b"7777");
+            break;
+        }
+        let len = u32::from_be_bytes(message[cursor..cursor + 4].try_into().unwrap()) as usize;
+        let section = &message[cursor..cursor + len];
+        if section[4] == 3 {
+            // Keep the template payload (octets 15..) and swap the list behind
+            // it: 2 octets per entry, one per row, `Nj` set to match.
+            let template = &section[14..14 + 58];
+            let mut body = template.to_vec();
+            body[20..24].copy_from_slice(&(widths.len() as u32).to_be_bytes());
+            let mut list = Vec::new();
+            for &w in widths {
+                list.extend_from_slice(&(w as u16).to_be_bytes());
+            }
+            let total = 14 + body.len() + list.len();
+            out.extend_from_slice(&(total as u32).to_be_bytes());
+            out.push(3);
+            out.push(section[5]); // source of grid definition
+            out.extend_from_slice(&num_data_points.to_be_bytes());
+            out.push(2); // octets per optional-list entry
+            out.push(1); // Code Table 3.11: numbers of points per parallel
+            out.extend_from_slice(&40u16.to_be_bytes());
+            out.extend_from_slice(&body);
+            out.extend_from_slice(&list);
+        } else {
+            out.extend_from_slice(section);
+        }
+        cursor += len;
+    }
+    let total = out.len() as u64;
+    out[8..16].copy_from_slice(&total.to_be_bytes());
+    out
+}
