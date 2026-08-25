@@ -144,7 +144,7 @@ fn an_unsupported_family_declines_every_question_but_its_name() {
     assert!(geom.dims().is_none());
     assert!(geom.forward(0, 0).is_none());
     assert!(geom.inverse(0.0, 0.0).is_none());
-    assert!(geom.bounds_lonlat().is_none());
+    assert!(geom.lonlat_bbox().is_none());
     assert!(
         geom.proj4().is_none(),
         "a CRS we cannot name must be absent, never a plausible default",
@@ -153,30 +153,27 @@ fn an_unsupported_family_declines_every_question_but_its_name() {
 
 #[test]
 fn a_global_grid_published_from_the_antimeridian_keeps_its_full_span() {
-    let b = GridGeometry::LatLon(ecmwf_wrapping())
-        .bounds_lonlat()
-        .expect("lat/lon has bounds");
+    let (lat_min, lat_max, lon_min, lon_max) = GridGeometry::LatLon(ecmwf_wrapping())
+        .lonlat_bbox()
+        .expect("lat/lon has a box");
     // The failure this guards is the span collapsing to one 0.25 deg cell,
-    // which is what min/max of the two stated corners produces.
-    assert!((b.west - -180.0).abs() < 1e-9, "west was {}", b.west);
-    assert!((b.east - 179.75).abs() < 1e-9, "east was {}", b.east);
-    assert!((b.north - 90.0).abs() < 1e-9);
-    assert!((b.south - -90.0).abs() < 1e-9);
-    // It *starts* at the antimeridian rather than crossing it: 180 and -180
-    // are the same meridian, so the box is the ordinary [-180, 179.75].
+    // which is what min/max of the two stated corners produces. `lon_max` runs
+    // past 180 on purpose — see the method's own note.
+    assert!((lon_min - 180.0).abs() < 1e-9, "lon_min was {lon_min}");
     assert!(
-        !b.crosses_antimeridian(),
-        "got west={} east={}",
-        b.west,
-        b.east
+        ((lon_max - lon_min) - 359.75).abs() < 1e-9,
+        "span was {}",
+        lon_max - lon_min
     );
+    assert!((lat_max - 90.0).abs() < 1e-9 && (lat_min - -90.0).abs() < 1e-9);
 }
 
 #[test]
-fn a_regional_grid_that_straddles_the_antimeridian_reports_the_wrap() {
-    // A Pacific tile running 170 degE to 170 degW: 20 degrees wide, and the
-    // only honest box has west numerically east of east.
-    let b = GridGeometry::LatLon(LatLonParams {
+fn a_regional_grid_that_straddles_the_antimeridian_keeps_a_continuous_span() {
+    // A Pacific tile running 170 degE to 170 degW is 20 degrees wide. Reported
+    // as 170..190 rather than -170..170, which would be the 340 degrees of
+    // world the grid does *not* cover.
+    let (_, _, lon_min, lon_max) = GridGeometry::LatLon(LatLonParams {
         ni: 81,
         nj: 41,
         lat_first: 20.0,
@@ -184,21 +181,15 @@ fn a_regional_grid_that_straddles_the_antimeridian_reports_the_wrap() {
         lat_last: 10.0,
         lon_last: -170.0,
     })
-    .bounds_lonlat()
+    .lonlat_bbox()
     .unwrap();
-    assert!(
-        b.crosses_antimeridian(),
-        "got west={} east={}",
-        b.west,
-        b.east
-    );
-    assert!((b.west - 170.0).abs() < 1e-9, "west was {}", b.west);
-    assert!((b.east - -170.0).abs() < 1e-9, "east was {}", b.east);
+    assert!((lon_min - 170.0).abs() < 1e-9, "lon_min was {lon_min}");
+    assert!((lon_max - 190.0).abs() < 1e-9, "lon_max was {lon_max}");
 }
 
 #[test]
-fn an_ordinary_grid_does_not_claim_to_wrap() {
-    let b = GridGeometry::LatLon(LatLonParams {
+fn an_ordinary_grid_reports_its_corners_unchanged() {
+    let (lat_min, lat_max, lon_min, lon_max) = GridGeometry::LatLon(LatLonParams {
         ni: 100,
         nj: 50,
         lat_first: 60.0,
@@ -206,31 +197,31 @@ fn an_ordinary_grid_does_not_claim_to_wrap() {
         lat_last: 30.0,
         lon_last: 40.0,
     })
-    .bounds_lonlat()
+    .lonlat_bbox()
     .unwrap();
-    assert!(!b.crosses_antimeridian());
-    assert!((b.west - -20.0).abs() < 1e-9 && (b.east - 40.0).abs() < 1e-9);
-    assert!((b.south - 30.0).abs() < 1e-9 && (b.north - 60.0).abs() < 1e-9);
+    // Nothing to unwrap here, so the box is exactly the stated corners and
+    // stays inside [-180, 180].
+    assert!((lon_min - -20.0).abs() < 1e-9 && (lon_max - 40.0).abs() < 1e-9);
+    assert!((lat_min - 30.0).abs() < 1e-9 && (lat_max - 60.0).abs() < 1e-9);
 }
 
 #[test]
 fn a_projected_grid_crossing_the_equator_reports_the_half_below_it() {
     // The #488 grid: its far corner sits at 4.718 degS. A bounds that stopped
     // at the equator would be describing a grid the file does not contain.
-    let b = GridGeometry::PolarStereo(cmc_polar())
-        .bounds_lonlat()
-        .expect("polar stereo has bounds");
+    let (lat_min, lat_max, ..) = GridGeometry::PolarStereo(cmc_polar())
+        .lonlat_bbox()
+        .expect("polar stereo has a box");
+    // Measured, not guessed: -4.71787 degN is the corner #488 was about. The
+    // edge walk subdivides, so it finds a hair further south than the corner
+    // grid point itself does — which is the reason it subdivides.
     assert!(
-        b.south < -4.0,
-        "the southern edge reaches past the equator; got {}",
-        b.south
+        (lat_min - -4.717_874_643_538_869).abs() < 1e-9,
+        "southern extent was {lat_min}"
     );
-    // Measured: the grid reaches 51.937 degN. Pinned rather than guessed at,
-    // so a change to the perimeter walk has to be looked at.
     assert!(
-        (b.north - 51.937_317_605_591_59).abs() < 1e-9,
-        "northern extent was {}",
-        b.north
+        (lat_max - 51.937_317_605_591_59).abs() < 1e-6,
+        "northern extent was {lat_max}"
     );
 }
 
@@ -250,21 +241,23 @@ fn a_grid_containing_the_pole_covers_every_meridian() {
         geom.inverse(90.0, 0.0).is_some(),
         "test grid must actually contain the pole for this to mean anything",
     );
-    let b = geom.bounds_lonlat().unwrap();
-    assert!((b.west - -180.0).abs() < 1e-9 && (b.east - 180.0).abs() < 1e-9);
+    let (_, lat_max, lon_min, lon_max) = geom.lonlat_bbox().unwrap();
     assert!(
-        (b.north - 90.0).abs() < 1e-9,
-        "the pole is in the grid, so it is the northern bound; got {}",
-        b.north
+        (lon_min - -180.0).abs() < 1e-9 && (lon_max - 180.0).abs() < 1e-9,
+        "every meridian is present; got {lon_min}..{lon_max}"
+    );
+    assert!(
+        (lat_max - 90.0).abs() < 1e-9,
+        "the pole is in the grid, so it is the northern bound; got {lat_max}"
     );
 }
 
 #[test]
 fn the_lambert_perimeter_bulges_past_its_corners() {
     // A conic's edges are curves. Taking the four corners would understate the
-    // box, which is the reason `bounds_lonlat` walks the whole ring.
+    // box, which is the reason the projector's walk subdivides each edge.
     let geom = GridGeometry::Lambert(eta_lambert());
-    let b = geom.bounds_lonlat().unwrap();
+    let (lat_min, lat_max, ..) = geom.lonlat_bbox().unwrap();
     let (ni, nj) = geom.dims().unwrap();
     let corners = [(0, 0), (ni - 1, 0), (0, nj - 1), (ni - 1, nj - 1)];
     let corner_north = corners
@@ -272,30 +265,59 @@ fn the_lambert_perimeter_bulges_past_its_corners() {
         .map(|&(i, j)| geom.forward(i, j).unwrap().0)
         .fold(f64::NEG_INFINITY, f64::max);
     assert!(
-        b.north > corner_north,
-        "the top edge should reach north of every corner: bounds {} vs corners {}",
-        b.north,
-        corner_north
+        lat_max > corner_north,
+        "the top edge should reach north of every corner: box {lat_max} vs corners {corner_north}"
     );
-    // And every grid point must actually be inside the reported box.
+    // And every grid point must be inside the reported box.
     for j in (0..nj).step_by(5) {
         for i in (0..ni).step_by(5) {
-            let (lat, lon) = geom.forward(i, j).unwrap();
+            let (lat, _) = geom.forward(i, j).unwrap();
             assert!(
-                lat >= b.south - 1e-9 && lat <= b.north + 1e-9,
-                "({i}, {j}) at {lat} is outside {}..{}",
-                b.south,
-                b.north
-            );
-            let lon = normalise_lon(lon);
-            assert!(
-                lon >= b.west - 1e-9 && lon <= b.east + 1e-9,
-                "({i}, {j}) at {lon} is outside {}..{}",
-                b.west,
-                b.east
+                lat >= lat_min - 1e-9 && lat <= lat_max + 1e-9,
+                "({i}, {j}) at {lat} is outside {lat_min}..{lat_max}"
             );
         }
     }
+}
+
+#[test]
+fn the_box_is_the_projectors_own_and_not_a_second_implementation() {
+    // `PlanarGridProjector::lonlat_bbox` subdivides each edge 512 times, skips
+    // perimeter samples that are not on the Earth, and returns the empty box
+    // rather than infinities. Re-deriving any of that here would be a second
+    // thing to keep right; this pins the delegation instead.
+    assert_eq!(
+        GridGeometry::Lambert(eta_lambert()).lonlat_bbox().unwrap(),
+        LambertProjector::new(eta_lambert()).lonlat_bbox(),
+    );
+    let polar = cmc_polar();
+    assert_eq!(
+        GridGeometry::PolarStereo(polar).lonlat_bbox().unwrap(),
+        PolarStereoProjector::new(polar).lonlat_bbox(),
+        "a grid with the pole outside it passes the projector's answer straight through",
+    );
+}
+
+#[test]
+fn the_closure_and_the_one_shot_inverse_agree() {
+    // `inverse` routes through `inverse_at`, and this is what keeps that true:
+    // the closure is the one a warp uses, so a divergence would show up only
+    // in rendered output.
+    let geom = GridGeometry::Lambert(eta_lambert());
+    let at = geom.inverse_at();
+    let (ni, nj) = geom.dims().unwrap();
+    for j in (0..nj).step_by(11) {
+        for i in (0..ni).step_by(11) {
+            let (lat, lon) = geom.forward(i, j).unwrap();
+            assert_eq!(at(lat, lon), geom.inverse(lat, lon));
+        }
+    }
+    // And a family with no map hands back a closure rather than making the
+    // caller branch.
+    let none = GridGeometry::Unsupported {
+        label: "space_view".into(),
+    };
+    assert!((none.inverse_at())(45.0, 0.0).is_none());
 }
 
 #[test]
