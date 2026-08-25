@@ -313,11 +313,11 @@ pub struct GaussianTemplate {
     /// (ECMWF's `O1280`) rather than a classic one (`N320`). Always false for
     /// a regular Gaussian grid, which carries no list.
     ///
-    /// Classified at parse time from the row widths rather than keeping the
-    /// list itself: nothing yet decodes a GRIB2 reduced grid, and an owned
-    /// `Vec` here would cost [`GridDefinitionSection`] its `Copy`. The reader
-    /// that needs the widths should take that trade with a consumer in hand —
-    /// [`parse_optional_row_widths`] is already here for it.
+    /// Classified at parse time from the row widths, which
+    /// [`GridDefinitionSection::row_widths`] now keeps as well — the decode
+    /// path (#503) is the consumer that took that trade, and the section is no
+    /// longer `Copy` for it. The flag stays because the classification rule is
+    /// eccodes' and belongs next to the parse, not at every call site.
     pub is_octahedral: bool,
 }
 
@@ -509,7 +509,11 @@ pub enum GridTemplate {
 }
 
 /// Parsed contents of the Grid Definition Section.
-#[derive(Debug, Clone, Copy)]
+///
+/// Not `Copy`: [`Self::row_widths`] owns the `PL` list of a reduced grid, which
+/// is one entry per row and so cannot be a fixed-size field. The section is
+/// parsed once per message and cloned nowhere on a hot path (#503).
+#[derive(Debug, Clone)]
 pub struct GridDefinitionSection {
     pub section_length: u32,
     pub source: u8,
@@ -518,6 +522,13 @@ pub struct GridDefinitionSection {
     pub optional_list_interp: u8,
     pub template_number: u16,
     pub template: GridTemplate,
+    /// §3's optional list of numbers, read as the `PL` row widths of a reduced
+    /// grid — empty when the section carries no list, or one it does not
+    /// describe (see [`parse_optional_row_widths`]).
+    ///
+    /// This is the raw list. Read it through [`Self::points_per_row`], which
+    /// answers only where the list really is a per-row point count.
+    pub row_widths: Vec<u32>,
 }
 
 impl LambertTemplate {
@@ -622,8 +633,51 @@ fn finite_lonlat(well_defined: bool, (lat, lon): (f64, f64)) -> Option<(f64, f64
 }
 
 impl GridDefinitionSection {
-    /// `(ni, nj)` if the template carries explicit dimensions. Reduced
-    /// Gaussian grids return `None` because Ni varies per row.
+    /// The `PL` row widths of a reduced grid, or `None` for a grid whose rows
+    /// are all `Ni` wide. Mirrors `fieldglass_grib1::GridDescription::points_per_row`.
+    ///
+    /// Answers only where the list really is a per-row point count:
+    ///
+    /// * the template is a reduced Gaussian one (3.40 with `Ni` missing);
+    /// * the list holds exactly `Nj` entries — a list of any other length
+    ///   describes a grid this does not understand, the same gate
+    ///   [`GaussianTemplate::is_octahedral`] is classified behind;
+    /// * §3's interpretation of the list (octet 12, Code Table 3.11) is not `3`.
+    ///   Codes `1` and `2` both mean "numbers of points"; code `3` puts
+    ///   *latitudes in microdegrees* in the same list, and reading those as row
+    ///   widths would invent a grid.
+    ///
+    /// Everything other than code `3` is accepted, rather than only `1` and
+    /// `2`, because eccodes reads the list from `numberOfOctectsForNumberOfPoints`
+    /// alone and never consults the interpretation (`PLPresent` in
+    /// `section.3.def`). An encoder that writes the list and leaves the
+    /// interpretation at its `0` default produces a file eccodes reads and the
+    /// stricter rule would refuse — a breadth regression on real data, traded
+    /// for a guard against a code nothing writes. Code `3` is the one case
+    /// where the numbers are demonstrably something else, so it is the one
+    /// refused.
+    pub fn points_per_row(&self) -> Option<&[u32]> {
+        let GridTemplate::Gaussian(t) = &self.template else {
+            return None;
+        };
+        const LIST_IS_LATITUDES: u8 = 3;
+        let counts_points = self.optional_list_interp != LIST_IS_LATITUDES;
+        // A grid with no rows is not a reduced grid. Without this, a section
+        // declaring `Nj = 0` and a list it does not actually carry would agree
+        // with itself and report a `0 × 0` raster, where the same section read
+        // as a regular grid reports no dimensions at all.
+        (t.is_reduced
+            && counts_points
+            && !self.row_widths.is_empty()
+            && self.row_widths.len() == t.nj as usize)
+            .then_some(self.row_widths.as_slice())
+    }
+
+    /// `(ni, nj)` if the grid has a raster shape. For a reduced grid `ni` is the
+    /// *widest* row — the column count the row-expanded raster needs — paired
+    /// with the true row count `Nj`, exactly as `fieldglass_grib1` reports it.
+    /// That pair is derived, not stated: the file says `N32`, which
+    /// [`Self::size_label`] answers with and a display should prefer.
     pub fn dimensions(&self) -> Option<(u32, u32)> {
         match &self.template {
             GridTemplate::LatLon(t) => Some((t.ni, t.nj)),
@@ -633,7 +687,12 @@ impl GridDefinitionSection {
             GridTemplate::PolarStereographic(t) => Some((t.nx, t.ny)),
             GridTemplate::Lambert(t) => Some((t.nx, t.ny)),
             GridTemplate::LambertAzimuthal(t) => Some((t.nx, t.ny)),
-            GridTemplate::Gaussian(t) => t.ni.map(|ni| (ni, t.nj)),
+            // A reduced grid has no `Ni`; the raster its rows expand into
+            // does, and that is the shape every decode-side consumer needs.
+            GridTemplate::Gaussian(t) => match self.points_per_row() {
+                Some(pl) => Some((fieldglass_core::reduced_raster_width(pl), t.nj)),
+                None => t.ni.map(|ni| (ni, t.nj)),
+            },
             GridTemplate::SpaceView(t) => Some((t.nx, t.ny)),
             // Spherical harmonics are coefficients, not a gridded layout.
             GridTemplate::SphericalHarmonic(_) => None,
@@ -660,10 +719,10 @@ impl GridDefinitionSection {
     /// rather than measured — `N32` classic, `O32` octahedral.
     ///
     /// A caller showing a size should prefer this where it is present and fall
-    /// back to [`Self::dimensions`]. In this crate the two never both answer,
-    /// but `fieldglass_grib1` reports a raster shape for a reduced grid that
-    /// the file itself does not state, and the two crates should describe the
-    /// same grid the same way.
+    /// back to [`Self::dimensions`]. A reduced grid answers both since #503:
+    /// the label is what the file says, the dimensions are the raster this
+    /// crate expands its rows into. `fieldglass_grib1` answers the same way for
+    /// the same grid.
     ///
     /// Formatting lives here rather than in a host because the convention is
     /// per-family domain knowledge — `T639` is not a string a UI should be
@@ -809,6 +868,13 @@ impl GridDefinitionSection {
             GridTemplate::PolarStereographic(_) => "polar_stereo".to_string(),
             GridTemplate::Lambert(_) => "lambert".to_string(),
             GridTemplate::LambertAzimuthal(_) => "lambert_azimuthal".to_string(),
+            // eccodes calls these `regular_gg` and `reduced_gg`, and
+            // `fieldglass_grib1` calls the second `reduced_gaussian`. One
+            // template number covers both, but they are not the same grid: one
+            // has a constant `Ni` and the other a `PL` list, and the message
+            // table shows this string to a reader. Naming them apart is what
+            // lets the same grid read the same way in both editions (#503).
+            GridTemplate::Gaussian(t) if t.is_reduced => "reduced_gaussian".to_string(),
             GridTemplate::Gaussian(_) => "gaussian".to_string(),
             GridTemplate::SpaceView(_) => "space_view".to_string(),
             GridTemplate::SphericalHarmonic(_) => "spherical_harmonic".to_string(),
@@ -868,6 +934,30 @@ pub fn undo_alternate_rows(values: &mut [Option<f64>], ni: usize) {
     }
 }
 
+/// The ragged sibling of [`undo_alternate_rows`], for a reduced grid whose rows
+/// differ in width.
+///
+/// Row `j` holds `points_per_row[j]` stored values, so there is no single `ni`
+/// to step by; the odd rows are still the ones stored east-to-west. This runs
+/// on the *stored* field, before row expansion — reversing an expanded row is
+/// not the same operation, because expansion maps columns by longitude and a
+/// reversal after it would land the row half a cell off.
+///
+/// No reduced grid in the wild sets the alternate-row flag (they carry simple
+/// or complex packing written west-to-east), so this exists to keep the flag
+/// honoured rather than quietly ignored on one grid family.
+pub fn undo_alternate_reduced_rows(values: &mut [Option<f64>], points_per_row: &[u32]) {
+    let mut start = 0usize;
+    for (row, &width) in points_per_row.iter().enumerate() {
+        let width = width as usize;
+        let end = start.saturating_add(width).min(values.len());
+        if row % 2 == 1 {
+            values[start.min(end)..end].reverse();
+        }
+        start = end;
+    }
+}
+
 /// Parse the Grid Definition Section starting at `bytes[0]`.
 pub fn parse_grid_definition(bytes: &[u8]) -> Result<GridDefinitionSection, FieldglassError> {
     let header = parse_section_header(bytes)?;
@@ -909,6 +999,13 @@ pub fn parse_grid_definition_with_header(
 
     // Template payload starts at octet 15 (= byte index 14).
     let payload = &bytes[14..len];
+    // §3's optional list of numbers trails the template payload. It is read
+    // here, once, because its length and per-entry size are section fields
+    // (octets 11-12) rather than template ones — a reduced lat/lon grid would
+    // carry the same list behind template 3.0.
+    let row_widths = template_payload_len(template_number)
+        .and_then(|fixed| parse_optional_row_widths(payload, fixed, optional_list_octet_size))
+        .unwrap_or_default();
     let template = match template_number {
         0 => GridTemplate::LatLon(parse_template_3_0(payload)?),
         1 => GridTemplate::RotatedLatLon(parse_template_3_1(payload)?),
@@ -917,7 +1014,11 @@ pub fn parse_grid_definition_with_header(
         20 => GridTemplate::PolarStereographic(parse_template_3_20(payload)?),
         30 => GridTemplate::Lambert(parse_template_3_30(payload)?),
         140 => GridTemplate::LambertAzimuthal(parse_template_3_140(payload)?),
-        40 => GridTemplate::Gaussian(parse_template_3_40(payload, optional_list_octet_size)?),
+        40 => GridTemplate::Gaussian(parse_template_3_40(
+            payload,
+            optional_list_octet_size,
+            &row_widths,
+        )?),
         90 => GridTemplate::SpaceView(parse_template_3_90(payload)?),
         50 => GridTemplate::SphericalHarmonic(parse_template_3_50(payload)?),
         // Bi-Fourier spectral subdomains — 3.61 (Mercator), 3.62 (polar
@@ -937,6 +1038,7 @@ pub fn parse_grid_definition_with_header(
         optional_list_interp,
         template_number,
         template,
+        row_widths,
     })
 }
 
@@ -1281,9 +1383,25 @@ fn parse_optional_row_widths(
 /// The fixed payload length of template 3.40, before its optional `PL` list.
 const TEMPLATE_3_40_LEN: usize = 58;
 
+/// Where a template's fixed payload ends, for the templates that may carry §3's
+/// optional list of numbers behind it. `None` means this crate reads no list
+/// for that template, and the bytes past the payload are left alone.
+///
+/// Only 3.40 for now. A reduced *lat/lon* grid (3.0 with `Ni` missing) carries
+/// the same list and would be one arm more, but its template is parsed with a
+/// plain `ni: u32` and nothing downstream expands it, so reading the list would
+/// store a `PL` no caller could act on.
+fn template_payload_len(template_number: u16) -> Option<usize> {
+    match template_number {
+        40 => Some(TEMPLATE_3_40_LEN),
+        _ => None,
+    }
+}
+
 fn parse_template_3_40(
     p: &[u8],
     optional_list_octet_size: u8,
+    row_widths: &[u32],
 ) -> Result<GaussianTemplate, FieldglassError> {
     if p.len() < TEMPLATE_3_40_LEN {
         return Err(FieldglassError::Parse(format!(
@@ -1297,9 +1415,8 @@ fn parse_template_3_40(
     // no more and no fewer. A list of any other length describes a grid this
     // does not understand, and a confident `O`/`N` on it would be a guess.
     let is_octahedral = is_reduced
-        && parse_optional_row_widths(p, TEMPLATE_3_40_LEN, optional_list_octet_size).is_some_and(
-            |widths| widths.len() == nj as usize && fieldglass_core::is_octahedral_pl(&widths),
-        );
+        && row_widths.len() == nj as usize
+        && fieldglass_core::is_octahedral_pl(row_widths);
     Ok(GaussianTemplate {
         shape_of_earth: p[0],
         ni: read_u32_or_missing(&p[16..20]),
@@ -1991,6 +2108,37 @@ mod tests {
         );
     }
 
+    /// A section declaring no rows is not a reduced grid.
+    ///
+    /// `Nj = 0` with a list the section does not carry makes the length gate
+    /// agree with itself — zero entries, zero rows — and `dimensions` would then
+    /// report a `0 × 0` raster for a message that states no shape at all. The
+    /// same octets read as a regular Gaussian grid report `None`, and that is
+    /// the honest answer for both.
+    #[test]
+    fn a_section_with_no_rows_is_not_a_reduced_grid() {
+        let mut payload = vec![0u8; TEMPLATE_3_40_LEN];
+        payload[16..20].copy_from_slice(&u32::MAX.to_be_bytes()); // Ni missing
+        payload[20..24].copy_from_slice(&0u32.to_be_bytes()); // Nj = 0
+        let widths = parse_optional_row_widths(&payload, TEMPLATE_3_40_LEN, 2);
+        assert_eq!(widths, None, "there are no bytes past the template");
+        let template = parse_template_3_40(&payload, 2, &[]).expect("parses");
+        assert!(template.is_reduced, "the section declares a list");
+
+        let gds = GridDefinitionSection {
+            section_length: 14 + TEMPLATE_3_40_LEN as u32,
+            source: 0,
+            num_data_points: 0,
+            optional_list_octet_size: 2,
+            optional_list_interp: 1,
+            template_number: 40,
+            template: GridTemplate::Gaussian(template),
+            row_widths: Vec::new(),
+        };
+        assert_eq!(gds.points_per_row(), None, "no rows, no PL list");
+        assert_eq!(gds.dimensions(), None, "and so no raster either");
+    }
+
     /// A `PL` list of the wrong length never produces a grid name.
     ///
     /// The classification is gated on the list holding exactly `Nj` rows. A
@@ -2006,7 +2154,9 @@ mod tests {
         for width in [20u16, 24, 28] {
             payload.extend_from_slice(&width.to_be_bytes());
         }
-        let template = parse_template_3_40(&payload, 2).expect("parses");
+        let widths =
+            parse_optional_row_widths(&payload, TEMPLATE_3_40_LEN, 2).expect("a readable list");
+        let template = parse_template_3_40(&payload, 2, &widths).expect("parses");
         assert!(template.is_reduced, "a list is present");
         assert!(
             !template.is_octahedral,

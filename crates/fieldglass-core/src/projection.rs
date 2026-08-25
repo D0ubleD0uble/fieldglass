@@ -288,6 +288,85 @@ pub fn is_octahedral_pl(points_per_row: &[u32]) -> bool {
     true
 }
 
+/// Width of the regular raster a reduced grid's rows expand into: its widest
+/// row (`0` for an empty list).
+///
+/// A reduced grid's rows differ in width, so the only rectangle that holds all
+/// of them without dropping a point is `max(PL) × PL.len()`. This is the `ni`
+/// GRIB1 and GRIB2 both report from `dimensions()`, and the width
+/// [`expand_reduced_to_regular`] widens each row to.
+pub fn reduced_raster_width(points_per_row: &[u32]) -> u32 {
+    points_per_row.iter().copied().max().unwrap_or(0)
+}
+
+/// Longitude of the last column of the raster [`expand_reduced_to_regular`]
+/// builds, given the grid's declared first longitude and the raster width.
+///
+/// **The message's own last-point longitude cannot be used here.** Under §3's
+/// interpretation code 1 — "numbers define number of points corresponding to
+/// full coordinate circles", which is what every reduced grid in the wild
+/// carries — each row spans the whole circle in `PL[j]` steps, and the code
+/// itself warns that "extreme coordinate values given in grid definition may
+/// not be reached in all rows". ECMWF writes `lo2` from the *reference regular*
+/// grid, `4N` columns wide. For a classic `N32` that is also the widest row
+/// (128) and the two agree; for an octahedral `O32` the widest row is 144, and
+/// trusting the declared 357.1875° would place the raster's 144 columns on a
+/// 128-column grid — every column east of Greenwich drawn up to an eighth of a
+/// cell west of where its data actually is.
+///
+/// The expanded raster puts column `k` at `lon_first + k·360/width` by
+/// construction, so its last column is `lon_first + (width - 1)·360/width`.
+/// Returns `lon_first` for a degenerate zero width.
+pub fn reduced_raster_lon_last(lon_first: f64, width: u32) -> f64 {
+    if width == 0 {
+        return lon_first;
+    }
+    lon_first + f64::from(width - 1) * 360.0 / f64::from(width)
+}
+
+/// Widen a reduced (quasi-regular) grid's row-packed `values` into a regular
+/// `max(PL) × PL.len()` raster, so the regular-grid render and reproject paths
+/// apply unchanged. `values` is the field in storage order — `PL[j]` points for
+/// row `j`, concatenated — and the result is row-major `width` columns per row,
+/// with `width = max(PL)` ([`reduced_raster_width`]).
+///
+/// Each reduced row holds `PL[j]` points equispaced around the **full longitude
+/// circle** (`Δλ = 360°/PL[j]`), which is how every standard reduced grid
+/// (ECMWF `reduced_gg` / `reduced_ll`) is laid out. So output column `k` maps to
+/// the nearest source column *by longitude*, wrapping at the antimeridian —
+/// `round(k·PL[j] / width) mod PL[j]` — not by proportional index, which would
+/// stretch a narrow polar row across the whole width and misregister it east to
+/// west. Masked (`None`) points are carried through. The widest row(s) map
+/// one-to-one.
+///
+/// The caller is responsible for refusing a `width · PL.len()` beyond whatever
+/// point cap it enforces; both readers do so before reaching here.
+pub fn expand_reduced_to_regular(
+    values: &[Option<f64>],
+    points_per_row: &[u32],
+    width: usize,
+) -> Vec<Option<f64>> {
+    let mut out = Vec::with_capacity(width.saturating_mul(points_per_row.len()));
+    let mut offset = 0usize;
+    for &count in points_per_row {
+        let count = count as usize;
+        let row = &values[offset.min(values.len())..(offset + count).min(values.len())];
+        if row.is_empty() {
+            out.resize(out.len() + width, None);
+        } else {
+            let len = row.len();
+            for k in 0..width {
+                // Nearest source column by longitude, with antimeridian wrap:
+                // (k·len + width/2) / width rounds k·len/width to nearest.
+                let src = (k * len + width / 2) / width % len;
+                out.push(row[src]);
+            }
+        }
+        offset += count;
+    }
+    out
+}
+
 /// Return the `2N` Gauss–Legendre quadrature nodes in degrees of
 /// latitude, ordered north-to-south (matching the GRIB convention).
 /// Roots are computed iteratively per Numerical Recipes §4.6.
@@ -5339,5 +5418,88 @@ mod tests {
         assert!(!is_octahedral_pl(&[u32::MAX, 0]));
         assert!(!is_octahedral_pl(&[0, u32::MAX]));
         assert!(is_octahedral_pl(&[u32::MAX - 4, u32::MAX]));
+    }
+
+    fn vals(xs: &[f64]) -> Vec<Option<f64>> {
+        xs.iter().map(|&x| Some(x)).collect()
+    }
+
+    #[test]
+    fn widest_rows_map_one_to_one() {
+        // A full-width row is copied through unchanged.
+        let out = expand_reduced_to_regular(&vals(&[10.0, 20.0, 30.0, 40.0]), &[4], 4);
+        assert_eq!(out, vals(&[10.0, 20.0, 30.0, 40.0]));
+    }
+
+    #[test]
+    fn narrow_row_maps_by_longitude_and_wraps_at_antimeridian() {
+        // Row of 4 points (a,b,c,d at 0°, 90°, 180°, 270°) widened to 8 columns
+        // (0°, 45°, …, 315°). Each output column takes its nearest-longitude
+        // source point, and the last column (315°) wraps to a (at 360°≡0°) —
+        // not to d, which a proportional-index stretch would wrongly pick.
+        let out = expand_reduced_to_regular(&vals(&[1.0, 2.0, 3.0, 4.0]), &[4], 8);
+        assert_eq!(out, vals(&[1.0, 2.0, 2.0, 3.0, 3.0, 4.0, 4.0, 1.0]));
+    }
+
+    #[test]
+    fn two_point_row_wraps() {
+        // [a,b] at 0°/180° → 4 columns at 0°/90°/180°/270°: a, b, b, a (the 90°
+        // and 270° ties round up / wrap).
+        let out = expand_reduced_to_regular(&vals(&[1.0, 2.0]), &[2], 4);
+        assert_eq!(out, vals(&[1.0, 2.0, 2.0, 1.0]));
+    }
+
+    #[test]
+    fn single_point_row_fills_width() {
+        // A one-point polar row spreads across the whole width.
+        let out = expand_reduced_to_regular(&vals(&[7.0]), &[1], 3);
+        assert_eq!(out, vals(&[7.0, 7.0, 7.0]));
+    }
+
+    #[test]
+    fn masked_points_are_preserved() {
+        let row = vec![Some(1.0), None, Some(3.0)];
+        let out = expand_reduced_to_regular(&row, &[3], 3);
+        assert_eq!(out, vec![Some(1.0), None, Some(3.0)]);
+    }
+
+    #[test]
+    fn multiple_rows_are_widened_independently() {
+        // Row 0: 2 points widened to 4; row 1: already 4 wide.
+        let raw = vals(&[1.0, 2.0, 10.0, 20.0, 30.0, 40.0]);
+        let out = expand_reduced_to_regular(&raw, &[2, 4], 4);
+        assert_eq!(out.len(), 8);
+        assert_eq!(&out[0..4], &vals(&[1.0, 2.0, 2.0, 1.0])[..]);
+        assert_eq!(&out[4..8], &vals(&[10.0, 20.0, 30.0, 40.0])[..]);
+    }
+
+    #[test]
+    fn a_short_values_slice_pads_the_missing_rows() {
+        // A truncated field must not index out of bounds: the rows it does not
+        // reach come back masked rather than panicking.
+        let out = expand_reduced_to_regular(&vals(&[1.0, 2.0]), &[2, 4], 4);
+        assert_eq!(out.len(), 8);
+        assert_eq!(&out[4..8], &[None, None, None, None]);
+    }
+
+    #[test]
+    fn raster_width_is_the_widest_row() {
+        assert_eq!(reduced_raster_width(&[20, 27, 128, 27, 20]), 128);
+        assert_eq!(reduced_raster_width(&[]), 0, "no rows, no raster");
+    }
+
+    #[test]
+    fn raster_lon_last_is_derived_from_the_width_not_the_file() {
+        // Classic N32: the widest row is 128, and 127·360/128 = 357.1875 is
+        // exactly the `lo2` ECMWF writes into the section, so nothing moves.
+        assert!((reduced_raster_lon_last(0.0, 128) - 357.1875).abs() < 1e-9);
+        // Octahedral O32: the widest row is 144, but the same file still
+        // declares 357.1875 (the 4N reference grid). The raster's last column
+        // is at 357.5, and using the declared value would shift it west.
+        assert!((reduced_raster_lon_last(0.0, 144) - 357.5).abs() < 1e-9);
+        // A one-column raster's only column is its first.
+        assert_eq!(reduced_raster_lon_last(0.0, 1), 0.0);
+        // Degenerate: no columns, no offset to apply.
+        assert_eq!(reduced_raster_lon_last(-180.0, 0), -180.0);
     }
 }

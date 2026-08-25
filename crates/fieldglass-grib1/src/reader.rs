@@ -133,6 +133,20 @@ impl Grib1Reader {
                 "grid {ni}×{nj} = {expected_count} points exceeds cap of {MAX_GRID_POINTS}"
             )));
         }
+        // For a reduced grid the two counts differ, and it is the raster — not
+        // the stored field — that a consumer allocates after row expansion. One
+        // wide row among a million narrow ones passes the cap above on
+        // `sum(PL)` while describing a 10^14-point rectangle, so cap the shape
+        // `dimensions()` promises as well. (For a regular grid this is the
+        // check just made, again.)
+        let raster = (ni as usize)
+            .checked_mul(nj as usize)
+            .filter(|n| *n <= MAX_GRID_POINTS);
+        if raster.is_none() {
+            return Err(FieldglassError::Parse(format!(
+                "grid {ni}×{nj} expands to a raster exceeding the cap of {MAX_GRID_POINTS}"
+            )));
+        }
         // `cols` drives the uniform-width boustrophedonic undo in second-order
         // packing. A reduced grid's rows differ in width, so a single column
         // count is meaningless; pass 0 to skip it (correct for the simple/IEEE

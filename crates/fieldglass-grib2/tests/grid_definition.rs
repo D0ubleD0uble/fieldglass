@@ -117,10 +117,20 @@ fn ecmwf_gaussian_decodes_template_3_40_reduced() {
     assert!((t.la1 - 87.8638).abs() < 1e-3, "la1={}", t.la1);
     assert!((t.la2 - (-87.8638)).abs() < 1e-3);
 
-    // Reduced grids cannot report dimensions but bounds remain meaningful.
-    assert_eq!(msg.gds.dimensions(), None);
+    // No constant Ni in the template, but the section keeps the `PL` list, and
+    // `dimensions` reports the raster those rows expand into (#503) — 128 wide,
+    // the widest row, by the 64 rows. Bounds stay what the file declares.
+    assert_eq!(
+        msg.gds.points_per_row().map(<[u32]>::len),
+        Some(64),
+        "one width per row",
+    );
+    assert_eq!(msg.gds.dimensions(), Some((128, 64)));
     assert!(msg.gds.bounds().is_some());
-    assert_eq!(msg.gds.template_name(), "gaussian");
+    // eccodes calls this grid `reduced_gg` and `fieldglass_grib1` calls it
+    // `reduced_gaussian`; one template number covers both variants, but the
+    // message table shows this string and the two are not the same grid (#503).
+    assert_eq!(msg.gds.template_name(), "reduced_gaussian");
     assert_eq!(lookup_grid_template(40), "Gaussian latitude/longitude");
 }
 
@@ -519,16 +529,20 @@ const REGULAR_GAUSSIAN: &[u8] = include_bytes!("fixtures/regular_gaussian_f32.gr
 /// `size_label` answers where `dimensions` does not, on every fixture the crate
 /// ships (#416).
 ///
-/// The two are complements, and asserting that across the real corpus is what
-/// stops a future template being added to one and forgotten in the other —
-/// which would show a field as either sizeless or double-sized.
+/// The two divide the corpus, and asserting that across it is what stops a
+/// future template being added to one and forgotten in the other — which would
+/// show a field as either sizeless or double-sized.
 ///
-/// Reduced Gaussian was the one grid neither answered for, which this test
-/// found and #500 closed: `ni` is `None` because the row width varies, so
-/// `dimensions` gives nothing, and it carries a name instead.
+/// Three groups, not two. Most grids are measured: `Ni × Nj` is the answer and
+/// there is no name to give. Spectral, bi-Fourier and HEALPix fields are named
+/// only: they have no raster at all, and reporting one would invent it. Reduced
+/// Gaussian grids are the third case — named *and* shaped. The name is what the
+/// file says (`N32`), the shape is the raster this crate expands its rows into
+/// (#503), and a display prefers the name. It was the grid neither answered for
+/// before #500, which this test found.
 #[test]
 fn size_label_and_dimensions_are_complements() {
-    let gridded: &[(&str, &[u8])] = &[
+    let measured: &[(&str, &[u8])] = &[
         ("latlon", GFS_LATLON),
         ("lambert", ETA_LAMBERT),
         ("rotated", ROTATED_LATLON),
@@ -536,24 +550,20 @@ fn size_label_and_dimensions_are_complements() {
         ("transverse mercator", TRANSVERSE_MERCATOR),
         ("lambert azimuthal", LAMBERT_AZIMUTHAL),
     ];
-    for (name, bytes) in gridded {
+    for (name, bytes) in measured {
         let reader = Grib2Reader::from_bytes(bytes.to_vec()).expect("parse");
         let gds = &reader.messages[0].gds;
         assert!(gds.dimensions().is_some(), "{name} has dimensions");
         assert_eq!(gds.size_label(), None, "{name} needs no size label");
     }
 
-    let gridless: &[(&str, &[u8], &str)] = &[
+    let named_only: &[(&str, &[u8], &str)] = &[
         ("spectral", SPECTRAL_T63, "T63"),
         ("bi-Fourier", BIFOURIER, "N3 M4"),
         ("HEALPix Nside 2", HEALPIX_N2, "Nside 2"),
         ("HEALPix Nside 4", HEALPIX_N4, "Nside 4"),
-        // Rows of differing width, so no constant Ni — but the grid has a
-        // name, and eccodes reads back the same two (#500).
-        ("classic reduced Gaussian", ECMWF_GAUSSIAN, "N32"),
-        ("octahedral reduced Gaussian", OCTAHEDRAL_O32, "O32"),
     ];
-    for (name, bytes, expected) in gridless {
+    for (name, bytes, expected) in named_only {
         let reader = Grib2Reader::from_bytes(bytes.to_vec()).expect("parse");
         let gds = &reader.messages[0].gds;
         assert_eq!(gds.dimensions(), None, "{name} has no Ni x Nj");
@@ -561,6 +571,34 @@ fn size_label_and_dimensions_are_complements() {
             gds.size_label().as_deref(),
             Some(*expected),
             "{name} states its own size"
+        );
+    }
+
+    // Rows of differing width: no constant Ni, but a raster to expand into and
+    // a name the file states. The raster is strictly larger than the field,
+    // which is why the name is the one to show.
+    // (label, fixture, size label, raster width) — the row count is 64 for both.
+    let named_and_shaped: &[(&str, &[u8], &str, u32)] = &[
+        ("classic reduced Gaussian", ECMWF_GAUSSIAN, "N32", 128),
+        ("octahedral reduced Gaussian", OCTAHEDRAL_O32, "O32", 144),
+    ];
+    for (name, bytes, expected, width) in named_and_shaped {
+        let reader = Grib2Reader::from_bytes(bytes.to_vec()).expect("parse");
+        let gds = &reader.messages[0].gds;
+        assert_eq!(
+            gds.dimensions(),
+            Some((*width, 64)),
+            "{name} expands to a raster"
+        );
+        assert_eq!(
+            gds.size_label().as_deref(),
+            Some(*expected),
+            "{name} states its own size"
+        );
+        assert!(
+            (gds.num_data_points as usize) < *width as usize * 64,
+            "{name}: the raster must be larger than the field, or there is \
+             nothing for the name to be more honest about"
         );
     }
 }
@@ -590,6 +628,12 @@ fn a_regular_gaussian_grid_reports_dimensions_and_no_name() {
     assert!(!t.is_octahedral, "and so cannot be octahedral");
     assert!(gds.dimensions().is_some(), "a regular grid has Ni x Nj");
     assert_eq!(gds.size_label(), None, "and needs no name of its own");
+    assert_eq!(
+        gds.template_name(),
+        "gaussian",
+        "and is not named as the reduced variant"
+    );
+    assert_eq!(gds.points_per_row(), None, "a regular grid lists no rows");
 }
 
 /// The `O`/`N` split is read off the row widths, not off `N`.

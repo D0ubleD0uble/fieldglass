@@ -83,11 +83,24 @@ Reduced Gaussian is the same question with the answer the other way round, and
 it constrains the conversion rather than the view: `GaussianParams::ni` is a
 plain `u32`, so the variant as drawn can only hold a *regular* grid, while the
 rows of a reduced one differ in width. Converting one means choosing what `ni`
-means — GRIB1 supplies the widest row, because that is the raster it expands
-into, and GRIB2 has no answer at all since it does not yet decode reduced grids.
-Whichever is chosen, the grid's own name (`N32`, `O32`, and `F32` for the
-regular case eccodes also names) is not recoverable from `ni` and `nj`, so it
-travels beside them the way `Nside` does (#500).
+means, and both readers now answer the same way: the widest row, because that is
+the raster they expand into (#503). The eastern corner that travels with it is
+derived from that width rather than read from the message — an octahedral grid
+declares `lo2` from the narrower `4N` reference grid, so the file's own value
+does not describe the raster. **That derivation currently lives at the napi
+render seam, and #464 has to carry it across**: a `GridGeometry::Gaussian` built
+straight from the GDS would take `lo2` at face value and misplace every
+octahedral grid by up to an eighth of a cell. The grid's own name (`N32`, `O32`,
+and `F32` for the regular case eccodes also names) is not recoverable from `ni`
+and `nj`, so it travels beside them the way `Nside` does (#500).
+
+The family tag is the other thing the conversion loses. Both readers report
+`reduced_gaussian` today, which is what eccodes calls `reduced_gg` and what the
+message table shows; `GridGeometry::kind` answers `"gaussian"` for the variant
+that holds it, and `label` falls through to `kind` for a modelled family. So
+#464 either widens the variant, adds the reduced flag beside `ni`, or accepts
+that the grid-type column stops distinguishing the two — a choice to make
+deliberately rather than discover (#503).
 
 ## NetCDF: curvilinear grids
 

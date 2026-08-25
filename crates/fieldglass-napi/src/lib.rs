@@ -1856,10 +1856,27 @@ impl Grib1Handle {
             Ok((raw, meta, ni as u32, nj as u32))
         } else {
             let raw = self.cached_decode(message_index)?;
-            let meta = self.message_meta(message_index)?;
             let (ni, nj) = grib1_dimensions(&self.reader, message_index as usize)?;
+            let meta = self.grid_meta(message_index, ni)?;
             Ok((raw, meta, ni, nj))
         }
+    }
+
+    /// The declared meta, with a reduced grid's geometry replaced by the raster
+    /// its rows expand into (see [`reduced_render_meta`]).
+    fn grid_meta(&self, message_index: u32, ni: u32) -> napi::Result<MessageMeta> {
+        let meta = self.message_meta(message_index)?;
+        let reduced = self
+            .reader
+            .messages
+            .get(message_index as usize)
+            .and_then(|m| m.gds.as_ref())
+            .is_some_and(|gds| gds.points_per_row().is_some());
+        Ok(if reduced {
+            reduced_render_meta(meta, ni)
+        } else {
+            meta
+        })
     }
 
     /// Just the resolved geometry of a message (#330) — the spectral synthesis
@@ -1870,7 +1887,8 @@ impl Grib1Handle {
             let (ni, nj) = spectral_render_dims(truncation);
             Ok(spectral_meta(self.message_meta(message_index)?, ni, nj))
         } else {
-            self.message_meta(message_index)
+            let (ni, _) = grib1_dimensions(&self.reader, message_index as usize)?;
+            self.grid_meta(message_index, ni)
         }
     }
 
@@ -1934,7 +1952,7 @@ impl Grib1Handle {
         {
             Some(gds) => match (gds.points_per_row(), gds.dimensions()) {
                 (Some(pl), Some((width, _))) => {
-                    fieldglass_grib1::expand_reduced_to_regular(&raw, pl, width as usize)
+                    fieldglass_core::expand_reduced_to_regular(&raw, pl, width as usize)
                 }
                 _ => raw,
             },
@@ -2241,19 +2259,31 @@ impl Grib2Handle {
             Ok((raw, meta, ni as u32, nj as u32))
         } else {
             let raw = self.cached_decode(message_index)?;
-            let meta = self.message_meta(message_index)?;
-            let msg = self
-                .reader
-                .messages
-                .get(message_index as usize)
-                .ok_or_else(|| {
-                    napi::Error::from_reason("message index out of range".to_string())
-                })?;
-            let (ni, nj) = msg.gds.dimensions().ok_or_else(|| {
-                napi::Error::from_reason("grid has no declared dimensions".to_string())
-            })?;
+            let (meta, ni, nj) = self.grid_meta(message_index)?;
             Ok((raw, meta, ni, nj))
         }
+    }
+
+    /// The declared meta plus the raster shape, with a reduced grid's geometry
+    /// replaced by the raster its rows expand into (see
+    /// [`reduced_render_meta`]).
+    fn grid_meta(&self, message_index: u32) -> napi::Result<(MessageMeta, u32, u32)> {
+        let meta = self.message_meta(message_index)?;
+        let gds = &self
+            .reader
+            .messages
+            .get(message_index as usize)
+            .ok_or_else(|| napi::Error::from_reason("message index out of range".to_string()))?
+            .gds;
+        let (ni, nj) = gds.dimensions().ok_or_else(|| {
+            napi::Error::from_reason("grid has no declared dimensions".to_string())
+        })?;
+        let meta = if gds.points_per_row().is_some() {
+            reduced_render_meta(meta, ni)
+        } else {
+            meta
+        };
+        Ok((meta, ni, nj))
     }
 
     /// Resolved geometry only (#330), no decode/synthesis — sibling to
@@ -2271,7 +2301,7 @@ impl Grib2Handle {
                 360.0 - 360.0 / ni as f64,
             ))
         } else {
-            self.message_meta(message_index)
+            Ok(self.grid_meta(message_index)?.0)
         }
     }
 
@@ -2317,6 +2347,11 @@ impl Grib2Handle {
             .reader
             .decode_message_values(message_index as usize)
             .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        let gds = self
+            .reader
+            .messages
+            .get(message_index as usize)
+            .map(|m| &m.gds);
         // Undo alternate-row (boustrophedon) scanning here, at the single decode
         // boundary, so every downstream path (decode_grid, render, overlay) sees
         // a regular Ni·Nj raster the projector can address as `raw[j·ni + i]`.
@@ -2324,16 +2359,30 @@ impl Grib2Handle {
         // the real-world case, and the decode is otherwise correct — the scan
         // sign flags fold into the projection, but the alternate-row flip cannot.
         // Only the common i-consecutive layout (bit 3 0x20 clear) is handled.
-        if let Some(gds) = self
-            .reader
-            .messages
-            .get(message_index as usize)
-            .map(|m| &m.gds)
-            && let (Some(sm), Some((ni, _nj))) = (gds.scanning_mode(), gds.dimensions())
+        // A reduced grid is flipped by its own row widths, on the stored field,
+        // before the expansion below widens it.
+        if let Some(gds) = gds
+            && let Some(sm) = gds.scanning_mode()
             && sm & fieldglass_grib2::SCAN_ALTERNATE_ROWS != 0
             && sm & fieldglass_grib2::SCAN_J_CONSECUTIVE == 0
         {
-            fieldglass_grib2::undo_alternate_rows(&mut raw, ni as usize);
+            match gds.points_per_row() {
+                Some(pl) => fieldglass_grib2::undo_alternate_reduced_rows(&mut raw, pl),
+                None => {
+                    if let Some((ni, _nj)) = gds.dimensions() {
+                        fieldglass_grib2::undo_alternate_rows(&mut raw, ni as usize);
+                    }
+                }
+            }
+        }
+        // Reduced grids decode to sum(PL) points laid out row by row. Expand
+        // each row to the widest-row width here, at the same single boundary
+        // `Grib1Handle` does it at, so every downstream path sees a regular
+        // Ni·Nj field and the `width·height == len` invariant holds (#503).
+        if let Some(gds) = gds
+            && let (Some(pl), Some((width, _))) = (gds.points_per_row(), gds.dimensions())
+        {
+            raw = fieldglass_core::expand_reduced_to_regular(&raw, pl, width as usize);
         }
         let arc = std::sync::Arc::new(raw);
         self.decoded
@@ -3227,6 +3276,29 @@ fn spectral_meta(base: MessageMeta, ni: usize, nj: usize) -> MessageMeta {
     // the vector (`(ni-1)·360/ni` is bit-identical to the synthesized value).
     let lon_last = (ni as f64 - 1.0) * 360.0 / ni as f64;
     spectral_render_meta_from(base, ni as i32, nj as i32, lon_last)
+}
+
+/// The render geometry of a reduced grid, which is the raster its rows expand
+/// into — not the grid the message declares (#503).
+///
+/// Everything downstream of `cached_decode` sees `max(PL) × Nj` values, so the
+/// meta the warp reads has to describe that rectangle. The corner it cannot
+/// take from the file is the eastern one: under §3's interpretation code 1 each
+/// row spans the whole circle in its own number of steps, and ECMWF writes
+/// `lo2` from the `4N`-wide *reference* grid. For a classic `N32` that is the
+/// widest row too and nothing moves; for an octahedral `O32` the widest row is
+/// 144 against a declared 128, and trusting the file would draw every column up
+/// to an eighth of a cell west of its data.
+///
+/// The same override the spectral and HEALPix paths make for the same reason:
+/// the message table keeps showing what the file says, and only the render
+/// geometry is derived.
+fn reduced_render_meta(base: MessageMeta, width: u32) -> MessageMeta {
+    let lon_first = base.lon_first.unwrap_or(0.0);
+    MessageMeta {
+        lon_last: Some(fieldglass_core::reduced_raster_lon_last(lon_first, width)),
+        ..base
+    }
 }
 
 /// Build the `"latlon"` [`MessageMeta`] for a field put onto a global grid at
@@ -4494,6 +4566,15 @@ const GEOLOCATABLE_GRIDS: &[(&str, &str)] = &[
     ("mercator", "Mercator"),
     ("rotated_latlon", "rotated lat/lon"),
     ("gaussian", "Gaussian"),
+    // A reduced grid reaches every consumer already widened to a regular
+    // raster, whose columns are evenly spaced by construction — so the forward
+    // map is its family's, on the derived geometry `reduced_render_meta`
+    // supplies. GRIB2 has always taken this route, reporting a reduced Gaussian
+    // grid as `"gaussian"`; GRIB1 names its reduced grids and was refused here
+    // while its *inverse* map already treated them the same way, so the image
+    // and the contours over it disagreed about one grid (#503).
+    ("reduced_latlon", "reduced lat/lon"),
+    ("reduced_gaussian", "reduced Gaussian"),
     ("lambert", "Lambert conformal"),
     ("polar_stereo", "polar stereographic"),
     ("transverse_mercator", "transverse Mercator"),
@@ -4534,7 +4615,7 @@ fn forward_geolocation_for(
         return Err(napi::Error::from_reason(unsupported(grid_type)));
     }
     match grid_type {
-        "latlon" => {
+        "latlon" | "reduced_latlon" => {
             let p = LatLonParams {
                 ni,
                 nj,
@@ -4573,7 +4654,7 @@ fn forward_geolocation_for(
             };
             Ok(Box::new(move |i, j| rotated_latlon_point(&p, i, j)))
         }
-        "gaussian" => {
+        "gaussian" | "reduced_gaussian" => {
             let p = GaussianParams {
                 ni,
                 nj,
@@ -4811,9 +4892,18 @@ fn levels_by_interval(min: f64, max: f64, step: f64) -> Vec<f64> {
 /// the seam interpolated in rotated space and rotated back, which is a larger
 /// change than the gap warrants.
 fn contour_seam_wraps(meta: &MessageMeta, ni: u32) -> bool {
+    // A reduced grid's rows are widened to evenly spaced columns before anything
+    // downstream sees them, so the raster is as uniform in longitude as a
+    // regular one — and periodic in the same way, which is what the seam needs
+    // (#503). Leaving them out gave the same grid a seam gap in GRIB1 and none
+    // in GRIB2.
     let uniform_eastward_lon = matches!(
         meta.grid_type.as_deref(),
-        Some("latlon") | Some("mercator") | Some("gaussian")
+        Some("latlon")
+            | Some("mercator")
+            | Some("gaussian")
+            | Some("reduced_latlon")
+            | Some("reduced_gaussian")
     );
     uniform_eastward_lon && source_grid_is_periodic(meta, ni)
 }
@@ -9106,15 +9196,10 @@ mod planar_geolocation_tests {
         );
 
         // The types `warp_setup_for` handles that deliberately have no forward
-        // map: reduced grids (their per-row longitudes are lost in the widening)
-        // and space view (points off the disc have no position at all).
-        for grid_type in [
-            "reduced_latlon",
-            "reduced_gaussian",
-            "space_view",
-            "bifourier",
-            "",
-        ] {
+        // map: space view, where points off the disc have no position at all.
+        // Reduced grids used to be here; they are widened to a regular raster
+        // before any consumer sees them, and that raster geolocates (#503).
+        for grid_type in ["space_view", "bifourier", ""] {
             let mut meta = grib2_geometry(ETA_LAMBERT).0;
             meta.grid_type = Some(grid_type.to_string());
             let err = forward_geolocation_for(&meta, 93, 65, |gt| {
@@ -9131,6 +9216,235 @@ mod planar_geolocation_tests {
                 "the refusal for {grid_type:?} should name the grid and the supported list: {message}"
             );
         }
+    }
+}
+
+/// Reduced Gaussian grids reach every consumer as the raster their rows expand
+/// into (#503).
+///
+/// GRIB1 has decoded its reduced grids since #47 and GRIB2 since #503, from the
+/// same eccodes sample of the same `N32` grid. The point of this module is that
+/// the two agree — not just that each works — because the two crates arrive at
+/// the raster by different routes: GRIB1 names the grid `reduced_gaussian` and
+/// carries its `PL` list in the grid description, GRIB2 calls it `gaussian` and
+/// carries the list on the section.
+#[cfg(test)]
+mod reduced_grid_render_tests {
+    use super::*;
+
+    /// eccodes' `reduced_gaussian_pressure_level` sample: `N32`, 6114 points in
+    /// 64 rows, widest row 128.
+    const GRIB2_N32: &[u8] = include_bytes!(
+        "../../fieldglass-grib2/tests/fixtures/reduced_gaussian_pressure_level.grib2"
+    );
+    /// eccodes' `reduced_gg_pl_32` sample as GRIB1 — the same `N32` geometry,
+    /// with every value set to a constant (see that crate's `NOTICE.md`).
+    const GRIB1_N32: &[u8] =
+        include_bytes!("../../fieldglass-grib1/tests/fixtures/reduced_gg_n32.grib1");
+    /// The octahedral `O32` built for #500: 5248 points in 64 rows, widest row
+    /// 144 — wider than the 128-column grid the file's `lo2` describes.
+    const GRIB2_O32: &[u8] =
+        include_bytes!("../../fieldglass-grib2/tests/fixtures/octahedral_gaussian_o32.grib2");
+
+    fn grib2_handle(bytes: &[u8]) -> Grib2Handle {
+        Grib2Handle {
+            reader: Grib2Reader::from_bytes(bytes.to_vec()).expect("grib2 parse"),
+            decoded: Mutex::new(std::collections::HashMap::new()),
+            synthesized: Mutex::new(std::collections::HashMap::new()),
+        }
+    }
+
+    fn grib1_handle(bytes: &[u8]) -> Grib1Handle {
+        Grib1Handle {
+            reader: Grib1Reader::from_bytes(bytes.to_vec()).expect("grib1 parse"),
+            decoded: Mutex::new(std::collections::HashMap::new()),
+            synthesized: Mutex::new(std::collections::HashMap::new()),
+        }
+    }
+
+    fn options(projection: &str) -> RenderOptions {
+        RenderOptions {
+            projection: projection.to_string(),
+            projection_preset: None,
+            center_lat: None,
+            center_lon: None,
+            resampling: "nearest".to_string(),
+            flip_y: false,
+            range_min: None,
+            range_max: None,
+            bounds_lat_min: None,
+            bounds_lat_max: None,
+            bounds_lon_min: None,
+            bounds_lon_max: None,
+            colormap: None,
+            reverse_colormap: None,
+            scale_mode: None,
+        }
+    }
+
+    /// The decoded field is the raster, not the stored row-packed list.
+    ///
+    /// `width · height == len` is the invariant every downstream path assumes,
+    /// and the expansion at the decode boundary is what makes it hold for a
+    /// grid whose rows differ in width.
+    #[test]
+    fn a_reduced_field_reaches_consumers_as_a_full_raster() {
+        for (label, bytes, width, stored) in [
+            ("GRIB2 N32", GRIB2_N32, 128u32, 6114usize),
+            ("GRIB2 O32", GRIB2_O32, 144, 5248),
+        ] {
+            let (raw, meta, ni, nj) = grib2_handle(bytes).resolved(0).expect("resolves");
+            assert_eq!((ni, nj), (width, 64), "{label}: raster shape");
+            assert_eq!(
+                raw.len(),
+                (width as usize) * 64,
+                "{label}: expanded from {stored} stored points"
+            );
+            assert!(raw.len() > stored, "{label}: the raster is the larger one");
+            assert_eq!(
+                meta.grid_type.as_deref(),
+                Some("reduced_gaussian"),
+                "{label}"
+            );
+            assert_eq!(meta.grid_ni, Some(width as i32), "{label}");
+        }
+
+        let (raw, meta, ni, nj) = grib1_handle(GRIB1_N32).resolved(0).expect("resolves");
+        assert_eq!((ni, nj), (128, 64), "GRIB1 N32: raster shape");
+        assert_eq!(raw.len(), 128 * 64);
+        // Both editions name the grid the same way, which is what makes the
+        // message table read the same for the same file in either form.
+        assert_eq!(meta.grid_type.as_deref(), Some("reduced_gaussian"));
+    }
+
+    /// GRIB1 and GRIB2 place the same grid at the same coordinates.
+    ///
+    /// The two crates report different `grid_type` strings for it, so the
+    /// forward map has to agree across two dispatch arms rather than one — the
+    /// gap that left GRIB1 renderable but not contourable before #503. They now
+    /// name the grid the same way too, which eccodes calls `reduced_gg`.
+    #[test]
+    fn the_two_crates_place_the_same_grid_the_same_way() {
+        let (_, meta2, ni, nj) = grib2_handle(GRIB2_N32).resolved(0).expect("grib2 resolves");
+        let (_, meta1, ni1, nj1) = grib1_handle(GRIB1_N32).resolved(0).expect("grib1 resolves");
+        assert_eq!((ni, nj), (ni1, nj1), "same raster");
+
+        let forward2 = forward_geolocation_for(&meta2, ni, nj, |gt| format!("no map for {gt}"))
+            .expect("GRIB2 reduced Gaussian geolocates");
+        let forward1 = forward_geolocation_for(&meta1, ni1, nj1, |gt| format!("no map for {gt}"))
+            .expect("GRIB1 reduced Gaussian geolocates");
+
+        // Corners and a mid-grid point: enough to catch a row-order flip, a
+        // longitude offset, or a different east edge.
+        for (i, j) in [(0u32, 0u32), (127, 0), (0, 63), (127, 63), (64, 32)] {
+            let (lat2, lon2) = forward2(i, j).expect("GRIB2 places every point");
+            let (lat1, lon1) = forward1(i, j).expect("GRIB1 places every point");
+            assert!(
+                (lat2 - lat1).abs() < 1e-9 && (lon2 - lon1).abs() < 1e-9,
+                "({i},{j}): GRIB2 ({lat2}, {lon2}) vs GRIB1 ({lat1}, {lon1})"
+            );
+        }
+
+        // And they land where the file says they do: the first point is the
+        // northernmost Gaussian parallel at Greenwich, the last column one step
+        // short of the full circle.
+        let (lat, lon) = forward2(0, 0).expect("first point");
+        assert!((lat - 87.863_798_839).abs() < 1e-6, "lat {lat}");
+        assert!(lon.abs() < 1e-9, "lon {lon}");
+        let (_, east) = forward2(127, 0).expect("east edge");
+        assert!((east - 357.1875).abs() < 1e-6, "east edge {east}");
+    }
+
+    /// An octahedral grid's east edge comes from its widest row, not its `lo2`.
+    ///
+    /// Both fixtures declare `lo2 = 357.1875`, the last column of the `4N`-wide
+    /// reference grid. `O32` is 144 columns wide, so its raster's last column is
+    /// at 357.5 — trusting the file would draw all 144 columns squeezed into the
+    /// 128-column span.
+    #[test]
+    fn an_octahedral_raster_is_not_placed_on_its_declared_last_longitude() {
+        let handle = grib2_handle(GRIB2_O32);
+        let (_, meta, ni, nj) = handle.resolved(0).expect("resolves");
+        assert_eq!(ni, 144);
+        assert_eq!(meta.lon_last, Some(357.5), "derived from the widest row");
+
+        // The message table keeps showing what the file states.
+        let declared = handle.message_meta(0).expect("meta");
+        assert!(
+            (declared.lon_last.expect("lo2") - 357.1875).abs() < 1e-3,
+            "the table stays faithful to the file: {:?}",
+            declared.lon_last
+        );
+
+        let forward = forward_geolocation_for(&meta, ni, nj, |gt| format!("no map for {gt}"))
+            .expect("geolocates");
+        let (_, east) = forward(143, 0).expect("east edge");
+        assert!((east - 357.5).abs() < 1e-6, "east edge {east}");
+        // Column 128 would be the whole grid's east edge under the declared
+        // span; under the derived one it is 320°, well inside it.
+        let (_, mid) = forward(128, 0).expect("column 128");
+        assert!((mid - 320.0).abs() < 1e-6, "column 128 sits at {mid}");
+    }
+
+    /// The three consumers the issue names: render, probe, contours.
+    #[test]
+    fn a_reduced_field_renders_probes_and_contours() {
+        let handle = grib2_handle(GRIB2_N32);
+        let rendered = handle
+            .render_grid(0, options("equirectangular"))
+            .expect("renders");
+        assert!(rendered.width > 0 && rendered.height > 0);
+        assert_eq!(
+            rendered.rgba.len(),
+            (rendered.width as usize) * (rendered.height as usize) * 4,
+            "RGBA"
+        );
+        assert!(
+            rendered.rgba.as_chunks::<4>().0.iter().any(|px| px[3] > 0),
+            "the render is not fully transparent"
+        );
+        // The fixture is a 1000 hPa temperature field: 235.012 K to 312.074 K
+        // per its eccodes snapshot. A raster expanded from the wrong offsets
+        // would still paint, but the range it painted over would not be this.
+        assert!(
+            (235.0..=236.0).contains(&rendered.used_min)
+                && (312.0..=313.0).contains(&rendered.used_max),
+            "painted over {}..{}",
+            rendered.used_min,
+            rendered.used_max
+        );
+
+        let probed = handle
+            .probe(
+                0,
+                options("equirectangular"),
+                (rendered.width / 2) as u32,
+                (rendered.height / 2) as u32,
+            )
+            .expect("probe runs")
+            .expect("mid-raster pixel is on the globe");
+        let value = probed.value.expect("an unmasked cell");
+        assert!(
+            (235.0..=313.0).contains(&value),
+            "probed value {value} is outside the field's range"
+        );
+        // The probe reports where it read, which for a reduced grid is a
+        // position on the expanded raster — a grid that could not geolocate
+        // would report the value with no coordinates.
+        assert!(
+            probed.lat.is_some() && probed.lon.is_some(),
+            "the probe placed the pixel: {:?}, {:?}",
+            probed.lat,
+            probed.lon
+        );
+
+        let contours = handle
+            .project_contours(0, options("equirectangular"), None)
+            .expect("contours are drawn, not refused");
+        assert!(
+            !contours.seg_lengths.is_empty(),
+            "a global temperature field has isolines"
+        );
     }
 }
 

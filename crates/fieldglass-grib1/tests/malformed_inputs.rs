@@ -221,3 +221,90 @@ fn decode_grid_for_out_of_range_index_returns_error() {
         "expected FieldglassError::OutOfRange, got {err:?}"
     );
 }
+
+/// A reduced grid's stored field and the raster it expands into are two
+/// different sizes, and it is the raster a consumer allocates (#503).
+///
+/// The cap in front of the decode has always measured `sum(PL)`, which stays
+/// small here: 4,000 rows of one point each plus one row of 65,535, a
+/// 69,535-point field. But every row widens to the widest one, so the raster is
+/// 65,535 × 4,001 ≈ 262 million points — past the cap — from a file of 8 KB.
+/// Without the raster check the reader would hand that field to
+/// `expand_reduced_to_regular`, which would ask for ~4 GiB.
+///
+/// GRIB2 carries the same guard and the same test; this is the older of the two
+/// paths, and the one that had gone without it since reduced grids landed (#47).
+#[test]
+fn a_reduced_grid_whose_raster_exceeds_the_cap_is_refused_before_expansion() {
+    const ROWS: u32 = 4001;
+    const WIDEST: u16 = 65_535;
+
+    let widths: Vec<u16> = std::iter::repeat_n(1u16, ROWS as usize - 1)
+        .chain(std::iter::once(WIDEST))
+        .collect();
+    let stored: usize = widths.iter().map(|&w| w as usize).sum();
+    assert!(
+        stored < fieldglass_grib1::MAX_GRID_POINTS,
+        "the stored field must pass the sum(PL) cap, or this proves nothing"
+    );
+
+    let reader = Grib1Reader::from_bytes(splice_reduced_gds(REDUCED_GG, &widths))
+        .expect("the framing is well-formed");
+    let gds = reader.messages[0].gds.as_ref().expect("a GDS");
+    assert_eq!(
+        gds.points_per_row().map(<[u32]>::len),
+        Some(ROWS as usize),
+        "the hostile PL list is read as a PL list",
+    );
+    assert_eq!(gds.dimensions(), Some((WIDEST as u32, ROWS)));
+
+    let err = reader
+        .decode_message_values(0)
+        .expect_err("an over-cap raster must error, not allocate");
+    let FieldglassError::Parse(msg) = err else {
+        panic!("expected Parse error, got {err:?}");
+    };
+    assert!(
+        msg.contains("raster") && msg.contains("cap"),
+        "the error should name the raster cap, got: {msg}"
+    );
+}
+
+const REDUCED_GG: &[u8] = include_bytes!("fixtures/reduced_gg_n32.grib1");
+
+/// Rewrite `message`'s GDS `Nj` and `PL` list in place, keeping every other
+/// section, so the result scans like the fixture it came from. GRIB1 sections
+/// are `<length: u24><body>`; the GDS is the one after the PDS when the PDS's
+/// section-2 flag is set, which it is for this fixture.
+fn splice_reduced_gds(message: &[u8], widths: &[u16]) -> Vec<u8> {
+    let u24 = |v: usize| [(v >> 16) as u8, (v >> 8) as u8, v as u8];
+    let len_at = |b: &[u8], at: usize| {
+        ((b[at] as usize) << 16) | ((b[at + 1] as usize) << 8) | b[at + 2] as usize
+    };
+
+    // §0 "GRIB" + total length (3) + edition (1); §1 PDS follows.
+    let pds_start = 8;
+    let pds_len = len_at(message, pds_start);
+    let gds_start = pds_start + pds_len;
+    let gds_len = len_at(message, gds_start);
+    let gds = &message[gds_start..gds_start + gds_len];
+
+    // The `PL` list sits at `pvlLocation` (octet 5, 1-based) past `NV` vertical
+    // coordinate words; the fixture has none, so the list simply starts there.
+    let pl_start = (gds[4] as usize).saturating_sub(1) + (gds[3] as usize) * 4;
+    let mut new_gds = gds[..pl_start].to_vec();
+    // Nj lives at GDS octets 9-10 (0-based 8..10) for a Gaussian grid.
+    new_gds[8..10].copy_from_slice(&(widths.len() as u16).to_be_bytes());
+    for &w in widths {
+        new_gds.extend_from_slice(&w.to_be_bytes());
+    }
+    let new_len = new_gds.len();
+    new_gds[0..3].copy_from_slice(&u24(new_len));
+
+    let mut out = message[..gds_start].to_vec();
+    out.extend_from_slice(&new_gds);
+    out.extend_from_slice(&message[gds_start + gds_len..]);
+    let total = out.len();
+    out[4..7].copy_from_slice(&u24(total));
+    out
+}

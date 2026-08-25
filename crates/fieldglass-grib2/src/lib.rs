@@ -58,7 +58,8 @@ pub use ds::{DS_SECTION_NUMBER, decode_values};
 pub use gds::{
     GDS_SECTION_NUMBER, GaussianTemplate, GridDefinitionSection, GridTemplate, LambertTemplate,
     LatLonTemplate, SCAN_ALTERNATE_ROWS, SCAN_J_CONSECUTIVE, SpaceViewTemplate,
-    SphericalHarmonicTemplate, parse_grid_definition, undo_alternate_rows,
+    SphericalHarmonicTemplate, parse_grid_definition, undo_alternate_reduced_rows,
+    undo_alternate_rows,
 };
 pub use ids::{IDS_MIN_LEN, IDS_SECTION_NUMBER, IdentificationSection, parse_identification};
 pub use is::{
