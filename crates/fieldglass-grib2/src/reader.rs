@@ -155,13 +155,40 @@ impl Grib2Reader {
                 // boustrophedonic undo below has nothing to act on.
                 (format!("HEALPix Nside {}", t.nside), npix, None)
             }
+            // A reduced grid stores `sum(PL)` points, not `Ni·Nj` — its rows
+            // differ in width, so `dimensions()` reports the raster they expand
+            // into rather than a shape the message contains. Size the decode to
+            // the storage layout; widening to that raster is the caller's step,
+            // at the one boundary that does it (`fieldglass_core::
+            // expand_reduced_to_regular`), the way `Grib1Handle` does.
+            _ if msg.gds.points_per_row().is_some() => {
+                let pl = msg.gds.points_per_row().expect("just matched");
+                let stored = pl.iter().map(|&n| n as usize).sum::<usize>();
+                // The raster is what a consumer allocates after expanding, and
+                // it can be far larger than the stored field: one wide row
+                // among a million narrow ones is a small file describing a
+                // 10^14-point rectangle. Cap it here, where the shape is known,
+                // rather than at the allocation.
+                let width = fieldglass_core::reduced_raster_width(pl) as usize;
+                let raster = width.checked_mul(pl.len()).ok_or_else(|| {
+                    FieldglassError::Parse(format!(
+                        "reduced grid raster {width}×{} overflows usize",
+                        pl.len()
+                    ))
+                })?;
+                if raster > MAX_GRID_POINTS {
+                    return Err(FieldglassError::Parse(format!(
+                        "reduced grid expands to a raster of {raster} points, \
+                         exceeding the cap of {MAX_GRID_POINTS}"
+                    )));
+                }
+                // No single column count: the rows are of differing width, so
+                // the boustrophedonic undo below has nothing uniform to act on.
+                (format!("reduced grid of {} rows", pl.len()), stored, None)
+            }
             _ => {
                 let (ni, nj) = msg.gds.dimensions().ok_or_else(|| {
-                    FieldglassError::Parse(
-                        "grid template has no declared dimensions — reduced grids \
-                         are not yet supported for decode"
-                            .to_string(),
-                    )
+                    FieldglassError::Parse("grid template has no declared dimensions".to_string())
                 })?;
                 // checked_mul guards 32-bit usize overflow; MAX_GRID_POINTS
                 // guards OOM.
@@ -182,8 +209,9 @@ impl Grib2Reader {
         // Without this, a corrupted ni/nj can name a hundred-million-point grid
         // (still under MAX_GRID_POINTS) whose constant-field decode then
         // allocates gigabytes, even though the file carries no such data — an
-        // OOM found by the decode fuzz target. (Reduced grids return `None`
-        // from dimensions() above and never reach here.)
+        // OOM found by the decode fuzz target. A reduced grid checks the same
+        // fact about its own layout: `sum(PL)` must be the count §3 declares,
+        // which is what makes the `PL` list trustworthy enough to expand by.
         if expected_count != msg.gds.num_data_points as usize {
             return Err(FieldglassError::Parse(format!(
                 "{shape} = {expected_count} points disagree with the \
