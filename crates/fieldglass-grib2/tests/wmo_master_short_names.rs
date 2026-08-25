@@ -43,10 +43,11 @@ fn shown(triple: (u8, u8, u8)) -> Option<&'static str> {
 /// parameters and empty for 97% of the standard ones, which is backwards from
 /// what a reader expects.
 ///
-/// The 157 that remain are triples wgrib2's table does not carry; 88 of them
-/// are discipline 20, which WMO added after the snapshot wgrib2 transcribed.
-/// They resolve to name and units with an empty abbreviation, exactly as all
-/// 1346 did before.
+/// The 167 that remain are 157 triples wgrib2's table does not carry — 88 of
+/// them in discipline 20, which WMO added after the snapshot wgrib2
+/// transcribed — plus the 10 rows whose abbreviation is a wgrib2 placeholder
+/// rather than a name. They resolve to name and units with an empty
+/// abbreviation, exactly as all 1346 did before.
 #[test]
 fn master_parameter_coverage_is_what_the_table_claims() {
     let mut defined = 0usize;
@@ -61,8 +62,8 @@ fn master_parameter_coverage_is_what_the_table_claims() {
         }
     }
     assert_eq!(defined, 1387, "WMO v37 master parameters");
-    assert_eq!(named, 1230, "master parameters carrying an abbreviation");
-    assert_eq!(defined - named, 157, "master parameters still without one");
+    assert_eq!(named, 1220, "master parameters carrying an abbreviation");
+    assert_eq!(defined - named, 167, "master parameters still without one");
 }
 
 /// Spot checks against what NCO publishes.
@@ -105,5 +106,70 @@ fn spot_checks_match_the_published_ncep_abbreviations() {
             name.to_lowercase(),
             "name for {d}/{c}/{n}"
         );
+    }
+}
+
+/// No wgrib2 placeholder reaches the table.
+///
+/// Ten centre-0 rows spell an abbreviation `var2s31`..`var2s40` for parameters
+/// NCO's Code Table 4.2-3-2 publishes none for — wgrib2 filling a hole in its
+/// own fixed-width table. Showing one would replace a clean blank with a
+/// confident, useless label, which is the same reason the WMO generator drops
+/// reserved rows. The generator filters them; this is what makes that a
+/// guarantee rather than a claim about v3.8.0.
+#[test]
+fn no_placeholder_is_shown_as_a_short_name() {
+    let placeholders: Vec<_> = every_triple()
+        .filter(|&t| {
+            // `var<digits>s<digits>`, wgrib2's placeholder shape.
+            shown(t).is_some_and(|abbreviation| {
+                abbreviation.strip_prefix("var").is_some_and(|rest| {
+                    rest.split_once('s').is_some_and(|(before, after)| {
+                        !before.is_empty()
+                            && !after.is_empty()
+                            && before.bytes().all(|b| b.is_ascii_digit())
+                            && after.bytes().all(|b| b.is_ascii_digit())
+                    })
+                })
+            })
+        })
+        .collect();
+    assert!(
+        placeholders.is_empty(),
+        "wgrib2 placeholders reached the table: {placeholders:?}"
+    );
+    // And the ten specifically, so a rename upstream cannot slip past the
+    // shape check above.
+    for number in 31..=40u8 {
+        assert_eq!(
+            shown((3, 2, number)),
+            Some(""),
+            "3/2/{number} publishes no abbreviation"
+        );
+    }
+}
+
+/// The three triples where wgrib2 and NCO spell the same deprecation
+/// differently.
+///
+/// Both mark these deprecated parameters, NCO with a trailing `O` and wgrib2
+/// by spelling out `old`. Unlike the placeholders they name the right
+/// parameter and carry real information, so they ship as wgrib2 writes them
+/// rather than being dropped or hand-edited into a generated file. Pinned so a
+/// fourth is something to look at rather than something absorbed.
+#[test]
+fn known_divergences_from_the_published_spelling() {
+    let divergences: [((u8, u8, u8), &str, &str); 3] = [
+        ((0, 6, 17), "TCONDold", "TCONDO"),
+        ((0, 6, 18), "TCOLWold", "TCOLWO"),
+        ((0, 6, 19), "TCOLIold", "TCOLIO"),
+    ];
+    for (triple, wgrib2, nco) in divergences {
+        assert_eq!(
+            shown(triple),
+            Some(wgrib2),
+            "{triple:?} ships wgrib2's form"
+        );
+        assert_ne!(wgrib2, nco, "the divergence is the point of this pin");
     }
 }

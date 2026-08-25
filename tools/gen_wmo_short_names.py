@@ -56,16 +56,44 @@ everywhere, and the test asserts that agreement over every triple. A future edit
 that reintroduces a GRIB1 form on a GRIB2 triple fails the suite rather than
 quietly shadowing the generated answer.
 
+# What is dropped, and what is kept despite disagreeing
+
+Ten centre-0 rows carry a wgrib2 *placeholder* rather than an abbreviation:
+`var2s31` through `var2s40`, on discipline 3 category 2 (upper and lower layer
+cloud optical depth, top pressure, effective radius, and their errors). NCO's
+own Code Table 4.2-3-2 publishes **no abbreviation** for those parameters, so
+the string is wgrib2 filling a hole in its fixed-width table, not a name anyone
+uses. Emitting it would turn a clean blank into a confident, useless label —
+the same reason `gen_wmo_grib2_tables.py` drops WMO's reserved rows. They are
+filtered, and the filter is asserted rather than assumed: nothing matching the
+placeholder shape may reach the generated table.
+
+Three rows are kept even though they disagree with NCO, and are pinned as known
+divergences by `tests/wmo_master_short_names.rs`:
+
+| triple | wgrib2 | NCO 4.2-0-6 |
+|---|---|---|
+| 0/6/17 | `TCONDold` | `TCONDO` |
+| 0/6/18 | `TCOLWold` | `TCOLWO` |
+| 0/6/19 | `TCOLIold` | `TCOLIO` |
+
+All three are deprecated parameters, and the two tables mark the deprecation
+differently — NCO with a trailing `O`, wgrib2 by spelling out `old`. Unlike the
+placeholders these name the right parameter and carry real information, so they
+ship as wgrib2 writes them rather than being dropped or hand-edited into the
+generated file. A fourth appearing is something to look at, not to absorb.
+
 # What stays blank
 
-157 master parameters get no short name here, because wgrib2's table does not
-carry the triple. 88 of them are discipline 20 (health and socioeconomic
-impacts), a discipline WMO added after the snapshot behind wgrib2's table; the
-rest are scattered late additions. They resolve to name and units with an empty
-abbreviation, exactly as all 1346 did before.
+167 master parameters get no short name here: 157 whose triple wgrib2's table
+does not carry, plus the 10 placeholders above. 88 of the 157 are discipline 20
+(health and socioeconomic impacts), a discipline WMO added after the snapshot
+behind wgrib2's table; the rest are scattered late additions. They resolve to
+name and units with an empty abbreviation, exactly as all 1346 did before.
 """
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -87,6 +115,10 @@ MASTER_CENTRE = 0
 
 OUT = Path("crates/fieldglass-grib2/src/tables_wmo_short.rs")
 
+# wgrib2's stand-in for a parameter NCO publishes no abbreviation for. Ten rows
+# at v3.8.0, all on discipline 3 category 2; see the module docs.
+PLACEHOLDER = re.compile(r"var\d+s\d+")
+
 
 def master(triple: tuple[int, int, int]) -> bool:
     """Keep only triples the WMO master table can define.
@@ -97,6 +129,15 @@ def master(triple: tuple[int, int, int]) -> bool:
     future release that does, not a filter that drops anything today.
     """
     return 255 not in triple and not any(component in LOCAL_USE for component in triple)
+
+
+def named(entries: dict[tuple[int, int, int], tuple[str, str, str]]) -> dict:
+    """Drop the rows whose abbreviation is a placeholder, not a name."""
+    return {
+        triple: row
+        for triple, row in entries.items()
+        if row[0].strip() and not PLACEHOLDER.fullmatch(row[0])
+    }
 
 
 def render(entries: dict[tuple[int, int, int], tuple[str, str, str]]) -> str:
@@ -111,7 +152,8 @@ def render(entries: dict[tuple[int, int, int], tuple[str, str, str]]) -> str:
 //! `get_gribtab.sh` from the NCO GRIB2 documentation. Both are works of the
 //! U.S. federal government and in the public domain.
 //!
-//! {len(entries)} abbreviations. WMO publishes none of its own, so this is the
+//! {len(entries)} abbreviations, placeholders dropped. WMO publishes none of
+//! its own, so this is the
 //! third column of [`crate::tables_wmo`] arriving from a second upstream rather
 //! than a column of that table — which is what keeps `tables_wmo.rs`
 //! byte-reproducible from its own pinned WMO tag. See the generator's module
@@ -135,12 +177,14 @@ pub(crate) fn short_name(discipline: u8, category: u8, number: u8) -> Option<&'s
 
 
 def main() -> int:
-    entries = parse(fetch_table(), centre=MASTER_CENTRE, keep=master)
-    if not entries:
+    rows = parse(fetch_table(), centre=MASTER_CENTRE, keep=master)
+    if not rows:
         raise SystemExit(f"{SOURCE_URL}: no rows at centre {MASTER_CENTRE}; the table moved")
+    entries = named(rows)
     OUT.write_text(render(entries), encoding="utf-8")
     print(
-        f"wgrib2 {WGRIB2_TAG}: {len(entries)} WMO master short names -> {OUT}",
+        f"wgrib2 {WGRIB2_TAG}: {len(entries)} WMO master short names "
+        f"({len(rows) - len(entries)} placeholders dropped) -> {OUT}",
         file=sys.stderr,
     )
     return 0

@@ -6,7 +6,8 @@
 //! `get_gribtab.sh` from the NCO GRIB2 documentation. Both are works of the
 //! U.S. federal government and in the public domain.
 //!
-//! 1230 abbreviations. WMO publishes none of its own, so this is the
+//! 1220 abbreviations, placeholders dropped. WMO publishes none of
+//! its own, so this is the
 //! third column of [`crate::tables_wmo`] arriving from a second upstream rather
 //! than a column of that table — which is what keeps `tables_wmo.rs`
 //! byte-reproducible from its own pinned WMO tag. See the generator's module
@@ -904,16 +905,6 @@ pub(crate) fn short_name(discipline: u8, category: u8, number: u8) -> Option<&'s
         (3, 2, 10) => "CLDEMISS",
         (3, 2, 11) => "EAODR",
         (3, 2, 30) => "MEACST",
-        (3, 2, 31) => "var2s31",
-        (3, 2, 32) => "var2s32",
-        (3, 2, 33) => "var2s33",
-        (3, 2, 34) => "var2s34",
-        (3, 2, 35) => "var2s35",
-        (3, 2, 36) => "var2s36",
-        (3, 2, 37) => "var2s37",
-        (3, 2, 38) => "var2s38",
-        (3, 2, 39) => "var2s39",
-        (3, 2, 40) => "var2s40",
         (3, 3, 0) => "PBMVFRC",
         (3, 3, 1) => "PBLIFRC",
         (3, 3, 2) => "PBINFRC",

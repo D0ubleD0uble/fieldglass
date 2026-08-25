@@ -403,8 +403,8 @@ fn resolve_parameter(
         // Everything else falls through to the generated WMO master table.
         // WMO publishes no short names, so the abbreviation comes from a
         // second generated table (wgrib2's centre-0 rows, #469) and is only
-        // ever consulted for a triple WMO has already named — 1230 of the
-        // 1387 master parameters. The remaining 157 keep an empty
+        // ever consulted for a triple WMO has already named — 1220 of the
+        // 1387 master parameters. The remaining 167 keep an empty
         // abbreviation, which the display seam already handles.
         _ => {
             let (name, units) = crate::tables_wmo::parameter(discipline, category, number)?;
