@@ -81,6 +81,11 @@ Notes that shape the two hosts:
   the R32F texture upload is a downcast the app asks for explicitly.
 - **Colour.** Decided once, in Rust: `Palette` feeds both the CPU painter
   and the GPU lookup, and the app's `readPixels` is tested against `render()`.
+  The tolerance is one LUT entry, not zero: a shader normalises in `f32`, and
+  that moves the index for about six positions in a million against the
+  painter's `f64` rounding. `Palette::index` is the exact CPU byte,
+  `Palette::normalise` the `f32` form the shader mirrors; the bound between
+  them is pinned by `crates/fieldglass-core/tests/palette_golden.rs`.
 - **Trust.** A `.idx` range is a claim; the decoder checks the fetched bytes
   against it (magic, length, parameter) and errors on a mismatch.
 - **The extension later.** "Open URL…" in VS Code (#247) is the same

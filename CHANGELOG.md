@@ -53,6 +53,10 @@ Versioning is plain [Semantic Versioning](https://semver.org/spec/v2.0.0.html), 
 
 ### Rust API
 
+- `fieldglass_core::colormap::Palette` is new: the 256-entry RGBA lookup table, the already-transformed display domain (`t0`/`t1`), the scale mode, and the masked pixel, as one serialisable value. It is what `paint_grid_rgba` built internally, exposed so a GPU caller can upload the table and apply the same normalisation instead of writing a second colour implementation. `Palette::index` gives the exact byte the CPU painter emits; `Palette::normalise` is the `f32` form a shader mirrors, which agrees to within one table entry. `paint_grid_rgba` and `scale_position` are unchanged in signature and in output.
+- `ScaleMode` now derives `Serialize`/`Deserialize`, with the lowercase wire tags it already reported from `as_str` (`"linear"`, `"log10"`).
+- `serde_json` is built with `float_roundtrip` across the workspace. Its default float parser is not correctly rounded, so an `f64` written by `to_string` could read back one ULP away.
+
 - `fieldglass_grib2::lookup_parameter` takes an `Originator` (the §1 originating centre, sub-centre and local table version) as its first argument. Codes WMO reserves for local use — 192-254 in any of discipline, category or parameter number — are offered to that centre's table before the WMO set; everything else resolves exactly as before. `IdentificationSection::originator()` builds one from a parsed message. No centre tables are registered yet (#424-#426), so resolution is unchanged for every input today.
 - `fieldglass_grib1::tables::lookup_centre` is gone, replaced by `fieldglass_grib1::tables_cct::lookup_centre`. It returns `Option<&'static str>` rather than falling back to the string `"Unknown centre"`, matching the GRIB2 side; render the numeric id when it returns `None`.
 - `fieldglass_grib2::lookup_centre` keeps its signature but is now re-exported from the generated `tables_cct` module, and its names are WMO's own — `"European Centre for Medium Range Weather Forecasts (ECMWF) (RSMC)"` rather than the previous curated spelling.
