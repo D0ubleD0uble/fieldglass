@@ -838,6 +838,27 @@ pub fn signed_grid_increments(
 /// [`PlanarGridProjector::snap_eps`] and what [`GeostationaryProjector::
 /// inverse`] uses; geostationary cannot implement that trait, since its grid
 /// coordinates are scan angles in radians rather than projected metres.
+///
+/// # Which families snap, and which do not
+///
+/// #490 survived because nothing wrote this down. Keep it current when a
+/// family is added:
+///
+/// | Family | Snap | Unit |
+/// | --- | --- | --- |
+/// | Lambert, polar stereo, transverse Mercator | [`PlanarGridProjector::snap_eps`] default | cell fractions |
+/// | Lambert azimuthal | same hook, overridden | metres (its authalic series carries real error) |
+/// | Rotated lat/lon | its own `EDGE_EPS` | **degrees**, applied in rotated space before [`latlon_inverse`] |
+/// | Geostationary | this constant | cell fractions |
+/// | lat/lon, Mercator, Gaussian | **none** | — |
+///
+/// The last row is deliberate, not an oversight of the #490 kind. Those three
+/// invert by undoing their own forward arithmetic (`(lat - lat_first) / dlat`),
+/// so the round trip closes to ~1e-13 cells and cannot cross a bound. A family
+/// whose inverse is a *different computation* from its forward — geostationary
+/// intersects a ray with an ellipsoid — has no such guarantee and needs the
+/// snap. That is the question to ask of anything new, and
+/// `tests/grid_round_trip.rs` is where the answer is checked.
 pub const DEFAULT_SNAP_EPS: SnapEps = SnapEps::Cells(1e-9);
 
 /// back onto it. See [`PlanarGridProjector::snap_eps`].
@@ -2203,6 +2224,10 @@ impl GeostationaryProjector {
         // whether a given edge cell survives depends on that point's own
         // arithmetic — and a refused point renders as a transparent pixel.
         let (i_max, j_max) = (p.ni as f64 - 1.0, p.nj as f64 - 1.0);
+        // Only the `Cells` form means anything here: this grid's spacing is an
+        // angle, so a tolerance in metres would be divided by radians. That is
+        // also why the round trip closes to float noise and a cell fraction is
+        // the right shape — see `DEFAULT_SNAP_EPS`.
         let (eps_i, eps_j) = DEFAULT_SNAP_EPS.per_axis(p.dx_rad, p.dy_rad);
         let i = snap_to_range((x - p.x0) / p.dx_rad, 0.0, i_max, eps_i);
         let j = snap_to_range((y - p.y0) / p.dy_rad, 0.0, j_max, eps_j);
