@@ -380,53 +380,122 @@ fn rotated_latlon_inverts_every_grid_point() {
     assert_eq!(dropped, 0);
 }
 
-/// Geostationary is the one family that still fails, and it fails on `master`
-/// too — a different projector from #488's, but the same class of defect: its
-/// inverse has no edge snap, so a grid point whose scan angle carries round-off
-/// past the window bound is refused. Every drop is on the first or last row or
-/// column. Tracked as #490, and asserted as it currently behaves so that fixing
-/// it fails here and forces this test to become an ordinary one.
-#[test]
-fn geostationary_drops_border_points_until_490() {
-    let half = 0.10;
-    let p = GeostationaryParams {
-        ni: 11,
-        nj: 11,
+/// Geostationary was the one family that still failed, and it failed on
+/// `master` too — a different projector from #488's, the same class of defect:
+/// its inverse had no edge snap, so a grid point whose scan angle carried
+/// round-off past the window bound was refused (#490, fixed). `scan_angles` is
+/// a ray/ellipsoid intersection and does not return a bound exactly.
+///
+/// The windows below are the real ABI product windows rather than a synthetic
+/// sector, because the defect is a property of the window bounds — a grid point
+/// landing on one — and not of how many points lie between them. The point
+/// count is scaled down and the step derived from it.
+///
+/// `forward` returning `None` means the grid point is not a place on Earth at
+/// all, which is ordinary near the limb of a full-disc window; `round_trip_fns`
+/// skips those. A *drop* is a point that geolocates and then fails to come
+/// back, which is always a defect.
+fn abi(ni: u32, nj: u32, x: (f64, f64), y: (f64, f64)) -> GeostationaryParams {
+    GeostationaryParams {
+        ni,
+        nj,
         h_metres: 42_164_160.0,
         r_eq: 6_378_137.0,
         r_pol: 6_356_752.314_14,
         sub_lon_deg: -75.0,
         sweep_x: true,
-        x0: -half,
-        dx_rad: 2.0 * half / 10.0,
-        y0: -half,
-        dy_rad: 2.0 * half / 10.0,
-    };
-    let g = GeostationaryProjector::new(p);
-    let mut interior_dropped = 0;
-    for j in 0..p.nj {
-        for i in 0..p.ni {
-            let Some((lat, lon)) = g.grid_point_lonlat(i, j) else {
-                continue;
-            };
-            if g.inverse(lat, lon).is_none() && i != 0 && i != p.ni - 1 && j != 0 && j != p.nj - 1 {
-                interior_dropped += 1;
-            }
-        }
+        x0: x.0,
+        dx_rad: (x.1 - x.0) / (ni as f64 - 1.0),
+        // ABI rows run north to south, so the y step is negative.
+        y0: y.0,
+        dy_rad: (y.1 - y.0) / (nj as f64 - 1.0),
     }
-    // The part that must hold either way: only the border is ever affected, so
-    // #490 is an edge-snap gap and nothing deeper.
-    assert_eq!(interior_dropped, 0, "an interior point was refused");
+}
+
+fn geos_round_trip(name: &str, p: GeostationaryParams) -> u32 {
+    let g = GeostationaryProjector::new(p);
     let dropped = round_trip_fns(
-        "geostationary",
+        name,
         p.ni,
         p.nj,
         |i, j| g.grid_point_lonlat(i, j),
         |lat, lon| g.inverse(lat, lon),
-        1e-12,
+        1e-9,
     );
+    assert_eq!(
+        dropped, 0,
+        "{name}: {dropped} points on the Earth were refused"
+    );
+    dropped
+}
+
+/// The ABI CONUS window. Every one of its 37,003 on-Earth points is on the
+/// Earth, so nothing masks a dropped edge cell; before the snap, 414 were
+/// refused, all of them on the first or last row or column.
+#[test]
+fn a_conus_sector_inverts_every_grid_point() {
+    geos_round_trip(
+        "goes conus",
+        abi(250, 150, (-0.101_332, 0.038_612), (0.128_212, 0.044_268)),
+    );
+}
+
+/// A mesoscale window north-east of nadir, well inside the limb. 204 refused
+/// before the snap.
+#[test]
+fn a_mesoscale_sector_inverts_every_grid_point() {
+    geos_round_trip("goes meso", abi(100, 100, (-0.028, 0.028), (0.078, 0.022)));
+}
+
+/// A full disc, where most of the outer ring legitimately looks past the limb
+/// and is skipped rather than dropped. The assertion that matters here is that
+/// the skip and the drop stay distinguishable.
+#[test]
+fn a_full_disc_window_inverts_every_point_that_is_on_the_earth() {
+    let half = 0.151_844;
+    let p = abi(271, 271, (-half, half), (half, -half));
+    let g = GeostationaryProjector::new(p);
+    let on_earth = (0..p.nj)
+        .flat_map(|j| (0..p.ni).map(move |i| (i, j)))
+        .filter(|&(i, j)| g.grid_point_lonlat(i, j).is_some())
+        .count();
     assert!(
-        dropped > 0,
-        "#490 is fixed — turn this into an ordinary round-trip test"
+        on_earth < (p.ni * p.nj) as usize,
+        "a full disc must have off-limb corners for this to test the skip path"
     );
+    geos_round_trip("goes disc", p);
+}
+
+/// Meteosat sweeps about the other axis, which swaps the two scan-angle
+/// rotations — a different arithmetic path to the same edge. 166 refused
+/// before the snap.
+#[test]
+fn a_meteosat_sector_inverts_every_grid_point() {
+    let p = GeostationaryParams {
+        sub_lon_deg: 0.0,
+        sweep_x: false,
+        ..abi(120, 120, (-0.03, 0.03), (0.03, -0.03))
+    };
+    geos_round_trip("meteosat sector", p);
+}
+
+/// Only the border was ever affected, which is what made #490 an edge-snap gap
+/// and nothing deeper: an interior point is nowhere near a bound, so round-off
+/// cannot reach one. Kept as a standing assertion, since a future change that
+/// started refusing interior points would be a different and worse bug.
+#[test]
+fn no_interior_point_is_ever_refused() {
+    let p = abi(250, 150, (-0.101_332, 0.038_612), (0.128_212, 0.044_268));
+    let g = GeostationaryProjector::new(p);
+    for j in 1..p.nj - 1 {
+        for i in 1..p.ni - 1 {
+            let Some((lat, lon)) = g.grid_point_lonlat(i, j) else {
+                continue;
+            };
+            assert!(
+                g.inverse(lat, lon).is_some(),
+                "interior point ({i}, {j}) at ({lat}, {lon}) was refused"
+            );
+        }
+    }
 }

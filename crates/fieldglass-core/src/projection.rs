@@ -830,6 +830,16 @@ pub fn signed_grid_increments(
 /// setup (target-bbox derivation) and by GRIB `bounds()` reporting, which
 /// otherwise reimplement `origin + (n-1)·d` per projection.
 /// How far past a grid edge a computed index may sit and still be snapped
+/// The edge tolerance a projection whose round trip closes to float noise
+/// needs: a nanometre of a grid cell — far above the round-off a well-behaved
+/// round trip leaves, far below any real offset.
+///
+/// One value rather than two, because it is one rule. It is the default for
+/// [`PlanarGridProjector::snap_eps`] and what [`GeostationaryProjector::
+/// inverse`] uses; geostationary cannot implement that trait, since its grid
+/// coordinates are scan angles in radians rather than projected metres.
+pub const DEFAULT_SNAP_EPS: SnapEps = SnapEps::Cells(1e-9);
+
 /// back onto it. See [`PlanarGridProjector::snap_eps`].
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SnapEps {
@@ -901,7 +911,7 @@ pub trait PlanarGridProjector {
     /// `tests/planar_inverse_golden.rs` does that for the projectors in its
     /// table; add yours to it.
     fn snap_eps(&self) -> SnapEps {
-        SnapEps::Cells(1e-9)
+        DEFAULT_SNAP_EPS
     }
 
     /// `(lat, lon)` → fractional source-grid index, or `None` when the point
@@ -2185,9 +2195,18 @@ impl GeostationaryProjector {
             return None;
         }
         let (x, y) = self.scan_angles(lat, lon)?;
-        let i = (x - p.x0) / p.dx_rad;
-        let j = (y - p.y0) / p.dy_rad;
-        if i < 0.0 || i > p.ni as f64 - 1.0 || j < 0.0 || j > p.nj as f64 - 1.0 {
+        // The same edge snap the planar projectors apply, for the same reason.
+        // `scan_angles` is a ray/ellipsoid intersection, so it does not return
+        // a window bound exactly: a grid point sitting *on* the first or last
+        // row or column can come back a few ULPs outside it and be refused.
+        // The symptom is not a clean missing border but a speckled one, because
+        // whether a given edge cell survives depends on that point's own
+        // arithmetic — and a refused point renders as a transparent pixel.
+        let (i_max, j_max) = (p.ni as f64 - 1.0, p.nj as f64 - 1.0);
+        let (eps_i, eps_j) = DEFAULT_SNAP_EPS.per_axis(p.dx_rad, p.dy_rad);
+        let i = snap_to_range((x - p.x0) / p.dx_rad, 0.0, i_max, eps_i);
+        let j = snap_to_range((y - p.y0) / p.dy_rad, 0.0, j_max, eps_j);
+        if i < 0.0 || i > i_max || j < 0.0 || j > j_max {
             return None;
         }
         Some(GridIndex { i, j })
