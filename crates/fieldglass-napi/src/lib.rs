@@ -3214,10 +3214,14 @@ fn spectral_meta(base: MessageMeta, ni: usize, nj: usize) -> MessageMeta {
     spectral_render_meta_from(base, ni as i32, nj as i32, lon_last)
 }
 
-/// Build the `"latlon"` [`MessageMeta`] for a synthesized spectral field: the
-/// real message's `base` parameter/level/time metadata with the grid geometry
-/// replaced by the global regular lat/lon grid the field was synthesized onto.
-/// Shared by the GRIB1 and GRIB2 spectral render paths.
+/// Build the `"latlon"` [`MessageMeta`] for a field put onto a global grid at
+/// decode: the real message's `base` parameter/level/time metadata with the
+/// grid geometry replaced by the grid it was put onto.
+///
+/// Two families need it, for the same reason — neither has a raster shape of
+/// its own: spectral fields, synthesized by the inverse transform (GRIB1 and
+/// GRIB2 both), and HEALPix fields, resampled pixel by pixel (#443). The name
+/// is historical; what it builds is not spectral-specific.
 fn spectral_render_meta_from(base: MessageMeta, ni: i32, nj: i32, lon_last: f64) -> MessageMeta {
     MessageMeta {
         grid_type: Some("latlon".to_string()),
