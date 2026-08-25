@@ -16,8 +16,14 @@ categories  = ["science", "parser-implementations"]
 # `fieldglass-napi`. On by default so the workspace and downstream renderers get
 # it transitively; the format crates opt out with `default-features = false` to
 # keep their public API to the parsing surface. See the crate-level docs.
-default = ["render"]
+default = ["render", "fs"]
 render = []
+# Host-filesystem surface: `detect::detect_format`, the only thing in the four
+# format crates that touches `std::fs`. Off for hosts without a filesystem —
+# `wasm32-unknown-unknown` compiles `std::fs` but every call fails at runtime,
+# so leaving it in would silently degrade detection to extension-guessing. Not
+# a `no_std` switch: the crate still links `std` for float math.
+fs = []
 
 [dependencies]
 serde = { workspace = true }

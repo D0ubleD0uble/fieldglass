@@ -13,6 +13,13 @@
 //!   `default-features = false` to get just the parsing surface (no warp
 //!   pipeline in your API). [`projection`] stays available either way, since
 //!   decode-side consumers need it.
+//! - **`fs`** *(default)* — `detect::detect_format`, which opens a path. The
+//!   only host-filesystem call in the format crates. Depend with
+//!   `default-features = false` on a target without a filesystem;
+//!   `wasm32-unknown-unknown` compiles `std::fs` but fails every call at
+//!   runtime, so the gate is what stops detection from silently falling back to
+//!   guessing from the file extension. Not a `no_std` switch — the crate still
+//!   links `std` for float math.
 
 pub mod bits;
 pub mod bytes;
@@ -44,6 +51,7 @@ pub use contour::{
     ContourLevel, GridSegment, contour_segments, contour_segments_global, nice_levels,
 };
 pub use detect::Format;
+#[cfg(feature = "fs")]
 pub use detect::detect_format;
 pub use detect::detect_from_bytes;
 pub use error::FieldglassError;

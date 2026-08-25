@@ -66,6 +66,20 @@ depends on `core` and on no other format crate; each host depends on
 | `fieldglass-zarr` | 11 (re-scoped) | `core` | Chunk codecs only (zstd via `ruzstd`, blosc, shuffle, v3 shard inner chunks). Addressing lives in `fetchplan`; directory walking is the napi host's concern. |
 | `fieldglass-verify` | 7 | `vstd` only; reads the kernel sources | Deliberately outside the workspace so `cargo build`, `cargo deny`, and the six-target cross-compile never see Verus. Already exists (#197); the proofs (#199–#204) are what is planned. |
 
+**Features do not stop at a crate boundary.** `core`'s optional surfaces are
+off for a host that cannot use them only if every crate between the host and
+`core` says so. `fieldglass` must therefore take `core` with
+`default-features = false` and re-export `render` and `fs` as its own features.
+`fieldglass-napi` needs `render`; neither host needs `fs`, because ADR-0005
+hands both of them bytes rather than a path — it is there for a Rust, CLI
+(#254) or PyO3 consumer that starts from one. Taking
+`core`'s defaults in the umbrella instead would re-enable them by feature
+unification, and the wasm build would carry `detect_format`'s `std::fs` — dead
+weight against #462's bundle-size gate, and no gate at all. `GridGeometry` is
+the counter-case and is why it sits in the always-on `projection` module
+(ADR-0006): a format crate taking `core` with `default-features = false` has to
+be able to convert into it.
+
 **What moves.** `core` grows the `GridGeometry` enum; the render
 orchestration (`ResolvedOptions`, warp targets, probe, contour and overlay
 projection, CSV) that today sits in `napi` becomes `fieldglass::Session`
