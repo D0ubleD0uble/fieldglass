@@ -105,3 +105,56 @@ fn the_values_arrive_in_pixel_order() {
         }
     }
 }
+
+/// §3.150 is 28 octets of untrusted input, and two of its fields can describe a
+/// grid that does not exist. Both are refused at parse, where the bytes enter,
+/// rather than left to fail later as an empty render.
+#[test]
+fn a_malformed_healpix_section_is_refused() {
+    let good = fixture!("healpix_n2_nested.grib2").to_vec();
+
+    // Locate the template body: §3 starts after §0 (16) and §1, and Nside sits
+    // 17 octets into the template payload. Rather than compute that, find the
+    // known-good Nside bytes and edit them in place.
+    let reader = Grib2Reader::from_bytes(good.clone()).expect("baseline parses");
+    let GridTemplate::Healpix(t) = reader.messages[0].gds.template else {
+        panic!("baseline is HEALPix");
+    };
+    assert_eq!(t.nside, 2);
+    // Find Nside's offset by *verifying* it rather than counting octets: the
+    // byte pattern 00 00 00 02 occurs more than once in a GRIB2 message, so a
+    // plain search finds the wrong field and the test then proves nothing.
+    let patch_at = |at: usize, value: u32| {
+        let mut bytes = good.clone();
+        bytes[at..at + 4].copy_from_slice(&value.to_be_bytes());
+        Grib2Reader::from_bytes(bytes)
+    };
+    let at = (0..good.len() - 4)
+        .find(|&at| {
+            // Most offsets corrupt the message into something with no messages
+            // at all, so this asks only whether Nside actually became 4.
+            let Ok(reader) = patch_at(at, 4) else {
+                return false;
+            };
+            matches!(
+                reader.messages.first().map(|m| m.gds.template),
+                Some(GridTemplate::Healpix(t)) if t.nside == 4
+            )
+        })
+        .expect("some offset is Nside");
+
+    let patch = |value: u32| patch_at(at, value);
+
+    // Nside 0 is not a grid.
+    assert!(patch(0).is_err(), "Nside 0 must be refused");
+    // NESTED is a quadtree per face, so a non-power-of-two Nside describes no
+    // ordering. Left unchecked, `nest2ring` refuses each pixel in turn and the
+    // field renders empty instead of erroring.
+    assert!(patch(3).is_err(), "nested with Nside 3 must be refused");
+    // 12*Nside^2 passes u64::MAX above 2^31; these are four attacker-controlled
+    // octets reachable from the parse fuzz target.
+    assert!(patch(u32::MAX).is_err(), "an absurd Nside must be refused");
+    assert!(patch(1 << 30).is_err(), "and one merely far too large");
+    // A power of two in range still works, so the guards are not over-broad.
+    assert!(patch(4).is_ok(), "Nside 4 nested is legitimate");
+}

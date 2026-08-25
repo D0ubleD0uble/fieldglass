@@ -9,7 +9,7 @@
 //! because 2.34.1's HEALPix geoiterator supports RING only. The goldens record
 //! which produced them; see the GRIB2 fixtures' `NOTICE.md`.
 
-use fieldglass_core::healpix::{ang2pix_ring, nest2ring, npix, pix2ang, pix2ang_ring};
+use fieldglass_core::healpix::{MAX_NSIDE, ang2pix_ring, nest2ring, npix, pix2ang, pix2ang_ring};
 
 const N2_RING: &str =
     include_str!("../../fieldglass-grib2/tests/fixtures/healpix_n2_ring.grib2.coords.json");
@@ -155,4 +155,27 @@ fn out_of_range_and_degenerate_input_is_refused() {
     assert!(nest2ring(3, 0).is_none(), "nested needs a power of two");
     assert!(pix2ang_ring(3, 0).is_some(), "ring does not");
     assert!(nest2ring(4, 192).is_none(), "one past the last pixel");
+}
+
+/// `Nside` arrives as four untrusted octets, and `12·Nside²` passes `u64::MAX`
+/// above 2³¹. These functions must answer rather than panic, whatever they are
+/// handed — the parse and decode fuzz targets reach here.
+#[test]
+fn a_hostile_nside_does_not_panic() {
+    for nside in [u32::MAX, 1 << 31, (1 << 31) + 1, MAX_NSIDE + 1] {
+        // The count stays computable, so a caller using it as a bound is not
+        // handed a wrapped value that makes an out-of-range pixel look valid.
+        assert!(
+            npix(nside) > 0,
+            "Nside {nside} must report some pixel count"
+        );
+        // Past the sound range every map declines rather than computing.
+        assert!(pix2ang_ring(nside, 0).is_none(), "Nside {nside}");
+        assert!(nest2ring(nside, 0).is_none(), "Nside {nside}");
+        assert!(ang2pix_ring(nside, 45.0, 45.0).is_none(), "Nside {nside}");
+    }
+    // And the boundary itself still works, so the cap is not quietly lower
+    // than it says.
+    assert!(pix2ang_ring(MAX_NSIDE, 0).is_some());
+    assert!(ang2pix_ring(MAX_NSIDE, 45.0, 45.0).is_some());
 }

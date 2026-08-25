@@ -27,15 +27,37 @@ use std::f64::consts::PI;
 const JRLL: [u64; 12] = [2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4];
 const JPLL: [u64; 12] = [1, 3, 5, 7, 0, 2, 4, 6, 1, 3, 5, 7];
 
+/// Largest `Nside` these maps will work on.
+///
+/// `Nside` reaches them from four untrusted octets, and the pixel arithmetic
+/// runs to about `12·Nside²`, which passes `u64::MAX` above 2³¹. Rather than
+/// widen every intermediate, the range where `u64` is sound is stated once and
+/// everything above it is refused. `2²⁴` leaves four orders of magnitude of
+/// headroom in `u64` and is still some six orders above any published grid —
+/// ECMWF's HEALPix open data is Nside 1024 — so the only messages this turns
+/// away are malformed.
+pub const MAX_NSIDE: u32 = 1 << 24;
+
 /// Total pixels on a HEALPix sphere of this `nside`. Zero for `nside = 0`,
 /// which is not a grid.
+///
+/// Computed in `u128` and clamped, because `nside` reaches this straight from
+/// a message's four untrusted octets and `12·Nside²` passes `u64::MAX` above
+/// `Nside = 2³¹`. Clamping keeps the bounds checks below sound — every pixel
+/// number is then "in range", so nothing indexes past an array — while the
+/// real refusal happens where the bytes are parsed.
 pub fn npix(nside: u32) -> u64 {
-    12 * (nside as u64) * (nside as u64)
+    // `u128` so this stays total for an `nside` past `MAX_NSIDE`: callers use
+    // it as a bound, and a wrapped count would make an out-of-range pixel look
+    // in range.
+    let n = nside as u128;
+    u64::try_from(12 * n * n).unwrap_or(u64::MAX)
 }
 
 /// Pixels in the north polar cap — those on rings above the equatorial belt.
 fn ncap(nside: u32) -> u64 {
-    2 * (nside as u64) * (nside as u64 - 1)
+    let n = nside as u128;
+    u64::try_from(2 * n * n.saturating_sub(1)).unwrap_or(u64::MAX)
 }
 
 /// Centre of RING-ordered pixel `ipix` as `(lat, lon)` in degrees, longitude in
@@ -50,7 +72,7 @@ fn ncap(nside: u32) -> u64 {
 /// easily got wrong, since a grid with it dropped still looks plausible.
 pub fn pix2ang_ring(nside: u32, ipix: u64) -> Option<(f64, f64)> {
     let npix = npix(nside);
-    if nside == 0 || ipix >= npix {
+    if nside == 0 || nside > MAX_NSIDE || ipix >= npix {
         return None;
     }
     let n = nside as u64;
@@ -107,7 +129,7 @@ pub fn pix2ang_ring(nside: u32, ipix: u64) -> Option<(f64, f64)> {
 /// RING pixel containing `(lat, lon)` in degrees — the inverse of
 /// [`pix2ang_ring`]. `None` when `nside` is zero or the position is not finite.
 pub fn ang2pix_ring(nside: u32, lat: f64, lon: f64) -> Option<u64> {
-    if nside == 0 || !lat.is_finite() || !lon.is_finite() {
+    if nside == 0 || nside > MAX_NSIDE || !lat.is_finite() || !lon.is_finite() {
         return None;
     }
     let n = nside as u64;
@@ -169,7 +191,7 @@ fn compress_bits(v: u64) -> u64 {
 /// base face, so it is only defined there, while RING works for any `nside` —
 /// or when the pixel is off the sphere.
 pub fn nest2ring(nside: u32, ipnest: u64) -> Option<u64> {
-    if nside == 0 || !nside.is_power_of_two() || ipnest >= npix(nside) {
+    if nside == 0 || nside > MAX_NSIDE || !nside.is_power_of_two() || ipnest >= npix(nside) {
         return None;
     }
     let n = nside as u64;

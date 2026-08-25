@@ -1223,6 +1223,14 @@ fn parse_template_3_150(p: &[u8]) -> Result<HealpixTemplate, FieldglassError> {
             "GDS template 3.150 states Nside = 0, which is not a grid".to_string(),
         ));
     }
+    // `12·Nside²` passes `u64::MAX` above 2^31, and these are four untrusted
+    // octets. The decode cap (`MAX_GRID_POINTS`) refuses anything remotely this
+    // large anyway, so the only messages this turns away are malformed ones.
+    if nside > (1 << 24) {
+        return Err(FieldglassError::Parse(format!(
+            "GDS template 3.150 states Nside {nside}, which implies more pixels than any grid holds"
+        )));
+    }
     Ok(HealpixTemplate {
         shape_of_earth: p[0],
         resolution_flags: p[16],
@@ -1234,7 +1242,17 @@ fn parse_template_3_150(p: &[u8]) -> Result<HealpixTemplate, FieldglassError> {
         // reorder the field, so it is refused.
         nested: match p[26] {
             0 => false,
-            1 => true,
+            1 if nside.is_power_of_two() => true,
+            // NESTED is a quadtree over each base face, so it exists only for
+            // a power-of-two Nside; RING works for any. Refused here rather
+            // than left to fail pixel by pixel, which would render as an empty
+            // field rather than as a malformed message.
+            1 => {
+                return Err(FieldglassError::Parse(format!(
+                    "GDS template 3.150 states nested ordering with Nside {nside}, which is not a \
+                     power of two"
+                )));
+            }
             other => {
                 return Err(FieldglassError::Parse(format!(
                     "GDS template 3.150 states ordering {other}, which is neither ring (0) nor nested (1)"
