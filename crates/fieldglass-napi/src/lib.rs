@@ -74,6 +74,15 @@ pub struct MessageMeta {
     pub grid_type: Option<String>,
     pub grid_ni: Option<i32>,
     pub grid_nj: Option<i32>,
+    /// The field's size in its own family's units when it has no raster
+    /// shape — spectral truncation (`T63`), HEALPix `Nside`. A host shows it
+    /// where `grid_ni`/`grid_nj` would go, so a grid-less message states its
+    /// size instead of reporting a dash.
+    ///
+    /// This is the message's *native* size, so it survives onto the
+    /// synthesised render meta alongside that grid's real dimensions; it is
+    /// not an alternative spelling of them.
+    pub grid_size_label: Option<String>,
     pub lat_first: Option<f64>,
     pub lon_first: Option<f64>,
     pub lat_last: Option<f64>,
@@ -357,26 +366,28 @@ fn build_grib1_message_meta(
         msg.pds.table_version,
         msg.pds.originating_centre,
     );
-    let (grid_type, grid_ni, grid_nj, lat_first, lon_first, lat_last, lon_last) = match &msg.gds {
-        Some(gds) => {
-            let dims = gds.dimensions();
-            let bounds = gds.bounds();
-            // The first point comes from `first_point`, which survives a
-            // projection too degenerate to place the far corner — `bounds`
-            // reports a pair, so it has to give up both (#472).
-            let first = gds.first_point();
-            (
-                Some(gds.grid_type_name().to_string()),
-                dims.map(|(ni, _)| ni as i32),
-                dims.map(|(_, nj)| nj as i32),
-                first.map(|(la1, _)| la1),
-                first.map(|(_, lo1)| lo1),
-                bounds.map(|(_, _, la2, _)| la2),
-                bounds.map(|(_, _, _, lo2)| lo2),
-            )
-        }
-        None => (None, None, None, None, None, None, None),
-    };
+    let (grid_type, grid_ni, grid_nj, grid_size_label, lat_first, lon_first, lat_last, lon_last) =
+        match &msg.gds {
+            Some(gds) => {
+                let dims = gds.dimensions();
+                let bounds = gds.bounds();
+                // The first point comes from `first_point`, which survives a
+                // projection too degenerate to place the far corner — `bounds`
+                // reports a pair, so it has to give up both (#472).
+                let first = gds.first_point();
+                (
+                    Some(gds.grid_type_name().to_string()),
+                    dims.map(|(ni, _)| ni as i32),
+                    dims.map(|(_, nj)| nj as i32),
+                    gds.size_label(),
+                    first.map(|(la1, _)| la1),
+                    first.map(|(_, lo1)| lo1),
+                    bounds.map(|(_, _, la2, _)| la2),
+                    bounds.map(|(_, _, _, lo2)| lo2),
+                )
+            }
+            None => (None, None, None, None, None, None, None, None),
+        };
     let lambert = match &msg.gds {
         Some(fieldglass_grib1::GridDescription::LambertConformal(g)) => Some(g),
         _ => None,
@@ -502,6 +513,7 @@ fn build_grib1_message_meta(
         grid_type,
         grid_ni,
         grid_nj,
+        grid_size_label,
         lat_first,
         lon_first,
         lat_last,
@@ -971,6 +983,7 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
         grid_type: Some(grid_type),
         grid_ni: dims.map(|(ni, _)| ni as i32),
         grid_nj: dims.map(|(_, nj)| nj as i32),
+        grid_size_label: msg.gds.size_label(),
         // The declared first point comes from `first_point`, not from
         // `bounds`: a grid whose projection is too degenerate to place its far
         // corner has no corner *pair* to report, but it still states where it
@@ -3064,6 +3077,8 @@ fn base_netcdf_meta(name: &str, units: &str, ni: i32, nj: i32) -> MessageMeta {
         grid_type: None,
         grid_ni: Some(ni),
         grid_nj: Some(nj),
+        // A NetCDF plane is always a raster, so its size is `ni`/`nj`.
+        grid_size_label: None,
         lat_first: None,
         lon_first: None,
         lat_last: None,
@@ -3763,6 +3778,18 @@ impl MessageMeta {
             // is a pure function of the geometry above (equal geometry ⇒ equal
             // `reprojectable`); the rest (indices, parameter, level, time,
             // format, packing) are exactly what a difference map holds constant.
+            //
+            // `grid_size_label` looks like geometry and is not. It states the
+            // *native* size of a grid-less message, but what two such fields
+            // must share to align is the grid they are synthesised onto, and
+            // that is already compared as `grid_ni`/`grid_nj` — `resolved()`
+            // hands `grids_match` the synthesised meta, not the raw one.
+            // Comparing the label instead would be wrong in both directions:
+            // `spectral_render_dims` ignores the truncation, so T63 and T255
+            // land on the same 720x361 grid and genuinely do align, and this
+            // would refuse them; HEALPix at two `Nside` values is already
+            // refused, on the differing synthesised dimensions.
+            grid_size_label: _,
             message_index: _,
             offset_bytes: _,
             parameter_name: _,
@@ -5829,6 +5856,7 @@ mod polar_stereo_warp_tests {
             grid_type: Some("polar_stereo".to_string()),
             grid_ni: Some(135),
             grid_nj: Some(95),
+            grid_size_label: None,
             lat_first: Some(11.43),
             lon_first: Some(-110.27),
             lat_last: None,
@@ -6766,6 +6794,7 @@ mod overlay_projection_tests {
             grid_type: Some("latlon".to_string()),
             grid_ni: Some(361),
             grid_nj: Some(181),
+            grid_size_label: None,
             lat_first: Some(90.0),
             lon_first: Some(-180.0),
             lat_last: Some(-90.0),
@@ -8415,6 +8444,7 @@ mod space_view_geos_tests {
             grid_type: Some("space_view".to_string()),
             grid_ni: Some(11),
             grid_nj: Some(11),
+            grid_size_label: None,
             lat_first: None,
             lon_first: None,
             lat_last: None,

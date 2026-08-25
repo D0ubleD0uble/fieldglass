@@ -183,6 +183,13 @@ suite("GRIB2 HEALPix editor opens", () => {
         !html.includes("Render not available"),
         "a HEALPix message is not marked unrenderable",
       );
+      // #416: a grid-less message has no Ni×Nj, but it does state its size.
+      // Reporting a dash there says "we don't know" about something the file
+      // spells out precisely.
+      assert.ok(
+        html.includes("Nside 4"),
+        "the size column states the HEALPix resolution, not a dash",
+      );
     } finally {
       panel.dispose();
     }
