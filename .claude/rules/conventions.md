@@ -63,6 +63,33 @@ state GRIB2 §5 decode coverage. When a template starts or stops decoding, updat
 Every other README mention of §5 packing is deliberately coverage-agnostic and
 points at the table; an HTML comment by the table records this rule.
 
+## Read the architecture docs before implementing, not at review time
+
+`docs/architecture/` describes the workspace as it is (drift-guarded against
+the source). `docs/architecture/planned/` describes it after the open
+milestones close. When your issue belongs to one of those milestones, the
+planned doc is a **specification**, not background — read the one for what you
+are building, during planning:
+
+- `02-trait-seams.md` — method surfaces. It names the methods a planned type
+  is expected to have.
+- `01-crates.md` — crate boundaries, dependency edges, feature forwarding.
+- `03-composition.md` — message parts and the host boundary.
+- `04-hosts.md` — what each host does around the Rust.
+
+Names in `planned/` are provisional and the issue wins if they disagree (see
+its README), so check both — and prefer a name the codebase already uses over
+either.
+
+**Before adding a helper to `core`, search for the capability by concept, not
+by the name you would have chosen.** The reusable version is often a *provided
+method on a trait* rather than an inherent method on the concrete type, so
+looking at the type finds nothing; `projection.rs` and the napi crate are both
+thousands of lines. A duplicate there is usually worse than the original,
+which has already absorbed the edge cases (poles inside the domain, points off
+a projection disc, antimeridian arcs) that a fresh one rediscovers one bug at
+a time.
+
 ## Decode is decoupled from rendering
 - A new decode path (a GRIB1 packing, a GRIB2 §5 template, a NetCDF variable)
   needs **no** changes to projection, overlays, or manual bounds. Those run on
