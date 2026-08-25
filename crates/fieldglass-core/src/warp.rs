@@ -14,7 +14,7 @@
 //! lat/lon-box entry retained as a thin wrapper. Web Mercator / ortho /
 //! polar-stereo targets (#71) add their own [`TargetProjection`] impls.
 
-use crate::projection::GridIndex;
+use crate::projection::{GridIndex, GridResampling};
 use std::f64::consts::PI;
 
 const DEG2RAD: f64 = PI / 180.0;
@@ -106,6 +106,16 @@ pub struct SourceGrid<'a> {
     /// and first columns interpolates across the wrap rather than rendering
     /// as a one-pixel hole at the seam meridian.
     pub periodic_i: bool,
+    /// What resampling this grid's geometry can support.
+    ///
+    /// [`GridResampling::NearestOnly`] for a grid that is a list of cell
+    /// centres ([`crate::spatial_index::SpatialIndex`]): its `inverse_at`
+    /// returns a cell, not a position inside one, and its index-adjacent cells
+    /// need not be spatially adjacent. [`warp`] downgrades a bilinear request
+    /// against such a grid rather than blending two cells that may sit on
+    /// opposite sides of a tripolar fold, so a caller cannot get it wrong by
+    /// forgetting to ask.
+    pub resampling: GridResampling,
 }
 
 /// Target raster definition for the warp. `lat_max` sits at output pixel
@@ -242,6 +252,15 @@ pub fn warp<T: TargetProjection>(
     target: &T,
     method: Resampling,
 ) -> WarpedRaster {
+    // Decided here rather than at the call sites: a lookup grid's fractional
+    // index and "next column" are meaningless, so blending against one averages
+    // two cells that may be nowhere near each other. Downgrading rather than
+    // erroring keeps a caller that asks for bilinear everywhere working, and
+    // nearest is the honest best this geometry can do.
+    let method = match source.resampling {
+        GridResampling::NearestOnly => Resampling::Nearest,
+        GridResampling::Any => method,
+    };
     let (w, h) = target.dims();
     let width = w as usize;
     let height = h as usize;
@@ -1413,6 +1432,7 @@ mod tests {
             sample,
             inverse_at: inverse_ref,
             periodic_i,
+            resampling: GridResampling::Any,
         }
     }
 

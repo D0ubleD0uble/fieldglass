@@ -830,6 +830,24 @@ pub fn signed_grid_increments(
 /// setup (target-bbox derivation) and by GRIB `bounds()` reporting, which
 /// otherwise reimplement `origin + (n-1)·d` per projection.
 /// How far past a grid edge a computed index may sit and still be snapped
+/// What resampling a grid's geometry can support.
+///
+/// Lives here rather than beside [`Resampling`](crate::warp::Resampling)
+/// because [`GridGeometry`] reports it and must stay outside the `render`
+/// feature — the format crates take `core` with `default-features = false`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum GridResampling {
+    /// A raster grid: the fractional part of a [`GridIndex`] is a position
+    /// inside the cell and `(i + 1, j)` is the neighbour to its east, so
+    /// blending between them is meaningful.
+    Any,
+    /// A lookup grid: the answer is a cell, not a position within one.
+    /// Index-adjacent cells need not be spatially adjacent — a tripolar ocean
+    /// grid folds — so blending `(i, j)` with `(i + 1, j)` would average two
+    /// places that are nowhere near each other.
+    NearestOnly,
+}
+
 /// The edge tolerance a projection whose round trip closes to float noise
 /// needs: a nanometre of a grid cell — far above the round-off a well-behaved
 /// round trip leaves, far below any real offset.
@@ -2518,6 +2536,11 @@ pub enum GridGeometry {
     Lambert(LambertParams),
     #[serde(rename = "polar_stereo")]
     PolarStereo(PolarStereoParams),
+    /// A grid that is a list of cell centres rather than a formula — NetCDF
+    /// 2-D coordinates, GRIB2 §3.204, ICON §3.101. Answers with a cell, never
+    /// a position inside one; see [`GridResampling::NearestOnly`].
+    #[serde(rename = "lookup")]
+    Lookup(crate::spatial_index::SpatialIndex),
     /// A family this type does not model yet. `label` is the grid type as the
     /// decoder named it, so the message can say what was declined.
     #[serde(rename = "unsupported")]
@@ -2540,6 +2563,7 @@ impl GridGeometry {
             Self::Gaussian(_) => "gaussian",
             Self::Lambert(_) => "lambert",
             Self::PolarStereo(_) => "polar_stereo",
+            Self::Lookup(_) => "lookup",
             Self::Unsupported { .. } => "unsupported",
         }
     }
@@ -2561,6 +2585,7 @@ impl GridGeometry {
             Self::Gaussian(p) => Some((p.ni, p.nj)),
             Self::Lambert(p) => Some((p.ni, p.nj)),
             Self::PolarStereo(p) => Some((p.ni, p.nj)),
+            Self::Lookup(ix) => Some(ix.dims()),
             Self::Unsupported { .. } => None,
         }
     }
@@ -2577,6 +2602,10 @@ impl GridGeometry {
             Self::Gaussian(p) => GaussianProjector::new(*p).grid_point_lonlat(i, j),
             Self::Lambert(p) => Some(LambertProjector::new(*p).grid_point_lonlat(i, j)),
             Self::PolarStereo(p) => Some(PolarStereoProjector::new(*p).grid_point_lonlat(i, j)),
+            // A lookup grid could answer this from its own centres, but no
+            // consumer needs it yet and exposing it would fix the storage
+            // layout before there is one to fix. #445 is where that is decided.
+            Self::Lookup(_) => None,
             Self::Unsupported { .. } => None,
         }
     }
@@ -2619,7 +2648,17 @@ impl GridGeometry {
                 let proj = PolarStereoProjector::new(*p);
                 Box::new(move |lat, lon| proj.inverse(lat, lon))
             }
+            Self::Lookup(ix) => Box::new(move |lat, lon| ix.nearest(lat, lon)),
             Self::Unsupported { .. } => Box::new(|_, _| None),
+        }
+    }
+
+    /// What resampling this geometry supports. A lookup grid is
+    /// [`GridResampling::NearestOnly`]; every formula grid is `Any`.
+    pub fn resampling(&self) -> GridResampling {
+        match self {
+            Self::Lookup(ix) => ix.resampling(),
+            _ => GridResampling::Any,
         }
     }
 
@@ -2657,6 +2696,9 @@ impl GridGeometry {
                 p.lat_last,
                 p.lon_last,
             )),
+            // Its extent is the extent of its own centres, which #445 will
+            // want; leaving it `None` until then keeps the storage question open.
+            Self::Lookup(_) => None,
             Self::Lambert(p) => Some(LambertProjector::new(*p).lonlat_bbox()),
             Self::PolarStereo(p) => {
                 let proj = PolarStereoProjector::new(*p);
@@ -2699,6 +2741,11 @@ impl GridGeometry {
             // No grid carries a radius for these, so the CRS states the one
             // core defaults to; it does not affect an angular coordinate.
             Self::LatLon(_) | Self::Gaussian(_) => Some(format!(
+                "+proj=longlat +R={DEFAULT_EARTH_RADIUS_M} +no_defs"
+            )),
+            // The centres are already geodetic, so the CRS is the sphere they
+            // are stated on — the same answer the two geographic families give.
+            Self::Lookup(_) => Some(format!(
                 "+proj=longlat +R={DEFAULT_EARTH_RADIUS_M} +no_defs"
             )),
             Self::Lambert(p) => Some(format!(

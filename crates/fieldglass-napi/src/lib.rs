@@ -2,11 +2,12 @@
 
 use fieldglass_core::{
     CombineOp, EqualEarth, Format, GaussianParams, GaussianProjector, GeostationaryParams,
-    GeostationaryProjector, LambertAzimuthalParams, LambertAzimuthalProjector, LambertParams,
-    LambertProjector, LatLonParams, MercatorParams, Mollweide, Orthographic, PlanarGridProjector,
-    PolarStereoParams, PolarStereoProjector, PolarStereographic, ProjectedPolylines, Resampling,
-    Robinson, RotatedLatLonParams, RotatedLatLonProjector, SourceGrid, SourceOverlayTarget,
-    TargetRaster, TransverseMercatorParams, TransverseMercatorProjector, WebMercator,
+    GeostationaryProjector, GridResampling, LambertAzimuthalParams, LambertAzimuthalProjector,
+    LambertParams, LambertProjector, LatLonParams, MercatorParams, Mollweide, Orthographic,
+    PlanarGridProjector, PolarStereoParams, PolarStereoProjector, PolarStereographic,
+    ProjectedPolylines, Resampling, Robinson, RotatedLatLonParams, RotatedLatLonProjector,
+    SourceGrid, SourceOverlayTarget, TargetRaster, TransverseMercatorParams,
+    TransverseMercatorProjector, WebMercator,
     cct_tables::lookup_sub_centre,
     colormap::{Colormap, ScaleMode, min_max_ignoring_mask, paint_grid_rgba},
     combine_fields,
@@ -3999,6 +4000,9 @@ fn warp_message(
         sample: sample_ref,
         inverse_at: inverse_ref,
         periodic_i: source_grid_is_periodic(meta, ni),
+        // Every grid this host decodes today is a formula grid. A lookup
+        // grid (#445, #418, #420) sets `NearestOnly` here.
+        resampling: GridResampling::Any,
     };
     // Construct the concrete target (shared with the overlay-projection path so
     // both paint into byte-identical geometry), then warp the source into it.
