@@ -194,15 +194,23 @@ export function sanitizePngName(name: string): string {
  *  synthesized grid reprojects like any other (#303). Mirrors the same
  *  special case `messageIsRenderable` makes in `provider.ts`.
  *
- *  Deliberately keyed on `spherical_harmonic` alone, not on "has no grid":
- *  bi-Fourier messages (`gridType === "bifourier"`) also lack a grid, but they
- *  decode only to coefficients and do not render at all, so they must keep the
- *  source-only picker and its note. */
+ *  A HEALPix (§3.150) message is the same case: it is a list of pixels with no
+ *  raster shape, and `renderGrid` resamples it onto a lat/lon grid, which
+ *  reprojects like any other (#443).
+ *
+ *  Deliberately keyed on those two names, not on "has no grid": bi-Fourier
+ *  messages (`gridType === "bifourier"`) also lack a grid, but they decode only
+ *  to coefficients and do not render at all, so they must keep the source-only
+ *  picker and its note. */
 function metaIsReprojectable(meta: {
   reprojectable: boolean;
   gridType: string | null;
 }): boolean {
-  return meta.reprojectable || meta.gridType === "spherical_harmonic";
+  return (
+    meta.reprojectable ||
+    meta.gridType === "spherical_harmonic" ||
+    meta.gridType === "healpix"
+  );
 }
 
 /** Width of the exported PNG (#243).

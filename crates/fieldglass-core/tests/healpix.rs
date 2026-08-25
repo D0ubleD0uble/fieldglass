@@ -179,3 +179,111 @@ fn a_hostile_nside_does_not_panic() {
     assert!(pix2ang_ring(MAX_NSIDE, 0).is_some());
     assert!(ang2pix_ring(MAX_NSIDE, 45.0, 45.0).is_some());
 }
+
+// ---------------------------------------------------------------------------
+// Resampling onto a lat/lon grid (#443)
+// ---------------------------------------------------------------------------
+
+use fieldglass_core::healpix::resample_to_latlon;
+
+/// A grid at the same resolution as the source, so no pixel is skipped.
+fn latlon_grid(ni: usize, nj: usize) -> (Vec<f64>, Vec<f64>) {
+    let lats = (0..nj)
+        .map(|j| 90.0 - j as f64 * 180.0 / (nj as f64 - 1.0))
+        .collect();
+    let lons = (0..ni).map(|i| i as f64 * 360.0 / ni as f64).collect();
+    (lats, lons)
+}
+
+/// Every resampled point must hold the value of the pixel that contains it —
+/// which is the same question `ang2pix` answers, so this checks the two agree
+/// rather than restating one in terms of the other.
+#[test]
+fn each_output_point_takes_the_pixel_that_contains_it() {
+    let nside = 8;
+    // A ramp, so a misindexed pixel shows as the wrong number rather than as
+    // plausible noise.
+    let values: Vec<Option<f64>> = (0..npix(nside)).map(|k| Some(k as f64)).collect();
+    let (lats, lons) = latlon_grid(64, 33);
+    let out = resample_to_latlon(nside, false, &values, &lats, &lons).expect("resamples");
+    assert_eq!(out.len(), lats.len() * lons.len());
+
+    for (j, &lat) in lats.iter().enumerate() {
+        for (i, &lon) in lons.iter().enumerate() {
+            let want = ang2pix_ring(nside, lat, lon).expect("in range") as f64;
+            assert_eq!(
+                out[j * lons.len() + i],
+                Some(want),
+                "point ({lat}, {lon}) should hold pixel {want}"
+            );
+        }
+    }
+}
+
+/// A NESTED field must resample to the same picture as the RING field holding
+/// the same values — the ordering is bookkeeping, not geometry. This is what
+/// catches a reindex applied in the wrong direction, which is self-consistent
+/// and completely wrong.
+#[test]
+fn nested_and_ring_fields_resample_to_the_same_picture() {
+    let nside = 8;
+    // Give each pixel its *position*, not its index, so the two orderings hold
+    // genuinely the same field rather than the same numbers.
+    let ring_values: Vec<Option<f64>> = (0..npix(nside))
+        .map(|p| Some(pix2ang_ring(nside, p).unwrap().0))
+        .collect();
+    let nested_values: Vec<Option<f64>> = (0..npix(nside))
+        .map(|p| Some(pix2ang(nside, p, true).unwrap().0))
+        .collect();
+
+    let (lats, lons) = latlon_grid(48, 25);
+    let from_ring = resample_to_latlon(nside, false, &ring_values, &lats, &lons).unwrap();
+    let from_nested = resample_to_latlon(nside, true, &nested_values, &lats, &lons).unwrap();
+    assert_eq!(
+        from_ring, from_nested,
+        "ordering must not change the picture"
+    );
+
+    // And the picture is right: each point holds its own pixel's latitude.
+    for (j, &lat) in lats.iter().enumerate() {
+        for (i, &lon) in lons.iter().enumerate() {
+            let p = ang2pix_ring(nside, lat, lon).unwrap();
+            let want = pix2ang_ring(nside, p).unwrap().0;
+            assert_eq!(from_ring[j * lons.len() + i], Some(want));
+        }
+    }
+}
+
+#[test]
+fn a_masked_pixel_stays_masked_through_the_resample() {
+    let nside = 4;
+    let mut values: Vec<Option<f64>> = (0..npix(nside)).map(|k| Some(k as f64)).collect();
+    values[100] = None;
+    let (lats, lons) = latlon_grid(64, 33);
+    let out = resample_to_latlon(nside, false, &values, &lats, &lons).expect("resamples");
+    for (j, &lat) in lats.iter().enumerate() {
+        for (i, &lon) in lons.iter().enumerate() {
+            if ang2pix_ring(nside, lat, lon) == Some(100) {
+                assert_eq!(
+                    out[j * lons.len() + i],
+                    None,
+                    "a masked pixel must not become a value"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn a_field_of_the_wrong_length_is_refused() {
+    let (lats, lons) = latlon_grid(8, 5);
+    let short = vec![Some(1.0); 47];
+    assert!(
+        resample_to_latlon(2, false, &short, &lats, &lons).is_none(),
+        "48 pixels are needed at Nside 2; pairing a field with the wrong \
+         geometry must not resample into a plausible picture"
+    );
+    let right = vec![Some(1.0); 48];
+    assert!(resample_to_latlon(2, false, &right, &lats, &lons).is_some());
+    assert!(resample_to_latlon(0, false, &[], &lats, &lons).is_none());
+}

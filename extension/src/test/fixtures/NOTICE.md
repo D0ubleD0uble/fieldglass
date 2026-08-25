@@ -62,3 +62,15 @@ well as classic. `dataset_meta_from` returns early for HDF5, a different path
 from the classic one, and the metadata-parity test (#411) needs both. Built by
 `tools/build_netcdf4_dimscale_fixture.py`; canonical copy:
 `crates/fieldglass-netcdf/tests/fixtures/NOTICE.md`.
+
+## `healpix_n4_ring.grib2`
+
+GRIB2 §3.150 (HEALPix) at Nside 4 — 192 equal-area pixels, no `Ni`/`Nj`. Built
+by `tools/build_grib2_healpix_fixtures.py`; canonical copy:
+`crates/fieldglass-grib2/tests/fixtures/NOTICE.md`.
+
+Here for the same reason the spectral fixtures are: a grid-less message must
+open in the editor without crashing (the #288 class, where a napi `Option` field
+JS sees as `undefined` reaches an `undefined.toFixed()`), and — unlike
+bi-Fourier — must offer a Render button, because #443 resamples it onto a
+lat/lon grid at decode.
