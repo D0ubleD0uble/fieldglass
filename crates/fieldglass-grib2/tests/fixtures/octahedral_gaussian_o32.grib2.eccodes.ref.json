@@ -1,0 +1,120 @@
+{
+  "messages": [
+    {
+      "discipline": 0,
+      "editionNumber": 2,
+      "totalLength": 16068,
+      "centre": 98,
+      "subCentre": 0,
+      "significanceOfReferenceTime": 1,
+      "dataDate": 20100912,
+      "dataTime": 1200,
+      "productionStatusOfProcessedData": 0,
+      "typeOfProcessedData": 0,
+      "gridDefinitionTemplateNumber": 40,
+      "shapeOfTheEarth": 6,
+      "numberOfDataPoints": 5248,
+      "Ni": null,
+      "Nj": 64,
+      "latitudeOfFirstGridPointInDegrees": 87.8638,
+      "longitudeOfFirstGridPointInDegrees": 0,
+      "latitudeOfLastGridPointInDegrees": -87.8638,
+      "longitudeOfLastGridPointInDegrees": 357.188,
+      "iDirectionIncrementInDegrees": null,
+      "productDefinitionTemplateNumber": 0,
+      "parameterCategory": 0,
+      "parameterNumber": 0,
+      "typeOfGeneratingProcess": 0,
+      "indicatorOfUnitOfTimeRange": 1,
+      "forecastTime": 0,
+      "typeOfFirstFixedSurface": 100,
+      "scaleFactorOfFirstFixedSurface": 0,
+      "scaledValueOfFirstFixedSurface": 100000,
+      "dataRepresentationTemplateNumber": 0,
+      "referenceValue": 0,
+      "binaryScaleFactor": -18,
+      "decimalScaleFactor": 0,
+      "bitsPerValue": 24,
+      "bitMapIndicator": 255
+    }
+  ],
+  "values": [
+    {
+      "count": 5248,
+      "numberOfMissing": 0,
+      "minimum": 0,
+      "maximum": 49,
+      "average": 24.4909,
+      "sample": [
+        [
+          0,
+          0
+        ],
+        [
+          328,
+          28
+        ],
+        [
+          656,
+          6
+        ],
+        [
+          984,
+          34
+        ],
+        [
+          1312,
+          12
+        ],
+        [
+          1640,
+          40
+        ],
+        [
+          1968,
+          18
+        ],
+        [
+          2296,
+          46
+        ],
+        [
+          2624,
+          24
+        ],
+        [
+          2952,
+          2
+        ],
+        [
+          3280,
+          30
+        ],
+        [
+          3608,
+          8
+        ],
+        [
+          3936,
+          36
+        ],
+        [
+          4264,
+          14
+        ],
+        [
+          4592,
+          42
+        ],
+        [
+          4920,
+          20
+        ],
+        [
+          5247,
+          47
+        ]
+      ]
+    }
+  ]
+}

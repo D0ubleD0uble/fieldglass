@@ -1588,8 +1588,8 @@ function syntheticNetcdfMeta(v: NetcdfVariableMeta, messageIndex = v.variableInd
 }
 
 function describeProjection(meta: MessageMeta): string {
-  const dims = (meta.gridNi != null && meta.gridNj != null)
-    ? `${meta.gridNi}×${meta.gridNj}` : (meta.gridSizeLabel ?? "?");
+  const dims = meta.gridSizeLabel
+    ?? ((meta.gridNi != null && meta.gridNj != null) ? `${meta.gridNi}×${meta.gridNj}` : "?");
   const type = meta.gridType ?? "unknown grid";
   if (meta.latFirst != null && meta.lonFirst != null
       && meta.latLast != null && meta.lonLast != null) {
@@ -1763,9 +1763,13 @@ export function renderHtml(
     const fmt1 = (v: number | null | undefined) => v != null ? v.toFixed(3) : "—";
     const COLSPAN = 13;
     const rows = messages.map((m) => {
-      // A grid-less message (spectral, HEALPix) has no Ni×Nj but does state
-      // its size, as a truncation or an Nside — showing that is the difference
-      // between "we don't know" and "the file says so, in its own units".
+      // A message with no raster shape (spectral, HEALPix) has no Ni×Nj but
+      // does state its size, as a truncation or an Nside — showing that is the
+      // difference between "we don't know" and "the file says so, in its own
+      // units". The label wins where both exist: a reduced Gaussian grid has
+      // an Ni×Nj here, but it is the widest row paired with the row count, a
+      // raster Fieldglass derives for rendering rather than anything the file
+      // says. The file says `N32`, and so does every other tool (#500).
       // napi `None` arrives as `undefined`, so these are nullish checks (#288).
       //
       // This cell used to hold only numbers and a dash, so it was interpolated
@@ -1774,8 +1778,8 @@ export function renderHtml(
       // Rust builds the label from integers alone, so nothing hostile can
       // reach here today — the escape is so that stays true of the *cell*
       // rather than of one `format!` in another crate.
-      const gridDims = (m.gridNi != null && m.gridNj != null)
-        ? `${m.gridNi}×${m.gridNj}` : (m.gridSizeLabel ?? "—");
+      const gridDims = m.gridSizeLabel
+        ?? ((m.gridNi != null && m.gridNj != null) ? `${m.gridNi}×${m.gridNj}` : "—");
       const gridBounds = (m.latFirst != null && m.lonFirst != null)
         ? `${fmt1(m.latFirst)},${fmt1(m.lonFirst)} → ${fmt1(m.latLast)},${fmt1(m.lonLast)}` : "—";
       // The edit writes the raw P1 octet, so the box has to show that octet —

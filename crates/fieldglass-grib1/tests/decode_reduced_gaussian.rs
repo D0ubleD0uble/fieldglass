@@ -56,3 +56,32 @@ fn decode_yields_native_point_count_matching_eccodes() {
         assert!((v - 285.5).abs() < 1e-6, "value[{i}] = {v}, expected 285.5");
     }
 }
+
+/// A reduced Gaussian grid is named, not measured (#500).
+///
+/// This grid *does* have `dimensions()` — the widest row paired with the row
+/// count, which is the raster a row-expanded field needs — but that pair is a
+/// shape this crate computes, not one the file states. The file has 6114 points
+/// in rows of differing width, not 128 × 64 = 8192, so reporting the raster as
+/// the grid's size overstates it by a quarter. eccodes calls this grid `N32`,
+/// and so does GRIB2's copy of the same grid; a display should prefer the name.
+#[test]
+fn a_reduced_gaussian_grid_is_named_as_well_as_shaped() {
+    let reader = Grib1Reader::from_bytes(FIXTURE.to_vec()).expect("parse");
+    let gds = reader.messages[0].gds.as_ref().expect("GDS");
+
+    // eccodes 2.34.1: gridName = N32, isOctahedral = 0.
+    assert_eq!(gds.size_label().as_deref(), Some("N32"));
+
+    let (ni, nj) = gds.dimensions().expect("a row-expanded raster shape");
+    assert_eq!((ni, nj), (128, 64), "the widest row and the row count");
+    let stored: u32 = gds
+        .points_per_row()
+        .expect("a reduced grid lists its row widths")
+        .iter()
+        .sum();
+    assert!(
+        stored < ni * nj,
+        "the raster is larger than the field: {stored} points in a {ni}x{nj} shape"
+    );
+}

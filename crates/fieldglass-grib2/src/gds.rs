@@ -309,6 +309,16 @@ pub struct GaussianTemplate {
     /// True if the section carries a non-empty optional list of numbers,
     /// indicating a reduced (per-row) grid.
     pub is_reduced: bool,
+    /// True when the `PL` list marks this an **octahedral** reduced grid
+    /// (ECMWF's `O1280`) rather than a classic one (`N320`). Always false for
+    /// a regular Gaussian grid, which carries no list.
+    ///
+    /// Classified at parse time from the row widths rather than keeping the
+    /// list itself: nothing yet decodes a GRIB2 reduced grid, and an owned
+    /// `Vec` here would cost [`GridDefinitionSection`] its `Copy`. The reader
+    /// that needs the widths should take that trade with a consumer in hand —
+    /// [`parse_optional_row_widths`] is already here for it.
+    pub is_octahedral: bool,
 }
 
 /// Template 3.50 — spherical harmonic coefficients.
@@ -638,20 +648,26 @@ impl GridDefinitionSection {
         }
     }
 
-    /// How big the field is, for the templates [`Self::dimensions`] cannot
-    /// answer for.
+    /// How the file names its own grid, where `Ni × Nj` is not how it is
+    /// described.
     ///
     /// Three templates are not laid out in rows and columns, so `Ni × Nj` is
     /// not just unknown for them but meaningless — and a display that shows
     /// `—` implies the message does not say how big it is, when in fact it
     /// says so precisely, in that family's own units. Spectral fields are
-    /// sized by their truncation, HEALPix by `Nside`.
+    /// sized by their truncation, HEALPix by `Nside`. A reduced Gaussian grid
+    /// is a fourth case: it has rows, but of differing width, so it is named
+    /// rather than measured — `N32` classic, `O32` octahedral.
     ///
-    /// Returns `None` for every template that *does* have dimensions, so a
-    /// caller reads one or the other and never has to choose between two
-    /// answers. Formatting lives here rather than in a host because the
-    /// convention is per-family domain knowledge — `T639` is not a string a
-    /// UI should be assembling from parts it half-understands.
+    /// A caller showing a size should prefer this where it is present and fall
+    /// back to [`Self::dimensions`]. In this crate the two never both answer,
+    /// but `fieldglass_grib1` reports a raster shape for a reduced grid that
+    /// the file itself does not state, and the two crates should describe the
+    /// same grid the same way.
+    ///
+    /// Formatting lives here rather than in a host because the convention is
+    /// per-family domain knowledge — `T639` is not a string a UI should be
+    /// assembling from parts it half-understands.
     pub fn size_label(&self) -> Option<String> {
         match &self.template {
             // Triangular truncation (J = K = M) is what real data carries and
@@ -671,6 +687,15 @@ impl GridDefinitionSection {
             // `Nside` is the HEALPix resolution: the pixel count follows from
             // it as 12·Nside², so naming it names the size.
             GridTemplate::Healpix(t) => Some(format!("Nside {}", t.nside)),
+            // A reduced Gaussian grid has no constant `Ni` — the row width
+            // varies — but it has a name, and it is the name every tool that
+            // prints one uses: `O1280` octahedral, `N320` classic. A regular
+            // Gaussian grid reports `Ni × Nj` and needs no label.
+            GridTemplate::Gaussian(t) if t.is_reduced => Some(format!(
+                "{}{}",
+                if t.is_octahedral { "O" } else { "N" },
+                t.n_parallels
+            )),
             _ => None,
         }
     }
@@ -1217,21 +1242,68 @@ fn parse_template_3_30(p: &[u8]) -> Result<LambertTemplate, FieldglassError> {
 
 /// Template 3.40 payload starts at GDS octet 15. Payload length = 58 bytes
 /// (octets 15..=72 of the section).
+/// Read §3's optional list of numbers — the `PL` row widths of a reduced grid.
+///
+/// The list follows the template in the section payload, `octet_size` octets
+/// per entry, one entry per row. Both the size and the byte count come from an
+/// untrusted file, so this reads what is actually there rather than what the
+/// section claims: entries are taken from whatever remains after the template,
+/// and each width is assembled big-endian into a `u32`.
+///
+/// `None` when there is no list, when an entry could not fit a `u32`
+/// (`octet_size > 4`), or when the remaining bytes are not a whole number of
+/// entries — a partial trailing width is a section that does not say what it
+/// claims to, and rounding it off would put a fabricated row into the grid.
+fn parse_optional_row_widths(
+    payload: &[u8],
+    template_len: usize,
+    octet_size: u8,
+) -> Option<Vec<u32>> {
+    let width = usize::from(octet_size);
+    if width == 0 || width > 4 {
+        return None;
+    }
+    let list = payload.get(template_len..)?;
+    if list.is_empty() || !list.len().is_multiple_of(width) {
+        return None;
+    }
+    Some(
+        list.chunks_exact(width)
+            .map(|entry| {
+                entry
+                    .iter()
+                    .fold(0u32, |acc, &byte| (acc << 8) | u32::from(byte))
+            })
+            .collect(),
+    )
+}
+
+/// The fixed payload length of template 3.40, before its optional `PL` list.
+const TEMPLATE_3_40_LEN: usize = 58;
+
 fn parse_template_3_40(
     p: &[u8],
     optional_list_octet_size: u8,
 ) -> Result<GaussianTemplate, FieldglassError> {
-    if p.len() < 58 {
+    if p.len() < TEMPLATE_3_40_LEN {
         return Err(FieldglassError::Parse(format!(
-            "GDS template 3.40 needs 58 bytes of payload, got {}",
+            "GDS template 3.40 needs {TEMPLATE_3_40_LEN} bytes of payload, got {}",
             p.len()
         )));
     }
     let is_reduced = optional_list_octet_size > 0;
+    let nj = u32::from_be_bytes([p[20], p[21], p[22], p[23]]);
+    // Classify only when the list is the one the section declares: `Nj` rows,
+    // no more and no fewer. A list of any other length describes a grid this
+    // does not understand, and a confident `O`/`N` on it would be a guess.
+    let is_octahedral = is_reduced
+        && parse_optional_row_widths(p, TEMPLATE_3_40_LEN, optional_list_octet_size).is_some_and(
+            |widths| widths.len() == nj as usize && fieldglass_core::is_octahedral_pl(&widths),
+        );
     Ok(GaussianTemplate {
         shape_of_earth: p[0],
         ni: read_u32_or_missing(&p[16..20]),
-        nj: u32::from_be_bytes([p[20], p[21], p[22], p[23]]),
+        nj,
         la1: read_lat_degrees(&p[32..36]),
         lo1: read_lon_degrees(&p[36..40]),
         resolution_flags: p[40],
@@ -1241,6 +1313,7 @@ fn parse_template_3_40(
         n_parallels: u32::from_be_bytes([p[53], p[54], p[55], p[56]]),
         scanning_mode: p[57],
         is_reduced,
+        is_octahedral,
     })
 }
 
@@ -1876,5 +1949,68 @@ mod tests {
         assert_eq!(sm, 0x40 | SCAN_ALTERNATE_ROWS);
         assert!(sm & SCAN_ALTERNATE_ROWS != 0);
         assert!(sm & SCAN_J_CONSECUTIVE == 0);
+    }
+    /// The `PL` reader refuses every shape it cannot read honestly.
+    ///
+    /// Both the entry size and the byte count come from the file, so these are
+    /// the values a fuzzer reaches first. The rule throughout is that a list
+    /// this cannot read exactly becomes `None` rather than a shorter list: a
+    /// fabricated or dropped row would put a wrong grid in front of someone
+    /// with no indication anything was missing.
+    #[test]
+    fn optional_row_widths_refuses_what_it_cannot_read_exactly() {
+        // Four rows of two octets, immediately after a 4-byte "template".
+        let payload = [0xAA, 0xAA, 0xAA, 0xAA, 0, 20, 0, 24, 0, 24, 0, 20];
+        assert_eq!(
+            parse_optional_row_widths(&payload, 4, 2),
+            Some(vec![20, 24, 24, 20])
+        );
+
+        // No list declared, and entries too wide to fit a u32.
+        assert_eq!(parse_optional_row_widths(&payload, 4, 0), None);
+        assert_eq!(parse_optional_row_widths(&payload, 4, 5), None);
+        assert_eq!(parse_optional_row_widths(&payload, 4, 255), None);
+
+        // A trailing partial entry: 8 bytes is not a whole number of 3-octet
+        // widths, so this is a section that does not say what it claims.
+        // Truncating to two rows would invent a grid.
+        assert_eq!(parse_optional_row_widths(&payload, 4, 3), None);
+
+        // No bytes after the template, and a template longer than the payload
+        // — neither may index out of bounds.
+        assert_eq!(parse_optional_row_widths(&payload, payload.len(), 2), None);
+        assert_eq!(
+            parse_optional_row_widths(&payload, payload.len() + 99, 2),
+            None
+        );
+
+        // Four octets is the widest entry that fits, read big-endian.
+        assert_eq!(
+            parse_optional_row_widths(&[0xFF, 0xFF, 0xFF, 0xFF], 0, 4),
+            Some(vec![u32::MAX])
+        );
+    }
+
+    /// A `PL` list of the wrong length never produces a grid name.
+    ///
+    /// The classification is gated on the list holding exactly `Nj` rows. A
+    /// list of any other length describes a grid this does not understand, and
+    /// `O32` on it would be a confident guess — the failure the `size_label`
+    /// seam exists to avoid.
+    #[test]
+    fn a_pl_list_that_is_not_nj_rows_is_not_classified() {
+        // Octahedral widths, but three rows where Nj declares four.
+        let mut payload = vec![0u8; TEMPLATE_3_40_LEN];
+        payload[20..24].copy_from_slice(&4u32.to_be_bytes());
+        payload[53..57].copy_from_slice(&1u32.to_be_bytes());
+        for width in [20u16, 24, 28] {
+            payload.extend_from_slice(&width.to_be_bytes());
+        }
+        let template = parse_template_3_40(&payload, 2).expect("parses");
+        assert!(template.is_reduced, "a list is present");
+        assert!(
+            !template.is_octahedral,
+            "but it is not the declared Nj rows"
+        );
     }
 }

@@ -373,16 +373,20 @@ impl GridDescription {
         }
     }
 
-    /// How big the field is, for the one grid type [`Self::dimensions`]
-    /// cannot answer for.
+    /// How the file names its own grid, where `Ni × Nj` is not how it is
+    /// described.
     ///
     /// Spectral coefficients are not laid out in rows and columns, so `Ni × Nj`
-    /// is meaningless for them — but the message states its size precisely, as
-    /// a truncation. Mirrors `fieldglass_grib2::gds::GridDefinition::size_label`;
-    /// GRIB1 has only the one such grid type.
+    /// is meaningless for them; a reduced Gaussian grid has rows of differing
+    /// width, so the pair [`Self::dimensions`] reports is a raster this crate
+    /// derives rather than anything the file says. Both state their size
+    /// precisely in their own terms — a truncation, a Gaussian number — and
+    /// that is what this returns. Mirrors
+    /// `fieldglass_grib2::gds::GridDefinition::size_label`.
     ///
-    /// Returns `None` for every grid that *does* have dimensions, so a caller
-    /// reads one or the other.
+    /// `None` for a grid whose `Ni × Nj` *is* its description, which is most of
+    /// them. A caller showing a size should prefer this where it is present
+    /// and fall back to [`Self::dimensions`].
     pub fn size_label(&self) -> Option<String> {
         match self {
             // Triangular (J = K = M) is what real data carries; a pentagonal
@@ -392,6 +396,21 @@ impl GridDescription {
             } else {
                 format!("J{} K{} M{}", g.j, g.k, g.m)
             }),
+            // A reduced Gaussian grid does have `dimensions()` here — the
+            // widest row paired with the row count, which is the raster a
+            // row-expanded field needs — but that is a shape this crate
+            // computes, not one the file states. The file states `N32`, and
+            // that is what every tool printing this grid shows, so it is what
+            // the size column should show too. GRIB2 answers the same way.
+            Self::ReducedGaussian(g) => Some(format!(
+                "{}{}",
+                if fieldglass_core::is_octahedral_pl(&g.points_per_row) {
+                    "O"
+                } else {
+                    "N"
+                },
+                g.n_gaussians
+            )),
             _ => None,
         }
     }

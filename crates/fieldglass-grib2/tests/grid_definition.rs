@@ -513,32 +513,21 @@ const SPECTRAL_T63: &[u8] = include_bytes!("fixtures/spectral_simple_t63.grib2")
 const BIFOURIER: &[u8] = include_bytes!("fixtures/bifourier_rectangle_keepaxes.grib2");
 const HEALPIX_N2: &[u8] = include_bytes!("fixtures/healpix_n2_ring.grib2");
 const HEALPIX_N4: &[u8] = include_bytes!("fixtures/healpix_n4_nested.grib2");
+const OCTAHEDRAL_O32: &[u8] = include_bytes!("fixtures/octahedral_gaussian_o32.grib2");
+const REGULAR_GAUSSIAN: &[u8] = include_bytes!("fixtures/regular_gaussian_f32.grib2");
 
 /// `size_label` answers where `dimensions` does not, on every fixture the crate
 /// ships (#416).
 ///
-/// The two are near-complements, and asserting that across the real corpus is
-/// what stops a future template being added to one and forgotten in the other —
+/// The two are complements, and asserting that across the real corpus is what
+/// stops a future template being added to one and forgotten in the other —
 /// which would show a field as either sizeless or double-sized.
 ///
-/// **Reduced Gaussian is the one grid neither answers for**, and it is not an
-/// oversight of this test but a gap this test found: `ni` is `None` because the
-/// row width varies, so `dimensions` gives nothing, and `size_label` does not
-/// cover it either because naming it properly means telling a classic `N320`
-/// from an octahedral `O320`, which needs the `PL` list rather than the
-/// template and wants eccodes' `gridName` as an oracle. Tracked as #500; pinned
-/// here so the gap is visible rather than implied by an absence.
+/// Reduced Gaussian was the one grid neither answered for, which this test
+/// found and #500 closed: `ni` is `None` because the row width varies, so
+/// `dimensions` gives nothing, and it carries a name instead.
 #[test]
 fn size_label_and_dimensions_are_complements() {
-    let reader = Grib2Reader::from_bytes(ECMWF_GAUSSIAN.to_vec()).expect("parse");
-    let gds = &reader.messages[0].gds;
-    assert_eq!(
-        gds.dimensions(),
-        None,
-        "reduced Gaussian has no constant Ni"
-    );
-    assert_eq!(gds.size_label(), None, "and is not labelled yet either");
-
     let gridded: &[(&str, &[u8])] = &[
         ("latlon", GFS_LATLON),
         ("lambert", ETA_LAMBERT),
@@ -559,6 +548,10 @@ fn size_label_and_dimensions_are_complements() {
         ("bi-Fourier", BIFOURIER, "N3 M4"),
         ("HEALPix Nside 2", HEALPIX_N2, "Nside 2"),
         ("HEALPix Nside 4", HEALPIX_N4, "Nside 4"),
+        // Rows of differing width, so no constant Ni — but the grid has a
+        // name, and eccodes reads back the same two (#500).
+        ("classic reduced Gaussian", ECMWF_GAUSSIAN, "N32"),
+        ("octahedral reduced Gaussian", OCTAHEDRAL_O32, "O32"),
     ];
     for (name, bytes, expected) in gridless {
         let reader = Grib2Reader::from_bytes(bytes.to_vec()).expect("parse");
@@ -570,4 +563,59 @@ fn size_label_and_dimensions_are_complements() {
             "{name} states its own size"
         );
     }
+}
+
+/// A regular Gaussian grid is not mistaken for a reduced one.
+///
+/// The arm building the name is guarded on `is_reduced`, not on the
+/// classification: a regular grid reports `Ni × Nj` and must carry no name at
+/// all, rather than a confident `N32` displacing a perfectly good shape.
+///
+/// eccodes does name this grid — it calls it `F32`, the third of the `F`/`N`/`O`
+/// family — and the omission here is deliberate rather than an oversight. The
+/// label exists for a grid whose size `Ni × Nj` cannot state; this one's size
+/// *is* `128 × 64`, and a name would displace the more useful answer.
+///
+/// Worth knowing that eccodes' own `gg_sfc_grib2.tmpl` is **not** this: despite
+/// the name it is `reduced_gg` with `Ni` missing, which is what an earlier
+/// draft of this test asserted against and failed on.
+#[test]
+fn a_regular_gaussian_grid_reports_dimensions_and_no_name() {
+    let reader = Grib2Reader::from_bytes(REGULAR_GAUSSIAN.to_vec()).expect("parse");
+    let gds = &reader.messages[0].gds;
+    let GridTemplate::Gaussian(t) = gds.template else {
+        panic!("expected a Gaussian template");
+    };
+    assert!(!t.is_reduced, "the sample is a regular Gaussian grid");
+    assert!(!t.is_octahedral, "and so cannot be octahedral");
+    assert!(gds.dimensions().is_some(), "a regular grid has Ni x Nj");
+    assert_eq!(gds.size_label(), None, "and needs no name of its own");
+}
+
+/// The `O`/`N` split is read off the row widths, not off `N`.
+///
+/// Both fixtures are `N = 32` with 64 rows: the same Gaussian number, the same
+/// row count, different widths. A classifier that keyed on anything but the
+/// `PL` list would call them the same thing, and this is the pair that says so.
+#[test]
+fn classic_and_octahedral_differ_only_in_their_row_widths() {
+    let classic = Grib2Reader::from_bytes(ECMWF_GAUSSIAN.to_vec()).expect("parse");
+    let octahedral = Grib2Reader::from_bytes(OCTAHEDRAL_O32.to_vec()).expect("parse");
+    let (a, b) = (&classic.messages[0].gds, &octahedral.messages[0].gds);
+
+    let (GridTemplate::Gaussian(ta), GridTemplate::Gaussian(tb)) = (a.template, b.template) else {
+        panic!("expected two Gaussian templates");
+    };
+    assert_eq!(ta.n_parallels, tb.n_parallels, "same Gaussian number");
+    assert_eq!(ta.nj, tb.nj, "same row count");
+    assert!(ta.is_reduced && tb.is_reduced, "both reduced");
+    assert!(
+        !ta.is_octahedral,
+        "the ECMWF fixture is classic (eccodes: N32)"
+    );
+    assert!(
+        tb.is_octahedral,
+        "the built fixture is octahedral (eccodes: O32)"
+    );
+    assert_ne!(a.size_label(), b.size_label());
 }

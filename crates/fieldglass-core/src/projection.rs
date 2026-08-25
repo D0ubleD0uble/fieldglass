@@ -247,6 +247,47 @@ thread_local! {
     static GAUSS_CACHE: RefCell<BTreeMap<u32, Vec<f64>>> = const { RefCell::new(BTreeMap::new()) };
 }
 
+/// Whether a reduced Gaussian grid's `PL` list describes an **octahedral**
+/// grid rather than a classic one.
+///
+/// The two are named differently by every tool that prints them — ECMWF's
+/// `O1280` against the older `N320` — and the difference is visible only in the
+/// row widths. A classic grid's widths come from a tabulated algorithm; an
+/// octahedral grid's rise by exactly four per row from the pole to the equator
+/// and fall by four again, which is what this recognises.
+///
+/// This is eccodes' own rule, transcribed from `OctahedralGaussian.cc`
+/// (`is_pl_octahedral`), rather than the arithmetic shortcut of comparing the
+/// equatorial row against `4N + 16`: the shortcut reads one row, and would
+/// accept a grid that is octahedral only at its equator. Each step must be
+/// `0`, `+4` or `-4`, and the steps must be ordered — rising, then at most one
+/// plateau, then falling.
+///
+/// Deliberately matches eccodes on the degenerate input too: a list of fewer
+/// than two rows has no step to disagree about and answers `true`. That is not
+/// a claim that a one-row grid is octahedral — it is so this never disagrees
+/// with the oracle it is checked against. What counts as a grid is the
+/// caller's question; this function is not told how many rows were declared.
+pub fn is_octahedral_pl(points_per_row: &[u32]) -> bool {
+    let mut previous: Option<i64> = None;
+    for index in 1..points_per_row.len() {
+        let step = i64::from(points_per_row[index]) - i64::from(points_per_row[index - 1]);
+        let first = index == 1;
+        let ordered = match step {
+            // A plateau is allowed at the equator, and only after a rise.
+            0 => first || previous == Some(4),
+            4 => first || previous == Some(4),
+            -4 => first || previous == Some(-4) || previous == Some(0),
+            _ => false,
+        };
+        if !ordered {
+            return false;
+        }
+        previous = Some(step);
+    }
+    true
+}
+
 /// Return the `2N` Gauss–Legendre quadrature nodes in degrees of
 /// latitude, ordered north-to-south (matching the GRIB convention).
 /// Roots are computed iteratively per Numerical Recipes §4.6.
@@ -5246,5 +5287,57 @@ mod tests {
             proj.lonlat_bbox().is_none(),
             "full-disk perimeter should be off-disk"
         );
+    }
+    /// The octahedral rule, against the shapes it must accept and reject.
+    ///
+    /// Transcribed from eccodes' `is_pl_octahedral`, so the cases that matter
+    /// are the ordering ones: a rise after a fall, or a second plateau, is a
+    /// grid whose widths happen to move in fours without being octahedral, and
+    /// the arithmetic shortcut of checking one row against `4N + 16` would take
+    /// all of them.
+    #[test]
+    fn octahedral_pl_recognises_the_shape_not_the_arithmetic() {
+        // The real thing: rise by four to the equator, one plateau, fall by
+        // four. This is `O32`, the shape of the committed fixture.
+        let northern: Vec<u32> = (0..32).map(|row| 20 + 4 * row).collect();
+        let octahedral: Vec<u32> = northern
+            .iter()
+            .copied()
+            .chain(northern.iter().rev().copied())
+            .collect();
+        assert_eq!(octahedral.len(), 64);
+        assert!(is_octahedral_pl(&octahedral));
+
+        // A classic reduced grid's widths do not move in fours.
+        assert!(!is_octahedral_pl(&[18, 25, 36, 40, 45, 54]));
+        // Steps of the right size in the wrong order: falls, then rises again.
+        assert!(!is_octahedral_pl(&[20, 24, 20, 24]));
+        // A plateau before any rise.
+        assert!(!is_octahedral_pl(&[20, 20, 24, 28]));
+        // Two plateaux — only the equator may repeat.
+        assert!(!is_octahedral_pl(&[20, 24, 24, 24, 20]));
+        // A step of the wrong size, everything else right.
+        assert!(!is_octahedral_pl(&[20, 24, 30, 34]));
+        // Monotone rise with no fall is still octahedral by this rule: eccodes
+        // asks about the steps, not about symmetry, and a caller that needs a
+        // whole globe checks the row count against `Nj` itself.
+        assert!(is_octahedral_pl(&[20, 24, 28, 32]));
+
+        // Degenerate inputs answer as eccodes does — no step, no disagreement.
+        assert!(is_octahedral_pl(&[]));
+        assert!(is_octahedral_pl(&[20]));
+    }
+
+    /// A width near `u32::MAX` cannot make the step arithmetic wrap.
+    ///
+    /// The list is read from an untrusted file, so the differences are taken in
+    /// `i64`: in `u32` the subtraction below would underflow and, in release,
+    /// wrap to a number that is not `4` and not `-4` — the right answer by
+    /// accident, from arithmetic that is wrong.
+    #[test]
+    fn octahedral_pl_does_not_wrap_on_hostile_widths() {
+        assert!(!is_octahedral_pl(&[u32::MAX, 0]));
+        assert!(!is_octahedral_pl(&[0, u32::MAX]));
+        assert!(is_octahedral_pl(&[u32::MAX - 4, u32::MAX]));
     }
 }
