@@ -271,3 +271,35 @@ fn a_lookup_geometry_reports_itself_correctly() {
         GridResampling::Any
     );
 }
+
+#[test]
+fn the_fingerprint_distinguishes_grids_without_reading_them_all() {
+    // The render cache asks "same geometry?" on every repaint, and `==` on a
+    // million-cell index compares three million floats. `fingerprint` is what a
+    // cache should key on, so it has to actually separate grids that differ.
+    let (ni, nj) = (16, 12);
+    let (lats, lons) = lattice(ni, nj, (0.0, 11.0), (0.0, 15.0));
+    let a = SpatialIndex::new(ni, nj, &lats, &lons).expect("builds");
+    let b = SpatialIndex::new(ni, nj, &lats, &lons).expect("builds");
+    assert_eq!(
+        a.fingerprint(),
+        b.fingerprint(),
+        "same centres, same fingerprint"
+    );
+    assert_eq!(a, b, "and `==` agrees");
+
+    // One centre moved by a hair.
+    let mut moved = lats.clone();
+    moved[100] += 1e-9;
+    let c = SpatialIndex::new(ni, nj, &moved, &lons).expect("builds");
+    assert_ne!(
+        a.fingerprint(),
+        c.fingerprint(),
+        "a moved centre must not match"
+    );
+
+    // Same centres, different grid shape: the dims are part of the hash, so a
+    // reshaped grid is a different grid.
+    let d = SpatialIndex::new(nj, ni, &lats, &lons).expect("builds");
+    assert_ne!(a.fingerprint(), d.fingerprint(), "a reshape must not match");
+}

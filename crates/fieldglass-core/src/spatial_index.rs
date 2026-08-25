@@ -39,6 +39,10 @@ use crate::projection::{GridIndex, GridResampling};
 /// centres. The tree is a permutation of cell indices with the median at the
 /// middle of each range, so it costs one `u32` per cell beyond the coordinates
 /// themselves.
+///
+/// `Clone` and `PartialEq` are both `O(n)` and, at a million cells, both move
+/// or read about 28 MB. Neither belongs on a per-repaint path: borrow the index
+/// and key a cache on [`fingerprint`](Self::fingerprint).
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(try_from = "IndexCoords", into = "IndexCoords")]
 pub struct SpatialIndex {
@@ -117,6 +121,39 @@ impl SpatialIndex {
 
     pub fn dims(&self) -> (u32, u32) {
         (self.ni, self.nj)
+    }
+
+    /// A cheap stand-in for identity, for use as a cache key.
+    ///
+    /// `PartialEq` on this type compares every centre, which is correct and
+    /// `O(n)` — three million floats for a million-cell grid. The render cache
+    /// keys on grid geometry and asks that question on every repaint
+    /// (`docs/planning/grid-render-cost-model.md`), so a cache must compare
+    /// `(dims(), fingerprint())` rather than `==`.
+    ///
+    /// It is a hash, so it can collide in principle. Treat it as identity only
+    /// where a false match costs a stale render rather than a wrong number, and
+    /// where the alternative — an `O(n)` comparison per repaint — is the real
+    /// hazard. `==` remains available and exact for anywhere else.
+    pub fn fingerprint(&self) -> u64 {
+        // FNV-1a over the raw bit patterns. Not cryptographic: the threat here
+        // is two grids in one session colliding, not an adversary.
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        let mut eat = |v: u64| {
+            h ^= v;
+            h = h.wrapping_mul(0x1000_0000_01b3);
+        };
+        eat(self.ni as u64);
+        eat(self.nj as u64);
+        eat(self.xyz.len() as u64);
+        for v in &self.xyz {
+            for c in v {
+                // Normalise NaN so an excluded cell hashes consistently
+                // whichever payload the file used.
+                eat(if c.is_nan() { 0 } else { c.to_bits() });
+            }
+        }
+        h
     }
 
     /// Cells actually searchable — fewer than `ni × nj` when the source left
