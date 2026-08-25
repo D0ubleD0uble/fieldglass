@@ -882,6 +882,14 @@ pub trait PlanarGridProjector {
     /// well-behaved round trip leaves, far below any real offset. It is the
     /// same rule, for the same reason, that the rotated lat/lon inverse
     /// applies. Override it where the round trip is not exact to float noise.
+    ///
+    /// A new implementor inherits this without being asked, and getting it
+    /// wrong is silent: the symptom is a missing outer row in a render, not an
+    /// error. Check a new projector against its own
+    /// [`grid_corners_lonlat`](Self::grid_corners_lonlat) — all four must come
+    /// back through [`inverse`](Self::inverse) inside the grid.
+    /// `tests/planar_inverse_golden.rs` does that for the projectors in its
+    /// table; add yours to it.
     fn snap_eps(&self) -> SnapEps {
         SnapEps::Cells(1e-9)
     }
