@@ -968,6 +968,21 @@ pub enum GridResampling {
     NearestOnly,
 }
 
+impl GridResampling {
+    /// What a `method` request actually becomes on this geometry.
+    ///
+    /// [`crate::warp::warp`] applies this before resampling, so a caller that
+    /// wants to *report* what happened — a render summary naming the method —
+    /// must ask the same question rather than echo the request back. Reporting
+    /// "bilinear" for a lookup grid names a blend that was never performed.
+    pub fn applied_to(self, method: crate::warp::Resampling) -> crate::warp::Resampling {
+        match self {
+            Self::NearestOnly => crate::warp::Resampling::Nearest,
+            Self::Any => method,
+        }
+    }
+}
+
 /// The edge tolerance a projection whose round trip closes to float noise
 /// needs: a nanometre of a grid cell — far above the round-off a well-behaved
 /// round trip leaves, far below any real offset.

@@ -6,7 +6,7 @@ use fieldglass_core::{
     LambertParams, LambertProjector, LatLonParams, MercatorParams, Mollweide, Orthographic,
     PlanarGridProjector, PolarStereoParams, PolarStereoProjector, PolarStereographic,
     ProjectedPolylines, Resampling, Robinson, RotatedLatLonParams, RotatedLatLonProjector,
-    SourceGrid, SourceOverlayTarget, TargetRaster, TransverseMercatorParams,
+    SourceGrid, SourceOverlayTarget, SpatialIndex, TargetRaster, TransverseMercatorParams,
     TransverseMercatorProjector, WebMercator,
     cct_tables::lookup_sub_centre,
     colormap::{Colormap, ScaleMode, min_max_ignoring_mask, paint_grid_rgba},
@@ -277,6 +277,10 @@ fn grid_is_reprojectable(
         | Some("rotated_latlon")
         | Some("reduced_latlon")
         | Some("reduced_gaussian") => !i_scan_negative,
+        // A lookup grid's inverse is a nearest-cell search, which has no scan
+        // direction to be wrong about — the cell centres carry their own
+        // positions (#445).
+        Some("curvilinear") => true,
         // Space view carries its scan-angle increments through the same
         // planar spacing slots; an orthographic view (no camera altitude)
         // leaves them `None` and so does not reproject.
@@ -1626,7 +1630,7 @@ impl Grib1Handle {
         format: String,
     ) -> napi::Result<napi::bindgen_prelude::Buffer> {
         let (raw, meta, ni, nj) = self.resolved(message_index)?;
-        field_csv(&raw, &meta, ni, nj, &format).map(csv_buffer)
+        field_csv(&raw, &meta, ni, nj, &format, None).map(csv_buffer)
     }
 
     /// Patch the PDS `p1` (forecast period) octet of one message and
@@ -1683,7 +1687,7 @@ impl Grib1Handle {
         // onto a global lat/lon grid and hands it back like any decoded field
         // (#330), so this path never special-cases it.
         let (raw, meta, _ni, _nj) = self.resolved(message_index)?;
-        render_with_options(&meta, &raw, &options)
+        render_with_options(&meta, &raw, &options, None)
     }
 
     /// Render `message_index_a` combined element-wise with `message_index_b`
@@ -1709,6 +1713,7 @@ impl Grib1Handle {
             raw_b.as_ref(),
             op,
             &options,
+            None,
         )
     }
 
@@ -1725,8 +1730,14 @@ impl Grib1Handle {
         ring_lengths: napi::bindgen_prelude::Uint32Array,
     ) -> napi::Result<ProjectedOverlay> {
         let meta = self.resolved_meta(message_index)?;
-        project_overlay_impl(&meta, &options, latlon.as_ref(), ring_lengths.as_ref())
-            .map(ProjectedOverlay::from_polylines)
+        project_overlay_impl(
+            &meta,
+            &options,
+            latlon.as_ref(),
+            ring_lengths.as_ref(),
+            None,
+        )
+        .map(ProjectedOverlay::from_polylines)
     }
 
     /// Extract contour isolines from this message and project them onto the same
@@ -1742,7 +1753,7 @@ impl Grib1Handle {
         interval: Option<f64>,
     ) -> napi::Result<ProjectedOverlay> {
         let (raw, meta, _ni, _nj) = self.resolved(message_index)?;
-        project_contours_impl(&meta, raw.as_ref(), &options, interval)
+        project_contours_impl(&meta, raw.as_ref(), &options, interval, None)
             .map(ProjectedOverlay::from_polylines)
     }
 
@@ -1758,7 +1769,7 @@ impl Grib1Handle {
         py: u32,
     ) -> napi::Result<Option<ProbeResult>> {
         let (raw, meta, _ni, _nj) = self.resolved(message_index)?;
-        probe_impl(&meta, raw.as_ref(), &options, px, py)
+        probe_impl(&meta, raw.as_ref(), &options, px, py, None)
     }
 
     /// Probe a difference/sum/… map under a pixel (#329): decode both fields,
@@ -1780,7 +1791,7 @@ impl Grib1Handle {
         let (raw_a, meta_a, _, _) = self.resolved(message_index_a)?;
         let (raw_b, meta_b, _, _) = self.resolved(message_index_b)?;
         let combined = combined_field(&meta_a, raw_a.as_ref(), &meta_b, raw_b.as_ref(), op)?;
-        probe_impl(&meta_a, &combined, &options, px, py)
+        probe_impl(&meta_a, &combined, &options, px, py, None)
     }
 
     /// Contour a difference/sum/… map (#329): decode both fields, combine under
@@ -1799,7 +1810,7 @@ impl Grib1Handle {
         let (raw_a, meta_a, _, _) = self.resolved(message_index_a)?;
         let (raw_b, meta_b, _, _) = self.resolved(message_index_b)?;
         let combined = combined_field(&meta_a, raw_a.as_ref(), &meta_b, raw_b.as_ref(), op)?;
-        project_contours_impl(&meta_a, &combined, &options, interval)
+        project_contours_impl(&meta_a, &combined, &options, interval, None)
             .map(ProjectedOverlay::from_polylines)
     }
 }
@@ -2034,7 +2045,7 @@ impl Grib2Handle {
         format: String,
     ) -> napi::Result<napi::bindgen_prelude::Buffer> {
         let (raw, meta, ni, nj) = self.resolved(message_index)?;
-        field_csv(&raw, &meta, ni, nj, &format).map(csv_buffer)
+        field_csv(&raw, &meta, ni, nj, &format, None).map(csv_buffer)
     }
 
     #[napi]
@@ -2047,7 +2058,7 @@ impl Grib2Handle {
         // onto a global lat/lon grid and hands it back like any decoded field
         // (#330), so this path never special-cases it.
         let (raw, meta, _ni, _nj) = self.resolved(message_index)?;
-        render_with_options(&meta, &raw, &options)
+        render_with_options(&meta, &raw, &options, None)
     }
 
     /// Render `message_index_a` combined element-wise with `message_index_b`
@@ -2073,6 +2084,7 @@ impl Grib2Handle {
             raw_b.as_ref(),
             op,
             &options,
+            None,
         )
     }
 
@@ -2087,8 +2099,14 @@ impl Grib2Handle {
         ring_lengths: napi::bindgen_prelude::Uint32Array,
     ) -> napi::Result<ProjectedOverlay> {
         let meta = self.resolved_meta(message_index)?;
-        project_overlay_impl(&meta, &options, latlon.as_ref(), ring_lengths.as_ref())
-            .map(ProjectedOverlay::from_polylines)
+        project_overlay_impl(
+            &meta,
+            &options,
+            latlon.as_ref(),
+            ring_lengths.as_ref(),
+            None,
+        )
+        .map(ProjectedOverlay::from_polylines)
     }
 
     /// Contour isolines for this message, projected onto the render raster.
@@ -2101,7 +2119,7 @@ impl Grib2Handle {
         interval: Option<f64>,
     ) -> napi::Result<ProjectedOverlay> {
         let (raw, meta, _ni, _nj) = self.resolved(message_index)?;
-        project_contours_impl(&meta, raw.as_ref(), &options, interval)
+        project_contours_impl(&meta, raw.as_ref(), &options, interval, None)
             .map(ProjectedOverlay::from_polylines)
     }
 
@@ -2116,7 +2134,7 @@ impl Grib2Handle {
         py: u32,
     ) -> napi::Result<Option<ProbeResult>> {
         let (raw, meta, _ni, _nj) = self.resolved(message_index)?;
-        probe_impl(&meta, raw.as_ref(), &options, px, py)
+        probe_impl(&meta, raw.as_ref(), &options, px, py, None)
     }
 
     /// Probe a difference/sum/… map (#329) — sibling to
@@ -2137,7 +2155,7 @@ impl Grib2Handle {
         let (raw_a, meta_a, _, _) = self.resolved(message_index_a)?;
         let (raw_b, meta_b, _, _) = self.resolved(message_index_b)?;
         let combined = combined_field(&meta_a, raw_a.as_ref(), &meta_b, raw_b.as_ref(), op)?;
-        probe_impl(&meta_a, &combined, &options, px, py)
+        probe_impl(&meta_a, &combined, &options, px, py, None)
     }
 
     /// Contour a difference/sum/… map (#329) — sibling to
@@ -2156,7 +2174,7 @@ impl Grib2Handle {
         let (raw_a, meta_a, _, _) = self.resolved(message_index_a)?;
         let (raw_b, meta_b, _, _) = self.resolved(message_index_b)?;
         let combined = combined_field(&meta_a, raw_a.as_ref(), &meta_b, raw_b.as_ref(), op)?;
-        project_contours_impl(&meta_a, &combined, &options, interval)
+        project_contours_impl(&meta_a, &combined, &options, interval, None)
             .map(ProjectedOverlay::from_polylines)
     }
 }
@@ -2432,14 +2450,26 @@ pub struct NetcdfVariableMeta {
 /// the GRIB handles use — honouring the decode-decoupled rule.
 ///
 /// Covers both backings — classic (CDF-1/2/5) and NetCDF-4 / HDF5 (#169) — for
-/// regular 1-D lat/lon grids (decision 0002). Curvilinear / projected grids
-/// (#168) are a tracked follow-up; for an HDF5 layout whose metadata can't be
-/// resolved, `variables()` is empty and the panel falls back to the metadata view.
+/// regular 1-D lat/lon grids (decision 0002), projected grids (#168, decision
+/// 0004) and 2-D coordinate curvilinear grids (#445). For an HDF5 layout whose
+/// metadata can't be resolved, `variables()` is empty and the panel falls back
+/// to the metadata view.
 #[napi]
 pub struct NetcdfHandle {
     reader: NetcdfReader,
     view: DatasetView,
     decoded: Mutex<std::collections::HashMap<usize, std::sync::Arc<Vec<Option<f64>>>>>,
+    /// Cell-centre indices for curvilinear slices, keyed by the pair of 2-D
+    /// coordinate variables that built them (#445).
+    ///
+    /// Keyed on the coordinates rather than on the data variable because one
+    /// file's fields share one geometry: every RTOFS ice field is on the same
+    /// tripolar mesh, and rebuilding the index per field would pay an
+    /// `O(n log n)` build and 24 bytes a cell again for an identical answer.
+    /// `None` records that a slice resolved no usable pair, so a miss is not
+    /// re-derived on every repaint either.
+    curvilinear:
+        Mutex<std::collections::HashMap<(usize, usize), Option<std::sync::Arc<SpatialIndex>>>>,
 }
 
 #[napi]
@@ -2467,6 +2497,7 @@ impl NetcdfHandle {
             reader,
             view,
             decoded: Mutex::new(std::collections::HashMap::new()),
+            curvilinear: Mutex::new(std::collections::HashMap::new()),
         })
     }
 
@@ -2526,7 +2557,8 @@ impl NetcdfHandle {
         let (y, x) = (y_dim as usize, x_dim as usize);
         let plane = self.slice_plane(&var, y, x, &slice_indices)?;
         let meta = self.slice_meta(&var, y, x)?;
-        render_with_options(&meta, &plane, &options)
+        let index = self.curvilinear_index(&var, y, x)?;
+        render_with_options(&meta, &plane, &options, index.as_deref())
     }
 
     /// Serialize one decoded slice as CSV — `"matrix"` (a 2-D grid of values) or
@@ -2559,7 +2591,8 @@ impl NetcdfHandle {
             .grid_nj
             .ok_or_else(|| napi::Error::from_reason("slice has no y-axis size".to_string()))?
             as u32;
-        field_csv(&plane, &meta, ni, nj, &format).map(csv_buffer)
+        let index = self.curvilinear_index(&var, y, x)?;
+        field_csv(&plane, &meta, ni, nj, &format, index.as_deref()).map(csv_buffer)
     }
 
     /// Render one slice combined element-wise with a second slice under `op`
@@ -2590,7 +2623,16 @@ impl NetcdfHandle {
         let plane_b = self.slice_plane(&var_b, y, x, &slice_indices_b)?;
         let meta_a = self.slice_meta(&var_a, y, x)?;
         let meta_b = self.slice_meta(&var_b, y, x)?;
-        render_combined(&meta_a, &plane_a, &meta_b, &plane_b, op, &options)
+        let index = self.curvilinear_index(&var_a, y, x)?;
+        render_combined(
+            &meta_a,
+            &plane_a,
+            &meta_b,
+            &plane_b,
+            op,
+            &options,
+            index.as_deref(),
+        )
     }
 
     /// Project geographic polylines onto the same raster `render_slice` produces
@@ -2608,8 +2650,15 @@ impl NetcdfHandle {
     ) -> napi::Result<ProjectedOverlay> {
         let var = self.renderable(variable_index)?;
         let meta = self.slice_meta(&var, y_dim as usize, x_dim as usize)?;
-        project_overlay_impl(&meta, &options, latlon.as_ref(), ring_lengths.as_ref())
-            .map(ProjectedOverlay::from_polylines)
+        let index = self.curvilinear_index(&var, y_dim as usize, x_dim as usize)?;
+        project_overlay_impl(
+            &meta,
+            &options,
+            latlon.as_ref(),
+            ring_lengths.as_ref(),
+            index.as_deref(),
+        )
+        .map(ProjectedOverlay::from_polylines)
     }
 
     /// Contour isolines for one slice, projected onto the render raster (#238).
@@ -2631,7 +2680,8 @@ impl NetcdfHandle {
         let (y, x) = (y_dim as usize, x_dim as usize);
         let plane = self.slice_plane(&var, y, x, &slice_indices)?;
         let meta = self.slice_meta(&var, y, x)?;
-        project_contours_impl(&meta, &plane, &options, interval)
+        let index = self.curvilinear_index(&var, y, x)?;
+        project_contours_impl(&meta, &plane, &options, interval, index.as_deref())
             .map(ProjectedOverlay::from_polylines)
     }
 
@@ -2653,7 +2703,8 @@ impl NetcdfHandle {
         let (y, x) = (y_dim as usize, x_dim as usize);
         let plane = self.slice_plane(&var, y, x, &slice_indices)?;
         let meta = self.slice_meta(&var, y, x)?;
-        probe_impl(&meta, &plane, &options, px, py)
+        let index = self.curvilinear_index(&var, y, x)?;
+        probe_impl(&meta, &plane, &options, px, py, index.as_deref())
     }
 
     /// Probe a NetCDF difference/sum/… map under a pixel (#329): the two slices
@@ -2684,7 +2735,8 @@ impl NetcdfHandle {
         let meta_a = self.slice_meta(&var_a, y, x)?;
         let meta_b = self.slice_meta(&var_b, y, x)?;
         let combined = combined_field(&meta_a, &plane_a, &meta_b, &plane_b, op)?;
-        probe_impl(&meta_a, &combined, &options, px, py)
+        let index = self.curvilinear_index(&var_a, y, x)?;
+        probe_impl(&meta_a, &combined, &options, px, py, index.as_deref())
     }
 
     /// Contour a NetCDF difference/sum/… map (#329): the two slices are combined
@@ -2713,7 +2765,8 @@ impl NetcdfHandle {
         let meta_a = self.slice_meta(&var_a, y, x)?;
         let meta_b = self.slice_meta(&var_b, y, x)?;
         let combined = combined_field(&meta_a, &plane_a, &meta_b, &plane_b, op)?;
-        project_contours_impl(&meta_a, &combined, &options, interval)
+        let index = self.curvilinear_index(&var_a, y, x)?;
+        project_contours_impl(&meta_a, &combined, &options, interval, index.as_deref())
             .map(ProjectedOverlay::from_polylines)
     }
 }
@@ -2797,6 +2850,63 @@ impl NetcdfHandle {
     /// coordinate arrays. With both lat and lon coordinate variables present the
     /// grid reprojects; without them the grid is "assumed" and only the source
     /// projection is offered (no geographic corners).
+    /// The cell-centre index for a curvilinear slice, or `None` when the slice
+    /// names no usable 2-D coordinate pair (#445).
+    ///
+    /// Decodes both coordinate planes once and builds the k-d tree over them,
+    /// then caches by the coordinate pair — see [`Self::curvilinear`] for why
+    /// the key is the coordinates and not the field.
+    ///
+    /// A pair that resolves but will not build an index (every centre a fill
+    /// value, or lengths that disagree with the dimensions) caches as `None`
+    /// and the slice falls back to the source projection, which is what it did
+    /// before this existed. That is the right failure: the alternative is
+    /// erroring out of a render the user can otherwise still look at.
+    fn curvilinear_index(
+        &self,
+        var: &RenderableVariable,
+        y_dim: usize,
+        x_dim: usize,
+    ) -> napi::Result<Option<std::sync::Arc<SpatialIndex>>> {
+        let (Some(y_axis), Some(x_axis)) = (var.dims.get(y_dim), var.dims.get(x_dim)) else {
+            return Ok(None);
+        };
+        let Some(source) = self
+            .view
+            .vars
+            .iter()
+            .find(|v| v.decode_index == var.decode_index)
+        else {
+            return Ok(None);
+        };
+        let Some(coords) = self
+            .view
+            .curvilinear_coords(source, &y_axis.name, &x_axis.name)
+        else {
+            return Ok(None);
+        };
+
+        let key = (coords.lat_index, coords.lon_index);
+        if let Some(hit) = self
+            .curvilinear
+            .lock()
+            .expect("curvilinear cache mutex poisoned")
+            .get(&key)
+        {
+            return Ok(hit.clone());
+        }
+
+        let lats = self.coordinate_plane(coords.lat_index)?;
+        let lons = self.coordinate_plane(coords.lon_index)?;
+        let built = SpatialIndex::new(x_axis.length as u32, y_axis.length as u32, &lats, &lons)
+            .map(std::sync::Arc::new);
+        self.curvilinear
+            .lock()
+            .expect("curvilinear cache mutex poisoned")
+            .insert(key, built.clone());
+        Ok(built)
+    }
+
     fn slice_meta(
         &self,
         var: &RenderableVariable,
@@ -2828,6 +2938,32 @@ impl NetcdfHandle {
             })
             .unwrap_or_default();
         let (ni, nj) = (x_axis.length as u32, y_axis.length as u32);
+
+        // A curvilinear grid (#445) takes precedence over everything below: it
+        // names 2-D coordinates giving the position of every cell, and no
+        // formula the other paths could reconstruct. Its extent comes from
+        // those cells, so the corners here are the index's bounding box rather
+        // than anything the file states as a corner — a lookup grid has none.
+        //
+        // Resolved through the same cache the render path uses, so a slice that
+        // reports `"curvilinear"` here is one the warp can always place.
+        if let Some(index) = self.curvilinear_index(var, y_dim, x_dim)? {
+            let (lat_min, lat_max, lon_min, lon_max) =
+                index.lonlat_bbox().unwrap_or((-90.0, 90.0, -180.0, 180.0));
+            return Ok(MessageMeta {
+                grid_type: Some("curvilinear".to_string()),
+                grid_ni: Some(ni as i32),
+                grid_nj: Some(nj as i32),
+                // North-up, matching the corner convention the other families
+                // report: `lat_first` is the northern edge.
+                lat_first: Some(lat_max),
+                lat_last: Some(lat_min),
+                lon_first: Some(lon_min),
+                lon_last: Some(lon_max),
+                reprojectable: true,
+                ..synth_latlon_meta(&var.name, &units, ni as i32, nj as i32, None)
+            });
+        }
 
         // A projected grid (WRF / GOES geostationary, decision 0004) takes
         // precedence over the regular lat/lon path: its `x`/`y` coordinate
@@ -3041,6 +3177,32 @@ impl NetcdfHandle {
             .map(|v| cf_scale_offset(&v.attrs))
             .unwrap_or((1.0, 0.0));
         Ok(raw * scale + offset)
+    }
+
+    /// Decode a **2-D** auxiliary coordinate variable, applying CF
+    /// `scale_factor` / `add_offset` and carrying a masked cell through as
+    /// `NaN` (#445).
+    ///
+    /// The sibling [`Self::coordinate_values`] treats a fill value in a
+    /// coordinate as a hard error, which is right for a 1-D axis: an axis with
+    /// a hole is a broken file. A 2-D coordinate is not an axis — a swath
+    /// granule legitimately marks the fields of view that saw no Earth — so a
+    /// hole here is data, not corruption. `SpatialIndex` keeps such a cell in
+    /// place so indices stay aligned and never returns it from a search.
+    fn coordinate_plane(&self, index: usize) -> napi::Result<Vec<f64>> {
+        let raw: Vec<f64> = self
+            .cached_decode(index)?
+            .iter()
+            .map(|v| v.unwrap_or(f64::NAN))
+            .collect();
+        let attrs = self
+            .view
+            .vars
+            .iter()
+            .find(|v| v.decode_index == index)
+            .map(|v| v.attrs.clone())
+            .unwrap_or_default();
+        Ok(apply_scale_offset(&raw, &attrs))
     }
 
     /// Decode a coordinate variable to a dense `Vec<f64>`, applying CF
@@ -3984,23 +4146,35 @@ fn render_combined(
     raw_b: &[Option<f64>],
     op: CombineOp,
     options: &RenderOptions,
+    // The cell-centre index for a `"curvilinear"` grid; `None` for every
+    // family whose geometry is a formula (#445). Field A's geometry is the
+    // one the combined render uses, so this is field A's index.
+    lookup: Option<&SpatialIndex>,
 ) -> napi::Result<RenderedGrid> {
     let combined = combined_field(meta_a, raw_a, meta_b, raw_b, op)?;
-    render_with_options(meta_a, &combined, options)
+    render_with_options(meta_a, &combined, options, lookup)
 }
 
 fn render_with_options(
     meta: &MessageMeta,
     raw: &[Option<f64>],
     options: &RenderOptions,
+    // The cell-centre index for a `"curvilinear"` grid; `None` for every
+    // family whose geometry is a formula (#445).
+    lookup: Option<&SpatialIndex>,
 ) -> napi::Result<RenderedGrid> {
     let resolved = ResolvedOptions::parse(options)?;
     let is_source = matches!(resolved.projection, TargetKind::Source);
     let (values, mask, width, height, used_bounds, summary) = match resolved.projection {
         TargetKind::Source => paint_source(meta, raw)?,
-        TargetKind::Warp(target) => {
-            warp_message(meta, raw, target, resolved.resampling, resolved.bounds)?
-        }
+        TargetKind::Warp(target) => warp_message(
+            meta,
+            raw,
+            target,
+            resolved.resampling,
+            resolved.bounds,
+            lookup,
+        )?,
     };
     let flip_y = if is_source {
         source_flip_y(meta, resolved.flip_y)
@@ -4197,6 +4371,9 @@ fn warp_message(
     target_kind: WarpTarget,
     resampling: Resampling,
     bounds_override: Option<RenderBounds>,
+    // The cell-centre index for a `"curvilinear"` grid; `None` for every
+    // family whose geometry is a formula (#445).
+    lookup: Option<&SpatialIndex>,
 ) -> napi::Result<ProjectionStage> {
     let ni = grid_ni(meta)?;
     let nj = grid_nj(meta)?;
@@ -4207,7 +4384,7 @@ fn warp_message(
     };
     let sample_ref: &dyn Fn(usize, usize) -> Option<f64> = &sample;
 
-    let (inverse_boxed, bbox_thunk) = warp_setup_for(meta, ni, nj)?;
+    let (inverse_boxed, bbox_thunk) = warp_setup_for(meta, ni, nj, lookup)?;
 
     let inverse_ref: &dyn Fn(f64, f64) -> Option<GridIndex> = inverse_boxed.as_ref();
     let source = SourceGrid {
@@ -4216,15 +4393,23 @@ fn warp_message(
         sample: sample_ref,
         inverse_at: inverse_ref,
         periodic_i: source_grid_is_periodic(meta, ni),
-        // Every grid this host decodes today is a formula grid. A lookup
-        // grid (#445, #418, #420) sets `NearestOnly` here.
-        resampling: GridResampling::Any,
+        // A lookup grid answers with a cell, not a position inside one, and its
+        // index-adjacent cells need not be spatially adjacent — a tripolar grid
+        // folds. `warp` downgrades a bilinear request against it rather than
+        // blending across the fold (#445).
+        resampling: match lookup {
+            Some(index) => index.resampling(),
+            None => GridResampling::Any,
+        },
     };
     // Construct the concrete target (shared with the overlay-projection path so
     // both paint into byte-identical geometry), then warp the source into it.
     let (built, used_bounds) = build_warp_target(target_kind, ni, nj, bbox_thunk, bounds_override)?;
     let warped = built.warp(&source, resampling);
-    let resample_label = match resampling {
+    // What the warp actually did, not what was asked for: a lookup grid
+    // downgrades bilinear, and a summary echoing the request would name a blend
+    // that never happened (#445).
+    let resample_label = match source.resampling.applied_to(resampling) {
         Resampling::Nearest => "nearest",
         Resampling::Bilinear => "bilinear",
     };
@@ -4434,12 +4619,23 @@ fn world_raster_dims(ni: u32, nj: u32, aspect: f64) -> (u32, u32) {
 /// and the lazy lat/lon-box extent thunk. Shared by the warp (`warp_message`)
 /// and the overlay projection (`project_overlay`) so both derive identical
 /// target geometry from the same source parameters.
-fn warp_setup_for(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
+fn warp_setup_for(
+    meta: &MessageMeta,
+    ni: u32,
+    nj: u32,
+    lookup: Option<&SpatialIndex>,
+) -> napi::Result<WarpSetup> {
     match meta.grid_type.as_deref().unwrap_or("") {
         // Reduced grids are widened to a regular raster before the warp runs, so
         // they share the regular lat/lon and Gaussian setups (ni = widest row).
         "latlon" | "reduced_latlon" => latlon_warp_setup(meta, ni, nj),
         "gaussian" | "reduced_gaussian" => gaussian_warp_setup(meta, ni, nj),
+        // A lookup grid has no formula: its inverse is a nearest-cell search of
+        // the coordinate arrays the file carries, and its extent is the extent
+        // of those cells (#445). The index is built and cached by the handle,
+        // because building it is O(n log n) over every cell and a repaint must
+        // not pay that again.
+        "curvilinear" => curvilinear_warp_setup(lookup),
         "mercator" => mercator_warp_setup(meta, ni, nj),
         "rotated_latlon" => rotated_latlon_warp_setup(meta, ni, nj),
         "lambert" => lambert_warp_setup(meta, ni, nj),
@@ -4471,11 +4667,14 @@ fn project_overlay_impl(
     options: &RenderOptions,
     latlon: &[f64],
     ring_lengths: &[u32],
+    // The cell-centre index for a `"curvilinear"` grid; `None` for every
+    // family whose geometry is a formula (#445).
+    lookup: Option<&SpatialIndex>,
 ) -> napi::Result<ProjectedPolylines> {
     let resolved = ResolvedOptions::parse(options)?;
     let ni = grid_ni(meta)?;
     let nj = grid_nj(meta)?;
-    let (inverse, bbox_thunk) = warp_setup_for(meta, ni, nj)?;
+    let (inverse, bbox_thunk) = warp_setup_for(meta, ni, nj, lookup)?;
     match resolved.projection {
         // A source grid can wrap longitude (a global grid's seam, or the cut
         // meridian of a projected grid); `SourceOverlayTarget::seam_split`
@@ -4524,11 +4723,14 @@ fn field_csv(
     ni: u32,
     nj: u32,
     format: &str,
+    // The cell-centre index for a `"curvilinear"` grid; `None` for every
+    // family whose geometry is a formula (#445).
+    lookup: Option<&SpatialIndex>,
 ) -> napi::Result<String> {
     match format {
         "matrix" => Ok(field_to_csv_matrix(values, ni as usize, nj as usize)),
         "long" => {
-            let geo = forward_geolocation_for(meta, ni, nj, |gt| {
+            let geo = forward_geolocation_for(meta, ni, nj, lookup, |gt| {
                 format!(
                     "the long CSV format needs per-point coordinates, which grid type \
                      {gt:?} doesn't provide (only {}); export as the Matrix format instead",
@@ -4575,6 +4777,9 @@ const GEOLOCATABLE_GRIDS: &[(&str, &str)] = &[
     // and the contours over it disagreed about one grid (#503).
     ("reduced_latlon", "reduced lat/lon"),
     ("reduced_gaussian", "reduced Gaussian"),
+    // A 2-D coordinate grid geolocates from its own cell centres rather than a
+    // formula, which is a different mechanism but the same answer shape (#445).
+    ("curvilinear", "2-D coordinate (curvilinear)"),
     ("lambert", "Lambert conformal"),
     ("polar_stereo", "polar stereographic"),
     ("transverse_mercator", "transverse Mercator"),
@@ -4608,6 +4813,7 @@ fn forward_geolocation_for(
     meta: &MessageMeta,
     ni: u32,
     nj: u32,
+    lookup: Option<&SpatialIndex>,
     unsupported: impl Fn(&str) -> String,
 ) -> napi::Result<ForwardGeo> {
     let grid_type = meta.grid_type.as_deref().unwrap_or("");
@@ -4653,6 +4859,14 @@ fn forward_geolocation_for(
                 )?,
             };
             Ok(Box::new(move |i, j| rotated_latlon_point(&p, i, j)))
+        }
+        // A lookup grid places a cell from its own centre — the position the
+        // file states for it, which is the only thing there is to go on (#445).
+        // This is what gives a curvilinear field contours and a `lat,lon,value`
+        // CSV, both of which run off the forward direction.
+        "curvilinear" => {
+            let index = require_lookup(lookup)?.clone();
+            Ok(Box::new(move |i, j| index.centre(i, j)))
         }
         "gaussian" | "reduced_gaussian" => {
             let p = GaussianParams {
@@ -4920,10 +5134,13 @@ fn project_contours_impl(
     raw: &[Option<f64>],
     options: &RenderOptions,
     interval: Option<f64>,
+    // The cell-centre index for a `"curvilinear"` grid; `None` for every
+    // family whose geometry is a formula (#445).
+    lookup: Option<&SpatialIndex>,
 ) -> napi::Result<ProjectedPolylines> {
     let ni = grid_ni(meta)?;
     let nj = grid_nj(meta)?;
-    let forward = forward_geolocation_for(meta, ni, nj, |gt| {
+    let forward = forward_geolocation_for(meta, ni, nj, lookup, |gt| {
         format!(
             "contours not yet supported for grid type {gt:?} (only {} for now)",
             geolocatable_families()
@@ -4963,7 +5180,7 @@ fn project_contours_impl(
         }
     }
 
-    project_overlay_impl(meta, options, &latlon, &ring_lengths)
+    project_overlay_impl(meta, options, &latlon, &ring_lengths, lookup)
 }
 
 /// The result of probing one output pixel (#172): the geographic point under
@@ -4995,6 +5212,9 @@ fn probe_impl(
     options: &RenderOptions,
     px: u32,
     py: u32,
+    // The cell-centre index for a `"curvilinear"` grid; `None` for every
+    // family whose geometry is a formula (#445).
+    lookup: Option<&SpatialIndex>,
 ) -> napi::Result<Option<ProbeResult>> {
     let resolved = ResolvedOptions::parse(options)?;
     let ni = grid_ni(meta)?;
@@ -5024,7 +5244,7 @@ fn probe_impl(
             // Geolocate when the grid's forward map is wired (lat/lon family);
             // otherwise report the value without a coordinate. The error branch
             // is discarded here (`.ok()`), so the message is never shown.
-            let latlon = forward_geolocation_for(meta, ni, nj, |_| String::new())
+            let latlon = forward_geolocation_for(meta, ni, nj, lookup, |_| String::new())
                 .ok()
                 .and_then(|f| f(gi, gj));
             let (lat, lon) = match latlon {
@@ -5040,7 +5260,7 @@ fn probe_impl(
             }))
         }
         TargetKind::Warp(target) => {
-            let (inverse, bbox) = warp_setup_for(meta, ni, nj)?;
+            let (inverse, bbox) = warp_setup_for(meta, ni, nj, lookup)?;
             let (built, _) = build_warp_target(target, ni, nj, bbox, resolved.bounds)?;
             let (w, h) = built.dims();
             if px >= w || py >= h {
@@ -5180,6 +5400,42 @@ fn latlon_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpS
         Box::new(move |lat, lon| latlon_inverse(&p, lat, lon));
     let bbox: BboxThunk = Box::new(move || {
         latlon_family_bbox(p.lat_first, p.lat_last, p.lon_first, p.lon_last, p.ni)
+    });
+    Ok((inverse, bbox))
+}
+
+/// The index a lookup grid's geometry lives in, or a clear refusal.
+///
+/// A `"curvilinear"` grid type and a missing index mean the handle resolved 2-D
+/// coordinates for the message table and then failed to build or pass the
+/// index — a wiring bug, not a bad file, so it says so rather than falling back
+/// to a formula that would place the field somewhere wrong.
+fn require_lookup(lookup: Option<&SpatialIndex>) -> napi::Result<&SpatialIndex> {
+    lookup.ok_or_else(|| {
+        napi::Error::from_reason(
+            "a curvilinear grid needs its cell-centre index, and none was supplied".to_string(),
+        )
+    })
+}
+
+/// Inverse map and extent for a lookup grid (#445).
+///
+/// The index is cloned into both closures rather than borrowed: `WarpSetup` is
+/// a pair of `'static` boxes, and the alternative is threading a lifetime
+/// through every warp setup for the one family that needs it. `SpatialIndex` is
+/// `Arc`-shared by the handle, so this clones a pointer, not the cells.
+fn curvilinear_warp_setup(lookup: Option<&SpatialIndex>) -> napi::Result<WarpSetup> {
+    let index = require_lookup(lookup)?.clone();
+    let bbox_index = index.clone();
+    let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
+        Box::new(move |lat, lon| index.nearest(lat, lon));
+    let bbox: BboxThunk = Box::new(move || {
+        // `SpatialIndex::new` refuses a grid with no finite centre, so an index
+        // that exists always has an extent; the fallback is unreachable and
+        // exists so the thunk needs no panic.
+        bbox_index
+            .lonlat_bbox()
+            .unwrap_or((-90.0, 90.0, -180.0, 180.0))
     });
     Ok((inverse, bbox))
 }
@@ -6028,7 +6284,7 @@ mod polar_stereo_warp_tests {
             scale_mode: None,
         };
         let latlon = [40.0, -100.0, 41.0, -99.0, 42.0, -98.0];
-        let out = project_overlay_impl(&cmc_polar_meta(), &opts, &latlon, &[3])
+        let out = project_overlay_impl(&cmc_polar_meta(), &opts, &latlon, &[3], None)
             .expect("source overlay on polar grid");
         let total: u32 = out.seg_lengths.iter().copied().sum();
         assert_eq!(total as usize * 2, out.xy.len(), "shape invariant");
@@ -6047,6 +6303,7 @@ mod polar_stereo_warp_tests {
             &raw,
             WarpTarget::Equirectangular,
             Resampling::Nearest,
+            None,
             None,
         )
         .expect("warp");
@@ -6084,6 +6341,7 @@ mod polar_stereo_warp_tests {
             &raw,
             WarpTarget::WebMercator,
             Resampling::Nearest,
+            None,
             None,
         )
         .expect("mercator warp");
@@ -6134,7 +6392,7 @@ mod polar_stereo_warp_tests {
             ),
         ] {
             let (values, mask, w, h, bounds, summary) =
-                warp_message(&meta, &raw, target, Resampling::Nearest, None)
+                warp_message(&meta, &raw, target, Resampling::Nearest, None, None)
                     .unwrap_or_else(|e| panic!("{name} warp failed: {e}"));
             // Azimuthal discs render into a square raster (side = the larger
             // source axis) so the globe stays circular rather than stretching
@@ -6172,6 +6430,7 @@ mod polar_stereo_warp_tests {
             &raw,
             WarpTarget::Equirectangular,
             Resampling::Nearest,
+            None,
             None,
         )
         .expect("south-polar warp");
@@ -6221,6 +6480,7 @@ mod polar_stereo_warp_tests {
             WarpTarget::Equirectangular,
             Resampling::Nearest,
             None,
+            None,
         )
         .expect("hemispheric warp");
 
@@ -6259,6 +6519,7 @@ mod polar_stereo_warp_tests {
             WarpTarget::Equirectangular,
             Resampling::Nearest,
             None,
+            None,
         )
         .expect("pole-on-origin warp");
         assert_eq!((w, h), (4, 4));
@@ -6283,6 +6544,7 @@ mod polar_stereo_warp_tests {
             WarpTarget::Equirectangular,
             Resampling::Nearest,
             None,
+            None,
         )
         .expect_err("missing lov must error");
         assert!(
@@ -6303,6 +6565,7 @@ mod polar_stereo_warp_tests {
             WarpTarget::Equirectangular,
             Resampling::Nearest,
             None,
+            None,
         )
         .expect("default warp");
         let default_bounds = default_bounds.expect("equirectangular has bounds");
@@ -6320,6 +6583,7 @@ mod polar_stereo_warp_tests {
             WarpTarget::Equirectangular,
             Resampling::Nearest,
             Some(window),
+            None,
         )
         .expect("windowed warp");
         assert_eq!(used, Some((30.0, 60.0, -140.0, -60.0)));
@@ -6373,6 +6637,7 @@ mod polar_stereo_warp_tests {
             WarpTarget::WebMercator,
             Resampling::Nearest,
             Some(band),
+            None,
         )
         .expect_err("a lat band entirely outside ±85.05° must be rejected");
         assert!(
@@ -6411,6 +6676,7 @@ mod polar_stereo_warp_tests {
             &raw,
             WarpTarget::Equirectangular,
             Resampling::Nearest,
+            None,
             None,
         )
         .expect("mercator warp");
@@ -6474,6 +6740,7 @@ mod polar_stereo_warp_tests {
             &raw,
             WarpTarget::Equirectangular,
             Resampling::Nearest,
+            None,
             None,
         )
         .expect("lambert warp");
@@ -6550,14 +6817,14 @@ mod polar_stereo_warp_tests {
     fn field_csv_matrix_format() {
         // 2×2 grid with a missing hole at (i=1, j=0).
         let values = vec![Some(1.0), None, Some(3.0), Some(4.0)];
-        let csv = field_csv(&values, &latlon_meta(), 2, 2, "matrix").expect("matrix");
+        let csv = field_csv(&values, &latlon_meta(), 2, 2, "matrix", None).expect("matrix");
         assert_eq!(csv, "1,\n3,4\n");
     }
 
     #[test]
     fn field_csv_long_format_has_header_and_values() {
         let values = vec![Some(1.0), None, Some(3.0), Some(4.0)];
-        let csv = field_csv(&values, &latlon_meta(), 2, 2, "long").expect("long");
+        let csv = field_csv(&values, &latlon_meta(), 2, 2, "long", None).expect("long");
         let mut lines = csv.lines();
         assert_eq!(lines.next(), Some("lat,lon,value"));
         // One row per grid point, values in scan order in the 3rd column;
@@ -6568,7 +6835,8 @@ mod polar_stereo_warp_tests {
 
     #[test]
     fn field_csv_rejects_unknown_format() {
-        let err = field_csv(&[Some(1.0)], &latlon_meta(), 1, 1, "tsv").expect_err("bad format");
+        let err =
+            field_csv(&[Some(1.0)], &latlon_meta(), 1, 1, "tsv", None).expect_err("bad format");
         assert!(format!("{err}").contains("unknown CSV format"));
     }
 
@@ -6576,7 +6844,7 @@ mod polar_stereo_warp_tests {
     fn field_csv_long_gates_grids_without_a_forward_map() {
         // A projected grid geolocates now (#470), so the long format exports it
         // rather than refusing.
-        let csv = field_csv(&[Some(1.0)], &cmc_polar_meta(), 1, 1, "long")
+        let csv = field_csv(&[Some(1.0)], &cmc_polar_meta(), 1, 1, "long", None)
             .expect("a polar-stereographic grid exports the long format");
         let first = csv.lines().nth(1).expect("one data row");
         let cells: Vec<f64> = first
@@ -6594,7 +6862,7 @@ mod polar_stereo_warp_tests {
         // layout, not leak the shared gate's contour wording (#337).
         let mut space_view = cmc_polar_meta();
         space_view.grid_type = Some("space_view".to_string());
-        let err = field_csv(&[Some(1.0)], &space_view, 1, 1, "long")
+        let err = field_csv(&[Some(1.0)], &space_view, 1, 1, "long", None)
             .expect_err("a grid without coordinates is gated");
         let msg = format!("{err}");
         assert!(
@@ -6620,6 +6888,7 @@ mod polar_stereo_warp_tests {
             &raw,
             WarpTarget::Equirectangular,
             Resampling::Nearest,
+            None,
             None,
         )
         .expect("rotated lat/lon warp");
@@ -6973,6 +7242,7 @@ mod overlay_projection_tests {
             &overlay_opts("source"),
             &[45.0, 0.0, 45.0, 10.0],
             &[2],
+            None,
         )
         .expect("source overlay");
         assert_eq!(out.seg_lengths, vec![2]);
@@ -6992,6 +7262,7 @@ mod overlay_projection_tests {
             &overlay_opts("equirectangular"),
             &[45.0, 0.0, 45.0, 10.0], // (lat 45, lon 0), (lat 45, lon 10)
             &[2],
+            None,
         )
         .expect("equirect overlay");
         assert_eq!(out.seg_lengths, vec![2]);
@@ -7010,8 +7281,14 @@ mod overlay_projection_tests {
     fn flip_y_mirrors_overlay_rows() {
         let mut o = overlay_opts("equirectangular");
         o.flip_y = true;
-        let out = project_overlay_impl(&global_latlon_meta(), &o, &[45.0, 0.0, 45.0, 10.0], &[2])
-            .expect("flipped overlay");
+        let out = project_overlay_impl(
+            &global_latlon_meta(),
+            &o,
+            &[45.0, 0.0, 45.0, 10.0],
+            &[2],
+            None,
+        )
+        .expect("flipped overlay");
         // height = nj = 181 → py flips to (181 - 1) - 45 = 135.
         assert!((out.xy[1] - 135.0).abs() < 1e-6, "flipped py {}", out.xy[1]);
         assert!((out.xy[0] - 180.0).abs() < 1e-6, "x unaffected by flip");
@@ -7032,6 +7309,7 @@ mod overlay_projection_tests {
                 &overlay_opts(projection),
                 &[80.0, 0.0, 81.0, 1.0, 82.0, 2.0],
                 &[3],
+                None,
             )
             .unwrap_or_else(|e| panic!("{projection} overlay: {e}"));
             let total: u32 = out.seg_lengths.iter().copied().sum();
@@ -7093,6 +7371,7 @@ mod netcdf_slice_tests {
             reader,
             view,
             decoded: Mutex::new(std::collections::HashMap::new()),
+            curvilinear: Mutex::new(std::collections::HashMap::new()),
         }
     }
 
@@ -7637,7 +7916,7 @@ mod netcdf_slice_tests {
         // A − B = 10 everywhere. Probing source pixel (2, 1) must read 10 (the
         // difference), not A's 12 at that cell.
         let diff = combined_field(&meta, &a, &meta, &b, CombineOp::Difference).expect("same grid");
-        let r = probe_impl(&meta, &diff, &opts("source"), 2, 1)
+        let r = probe_impl(&meta, &diff, &opts("source"), 2, 1, None)
             .expect("probe ok")
             .expect("pixel on grid");
         assert_eq!(r.value, Some(10.0), "probe reads A−B (10), not A (12)");
@@ -7645,7 +7924,7 @@ mod netcdf_slice_tests {
         // Contours of A − B where B is a ramp and A is A+ramp cancel to a
         // constant B... instead trace A + B (a ramp 10..18) so a level crosses.
         let sum = combined_field(&meta, &a, &meta, &b, CombineOp::Sum).expect("same grid");
-        let contours = project_contours_impl(&meta, &sum, &opts("source"), Some(15.0))
+        let contours = project_contours_impl(&meta, &sum, &opts("source"), Some(15.0), None)
             .expect("combined contours project");
         assert!(
             !contours.xy.is_empty(),
@@ -7686,8 +7965,8 @@ mod netcdf_slice_tests {
     #[test]
     fn forward_geolocation_latlon_places_corners_then_interior() {
         let meta = latlon_meta(5, 4);
-        let fwd =
-            forward_geolocation_for(&meta, 5, 4, |_| String::new()).expect("latlon forward map");
+        let fwd = forward_geolocation_for(&meta, 5, 4, None, |_| String::new())
+            .expect("latlon forward map");
         // Corner (0,0) is (latFirst, lonFirst); (4,3) is (latLast, lonLast).
         assert_eq!(fwd(0, 0), Some((40.0, 0.0)));
         assert_eq!(fwd(4, 3), Some((10.0, 40.0)));
@@ -7894,8 +8173,8 @@ mod netcdf_slice_tests {
     #[test]
     fn forward_bilinear_interpolates_across_the_periodic_seam() {
         let meta = global_latlon_meta(4, 3);
-        let fwd =
-            forward_geolocation_for(&meta, 4, 3, |_| String::new()).expect("latlon forward map");
+        let fwd = forward_geolocation_for(&meta, 4, 3, None, |_| String::new())
+            .expect("latlon forward map");
         // Columns are 90° apart: 0, 90, 180, 270.
         assert_eq!(fwd(0, 0).map(|p| p.1), Some(0.0));
         assert_eq!(fwd(3, 0).map(|p| p.1), Some(270.0));
@@ -7934,7 +8213,7 @@ mod netcdf_slice_tests {
             })
             .collect();
 
-        let out = project_contours_impl(&meta, &raw, &opts("source"), Some(0.25))
+        let out = project_contours_impl(&meta, &raw, &opts("source"), Some(0.25), None)
             .expect("global contours project");
         assert!(!out.xy.is_empty(), "a periodic field must produce isolines",);
         // The seam cell contributes vertices; with the bounded march the run
@@ -7942,7 +8221,7 @@ mod netcdf_slice_tests {
         // regional, which is the pre-fix behaviour.
         let mut regional = global_latlon_meta(ni, nj);
         regional.lon_last = Some(40.0);
-        let bounded = project_contours_impl(&regional, &raw, &opts("source"), Some(0.25))
+        let bounded = project_contours_impl(&regional, &raw, &opts("source"), Some(0.25), None)
             .expect("regional contours project");
         assert!(
             out.seg_lengths.len() > bounded.seg_lengths.len(),
@@ -7958,7 +8237,7 @@ mod netcdf_slice_tests {
         let meta = latlon_meta(5, 4);
         let raw: Vec<Option<f64>> = (0..5 * 4).map(|k| Some((k % 5) as f64)).collect();
 
-        let out = project_contours_impl(&meta, &raw, &opts("source"), None)
+        let out = project_contours_impl(&meta, &raw, &opts("source"), None, None)
             .expect("latlon contours project");
         assert!(!out.xy.is_empty(), "a ramp field has interior contours");
         assert_eq!(out.xy.len() % 2, 0, "xy is flat (x, y) pairs");
@@ -7979,7 +8258,7 @@ mod netcdf_slice_tests {
 
         // A manual interval selects the levels; a coarse interval still finds the
         // interior crossings of a 0..4 ramp.
-        let manual = project_contours_impl(&meta, &raw, &opts("source"), Some(1.0))
+        let manual = project_contours_impl(&meta, &raw, &opts("source"), Some(1.0), None)
             .expect("manual-interval contours project");
         assert!(!manual.xy.is_empty());
 
@@ -7988,7 +8267,7 @@ mod netcdf_slice_tests {
         // part of its scan-angle grid is off the disc, with no position at all.
         let mut space_view = latlon_meta(5, 4);
         space_view.grid_type = Some("space_view".to_string());
-        match project_contours_impl(&space_view, &raw, &opts("source"), None) {
+        match project_contours_impl(&space_view, &raw, &opts("source"), None, None) {
             Ok(_) => panic!("space view contours must error for now"),
             Err(e) => assert!(e.to_string().contains("contours not yet supported"), "{e}"),
         }
@@ -8001,7 +8280,7 @@ mod netcdf_slice_tests {
         let raw: Vec<Option<f64>> = (0..5 * 4).map(|k| Some((k % 5) as f64)).collect();
 
         // Source view: pixel (i, j) is grid (i, j) (this grid scans N→S, no flip).
-        let r = probe_impl(&meta, &raw, &opts("source"), 2, 1)
+        let r = probe_impl(&meta, &raw, &opts("source"), 2, 1, None)
             .expect("probe ok")
             .expect("pixel is on the grid");
         assert_eq!(r.value, Some(2.0), "column-index ramp reads its column");
@@ -8012,7 +8291,7 @@ mod netcdf_slice_tests {
 
         // Off the raster → nothing to report.
         assert!(
-            probe_impl(&meta, &raw, &opts("source"), 99, 0)
+            probe_impl(&meta, &raw, &opts("source"), 99, 0, None)
                 .unwrap()
                 .is_none(),
             "a click past the grid returns None"
@@ -8026,7 +8305,7 @@ mod netcdf_slice_tests {
 
         // Top-left pixel of the equirect raster is the grid's NW corner
         // (lat_max, lon_min) → grid (0, 0) → value 0.
-        let r = probe_impl(&meta, &raw, &opts("equirectangular"), 0, 0)
+        let r = probe_impl(&meta, &raw, &opts("equirectangular"), 0, 0, None)
             .expect("probe ok")
             .expect("corner is on the grid");
         assert_eq!(r.value, Some(0.0));
@@ -8049,14 +8328,14 @@ mod netcdf_slice_tests {
         // Orthographic fits a disc to a square raster; a corner pixel is outside
         // the disc, so there is no point under it.
         assert!(
-            probe_impl(&meta, &raw, &opts("orthographic"), 0, 0)
+            probe_impl(&meta, &raw, &opts("orthographic"), 0, 0, None)
                 .unwrap()
                 .is_none(),
             "an off-disc corner returns None"
         );
         // Past the raster edge is likewise nothing.
         assert!(
-            probe_impl(&meta, &raw, &opts("equirectangular"), 999, 999)
+            probe_impl(&meta, &raw, &opts("equirectangular"), 999, 999, None)
                 .unwrap()
                 .is_none()
         );
@@ -8088,7 +8367,7 @@ mod netcdf_slice_tests {
         for py in 0..16 {
             for px in 0..32 {
                 let Some(r) =
-                    probe_impl(&meta, &raw, &opts("mollweide"), px, py).expect("probe ok")
+                    probe_impl(&meta, &raw, &opts("mollweide"), px, py, None).expect("probe ok")
                 else {
                     continue;
                 };
@@ -8596,7 +8875,7 @@ mod space_view_geos_tests {
     fn space_view_warp_setup_round_trips_through_meta() {
         // Drive the full napi path: §3.90 meta → warp_setup_for → inverse.
         let meta = space_view_meta();
-        let (inverse, _bbox) = warp_setup_for(&meta, 11, 11).expect("space view warp setup");
+        let (inverse, _bbox) = warp_setup_for(&meta, 11, 11, None).expect("space view warp setup");
         let idx = inverse(0.0, -75.0).expect("sub-sat on grid");
         assert!((idx.i - 5.0).abs() < 1e-6 && (idx.j - 5.0).abs() < 1e-6);
         assert!(inverse(0.0, 105.0).is_none(), "far side must be off-grid");
@@ -8607,7 +8886,7 @@ mod space_view_geos_tests {
         // The 11×11 central crop is on-disk, so the thunk frames its extent
         // tightly — strictly inside the ±90° hemisphere fallback.
         let meta = space_view_meta();
-        let (_inverse, bbox) = warp_setup_for(&meta, 11, 11).expect("space view warp setup");
+        let (_inverse, bbox) = warp_setup_for(&meta, 11, 11, None).expect("space view warp setup");
         let (lat_min, lat_max, lon_min, lon_max) = bbox();
         assert!(
             lat_min > -90.0 && lat_max < 90.0,
@@ -8632,7 +8911,7 @@ mod space_view_geos_tests {
         meta.geos_y0 = Some(-half);
         meta.geos_dx_rad = Some(2.0 * half / 10.0);
         meta.geos_dy_rad = Some(2.0 * half / 10.0);
-        let (_inverse, bbox) = warp_setup_for(&meta, 11, 11).expect("space view warp setup");
+        let (_inverse, bbox) = warp_setup_for(&meta, 11, 11, None).expect("space view warp setup");
         let (lat_min, lat_max, lon_min, lon_max) = bbox();
         assert_eq!((lat_min, lat_max), (-90.0, 90.0));
         assert_eq!((lon_min, lon_max), (-165.0, 15.0));
@@ -8711,8 +8990,10 @@ mod planar_geolocation_tests {
     }
 
     fn forward_map(meta: &MessageMeta, ni: u32, nj: u32) -> ForwardGeo {
-        forward_geolocation_for(meta, ni, nj, |gt| format!("no forward map for {gt:?}"))
-            .expect("the planar family geolocates")
+        forward_geolocation_for(meta, ni, nj, None, |gt| {
+            format!("no forward map for {gt:?}")
+        })
+        .expect("the planar family geolocates")
     }
 
     /// The long CSV of the committed Lambert fixture carries the coordinates
@@ -8851,7 +9132,7 @@ mod planar_geolocation_tests {
         for (name, meta, ni, nj) in cases {
             assert_eq!(meta.grid_type.as_deref(), Some(name), "fixture grid type");
             let forward = forward_map(&meta, ni, nj);
-            let (inverse, _bbox) = warp_setup_for(&meta, ni, nj).expect("warp setup");
+            let (inverse, _bbox) = warp_setup_for(&meta, ni, nj, None).expect("warp setup");
 
             for (i, j) in [
                 (0, 0),
@@ -8885,7 +9166,7 @@ mod planar_geolocation_tests {
         let (values, meta, ni, nj) = handle.resolved(0).expect("message 0 resolves");
         let options = render_options("source");
 
-        let runs = project_contours_impl(&meta, &values, &options, None)
+        let runs = project_contours_impl(&meta, &values, &options, None, None)
             .expect("contours no longer refuse a Lambert grid");
         assert!(
             !runs.xy.is_empty(),
@@ -8979,7 +9260,7 @@ mod planar_geolocation_tests {
 
         // An equirectangular target is the other consumer of the same vertices.
         let warped = render_options("equirectangular");
-        let runs = project_contours_impl(&meta, &values, &warped, Some(500.0))
+        let runs = project_contours_impl(&meta, &values, &warped, Some(500.0), None)
             .expect("manual-interval contours on a warped target");
         assert!(!runs.xy.is_empty(), "500 Pa isolines cross the Eta field");
     }
@@ -9048,9 +9329,10 @@ mod planar_geolocation_tests {
         let mut flat_cone = grib2_geometry(ETA_LAMBERT).0;
         flat_cone.lambert_latin1 = Some(0.0);
         flat_cone.lambert_latin2 = Some(0.0);
-        let err = forward_geolocation_for(&flat_cone, ni, nj, |gt| format!("unsupported {gt}"))
-            .err()
-            .expect("a collapsed cone has no forward map");
+        let err =
+            forward_geolocation_for(&flat_cone, ni, nj, None, |gt| format!("unsupported {gt}"))
+                .err()
+                .expect("a collapsed cone has no forward map");
         assert!(
             err.reason.contains("degenerate"),
             "the message should say why, got: {}",
@@ -9058,12 +9340,12 @@ mod planar_geolocation_tests {
         );
         // The grid it was cloned from still geolocates, so the refusal is about
         // the parameters and not the family.
-        assert!(forward_geolocation_for(&lambert, ni, nj, |_| String::new()).is_ok());
+        assert!(forward_geolocation_for(&lambert, ni, nj, None, |_| String::new()).is_ok());
 
         let (mut laea, ni, nj) = grib2_geometry(LAMBERT_AZIMUTHAL);
         laea.lambert_azimuthal_semi_major_metres = Some(0.0);
         laea.lambert_azimuthal_semi_minor_metres = Some(0.0);
-        let err = forward_geolocation_for(&laea, ni, nj, |gt| format!("unsupported {gt}"))
+        let err = forward_geolocation_for(&laea, ni, nj, None, |gt| format!("unsupported {gt}"))
             .err()
             .expect("a shapeless spheroid has no forward map");
         assert!(err.reason.contains("degenerate"), "{}", err.reason);
@@ -9147,7 +9429,7 @@ mod planar_geolocation_tests {
     fn a_zero_earth_radius_is_refused_on_both_sphere_families() {
         let (mut lambert, ni, nj) = grib2_geometry(ETA_LAMBERT);
         lambert.earth_radius_metres = Some(0.0);
-        let err = forward_geolocation_for(&lambert, ni, nj, |gt| format!("unsupported {gt}"))
+        let err = forward_geolocation_for(&lambert, ni, nj, None, |gt| format!("unsupported {gt}"))
             .err()
             .expect("a radius-less sphere has no forward map");
         assert!(
@@ -9158,7 +9440,7 @@ mod planar_geolocation_tests {
         // The warp reads the same helper, so it refuses the grid too rather
         // than painting the pole across the raster.
         assert!(
-            warp_setup_for(&lambert, ni, nj).is_err(),
+            warp_setup_for(&lambert, ni, nj, None).is_err(),
             "the warp refuses it"
         );
 
@@ -9167,14 +9449,15 @@ mod planar_geolocation_tests {
         let (_, mut polar, pni, pnj) = grib1_handle(CMC_POLAR).resolved(0).expect("cmc resolves");
         polar.earth_radius_metres = Some(-1.0);
         assert!(
-            forward_geolocation_for(&polar, pni, pnj, |gt| format!("unsupported {gt}")).is_err(),
+            forward_geolocation_for(&polar, pni, pnj, None, |gt| format!("unsupported {gt}"))
+                .is_err(),
             "a negative radius is refused as well"
         );
 
         // A message that declares no radius still falls back to the mean sphere.
         let (mut silent, ni, nj) = grib2_geometry(ETA_LAMBERT);
         silent.earth_radius_metres = None;
-        assert!(forward_geolocation_for(&silent, ni, nj, |_| String::new()).is_ok());
+        assert!(forward_geolocation_for(&silent, ni, nj, None, |_| String::new()).is_ok());
     }
 
     /// The table is the gate: every grid type it names resolves to a forward
@@ -9202,7 +9485,7 @@ mod planar_geolocation_tests {
         for grid_type in ["space_view", "bifourier", ""] {
             let mut meta = grib2_geometry(ETA_LAMBERT).0;
             meta.grid_type = Some(grid_type.to_string());
-            let err = forward_geolocation_for(&meta, 93, 65, |gt| {
+            let err = forward_geolocation_for(&meta, 93, 65, None, |gt| {
                 format!(
                     "no coordinates for {gt:?} (only {})",
                     geolocatable_families()
@@ -9329,10 +9612,12 @@ mod reduced_grid_render_tests {
         let (_, meta1, ni1, nj1) = grib1_handle(GRIB1_N32).resolved(0).expect("grib1 resolves");
         assert_eq!((ni, nj), (ni1, nj1), "same raster");
 
-        let forward2 = forward_geolocation_for(&meta2, ni, nj, |gt| format!("no map for {gt}"))
-            .expect("GRIB2 reduced Gaussian geolocates");
-        let forward1 = forward_geolocation_for(&meta1, ni1, nj1, |gt| format!("no map for {gt}"))
-            .expect("GRIB1 reduced Gaussian geolocates");
+        let forward2 =
+            forward_geolocation_for(&meta2, ni, nj, None, |gt| format!("no map for {gt}"))
+                .expect("GRIB2 reduced Gaussian geolocates");
+        let forward1 =
+            forward_geolocation_for(&meta1, ni1, nj1, None, |gt| format!("no map for {gt}"))
+                .expect("GRIB1 reduced Gaussian geolocates");
 
         // Corners and a mid-grid point: enough to catch a row-order flip, a
         // longitude offset, or a different east edge.
@@ -9376,7 +9661,7 @@ mod reduced_grid_render_tests {
             declared.lon_last
         );
 
-        let forward = forward_geolocation_for(&meta, ni, nj, |gt| format!("no map for {gt}"))
+        let forward = forward_geolocation_for(&meta, ni, nj, None, |gt| format!("no map for {gt}"))
             .expect("geolocates");
         let (_, east) = forward(143, 0).expect("east edge");
         assert!((east - 357.5).abs() < 1e-6, "east edge {east}");
@@ -9445,6 +9730,298 @@ mod reduced_grid_render_tests {
             !contours.seg_lengths.is_empty(),
             "a global temperature field has isolines"
         );
+    }
+}
+
+/// Curvilinear grids reach the map through their own cell centres (#445).
+///
+/// A 2-D coordinate grid has no formula to invert: every cell states its own
+/// position, and the inverse a warp asks for is a nearest-cell search of those
+/// positions. `SpatialIndex` is that search; this module is the wiring around
+/// it, checked against the corpus #444 committed rather than a synthetic grid.
+#[cfg(test)]
+mod curvilinear_render_tests {
+    use super::*;
+
+    /// NCEP RTOFS: a window of the bipolar Arctic patch, centred on the pole
+    /// the grid folds around. 200 × 260, longitudes unnormalised in the source.
+    const TRIPOLAR: &[u8] =
+        include_bytes!("../../fieldglass-netcdf/tests/fixtures/rtofs_tripolar_arctic.nc");
+    /// NOAA-21 MiRS: 100 scanlines × 96 fields of view crossing the
+    /// antimeridian at 85 °S.
+    const SWATH: &[u8] = include_bytes!("../../fieldglass-netcdf/tests/fixtures/mirs_swath_n21.nc");
+
+    fn nc(bytes: &[u8]) -> NetcdfHandle {
+        let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("fixture parses");
+        let view = DatasetView::from_hdf5(&reader.hdf5_metadata().expect("hdf5 metadata"));
+        NetcdfHandle {
+            reader,
+            view,
+            decoded: Mutex::new(std::collections::HashMap::new()),
+            curvilinear: Mutex::new(std::collections::HashMap::new()),
+        }
+    }
+
+    /// `(handle, variable, y_dim, x_dim, slice_indices)` for the field each
+    /// fixture is rendered by.
+    fn slice(
+        bytes: &[u8],
+        name: &str,
+    ) -> (NetcdfHandle, RenderableVariable, usize, usize, Vec<u32>) {
+        let handle = nc(bytes);
+        let var = handle
+            .view
+            .renderable_variables()
+            .into_iter()
+            .find(|v| v.name == name)
+            .unwrap_or_else(|| panic!("{name} is renderable"));
+        // The last two dimensions are the image axes for both fixtures; RTOFS
+        // carries a leading length-1 time dimension.
+        let (y, x) = (var.dims.len() - 2, var.dims.len() - 1);
+        let indices = vec![0u32; var.dims.len()];
+        (handle, var, y, x, indices)
+    }
+
+    fn opts(projection: &str) -> RenderOptions {
+        RenderOptions {
+            projection: projection.to_string(),
+            projection_preset: None,
+            center_lat: None,
+            center_lon: None,
+            resampling: "nearest".to_string(),
+            flip_y: false,
+            range_min: None,
+            range_max: None,
+            bounds_lat_min: None,
+            bounds_lat_max: None,
+            bounds_lon_min: None,
+            bounds_lon_max: None,
+            colormap: None,
+            reverse_colormap: None,
+            scale_mode: None,
+        }
+    }
+
+    /// The slice reports itself as a lookup grid, with the extent of its cells.
+    ///
+    /// A lookup grid has no corners to read from the file, so the ones reported
+    /// are the index's bounding box. For the tripolar window that box reaches
+    /// the pole; for the swath it crosses the antimeridian, which is why
+    /// `lon_first` is allowed to fall outside [-180, 180].
+    #[test]
+    fn a_curvilinear_slice_reports_the_extent_of_its_cells() {
+        for (label, bytes, field, ni, nj) in [
+            ("tripolar", TRIPOLAR, "ice_thickness", 260i32, 200i32),
+            ("swath", SWATH, "TPW", 96, 100),
+        ] {
+            let (handle, var, y, x, _) = slice(bytes, field);
+            let meta = handle.slice_meta(&var, y, x).expect("meta resolves");
+            assert_eq!(
+                meta.grid_type.as_deref(),
+                Some("curvilinear"),
+                "{label}: named as a lookup grid"
+            );
+            assert_eq!(
+                (meta.grid_ni, meta.grid_nj),
+                (Some(ni), Some(nj)),
+                "{label}"
+            );
+            assert!(meta.reprojectable, "{label}: it can be put on a map");
+            let (lat_first, lat_last) = (
+                meta.lat_first.expect("lat_first"),
+                meta.lat_last.expect("lat_last"),
+            );
+            assert!(lat_first > lat_last, "{label}: north-up corners");
+        }
+
+        // The tripolar window reaches the pole its grid folds around.
+        let (handle, var, y, x, _) = slice(TRIPOLAR, "ice_thickness");
+        let meta = handle.slice_meta(&var, y, x).expect("meta");
+        assert!(
+            meta.lat_first.expect("lat_first") > 89.9,
+            "the window should reach the pole, got {:?}",
+            meta.lat_first
+        );
+    }
+
+    /// A curvilinear field reprojects, where it used to refuse.
+    ///
+    /// Before this, both fixtures answered `missing latFirst` for any target but
+    /// the source raster, because the lat/lon synthesis had no 1-D axes to read.
+    #[test]
+    fn a_curvilinear_field_reprojects() {
+        for (label, bytes, field, low, high) in [
+            ("tripolar", TRIPOLAR, "ice_thickness", 1.0, 3.0),
+            ("swath", SWATH, "TPW", 0.0, 10.0),
+        ] {
+            let (handle, var, y, x, indices) = slice(bytes, field);
+            let plane = handle.slice_plane(&var, y, x, &indices).expect("decodes");
+            let meta = handle.slice_meta(&var, y, x).expect("meta");
+            let index = handle
+                .curvilinear_index(&var, y, x)
+                .expect("index resolves")
+                .expect("a curvilinear slice has one");
+            let rendered = render_with_options(
+                &meta,
+                &plane,
+                &opts("equirectangular"),
+                Some(index.as_ref()),
+            )
+            .unwrap_or_else(|e| panic!("{label} reprojects: {e}"));
+            assert!(rendered.width > 0 && rendered.height > 0, "{label}");
+            assert!(
+                rendered.rgba.as_chunks::<4>().0.iter().any(|px| px[3] > 0),
+                "{label}: the reprojection painted something"
+            );
+            assert!(
+                rendered.used_min >= low && rendered.used_max <= high,
+                "{label}: painted over {}..{}",
+                rendered.used_min,
+                rendered.used_max
+            );
+        }
+    }
+
+    /// Each cell is placed at the coordinates its own file gives it.
+    ///
+    /// The long CSV is one `lat,lon,value` row per cell in grid order, so its
+    /// coordinates are the forward map's answer for every cell of the grid.
+    /// Comparing them against the file's own decoded coordinate planes is what
+    /// catches the mistakes this wiring can actually make: a transposed
+    /// `(y, x)`, an off-by-one row, or an index built over the wrong pair of
+    /// variables. That the *planes* match the source granule is pinned
+    /// separately, against an independent library, in `curvilinear_corpus.rs`.
+    ///
+    /// Longitudes are compared modulo 360: the index stores unit vectors, so a
+    /// longitude the file wrote as 1019° comes back as the same position with a
+    /// different number, and RTOFS writes them that way.
+    #[test]
+    fn every_cell_lands_where_the_file_puts_it() {
+        for (label, bytes, field, cols, rows) in [
+            ("tripolar", TRIPOLAR, "ice_thickness", 260usize, 200usize),
+            ("swath", SWATH, "TPW", 96, 100),
+        ] {
+            let (handle, var, y, x, indices) = slice(bytes, field);
+            let plane = handle.slice_plane(&var, y, x, &indices).expect("decodes");
+            let meta = handle.slice_meta(&var, y, x).expect("meta");
+            let index = handle
+                .curvilinear_index(&var, y, x)
+                .expect("index resolves")
+                .expect("a curvilinear slice has one");
+            let csv = field_csv(
+                &plane,
+                &meta,
+                cols as u32,
+                rows as u32,
+                "long",
+                Some(index.as_ref()),
+            )
+            .unwrap_or_else(|e| panic!("{label}: long CSV needs a forward map: {e}"));
+            let csv_rows: Vec<&str> = csv.lines().skip(1).collect();
+            assert_eq!(csv_rows.len(), rows * cols, "{label}: one row per cell");
+
+            // The file's own coordinates, decoded through the same reader the
+            // index was built from.
+            let source = handle
+                .view
+                .vars
+                .iter()
+                .find(|v| v.decode_index == var.decode_index)
+                .expect("the field");
+            let coords = handle
+                .view
+                .curvilinear_coords(source, &var.dims[y].name, &var.dims[x].name)
+                .expect("a 2-D pair");
+            let lats = handle
+                .coordinate_plane(coords.lat_index)
+                .expect("lat plane");
+            let lons = handle
+                .coordinate_plane(coords.lon_index)
+                .expect("lon plane");
+
+            // Every cell, not a sample: this is the check that a transposition
+            // cannot hide behind, and both grids are small enough to walk.
+            for k in 0..rows * cols {
+                let mut parts = csv_rows[k].split(',');
+                let lat: f64 = parts.next().expect("lat").parse().expect("number");
+                let lon: f64 = parts.next().expect("lon").parse().expect("number");
+                assert!(
+                    (lat - lats[k]).abs() < 1e-4,
+                    "{label} cell {k}: placed at lat {lat}, file says {}",
+                    lats[k]
+                );
+                let delta = (lon - lons[k]).rem_euclid(360.0);
+                assert!(
+                    delta < 1e-4 || (360.0 - delta) < 1e-4,
+                    "{label} cell {k}: placed at lon {lon}, file says {}",
+                    lons[k]
+                );
+            }
+        }
+    }
+
+    /// Bilinear is refused on a lookup grid rather than blending across a fold.
+    ///
+    /// Index-adjacent cells need not be spatially adjacent — a tripolar grid
+    /// folds, so `(i, j)` and `(i + 1, j)` can be on opposite sides of the
+    /// Arctic. `warp` downgrades the request through `GridResampling`, so this
+    /// asks for bilinear and checks the summary says nearest.
+    #[test]
+    fn a_bilinear_request_is_downgraded_on_a_lookup_grid() {
+        let (handle, var, y, x, indices) = slice(TRIPOLAR, "ice_thickness");
+        let plane = handle.slice_plane(&var, y, x, &indices).expect("decodes");
+        let meta = handle.slice_meta(&var, y, x).expect("meta");
+        let index = handle
+            .curvilinear_index(&var, y, x)
+            .expect("index resolves")
+            .expect("a curvilinear slice has one");
+        let mut bilinear = opts("equirectangular");
+        bilinear.resampling = "bilinear".to_string();
+        let rendered =
+            render_with_options(&meta, &plane, &bilinear, Some(index.as_ref())).expect("renders");
+        assert!(
+            rendered.projection_summary.contains("nearest"),
+            "bilinear should be downgraded, summary says {:?}",
+            rendered.projection_summary
+        );
+    }
+
+    /// A regular 1-D grid is untouched by any of this.
+    #[test]
+    fn a_regular_grid_resolves_no_index_and_keeps_its_family() {
+        const OISST: &[u8] =
+            include_bytes!("../../fieldglass-netcdf/tests/fixtures/ersst_v5_187001_cdf1.nc");
+        let handle = nc_classic(OISST);
+        let var = handle
+            .view
+            .renderable_variables()
+            .into_iter()
+            .find(|v| v.name == "sst")
+            .expect("sst is renderable");
+        let (y, x) = (var.dims.len() - 2, var.dims.len() - 1);
+        assert!(
+            handle
+                .curvilinear_index(&var, y, x)
+                .expect("resolution runs")
+                .is_none(),
+            "a 1-D lat/lon grid names no 2-D coordinate pair"
+        );
+        let meta = handle.slice_meta(&var, y, x).expect("meta");
+        assert_eq!(meta.grid_type.as_deref(), Some("latlon"));
+    }
+
+    fn nc_classic(bytes: &[u8]) -> NetcdfHandle {
+        let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("fixture parses");
+        let view = match &reader.backing {
+            NetcdfBacking::Classic(h) => DatasetView::from_classic(h),
+            _ => panic!("expected a classic backing"),
+        };
+        NetcdfHandle {
+            reader,
+            view,
+            decoded: Mutex::new(std::collections::HashMap::new()),
+            curvilinear: Mutex::new(std::collections::HashMap::new()),
+        }
     }
 }
 
