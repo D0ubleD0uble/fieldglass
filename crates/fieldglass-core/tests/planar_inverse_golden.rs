@@ -15,6 +15,14 @@
 //! the raw `f64` bits of `i` and `j`, so "bit-identical" is literal.
 //!
 //! A failure is a behaviour change, not a test to re-baseline.
+//!
+//! Two rows *were* re-baselined once, deliberately: `polar_north` and
+//! `polar_south` moved in #488, which removed the hemisphere reject that made a
+//! polar grid refuse its own points across the equator. That change was
+//! confined to exactly those two rows — the other twenty, every Lambert,
+//! Lambert azimuthal, transverse Mercator and degenerate case among them, are
+//! still the pre-#486 recording. `grid_round_trip.rs` is the test that pins
+//! the new behaviour; this file only records that nothing else moved with it.
 use fieldglass_core::projection::*;
 
 fn fnv(h: &mut u64, bytes: &[u8]) {
@@ -208,7 +216,7 @@ fn cases() -> Vec<Case> {
             "polar_north",
             Live,
             PolarStereoProjector::new(cmc_polar()),
-            0xc5f27eda623b4ee7,
+            0x099824ae8940b504,
         ),
         case(
             "polar_south",
@@ -218,7 +226,7 @@ fn cases() -> Vec<Case> {
                 lat_first: -11.43,
                 ..cmc_polar()
             }),
-            0xd495da8d33b4bf50,
+            0x70140fd839b72cfc,
         ),
         case(
             "polar_nj1",
@@ -424,11 +432,6 @@ fn every_live_grid_places_its_own_corners() {
         let p = c.projector.as_ref();
         let (ni, nj) = p.grid_dims();
         for (lat, lon) in p.grid_corners_lonlat() {
-            // A polar grid reaching across the equator loses that corner to
-            // #488; see the test below.
-            if !p.accepts(lat, lon) {
-                continue;
-            }
             let g = p
                 .inverse(lat, lon)
                 .unwrap_or_else(|| panic!("{} dropped its own corner {lat},{lon}", c.name));
@@ -441,31 +444,6 @@ fn every_live_grid_places_its_own_corners() {
             );
         }
     }
-}
-
-/// The one corner the test above skips, asserted directly. It fails on `master`
-/// too — this extraction is bit-identical and did not cause it. The CMC 135x95
-/// grid behind the GRIB1 fixtures reaches -4.718 degN, and
-/// `PolarStereoProjector::accepts` refuses the whole opposite hemisphere to
-/// guard against a singularity that is only at the antipodal pole; the forward
-/// map is finite all the way to -89.999. 328 of its 12,825 points, 2.6%, are
-/// unreachable by the warp and render as background.
-///
-/// Asserted as it currently behaves rather than left implicit, so fixing #488
-/// fails this test and forces the skip above to be reconsidered with it.
-#[test]
-fn a_polar_grid_across_the_equator_drops_its_own_corner_until_488() {
-    let p = PolarStereoProjector::new(cmc_polar());
-    let southern = p
-        .grid_corners_lonlat()
-        .into_iter()
-        .find(|(lat, _)| *lat < 0.0)
-        .expect("the CMC grid has a corner south of the equator");
-    assert!(
-        p.inverse(southern.0, southern.1).is_none(),
-        "#488 is fixed — drop the `accepts` skip in every_live_grid_places_its_own_corners \
-         and delete this test"
-    );
 }
 
 /// `SnapEps::Metres` converts through the spacing, so a negative `dy` — the

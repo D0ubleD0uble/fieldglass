@@ -649,8 +649,18 @@ fn polar_stereo_constants(lad: f64, south_pole: bool, earth_radius_m: f64) -> Po
 /// metres, in a coordinate system centred on the projection pole with the
 /// y-axis along `lov`.
 ///
-/// Undefined at the *opposite* pole (`tan` → ∞); GRIB grids never reach it,
-/// but pathological callers will see `±inf` / `NaN`.
+/// Defined everywhere except the *opposite* pole, where `tan` diverges. In
+/// `f64` that divergence does not actually reach infinity — `(PI/4 + PI/4).tan()`
+/// is about 1.6e16, because `PI/2` is not exactly representable — so a caller
+/// at the antipodal pole gets a finite `(x, y)` around 1e23 rather than `±inf`.
+/// [`PolarStereoProjector::inverse`] relies on that landing far outside any
+/// grid's extent rather than on a finiteness check.
+///
+/// `rho` is strictly monotonic in latitude across the whole open range, so the
+/// projection is injective there: a point in the hemisphere *opposite* the
+/// projection pole has a large `rho`, but it is still that point's own `rho`
+/// and cannot alias onto another. Grids that reach across the equator — the CMC
+/// regional grid is one — depend on this.
 ///
 /// **Recomputes constants per call.** For warp loops use [`PolarStereoProjector`].
 pub fn polar_stereo_forward(p: &PolarStereoParams, lat: f64, lon: f64) -> (f64, f64) {
@@ -1123,16 +1133,6 @@ impl PlanarGridProjector for PolarStereoProjector {
     }
     fn forward_xy(&self, lat: f64, lon: f64) -> (f64, f64) {
         self.forward(lat, lon)
-    }
-    fn accepts(&self, lat: f64, _lon: f64) -> bool {
-        // The wrong hemisphere forward-projects through the `tan` singularity
-        // at the antipodal pole to ±inf, which the origin-relative division
-        // would turn back into a finite, bogus index.
-        if self.params.south_pole {
-            lat <= 0.0
-        } else {
-            lat >= 0.0
-        }
     }
     fn grid_dims(&self) -> (u32, u32) {
         (self.params.ni, self.params.nj)

@@ -69,6 +69,23 @@ grid returns the nearest cell centre, where the fractional part and the
 `NearestOnly` and `warp` refuses or degrades bilinear against it rather than
 blending across a tripolar fold.
 
+**The acceptance test for any inverse, formula or lookup, is that a grid places
+its own points.** Walk every `(i, j)`, geolocate it, invert it, and get `(i, j)`
+back. It needs no external oracle — the grid's own forward map is the answer —
+and it is what `.eccodes.ref.json` cannot supply, since that pins only the
+forward direction. `crates/fieldglass-core/tests/grid_round_trip.rs` runs it
+across all nine families; a new one belongs there the day it is written.
+
+The check existed before that file and still missed two bugs, which is the part
+worth remembering: `assert_round_trips` in `projection.rs` had the right shape at
+eight call sites, but each built a small synthetic grid, and the polar
+stereographic one started at 27°N. It could not have found #488, where a north
+polar grid refused everything south of the equator, because no grid it tested
+went there. Coverage is a property of the fixture. A lookup grid's version of
+the same trap is a tripolar fold or a swath edge that the test grid happens not
+to contain — so the fixtures for #444 and #445 should be the awkward ones, not
+the convenient ones.
+
 The consumers of the lookup, in the order they are filed:
 
 | Consumer | Issue | Where the cell centres come from |
