@@ -560,52 +560,10 @@ impl LambertProjector {
 
     /// Project `(lat, lon)` back to the source-grid fractional index.
     /// Returns `None` when the projected coordinates fall outside the
-    /// `ni × nj` grid extent.
+    /// `ni × nj` grid extent. The shared planar body — kept as an inherent
+    /// method so callers need not import the trait.
     pub fn inverse(&self, lat: f64, lon: f64) -> Option<GridIndex> {
-        if !lat.is_finite() || !lon.is_finite() {
-            return None;
-        }
-        if !self.constants.well_defined() {
-            // Degenerate standard parallels (see `LambertConstants::well_defined`).
-            return None;
-        }
-        if self.params.ni < 2
-            || self.params.nj < 2
-            || self.params.dx_metres == 0.0
-            || self.params.dy_metres == 0.0
-        {
-            return None;
-        }
-        let (x, y) = lambert_forward_with(&self.constants, self.params.lov, lat, lon);
-        if !x.is_finite() || !y.is_finite() {
-            // Forward map hit a pole singularity. See `lambert_forward`.
-            return None;
-        }
-        let (i_max, j_max) = (self.params.ni as f64 - 1.0, self.params.nj as f64 - 1.0);
-        // The projection arithmetic carries ~1e-13 of a cell in round-off, enough
-        // to push a point sitting exactly *on* a grid edge a hair outside the
-        // bounds below and spuriously reject it — dropping the outermost row or
-        // column to background. Snap an index within EDGE_EPS of an edge back
-        // onto it, exactly as the rotated lat/lon inverse already does for the
-        // same reason. EDGE_EPS is a nanometre of a grid cell: far above the
-        // round-off, far below any real offset.
-        const EDGE_EPS: f64 = 1e-9;
-        let i = snap_to_range(
-            (x - self.origin.0) / self.params.dx_metres,
-            0.0,
-            i_max,
-            EDGE_EPS,
-        );
-        let j = snap_to_range(
-            (y - self.origin.1) / self.params.dy_metres,
-            0.0,
-            j_max,
-            EDGE_EPS,
-        );
-        if i < 0.0 || i > i_max || j < 0.0 || j > j_max {
-            return None;
-        }
-        Some(GridIndex { i, j })
+        PlanarGridProjector::inverse(self, lat, lon)
     }
 
     /// Forward-project a `(lat, lon)` through the cached constants. Used
@@ -773,57 +731,11 @@ impl PolarStereoProjector {
         }
     }
 
+    /// Project `(lat, lon)` back to the source-grid fractional index, or
+    /// `None` when it falls outside the `ni × nj` extent. The shared planar
+    /// body — kept as an inherent method so callers need not import the trait.
     pub fn inverse(&self, lat: f64, lon: f64) -> Option<GridIndex> {
-        if !lat.is_finite() || !lon.is_finite() {
-            return None;
-        }
-        if self.params.ni < 2
-            || self.params.nj < 2
-            || self.params.dx_metres == 0.0
-            || self.params.dy_metres == 0.0
-        {
-            return None;
-        }
-        // Reject points on the wrong hemisphere — forward-projecting them
-        // would hit the `tan` singularity at the antipodal pole and yield
-        // ±inf, which then maps to a bogus grid index after the
-        // origin-relative division.
-        if self.params.south_pole {
-            if lat > 0.0 {
-                return None;
-            }
-        } else if lat < 0.0 {
-            return None;
-        }
-        let (x, y) = polar_stereo_forward_with(&self.constants, self.params.lov, lat, lon);
-        if !x.is_finite() || !y.is_finite() {
-            return None;
-        }
-        let (i_max, j_max) = (self.params.ni as f64 - 1.0, self.params.nj as f64 - 1.0);
-        // The projection arithmetic carries ~1e-13 of a cell in round-off, enough
-        // to push a point sitting exactly *on* a grid edge a hair outside the
-        // bounds below and spuriously reject it — dropping the outermost row or
-        // column to background. Snap an index within EDGE_EPS of an edge back
-        // onto it, exactly as the rotated lat/lon inverse already does for the
-        // same reason. EDGE_EPS is a nanometre of a grid cell: far above the
-        // round-off, far below any real offset.
-        const EDGE_EPS: f64 = 1e-9;
-        let i = snap_to_range(
-            (x - self.origin.0) / self.params.dx_metres,
-            0.0,
-            i_max,
-            EDGE_EPS,
-        );
-        let j = snap_to_range(
-            (y - self.origin.1) / self.params.dy_metres,
-            0.0,
-            j_max,
-            EDGE_EPS,
-        );
-        if i < 0.0 || i > i_max || j < 0.0 || j > j_max {
-            return None;
-        }
-        Some(GridIndex { i, j })
+        PlanarGridProjector::inverse(self, lat, lon)
     }
 
     pub fn forward(&self, lat: f64, lon: f64) -> (f64, f64) {
@@ -907,6 +819,30 @@ pub fn signed_grid_increments(
 /// corners from them. This is the one geometry shared by every planar warp
 /// setup (target-bbox derivation) and by GRIB `bounds()` reporting, which
 /// otherwise reimplement `origin + (n-1)·d` per projection.
+/// How far past a grid edge a computed index may sit and still be snapped
+/// back onto it. See [`PlanarGridProjector::snap_eps`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SnapEps {
+    /// A fraction of a grid cell, applied identically on both axes. What a
+    /// projection whose round trip closes to float noise needs.
+    Cells(f64),
+    /// A distance in projected metres, divided by each axis' spacing. What a
+    /// projection whose round trip carries a real, ground-scale error needs:
+    /// the tolerance is then a property of the Earth, not of the cell, and a
+    /// fixed cell fraction would be far too tight on a coarse grid.
+    Metres(f64),
+}
+
+impl SnapEps {
+    /// The `(i, j)` tolerances, in cell fractions, for a grid of this spacing.
+    fn per_axis(self, dx: f64, dy: f64) -> (f64, f64) {
+        match self {
+            SnapEps::Cells(e) => (e, e),
+            SnapEps::Metres(m) => (m / dx.abs(), m / dy.abs()),
+        }
+    }
+}
+
 pub trait PlanarGridProjector {
     /// Grid origin (first scanned point) in projected metres.
     fn grid_origin(&self) -> (f64, f64);
@@ -916,6 +852,82 @@ pub trait PlanarGridProjector {
     fn grid_spacing(&self) -> (f64, f64);
     /// Inverse-project projected metres back to `(lat, lon)` in degrees.
     fn inverse_lonlat(&self, x: f64, y: f64) -> (f64, f64);
+    /// Forward-project `(lat, lon)` in degrees to projected metres — the
+    /// direction [`Self::inverse_lonlat`] undoes. [`Self::inverse`] walks it:
+    /// a grid index is `(forward_xy(lat, lon) - origin) / spacing`.
+    fn forward_xy(&self, lat: f64, lon: f64) -> (f64, f64);
+
+    /// Whether this projector can place `(lat, lon)` at all, asked before the
+    /// forward map runs. Two kinds of answer live here. A projection whose own
+    /// constants are degenerate rejects every point; one with a singularity
+    /// within reach rejects the region that would hit it — polar
+    /// stereographic's opposite hemisphere, where the forward `tan` runs to
+    /// ±inf and the origin-relative division would turn that back into a
+    /// plausible-looking index.
+    ///
+    /// The default accepts everything. [`Self::inverse`] already rejects a
+    /// non-finite argument and a non-finite forward result, so a projector
+    /// needs this only for a case those two miss.
+    fn accepts(&self, _lat: f64, _lon: f64) -> bool {
+        true
+    }
+
+    /// How far outside the grid an index may land and still be snapped back
+    /// onto the edge.
+    ///
+    /// The projection arithmetic carries round-off — enough to push a point
+    /// sitting exactly *on* a grid edge a hair outside it and have the extent
+    /// check reject it, dropping the outermost row or column to background.
+    /// The default is a nanometre of a grid cell: far above the round-off a
+    /// well-behaved round trip leaves, far below any real offset. It is the
+    /// same rule, for the same reason, that the rotated lat/lon inverse
+    /// applies. Override it where the round trip is not exact to float noise.
+    ///
+    /// A new implementor inherits this without being asked, and getting it
+    /// wrong is silent: the symptom is a missing outer row in a render, not an
+    /// error. Check a new projector against its own
+    /// [`grid_corners_lonlat`](Self::grid_corners_lonlat) — all four must come
+    /// back through [`inverse`](Self::inverse) inside the grid.
+    /// `tests/planar_inverse_golden.rs` does that for the projectors in its
+    /// table; add yours to it.
+    fn snap_eps(&self) -> SnapEps {
+        SnapEps::Cells(1e-9)
+    }
+
+    /// `(lat, lon)` → fractional source-grid index, or `None` when the point
+    /// falls outside the `ni × nj` extent or the projection cannot place it.
+    ///
+    /// The body every planar grid shares: reject what cannot be placed, walk
+    /// the forward map, divide out the origin and the spacing, and let
+    /// [`Self::snap_eps`] rescue a point that round-off pushed just past an
+    /// edge. What differs between projections is in the three hooks, not here.
+    fn inverse(&self, lat: f64, lon: f64) -> Option<GridIndex> {
+        if !lat.is_finite() || !lon.is_finite() || !self.accepts(lat, lon) {
+            return None;
+        }
+        let (ni, nj) = self.grid_dims();
+        let (dx, dy) = self.grid_spacing();
+        // A one-point axis has no cell to interpolate across, and a zero
+        // spacing would divide the whole plane onto one index.
+        if ni < 2 || nj < 2 || dx == 0.0 || dy == 0.0 {
+            return None;
+        }
+        let (x, y) = self.forward_xy(lat, lon);
+        if !x.is_finite() || !y.is_finite() {
+            // The forward map hit a singularity — a pole for the conics, the
+            // antipode of the tangent point for the azimuthals.
+            return None;
+        }
+        let (ox, oy) = self.grid_origin();
+        let (i_max, j_max) = (ni as f64 - 1.0, nj as f64 - 1.0);
+        let (eps_i, eps_j) = self.snap_eps().per_axis(dx, dy);
+        let i = snap_to_range((x - ox) / dx, 0.0, i_max, eps_i);
+        let j = snap_to_range((y - oy) / dy, 0.0, j_max, eps_j);
+        if i < 0.0 || i > i_max || j < 0.0 || j > j_max {
+            return None;
+        }
+        Some(GridIndex { i, j })
+    }
 
     /// `(lat, lon)` of grid point `(i, j)`: step out from the origin in
     /// projected metres and invert. The forward geolocation every planar grid
@@ -1086,6 +1098,14 @@ impl PlanarGridProjector for LambertProjector {
     fn grid_origin(&self) -> (f64, f64) {
         self.origin
     }
+    fn forward_xy(&self, lat: f64, lon: f64) -> (f64, f64) {
+        self.forward(lat, lon)
+    }
+    fn accepts(&self, _lat: f64, _lon: f64) -> bool {
+        // Degenerate standard parallels (see `LambertConstants::well_defined`)
+        // leave no usable cone, so no point can be placed on this grid.
+        self.constants.well_defined()
+    }
     fn grid_dims(&self) -> (u32, u32) {
         (self.params.ni, self.params.nj)
     }
@@ -1100,6 +1120,19 @@ impl PlanarGridProjector for LambertProjector {
 impl PlanarGridProjector for PolarStereoProjector {
     fn grid_origin(&self) -> (f64, f64) {
         self.origin
+    }
+    fn forward_xy(&self, lat: f64, lon: f64) -> (f64, f64) {
+        self.forward(lat, lon)
+    }
+    fn accepts(&self, lat: f64, _lon: f64) -> bool {
+        // The wrong hemisphere forward-projects through the `tan` singularity
+        // at the antipodal pole to ±inf, which the origin-relative division
+        // would turn back into a finite, bogus index.
+        if self.params.south_pole {
+            lat <= 0.0
+        } else {
+            lat >= 0.0
+        }
     }
     fn grid_dims(&self) -> (u32, u32) {
         (self.params.ni, self.params.nj)
@@ -1424,51 +1457,10 @@ impl LambertAzimuthalProjector {
     }
 
     /// Project `(lat, lon)` back to the source-grid fractional index, or `None`
-    /// when it falls outside the `ni × nj` extent.
+    /// when it falls outside the `ni × nj` extent. The shared planar body —
+    /// kept as an inherent method so callers need not import the trait.
     pub fn inverse(&self, lat: f64, lon: f64) -> Option<GridIndex> {
-        if !lat.is_finite() || !lon.is_finite() || !self.is_well_defined() {
-            return None;
-        }
-        let p = &self.params;
-        if p.ni < 2 || p.nj < 2 || p.dx_metres == 0.0 || p.dy_metres == 0.0 {
-            return None;
-        }
-        let (x, y) = lambert_azimuthal_forward_with(&self.constants, p, lat, lon);
-        if !x.is_finite() || !y.is_finite() {
-            // The antipode of the tangent point, where the projection blows up.
-            return None;
-        }
-        let (i_max, j_max) = (p.ni as f64 - 1.0, p.nj as f64 - 1.0);
-        // Same edge snap as `LambertProjector::inverse`, but sized in metres
-        // rather than in cell fractions.
-        //
-        // The other projections round-trip to float noise; this one does not.
-        // `authalic_to_geodetic` is a three-term series and so is not the exact
-        // inverse of the `authalic_q` that produced the latitude — PROJ and
-        // eccodes carry the same asymmetry, at about a millimetre. A fixed
-        // `1e-9` of a cell is below that for any real grid (5e-9 of a 200 km
-        // cell), so the first grid point projected back to `-1.2e-9` and was
-        // rejected, dropping the whole outer row and column to background.
-        //
-        // A centimetre is three orders of magnitude under the coarsest sane
-        // grid spacing and one above the series' own error.
-        const EDGE_SLACK_M: f64 = 0.01;
-        let i = snap_to_range(
-            (x - self.origin.0) / p.dx_metres,
-            0.0,
-            i_max,
-            EDGE_SLACK_M / p.dx_metres.abs(),
-        );
-        let j = snap_to_range(
-            (y - self.origin.1) / p.dy_metres,
-            0.0,
-            j_max,
-            EDGE_SLACK_M / p.dy_metres.abs(),
-        );
-        if i < 0.0 || i > i_max || j < 0.0 || j > j_max {
-            return None;
-        }
-        Some(GridIndex { i, j })
+        PlanarGridProjector::inverse(self, lat, lon)
     }
 
     /// Forward-project through the cached constants.
@@ -1497,6 +1489,26 @@ impl LambertAzimuthalProjector {
 impl PlanarGridProjector for LambertAzimuthalProjector {
     fn grid_origin(&self) -> (f64, f64) {
         self.origin
+    }
+    fn forward_xy(&self, lat: f64, lon: f64) -> (f64, f64) {
+        self.forward(lat, lon)
+    }
+    fn accepts(&self, _lat: f64, _lon: f64) -> bool {
+        self.is_well_defined()
+    }
+    fn snap_eps(&self) -> SnapEps {
+        // The only projector here whose round trip does not close to float
+        // noise. `authalic_to_geodetic` is a three-term series and so is not
+        // the exact inverse of the `authalic_q` that produced the latitude —
+        // PROJ and eccodes carry the same asymmetry, at about a millimetre. A
+        // fixed nanometre of a cell is below that for any real grid (5e-9 of a
+        // 200 km cell), so the first grid point projected back to `-1.2e-9`
+        // and was rejected, dropping the whole outer row and column to
+        // background.
+        //
+        // A centimetre is three orders of magnitude under the coarsest sane
+        // grid spacing and one above the series' own error.
+        SnapEps::Metres(0.01)
     }
     fn grid_dims(&self) -> (u32, u32) {
         (self.params.ni, self.params.nj)
@@ -1773,34 +1785,10 @@ impl TransverseMercatorProjector {
     }
 
     /// Project `(lat, lon)` back to the source-grid fractional index, or
-    /// `None` when it falls outside the `ni × nj` extent.
+    /// `None` when it falls outside the `ni × nj` extent. The shared planar
+    /// body — kept as an inherent method so callers need not import the trait.
     pub fn inverse(&self, lat: f64, lon: f64) -> Option<GridIndex> {
-        if !lat.is_finite() || !lon.is_finite() || !self.constants.well_defined() {
-            return None;
-        }
-        let p = &self.params;
-        if p.ni < 2 || p.nj < 2 || p.dx_metres == 0.0 || p.dy_metres == 0.0 {
-            return None;
-        }
-        // The scale factor multiplies the rectifying radius; zero collapses the
-        // whole plane onto the false origin, and a non-finite one makes every
-        // index `NaN`.
-        if !p.scale_factor.is_finite() || p.scale_factor == 0.0 {
-            return None;
-        }
-        let (x, y) = transverse_mercator_forward_with(&self.constants, p, lat, lon);
-        if !x.is_finite() || !y.is_finite() {
-            return None;
-        }
-        let (i_max, j_max) = (p.ni as f64 - 1.0, p.nj as f64 - 1.0);
-        // Same edge snap, and for the same reason, as `LambertProjector::inverse`.
-        const EDGE_EPS: f64 = 1e-9;
-        let i = snap_to_range((x - p.x1_metres) / p.dx_metres, 0.0, i_max, EDGE_EPS);
-        let j = snap_to_range((y - p.y1_metres) / p.dy_metres, 0.0, j_max, EDGE_EPS);
-        if i < 0.0 || i > i_max || j < 0.0 || j > j_max {
-            return None;
-        }
-        Some(GridIndex { i, j })
+        PlanarGridProjector::inverse(self, lat, lon)
     }
 
     /// Forward-project through the cached coefficients.
@@ -1824,6 +1812,17 @@ impl TransverseMercatorProjector {
 impl PlanarGridProjector for TransverseMercatorProjector {
     fn grid_origin(&self) -> (f64, f64) {
         (self.params.x1_metres, self.params.y1_metres)
+    }
+    fn forward_xy(&self, lat: f64, lon: f64) -> (f64, f64) {
+        self.forward(lat, lon)
+    }
+    fn accepts(&self, _lat: f64, _lon: f64) -> bool {
+        // The scale factor multiplies the rectifying radius: zero collapses
+        // the whole plane onto the false origin, and a non-finite one makes
+        // every index `NaN`.
+        self.constants.well_defined()
+            && self.params.scale_factor.is_finite()
+            && self.params.scale_factor != 0.0
     }
     fn grid_dims(&self) -> (u32, u32) {
         (self.params.ni, self.params.nj)
@@ -4145,6 +4144,9 @@ mod tests {
             // Treat the plane x-coordinate directly as longitude (0..=270).
             fn inverse_lonlat(&self, x: f64, _y: f64) -> (f64, f64) {
                 (12.0, x)
+            }
+            fn forward_xy(&self, _lat: f64, lon: f64) -> (f64, f64) {
+                (lon, 0.0)
             }
         }
 

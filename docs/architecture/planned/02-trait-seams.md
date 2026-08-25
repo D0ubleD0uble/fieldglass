@@ -29,8 +29,11 @@ classDiagram
     }
     class PlanarGridProjector {
         <<trait>>
+        shipped #486
         +forward_xy(lat, lon) required
-        +inverse(lat, lon) provided once for all planar grids (#486)
+        +inverse(lat, lon) provided once for all planar grids
+        +accepts(lat, lon) hook, default true
+        +snap_eps() SnapEps hook, default Cells(1e-9)
     }
     class SpatialIndex {
         <<planned #437>>
@@ -51,11 +54,16 @@ classDiagram
     PlanarGridProjector <|.. LambertAzimuthalProjector
 ```
 
-Two things this fixes on the way. The four planar `inverse()` bodies are
-today the same ~25 lines each (guards, forward, `(x − origin) / spacing`,
-edge snap); the forward direction is already a provided method on
-`PlanarGridProjector`, and the inverse joins it (#486), so the edge-snap rule
-exists once. And `GridIndex` is fractional because the raster grids are: a lookup
+Two things this fixes on the way. The four planar `inverse()` bodies were the
+same 30 to 50 lines each (guards, forward, `(x − origin) / spacing`, edge
+snap); the forward direction was already a provided method on
+`PlanarGridProjector`, and the inverse joined it in #486, so the edge-snap rule
+exists once. What genuinely differed went into two hooks rather than four
+near-copies: `accepts` for a point the projection cannot place at all, and
+`snap_eps` for the edge tolerance — `SnapEps::Cells` for a round trip that
+closes to float noise, `SnapEps::Metres` for Lambert azimuthal, whose authalic
+series carries a real millimetre-scale error, so its tolerance is a property of
+the ground rather than of the cell. And `GridIndex` is fractional because the raster grids are: a lookup
 grid returns the nearest cell centre, where the fractional part and the
 "next column" neighbour mean nothing, so `GridGeometry::Lookup` reports
 `NearestOnly` and `warp` refuses or degrades bilinear against it rather than
