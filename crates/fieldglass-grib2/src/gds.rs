@@ -642,16 +642,34 @@ impl GridDefinitionSection {
     /// * the list holds exactly `Nj` entries — a list of any other length
     ///   describes a grid this does not understand, the same gate
     ///   [`GaussianTemplate::is_octahedral`] is classified behind;
-    /// * §3's interpretation of the list (octet 12, Code Table 3.11) is `1` or
-    ///   `2`, the two codes that mean "numbers of points". Code `3` puts
-    ///   *latitudes* in the same list, and reading those as row widths would
-    ///   invent a grid.
+    /// * §3's interpretation of the list (octet 12, Code Table 3.11) is not `3`.
+    ///   Codes `1` and `2` both mean "numbers of points"; code `3` puts
+    ///   *latitudes in microdegrees* in the same list, and reading those as row
+    ///   widths would invent a grid.
+    ///
+    /// Everything other than code `3` is accepted, rather than only `1` and
+    /// `2`, because eccodes reads the list from `numberOfOctectsForNumberOfPoints`
+    /// alone and never consults the interpretation (`PLPresent` in
+    /// `section.3.def`). An encoder that writes the list and leaves the
+    /// interpretation at its `0` default produces a file eccodes reads and the
+    /// stricter rule would refuse — a breadth regression on real data, traded
+    /// for a guard against a code nothing writes. Code `3` is the one case
+    /// where the numbers are demonstrably something else, so it is the one
+    /// refused.
     pub fn points_per_row(&self) -> Option<&[u32]> {
         let GridTemplate::Gaussian(t) = &self.template else {
             return None;
         };
-        let counts_points = matches!(self.optional_list_interp, 1 | 2);
-        (t.is_reduced && counts_points && self.row_widths.len() == t.nj as usize)
+        const LIST_IS_LATITUDES: u8 = 3;
+        let counts_points = self.optional_list_interp != LIST_IS_LATITUDES;
+        // A grid with no rows is not a reduced grid. Without this, a section
+        // declaring `Nj = 0` and a list it does not actually carry would agree
+        // with itself and report a `0 × 0` raster, where the same section read
+        // as a regular grid reports no dimensions at all.
+        (t.is_reduced
+            && counts_points
+            && !self.row_widths.is_empty()
+            && self.row_widths.len() == t.nj as usize)
             .then_some(self.row_widths.as_slice())
     }
 
@@ -850,6 +868,13 @@ impl GridDefinitionSection {
             GridTemplate::PolarStereographic(_) => "polar_stereo".to_string(),
             GridTemplate::Lambert(_) => "lambert".to_string(),
             GridTemplate::LambertAzimuthal(_) => "lambert_azimuthal".to_string(),
+            // eccodes calls these `regular_gg` and `reduced_gg`, and
+            // `fieldglass_grib1` calls the second `reduced_gaussian`. One
+            // template number covers both, but they are not the same grid: one
+            // has a constant `Ni` and the other a `PL` list, and the message
+            // table shows this string to a reader. Naming them apart is what
+            // lets the same grid read the same way in both editions (#503).
+            GridTemplate::Gaussian(t) if t.is_reduced => "reduced_gaussian".to_string(),
             GridTemplate::Gaussian(_) => "gaussian".to_string(),
             GridTemplate::SpaceView(_) => "space_view".to_string(),
             GridTemplate::SphericalHarmonic(_) => "spherical_harmonic".to_string(),
@@ -2081,6 +2106,37 @@ mod tests {
             parse_optional_row_widths(&[0xFF, 0xFF, 0xFF, 0xFF], 0, 4),
             Some(vec![u32::MAX])
         );
+    }
+
+    /// A section declaring no rows is not a reduced grid.
+    ///
+    /// `Nj = 0` with a list the section does not carry makes the length gate
+    /// agree with itself — zero entries, zero rows — and `dimensions` would then
+    /// report a `0 × 0` raster for a message that states no shape at all. The
+    /// same octets read as a regular Gaussian grid report `None`, and that is
+    /// the honest answer for both.
+    #[test]
+    fn a_section_with_no_rows_is_not_a_reduced_grid() {
+        let mut payload = vec![0u8; TEMPLATE_3_40_LEN];
+        payload[16..20].copy_from_slice(&u32::MAX.to_be_bytes()); // Ni missing
+        payload[20..24].copy_from_slice(&0u32.to_be_bytes()); // Nj = 0
+        let widths = parse_optional_row_widths(&payload, TEMPLATE_3_40_LEN, 2);
+        assert_eq!(widths, None, "there are no bytes past the template");
+        let template = parse_template_3_40(&payload, 2, &[]).expect("parses");
+        assert!(template.is_reduced, "the section declares a list");
+
+        let gds = GridDefinitionSection {
+            section_length: 14 + TEMPLATE_3_40_LEN as u32,
+            source: 0,
+            num_data_points: 0,
+            optional_list_octet_size: 2,
+            optional_list_interp: 1,
+            template_number: 40,
+            template: GridTemplate::Gaussian(template),
+            row_widths: Vec::new(),
+        };
+        assert_eq!(gds.points_per_row(), None, "no rows, no PL list");
+        assert_eq!(gds.dimensions(), None, "and so no raster either");
     }
 
     /// A `PL` list of the wrong length never produces a grid name.

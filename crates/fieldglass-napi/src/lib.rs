@@ -4892,9 +4892,18 @@ fn levels_by_interval(min: f64, max: f64, step: f64) -> Vec<f64> {
 /// the seam interpolated in rotated space and rotated back, which is a larger
 /// change than the gap warrants.
 fn contour_seam_wraps(meta: &MessageMeta, ni: u32) -> bool {
+    // A reduced grid's rows are widened to evenly spaced columns before anything
+    // downstream sees them, so the raster is as uniform in longitude as a
+    // regular one — and periodic in the same way, which is what the seam needs
+    // (#503). Leaving them out gave the same grid a seam gap in GRIB1 and none
+    // in GRIB2.
     let uniform_eastward_lon = matches!(
         meta.grid_type.as_deref(),
-        Some("latlon") | Some("mercator") | Some("gaussian")
+        Some("latlon")
+            | Some("mercator")
+            | Some("gaussian")
+            | Some("reduced_latlon")
+            | Some("reduced_gaussian")
     );
     uniform_eastward_lon && source_grid_is_periodic(meta, ni)
 }
@@ -9292,13 +9301,19 @@ mod reduced_grid_render_tests {
                 "{label}: expanded from {stored} stored points"
             );
             assert!(raw.len() > stored, "{label}: the raster is the larger one");
-            assert_eq!(meta.grid_type.as_deref(), Some("gaussian"), "{label}");
+            assert_eq!(
+                meta.grid_type.as_deref(),
+                Some("reduced_gaussian"),
+                "{label}"
+            );
             assert_eq!(meta.grid_ni, Some(width as i32), "{label}");
         }
 
         let (raw, meta, ni, nj) = grib1_handle(GRIB1_N32).resolved(0).expect("resolves");
         assert_eq!((ni, nj), (128, 64), "GRIB1 N32: raster shape");
         assert_eq!(raw.len(), 128 * 64);
+        // Both editions name the grid the same way, which is what makes the
+        // message table read the same for the same file in either form.
         assert_eq!(meta.grid_type.as_deref(), Some("reduced_gaussian"));
     }
 
@@ -9306,7 +9321,8 @@ mod reduced_grid_render_tests {
     ///
     /// The two crates report different `grid_type` strings for it, so the
     /// forward map has to agree across two dispatch arms rather than one — the
-    /// gap that left GRIB1 renderable but not contourable before #503.
+    /// gap that left GRIB1 renderable but not contourable before #503. They now
+    /// name the grid the same way too, which eccodes calls `reduced_gg`.
     #[test]
     fn the_two_crates_place_the_same_grid_the_same_way() {
         let (_, meta2, ni, nj) = grib2_handle(GRIB2_N32).resolved(0).expect("grib2 resolves");

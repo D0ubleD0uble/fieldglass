@@ -127,7 +127,10 @@ fn ecmwf_gaussian_decodes_template_3_40_reduced() {
     );
     assert_eq!(msg.gds.dimensions(), Some((128, 64)));
     assert!(msg.gds.bounds().is_some());
-    assert_eq!(msg.gds.template_name(), "gaussian");
+    // eccodes calls this grid `reduced_gg` and `fieldglass_grib1` calls it
+    // `reduced_gaussian`; one template number covers both variants, but the
+    // message table shows this string and the two are not the same grid (#503).
+    assert_eq!(msg.gds.template_name(), "reduced_gaussian");
     assert_eq!(lookup_grid_template(40), "Gaussian latitude/longitude");
 }
 
@@ -625,6 +628,12 @@ fn a_regular_gaussian_grid_reports_dimensions_and_no_name() {
     assert!(!t.is_octahedral, "and so cannot be octahedral");
     assert!(gds.dimensions().is_some(), "a regular grid has Ni x Nj");
     assert_eq!(gds.size_label(), None, "and needs no name of its own");
+    assert_eq!(
+        gds.template_name(),
+        "gaussian",
+        "and is not named as the reduced variant"
+    );
+    assert_eq!(gds.points_per_row(), None, "a regular grid lists no rows");
 }
 
 /// The `O`/`N` split is read off the row widths, not off `N`.

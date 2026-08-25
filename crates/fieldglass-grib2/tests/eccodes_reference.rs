@@ -125,9 +125,14 @@ fn assert_message_matches(
                 GridTemplate::Unsupported(_) => true, // can't check
             },
             "numberOfDataPoints" => check_u64(key, expected, msg.gds.num_data_points as u64),
+            // A reduced grid's `dimensions()` reports the raster its rows
+            // expand into (#503), which is not the message's `Ni` — but eccodes
+            // emits `Ni: null` for one, and a null snapshot value is skipped
+            // before this dispatch, so the two never meet. Anything that does
+            // reach here declares a real `Ni`.
             "Ni" => match msg.gds.dimensions() {
                 Some((ni, _)) => check_u64(key, expected, ni as u64),
-                None => true, // reduced grid — eccodes also emits null here
+                None => true, // no raster at all: spectral, bi-Fourier, HEALPix
             },
             "Nj" => match msg.gds.dimensions() {
                 Some((_, nj)) => check_u64(key, expected, nj as u64),

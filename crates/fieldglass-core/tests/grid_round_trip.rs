@@ -334,6 +334,46 @@ fn gaussian_inverts_every_grid_point() {
     assert_eq!(dropped, 0);
 }
 
+/// The raster an octahedral `O32` expands into, which is a grid family in its
+/// own right as far as the warp is concerned (#503).
+///
+/// A reduced grid never reaches the projector as itself: its rows are widened
+/// to `max(PL)` columns at the decode boundary, and it is that rectangle the
+/// forward and inverse maps have to agree on. The parameters here are the ones
+/// the render seam builds — 144 columns, and an east edge derived from that
+/// width rather than the 357.1875 the file declares. Using the declared value
+/// is the failure this pins: the forward map would place column 143 at
+/// 357.1875 while the inverse divides the same span by 143, and the two would
+/// still agree with each other, which is exactly why the round trip alone is
+/// not the whole check — `decode_reduced_gaussian.rs` holds the east edge
+/// against the row widths.
+#[test]
+fn an_expanded_octahedral_raster_inverts_every_grid_point() {
+    let roots = gaussian_latitudes(32);
+    let width = reduced_raster_width(&[20, 24, 144, 144, 24, 20]);
+    assert_eq!(width, 144, "the widest row is the raster width");
+    let p = GaussianParams {
+        ni: width,
+        nj: 64,
+        lat_first: roots[0],
+        lon_first: 0.0,
+        lat_last: roots[roots.len() - 1],
+        lon_last: reduced_raster_lon_last(0.0, width),
+        n_parallels: 32,
+    };
+    assert_eq!(p.lon_last, 357.5, "not the 357.1875 the file declares");
+    let g = GaussianProjector::new(p);
+    let dropped = round_trip_fns(
+        "expanded octahedral O32",
+        p.ni,
+        p.nj,
+        |i, j| g.grid_point_lonlat(i, j),
+        |lat, lon| g.inverse(lat, lon),
+        1e-9,
+    );
+    assert_eq!(dropped, 0);
+}
+
 #[test]
 fn mercator_inverts_every_grid_point() {
     let p = MercatorParams {

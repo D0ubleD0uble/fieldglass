@@ -45,6 +45,9 @@ fn the_pl_list_survives_the_parse_and_names_the_raster() {
         let reader = Grib2Reader::from_bytes(bytes.to_vec()).expect("fixture parses");
         let gds = &reader.messages[0].gds;
         assert_eq!(gds.points_per_row(), Some(pl), "{label}: PL list");
+        // Named the way eccodes names it (`reduced_gg`) and the way GRIB1 does,
+        // so the message table reads the same in both editions.
+        assert_eq!(gds.template_name(), "reduced_gaussian", "{label}");
         // The raster is the widest row by the row count — derived, not stated.
         assert_eq!(gds.dimensions(), Some((width, 64)), "{label}: raster");
         // What the file itself says its size is, which a display prefers.
