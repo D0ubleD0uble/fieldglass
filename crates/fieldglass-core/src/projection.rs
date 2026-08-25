@@ -55,7 +55,7 @@ pub struct GridIndex {
 // Regular lat/lon (GRIB1 grid_type 0, GRIB2 template 3.0)
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct LatLonParams {
     pub ni: u32,
     pub nj: u32,
@@ -227,7 +227,7 @@ pub fn mercator_inverse(p: &MercatorParams, lat: f64, lon: f64) -> Option<GridIn
 // Gaussian latitude/longitude (GRIB1 grid_type 4, GRIB2 template 3.40)
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct GaussianParams {
     pub ni: u32,
     pub nj: u32,
@@ -400,7 +400,7 @@ impl GaussianProjector {
 // Lambert Conformal Conic (GRIB1 grid_type 3, GRIB2 template 3.30)
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct LambertParams {
     /// Radius of the spherical Earth the grid is projected on, in metres. The
     /// message declares it (GRIB1's earth-shape flag, GRIB2's
@@ -598,7 +598,7 @@ impl LambertProjector {
 // Polar Stereographic (GRIB1 grid_type 5, GRIB2 template 3.20)
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PolarStereoParams {
     /// Radius of the spherical Earth the grid is projected on, in metres. See
     /// [`LambertParams::earth_radius_m`].
@@ -2440,6 +2440,306 @@ impl GeostationaryProjector {
         let p = &self.params;
         self.scan_to_lonlat(p.x0 + i as f64 * p.dx_rad, p.y0 + j as f64 * p.dy_rad)
     }
+}
+
+// ---------------------------------------------------------------------------
+// GridGeometry — one typed value for "where does this grid sit on the Earth"
+// ---------------------------------------------------------------------------
+
+/// Geographic bounding box of a grid, in degrees.
+///
+/// `west > east` means the box crosses the antimeridian — the same convention
+/// GeoJSON uses (RFC 7946 §5.2), and the only way to distinguish an ECMWF grid
+/// running 180° → 179.75° from a global one without a second flag. A consumer
+/// that splits the box at ±180° gets two ordinary boxes back.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct LonLatBounds {
+    pub west: f64,
+    pub south: f64,
+    pub east: f64,
+    pub north: f64,
+}
+
+impl LonLatBounds {
+    /// Whether `west` lies numerically east of `east`, i.e. the box wraps.
+    pub fn crosses_antimeridian(&self) -> bool {
+        self.west > self.east
+    }
+}
+
+/// Where a grid sits on the Earth, as one value per grid family.
+///
+/// This is the lid on [`LatLonParams`] and friends. Before it, a consumer
+/// carried every family's parameters side by side behind a `grid_type` string
+/// and re-derived the dispatch itself, which is what
+/// `fieldglass-napi`'s 51-field `MessageMeta` view still does; nothing stopped
+/// a caller reading `latin1` off a Gaussian grid. A variant carries only the
+/// parameters its own family defines, so that read does not compile.
+///
+/// Every method answers `None` rather than guessing when the family cannot be
+/// placed, and [`GridGeometry::Unsupported`] carries the label it could not
+/// handle instead of erroring — a host can then say *which* grid it declined.
+///
+/// The first cut covers what NOAA NODD and ECMWF publish. The other families
+/// `core` projects (Mercator, rotated lat/lon, transverse Mercator, Lambert
+/// azimuthal, geostationary) have projectors already and are additive here.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[non_exhaustive]
+#[serde(tag = "kind")]
+pub enum GridGeometry {
+    #[serde(rename = "latlon")]
+    LatLon(LatLonParams),
+    #[serde(rename = "gaussian")]
+    Gaussian(GaussianParams),
+    #[serde(rename = "lambert")]
+    Lambert(LambertParams),
+    #[serde(rename = "polar_stereo")]
+    PolarStereo(PolarStereoParams),
+    /// A family this type does not model yet. `label` is the grid type as the
+    /// decoder named it, so the message can say what was declined.
+    #[serde(rename = "unsupported")]
+    Unsupported { label: String },
+}
+
+impl GridGeometry {
+    /// The family tag, matching the `grid_type` strings the hosts already use
+    /// (`"latlon"`, `"gaussian"`, `"lambert"`, `"polar_stereo"`), so #464 can
+    /// swap the string dispatch for this type without renaming anything a
+    /// consumer sees.
+    ///
+    /// This is exactly the serde tag — an unmodelled family reports
+    /// `"unsupported"` here, not the grid it was, because a host deriving a DTO
+    /// would otherwise read one string in JSON and another from this method.
+    /// [`label`](Self::label) is the one to display.
+    pub fn kind(&self) -> &str {
+        match self {
+            Self::LatLon(_) => "latlon",
+            Self::Gaussian(_) => "gaussian",
+            Self::Lambert(_) => "lambert",
+            Self::PolarStereo(_) => "polar_stereo",
+            Self::Unsupported { .. } => "unsupported",
+        }
+    }
+
+    /// The most specific name available: [`kind`](Self::kind) for a modelled
+    /// family, and the decoder's own grid-type string for an unmodelled one.
+    /// What a message saying which grid was declined should read.
+    pub fn label(&self) -> &str {
+        match self {
+            Self::Unsupported { label } => label,
+            other => other.kind(),
+        }
+    }
+
+    /// `(ni, nj)` in grid points, or `None` for a family with no geometry.
+    pub fn dims(&self) -> Option<(u32, u32)> {
+        match self {
+            Self::LatLon(p) => Some((p.ni, p.nj)),
+            Self::Gaussian(p) => Some((p.ni, p.nj)),
+            Self::Lambert(p) => Some((p.ni, p.nj)),
+            Self::PolarStereo(p) => Some((p.ni, p.nj)),
+            Self::Unsupported { .. } => None,
+        }
+    }
+
+    /// Grid point `(i, j)` → `(lat, lon)` in degrees, or `None` when the index
+    /// is off the grid or the family cannot be placed.
+    pub fn forward(&self, i: u32, j: u32) -> Option<(f64, f64)> {
+        let (ni, nj) = self.dims()?;
+        if i >= ni || j >= nj {
+            return None;
+        }
+        match self {
+            Self::LatLon(p) => latlon_point(p, i, j),
+            Self::Gaussian(p) => GaussianProjector::new(*p).grid_point_lonlat(i, j),
+            Self::Lambert(p) => Some(LambertProjector::new(*p).grid_point_lonlat(i, j)),
+            Self::PolarStereo(p) => Some(PolarStereoProjector::new(*p).grid_point_lonlat(i, j)),
+            Self::Unsupported { .. } => None,
+        }
+    }
+
+    /// `(lat, lon)` in degrees → fractional grid index, or `None` when the
+    /// point is outside the grid or the family cannot be placed. The direction
+    /// a warp asks in.
+    pub fn inverse(&self, lat: f64, lon: f64) -> Option<GridIndex> {
+        match self {
+            Self::LatLon(p) => latlon_inverse(p, lat, lon),
+            Self::Gaussian(p) => gaussian_inverse(p, lat, lon),
+            Self::Lambert(p) => LambertProjector::new(*p).inverse(lat, lon),
+            Self::PolarStereo(p) => PolarStereoProjector::new(*p).inverse(lat, lon),
+            Self::Unsupported { .. } => None,
+        }
+    }
+
+    /// The grid's geographic bounding box.
+    ///
+    /// For the two geographic families the corners are the box, unwrapped
+    /// through [`eastward_lon_span`] so an antimeridian-crossing grid keeps its
+    /// real span instead of collapsing to one cell.
+    ///
+    /// A projected grid's edges are curves, so its extremes need not be at a
+    /// corner — a Lambert grid's northern edge bulges between them. This walks
+    /// the whole perimeter. It also asks whether the grid *contains* a pole:
+    /// there the meridians converge inside the domain, every longitude is
+    /// present, and a perimeter walk would report a narrow box around whatever
+    /// the edge happened to sample.
+    pub fn bounds_lonlat(&self) -> Option<LonLatBounds> {
+        match self {
+            Self::LatLon(p) => Some(corner_bounds(
+                p.lat_first,
+                p.lon_first,
+                p.lat_last,
+                p.lon_last,
+            )),
+            Self::Gaussian(p) => Some(corner_bounds(
+                p.lat_first,
+                p.lon_first,
+                p.lat_last,
+                p.lon_last,
+            )),
+            Self::Lambert(_) | Self::PolarStereo(_) => self.perimeter_bounds(),
+            Self::Unsupported { .. } => None,
+        }
+    }
+
+    /// A PROJ definition string for the grid's coordinate reference system, or
+    /// `None` for a family this type cannot place.
+    ///
+    /// What a browser map library wants: hand it this and the projected
+    /// coordinates agree with [`forward`](Self::forward), which is what
+    /// `tests/grid_geometry_proj.rs` checks against PROJ itself rather than by
+    /// eye. The projected families emit absolute projection coordinates with no
+    /// false easting or northing, because that is what `core`'s forward maps
+    /// compute; the grid origin is applied on top, by
+    /// [`inverse`](Self::inverse), not by the CRS.
+    ///
+    /// The Earth is the sphere the message declared (`+R=`), never a datum:
+    /// a GRIB grid states a radius, and substituting WGS84 would move a
+    /// continental grid by kilometres.
+    pub fn proj4(&self) -> Option<String> {
+        match self {
+            // Geographic: the values `forward` returns are already lon/lat.
+            // No grid carries a radius for these, so the CRS states the one
+            // core defaults to; it does not affect an angular coordinate.
+            Self::LatLon(_) | Self::Gaussian(_) => Some(format!(
+                "+proj=longlat +R={DEFAULT_EARTH_RADIUS_M} +no_defs"
+            )),
+            Self::Lambert(p) => Some(format!(
+                "+proj=lcc +lat_1={} +lat_2={} +lat_0={} +lon_0={} +R={} +units=m +no_defs",
+                p.latin1, p.latin2, p.lad, p.lov, p.earth_radius_m
+            )),
+            Self::PolarStereo(p) => Some(format!(
+                "+proj=stere +lat_0={} +lat_ts={} +lon_0={} +R={} +units=m +no_defs",
+                if p.south_pole { -90.0 } else { 90.0 },
+                if p.south_pole {
+                    -p.lad.abs()
+                } else {
+                    p.lad.abs()
+                },
+                p.lov,
+                p.earth_radius_m
+            )),
+            Self::Unsupported { .. } => None,
+        }
+    }
+
+    /// Walk the outer ring of a projected grid and take the extremes, widening
+    /// to every longitude when the domain swallows a pole.
+    fn perimeter_bounds(&self) -> Option<LonLatBounds> {
+        let (ni, nj) = self.dims()?;
+        if ni == 0 || nj == 0 {
+            return None;
+        }
+        let edge = (0..ni)
+            .flat_map(|i| [(i, 0), (i, nj - 1)])
+            .chain((0..nj).flat_map(|j| [(0, j), (ni - 1, j)]));
+
+        let mut north = f64::NEG_INFINITY;
+        let mut south = f64::INFINITY;
+        let mut lons: Vec<f64> = Vec::new();
+        for (i, j) in edge {
+            let (lat, lon) = self.forward(i, j)?;
+            if !lat.is_finite() || !lon.is_finite() {
+                return None;
+            }
+            north = north.max(lat);
+            south = south.min(lat);
+            lons.push(normalise_lon(lon));
+        }
+
+        // A pole inside the domain makes every meridian present, and the
+        // perimeter never samples that.
+        for (pole, is_north) in [(90.0, true), (-90.0, false)] {
+            if self.inverse(pole, 0.0).is_some() {
+                if is_north {
+                    north = 90.0;
+                } else {
+                    south = -90.0;
+                }
+                return Some(LonLatBounds {
+                    west: -180.0,
+                    south,
+                    east: 180.0,
+                    north,
+                });
+            }
+        }
+
+        let (west, east) = longitude_extent(&mut lons);
+        Some(LonLatBounds {
+            west,
+            south,
+            east,
+            north,
+        })
+    }
+}
+
+/// Bounding box of a geographic grid from its two stated corners, keeping an
+/// antimeridian crossing rather than collapsing it (see [`eastward_lon_span`]).
+fn corner_bounds(lat_first: f64, lon_first: f64, lat_last: f64, lon_last: f64) -> LonLatBounds {
+    let span = eastward_lon_span(lon_first, lon_last);
+    let west = normalise_lon(lon_first);
+    // Re-normalising `west + span` is what preserves the crossing: a grid that
+    // wraps lands with `east` numerically below `west`, which is the signal.
+    let east = if span >= 360.0 {
+        west + 360.0
+    } else {
+        normalise_lon(west + span)
+    };
+    LonLatBounds {
+        west,
+        south: lat_first.min(lat_last),
+        east,
+        north: lat_first.max(lat_last),
+    }
+}
+
+/// The narrowest eastward longitude interval covering every sample.
+///
+/// Taking `min`/`max` is wrong for a grid straddling ±180°: the samples sit at
+/// both ends of `[-180, 180]` and the box comes back as the whole world. The
+/// widest gap between adjacent sorted longitudes is the part the grid does
+/// *not* cover, so the interval running from the gap's east side round to its
+/// west side is the answer, and it is the one a wrapping grid needs.
+fn longitude_extent(lons: &mut [f64]) -> (f64, f64) {
+    lons.sort_by(|a, b| a.partial_cmp(b).expect("longitudes are finite here"));
+    if lons.is_empty() {
+        return (-180.0, 180.0);
+    }
+    let (first, last) = (lons[0], lons[lons.len() - 1]);
+    // The wrap-around gap, from the easternmost sample back to the westernmost.
+    let mut widest = 360.0 - (last - first);
+    let (mut west, mut east) = (first, last);
+    for pair in lons.windows(2) {
+        let gap = pair[1] - pair[0];
+        if gap > widest {
+            widest = gap;
+            west = pair[1];
+            east = pair[0];
+        }
+    }
+    (west, east)
 }
 
 #[cfg(test)]
