@@ -21,7 +21,7 @@
 //! polar grid refuse its own points across the equator. That change was
 //! confined to exactly those two rows — the other twenty, every Lambert,
 //! Lambert azimuthal, transverse Mercator and degenerate case among them, are
-//! still the pre-#486 recording. `planar_round_trip.rs` is the test that pins
+//! still the pre-#486 recording. `grid_round_trip.rs` is the test that pins
 //! the new behaviour; this file only records that nothing else moved with it.
 use fieldglass_core::projection::*;
 
