@@ -1713,16 +1713,23 @@ function renderDatasetBody(
   return sections.join("\n");
 }
 
-/** A message is renderable if it declares grid dimensions, or is a
- *  spherical-harmonic (spectral) field — those have no grid, but `renderGrid`
- *  synthesizes one via the inverse spherical-harmonic transform (#303). */
+/** A message is renderable if it declares grid dimensions, or is one of the
+ *  two families that has no grid of its own but is put on one at decode:
+ *  spherical-harmonic (spectral) fields, synthesized via the inverse transform
+ *  (#303), and HEALPix (§3.150) fields, resampled onto a lat/lon grid (#443).
+ *
+ *  Keyed on the two names rather than on "has no grid", for the reason
+ *  `metaIsReprojectable` records: bi-Fourier messages also lack a grid and
+ *  decode only to coefficients, so they must stay unrenderable. */
 function messageIsRenderable(m: {
   gridNi: number | null;
   gridNj: number | null;
   gridType: string | null;
 }): boolean {
   return (
-    (m.gridNi != null && m.gridNj != null) || m.gridType === "spherical_harmonic"
+    (m.gridNi != null && m.gridNj != null) ||
+    m.gridType === "spherical_harmonic" ||
+    m.gridType === "healpix"
   );
 }
 

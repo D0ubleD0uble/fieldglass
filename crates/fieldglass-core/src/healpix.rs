@@ -239,3 +239,59 @@ pub fn pix2ang(nside: u32, ipix: u64, nested: bool) -> Option<(f64, f64)> {
     };
     pix2ang_ring(nside, ring)
 }
+
+/// Resample a HEALPix field onto a regular lat/lon grid.
+///
+/// Each output point takes the value of the HEALPix pixel that *contains* it —
+/// nearest-cell, found in closed form by [`ang2pix_ring`] rather than by search.
+/// `values` is indexed by pixel number in the message's own ordering, so a
+/// NESTED field is reindexed through [`nest2ring`] here and nowhere else.
+///
+/// # This is lossy, and differently so from spectral synthesis
+///
+/// A spectral field is band-limited: its coefficients evaluate anywhere, so any
+/// grid at or above the minimum reproduces it *exactly*. HEALPix is a sampled
+/// grid, so this is a resample. Above the pixel scale the output merely repeats
+/// pixels — blocky, but nothing is lost; below it, pixels are skipped and the
+/// field is genuinely downsampled. Callers choose the grid accordingly.
+///
+/// Returns `None` if `values` is not `12·Nside²` long, which would mean the
+/// caller paired a field with the wrong geometry.
+pub fn resample_to_latlon(
+    nside: u32,
+    nested: bool,
+    values: &[Option<f64>],
+    lats: &[f64],
+    lons: &[f64],
+) -> Option<Vec<Option<f64>>> {
+    let npix = npix(nside);
+    if nside == 0 || nside > MAX_NSIDE || values.len() as u64 != npix {
+        return None;
+    }
+    // A NESTED field is permuted into RING order once, rather than per output
+    // point: the output grid is normally larger than the field, so doing it the
+    // other way round would run the reindex more often than there are pixels.
+    let ring_values: Option<Vec<Option<f64>>> = if nested {
+        let mut v = vec![None; values.len()];
+        for (ipnest, value) in values.iter().enumerate() {
+            let ring = nest2ring(nside, ipnest as u64)?;
+            v[ring as usize] = *value;
+        }
+        Some(v)
+    } else {
+        None
+    };
+    let source = ring_values.as_deref().unwrap_or(values);
+
+    let mut out = Vec::with_capacity(lats.len() * lons.len());
+    for &lat in lats {
+        for &lon in lons {
+            out.push(
+                ang2pix_ring(nside, lat, lon)
+                    .and_then(|p| source.get(p as usize).copied())
+                    .flatten(),
+            );
+        }
+    }
+    Some(out)
+}

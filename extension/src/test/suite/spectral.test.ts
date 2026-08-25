@@ -136,3 +136,55 @@ suite("GRIB2 spectral editor opens", () => {
     });
   }
 });
+
+// GRIB2 HEALPix messages (§3.150) are the other family with no grid of its
+// own: a list of `12·Nside²` equal-area pixels, so no Ni/Nj. Two things have to
+// hold, and they pull in opposite directions — the editor must not crash on the
+// missing dimensions (the #288 class), and the message must still offer a
+// Render button, because #443 resamples it onto a lat/lon grid at decode. A
+// bi-Fourier message is the contrast: also grid-less, but genuinely
+// unrenderable.
+suite("GRIB2 HEALPix editor opens", () => {
+  let api: FieldglassApi;
+  let provider: FieldglassEditorProvider;
+
+  suiteSetup(async () => {
+    api = await activateExtension();
+    provider = api.provider;
+  });
+
+  test("resolveCustomEditor populates the table for healpix_n4_ring.grib2", async () => {
+    const fixture = "healpix_n4_ring.grib2";
+    const uri = copyFixtureToTmp(fixture);
+    const doc = (await provider.openCustomDocument(
+      uri,
+      {} as vscode.CustomDocumentOpenContext,
+      new vscode.CancellationTokenSource().token,
+    )) as FieldglassDocument;
+
+    const panel = vscode.window.createWebviewPanel(
+      "fieldglass.viewer",
+      fixture,
+      vscode.ViewColumn.One,
+      {},
+    );
+    try {
+      // Must not throw: a HEALPix message has no gridNi/gridNj, which is the
+      // shape that crashed the editor in #288.
+      await provider.resolveCustomEditor(doc, panel);
+      const html = panel.webview.html;
+      assert.ok(html.length > 0, "webview html should be populated");
+      assert.ok(html.includes("healpix"), "message table should name the grid type");
+      assert.ok(
+        html.includes('class="render-btn"'),
+        "a HEALPix message offers a Render button (#443 resamples it)",
+      );
+      assert.ok(
+        !html.includes("Render not available"),
+        "a HEALPix message is not marked unrenderable",
+      );
+    } finally {
+      panel.dispose();
+    }
+  });
+});
