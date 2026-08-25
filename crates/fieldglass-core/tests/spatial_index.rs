@@ -303,3 +303,44 @@ fn the_fingerprint_distinguishes_grids_without_reading_them_all() {
     let d = SpatialIndex::new(nj, ni, &lats, &lons).expect("builds");
     assert_ne!(a.fingerprint(), d.fingerprint(), "a reshape must not match");
 }
+
+#[test]
+fn an_explicit_cutoff_overrides_the_measured_one() {
+    // `with_max_distance` is for a caller that knows the grid's real cell size
+    // better than its centres do — a swath whose along-track and across-track
+    // spacing differ, where the measured 95th percentile is not the right
+    // radius in every direction.
+    let (ni, nj) = (10, 10);
+    let (lats, lons) = lattice(ni, nj, (0.0, 9.0), (0.0, 9.0));
+    let ix = SpatialIndex::new(ni, nj, &lats, &lons).expect("builds");
+    // Roughly 111 km per degree on this sphere.
+    const R: f64 = 6_371_229.0;
+
+    // A point 2 degrees off the corner: inside a 400 km radius, outside a 50 km one.
+    let q = (-2.0, 0.0);
+    let generous = ix.clone().with_max_distance(400_000.0, R);
+    let tight = ix.clone().with_max_distance(50_000.0, R);
+    assert!(
+        generous.nearest(q.0, q.1).is_some(),
+        "400 km should reach it"
+    );
+    assert!(tight.nearest(q.0, q.1).is_none(), "50 km should not");
+
+    // The override does not change which cell is nearest, only whether it is
+    // close enough to count.
+    assert_eq!(generous.nearest(4.4, 4.4), ix.nearest(4.4, 4.4));
+
+    // A cutoff wider than the sphere accepts everything; one of zero accepts
+    // only an exact hit.
+    let all = ix.clone().with_max_distance(f64::MAX, R);
+    assert!(
+        all.nearest(-80.0, 170.0).is_some(),
+        "clamped to the whole sphere"
+    );
+    let none = ix.with_max_distance(0.0, R);
+    assert!(
+        none.nearest(4.0, 4.0).is_some(),
+        "an exact centre is at distance 0"
+    );
+    assert!(none.nearest(4.4, 4.4).is_none(), "anything else is too far");
+}
