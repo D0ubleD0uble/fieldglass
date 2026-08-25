@@ -63,17 +63,17 @@ pub use metadata::Parameter;
 pub use overlay::{ProjectedPolylines, SourceOverlayTarget, project_polylines};
 pub use projection::{
     DEFAULT_EARTH_RADIUS_M, GaussianParams, GaussianProjector, GeostationaryParams,
-    GeostationaryProjector, GridIndex, LambertAzimuthalParams, LambertAzimuthalProjector,
-    LambertParams, LambertProjector, LatLonParams, MercatorParams, PlanarGridProjector,
-    PolarStereoParams, PolarStereoProjector, RotatedLatLonParams, RotatedLatLonProjector,
-    TransverseMercatorParams, TransverseMercatorProjector, eastward_lon_span, gaussian_inverse,
-    gaussian_latitudes, geostationary_inverse, lambert_azimuthal_forward,
-    lambert_azimuthal_inverse, lambert_azimuthal_inverse_xy, lambert_forward, lambert_inverse,
-    lambert_inverse_xy, latlon_inverse, latlon_point, lon_grid_is_global, mercator_inverse,
-    mercator_point, normalise_lon, polar_stereo_forward, polar_stereo_inverse,
-    polar_stereo_inverse_xy, rotate_latlon, rotated_latlon_point, signed_grid_increments,
-    transverse_mercator_forward, transverse_mercator_inverse, transverse_mercator_inverse_xy,
-    unrotate_latlon,
+    GeostationaryProjector, GridGeometry, GridIndex, LambertAzimuthalParams,
+    LambertAzimuthalProjector, LambertParams, LambertProjector, LatLonParams, MercatorParams,
+    PlanarGridProjector, PolarStereoParams, PolarStereoProjector, RotatedLatLonParams,
+    RotatedLatLonProjector, TransverseMercatorParams, TransverseMercatorProjector,
+    eastward_lon_span, gaussian_inverse, gaussian_latitudes, geostationary_inverse,
+    lambert_azimuthal_forward, lambert_azimuthal_inverse, lambert_azimuthal_inverse_xy,
+    lambert_forward, lambert_inverse, lambert_inverse_xy, latlon_inverse, latlon_point,
+    lon_grid_is_global, mercator_inverse, mercator_point, normalise_lon, polar_stereo_forward,
+    polar_stereo_inverse, polar_stereo_inverse_xy, rotate_latlon, rotated_latlon_point,
+    signed_grid_increments, transverse_mercator_forward, transverse_mercator_inverse,
+    transverse_mercator_inverse_xy, unrotate_latlon,
 };
 pub use reader::DataMessage;
 pub use reader::FormatReader;

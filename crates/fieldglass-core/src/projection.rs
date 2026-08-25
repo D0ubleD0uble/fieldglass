@@ -55,7 +55,7 @@ pub struct GridIndex {
 // Regular lat/lon (GRIB1 grid_type 0, GRIB2 template 3.0)
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct LatLonParams {
     pub ni: u32,
     pub nj: u32,
@@ -227,7 +227,7 @@ pub fn mercator_inverse(p: &MercatorParams, lat: f64, lon: f64) -> Option<GridIn
 // Gaussian latitude/longitude (GRIB1 grid_type 4, GRIB2 template 3.40)
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct GaussianParams {
     pub ni: u32,
     pub nj: u32,
@@ -400,7 +400,7 @@ impl GaussianProjector {
 // Lambert Conformal Conic (GRIB1 grid_type 3, GRIB2 template 3.30)
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct LambertParams {
     /// Radius of the spherical Earth the grid is projected on, in metres. The
     /// message declares it (GRIB1's earth-shape flag, GRIB2's
@@ -598,7 +598,7 @@ impl LambertProjector {
 // Polar Stereographic (GRIB1 grid_type 5, GRIB2 template 3.20)
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PolarStereoParams {
     /// Radius of the spherical Earth the grid is projected on, in metres. See
     /// [`LambertParams::earth_radius_m`].
@@ -2440,6 +2440,265 @@ impl GeostationaryProjector {
         let p = &self.params;
         self.scan_to_lonlat(p.x0 + i as f64 * p.dx_rad, p.y0 + j as f64 * p.dy_rad)
     }
+}
+
+// ---------------------------------------------------------------------------
+// GridGeometry — one typed value for "where does this grid sit on the Earth"
+// ---------------------------------------------------------------------------
+
+/// Where a grid sits on the Earth, as one value per grid family.
+///
+/// This is the lid on [`LatLonParams`] and friends. Before it, a consumer
+/// carried every family's parameters side by side behind a `grid_type` string
+/// and re-derived the dispatch itself, which is what
+/// `fieldglass-napi`'s 51-field `MessageMeta` view still does; nothing stopped
+/// a caller reading `latin1` off a Gaussian grid. A variant carries only the
+/// parameters its own family defines, so that read does not compile.
+///
+/// Every method answers `None` rather than guessing when the family cannot be
+/// placed, and [`GridGeometry::Unsupported`] carries the label it could not
+/// handle instead of erroring — a host can then say *which* grid it declined.
+///
+/// The first cut covers what NOAA NODD and ECMWF publish. The other families
+/// `core` projects (Mercator, rotated lat/lon, transverse Mercator, Lambert
+/// azimuthal, geostationary) have projectors already and are additive here.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[non_exhaustive]
+#[serde(tag = "kind")]
+pub enum GridGeometry {
+    #[serde(rename = "latlon")]
+    LatLon(LatLonParams),
+    #[serde(rename = "gaussian")]
+    Gaussian(GaussianParams),
+    #[serde(rename = "lambert")]
+    Lambert(LambertParams),
+    #[serde(rename = "polar_stereo")]
+    PolarStereo(PolarStereoParams),
+    /// A family this type does not model yet. `label` is the grid type as the
+    /// decoder named it, so the message can say what was declined.
+    #[serde(rename = "unsupported")]
+    Unsupported { label: String },
+}
+
+impl GridGeometry {
+    /// The family tag, matching the `grid_type` strings the hosts already use
+    /// (`"latlon"`, `"gaussian"`, `"lambert"`, `"polar_stereo"`), so #464 can
+    /// swap the string dispatch for this type without renaming anything a
+    /// consumer sees.
+    ///
+    /// This is exactly the serde tag — an unmodelled family reports
+    /// `"unsupported"` here, not the grid it was, because a host deriving a DTO
+    /// would otherwise read one string in JSON and another from this method.
+    /// [`label`](Self::label) is the one to display.
+    pub fn kind(&self) -> &str {
+        match self {
+            Self::LatLon(_) => "latlon",
+            Self::Gaussian(_) => "gaussian",
+            Self::Lambert(_) => "lambert",
+            Self::PolarStereo(_) => "polar_stereo",
+            Self::Unsupported { .. } => "unsupported",
+        }
+    }
+
+    /// The most specific name available: [`kind`](Self::kind) for a modelled
+    /// family, and the decoder's own grid-type string for an unmodelled one.
+    /// What a message saying which grid was declined should read.
+    pub fn label(&self) -> &str {
+        match self {
+            Self::Unsupported { label } => label,
+            other => other.kind(),
+        }
+    }
+
+    /// `(ni, nj)` in grid points, or `None` for a family with no geometry.
+    pub fn dims(&self) -> Option<(u32, u32)> {
+        match self {
+            Self::LatLon(p) => Some((p.ni, p.nj)),
+            Self::Gaussian(p) => Some((p.ni, p.nj)),
+            Self::Lambert(p) => Some((p.ni, p.nj)),
+            Self::PolarStereo(p) => Some((p.ni, p.nj)),
+            Self::Unsupported { .. } => None,
+        }
+    }
+
+    /// Grid point `(i, j)` → `(lat, lon)` in degrees, or `None` when the index
+    /// is off the grid or the family cannot be placed.
+    pub fn forward(&self, i: u32, j: u32) -> Option<(f64, f64)> {
+        let (ni, nj) = self.dims()?;
+        if i >= ni || j >= nj {
+            return None;
+        }
+        match self {
+            Self::LatLon(p) => latlon_point(p, i, j),
+            Self::Gaussian(p) => GaussianProjector::new(*p).grid_point_lonlat(i, j),
+            Self::Lambert(p) => Some(LambertProjector::new(*p).grid_point_lonlat(i, j)),
+            Self::PolarStereo(p) => Some(PolarStereoProjector::new(*p).grid_point_lonlat(i, j)),
+            Self::Unsupported { .. } => None,
+        }
+    }
+
+    /// `(lat, lon)` in degrees → fractional grid index, or `None` when the
+    /// point is outside the grid or the family cannot be placed. The direction
+    /// a warp asks in.
+    /// One-shot inverse. Builds the projection's constants and throws them
+    /// away, so use [`inverse_at`](Self::inverse_at) for more than a handful of
+    /// points; this routes through it so the two cannot answer differently.
+    pub fn inverse(&self, lat: f64, lon: f64) -> Option<GridIndex> {
+        (self.inverse_at())(lat, lon)
+    }
+
+    /// The inverse map as a closure, with the projection's constants computed
+    /// once instead of once per call.
+    ///
+    /// This is the seam a warp wants: it asks for an index per output pixel, and
+    /// [`inverse`](Self::inverse) builds a projector — and with it the cone
+    /// constant, its logarithms and the origin — on every one of them. A
+    /// million-pixel raster pays that a million times. `SourceGrid::inverse_at`
+    /// is already a closure for this reason; #464 wires this into it.
+    ///
+    /// An [`Unsupported`](Self::Unsupported) grid returns a closure that
+    /// answers `None`, so a caller needs no second code path for it.
+    pub fn inverse_at(&self) -> Box<dyn Fn(f64, f64) -> Option<GridIndex> + '_> {
+        match self {
+            Self::LatLon(p) => Box::new(move |lat, lon| latlon_inverse(p, lat, lon)),
+            Self::Gaussian(p) => {
+                // The Gaussian latitudes are an O(N²) Gauss-Legendre solve.
+                // `gaussian_inverse` reaches them through a thread-local cache,
+                // so the closure captures the params rather than a projector.
+                Box::new(move |lat, lon| gaussian_inverse(p, lat, lon))
+            }
+            Self::Lambert(p) => {
+                let proj = LambertProjector::new(*p);
+                Box::new(move |lat, lon| proj.inverse(lat, lon))
+            }
+            Self::PolarStereo(p) => {
+                let proj = PolarStereoProjector::new(*p);
+                Box::new(move |lat, lon| proj.inverse(lat, lon))
+            }
+            Self::Unsupported { .. } => Box::new(|_, _| None),
+        }
+    }
+
+    /// The grid's geographic extent as `(lat_min, lat_max, lon_min, lon_max)`
+    /// in degrees, or `None` for a family that cannot be placed.
+    ///
+    /// The projected families delegate to
+    /// [`PlanarGridProjector::lonlat_bbox`], which subdivides each edge 512
+    /// times rather than walking grid points: a conic's edges are curves and
+    /// the extreme latitude sits between two points, not on one. It also skips
+    /// perimeter samples that are not on the Earth at all, which an oversized
+    /// §3.140 grid produces, and widens to the full 360° when the domain
+    /// surrounds the projection pole and the enclosing longitude arc therefore
+    /// degenerates.
+    ///
+    /// `lon_min` may fall below -180 (or `lon_max` above 180) to describe a
+    /// window spanning the antimeridian — the existing convention, which the
+    /// warp consumes through periodic trig. Do not normalise it into range
+    /// without collapsing the span.
+    pub fn lonlat_bbox(&self) -> Option<(f64, f64, f64, f64)> {
+        match self {
+            // The geographic families state their own corners, so the box is
+            // the corners — unwrapped through `eastward_lon_span` so a grid
+            // published from 180°E keeps its span instead of collapsing to one
+            // cell.
+            Self::LatLon(p) => Some(corner_bbox(
+                p.lat_first,
+                p.lon_first,
+                p.lat_last,
+                p.lon_last,
+            )),
+            Self::Gaussian(p) => Some(corner_bbox(
+                p.lat_first,
+                p.lon_first,
+                p.lat_last,
+                p.lon_last,
+            )),
+            Self::Lambert(p) => Some(LambertProjector::new(*p).lonlat_bbox()),
+            Self::PolarStereo(p) => {
+                let proj = PolarStereoProjector::new(*p);
+                let (lat_min, lat_max, lon_min, lon_max) = proj.lonlat_bbox();
+                if proj.pole_inside_grid() {
+                    // Every meridian is present and the enclosing arc has no
+                    // empty gap to be the complement of, so the walk's
+                    // longitudes mean nothing here.
+                    let (lat_min, lat_max) = if p.south_pole {
+                        (-90.0, lat_max)
+                    } else {
+                        (lat_min, 90.0)
+                    };
+                    Some((lat_min, lat_max, -180.0, 180.0))
+                } else {
+                    Some((lat_min, lat_max, lon_min, lon_max))
+                }
+            }
+            Self::Unsupported { .. } => None,
+        }
+    }
+
+    /// A PROJ definition string for the grid's coordinate reference system, or
+    /// `None` for a family this type cannot place.
+    ///
+    /// What a browser map library wants: hand it this and the projected
+    /// coordinates agree with [`forward`](Self::forward), which is what
+    /// `tests/grid_geometry_proj.rs` checks against PROJ itself rather than by
+    /// eye. The projected families emit absolute projection coordinates with no
+    /// false easting or northing, because that is what `core`'s forward maps
+    /// compute; the grid origin is applied on top, by
+    /// [`inverse`](Self::inverse), not by the CRS.
+    ///
+    /// The Earth is the sphere the message declared (`+R=`), never a datum:
+    /// a GRIB grid states a radius, and substituting WGS84 would move a
+    /// continental grid by kilometres.
+    pub fn proj4(&self) -> Option<String> {
+        match self {
+            // Geographic: the values `forward` returns are already lon/lat.
+            // No grid carries a radius for these, so the CRS states the one
+            // core defaults to; it does not affect an angular coordinate.
+            Self::LatLon(_) | Self::Gaussian(_) => Some(format!(
+                "+proj=longlat +R={DEFAULT_EARTH_RADIUS_M} +no_defs"
+            )),
+            Self::Lambert(p) => Some(format!(
+                "+proj=lcc +lat_1={} +lat_2={} +lat_0={} +lon_0={} +R={} +units=m +no_defs",
+                p.latin1, p.latin2, p.lad, p.lov, p.earth_radius_m
+            )),
+            Self::PolarStereo(p) => Some(format!(
+                "+proj=stere +lat_0={} +lat_ts={} +lon_0={} +R={} +units=m +no_defs",
+                if p.south_pole { -90.0 } else { 90.0 },
+                if p.south_pole {
+                    -p.lad.abs()
+                } else {
+                    p.lad.abs()
+                },
+                p.lov,
+                p.earth_radius_m
+            )),
+            Self::Unsupported { .. } => None,
+        }
+    }
+}
+
+/// Box of a geographic grid from its two stated corners, in the same
+/// `(lat_min, lat_max, lon_min, lon_max)` order the projected families use.
+///
+/// The longitude runs `lon_first` eastward by [`eastward_lon_span`] rather than
+/// `min`/`max` of the two corners: a grid published from 180°E reports
+/// `lon_last` numerically below `lon_first`, and taking the extremes collapses
+/// the span to a single grid step. `lon_max` may therefore exceed 180, which is
+/// the convention [`GridGeometry::lonlat_bbox`] documents.
+fn corner_bbox(
+    lat_first: f64,
+    lon_first: f64,
+    lat_last: f64,
+    lon_last: f64,
+) -> (f64, f64, f64, f64) {
+    let span = eastward_lon_span(lon_first, lon_last);
+    let lon_min = lon_first;
+    (
+        lat_first.min(lat_last),
+        lat_first.max(lat_last),
+        lon_min,
+        lon_min + span,
+    )
 }
 
 #[cfg(test)]
