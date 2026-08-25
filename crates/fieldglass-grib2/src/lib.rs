@@ -43,6 +43,7 @@ mod tables_ncep;
 /// Generated WMO master code tables (Table 4.2 / 4.4 / 4.5). Private: callers
 /// go through [`tables`], which layers the curated entries over these.
 mod tables_wmo;
+mod tables_wmo_short;
 
 pub use bms::{
     BMS_INDICATOR_NONE, BMS_INDICATOR_PRESENT, BMS_INDICATOR_PREVIOUS, BMS_SECTION_NUMBER,

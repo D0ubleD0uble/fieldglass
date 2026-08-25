@@ -180,9 +180,13 @@ fn standard_codes_still_resolve_against_the_master_set() {
         Some(("UGRD", "U-component of wind", "m s⁻¹"))
     );
     // And one that comes from the generated WMO table rather than the curated
-    // subset, so both halves of the fallback chain are covered.
-    let (abbreviation, _, _) = lookup_parameter(MASTER_ONLY, 0, 19, 1).expect("WMO master entry");
-    assert_eq!(abbreviation, "", "WMO publishes no short names");
+    // subset, so both halves of the fallback chain are covered. Its name and
+    // units are WMO's; the abbreviation is joined on from wgrib2, since WMO
+    // publishes none of its own (#469).
+    assert_eq!(
+        lookup_parameter(MASTER_ONLY, 0, 19, 1),
+        Some(("ALBDO", "Albedo", "%"))
+    );
 }
 
 /// The originating centre reaches the lookup from §1 of a real message, not
