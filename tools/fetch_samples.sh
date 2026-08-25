@@ -199,7 +199,35 @@ get_wrf() { # NetCDF classic, WRF Lambert (MAP_PROJ attrs) — synthetic stand-i
   fi
 }
 
-ALL=(gfs hrrr nam rap nbm mrms ecmwf eccc icon goes oisst wrf)
+get_rtofs() { # NetCDF-4, tripolar curvilinear (2-D lat/lon, no grid mapping)
+  info "RTOFS global ocean ice (tripolar curvilinear)"
+  # The committed fixture is a 200x260 window of the Arctic fold; this is the
+  # whole 3298x4500 grid, which is what a coastline check needs. NOMADS keeps
+  # only a few days, so this uses the AWS mirror's dated archive instead.
+  local url="https://noaa-nws-rtofs-pds.s3.amazonaws.com/rtofs.${RTOFS_DATE:-20240201}/rtofs_glo_2ds_n000_ice.nc"
+  if curl -fsSL "$url" -o "$OUT/rtofs_ice.nc"; then
+    ok "rtofs_ice.nc ($(du -h "$OUT/rtofs_ice.nc" | cut -f1))"
+  else
+    warn "RTOFS fetch failed (set RTOFS_DATE to a day the AWS mirror holds)"
+    rm -f "$OUT/rtofs_ice.nc"
+  fi
+}
+
+get_mirs() { # NetCDF-4, satellite swath (per-pixel 2-D lat/lon)
+  info "NOAA-21 MiRS imagery granule (swath curvilinear)"
+  # A full 33-minute granule: 768 scanlines by 96 fields of view, a complete
+  # half orbit. The committed fixture is 100 scanlines of it.
+  local base="https://noaa-nesdis-n21-pds.s3.amazonaws.com/NPR_MIRS_IMG_33min/2023/09/19"
+  local name="NPR-MIRS-IMG_33min_v11_n21_s202309191449310_e202309191523380_c202309191705326.nc"
+  if curl -fsSL "$base/$name" -o "$OUT/mirs_swath.nc"; then
+    ok "mirs_swath.nc ($(du -h "$OUT/mirs_swath.nc" | cut -f1))"
+  else
+    warn "MiRS fetch failed"
+    rm -f "$OUT/mirs_swath.nc"
+  fi
+}
+
+ALL=(gfs hrrr nam rap nbm mrms ecmwf eccc icon goes oisst wrf rtofs mirs)
 targets=("$@"); [ ${#targets[@]} -eq 0 ] && targets=("${ALL[@]}")
 
 info "run: ${DATE} ${CYCLE}Z  ->  $OUT"

@@ -71,6 +71,8 @@ variable's real physical units, not raw integer codes.
 | `goes.nc`  | NetCDF-4, geostationary (CF `goes_imager_projection`) | source, then equirect / orthographic | off-disk pixels stay transparent; a CONUS/meso sector frames to its own extent (not tiny in an empty hemisphere); colorbar in real units (K / radiance) |
 | `wrf.nc`   | NetCDF classic, WRF Lambert (`MAP_PROJ` attrs) | equirect | the fetch script stages the repo's tiny (6×5) synthetic wrfout-style fixture — enough to smoke-test the WRF-attribute + Lambert path, but too small for a coastline check. Real `wrfout` files are self-generated model output with no public endpoint; drop one in by hand (overwriting `wrf.nc`) for a meaningful visual pass: regional domain, coastlines aligned |
 | `oisst.nc` | NetCDF-4, regular 1/4° lat/lon (real full NOAA CDR file, pinned to 2025-01-01) | equirect | global SST, land masked (fill) transparent, colorbar in °C/K |
+| `rtofs_ice.nc` | NetCDF-4, **tripolar curvilinear** (2-D `Latitude(Y,X)`/`Longitude(Y,X)`, no grid mapping) | source | global HYCOM sea ice, 3298×4500. Until #445 lands this renders in the source projection only, and the Arctic third of the image is the bipolar patch — visibly folded, not a map. That *is* the expected result for now: the point of keeping it here is to see the fold change into a map when #445 ships |
+| `mirs_swath.nc` | NetCDF-4, **swath curvilinear** (per-pixel 2-D lat/lon) | source | NOAA-21 MiRS, 768 scanlines × 96 fields of view — a full half orbit crossing the antimeridian and the south pole. Source projection until #445; the committed fixture is 100 scanlines of this file |
 
 ### Auth-gated (drop in by hand)
 

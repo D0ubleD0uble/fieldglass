@@ -541,3 +541,61 @@ Unlike every other builder in `tools/build_hdf5_fixtures.py`, this one needs
 without the plugin it supplies. The builder fails the build rather than emit a
 fixture with the filter silently absent. `tests/hdf5_zstd.rs` checks the decoded
 values and the corrupt-frame report. Part of #413.
+
+## Curvilinear corpus (`rtofs_tripolar_arctic.nc`, `mirs_swath_n21.nc`)
+
+The two-dimensional-coordinate corpus for #444, built by
+`tools/build_netcdf_curvilinear_fixtures.py`. Both are windows of immutable
+objects in public AWS Open Data buckets that need no credentials, so the
+builder reproduces the same bytes on any future run — neither source is a
+rolling operational file. Both are works of the U.S. Government (NOAA/NCEP and
+NOAA/NESDIS) and are **not subject to copyright protection** in the United
+States (17 U.S.C. § 105); NOAA distributes them without restriction.
+
+The pair exists because "curvilinear" covers two different shapes of
+irregularity, and an implementation can handle one and fail the other.
+
+### `rtofs_tripolar_arctic.nc` — ocean tripolar
+
+- Source: <https://noaa-nws-rtofs-pds.s3.amazonaws.com/rtofs.20240201/rtofs_glo_2ds_n000_ice.nc>
+- Product: NCEP Global Real-Time Ocean Forecast System (RTOFS), global HYCOM,
+  2-D surface ice fields, 2024-02-01 nowcast (`n000`).
+- Subset: `[Y 3098:3298, X 1024:1284]` of the 3298 x 4500 source, plus
+  `Latitude`, `Longitude`, `MT`, `Date` and three ice fields; deflate level 9.
+
+South of about 47 °N the RTOFS mesh is an ordinary Mercator lat/lon. North of it
+the grid is replaced by a **bipolar** patch whose two poles are placed over land
+so that neither sits in the ocean, which is what lets the model run to the pole
+without a singularity in water. The consequence for a reader is that a single
+row of the array runs from 47 °N up over a pole and back down: the last row of
+the *full* grid reaches 90 °N twice, at columns 1124 and ~3374.
+
+The committed window is centred on the first of those. Every row in it varies in
+latitude — 1.7° at the bottom edge rising to 5.0° at the row over the pole —
+where a row of the regular mesh is flat to float precision. Its longitudes are
+kept as the source writes them, **unnormalised**, spanning 74° to 1019°.
+
+### `mirs_swath_n21.nc` — satellite swath
+
+- Source: <https://noaa-nesdis-n21-pds.s3.amazonaws.com/NPR_MIRS_IMG_33min/2023/09/19/NPR-MIRS-IMG_33min_v11_n21_s202309191449310_e202309191523380_c202309191705326.nc>
+- Product: NOAA-21 (JPSS-2) Microwave Integrated Retrieval System (MiRS)
+  imagery, 33-minute granule, 2023-09-19.
+- Subset: scanlines `[660:760]` of 768, all 96 fields of view, plus `Latitude`,
+  `Longitude` and four retrieved fields; deflate level 9.
+
+A cross-track microwave sounder geolocates every field of view individually, so
+the swath is curvilinear by construction rather than by a polar patch. The
+committed scanlines are the end of the descending pass, chosen because they
+cross the antimeridian *and* converge on the south pole (reaching 85 °S) — the
+two cases a naive reader gets wrong in opposite directions, one by unwrapping
+longitude and one by assuming a row is a parallel. A benign mid-latitude window
+of the same granule would satisfy every structural assertion and catch neither.
+
+The retrieved fields are stored as `int16` with CF `scale_factor` and
+`_FillValue` (`RR` carries no `_FillValue`, which is why the builder cannot
+assume one), so the fixture exercises the unpacking seam alongside the geometry.
+
+`tests/curvilinear_corpus.rs` reads both, and pins today's behaviour: the 2-D
+coordinates are classifiable on their own attributes but never reach axis
+detection, because that is offered only 1-D coordinate variables. #445 is what
+changes it.
