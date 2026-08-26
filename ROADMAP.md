@@ -1,15 +1,10 @@
 # Fieldglass roadmap
 
-*Adopted 2026-07-19. Revised 2026-08-23 after the 0.4.0 release; shipped items
-marked 2026-08-26 during 0.5.0 prep. Reviewed after each release and at the
-twice-yearly WMO fast-track checkpoints (June and November).*
+*Adopted 2026-07-19. Revised 2026-08-26 during 0.5.0 prep: milestone 10 closed,
+**Now** repopulated from the fieldglass-wasm milestone, and a **Hosts** track
+added. Reviewed after each release and at the twice-yearly WMO fast-track
+checkpoints (June and November).*
 
-> **Needs a review pass.** Everything under **Now** has shipped, as has most of
-> **Next** — milestones 9 and 10 are both closed. What replaces them is a
-> planning decision, not a bookkeeping one: the open tracks are the wasm browser
-> host (milestone 11) and the Verus proofs (milestone 7), and which becomes
-> *Now* is the maintainer's call. The shipped rows below are struck through so
-> the state is accurate in the meantime.
 
 This document says where Fieldglass is going and why. It is intent, not a
 commitment: items under **Now** are in progress; everything further out will
@@ -53,7 +48,7 @@ picked up as capacity allows and do not block the tracks above.
 
 Through 0.4.0 the organising axis was decode depth. That axis is finished: the
 GRIB2 packing space is frozen by the WMO and every registered template
-decodes. The value that remains sits on five tracks that are not
+decodes. The value that remains sits on six tracks that are not
 interchangeable:
 
 | Track | Question it answers |
@@ -63,10 +58,22 @@ interchangeable:
 | **Containers** | Can we get at the bytes: filters, large files, remote stores? |
 | **Trust** | Are the numbers right, and can we prove it? |
 | **Interaction** | Can the user do something useful with the picture? |
+| **Hosts** | Who can call this at all — which runtimes and languages? |
 
-Tables and Containers hold the cheapest user-visible wins and have not been
-started. Geometry holds the largest single opportunity (ICON). Trust is the
-track that turns "decodes everything" into "decodes everything correctly".
+Read after 0.5.0, the picture has moved. **Tables** is largely done: the WMO
+master set plus ECMWF, DWD and NCEP local tables all landed, so a real file
+names its own fields. **Geometry** took the two families it was gated on —
+HEALPix and curvilinear — leaving ICON as the single largest opportunity.
+**Containers** is half-built: the filters and the `ByteSource` seam are in, the
+remote transports are not. **Trust** is the track that turns "decodes
+everything" into "decodes everything correctly", and is a parallel effort by
+design.
+
+**Hosts** is new to this list, and it is the reason the wasm build sits in
+**Now**. It is not a sixth kind of feature so much as a multiplier on the other
+five: the format crates are pure byte-in, values-out engines already, so every
+runtime added reaches the same decoders. It earns a track of its own because it
+trades against them for attention rather than composing with them.
 
 ### Where verification fits
 
@@ -109,30 +116,46 @@ Small, independently shippable, in progress or next to start. No ordering
 between them.
 
 Tracked together in the
-[Containers, tables, and verification groundwork](https://github.com/D0ubleD0uble/fieldglass/milestone/9)
-milestone.
+[fieldglass-wasm: browser host surface](https://github.com/D0ubleD0uble/fieldglass/milestone/11)
+milestone. Milestone 10 closed on 2026-08-26 with the grid-geometry, local-table
+and byte-access work done; this is the promotion of "New host surfaces" out of
+**Later**, now that the seam it was gated on ([ADR-0005](docs/decisions/0005-byte-access-and-the-remote-seam.md),
+`ByteSource`, #438) has landed.
+
+Most of the milestone waits on one issue, so the three below are what is
+genuinely startable. The rest are in **Next**.
 
 | Item | Track | Why now |
 |---|---|---|
-| ~~Drop the redundant buffer copies at the napi boundary (#411)~~ **Done.** | Containers | Peak memory on open is down from about 3x file size to one copy. |
-| ~~fletcher32 checksum passthrough (#412)~~ **Done.** | Containers | Reads the checksum, verifies it, and reports a corrupt chunk rather than decoding it. |
-| ~~zstd filter (#413)~~ **Done.** | Containers | Pure-Rust zstd, composing with shuffle and fletcher32 in any order. |
-| ~~Cache traversal results on the NetCDF reader (#414)~~ **Done.** | Containers | The traversal memo binds to its own file, so pairing a probe with another is slow rather than wrong. |
-| ~~WMO master parameter tables (#415)~~ **Done.** | Tables | 1,387 parameters across all 60 discipline/category tables, plus code tables 4.4 and 4.5. |
-| ~~Bootstrap Verus in the workspace (#197)~~ **Done** | Trust | Enabled the verification track. The proofs sit in a crate outside the workspace, and CI asserts no Verus crate reaches the shipped graph, so the stock build and six release targets are untouched. |
+| `fieldglass-wasm`, a synchronous browser façade (#460) | Hosts | The root: five other issues in the milestone wait on it. ADR-0005 keeps decode synchronous precisely so this is possible — blocking inside a read cannot work in wasm. |
+| `fieldglass-fetchplan`, manifests in, byte ranges out (#461) | Containers | Unblocked (#417 and #426 are closed). Turns a `.idx` sidecar into the byte ranges an operation needs, which is what makes a multi-GB archive openable without downloading it. |
+| Reduced-resolution decode for JPEG 2000 fields (#463) | Containers | Independent of the byte-access seam entirely, so it can run alongside. 5.40 carries its own resolution levels; decoding fewer is free bytes and free time. |
 
 ## Next
 
 Problems we are confident we can solve; shape known, timing not.
 
+The rest of the fieldglass-wasm milestone, plus the remote transports it makes
+reachable. Every wasm row below waits on #460 in **Now**; the transports wait on
+#461 and on nothing else, since ADR-0005's gate — the `ByteSource` trait (#438)
+and one migrated reader — is met.
+
 | Item | Track | What it unlocks |
 |---|---|---|
-| ~~HEALPix grids, GRIB2 3.150 (#416)~~ **Done.** | Geometry | Resampled onto a lat/lon grid at decode, like spectral, so every downstream path works unchanged. |
-| ~~Curvilinear NetCDF grids (#218)~~ **Done.** | Geometry | Both shapes ship: a k-d tree over cell centres as unit vectors, with the tripolar and swath corpus of #444. |
-| Verify the core decode arithmetic (#199, #200, #201) | Trust | Simple-packing scaling, inverse spatial differencing, and complex-packing group expansion: the three paths every GRIB value passes through. |
-| Verify bitmap decoders and HDF5 unshuffle (#202, #203) | Trust | Bounds-safety on the two paths that index by untrusted counts. |
-| ~~GRIB2 local parameter tables: ECMWF (#424), DWD (#425), NCEP (#426)~~ **Done.** | Tables | 2,826 ECMWF parameters, 213 DWD, 479 NCEP; one generator per PR as planned. |
-| ~~Transverse Mercator (3.12, #422) and Lambert azimuthal equal-area (3.140, #423)~~ **Done.** | Geometry | Both landed, each checked against an outside oracle - PROJ for 3.12, eccodes for 3.140. |
+| The `fieldglass` umbrella crate, and napi collapsed onto it (#464) | Hosts | ADR-0006's shape: one `Session` over plain serde types, so each host is buffer handoff and error mapping. Carries a hand-off from #445 — a `GridGeometry::Gaussian` built straight from the GDS takes `lo2` at face value and misplaces every octahedral grid, and `kind()` loses the `reduced_gaussian` tag both readers now report. |
+| wasm32 check, bundle-size gate, decode benchmark (#462) | Hosts | Stops the browser build regressing silently. A bundle-size gate is the only thing that keeps a wasm target honest, since nothing else fails when it doubles. |
+| Publish `@fieldglass/wasm` to npm on tag (#466) | Hosts | Makes the host installable rather than buildable. Rides the existing tag-triggered release path. |
+| ROADMAP and README statement for the host surface (#467) | Hosts | Says out loud that the format crates target `wasm32-unknown-unknown`, where the package lives, and what rendering in a browser does and does not do. |
+| Caller-controlled output raster, window × size (#465) | Interaction | A map view asks for "this window at W × H pixels". Today the output is always the source grid's `ni × nj` and manual bounds is the only zoom, which is why the browser app cannot drive a real map. |
+| Remote data over HTTP range requests (#247) | Containers | The first transport, and the one every other depends on. Opens a file that lives on a public bucket without downloading it. |
+| S3 dataset access (#252) | Containers | NOAA's Open Data buckets are where the archives actually are — the same objects the fixture builders already fetch anonymously. |
+| Local Zarr v2 stores, a new `fieldglass-zarr` crate (#246) | Containers | The storage convention the climate archives are moving to; chunk-per-object rather than one file, so it needs the range seam rather than a reader. |
+| Streaming / lazy reads for multi-GB archives (#114) | Containers | The extension reads whole files into memory to keep remote and virtual workspaces working, which rules out multi-GB GRIB archives. The same prefetch-then-decode seam is what makes a partial read possible at all. |
+
+**Verification (#199-#203) is deliberately not listed here.** It is a parallel
+track by design — see *Where verification fits* above — running on shipped code
+in a crate outside the workspace, and it is tracked in its own milestone rather
+than queued behind anything in this section.
 
 ## Later
 
@@ -152,16 +175,9 @@ first.
   re-costing it.
 - **Verify NetCDF classic length arithmetic (#204)**, closing the
   verification milestone (#205).
-- **Remote data: HTTP range (#247), S3 (#252), Zarr (#246).** The decision is
-  made — [ADR-0005](docs/decisions/0005-byte-access-and-the-remote-seam.md):
-  prefetch the ranges an operation needs, decode synchronously, behind a
-  `ByteSource` trait. Gated now on the trait landing (#438) and one migrated
-  reader.
-- **New host surfaces.** A wasm build (milestone 11), then PyO3 bindings and
-  a CLI (#254); the format crates are already pure byte-in, values-out
-  engines. Gated on the same seam — and the reason ADR-0005 keeps decode
-  synchronous, since blocking inside a read is impossible in wasm. Each host
-  is a binding over one `fieldglass` umbrella crate
+- **Further host surfaces.** PyO3 bindings and a CLI (#254), after the wasm
+  build in **Now**. The format crates are already pure byte-in, values-out
+  engines, and each host is a binding over one `fieldglass` umbrella crate
   ([ADR-0006](docs/decisions/0006-hosts-are-bindings-over-a-plain-data-api.md)),
   so a new host is buffer handoff and error mapping, not a second engine.
 - **GRIB1 completion.** Second-order packing under a masking bitmap, and the
