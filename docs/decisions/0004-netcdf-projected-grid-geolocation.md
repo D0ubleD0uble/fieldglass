@@ -5,17 +5,28 @@
 source-raster-vs-full-geo question left open after decision
 [0002](0002-netcdf-slice-selection-and-rendering.md).
 
-**Amended (2026-08-25):** Model B's stated blocker is gone. This record defers
-Model B partly because "the corpus contains no tripolar/swath file", which was
-true when it was written; [#444](https://github.com/D0ubleD0uble/fieldglass/issues/444)
-committed one of each — `rtofs_tripolar_arctic.nc` (an RTOFS window centred on
-the bipolar Arctic fold) and `mirs_swath_n21.nc` (a NOAA-21 MiRS window crossing
-the antimeridian at 85 °S). Both are NOAA public-domain, and
-`crates/fieldglass-netcdf/tests/curvilinear_corpus.rs` pins today's fallback
-behaviour so the change is visible when
-[#445](https://github.com/D0ubleD0uble/fieldglass/issues/445) implements Model B.
-The *decision* below is unchanged: 0.2.0 shipped Model A, and Model B is still
-unimplemented.
+**Amended (2026-08-25):** **Model B is implemented; this deferral is spent.**
+This record defers Model B partly because "the corpus contains no tripolar/swath
+file", which was true when it was written.
+[#444](https://github.com/D0ubleD0uble/fieldglass/issues/444) committed one of
+each — `rtofs_tripolar_arctic.nc` (an RTOFS window centred on the bipolar Arctic
+fold) and `mirs_swath_n21.nc` (a NOAA-21 MiRS window crossing the antimeridian
+at 85 °S) — and [#445](https://github.com/D0ubleD0uble/fieldglass/issues/445)
+built the geolocation on them.
+
+It is not the "forward scatter into the target raster" this record sketches. The
+warp is inverse-mapped — it walks output pixels and asks the source which cell
+covers each — so Model B needed an implementation of *that* question, not a
+different renderer: `fieldglass_core::SpatialIndex`, a k-d tree over cell centres
+as unit vectors, reached through the ordinary `SourceGrid::inverse_at` closure.
+Building in three dimensions is what removes the antimeridian and the poles as
+special cases. Such a grid answers with a cell rather than a position inside one,
+so it reports `GridResampling::NearestOnly` and the warp downgrades a bilinear
+request rather than blending across a fold.
+
+The rest of the record stands: 0.2.0 shipped Model A, and Model A remains the
+right answer for the grids that have an analytic projection (WRF, GOES) — a
+lookup is a fallback for grids that do not, not a replacement for one that does.
 
 **Amended (2026-07-04):** The non-Lambert WRF `MAP_PROJ` variants listed under
 "Out of scope / deferred" shipped in

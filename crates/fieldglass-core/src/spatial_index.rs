@@ -194,6 +194,77 @@ impl SpatialIndex {
         })
     }
 
+    /// The centre of cell `(i, j)` as `(lat, lon)` in degrees, or `None` when
+    /// the index is off the grid or the source left that centre non-finite.
+    ///
+    /// **The unit vectors are the storage; degrees are derived.** This is the
+    /// question #445 left open, and it is settled the cheap way: keeping the
+    /// original degrees alongside would cost another 16 bytes per cell — 16 MB
+    /// on a million-cell grid, on top of the 24 the vectors already take — to
+    /// re-serve numbers that `asin`/`atan2` recover to about 1e-13 degrees.
+    /// Nothing downstream needs more than that; the warp asks for cells, and a
+    /// display rounds to a few decimals.
+    ///
+    /// One consequence worth knowing: the longitude comes back normalised to
+    /// [-180, 180], because a unit vector does not remember which turn it was
+    /// built from. A file that writes its longitudes as 74°..1019° (RTOFS does)
+    /// reads back as the same positions on the globe, not the same numbers.
+    pub fn centre(&self, i: u32, j: u32) -> Option<(f64, f64)> {
+        if i >= self.ni || j >= self.nj {
+            return None;
+        }
+        let v = *self
+            .xyz
+            .get((j as usize) * (self.ni as usize) + i as usize)?;
+        if !v[0].is_finite() || !v[1].is_finite() || !v[2].is_finite() {
+            return None;
+        }
+        Some((
+            v[2].clamp(-1.0, 1.0).asin().to_degrees(),
+            v[1].atan2(v[0]).to_degrees(),
+        ))
+    }
+
+    /// The extent of the grid's own centres as `(lat_min, lat_max, lon_min,
+    /// lon_max)` in degrees.
+    ///
+    /// A lookup grid has no corners to read, so the box is measured from every
+    /// finite centre. Latitude is the plain min and max: the data reaches
+    /// exactly as far as its cells do, and unlike a projected grid there is no
+    /// curved edge whose extreme sits *between* two points.
+    ///
+    /// Longitude is the smallest arc enclosing the centres, so a grid that
+    /// spans the antimeridian reports a span that crosses it rather than the
+    /// whole globe — `lon_min` may fall below -180, which is the convention the
+    /// warp already consumes through periodic trig.
+    ///
+    /// That arc is the complement of the widest gap between neighbouring
+    /// centres, which only means something when there *is* a gap. A grid whose
+    /// cells surround a pole reaches every meridian, so its widest gap is just
+    /// the local spacing and the arc it yields is arbitrary — it would leave a
+    /// sliver of the map unpainted at whichever meridian happened to have the
+    /// largest one. [`meridians_have_a_real_gap`] decides which case this is,
+    /// and a grid covering every meridian reports the full 360° instead.
+    pub fn lonlat_bbox(&self) -> Option<(f64, f64, f64, f64)> {
+        let mut lat_min = f64::INFINITY;
+        let mut lat_max = f64::NEG_INFINITY;
+        let mut lons: Vec<f64> = Vec::with_capacity(self.tree.len());
+        for &cell in &self.tree {
+            let v = self.xyz[cell as usize];
+            lat_min = lat_min.min(v[2].clamp(-1.0, 1.0).asin().to_degrees());
+            lat_max = lat_max.max(v[2].clamp(-1.0, 1.0).asin().to_degrees());
+            lons.push(v[1].atan2(v[0]).to_degrees().rem_euclid(360.0));
+        }
+        if lons.is_empty() {
+            return None;
+        }
+        if !meridians_have_a_real_gap(&mut lons) {
+            return Some((lat_min, lat_max, -180.0, 180.0));
+        }
+        let (lon_min, lon_max) = crate::projection::enclosing_lon_arc(&mut lons);
+        Some((lat_min, lat_max, lon_min, lon_max))
+    }
+
     /// The 95th percentile of the distance from a sampled centre to its nearest
     /// other centre — the grid's own spacing, robust to a few outliers but not
     /// so tight that a sparse region is refused.
@@ -359,4 +430,51 @@ impl TryFrom<IndexCoords> for SpatialIndex {
         SpatialIndex::new(c.ni, c.nj, &c.lats, &c.lons)
             .ok_or("cell centres do not describe an ni x nj grid with any finite point")
     }
+}
+
+/// Whether the sorted longitudes leave a genuine gap, or merely the spacing
+/// between neighbouring cells.
+///
+/// Sorts `lons` in place (the caller wants them sorted anyway) and compares the
+/// widest gap against the *median* gap — the grid's own longitude spacing,
+/// taken as a median so a single wide cell cannot move it. A regional grid's
+/// widest gap is the rest of the globe, hundreds of times the spacing; a grid
+/// that reaches every meridian has a widest gap of about one cell.
+///
+/// The threshold is a multiple rather than a fixed number of degrees because
+/// the spacing is a property of the grid: a 36-meridian polar cap has 10° gaps
+/// everywhere and a 3600-column one has 0.1°, and any fixed slack is wrong for
+/// one of them. Fewer than three centres have no median to speak of, so they
+/// are treated as having a real gap and left to the arc.
+fn meridians_have_a_real_gap(lons: &mut [f64]) -> bool {
+    /// How many times the median spacing a gap must exceed to count as real.
+    /// Four is well clear of the variation in an ordinary grid's spacing and
+    /// well below the hundreds-fold gap a regional grid leaves.
+    const GAP_FACTOR: f64 = 4.0;
+
+    if lons.len() < 3 {
+        return true;
+    }
+    lons.sort_by(|a, b| a.total_cmp(b));
+    // Gaps between *distinct* meridians. A curvilinear grid repeats longitudes
+    // down a column — a polar cap of 5 rings visits each of its 36 meridians
+    // five times — and counting those repeats as zero-width gaps drags the
+    // median to zero, which is not the grid's spacing by any reading.
+    let mut gaps: Vec<f64> = lons
+        .windows(2)
+        .map(|w| w[1] - w[0])
+        .filter(|g| *g > 0.0)
+        .collect();
+    let wrap = lons[0] + 360.0 - lons[lons.len() - 1];
+    if wrap > 0.0 {
+        gaps.push(wrap);
+    }
+    if gaps.len() < 2 {
+        // One distinct meridian, or none: no spacing to compare against.
+        return true;
+    }
+    let widest = gaps.iter().copied().fold(0.0f64, f64::max);
+    gaps.sort_by(|a, b| a.total_cmp(b));
+    let median = gaps[gaps.len() / 2];
+    widest > GAP_FACTOR * median
 }

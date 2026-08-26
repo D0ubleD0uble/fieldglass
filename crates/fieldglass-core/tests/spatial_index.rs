@@ -344,3 +344,137 @@ fn an_explicit_cutoff_overrides_the_measured_one() {
     );
     assert!(none.nearest(4.4, 4.4).is_none(), "anything else is too far");
 }
+
+/// A centre reads back as the position it was built from.
+///
+/// #445 settled the storage question by keeping only the unit vectors and
+/// deriving degrees from them, so this is the round trip that claim rests on:
+/// build from degrees, read back through `centre`, and land within 1e-9° —
+/// several orders tighter than any consumer needs and far tighter than the
+/// float32 the source files store.
+#[test]
+fn a_centre_reads_back_the_position_it_was_built_from() {
+    let (lats, lons) = lattice(17, 13, (-80.0, 80.0), (-170.0, 170.0));
+    let ix = SpatialIndex::new(17, 13, &lats, &lons).expect("index builds");
+    for j in 0..13u32 {
+        for i in 0..17u32 {
+            let k = (j as usize) * 17 + i as usize;
+            let (lat, lon) = ix.centre(i, j).expect("every centre is finite");
+            assert!(
+                (lat - lats[k]).abs() < 1e-9 && (lon - lons[k]).abs() < 1e-9,
+                "({i},{j}): read ({lat}, {lon}), built from ({}, {})",
+                lats[k],
+                lons[k]
+            );
+        }
+    }
+    assert_eq!(ix.centre(17, 0), None, "off the east edge");
+    assert_eq!(ix.centre(0, 13), None, "off the north edge");
+}
+
+/// The longitude comes back normalised, because a unit vector has no turn.
+///
+/// RTOFS writes its tripolar longitudes unwrapped, past 360°. Those are the
+/// same positions on the globe, and `centre` says so — which is the documented
+/// consequence of not storing the original degrees, and the thing a test
+/// comparing against the file's raw numbers has to know.
+#[test]
+fn a_centre_normalises_a_longitude_the_file_wrote_unwrapped() {
+    let lats = vec![10.0, 10.0];
+    let lons = vec![370.0, 1019.0];
+    let ix = SpatialIndex::new(2, 1, &lats, &lons).expect("index builds");
+    let (_, first) = ix.centre(0, 0).expect("finite");
+    let (_, second) = ix.centre(1, 0).expect("finite");
+    assert!((first - 10.0).abs() < 1e-9, "370° is 10°, got {first}");
+    // 1019 = 2·360 + 299; 299° normalises to -61°.
+    assert!(
+        (second - (-61.0)).abs() < 1e-9,
+        "1019° is -61°, got {second}"
+    );
+}
+
+/// A missing centre has no position, and never becomes one.
+#[test]
+fn a_centre_the_file_left_missing_reports_no_position() {
+    let (mut lats, lons) = lattice(4, 3, (-10.0, 10.0), (-10.0, 10.0));
+    lats[5] = f64::NAN;
+    let ix = SpatialIndex::new(4, 3, &lats, &lons).expect("index builds");
+    assert_eq!(ix.centre(1, 1), None, "cell 5 is (i=1, j=1)");
+    assert!(ix.centre(0, 1).is_some(), "its neighbour is fine");
+}
+
+/// A regional grid's box is the box its cells occupy.
+#[test]
+fn the_bounding_box_is_the_extent_of_the_centres() {
+    let (lats, lons) = lattice(20, 10, (-40.0, 40.0), (100.0, 140.0));
+    let ix = SpatialIndex::new(20, 10, &lats, &lons).expect("index builds");
+    let (lat_min, lat_max, lon_min, lon_max) = ix.lonlat_bbox().expect("a box");
+    assert!((lat_min + 40.0).abs() < 1e-9, "{lat_min}");
+    assert!((lat_max - 40.0).abs() < 1e-9, "{lat_max}");
+    assert!((lon_min - 100.0).abs() < 1e-9, "{lon_min}");
+    assert!((lon_max - 140.0).abs() < 1e-9, "{lon_max}");
+}
+
+/// A grid spanning the antimeridian reports the span, not the globe.
+///
+/// The naive box over normalised longitudes runs -180 to 180 and paints the
+/// whole world for a grid occupying 40° of it. The enclosing arc reports a
+/// `lon_min` below -180 instead, which is the convention the warp already reads
+/// through periodic trig.
+#[test]
+fn a_box_across_the_antimeridian_keeps_its_span() {
+    let (lats, lons) = lattice(20, 10, (-10.0, 10.0), (160.0, 200.0));
+    let ix = SpatialIndex::new(20, 10, &lats, &lons).expect("index builds");
+    let (_, _, lon_min, lon_max) = ix.lonlat_bbox().expect("a box");
+    assert!(
+        (lon_max - lon_min - 40.0).abs() < 1e-6,
+        "the span should stay 40°, got {lon_min}..{lon_max}"
+    );
+    // `enclosing_lon_arc` recentres so the arc's midpoint lands in range, so
+    // this grid comes back as -200..-160 rather than 160..200. Same arc, and
+    // either way it crosses ±180, which is what the warp needs to see.
+    assert!(
+        lon_min < -180.0 || lon_max > 180.0,
+        "the box should cross the antimeridian, got {lon_min}..{lon_max}"
+    );
+}
+
+/// A grid surrounding a pole covers every meridian, so its box says so.
+///
+/// Near a pole the cells reach all longitudes, and the widest gap between
+/// neighbouring centres is ordinary cell spacing rather than a real absence of
+/// data. The arc that gap implies is arbitrary — it would leave a sliver of the
+/// map unpainted at whichever meridian happened to have the largest gap — so
+/// the box widens to the full circle. The same degeneracy the polar
+/// stereographic bbox handles with `pole_inside_grid`.
+#[test]
+fn a_box_around_a_pole_widens_to_every_meridian() {
+    // A polar cap: 36 meridians × 5 rings from 80°N to the pole.
+    let (ni, nj) = (36u32, 5u32);
+    let mut lats = Vec::new();
+    let mut lons = Vec::new();
+    for j in 0..nj {
+        for i in 0..ni {
+            lats.push(80.0 + 10.0 * (j as f64) / (nj as f64 - 1.0));
+            lons.push(-180.0 + 360.0 * (i as f64) / (ni as f64));
+        }
+    }
+    let ix = SpatialIndex::new(ni, nj, &lats, &lons).expect("index builds");
+    let (lat_min, lat_max, lon_min, lon_max) = ix.lonlat_bbox().expect("a box");
+    assert!((lat_min - 80.0).abs() < 1e-6, "{lat_min}");
+    assert!((lat_max - 90.0).abs() < 1e-6, "{lat_max}");
+    assert_eq!((lon_min, lon_max), (-180.0, 180.0), "every meridian");
+}
+
+/// `GridGeometry::Lookup` answers both questions #445 left open on it.
+#[test]
+fn the_lookup_geometry_forwards_and_bounds_like_its_index() {
+    let (lats, lons) = lattice(8, 6, (-20.0, 20.0), (30.0, 70.0));
+    let ix = SpatialIndex::new(8, 6, &lats, &lons).expect("index builds");
+    let geometry = GridGeometry::Lookup(ix.clone());
+    assert_eq!(geometry.forward(3, 2), ix.centre(3, 2));
+    assert!(geometry.forward(3, 2).is_some(), "an interior cell");
+    assert_eq!(geometry.lonlat_bbox(), ix.lonlat_bbox());
+    assert!(geometry.lonlat_bbox().is_some(), "a placeable grid");
+    assert_eq!(geometry.resampling(), GridResampling::NearestOnly);
+}

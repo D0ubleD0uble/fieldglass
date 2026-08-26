@@ -257,10 +257,7 @@ pub fn warp<T: TargetProjection>(
     // two cells that may be nowhere near each other. Downgrading rather than
     // erroring keeps a caller that asks for bilinear everywhere working, and
     // nearest is the honest best this geometry can do.
-    let method = match source.resampling {
-        GridResampling::NearestOnly => Resampling::Nearest,
-        GridResampling::Any => method,
-    };
+    let method = source.resampling.applied_to(method);
     let (w, h) = target.dims();
     let width = w as usize;
     let height = h as usize;

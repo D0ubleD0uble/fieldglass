@@ -104,21 +104,34 @@ deliberately rather than discover (#503).
 
 ## NetCDF: curvilinear grids
 
-#445 adds the third geolocation model alongside ADR-0004's two. The reader
-reads the two auxiliary coordinate variables and hands them to the spatial
-index; the render pipeline still sees `Vec<Option<f64>>` plus a geometry.
+**Shipped in #445.** The third geolocation model alongside ADR-0004's two. The
+reader resolves the CF `coordinates` attribute to two auxiliary coordinate
+variables and hands them to the spatial index; the render pipeline still sees
+`Vec<Option<f64>>` plus a geometry.
 
 ```mermaid
 classDiagram
     class RenderableVariable
     class CurvilinearCoords {
-        <<planned #445>>
-        +Vec~f64~ lat2d
-        +Vec~f64~ lon2d
+        shipped #445
+        +usize lat_index
+        +usize lon_index
     }
     RenderableVariable o-- CurvilinearCoords : CF coordinates =
     CurvilinearCoords ..> SpatialIndex : builds
 ```
+
+`CurvilinearCoords` carries decode indices, not the arrays: a `DatasetView` is
+metadata, and the planes are wanted once per slice by the render seam alone. The
+index itself is cached on the handle by the *coordinate pair* rather than by the
+field, because one file's fields share one mesh.
+
+Two things the conversion has to keep. A `coordinates` attribute may name more
+than the pair — RTOFS writes `"Longitude Latitude Date"` — so names are resolved
+and kept only if they are 2-D over exactly the dimensions being drawn. And a 2-D
+coordinate may legitimately be masked where a 1-D axis may not: a swath granule
+marks the fields of view that saw no Earth, so a fill there is data rather than
+corruption, and the index keeps such a cell in place without ever returning it.
 
 ## The two host boundaries after #464
 

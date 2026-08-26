@@ -127,24 +127,21 @@ fn the_cf_coordinates_attribute_names_two_dimensional_lat_lon() {
     }
 }
 
-/// Today these fall back to the source projection, and this says exactly where.
+/// The 2-D coordinates resolve, and say which is which (#445).
 ///
-/// The gap is narrower than "CF detection does not see them". `detect_axis`
+/// The seam is narrower than "CF detection does not see them". `detect_axis`
 /// classifies by `units` and `standard_name`, and it recognises both variables
 /// perfectly well — RTOFS writes `degrees_north`, MiRS writes `degrees` with a
-/// latitude-shaped name. What rejects them is one step later: `axis_by_dim`
-/// only offers *coordinate variables* to detection, and a coordinate variable
-/// is 1-D and named for its own dimension. `Latitude(Y, X)` is neither, so it
-/// never reaches the classifier that would have accepted it, and every
-/// renderable variable comes back with no horizontal axes.
-///
-/// That is correct behaviour today — a 2-D coordinate needs a lookup geometry,
-/// not an axis — and it is the seam #445 changes. Naming it here means the
-/// change shows up as this test failing rather than as a silent behaviour
-/// swap.
+/// latitude-shaped name. What used to reject them was one step later:
+/// `axis_by_dim` offers only *coordinate variables* to detection, and a
+/// coordinate variable is 1-D and named for its own dimension.
+/// `curvilinear_coords` is the path that does offer them.
 #[test]
-fn two_dimensional_coordinates_are_recognised_but_never_offered_to_axis_detection() {
-    for (label, bytes) in [("tripolar", TRIPOLAR), ("swath", SWATH)] {
+fn the_two_dimensional_coordinates_resolve_and_are_told_apart() {
+    for (label, bytes, y_dim, x_dim, field) in [
+        ("tripolar", TRIPOLAR, "Y", "X", "ice_thickness"),
+        ("swath", SWATH, "Scanline", "Field_of_view", "TPW"),
+    ] {
         let (_, view_) = view(bytes);
         for (name, kind) in [
             ("Latitude", AxisKind::Latitude),
@@ -156,25 +153,64 @@ fn two_dimensional_coordinates_are_recognised_but_never_offered_to_axis_detectio
                 Some(kind),
                 "{label}: {name} is classifiable on its own attributes"
             );
-            assert_eq!(v.dim_names.len(), 2, "{label}: {name} is 2-D");
             assert_ne!(
                 v.dim_names[0], v.name,
-                "{label}: {name} is not named for its own dimension, so it is \
-                 not a CF coordinate variable and detection never sees it"
+                "{label}: {name} is not a CF coordinate variable, so the 1-D \
+                 path never sees it"
             );
         }
-        // The consequence: nothing to pre-fill the X / Y selectors with.
-        let renderables = view_.renderable_variables();
-        assert!(!renderables.is_empty(), "{label}: there are fields to draw");
-        for renderable in renderables {
-            assert_eq!(
-                (renderable.detected_y_dim, renderable.detected_x_dim),
-                (None, None),
-                "{label}: {} has no detected horizontal axes yet",
-                renderable.name
-            );
-        }
+        let coords = view_
+            .curvilinear_coords(var(&view_, field), y_dim, x_dim)
+            .unwrap_or_else(|| panic!("{label}: {field} names a usable 2-D pair"));
+        assert_eq!(
+            coords.lat_index,
+            var(&view_, "Latitude").decode_index,
+            "{label}: latitude resolved"
+        );
+        assert_eq!(
+            coords.lon_index,
+            var(&view_, "Longitude").decode_index,
+            "{label}: longitude resolved"
+        );
     }
+}
+
+/// RTOFS names a time coordinate in the same attribute, and it is ignored.
+///
+/// `coordinates = "Longitude Latitude Date"` — `Date` is a 1-D time variable,
+/// not a spatial one. A resolver that assumed the attribute held exactly two
+/// names, or that took the first two, would read this file wrongly; one that
+/// filtered by shape and axis kind does not notice it at all.
+#[test]
+fn a_non_spatial_name_in_the_coordinates_attribute_is_ignored() {
+    let (_, view_) = view(TRIPOLAR);
+    let named = attr(var(&view_, "ice_thickness"), "coordinates").expect("attribute");
+    assert_eq!(named.split_whitespace().count(), 3, "three names");
+    assert!(named.split_whitespace().any(|n| n == "Date"));
+    assert_eq!(
+        var(&view_, "Date").dim_names,
+        ["MT"],
+        "Date is 1-D over time, so the shape filter drops it"
+    );
+    assert!(
+        view_
+            .curvilinear_coords(var(&view_, "ice_thickness"), "Y", "X")
+            .is_some(),
+        "the pair still resolves"
+    );
+}
+
+/// A regular 1-D grid names no 2-D pair, so nothing changes for it.
+#[test]
+fn a_regular_grid_resolves_no_curvilinear_coordinates() {
+    let (_, view_) = view(TRIPOLAR);
+    // Asking with the dimensions transposed describes a grid the coordinate
+    // variables are not laid out over, and must not resolve.
+    assert_eq!(
+        view_.curvilinear_coords(var(&view_, "ice_thickness"), "X", "Y"),
+        None,
+        "the coordinates are (Y, X), not (X, Y)"
+    );
 }
 
 /// The window is the one the fixture claims: the tripolar fold runs through it.

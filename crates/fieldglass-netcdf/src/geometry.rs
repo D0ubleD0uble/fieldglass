@@ -256,6 +256,72 @@ impl DatasetView {
             })
             .collect()
     }
+
+    /// The 2-D auxiliary lat/lon coordinates a data variable names, if it names
+    /// a usable pair (#445).
+    ///
+    /// CF lets a variable point at coordinates it is not indexed by
+    /// (`coordinates = "Longitude Latitude Date"` is what RTOFS writes, and
+    /// `Date` is a time), so every name is resolved and then kept only if it is
+    /// a 2-D variable over exactly the two dimensions being drawn, in that
+    /// order. What survives is classified by [`detect_axis`] — which reads
+    /// `units` and `standard_name` and has always been able to recognise these;
+    /// it was never offered them, because [`Self::axis_by_dim`] only offers
+    /// 1-D coordinate variables.
+    ///
+    /// `None` unless exactly one latitude and one longitude survive. Two
+    /// latitudes, or a lone longitude, describe a grid this cannot place, and
+    /// guessing at it would put the field somewhere wrong rather than leaving
+    /// it in the source projection where the user can see it is unplaced.
+    pub fn curvilinear_coords(
+        &self,
+        var: &VarView,
+        y_dim: &str,
+        x_dim: &str,
+    ) -> Option<CurvilinearCoords> {
+        let named = var.attr("coordinates")?;
+        let (mut lat, mut lon) = (None, None);
+        for name in named.split_whitespace() {
+            let Some(candidate) = self.vars.iter().find(|v| v.name == name) else {
+                continue;
+            };
+            if candidate.dim_names.len() != 2
+                || candidate.dim_names[0] != y_dim
+                || candidate.dim_names[1] != x_dim
+            {
+                continue;
+            }
+            match detect_axis(candidate) {
+                Some(AxisKind::Latitude) if lat.is_none() => lat = Some(candidate.decode_index),
+                Some(AxisKind::Longitude) if lon.is_none() => lon = Some(candidate.decode_index),
+                // A second variable of a kind already found: the attribute
+                // names two latitudes, and which one places the grid is not
+                // something to pick by declaration order.
+                Some(_) => return None,
+                None => {}
+            }
+        }
+        Some(CurvilinearCoords {
+            lat_index: lat?,
+            lon_index: lon?,
+        })
+    }
+}
+
+/// The two 2-D auxiliary coordinate variables a CF `coordinates` attribute
+/// names, resolved against the data variable's own dimensions (#445).
+///
+/// Carries decode indices rather than the arrays themselves: a `DatasetView` is
+/// metadata, and these are two full planes — 52,000 doubles for the smallest
+/// real grid in the corpus — that only the render seam wants and only once per
+/// slice. `planned/03-composition.md` draws them as `lat2d` / `lon2d` `Vec`s;
+/// the shape is the same, the ownership is not.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CurvilinearCoords {
+    /// `decode_index` of the 2-D latitude variable.
+    pub lat_index: usize,
+    /// `decode_index` of the 2-D longitude variable.
+    pub lon_index: usize,
 }
 
 /// A variable the slice picker can draw, with its dimensions and the detected
