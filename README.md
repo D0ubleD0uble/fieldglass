@@ -107,7 +107,8 @@ A GRIB1 file's BDS (Binary Data Section) flag bits select one of several packing
 | Spherical-harmonic coefficients | `spectral_simple` / `spectral_complex` | ✅ Decodes + renders |
 | JPEG 2000 / PNG | `grid_jpeg` / `grid_png` | ❌ n/a |
 
-#### Notes on individual templates
+<details>
+<summary><b>Notes on individual templates</b></summary>
 
 **Simple grid-point packing.** The bulk of CMC, NCEP non-operational data, and pygrib sample sets.
 
@@ -138,6 +139,7 @@ also defines a 128-bit form (`precision = 3`), which does not.
 
 **JPEG 2000 / PNG.** Not defined for GRIB1 edition 1; no encoder and no obtainable fixture. Common in GRIB2, tracked there.
 
+</details>
 
 ### GRIB2 packing modes
 
@@ -168,7 +170,8 @@ A GRIB2 message's §5 Data Representation Section selects a packing template. Fi
 | 5.51 — spectral complex | `spectral_complex` | ✅ Decodes + renders |
 | 5.53 — bi-Fourier spectral | `bifourier_complex` | 🚧 Coefficients only |
 
-#### Notes on individual templates
+<details>
+<summary><b>Notes on individual templates</b></summary>
 
 **5.0 — simple grid-point.** The common case for NCEP / ECMWF fields. Constant fields (`bits_per_value = 0`) included.
 
@@ -200,8 +203,9 @@ A GRIB2 message's §5 Data Representation Section selects a packing template. Fi
 
 **5.53 — bi-Fourier spectral.** The ACCORD/ALADIN/AROME limited-area form (§3.61/62/63): four coefficients per `(i, j)` wavenumber pair over a rectangle, ellipse, or diamond truncation. Coefficients inside the unpacked sub-truncation are raw IEEE floats (32- or 64-bit) and the rest are simple-packed after bi-Fourier Laplacian rescaling `(i²+j²)^P`. Decodes through `Grib2Reader::decode_bifourier_message` (cross-validated against an independent decode, coefficient for coefficient), with its own entry point like the spherical-harmonic forms; an inverse bi-Fourier transform to render it is still to come.
 
-
 Two pre-standard local-use templates decode through the codecs above: **5.40000** (early NCEP JPEG 2000, identical to 5.40) and **5.40010** (early NCEP PNG, identical to 5.41). No reference implementation defines 5.40010, so there is no oracle to check it against directly: 5.40000 is checked against an independent decode, and 5.40010 against the 5.41 decode of the same codestream.
+
+</details>
 
 ## What it does, and where it stops
 
