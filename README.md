@@ -8,7 +8,7 @@ Open a GRIB or NetCDF file in Visual Studio Code and see what is in it: every
 message listed with its parameter, level and time, and any field drawn as a map
 you can reproject, probe and contour.
 
-Nothing else to install. No Python, no eccodes, no compiler — the extension
+Nothing else to install. No Python, no C libraries, no compiler — the extension
 ships a prebuilt binary for each platform and picks the right one. Every decoder is written from
 scratch in Rust, which is what makes that possible: every GRIB2 packing the WMO
 defines, decoded with no external libraries and no build flags, and spectral
@@ -34,7 +34,9 @@ step through the rest (time, level). Grids that carry a normal latitude and
 longitude work, as do WRF and GOES files, and ocean or satellite files that give
 a position for every individual cell.
 
-**Not yet:** editing a file's metadata.
+**Not yet:** editing a file's metadata from the viewer. The groundwork is
+there — see [What it does, and where it stops](#what-it-does-and-where-it-stops)
+for how far it goes.
 
 The [feature matrix](#feature-matrix) below shows exactly what works today, and the [roadmap](ROADMAP.md) shows what is planned.
 
@@ -46,7 +48,11 @@ columns: detection from magic bytes, file-extension association
 Editor With…*, header-section parsing, the colormap picker (8 maps,
 reversible), linear and log10 color scaling, the point probe, and PNG export.
 
-The table is what differs between them.
+The table below covers the rest, where the three formats genuinely differ.
+Read a row as "how much of this feature does each format have": a bare tick
+means it works in full, and a tick followed by text means it works with the
+qualification given. Where a format has no entry, the feature does not apply
+to it.
 
 | Feature | GRIB1 | GRIB2 | NetCDF |
 |---|:---:|:---:|:---:|
@@ -70,6 +76,15 @@ Format-agnostic features:
 
 - Hex and ASCII fallback view for files whose contents are not a recognized format. ✅
 - Files without a recognized extension can still be opened through *Reopen Editor With… → Fieldglass Viewer*.
+
+### How the decoders are checked
+
+Every packing below is decoded from the bytes up in Rust and checked value for
+value against an independent implementation of the same template — eccodes 2.34,
+which is the reference the meteorological community treats as authoritative.
+Where no encoder produces a variant, the check is against a hand-built fixture
+with the expected values computed by hand instead. The notes under each table
+say which applies and where a template needed something else.
 
 ### GRIB1 packing modes
 
@@ -98,29 +113,30 @@ A GRIB1 file's BDS (Binary Data Section) flag bits select one of several packing
 
 **Constant field (`bits_per_value = 0`).** Special case of simple packing.
 
-**Second-order, no SPD.** Decodes via the shared general-extended path (order 0). Cross-validated against eccodes 2.34 with a hand-built oracle fixture (eccodes won't *encode* this order but decodes it).
+**Second-order, no SPD.** Decodes via the shared general-extended path (order 0). Checked against a hand-built oracle fixture, since no encoder produces this variant.
 
-**Second-order, SPD-1.** Decodes via the shared general-extended path (order 1). Cross-validated against eccodes 2.34 with a hand-built oracle fixture.
+**Second-order, SPD-1.** Decodes via the shared general-extended path (order 1). Checked against a hand-built oracle fixture.
 
-**Second-order, SPD-2 (ECMWF default).** Most common in ECMWF MARS-derived files. Cross-validated against eccodes 2.34.
+**Second-order, SPD-2 (ECMWF default).** Most common in ECMWF MARS-derived files.
 
-**Second-order, SPD-3.** Cross-validated against eccodes 2.34 (re-encoded from the SPD-2 fixture), with and without boustrophedonic row ordering.
+**Second-order, SPD-3.** Checked against an independent decode (re-encoded from the SPD-2 fixture), with and without boustrophedonic row ordering.
 
-**Second-order, row-by-row.** Classic WMO layout: one group per row, per-row widths, no SPD. Cross-validated against eccodes 2.34 with a hand-built oracle fixture.
+**Second-order, row-by-row.** Classic WMO layout: one group per row, per-row widths, no SPD. Checked against a hand-built oracle fixture.
 
-**Second-order, constant width.** Classic WMO layout: explicit secondary bitmap + single shared width. Cross-validated against eccodes 2.34 with a hand-built oracle fixture.
+**Second-order, constant width.** Classic WMO layout: explicit secondary bitmap + single shared width. Checked against a hand-built oracle fixture.
 
-**Second-order, general (legacy).** Classic WMO layout: secondary-bitmap-delimited variable-length groups + per-group widths. Cross-validated against eccodes 2.34 with a hand-built oracle fixture.
+**Second-order, general (legacy).** Classic WMO layout: secondary-bitmap-delimited variable-length groups + per-group widths. Checked against a hand-built oracle fixture.
 
-**IEEE 754 raw floats.** Values stored verbatim as big-endian floats; 32-bit (`precision = 1`) and 64-bit (`precision = 2`). Cross-validated against eccodes 2.34. 128-bit (`precision = 3`) is unsupported; eccodes returns `NOT_IMPLEMENTED` for it too.
+**IEEE 754 raw floats.** Values stored verbatim as big-endian floats; 32-bit (`precision = 1`) and 64-bit (`precision = 2`) both decode. The template
+also defines a 128-bit form (`precision = 3`), which does not.
 
-**Matrix-of-values (scalar form).** `matrixOfValues = 0`: a simple-packed body behind the matrix sub-header (what eccodes emits for `packingType=grid_simple_matrix`). Cross-validated against eccodes 2.34.
+**Matrix-of-values (scalar form).** `matrixOfValues = 0`: a simple-packed body behind the matrix sub-header (the simple-packed form of this template).
 
-**Matrix-of-values (true matrix).** `matrixOfValues = 1`: an `NR×NC` matrix at every grid point, via secondary bitmaps. Decoded through `Grib1Reader::decode_matrix_message` (not a single 2-D field, so it bypasses the scalar path). eccodes 2.34 can neither encode nor decode this variant, so it's validated against the eccodes definition/accessor source + a hand-computed fixture rather than a `grib_get_data` oracle.
+**Matrix-of-values (true matrix).** `matrixOfValues = 1`: an `NR×NC` matrix at every grid point, via secondary bitmaps. Decoded through `Grib1Reader::decode_matrix_message` (not a single 2-D field, so it bypasses the scalar path). No reference implementation encodes or decodes this variant, so it is validated against the published template definition and a hand-computed fixture rather than a decoded oracle.
 
-**Spherical-harmonic coefficients.** IFS analyses. The spectral coefficients decode through `Grib1Reader::decode_spectral_message` (cross-validated against eccodes on a T63 field), and `Grib1Reader::synthesize_spectral_message` runs the inverse spherical-harmonic transform (the shared `fieldglass-core::sht` engine, validated against ECMWF's definitive spectral definition) to turn them back into a lat/lon grid, so the message **renders in the viewer** like any other field. Like the true `matrixOfValues` form, it has its own decode entry point and bypasses the scalar path.
+**Spherical-harmonic coefficients.** IFS analyses. The spectral coefficients decode through `Grib1Reader::decode_spectral_message` (checked against an independent decode on a T63 field), and `Grib1Reader::synthesize_spectral_message` runs the inverse spherical-harmonic transform (the shared `fieldglass-core::sht` engine, validated against ECMWF's definitive spectral definition) to turn them back into a lat/lon grid, so the message **renders in the viewer** like any other field. Like the true `matrixOfValues` form, it has its own decode entry point and bypasses the scalar path.
 
-**JPEG 2000 / PNG.** Not defined for GRIB1 edition 1 (eccodes' `packingType` concept lists them only to avoid set-failures); no encoder and no obtainable fixture. Common in GRIB2, tracked there.
+**JPEG 2000 / PNG.** Not defined for GRIB1 edition 1; no encoder and no obtainable fixture. Common in GRIB2, tracked there.
 
 
 ### GRIB2 packing modes
@@ -154,43 +170,44 @@ A GRIB2 message's §5 Data Representation Section selects a packing template. Fi
 
 #### Notes on individual templates
 
-**5.0 — simple grid-point.** The common case for NCEP / ECMWF fields. Constant fields (`bits_per_value = 0`) included. Cross-validated against eccodes 2.34.
+**5.0 — simple grid-point.** The common case for NCEP / ECMWF fields. Constant fields (`bits_per_value = 0`) included.
 
-**5.1 — matrix of values.** Experimental template for an `NR×NC` matrix at each grid point (e.g. 2-D wave spectra). With `matrixBitmapsPresent = 0` the §7 holds one simple-packed value per grid point (`NR`/`NC` are descriptive metadata), decoded and rendered exactly like 5.0 — cross-validated against eccodes 2.34, value for value. The true per-point matrix (`matrixBitmapsPresent = 1`, secondary bitmaps) decodes through `Grib2Reader::decode_matrix_message` following the GRIBEX interpretation. eccodes does not decode that form, so it is validated against the independently-checked GRIB1 matrix decoder on the same hand-computed field.
+**5.1 — matrix of values.** Experimental template for an `NR×NC` matrix at each grid point (e.g. 2-D wave spectra). With `matrixBitmapsPresent = 0` the §7 holds one simple-packed value per grid point (`NR`/`NC` are descriptive metadata), decoded and rendered exactly like 5.0 — checked value for value against an independent decode. The true per-point matrix (`matrixBitmapsPresent = 1`, secondary bitmaps) decodes through `Grib2Reader::decode_matrix_message` following the GRIBEX interpretation. No reference implementation decodes that form, so it is validated against the independently-checked GRIB1 matrix decoder on the same hand-computed field.
 
-**5.4 — IEEE floating point.** Values stored verbatim as big-endian floats; 32-bit (`precision = 1`) and 64-bit (`precision = 2`). Cross-validated against eccodes 2.34. 128-bit (`precision = 3`) is unsupported, as in eccodes.
+**5.4 — IEEE floating point.** Values stored verbatim as big-endian floats; 32-bit (`precision = 1`) and 64-bit (`precision = 2`). 128-bit (`precision = 3`) is unsupported.
 
-**5.2 — complex.** Group-split packing, the GRIB2 analogue of GRIB1 second-order. Both splitting methods (general and row-by-row) and inline missing-value management (primary and primary + secondary substitutes) decode; substituted points come out masked, like bitmap points. Constant fields (zero groups) decode to the reference value, matching eccodes 2.42+. Cross-validated against eccodes 2.34.
+**5.2 — complex.** Group-split packing, the GRIB2 analogue of GRIB1 second-order. Both splitting methods (general and row-by-row) and inline missing-value management (primary and primary + secondary substitutes) decode; substituted points come out masked, like bitmap points. Constant fields (zero groups) decode to the reference value.
 
-**5.3 — complex + spatial differencing.** Complex packing with 1st- or 2nd-order spatial differencing (common in GFS; NBM adds inline missing values). Same envelope as 5.2, with the differencing recurrence skipping missing points. Constant fields (zero groups) decode to the reference value, matching eccodes 2.42+. Cross-validated against eccodes 2.34.
+**5.3 — complex + spatial differencing.** Complex packing with 1st- or 2nd-order spatial differencing (common in GFS; NBM adds inline missing values). Same envelope as 5.2, with the differencing recurrence skipping missing points. Constant fields (zero groups) decode to the reference value.
 
-**5.40 — JPEG 2000.** The integer grid is wrapped in a JPEG 2000 codestream, decoded with the pure-Rust [`rust-j2k`](https://crates.io/crates/rust-j2k) crate (no C / OpenJPEG binding, so the C-free cross-platform bundle is preserved — see [codec strategy](docs/decisions/0001-grib2-compressed-packing-codecs.md)); the simple-packing `R` / `E` / `D` transform then applies. Cross-validated against eccodes 2.34.
+**5.40 — JPEG 2000.** The integer grid is wrapped in a JPEG 2000 codestream, decoded with the pure-Rust [`rust-j2k`](https://crates.io/crates/rust-j2k) crate (no C / OpenJPEG binding, so the C-free cross-platform bundle is preserved — see [codec strategy](docs/decisions/0001-grib2-compressed-packing-codecs.md)); the simple-packing `R` / `E` / `D` transform then applies.
 
-**5.41 — PNG.** The integer grid is wrapped in a PNG image (decoded with the pure-Rust `png` crate); the simple-packing `R` / `E` / `D` transform then applies. Cross-validated against eccodes 2.34.
+**5.41 — PNG.** The integer grid is wrapped in a PNG image (decoded with the pure-Rust `png` crate); the simple-packing `R` / `E` / `D` transform then applies.
 
-**5.42 — CCSDS / AEC.** The integer grid is wrapped in a CCSDS adaptive-entropy-coding (libaec-compatible) stream, decoded with the pure-Rust `rust-aec` crate; the simple-packing `R` / `E` / `D` transform then applies. Cross-validated against eccodes 2.34.
+**5.42 — CCSDS / AEC.** The integer grid is wrapped in a CCSDS adaptive-entropy-coding (libaec-compatible) stream, decoded with the pure-Rust `rust-aec` crate; the simple-packing `R` / `E` / `D` transform then applies.
 
-**5.200 — run-length.** Runs of quantised level indices resolved through a level → value table (JMA radar, rain-gauge analysis, and nowcasts). Level 0 marks missing; a run is a level code followed by base-`range` length digits. No `R` / `E` transform — only the decimal scale. Cross-validated against eccodes 2.34.
+**5.200 — run-length.** Runs of quantised level indices resolved through a level → value table (JMA radar, rain-gauge analysis, and nowcasts). Level 0 marks missing; a run is a level code followed by base-`range` length digits. No `R` / `E` transform — only the decimal scale.
 
-**5.61 — simple + log pre-processing.** Simple packing of the log-transformed field; decode is the simple-packing `R` / `E` / `D` value followed by `Y = exp(X) − B`, where `B` is the pre-processing parameter (`B = 0` for a positive field). Experimental (WMO: bilateral tests only), no known operational producer — decoded for census completeness. Cross-validated against eccodes 2.34.
+**5.61 — simple + log pre-processing.** Simple packing of the log-transformed field; decode is the simple-packing `R` / `E` / `D` value followed by `Y = exp(X) − B`, where `B` is the pre-processing parameter (`B = 0` for a positive field). Experimental (WMO: bilateral tests only), no known operational producer — decoded for census completeness.
 
-**5.50002 — second-order.** The GRIB1 general-extended second-order codec carried into GRIB2, sharing the spatial-predictor-differencing (SPD) inverse with the GRIB1 path. §5 holds the group-descriptor bit widths and SPD seeds; §7 holds the group widths, lengths, first-order references, and second-order offsets. Alternating-row (boustrophedonic) ordering is undone on decode. Cross-validated against eccodes 2.34, value for value.
+**5.50002 — second-order.** The GRIB1 general-extended second-order codec carried into GRIB2, sharing the spatial-predictor-differencing (SPD) inverse with the GRIB1 path. §5 holds the group-descriptor bit widths and SPD seeds; §7 holds the group widths, lengths, first-order references, and second-order offsets. Alternating-row (boustrophedonic) ordering is undone on decode. Checked against an independent decode, value for value.
 
-**5.50001 — second-order, no boustrophedonic.** Same codec as 5.50002 without the `secondOrderFlags` octet, so ordering is never boustrophedonic. Cross-validated against eccodes 2.34, value for value.
+**5.50001 — second-order, no boustrophedonic.** Same codec as 5.50002 without the `secondOrderFlags` octet, so ordering is never boustrophedonic. Checked against an independent decode, value for value.
 
-**5.50 — spectral (spherical harmonic).** The message carries spherical-harmonic coefficients (§3.50), not values on a grid: the real `(0,0)` coefficient comes from §5 and the rest are simple-packed. They decode through `Grib2Reader::decode_spectral_message` (cross-validated against eccodes on a T63 field, coefficient for coefficient), and the inverse spherical-harmonic transform (`Grib2Reader::synthesize_spectral_message`, validated against ECMWF's definitive spectral definition) turns them back into a lat/lon grid — an inverse spherical-harmonic transform — so the field **renders in the viewer** like any other, reprojecting and contouring through the normal pipeline.
+**5.50 — spectral (spherical harmonic).** The message carries spherical-harmonic coefficients (§3.50), not values on a grid: the real `(0,0)` coefficient comes from §5 and the rest are simple-packed. They decode through `Grib2Reader::decode_spectral_message` (cross-validated against an independent decode on a T63 field, coefficient for coefficient), and the inverse spherical-harmonic transform (`Grib2Reader::synthesize_spectral_message`, validated against ECMWF's definitive spectral definition) turns them back into a lat/lon grid — an inverse spherical-harmonic transform — so the field **renders in the viewer** like any other, reprojecting and contouring through the normal pipeline.
 
-**5.51 — spectral complex.** The ECMWF IFS form: coefficients up to a sub-truncation are stored as raw IEEE floats and the rest are simple-packed after Laplacian rescaling `(n·(n+1))^P`. Decodes through the same `decode_spectral_message` entry point (cross-validated against eccodes coefficient for coefficient on a T63 field), and renders through the same inverse transform as 5.50.
+**5.51 — spectral complex.** The ECMWF IFS form: coefficients up to a sub-truncation are stored as raw IEEE floats and the rest are simple-packed after Laplacian rescaling `(n·(n+1))^P`. Decodes through the same `decode_spectral_message` entry point (cross-validated against an independent decode, coefficient for coefficient on a T63 field), and renders through the same inverse transform as 5.50.
 
-**5.53 — bi-Fourier spectral.** The ACCORD/ALADIN/AROME limited-area form (§3.61/62/63): four coefficients per `(i, j)` wavenumber pair over a rectangle, ellipse, or diamond truncation. Coefficients inside the unpacked sub-truncation are raw IEEE floats (32- or 64-bit) and the rest are simple-packed after bi-Fourier Laplacian rescaling `(i²+j²)^P`. Decodes through `Grib2Reader::decode_bifourier_message` (cross-validated against eccodes 2.34 coefficient for coefficient), with its own entry point like the spherical-harmonic forms; an inverse bi-Fourier transform to render it is still to come.
+**5.53 — bi-Fourier spectral.** The ACCORD/ALADIN/AROME limited-area form (§3.61/62/63): four coefficients per `(i, j)` wavenumber pair over a rectangle, ellipse, or diamond truncation. Coefficients inside the unpacked sub-truncation are raw IEEE floats (32- or 64-bit) and the rest are simple-packed after bi-Fourier Laplacian rescaling `(i²+j²)^P`. Decodes through `Grib2Reader::decode_bifourier_message` (cross-validated against an independent decode, coefficient for coefficient), with its own entry point like the spherical-harmonic forms; an inverse bi-Fourier transform to render it is still to come.
 
 
-Two pre-standard local-use templates decode through the codecs above: **5.40000** (early NCEP JPEG 2000, identical to 5.40) and **5.40010** (early NCEP PNG, identical to 5.41). eccodes ships no definition for 5.40010 and errors on it, so there is no oracle to cross-check it against directly: 5.40000 is validated against eccodes 2.34, and 5.40010 against the 5.41 decode of the same codestream.
+Two pre-standard local-use templates decode through the codecs above: **5.40000** (early NCEP JPEG 2000, identical to 5.40) and **5.40010** (early NCEP PNG, identical to 5.41). No reference implementation defines 5.40010, so there is no oracle to check it against directly: 5.40000 is checked against an independent decode, and 5.40010 against the 5.41 decode of the same codestream.
 
 ## What it does, and where it stops
 
-Each entry is a capability and the edge of it — what works, then what does not
-yet:
+Each entry below describes something Fieldglass does and then says where it
+stops: which formats or grid types it covers, and what falls outside that. Read
+it as the detail behind the feature matrix rather than as a list of problems.
 
 - **No metadata editing in the viewer.** The Rust API has byte-level patching for the forecast period (P1) and the webview retains the full undo/redo wiring, but the editable affordance is hidden until general PDS-field editing lands. For now Fieldglass is a read-only viewer.
 - **Reprojection targets.** The projection picker offers eight targets: source (the grid in its native shape), equirectangular, Web Mercator, orthographic, polar stereographic, and three whole-world maps (Mollweide, Robinson, and Equal Earth), plus an optional coastline and lat/lon grid overlay. Most targets take a free-form center: orthographic recenters on any lon/lat, polar stereographic takes either pole with an arbitrary central meridian, and the three world maps take a central meridian to recenter the globe. GRIB1 lat/lon, Gaussian, rotated lat/lon, reduced (quasi-regular) lat/lon and Gaussian, Lambert, and polar stereographic grids, and GRIB2 rotated lat/lon (§3.1), Mercator (§3.10), transverse Mercator (§3.12), polar stereographic (§3.20), Lambert Conformal (§3.30), regular and reduced Gaussian (§3.40), Lambert azimuthal equal-area (§3.140), and space-view perspective (§3.90, geostationary) grids, all reproject into the flat (lat/lon-box) targets.
@@ -201,7 +218,7 @@ yet:
 - **Map overlays.** Five layers can be drawn over any rendered field: coastlines, country borders, lakes, rivers, and a latitude/longitude graticule. Each is toggled on its own and takes its own color and line weight, so a coastline and a border can be told apart at a glance. The vector layers are Natural Earth 1:110m data (public domain), bundled with the extension — nothing is fetched at run time. They are projected in Rust through the same forward map as the field, so an overlay can never drift from the image under it.
 - **GRIB2: full §0–§7 parsing and §5 value decode.** `.grb2` / `.grib2` files enumerate messages and show edition, discipline, total length, originating centre, reference time, production status, data type, parameter name, level, forecast time, and grid geometry (templates 3.0 / 3.1 / 3.10 / 3.12 / 3.20 / 3.30 / 3.40 / 3.140 / 3.90 / 3.50 / 3.61–3.63 / 3.150: regular lat/lon, rotated lat/lon, Mercator, transverse Mercator, polar stereographic, Lambert Conformal, regular and reduced Gaussian, Lambert azimuthal equal-area, space-view perspective, spherical-harmonic coefficients, bi-Fourier spectral subdomains, and HEALPix). Value decoding is broken down per template in the [GRIB2 packing modes](#grib2-packing-modes) table. Spherical-harmonic spectral fields additionally synthesize back to a lat/lon grid and render. HEALPix fields (§3.150) — the equal-area sphere tiling ECMWF publishes its higher-resolution open data on — are resampled onto a lat/lon grid the same way, so they reproject, probe, contour and export like any other grid.
 - **NetCDF-4 / HDF5: structure traversal and value decode (Rust API).** Classic NetCDF (CDF-1 / CDF-2 / CDF-5) parses fully and renders dimensions, global attributes, and variables. For NetCDF-4 / HDF5 files, Fieldglass walks the HDF5 object-header tree — groups, datasets, dataspaces, datatypes, and attributes — resolves the dimension-scale convention into named dimensions and per-variable dimension lists, and surfaces the same dimensions / variables / global-attributes tables in the metadata viewer as the classic path. It also decodes a dataset's values through the Rust API: contiguous, compact, and chunked storage, and the deflate, shuffle, fletcher32, and zstd filters (fletcher32 is a checksum, verified on read; zstd is netcdf-c 4.9's recommended compressor for new climate archives, and decoding it in pure Rust exceeds a default netcdf-c install, which often has no working zstd plugin at runtime). Chunked storage covers the version-1 B-tree index and every version-4 index — single-chunk, fixed-array, extensible-array (the unlimited-dimension case), implicit, and v2-B-tree — each for both filtered and unfiltered chunks, along with the version-5 layout message that libhdf5 2.0 writes for a filtered variable. Decoded values are CF-unpacked: `scale_factor` / `add_offset` recover the real units, and `_FillValue`, `missing_value`, and `valid_range` mask the gaps. Variables on a regular lat/lon grid render a 2-D slice through the same picker and projection pipeline as the classic path, as do two projected layouts: WRF `wrfout` grids (Lambert, polar stereographic, Mercator, or unrotated lat-lon, from the `MAP_PROJ` global attributes) and GOES geostationary imagery (from a CF `geostationary` grid mapping). Variables in nested groups resolve too, with path-qualified names (`/PRODUCT/qa_value`) and dimensions looked up in ancestor groups, so grouped products such as Sentinel-5P and GPM IMERG list and render their variables. Curvilinear grids render as well: where a file gives a latitude and longitude for every cell instead of a projection — ocean model output on a tripolar mesh, satellite swaths geolocated per pixel — the cell positions themselves are the geometry, and reprojection, the point probe, contours and CSV export all work from them. Rotated WRF lat-lon domains are a follow-up.
-- **Oblate-spheroid grids are projected on a sphere, except transverse Mercator.** Lambert and polar-stereographic grids are placed on the Earth the message declares — GRIB1's earth-shape flag, GRIB2's `shapeOfTheEarth`, and WRF's own 6 370 000 m sphere — which matches eccodes point for point for the spherical shapes that nearly all data uses. A grid that declares an *oblate* spheroid is projected on that spheroid's mean radius instead of the true ellipsoid, which is within about 0.1%. Transverse Mercator (§3.12) and Lambert azimuthal equal-area (§3.140) are the exceptions: both run on the declared spheroid, because the grids that use them declare one and the mean-radius approximation would place a UK-area field about 2.8 km out and a European one about 13.5 km out. True ellipsoidal projection for the other templates is a follow-up.
+- **Oblate-spheroid grids are projected on a sphere, except transverse Mercator.** Lambert and polar-stereographic grids are placed on the Earth the message declares — GRIB1's earth-shape flag, GRIB2's `shapeOfTheEarth`, and WRF's own 6 370 000 m sphere — which matches an independent decode point for point for the spherical shapes that nearly all data uses. A grid that declares an *oblate* spheroid is projected on that spheroid's mean radius instead of the true ellipsoid, which is within about 0.1%. Transverse Mercator (§3.12) and Lambert azimuthal equal-area (§3.140) are the exceptions: both run on the declared spheroid, because the grids that use them declare one and the mean-radius approximation would place a UK-area field about 2.8 km out and a European one about 13.5 km out. True ellipsoidal projection for the other templates is a follow-up.
 - **GRIB1 GDS coverage:** Lat/Lon, Gaussian, polar stereographic, Lambert Conformal, rotated/oblique lat/lon (`grid_type 10`), and reduced (quasi-regular) lat/lon and Gaussian grids are parsed and reproject; GDS-absent messages resolve the common predefined global grids (ON388 Table B grids 2, 3, 4). Stretched grids, oblique Mercator, and other predefined-grid numbers are not yet supported and render as `unsupported`.
 - **Parameter table coverage:** WMO ON388 Table 2 (versions 1–3) plus ECMWF local tables 128 and 129 (centre 98), which cover the bulk of IFS / ERA5 fields. Other centres' local tables (and other ECMWF versions) still resolve as `Unknown`.
 - **Large files:** the extension reads the whole file into memory via `vscode.workspace.fs.readFile` to keep remote/virtual workspaces working. Multi-GB GRIB archives are not the target use case yet.
