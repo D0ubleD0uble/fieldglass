@@ -2,7 +2,7 @@
 //! a formula.
 //!
 //! Three families need it: NetCDF 2-D coordinate variables (#218), GRIB2
-//! §3.204 (#418) and ICON §3.101 (#420). [`crate::warp`] is already
+//! §3.204 (#418) and ICON §3.101 (#420). The [`warp`](mod@crate::warp) module is
 //! inverse-mapped — it walks output pixels and asks the source grid which cell
 //! contains each one — so those families need an implementation of that
 //! question, not a different renderer.
@@ -243,7 +243,7 @@ impl SpatialIndex {
     /// cells surround a pole reaches every meridian, so its widest gap is just
     /// the local spacing and the arc it yields is arbitrary — it would leave a
     /// sliver of the map unpainted at whichever meridian happened to have the
-    /// largest one. [`meridians_have_a_real_gap`] decides which case this is,
+    /// largest one. `meridians_have_a_real_gap` decides which case this is,
     /// and a grid covering every meridian reports the full 360° instead.
     pub fn lonlat_bbox(&self) -> Option<(f64, f64, f64, f64)> {
         let mut lat_min = f64::INFINITY;

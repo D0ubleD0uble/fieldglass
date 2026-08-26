@@ -1252,7 +1252,7 @@ fn decode_second_order(
 /// width Ni) — mirrors that layering. Crucially, `template.7.50002.def` applies
 /// `data_apply_bitmap` *before* `data_apply_boustrophedonic`, so the reversal is
 /// meant to run on the full grid *after* the §6 bitmap has spread the present
-/// points into place. [`decode_second_order`] does exactly that ordering
+/// points into place. `decode_second_order` does exactly that ordering
 /// (`interleave_present_points`, then this reversal on the length-`expected_count`
 /// output), so the row reversal is correct whether or not a bitmap is present.
 pub fn undo_second_order_boustrophedonic(

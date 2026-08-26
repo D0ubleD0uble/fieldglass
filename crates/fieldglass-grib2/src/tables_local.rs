@@ -48,9 +48,9 @@ use crate::tables::Originator;
 
 /// A centre with a local parameter table.
 ///
-/// [`LOCAL_TABLE_CENTRES`] and the `match` inside [`lookup`] are generated from
-/// one list by [`local_table_registry!`], so a centre cannot appear in one and
-/// not the other. That is the point (#476): the unit sweep in
+/// [`LOCAL_TABLE_CENTRES`] and the `match` inside `lookup` are generated from
+/// one list by the `local_table_registry!` macro, so a centre cannot appear in
+/// one and not the other. That is the point (#476): the unit sweep in
 /// `tests/unit_notation.rs` has to visit every centre to pin every unit string,
 /// and when it kept its own list, adding a table without adding it there left
 /// that centre's whole unit vocabulary silently unpinned.

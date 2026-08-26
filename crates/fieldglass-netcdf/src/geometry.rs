@@ -266,7 +266,7 @@ impl DatasetView {
     /// a 2-D variable over exactly the two dimensions being drawn, in that
     /// order. What survives is classified by [`detect_axis`] — which reads
     /// `units` and `standard_name` and has always been able to recognise these;
-    /// it was never offered them, because [`Self::axis_by_dim`] only offers
+    /// it was never offered them, because `Self::axis_by_dim` only offers
     /// 1-D coordinate variables.
     ///
     /// `None` unless exactly one latitude and one longitude survive. Two

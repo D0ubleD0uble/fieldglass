@@ -84,6 +84,10 @@ Versioning is plain [Semantic Versioning](https://semver.org/spec/v2.0.0.html), 
 
 ### Rust API
 
+- Crate descriptions on crates.io are corrected. `fieldglass-grib2` still described itself as decoding "simple-packing (DRS 5.0)", which stopped being true when the §5 census completed in 0.4.0 — it decodes every registered template. `fieldglass-core`'s described only its traits, where it also owns projection, reprojection and raster rendering. A crates.io description is fixed at publish time and cannot be edited afterwards, so both were wrong for the whole of 0.4.0.
+
+- `fieldglass-grib1` gains a crate-level doc comment. It had none, so its docs.rs landing page was a bare module list where every sibling crate had an orientation. The four published crates now build their documentation without warnings; the dead intra-doc links that rendered as plain code spans are gone.
+
 - `fieldglass_core::ByteSource` is new: the trait a decoder reads bytes through, so a reader can be handed a file it does not hold in memory. `Vec<u8>` implements it, and the NetCDF classic reader is migrated to it first. The shape is fixed by [ADR-0005](docs/decisions/0005-byte-access-and-the-remote-seam.md) — prefetch the ranges an operation needs, then decode synchronously — which is what keeps every decoder callable from a browser host without becoming async (#417, #438).
 
 - `fieldglass_core::units::normalize_units` recognises `um`, `hr` and `dbar`, and renders `um` as `µm`. It also refuses any string containing `since` or `as` as a whole token, so a CF time coordinate (`minutes since 1870-01-01 00:00`) and a HYCOM date (`day as %Y%m%d.%f`) are left alone by rule rather than by the accident that their other tokens were unrecognised (#453, ADR-0007).

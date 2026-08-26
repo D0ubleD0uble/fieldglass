@@ -1012,7 +1012,7 @@ impl RobinsonSpline {
 /// `[-1, 1]²` (`X = x/(0.8487·π)`, `Y = y/1.3523` of Snyder's `R = 1`
 /// coordinates), the map reduces to `X = X(φ)·Δλ/π`, `Y = Y(φ)`, with `X(φ)`
 /// and `Y(φ)` interpolated from Robinson's published table (see
-/// [`RobinsonSpline`] for the choice of interpolant).
+/// `RobinsonSpline` for the choice of interpolant).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Robinson {
     width: u32,
@@ -1163,7 +1163,7 @@ const EQUAL_EARTH_Y_MAX: f64 = equal_earth_fy(EQUAL_EARTH_THETA_MAX);
 /// sphere case `β = φ`, `R_A = R = 1`) is
 /// `sin θ = (√3/2)·sin φ`, `x = Δλ·cos θ / ((√3/2)·fy'(θ))`, `y = fy(θ)`,
 /// with `fy` the published quartic-in-`θ²` polynomial, then divided through by
-/// the half-extents [`EQUAL_EARTH_X_MAX`] / [`EQUAL_EARTH_Y_MAX`].
+/// the half-extents `EQUAL_EARTH_X_MAX` / `EQUAL_EARTH_Y_MAX`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct EqualEarth {
     width: u32,

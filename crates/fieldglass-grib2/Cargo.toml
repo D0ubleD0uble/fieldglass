@@ -1,6 +1,6 @@
 [package]
 name        = "fieldglass-grib2"
-description = "GRIB edition 2 format reader — full §0–§7 parsing and simple-packing (DRS 5.0) value decode"
+description = "GRIB edition 2 reader — full §0–§7 parsing and value decode for every registered §5 packing template, in pure Rust"
 version.workspace      = true
 edition.workspace      = true
 rust-version.workspace = true

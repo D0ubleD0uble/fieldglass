@@ -1,6 +1,6 @@
 [package]
 name        = "fieldglass-core"
-description = "Format-agnostic traits and shared types for the Fieldglass data viewer"
+description = "Shared types, grid projection and reprojection, and raster rendering for the Fieldglass weather-data readers"
 version.workspace      = true
 edition.workspace      = true
 rust-version.workspace = true

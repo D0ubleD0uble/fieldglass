@@ -372,7 +372,7 @@ fn wrf_latlon_is_unrotated(global: &[(String, String)]) -> bool {
 /// **both** grid corners read from `XLAT`/`XLONG` (the caller matches
 /// [`wrf_map_proj`] first, so only a lat-lon file pays for — or can fail on —
 /// the far corner). Returns `None` unless `MAP_PROJ == 6` *and* the domain is
-/// unrotated (see [`wrf_latlon_is_unrotated`]); a rotated-pole domain resolves
+/// unrotated (see `wrf_latlon_is_unrotated`); a rotated-pole domain resolves
 /// to nothing and stays source-only.
 pub fn resolve_wrf_latlon(
     global: &[(String, String)],
