@@ -101,3 +101,54 @@ fn a_million_cell_index_answers_quickly() {
         "10k queries took {ms} ms — the search is not pruning"
     );
 }
+
+/// A thin grid costs about what a compact one of the same size costs.
+///
+/// A satellite swath is a ribbon — 96 cells across, hundreds long — which in
+/// three dimensions is nearly a curve. The splitting planes barely separate it,
+/// so the k-d tree's prune test holds almost everywhere and both branches get
+/// searched. Queries *off* the ribbon are the worst case, and on a world
+/// projection nearly every output pixel is one: warping a 73k-cell swath took
+/// 6.5 seconds before `nearest` seeded its search with the cutoff instead of
+/// infinity.
+///
+/// Asserted as a ratio against a compact grid of the same cell count, on the
+/// same machine in the same run, because an absolute time is a machine-speed
+/// assertion. A degenerate search shows up as hundreds of times slower, so the
+/// ceiling has room for a noisy runner and still fails the thing it is for.
+#[test]
+fn a_thin_grid_is_not_pathologically_slower_than_a_compact_one() {
+    const CELLS: u32 = 96 * 768;
+
+    // Off-grid queries: the case that used to walk the whole tree.
+    let probes: Vec<(f64, f64)> = (0..20_000)
+        .map(|k| {
+            let t = k as f64 / 20_000.0;
+            (-90.0 + 180.0 * t, -180.0 + 360.0 * ((t * 7.3) % 1.0))
+        })
+        .collect();
+
+    let time = |ni: u32, nj: u32| {
+        let (lats, lons) = bent(ni, nj);
+        let ix = SpatialIndex::new(ni, nj, &lats, &lons).expect("index builds");
+        let start = Instant::now();
+        let mut found = 0usize;
+        for &(lat, lon) in &probes {
+            if ix.nearest(lat, lon).is_some() {
+                found += 1;
+            }
+        }
+        (start.elapsed(), found)
+    };
+
+    let (thin, thin_hits) = time(96, CELLS / 96);
+    let (compact, compact_hits) = time(256, CELLS / 256);
+    println!("thin {thin:?} ({thin_hits} hits), compact {compact:?} ({compact_hits} hits)");
+
+    let ratio = thin.as_secs_f64() / compact.as_secs_f64().max(1e-9);
+    assert!(
+        ratio < 25.0,
+        "a thin grid took {ratio:.1}x what a compact one of the same cell count \
+         took ({thin:?} vs {compact:?}) — the search is degenerating on its shape"
+    );
+}
