@@ -1660,10 +1660,12 @@ function renderDatasetBody(
       </tr>`).join("");
     sections.push(`
       <h2>Dimensions</h2>
+      <div class="table-scroll">
       <table>
         <thead><tr><th>Name</th><th>Length</th><th>Kind</th></tr></thead>
         <tbody>${rows}</tbody>
-      </table>`);
+      </table>
+      </div>`);
   }
 
   if (d.globalAttributes.length > 0) {
@@ -1675,10 +1677,12 @@ function renderDatasetBody(
       </tr>`).join("");
     sections.push(`
       <h2>Global attributes</h2>
+      <div class="table-scroll">
       <table>
         <thead><tr><th>Name</th><th>Type</th><th>Value</th></tr></thead>
         <tbody>${rows}</tbody>
-      </table>`);
+      </table>
+      </div>`);
   }
 
   if (d.variables.length > 0) {
@@ -1701,10 +1705,12 @@ function renderDatasetBody(
     }).join("");
     sections.push(`
       <h2>Variables</h2>
+      <div class="table-scroll">
       <table>
         <thead><tr><th>Name</th><th>Type</th><th>Dimensions</th><th>Attributes</th></tr></thead>
         <tbody>${rows}</tbody>
-      </table>`);
+      </table>
+      </div>`);
   }
 
   if (d.dimensions.length === 0 && d.globalAttributes.length === 0 && d.variables.length === 0) {
@@ -1817,7 +1823,7 @@ export function renderHtml(
         <td>${escapeHtml(gridDims)}</td>
         <td>${gridBounds}</td>
         <td>${escapeHtml(m.packing ?? "—")}</td>
-        <td class="centre-cell">${escapeHtml(formatCentreCell(m))}</td>
+        <td>${escapeHtml(formatCentreCell(m))}</td>
       </tr>
       <tr class="expand-row" id="expand-${idx}" hidden>
         <td class="expand-cell" colspan="${COLSPAN}">
@@ -1827,6 +1833,7 @@ export function renderHtml(
     }).join("");
     const fcstHeader = editable ? "Fcst (p1)" : "Fcst";
     bodyContent = `
+    <div class="table-scroll">
     <table>
       <thead>
         <tr>
@@ -1836,7 +1843,8 @@ export function renderHtml(
         </tr>
       </thead>
       <tbody>${rows}</tbody>
-    </table>`;
+    </table>
+    </div>`;
   } else if (dataset) {
     bodyContent = renderDatasetBody(dataset, netcdfVariables);
   } else if (!isKnown && headerBytes && headerBytes.length > 0) {
@@ -2019,6 +2027,15 @@ export function renderHtml(
       color: ${isKnown ? "var(--vscode-badge-foreground)" : "var(--vscode-inputValidation-warningForeground)"};
     }
     .status { font-size: 0.95rem; color: var(--vscode-descriptionForeground); }
+    /* Every table lives in one of these. The cells are no-wrap so a row reads
+       as one line, which means a table is as wide as its widest row wants to
+       be: thirteen columns for a GRIB message, four of them free text, and a
+       centre name that is WMO's own wording at up to 82 characters. Without a
+       container that row pushed the whole page sideways and moved the render
+       panel and the headings with it. Now it scrolls inside the table and the
+       page around it does not move. (No backticks in here - this whole block
+       is a template literal.) */
+    .table-scroll { overflow-x: auto; max-width: 100%; }
     table { border-collapse: collapse; font-size: 0.85rem; width: 100%; }
     th, td { text-align: left; padding: 0.3rem 0.6rem; border-bottom: 1px solid var(--vscode-panel-border); white-space: nowrap; }
     th { color: var(--vscode-descriptionForeground); font-weight: 600; }
@@ -2028,11 +2045,13 @@ export function renderHtml(
       background: var(--vscode-list-activeSelectionBackground);
       color: var(--vscode-list-activeSelectionForeground);
     }
-    /* The centre column carries WMO's own wording since #440 - up to 82
-       characters, plus a sub-centre in parentheses. On a no-wrap cell in a
-       full-width table that pushes the whole table past the viewport, so this
-       one column wraps and is capped instead. */
-    td.centre-cell { white-space: normal; max-width: 22rem; }
+    /* #448 capped the centre column specifically - white-space: normal and a
+       22rem max-width - because it was the one cell wide enough to push the
+       page sideways. The .table-scroll rule above is the general form of that
+       fix, so the special case is gone rather than kept alongside it: a single
+       wrapping column in an otherwise single-line table gave that row a height
+       unlike every other, which is what makes a dense table hard to scan.
+       The long name is still all there, on one line, a scroll away. */
     tr.expand-row td.expand-cell {
       background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
       padding: 0.75rem 1rem;

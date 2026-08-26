@@ -1457,6 +1457,80 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
   // never built today — which is exactly why it needs a test: whoever turns
   // general PDS editing on inherits whatever shape it was left in. It was left
   // showing `forecastHours`, a *normalised* value, while the edit writes the
+  // Every table scrolls inside itself rather than widening the page (#452).
+  //
+  // The cells are no-wrap, so a table is as wide as its widest row wants to be.
+  // Thirteen columns for a GRIB message, four of them free text, and a centre
+  // name carrying WMO's own wording at up to 82 characters — that row used to
+  // push the whole document sideways, taking the heading and the render panel
+  // with it. #448 capped the centre column alone; this is the general form.
+  //
+  // A CSS regression a render test cannot see, which is why it is asserted on
+  // the markup: the container has to exist, wrap every table, and the
+  // superseded per-column workaround has to be gone rather than kept beside it.
+  test("every table is wrapped in a horizontal scroll container", () => {
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+    const bytes = fs.readFileSync(fixturePath("cmc_wind_300_2010052400_p012.grib"));
+    const messages = native.Grib1Handle.fromBytes(bytes).messages();
+    const html = renderHtml(
+      { cspSource: "" } as unknown as vscode.Webview,
+      "grib1",
+      "/tmp/example.grib1",
+      messages,
+      undefined,
+      undefined,
+      false,
+      undefined,
+    );
+
+    assert.ok(
+      /\.table-scroll\s*\{[^}]*overflow-x:\s*auto/.test(html),
+      "the scroll container rule must exist",
+    );
+    // Every <table> opens inside one. Counting is what catches a table added
+    // later without a wrapper, which is the way this regresses.
+    const tables = (html.match(/<table>/g) ?? []).length;
+    const wrapped = (html.match(/<div class="table-scroll">\s*<table>/g) ?? []).length;
+    assert.ok(tables > 0, "the message table must be present");
+    assert.strictEqual(wrapped, tables, `${tables - wrapped} table(s) are not wrapped`);
+
+    // The per-column workaround #448 added is superseded, not doubled up: a
+    // single wrapping column in an otherwise single-line table gave that row a
+    // height unlike every other, which is what makes a dense table hard to scan.
+    assert.ok(
+      !/centre-cell/.test(html),
+      "the superseded per-column cap must be gone, not kept alongside the container",
+    );
+  });
+
+  // The NetCDF tables get the same container. #452 asked for that to be
+  // confirmed rather than assumed, so it was measured on this fixture: its
+  // longest global-attribute cell is 204 characters and its longest
+  // variable attribute-preview 112, both no-wrap, on a file of four dimensions
+  // and six variables. The preview joins up to three attributes each capped at
+  // 120, so the ceiling is higher still.
+  test("the netcdf metadata tables scroll too", () => {
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+    const bytes = fs.readFileSync(fixturePath("ersst_v5_187001_cdf1.nc"));
+    const handle = native.NetcdfHandle.fromBytes(bytes);
+    const html = renderHtml(
+      { cspSource: "" } as unknown as vscode.Webview,
+      "netcdf",
+      "/tmp/example.nc",
+      undefined,
+      handle.metadata(),
+      undefined,
+      false,
+      undefined,
+    );
+    const tables = (html.match(/<table>/g) ?? []).length;
+    const wrapped = (html.match(/<div class="table-scroll">\s*<table>/g) ?? []).length;
+    assert.ok(tables >= 3, `expected the dimensions, attributes and variables tables, got ${tables}`);
+    assert.strictEqual(wrapped, tables, `${tables - wrapped} netcdf table(s) are not wrapped`);
+  });
+
   // raw P1 octet: under a 3-hourly unit the box read 12 for a P1 of 4, so
   // saving it untouched tripled the lead time.
   test("the dormant P1 edit box carries the octet it writes, not normalised hours", () => {
