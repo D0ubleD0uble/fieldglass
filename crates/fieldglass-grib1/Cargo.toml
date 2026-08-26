@@ -1,6 +1,6 @@
 [package]
 name        = "fieldglass-grib1"
-description = "GRIB edition 1 format reader implementing the Fieldglass core traits"
+description = "GRIB edition 1 reader — full section parsing, value decode for every packing in the wild, and grid geometry"
 version.workspace      = true
 edition.workspace      = true
 rust-version.workspace = true

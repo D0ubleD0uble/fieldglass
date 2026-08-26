@@ -38,7 +38,7 @@
 //!   you `grib_set packingType=grid_simple_matrix`, and is fully decoded +
 //!   rendered here.
 //! - `matrixOfValues = 1`: a genuine `NR×NC` matrix per grid point, delimited
-//!   by secondary bitmaps. Decoded by [`decode_matrix_of_values`] and surfaced
+//!   by secondary bitmaps. Decoded by `decode_matrix_of_values` and surfaced
 //!   through `Grib1Reader::decode_matrix_message`; the per-grid-point scalar
 //!   path ([`MatrixPacking::decode`]) rejects it since it isn't one value per
 //!   point.

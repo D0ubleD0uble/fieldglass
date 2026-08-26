@@ -15,8 +15,8 @@ const CENTRE_ECMWF: u8 = 98;
 /// Parameter ids 1-127 are fixed by WMO ON388 Table 2 (versions 1-3), but
 /// `table_version >= 128` selects a *centre-local* table that redefines the
 /// whole id space. For ECMWF (centre 98) tables 128/129 are resolved from
-/// [`crate::tables_ecmwf`]; every other centre/version falls back to the WMO
-/// table, which is also correct for the standard versions 1-3.
+/// the crate's private `tables_ecmwf` table; every other centre/version falls
+/// back to the WMO table, which is also correct for the standard versions 1-3.
 pub fn lookup_parameter(id: u8, table_version: u8, centre: u8) -> ParameterEntry {
     // An ECMWF local table redefines the whole id space, so when one applies
     // resolve against it exclusively — an id it doesn't define is genuinely

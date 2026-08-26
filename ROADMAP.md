@@ -1,8 +1,15 @@
 # Fieldglass roadmap
 
-*Adopted 2026-07-19. Revised 2026-08-23 after the 0.4.0 release. Reviewed
-after each release and at the twice-yearly WMO fast-track checkpoints
-(June and November).*
+*Adopted 2026-07-19. Revised 2026-08-23 after the 0.4.0 release; shipped items
+marked 2026-08-26 during 0.5.0 prep. Reviewed after each release and at the
+twice-yearly WMO fast-track checkpoints (June and November).*
+
+> **Needs a review pass.** Everything under **Now** has shipped, as has most of
+> **Next** — milestones 9 and 10 are both closed. What replaces them is a
+> planning decision, not a bookkeeping one: the open tracks are the wasm browser
+> host (milestone 11) and the Verus proofs (milestone 7), and which becomes
+> *Now* is the maintainer's call. The shipped rows below are struck through so
+> the state is accurate in the meantime.
 
 This document says where Fieldglass is going and why. It is intent, not a
 commitment: items under **Now** are in progress; everything further out will
@@ -107,11 +114,11 @@ milestone.
 
 | Item | Track | Why now |
 |---|---|---|
-| Drop the redundant buffer copies at the napi boundary (#411) | Containers | Peak memory is about 3× file size today; partial fix for large files (#114); no design work. |
-| fletcher32 checksum passthrough (#412) | Containers | A checksum, not compression; its presence fails files whose compression we already handle. |
-| zstd filter (#413) | Containers | netcdf-c ≥ 4.9 default for new climate archives; pure-Rust decoder available. |
-| Cache traversal results on the NetCDF reader (#414) | Containers | Every decode call re-walks the file; free in memory, the whole cost once files are remote. |
-| WMO master parameter tables (#415) | Tables | 44 named GRIB2 parameters today, about 1,430 in the WMO master set. Largest visible change per hour in the plan. |
+| ~~Drop the redundant buffer copies at the napi boundary (#411)~~ **Done.** | Containers | Peak memory on open is down from about 3x file size to one copy. |
+| ~~fletcher32 checksum passthrough (#412)~~ **Done.** | Containers | Reads the checksum, verifies it, and reports a corrupt chunk rather than decoding it. |
+| ~~zstd filter (#413)~~ **Done.** | Containers | Pure-Rust zstd, composing with shuffle and fletcher32 in any order. |
+| ~~Cache traversal results on the NetCDF reader (#414)~~ **Done.** | Containers | The traversal memo binds to its own file, so pairing a probe with another is slow rather than wrong. |
+| ~~WMO master parameter tables (#415)~~ **Done.** | Tables | 1,387 parameters across all 60 discipline/category tables, plus code tables 4.4 and 4.5. |
 | ~~Bootstrap Verus in the workspace (#197)~~ **Done** | Trust | Enabled the verification track. The proofs sit in a crate outside the workspace, and CI asserts no Verus crate reaches the shipped graph, so the stock build and six release targets are untouched. |
 
 ## Next
@@ -120,12 +127,12 @@ Problems we are confident we can solve; shape known, timing not.
 
 | Item | Track | What it unlocks |
 |---|---|---|
-| HEALPix grids, GRIB2 3.150 (#416) | Geometry | DestinE Climate DT output (IFS-NEMO, IFS-FESOM, ICON harmonised). Synthesises onto a lat/lon grid at decode, like spectral. Weeks, not days. |
-| Curvilinear NetCDF grids (#218) | Geometry | Ocean tripolar and satellite-swath files. First consumer of the spatial-index seam; coordinates arrive in-band, so no acquisition policy is needed. |
+| ~~HEALPix grids, GRIB2 3.150 (#416)~~ **Done.** | Geometry | Resampled onto a lat/lon grid at decode, like spectral, so every downstream path works unchanged. |
+| ~~Curvilinear NetCDF grids (#218)~~ **Done.** | Geometry | Both shapes ship: a k-d tree over cell centres as unit vectors, with the tripolar and swath corpus of #444. |
 | Verify the core decode arithmetic (#199, #200, #201) | Trust | Simple-packing scaling, inverse spatial differencing, and complex-packing group expansion: the three paths every GRIB value passes through. |
 | Verify bitmap decoders and HDF5 unshuffle (#202, #203) | Trust | Bounds-safety on the two paths that index by untrusted counts. |
-| GRIB2 local parameter tables: ECMWF (#424), DWD (#425), NCEP (#426) | Tables | Short names and local parameters — the codes at or above 192, which each centre defines for itself — for the three largest publishers. ECMWF's GRIB1 table already ships; this is the GRIB2 side. One generator per PR. |
-| Transverse Mercator (3.12, #422) and Lambert azimuthal equal-area (3.140, #423) | Geometry | UK Met Office UKV; CEMS/EFAS and OSI SAF sea ice. Formula-defined, self-contained. |
+| ~~GRIB2 local parameter tables: ECMWF (#424), DWD (#425), NCEP (#426)~~ **Done.** | Tables | 2,826 ECMWF parameters, 213 DWD, 479 NCEP; one generator per PR as planned. |
+| ~~Transverse Mercator (3.12, #422) and Lambert azimuthal equal-area (3.140, #423)~~ **Done.** | Geometry | Both landed, each checked against an outside oracle - PROJ for 3.12, eccodes for 3.140. |
 
 ## Later
 

@@ -706,7 +706,7 @@ impl LambertProjector {
     }
 
     /// Whether the cone constants are usable. `false` for degenerate standard
-    /// parallels (see [`LambertConstants::well_defined`]); such a projector's
+    /// parallels (see `LambertConstants::well_defined`); such a projector's
     /// [`inverse`](Self::inverse) always returns `None`, so callers can surface
     /// "not reprojectable" instead of rendering blank.
     pub fn is_well_defined(&self) -> bool {
@@ -2449,7 +2449,7 @@ impl GeostationaryProjector {
     /// Walks the scan-angle perimeter, forward-projects each sample with
     /// [`Self::scan_to_lonlat`], and skips off-disk (limb) samples. The
     /// longitude span is the minimum enclosing arc of the on-disk samples
-    /// ([`enclosing_lon_arc`]) — the same logic the planar projectors use — so
+    /// (`enclosing_lon_arc`) — the same logic the planar projectors use — so
     /// a sector straddling the ±180° antimeridian still frames tightly. Like
     /// [`PlanarGridProjector::lonlat_bbox`], the boundary walk suffices: the
     /// lat/lon extrema of this smooth map fall on the grid perimeter, not its

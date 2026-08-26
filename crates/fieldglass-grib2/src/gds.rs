@@ -393,7 +393,7 @@ pub struct BiFourierTemplate {
 #[derive(Debug, Clone, Copy)]
 pub struct TransverseMercatorTemplate {
     pub shape_of_earth: u8,
-    /// Semi-major and semi-minor axes in metres, from [`resolve_earth_shape`].
+    /// Semi-major and semi-minor axes in metres, from `resolve_earth_shape`.
     /// Both are carried rather than a single mean radius: the Krüger series
     /// this feeds is exact on the spheroid and degenerates to the spherical
     /// formulae when they are equal, so there is nothing to gain by averaging
@@ -524,7 +524,7 @@ pub struct GridDefinitionSection {
     pub template: GridTemplate,
     /// §3's optional list of numbers, read as the `PL` row widths of a reduced
     /// grid — empty when the section carries no list, or one it does not
-    /// describe (see [`parse_optional_row_widths`]).
+    /// describe (see `parse_optional_row_widths`).
     ///
     /// This is the raw list. Read it through [`Self::points_per_row`], which
     /// answers only where the list really is a per-row point count.
