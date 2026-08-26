@@ -1546,12 +1546,18 @@ function defaultSliceSpec(v: NetcdfVariableMeta): SliceSpec {
 /** A `MessageMeta` synthesised for the NetCDF render panel's header + projection
  *  controls. The Rust side builds the authoritative per-slice geometry; this
  *  only carries what the panel HTML reads (title, units, reprojectable). */
-function syntheticNetcdfMeta(v: NetcdfVariableMeta, messageIndex = v.variableIndex): MessageMeta {
+export function syntheticNetcdfMeta(
+  v: NetcdfVariableMeta,
+  messageIndex = v.variableIndex,
+): MessageMeta {
   return {
     messageIndex,
     offsetBytes: 0,
     parameterName: v.name,
-    parameterUnits: "",
+    // Typeset by the native side (ADR-0007), so a NetCDF slice's title line and
+    // probe readout carry units the way a GRIB message's do. This was the empty
+    // string until #453, which is why they carried none at all.
+    parameterUnits: v.units ?? "",
     parameterAbbreviation: v.name,
     level: "",
     levelType: "",

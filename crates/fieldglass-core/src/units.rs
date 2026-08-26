@@ -61,10 +61,39 @@ const UNIT_SYMBOLS: &[&str] = &[
     // (aerosol number concentrations are written `Nm**-3`), and `radian` and
     // `degC` are spellings ECMWF uses where WMO writes `rad` and `K`.
     "Nm", "ppb", "ppm", "psu",
+    // Introduced by the NetCDF corpus (#453). `um` is the ASCII spelling of
+    // the micrometre, which GOES ABI writes in `W m-2 sr-1 um-1`; `hr` is the
+    // hour as MiRS spells it in `mm/hr`; `dbar` is the decibar, which is how
+    // ocean profiles state pressure. All three are the shape this module is
+    // for, and were passing through whole for want of one symbol.
+    "um", "hr", "dbar",
     // Countable "units" that WMO writes as words but that do take exponents
     "Person", "Number", "Bites", // Spelled-out forms upstream occasionally uses
     "Joule",
 ];
+
+/// Words that mark a `units` attribute as a time *encoding* rather than a unit.
+///
+/// CF writes a time coordinate as `minutes since 1870-01-01 00:00`, and HYCOM
+/// output — RTOFS in this corpus — writes a date as `day as %Y%m%d.%f`. Both
+/// begin with a real unit token, so both would be half-rewritten by a
+/// vocabulary wide enough to recognise the rest.
+///
+/// Neither was ever rewritten, but both were safe only by accident: `since`,
+/// `as` and a date are simply not recognised symbols, which stops being true
+/// the moment the vocabulary grows. The corpus sweep in `fieldglass-netcdf`
+/// found the second one, which is what a sweep is for (#453).
+const ENCODING_KEYWORDS: &[&str] = &["since", "as"];
+
+/// ASCII spellings that stand in for a character the author could not type,
+/// and the character they stand for.
+///
+/// This is the same act as turning `-1` into `⁻¹`: `u` is what UDUNITS and CF
+/// use where the symbol is `µ`, because the attribute is ASCII. Restoring it is
+/// notation, not renaming — which is the line this module holds. `meters` stays
+/// `meters` and `kelvin` stays `kelvin`, because those are different *words*
+/// for a unit, and choosing between them is the file author's business.
+const SYMBOL_TRANSLITERATIONS: &[(&str, &str)] = &[("um", "µm")];
 
 /// Superscript digits, indexed by value.
 const SUPERSCRIPT: [char; 10] = ['⁰', '¹', '²', '³', '⁴', '⁵', '⁶', '⁷', '⁸', '⁹'];
@@ -104,6 +133,14 @@ pub fn normalize_units(units: &str) -> Cow<'_, str> {
 /// All-or-nothing on purpose: a string half-rewritten is worse than one left
 /// alone, because it looks deliberate.
 fn is_normalisable(units: &str) -> bool {
+    // Some attributes state a time *encoding* in the units field rather than a
+    // unit, and rewriting any part of one would be wrong.
+    if units
+        .split_whitespace()
+        .any(|t| ENCODING_KEYWORDS.iter().any(|k| t.eq_ignore_ascii_case(k)))
+    {
+        return false;
+    }
     // Parentheses mean a grouped expression (`(m2 s sr eV/nuc)-1`) or a
     // cross-reference (`(Code table 4.201)`); neither survives token rewriting.
     if units.contains('(') || units.contains(')') {
@@ -141,7 +178,7 @@ fn rewrite_token(token: &str) -> Option<String> {
         // An empty or dimensionless numerator (`/s`, `1/m`) is a bare reciprocal.
         if !numerator.is_empty() && numerator != DIMENSIONLESS {
             let (symbol, exponent) = split_exponent(numerator)?;
-            out.push_str(symbol);
+            out.push_str(display_symbol(symbol));
             out.push_str(&superscript(exponent));
         }
         for denominator in denominators.split('/') {
@@ -149,14 +186,18 @@ fn rewrite_token(token: &str) -> Option<String> {
             if !out.is_empty() {
                 out.push(' ');
             }
-            out.push_str(symbol);
+            out.push_str(display_symbol(symbol));
             out.push_str(&superscript(-exponent));
         }
         return Some(out);
     }
 
     let (symbol, exponent) = split_exponent(token)?;
-    Some(format!("{symbol}{}", superscript(exponent)))
+    Some(format!(
+        "{}{}",
+        display_symbol(symbol),
+        superscript(exponent)
+    ))
 }
 
 /// Split `kg-2`, `kg**-2` and `kg^-2` into `("kg", -2)`, `m2` into `("m", 2)`,
@@ -197,6 +238,15 @@ fn split_exponent(token: &str) -> Option<(&str, i32)> {
         sign * digits.parse::<i32>().ok()?
     };
     Some((symbol, exponent))
+}
+
+/// How a recognised symbol is written for display, restoring any character its
+/// ASCII spelling stood in for (see [`SYMBOL_TRANSLITERATIONS`]).
+fn display_symbol(symbol: &str) -> &str {
+    match SYMBOL_TRANSLITERATIONS.iter().find(|(a, _)| *a == symbol) {
+        Some((_, display)) => display,
+        None => symbol,
+    }
 }
 
 /// Render an exponent as superscript digits. `1` renders empty, since `m¹` is

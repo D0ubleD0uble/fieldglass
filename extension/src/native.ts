@@ -386,6 +386,9 @@ export interface NetcdfVariableMeta {
   dims: NetcdfAxis[];
   detectedYDim?: number;
   detectedXDim?: number;
+  /** The variable's CF `units`, typeset for display the way a GRIB unit is
+   *  (ADR-0007). Empty string when the variable declares none. */
+  units: string;
 }
 
 export interface NetcdfHandle {

@@ -27,6 +27,7 @@ import * as vscode from "vscode";
 import {
   buildGridReadyMessage,
   renderHtml,
+  syntheticNetcdfMeta,
   gribFieldLabel,
   resolveGribCompare,
   resolveInterval,
@@ -1457,6 +1458,48 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
   // never built today — which is exactly why it needs a test: whoever turns
   // general PDS editing on inherits whatever shape it was left in. It was left
   // showing `forecastHours`, a *normalised* value, while the edit writes the
+  // A NetCDF slice carries its units to the panel, typeset (#453, ADR-0007).
+  //
+  // The render panel builds its own `MessageMeta` for a NetCDF slice, and that
+  // builder hard-coded `parameterUnits: ""` — so the panel title and the probe
+  // readout showed no units at all for a NetCDF file, where a GRIB message
+  // shows them. Normalising the string on the Rust side alone would have been
+  // correct and completely invisible, which is what makes this the seam worth
+  // testing rather than the normaliser.
+  test("a netcdf slice carries typeset units into the render panel", () => {
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+    const bytes = fs.readFileSync(fixturePath("ersst_v5_187001_cdf1.nc"));
+    const variables = native.NetcdfHandle.fromBytes(bytes).variables();
+    const sst = variables.find((v) => v.name === "sst");
+    assert.ok(sst, "the fixture has an sst variable");
+
+    // A name, not a notation: `degree_C` is the author's word and stays.
+    assert.strictEqual(sst.units, "degree_C");
+    const meta = syntheticNetcdfMeta(sst);
+    assert.strictEqual(
+      meta.parameterUnits,
+      "degree_C",
+      "the panel meta must carry the units, not an empty string",
+    );
+
+    const html = renderImagePanelHtml(
+      { cspSource: "" } as unknown as vscode.Webview,
+      meta,
+      "summary",
+      registry(),
+      combineOps(),
+    );
+    assert.ok(
+      html.includes("(degree_C)"),
+      "the panel title must show the units",
+    );
+    assert.ok(
+      /const UNITS = "degree_C"/.test(html),
+      "the probe readout must be given the units too",
+    );
+  });
+
   // Every table scrolls inside itself rather than widening the page (#452).
   //
   // The cells are no-wrap, so a table is as wide as its widest row wants to be.

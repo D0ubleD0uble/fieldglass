@@ -2438,6 +2438,14 @@ pub struct NetcdfVariableMeta {
     pub dims: Vec<NetcdfAxis>,
     pub detected_y_dim: Option<i32>,
     pub detected_x_dim: Option<i32>,
+    /// The variable's CF `units`, typeset for display the way a GRIB unit is
+    /// (ADR-0007). Empty when the variable declares none.
+    ///
+    /// Carried here because the render panel builds its own `MessageMeta` for a
+    /// NetCDF slice and had nowhere to read units from, so its title line and
+    /// probe readout showed none at all — the normalisation would have been
+    /// correct and invisible (#453).
+    pub units: String,
 }
 
 /// Persistent NetCDF reader handle, sibling to [`Grib1Handle`]/[`Grib2Handle`].
@@ -2546,6 +2554,19 @@ impl NetcdfHandle {
                     .collect(),
                 detected_y_dim: v.detected_y_dim.map(|p| p as i32),
                 detected_x_dim: v.detected_x_dim.map(|p| p as i32),
+                units: self
+                    .view
+                    .vars
+                    .iter()
+                    .find(|source| source.decode_index == v.decode_index)
+                    .and_then(|source| {
+                        source
+                            .attrs
+                            .iter()
+                            .find(|(name, _)| name == "units")
+                            .map(|(_, value)| normalize_units(value).into_owned())
+                    })
+                    .unwrap_or_default(),
             })
             .collect()
     }
@@ -3280,6 +3301,16 @@ fn classify_cf_mapping(name: Option<&str>) -> CfMapping {
 /// reads. `ni` = x-axis length, `nj` = y-axis length; these stay decoupled from
 /// the coordinate-derived corners so a coordinate array whose length disagrees
 /// with its dimension can't desync the raster from its declared size.
+/// The shared `MessageMeta` skeleton every synthesised NetCDF slice starts from.
+///
+/// `units` goes through the same display normalisation the GRIB paths use
+/// (#453). CF requires the attribute to be parsable by UDUNITS, so the author
+/// chose one machine-readable spelling among several equivalent ones rather
+/// than writing prose; typesetting its exponents is the same act performed on a
+/// GRIB unit, and nothing downstream reads the string — it reaches three
+/// display sites and no CSV header. What is *not* done is renaming: `meters`
+/// and `kelvin` stay as the file wrote them, because those are the author's
+/// choice of word rather than an ASCII stand-in for a character.
 fn base_netcdf_meta(name: &str, units: &str, ni: i32, nj: i32) -> MessageMeta {
     MessageMeta {
         p1_octet: None,
@@ -3287,7 +3318,7 @@ fn base_netcdf_meta(name: &str, units: &str, ni: i32, nj: i32) -> MessageMeta {
         message_index: 0,
         offset_bytes: 0,
         parameter_name: name.to_string(),
-        parameter_units: units.to_string(),
+        parameter_units: normalize_units(units).into_owned(),
         parameter_abbreviation: name.to_string(),
         level: String::new(),
         level_type: String::new(),
