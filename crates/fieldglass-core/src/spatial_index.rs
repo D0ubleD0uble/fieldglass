@@ -182,10 +182,27 @@ impl SpatialIndex {
             return None;
         }
         let target = unit_vector(lat, lon);
-        let mut best = (f64::INFINITY, u32::MAX);
+        // Seed the best distance with the cutoff rather than infinity. A point
+        // further from the grid than `max_chord` is going to be refused either
+        // way, so starting there lets the tree's own pruning test reject it
+        // instead of walking to find an answer that is then thrown away.
+        //
+        // This is what makes a *thin* grid usable. A swath is a ribbon 96 cells
+        // wide and 768 long, which in three dimensions is nearly a curve: the
+        // splitting planes barely separate it, so `delta² < best` almost always
+        // holds and both branches get searched. With `best` starting at
+        // infinity that is a full walk of the tree for every query, and on a
+        // world projection most pixels are nowhere near the ribbon — 73k cells
+        // took 6.5 seconds to warp before this line changed.
+        //
+        // Seeded one ULP above the cutoff, not at it: the search keeps a
+        // candidate on `d < best`, so seeding exactly at the cutoff would make
+        // the bound exclusive and refuse a query sitting precisely on it — a
+        // grid asked for one of its own centres under a zero cutoff.
+        let mut best = ((self.max_chord * self.max_chord).next_up(), u32::MAX);
         search(&self.tree, &self.xyz, target, 0, &mut best);
-        let (dist2, cell) = best;
-        if cell == u32::MAX || dist2.sqrt() > self.max_chord {
+        let (_, cell) = best;
+        if cell == u32::MAX {
             return None;
         }
         Some(GridIndex {
