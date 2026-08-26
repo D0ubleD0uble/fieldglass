@@ -222,6 +222,20 @@ impl DatasetView {
     /// not a coordinate variable. Each carries the detected horizontal axis
     /// positions so the picker can pre-fill the X / Y selectors.
     pub fn renderable_variables(&self) -> Vec<RenderableVariable> {
+        // Every variable some *other* variable names as its 2-D lat/lon pair.
+        // These are coordinates, not fields, and a picker offering them puts a
+        // picture of latitude in front of the user before anything else — RTOFS
+        // lists `Latitude` first, so it was the default a file opened on.
+        //
+        // The 1-D case is already excluded by `is_coordinate`, which requires a
+        // variable be named for its own single dimension. A 2-D coordinate is
+        // not named for a dimension at all, so it needs its own rule (#218).
+        let coordinate_planes: Vec<usize> = self
+            .vars
+            .iter()
+            .filter_map(|v| self.resolve_curvilinear(v))
+            .flat_map(|(coords, _, _)| [coords.lat_index, coords.lon_index])
+            .collect();
         let axes = self.axis_by_dim();
         let lat_dim = axes
             .iter()
@@ -234,7 +248,12 @@ impl DatasetView {
 
         self.vars
             .iter()
-            .filter(|v| v.is_numeric() && v.dim_names.len() >= 2 && !v.is_coordinate())
+            .filter(|v| {
+                v.is_numeric()
+                    && v.dim_names.len() >= 2
+                    && !v.is_coordinate()
+                    && !coordinate_planes.contains(&v.decode_index)
+            })
             .map(|v| {
                 let position =
                     |dim: Option<&str>| dim.and_then(|d| v.dim_names.iter().position(|n| n == d));

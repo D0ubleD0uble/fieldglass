@@ -81,6 +81,9 @@ files break in opposite directions if it is wrong.
 
 **Open `S: samples/rtofs_ice.nc`** (global HYCOM sea ice, 3298 × 4500)
 
+- [ ] The variable picker offers the ice fields and **not** `Latitude` /
+      `Longitude`. Those are the grid's coordinates, not fields to draw; a file
+      that opens on a picture of latitude means the exclusion regressed (#218).
 - [ ] It opens. **This is the memory and latency check**: the index is 14.8
       million cells, about 400 MB and two seconds, paid once. If the first
       render is slow that is expected; the *second* should feel instant.
@@ -88,7 +91,8 @@ files break in opposite directions if it is wrong.
       pickers.** `ice_thickness` is `(MT, Y, X)`; the picker must land on
       `Y` × `X`, not the length-1 `MT`. A one-pixel-tall sliver means the axis
       defaults regressed (#218).
-- [ ] Pick `ice_thickness` (or `ice_coverage`). Render in **Source**: the
+- [ ] Pick `ice_thickness` from the variable dropdown (the file opens on
+      `ice_coverage`). Render in **Source**: the
       Arctic third of the image is visibly folded — that is the bipolar patch,
       and it is the correct source-projection view.
 - [ ] Switch to **Equirectangular**. The fold **unfolds into a real Arctic**.

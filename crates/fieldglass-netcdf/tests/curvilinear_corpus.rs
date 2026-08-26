@@ -225,6 +225,50 @@ fn a_curvilinear_variable_pre_selects_its_real_image_axes() {
     );
 }
 
+/// A 2-D coordinate is not offered as a field to draw.
+///
+/// Found opening the full RTOFS sample during the 0.5.0 test pass: the picker
+/// defaults to the first renderable variable, and `Latitude` sorted first — so
+/// the file opened on a picture of latitude rather than on the ice.
+///
+/// A 1-D coordinate was already excluded, by `is_coordinate`, which requires a
+/// variable be named for its own single dimension. A 2-D coordinate is not
+/// named for a dimension at all, so it slipped through a rule that was never
+/// written for it.
+#[test]
+fn a_two_dimensional_coordinate_is_not_offered_as_a_field() {
+    for (label, bytes, gone, first) in [
+        (
+            "tripolar",
+            TRIPOLAR,
+            ["Latitude", "Longitude"],
+            "ice_coverage",
+        ),
+        ("swath", SWATH, ["Latitude", "Longitude"], "RR"),
+    ] {
+        let (_, view_) = view(bytes);
+        let names: Vec<String> = view_
+            .renderable_variables()
+            .into_iter()
+            .map(|v| v.name)
+            .collect();
+        for coord in gone {
+            assert!(
+                !names.contains(&coord.to_string()),
+                "{label}: {coord} is a coordinate, not a field to draw"
+            );
+        }
+        assert_eq!(
+            names.first().map(String::as_str),
+            Some(first),
+            "{label}: the file should open on a real field"
+        );
+        // They are still present as variables — only the *picker* excludes them,
+        // because the geolocation reads them by name.
+        assert!(view_.vars.iter().any(|v| v.name == "Latitude"), "{label}");
+    }
+}
+
 /// A regular 1-D grid keeps detecting its axes the way it always did.
 ///
 /// The curvilinear resolution is a *fallback*: it fills the axes only where the
