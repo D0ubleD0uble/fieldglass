@@ -91,6 +91,10 @@ files break in opposite directions if it is wrong.
       pickers.** `ice_thickness` is `(MT, Y, X)`; the picker must land on
       `Y` × `X`, not the length-1 `MT`. A one-pixel-tall sliver means the axis
       defaults regressed (#218).
+- [ ] **North is at the top in Source projection.** RTOFS stores its rows
+      south-first, so an unflipped raster draws the Antarctic at the top. Every
+      source view is flipped to face north-up (#286); a NetCDF file that looks
+      inverted means that flip regressed.
 - [ ] Pick `ice_thickness` from the variable dropdown (the file opens on
       `ice_coverage`). Render in **Source**: the
       Arctic third of the image is visibly folded — that is the bipolar patch,
@@ -202,7 +206,9 @@ one ECMWF, one DWD.
 ## 6. NetCDF containers and the metadata view (#412, #413, #452)
 
 - [ ] `S: samples/oisst.nc` or any NetCDF-4 file opens; the metadata view shows
-      dimensions, global attributes and variables.
+      dimensions, global attributes and variables. Its Source view is north-up —
+      OISST stores latitude ascending, so this is the regular-grid half of the
+      same flip.
 - [ ] **Narrow the editor pane until a row is wider than it.** The table
       **scrolls inside itself**; the heading and the render panel stay put
       (#452). Check both the GRIB message table and the NetCDF variables table.

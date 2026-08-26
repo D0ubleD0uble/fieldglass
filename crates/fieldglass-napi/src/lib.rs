@@ -2993,7 +2993,13 @@ impl NetcdfHandle {
                 lon_first: Some(lon_min),
                 lon_last: Some(lon_max),
                 reprojectable: true,
-                ..synth_latlon_meta(&var.name, &units, ni as i32, nj as i32, None)
+                // A lookup grid has no latitude axis to read an ordering from,
+                // so the rows are compared directly: mean latitude of the first
+                // row against the last. A mean rather than one column because
+                // latitude is not monotonic in Y near a tripolar fold, where a
+                // single sample can sit on the wrong side of it.
+                j_scans_positive: rows_run_south_to_north(&index),
+                ..synth_latlon_meta(&var.name, &units, ni as i32, nj as i32, None, false)
             });
         }
 
@@ -3014,7 +3020,8 @@ impl NetcdfHandle {
         // **source projection only** — never let the lat/lon synthesis treat its
         // projected `x`/`y` as degrees and mis-georeference (decision 0004
         // guardrail).
-        let source_only = || synth_latlon_meta(&var.name, &units, ni as i32, nj as i32, None);
+        let source_only =
+            || synth_latlon_meta(&var.name, &units, ni as i32, nj as i32, None, false);
         if let Some(gm_attrs) = self.data_grid_mapping_attrs(var) {
             let mapping_name = gm_attrs
                 .iter()
@@ -3043,6 +3050,17 @@ impl NetcdfHandle {
         // coordinates) or an explicit `latitude_longitude` mapping.
         let lat_idx = self.view.coordinate_index(&y_axis.name);
         let lon_idx = self.view.coordinate_index(&x_axis.name);
+        // Whether the chosen Y axis really is a latitude, as opposed to a level
+        // or a time the user picked for a cross-section. Only then does "which
+        // way is north" mean anything, and only then is the raster flipped to
+        // face north-up (#286's convention, applied to NetCDF).
+        let y_is_latitude = self
+            .view
+            .vars
+            .iter()
+            .find(|v| v.name == y_axis.name)
+            .and_then(fieldglass_netcdf::detect_axis)
+            == Some(fieldglass_netcdf::AxisKind::Latitude);
         let geometry = match (lat_idx, lon_idx) {
             (Some(lat_i), Some(lon_i)) => {
                 let lat = self.coordinate_values(lat_i)?;
@@ -3055,7 +3073,12 @@ impl NetcdfHandle {
             _ => None,
         };
         Ok(synth_latlon_meta(
-            &var.name, &units, ni as i32, nj as i32, geometry,
+            &var.name,
+            &units,
+            ni as i32,
+            nj as i32,
+            geometry,
+            y_is_latitude,
         ))
     }
 
@@ -3537,9 +3560,22 @@ fn synth_latlon_meta(
     ni: i32,
     nj: i32,
     geometry: Option<fieldglass_netcdf::SliceGeometry>,
+    // Whether the Y axis is a latitude, so "north-up" means something. False
+    // for a cross-section against level or time, where the raster is left in
+    // storage order because there is no north to face.
+    y_is_latitude: bool,
 ) -> MessageMeta {
     MessageMeta {
         grid_type: Some("latlon".to_string()),
+        // A NetCDF file carries no scanning mode, so the fact GRIB reads from
+        // flag 0x40 — do rows run south to north — is read from the latitude
+        // axis instead. CF's common ordering is ascending, which means row 0 is
+        // the *southern* edge and the raster has to be flipped to face north-up
+        // like every other source view (#286). Only set where the axis really is
+        // a latitude and its ordering is known.
+        j_scans_positive: geometry
+            .filter(|_| y_is_latitude)
+            .map(|g| g.lat_first < g.lat_last),
         lat_first: geometry.map(|g| g.lat_first),
         lon_first: geometry.map(|g| g.lon_first),
         lat_last: geometry.map(|g| g.lat_last),
@@ -3904,6 +3940,32 @@ type ProjectionStage = (
 /// view therefore flips such a grid by default, with the user's Flip Y toggle
 /// riding on top as an override. Reprojected targets orient from geometry, so
 /// they use `flip_y` verbatim and never call this. (#286)
+/// Whether a lookup grid's rows run south to north, so the source raster has to
+/// be flipped to face north-up (#286's convention, applied to a grid that has no
+/// scanning mode to read it from).
+///
+/// The comparison is between the *mean* latitude of the first and last rows
+/// rather than a single column. Latitude is not monotonic in `j` near a tripolar
+/// fold — a row there runs up over a pole and back down — so one sample can land
+/// on the wrong side of it and answer backwards for the whole grid.
+///
+/// `None` when the grid is too small to have two distinct rows, or when no row
+/// has a finite centre, since there is then nothing to compare.
+fn rows_run_south_to_north(index: &SpatialIndex) -> Option<bool> {
+    let (ni, nj) = index.dims();
+    if nj < 2 || ni == 0 {
+        return None;
+    }
+    let row_mean = |j: u32| {
+        let lats: Vec<f64> = (0..ni)
+            .filter_map(|i| index.centre(i, j))
+            .map(|(lat, _)| lat)
+            .collect();
+        (!lats.is_empty()).then(|| lats.iter().sum::<f64>() / lats.len() as f64)
+    };
+    Some(row_mean(0)? < row_mean(nj - 1)?)
+}
+
 fn source_flip_y(meta: &MessageMeta, flip_y: bool) -> bool {
     flip_y ^ meta.j_scans_positive.unwrap_or(false)
 }
@@ -7693,14 +7755,14 @@ mod netcdf_slice_tests {
             irregular: false,
             lon_descending: false,
         };
-        let meta = synth_latlon_meta("sst", "degree_C", 180, 89, Some(geom));
+        let meta = synth_latlon_meta("sst", "degree_C", 180, 89, Some(geom), false);
         assert_eq!(meta.grid_type.as_deref(), Some("latlon"));
         assert_eq!(meta.format, "netcdf");
         assert_eq!(meta.grid_ni, Some(180));
         assert_eq!(meta.lat_first, Some(88.0));
         assert!(meta.reprojectable);
 
-        let assumed = synth_latlon_meta("sst", "", 180, 89, None);
+        let assumed = synth_latlon_meta("sst", "", 180, 89, None, false);
         assert!(assumed.lat_first.is_none());
         assert!(!assumed.reprojectable, "no corners ⇒ source only");
     }
@@ -7719,7 +7781,7 @@ mod netcdf_slice_tests {
             irregular: false,
             lon_descending: false,
         };
-        let meta = synth_latlon_meta("sst", "degree_C", 180, 89, Some(global));
+        let meta = synth_latlon_meta("sst", "degree_C", 180, 89, Some(global), false);
         assert!(source_grid_is_periodic(&meta, 180));
 
         // A 90°-wide regional window is not periodic.
@@ -7729,11 +7791,11 @@ mod netcdf_slice_tests {
             ni: 10,
             ..global
         };
-        let meta = synth_latlon_meta("t", "K", 10, 89, Some(regional));
+        let meta = synth_latlon_meta("t", "K", 10, 89, Some(regional), false);
         assert!(!source_grid_is_periodic(&meta, 10));
 
         // Planar grid types never wrap, whatever their corners say.
-        let mut planar = synth_latlon_meta("t", "K", 180, 89, Some(global));
+        let mut planar = synth_latlon_meta("t", "K", 180, 89, Some(global), false);
         planar.grid_type = Some("lambert".to_string());
         assert!(!source_grid_is_periodic(&planar, 180));
     }
@@ -10071,6 +10133,78 @@ mod curvilinear_render_tests {
         let h = (d_phi / 2.0).sin().powi(2)
             + phi_a.cos() * phi_b.cos() * (d_lambda / 2.0).sin().powi(2);
         (2.0 * h.sqrt().clamp(0.0, 1.0).asin()).to_degrees()
+    }
+
+    /// A curvilinear source view faces north-up, like every other source view.
+    ///
+    /// GRIB reads "do rows run south to north" from scanning-mode flag 0x40 and
+    /// flips the source raster so north is up (#286). NetCDF carries no
+    /// scanning mode, and nothing had been substituted for it, so a file whose
+    /// latitude ascends with the row index — the common CF ordering, and what
+    /// RTOFS uses — drew upside-down. Found in the 0.5.0 manual pass.
+    ///
+    /// A lookup grid has no latitude *axis* either, so the rows are compared
+    /// directly. The mean matters: latitude is not monotonic in `j` near the
+    /// tripolar fold, where a row runs up over a pole and back down, so a single
+    /// column can answer backwards for the whole grid.
+    #[test]
+    fn a_curvilinear_source_view_is_flipped_to_face_north_up() {
+        // RTOFS ascends: the committed window runs 82 °N at row 0 to the pole.
+        let (handle, var, y, x, _) = slice(TRIPOLAR, "ice_thickness");
+        let meta = handle.slice_meta(&var, y, x).expect("meta");
+        assert_eq!(
+            meta.j_scans_positive,
+            Some(true),
+            "the window's rows run south to north"
+        );
+        assert!(
+            source_flip_y(&meta, false),
+            "so the source view flips to face north-up"
+        );
+
+        // The swath descends — row 0 is its northern end — and must not flip.
+        let (handle, var, y, x, _) = slice(SWATH, "TPW");
+        let meta = handle.slice_meta(&var, y, x).expect("meta");
+        assert_eq!(meta.j_scans_positive, Some(false), "north-first already");
+        assert!(!source_flip_y(&meta, false), "so it is left alone");
+    }
+
+    /// The row comparison survives a fold that a single column would not.
+    ///
+    /// A tripolar top row runs from mid-latitude up over the pole and back
+    /// down, so its column samples disagree with each other. Taking the mean is
+    /// what keeps the answer about the grid rather than about which column
+    /// happened to be sampled.
+    #[test]
+    fn the_row_comparison_is_not_fooled_by_a_fold() {
+        let (ni, nj) = (9u32, 3u32);
+        let (mut lats, mut lons) = (Vec::new(), Vec::new());
+        for j in 0..nj {
+            for i in 0..ni {
+                // Rows ascend overall (-60, 0, +60), but the last row folds:
+                // its middle columns reach far past its edges.
+                let base = -60.0 + 60.0 * j as f64;
+                let fold = if j == nj - 1 {
+                    25.0 * (1.0 - ((i as f64 - 4.0) / 4.0).abs())
+                } else {
+                    0.0
+                };
+                lats.push(base + fold);
+                lons.push(-180.0 + 40.0 * i as f64);
+            }
+        }
+        let index = SpatialIndex::new(ni, nj, &lats, &lons).expect("index builds");
+        assert_eq!(
+            rows_run_south_to_north(&index),
+            Some(true),
+            "the grid ascends even though the top row is not flat"
+        );
+        // The single-column reading this replaced: column 0 of the last row is
+        // 60, column 4 is 85 — both still above row 0, but the fold is what
+        // makes a one-sample rule fragile rather than wrong here.
+        assert!(
+            index.centre(4, nj - 1).expect("centre").0 > index.centre(0, nj - 1).expect("centre").0
+        );
     }
 
     /// Bilinear is refused on a lookup grid rather than blending across a fold.
