@@ -135,14 +135,27 @@ genuinely startable. The rest are in **Next**.
 
 Problems we are confident we can solve; shape known, timing not.
 
+The rest of the fieldglass-wasm milestone, plus the remote transports it makes
+reachable. Every wasm row below waits on #460 in **Now**; the transports wait on
+#461 and on nothing else, since ADR-0005's gate — the `ByteSource` trait (#438)
+and one migrated reader — is met.
+
 | Item | Track | What it unlocks |
 |---|---|---|
-| ~~HEALPix grids, GRIB2 3.150 (#416)~~ **Done.** | Geometry | Resampled onto a lat/lon grid at decode, like spectral, so every downstream path works unchanged. |
-| ~~Curvilinear NetCDF grids (#218)~~ **Done.** | Geometry | Both shapes ship: a k-d tree over cell centres as unit vectors, with the tripolar and swath corpus of #444. |
-| Verify the core decode arithmetic (#199, #200, #201) | Trust | Simple-packing scaling, inverse spatial differencing, and complex-packing group expansion: the three paths every GRIB value passes through. |
-| Verify bitmap decoders and HDF5 unshuffle (#202, #203) | Trust | Bounds-safety on the two paths that index by untrusted counts. |
-| ~~GRIB2 local parameter tables: ECMWF (#424), DWD (#425), NCEP (#426)~~ **Done.** | Tables | 2,826 ECMWF parameters, 213 DWD, 479 NCEP; one generator per PR as planned. |
-| ~~Transverse Mercator (3.12, #422) and Lambert azimuthal equal-area (3.140, #423)~~ **Done.** | Geometry | Both landed, each checked against an outside oracle - PROJ for 3.12, eccodes for 3.140. |
+| The `fieldglass` umbrella crate, and napi collapsed onto it (#464) | Hosts | ADR-0006's shape: one `Session` over plain serde types, so each host is buffer handoff and error mapping. Carries a hand-off from #445 — a `GridGeometry::Gaussian` built straight from the GDS takes `lo2` at face value and misplaces every octahedral grid, and `kind()` loses the `reduced_gaussian` tag both readers now report. |
+| wasm32 check, bundle-size gate, decode benchmark (#462) | Hosts | Stops the browser build regressing silently. A bundle-size gate is the only thing that keeps a wasm target honest, since nothing else fails when it doubles. |
+| Publish `@fieldglass/wasm` to npm on tag (#466) | Hosts | Makes the host installable rather than buildable. Rides the existing tag-triggered release path. |
+| ROADMAP and README statement for the host surface (#467) | Hosts | Says out loud that the format crates target `wasm32-unknown-unknown`, where the package lives, and what rendering in a browser does and does not do. |
+| Caller-controlled output raster, window × size (#465) | Interaction | A map view asks for "this window at W × H pixels". Today the output is always the source grid's `ni × nj` and manual bounds is the only zoom, which is why the browser app cannot drive a real map. |
+| Remote data over HTTP range requests (#247) | Containers | The first transport, and the one every other depends on. Opens a file that lives on a public bucket without downloading it. |
+| S3 dataset access (#252) | Containers | NOAA's Open Data buckets are where the archives actually are — the same objects the fixture builders already fetch anonymously. |
+| Local Zarr v2 stores, a new `fieldglass-zarr` crate (#246) | Containers | The storage convention the climate archives are moving to; chunk-per-object rather than one file, so it needs the range seam rather than a reader. |
+| Streaming / lazy reads for multi-GB archives (#114) | Containers | The extension reads whole files into memory to keep remote and virtual workspaces working, which rules out multi-GB GRIB archives. The same prefetch-then-decode seam is what makes a partial read possible at all. |
+
+**Verification (#199-#203) is deliberately not listed here.** It is a parallel
+track by design — see *Where verification fits* above — running on shipped code
+in a crate outside the workspace, and it is tracked in its own milestone rather
+than queued behind anything in this section.
 
 ## Later
 
@@ -162,11 +175,6 @@ first.
   re-costing it.
 - **Verify NetCDF classic length arithmetic (#204)**, closing the
   verification milestone (#205).
-- **Remote data: HTTP range (#247), S3 (#252), Zarr (#246).** The decision is
-  made — [ADR-0005](docs/decisions/0005-byte-access-and-the-remote-seam.md):
-  prefetch the ranges an operation needs, decode synchronously, behind a
-  `ByteSource` trait. Gated now on the trait landing (#438) and one migrated
-  reader.
 - **Further host surfaces.** PyO3 bindings and a CLI (#254), after the wasm
   build in **Now**. The format crates are already pure byte-in, values-out
   engines, and each host is a binding over one `fieldglass` umbrella crate
