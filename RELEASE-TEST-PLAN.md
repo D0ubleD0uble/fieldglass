@@ -84,6 +84,10 @@ files break in opposite directions if it is wrong.
 - [ ] It opens. **This is the memory and latency check**: the index is 14.8
       million cells, about 400 MB and two seconds, paid once. If the first
       render is slow that is expected; the *second* should feel instant.
+- [ ] **The variable opens on the right plane without touching the axis
+      pickers.** `ice_thickness` is `(MT, Y, X)`; the picker must land on
+      `Y` × `X`, not the length-1 `MT`. A one-pixel-tall sliver means the axis
+      defaults regressed (#218).
 - [ ] Pick `ice_thickness` (or `ice_coverage`). Render in **Source**: the
       Arctic third of the image is visibly folded — that is the bipolar patch,
       and it is the correct source-projection view.

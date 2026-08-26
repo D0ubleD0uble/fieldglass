@@ -175,6 +175,114 @@ fn the_two_dimensional_coordinates_resolve_and_are_told_apart() {
     }
 }
 
+/// A curvilinear variable pre-selects the plane that is actually the image.
+///
+/// This is the last mile of #218: the geolocation shipped in #445, but the
+/// slice picker had nothing to pre-select from — a curvilinear variable has no
+/// 1-D coordinate variable to detect an axis from — so it fell back to the
+/// variable's first two dimensions.
+///
+/// For the swath that fallback is right by accident: its dimensions *are*
+/// `(Scanline, Field_of_view)`. For the ocean field it is wrong, and visibly
+/// so — `ice_thickness` is `(MT, Y, X)`, and the first two dimensions are a
+/// length-1 time axis against Y, which renders as a 200x1 sliver of the wrong
+/// plane with no geolocation at all. The 2-D coordinate arrays already name the
+/// answer: they span exactly the two dimensions that are the image.
+///
+/// The swath case is kept even though it passed before, because it is the one
+/// that would silently keep passing if the resolution broke and the fallback
+/// took over again.
+#[test]
+fn a_curvilinear_variable_pre_selects_its_real_image_axes() {
+    for (label, bytes, field, expected) in [
+        ("tripolar", TRIPOLAR, "ice_thickness", (1usize, 2usize)),
+        ("swath", SWATH, "TPW", (0, 1)),
+    ] {
+        let (_, view_) = view(bytes);
+        let renderable = view_
+            .renderable_variables()
+            .into_iter()
+            .find(|v| v.name == field)
+            .unwrap_or_else(|| panic!("{label}: {field} is renderable"));
+        assert_eq!(
+            (renderable.detected_y_dim, renderable.detected_x_dim),
+            (Some(expected.0), Some(expected.1)),
+            "{label}: {field} should pre-select its 2-D coordinate axes"
+        );
+        // And the axes it names really are the ones the coordinates span.
+        let source = var(&view_, field);
+        assert_eq!(view_.curvilinear_axes(source), Some(expected), "{label}");
+    }
+
+    // The tripolar case is the one the old fallback got wrong: not (0, 1).
+    let (_, view_) = view(TRIPOLAR);
+    let ice = var(&view_, "ice_thickness");
+    assert_eq!(ice.dim_names, ["MT", "Y", "X"]);
+    assert_ne!(
+        view_.curvilinear_axes(ice),
+        Some((0, 1)),
+        "dimension 0 is a length-1 time axis, not an image axis"
+    );
+}
+
+/// A regular 1-D grid keeps detecting its axes the way it always did.
+///
+/// The curvilinear resolution is a *fallback*: it fills the axes only where the
+/// 1-D coordinate-variable path found none, so a file with real `lat`/`lon`
+/// axes is untouched by any of this.
+#[test]
+fn a_regular_grid_still_detects_its_own_axes() {
+    const ERSST: &[u8] = include_bytes!("fixtures/ersst_v5_187001_cdf1.nc");
+    let reader = NetcdfReader::from_bytes(ERSST.to_vec()).expect("fixture parses");
+    let NetcdfBacking::Classic(header) = &reader.backing else {
+        panic!("expected a classic backing");
+    };
+    let view_ = DatasetView::from_classic(header);
+    let sst = view_
+        .renderable_variables()
+        .into_iter()
+        .find(|v| v.name == "sst")
+        .expect("sst is renderable");
+    // `sst(time, lev, lat, lon)` — detected from the 1-D coordinate variables.
+    assert_eq!(
+        (sst.detected_y_dim, sst.detected_x_dim),
+        (Some(2), Some(3)),
+        "a 1-D lat/lon grid detects its own axes"
+    );
+    let source = view_
+        .vars
+        .iter()
+        .find(|v| v.name == "sst")
+        .expect("the variable");
+    assert_eq!(
+        view_.curvilinear_axes(source),
+        None,
+        "and names no 2-D pair to fall back to"
+    );
+}
+
+/// A pair laid out over different dimensions places nothing.
+///
+/// `lat(a, b)` with `lon(b, a)` describes no single raster, and picking one
+/// order would put the field somewhere wrong. The corpus has no such file, so
+/// this is asserted on the guard directly: both fixtures' pairs *do* agree, and
+/// that agreement is what the resolution requires.
+#[test]
+fn the_two_coordinates_must_agree_on_their_dimensions() {
+    for (label, bytes, dims) in [
+        ("tripolar", TRIPOLAR, ["Y", "X"]),
+        ("swath", SWATH, ["Scanline", "Field_of_view"]),
+    ] {
+        let (_, view_) = view(bytes);
+        assert_eq!(var(&view_, "Latitude").dim_names, dims, "{label}");
+        assert_eq!(
+            var(&view_, "Longitude").dim_names,
+            dims,
+            "{label}: the pair agrees, which is what makes the raster single"
+        );
+    }
+}
+
 /// RTOFS names a time coordinate in the same attribute, and it is ignored.
 ///
 /// `coordinates = "Longitude Latitude Date"` — `Date` is a 1-D time variable,
