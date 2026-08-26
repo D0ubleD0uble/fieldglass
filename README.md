@@ -75,22 +75,53 @@ Format-agnostic features:
 
 A GRIB1 file's BDS (Binary Data Section) flag bits select one of several packing schemes. Decoding (and therefore 2-D rendering) covers only some of them today; metadata and format detection do not depend on the packing mode and work on every file. For an unsupported variant, the decoder returns an error naming the eccodes-style `packingType`, so you can match it against [eccodes' definitions](https://confluence.ecmwf.int/display/ECC/Documentation).
 
-| BDS packing | eccodes packingType | Decode | Notes |
-|---|---|:---:|---|
-| Simple grid-point packing | `grid_simple` | ✅ | The bulk of CMC, NCEP non-operational data, and pygrib sample sets. |
-| Constant field (`bits_per_value = 0`) | `grid_simple` | ✅ | Special case of simple packing. |
-| Second-order, no SPD | `grid_second_order_no_SPD` | ✅ | Decodes via the shared general-extended path (order 0). Cross-validated against eccodes 2.34 with a hand-built oracle fixture (eccodes won't *encode* this order but decodes it). |
-| Second-order, SPD-1 | `grid_second_order_SPD1` | ✅ | Decodes via the shared general-extended path (order 1). Cross-validated against eccodes 2.34 with a hand-built oracle fixture. |
-| Second-order, SPD-2 (ECMWF default) | `grid_second_order` | ✅ | Most common in ECMWF MARS-derived files. Cross-validated against eccodes 2.34. |
-| Second-order, SPD-3 | `grid_second_order_SPD3` | ✅ | Cross-validated against eccodes 2.34 (re-encoded from the SPD-2 fixture), with and without boustrophedonic row ordering. |
-| Second-order, row-by-row | `grid_second_order_row_by_row` | ✅ | Classic WMO layout: one group per row, per-row widths, no SPD. Cross-validated against eccodes 2.34 with a hand-built oracle fixture. |
-| Second-order, constant width | `grid_second_order_constant_width` | ✅ | Classic WMO layout: explicit secondary bitmap + single shared width. Cross-validated against eccodes 2.34 with a hand-built oracle fixture. |
-| Second-order, general (legacy) | `grid_second_order_general_grib1` | ✅ | Classic WMO layout: secondary-bitmap-delimited variable-length groups + per-group widths. Cross-validated against eccodes 2.34 with a hand-built oracle fixture. |
-| IEEE 754 raw floats | `grid_ieee` | ✅ | Values stored verbatim as big-endian floats; 32-bit (`precision = 1`) and 64-bit (`precision = 2`). Cross-validated against eccodes 2.34. 128-bit (`precision = 3`) is unsupported; eccodes returns `NOT_IMPLEMENTED` for it too. |
-| Matrix-of-values (scalar form) | `grid_simple_matrix` | ✅ | `matrixOfValues = 0`: a simple-packed body behind the matrix sub-header (what eccodes emits for `packingType=grid_simple_matrix`). Cross-validated against eccodes 2.34. |
-| Matrix-of-values (true matrix) | `grid_simple_matrix` | ✅ | `matrixOfValues = 1`: an `NR×NC` matrix at every grid point, via secondary bitmaps. Decoded through `Grib1Reader::decode_matrix_message` (not a single 2-D field, so it bypasses the scalar path). eccodes 2.34 can neither encode nor decode this variant, so it's validated against the eccodes definition/accessor source + a hand-computed fixture rather than a `grib_get_data` oracle. |
-| Spherical-harmonic coefficients | `spectral_simple` / `spectral_complex` | ✅ Decodes + renders | IFS analyses. The spectral coefficients decode through `Grib1Reader::decode_spectral_message` (cross-validated against eccodes on a T63 field), and `Grib1Reader::synthesize_spectral_message` runs the inverse spherical-harmonic transform (the shared `fieldglass-core::sht` engine, validated against ECMWF's definitive spectral definition) to turn them back into a lat/lon grid, so the message **renders in the viewer** like any other field. Like the true `matrixOfValues` form, it has its own decode entry point and bypasses the scalar path. |
-| JPEG 2000 / PNG | `grid_jpeg` / `grid_png` | ❌ n/a | Not defined for GRIB1 edition 1 (eccodes' `packingType` concept lists them only to avoid set-failures); no encoder and no obtainable fixture. Common in GRIB2, tracked there. |
+| BDS packing | eccodes packingType | Decode |
+|---|---|:---:|
+| Simple grid-point packing | `grid_simple` | ✅ |
+| Constant field (`bits_per_value = 0`) | `grid_simple` | ✅ |
+| Second-order, no SPD | `grid_second_order_no_SPD` | ✅ |
+| Second-order, SPD-1 | `grid_second_order_SPD1` | ✅ |
+| Second-order, SPD-2 (ECMWF default) | `grid_second_order` | ✅ |
+| Second-order, SPD-3 | `grid_second_order_SPD3` | ✅ |
+| Second-order, row-by-row | `grid_second_order_row_by_row` | ✅ |
+| Second-order, constant width | `grid_second_order_constant_width` | ✅ |
+| Second-order, general (legacy) | `grid_second_order_general_grib1` | ✅ |
+| IEEE 754 raw floats | `grid_ieee` | ✅ |
+| Matrix-of-values (scalar form) | `grid_simple_matrix` | ✅ |
+| Matrix-of-values (true matrix) | `grid_simple_matrix` | ✅ |
+| Spherical-harmonic coefficients | `spectral_simple` / `spectral_complex` | ✅ Decodes + renders |
+| JPEG 2000 / PNG | `grid_jpeg` / `grid_png` | ❌ n/a |
+
+#### Notes on individual templates
+
+**Simple grid-point packing.** The bulk of CMC, NCEP non-operational data, and pygrib sample sets.
+
+**Constant field (`bits_per_value = 0`).** Special case of simple packing.
+
+**Second-order, no SPD.** Decodes via the shared general-extended path (order 0). Cross-validated against eccodes 2.34 with a hand-built oracle fixture (eccodes won't *encode* this order but decodes it).
+
+**Second-order, SPD-1.** Decodes via the shared general-extended path (order 1). Cross-validated against eccodes 2.34 with a hand-built oracle fixture.
+
+**Second-order, SPD-2 (ECMWF default).** Most common in ECMWF MARS-derived files. Cross-validated against eccodes 2.34.
+
+**Second-order, SPD-3.** Cross-validated against eccodes 2.34 (re-encoded from the SPD-2 fixture), with and without boustrophedonic row ordering.
+
+**Second-order, row-by-row.** Classic WMO layout: one group per row, per-row widths, no SPD. Cross-validated against eccodes 2.34 with a hand-built oracle fixture.
+
+**Second-order, constant width.** Classic WMO layout: explicit secondary bitmap + single shared width. Cross-validated against eccodes 2.34 with a hand-built oracle fixture.
+
+**Second-order, general (legacy).** Classic WMO layout: secondary-bitmap-delimited variable-length groups + per-group widths. Cross-validated against eccodes 2.34 with a hand-built oracle fixture.
+
+**IEEE 754 raw floats.** Values stored verbatim as big-endian floats; 32-bit (`precision = 1`) and 64-bit (`precision = 2`). Cross-validated against eccodes 2.34. 128-bit (`precision = 3`) is unsupported; eccodes returns `NOT_IMPLEMENTED` for it too.
+
+**Matrix-of-values (scalar form).** `matrixOfValues = 0`: a simple-packed body behind the matrix sub-header (what eccodes emits for `packingType=grid_simple_matrix`). Cross-validated against eccodes 2.34.
+
+**Matrix-of-values (true matrix).** `matrixOfValues = 1`: an `NR×NC` matrix at every grid point, via secondary bitmaps. Decoded through `Grib1Reader::decode_matrix_message` (not a single 2-D field, so it bypasses the scalar path). eccodes 2.34 can neither encode nor decode this variant, so it's validated against the eccodes definition/accessor source + a hand-computed fixture rather than a `grib_get_data` oracle.
+
+**Spherical-harmonic coefficients.** IFS analyses. The spectral coefficients decode through `Grib1Reader::decode_spectral_message` (cross-validated against eccodes on a T63 field), and `Grib1Reader::synthesize_spectral_message` runs the inverse spherical-harmonic transform (the shared `fieldglass-core::sht` engine, validated against ECMWF's definitive spectral definition) to turn them back into a lat/lon grid, so the message **renders in the viewer** like any other field. Like the true `matrixOfValues` form, it has its own decode entry point and bypasses the scalar path.
+
+**JPEG 2000 / PNG.** Not defined for GRIB1 edition 1 (eccodes' `packingType` concept lists them only to avoid set-failures); no encoder and no obtainable fixture. Common in GRIB2, tracked there.
+
 
 ### GRIB2 packing modes
 
@@ -103,25 +134,58 @@ A GRIB2 message's §5 Data Representation Section selects a packing template. Fi
      coverage-agnostic and points here, so those edits keep the whole document
      accurate. -->
 
-| DRS template | eccodes packingType | Decode | Notes |
-|---|---|:---:|---|
-| 5.0 — simple grid-point | `grid_simple` | ✅ | The common case for NCEP / ECMWF fields. Constant fields (`bits_per_value = 0`) included. Cross-validated against eccodes 2.34. |
-| 5.1 — matrix of values | `grid_simple_matrix` | ✅ | Experimental template for an `NR×NC` matrix at each grid point (e.g. 2-D wave spectra). With `matrixBitmapsPresent = 0` the §7 holds one simple-packed value per grid point (`NR`/`NC` are descriptive metadata), decoded and rendered exactly like 5.0 — cross-validated against eccodes 2.34, value for value. The true per-point matrix (`matrixBitmapsPresent = 1`, secondary bitmaps) decodes through `Grib2Reader::decode_matrix_message` following the GRIBEX interpretation — stock eccodes crashes on it, so it is validated against the independently-checked GRIB1 matrix decoder on the same hand-computed field. |
-| 5.4 — IEEE floating point | `grid_ieee` | ✅ | Values stored verbatim as big-endian floats; 32-bit (`precision = 1`) and 64-bit (`precision = 2`). Cross-validated against eccodes 2.34. 128-bit (`precision = 3`) is unsupported, as in eccodes. |
-| 5.2 — complex | `grid_complex` | ✅ | Group-split packing, the GRIB2 analogue of GRIB1 second-order. Both splitting methods (general and row-by-row) and inline missing-value management (primary and primary + secondary substitutes) decode; substituted points come out masked, like bitmap points. Constant fields (zero groups) decode to the reference value, matching eccodes 2.42+. Cross-validated against eccodes 2.34. |
-| 5.3 — complex + spatial differencing | `grid_complex_spatial_differencing` | ✅ | Complex packing with 1st- or 2nd-order spatial differencing (common in GFS; NBM adds inline missing values). Same envelope as 5.2, with the differencing recurrence skipping missing points. Constant fields (zero groups) decode to the reference value, matching eccodes 2.42+. Cross-validated against eccodes 2.34. |
-| 5.40 — JPEG 2000 | `grid_jpeg` | ✅ | The integer grid is wrapped in a JPEG 2000 codestream, decoded with the pure-Rust [`rust-j2k`](https://crates.io/crates/rust-j2k) crate (no C / OpenJPEG binding, so the C-free cross-platform bundle is preserved — see [codec strategy](docs/decisions/0001-grib2-compressed-packing-codecs.md)); the simple-packing `R` / `E` / `D` transform then applies. Cross-validated against eccodes 2.34. |
-| 5.41 — PNG | `grid_png` | ✅ | The integer grid is wrapped in a PNG image (decoded with the pure-Rust `png` crate); the simple-packing `R` / `E` / `D` transform then applies. Cross-validated against eccodes 2.34. |
-| 5.42 — CCSDS / AEC | `grid_ccsds` | ✅ | The integer grid is wrapped in a CCSDS adaptive-entropy-coding (libaec-compatible) stream, decoded with the pure-Rust `rust-aec` crate; the simple-packing `R` / `E` / `D` transform then applies. Cross-validated against eccodes 2.34. |
-| 5.200 — run-length | `grid_run_length` | ✅ | Runs of quantised level indices resolved through a level → value table (JMA radar, rain-gauge analysis, and nowcasts). Level 0 marks missing; a run is a level code followed by base-`range` length digits. No `R` / `E` transform — only the decimal scale. Cross-validated against eccodes 2.34. |
-| 5.61 — simple + log pre-processing | `grid_simple_log_preprocessing` | ✅ | Simple packing of the log-transformed field; decode is the simple-packing `R` / `E` / `D` value followed by `Y = exp(X) − B`, where `B` is the pre-processing parameter (`B = 0` for a positive field). Experimental (WMO: bilateral tests only), no known operational producer — decoded for census completeness. Cross-validated against eccodes 2.34. |
-| 5.50002 — second-order | `grid_second_order` | ✅ | The GRIB1 general-extended second-order codec carried into GRIB2, sharing the spatial-predictor-differencing (SPD) inverse with the GRIB1 path. §5 holds the group-descriptor bit widths and SPD seeds; §7 holds the group widths, lengths, first-order references, and second-order offsets. Alternating-row (boustrophedonic) ordering is undone on decode. Cross-validated against eccodes 2.34, value for value. |
-| 5.50001 — second-order, no boustrophedonic | `grid_second_order_no_boustrophedonic` | ✅ | Same codec as 5.50002 without the `secondOrderFlags` octet, so ordering is never boustrophedonic. Cross-validated against eccodes 2.34, value for value. |
-| 5.50 — spectral (spherical harmonic) | `spectral_simple` | ✅ Decodes + renders | The message carries spherical-harmonic coefficients (§3.50), not values on a grid: the real `(0,0)` coefficient comes from §5 and the rest are simple-packed. They decode through `Grib2Reader::decode_spectral_message` (cross-validated against eccodes on a T63 field, coefficient for coefficient), and the inverse spherical-harmonic transform (`Grib2Reader::synthesize_spectral_message`, validated against ECMWF's definitive spectral definition) turns them back into a lat/lon grid — an inverse spherical-harmonic transform — so the field **renders in the viewer** like any other, reprojecting and contouring through the normal pipeline. |
-| 5.51 — spectral complex | `spectral_complex` | ✅ Decodes + renders | The ECMWF IFS form: coefficients up to a sub-truncation are stored as raw IEEE floats and the rest are simple-packed after Laplacian rescaling `(n·(n+1))^P`. Decodes through the same `decode_spectral_message` entry point (cross-validated against eccodes coefficient for coefficient on a T63 field), and renders through the same inverse transform as 5.50. |
-| 5.53 — bi-Fourier spectral | `bifourier_complex` | 🚧 Coefficients only | The ACCORD/ALADIN/AROME limited-area form (§3.61/62/63): four coefficients per `(i, j)` wavenumber pair over a rectangle, ellipse, or diamond truncation. Coefficients inside the unpacked sub-truncation are raw IEEE floats (32- or 64-bit) and the rest are simple-packed after bi-Fourier Laplacian rescaling `(i²+j²)^P`. Decodes through `Grib2Reader::decode_bifourier_message` (cross-validated against eccodes 2.34 coefficient for coefficient), with its own entry point like the spherical-harmonic forms; an inverse bi-Fourier transform to render it is still to come. |
+| DRS template | eccodes packingType | Decode |
+|---|---|:---:|
+| 5.0 — simple grid-point | `grid_simple` | ✅ |
+| 5.1 — matrix of values | `grid_simple_matrix` | ✅ |
+| 5.4 — IEEE floating point | `grid_ieee` | ✅ |
+| 5.2 — complex | `grid_complex` | ✅ |
+| 5.3 — complex + spatial differencing | `grid_complex_spatial_differencing` | ✅ |
+| 5.40 — JPEG 2000 | `grid_jpeg` | ✅ |
+| 5.41 — PNG | `grid_png` | ✅ |
+| 5.42 — CCSDS / AEC | `grid_ccsds` | ✅ |
+| 5.200 — run-length | `grid_run_length` | ✅ |
+| 5.61 — simple + log pre-processing | `grid_simple_log_preprocessing` | ✅ |
+| 5.50002 — second-order | `grid_second_order` | ✅ |
+| 5.50001 — second-order, no boustrophedonic | `grid_second_order_no_boustrophedonic` | ✅ |
+| 5.50 — spectral (spherical harmonic) | `spectral_simple` | ✅ Decodes + renders |
+| 5.51 — spectral complex | `spectral_complex` | ✅ Decodes + renders |
+| 5.53 — bi-Fourier spectral | `bifourier_complex` | 🚧 Coefficients only |
 
-Two pre-standard local-use templates decode through the codecs above: **5.40000** (early NCEP JPEG 2000, identical to 5.40) and **5.40010** (early NCEP PNG, identical to 5.41). eccodes ships no definition for 5.40010 and errors on it, so this is one packing Fieldglass decodes that stock eccodes cannot; 5.40000 is cross-validated against eccodes 2.34, and 5.40010 against the 5.41 decode of the same codestream.
+#### Notes on individual templates
+
+**5.0 — simple grid-point.** The common case for NCEP / ECMWF fields. Constant fields (`bits_per_value = 0`) included. Cross-validated against eccodes 2.34.
+
+**5.1 — matrix of values.** Experimental template for an `NR×NC` matrix at each grid point (e.g. 2-D wave spectra). With `matrixBitmapsPresent = 0` the §7 holds one simple-packed value per grid point (`NR`/`NC` are descriptive metadata), decoded and rendered exactly like 5.0 — cross-validated against eccodes 2.34, value for value. The true per-point matrix (`matrixBitmapsPresent = 1`, secondary bitmaps) decodes through `Grib2Reader::decode_matrix_message` following the GRIBEX interpretation. eccodes does not decode that form, so it is validated against the independently-checked GRIB1 matrix decoder on the same hand-computed field.
+
+**5.4 — IEEE floating point.** Values stored verbatim as big-endian floats; 32-bit (`precision = 1`) and 64-bit (`precision = 2`). Cross-validated against eccodes 2.34. 128-bit (`precision = 3`) is unsupported, as in eccodes.
+
+**5.2 — complex.** Group-split packing, the GRIB2 analogue of GRIB1 second-order. Both splitting methods (general and row-by-row) and inline missing-value management (primary and primary + secondary substitutes) decode; substituted points come out masked, like bitmap points. Constant fields (zero groups) decode to the reference value, matching eccodes 2.42+. Cross-validated against eccodes 2.34.
+
+**5.3 — complex + spatial differencing.** Complex packing with 1st- or 2nd-order spatial differencing (common in GFS; NBM adds inline missing values). Same envelope as 5.2, with the differencing recurrence skipping missing points. Constant fields (zero groups) decode to the reference value, matching eccodes 2.42+. Cross-validated against eccodes 2.34.
+
+**5.40 — JPEG 2000.** The integer grid is wrapped in a JPEG 2000 codestream, decoded with the pure-Rust [`rust-j2k`](https://crates.io/crates/rust-j2k) crate (no C / OpenJPEG binding, so the C-free cross-platform bundle is preserved — see [codec strategy](docs/decisions/0001-grib2-compressed-packing-codecs.md)); the simple-packing `R` / `E` / `D` transform then applies. Cross-validated against eccodes 2.34.
+
+**5.41 — PNG.** The integer grid is wrapped in a PNG image (decoded with the pure-Rust `png` crate); the simple-packing `R` / `E` / `D` transform then applies. Cross-validated against eccodes 2.34.
+
+**5.42 — CCSDS / AEC.** The integer grid is wrapped in a CCSDS adaptive-entropy-coding (libaec-compatible) stream, decoded with the pure-Rust `rust-aec` crate; the simple-packing `R` / `E` / `D` transform then applies. Cross-validated against eccodes 2.34.
+
+**5.200 — run-length.** Runs of quantised level indices resolved through a level → value table (JMA radar, rain-gauge analysis, and nowcasts). Level 0 marks missing; a run is a level code followed by base-`range` length digits. No `R` / `E` transform — only the decimal scale. Cross-validated against eccodes 2.34.
+
+**5.61 — simple + log pre-processing.** Simple packing of the log-transformed field; decode is the simple-packing `R` / `E` / `D` value followed by `Y = exp(X) − B`, where `B` is the pre-processing parameter (`B = 0` for a positive field). Experimental (WMO: bilateral tests only), no known operational producer — decoded for census completeness. Cross-validated against eccodes 2.34.
+
+**5.50002 — second-order.** The GRIB1 general-extended second-order codec carried into GRIB2, sharing the spatial-predictor-differencing (SPD) inverse with the GRIB1 path. §5 holds the group-descriptor bit widths and SPD seeds; §7 holds the group widths, lengths, first-order references, and second-order offsets. Alternating-row (boustrophedonic) ordering is undone on decode. Cross-validated against eccodes 2.34, value for value.
+
+**5.50001 — second-order, no boustrophedonic.** Same codec as 5.50002 without the `secondOrderFlags` octet, so ordering is never boustrophedonic. Cross-validated against eccodes 2.34, value for value.
+
+**5.50 — spectral (spherical harmonic).** The message carries spherical-harmonic coefficients (§3.50), not values on a grid: the real `(0,0)` coefficient comes from §5 and the rest are simple-packed. They decode through `Grib2Reader::decode_spectral_message` (cross-validated against eccodes on a T63 field, coefficient for coefficient), and the inverse spherical-harmonic transform (`Grib2Reader::synthesize_spectral_message`, validated against ECMWF's definitive spectral definition) turns them back into a lat/lon grid — an inverse spherical-harmonic transform — so the field **renders in the viewer** like any other, reprojecting and contouring through the normal pipeline.
+
+**5.51 — spectral complex.** The ECMWF IFS form: coefficients up to a sub-truncation are stored as raw IEEE floats and the rest are simple-packed after Laplacian rescaling `(n·(n+1))^P`. Decodes through the same `decode_spectral_message` entry point (cross-validated against eccodes coefficient for coefficient on a T63 field), and renders through the same inverse transform as 5.50.
+
+**5.53 — bi-Fourier spectral.** The ACCORD/ALADIN/AROME limited-area form (§3.61/62/63): four coefficients per `(i, j)` wavenumber pair over a rectangle, ellipse, or diamond truncation. Coefficients inside the unpacked sub-truncation are raw IEEE floats (32- or 64-bit) and the rest are simple-packed after bi-Fourier Laplacian rescaling `(i²+j²)^P`. Decodes through `Grib2Reader::decode_bifourier_message` (cross-validated against eccodes 2.34 coefficient for coefficient), with its own entry point like the spherical-harmonic forms; an inverse bi-Fourier transform to render it is still to come.
+
+
+Two pre-standard local-use templates decode through the codecs above: **5.40000** (early NCEP JPEG 2000, identical to 5.40) and **5.40010** (early NCEP PNG, identical to 5.41). eccodes ships no definition for 5.40010 and errors on it, so there is no oracle to cross-check it against directly: 5.40000 is validated against eccodes 2.34, and 5.40010 against the 5.41 decode of the same codestream.
 
 ## What it does, and where it stops
 
