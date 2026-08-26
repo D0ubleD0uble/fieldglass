@@ -5,7 +5,7 @@ a viewer for meteorological data files.
 
 Parses every message's sections (§0–§7) for metadata, and decodes grid values
 for **every registered §5 Data Representation template** (Code Table 5.0) — a
-claim no C-stack tool makes, in pure Rust with zero build flags. Scalar packings
+in pure Rust with no external libraries and no build flags. Scalar packings
 (simple 5.0, complex 5.2 / 5.3, IEEE 5.4, JPEG 2000 5.40, PNG 5.41, CCSDS / AEC
 5.42, log pre-processing 5.61, run-length 5.200, second-order 5.50001 / 5.50002,
 flat matrix 5.1) decode to a `Vec<Option<f64>>`. The non-scalar packings have
