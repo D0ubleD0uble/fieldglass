@@ -22,6 +22,22 @@
 //! point? The grid's own forward map supplies the answer.
 
 use fieldglass_core::projection::*;
+use fieldglass_core::spatial_index::SpatialIndex;
+
+/// Great-circle angle between two `(lat, lon)` pairs, in radians — the metric a
+/// lookup grid's search minimises, and the one its round trip is measured in.
+///
+/// Haversine rather than the `acos` of a dot product, because this is used on
+/// pairs that should be *identical*. There `cos d` is `1 - ~1e-16` and `acos`
+/// returns about `1.5e-8` radians of pure rounding noise — 9 cm on the ground,
+/// large enough to swamp any threshold worth setting. Haversine works from the
+/// half-chord instead and reports zero for a point against itself.
+fn central_angle(a: (f64, f64), b: (f64, f64)) -> f64 {
+    let (lat1, lat2) = (a.0.to_radians(), b.0.to_radians());
+    let (d_lat, d_lon) = ((b.0 - a.0).to_radians(), (b.1 - a.1).to_radians());
+    let h = (d_lat / 2.0).sin().powi(2) + lat1.cos() * lat2.cos() * (d_lon / 2.0).sin().powi(2);
+    2.0 * h.sqrt().clamp(0.0, 1.0).asin()
+}
 
 fn lambert() -> LambertParams {
     LambertParams {
@@ -372,6 +388,64 @@ fn an_expanded_octahedral_raster_inverts_every_grid_point() {
         1e-9,
     );
     assert_eq!(dropped, 0);
+}
+
+/// A lookup grid places its own points too, and this is the family that needs
+/// the assertion phrased differently (#445).
+///
+/// The walk is the same one every formula family gets, but the answer cannot be
+/// an index: where two cells share a centre the search may return either, and
+/// demanding the original index would be demanding a tie-break the geometry
+/// does not define. What must hold is that the cell it hands back is *at the
+/// same place*, which is what a warp depends on.
+///
+/// The grid is a tripolar fold in miniature — two limbs of the same mesh, half
+/// a world apart, whose columns are index-adjacent — plus a row of the northern
+/// convergence where several cells crowd within a degree of the pole. Both are
+/// shapes a k-d tree over lat/lon would get wrong and one over unit vectors
+/// does not.
+#[test]
+fn a_lookup_grid_inverts_every_cell_to_its_own_position() {
+    let (ni, nj) = (8u32, 6u32);
+    let mut lats = Vec::new();
+    let mut lons = Vec::new();
+    for j in 0..nj {
+        for i in 0..ni {
+            // Columns alternate between two limbs 180° apart, so `(i, j)` and
+            // `(i + 1, j)` are never neighbours on the ground.
+            let limb = if i % 2 == 0 { 0.0 } else { 180.0 };
+            let along = 20.0 * (i as f64 / 2.0).floor();
+            lats.push(60.0 + 6.0 * j as f64);
+            lons.push(limb + along);
+        }
+    }
+    // The last row converges: every column within a degree of the pole.
+    for i in 0..ni as usize {
+        let k = (nj as usize - 1) * ni as usize + i;
+        lats[k] = 89.5;
+        lons[k] = 45.0 * i as f64;
+    }
+
+    let ix = SpatialIndex::new(ni, nj, &lats, &lons).expect("index builds");
+    let mut worst = 0.0f64;
+    for j in 0..nj {
+        for i in 0..ni {
+            let (lat, lon) = ix.centre(i, j).expect("every centre is finite");
+            let found = ix
+                .nearest(lat, lon)
+                .unwrap_or_else(|| panic!("({i},{j}) at ({lat}, {lon}) was not found"));
+            let (flat, flon) = ix
+                .centre(found.i as u32, found.j as u32)
+                .expect("the cell it found has a position");
+            let separation = central_angle((lat, lon), (flat, flon)).to_degrees();
+            worst = worst.max(separation);
+            assert!(
+                separation < 1e-12,
+                "({i},{j}) resolved to a cell {separation}° away"
+            );
+        }
+    }
+    assert!(worst < 1e-12, "worst separation {worst}°");
 }
 
 #[test]

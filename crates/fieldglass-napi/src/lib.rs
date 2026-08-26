@@ -2468,9 +2468,20 @@ pub struct NetcdfHandle {
     /// `O(n log n)` build and 24 bytes a cell again for an identical answer.
     /// `None` records that a slice resolved no usable pair, so a miss is not
     /// re-derived on every repaint either.
-    curvilinear:
-        Mutex<std::collections::HashMap<(usize, usize), Option<std::sync::Arc<SpatialIndex>>>>,
+    ///
+    /// The cache is what makes a global ocean grid usable. RTOFS's full mesh is
+    /// 4500 x 3298 — 14.8 million cells — where the build takes about 2 seconds
+    /// and the tree costs roughly 400 MB resident, both paid once per file
+    /// rather than once per repaint or per field. Queries stay cheap
+    /// (`O(log n)`, about 0.65 us each), so a megapixel raster warps in well
+    /// under a second once the tree exists.
+    curvilinear: Mutex<CurvilinearCache>,
 }
+
+/// Cell-centre indices keyed by the pair of 2-D coordinate variables that built
+/// them, `None` recording a slice that resolved no usable pair.
+type CurvilinearCache =
+    std::collections::HashMap<(usize, usize), Option<std::sync::Arc<SpatialIndex>>>;
 
 #[napi]
 impl NetcdfHandle {
@@ -9958,6 +9969,77 @@ mod curvilinear_render_tests {
                 );
             }
         }
+    }
+
+    /// Every cell of the real grids inverts back to its own position.
+    ///
+    /// `planned/02-trait-seams.md` names this as *the* acceptance test for any
+    /// inverse, formula or lookup: walk every `(i, j)`, geolocate it, invert it,
+    /// and get the cell back. It needs no external oracle, because the grid's
+    /// own forward map is the answer.
+    ///
+    /// A lookup grid needs the assertion stated in positions rather than
+    /// indices. Where two cells share a centre — a tripolar fold brings
+    /// index-distant cells together, and a swath's polar convergence crowds
+    /// them — the search is free to return either, and demanding the original
+    /// index would be demanding a tie-break the geometry does not define. What
+    /// must hold is that the cell it returns is *at the same place*, which is
+    /// the property a warp actually depends on.
+    #[test]
+    fn every_cell_of_the_real_grids_inverts_back_to_its_own_position() {
+        for (label, bytes, field) in [
+            ("tripolar", TRIPOLAR, "ice_thickness"),
+            ("swath", SWATH, "TPW"),
+        ] {
+            let (handle, var, y, x, _) = slice(bytes, field);
+            let index = handle
+                .curvilinear_index(&var, y, x)
+                .expect("index resolves")
+                .expect("a curvilinear slice has one");
+            let (ni, nj) = index.dims();
+
+            let (mut dropped, mut moved, mut worst) = (0u32, 0u32, 0.0f64);
+            for j in 0..nj {
+                for i in 0..ni {
+                    let Some((lat, lon)) = index.centre(i, j) else {
+                        continue; // a cell the file left without a position
+                    };
+                    let Some(found) = index.nearest(lat, lon) else {
+                        dropped += 1;
+                        continue;
+                    };
+                    let (fi, fj) = (found.i as u32, found.j as u32);
+                    let Some((flat, flon)) = index.centre(fi, fj) else {
+                        moved += 1;
+                        continue;
+                    };
+                    let separation = great_circle_deg((lat, lon), (flat, flon));
+                    worst = worst.max(separation);
+                    if separation > 1e-9 {
+                        moved += 1;
+                    }
+                }
+            }
+            assert_eq!(dropped, 0, "{label}: {dropped} cells could not be found");
+            assert_eq!(
+                moved, 0,
+                "{label}: {moved} cells resolved to a different place (worst {worst}°)"
+            );
+        }
+    }
+
+    /// Great-circle separation in degrees, for comparing two cell centres.
+    ///
+    /// Haversine rather than the `acos` of a dot product, because these pairs
+    /// should be *identical*: there `cos d` is `1 - ~1e-16` and `acos` returns
+    /// about `8.5e-7` degrees of pure rounding noise — 9 cm on the ground, and
+    /// enough to swamp any threshold worth setting.
+    fn great_circle_deg((lat_a, lon_a): (f64, f64), (lat_b, lon_b): (f64, f64)) -> f64 {
+        let (phi_a, phi_b) = (lat_a.to_radians(), lat_b.to_radians());
+        let (d_phi, d_lambda) = ((lat_b - lat_a).to_radians(), (lon_b - lon_a).to_radians());
+        let h = (d_phi / 2.0).sin().powi(2)
+            + phi_a.cos() * phi_b.cos() * (d_lambda / 2.0).sin().powi(2);
+        (2.0 * h.sqrt().clamp(0.0, 1.0).asin()).to_degrees()
     }
 
     /// Bilinear is refused on a lookup grid rather than blending across a fold.

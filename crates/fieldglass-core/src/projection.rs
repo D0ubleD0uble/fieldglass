@@ -968,6 +968,7 @@ pub enum GridResampling {
     NearestOnly,
 }
 
+#[cfg(feature = "render")]
 impl GridResampling {
     /// What a `method` request actually becomes on this geometry.
     ///
