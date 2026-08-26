@@ -238,6 +238,7 @@ impl DatasetView {
             .map(|v| {
                 let position =
                     |dim: Option<&str>| dim.and_then(|d| v.dim_names.iter().position(|n| n == d));
+                let curvilinear = self.curvilinear_axes(v);
                 RenderableVariable {
                     decode_index: v.decode_index,
                     name: v.name.clone(),
@@ -250,8 +251,12 @@ impl DatasetView {
                             length: self.dim_length(n).unwrap_or(0),
                         })
                         .collect(),
-                    detected_y_dim: position(lat_dim),
-                    detected_x_dim: position(lon_dim),
+                    // A curvilinear variable has no 1-D coordinate variable
+                    // to detect, so its axes come from the 2-D pair instead —
+                    // otherwise the picker falls back to the first two
+                    // dimensions and lands on a time axis (#218).
+                    detected_y_dim: position(lat_dim).or(curvilinear.map(|(y, _)| y)),
+                    detected_x_dim: position(lon_dim).or(curvilinear.map(|(_, x)| x)),
                 }
             })
             .collect()
@@ -279,21 +284,65 @@ impl DatasetView {
         y_dim: &str,
         x_dim: &str,
     ) -> Option<CurvilinearCoords> {
+        let (coords, found_y, found_x) = self.resolve_curvilinear(var)?;
+        (found_y == y_dim && found_x == x_dim).then_some(coords)
+    }
+
+    /// Which of `var`'s dimensions are its image axes, when its position comes
+    /// from 2-D coordinates — as `(y, x)` positions in `var.dim_names` (#218).
+    ///
+    /// A curvilinear variable has no 1-D coordinate variable to detect an axis
+    /// from, so the slice picker had nothing to pre-select and fell back to the
+    /// variable's first two dimensions. For a swath that is right by luck; for
+    /// an ocean field shaped `(time, Y, X)` it picks the length-1 time axis and
+    /// renders a one-pixel sliver of the wrong plane, ungeolocated.
+    ///
+    /// The 2-D coordinate arrays already name the answer: they span exactly the
+    /// two dimensions that are the image, in that order.
+    pub fn curvilinear_axes(&self, var: &VarView) -> Option<(usize, usize)> {
+        let (_, y_dim, x_dim) = self.resolve_curvilinear(var)?;
+        let position = |name: &str| var.dim_names.iter().position(|d| d == name);
+        Some((position(&y_dim)?, position(&x_dim)?))
+    }
+
+    /// The 2-D lat/lon pair a variable's CF `coordinates` attribute names, with
+    /// the two dimension names they span.
+    ///
+    /// CF lets a variable point at coordinates it is not indexed by
+    /// (`coordinates = "Longitude Latitude Date"` is what RTOFS writes, and
+    /// `Date` is a time), so every name is resolved and then kept only if it is
+    /// a 2-D variable over two of the variable's *own* dimensions. What
+    /// survives is classified by [`detect_axis`] — which reads `units` and
+    /// `standard_name` and has always been able to recognise these; it was
+    /// never offered them, because [`Self::axis_by_dim`] only offers 1-D
+    /// coordinate variables.
+    ///
+    /// `None` unless exactly one latitude and one longitude survive **and they
+    /// agree on their dimensions**. Two latitudes, a lone longitude, or a pair
+    /// laid out over different axes describe a grid this cannot place, and
+    /// guessing would put the field somewhere wrong rather than leaving it in
+    /// the source projection where the user can see it is unplaced.
+    fn resolve_curvilinear(&self, var: &VarView) -> Option<(CurvilinearCoords, String, String)> {
         let named = var.attr("coordinates")?;
         let (mut lat, mut lon) = (None, None);
         for name in named.split_whitespace() {
             let Some(candidate) = self.vars.iter().find(|v| v.name == name) else {
                 continue;
             };
+            // Two dimensions, both the variable's own: a `coordinates` list may
+            // name a 1-D time axis alongside the spatial pair.
             if candidate.dim_names.len() != 2
-                || candidate.dim_names[0] != y_dim
-                || candidate.dim_names[1] != x_dim
+                || !candidate
+                    .dim_names
+                    .iter()
+                    .all(|d| var.dim_names.contains(d))
             {
                 continue;
             }
+            let entry = Some((candidate.decode_index, candidate.dim_names.clone()));
             match detect_axis(candidate) {
-                Some(AxisKind::Latitude) if lat.is_none() => lat = Some(candidate.decode_index),
-                Some(AxisKind::Longitude) if lon.is_none() => lon = Some(candidate.decode_index),
+                Some(AxisKind::Latitude) if lat.is_none() => lat = entry,
+                Some(AxisKind::Longitude) if lon.is_none() => lon = entry,
                 // A second variable of a kind already found: the attribute
                 // names two latitudes, and which one places the grid is not
                 // something to pick by declaration order.
@@ -301,10 +350,21 @@ impl DatasetView {
                 None => {}
             }
         }
-        Some(CurvilinearCoords {
-            lat_index: lat?,
-            lon_index: lon?,
-        })
+        let (lat_index, lat_dims) = lat?;
+        let (lon_index, lon_dims) = lon?;
+        // The pair must be laid out the same way, or there is no single raster
+        // for them to describe.
+        if lat_dims != lon_dims {
+            return None;
+        }
+        Some((
+            CurvilinearCoords {
+                lat_index,
+                lon_index,
+            },
+            lat_dims[0].clone(),
+            lat_dims[1].clone(),
+        ))
     }
 }
 

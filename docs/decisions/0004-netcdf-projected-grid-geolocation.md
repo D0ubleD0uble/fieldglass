@@ -24,6 +24,13 @@ special cases. Such a grid answers with a cell rather than a position inside one
 so it reports `GridResampling::NearestOnly` and the warp downgrades a bilinear
 request rather than blending across a fold.
 
+[#218](https://github.com/D0ubleD0uble/fieldglass/issues/218) closed the last
+mile: a Model-B grid has no 1-D coordinate variable, so the slice picker had
+nothing to pre-select its image axes from and fell back to a variable's first
+two dimensions — which on an ocean field shaped `(time, Y, X)` is the time axis.
+The 2-D coordinate arrays name the two dimensions that are the image, and the
+picker now reads them.
+
 The rest of the record stands: 0.2.0 shipped Model A, and Model A remains the
 right answer for the grids that have an analytic projection (WRF, GOES) — a
 lookup is a fallback for grids that do not, not a replacement for one that does.

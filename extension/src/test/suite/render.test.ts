@@ -1458,6 +1458,62 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
   // never built today — which is exactly why it needs a test: whoever turns
   // general PDS editing on inherits whatever shape it was left in. It was left
   // showing `forecastHours`, a *normalised* value, while the edit writes the
+  // The slice picker opens a curvilinear file on the right plane (#218).
+  //
+  // #445 gave these grids geolocation; this is the last mile. A curvilinear
+  // variable has no 1-D coordinate variable to detect an axis from, so the
+  // picker's fallback — the variable's first two dimensions — chose the plane.
+  // For RTOFS that is `(MT, Y, X)`: a length-1 time axis against Y, rendering
+  // as a 200x1 sliver of the wrong plane with no geolocation, which the user
+  // had to notice and correct by hand.
+  //
+  // Asserted here rather than on the webview's own fallback expression because
+  // that expression is unchanged and correct — what changed is the data it
+  // reads. This mirrors the picker's logic exactly so a change to either side
+  // shows up.
+  test("a curvilinear variable opens on its geolocated plane, not its first two dims", () => {
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+
+    const cases: Array<[string, string, string, number, number]> = [
+      ["tripolar", "rtofs_tripolar_arctic.nc", "ice_thickness", 1, 2],
+      ["swath", "mirs_swath_n21.nc", "TPW", 0, 1],
+    ];
+    for (const [label, fixture, name, wantY, wantX] of cases) {
+      const bytes = fs.readFileSync(
+        path.join(__dirname, "..", "..", "..", "..", "crates", "fieldglass-netcdf",
+          "tests", "fixtures", fixture),
+      );
+      const handle = native.NetcdfHandle.fromBytes(bytes);
+      const v = handle.variables().find((x) => x.name === name);
+      assert.ok(v, `${label}: ${name} is renderable`);
+
+      assert.strictEqual(v.detectedYDim, wantY, `${label}: detected Y`);
+      assert.strictEqual(v.detectedXDim, wantX, `${label}: detected X`);
+
+      // The picker's own default, reproduced from render-panel.ts.
+      const y = v.detectedYDim != null ? v.detectedYDim : 0;
+      let x = v.detectedXDim != null ? v.detectedXDim : 1;
+      if (x === y) x = y === 0 ? 1 : 0;
+
+      // Both chosen axes must be real image axes, not a length-1 slice axis.
+      assert.ok(v.dims[y].length > 1, `${label}: Y axis has extent`);
+      assert.ok(v.dims[x].length > 1, `${label}: X axis has extent`);
+
+      // And the default actually geolocates — reprojection is what #218 is for.
+      const rendered = handle.renderSlice(
+        v.variableIndex, y, x, v.dims.map(() => 0),
+        { projection: "equirectangular", resampling: "nearest", flipY: false },
+      );
+      assert.ok(
+        rendered.projectionSummary.includes("curvilinear"),
+        `${label}: the default plane should be the curvilinear one, got ${rendered.projectionSummary}`,
+      );
+      assert.strictEqual(rendered.width, v.dims[x].length, `${label}: width`);
+      assert.strictEqual(rendered.height, v.dims[y].length, `${label}: height`);
+    }
+  });
+
   // A NetCDF slice carries its units to the panel, typeset (#453, ADR-0007).
   //
   // The render panel builds its own `MessageMeta` for a NetCDF slice, and that
