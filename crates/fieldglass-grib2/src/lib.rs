@@ -1,8 +1,8 @@
 //! GRIB edition 2 reader.
 //!
 //! Full §0–§7 parsing for the message metadata, plus value decoding for **every
-//! registered §5 Data Representation template** (Code Table 5.0) — a claim no
-//! C-stack tool makes, in pure Rust with zero build flags. The scalar packings
+//! registered §5 Data Representation template** (Code Table 5.0), in pure Rust
+//! with no external libraries and no build flags. The scalar packings
 //! (one value per grid point) decode through
 //! [`Grib2Reader::decode_message_values`]: simple (5.0), complex with and
 //! without spatial differencing (5.2 / 5.3), IEEE floating point (5.4),

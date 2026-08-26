@@ -9,10 +9,10 @@ message listed with its parameter, level and time, and any field drawn as a map
 you can reproject, probe and contour.
 
 Nothing else to install. No Python, no eccodes, no compiler — the extension
-ships a prebuilt binary for each platform and picks the right one. Every decoder
-is written from scratch in Rust, which is what lets it open files the usual
-tools cannot: every GRIB2 packing the WMO defines, and spectral fields that no
-other viewer draws at all.
+ships a prebuilt binary for each platform and picks the right one. Every decoder is written from
+scratch in Rust, which is what makes that possible: every GRIB2 packing the WMO
+defines, decoded with no external libraries and no build flags, and spectral
+fields turned back into a map.
 
 ![Fieldglass rendering a GFS temperature field reprojected onto an orthographic globe with coastlines](extension/media/screenshot.png)
 
@@ -26,8 +26,7 @@ equirectangular, Web Mercator, orthographic, polar stereographic, Mollweide,
 Robinson, Equal Earth), with coastlines, borders, lakes, rivers and a lat/lon
 grid over the top. GRIB2 decodes every packing the WMO has defined; see the
 [GRIB2 packing modes](#grib2-packing-modes) table. Spectral fields — stored as
-coefficients rather than as a grid — are turned back into a map and drawn, which
-no other viewer does.
+coefficients rather than as a grid — are transformed back into a map and drawn.
 
 **NetCDF** — the full structure of both classic and NetCDF-4 / HDF5 files:
 dimensions, variables and attributes. Pick a variable and two axes to draw, then
@@ -41,12 +40,16 @@ The [feature matrix](#feature-matrix) below shows exactly what works today, and 
 
 ## Feature matrix
 
+Every format supports these, so they are not repeated as three identical
+columns: detection from magic bytes, file-extension association
+(`.grb` / `.grib*` / `.nc*`), opening an unrecognized file through *Reopen
+Editor With…*, header-section parsing, the colormap picker (8 maps,
+reversible), linear and log10 color scaling, the point probe, and PNG export.
+
+The table is what differs between them.
+
 | Feature | GRIB1 | GRIB2 | NetCDF |
 |---|:---:|:---:|:---:|
-| Format detection from magic bytes | ✅ | ✅ | ✅ |
-| File-extension association (`.grb` / `.grib*` / `.nc*`) | ✅ | ✅ | ✅ |
-| Open via *Reopen Editor With…* for unrecognized files | ✅ | ✅ | ✅ |
-| Indicator / header section parsing | ✅ | ✅ | ✅ |
 | Per-message metadata (parameter, level, time, forecast period) | ✅ | ✅ (§0–§4) | ✅ (dims / vars / attrs) |
 | Grid description (lat/lon, Gaussian, polar stereo, Lambert) | ✅ | ✅ lat/lon (3.0), rotated lat/lon (3.1), Mercator (3.10), transverse Mercator (3.12), polar stereo (3.20), Lambert (3.30), Gaussian (3.40), Lambert azimuthal equal-area (3.140), space view (3.90), spherical harmonic (3.50), bi-Fourier (3.61–3.63), HEALPix (3.150) | ✅ regular lat/lon (CF coordinate vars), WRF (Lambert, polar stereo, Mercator, unrotated lat-lon), GOES geostationary, curvilinear (2-D `lat(y,x)`/`lon(y,x)`) |
 | WMO ON388 lookups (parameter, centre, level type) | ✅ | 🚧 Tables 0.0 / 1.2 / 1.3 / 1.4 / 3.1 / 3.2 / 4.1 / 4.2 / 4.3 / 4.4 / 4.5 / 4.6 / 4.10 + centres (subset) | n/a |
@@ -55,15 +58,11 @@ The [feature matrix](#feature-matrix) below shows exactly what works today, and 
 | Metadata editing | ❌ Not yet | ❌ Not yet | ❌ Not yet |
 | 2-D grid rendering with colormap | ✅ | ✅ any decodable message (see decoding row) | ✅ regular lat/lon (classic + NetCDF-4 / HDF5), WRF, GOES geostationary, curvilinear (ocean tripolar, satellite swath) |
 | Render-panel projection picker (8 targets) | ✅ | ✅ (any decodable message) | ✅ regular lat/lon + WRF / GOES geostationary |
-| Colormap picker (8 maps, reversible) | ✅ | ✅ | ✅ |
-| Color scaling (linear / log10) | ✅ | ✅ | ✅ |
 | Field compare (difference / sum / ratio / mean) | ✅ two messages | ✅ two messages | ✅ two slices of a variable |
 | Map overlays (coastlines, borders, lakes, rivers, lat/lon grid) | ✅ | ✅ (any decodable message) | ✅ regular lat/lon + WRF / GOES geostationary |
 | Contour lines | ✅ lat/lon family + projected grids | ✅ lat/lon family + projected grids | ✅ regular lat/lon + WRF projections |
-| Point probe (click to read value) | ✅ | ✅ | ✅ |
 | Resampling picker (nearest / bilinear) | ✅ | ✅ | ✅ regular lat/lon + WRF / GOES geostationary |
 | Export decoded field as CSV | ✅ matrix + `lat,lon,value` (lat/lon family + projected grids) | ✅ matrix + `lat,lon,value` (lat/lon family + projected grids) | ✅ matrix + `lat,lon,value` (georeferenced grids) |
-| Export rendered plot as PNG | ✅ | ✅ | ✅ |
 
 Legend: ✅ supported — any following text names the scope · 🚧 partial / in progress · ❌ not yet · n/a not applicable to the format.
 
@@ -95,7 +94,7 @@ A GRIB1 file's BDS (Binary Data Section) flag bits select one of several packing
 
 ### GRIB2 packing modes
 
-A GRIB2 message's §5 Data Representation Section selects a packing template. Fieldglass decodes **every registered template** in Code Table 5.0 — a claim no C-stack tool makes (stock eccodes needs JasPer/OpenJPEG + libaec, ships PNG off by default, and crashes on the true matrix), achieved here in pure Rust with zero build flags. Decoding — and therefore 2-D rendering, reprojection, and overlays, all of which run on the decoded field, not the packing — works across the table below; metadata and format detection work on every message regardless.
+A GRIB2 message's §5 Data Representation Section selects a packing template. Fieldglass decodes **every registered template** in Code Table 5.0 — in pure Rust, with no external libraries and no build flags. Decoding — and therefore 2-D rendering, reprojection, and overlays, all of which run on the decoded field, not the packing — works across the table below; metadata and format detection work on every message regardless.
 
 <!-- SINGLE SOURCE OF TRUTH for GRIB2 decode status. When a template starts
      (or stops) decoding, update THIS table, the "every registered template"
@@ -118,7 +117,7 @@ A GRIB2 message's §5 Data Representation Section selects a packing template. Fi
 | 5.61 — simple + log pre-processing | `grid_simple_log_preprocessing` | ✅ | Simple packing of the log-transformed field; decode is the simple-packing `R` / `E` / `D` value followed by `Y = exp(X) − B`, where `B` is the pre-processing parameter (`B = 0` for a positive field). Experimental (WMO: bilateral tests only), no known operational producer — decoded for census completeness. Cross-validated against eccodes 2.34. |
 | 5.50002 — second-order | `grid_second_order` | ✅ | The GRIB1 general-extended second-order codec carried into GRIB2, sharing the spatial-predictor-differencing (SPD) inverse with the GRIB1 path. §5 holds the group-descriptor bit widths and SPD seeds; §7 holds the group widths, lengths, first-order references, and second-order offsets. Alternating-row (boustrophedonic) ordering is undone on decode. Cross-validated against eccodes 2.34, value for value. |
 | 5.50001 — second-order, no boustrophedonic | `grid_second_order_no_boustrophedonic` | ✅ | Same codec as 5.50002 without the `secondOrderFlags` octet, so ordering is never boustrophedonic. Cross-validated against eccodes 2.34, value for value. |
-| 5.50 — spectral (spherical harmonic) | `spectral_simple` | ✅ Decodes + renders | The message carries spherical-harmonic coefficients (§3.50), not values on a grid: the real `(0,0)` coefficient comes from §5 and the rest are simple-packed. They decode through `Grib2Reader::decode_spectral_message` (cross-validated against eccodes on a T63 field, coefficient for coefficient), and the inverse spherical-harmonic transform (`Grib2Reader::synthesize_spectral_message`, validated against ECMWF's definitive spectral definition) turns them back into a lat/lon grid — the transform no other tool in the ecosystem performs — so the field **renders in the viewer** like any other, reprojecting and contouring through the normal pipeline. |
+| 5.50 — spectral (spherical harmonic) | `spectral_simple` | ✅ Decodes + renders | The message carries spherical-harmonic coefficients (§3.50), not values on a grid: the real `(0,0)` coefficient comes from §5 and the rest are simple-packed. They decode through `Grib2Reader::decode_spectral_message` (cross-validated against eccodes on a T63 field, coefficient for coefficient), and the inverse spherical-harmonic transform (`Grib2Reader::synthesize_spectral_message`, validated against ECMWF's definitive spectral definition) turns them back into a lat/lon grid — an inverse spherical-harmonic transform — so the field **renders in the viewer** like any other, reprojecting and contouring through the normal pipeline. |
 | 5.51 — spectral complex | `spectral_complex` | ✅ Decodes + renders | The ECMWF IFS form: coefficients up to a sub-truncation are stored as raw IEEE floats and the rest are simple-packed after Laplacian rescaling `(n·(n+1))^P`. Decodes through the same `decode_spectral_message` entry point (cross-validated against eccodes coefficient for coefficient on a T63 field), and renders through the same inverse transform as 5.50. |
 | 5.53 — bi-Fourier spectral | `bifourier_complex` | 🚧 Coefficients only | The ACCORD/ALADIN/AROME limited-area form (§3.61/62/63): four coefficients per `(i, j)` wavenumber pair over a rectangle, ellipse, or diamond truncation. Coefficients inside the unpacked sub-truncation are raw IEEE floats (32- or 64-bit) and the rest are simple-packed after bi-Fourier Laplacian rescaling `(i²+j²)^P`. Decodes through `Grib2Reader::decode_bifourier_message` (cross-validated against eccodes 2.34 coefficient for coefficient), with its own entry point like the spherical-harmonic forms; an inverse bi-Fourier transform to render it is still to come. |
 
@@ -136,7 +135,7 @@ yet:
 - **Point probe.** Click anywhere on a rendered field to read the geographic point under the cursor and the decoded value and units there — ncview-style interrogation. The readout reproduces the render's own per-pixel map, so the number is exactly the one the color shows, on every projection (a click off the globe reports nothing). Works for GRIB and NetCDF.
 - **Contour lines.** A Contours toggle traces isolines of the field on the overlay canvas, following the map through every projection. Levels are chosen automatically (round 1/2/5 × 10ⁿ values) or by a manual interval, and break cleanly around missing data. A "contours only" mode hides the color raster so the lines read on a blank background. Isolines are extracted by marching squares in grid space and geolocated through the same forward map the reprojection uses, so they line up with the data. Available for the lat/lon family (regular lat/lon, Mercator, rotated lat/lon, regular and reduced Gaussian, reduced lat/lon) and the projected grids (Lambert conformal, polar stereographic, transverse Mercator, Lambert azimuthal equal-area); geostationary scan-angle grids say so rather than mis-drawing.
 - **Map overlays.** Five layers can be drawn over any rendered field: coastlines, country borders, lakes, rivers, and a latitude/longitude graticule. Each is toggled on its own and takes its own color and line weight, so a coastline and a border can be told apart at a glance. The vector layers are Natural Earth 1:110m data (public domain), bundled with the extension — nothing is fetched at run time. They are projected in Rust through the same forward map as the field, so an overlay can never drift from the image under it.
-- **GRIB2: full §0–§7 parsing and §5 value decode.** `.grb2` / `.grib2` files enumerate messages and show edition, discipline, total length, originating centre, reference time, production status, data type, parameter name, level, forecast time, and grid geometry (templates 3.0 / 3.1 / 3.10 / 3.12 / 3.20 / 3.30 / 3.40 / 3.140 / 3.90 / 3.50 / 3.61–3.63 / 3.150: regular lat/lon, rotated lat/lon, Mercator, transverse Mercator, polar stereographic, Lambert Conformal, regular and reduced Gaussian, Lambert azimuthal equal-area, space-view perspective, spherical-harmonic coefficients, bi-Fourier spectral subdomains, and HEALPix). Value decoding is broken down per template in the [GRIB2 packing modes](#grib2-packing-modes) table. Spherical-harmonic spectral fields additionally synthesize back to a lat/lon grid and render, which no other viewer in the ecosystem does. HEALPix fields (§3.150) — the equal-area sphere tiling ECMWF publishes its higher-resolution open data on — are resampled onto a lat/lon grid the same way, so they reproject, probe, contour and export like any other grid.
+- **GRIB2: full §0–§7 parsing and §5 value decode.** `.grb2` / `.grib2` files enumerate messages and show edition, discipline, total length, originating centre, reference time, production status, data type, parameter name, level, forecast time, and grid geometry (templates 3.0 / 3.1 / 3.10 / 3.12 / 3.20 / 3.30 / 3.40 / 3.140 / 3.90 / 3.50 / 3.61–3.63 / 3.150: regular lat/lon, rotated lat/lon, Mercator, transverse Mercator, polar stereographic, Lambert Conformal, regular and reduced Gaussian, Lambert azimuthal equal-area, space-view perspective, spherical-harmonic coefficients, bi-Fourier spectral subdomains, and HEALPix). Value decoding is broken down per template in the [GRIB2 packing modes](#grib2-packing-modes) table. Spherical-harmonic spectral fields additionally synthesize back to a lat/lon grid and render. HEALPix fields (§3.150) — the equal-area sphere tiling ECMWF publishes its higher-resolution open data on — are resampled onto a lat/lon grid the same way, so they reproject, probe, contour and export like any other grid.
 - **NetCDF-4 / HDF5: structure traversal and value decode (Rust API).** Classic NetCDF (CDF-1 / CDF-2 / CDF-5) parses fully and renders dimensions, global attributes, and variables. For NetCDF-4 / HDF5 files, Fieldglass walks the HDF5 object-header tree — groups, datasets, dataspaces, datatypes, and attributes — resolves the dimension-scale convention into named dimensions and per-variable dimension lists, and surfaces the same dimensions / variables / global-attributes tables in the metadata viewer as the classic path. It also decodes a dataset's values through the Rust API: contiguous, compact, and chunked storage, and the deflate, shuffle, fletcher32, and zstd filters (fletcher32 is a checksum, verified on read; zstd is netcdf-c 4.9's recommended compressor for new climate archives, and decoding it in pure Rust exceeds a default netcdf-c install, which often has no working zstd plugin at runtime). Chunked storage covers the version-1 B-tree index and every version-4 index — single-chunk, fixed-array, extensible-array (the unlimited-dimension case), implicit, and v2-B-tree — each for both filtered and unfiltered chunks, along with the version-5 layout message that libhdf5 2.0 writes for a filtered variable. Decoded values are CF-unpacked: `scale_factor` / `add_offset` recover the real units, and `_FillValue`, `missing_value`, and `valid_range` mask the gaps. Variables on a regular lat/lon grid render a 2-D slice through the same picker and projection pipeline as the classic path, as do two projected layouts: WRF `wrfout` grids (Lambert, polar stereographic, Mercator, or unrotated lat-lon, from the `MAP_PROJ` global attributes) and GOES geostationary imagery (from a CF `geostationary` grid mapping). Variables in nested groups resolve too, with path-qualified names (`/PRODUCT/qa_value`) and dimensions looked up in ancestor groups, so grouped products such as Sentinel-5P and GPM IMERG list and render their variables. Curvilinear grids render as well: where a file gives a latitude and longitude for every cell instead of a projection — ocean model output on a tripolar mesh, satellite swaths geolocated per pixel — the cell positions themselves are the geometry, and reprojection, the point probe, contours and CSV export all work from them. Rotated WRF lat-lon domains are a follow-up.
 - **Oblate-spheroid grids are projected on a sphere, except transverse Mercator.** Lambert and polar-stereographic grids are placed on the Earth the message declares — GRIB1's earth-shape flag, GRIB2's `shapeOfTheEarth`, and WRF's own 6 370 000 m sphere — which matches eccodes point for point for the spherical shapes that nearly all data uses. A grid that declares an *oblate* spheroid is projected on that spheroid's mean radius instead of the true ellipsoid, which is within about 0.1%. Transverse Mercator (§3.12) and Lambert azimuthal equal-area (§3.140) are the exceptions: both run on the declared spheroid, because the grids that use them declare one and the mean-radius approximation would place a UK-area field about 2.8 km out and a European one about 13.5 km out. True ellipsoidal projection for the other templates is a follow-up.
 - **GRIB1 GDS coverage:** Lat/Lon, Gaussian, polar stereographic, Lambert Conformal, rotated/oblique lat/lon (`grid_type 10`), and reduced (quasi-regular) lat/lon and Gaussian grids are parsed and reproject; GDS-absent messages resolve the common predefined global grids (ON388 Table B grids 2, 3, 4). Stretched grids, oblique Mercator, and other predefined-grid numbers are not yet supported and render as `unsupported`.
