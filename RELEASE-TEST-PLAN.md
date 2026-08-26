@@ -1,25 +1,25 @@
-# Manual test plan — everything that changed since v0.3.0
+# Manual test plan — everything that changed since v0.4.0
 
 Work top to bottom. Files are opened **once** each, with every check that file
 can serve grouped under it, so you never reopen the same file twice.
 
-`samples/README.md` has a per-file "does it look right" checklist for the grid /
-packing coverage that shipped **at or before** 0.3.0 — this plan does not repeat
-it beyond a quick regression pass (§5). Everything else below is new since 0.3.0.
+`samples/README.md` has a per-file "does it look right" checklist for coverage
+that shipped **at or before** 0.4.0 — this plan does not repeat it beyond a
+quick regression pass (§7). Everything else below is new since 0.4.0.
 
-**The headline this cycle:** the GRIB2 §5 packing census is complete (every
-registered template decodes), and Fieldglass now **renders spherical-harmonic
-spectral fields** — something no other viewer does. That render is the one thing
-automated tests can't fully judge, so §1 is the priority.
+**The headline this cycle is geometry.** Three grid families that Fieldglass
+could previously open but not place on a map now render: HEALPix (§3.150),
+reduced Gaussian in GRIB2 (§3.40 with no `Ni`), and NetCDF curvilinear grids
+that give a latitude and longitude for every cell. All three reach the map by a
+route no automated test can fully judge — one is resampled, one is row-expanded,
+one is a nearest-cell lookup — so §1–§3 are the priority.
 
-A second wave landed after the census (#329–#344, PRs #345–#361): the panel
-features that only ever worked on the plain single-field path — probe, contours,
-CSV, PNG — were fixed to follow the field actually on screen (spectral,
-combined, reprojected). Those fixes are marked **(wave 2)** below and are the
-next priority after §1, because each one is a "the picture and the number
-disagreed" class of bug.
+The second theme is **naming**: the WMO master parameter tables plus three
+centres' local tables landed, which changes what the parameter, units and centre
+columns say on almost every file. That is broad rather than deep, so §4 checks
+it across whatever you already have open.
 
-Time: roughly 60–75 minutes.
+Time: roughly 60–80 minutes.
 
 ---
 
@@ -35,282 +35,196 @@ git checkout master && git pull
     --target x86_64-unknown-linux-gnu --output-dir "$(git rev-parse --show-toplevel)/extension/bin" )
 ( cd extension && npm run compile )
 
+# Full samples, including the two curvilinear files added this cycle.
+tools/fetch_samples.sh
+
 # Sanity: decode + reproject every sample headlessly before touching the UI.
 node tools/preflight_samples.js
 ```
 
-If `samples/` is empty: `tools/fetch_samples.sh`.
+Then `F5` to launch the dev host.
 
-Every file in `samples/` holds exactly **one** GRIB message, and no NetCDF
-sample has a second time step or level. The difference-map workflow needs two
-fields, so §3 builds its own inputs — do that here so they're ready:
-
-```sh
-# Two identical messages on one grid → the combine path is exercisable, and
-# every operation has an exactly known answer (see §3).
-cat samples/gfs.grib2 samples/gfs.grib2 > /tmp/fg-pair.grib2
-
-# Same grid type and size (latlon 1440x721) but a different longitude origin
-# (0 vs 180) → must be refused, not silently combined.
-cat samples/gfs.grib2 samples/ecmwf.grib2 > /tmp/fg-mixed.grib2
-```
-
-Launch the dev host with `F5` from the repo, then open files from the launched
-window — or open one directly:
-
-```sh
-code --extensionDevelopmentPath="$PWD/extension" "$PWD/samples/gfs.grib2"
-```
-
-Some checks below open **test fixtures** (committed under `crates/*/tests/`)
-rather than `samples/` files, because the feature they exercise has no
-operational sample in the corpus. They open the same way:
-
-```sh
-code --extensionDevelopmentPath="$PWD/extension" \
-     "$PWD/crates/fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2"
-```
+Paths below are relative to the repo root. `F:` marks a committed crate fixture
+(always present); `S:` marks a `samples/` file (needs the fetch above).
 
 ---
 
-## 1. Spectral field rendering — the flagship (test fixtures) · #302 #303 #322–#325 #330 #334 #335
+## 1. HEALPix grids (#416, #442, #443) — **priority**
 
-No operational file in `samples/` is spectral (they're ECMWF archive), so use
-the committed T63 fixtures. **This is the check to do carefully** — the numerics
-are validated against the spec, but whether it *looks* like a real field is on
-you.
+HEALPix tiles the sphere into equal-area pixels and has no rows or columns at
+all, so it is resampled onto a lat/lon grid at decode. Everything downstream
+then treats it as an ordinary grid, which is exactly the assumption to check.
 
-Open `crates/fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2`:
+**Open `F: extension/src/test/fixtures/healpix_n4_ring.grib2`**
 
-- [ ] The message table shows parameter **Temperature**, packing **Spectral
-      (spherical harmonic)**, and grid type `spherical_harmonic`.
-- [ ] The row offers a **Render** button — *not* "Render not available — grid
-      dimensions unknown". (This was the #288/#302 regression class.)
-- [ ] Click **Render**. A smooth **global** field appears — a plausible
-      temperature pattern (warm tropics, cold poles), roughly 235–317 K on the
-      colorbar. No NaN blocks, no garbage speckle, no hard seams.
-- [ ] The **poles read as single values** — the top and bottom rows are each a
-      uniform colour (a pole is one point, longitude-independent).
-- [ ] Reproject through **equirectangular, orthographic, Web Mercator**. The
-      field warps sensibly and coastlines overlay on the right places (it is a
-      real global grid after synthesis).
-- [ ] Point-probe a few spots (§2a) — values read in Kelvin, tropics warmer than
-      poles.
+- [ ] The message table lists the message, and the **Size** column reads
+      `Nside 4` — not a dash, and not an `Ni×Nj` it invented.
+- [ ] Render in **Source**. It paints. (At `Nside 4` it is coarse by nature —
+      12·16 = 192 pixels of data — so expect blocky, not detailed.)
+- [ ] Switch to **Equirectangular**. The field lands on the map, and coastlines
+      (Overlay → Coastlines) sit where they should against it.
+- [ ] Switch to **Mollweide** and **Orthographic**. Both paint; nothing streaks
+      or wraps across the seam.
+- [ ] Point-probe a pixel: it reports a lat/lon **and** a value. A grid that
+      resampled but did not geolocate reports the value with no coordinates.
+- [ ] Contours on. Lines appear and follow the map through a projection change.
 
-**(wave 2) Every other panel feature now works on a spectral message (#330).**
-Before this fix only the map itself rendered; probe, contours, CSV and PNG all
-failed with an internal error, because they went round the synthesis. Still on
-`spectral_simple_t63.grib2`:
+> Both orderings (RING and NESTED) are covered by the oracle tests against
+> eccodes, pixel for pixel. What is being judged here is that the *resampled*
+> grid is geolocated, which those tests do not see.
 
-- [ ] **Contours** toggle on → isolines trace the synthesized field and follow
-      the colour bands. No "internal error", no empty overlay.
-- [ ] **Export CSV… → matrix** and **→ long** both write a file. The long form
-      carries lat/lon per row on the synthesized global grid.
-- [ ] **Export PNG…** writes the view, colorbar and overlays included.
-- [ ] **Overlays** (coastlines, graticule) draw over the field.
-- [ ] The first render may take a beat; **re-render** (change colormap, toggle an
-      overlay, reproject) is fast — the synthesized field is cached and the
-      transform precomputes its latitude-invariant tables (#334/#357, #335/#349).
-      A second reprojection that visibly re-grinds for seconds is a regression.
+## 2. Curvilinear NetCDF — ocean tripolar and satellite swath (#218, #444, #445) — **priority**
 
-Then, quicker, confirm the sibling paths render the same way:
+These describe position as a list — a latitude and longitude per cell — with no
+projection to compute from. Placement is a nearest-cell lookup, and the two
+files break in opposite directions if it is wrong.
 
-- [ ] `spectral_complex_t63.grib2` — the ECMWF IFS complex form. Renders a
-      smooth global field. (#324)
-- [ ] `crates/fieldglass-grib1/tests/fixtures/spectral_simple_t63.grib1` — GRIB1
-      spectral, same shared engine. Renders identically. (#325)
+**Open `S: samples/rtofs_ice.nc`** (global HYCOM sea ice, 3298 × 4500)
 
----
+- [ ] It opens. **This is the memory and latency check**: the index is 14.8
+      million cells, about 400 MB and two seconds, paid once. If the first
+      render is slow that is expected; the *second* should feel instant.
+- [ ] Pick `ice_thickness` (or `ice_coverage`). Render in **Source**: the
+      Arctic third of the image is visibly folded — that is the bipolar patch,
+      and it is the correct source-projection view.
+- [ ] Switch to **Equirectangular**. The fold **unfolds into a real Arctic**.
+      This is the whole feature; if the north of the image still looks folded or
+      smeared, stop and report.
+- [ ] Coastlines on: the ice edge follows the coast.
+- [ ] Probe a point in the Arctic: plausible lat/lon (high north) and a value.
+- [ ] Units column reads `m` / `degC` — **with no leading space** (#453).
 
-## 2. `samples/gfs.grib2` — the render-panel features · #172 #238 #243 #244 #292 #331 #332 #336 #338 #341
+**Open `S: samples/mirs_swath.nc`** (NOAA-21 MiRS, a full half orbit)
 
-Open `samples/gfs.grib2`, click the message row → render panel. Everything below
-is new since 0.3.0; do it all on this one open file.
+- [ ] Pick `TPW` or `RR`. Render **Equirectangular**: it reads as a **ribbon
+      across the globe, not a smear**. The pass crosses the antimeridian and
+      sweeps over the south pole, so a wrong longitude unwrap shows up here as
+      the ribbon spraying across the whole map.
+- [ ] Nothing paints outside the swath. Off-swath pixels stay transparent
+      rather than being filled with the nearest edge cell.
+- [ ] Ask for **Bilinear** resampling. The render caption must say
+      **`(nearest)`** — a lookup grid downgrades, and the caption reports what
+      actually happened rather than what was asked (#453 sibling fix).
+- [ ] `RR` units read `mm hr⁻¹`, typeset (#453).
+- [ ] Contours on: lines follow the swath, not the whole map.
 
-- [ ] **2a. Point probe (#172/#299).** Click a point on the map → a readout
-      shows the **value and its lat/lon** at that pixel. Click ocean vs. land,
-      or high vs. low areas → the value tracks the colour. Click a transparent /
-      off-grid pixel → no value (or a clean "no data"), not a crash or `NaN`.
-- [ ] **2a′. (wave 2) Probe the periodic seam (#332/#346).** Reproject to
-      **Mollweide** (leave the central meridian at 0, which puts the 359.75°→360°
-      seam gap down the vertical centre of the map). Click a column of pixels
-      straight down that centreline. **Every painted pixel must return a value** —
-      a vertical stripe of "no data" through an otherwise painted field is the
-      bug. Mollweide matters here: it oversamples columns ~2×, so pixels actually
-      land inside the seam gap. An equirectangular raster never does, so this
-      check is invisible there.
-- [ ] **2b. Contour lines (#238/#298).** Toggle contours on → isolines overlay
-      the field and **follow the colour bands** (a line sits on each colour
-      transition, not offset). Change the contour interval → line density
-      changes accordingly. They redraw correctly after a reprojection.
-- [ ] **2b′. (wave 2) Contours survive a repaint cheaply (#336/#355).** With
-      contours on, toggle an overlay and change the colormap. The lines redraw
-      immediately and identically — extraction is memoized, so a repaint that
-      stalls for seconds each time is a regression.
-- [ ] **2c. Log10 colour scaling (#292).** Toggle log scale. On a positive field
-      it recolours (compresses the high end). If the field dips to ≤ 0 the toggle
-      is **disabled or refuses with a clear message** — it must not paint garbage
-      (log of a non-positive value).
-- [ ] **2d. Export PNG (#243).** Click **Export PNG…**, pick a location, then
-      **open the saved `.png`**. It must match the on-screen view: the map
-      raster **plus every overlay currently shown** (contours if on, coastlines,
-      borders, graticule) **plus the colorbar and the title**, at the field's
-      native resolution. The filename is derived from the parameter / slice. Try
-      it once with contours + overlays on and once with them off — the export
-      should reflect whichever is showing.
-- [ ] **2d′. (wave 2) Exported colorbar midpoint under log10 (#331/#351).** Set a
-      **manual range of `1..100`**, turn **log10 on**, export the PNG, and read
-      the colorbar's **middle tick label** in the saved file. It must read **≈ 10**
-      (the geometric mean, which is the value the colour at mid-height actually
-      has), not `50.5`. Turn log10 off, export again: the mid tick reads `50.5`.
-      The in-panel colorbar has no mid label, so this number only ever existed in
-      the shared artifact — the file is the only place to check it.
-- [ ] **2e. Export CSV (#244).** Click **Export CSV…** → **matrix** → open the
-      `.csv`: a 2-D grid of values, empty cells where masked. Then **long** → a
-      `lat,lon,value` table with one row per grid point; spot-check that a
-      row's lat/lon matches where that value sits on the map. Confirm a
-      large-export confirmation appears before writing.
-- [ ] **2e′. (wave 2) Large CSV stays responsive (#341/#356).** GFS 0.25° is
-      1440×721 ≈ 1M points. The long export should complete without the window
-      going unresponsive or memory ballooning — the row building no longer
-      allocates per cell.
+## 3. Reduced Gaussian grids in GRIB2 (#500, #503)
 
----
+ECMWF's ordinary output. Each row of latitude holds a different number of
+points, so there is no `Ni`; the rows are widened to the widest one at decode.
 
-## 3. Difference maps · #239 #293 #295 #296 #329 #333
+**Open `F: crates/fieldglass-grib2/tests/fixtures/reduced_gaussian_pressure_level.grib2`**
 
-**Read this first:** every GRIB2 file in `samples/` holds exactly one message,
-and the Compare row is hidden below two fields — so the difference workflow
-cannot be reached from any sample file as shipped. Use the two files built in
-§0. NetCDF has the mirror problem (see 3c).
+- [ ] **Size** column reads `N32` — the grid's own name, not `—` and not
+      `128×64`.
+- [ ] **Grid** column reads `reduced_gaussian` (it read `gaussian` before, which
+      disagreed with the GRIB1 side).
+- [ ] Render **Source**: paints, 128 × 64, temperatures in a plausible range.
+- [ ] **Equirectangular**: a recognisable global temperature field. Polar rows
+      are stretched copies of few points — that is correct for a reduced grid.
+- [ ] Contours and probe both work.
 
-- [ ] **3a. GRIB difference, known answers (#295/#293).** Open
-      `/tmp/fg-pair.grib2` — two identical GFS temperature messages. The panel
-      shows a **Compare** row with an operation menu (`A − B`, `B − A`, `A + B`,
-      `Mean`, `A / B`) and a Field B picker. Because B is a copy of A, every
-      operation has an exact expected answer:
-      - `A − B` → a **flat field of exactly 0**, on a **diverging colormap
-        centred on zero**, colorbar range `0..0`.
-      - `A / B` → flat **1**.
-      - `A + B` → the field doubled: the colorbar range is exactly 2× field A's
-        (GFS temperature ≈ 2×230–320 K).
-      - `Mean` → identical to plain field A.
-      Anything else — a torn raster, an off-centre diverging bar, a range that
-      isn't the arithmetic above — is a real failure.
-- [ ] **3b. (wave 2) The probe and contours read the *difference*, not field A
-      (#329/#358).** This is what the self-difference file is really for: field A
-      reads ≈ 230–320 K, the difference reads 0, so the two are impossible to
-      confuse.
-      - With `A − B` displayed, **probe** several points → each must read
-        **≈ 0**, in the field's units. A probe that returns 250-something is
-        reading field A under a raster painted with the difference — the bug.
-      - Switch to `A + B` and **turn contours on** → the isolines must sit on the
-        *doubled* field's colour bands (levels roughly 2× the ones plain field A
-        draws). Contours tracing field A's levels over a doubled raster is the
-        same bug.
-- [ ] **3c. Mismatched grids are refused, not silently combined (#333/#345).**
-      Open `/tmp/fg-mixed.grib2` — GFS and ECMWF, both `latlon 1440×721`, but
-      with longitude origins 0 and 180. Pick any operation → it must fail with a
-      **clear message** ("the two fields are on different grids; combining needs
-      identical grid dimensions and definition"), not render a plausible-looking
-      but meaningless field. Same-type, same-size, different-origin is exactly
-      the case the old check let through, so this is the check that matters —
-      a latlon-vs-Lambert pair (`cat samples/gfs.grib2 samples/hrrr.grib2`) is
-      the easy case and optional.
-- [ ] **3d. NetCDF difference (#296).** Open `samples/oisst.nc` and render an
-      `sst` slice. The NetCDF Compare row differences the **same variable at its
-      own slice indices** — and every NetCDF sample in the corpus is a single
-      time step and single level (`time:1, zlev:1`), so Field B can only be the
-      same slice. That still exercises the path: `A − B` → flat 0 on a diverging
-      bar, `A / B` → 1, and a **probe on the difference reads 0**, not the SST
-      value (the 3b check on the NetCDF path). For a substantive eyeball you need
-      a multi-step file dropped in by hand — an `era5.nc` / `merra2.nc` subset
-      with several time steps, or a real `wrfout` (see the auth-gated table in
-      `samples/README.md`). With one of those: difference two adjacent time steps
-      → a near-zero but structured field, largest where weather moved.
+**Open `F: crates/fieldglass-grib2/tests/fixtures/octahedral_gaussian_o32.grib2`**
 
----
+- [ ] **Size** reads `O32`, not `N32`. (This is the octahedral/classic split.)
+- [ ] Render **Equirectangular**. **Look at the east edge**: the field should
+      reach the antimeridian cleanly. This grid's widest row is 144 where the
+      file declares its last longitude from a 128-column grid, so a wrong
+      reading slides every column progressively west — subtle, up to an eighth
+      of a cell, most visible as a mismatch against coastlines near 180°.
 
-## 4. `samples/oisst.nc` (or `goes.nc`) — render-panel additions on NetCDF · #316 #317
+**Open `F: crates/fieldglass-grib1/tests/fixtures/reduced_gg_n32.grib1`**
 
-The panel features are format-agnostic; confirm they work on a NetCDF slice too.
+- [ ] Size reads `N32` and Grid reads `reduced_gaussian` — **the same two
+      strings the GRIB2 file showed**. The two editions describing one grid
+      differently is what #503 fixed.
+- [ ] Contours draw (they were refused for GRIB1 reduced grids before).
 
-- [ ] Render a slice, then **Export CSV… (#317)** → matrix and long. The matrix
-      is a rectangular grid of the slice; the long form has one row per grid
-      point with sensible lat/lon.
-- [ ] **Export PNG** the slice — image matches the on-screen view.
-- [ ] **Point-probe** and **contour** the slice — same behaviour as GRIB.
-- [ ] `oisst.nc` is a global 1/4° grid, so it also serves the **seam probe** of
-      §2a′: reproject to Mollweide and probe down the centreline — every painted
-      pixel returns a value.
+## 4. Parameter, unit and centre naming (#415, #424, #425, #426, #432, #440, #441, #469, #453)
+
+Broad rather than deep. Do this against files you have open anyway — one NCEP,
+one ECMWF, one DWD.
+
+- [ ] `S: samples/gfs.grib2` — parameters have **names and units**, not
+      `Parameter 0/3/192`. Short names read as NCEP writes them (`TMP`,
+      `UGRD`, `APCP`, `MSLET`, `REFC`).
+- [ ] `S: samples/ecmwf.grib2` — ECMWF local codes (≥ 192) resolve to names
+      rather than showing the numeric triple.
+- [ ] `S: samples/icon.grib2` — DWD local codes resolve.
+- [ ] **Centre** column shows WMO's own wording, e.g. *"European Centre for
+      Medium Range Weather Forecasts (ECMWF) (RSMC)"*, with a sub-centre in
+      parentheses where there is one.
+- [ ] **Units** read as typeset symbols — `m s⁻¹`, `kg m⁻²`, `W m⁻² sr⁻¹` —
+      not `m/s` or `kg m-2`. Strings that are *not* units (`Code table 4.253`,
+      `Numeric`, `CCITT IA5`) are shown verbatim, unmangled.
+- [ ] `S: samples/goes.nc` — a NetCDF variable's units now appear **in the
+      render panel title and the probe readout**, where they were absent before
+      (#453). Names the file chose (`kelvin`, `meters`, `degree_C`) are shown as
+      written, not rewritten.
+
+## 5. Projected grids: contours, CSV, and two placement fixes (#422, #423, #470, #472, #488, #490)
+
+**Open `S: samples/hrrr.grib2`** (Lambert) — or `F: crates/fieldglass-grib2/tests/fixtures/eta_lambert_msg0.grib2`
+
+- [ ] **Contours** draw over the Lambert field, in Source *and* in a reprojected
+      view. They were refused entirely before (#470).
+- [ ] **Export CSV → long**. The header is `lat,lon,value` and the coordinates
+      are real, not blank. (Long CSV was refused on projected grids before.)
+
+**Open `F: crates/fieldglass-grib2/tests/fixtures/transverse_mercator_ukv.grib2`** (#422)
+
+- [ ] Renders and reprojects; the UK lands on the UK with coastlines on.
+
+**Open `F: crates/fieldglass-grib2/tests/fixtures/lambert_azimuthal_efas.grib2`** (#423)
+
+- [ ] Renders and reprojects; the European domain sits where it should.
+
+**Open `S: samples/eccc.grib2`** or `F: crates/fieldglass-grib1/tests/fixtures/cmc_wind_300_2010052400_p012.grib` (#488)
+
+- [ ] The **whole** grid paints. This north polar stereographic grid reaches
+      4.7° *south*, and everything below the equator used to drop out — look
+      for a hard horizontal edge across the image where data simply stops.
+- [ ] The **Bounds** column shows real numbers, not `NaN` (#472).
+
+**Open `S: samples/goes.nc`** (#490)
+
+- [ ] The disc edge is **clean**, not speckled. Border pixels used to drop out
+      individually, giving a stippled rim rather than a smooth limb.
+
+## 6. NetCDF containers and the metadata view (#412, #413, #452)
+
+- [ ] `S: samples/oisst.nc` or any NetCDF-4 file opens; the metadata view shows
+      dimensions, global attributes and variables.
+- [ ] **Narrow the editor pane until a row is wider than it.** The table
+      **scrolls inside itself**; the heading and the render panel stay put
+      (#452). Check both the GRIB message table and the NetCDF variables table.
+- [ ] A file using fletcher32 or zstd opens rather than failing (#412, #413) —
+      the crate fixtures `hdf5_fletcher32.h5` and `hdf5_zstd.h5` cover the
+      decode; here just confirm nothing regressed on the real files.
+
+## 7. Regression floor (pre-0.4.0 coverage)
+
+A quick pass, not a full re-run of `samples/README.md`:
+
+- [ ] `S: samples/gfs.grib2` — renders, reprojects, coastlines align.
+- [ ] `F: crates/fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2` — a spectral field still synthesizes and
+      renders (0.4.0's headline; the geometry work this cycle touched the seam
+      it shares).
+- [ ] `F: extension/src/test/fixtures/netcdf_classic_dummy.nc` — classic NetCDF metadata view renders.
+- [ ] `F: crates/fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2` — the canonical GRIB2 path renders.
+- [ ] Difference map: pick two messages of one variable, **Compare** → the
+      difference renders and the probe reads the *combined* value.
+- [ ] **Export PNG** from one render; the file opens and matches what was on
+      screen.
 
 ---
 
-## 5. Regression pass — the pre-0.3.0 corpus still renders
+## Recording the outcome
 
-Three refactors this cycle moved shared code into `fieldglass-core` (the
-second-order SPD inverse, the second-order group expansion, and the matrix
-reshape), and the spectral-render wiring reworked the napi decode seam that
-*every* feature now calls (#330/#359). Nothing here should have changed, so this
-is a fast "still renders + reprojects" pass — see `samples/README.md` for the
-per-file "looks right" detail:
+Note pass/fail per section in the release PR or issue. A failure in §1–§3 blocks
+the release; a failure in §4 is judged on how many files it touches.
 
-- [ ] `hrrr.grib2` — Lambert complex-spatial-diff; render at **source** then
-      reproject. Also **Export PNG + CSV** here to confirm export works off a
-      **projected / warped** view, not just regular lat/lon.
-- [ ] **(wave 2) The long-CSV refusal on a projected grid names CSV, not
-      contours (#337/#347).** Still in `hrrr.grib2` (Lambert), **Export CSV… →
-      long**. Long format needs per-point coordinates, which Lambert doesn't
-      offer yet, so it must refuse — with a message that **names the CSV long
-      format and points at the Matrix layout**, and that **never mentions
-      contours**. Then export **matrix** from the same view: it succeeds.
-- [ ] **(wave 2) A contour error doesn't clobber the render summary
-      (#338/#350).** Still in `hrrr.grib2`: note the status line's render summary
-      (dimensions + value range), then toggle **contours on**. Contours aren't
-      wired for projected grids, so an error appears — on **its own line**, with
-      the render summary still readable above it. Toggle contours **off** → the
-      error line clears rather than lingering until the next full render.
-- [ ] `rap.grib2` — JPEG 2000 on Lambert.
-- [ ] `mrms.grib2` — PNG packing; set a manual range (e.g. `0..70`) to see the
-      reflectivity past the −999 sentinel.
-- [ ] `ecmwf.grib2` — CCSDS / AEC, global (decodes with no libaec dependency).
-- [ ] `eccc.grib2` — JPEG 2000 on a rotated grid (unrotates correctly).
-- [ ] `nbm.grib2` — inline missing-value management; value range ~267.9–315.8 K.
-- [ ] `goes.nc` / `wrf.nc` — geostationary / WRF Lambert still frame correctly.
-
----
-
-## 6. Not UI-testable this cycle (for awareness — no action)
-
-Several §5 packings shipped this cycle as **decode-only** with **no operational
-sample file**, so they can't be exercised from the UI. They are validated by
-automated oracle / cross-edition tests (see each crate's
-`tests/fixtures/NOTICE.md`), not by this plan:
-
-- **Run-length (5.200)**, **log pre-processing (5.61)**, **second-order
-  (5.50001 / 5.50002)** — decode to one value per grid point.
-- **Bi-Fourier (5.53)** and **spectral (5.50 / 5.51)** — decode to coefficients;
-  spectral additionally renders via §1, bi-Fourier does not render yet.
-- **Matrix-of-values (5.1)** — the flat form renders like 5.0; the true per-point
-  matrix decodes to a matrix field (not a single 2-D image), so there is nothing
-  to eyeball.
-- **Pre-standard local image (5.40000 / 5.40010)** — decode paths of 5.40 / 5.41.
-
-If you want to *smoke-test* that the one-value-per-point ones paint at all, these
-committed fixtures open in the dev host and render like any small grid:
-
-```sh
-code --extensionDevelopmentPath="$PWD/extension" \
-     "$PWD/crates/fieldglass-grib2/tests/fixtures/second_order_regular_latlon.grib2"
-code --extensionDevelopmentPath="$PWD/extension" \
-     "$PWD/crates/fieldglass-grib1/tests/fixtures/hand_second_order_SPD1.grib1"
-code --extensionDevelopmentPath="$PWD/extension" \
-     "$PWD/crates/fieldglass-grib2/tests/fixtures/runlength_regular_latlon.grib2"
-```
-
-The two second-order fixtures are worth opening as a pair: #340/#361 moved the
-group expansion into `fieldglass-core` so GRIB1 and GRIB2 now share one
-implementation, and these are the two editions of it.
-
-They are tiny synthetic grids, so the check is only "renders a coherent
-low-resolution field", not a coastline pass.
+**What this plan cannot see, by construction:** the value-level cross-checks
+against eccodes (every committed fixture, every distinct unit string, every cell
+of both curvilinear grids) all run in CI. This plan is only for the things that
+need eyes — whether a picture is in the right place and reads correctly.
