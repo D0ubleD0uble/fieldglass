@@ -1509,8 +1509,20 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
         rendered.projectionSummary.includes("curvilinear"),
         `${label}: the default plane should be the curvilinear one, got ${rendered.projectionSummary}`,
       );
-      assert.strictEqual(rendered.width, v.dims[x].length, `${label}: width`);
-      assert.strictEqual(rendered.height, v.dims[y].length, `${label}: height`);
+      // The raster no longer mirrors the array: a curvilinear grid's shape says
+      // nothing about its geography, so the box target takes its shape from the
+      // window instead (#515). What must still hold is that this is a real 2-D
+      // image — the sliver #218 is about would have an axis of 1 — and that the
+      // pixel budget still comes from the source, nothing downsampled.
+      assert.ok(
+        rendered.width > 1 && rendered.height > 1,
+        `${label}: expected a 2-D raster, got ${rendered.width}x${rendered.height}`,
+      );
+      assert.strictEqual(
+        Math.max(rendered.width, rendered.height),
+        Math.max(v.dims[y].length, v.dims[x].length),
+        `${label}: the long edge should keep the source's long edge`,
+      );
     }
   });
 

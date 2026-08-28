@@ -4508,7 +4508,15 @@ fn warp_message(
     };
     // Construct the concrete target (shared with the overlay-projection path so
     // both paint into byte-identical geometry), then warp the source into it.
-    let (built, used_bounds) = build_warp_target(target_kind, ni, nj, bbox_thunk, bounds_override)?;
+    let (built, used_bounds) = build_warp_target(
+        target_kind,
+        ni,
+        nj,
+        bbox_thunk,
+        bounds_override,
+        source_grid_is_periodic(meta, ni),
+        lookup.is_some(),
+    )?;
     let warped = built.warp(&source, resampling);
     // What the warp actually did, not what was asked for: a lookup grid
     // downgrades bilinear, and a summary echoing the request would name a blend
@@ -4634,24 +4642,39 @@ type BuiltWarpTarget = (BuiltTarget, Option<(f64, f64, f64, f64)>);
 /// bbox for planar sources — and report no box extent. Output dims size to the
 /// source grid for the box targets; the azimuthal discs use a square raster
 /// (`side = max(ni, nj)`) so the globe stays circular rather than elliptical.
+/// `lon_periodic` says the *source* closes on itself in longitude
+/// ([`source_grid_is_periodic`]), which is what decides whether a full-turn
+/// window tiles as a circle or as an interval. It cannot be read back off the
+/// window: a grid that declares a duplicated seam column also spans exactly
+/// 360°, and wants the interval treatment.
 fn build_warp_target(
     target_kind: WarpTarget,
     ni: u32,
     nj: u32,
     bbox_thunk: BboxThunk,
     bounds_override: Option<RenderBounds>,
+    lon_periodic: bool,
+    // Whether the source's array axes carry no geographic shape, so the box
+    // targets must take theirs from the window instead ([`box_raster_dims`]).
+    shapeless_axes: bool,
 ) -> napi::Result<BuiltWarpTarget> {
     match target_kind {
         WarpTarget::Equirectangular => {
             let (lat_min, lat_max, lon_min, lon_max) =
                 resolve_box_extent(bbox_thunk, bounds_override);
+            let (width, height) = if shapeless_axes {
+                box_raster_dims(ni, nj, (lat_min, lat_max, lon_min, lon_max))
+            } else {
+                (ni, nj)
+            };
             let target = TargetRaster {
-                width: ni,
-                height: nj,
+                width,
+                height,
                 lat_max,
                 lat_min,
                 lon_min,
                 lon_max,
+                lon_periodic,
             };
             Ok((
                 BuiltTarget::Equirect(target),
@@ -4661,7 +4684,20 @@ fn build_warp_target(
         WarpTarget::WebMercator => {
             let (lat_min, lat_max, lon_min, lon_max) =
                 resolve_box_extent(bbox_thunk, bounds_override);
-            let merc = WebMercator::new(ni, nj, lat_min, lat_max, lon_min, lon_max);
+            let (width, height) = if shapeless_axes {
+                box_raster_dims(ni, nj, (lat_min, lat_max, lon_min, lon_max))
+            } else {
+                (ni, nj)
+            };
+            let merc = WebMercator::new(
+                width,
+                height,
+                lat_min,
+                lat_max,
+                lon_min,
+                lon_max,
+                lon_periodic,
+            );
             let (used_lat_min, used_lat_max, _, _) = merc.extent();
             // A lat band lying entirely outside the ±85.0511° Web Mercator
             // cutoff clamps to a single edge, collapsing the Y span to zero and
@@ -4703,6 +4739,44 @@ fn build_warp_target(
             Ok((BuiltTarget::EqEarth(EqualEarth::new(w, h, lon0)), None))
         }
     }
+}
+
+/// Raster dims for a lat/lon-box target whose source array carries no
+/// geographic shape (#515).
+///
+/// Every other family's array *is* its geography — a lat/lon or Gaussian grid
+/// is rows of latitude by columns of longitude, so taking the raster straight
+/// from `ni × nj` is not a fallback but the best answer available: the render
+/// is a 1:1 copy of the field. A curvilinear grid has no such correspondence.
+/// A satellite swath is stored scan line by field of view, which says nothing
+/// about where the pass went: a NOAA-21 half orbit is 96 × 768 for a window
+/// spanning 355° of longitude by 117° of latitude, so drawing it at the array's
+/// shape stretches it more than twentyfold.
+///
+/// So the shape comes from the window and the pixel budget from the source.
+/// The longer output edge takes the source's longer edge — nothing is
+/// downsampled, the same rule [`world_raster_dims`] applies to the whole-world
+/// targets — and the aspect of the resolved extent fixes the other.
+///
+/// A degenerate window (no extent on one axis, or non-finite corners) has no
+/// aspect to honour, so the source shape stands.
+fn box_raster_dims(ni: u32, nj: u32, extent: (f64, f64, f64, f64)) -> (u32, u32) {
+    let (lat_min, lat_max, lon_min, lon_max) = extent;
+    let geo_w = lon_max - lon_min;
+    let geo_h = lat_max - lat_min;
+    if !geo_w.is_finite() || !geo_h.is_finite() || geo_w <= 0.0 || geo_h <= 0.0 {
+        return (ni, nj);
+    }
+    let aspect = geo_w / geo_h;
+    let long_edge = f64::from(ni.max(nj));
+    let (w, h) = if aspect >= 1.0 {
+        (long_edge, long_edge / aspect)
+    } else {
+        (long_edge * aspect, long_edge)
+    };
+    // `as u32` saturates, and both edges keep at least one pixel so a sliver
+    // window cannot collapse the raster to nothing.
+    ((w.round() as u32).max(1), (h.round() as u32).max(1))
 }
 
 /// Raster dims for a whole-world target of the given width : height ratio.
@@ -4796,8 +4870,15 @@ fn project_overlay_impl(
             ring_lengths,
         )),
         TargetKind::Warp(target_kind) => {
-            let (built, _used_bounds) =
-                build_warp_target(target_kind, ni, nj, bbox_thunk, resolved.bounds)?;
+            let (built, _used_bounds) = build_warp_target(
+                target_kind,
+                ni,
+                nj,
+                bbox_thunk,
+                resolved.bounds,
+                source_grid_is_periodic(meta, ni),
+                lookup.is_some(),
+            )?;
             Ok(built.project(resolved.flip_y, latlon, ring_lengths))
         }
     }
@@ -5365,7 +5446,15 @@ fn probe_impl(
         }
         TargetKind::Warp(target) => {
             let (inverse, bbox) = warp_setup_for(meta, ni, nj, lookup)?;
-            let (built, _) = build_warp_target(target, ni, nj, bbox, resolved.bounds)?;
+            let (built, _) = build_warp_target(
+                target,
+                ni,
+                nj,
+                bbox,
+                resolved.bounds,
+                source_grid_is_periodic(meta, ni),
+                lookup.is_some(),
+            )?;
             let (w, h) = built.dims();
             if px >= w || py >= h {
                 return Ok(None);
@@ -6144,6 +6233,45 @@ mod resolved_options_tests {
                 .projection,
             TargetKind::Warp(WarpTarget::Robinson { lon0 }) if lon0 == 0.0
         ));
+    }
+
+    /// A lookup grid's array shape says nothing about its geography, so the box
+    /// raster takes its shape from the window instead (#515).
+    #[test]
+    fn a_box_raster_takes_its_shape_from_the_window_not_the_array() {
+        // The NOAA-21 half orbit: 96 fields of view by 768 scan lines, over a
+        // window 355° wide and 117° tall. Drawn at the array's shape that is a
+        // 3:1 area in a 1:8 raster — more than twentyfold too tall.
+        let (w, h) = box_raster_dims(96, 768, (-89.93, 26.79, -30.33, 324.58));
+        let aspect = f64::from(w) / f64::from(h);
+        let want = (324.58 - -30.33) / (26.79 - -89.93);
+        assert!(
+            (aspect - want).abs() / want < 0.01,
+            "raster {w}x{h} has aspect {aspect}, window wants {want}"
+        );
+        // Nothing is downsampled: the longer edge keeps the source's longer edge.
+        assert_eq!(
+            w.max(h),
+            768,
+            "long edge should be the source's, got {w}x{h}"
+        );
+
+        // A window taller than it is wide puts the source's long edge on height.
+        let (w, h) = box_raster_dims(96, 768, (-80.0, 80.0, 0.0, 40.0));
+        assert_eq!(h, 768);
+        assert!(
+            w < h,
+            "a tall window must not produce a wide raster: {w}x{h}"
+        );
+
+        // Degenerate windows have no aspect to honour, so the source shape stands
+        // rather than collapsing the raster.
+        assert_eq!(box_raster_dims(96, 768, (10.0, 10.0, 0.0, 40.0)), (96, 768));
+        assert_eq!(box_raster_dims(96, 768, (0.0, 10.0, 5.0, 5.0)), (96, 768));
+        assert_eq!(
+            box_raster_dims(96, 768, (0.0, f64::NAN, 0.0, 40.0)),
+            (96, 768)
+        );
     }
 
     #[test]

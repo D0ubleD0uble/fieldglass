@@ -243,6 +243,7 @@ mod tests {
             lat_min: -90.0,
             lon_min: -180.0,
             lon_max: 180.0,
+            lon_periodic: false,
         }
         .prepare()
     }
@@ -479,6 +480,7 @@ mod tests {
             lat_min: 30.0,
             lon_min: -120.0,
             lon_max: -100.0,
+            lon_periodic: false,
         }
         .prepare();
         let asia = [35.0, 100.0, 36.0, 101.0, 37.0, 102.0];
@@ -551,6 +553,7 @@ mod tests {
             lat_min: 30.0,
             lon_min: -120.0,
             lon_max: -100.0,
+            lon_periodic: false,
         }
         .prepare();
         let crossing = [40.0, -121.0, 40.0, -119.0];
