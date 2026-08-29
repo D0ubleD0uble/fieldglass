@@ -42,6 +42,31 @@ jobs:
             --config p/secrets \
             --config p/github-actions
 
+      - name: Drop suppressed results from the SARIF
+        if: always()
+        # A `nosemgrep` keeps a finding out of the CLI's exit code but not out
+        # of the SARIF, where it is emitted with `suppressions: [inSource]`.
+        # Uploading those raises a code scanning alert for every suppression we
+        # have deliberately reviewed and silenced, which then has to be
+        # dismissed by hand — once per suppression, forever.
+        #
+        # So upload exactly what the gate would fail on. The rules array is
+        # left intact, which is what lets GitHub mark a previously reported
+        # alert as fixed rather than leaving it open with no result to match.
+        run: |
+          python3 - <<'FILTER'
+          import json, pathlib
+
+          path = pathlib.Path("semgrep.sarif")
+          report = json.loads(path.read_text())
+          for run in report.get("runs", []):
+              results = run.get("results", [])
+              kept = [r for r in results if not r.get("suppressions")]
+              print(f"dropped {len(results) - len(kept)} suppressed of {len(results)}")
+              run["results"] = kept
+          path.write_text(json.dumps(report))
+          FILTER
+
       - name: Upload SARIF to GitHub Security
         if: always()
         uses: github/codeql-action/upload-sarif@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
