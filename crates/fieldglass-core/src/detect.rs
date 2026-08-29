@@ -126,49 +126,48 @@ mod fs_tests {
     use super::*;
     use std::io::Write;
 
-    /// Write `bytes` to a uniquely named file under the temp dir and return the
-    /// path. Named for the calling test so a leftover file says where it came
-    /// from; the process id keeps concurrent `cargo test` runs apart.
+    /// A temp file holding `bytes` and ending in `suffix`.
     ///
-    /// Opened with `create_new` rather than `File::create`, which is the part
-    /// that matters: the temp directory is shared between users on most
-    /// systems and the name here is predictable, so a plain create would follow
-    /// a symlink planted at that path and write these bytes through it.
-    /// `create_new` refuses an existing path — symlink included — so the worst
-    /// case is a failed test rather than a clobbered file.
-    fn temp_file(name: &str, bytes: &[u8]) -> String {
-        // nosemgrep: rust.lang.security.temp-dir.temp-dir
-        let dir = std::env::temp_dir();
-        let path = dir.join(format!("fieldglass-detect-{}-{name}", std::process::id()));
-        // Unlink any stale entry first — a crashed earlier run can leave one
-        // behind, and a recycled pid would otherwise collide with it. Unlinking
-        // a symlink removes the link and never follows it, so this cannot write
-        // through one; and if something re-appears in the window before the
-        // open below, create_new refuses rather than following it.
-        let _ = std::fs::remove_file(&path);
-        let mut f = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&path)
+    /// The suffix is the point: these tests are about how the extension and the
+    /// magic bytes interact, so the name has to end in a real one.
+    ///
+    /// `tempfile` rather than a name of our own under `std::env::temp_dir()`.
+    /// That directory is shared between users, so a predictable name is a
+    /// liability: another user can plant a symlink at the path we are about to
+    /// write, and an ordinary create follows it. This gives a random name,
+    /// `O_EXCL` creation and 0600 — nothing to guess and nothing to race.
+    ///
+    /// Returned by value, not as a path: the file lives exactly as long as the
+    /// handle and is removed on drop, so a test cannot leak one into `/tmp` and
+    /// no test needs to remember to clean up.
+    fn temp_file(suffix: &str, bytes: &[u8]) -> tempfile::NamedTempFile {
+        let mut file = tempfile::Builder::new()
+            .prefix("fieldglass-detect-")
+            .suffix(suffix)
+            .tempfile()
             .expect("create temp file");
-        f.write_all(bytes).expect("write temp file");
-        path.to_str().expect("temp path is utf-8").to_string()
+        file.write_all(bytes).expect("write temp file");
+        file.flush().expect("flush temp file");
+        file
+    }
+
+    /// The path of `file` as the `&str` `detect_format` takes.
+    fn path_of(file: &tempfile::NamedTempFile) -> &str {
+        file.path().to_str().expect("temp path is utf-8")
     }
 
     #[test]
     fn magic_bytes_beat_a_lying_extension() {
         // The discriminating case for the `fs` feature: without the file read,
         // this would answer Grib1 from the extension alone.
-        let path = temp_file("liar.grib1", b"GRIB\0\0\0\x02");
-        assert!(matches!(detect_format(&path), Format::Grib2));
-        let _ = std::fs::remove_file(&path);
+        let file = temp_file(".grib1", b"GRIB\0\0\0\x02");
+        assert!(matches!(detect_format(path_of(&file)), Format::Grib2));
     }
 
     #[test]
     fn extension_is_the_fallback_when_the_bytes_say_nothing() {
-        let path = temp_file("garbage.nc", b"not a data file");
-        assert!(matches!(detect_format(&path), Format::NetCdf));
-        let _ = std::fs::remove_file(&path);
+        let file = temp_file(".nc", b"not a data file");
+        assert!(matches!(detect_format(path_of(&file)), Format::NetCdf));
     }
 
     #[test]
