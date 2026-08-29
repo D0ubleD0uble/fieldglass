@@ -128,6 +128,15 @@ pub struct TargetRaster {
     pub lat_min: f64,
     pub lon_min: f64,
     pub lon_max: f64,
+    /// Whether the longitude window closes on itself — widened to a full turn
+    /// because the *source* is periodic in longitude, so its two ends are the
+    /// same meridian and no column should sit on both.
+    ///
+    /// Not inferable from `lon_min`/`lon_max`: a grid declaring a duplicated
+    /// seam column spans exactly 360° too, and is a bounded window
+    /// (`lon_grid_is_global` deliberately does not flag it). Set this from the
+    /// source, never from the span.
+    pub lon_periodic: bool,
 }
 
 /// Output of a warp call. `values` holds the resampled source values
@@ -323,7 +332,7 @@ impl TargetProjection for TargetRaster {
             d_lat: span_step(self.lat_min - self.lat_max, self.height),
             lon_min: self.lon_min,
             lon_mid: (self.lon_min + self.lon_max) / 2.0,
-            d_lon: span_step(self.lon_max - self.lon_min, self.width),
+            d_lon: lon_step(self.lon_max - self.lon_min, self.width, self.lon_periodic),
         }
     }
 }
@@ -394,6 +403,7 @@ pub struct WebMercator {
     lat_max: f64,
     lon_min: f64,
     lon_max: f64,
+    lon_periodic: bool,
 }
 
 impl WebMercator {
@@ -407,6 +417,7 @@ impl WebMercator {
         lat_max: f64,
         lon_min: f64,
         lon_max: f64,
+        lon_periodic: bool,
     ) -> Self {
         Self {
             width,
@@ -415,6 +426,7 @@ impl WebMercator {
             lat_max: lat_max.clamp(-WEB_MERCATOR_MAX_LAT, WEB_MERCATOR_MAX_LAT),
             lon_min,
             lon_max,
+            lon_periodic,
         }
     }
 
@@ -454,7 +466,7 @@ impl TargetProjection for WebMercator {
             d_y: span_step(y_min - y_max, self.height),
             lon_min: self.lon_min,
             lon_mid: (self.lon_min + self.lon_max) / 2.0,
-            d_lon: span_step(self.lon_max - self.lon_min, self.width),
+            d_lon: lon_step(self.lon_max - self.lon_min, self.width, self.lon_periodic),
         }
     }
 }
@@ -1277,8 +1289,52 @@ impl PreparedTarget for EqualEarthPrepared {
 /// Per-pixel step that spreads `span` evenly across `n` pixels (`span /
 /// (n - 1)`). A single-pixel axis collapses to a zero step rather than
 /// dividing by zero.
+///
+/// This is the **node** convention: the first and last pixels sit on the two
+/// ends of the span. That is what a latitude axis wants — row 0 at `lat_max`
+/// and the last row at `lat_min`, so both poles are sampled. A longitude axis
+/// spanning the whole circle wants [`lon_span_step`] instead.
 fn span_step(span: f64, n: u32) -> f64 {
     if n <= 1 { 0.0 } else { span / (n as f64 - 1.0) }
+}
+
+/// How close a longitude span must be to a full turn to be treated as one.
+/// The global windows this fires on are built from the literal `360.0` in
+/// `latlon_family_bbox`, so no slack beyond float noise is wanted: a window
+/// deliberately one cell short of the circle must keep the node convention.
+const FULL_TURN_EPS_DEG: f64 = 1e-9;
+
+/// Per-pixel step along a longitude axis.
+///
+/// A full-circle window is **periodic**, not an interval: its two ends are the
+/// same meridian. Spreading `n` pixels across it with [`span_step`] puts the
+/// last pixel back on the first (`0°` and `360°` both sampled), which spends a
+/// column re-drawing the prime meridian and places every other column
+/// `n / (n - 1)` too far east. At 1440 columns that is a quarter of a degree
+/// at the eastern edge and invisible; on a HEALPix `Nside 4` field resampled
+/// to 26 columns it is nearly 14°, and the coastline overlay — which maps
+/// `360°` onto the raster's own width — visibly stops a whole column short of
+/// the image.
+///
+/// So a full turn tiles as `span / n`: `n` pixels covering the circle exactly
+/// once, the last at `lon_min + 360 - 360/n`, no duplicate. The seam gap
+/// between the source's last column and its first is still painted, which is
+/// why the window is widened to a full turn in the first place — the periodic
+/// sampler fills it.
+///
+/// Anything short of a full turn is an ordinary interval and keeps the node
+/// convention, so a manual lat/lon box still reaches both of its edges.
+fn lon_step(span: f64, n: u32, periodic: bool) -> f64 {
+    if n == 0 {
+        return 0.0;
+    }
+    // Both conditions: a periodic source viewed through a manual sub-window
+    // (say lon 10..30) is an ordinary interval and must reach both its edges.
+    if periodic && (span.abs() - 360.0).abs() < FULL_TURN_EPS_DEG {
+        span / n as f64
+    } else {
+        span_step(span, n)
+    }
 }
 
 /// Map a pixel index to a `[-1, 1]` coordinate across `n` pixels, north/
@@ -1490,6 +1546,7 @@ mod tests {
             lat_min: 10.0,
             lon_min: 0.0,
             lon_max: 360.0,
+            lon_periodic: false,
         };
         for method in [Resampling::Nearest, Resampling::Bilinear] {
             let out = warp_to_equirectangular(&source, &target, method);
@@ -1536,6 +1593,7 @@ mod tests {
             lat_min: 10.0,
             lon_min: 100.0,
             lon_max: 140.0,
+            lon_periodic: false,
         };
         let out = warp_to_equirectangular(&source, &target, Resampling::Nearest);
         assert_eq!(out.width, 5);
@@ -1570,6 +1628,7 @@ mod tests {
             lat_min: -20.0,
             lon_min: 60.0,
             lon_max: 180.0,
+            lon_periodic: false,
         };
         let out = warp_to_equirectangular(&source, &target, Resampling::Nearest);
         assert_eq!(out.mask[0], 0, "top-left should be off-grid");
@@ -1595,6 +1654,7 @@ mod tests {
             lat_min: 10.0,
             lon_min: 100.0,
             lon_max: 140.0,
+            lon_periodic: false,
         };
         let out = warp_to_equirectangular(&source, &target, Resampling::Bilinear);
         // Pixel (1, 0) at lat=50, lon=105 sits halfway between source
@@ -1632,6 +1692,7 @@ mod tests {
                 lat_min: 0.0,
                 lon_min: 0.0,
                 lon_max: 30.0,
+                lon_periodic: false,
             },
             Resampling::Bilinear,
         );
@@ -1669,6 +1730,7 @@ mod tests {
             lat_min: 0.0,
             lon_min: 0.0,
             lon_max: 3.0,
+            lon_periodic: false,
         };
         let out = warp_to_equirectangular(&source, &target, Resampling::Bilinear);
         // The stencil at (px=3, py=3) — lat=1.5, lon=1.5 — touches the
@@ -1698,6 +1760,7 @@ mod tests {
                 lat_min: 30.0,
                 lon_min: 100.0,
                 lon_max: 140.0,
+                lon_periodic: false,
             },
             Resampling::Nearest,
         );
@@ -1712,6 +1775,7 @@ mod tests {
                 lat_min: 10.0,
                 lon_min: 120.0,
                 lon_max: 120.0,
+                lon_periodic: false,
             },
             Resampling::Nearest,
         );
@@ -1733,7 +1797,7 @@ mod tests {
     fn web_mercator_clamps_latitude_band() {
         // Poles are outside Web Mercator's domain — `new` must pull the
         // extent into the valid band rather than producing infinite Y.
-        let t = WebMercator::new(4, 4, -90.0, 90.0, -180.0, 180.0);
+        let t = WebMercator::new(4, 4, -90.0, 90.0, -180.0, 180.0, false);
         let (lat_min, lat_max, ..) = t.extent();
         assert!(lat_max < 85.06 && lat_max > 85.05, "clamped max {lat_max}");
         assert!(
@@ -1754,7 +1818,7 @@ mod tests {
         // For a symmetric band the centre row sits at the equator and the
         // latitude step grows away from it — the defining property of
         // Mercator vs equirectangular's constant step.
-        let t = WebMercator::new(1, 5, -80.0, 80.0, 0.0, 0.0);
+        let t = WebMercator::new(1, 5, -80.0, 80.0, 0.0, 0.0, false);
         let lats: Vec<f64> = (0..5)
             .map(|py| t.pixel_to_lonlat(0, py).unwrap().0)
             .collect();
@@ -1788,7 +1852,7 @@ mod tests {
             lon_last: 20.0,
         });
         let source = make_source(&p, &cell);
-        let target = WebMercator::new(16, 16, -60.0, 60.0, -20.0, 20.0);
+        let target = WebMercator::new(16, 16, -60.0, 60.0, -20.0, 20.0, false);
         let out = warp(&source, &target, Resampling::Bilinear);
         assert_eq!(out.width, 16);
         assert_eq!(out.height, 16);
@@ -1965,6 +2029,7 @@ mod tests {
             lat_min: -30.0,
             lon_min: -45.0,
             lon_max: 75.0,
+            lon_periodic: false,
         }
         .prepare();
         assert_pixel_round_trip(&prep, 13, 11);
@@ -1972,7 +2037,7 @@ mod tests {
 
     #[test]
     fn web_mercator_forward_inverts_pixel_map() {
-        let prep = WebMercator::new(13, 11, -70.0, 70.0, -20.0, 40.0).prepare();
+        let prep = WebMercator::new(13, 11, -70.0, 70.0, -20.0, 40.0, false).prepare();
         assert_pixel_round_trip(&prep, 13, 11);
     }
 
@@ -2197,10 +2262,11 @@ mod tests {
             lat_max: 90.0,
             lon_min: -180.0,
             lon_max: 180.0,
+            lon_periodic: false,
         };
         assert_seam_vertex_keeps_its_edge(&equirect.prepare(), w, 0.0, "equirectangular");
         assert_seam_vertex_keeps_its_edge(
-            &WebMercator::new(w, h, -85.0, 85.0, -180.0, 180.0).prepare(),
+            &WebMercator::new(w, h, -85.0, 85.0, -180.0, 180.0, false).prepare(),
             w,
             0.0,
             "web mercator",
@@ -2590,13 +2656,18 @@ mod tests {
     fn equirectangular_forward_normalises_longitude_across_seam() {
         // A 0..360 window: a coastline vertex at lon = -170 (≡ 190) must land
         // near the right edge, not at a negative pixel.
+        //
+        // 360 wide, not 361: a full circle is periodic, so its natural width is
+        // one pixel per degree with no repeat of the seam (see
+        // `lon_span_step`). That keeps 1° = 1px here.
         let prep = TargetRaster {
-            width: 361,
+            width: 360,
             height: 2,
             lat_max: 1.0,
             lat_min: -1.0,
             lon_min: 0.0,
             lon_max: 360.0,
+            lon_periodic: true,
         }
         .prepare();
         let (px, _) = prep.lonlat_to_pixel(0.0, -170.0).unwrap();
@@ -2604,6 +2675,72 @@ mod tests {
             near(px, 190.0, 1e-6),
             "lon -170 in [0,360] window → px {px}"
         );
+    }
+
+    /// A full-circle window tiles the circle once: no column repeats the seam.
+    ///
+    /// The node convention (`span / (n - 1)`) put the last column back on the
+    /// first, which both wasted a column and pushed every other column
+    /// `n / (n - 1)` east of where it belonged. Invisible at 1440 columns,
+    /// nearly 14° on a 26-column HEALPix resample.
+    #[test]
+    fn a_full_circle_window_tiles_without_duplicating_the_seam() {
+        let target = TargetRaster {
+            width: 26,
+            height: 14,
+            lat_max: 90.0,
+            lat_min: -90.0,
+            lon_min: 0.0,
+            lon_max: 360.0,
+            lon_periodic: true,
+        };
+        let prep = target.prepare();
+
+        let (_, first) = prep.pixel_to_lonlat(0, 7).unwrap();
+        let (_, second) = prep.pixel_to_lonlat(1, 7).unwrap();
+        let (_, last) = prep.pixel_to_lonlat(25, 7).unwrap();
+
+        assert!(near(first, 0.0, 1e-9), "first column at {first}");
+        assert!(
+            near(second - first, 360.0 / 26.0, 1e-9),
+            "step {} should be 360/26",
+            second - first
+        );
+        assert!(
+            near(last, 360.0 - 360.0 / 26.0, 1e-9),
+            "last column at {last}, expected 360 - 360/26"
+        );
+        assert!(
+            !near(last, 360.0, 1e-6) && !near(last, first, 1e-6),
+            "the last column must not land back on the first"
+        );
+
+        // Latitude is an interval, not a circle: both poles stay sampled.
+        let (north, _) = prep.pixel_to_lonlat(0, 0).unwrap();
+        let (south, _) = prep.pixel_to_lonlat(0, 13).unwrap();
+        assert!(near(north, 90.0, 1e-9), "row 0 at {north}");
+        assert!(near(south, -90.0, 1e-9), "last row at {south}");
+    }
+
+    /// A window short of a full turn is an ordinary interval and still reaches
+    /// both of its edges — a manual lat/lon box must not lose its east side.
+    #[test]
+    fn a_partial_window_still_reaches_both_edges() {
+        let prep = TargetRaster {
+            width: 11,
+            height: 2,
+            lat_max: 10.0,
+            lat_min: 0.0,
+            lon_min: 10.0,
+            lon_max: 20.0,
+            lon_periodic: false,
+        }
+        .prepare();
+
+        let (_, first) = prep.pixel_to_lonlat(0, 0).unwrap();
+        let (_, last) = prep.pixel_to_lonlat(10, 0).unwrap();
+        assert!(near(first, 10.0, 1e-9), "west edge at {first}");
+        assert!(near(last, 20.0, 1e-9), "east edge at {last}");
     }
 
     #[test]
@@ -2626,6 +2763,7 @@ mod tests {
             lat_min: 10.0,
             lon_min: 100.0,
             lon_max: 140.0,
+            lon_periodic: false,
         };
         let via_wrapper = warp_to_equirectangular(&source, &target, Resampling::Bilinear);
         let via_generic = warp(&source, &target, Resampling::Bilinear);
@@ -2653,6 +2791,7 @@ mod tests {
                 lat_min: 10.0,
                 lon_min: 100.0,
                 lon_max: 140.0,
+                lon_periodic: false,
             },
             Resampling::Nearest,
         );

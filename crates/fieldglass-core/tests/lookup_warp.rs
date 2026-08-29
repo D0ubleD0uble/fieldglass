@@ -70,6 +70,7 @@ fn a_bilinear_request_against_a_lookup_grid_gives_the_nearest_result() {
         lat_min: 58.0,
         lon_min: -6.0,
         lon_max: 6.0,
+        lon_periodic: false,
     };
     let nearest = warp_to_equirectangular(&src, &target, Resampling::Nearest);
     let bilinear = warp_to_equirectangular(&src, &target, Resampling::Bilinear);
@@ -125,6 +126,7 @@ fn a_lookup_grid_warps_where_it_covers_and_nowhere_else() {
         lat_min: -80.0,
         lon_min: -180.0,
         lon_max: 180.0,
+        lon_periodic: false,
     };
     let out = warp_to_equirectangular(&src, &target, Resampling::Nearest);
     let present = out.mask.iter().filter(|&&m| m == 1).count();
