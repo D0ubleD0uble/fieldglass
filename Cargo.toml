@@ -29,6 +29,11 @@ serde = { version = "1", features = ["derive"] }
 # exactly. Costs a slower parse and nothing else.
 serde_json = { version = "1", features = ["float_roundtrip"] }
 thiserror = "2"
+# Secure temporary files for the `detect_format` tests. Not decoration: the temp
+# directory is shared between users, so a predictable name plus a plain create
+# lets another user plant a symlink and have the test write through it. This
+# gives a random name, `O_EXCL` creation and 0600, and removes the file on drop.
+tempfile = "3"
 # Pure-Rust PNG codec for GRIB2 DRS template 5.41 decode (no C deps; MIT/Apache,
 # cross-compiles to every release target). See crates/fieldglass-grib2.
 png = "0.18"
