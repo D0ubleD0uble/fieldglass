@@ -102,8 +102,16 @@ def fetch(url: str) -> Path:
         print(f"cached {path}")
         return path
     print(f"downloading {url}")
-    # Single-argument urlopen on a module-level literal, so the URL constant
-    # folds for the dynamic-urllib lint; urlretrieve would not.
+    # What the dynamic-urllib lint is actually about: `urlopen` honours
+    # `file://` and `ftp://`, so a caller-supplied URL could read a local file
+    # instead of fetching one. Both call sites pass a module-level https
+    # literal, but the constant cannot fold through a parameter, so state the
+    # guarantee as a check rather than as a comment.
+    if not url.startswith("https://"):
+        raise ValueError(f"refusing a non-https source: {url!r}")
+    # Scheme pinned to https by the guard above, so the file:// read this rule
+    # exists to catch cannot be reached.
+    # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
     with urllib.request.urlopen(url) as response:  # noqa: S310
         path.write_bytes(response.read())
     return path

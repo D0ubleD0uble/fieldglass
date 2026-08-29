@@ -129,10 +129,28 @@ mod fs_tests {
     /// Write `bytes` to a uniquely named file under the temp dir and return the
     /// path. Named for the calling test so a leftover file says where it came
     /// from; the process id keeps concurrent `cargo test` runs apart.
+    ///
+    /// Opened with `create_new` rather than `File::create`, which is the part
+    /// that matters: the temp directory is shared between users on most
+    /// systems and the name here is predictable, so a plain create would follow
+    /// a symlink planted at that path and write these bytes through it.
+    /// `create_new` refuses an existing path — symlink included — so the worst
+    /// case is a failed test rather than a clobbered file.
     fn temp_file(name: &str, bytes: &[u8]) -> String {
-        let path =
-            std::env::temp_dir().join(format!("fieldglass-detect-{}-{name}", std::process::id()));
-        let mut f = std::fs::File::create(&path).expect("create temp file");
+        // nosemgrep: rust.lang.security.temp-dir.temp-dir
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!("fieldglass-detect-{}-{name}", std::process::id()));
+        // Unlink any stale entry first — a crashed earlier run can leave one
+        // behind, and a recycled pid would otherwise collide with it. Unlinking
+        // a symlink removes the link and never follows it, so this cannot write
+        // through one; and if something re-appears in the window before the
+        // open below, create_new refuses rather than following it.
+        let _ = std::fs::remove_file(&path);
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .expect("create temp file");
         f.write_all(bytes).expect("write temp file");
         path.to_str().expect("temp path is utf-8").to_string()
     }

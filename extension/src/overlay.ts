@@ -53,6 +53,7 @@ export function loadVectorLayer(layer: VectorLayer): OverlayGeometry {
   if (cached) {
     return cached;
   }
+  // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
   const file = path.join(__dirname, "..", "media", `${layer}-110m.json`);
   // Path is built from `__dirname` + a name from the closed layer set above,
   // never user input.

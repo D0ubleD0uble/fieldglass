@@ -69,6 +69,13 @@ LAYERS = {
 
 
 def fetch(url: str) -> dict:
+    # `urlopen` honours `file://`, so a caller-supplied URL could read a local
+    # file. Every call site passes one of the module-level Natural Earth https
+    # constants, but the constant cannot fold through a parameter, so state the
+    # guarantee as a check rather than leave it to the reader.
+    if not url.startswith("https://"):
+        raise ValueError(f"refusing a non-https source: {url!r}")
+    # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
     with urlopen(url) as response:
         return json.loads(response.read())
 
