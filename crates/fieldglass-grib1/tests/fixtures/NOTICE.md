@@ -174,6 +174,36 @@ list, bounds) and the row-widening expansion are pinned separately by unit
 tests in `src/gds.rs` and `crates/fieldglass-napi/src/lib.rs`; this fixture pins
 the reader's native-count (`sum(PL)`) decode integration end to end.
 
+## `reduced_gg_n32_smooth.grib1`
+
+The same N32 sample and the same `PL` list as `reduced_gg_n32.grib1`, differing
+in exactly one thing: the field varies. Built by
+`tools/build_grib1_reduced_gaussian_smooth_fixture.py`, which reads each point's
+latitude and longitude from the grid's own geoiterator (the reduced layout puts
+a different number of points on every row, so the point order is the one thing
+the builder must not assume) and writes
+`288 − 40·sin²(lat) + 10·cos(lat)·sin(2·lon)` kelvin at 16 bits per value:
+6114 points spanning 247.40…297.97 K, about 12 kB.
+
+Its sibling's constant field is deliberate and stays — all-values-equal-the-
+reference is a real `grid_simple` edge case. But a constant field has no
+isolines, and this was the only GRIB1 reduced Gaussian file in the repo, so
+nothing could show that contouring works on a reduced grid: the overlay came
+back empty whether the decoder was fixed or broken. The smooth field is chosen
+for that job rather than a sawtooth ramp — rows form east-west bands, so a
+mis-widened row breaks a continuous contour into a visible kink, and the
+`sin(2·lon)` term puts two crests around the globe so a longitude error cannot
+hide behind straight zonal lines.
+
+Encoded with the `eccodes` PyPI wheel (2.48) because setting the values array
+needs `codes_set_values`; **verified with the pinned 2.34.1**, which reads back
+`gridType = reduced_gg`, `N = 32`, `Nj = 64`, `numberOfDataPoints = 6114`. The
+pin's geoiterator handles GRIB1 reduced Gaussian, so `grib_get_data` is a valid
+value oracle here. The builder asserts those four keys and that the field
+actually spans more than 1 K, so a run that quietly produced a constant fails
+instead of reproducing the gap it closes. eccodes and its samples are released
+under the Apache 2.0 license.
+
 ## `hand_matrix_of_values.grib1`
 
 A hand-assembled `grid_simple_matrix` message with `matrixOfValues = 1` — a true

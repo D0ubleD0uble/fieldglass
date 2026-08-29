@@ -42,7 +42,7 @@ import {
   loadVectorLayer,
   VECTOR_LAYERS,
 } from "../../overlay";
-import { renderImagePanelHtml, type SlicePanelData } from "../../render-panel";
+import { composeTitleLine, renderImagePanelHtml, type SlicePanelData } from "../../render-panel";
 
 /** The real colormap registry from Rust. The panel is fed the same data in
  *  production, so the panel tests exercise the actual names and stops rather
@@ -1563,9 +1563,49 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
       "the panel title must show the units",
     );
     assert.ok(
-      /const UNITS = "degree_C"/.test(html),
+      // Keyword-agnostic: the declaration is `let` so gridReady can re-point
+      // it at the variable actually drawn. What matters is that the units
+      // reach the webview script, not how they are bound.
+      /\b(?:const|let) UNITS = "degree_C"/.test(html),
       "the probe readout must be given the units too",
     );
+  });
+
+  // Switching variables must re-label the panel (S1).
+  //
+  // A NetCDF panel keeps one webview and changes the variable inside it, so
+  // the heading and probe units baked into the initial HTML describe only the
+  // variable it opened on. `gridReady` therefore carries the label for the
+  // field actually drawn. Without this the panel reported the opening
+  // variable's units against another variable's numbers — in `oisst.nc`,
+  // `Celsius` beside `ice`, which is a percentage.
+  test("gridReady carries the label of the variable actually drawn", () => {
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+    const bytes = fs.readFileSync(fixturePath("ersst_v5_187001_cdf1.nc"));
+    const variables = native.NetcdfHandle.fromBytes(bytes).variables();
+    const sst = variables.find((v) => v.name === "sst");
+    assert.ok(sst, "the fixture has an sst variable");
+
+    const rgba = Buffer.from([1, 2, 3, 4]);
+    const message = buildGridReadyMessage(
+      { rgba, width: 1, height: 1, usedMin: 0, usedMax: 1, projectionSummary: "" },
+      syntheticNetcdfMeta(sst),
+      defaultRenderOptions(),
+    );
+
+    assert.strictEqual(
+      message.parameterUnits,
+      "degree_C",
+      "the probe readout is re-pointed from this field",
+    );
+    assert.ok(
+      message.titleLine.includes("sst") && message.titleLine.includes("(degree_C)"),
+      `the heading must name the drawn variable and its units, got ${message.titleLine}`,
+    );
+    // Same composer as the initial HTML, so the live update cannot drift from
+    // the heading the panel was built with.
+    assert.strictEqual(message.titleLine, composeTitleLine(syntheticNetcdfMeta(sst)));
   });
 
   // Every table scrolls inside itself rather than widening the page (#452).
@@ -1640,6 +1680,44 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     const wrapped = (html.match(/<div class="table-scroll">\s*<table>/g) ?? []).length;
     assert.ok(tables >= 3, `expected the dimensions, attributes and variables tables, got ${tables}`);
     assert.strictEqual(wrapped, tables, `${tables - wrapped} netcdf table(s) are not wrapped`);
+  });
+
+  // Units belong in the variables table, not only in the render panel (S2).
+  //
+  // The attribute column previews three attributes and hides the rest behind
+  // "+N more". `units` is regularly past that cut — fifth on every OISST
+  // field — so the metadata view could show a variable with no units anywhere
+  // on screen, and the only way to read them was to render it. The column is
+  // fed by the native side so it prints the same string the render panel does.
+  test("the netcdf variables table has a units column", () => {
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+    const bytes = fs.readFileSync(fixturePath("ersst_v5_187001_cdf1.nc"));
+    const meta = native.NetcdfHandle.fromBytes(bytes).metadata();
+
+    const sst = meta.variables.find((v) => v.name === "sst");
+    assert.ok(sst, "the fixture has an sst variable");
+    assert.strictEqual(sst.units, "degree_C", "dataset metadata must carry units");
+    assert.ok(
+      meta.variables.some((v) => v.attributes.findIndex((a) => a.name === "units") >= 3),
+      "fixture must have a variable whose units the 3-attribute preview would hide",
+    );
+
+    const html = renderHtml(
+      { cspSource: "" } as unknown as vscode.Webview,
+      "netcdf",
+      "/tmp/example.nc",
+      undefined,
+      meta,
+      undefined,
+      false,
+      undefined,
+    );
+    assert.ok(
+      /<th>Name<\/th><th>Type<\/th><th>Units<\/th>/.test(html),
+      "the variables table must declare a Units column",
+    );
+    assert.ok(html.includes("<td>degree_C</td>"), "sst's units must be in a cell of their own");
   });
 
   // raw P1 octet: under a 3-hourly unit the box read 12 for a P1 of 4, so

@@ -91,6 +91,11 @@ export interface VariableMeta {
   name: string;
   ncType: string;
   dimensions: string[];
+  /** The variable's CF `units`, typeset by the native side (ADR-0007). Empty
+   *  when the variable declares none. Lifted out of `attributes` so the
+   *  metadata table can show units without them being lost to the
+   *  three-attribute preview. */
+  units: string;
   attributes: AttributeMeta[];
 }
 

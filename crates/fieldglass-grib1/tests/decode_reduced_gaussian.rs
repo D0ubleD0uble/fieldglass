@@ -85,3 +85,63 @@ fn a_reduced_gaussian_grid_is_named_as_well_as_shaped() {
         "the raster is larger than the field: {stored} points in a {ni}x{nj} shape"
     );
 }
+
+/// A reduced Gaussian field can be contoured once it is row-expanded (#503).
+///
+/// The sibling fixture `reduced_gg_n32.grib1` is a *constant* field, which is
+/// the right shape for the reference-value decode path it pins but useless
+/// here: a constant has no isolines, so contouring it returns nothing whether
+/// the reduced path works or not. That left "contours draw on a GRIB1 reduced
+/// grid" with no fixture that could fail, and the manual release plan asked a
+/// tester to confirm it by eye against a picture that is empty by construction.
+///
+/// `reduced_gg_n32_smooth.grib1` is the same grid carrying a smooth analytic
+/// field (see `fixtures/NOTICE.md`), so the isolines are real and their absence
+/// is a bug rather than a property of the data.
+#[test]
+fn a_reduced_gaussian_field_contours_once_expanded() {
+    use fieldglass_core::{contour_segments_global, expand_reduced_to_regular, nice_levels};
+
+    const SMOOTH: &[u8] = include_bytes!("fixtures/reduced_gg_n32_smooth.grib1");
+
+    let reader = Grib1Reader::from_bytes(SMOOTH.to_vec()).expect("fixture parses");
+    let gds = reader.messages[0].gds.as_ref().expect("message has a GDS");
+    assert_eq!(
+        gds.points_per_row(),
+        Some(PL.as_slice()),
+        "same grid as its sibling"
+    );
+
+    let values = reader.decode_message_values(0).expect("decode succeeds");
+    assert_eq!(values.len(), 6114, "sum(PL) points");
+
+    // The field must vary, or this test would pass on the constant fixture too.
+    let present: Vec<f64> = values.iter().flatten().copied().collect();
+    let (min, max) = present
+        .iter()
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), &v| {
+            (lo.min(v), hi.max(v))
+        });
+    assert!(max - min > 40.0, "field spans only {:.3} K", max - min);
+
+    let (ni, nj) = gds.dimensions().expect("row-expanded raster shape");
+    let raster = expand_reduced_to_regular(&values, PL.as_slice(), ni as usize);
+    assert_eq!(raster.len(), (ni * nj) as usize);
+
+    // Global west-to-east grid, so the seam-spanning entry point is the correct
+    // one; a bounded march would break every isoline at the antimeridian.
+    let levels = nice_levels(min, max, 10);
+    let contours = contour_segments_global(&raster, ni as usize, nj as usize, &levels);
+
+    let total: usize = contours.iter().map(|c| c.segments.len()).sum();
+    assert!(
+        total > 0,
+        "a varying reduced Gaussian field produced no contour segments"
+    );
+    let drawn = contours.iter().filter(|c| !c.segments.is_empty()).count();
+    assert!(
+        drawn >= levels.len() / 2,
+        "only {drawn} of {} levels drew anything",
+        levels.len()
+    );
+}
