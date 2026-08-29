@@ -1092,7 +1092,27 @@ pub struct VariableMeta {
     pub name: String,
     pub nc_type: String,
     pub dimensions: Vec<String>,
+    /// The variable's CF `units`, typeset for display the way a GRIB unit is
+    /// (ADR-0007). Empty when the variable declares none.
+    ///
+    /// Lifted out of `attributes` because the metadata view has no room to
+    /// print them all: it previews the first three and hides the rest behind
+    /// "+N more", and `units` is routinely past that cut (in OISST it is the
+    /// fifth attribute on every field). Units were reachable only by rendering
+    /// the variable, which is not where a reader looks for them. Normalised
+    /// here rather than in the view so the table and the render panel cannot
+    /// print the same units two different ways.
+    pub units: String,
     pub attributes: Vec<AttributeMeta>,
+}
+
+/// The CF `units` attribute, typeset (ADR-0007), or empty when absent.
+fn units_from(attributes: &[AttributeMeta]) -> String {
+    attributes
+        .iter()
+        .find(|a| a.name == "units")
+        .map(|a| normalize_units(&a.value).into_owned())
+        .unwrap_or_default()
 }
 
 /// Top-level NetCDF dataset metadata. Covers what's exposable from the
@@ -1168,20 +1188,8 @@ fn dataset_meta_from(reader: &NetcdfReader) -> DatasetMeta {
             let variables = h
                 .variables
                 .iter()
-                .map(|v| VariableMeta {
-                    name: v.name.clone(),
-                    nc_type: v.nc_type.name().to_string(),
-                    dimensions: v
-                        .dim_ids
-                        .iter()
-                        .map(|&id| {
-                            dim_names
-                                .get(id as usize)
-                                .cloned()
-                                .unwrap_or_else(|| format!("dim#{id}"))
-                        })
-                        .collect(),
-                    attributes: v
+                .map(|v| {
+                    let attributes: Vec<AttributeMeta> = v
                         .attributes
                         .iter()
                         .map(|a| AttributeMeta {
@@ -1189,7 +1197,23 @@ fn dataset_meta_from(reader: &NetcdfReader) -> DatasetMeta {
                             nc_type: a.nc_type.name().to_string(),
                             value: a.value.clone(),
                         })
-                        .collect(),
+                        .collect();
+                    VariableMeta {
+                        name: v.name.clone(),
+                        nc_type: v.nc_type.name().to_string(),
+                        dimensions: v
+                            .dim_ids
+                            .iter()
+                            .map(|&id| {
+                                dim_names
+                                    .get(id as usize)
+                                    .cloned()
+                                    .unwrap_or_else(|| format!("dim#{id}"))
+                            })
+                            .collect(),
+                        units: units_from(&attributes),
+                        attributes,
+                    }
                 })
                 .collect();
             DatasetMeta {
@@ -1222,11 +1246,16 @@ fn hdf5_dataset_meta(label: String, superblock: Option<i32>, meta: Hdf5Metadata)
     let variables = meta
         .variables
         .into_iter()
-        .map(|v| VariableMeta {
-            name: v.name,
-            nc_type: v.nc_type.name().to_string(),
-            dimensions: v.dimensions,
-            attributes: v.attributes.iter().map(hdf5_attribute_meta).collect(),
+        .map(|v| {
+            let attributes: Vec<AttributeMeta> =
+                v.attributes.iter().map(hdf5_attribute_meta).collect();
+            VariableMeta {
+                name: v.name,
+                nc_type: v.nc_type.name().to_string(),
+                dimensions: v.dimensions,
+                units: units_from(&attributes),
+                attributes,
+            }
         })
         .collect();
     DatasetMeta {

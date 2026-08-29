@@ -24,6 +24,7 @@ import {
   type VectorLayer,
 } from "./overlay";
 import {
+  composeTitleLine,
   renderImagePanelHtml,
   sanitizePngName,
   type SlicePanelData,
@@ -998,6 +999,13 @@ export class FieldglassEditorProvider
       slice,
     );
 
+    // The variable a render is actually drawing. The picker can move off the
+    // one the panel opened on, and the heading and probe units have to follow
+    // it; labelling every render with `initialVar` reported the opening
+    // variable's units against whatever was on screen.
+    const renderedVar = (spec: SliceSpec): NetcdfVariableMeta =>
+      variables.find((v) => v.variableIndex === spec.variableIndex) ?? initialVar;
+
     const paint = (options: RenderOptions, spec: SliceSpec, compare?: NetcdfCompare) => {
       const docHandle = this._netcdfHandlesByDoc.get(document.uri.toString());
       if (!docHandle) {
@@ -1031,7 +1039,7 @@ export class FieldglassEditorProvider
               options,
             );
         panel.webview.postMessage(
-          buildGridReadyMessage(rendered, syntheticNetcdfMeta(initialVar, spec.variableIndex), options),
+          buildGridReadyMessage(rendered, syntheticNetcdfMeta(renderedVar(spec), spec.variableIndex), options),
         );
       } catch (err) {
         panel.webview.postMessage({
@@ -1217,6 +1225,15 @@ export interface GridReadyMessage {
   usedLonMax?: number;
   projectionSummary: string;
   options: RenderOptions;
+  /** The panel heading for the field actually drawn, composed by
+   *  {@link composeTitleLine}. Sent with every render because a NetCDF panel
+   *  switches variables inside one webview; the heading baked into the initial
+   *  HTML describes only the variable it opened on. */
+  titleLine: string;
+  /** Units of the field actually drawn, for the probe readout. Same reason as
+   *  {@link GridReadyMessage.titleLine}: frozen units put one variable's unit
+   *  against another variable's numbers. */
+  parameterUnits: string;
 }
 
 /** `overlayRequest` posted by the render panel when an overlay layer is
@@ -1500,6 +1517,8 @@ export function buildGridReadyMessage(
     usedLonMax: rendered.usedLonMax,
     projectionSummary: rendered.projectionSummary,
     options,
+    titleLine: composeTitleLine(meta),
+    parameterUnits: meta.parameterUnits ?? "",
   };
 }
 
@@ -1705,6 +1724,7 @@ function renderDatasetBody(
       <tr>
         <td>${escapeHtml(v.name)}</td>
         <td>${escapeHtml(v.ncType)}</td>
+        <td>${escapeHtml(v.units || "—")}</td>
         <td>${dims}</td>
         <td>${attrPreview}</td>
       </tr>`;
@@ -1713,7 +1733,7 @@ function renderDatasetBody(
       <h2>Variables</h2>
       <div class="table-scroll">
       <table>
-        <thead><tr><th>Name</th><th>Type</th><th>Dimensions</th><th>Attributes</th></tr></thead>
+        <thead><tr><th>Name</th><th>Type</th><th>Units</th><th>Dimensions</th><th>Attributes</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
       </div>`);

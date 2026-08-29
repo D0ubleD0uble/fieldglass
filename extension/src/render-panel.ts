@@ -233,6 +233,19 @@ export function exportCanvasWidth(
   return Math.max(mapBlockW, margin + headerW + margin);
 }
 
+/** The panel's heading: which message/variable is drawn, and in what units.
+ *
+ *  Exported because the heading has to be rebuilt whenever the drawn field
+ *  changes — a NetCDF panel keeps one webview and switches variables inside it
+ *  — so `buildGridReadyMessage` sends a fresh one with every render. Composing
+ *  it in one place keeps the live update from drifting out of step with the
+ *  HTML the panel was first built with. */
+export function composeTitleLine(meta: MessageMeta): string {
+  return `Message ${meta.messageIndex}`
+    + (meta.parameterName ? ` — ${meta.parameterName}` : "")
+    + (meta.parameterUnits ? ` (${meta.parameterUnits})` : "");
+}
+
 export function renderImagePanelHtml(
   webview: vscode.Webview,
   meta: MessageMeta,
@@ -249,9 +262,7 @@ export function renderImagePanelHtml(
     `style-src ${webview.cspSource} 'unsafe-inline'`,
     `img-src ${webview.cspSource} blob: data:`,
   ].join("; ");
-  const titleLine = `Message ${meta.messageIndex}`
-    + (meta.parameterName ? ` — ${meta.parameterName}` : "")
-    + (meta.parameterUnits ? ` (${meta.parameterUnits})` : "");
+  const titleLine = composeTitleLine(meta);
   // `level` is the bare value ("300", "—", "100 – 85"); `levelType` carries
   // the unit and surface name ("(hPa) Isobaric level", "Cloud base level").
   // Together they read naturally as "300 (hPa) Isobaric level". For surface
@@ -294,10 +305,15 @@ export function renderImagePanelHtml(
         // it, so the colours in the strip are the colours in the image.
         const COLORMAPS = ${colormapsJson(colormaps)};
         const SLICE = ${slice ? sliceJson(slice) : "null"};
-        // The field's units, for the point-probe readout (#172).
-        const UNITS = ${JSON.stringify(meta.parameterUnits || "")};
+        // The field's units, for the point-probe readout (#172). Not const:
+        // a NetCDF panel switches variables inside one webview, and the units
+        // move with the variable, so gridReady refreshes this. It used to be
+        // frozen at the variable the panel opened on, which put that
+        // variable's unit against another variable's numbers.
+        let UNITS = ${JSON.stringify(meta.parameterUnits || "")};
         // Title / subtitle / default filename for the PNG export (#243).
-        const TITLE_LINE = ${JSON.stringify(titleLine)};
+        // TITLE_LINE tracks the drawn field for the same reason as UNITS.
+        let TITLE_LINE = ${JSON.stringify(titleLine)};
         const SUB_LINE = ${JSON.stringify(subLine)};
         const DEFAULT_PNG_NAME = ${JSON.stringify(defaultPngName)};
         // Injected verbatim so the export sizes itself with the same function
@@ -370,13 +386,29 @@ export function renderImagePanelHtml(
           let html = '';
           for (let i = 0; i < v.dims.length; i++) {
             if (i === yDim || i === xDim) continue;
-            const max = Math.max(0, v.dims[i].length - 1);
+            const len = v.dims[i].length;
+            const max = Math.max(0, len - 1);
             const val = indices[i] || 0;
+            // The index stays 0-based: it is the array index the probe
+            // readout, the CSV export and the napi slice API all speak, and
+            // what ncdump and every NetCDF binding show. Only the hint beside
+            // it changes.
+            //
+            // It used to read '/max', which invites reading as "n of total"
+            // and is wrong twice over: a 22-channel dimension showed '/21',
+            // and a length-1 dimension showed '/0' — "zero of zero", as though
+            // the dimension were empty, when it holds exactly one slice. So
+            // the hint states the range you may type instead, and a dimension
+            // with nothing to step says so and disables its controls rather
+            // than offering a slider that cannot move.
+            const single = len <= 1;
+            const off = single ? ' disabled' : '';
+            const hint = single ? 'only slice' : '0\u2013' + max;
             html += '<label class="slice-index">' + escapeAttr(v.dims[i].name) +
               ' <input type="range" class="slice-slider" data-dim="' + i + '" min="0" max="' + max +
-              '" value="' + val + '">' +
+              '" value="' + val + '"' + off + '>' +
               '<input type="number" class="slice-number" data-dim="' + i + '" min="0" max="' + max +
-              '" value="' + val + '"><span class="slice-len">/' + max + '</span></label>';
+              '" value="' + val + '"' + off + '><span class="slice-len">' + hint + '</span></label>';
           }
           return html;
         }
@@ -705,6 +737,16 @@ export function renderImagePanelHtml(
 
         function handleGridReady(msg) {
           lastPayload = msg;
+          // Re-label for the field actually drawn. A NetCDF panel switches
+          // variables inside one webview, and name/units travel with the
+          // variable; a GRIB panel sends the same strings every time, so this
+          // is a no-op there.
+          if (typeof msg.titleLine === 'string') {
+            TITLE_LINE = msg.titleLine;
+            const h1 = document.getElementById('title-line');
+            if (h1) h1.textContent = TITLE_LINE;
+          }
+          if (typeof msg.parameterUnits === 'string') UNITS = msg.parameterUnits;
           blit(msg);
           updateLogAvailability();
           // The old probe readout referred to the previous field; clear it.
@@ -718,9 +760,10 @@ export function renderImagePanelHtml(
             // Wipe the stale strokes immediately so the previous projection's
             // lines don't linger over the new raster while the async reproject
             // is in flight. Contours are geometry-bound too, so drop them until
-            // their re-fetch lands.
-            clearOverlay();
+            // their re-fetch lands — before clearOverlay, which repaints and
+            // would otherwise re-stroke the stale runs it was called to remove.
             lastContour = null;
+            clearOverlay();
             requestOverlay();
           }
           // Contours track the field, used range, projection, and interval —
@@ -892,11 +935,17 @@ export function renderImagePanelHtml(
           ]);
         }
 
+        // Drop the geographic layers and repaint. The overlay canvas is shared
+        // with the contours, so this must go through drawOverlay rather than
+        // clearing the bitmap directly: turning off the last geographic layer
+        // used to wipe still-enabled contours off the screen, and nothing
+        // repainted them until the next resize or control change.
+        // drawOverlay clears first and re-strokes whatever survives, so the
+        // all-layers-off case still ends with an empty canvas when contours
+        // are off too.
         function clearOverlay() {
           lastOverlay = null;
-          const o = document.getElementById('overlay');
-          const ctx = o && o.getContext('2d');
-          if (ctx) ctx.clearRect(0, 0, o.width, o.height);
+          drawOverlay();
         }
 
         // Ask the provider to project the enabled layers for the current
@@ -1755,7 +1804,7 @@ export function renderImagePanelHtml(
   </style>
 </head>
 <body>
-  <h1>${escapeHtml(titleLine)}</h1>
+  <h1 id="title-line">${escapeHtml(titleLine)}</h1>
   <div class="subtitle">${escapeHtml(subLine)}</div>
   <div class="projection" id="projection-summary">${escapeHtml(projectionSummary)}</div>
   <div class="toolbar" role="toolbar" aria-label="Render settings">
