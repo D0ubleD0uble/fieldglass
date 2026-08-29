@@ -52,6 +52,20 @@ contains zero hand-written `unsafe`.
 So all 72 are false positives. Both rules self-report high precision, which is
 a statement about the corpus the rule was tuned against, not about this one.
 
+The alert text is worth reading closely, because it shows *why* rather than
+just *that*:
+
+> This operation writes `...::gaussian_latitudes(...)` to a log file.
+>
+> This operation writes `meta.lambert_azimuthal_central_longitude` to a log file.
+
+`cleartext-logging` is a dataflow query: it needs a sensitive source and a
+logging sink. Neither half is name-matched here — nothing is called `password`
+or `token`. It has classified **decoded scientific values as private data** and
+**`assert!` message formatting as writing to a log file**. Both ends of the
+taint pair are wrong for this codebase, which is why the finding cannot be
+narrowed by renaming anything.
+
 ## Why the ordinary remedies do not apply
 
 Each of these is the first thing one would reach for, and each is unavailable
@@ -86,6 +100,57 @@ identified for it are authenticated. This project is on a path towards holding
 credentials. Turning off the query that watches for logging them is safe today
 and quietly wrong on the day that changes, with nobody watching for the
 transition.
+
+## What the queries ask for instead
+
+The prior section is a tooling-gap argument: the levers this project would
+normally use do not exist for Rust. On its own that argues only that
+suppression is awkward, not that suppression is right. The stronger question is
+what each query would have us *do*, since a rule asking for a real improvement
+should be obeyed rather than filtered — which is exactly what happened with
+Semgrep's `temp-dir`, where the remediation it wanted turned out to be better
+than the code it flagged (#526).
+
+Neither of these two is that.
+
+**`rust/cleartext-logging`** recommends:
+
+> Do not log sensitive data. If it is necessary to log sensitive data, encrypt
+> it before logging.
+
+Its worked example contrasts logging `"User password changed to {password}"`
+with `"User password changed"` — remove the value from the message. Applied
+here that means turning
+
+```rust
+assert!((lats[0] - 87.863_798_839).abs() < 1e-6, "{}", lats[0]);
+```
+
+into an assertion with no message. The message is the entire reason the
+assertion is written that way: when a decode regresses, it reports which
+latitude was wrong. Following the recommendation would leave `assertion failed`
+and nothing else, across sixty-nine sites that exist to diagnose numerical
+drift. The remediation is a regression.
+
+**`rust/access-invalid-pointer`** recommends:
+
+> When dereferencing a pointer in `unsafe` code, take care that the pointer is
+> valid and points to the intended data.
+
+with fixes framed as rearranging the dereference or rewriting in safe Rust.
+Neither is available: the `unsafe` belongs to the FFI glue `#[napi]` generates,
+and the crate has no hand-written `unsafe` to rearrange. The only way to act on
+it is to stop using napi-rs. The query help does not discuss macro-generated
+code or FFI at all.
+
+So for both queries the expected remediation is respectively harmful and
+impossible. That is the substantive reason to filter rather than fix, and it is
+independent of Rust's missing suppression mechanism.
+
+It also explains why the two want *different* treatment.
+`cleartext-logging` misfires on a whole category — test assertions — which is
+a rule-shaped thing to filter. `access-invalid-pointer` misfires on three
+specific macro expansion sites, which is not.
 
 ## Decision
 
@@ -157,7 +222,11 @@ left intact in the SARIF so GitHub can still resolve alerts it raised earlier.
 - [codeql#20771](https://github.com/github/codeql/issues/20771) — no built-in
   way to exclude `#[cfg(test)]` code from Rust alerts.
 - [`rust/cleartext-logging` query help](https://codeql.github.com/codeql-query-help/rust/rust-cleartext-logging/)
-  — suite membership (`rust-code-scanning.qls`), precision and severity.
+  — suite membership (`rust-code-scanning.qls`), precision and severity, and
+  the recommendation to remove the value from the message.
+- [`rust/access-invalid-pointer` query help](https://codeql.github.com/codeql-query-help/rust/rust-access-invalid-pointer/)
+  — the recommendation to rearrange or rewrite the `unsafe`, and its silence on
+  macro-generated code.
 - [Customising your advanced setup for code scanning](https://docs.github.com/en/code-security/code-scanning/creating-an-advanced-setup-for-code-scanning/customizing-your-advanced-setup-for-code-scanning)
   — `query-filters` and `paths-ignore`, the two levers that do not fit here.
 - [#521](https://github.com/D0ubleD0uble/fieldglass/pull/521) — Semgrep findings
