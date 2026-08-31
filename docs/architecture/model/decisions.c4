@@ -1,0 +1,62 @@
+// The decision records, and what each one constrains. A record is a snapshot,
+// not a living spec: when a decision is revisited, a new record is added
+// rather than an old one rewritten.
+// Source: docs/decisions/
+
+model {
+
+  decisions = layer 'Decision records' 'Cross-cutting choices that shape more than one issue or crate, and are worth not re-litigating from scratch.' {
+
+    adr1 = decision 'ADR-0001 — GRIB2 compressed-packing codecs' 'Which decoder for 5.40 / 5.41 / 5.42. Not decided by licensing (every candidate was already on the deny.toml allowlist) but by cross-compilation: the extension ships a prebuilt addon for six targets, and aarch64-pc-windows-msvc is the recurring toolchain pain. Pure Rust wins.' {
+      link https://github.com/D0ubleD0uble/fieldglass/blob/master/docs/decisions/0001-grib2-compressed-packing-codecs.md 'Record'
+    }
+
+    adr2 = decision 'ADR-0002 — NetCDF slice selection and 2-D rendering' 'A NetCDF variable is routinely 3-D or 4-D, and carries no GDS. Decision: detect CF axes, let the user pick a 2-D slice, synthesise a latlon geometry from the coordinate variables, and reuse the GRIB warp rather than building a NetCDF-specific one.' {
+      link https://github.com/D0ubleD0uble/fieldglass/blob/master/docs/decisions/0002-netcdf-slice-selection-and-rendering.md 'Record'
+    }
+
+    adr3 = decision 'ADR-0003 — NetCDF-4 dimension-scale resolution' 'The netCDF-4 semantic layer on top of HDF5. CLASS = DIMENSION_SCALE, NAME, DIMENSION_LIST and _Netcdf4Dimid map anonymous HDF5 datasets to named, shared dimensions — without which no HDF5 file can drive the slice picker.' {
+      link https://github.com/D0ubleD0uble/fieldglass/blob/master/docs/decisions/0003-netcdf4-dimension-scale-resolution.md 'Record'
+    }
+
+    adr4 = decision 'ADR-0004 — Projected-grid geolocation' 'Reconstruct the analytic projection where the file states one (WRF Lambert, GOES geostationary) — Model A — and fall back to a spatial index over cell centres where it does not (Model B, since shipped in #445). A lookup is a fallback for grids without a formula, not a replacement for one that has it. Adds a geostationary projector shared with GRIB2 §3.90.' {
+      link https://github.com/D0ubleD0uble/fieldglass/blob/master/docs/decisions/0004-netcdf-projected-grid-geolocation.md 'Record'
+    }
+
+    adr5 = decision 'ADR-0005 — Byte access and the remote seam' 'Prefetch the ranges an operation needs, then decode synchronously, behind a ByteSource trait that Vec<u8> implements. The host fetches; Rust never opens a socket. An audit found no rewrite was required — decode was already range-addressed underneath — so this is a wide mechanical diff, not a redesign.' {
+      link https://github.com/D0ubleD0uble/fieldglass/blob/master/docs/decisions/0005-byte-access-and-the-remote-seam.md 'Record'
+    }
+
+    adr6 = decision 'ADR-0006 — Hosts are bindings over a plain-data API' 'One umbrella crate exposes Session over plain, serde-derivable types with a conformance suite, so each host is buffer handoff plus error mapping and nothing of the engine. Written because "thin" did not hold: napi fused its DTO with the engine, and a second host would have reimplemented ~3,900 lines.' {
+      link https://github.com/D0ubleD0uble/fieldglass/blob/master/docs/decisions/0006-hosts-are-bindings-over-a-plain-data-api.md 'Record'
+    }
+
+    adr7 = decision 'ADR-0007 — NetCDF units are normalised for notation, not renamed' 'File-authored units are typeset like spec-table units — because CF requires them to be UDUNITS-parsable — but notation only: m/s becomes m s⁻¹, meters stays meters, and time encodings are refused by rule. Measured over the whole committed corpus rather than estimated.' {
+      link https://github.com/D0ubleD0uble/fieldglass/blob/master/docs/decisions/0007-netcdf-unit-notation.md 'Record'
+    }
+  }
+
+  // What each record constrains.
+  decisions.adr1 -> fieldglass.grib2.drsTemplate 'picks the codec for 5.40 / 5.41 / 5.42 in'
+  decisions.adr1 -> fieldglass.napi 'is decided by the six-target cross-compile of'
+
+  decisions.adr2 -> fieldglass.netcdf.ncgeometry 'sets the slice-picker and latlon synthesis in'
+  decisions.adr2 -> fieldglass.core.warp 'requires reuse of, rather than a NetCDF-specific renderer'
+
+  decisions.adr3 -> fieldglass.netcdf.hdf5.dimScales 'is implemented by'
+
+  decisions.adr4 -> fieldglass.netcdf.ncgeometry 'sets the three geolocation models in'
+  decisions.adr4 -> fieldglass.core.spatialIndex 'introduces'
+  decisions.adr4 -> fieldglass.grib2.gridTemplate.spaceView 'shares its geostationary projector with'
+
+  decisions.adr5 -> fieldglass.core.bytes.byteSource 'introduces'
+  decisions.adr5 -> fieldglass.fetchplan 'puts fetching in the host, which is why this crate is pure'
+  decisions.adr5 -> fieldglass.wasm 'makes possible: decode stays synchronous, so any host can call it'
+
+  decisions.adr6 -> fieldglass.api 'creates'
+  decisions.adr6 -> fieldglass.napi.messageMeta 'is written against'
+  decisions.adr6 -> fieldglass.napi.orchestration 'moves, into Session'
+
+  decisions.adr7 -> fieldglass.netcdf.ncunits 'sets the rule in'
+  decisions.adr7 -> fieldglass.core.support.units 'reuses'
+}

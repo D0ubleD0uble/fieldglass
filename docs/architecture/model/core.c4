@@ -1,0 +1,163 @@
+// Level 2-3: inside fieldglass-core. The trait seams are the design:
+// a reader cannot know at compile time which packing or projection a file
+// uses, so each seam is the dispatch point for one of those choices.
+// Mirrors docs/architecture/02-trait-seams.md.
+
+model {
+  extend fieldglass.core {
+
+    // ------------------------------------------------------------- reading
+
+    reading = module 'reader' 'The two seams a scanner drives as trait objects: walk bytes into messages, then unpack one message when asked.' {
+      technology 'core/src/reader.rs'
+
+      formatReader = seam 'FormatReader' 'Walks raw bytes into a sequence of messages. The scanner and the napi layer iterate it without naming a concrete format.'
+
+      dataMessage = seam 'DataMessage' 'Unpacks one message s values when asked. Scanning a file stays cheap because nothing decodes until this is called.'
+    }
+
+    // --------------------------------------------------------- byte access
+
+    bytes = module 'bytes' 'Where bytes come from. Unlike the other seams it does not dispatch on a code in the file — it dispatches on where the file is (ADR-0005).' {
+      technology 'core/src/bytes.rs'
+      link https://github.com/D0ubleD0uble/fieldglass/blob/master/docs/decisions/0005-byte-access-and-the-remote-seam.md 'ADR-0005'
+
+      byteSource = seam 'ByteSource' 'prefetch(ranges), read(range) -> Cow, size(). A reader resolves the ranges an operation needs, prefetches them in one batch, then reads back synchronously.'
+
+      vecSource = impl 'Vec<u8>' 'The buffer the readers already hold. This is what makes the migration incremental: passing a Vec where a ByteSource is wanted already works.'
+
+      prefetched = impl 'PrefetchedRanges' 'A sparse map of ranges the host already fetched; read() outside them is an error. The remote transports are not Rust implementers — the host fetches.' {
+        #planned
+        link https://github.com/D0ubleD0uble/fieldglass/issues/247 '#247 HTTP range'
+      }
+
+      byteSource -> vecSource 'dispatches to'
+      byteSource -> prefetched 'dispatches to' {
+        #planned
+      }
+    }
+
+    // ---------------------------------------------------------- projection
+
+    projection = module 'projection' 'Grid geometry and the map projections. The largest module in the workspace; search it by concept before adding a helper, because the reusable version is often a provided method on a trait.' {
+      technology 'core/src/projection.rs'
+
+      gridGeometry = part 'GridGeometry' 'One enum, one variant per grid family, built straight from the typed GDS. inverse_at() is a match per variant returning a closure, not a new trait.' {
+        technology 'enum with LatLon, Gaussian, Mercator, RotatedLatLon, Lambert, PolarStereo, TransverseMercator, LambertAzimuthal, Geostationary, Lookup, Spectral, Healpix, Unsupported'
+      }
+
+      targetProjection = seam 'TargetProjection' 'Prepares an output raster once per render. prepare(grid) -> PreparedTarget.' {
+        webMercator = impl 'WebMercator'
+        orthographic = impl 'Orthographic'
+        polarStereographic = impl 'PolarStereographic'
+        mollweide = impl 'Mollweide'
+        robinson = impl 'Robinson'
+        equalEarth = impl 'EqualEarth'
+        targetRaster = impl 'TargetRaster' 'The identity target: the source grid s own raster.'
+      }
+
+      forwardMap = seam 'ForwardMap' 'forward(x, y) -> source lat/lon. Runs once per output pixel. Overlays reuse this seam through SourceOverlayTarget, which is why an overlay needs no projection code of its own.'
+
+      preparedTarget = seam 'PreparedTarget' 'What prepare() returns. A supertrait of ForwardMap, so a prepared target is by construction something the warp can sample through.' {
+        webMercatorPrepared = impl 'WebMercatorPrepared'
+        orthographicPrepared = impl 'OrthographicPrepared'
+        polarStereographicPrepared = impl 'PolarStereographicPrepared'
+        mollweidePrepared = impl 'MollweidePrepared'
+        robinsonPrepared = impl 'RobinsonPrepared'
+        equalEarthPrepared = impl 'EqualEarthPrepared'
+        equirectPrepared = impl 'EquirectPrepared'
+      }
+
+      overlayTarget = impl 'SourceOverlayTarget' 'A ForwardMap that is not a PreparedTarget: overlays project into the source raster, not into a new one.'
+
+      planarProjector = seam 'PlanarGridProjector' 'The inverse for native projected grids: lat/lon into row and column. forward_xy is required; inverse() is provided once for all planar grids (#486), with two hooks for what genuinely differed.' {
+        technology 'accepts(lat, lon) hook, default true; snap_eps() hook, default Cells(1e-9)'
+        link https://github.com/D0ubleD0uble/fieldglass/issues/486 '#486'
+
+        lambert = impl 'LambertProjector'
+        polarStereoProjector = impl 'PolarStereoProjector'
+        transverseMercator = impl 'TransverseMercatorProjector'
+        lambertAzimuthal = impl 'LambertAzimuthalProjector' 'The reason snap_eps is a hook: its authalic series carries a real millimetre-scale error, so its tolerance is a property of the ground rather than of the cell (SnapEps::Metres).'
+      }
+
+      closedForm = impl 'Closed-form inverses' 'lat/lon, Mercator, Gaussian, rotated lat/lon and geostationary answer with a formula rather than through PlanarGridProjector.'
+
+      gridGeometry -> planarProjector 'inverts through, for the four planar families'
+      gridGeometry -> closedForm 'inverts through, where a formula exists'
+      targetProjection -> preparedTarget 'prepare(grid) returns'
+      preparedTarget -> forwardMap 'is a (supertrait)'
+    }
+
+    // ------------------------------------------------------- lookup grids
+
+    spatialIndex = module 'spatial_index' 'The inverse for grids that are only a list of cell centres. A k-d tree over cell centres as unit vectors — building in three dimensions is what removes the antimeridian and the poles as special cases.' {
+      technology 'core/src/spatial_index.rs'
+      link https://github.com/D0ubleD0uble/fieldglass/issues/445 '#445'
+
+      index = seam 'SpatialIndex' 'Answers with a cell rather than a position inside one, so it reports GridResampling::NearestOnly and the warp downgrades a bilinear request rather than blending across a tripolar fold.'
+
+      curvilinear = impl 'NetCDF 2-D coordinates' 'CF coordinates attribute resolves to two 2-D lat/lon variables (#445). Cached per coordinate pair, not per field: one file s fields share one mesh.'
+      healpixLookup = impl 'HEALPix §3.150' 'pix2ang in core; synthesised onto a lat/lon grid at decode, the same pattern as spectral.'
+      ncepCurvilinear = impl 'GRIB2 §3.204' 'NCEP curvilinear: lat/lon carried as two extra fields.' {
+        #planned
+        link https://github.com/D0ubleD0uble/fieldglass/issues/418 '#418'
+      }
+      iconGrid = impl 'ICON §3.101 unstructured' 'Out-of-band grid file; ADR pending.' {
+        #planned
+        link https://github.com/D0ubleD0uble/fieldglass/issues/420 '#420'
+      }
+
+      index -> curvilinear 'built from'
+      index -> healpixLookup 'built from'
+    }
+
+    // -------------------------------------------------------------- warp
+
+    warp = module 'warp' 'Reprojects a decoded field onto an output raster. Inverse-mapped: it walks output pixels and asks the source which cell covers each, which is why a new decode path needs no change here.' {
+      technology 'core/src/warp.rs'
+    }
+
+    // ------------------------------------------------------------ render
+
+    render = module 'render (feature)' 'Everything that turns a decoded field into something a screen or a spreadsheet shows. Optional: a host that cannot use it takes core with default-features = false.' {
+      technology 'core/src/colormap.rs, overlay.rs, contour.rs, csv.rs, combine.rs'
+
+      palette = part 'Palette' 'Deliberately not a trait: there is one painter, and a GPU host consumes the painter s table rather than implementing a second colour path. LUT + t0/t1 + scale rule.' {
+        link https://github.com/D0ubleD0uble/fieldglass/issues/485 '#485'
+      }
+      overlay = module 'overlay' 'Coastlines and borders, projected through the ForwardMap seam rather than through projection code of its own.'
+      contour = module 'contour'
+      csv = module 'csv'
+      combine = module 'combine' 'Two fields onto one raster — which is what makes two spectral fields at different truncations genuinely combine.'
+    }
+
+    // ---------------------------------------------- synthesised geometries
+
+    synth = module 'synthesised grids' 'Two decode paths do not produce one value per grid point until core resamples them onto a regular lat/lon grid. The field then carries GridGeometry::LatLon, so probe, contours, CSV and overlays need no special case.' {
+      technology 'core/src/sht.rs, healpix.rs'
+
+      sht = module 'sht' 'Spherical harmonics: coefficients synthesised onto a fixed lat/lon grid before rendering.'
+      healpix = module 'healpix' 'HEALPix pix2ang, ring and nested ordering.'
+    }
+
+    // ------------------------------------------------------------ support
+
+    support = module 'support' 'The rest of core: bit-stream reading, format sniffing, unit notation, shared metadata types and the error type.' {
+      technology 'core/src/bits.rs, detect.rs, units.rs, metadata.rs, error.rs, matrix.rs, cct_tables.rs'
+
+      bits = module 'bits' 'The bit-stream reader every packing sits on. Part of the decode kernel milestone 7 proves.'
+      detect = module 'detect' 'Format sniffing. The one place core touches std::fs, behind the fs feature.'
+      units = module 'units' 'Unit notation: m/s becomes m s⁻¹, um becomes µm. Notation only, never renaming (ADR-0007).' {
+        link https://github.com/D0ubleD0uble/fieldglass/blob/master/docs/decisions/0007-netcdf-unit-notation.md 'ADR-0007'
+      }
+    }
+
+    // ------------------------------------------------------- internal flow
+
+    reading -> bytes 'reads through'
+    projection -> spatialIndex 'delegates the Lookup variant to'
+    warp -> projection 'prepares a target and forwards each pixel through'
+    warp -> render 'hands the sampled raster to'
+    synth -> projection 'reports GridGeometry::LatLon for the raster it lands on'
+  }
+}

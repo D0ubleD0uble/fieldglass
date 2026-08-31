@@ -1,0 +1,365 @@
+// Views. Every element with children has a view "of" it, which is what makes
+// a node clickable: opening it replaces the diagram with that node's own,
+// and the breadcrumb walks back out to where it is one node again.
+
+views {
+
+  // ------------------------------------------------------------ altitude 0
+
+  view index {
+    title 'Landscape — who uses Fieldglass'
+    description 'The consumers, the data, and the workspace as one box. Click Fieldglass to go in.'
+
+    include *
+
+    global style planned-dashed
+  }
+
+  // ------------------------------------------------------------ altitude 1
+
+  view workspace of fieldglass {
+    title 'Crates — as it is, plus what is planned'
+    description 'Five crates today: a format crate parses its container and hands core the same decoded field; core projects, warps and renders it; napi binds the result to Node. Dashed nodes are milestones 7, 10 and 11.'
+
+    include *
+
+    global style planned-dashed
+    global predicate hide-decisions
+  }
+
+  view workspaceToday {
+    title 'Crates — today only'
+    description 'The guarded picture: no format crate depends on another, and nothing below napi depends on napi.'
+
+    include
+      fieldglass,
+      fieldglass.*
+
+    exclude element.tag = #planned
+    global predicate hide-decisions
+  }
+
+  view workspacePlanned {
+    title 'Crates — after milestones 7, 10 and 11'
+    description 'Two hosts instead of one, an umbrella crate between them and the engine, and two new pure crates. The rule survives unchanged; what changes is that a host no longer touches a format crate at all.'
+
+    include
+      fieldglass,
+      fieldglass.*,
+      extension,
+      app,
+      otherHosts
+
+    global style planned-dashed
+    global predicate hide-decisions
+  }
+
+  // -------------------------------------------------- altitude 2+: core
+
+  view core of fieldglass.core {
+    title 'fieldglass-core — the engine'
+    description 'Traits, geometry, projection, warp, render. Depends on nothing else in the workspace.'
+    include *
+    global style planned-dashed
+    global predicate hide-decisions
+  }
+
+  view coreReading of fieldglass.core.reading {
+    title 'Reading seams'
+    include *
+    global predicate hide-decisions
+  }
+
+  view coreBytes of fieldglass.core.bytes {
+    title 'ByteSource — where bytes come from'
+    description 'The one seam that dispatches on where the file is rather than on a code inside it.'
+    include *
+    global style planned-dashed
+    global predicate hide-decisions
+  }
+
+  view coreProjection of fieldglass.core.projection {
+    title 'Projection and grid geometry'
+    include *
+    global predicate hide-decisions
+  }
+
+  view coreTargets of fieldglass.core.projection.targetProjection {
+    title 'TargetProjection — output rasters'
+    description 'One implementer per output projection. Adding one is one new implementer and nothing else.'
+    include *
+    global predicate hide-decisions
+  }
+
+  view corePrepared of fieldglass.core.projection.preparedTarget {
+    title 'PreparedTarget — prepared once per raster'
+    include *
+    global predicate hide-decisions
+  }
+
+  view corePlanar of fieldglass.core.projection.planarProjector {
+    title 'PlanarGridProjector — the native-grid inverse'
+    description 'The four planar inverse() bodies were the same 30-50 lines each. #486 made the inverse a provided method, and what genuinely differed became two hooks rather than four near-copies.'
+    include *
+    global predicate hide-decisions
+  }
+
+  view coreSpatial of fieldglass.core.spatialIndex {
+    title 'SpatialIndex — grids that are only cell centres'
+    include *
+    global style planned-dashed
+    global predicate hide-decisions
+  }
+
+  view coreRender of fieldglass.core.render {
+    title 'Render (feature)'
+    include *
+    global predicate hide-decisions
+  }
+
+  view coreSynth of fieldglass.core.synth {
+    title 'Synthesised grids'
+    include *
+    global predicate hide-decisions
+  }
+
+  view coreSupport of fieldglass.core.support {
+    title 'Support'
+    include *
+    global predicate hide-decisions
+  }
+
+  // ------------------------------------------------ altitude 2+: GRIB2
+
+  view grib2 of fieldglass.grib2 {
+    title 'fieldglass-grib2'
+    include *
+    global predicate hide-decisions
+  }
+
+  view grib2Message of fieldglass.grib2.g2message {
+    title 'Grib2Message — the WMO sections'
+    description 'Sections that are large or optional stay as byte ranges and decode only when their values are asked for.'
+    include *
+    global predicate hide-decisions
+  }
+
+  view grib2Grids of fieldglass.grib2.gridTemplate {
+    title 'GridTemplate — §3 grid definitions'
+    include *
+    global predicate hide-decisions
+  }
+
+  view grib2Products of fieldglass.grib2.productTemplate {
+    title 'ProductDefinitionTemplate — §4'
+    include *
+    global predicate hide-decisions
+  }
+
+  view grib2Packings of fieldglass.grib2.drsTemplate {
+    title 'DataRepresentationTemplate — §5 packings'
+    description 'The README GRIB2 packing modes table is the single source of truth for which of these decode. A new packing lands here and nowhere else.'
+    include *
+    global predicate hide-decisions
+  }
+
+  // ------------------------------------------------ altitude 2+: GRIB1
+
+  view grib1 of fieldglass.grib1 {
+    title 'fieldglass-grib1'
+    include *
+    global predicate hide-decisions
+  }
+
+  view grib1Message of fieldglass.grib1.g1message {
+    title 'Grib1Message'
+    include *
+    global predicate hide-decisions
+  }
+
+  view grib1Grids of fieldglass.grib1.g1grid {
+    title 'GridDescription — optional in GRIB1'
+    include *
+    global predicate hide-decisions
+  }
+
+  view grib1Packings of fieldglass.grib1.g1packing {
+    title 'Grib1Packing — the BDS flag byte decides'
+    include *
+    global predicate hide-decisions
+  }
+
+  // ----------------------------------------------- altitude 2+: NetCDF
+
+  view netcdf of fieldglass.netcdf {
+    title 'fieldglass-netcdf'
+    description 'One reader over two on-disk layouts.'
+    include *
+    global predicate hide-decisions
+  }
+
+  view netcdfClassic of fieldglass.netcdf.classic {
+    title 'Classic CDF-1/2/5'
+    include *
+    global predicate hide-decisions
+  }
+
+  view netcdfHdf5 of fieldglass.netcdf.hdf5 {
+    title 'NetCDF-4 / HDF5 object model'
+    include *
+    global predicate hide-decisions
+  }
+
+  view netcdfGeometry of fieldglass.netcdf.ncgeometry {
+    title 'NetCDF geolocation — three models'
+    description 'NetCDF carries no GDS, so geolocation is reconstructed. Which model applies is a property of the file.'
+    include *
+    global predicate hide-decisions
+  }
+
+  // ------------------------------------------------- altitude 2+: hosts
+
+  view napi of fieldglass.napi {
+    title 'fieldglass-napi — the host today'
+    include *
+    global predicate hide-decisions
+  }
+
+  view napiHandles of fieldglass.napi.handles {
+    title 'Handles and their caches'
+    include *
+    global predicate hide-decisions
+  }
+
+  view api of fieldglass.api {
+    title 'fieldglass — the umbrella (planned, #464)'
+    include *
+    global style planned-dashed
+    global predicate hide-decisions
+  }
+
+  view apiDtos of fieldglass.api.dtos {
+    title 'The plain data types'
+    include *
+    global style planned-dashed
+    global predicate hide-decisions
+  }
+
+  view wasm of fieldglass.wasm {
+    title 'fieldglass-wasm (planned, #460)'
+    include *
+    global style planned-dashed
+    global predicate hide-decisions
+  }
+
+  view fetchplan of fieldglass.fetchplan {
+    title 'fieldglass-fetchplan (planned, #461)'
+    description 'Manifests in, byte ranges out. Pure syntax: semantic parameter matching goes back through a trait the umbrella implements.'
+    include *
+    global style planned-dashed
+    global predicate hide-decisions
+  }
+
+  view fetchplanManifests of fieldglass.fetchplan.manifest {
+    title 'Manifest dialects'
+    include *
+    global style planned-dashed
+    global predicate hide-decisions
+  }
+
+  view verify of fieldglass.verify {
+    title 'fieldglass-verify (planned, milestone 7)'
+    include *
+    global style planned-dashed
+    global predicate hide-decisions
+  }
+
+  view verifyKernel of fieldglass.verify.kernel {
+    title 'The decode kernel under proof'
+    include *
+    global style planned-dashed
+    global predicate hide-decisions
+  }
+
+  view zarr of fieldglass.zarr {
+    title 'fieldglass-zarr (planned, #246)'
+    include *
+    global style planned-dashed
+    global predicate hide-decisions
+  }
+
+  // ------------------------------------------------------- the decisions
+
+  view decisionsView of decisions {
+    title 'Decision records'
+    description 'Seven cross-cutting choices. Each record is a snapshot of the context, the decision, and the consequences as they were understood when it was written.'
+    include *
+  }
+
+  view decisionsMap {
+    title 'Decisions — and what each one constrains'
+    description 'The same seven records, drawn against the crates and seams they shape.'
+
+    include
+      decisions,
+      decisions.*,
+      fieldglass,
+      fieldglass.*
+
+    exclude fieldglass.core.reading,
+      fieldglass.core.synth,
+      fieldglass.core.render
+
+    global style planned-dashed
+  }
+
+  // ---------------------------------------------------------- the flows
+
+  dynamic view warpLoop {
+    title 'Flow — how one field reaches an output raster'
+    description 'prepare() runs once per raster; forward() once per output pixel. The warp is inverse-mapped: it walks output pixels and asks the source which cell covers each.'
+
+    fieldglass.core.warp -> fieldglass.core.projection.targetProjection 'prepare(grid)'
+    fieldglass.core.projection.targetProjection -> fieldglass.core.projection.preparedTarget 'returns a PreparedTarget (which is a ForwardMap)'
+    fieldglass.core.warp -> fieldglass.core.projection.preparedTarget 'forward(x, y), once per output pixel'
+    fieldglass.core.projection.preparedTarget -> fieldglass.core.projection.gridGeometry 'source lat/lon'
+    fieldglass.core.projection.gridGeometry -> fieldglass.core.spatialIndex.index 'inverse_at(), for the Lookup variant'
+    fieldglass.core.projection.gridGeometry -> fieldglass.core.warp 'row and column to sample'
+    fieldglass.core.warp -> fieldglass.core.render.palette 'sampled value'
+    fieldglass.core.render.palette -> fieldglass.core.render.overlay 'RGBA, then coastlines through the same ForwardMap'
+  }
+
+  dynamic view decodeFlow {
+    title 'Flow — a GRIB2 file in the extension today'
+    description 'Scanning is cheap because nothing decodes until values are asked for.'
+
+    extension -> fieldglass.napi 'open(bytes)'
+    fieldglass.napi.handles -> fieldglass.grib2.g2reader 'scan for messages'
+    fieldglass.grib2.g2reader -> fieldglass.grib2.g2message 'sections parsed; data left as a range'
+    fieldglass.grib2.g2message -> fieldglass.napi.messageMeta 'metadata for the message list'
+    fieldglass.napi.messageMeta -> extension 'the message table'
+    extension -> fieldglass.napi 'render(i, options)'
+    fieldglass.napi.handles -> fieldglass.grib2.drsTemplate 'decode values, dispatching on §5'
+    fieldglass.grib2.drsTemplate -> fieldglass.napi.handles 'Vec<Option<f64>>, cached'
+    fieldglass.napi.orchestration -> fieldglass.core.warp 'warp onto the target raster'
+    fieldglass.core.warp -> fieldglass.core.render.palette 'paint'
+    fieldglass.core.render.palette -> extension 'RGBA to a canvas'
+  }
+
+  dynamic view browserFlow {
+    title 'Flow — one field from a bucket to a texture (planned, milestone 11)'
+    description 'Every arrow into Rust is synchronous; every network wait is in the Worker JavaScript. The .idx range is a claim, and the decoder checks the fetched bytes against it.'
+
+    app -> fieldglass.fetchplan.manifest 'GET the .idx, then select(query, resolver)'
+    fieldglass.fetchplan.manifest -> app 'PlanItem { range, expect }'
+    app -> bucket 'GET the file with a Range header'
+    bucket -> app 'one GRIB2 message'
+    app -> fieldglass.wasm 'open(bytes), then decode(0, opts)'
+    fieldglass.wasm -> fieldglass.api.session 'the same Session every host binds'
+    fieldglass.api.session -> fieldglass.grib2.g2message 'verify magic, §0 length, parameter against expect'
+    fieldglass.grib2.g2message -> fieldglass.api.dtos 'Field { values, mask, georef, stats }'
+    fieldglass.api.session -> fieldglass.api.dtos.paletteDto 'palette(opts)'
+    fieldglass.api.dtos -> app 'one copy out of wasm memory, then transfer'
+    app -> fieldglass.core.render.palette 'restyle = a new 1 KB LUT, no re-decode'
+  }
+}

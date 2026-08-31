@@ -1,0 +1,129 @@
+// Element kinds, tags and colours for the Fieldglass architecture model.
+// See README.md in this directory for how to view and validate it.
+
+specification {
+
+  // ---------------------------------------------------------------- kinds
+
+  element consumer {
+    notation 'Consumer (outside the workspace)'
+    style {
+      shape person
+      color secondary
+    }
+  }
+
+  element external {
+    notation 'External system or data'
+    style {
+      shape cylinder
+      color slate
+    }
+  }
+
+  element system {
+    notation 'The workspace'
+    style {
+      shape rectangle
+      color primary
+    }
+  }
+
+  element layer {
+    notation 'Group of crates at one altitude'
+    style {
+      shape rectangle
+      color muted
+      opacity 10%
+    }
+  }
+
+  element crate {
+    notation 'Cargo crate'
+    style {
+      shape rectangle
+      color blue
+    }
+  }
+
+  element module {
+    notation 'Module or subsystem inside a crate'
+    style {
+      shape rectangle
+      color sky
+    }
+  }
+
+  element seam {
+    notation 'Trait: a runtime dispatch point'
+    technology 'Rust trait'
+    style {
+      shape storage
+      color green
+    }
+  }
+
+  element impl {
+    notation 'Concrete implementer of a seam'
+    style {
+      shape rectangle
+      color green
+      opacity 30%
+    }
+  }
+
+  element part {
+    notation 'Message part or data type'
+    style {
+      shape rectangle
+      color indigo
+    }
+  }
+
+  element decision {
+    notation 'Decision record (ADR)'
+    style {
+      shape document
+      color amber
+    }
+  }
+
+  // ----------------------------------------------------------- relationships
+
+  relationship depends {
+    notation 'Cargo dependency'
+  }
+
+  relationship dispatches {
+    notation 'Selects an implementer at runtime'
+    line dashed
+  }
+
+  relationship produces {
+    notation 'Produces a value'
+    line dotted
+  }
+
+  relationship governs {
+    notation 'A decision record constrains this'
+    line dotted
+    color amber
+  }
+
+  // ------------------------------------------------------------------ tags
+
+  // Does not exist yet. Every planned node names its milestone or issue,
+  // same rule as docs/architecture/planned/.
+  tag planned {
+    color #f59e0b
+  }
+
+  tag milestone-7
+  tag milestone-10
+  tag milestone-11
+
+  // Lives outside this workspace.
+  tag out-of-workspace {
+    color #64748b
+  }
+}

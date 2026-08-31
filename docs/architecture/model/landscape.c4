@@ -1,0 +1,163 @@
+// Level 0-1: who uses Fieldglass, and the crates it is made of.
+// Mirrors docs/architecture/01-crates.md and planned/01-crates.md.
+
+model {
+
+  // ------------------------------------------------------- outside the code
+
+  extension = consumer 'VS Code extension' 'The shipping product surface. TypeScript; reads files through workspace.fs and paints RGBA onto a canvas.' {
+    technology 'TypeScript, Electron'
+    link https://github.com/D0ubleD0uble/fieldglass/tree/master/extension 'extension/'
+  }
+
+  app = consumer 'fieldglass-app' 'Browser map creator. External and private; fetches byte ranges from a bucket and uploads textures to the GPU.' {
+    #planned #milestone-11
+    technology 'TypeScript, WebGL'
+  }
+
+  otherHosts = consumer 'PyO3 / CLI / C ABI' 'Named in the roadmap and #254. Each is one more binding of the same Session, not a new layer.' {
+    #planned
+  }
+
+  localFile = external 'Weather file' 'GRIB1, GRIB2, NetCDF classic or NetCDF-4 / HDF5. Read whole, or by range for a large file (#114).' {
+    style {
+      shape storage
+    }
+  }
+
+  bucket = external 'HTTPS bucket / object store' 'Public bucket over HTTPS with CORS, or S3 (#252). The host fetches; Rust never opens a socket (ADR-0005).' {
+    #planned #milestone-11
+  }
+
+  eccodes = external 'eccodes 2.34.1' 'The decode oracle. Never a runtime dependency: the suite runs on committed fixtures and .eccodes.ref.json snapshots.' {
+    link https://github.com/D0ubleD0uble/fieldglass/blob/master/tests/fixtures/NOTICE.md 'Fixture provenance'
+  }
+
+  // --------------------------------------------------------- the workspace
+
+  fieldglass = system 'Fieldglass' 'Turns a weather-data file into a grid of values plus the geometry to place them on a map. Decode, projection, and rendering stay separate.' {
+    technology 'Rust workspace, one version bumped in lockstep'
+    link https://github.com/D0ubleD0uble/fieldglass 'Repository'
+
+    // -- hosts ------------------------------------------------------------
+
+    napi = crate 'fieldglass-napi' 'The N-API boundary. Today it also holds the render orchestration; #464 moves that into the umbrella and leaves buffer handoff and error mapping.' {
+      technology 'napi-rs, cdylib'
+    }
+
+    wasm = crate 'fieldglass-wasm' 'wasm-bindgen facade for the browser. publish = false, panic = abort, and no decode cache: wasm linear memory never shrinks, so the app decides what to keep.' {
+      #planned #milestone-11
+      technology 'wasm-bindgen, cdylib, wasm32-unknown-unknown'
+      link https://github.com/D0ubleD0uble/fieldglass/issues/460 '#460'
+    }
+
+    // -- host-neutral API -------------------------------------------------
+
+    api = crate 'fieldglass' 'The umbrella and public Rust API (ADR-0006). Holds Session, the plain serde-derivable DTOs, Error, and the conformance suite every host runs.' {
+      #planned #milestone-11
+      link https://github.com/D0ubleD0uble/fieldglass/issues/464 '#464'
+    }
+
+    // -- format crates ----------------------------------------------------
+
+    grib1 = crate 'fieldglass-grib1' 'GRIB1 decode. Flatter than GRIB2: the grid description is optional, and the bitmap and data sections stay byte ranges decoded on request.' {
+      technology 'Rust, no_std-friendly core deps'
+    }
+
+    grib2 = crate 'fieldglass-grib2' 'GRIB2 decode. One message holds every WMO section; grid, product and data-representation each carry a template enum.' {
+      technology 'Rust; pure-Rust codecs for 5.40 / 5.41 / 5.42'
+    }
+
+    netcdf = crate 'fieldglass-netcdf' 'NetCDF classic (CDF-1/2/5) and NetCDF-4 / HDF5, behind one reader over two on-disk layouts.' {
+      technology 'Rust; hand-written HDF5 object-model walker'
+    }
+
+    zarr = crate 'fieldglass-zarr' 'Chunk codecs only: zstd, blosc, shuffle, v3 shard inner chunks. Addressing lives in fetchplan; directory walking is the host s concern.' {
+      #planned #milestone-11
+      link https://github.com/D0ubleD0uble/fieldglass/issues/246 '#246'
+    }
+
+    // -- the engine -------------------------------------------------------
+
+    core = crate 'fieldglass-core' 'Traits, grid geometry, projection, warp, overlay, palette, bits. Depends on nothing else in the workspace.' {
+      technology 'Rust'
+    }
+
+    fetchplan = crate 'fieldglass-fetchplan' 'Manifests in, byte ranges out. Pure: no I/O, no clock, no format crate. Parameter matching goes through a ParameterResolver the umbrella implements.' {
+      #planned #milestone-11
+      link https://github.com/D0ubleD0uble/fieldglass/issues/461 '#461'
+    }
+
+    verify = crate 'fieldglass-verify' 'Verus proofs over the decode arithmetic. Deliberately its own workspace so cargo build, cargo deny and the six-target cross-compile never see Verus.' {
+      #planned #milestone-7 #out-of-workspace
+      technology 'Verus, vstd'
+      link https://github.com/D0ubleD0uble/fieldglass/issues/205 '#205'
+    }
+  }
+
+  // ---------------------------------------------------------- dependencies
+
+  // Today.
+  extension -> fieldglass.napi 'loads the prebuilt addon for its platform'
+  fieldglass.napi -> fieldglass.grib1 'decodes GRIB1 through'
+  fieldglass.napi -> fieldglass.grib2 'decodes GRIB2 through'
+  fieldglass.napi -> fieldglass.netcdf 'decodes NetCDF through'
+  fieldglass.napi -> fieldglass.core 'projects, warps and renders through'
+  fieldglass.grib1 -> fieldglass.core 'hands a decoded field to'
+  fieldglass.grib2 -> fieldglass.core 'hands a decoded field to'
+  fieldglass.netcdf -> fieldglass.core 'hands a decoded field to'
+
+  // After milestone 11: a host no longer touches a format crate.
+  app -> fieldglass.wasm 'calls in a Worker' {
+    #planned
+  }
+  otherHosts -> fieldglass.api 'binds' {
+    #planned
+  }
+  fieldglass.wasm -> fieldglass.api 'binds Session' {
+    #planned
+  }
+  fieldglass.napi -> fieldglass.api 'binds Session after #464' {
+    #planned
+  }
+  fieldglass.api -> fieldglass.grib1 'opens' {
+    #planned
+  }
+  fieldglass.api -> fieldglass.grib2 'opens' {
+    #planned
+  }
+  fieldglass.api -> fieldglass.netcdf 'opens' {
+    #planned
+  }
+  fieldglass.api -> fieldglass.zarr 'opens' {
+    #planned
+  }
+  fieldglass.api -> fieldglass.core 'default-features = false, re-exports render and fs' {
+    #planned
+  }
+  fieldglass.api -> fieldglass.fetchplan 'plans fetches through' {
+    #planned
+  }
+  fieldglass.fetchplan -> fieldglass.core 'shares types with' {
+    #planned
+  }
+  fieldglass.zarr -> fieldglass.core 'hands decoded chunks to' {
+    #planned
+  }
+  fieldglass.verify -> fieldglass.core 'proves the decode kernel in' {
+    #planned
+  }
+  fieldglass.verify -> fieldglass.grib1 'proves the decode kernel in' {
+    #planned
+  }
+  fieldglass.verify -> fieldglass.grib2 'proves the decode kernel in' {
+    #planned
+  }
+
+  // Data in.
+  localFile -> extension 'opened by workspace.fs.readFile'
+  bucket -> app 'fetch() with a Range header' {
+    #planned
+  }
+  eccodes -> fieldglass 'cross-checks the decoders (fixtures + snapshots, not at runtime)'
+}

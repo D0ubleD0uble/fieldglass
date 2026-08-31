@@ -1,0 +1,21 @@
+// Reusable view rules, so a view says what it is about rather than repeating
+// bookkeeping.
+
+global {
+
+  // The ADR nodes relate to almost everything, which is useful on the
+  // decisions map and noise everywhere else.
+  predicateGroup hide-decisions {
+    exclude decisions
+    exclude decisions.*
+  }
+
+  // Same rule as docs/architecture/planned/: a node that does not exist yet
+  // is drawn dashed and names its milestone or issue.
+  styleGroup planned-dashed {
+    style element.tag = #planned {
+      border dashed
+      opacity 15%
+    }
+  }
+}

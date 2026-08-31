@@ -13,6 +13,13 @@ workspace down to one file's contents. Read them in order:
 | [`02-trait-seams.md`](02-trait-seams.md) | Dispatch | The traits a reader calls through to pick a packing, projection, or target at runtime. |
 | [`03-composition.md`](03-composition.md) | Per format | How a file parses into one message that holds its sections. |
 
+A fourth representation is [`model/`](model/README.md): the same architecture
+as **one LikeC4 model** rather than three pictures. Every element with children
+has a view of its own, so a node opens as the diagram below it and the
+breadcrumb walks back out — which is the thing three separate Mermaid files
+cannot do. [`tooling.md`](tooling.md) records why both forms exist and what to
+reach for if that should ever change.
+
 The same altitudes drawn for the **open milestones** are under
 [`planned/`](planned/README.md). Those are not drift-guarded (the guard reads
 only this directory's top level) and each planned node names its issue; when a

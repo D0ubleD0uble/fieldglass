@@ -1,0 +1,140 @@
+// Level 2-4: the host boundary. ADR-0005 fixes the split — the host fetches
+// and owns memory, Rust is a pure function of bytes. ADR-0006 fixes what a
+// host is — a binding over Session that hand-writes only the buffer handoff
+// and the error mapping.
+// Mirrors docs/architecture/03-composition.md and planned/04-hosts.md.
+
+model {
+
+  // ============================================================== napi
+
+  extend fieldglass.napi {
+
+    handles = module 'handles' 'Each handle wraps a format reader and a memoized decode cache, and hands JavaScript plain metadata structs. A second request for the same field is free.' {
+      technology 'napi/src/lib.rs'
+
+      grib1Handle = part 'Grib1Handle' 'bytes: Vec<u8>, decoded: Mutex<HashMap>.'
+      grib2Handle = part 'Grib2Handle' 'Two caches: decoded, plus synthesized for spectral messages whose coefficients are resampled onto a fixed lat/lon grid before rendering.'
+      netcdfHandle = part 'NetcdfHandle' 'Holds a DatasetView (metadata) rather than the arrays; the spatial index is cached by coordinate pair, since one file s fields share one mesh.'
+    }
+
+    messageMeta = part 'MessageMeta' 'A #[napi(object)] with ~65 Option fields. The extension reads 16 of them — and every warp setup, probe, contour and CSV path computes from it. That fusion of DTO with engine is what ADR-0006 unpicks.' {
+      link https://github.com/D0ubleD0uble/fieldglass/blob/master/docs/decisions/0006-hosts-are-bindings-over-a-plain-data-api.md 'ADR-0006'
+    }
+
+    orchestration = module 'render orchestration' 'ResolvedOptions, the nine per-family warp setups, probe, contour and overlay projection, CSV. About 3,900 lines that a second host would otherwise reimplement against its own DTOs — so #464 moves it into fieldglass::Session.' {
+      link https://github.com/D0ubleD0uble/fieldglass/issues/464 '#464 moves this'
+    }
+
+    napiDtos = module 'buffer handoff + error mapping' 'What genuinely stays per host: Buffer and Float64Array in and out, and napi::Result. On the order of three functions.'
+
+    handles -> messageMeta 'hands to JavaScript'
+    handles -> orchestration 'drives'
+  }
+
+  // ============================== the umbrella (planned, milestone 11)
+
+  extend fieldglass.api {
+
+    session = part 'Session' 'open, count, message(i), decode(i, opts), warp, render, probe, contours, overlay, csv — taking &[u8] and returning plain data. One implementation, every host binds it.' {
+      #planned
+    }
+
+    dtos = module 'plain data types' 'serde-derivable, host-neutral. Hosts derive their own types from these; nothing in Rust reads a DTO back, and dependencies only point down.' {
+      #planned
+
+      messageDto = part 'Message' 'index, parameter, level, time, packing, Georef.'
+      georef = part 'Georef' 'The one API view of GridGeometry. Keeps the native size beside the raster size: a HEALPix Nside and a spectral truncation both survive, because a view that reported only the synthesised raster would be describing Fieldglass rather than the data.'
+      fieldDto = part 'Field' 'values, mask, georef, stats. values is f64 unless the packing provably fits f32.'
+      paletteDto = part 'Palette' 'lut, t0, t1, scale, masked. Colour is decided once, in Rust, and feeds both the CPU painter and the GPU lookup.'
+      errorDto = part 'Error' 'One error type every host maps from.'
+    }
+
+    conformance = module 'conformance suite' 'Fixtures every host runs, so a second binding is checked against the first rather than trusted.' {
+      #planned
+    }
+
+    decodeOptions = part 'DecodeOptions' 'resolution_reduction, honoured only by 5.40 and refused by a message with a bitmap. A reduced field carries a derived GridGeometry, never the message s own GDS, and is display-only: probe, CSV, contours and stats always take the full-resolution decode.' {
+      #planned
+      link https://github.com/D0ubleD0uble/fieldglass/issues/463 '#463'
+    }
+
+    session -> dtos 'returns'
+    session -> conformance 'is pinned by'
+    session -> decodeOptions 'takes'
+  }
+
+  // ================================== the wasm host (planned, m11)
+
+  extend fieldglass.wasm {
+    wasmBuffers = module 'buffer handoff' 'Uint8Array views over linear memory. One copy out of wasm memory, then transfer to the main thread.' {
+      #planned
+    }
+    wasmErrors = module 'error mapping' 'panic = abort, so a decoder panic ends the Worker. The app treats the Worker as disposable and restarts it; the fuzz targets keep that rare.' {
+      #planned
+    }
+    noCache = module 'no decode cache' 'wasm linear memory never shrinks, so the facade holds nothing: the app decides which Fields to keep for an animation and drops the rest.' {
+      #planned
+    }
+  }
+
+  // ================================ fetch planning (planned, m11)
+
+  extend fieldglass.fetchplan {
+
+    manifest = seam 'Manifest' 'items(), and select(query, &dyn ParameterResolver). Every cloud-native convention is one dialect of the same question: which byte ranges hold the field I want?' {
+      #planned
+
+      wgrib2 = impl 'Wgrib2Idx' 'The GRIB .idx sidecar. Ships first.'
+      ecmwfIndex = impl 'EcmwfIndex'
+      zarrV3 = impl 'ZarrV3'
+      zarrV2 = impl 'ZarrV2'
+      kerchunk = impl 'KerchunkRefs'
+    }
+
+    resolver = seam 'ParameterResolver' 'resolve(abbrev, level_str) -> Option<ParameterId>. Matching TMP / 2 m above ground to a WMO parameter needs the NCEP table in grib2 — and that dependency would drag the decoder and its codecs into a pure planner, so it is a trait the umbrella implements.' {
+      #planned
+      link https://github.com/D0ubleD0uble/fieldglass/issues/426 '#426'
+    }
+
+    planItem = part 'PlanItem' 'key, range, optional sub_index, and Expect. The plan is a claim, not a fact.' {
+      #planned
+
+      expect = part 'Expect' 'Discipline, parameter and level as the sidecar line stated them. The decoder checks the fetched bytes against this — magic, §0 length, parameter — and errors on a mismatch.'
+    }
+
+    manifest -> planItem 'produces'
+    manifest -> resolver 'matches parameters through'
+  }
+
+  // ==================================== verification (planned, m7)
+
+  extend fieldglass.verify {
+    kernel = module 'the decode kernel (~600 LOC)' 'The arithmetic worth proving, restated in Verus with pre- and post-conditions.' {
+      #planned
+
+      k199 = part 'grib1::unpack_simple_values'
+      k200 = part 'apply_spd_inverse / decode_complex_spatial_diff'
+      k201 = part 'grib2::decode_complex_groups'
+      k202 = part 'decode_inline_bitmap / parse_bitmap'
+      k203 = part 'hdf5 unshuffle'
+      k204 = part 'classic read_slab / record_size'
+    }
+  }
+
+  // ================================================= cross-crate flow
+
+  fieldglass.napi.handles -> fieldglass.core.warp 'renders through'
+  fieldglass.api.session -> fieldglass.core.warp 'renders through' {
+    #planned
+  }
+  fieldglass.api.dtos.paletteDto -> fieldglass.core.render.palette 'is the API view of' {
+    #planned
+  }
+  fieldglass.api.dtos.georef -> fieldglass.core.projection.gridGeometry 'is the API view of (From)' {
+    #planned
+  }
+  fieldglass.api.session -> fieldglass.fetchplan.resolver 'implements, with grib2 tables behind it' {
+    #planned
+  }
+}
