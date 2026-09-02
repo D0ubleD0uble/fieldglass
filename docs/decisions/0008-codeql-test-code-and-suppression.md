@@ -215,16 +215,38 @@ disables every proc-macro expansion including serde's, which is not worth three
 alerts. If github/codeql#21638 merges, inline suppression at the site is
 preferred and these dismissals should be replaced by it.
 
+Done on 2026-09-02: alerts #57, #58 and #59, reason "false positive", each
+carrying this comment (the field allows 280 characters, so it points here for
+the rest):
+
+> napi-rs generated FFI glue: null_mut() -> napi_unwrap(&mut p) fills p;
+> status checked before deref. CodeQL has no model for napi_unwrap out-param,
+> so flags the deref. Crate has zero hand-written unsafe; Rust has no inline
+> suppression. Full reasoning: docs/decisions/0008.
+
+What the generated code does, so the comment can be checked against it: make
+a null pointer; pass it by `&mut` to `napi_unwrap`, which fills it with the
+address of the wrapped object; `check_status!` on the call's result, returning
+early on failure; a type-tag check; then the dereference. The pointer is read
+only after Node has reported success, and the same expansion exists in every
+`#[napi]` struct of every napi-rs project.
+
+If one of the three structs moves, GitHub may raise the alert again at the new
+line. The answer is the same dismissal with the same comment; nothing about the
+code will have changed.
+
 **5. The CodeQL bundle is not pinned.** A new bundle bringing a batch of
 findings is triage, and triage is the cost of a scanner that improves.
 
-**6. Two reports go upstream.** First, that `latitude|longitude` in the shared
-sensitive-data heuristic classifies every coordinate in geoscience code as user
-PII, which will hit every such Rust project CodeQL scans. Second, that
-`access-invalid-pointer` has no model for FFI out-parameter initialisers, so
-every `#[napi]` struct — and likely every pyo3 and wasm-bindgen equivalent —
-reports a false dereference. Filing them is a maintainer action; the analysis
-above is written so it can be lifted into the reports.
+**6. Nothing is reported upstream.** Two reports were drafted — that
+`latitude|longitude` in the shared sensitive-data heuristic classifies every
+coordinate in geoscience code as user PII, and that `access-invalid-pointer`
+has no model for FFI out-parameter initialisers such as `napi_unwrap` — and
+the maintainer decided on 2026-09-02 not to file them. The analysis stays in
+this record so the option is open later, and so the next reader does not have
+to rediscover why the alerts fire; the decision is that the workaround above is
+sufficient for this project and the upstream conversation is not one it needs
+to carry.
 
 **7. CodeQL does not gate the build yet.** Semgrep does, as of #521. Making
 CodeQL match is the natural end state and is deliberately not decided here — it
@@ -243,8 +265,9 @@ default, and the trade PR #18347 named when it made `-test` the opt-out. A
 security defect that exists only in a test would not be reported. Tests are not
 shipped.
 
-The 69 close as "no longer detected" on the next analysis of `master`. The
-three remain until dismissed.
+The 69 closed as fixed on the first analysis of `master` after the change
+(`896a7a5`, 2026-09-02: 72 results on the commit before it, 3 on it). The
+three were dismissed the same day. The Security tab reads zero.
 
 The earlier draft's `#[cfg(test)]` parser is not built. The measurement that
 justified worrying about it — whether production code ever follows a test
