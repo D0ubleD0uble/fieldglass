@@ -38,8 +38,8 @@ carry no copyright; both objects are immutable archive members rather than
 rolling operational files, so this script reproduces the same bytes on any
 future run. See ``NOTICE.md`` for provenance and the licence note.
 
-Run from the repo root (needs ``netCDF4`` + ``numpy``; downloads ~66 MB once,
-cached in the system temp directory)::
+Run from the repo root (needs ``netCDF4``, ``numpy`` and ``requests``;
+downloads ~66 MB once, cached in the system temp directory)::
 
     python3 tools/build_netcdf_curvilinear_fixtures.py
 """
@@ -48,11 +48,11 @@ from __future__ import annotations
 
 import json
 import tempfile
-import urllib.request
 from pathlib import Path
 
 import netCDF4
 import numpy as np
+import requests
 
 HERE = Path(__file__).resolve().parent.parent
 FIXTURES = HERE / "crates" / "fieldglass-netcdf" / "tests" / "fixtures"
@@ -102,18 +102,12 @@ def fetch(url: str) -> Path:
         print(f"cached {path}")
         return path
     print(f"downloading {url}")
-    # What the dynamic-urllib lint is actually about: `urlopen` honours
-    # `file://` and `ftp://`, so a caller-supplied URL could read a local file
-    # instead of fetching one. Both call sites pass a module-level https
-    # literal, but the constant cannot fold through a parameter, so state the
-    # guarantee as a check rather than as a comment.
-    if not url.startswith("https://"):
-        raise ValueError(f"refusing a non-https source: {url!r}")
-    # Scheme pinned to https by the guard above, so the file:// read this rule
-    # exists to catch cannot be reached.
-    # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
-    with urllib.request.urlopen(url) as response:  # noqa: S310
-        path.write_bytes(response.read())
+    # `requests` rather than `urlopen`: it mounts adapters for http and https
+    # only, so a `file://` or `ftp://` URL is refused up front instead of
+    # reading a local file.
+    response = requests.get(url, timeout=120)
+    response.raise_for_status()
+    path.write_bytes(response.content)
     return path
 
 
