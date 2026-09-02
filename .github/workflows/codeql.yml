@@ -23,6 +23,25 @@ jobs:
       packages: read
       actions: read
       contents: read
+    env:
+      # Do not extract `#[cfg(test)]` code. The Rust extractor evaluates cfg
+      # gates at extraction, with `test` on by default; `-test` turns it off,
+      # so a `#[cfg(test)] mod tests` is never emitted — no AST, no dataflow,
+      # nothing in the SARIF. This is the maintainers' documented opt-out
+      # (github/codeql#20771, PR #18347) and it is the same default every other
+      # CodeQL language reaches through a test-file classifier, which Rust does
+      # not yet have. Set as an env var because the action has no input for
+      # extractor options and the config file cannot carry them.
+      #
+      # Why: `rust/cleartext-logging` treats any identifier containing
+      # `latitude` or `longitude` as user geolocation (PII), and `assert!`
+      # messages as a log sink. In a grid decoder that flagged sixty-nine test
+      # assertions and nothing real. The rule stays on for production code —
+      # ADR-0005 puts a remote seam on the roadmap, and that is where a logged
+      # credential would eventually appear. See ADR-0008.
+      #
+      # The JavaScript job ignores this; only the Rust extractor reads it.
+      CODEQL_EXTRACTOR_RUST_OPTION_CARGO_CFG_OVERRIDES: "-test"
     strategy:
       fail-fast: false
       matrix:
