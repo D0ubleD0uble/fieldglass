@@ -41,22 +41,31 @@ export type VectorLayer = (typeof VECTOR_LAYERS)[number];
  *  is read and flattened at most once however many panels ask for it. */
 const layerCache = new Map<VectorLayer, OverlayGeometry>();
 
+/** The assets sit beside the compiled output under `media/`, located the same
+ *  way `native.ts` finds the native binary (relative to `__dirname`). */
+const MEDIA_DIR = path.join(__dirname, "..", "media");
+
+/** Bundled asset per layer. Every path is assembled here from literals, so no
+ *  string a caller hands `loadVectorLayer` ever reaches `path.join`. */
+const LAYER_PATHS: ReadonlyMap<VectorLayer, string> = new Map([
+  ["coastline", path.join(MEDIA_DIR, "coastline-110m.json")],
+  ["borders", path.join(MEDIA_DIR, "borders-110m.json")],
+  ["lakes", path.join(MEDIA_DIR, "lakes-110m.json")],
+  ["rivers", path.join(MEDIA_DIR, "rivers-110m.json")],
+]);
+
 /** Load + cache a bundled Natural Earth 1:110m vector layer as
- *  `OverlayGeometry`. The assets sit beside the compiled output under
- *  `media/`, located the same way `native.ts` finds the native binary
- *  (relative to `__dirname`).
- *
- *  `layer` is a member of the closed {@link VECTOR_LAYERS} set — never a
- *  caller-supplied string — so the filename can't be steered off `media/`. */
+ *  `OverlayGeometry`. */
 export function loadVectorLayer(layer: VectorLayer): OverlayGeometry {
   const cached = layerCache.get(layer);
   if (cached) {
     return cached;
   }
-  // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
-  const file = path.join(__dirname, "..", "media", `${layer}-110m.json`);
-  // Path is built from `__dirname` + a name from the closed layer set above,
-  // never user input.
+  const file = LAYER_PATHS.get(layer);
+  if (file === undefined) {
+    throw new Error(`no bundled asset for overlay layer ${layer}`);
+  }
+  // `file` is one of the literal-built paths above, never user input.
   // eslint-disable-next-line security/detect-non-literal-fs-filename
   const asset = JSON.parse(fs.readFileSync(file, "utf8")) as VectorAsset;
   const geometry = flattenLonLatLines(asset.lines);

@@ -2,7 +2,7 @@
 """Build the render panel's vector overlay assets from Natural Earth.
 
 Writes `extension/media/<layer>-110m.json` for the boundary, lake, and river
-layers. Run it to refresh them; do not hand-edit the output.
+layers. Run it (needs ``requests``) to refresh them; do not hand-edit the output.
 
     python3 tools/build_overlay_layers.py
 
@@ -28,7 +28,8 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from urllib.request import urlopen
+
+import requests
 
 MEDIA = Path(__file__).resolve().parent.parent / "extension/media"
 
@@ -38,9 +39,6 @@ PRECISION = 3
 
 # Each source URL is a module-level constant built only from string literals, so
 # a static analyzer can prove no user-controlled value ever reaches the fetch.
-# The fetch below reads via single-argument `urlopen` and writes the body itself
-# rather than using two-argument `urlretrieve`, matching the other download
-# scripts in this directory (see `build_oisst_real_fixture.py`).
 BASE = "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson"
 BORDERS_URL = f"{BASE}/ne_110m_admin_0_boundary_lines_land.geojson"
 LAKES_URL = f"{BASE}/ne_110m_lakes.geojson"
@@ -69,15 +67,12 @@ LAYERS = {
 
 
 def fetch(url: str) -> dict:
-    # `urlopen` honours `file://`, so a caller-supplied URL could read a local
-    # file. Every call site passes one of the module-level Natural Earth https
-    # constants, but the constant cannot fold through a parameter, so state the
-    # guarantee as a check rather than leave it to the reader.
-    if not url.startswith("https://"):
-        raise ValueError(f"refusing a non-https source: {url!r}")
-    # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
-    with urlopen(url) as response:
-        return json.loads(response.read())
+    # `requests` rather than `urlopen`: it mounts adapters for http and https
+    # only, so a `file://` URL is refused up front instead of reading a local
+    # file.
+    response = requests.get(url, timeout=120)
+    response.raise_for_status()
+    return response.json()
 
 
 def rings(geometry: dict) -> list[list[list[float]]]:
