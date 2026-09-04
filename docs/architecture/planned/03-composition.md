@@ -87,10 +87,12 @@ means, and both readers now answer the same way: the widest row, because that is
 the raster they expand into (#503). The eastern corner that travels with it is
 derived from that width rather than read from the message — an octahedral grid
 declares `lo2` from the narrower `4N` reference grid, so the file's own value
-does not describe the raster. **That derivation currently lives at the napi
-render seam, and #464 has to carry it across**: a `GridGeometry::Gaussian` built
-straight from the GDS would take `lo2` at face value and misplace every
-octahedral grid by up to an eighth of a cell. The grid's own name (`N32`, `O32`,
+does not describe the raster. **That derivation lives in the format crates**
+(`GridDescription::raster_bounds` / `GridDefinitionSection::raster_bounds`,
+beside `dimensions()`, and `decode_message_raster` for the values that go in
+it), so `GridGeometry::from` and the napi render seam both read it rather than
+each deriving it again (#543). A `GridGeometry::Gaussian` built from `lo2` at
+face value would misplace every octahedral grid by up to an eighth of a cell. The grid's own name (`N32`, `O32`,
 and `F32` for the regular case eccodes also names) is not recoverable from `ni`
 and `nj`, so it travels beside them the way `Nside` does (#500).
 
