@@ -5,14 +5,6 @@
 //! carry, and every function is a thin call through. Decode, projection and
 //! paint logic belongs in those crates, never in this one (ADR-0006).
 
-// `missing_docs` is `warn` in `[workspace.lints]`, and 75 public items in this
-// crate do not satisfy it yet. Allowed here rather than downgraded workspace-wide
-// so the standard stays one line in the root manifest and the debt stays visible
-// per crate: deleting this attribute is what finishes the burn-down, and a crate
-// added without it starts held to the lint. See `tools/check_workspace_lints.py`,
-// which is the list of crates still carrying one.
-#![allow(missing_docs)]
-
 use fieldglass_core::{
     CombineOp, EqualEarth, Format, GaussianParams, GaussianProjector, GeostationaryParams,
     GeostationaryProjector, GridResampling, LambertAzimuthalParams, LambertAzimuthalProjector,
@@ -107,15 +99,32 @@ type ResolvedField = (std::sync::Arc<Vec<Option<f64>>>, MessageMeta, u32, u32);
 #[napi(object)]
 #[derive(Debug)]
 pub struct MessageMeta {
+    /// Position of the message in the file, and the handle every other call
+    /// takes.
     pub message_index: i32,
+    /// Byte offset of the message's first byte within the file.
     pub offset_bytes: i32,
+    /// Human-readable parameter name, or `"Unknown"` when no table in this
+    /// build resolves the message's parameter id.
     pub parameter_name: String,
+    /// Units as the parameter's table states them, typeset for display
+    /// (ADR-0007). Empty when the parameter did not resolve.
     pub parameter_units: String,
+    /// The table's short name for the parameter, e.g. `"2t"`. Empty when the
+    /// parameter did not resolve.
     pub parameter_abbreviation: String,
+    /// The level, rendered — `"500 hPa"`, `"2 m above ground"`.
     pub level: String,
+    /// The level's surface type on its own, so a host can group messages that
+    /// share a surface at different values.
     pub level_type: String,
+    /// Reference (analysis) time, rendered. Empty when the message carries no
+    /// usable date.
     pub reference_time: String,
+    /// Forecast lead normalised to whole hours, whatever unit the message
+    /// states it in. See `p1_octet` for why the raw octet travels separately.
     pub forecast_hours: i32,
+    /// Forecast lead rendered for display, e.g. `"+6 h"`, `"analysis"`.
     pub forecast_display: String,
     /// Raw P1 octet (GRIB1 PDS octet 19), for the dormant in-viewer edit of
     /// that byte. `None` wherever writing one octet would not mean what the
@@ -128,14 +137,21 @@ pub struct MessageMeta {
     /// so opening the box and saving an untouched value would have tripled the
     /// lead time.
     pub p1_octet: Option<i32>,
+    /// Originating centre name (WMO Common Code Table C-11), or the numeric
+    /// code when the centre is unassigned.
     pub originating_centre: String,
     /// Sub-centre name (WMO Common Code Table C-12), or `None` when the field
     /// is 0 ("no sub-centre") or the pair is unassigned. Resolved from the
     /// **pair**: the same sub-centre code means different things under
     /// different centres (#440).
     pub sub_centre: Option<String>,
+    /// The grid's family as its own format names it, e.g.
+    /// `"regular_ll"`, `"lambert"`. `None` for a message with no grid.
     pub grid_type: Option<String>,
+    /// Grid columns (points along a row). `None` for a grid-less message; see
+    /// `grid_size_label` for what such a message reports instead.
     pub grid_ni: Option<i32>,
+    /// Grid rows. `None` for a grid-less message.
     pub grid_nj: Option<i32>,
     /// The field's size in its own family's units when it has no raster
     /// shape — spectral truncation (`T63`), HEALPix `Nside`. A host shows it
@@ -146,10 +162,17 @@ pub struct MessageMeta {
     /// synthesised render meta alongside that grid's real dimensions; it is
     /// not an alternative spelling of them.
     pub grid_size_label: Option<String>,
+    /// Latitude of the first scanned grid point, degrees. For a rotated grid
+    /// this is in the rotated frame, not the geographic one.
     pub lat_first: Option<f64>,
+    /// Longitude of the first scanned grid point, degrees.
     pub lon_first: Option<f64>,
+    /// Latitude of the last scanned grid point, degrees.
     pub lat_last: Option<f64>,
+    /// Longitude of the last scanned grid point, degrees.
     pub lon_last: Option<f64>,
+    /// Which container the message came out of: `"grib1"`, `"grib2"` or
+    /// `"netcdf"`.
     pub format: String,
     /// GRIB edition number (1 or 2). Optional so older callers reading
     /// historical fields stay source-compatible.
@@ -171,13 +194,13 @@ pub struct MessageMeta {
     // run an inverse-projection warp from output (lat, lon) → source grid
     // sample. Naming matches WMO §3.30 / GRIB1 GDS conventions.
     // -------------------------------------------------------------------
-    /// Latitude at which Dx and Dy are specified, in degrees. GRIB2 §3.30
-    /// carries this explicitly; for GRIB1 it is mirrored from `latin1` (the
-    /// historical convention).
     /// Radius of the sphere the grid is projected on, in metres, as the message
     /// declares it (GRIB1's earth-shape flag; GRIB2's `shapeOfTheEarth`; WRF's
     /// own 6 370 000 m sphere). `None` falls back to the projection default.
     pub earth_radius_metres: Option<f64>,
+    /// Latitude at which Dx and Dy are specified, in degrees. GRIB2 §3.30
+    /// carries this explicitly; for GRIB1 it is mirrored from `latin1` (the
+    /// historical convention).
     pub lambert_lad: Option<f64>,
     /// Orientation longitude (the meridian parallel to the y-axis), degrees.
     pub lambert_lov: Option<f64>,
@@ -222,13 +245,17 @@ pub struct MessageMeta {
     // projects an oblate §3.140 on the true spheroid, so a mean radius would
     // disagree with the oracle as well as with the ground.
     // -------------------------------------------------------------------
+    /// Semi-major axis in metres, as the message declares it.
     pub lambert_azimuthal_semi_major_metres: Option<f64>,
+    /// Semi-minor axis in metres, as the message declares it.
     pub lambert_azimuthal_semi_minor_metres: Option<f64>,
     /// The tangent point: `standardParallel` latitude and `centralLongitude`.
     pub lambert_azimuthal_standard_parallel: Option<f64>,
+    /// The tangent point's `centralLongitude`, degrees.
     pub lambert_azimuthal_central_longitude: Option<f64>,
     /// Grid spacing in metres, carrying the scanning-mode sign.
     pub lambert_azimuthal_dx_metres: Option<f64>,
+    /// Grid spacing along y in metres, carrying the scanning-mode sign.
     pub lambert_azimuthal_dy_metres: Option<f64>,
     // -------------------------------------------------------------------
     // Transverse Mercator projection parameters (GRIB2 §3.12 only; `None`
@@ -240,21 +267,26 @@ pub struct MessageMeta {
     // -------------------------------------------------------------------
     /// Semi-major and semi-minor axes in metres, as the message declares them.
     pub transverse_mercator_semi_major_metres: Option<f64>,
+    /// Semi-minor axis in metres, as the message declares it.
     pub transverse_mercator_semi_minor_metres: Option<f64>,
     /// Reference point (`LaR`, `LoR`) in degrees; `lon_ref` is the central
     /// meridian.
     pub transverse_mercator_lat_ref: Option<f64>,
+    /// Reference longitude (`LoR`) in degrees — the central meridian.
     pub transverse_mercator_lon_ref: Option<f64>,
     /// Scale factor at the central meridian (`m`).
     pub transverse_mercator_scale_factor: Option<f64>,
     /// False easting and northing (`XR`, `YR`) in metres.
     pub transverse_mercator_false_easting_metres: Option<f64>,
+    /// False northing (`YR`) in metres.
     pub transverse_mercator_false_northing_metres: Option<f64>,
     /// First scanned grid point (`X1`, `Y1`) in projection metres.
     pub transverse_mercator_x1_metres: Option<f64>,
+    /// Northing of the first scanned grid point (`Y1`) in projection metres.
     pub transverse_mercator_y1_metres: Option<f64>,
     /// Grid spacing in metres, carrying the scanning-mode sign.
     pub transverse_mercator_dx_metres: Option<f64>,
+    /// Grid spacing along y in metres, carrying the scanning-mode sign.
     pub transverse_mercator_dy_metres: Option<f64>,
     // -------------------------------------------------------------------
     // Rotated latitude/longitude projection parameters (only populated for
@@ -1025,10 +1057,13 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
 #[napi(object)]
 #[derive(Debug)]
 pub struct DimensionMeta {
+    /// The dimension's name as the file declares it.
     pub name: String,
     /// Length of the dimension. `0` is a valid display value for the
     /// unlimited / record dimension (with `is_record == true`).
     pub length: f64,
+    /// Whether this is the unlimited (record) dimension. Exactly one classic
+    /// file dimension may be, and its `length` is the file's record count.
     pub is_record: bool,
 }
 
@@ -1038,8 +1073,11 @@ pub struct DimensionMeta {
 #[napi(object)]
 #[derive(Debug)]
 pub struct AttributeMeta {
+    /// The attribute's name as the file declares it.
     pub name: String,
+    /// The attribute's declared element type, e.g. `"char"`, `"float"`.
     pub nc_type: String,
+    /// The attribute's value, already rendered for display — see the type doc.
     pub value: String,
 }
 
@@ -1049,8 +1087,12 @@ pub struct AttributeMeta {
 #[napi(object)]
 #[derive(Debug)]
 pub struct VariableMeta {
+    /// The variable's name as the file declares it.
     pub name: String,
+    /// The variable's declared element type, e.g. `"short"`, `"double"`.
     pub nc_type: String,
+    /// Names of the variable's dimensions, in declared (C) order — slowest
+    /// varying first.
     pub dimensions: Vec<String>,
     /// The variable's CF `units`, typeset for display the way a GRIB unit is
     /// (ADR-0007). Empty when the variable declares none.
@@ -1063,6 +1105,7 @@ pub struct VariableMeta {
     /// here rather than in the view so the table and the render panel cannot
     /// print the same units two different ways.
     pub units: String,
+    /// Every attribute on the variable, in file order, `units` included.
     pub attributes: Vec<AttributeMeta>,
 }
 
@@ -1094,8 +1137,12 @@ pub struct DatasetMeta {
     /// Free-form note for the provider to surface when `fully_parsed` is
     /// false — e.g. why an HDF5 file's metadata could not be fully resolved.
     pub note: Option<String>,
+    /// Every dimension in the file, in declared order.
     pub dimensions: Vec<DimensionMeta>,
+    /// The file-level attributes, in declared order.
     pub global_attributes: Vec<AttributeMeta>,
+    /// Every variable in the file, in declared order — coordinate variables
+    /// included, unlike [`NetcdfHandle::variables`].
     pub variables: Vec<VariableMeta>,
     /// HDF5 superblock version, when applicable. `None` for classic files.
     pub hdf5_superblock_version: Option<i32>,
@@ -1330,6 +1377,7 @@ pub fn decode_netcdf_variable(
 #[napi(object)]
 #[derive(Debug)]
 pub struct RenderOptions {
+    /// Which target to paint into — see the type doc for the vocabulary.
     pub projection: String,
     /// Preset selector for the parameterised targets. `"orthographic"` reads
     /// a centre preset (`"atlantic"` (0°N 0°E, default), `"indian"` (0°N 90°E),
@@ -1362,11 +1410,17 @@ pub struct RenderOptions {
     ///
     /// [`center_lat`]: RenderOptions::center_lat
     pub center_lon: Option<f64>,
+    /// `"nearest"` or `"bilinear"`. A grid that is a list of cell centres
+    /// downgrades to nearest whatever this says, since its index-adjacent
+    /// cells need not be spatially adjacent.
     pub resampling: String,
+    /// Paint row 0 at the bottom rather than the top. Set for a source grid
+    /// whose scan runs south-to-north, so north ends up up.
     pub flip_y: bool,
     /// Manual range override. When either is `None` the renderer uses the
     /// computed min/max over the present cells.
     pub range_min: Option<f64>,
+    /// High end of the manual range — see `range_min`.
     pub range_max: Option<f64>,
     /// Manual equirectangular extent override (degrees). Only consulted for
     /// the `"equirectangular"` target. When all four are `Some` and form a
@@ -1376,8 +1430,11 @@ pub struct RenderOptions {
     /// `lon_min`/`lon_max` may lie outside [-180, 180] to describe a window
     /// that crosses the antimeridian.
     pub bounds_lat_min: Option<f64>,
+    /// North edge of the manual extent — see `bounds_lat_min`.
     pub bounds_lat_max: Option<f64>,
+    /// West edge of the manual extent — see `bounds_lat_min`.
     pub bounds_lon_min: Option<f64>,
+    /// East edge of the manual extent — see `bounds_lat_min`.
     pub bounds_lon_max: Option<f64>,
     /// Name of the colormap to paint with — one of the names [`colormaps`]
     /// reports (`"viridis"`, `"plasma"`, `"turbo"`, `"rdbu"`, …). `None` uses
@@ -1471,12 +1528,15 @@ pub fn combine_ops() -> Vec<CombineOpInfo> {
 pub struct RenderedGrid {
     /// RGBA bytes, `width * height * 4` long.
     pub rgba: napi::bindgen_prelude::Buffer,
+    /// Raster columns.
     pub width: i32,
+    /// Raster rows.
     pub height: i32,
     /// The min/max range actually used to paint, echoed back so the
     /// webview can pre-fill the manual-range inputs when the user
     /// switches to manual mode.
     pub used_min: f64,
+    /// High end of the range actually used to paint — see `used_min`.
     pub used_max: f64,
     /// Equirectangular extent actually rendered (degrees), echoed back so the
     /// webview can pre-fill the manual-bounds inputs. `None` for the
@@ -1484,8 +1544,11 @@ pub struct RenderedGrid {
     /// `lonMax` may fall outside [-180, 180] for an antimeridian-spanning
     /// window — pass them back verbatim to reproduce the same view.
     pub used_lat_min: Option<f64>,
+    /// North edge of the extent actually rendered — see `used_lat_min`.
     pub used_lat_max: Option<f64>,
+    /// West edge of the extent actually rendered — see `used_lat_min`.
     pub used_lon_min: Option<f64>,
+    /// East edge of the extent actually rendered — see `used_lat_min`.
     pub used_lon_max: Option<f64>,
     /// Human-readable summary of the source→target projection chain,
     /// e.g. `"lambert → equirectangular (nearest)"`.
@@ -1503,7 +1566,9 @@ pub struct RenderedGrid {
 /// survives clipping (every vertex projects off the visible domain).
 #[napi(object)]
 pub struct ProjectedOverlay {
+    /// Flat `[x0, y0, x1, y1, …]` vertex coordinates — see the type doc.
     pub xy: napi::bindgen_prelude::Float64Array,
+    /// Vertex count of each visible run, in the order the runs appear in `xy`.
     pub seg_lengths: napi::bindgen_prelude::Uint32Array,
 }
 
@@ -1526,9 +1591,13 @@ impl ProjectedOverlay {
 /// the JS code path is dormant.
 #[napi(object)]
 pub struct DecodedGrid {
+    /// The decoded values in scan order, `width * height` of them.
     pub values: napi::bindgen_prelude::Float64Array,
+    /// One byte per value: `1` present, `0` bitmap-masked.
     pub mask: napi::bindgen_prelude::Buffer,
+    /// Grid columns.
     pub width: i32,
+    /// Grid rows.
     pub height: i32,
 }
 
@@ -1635,6 +1704,8 @@ impl Grib1Handle {
         })
     }
 
+    /// Metadata for every message in the file, in file order. Built on each
+    /// call; a caller that needs it repeatedly should hold the result.
     #[napi]
     pub fn messages(&self) -> Vec<MessageMeta> {
         self.reader
@@ -2027,6 +2098,8 @@ pub struct Grib2Handle {
 
 #[napi]
 impl Grib2Handle {
+    /// Parse a GRIB2 file's bytes and keep the reader alive behind the handle,
+    /// so later calls index the file rather than re-parsing it.
     #[napi(factory)]
     pub fn from_bytes(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<Self> {
         let reader = Grib2Reader::from_bytes(bytes.to_vec()).into_napi()?;
@@ -2037,6 +2110,8 @@ impl Grib2Handle {
         })
     }
 
+    /// Metadata for every message in the file, in file order. Built on each
+    /// call; a caller that needs it repeatedly should hold the result.
     #[napi]
     pub fn messages(&self) -> Vec<MessageMeta> {
         self.reader
@@ -2046,6 +2121,8 @@ impl Grib2Handle {
             .collect()
     }
 
+    /// Decode one message's values and mask, without painting them. Errors
+    /// when the index is out of range or the grid declares no dimensions.
     #[napi]
     pub fn decode_grid(&self, message_index: u32) -> napi::Result<DecodedGrid> {
         let raw = self.cached_decode(message_index)?;
@@ -2076,6 +2153,9 @@ impl Grib2Handle {
         field_csv(&raw, &meta, ni, nj, &format, None).map(csv_buffer)
     }
 
+    /// Decode one message and paint it into a raster under `options`. A
+    /// spectral message is synthesized onto a global lat/lon grid first, so
+    /// this takes any message index the file has.
     #[napi]
     pub fn render_grid(
         &self,
@@ -2410,6 +2490,7 @@ impl Grib2Handle {
 #[napi(object)]
 #[derive(Debug)]
 pub struct NetcdfAxis {
+    /// The dimension's name as the file declares it.
     pub name: String,
     /// Runtime length (the unlimited/record dimension resolves to its count).
     pub length: f64,
@@ -2425,10 +2506,18 @@ pub struct NetcdfAxis {
 pub struct NetcdfVariableMeta {
     /// Index into the reader's decode order — pass back as `variableIndex`.
     pub variable_index: i32,
+    /// The variable's name as the file declares it.
     pub name: String,
+    /// The variable's declared element type, e.g. `"short"`, `"double"`.
     pub nc_type: String,
+    /// The variable's axes in declared (C) order — the order `dimensionIndex`
+    /// values index into.
     pub dims: Vec<NetcdfAxis>,
+    /// Index into `dims` of the axis CF detection took for latitude / y, or
+    /// `null` when detection found no matching coordinate variable.
     pub detected_y_dim: Option<i32>,
+    /// Index into `dims` of the axis CF detection took for longitude / x, or
+    /// `null` — see `detected_y_dim`.
     pub detected_x_dim: Option<i32>,
     /// The variable's CF `units`, typeset for display the way a GRIB unit is
     /// (ADR-0007). Empty when the variable declares none.
@@ -2486,6 +2575,8 @@ type CurvilinearCache =
 
 #[napi]
 impl NetcdfHandle {
+    /// Parse a NetCDF file's bytes — classic or NetCDF-4 / HDF5 — and keep the
+    /// reader and its neutral dataset view alive behind the handle.
     #[napi(factory)]
     pub fn from_bytes(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<Self> {
         let reader = NetcdfReader::from_bytes(bytes.to_vec()).into_napi()?;
@@ -2512,8 +2603,6 @@ impl NetcdfHandle {
         })
     }
 
-    /// The variables the picker can draw (numeric, ≥ 2-D, not coordinate
-    /// variables), each with its dimensions and detected horizontal axes.
     /// The dataset metadata — dimensions, global attributes, variables — from
     /// the reader this handle already holds.
     ///
@@ -2527,6 +2616,8 @@ impl NetcdfHandle {
         dataset_meta_from(&self.reader)
     }
 
+    /// The variables the picker can draw (numeric, ≥ 2-D, not coordinate
+    /// variables), each with its dimensions and detected horizontal axes.
     #[napi]
     pub fn variables(&self) -> Vec<NetcdfVariableMeta> {
         self.view
@@ -5452,6 +5543,7 @@ pub struct ProbeResult {
     pub value: Option<f64>,
     /// The source grid column / row the pixel resolved to; `None` off-grid.
     pub grid_i: Option<i32>,
+    /// The source grid row the pixel resolved to; `None` off-grid.
     pub grid_j: Option<i32>,
 }
 
