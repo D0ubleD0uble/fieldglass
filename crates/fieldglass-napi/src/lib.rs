@@ -4671,6 +4671,10 @@ type BuiltWarpTarget = (BuiltTarget, Option<(f64, f64, f64, f64)>);
 /// bbox for planar sources — and report no box extent. Output dims size to the
 /// source grid for the box targets; the azimuthal discs use a square raster
 /// (`side = max(ni, nj)`) so the globe stays circular rather than elliptical.
+/// Every one of them is then floored by [`raise_to_min_raster`], so a coarse
+/// grid's reprojection is drawn at display scale rather than at the data's
+/// (#514). This is the only place that floor is applied, which is why the
+/// `"source"` target — which never reaches here — keeps its native size.
 /// `lon_periodic` says the *source* closes on itself in longitude
 /// ([`source_grid_is_periodic`]), which is what decides whether a full-turn
 /// window tiles as a circle or as an interval. It cannot be read back off the
@@ -4691,11 +4695,14 @@ fn build_warp_target(
         WarpTarget::Equirectangular => {
             let (lat_min, lat_max, lon_min, lon_max) =
                 resolve_box_extent(bbox_thunk, bounds_override);
-            let (width, height) = if shapeless_axes {
+            // The window's shape, then floored so the seam, the map body edge
+            // and the overlays that must register against them resolve at
+            // display scale rather than at the data's (#514).
+            let (width, height) = raise_to_min_raster(if shapeless_axes {
                 box_raster_dims(ni, nj, (lat_min, lat_max, lon_min, lon_max))
             } else {
                 (ni, nj)
-            };
+            });
             let target = TargetRaster {
                 width,
                 height,
@@ -4713,11 +4720,14 @@ fn build_warp_target(
         WarpTarget::WebMercator => {
             let (lat_min, lat_max, lon_min, lon_max) =
                 resolve_box_extent(bbox_thunk, bounds_override);
-            let (width, height) = if shapeless_axes {
+            // The window's shape, then floored so the seam, the map body edge
+            // and the overlays that must register against them resolve at
+            // display scale rather than at the data's (#514).
+            let (width, height) = raise_to_min_raster(if shapeless_axes {
                 box_raster_dims(ni, nj, (lat_min, lat_max, lon_min, lon_max))
             } else {
                 (ni, nj)
-            };
+            });
             let merc = WebMercator::new(
                 width,
                 height,
@@ -4742,29 +4752,33 @@ fn build_warp_target(
             Ok((BuiltTarget::Mercator(merc), Some(used)))
         }
         WarpTarget::Orthographic { lat0, lon0 } => {
-            let side = ni.max(nj);
+            // Square so the globe stays circular, floored so its limb is a
+            // curve rather than a staircase (#514).
+            let (side, _) = raise_to_min_raster((ni.max(nj), ni.max(nj)));
             Ok((
                 BuiltTarget::Ortho(Orthographic::new(side, side, lat0, lon0)),
                 None,
             ))
         }
         WarpTarget::PolarStereographic { south_pole, lon0 } => {
-            let side = ni.max(nj);
+            // Square so the globe stays circular, floored so its limb is a
+            // curve rather than a staircase (#514).
+            let (side, _) = raise_to_min_raster((ni.max(nj), ni.max(nj)));
             Ok((
                 BuiltTarget::Polar(PolarStereographic::new(side, side, south_pole, lon0)),
                 None,
             ))
         }
         WarpTarget::Mollweide { lon0 } => {
-            let (w, h) = world_raster_dims(ni, nj, Mollweide::ASPECT_RATIO);
+            let (w, h) = raise_to_min_raster(world_raster_dims(ni, nj, Mollweide::ASPECT_RATIO));
             Ok((BuiltTarget::Moll(Mollweide::new(w, h, lon0)), None))
         }
         WarpTarget::Robinson { lon0 } => {
-            let (w, h) = world_raster_dims(ni, nj, Robinson::ASPECT_RATIO);
+            let (w, h) = raise_to_min_raster(world_raster_dims(ni, nj, Robinson::ASPECT_RATIO));
             Ok((BuiltTarget::Robin(Robinson::new(w, h, lon0)), None))
         }
         WarpTarget::EqualEarth { lon0 } => {
-            let (w, h) = world_raster_dims(ni, nj, EqualEarth::ASPECT_RATIO);
+            let (w, h) = raise_to_min_raster(world_raster_dims(ni, nj, EqualEarth::ASPECT_RATIO));
             Ok((BuiltTarget::EqEarth(EqualEarth::new(w, h, lon0)), None))
         }
     }
@@ -4776,7 +4790,8 @@ fn build_warp_target(
 /// Every other family's array *is* its geography — a lat/lon or Gaussian grid
 /// is rows of latitude by columns of longitude, so taking the raster straight
 /// from `ni × nj` is not a fallback but the best answer available: the render
-/// is a 1:1 copy of the field. A curvilinear grid has no such correspondence.
+/// is a 1:1 copy of the field, at least until [`raise_to_min_raster`] floors a
+/// coarse one. A curvilinear grid has no such correspondence.
 /// A satellite swath is stored scan line by field of view, which says nothing
 /// about where the pass went: a NOAA-21 half orbit is 96 × 768 for a window
 /// spanning 355° of longitude by 117° of latitude, so drawing it at the array's
@@ -4813,6 +4828,10 @@ fn box_raster_dims(ni: u32, nj: u32, extent: (f64, f64, f64, f64)) -> (u32, u32)
 /// follows from the projection's own aspect so the map body keeps its true
 /// proportions — 2:1 for Mollweide, ≈1.97:1 for Robinson, ≈2.05:1 for Equal
 /// Earth. These targets have no lat/lon-box extent to echo back to the UI.
+///
+/// The ratio is the whole of this function's job: the caller floors the result
+/// with [`raise_to_min_raster`], which scales both edges together and so leaves
+/// the proportions chosen here intact.
 fn world_raster_dims(ni: u32, nj: u32, aspect: f64) -> (u32, u32) {
     let height = ni.max(nj);
     // A saturating `as u32` cast: `aspect` is a positive constant just under 2,
@@ -4820,6 +4839,61 @@ fn world_raster_dims(ni: u32, nj: u32, aspect: f64) -> (u32, u32) {
     // raster. A zero-size source stays zero-size, as it did before.
     let width = (height as f64 * aspect).round() as u32;
     (width, height)
+}
+
+/// The shortest long edge a *reprojected* raster is drawn at (#514).
+///
+/// Every warp target sizes itself from the source grid, which is the right
+/// instinct — nothing should be downsampled — but it was a ceiling with no
+/// floor under it. A HEALPix `Nside 4` field resamples to 26 × 14 at its own
+/// pixel scale, so it reprojected to a 26 × 26 orthographic disc: the data's
+/// edge is a staircase while the coastline overlay is a smooth curve on the
+/// projection's true limb, which reads as missing data around the rim, and the
+/// exported PNG is a postage stamp.
+///
+/// 720 is the same 0.5° the two synthesis paths already pin to
+/// ([`SPECTRAL_SYNTHESIS_NI`]), and the history is worth restating here:
+/// [`spectral_render_dims`] met this exact symptom first — "a postage-stamp
+/// render whose PNG exported 382 pixels wide" — and settled on 0.5°.
+/// [`healpix_render_dims`] then borrowed that number as its *cap* without the
+/// floor that motivated it. This is the floor, applied where every warped
+/// target passes through rather than per grid family, so a coarse grid of any
+/// origin is covered.
+///
+/// Upsampling adds no information about the *field*. What it buys is that the
+/// projection's own geometry — the limb, the seam, the map body outline — is
+/// sampled at display scale instead of at the data's, so the overlays register
+/// against it. The source projection is deliberately excluded: it never reaches
+/// [`build_warp_target`] at all, and there blocky is the honest view of the
+/// data.
+const MIN_REPROJECTED_LONG_EDGE: u32 = 720;
+
+/// Raise `dims` until its long edge reaches [`MIN_REPROJECTED_LONG_EDGE`],
+/// keeping the ratio the caller chose.
+///
+/// The scale is uniform because every arm of [`build_warp_target`] has already
+/// decided the aspect it wants — the source's shape, the window's, the
+/// projection's, or a square for the azimuthal discs — and the floor's business
+/// is density, not shape. It only ever raises, so no real forecast grid moves:
+/// GFS is 1440 wide, HRRR 1799.
+///
+/// The result is bounded. The long edge lands on exactly the floor and the
+/// short edge cannot exceed it, so this can never ask for more than 720 × 720
+/// pixels however extreme the aspect. A zero-size raster stays zero-size, as
+/// [`world_raster_dims`] promises.
+fn raise_to_min_raster(dims: (u32, u32)) -> (u32, u32) {
+    let (width, height) = dims;
+    let long_edge = width.max(height);
+    if width == 0 || height == 0 || long_edge >= MIN_REPROJECTED_LONG_EDGE {
+        return dims;
+    }
+    let scale = f64::from(MIN_REPROJECTED_LONG_EDGE) / f64::from(long_edge);
+    // Both edges keep at least one pixel: the short edge of an extreme aspect
+    // rounds to zero long before the long edge reaches the floor.
+    (
+        ((f64::from(width) * scale).round() as u32).max(1),
+        ((f64::from(height) * scale).round() as u32).max(1),
+    )
 }
 
 /// Dispatch to the per-grid-type warp setup, returning the source inverse map
@@ -6323,6 +6397,65 @@ mod resolved_options_tests {
         assert_eq!(world_raster_dims(0, 0, Robinson::ASPECT_RATIO), (0, 0));
     }
 
+    /// The floor raises a coarse raster to display scale and leaves everything
+    /// else alone (#514).
+    #[test]
+    fn the_raster_floor_raises_only_what_is_below_it() {
+        // A HEALPix Nside 4 field resamples to 26 × 14, the case in the report.
+        let (w, h) = raise_to_min_raster((26, 14));
+        assert_eq!(w, MIN_REPROJECTED_LONG_EDGE, "long edge lands on the floor");
+        let aspect = f64::from(w) / f64::from(h);
+        assert!(
+            (aspect - 26.0 / 14.0).abs() / (26.0 / 14.0) < 0.01,
+            "the source's aspect should survive, got {w}x{h}"
+        );
+
+        // Real forecast grids are already past the floor and must not move: a
+        // silent resample of GFS or HRRR would be a far worse bug than the one
+        // this fixes.
+        assert_eq!(raise_to_min_raster((1440, 721)), (1440, 721), "GFS");
+        assert_eq!(raise_to_min_raster((1799, 1059)), (1799, 1059), "HRRR");
+        assert_eq!(raise_to_min_raster((2880, 1440)), (2880, 1440), "GFS world");
+
+        // Exactly on the floor is already floored — no off-by-one rescale.
+        assert_eq!(
+            raise_to_min_raster((MIN_REPROJECTED_LONG_EDGE, 100)),
+            (MIN_REPROJECTED_LONG_EDGE, 100)
+        );
+
+        // A square target stays square, so an azimuthal disc stays circular.
+        let (w, h) = raise_to_min_raster((4, 4));
+        assert_eq!(
+            (w, h),
+            (MIN_REPROJECTED_LONG_EDGE, MIN_REPROJECTED_LONG_EDGE)
+        );
+
+        // A degenerate raster stays degenerate, as `world_raster_dims` promises.
+        assert_eq!(raise_to_min_raster((0, 0)), (0, 0));
+        assert_eq!(raise_to_min_raster((0, 40)), (0, 40));
+        assert_eq!(raise_to_min_raster((40, 0)), (40, 0));
+    }
+
+    /// Scaling to a *long* edge bounds the result: whatever the aspect, the
+    /// short edge cannot pass the floor either, so the floor can never ask for
+    /// more than `720 × 720` pixels.
+    #[test]
+    fn the_raster_floor_cannot_explode_an_extreme_aspect() {
+        for dims in [(1, 700), (700, 1), (1, 1), (3, 719), (719, 3), (2, 2)] {
+            let (w, h) = raise_to_min_raster(dims);
+            assert_eq!(
+                w.max(h),
+                MIN_REPROJECTED_LONG_EDGE,
+                "{dims:?} should reach the floor, got {w}x{h}"
+            );
+            assert!(
+                w <= MIN_REPROJECTED_LONG_EDGE && h <= MIN_REPROJECTED_LONG_EDGE,
+                "{dims:?} produced {w}x{h}, past the 720x720 bound"
+            );
+            assert!(w >= 1 && h >= 1, "{dims:?} collapsed an edge to zero");
+        }
+    }
+
     #[test]
     fn colormap_defaults_to_viridis_and_resolves_by_name() {
         // A caller that never sets a colormap renders exactly as before.
@@ -6437,6 +6570,30 @@ mod resolved_options_tests {
 
 #[cfg(test)]
 mod polar_stereo_warp_tests {
+    /// Assert a reprojected raster sits on the minimum long edge and kept the
+    /// aspect the target asked for (#514).
+    ///
+    /// `unfloored` is the raster the arm would have produced before the floor:
+    /// the source's shape for the lat/lon-box targets, a square for the
+    /// azimuthal discs. Spelled out as two properties rather than by calling
+    /// [`raise_to_min_raster`], so the test states the contract instead of
+    /// re-running the implementation it is checking.
+    #[track_caller]
+    fn assert_floored_raster(got: (u32, u32), unfloored: (u32, u32)) {
+        let (w, h) = got;
+        assert_eq!(
+            w.max(h),
+            super::MIN_REPROJECTED_LONG_EDGE,
+            "long edge should sit on the floor, got {w}x{h}"
+        );
+        let want = f64::from(unfloored.0) / f64::from(unfloored.1);
+        let aspect = f64::from(w) / f64::from(h);
+        assert!(
+            (aspect - want).abs() / want < 0.01,
+            "raster {w}x{h} has aspect {aspect}, wanted {want}"
+        );
+    }
+
     use super::*;
 
     /// MessageMeta mirroring the `cmc_wind_300_2010052400_p012.grib`
@@ -6569,8 +6726,7 @@ mod polar_stereo_warp_tests {
         )
         .expect("warp");
 
-        assert_eq!(w, 135);
-        assert_eq!(h, 95);
+        assert_floored_raster((w, h), (135, 95));
         let present_count = mask.iter().filter(|&&m| m == 1).count();
         assert!(
             present_count > 0,
@@ -6607,8 +6763,7 @@ mod polar_stereo_warp_tests {
         )
         .expect("mercator warp");
 
-        assert_eq!(w, 135);
-        assert_eq!(h, 95);
+        assert_floored_raster((w, h), (135, 95));
         let present_count = mask.iter().filter(|&&m| m == 1).count();
         assert!(present_count > 0, "mercator warp produced an empty mask");
         for (i, &m) in mask.iter().enumerate() {
@@ -6658,7 +6813,7 @@ mod polar_stereo_warp_tests {
             // Azimuthal discs render into a square raster (side = the larger
             // source axis) so the globe stays circular rather than stretching
             // into an ellipse on the 135×95 source.
-            assert_eq!((w, h), (135, 135));
+            assert_floored_raster((w, h), (135, 135));
             let present = mask.iter().filter(|&&m| m == 1).count();
             assert!(present > 0, "{name} target produced an empty mask");
             for (i, &m) in mask.iter().enumerate() {
@@ -6696,8 +6851,7 @@ mod polar_stereo_warp_tests {
         )
         .expect("south-polar warp");
 
-        assert_eq!(w, 135);
-        assert_eq!(h, 95);
+        assert_floored_raster((w, h), (135, 95));
         let present_count = mask.iter().filter(|&&m| m == 1).count();
         assert!(
             present_count > 0,
@@ -6745,14 +6899,17 @@ mod polar_stereo_warp_tests {
         )
         .expect("hemispheric warp");
 
-        assert_eq!((w, h), (4, 4));
+        assert_floored_raster((w, h), (4, 4));
         // With the pole inside the grid the target spans the full hemisphere,
-        // so a clear majority of the 4×4 output pixels resolve to a source
-        // sample rather than the handful a four-corner bbox would cover.
+        // so a clear majority of the output pixels resolve to a source sample
+        // rather than the handful a four-corner bbox would cover. Stated as a
+        // fraction because the raster is floored to display scale (#514) — a
+        // fixed count would be met by a sliver once the raster is this large.
+        let total = (w * h) as usize;
         let present_count = mask.iter().filter(|&&m| m == 1).count();
         assert!(
-            present_count >= 8,
-            "pole-inside grid should fill most of the raster, got {present_count}/16 present"
+            present_count * 2 >= total,
+            "pole-inside grid should fill most of the raster, got {present_count}/{total} present"
         );
     }
 
@@ -6783,7 +6940,7 @@ mod polar_stereo_warp_tests {
             None,
         )
         .expect("pole-on-origin warp");
-        assert_eq!((w, h), (4, 4));
+        assert_floored_raster((w, h), (4, 4));
         assert!(
             mask.contains(&1),
             "pole-on-origin grid should still resolve some pixels"
@@ -6942,7 +7099,7 @@ mod polar_stereo_warp_tests {
         )
         .expect("mercator warp");
 
-        assert_eq!((w, h), (100, 100));
+        assert_floored_raster((w, h), (100, 100));
         let present = mask.iter().filter(|&&m| m == 1).count();
         assert!(present > 0, "mercator warp produced an empty mask");
         for (i, &m) in mask.iter().enumerate() {
@@ -7006,7 +7163,7 @@ mod polar_stereo_warp_tests {
         )
         .expect("lambert warp");
 
-        assert_eq!((w, h), (100, 100));
+        assert_floored_raster((w, h), (100, 100));
         let present = mask.iter().filter(|&&m| m == 1).count();
         assert!(present > 0, "lambert warp produced an empty mask");
         for (i, &m) in mask.iter().enumerate() {
@@ -7528,12 +7685,30 @@ mod overlay_projection_tests {
         .expect("equirect overlay");
         assert_eq!(out.seg_lengths, vec![2]);
         assert_eq!(out.xy.len(), 4);
-        // px = lon + 180, py = 90 - lat.
-        assert!((out.xy[0] - 180.0).abs() < 1e-6, "lon 0 → px {}", out.xy[0]);
-        assert!((out.xy[1] - 45.0).abs() < 1e-6, "lat 45 → py {}", out.xy[1]);
+        // The 361 × 181 grid declares a duplicated seam column, so its raster
+        // spans -180..180 and 90..-90 *inclusive* — and is floored to 720 × 361
+        // (#514), which is why these are no longer the grid's own indices.
+        //
+        // Stated as geometry rather than as pixel literals: an equirectangular
+        // raster is affine in lat/lon, so lon 0 is the centre of the span, lat
+        // 45 is a quarter of the way down it, and 10° of longitude is 10/360 of
+        // the width — all true at any raster size.
+        const W: f64 = 720.0;
+        const H: f64 = 361.0;
         assert!(
-            (out.xy[2] - 190.0).abs() < 1e-6,
-            "lon 10 → px {}",
+            (out.xy[0] - (W - 1.0) / 2.0).abs() < 1e-6,
+            "lon 0 should land on the horizontal centre, got px {}",
+            out.xy[0]
+        );
+        assert!(
+            (out.xy[1] - (H - 1.0) / 4.0).abs() < 1e-6,
+            "lat 45 should land a quarter down, got py {}",
+            out.xy[1]
+        );
+        assert!(
+            (out.xy[2] - out.xy[0] - 10.0 * (W - 1.0) / 360.0).abs() < 1e-6,
+            "lon 0 → 10 should step 10/360 of the width, got px {} → {}",
+            out.xy[0],
             out.xy[2]
         );
     }
@@ -7550,9 +7725,14 @@ mod overlay_projection_tests {
             None,
         )
         .expect("flipped overlay");
-        // height = nj = 181 → py flips to (181 - 1) - 45 = 135.
-        assert!((out.xy[1] - 135.0).abs() < 1e-6, "flipped py {}", out.xy[1]);
-        assert!((out.xy[0] - 180.0).abs() < 1e-6, "x unaffected by flip");
+        // The raster is floored to 720 × 361 (#514), which puts lat 45 a
+        // quarter down at py 90; flipping mirrors it to (361 - 1) - 90 = 270.
+        assert!((out.xy[1] - 270.0).abs() < 1e-6, "flipped py {}", out.xy[1]);
+        assert!(
+            (out.xy[0] - 359.5).abs() < 1e-6,
+            "x unaffected by flip, got {}",
+            out.xy[0]
+        );
     }
 
     #[test]
@@ -7878,7 +8058,7 @@ mod netcdf_slice_tests {
         );
     }
 
-    fn opts(projection: &str) -> RenderOptions {
+    pub(crate) fn opts(projection: &str) -> RenderOptions {
         RenderOptions {
             projection: projection.to_string(),
             projection_preset: None,
@@ -8622,11 +8802,28 @@ mod netcdf_slice_tests {
         // pixel returns the outer `None` and is skipped. Every painted pixel
         // must resolve to a cell (`grid_i` in `0..ni`) and a value — the seam
         // pixels used to round to column 16 (off-grid) and report "no data"
-        // (#332). The Mollweide raster is `2·max(ni,nj)` wide by `max(ni,nj)`
-        // tall = 32×16, so the sweep bounds cover it.
+        // (#332).
+        //
+        // The raster comes from the warp rather than from a hardcoded shape:
+        // since #514 a coarse grid's world target is floored to display scale,
+        // so this 16×8 grid rasters at 720×360 rather than 32×16, and a fixed
+        // sweep would probe nothing but the blank top-left corner. Striding
+        // keeps the probe count in the same range while covering the full
+        // raster — the seam gap is 22.5° of 360°, some 45 columns of the 720,
+        // so it is sampled far more densely than it was at 32 wide.
+        let (_, _, rw, rh, _, _) = warp_message(
+            &meta,
+            &raw,
+            WarpTarget::Mollweide { lon0: 0.0 },
+            Resampling::Nearest,
+            None,
+            None,
+        )
+        .expect("mollweide warp");
+        let stride = (rw.max(rh) as usize / 32).max(1);
         let mut painted = 0;
-        for py in 0..16 {
-            for px in 0..32 {
+        for py in (0..rh).step_by(stride) {
+            for px in (0..rw).step_by(stride) {
                 let Some(r) =
                     probe_impl(&meta, &raw, &opts("mollweide"), px, py, None).expect("probe ok")
                 else {
@@ -10512,5 +10709,126 @@ mod healpix_render_tests {
         assert_eq!(meta.lat_last, Some(-90.0));
         assert_eq!(meta.grid_ni, Some(ni as i32));
         assert_eq!(meta.grid_nj, Some(nj as i32));
+    }
+
+    /// The grid the postage-stamp report was made against (#514): Nside 4
+    /// resamples to 26 × 14, which is correct for its pixel scale and far too
+    /// coarse to draw a projection at.
+    fn nside4_render_meta() -> MessageMeta {
+        let (ni, nj) = healpix_render_dims(4);
+        let base = MessageMeta {
+            grid_type: Some("healpix".to_string()),
+            reprojectable: false,
+            ..crate::polar_stereo_warp_tests::cmc_polar_meta()
+        };
+        spectral_render_meta_from(base, ni as i32, nj as i32, 360.0 - 360.0 / ni as f64)
+    }
+
+    /// Every reprojection of a coarse grid is drawn at display scale, so the
+    /// projection's own geometry resolves at pixel scale rather than at the
+    /// data's, and the exported PNG is not a postage stamp (#514).
+    #[test]
+    fn every_reprojection_of_a_coarse_grid_reaches_the_raster_floor() {
+        assert_eq!(
+            healpix_render_dims(4),
+            (26, 14),
+            "the grid the report was made against"
+        );
+        let meta = nside4_render_meta();
+        let raw: Vec<Option<f64>> = vec![Some(1.0); 26 * 14];
+
+        for target in [
+            WarpTarget::Equirectangular,
+            WarpTarget::WebMercator,
+            WarpTarget::Orthographic {
+                lat0: 0.0,
+                lon0: 0.0,
+            },
+            WarpTarget::PolarStereographic {
+                south_pole: false,
+                lon0: 0.0,
+            },
+            WarpTarget::Mollweide { lon0: 0.0 },
+            WarpTarget::Robinson { lon0: 0.0 },
+            WarpTarget::EqualEarth { lon0: 0.0 },
+        ] {
+            let label = target.label();
+            let (values, mask, w, h, _bounds, _summary) =
+                warp_message(&meta, &raw, target, Resampling::Nearest, None, None)
+                    .expect("coarse warp");
+            assert_eq!(
+                w.max(h),
+                MIN_REPROJECTED_LONG_EDGE,
+                "{label} drew a {w}x{h} raster from a 26x14 grid"
+            );
+            // Upsampling must not invent or drop data: every painted pixel of a
+            // uniform field still reads the value it was given.
+            assert!(mask.contains(&1), "{label} painted nothing");
+            for (i, &m) in mask.iter().enumerate() {
+                if m == 1 {
+                    assert_eq!(values[i], 1.0, "{label} pixel {i} should be 1.0");
+                }
+            }
+        }
+    }
+
+    /// The symptom the report actually described: an orthographic disc drawn at
+    /// the data's resolution has a staircase for a limb, so it paints a
+    /// noticeably different share of its raster than a true circle does, and
+    /// the smooth coastline overlay floats over the blank pixels around the rim
+    /// (#514).
+    ///
+    /// A global field covers the whole disc, so the painted share *is* the
+    /// disc's area: π/4 of the square. At 26 × 26 it was 484/676 = 71.6%, seven
+    /// points short — this is that gap, measured.
+    #[test]
+    fn an_orthographic_disc_paints_a_true_circles_worth_of_its_raster() {
+        let meta = nside4_render_meta();
+        let raw: Vec<Option<f64>> = vec![Some(1.0); 26 * 14];
+        let (_values, mask, w, h, _bounds, _summary) = warp_message(
+            &meta,
+            &raw,
+            WarpTarget::Orthographic {
+                lat0: 0.0,
+                lon0: 0.0,
+            },
+            Resampling::Nearest,
+            None,
+            None,
+        )
+        .expect("orthographic warp");
+
+        let painted = mask.iter().filter(|&&m| m == 1).count();
+        let share = painted as f64 / (w as f64 * h as f64);
+        let circle = std::f64::consts::PI / 4.0;
+        assert!(
+            (share - circle).abs() < 0.01,
+            "the disc paints {share} of its {w}x{h} raster, a true circle {circle} — \
+             a gap this size means the limb is being sampled at the data's resolution"
+        );
+    }
+
+    /// The source projection is deliberately *not* floored: it never reaches
+    /// [`build_warp_target`], and there a blocky picture is the honest view of
+    /// the data. Probing past the grid's own width must still fall off the
+    /// raster (#514).
+    #[test]
+    fn the_source_view_of_a_coarse_grid_keeps_its_native_size() {
+        let meta = nside4_render_meta();
+        let raw: Vec<Option<f64>> = vec![Some(1.0); 26 * 14];
+        let o = crate::netcdf_slice_tests::opts("source");
+
+        assert!(
+            probe_impl(&meta, &raw, &o, 25, 13, None)
+                .expect("probe runs")
+                .is_some(),
+            "the last cell of a 26x14 source raster should be probeable"
+        );
+        assert!(
+            probe_impl(&meta, &raw, &o, 26, 0, None)
+                .expect("probe runs")
+                .is_none(),
+            "the source view must stay 26 wide, not be floored to 720"
+        );
     }
 }

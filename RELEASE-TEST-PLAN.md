@@ -65,6 +65,12 @@ then treats it as an ordinary grid, which is exactly the assumption to check.
       (Overlay → Coastlines) sit where they should against it.
 - [ ] Switch to **Mollweide** and **Orthographic**. Both paint; nothing streaks
       or wraps across the seam.
+- [ ] **The orthographic globe has a round edge, not a staircase** (#514). The
+      data stays blocky — 192 pixels is all there is, and the source view above
+      shows it honestly — but the *limb* is a smooth circle and the coastlines
+      follow it rather than floating over blank pixels around the rim. A
+      reprojection is drawn at 0.5° whatever the grid's own resolution, so the
+      exported PNG is full size rather than 26 pixels wide.
 - [ ] Point-probe a pixel: it reports a lat/lon **and** a value. A grid that
       resampled but did not geolocate reports the value with no coordinates.
 - [ ] Contours on. Lines appear and follow the map through a projection change.
