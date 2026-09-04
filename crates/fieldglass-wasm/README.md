@@ -114,8 +114,8 @@ browser actually downloads.
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
-| baseline | 911,281 | 353,812 |
-| `+simd128` | 909,043 | 353,083 |
+| baseline | 931,198 | 360,131 |
+| `+simd128` | 928,732 | 359,289 |
 
 The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
 build drifts more than 5% from these figures in either direction, so a change
@@ -124,12 +124,12 @@ that moves the bundle has to say so here. Update both cells when it does.
 Two things worth knowing before optimising further:
 
 - `wasm-opt -Oz` is a **raw** win and a **transfer** loss. It takes the module
-  from 962,710 to 911,281 bytes (-5.3%) and takes it from 348,151 to 353,812
+  from 982,564 to 931,198 bytes (-5.2%) and takes it from 354,619 to 360,131
   gzipped (+1.6%). Its size passes trade repetition for smaller encodings, and
   DEFLATE was already being paid for the repetition. It stays on because parse
   and instantiate cost track the raw module, but a transfer-size-only argument
   for `-Oz` does not survive measurement.
-- `+simd128` buys 2,238 raw bytes and nothing measurable in time (below). The
+- `+simd128` buys 2,466 raw bytes and nothing measurable in time (below). The
   decode kernels are bit-unpacking loops with data-dependent control flow, not
   the float-per-lane arithmetic autovectorisation looks for, and `std` is not
   rebuilt with it without `-Zbuild-std`. Recorded so nobody re-derives it.
