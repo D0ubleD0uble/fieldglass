@@ -91,6 +91,52 @@ fn decode_message_raster_fills_the_shape_dimensions_promises() {
     }
 }
 
+/// Each raster row is drawn from its own stored row, and from no other.
+///
+/// The assertion above runs on the constant fixture, where every value is
+/// 285.5 and a wrongly segmented raster would pass it unchanged. This runs on
+/// the smooth fixture, where the rows differ: row `j` of the raster may contain
+/// only the `PL[j]` values stored for row `j`. Passing the storage order
+/// straight through, or slicing the rows at the wrong offsets, puts a later
+/// row's data in an earlier row's columns and fails here.
+#[test]
+fn every_raster_row_comes_from_its_own_stored_row() {
+    const SMOOTH: &[u8] = include_bytes!("fixtures/reduced_gg_n32_smooth.grib1");
+
+    let reader = Grib1Reader::from_bytes(SMOOTH.to_vec()).expect("fixture parses");
+    let gds = reader.messages[0].gds.as_ref().expect("message has a GDS");
+    let (ni, _) = gds.dimensions().expect("a raster shape");
+    let stored = reader
+        .decode_message_values(0)
+        .expect("storage-order decode");
+    let raster = reader.decode_message_raster(0).expect("raster decode");
+
+    let mut offset = 0usize;
+    for (j, &count) in PL.iter().enumerate() {
+        let count = count as usize;
+        let source: std::collections::BTreeSet<u64> = stored[offset..offset + count]
+            .iter()
+            .map(|v| v.expect("present").to_bits())
+            .collect();
+        for (i, v) in raster[j * ni as usize..(j + 1) * ni as usize]
+            .iter()
+            .enumerate()
+        {
+            assert!(
+                source.contains(&v.expect("present").to_bits()),
+                "raster[{j}][{i}] is not one of row {j}'s {count} stored values"
+            );
+        }
+        offset += count;
+    }
+    assert_eq!(offset, stored.len(), "the PL list accounts for every value");
+
+    // The rows are not interchangeable, or the check above would be vacuous.
+    let row_0: Vec<Option<f64>> = raster[..ni as usize].to_vec();
+    let row_32: Vec<Option<f64>> = raster[32 * ni as usize..33 * ni as usize].to_vec();
+    assert_ne!(row_0, row_32, "the fixture's rows must differ");
+}
+
 /// The raster the values land on and the box they are placed in come from the
 /// same pair of calls (#543).
 ///
