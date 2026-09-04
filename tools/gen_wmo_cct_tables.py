@@ -11,6 +11,9 @@ Writes four files from one download:
   * `crates/fieldglass-grib1/src/tables_cct.rs` — centres, from **C-1**.
   * `crates/fieldglass-grib2/src/tables_cct.rs` — centres, from **C-11**.
   * `crates/fieldglass-core/src/cct_tables.rs` — sub-centres, from **C-12**.
+    Both GRIB modules re-export its `lookup_sub_centre` (#537), so the
+    re-export is emitted by `render_centres` rather than written by hand into
+    a generated file.
   * `crates/fieldglass-grib2/tests/fixtures/wmo_cct.ref.json` — the oracle
     the table tests check the shipped tables against.
 
@@ -235,6 +238,15 @@ def render_centres(
 //!
 //! {edition} has its own assignments; the generator's module docs say why this
 //! is not shared with the other edition. {len(centres)} codes.
+
+/// Sub-centre names, from WMO Common Code Table C-12.
+///
+/// The other half of the pair a message's header shows, re-exported from
+/// `fieldglass-core` (#537) so both halves come out of one module and a
+/// consumer of this crate needs no direct dependency on `fieldglass-core`.
+/// C-12 is shared between the editions where C-1 and C-11 are not, which is
+/// why it lives in core rather than beside the centre table below.
+pub use fieldglass_core::cct_tables::lookup_sub_centre;
 
 /// Look up an originating/generating centre name (WMO Common Code Table {table}).
 ///

@@ -30,6 +30,12 @@
 //! lives on [`GridDescription`] and its per-family structs rather than in each
 //! consumer.
 //!
+//! The error type every `Result` here returns
+//! ([`FieldglassError`]) and the typed grid value [`GridGeometry`] converts
+//! into are re-exported from `fieldglass-core`, so this crate can be the only
+//! Fieldglass dependency in a consumer's manifest; the shared WMO sub-centre
+//! lookup is re-exported the same way, from [`tables_cct`].
+//!
 //! Decoders are cross-checked against eccodes: `tests/eccodes_reference.rs`
 //! walks every committed fixture and compares both the metadata keys and the
 //! decoded values against a pinned snapshot, so a packing bug fails the suite
@@ -61,9 +67,14 @@ pub use bds::{
 };
 pub use bms::Bitmap;
 pub use gds::{GridDescription, ScanningMode, SphericalHarmonicGrid};
-// Re-exported from `fieldglass_core`, where GRIB2's reduced-grid decode (#503)
-// also needs it. The path stays here because callers of this crate have it.
-pub use fieldglass_core::expand_reduced_to_regular;
+// The `fieldglass_core` types this crate's own signatures name (#537), so a
+// consumer needs no direct dependency on `fieldglass-core` — and cannot
+// accidentally take one without `default-features = false`, which would
+// re-enable `render` and `fs` across the whole dependency graph.
+// `expand_reduced_to_regular` predates the rest: it lives in core because
+// GRIB2's reduced-grid decode needs it too (#503), and the path stays here
+// because callers of this crate have it.
+pub use fieldglass_core::{FieldglassError, GridGeometry, expand_reduced_to_regular};
 pub use is::IndicatorSection;
 pub use packing::spherical::SpectralCoefficients;
 pub use pds::ProductDefinition;

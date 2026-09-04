@@ -1,0 +1,28 @@
+# A stand-in for a downstream consumer: a crate that depends on one format
+# crate and nothing else. `cargo test --workspace` builds it, so a public
+# signature that names a `fieldglass-core` type the format crate does not
+# re-export fails the gate here rather than in someone else's build.
+#
+# The absence of `fieldglass-core` from `[dependencies]` is the whole point of
+# the package, and `tests/standalone.rs` asserts it stays absent — adding it
+# would make every test in here pass vacuously.
+[package]
+name        = "fieldglass-crate-independence"
+description = "Acceptance harness: each format crate as a consumer's only Fieldglass dependency"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+authors.workspace      = true
+repository.workspace   = true
+publish     = false
+
+[lints]
+workspace = true
+
+# Path-only, with no `=` version pin: this crate is never published, and a pin
+# here would be an extra line every release bump has to find.
+[dependencies]
+fieldglass-grib1  = { path = "../../crates/fieldglass-grib1" }
+fieldglass-grib2  = { path = "../../crates/fieldglass-grib2" }
+fieldglass-netcdf = { path = "../../crates/fieldglass-netcdf" }
