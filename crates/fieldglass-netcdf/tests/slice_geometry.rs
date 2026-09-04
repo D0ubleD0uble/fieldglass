@@ -156,6 +156,24 @@ fn synthesize_geometry_maps_corners_and_dims() {
     // A descending latitude axis is the common north-to-south layout; only a
     // descending *longitude* axis raises the flag.
     assert!(!geom.lon_descending);
+    // 90 → 0 is north-to-south, so the raster is already north-up.
+    assert!(!geom.lat_ascending);
+}
+
+#[test]
+fn synthesize_geometry_flags_ascending_latitude() {
+    let lon = [0.0, 90.0, 180.0, 270.0];
+    // CF's common ordering: row 0 is the southern edge, so the raster has to be
+    // flipped to face north-up (#286).
+    let geom = synthesize_geometry(&[-60.0, -20.0, 20.0, 60.0], &lon).unwrap();
+    assert!(geom.lat_ascending);
+    // Unlike `lon_descending`, this is the corner pair, not strict monotonicity:
+    // a non-monotonic axis still has a first and a last row.
+    let ragged = synthesize_geometry(&[-60.0, 20.0, -20.0, 60.0], &lon).unwrap();
+    assert!(ragged.lat_ascending);
+    // A single-row slice has no ordering to report, and reports none.
+    let one_row = synthesize_geometry(&[10.0], &lon).unwrap();
+    assert!(!one_row.lat_ascending);
 }
 
 #[test]

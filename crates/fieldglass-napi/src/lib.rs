@@ -36,7 +36,7 @@ use fieldglass_netcdf::{
     WRF_EARTH_RADIUS_M, WrfLambertGrid, WrfLatLonGrid, WrfMapProj, WrfMercatorGrid,
     WrfPolarStereoGrid, apply_scale_offset, cf_scale_offset, extract_plane,
     resolve_cf_geostationary, resolve_wrf_lambert, resolve_wrf_latlon, resolve_wrf_mercator,
-    resolve_wrf_polar_stereo, synthesize_geometry, unpack_cf_data, wrf_map_proj,
+    resolve_wrf_polar_stereo, synthesize_geometry, wrf_map_proj,
 };
 use napi_derive::napi;
 use std::sync::Mutex;
@@ -2584,17 +2584,7 @@ impl NetcdfHandle {
         // HDF5 metadata is resolved lazily and can fail for a layout outside the
         // decoded subset (decision 0003); on failure the view is empty and the
         // panel falls back to the metadata dump, mirroring `open_netcdf`.
-        let view = match &reader.backing {
-            NetcdfBacking::Classic(h) => DatasetView::from_classic(h),
-            NetcdfBacking::Hdf5(_) => reader
-                .hdf5_metadata()
-                .map(|meta| DatasetView::from_hdf5(&meta))
-                .unwrap_or_else(|_| DatasetView {
-                    dims: Vec::new(),
-                    vars: Vec::new(),
-                    global_attrs: Vec::new(),
-                }),
-        };
+        let view = reader.view().unwrap_or_default();
         Ok(Self {
             reader,
             view,
@@ -2921,11 +2911,15 @@ impl NetcdfHandle {
 
     /// Extract the chosen 2-D plane from the (cached) decoded variable and
     /// unpack it to physical units. The decode returns raw on-disk codes with
-    /// only `_FillValue` masked; [`unpack_cf_data`] then applies the CF
-    /// `valid_range` mask and `scale_factor` / `add_offset`, so a packed CF
-    /// field (scaled `int16`, as GOES / MERRA-2 / ERA5 store it) renders and
+    /// only the fill / missing sentinels masked; `VarView::unpack` then applies
+    /// the CF `valid_range` mask and `scale_factor` / `add_offset`, so a packed
+    /// CF field (scaled `int16`, as GOES / MERRA-2 / ERA5 store it) renders and
     /// labels in real units rather than integer codes (#184). Decode stays
     /// decoupled from rendering; the same unpacking serves both backings.
+    ///
+    /// This is `NetcdfReader::decode_plane` with the decode replaced by the
+    /// handle's per-variable cache, which is what the animation and A/B-compare
+    /// paths re-slice without re-decoding.
     fn slice_plane(
         &self,
         var: &RenderableVariable,
@@ -2944,14 +2938,14 @@ impl NetcdfHandle {
         }
         let fixed: Vec<usize> = slice_indices.iter().map(|&i| i as usize).collect();
         let plane = extract_plane(values.as_ref(), &shape, y_dim, x_dim, &fixed).into_napi()?;
-        let attrs = self
-            .view
-            .vars
-            .iter()
-            .find(|v| v.decode_index == var.decode_index)
-            .map(|v| v.attrs.clone())
-            .unwrap_or_default();
-        Ok(unpack_cf_data(&plane, &attrs))
+        // The reader's own `decode_plane` runs exactly this chain, but from the
+        // raw decode rather than the cache above, so the two halves are taken
+        // separately here. A variable missing from the view has no attributes to
+        // unpack with and passes through as decoded.
+        Ok(match self.view.var(var.decode_index) {
+            Some(v) => v.unpack(&plane),
+            None => plane,
+        })
     }
 
     /// Synthesise the `"latlon"` [`MessageMeta`] for a slice from the variable's
@@ -3646,14 +3640,10 @@ fn synth_latlon_meta(
     MessageMeta {
         grid_type: Some("latlon".to_string()),
         // A NetCDF file carries no scanning mode, so the fact GRIB reads from
-        // flag 0x40 — do rows run south to north — is read from the latitude
-        // axis instead. CF's common ordering is ascending, which means row 0 is
-        // the *southern* edge and the raster has to be flipped to face north-up
-        // like every other source view (#286). Only set where the axis really is
-        // a latitude and its ordering is known.
-        j_scans_positive: geometry
-            .filter(|_| y_is_latitude)
-            .map(|g| g.lat_first < g.lat_last),
+        // flag 0x40 — do rows run south to north — is `SliceGeometry`'s own
+        // `lat_ascending`. Only set where the axis really is a latitude, which
+        // is the one part of the rule this seam still decides (#286).
+        j_scans_positive: geometry.filter(|_| y_is_latitude).map(|g| g.lat_ascending),
         lat_first: geometry.map(|g| g.lat_first),
         lon_first: geometry.map(|g| g.lon_first),
         lat_last: geometry.map(|g| g.lat_last),
@@ -7846,7 +7836,6 @@ mod overlay_projection_tests {
 #[cfg(test)]
 mod netcdf_slice_tests {
     use super::*;
-    use fieldglass_netcdf::DatasetView;
 
     const ERSST: &[u8] =
         include_bytes!("../../fieldglass-netcdf/tests/fixtures/ersst_v5_187001_cdf1.nc");
@@ -7860,12 +7849,7 @@ mod netcdf_slice_tests {
     /// (which would need a Node runtime) — mirrors `from_bytes`'s body.
     fn handle(bytes: &[u8]) -> NetcdfHandle {
         let reader = NetcdfReader::from_bytes(bytes.to_vec()).unwrap();
-        let view = match &reader.backing {
-            NetcdfBacking::Classic(h) => DatasetView::from_classic(h),
-            NetcdfBacking::Hdf5(_) => {
-                DatasetView::from_hdf5(&reader.hdf5_metadata().expect("dimension-scale resolution"))
-            }
-        };
+        let view = reader.view().expect("dimension-scale resolution");
         NetcdfHandle {
             reader,
             view,
@@ -8149,6 +8133,7 @@ mod netcdf_slice_tests {
             lon_last: 358.0,
             irregular: false,
             lon_descending: false,
+            lat_ascending: false,
         };
         let meta = synth_latlon_meta("sst", "degree_C", 180, 89, Some(geom), false);
         assert_eq!(meta.grid_type.as_deref(), Some("latlon"));
@@ -8175,6 +8160,7 @@ mod netcdf_slice_tests {
             lon_last: 358.0,
             irregular: false,
             lon_descending: false,
+            lat_ascending: false,
         };
         let meta = synth_latlon_meta("sst", "degree_C", 180, 89, Some(global), false);
         assert!(source_grid_is_periodic(&meta, 180));
@@ -10239,7 +10225,7 @@ mod curvilinear_render_tests {
 
     fn nc(bytes: &[u8]) -> NetcdfHandle {
         let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("fixture parses");
-        let view = DatasetView::from_hdf5(&reader.hdf5_metadata().expect("hdf5 metadata"));
+        let view = reader.view().expect("hdf5 metadata");
         NetcdfHandle {
             reader,
             view,
@@ -10641,10 +10627,11 @@ mod curvilinear_render_tests {
 
     fn nc_classic(bytes: &[u8]) -> NetcdfHandle {
         let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("fixture parses");
-        let view = match &reader.backing {
-            NetcdfBacking::Classic(h) => DatasetView::from_classic(h),
-            _ => panic!("expected a classic backing"),
-        };
+        assert!(
+            matches!(reader.backing, NetcdfBacking::Classic(_)),
+            "expected a classic backing"
+        );
+        let view = reader.view().expect("classic view");
         NetcdfHandle {
             reader,
             view,

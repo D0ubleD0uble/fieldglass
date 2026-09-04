@@ -8,9 +8,11 @@
 //!
 //! The decode returns raw packed codes with only `_FillValue` masked;
 //! [`unpack_cf_data`] then applies the `valid_range` mask and the scale/offset.
-//! Both stages are asserted against the oracle.
+//! Both stages are asserted against the oracle, and the one-call form that runs
+//! both ([`NetcdfReader::decode_variable_physical`], #548) is held to the same
+//! oracle so the convenience cannot drift from the chain it stands in for.
 
-use fieldglass_netcdf::{DatasetView, NetcdfBacking, NetcdfReader, unpack_cf_data};
+use fieldglass_netcdf::{NetcdfReader, unpack_cf_data};
 use serde_json::Value;
 
 const NC: &[u8] = include_bytes!("fixtures/cf_packed_data.nc");
@@ -34,12 +36,7 @@ fn nullable_f64s(v: &Value) -> Vec<Option<f64>> {
 #[test]
 fn temp_decodes_raw_then_unpacks_to_physical_units() {
     let reader = NetcdfReader::from_bytes(NC.to_vec()).expect("parse");
-    let view = match &reader.backing {
-        NetcdfBacking::Classic(h) => DatasetView::from_classic(h),
-        NetcdfBacking::Hdf5(_) => {
-            DatasetView::from_hdf5(&reader.hdf5_metadata().expect("hdf5 metadata"))
-        }
-    };
+    let view = reader.view().expect("dataset view");
     let temp = view
         .vars
         .iter()
@@ -60,4 +57,53 @@ fn temp_decodes_raw_then_unpacks_to_physical_units() {
     // scale_factor/add_offset — exactly libnetcdf's auto mask+scale.
     let physical = unpack_cf_data(&decoded, &temp.attrs);
     assert_eq!(physical, expected_physical, "CF physical units");
+
+    // Same two stages, one call — the reader reaches the variable's own
+    // attributes itself, so a caller cannot pair a decode with the wrong ones.
+    assert_eq!(
+        reader
+            .decode_variable_physical(temp.decode_index)
+            .expect("physical decode"),
+        expected_physical,
+        "decode_variable_physical matches decode + unpack"
+    );
+}
+
+/// `decode_plane` is the whole chain for an N-D variable: decode, pick the 2-D
+/// plane, unpack. `temp(lat, lon)` is already 2-D, so its only plane is the
+/// whole field and the oracle applies to it directly — which is the point, the
+/// order (extract before unpack) has to be invisible in the result.
+#[test]
+fn decode_plane_reaches_the_same_physical_values() {
+    let reader = NetcdfReader::from_bytes(NC.to_vec()).expect("parse");
+    let view = reader.view().expect("dataset view");
+    let temp = view
+        .vars
+        .iter()
+        .find(|v| v.name == "temp")
+        .expect("temp variable present");
+    assert_eq!(
+        temp.dim_names,
+        vec!["lat".to_string(), "lon".to_string()],
+        "the fixture's temp is temp(lat, lon)"
+    );
+
+    let oracle: Value = serde_json::from_str(ORACLE).unwrap();
+    let expected_physical = nullable_f64s(&oracle["temp"]["physical"]);
+
+    let plane = reader
+        .decode_plane(temp, 0, 1, &[0, 0])
+        .expect("plane decode");
+    assert_eq!(plane, expected_physical, "y=lat, x=lon is the stored order");
+
+    // Swapping the axes transposes the same physical values, so the unpacking
+    // is per point and not tied to the layout.
+    let transposed = reader
+        .decode_plane(temp, 1, 0, &[0, 0])
+        .expect("transposed plane decode");
+    assert_eq!(transposed.len(), plane.len(), "same point count");
+    assert_ne!(
+        transposed, plane,
+        "a non-square field transposes to a different order"
+    );
 }
