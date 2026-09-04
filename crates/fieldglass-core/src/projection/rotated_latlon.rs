@@ -1,7 +1,7 @@
 //! Rotated latitude/longitude grids — GRIB1 `grid_type` 10, GRIB2 template 3.1.
 //!
 //! A regular lat/lon grid on a rotated sphere whose south pole sits at a
-//! declared geographic position. [`unrotate_latlon`] and [`rotate_latlon`] move
+//! declared geographic position. `unrotate_latlon` and `rotate_latlon` move
 //! between the two frames; everything after that is the regular lat/lon inverse
 //! in rotated coordinates.
 //!
@@ -57,7 +57,7 @@ fn rotation_terms(south_pole_lat: f64, south_pole_lon: f64) -> (f64, f64, f64, f
 /// eccodes' `unrotate` (`grib_geography.cc`) — the routine that produces a
 /// §3.1 grid's geographic point coordinates — so a Fieldglass warp resolves to
 /// the same lat/lon eccodes' iterator reports.
-pub fn unrotate_latlon(
+pub(crate) fn unrotate_latlon(
     rlat: f64,
     rlon: f64,
     angle_of_rotation: f64,
@@ -86,7 +86,7 @@ pub fn unrotate_latlon(
 /// the `angle_of_rotation` term is undone by adding it back to the longitude
 /// before rotating. This is the direction a warp needs — output geographic
 /// point to source-grid coordinates.
-pub fn rotate_latlon(
+pub(crate) fn rotate_latlon(
     lat: f64,
     lon: f64,
     angle_of_rotation: f64,
@@ -216,7 +216,7 @@ impl RotatedLatLonProjector {
 /// `(lat, lon)` — **geographic**, not rotated — of grid point `(i, j)` on a
 /// rotated lat/lon grid. The grid is evenly spaced in the *rotated* frame, so
 /// the point is placed there first and then unrotated onto the sphere with
-/// [`unrotate_latlon`] (the same routine, matching eccodes, that the bbox walk
+/// `unrotate_latlon` (the same routine, matching eccodes, that the bbox walk
 /// uses).
 pub fn rotated_latlon_point(p: &RotatedLatLonParams, i: u32, j: u32) -> Option<(f64, f64)> {
     if p.ni < 2 || p.nj < 2 {

@@ -39,36 +39,30 @@ use mercator::mercator_ordinate;
 // been reachable at `fieldglass_core::projection::<name>` since before the
 // families had modules of their own.
 pub use gaussian::{
-    GaussianParams, GaussianProjector, expand_reduced_to_regular, gaussian_inverse,
-    gaussian_latitudes, is_octahedral_pl, reduced_raster_lon_last, reduced_raster_width,
+    GaussianParams, GaussianProjector, expand_reduced_to_regular, gaussian_latitudes,
+    is_octahedral_pl, reduced_raster_lon_last, reduced_raster_width,
 };
-pub use geostationary::{
-    GeostationaryConstants, GeostationaryParams, GeostationaryProjector, geostationary_inverse,
-};
-pub use lambert::{
-    LambertConstants, LambertParams, LambertProjector, lambert_forward, lambert_inverse,
-    lambert_inverse_xy,
-};
+pub use geostationary::{GeostationaryConstants, GeostationaryParams, GeostationaryProjector};
+pub use lambert::{LambertConstants, LambertParams, LambertProjector};
 pub use lambert_azimuthal::{
     LambertAzimuthalConstants, LambertAzimuthalParams, LambertAzimuthalProjector,
-    lambert_azimuthal_forward, lambert_azimuthal_inverse, lambert_azimuthal_inverse_xy,
 };
 pub use latlon::{
     LatLonParams, eastward_lon_span, latlon_inverse, latlon_point, lon_grid_is_global,
 };
 pub use mercator::{MercatorParams, mercator_inverse, mercator_point};
-pub use polar_stereo::{
-    PolarStereoConstants, PolarStereoParams, PolarStereoProjector, polar_stereo_forward,
-    polar_stereo_inverse, polar_stereo_inverse_xy,
-};
-pub use rotated_latlon::{
-    RotatedLatLonParams, RotatedLatLonProjector, rotate_latlon, rotated_latlon_point,
-    unrotate_latlon,
-};
+pub use polar_stereo::{PolarStereoConstants, PolarStereoParams, PolarStereoProjector};
+pub use rotated_latlon::{RotatedLatLonParams, RotatedLatLonProjector, rotated_latlon_point};
 pub use transverse_mercator::{
     TransverseMercatorConstants, TransverseMercatorParams, TransverseMercatorProjector,
-    transverse_mercator_forward, transverse_mercator_inverse, transverse_mercator_inverse_xy,
 };
+
+// Crate-internal: `GridGeometry` dispatches Gaussian queries through the
+// recompute-per-call form rather than holding a projector. Not part of the
+// crate's public contract — a caller reaches the same maths through
+// [`GaussianProjector`]. The rotation pair (`rotate_latlon` / `unrotate_latlon`)
+// is `pub(crate)` in its own module and named from there.
+pub(crate) use gaussian::gaussian_inverse;
 
 /// Earth radius used by Lambert projection math. WMO `shapeOfTheEarth = 6`
 /// (spherical, R = 6 371 229 m) is the GRIB default; other shapes resolve
@@ -1148,6 +1142,7 @@ fn metres_apart(lat_a: f64, lon_a: f64, lat_b: f64, lon_b: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rotated_latlon::{rotate_latlon, unrotate_latlon};
 
     /// The committed `rotated_latlon_surface.grib2` fixture: 16×31 grid, rotated
     /// corners (60,0)→(0,30), southern pole at geographic (0,0), no rotation
