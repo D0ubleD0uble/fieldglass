@@ -76,8 +76,8 @@ fn grib1_errors_are_matchable() {
     let whole = fixture("crates/fieldglass-grib1/tests/fixtures/reduced_gg_n32.grib1");
 
     // A message whose declared length runs past the end of the file. `let …
-    // else` rather than `expect_err`, which would need `Grib1Reader: Debug` —
-    // the readers do not derive it yet (#556).
+    // else` rather than `expect_err`: the reader derives `Debug` (#555), and
+    // that `Debug` prints the whole file's bytes.
     let Err(truncated) = Grib1Reader::from_bytes(whole[..40].to_vec()) else {
         panic!("a truncated message must not parse");
     };
@@ -132,8 +132,8 @@ fn grib2_errors_are_matchable() {
     let whole = fixture("crates/fieldglass-grib2/tests/fixtures/octahedral_gaussian_o32.grib2");
 
     // A message whose declared length runs past the end of the file. `let …
-    // else` rather than `expect_err`, which would need `Grib2Reader: Debug` —
-    // the readers do not derive it yet (#556).
+    // else` rather than `expect_err`: the reader derives `Debug` (#555), and
+    // that `Debug` prints the whole file's bytes.
     let Err(truncated) = Grib2Reader::from_bytes(whole[..40].to_vec()) else {
         panic!("a truncated message must not parse");
     };
