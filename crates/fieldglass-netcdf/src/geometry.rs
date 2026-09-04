@@ -661,7 +661,6 @@ pub fn synthesize_geometry(lat: &[f64], lon: &[f64]) -> Result<SliceGeometry, Fi
         .ok_or_else(|| FieldglassError::Parse("empty longitude coordinate array".into()))?;
     let lon_descending = lon.len() >= 2 && lon.windows(2).all(|w| w[1] < w[0]);
     Ok(SliceGeometry {
-        lat_ascending: lat_first < lat_last,
         ni: lon.len() as u32,
         nj: lat.len() as u32,
         lat_first,
@@ -670,5 +669,6 @@ pub fn synthesize_geometry(lat: &[f64], lon: &[f64]) -> Result<SliceGeometry, Fi
         lon_last,
         irregular: !(lat_regular && lon_regular),
         lon_descending,
+        lat_ascending: lat_first < lat_last,
     })
 }

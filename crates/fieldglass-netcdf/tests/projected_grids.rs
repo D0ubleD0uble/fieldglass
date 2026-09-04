@@ -12,9 +12,8 @@ use fieldglass_core::{
     MercatorParams, PolarStereoParams, PolarStereoProjector, latlon_inverse, mercator_inverse,
 };
 use fieldglass_netcdf::{
-    DatasetView, NetcdfBacking, NetcdfReader, WRF_EARTH_RADIUS_M, apply_scale_offset,
-    resolve_cf_geostationary, resolve_wrf_lambert, resolve_wrf_latlon, resolve_wrf_mercator,
-    resolve_wrf_polar_stereo,
+    DatasetView, NetcdfReader, WRF_EARTH_RADIUS_M, apply_scale_offset, resolve_cf_geostationary,
+    resolve_wrf_lambert, resolve_wrf_latlon, resolve_wrf_mercator, resolve_wrf_polar_stereo,
 };
 use serde_json::Value;
 
@@ -31,12 +30,7 @@ const GOES_ORACLE: &str = include_str!("fixtures/goes_geostationary.nc.oracle.js
 
 fn view(bytes: &[u8]) -> (NetcdfReader, DatasetView) {
     let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("parse");
-    let view = match &reader.backing {
-        NetcdfBacking::Classic(h) => DatasetView::from_classic(h),
-        NetcdfBacking::Hdf5(_) => {
-            DatasetView::from_hdf5(&reader.hdf5_metadata().expect("hdf5 metadata"))
-        }
-    };
+    let view = reader.view().expect("dataset view");
     (reader, view)
 }
 
