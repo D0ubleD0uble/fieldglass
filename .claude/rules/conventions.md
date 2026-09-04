@@ -84,8 +84,8 @@ either.
 **Before adding a helper to `core`, search for the capability by concept, not
 by the name you would have chosen.** The reusable version is often a *provided
 method on a trait* rather than an inherent method on the concrete type, so
-looking at the type finds nothing; `projection.rs` and the napi crate are both
-thousands of lines. A duplicate there is usually worse than the original,
+looking at the type finds nothing; the `projection/` modules and the napi
+crate carry thousands of lines between them. A duplicate there is usually worse than the original,
 which has already absorbed the edge cases (poles inside the domain, points off
 a projection disc, antimeridian arcs) that a fresh one rediscovers one bug at
 a time.

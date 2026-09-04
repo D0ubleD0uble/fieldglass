@@ -618,7 +618,8 @@ ships no transverse-Mercator geoiterator: `codes_grib_iterator_new` on a §3.12
 message answers "Function not yet implemented" at 2.34.1 and still at 2.48, so
 `grib_get_data` cannot report latitudes and longitudes for it the way it does
 for Lambert or space view. The projection is checked against **PROJ 9.4.0**
-instead, in `fieldglass-core/src/projection.rs` — `cs2cs` from the equivalent
+instead, in `fieldglass-core/src/projection/transverse_mercator.rs` — `cs2cs`
+from the equivalent
 `+proj=tmerc` definition to `+proj=longlat` on the *same* spheroid, so no datum
 shift enters the comparison. eccodes remains the oracle for the message's
 metadata and for its decoded values.
