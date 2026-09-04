@@ -4,7 +4,7 @@ All notable changes to Fieldglass are documented here. The format roughly follow
 
 Versioning is plain [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and every release is a stable one. Pre-1.0, a minor bump (`0.3.0` → `0.4.0`) may break the Rust API; a patch (`0.3.0` → `0.3.1`) does not. The same version numbers the extension and the library crates.
 
-## [Unreleased]
+## [0.5.0] — 2026-09-04
 
 ### Added
 
@@ -459,7 +459,8 @@ First public release, on the Marketplace pre-release channel. Read-only metadata
 
 See the README "Known limitations" section.
 
-[Unreleased]: https://github.com/D0ubleD0uble/fieldglass/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/D0ubleD0uble/fieldglass/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/D0ubleD0uble/fieldglass/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/D0ubleD0uble/fieldglass/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/D0ubleD0uble/fieldglass/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/D0ubleD0uble/fieldglass/compare/v0.1.3...v0.2.0

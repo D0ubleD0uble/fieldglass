@@ -185,7 +185,7 @@ first.
 - **Bi-Fourier rendering (5.53).** The last template that decodes without
   rendering. Needs an inverse 2-D Fourier transform.
 - **Further tables.** CF standard names for NetCDF; JMA, KMA, BOM local
-  tables; originating centres and sub-centres from WMO CCT.
+  tables.
 - **NetCDF / HDF5 gaps.** String and char data display, paged array index
   blocks, HDF5 2.0 complex-type detection.
 - **BUFR.** A tree and table inspector would be unique among viewers, but it
@@ -200,14 +200,13 @@ Zoom and pan (#245) · animate over time (#170) · cross-sections (#171) ·
 zonal average plots (#240) · vector plots from u/v pairs (#241) · line plots
 through the probe point (#172) · GMT CPT colour tables (#236) · export at a
 chosen size (#403) · CSV export for the remaining grid families (#244) ·
-GRIB1 metadata editing (#46) · contours and long-format CSV for reduced grids
-(the projected families landed in #470; a reduced grid still needs its per-row
-longitudes to place a point).
+GRIB1 metadata editing (#46).
 
 ## Done
 
 | Release | What shipped |
 |---|---|
+| 0.5.0 (2026-09-04) | Grid geometry: HEALPix (3.150), reduced Gaussian in GRIB2 (3.40), transverse Mercator (3.12), Lambert azimuthal equal-area (3.140), and curvilinear NetCDF all decode and render. The complete WMO parameter table (1,387) and Common Code Table centres (309 / 239), plus ECMWF, DWD and NCEP local tables. Contours and `lat,lon,value` CSV on the projected and reduced families. Formal verification of the decode kernel wired up with Verus. |
 | 0.4.0 (2026-08-23) | Every registered GRIB2 §5 packing template decodes, pure Rust, zero build flags; local templates 5.40000, 5.40010, 5.50001, 5.50002. Spherical-harmonic spectral fields render, for GRIB1 and GRIB2, a viewer first. |
 | 0.3.0 (2026-07-18) | First crates.io release of the four library crates. |
 | 0.2.0 (2026-07-02) | First stable Marketplace release: GRIB1, GRIB2, and NetCDF parse, decode, and render with eight projections and map overlays. |
