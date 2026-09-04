@@ -398,16 +398,9 @@ fn build_grib1_message_meta(
     };
     let lambert_lad = lambert.map(|g| g.latin1);
     let lambert_lov = lambert.map(|g| g.lov);
-    // GRIB1 stores Dx/Dy as unsigned magnitudes; bake the scan sign in so the
-    // Lambert warp walks the grid's actual scan (see `signed_grid_increments`).
-    let lambert_inc = lambert.map(|g| {
-        signed_grid_increments(
-            g.dx_m as f64,
-            g.dy_m as f64,
-            g.scanning_mode.i_negative,
-            g.scanning_mode.j_positive,
-        )
-    });
+    // GRIB1 stores Dx/Dy as unsigned magnitudes; the grid bakes the scan sign
+    // in so the Lambert warp walks the grid's actual scan.
+    let lambert_inc = lambert.map(|g| g.signed_increments());
     let lambert_dx_metres = lambert_inc.map(|(dx, _)| dx);
     let lambert_dy_metres = lambert_inc.map(|(_, dy)| dy);
     let lambert_latin1 = lambert.map(|g| g.latin1);
@@ -427,18 +420,11 @@ fn build_grib1_message_meta(
         .map(|g| g.resolution_flags.earth_radius_m())
         .or_else(|| polar_stereo.map(|g| g.resolution_flags.earth_radius_m()));
     let polar_stereo_lov = polar_stereo.map(|g| g.lov);
-    // GRIB1 has no LaD field — its latitude of true scale is fixed at ±60°.
-    let polar_stereo_lad = polar_stereo.map(|_| 60.0);
-    // GRIB1 stores Dx/Dy as unsigned magnitudes (`read_u24`); bake the
-    // scanning-mode sign in so the warp walks the grid's actual scan.
-    let polar_stereo_inc = polar_stereo.map(|g| {
-        signed_grid_increments(
-            g.dx_m as f64,
-            g.dy_m as f64,
-            g.scanning_mode.i_negative,
-            g.scanning_mode.j_positive,
-        )
-    });
+    // GRIB1 has no LaD field — its latitude of true scale is fixed at ±60°,
+    // and Dx/Dy are unsigned magnitudes whose sign is the scanning mode. Both
+    // are the grid's own rules, so both come from it.
+    let polar_stereo_lad = polar_stereo.map(|g| g.lad());
+    let polar_stereo_inc = polar_stereo.map(|g| g.signed_increments());
     let polar_stereo_dx_metres = polar_stereo_inc.map(|(dx, _)| dx);
     let polar_stereo_dy_metres = polar_stereo_inc.map(|(_, dy)| dy);
     let polar_stereo_south_pole = polar_stereo.map(|g| g.south_pole);
@@ -449,38 +435,15 @@ fn build_grib1_message_meta(
     let rotated_south_pole_lat = rotated.map(|g| g.south_pole_lat);
     let rotated_south_pole_lon = rotated.map(|g| g.south_pole_lon);
     let rotated_angle_of_rotation = rotated.map(|g| g.angle_of_rotation);
+    // The scan flags of whichever grid family this is; `None` for a message
+    // with no raster (spectral, unsupported) or no resolvable GDS at all.
+    // (Predefined no-GDS grids have no flag and all scan west-to-east.)
+    let scan = msg.gds.as_ref().and_then(|gds| gds.scanning_mode());
     // Corner-pinned grids assume a west-to-east scan; surface the −i flag so
     // `grid_is_reprojectable` keeps descending grids in the source projection.
-    // (Predefined no-GDS grids have no flag and all scan west-to-east.)
-    let i_scan_negative = match &msg.gds {
-        Some(fieldglass_grib1::GridDescription::LatLon(g)) => g.scanning_mode.i_negative,
-        Some(fieldglass_grib1::GridDescription::RotatedLatLon(g)) => g.scanning_mode.i_negative,
-        Some(fieldglass_grib1::GridDescription::ReducedLatLon(g)) => g.scanning_mode.i_negative,
-        Some(fieldglass_grib1::GridDescription::Gaussian(g)) => g.scanning_mode.i_negative,
-        Some(fieldglass_grib1::GridDescription::ReducedGaussian(g)) => g.scanning_mode.i_negative,
-        _ => false,
-    };
+    let i_scan_negative = scan.is_some_and(|sm| sm.i_negative);
     // South→north row scan, so the source render can orient the raster (#286).
-    let j_scans_positive = match &msg.gds {
-        Some(fieldglass_grib1::GridDescription::LatLon(g)) => Some(g.scanning_mode.j_positive),
-        Some(fieldglass_grib1::GridDescription::RotatedLatLon(g)) => {
-            Some(g.scanning_mode.j_positive)
-        }
-        Some(fieldglass_grib1::GridDescription::ReducedLatLon(g)) => {
-            Some(g.scanning_mode.j_positive)
-        }
-        Some(fieldglass_grib1::GridDescription::Gaussian(g)) => Some(g.scanning_mode.j_positive),
-        Some(fieldglass_grib1::GridDescription::ReducedGaussian(g)) => {
-            Some(g.scanning_mode.j_positive)
-        }
-        Some(fieldglass_grib1::GridDescription::LambertConformal(g)) => {
-            Some(g.scanning_mode.j_positive)
-        }
-        Some(fieldglass_grib1::GridDescription::PolarStereographic(g)) => {
-            Some(g.scanning_mode.j_positive)
-        }
-        _ => None,
-    };
+    let j_scans_positive = scan.map(|sm| sm.j_positive);
     let reprojectable = grid_is_reprojectable(
         grid_type.as_deref(),
         polar_stereo_dx_metres.or(lambert_dx_metres),
@@ -9518,6 +9481,32 @@ mod planar_geolocation_tests {
                 "({i},{j}) gave ({got_lat:.6}, {got_lon:.6}), eccodes says ({lat}, {lon})"
             );
         }
+    }
+
+    /// Characterisation of the GRIB1 grid-policy seam (#544): the projection
+    /// parameters and scan flags this layer used to derive with its own
+    /// per-variant matches now come off `GridDescription`, and the payload the
+    /// TypeScript host reads is byte-for-byte what it was.
+    ///
+    /// The polar fixture is the one that pins the interesting values: eccodes
+    /// reports `iScansNegatively = 0`, `jScansPositively = 1`, and
+    /// `DxInMetres = DyInMetres = 60000` for it, and GRIB1 states no `LaD` at
+    /// all — 60° is the edition's fixed true-scale parallel, not a field.
+    #[test]
+    fn grib1_polar_meta_keeps_its_projection_parameters_and_scan_flags() {
+        let handle = grib1_handle(CMC_POLAR);
+        let meta = handle.message_meta(0).expect("message 0 has meta");
+        assert_eq!(meta.polar_stereo_lad, Some(60.0));
+        assert_eq!(meta.polar_stereo_dx_metres, Some(60_000.0));
+        assert_eq!(meta.polar_stereo_dy_metres, Some(60_000.0));
+        assert_eq!(meta.polar_stereo_lov, Some(249.0));
+        assert_eq!(meta.polar_stereo_south_pole, Some(false));
+        // A planar grid's scan sign rides in the increments, so it reprojects
+        // regardless of the i flag — the reason surfacing that flag for Lambert
+        // and polar stereo (where it used to read a hard `false`) changes
+        // nothing here.
+        assert_eq!(meta.j_scans_positive, Some(true));
+        assert!(meta.reprojectable);
     }
 
     /// Lambert azimuthal equal-area, against the same eccodes readings the

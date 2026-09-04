@@ -559,18 +559,7 @@ fn grib1_scan(msg: &fieldglass_grib1::Grib1Message) -> Scan {
 }
 
 fn scan_of_grib1(gds: &fieldglass_grib1::GridDescription) -> Option<Scan> {
-    use fieldglass_grib1::GridDescription as G;
-    let m = match gds {
-        G::LatLon(g) => &g.scanning_mode,
-        G::RotatedLatLon(g) => &g.scanning_mode,
-        G::ReducedLatLon(g) => &g.scanning_mode,
-        G::Gaussian(g) => &g.scanning_mode,
-        G::ReducedGaussian(g) => &g.scanning_mode,
-        G::PolarStereographic(g) => &g.scanning_mode,
-        G::LambertConformal(g) => &g.scanning_mode,
-        G::SphericalHarmonic(_) | G::Unsupported { .. } => return None,
-    };
-    Some(Scan {
+    gds.scanning_mode().map(|m| Scan {
         i_negative: m.i_negative,
         j_positive: m.j_positive,
         j_consecutive: m.j_consecutive,

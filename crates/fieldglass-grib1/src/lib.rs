@@ -15,6 +15,14 @@
 //! number. Every grid reports the corners and geometry
 //! `fieldglass_core::projection` needs to place it on a map.
 //!
+//! A message routes to one of three decode methods, and which one is not a
+//! property of its packing label alone —
+//! [`Grib1Reader::message_kind`] is the answer. Grid policy the file states
+//! obliquely (the scan direction behind unsigned `Dx`/`Dy`, the ±60° true-scale
+//! parallel GRIB1 never writes down, whether a message has a raster at all)
+//! lives on [`GridDescription`] and its per-family structs rather than in each
+//! consumer.
+//!
 //! Decoders are cross-checked against eccodes: `tests/eccodes_reference.rs`
 //! walks every committed fixture and compares both the metadata keys and the
 //! decoded values against a pinned snapshot, so a packing bug fails the suite
@@ -39,7 +47,7 @@ pub use bds::{
     BDS_DATA_OFFSET, BdsHeader, ComplexExtendedHeader, SphericalExtendedHeader, parse_bds_header,
 };
 pub use bms::Bitmap;
-pub use gds::{GridDescription, SphericalHarmonicGrid};
+pub use gds::{GridDescription, ScanningMode, SphericalHarmonicGrid};
 // Re-exported from `fieldglass_core`, where GRIB2's reduced-grid decode (#503)
 // also needs it. The path stays here because callers of this crate have it.
 pub use fieldglass_core::expand_reduced_to_regular;
@@ -48,6 +56,6 @@ pub use packing::spherical::SpectralCoefficients;
 pub use pds::ProductDefinition;
 pub use predefined::predefined_grid;
 pub use reader::{
-    Grib1Message, Grib1Reader, MAX_GRID_POINTS, MatrixField, forecast_display, forecast_hours,
-    level_type_str, level_unit, level_value, level_value_str, reference_time,
+    Grib1Message, Grib1MessageKind, Grib1Reader, MAX_GRID_POINTS, MatrixField, forecast_display,
+    forecast_hours, level_type_str, level_unit, level_value, level_value_str, reference_time,
 };
