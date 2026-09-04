@@ -20,6 +20,8 @@ Versioning is plain [Semantic Versioning](https://semver.org/spec/v2.0.0.html), 
 
 - **A global grid's default map window covers the seam.** Reprojecting a whole-world field onto its own extent stopped at the last column the file declares rather than going the full way round, leaving the antimeridian as a one-cell stripe of background. The gap between the last column and the first belongs to the grid, and is now filled.
 
+- **Boustrophedon grids come out in the right order for library users too.** Some products, the National Blend of Models among them, store their rows in alternating directions: the first runs west to east, the next east to west. Fieldglass has flipped those rows back since 0.2.0, but it did so in the layer the VS Code extension talks to, not in the `fieldglass-grib2` crate — so anyone decoding a GRIB2 file with the crate directly got every second row reversed, with nothing in the result to say so. The flip now happens inside `decode_message_values`, where the rest of the scan handling already lives and where GRIB1 has always done it. Every point of a real 2345 × 1597 NBM field now matches what eccodes' own geolocating decode reports. What the extension shows is unchanged. A grid that alternates its rows *and* stores columns rather than rows is a layout the flip cannot be applied to; it is now refused with an explanation instead of returning a quietly scrambled field.
+
 ## [0.5.0] — 2026-09-04
 
 ### Added
