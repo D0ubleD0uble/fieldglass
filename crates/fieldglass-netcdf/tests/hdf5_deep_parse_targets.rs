@@ -64,8 +64,9 @@ fn v2_fixture_is_link_info_layout_with_dense_attrs() {
 
 /// Both layouts now resolve to metadata (the dimension-scale chain, #174). These
 /// are pure-`h5py` fixtures with no dimension scales, so every dataset surfaces
-/// as a variable (with anonymous `phony_dim_*` axes) and there are no named
-/// dimensions — resolution still succeeds end to end over both on-disk layouts.
+/// as a variable and nothing *declares* a dimension: every axis is an anonymous
+/// `phony_dim_N` sized from the dataset's own dataspace (#533). Resolution still
+/// succeeds end to end over both on-disk layouts.
 #[test]
 fn both_fixtures_resolve_to_metadata() {
     for (label, bytes) in [("v1", V1_SYMBOLTABLE), ("v2", V2_LINKINFO)] {
@@ -78,5 +79,24 @@ fn both_fixtures_resolve_to_metadata() {
             "{label} fixture surfaces its datasets as variables: {:?}",
             meta.variables.iter().map(|v| &v.name).collect::<Vec<_>>()
         );
+        // Every invented axis must resolve to a real extent. A name absent from
+        // the dimension table reads back as length 0, which is what made these
+        // files unrenderable before #533.
+        for variable in &meta.variables {
+            for axis in &variable.dimensions {
+                let dim = meta
+                    .dimensions
+                    .iter()
+                    .find(|d| &d.name == axis)
+                    .unwrap_or_else(|| {
+                        panic!("{label}: {} references unknown axis {axis}", variable.name)
+                    });
+                assert!(
+                    dim.length > 0,
+                    "{label}: {} has a zero-length axis {axis}",
+                    variable.name
+                );
+            }
+        }
     }
 }
