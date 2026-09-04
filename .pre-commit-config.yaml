@@ -49,6 +49,23 @@ repos:
         entry: cargo clippy -p fieldglass-grib1 -p fieldglass-grib2 -p fieldglass-netcdf --all-targets -- -D warnings
         pass_filenames: false
 
+      - id: cargo-clippy-format-crates-parsing-only
+        name: cargo clippy (format crate libraries, parsing surface only)
+        language: system
+        types: [rust]
+        # `--lib` is load-bearing, not a speed-up. The hook above builds test
+        # targets, and `fieldglass-grib1` asks for core's `analysis` feature in
+        # `[dev-dependencies]` (one test contours what it decodes) — which the
+        # v2 resolver then unifies on for grib2 and netcdf in the same
+        # invocation. So a library file reaching into `core::contour` /
+        # `::csv` / `::combine` compiles there and breaks only for a real
+        # consumer taking core with `default-features = false`. `--lib` builds
+        # no test target, so no dev-dependency feature is unified in, and the
+        # three libraries are held to the parsing surface their crate docs
+        # claim (#551).
+        entry: cargo clippy -p fieldglass-grib1 -p fieldglass-grib2 -p fieldglass-netcdf --lib -- -D warnings
+        pass_filenames: false
+
       - id: tsc-extension
         name: tsc --noEmit (extension)
         language: system

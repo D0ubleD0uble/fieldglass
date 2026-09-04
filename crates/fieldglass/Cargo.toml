@@ -25,7 +25,7 @@ publish = false
 # `detect_format`'s `std::fs` into a target that has no filesystem. `render` is
 # re-exported as this crate's own feature instead; `fs` is not forwarded at all,
 # because ADR-0005 hands every host bytes rather than a path.
-fieldglass-core = { path = "../fieldglass-core", version = "=0.5.0", default-features = false, features = ["render"] }
+fieldglass-core = { path = "../fieldglass-core", version = "=0.5.0", default-features = false, features = ["render", "analysis"] }
 fieldglass-grib1 = { path = "../fieldglass-grib1", version = "=0.5.0" }
 fieldglass-grib2 = { path = "../fieldglass-grib2", version = "=0.5.0" }
 serde = { workspace = true }
