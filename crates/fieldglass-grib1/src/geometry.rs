@@ -11,9 +11,10 @@
 //!
 //! * **`Dx`/`Dy` carry the scan sign.** GRIB1 stores them as unsigned
 //!   magnitudes (ON388 GDS octets 21–23 / 24–26) and puts the direction in the
-//!   scanning-mode flags, so the planar families multiply them through
-//!   [`signed_grid_increments`] — the same call the napi warp setup makes, for
-//!   the same reason: a grid scanning north-to-south walks `-Dy`.
+//!   scanning-mode flags, so the planar families read them through the grid's
+//!   own `signed_increments()` — the same accessor the far-corner recovery and
+//!   the napi warp setup use, for the same reason: a grid scanning
+//!   north-to-south walks `-Dy`.
 //! * **A reduced grid reports the raster its rows expand into**, not the row
 //!   list. [`crate::Grib1Reader::decode_message_values`] widens every row to
 //!   `max(PL)` at the decode boundary, so the geometry that places those values
@@ -25,18 +26,14 @@
 //!   cannot place its points, and it says which family it declined.
 //!
 //! GRIB1 has no `LaD` field for polar stereographic: ON388 fixes the latitude
-//! of true scale at ±60°, so the conversion supplies it.
+//! of true scale at ±60°, which [`crate::gds::PolarStereoGrid::lad`] supplies.
 
 use fieldglass_core::{
     GaussianParams, GridGeometry, LambertParams, LatLonParams, PolarStereoParams,
-    reduced_raster_lon_last, reduced_raster_width, signed_grid_increments,
+    reduced_raster_lon_last, reduced_raster_width,
 };
 
 use crate::gds::GridDescription;
-
-/// The latitude of true scale ON388 fixes for a GRIB1 polar stereographic
-/// grid. GRIB2 §3.20 carries `LaD` explicitly; GRIB1 does not state it at all.
-const GRIB1_POLAR_STEREO_LAD_DEG: f64 = 60.0;
 
 impl From<&GridDescription> for GridGeometry {
     fn from(gds: &GridDescription) -> Self {
@@ -82,12 +79,7 @@ impl From<&GridDescription> for GridGeometry {
                 })
             }
             GridDescription::LambertConformal(g) => {
-                let (dx, dy) = signed_grid_increments(
-                    f64::from(g.dx_m),
-                    f64::from(g.dy_m),
-                    g.scanning_mode.i_negative,
-                    g.scanning_mode.j_positive,
-                );
+                let (dx, dy) = g.signed_increments();
                 Self::Lambert(LambertParams {
                     earth_radius_m: g.resolution_flags.earth_radius_m(),
                     ni: g.nx,
@@ -106,12 +98,7 @@ impl From<&GridDescription> for GridGeometry {
                 })
             }
             GridDescription::PolarStereographic(g) => {
-                let (dx, dy) = signed_grid_increments(
-                    f64::from(g.dx_m),
-                    f64::from(g.dy_m),
-                    g.scanning_mode.i_negative,
-                    g.scanning_mode.j_positive,
-                );
+                let (dx, dy) = g.signed_increments();
                 Self::PolarStereo(PolarStereoParams {
                     earth_radius_m: g.resolution_flags.earth_radius_m(),
                     ni: g.nx,
@@ -119,7 +106,7 @@ impl From<&GridDescription> for GridGeometry {
                     lat_first: g.lat_first,
                     lon_first: g.lon_first,
                     lov: g.lov,
-                    lad: GRIB1_POLAR_STEREO_LAD_DEG,
+                    lad: g.lad(),
                     dx_metres: dx,
                     dy_metres: dy,
                     south_pole: g.south_pole,

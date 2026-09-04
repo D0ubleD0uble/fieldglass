@@ -27,6 +27,12 @@ pub const GRIB1_SPHERICAL_RADIUS_M: f64 = 6_367_470.0;
 const IAU_1965_MAJOR_AXIS_M: f64 = 6_378_160.0;
 const IAU_1965_MINOR_AXIS_M: f64 = 6_356_775.0;
 
+/// Latitude of true scale of a GRIB1 polar stereographic grid, in degrees.
+/// GRIB2 §3.20 states `LaD` in the template; GRIB1 does not carry the field at
+/// all, and ON388 fixes it at ±60°. Surfaced through
+/// [`PolarStereoGrid::lad`], which is where a consumer should read it.
+const POLAR_STEREO_LAD_DEG: f64 = 60.0;
+
 impl ResolutionFlags {
     /// Radius of the sphere to project this grid on, in metres.
     ///
@@ -57,6 +63,7 @@ impl ResolutionFlags {
 }
 
 /// Scanning mode flags — WMO ON388 Flag Table 8 (GDS octet 28).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ScanningMode {
     /// True = points scan in −i direction (east→west); false = west→east.
     pub i_negative: bool,
@@ -199,6 +206,33 @@ pub struct PolarStereoGrid {
 }
 
 impl PolarStereoGrid {
+    /// Latitude of true scale, in degrees.
+    ///
+    /// GRIB1 has no `LaD` field: ON388 fixes a polar stereographic grid's
+    /// true-scale parallel at ±60°, so every consumer building
+    /// [`PolarStereoParams`] has to supply it. The projectors take the
+    /// magnitude, so this is 60° for a South-Pole grid too — the hemisphere is
+    /// [`Self::south_pole`], not the sign of this.
+    pub fn lad(&self) -> f64 {
+        POLAR_STEREO_LAD_DEG
+    }
+
+    /// `(Dx, Dy)` in metres with the scanning-mode sign applied.
+    ///
+    /// [`Self::dx_m`] and [`Self::dy_m`] are the unsigned magnitudes ON388
+    /// encodes (GDS octets 21–23 / 24–26); the direction lives in the scanning
+    /// mode. Anything that walks from the first scanned point — the warp, the
+    /// far-corner recovery below, [`crate::geometry`] — needs the signed pair,
+    /// and a grid scanning north-to-south walks `-Dy`.
+    pub fn signed_increments(&self) -> (f64, f64) {
+        signed_grid_increments(
+            f64::from(self.dx_m),
+            f64::from(self.dy_m),
+            self.scanning_mode.i_negative,
+            self.scanning_mode.j_positive,
+        )
+    }
+
     /// Geographic `(lat, lon)` of the last scanned grid point — the corner
     /// diagonally opposite the origin.
     ///
@@ -211,12 +245,7 @@ impl PolarStereoGrid {
         // grid runs from its first point, so the walk has to carry that sign or
         // a north→south grid reports a corner on the wrong side of its origin
         // (#472). The warp has always applied it — this is the same rule.
-        let (dx, dy) = signed_grid_increments(
-            self.dx_m as f64,
-            self.dy_m as f64,
-            self.scanning_mode.i_negative,
-            self.scanning_mode.j_positive,
-        );
+        let (dx, dy) = self.signed_increments();
         let projector = PolarStereoProjector::new(PolarStereoParams {
             earth_radius_m: self.resolution_flags.earth_radius_m(),
             ni: self.nx,
@@ -224,9 +253,7 @@ impl PolarStereoGrid {
             lat_first: self.lat_first,
             lon_first: self.lon_first,
             lov: self.lov,
-            // GRIB1 polar stereo fixes the latitude of true scale at ±60°
-            // (there is no LaD field); the projector takes the magnitude.
-            lad: 60.0,
+            lad: self.lad(),
             dx_metres: dx,
             dy_metres: dy,
             south_pole: self.south_pole,
@@ -265,6 +292,17 @@ pub struct LambertGrid {
 }
 
 impl LambertGrid {
+    /// `(Dx, Dy)` in metres with the scanning-mode sign applied. Same rule as
+    /// [`PolarStereoGrid::signed_increments`], for the same reason.
+    pub fn signed_increments(&self) -> (f64, f64) {
+        signed_grid_increments(
+            f64::from(self.dx_m),
+            f64::from(self.dy_m),
+            self.scanning_mode.i_negative,
+            self.scanning_mode.j_positive,
+        )
+    }
+
     /// Geographic `(lat, lon)` of the last scanned grid point — the corner
     /// diagonally opposite the origin.
     ///
@@ -274,12 +312,7 @@ impl LambertGrid {
     /// matching how the warp path builds [`LambertParams`].
     fn last_point(&self) -> Option<(f64, f64)> {
         // Scan-signed, for the reason in [`PolarStereoGrid::last_point`].
-        let (dx, dy) = signed_grid_increments(
-            self.dx_m as f64,
-            self.dy_m as f64,
-            self.scanning_mode.i_negative,
-            self.scanning_mode.j_positive,
-        );
+        let (dx, dy) = self.signed_increments();
         let projector = LambertProjector::new(LambertParams {
             earth_radius_m: self.resolution_flags.earth_radius_m(),
             ni: self.nx,
@@ -351,6 +384,57 @@ impl GridDescription {
             Self::LambertConformal(_) => "lambert",
             Self::SphericalHarmonic(_) => "spherical_harmonic",
             Self::Unsupported { .. } => "unsupported",
+        }
+    }
+
+    /// The scanning-mode flags (GDS octet 28), for the grids that have them.
+    ///
+    /// `None` for the two variants that describe no raster: spherical-harmonic
+    /// coefficients live in wavenumber space and an unsupported grid type was
+    /// never parsed past its number, so neither carries a scan direction.
+    /// Mirrors `fieldglass_grib2::gds::GridDefinition::scanning_mode`, which
+    /// answers the same question about a GRIB2 §3 template.
+    ///
+    /// Prefer this over matching the variant: every consumer that has done so
+    /// has ended up with an arm list that quietly omits a grid family.
+    pub fn scanning_mode(&self) -> Option<&ScanningMode> {
+        match self {
+            Self::LatLon(g) => Some(&g.scanning_mode),
+            Self::RotatedLatLon(g) => Some(&g.scanning_mode),
+            Self::ReducedLatLon(g) => Some(&g.scanning_mode),
+            Self::Gaussian(g) => Some(&g.scanning_mode),
+            Self::ReducedGaussian(g) => Some(&g.scanning_mode),
+            Self::PolarStereographic(g) => Some(&g.scanning_mode),
+            Self::LambertConformal(g) => Some(&g.scanning_mode),
+            Self::SphericalHarmonic(_) => None,
+            Self::Unsupported { .. } => None,
+        }
+    }
+
+    /// Whether this message's values lie on a raster at all.
+    ///
+    /// False for spherical-harmonic coefficients (wavenumber space, decoded by
+    /// [`crate::Grib1Reader::decode_spectral_message`]) and for a grid type
+    /// this parser does not model. Those are exactly the variants for which
+    /// [`Self::dimensions`], [`Self::first_point`] and [`Self::bounds`] have
+    /// nothing to report, so a consumer that reads them without checking first
+    /// gets `None` where it expected a number — the shape of the #288 crash,
+    /// which was patched in the TypeScript host rather than named here.
+    ///
+    /// The converse does not hold for [`Self::bounds`] alone: a Lambert grid
+    /// whose cone collapses has a raster but no far corner (see
+    /// [`LambertGrid::last_point`]). `dimensions` and `first_point` are `Some`
+    /// exactly when this is true.
+    pub fn has_raster(&self) -> bool {
+        match self {
+            Self::LatLon(_)
+            | Self::RotatedLatLon(_)
+            | Self::ReducedLatLon(_)
+            | Self::Gaussian(_)
+            | Self::ReducedGaussian(_)
+            | Self::PolarStereographic(_)
+            | Self::LambertConformal(_) => true,
+            Self::SphericalHarmonic(_) | Self::Unsupported { .. } => false,
         }
     }
 
@@ -1267,5 +1351,223 @@ mod grid_variant_tests {
             panic!("short Lambert should error");
         };
         assert!(matches!(err, FieldglassError::Parse(_)));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn flags() -> ResolutionFlags {
+        ResolutionFlags {
+            increments_given: true,
+            earth_oblate: false,
+            uv_relative_to_grid: false,
+        }
+    }
+
+    fn scan(i_negative: bool, j_positive: bool) -> ScanningMode {
+        ScanningMode {
+            i_negative,
+            j_positive,
+            j_consecutive: false,
+        }
+    }
+
+    fn polar(scanning_mode: ScanningMode) -> PolarStereoGrid {
+        PolarStereoGrid {
+            nx: 135,
+            ny: 95,
+            lat_first: 27.203,
+            lon_first: -135.213,
+            lov: 249.0,
+            dx_m: 60_000,
+            dy_m: 60_000,
+            south_pole: false,
+            resolution_flags: flags(),
+            scanning_mode,
+        }
+    }
+
+    fn lambert(scanning_mode: ScanningMode) -> LambertGrid {
+        LambertGrid {
+            nx: 10,
+            ny: 8,
+            lat_first: 20.0,
+            lon_first: -120.0,
+            lov: -95.0,
+            dx_m: 12_000,
+            dy_m: 12_000,
+            south_pole: false,
+            latin1: 25.0,
+            latin2: 25.0,
+            lat_south_pole: -90.0,
+            lon_south_pole: 0.0,
+            resolution_flags: flags(),
+            scanning_mode,
+        }
+    }
+
+    /// One of every variant, so the exhaustive-match accessors below are
+    /// checked against the whole enum rather than the grids a test happened to
+    /// name.
+    fn every_variant() -> Vec<GridDescription> {
+        let latlon = |scanning_mode| LatLonGrid {
+            ni: 4,
+            nj: 3,
+            lat_first: 60.0,
+            lon_first: 0.0,
+            lat_last: 0.0,
+            lon_last: 30.0,
+            di: 10.0,
+            dj: 30.0,
+            resolution_flags: flags(),
+            scanning_mode,
+        };
+        vec![
+            GridDescription::LatLon(latlon(scan(false, false))),
+            GridDescription::RotatedLatLon(RotatedLatLonGrid {
+                ni: 4,
+                nj: 3,
+                lat_first: 60.0,
+                lon_first: 0.0,
+                lat_last: 0.0,
+                lon_last: 30.0,
+                di: 10.0,
+                dj: 30.0,
+                south_pole_lat: -30.0,
+                south_pole_lon: 10.0,
+                angle_of_rotation: 0.0,
+                resolution_flags: flags(),
+                scanning_mode: scan(true, false),
+            }),
+            GridDescription::ReducedLatLon(ReducedLatLonGrid {
+                nj: 2,
+                lat_first: 60.0,
+                lon_first: 0.0,
+                lat_last: 30.0,
+                lon_last: 350.0,
+                dj: 30.0,
+                points_per_row: vec![4, 6],
+                resolution_flags: flags(),
+                scanning_mode: scan(false, true),
+            }),
+            GridDescription::Gaussian(GaussianGrid {
+                ni: 8,
+                nj: 4,
+                lat_first: 60.0,
+                lon_first: 0.0,
+                lat_last: -60.0,
+                lon_last: 315.0,
+                di: 45.0,
+                n_gaussians: 2,
+                resolution_flags: flags(),
+                scanning_mode: scan(false, false),
+            }),
+            GridDescription::ReducedGaussian(ReducedGaussianGrid {
+                nj: 2,
+                lat_first: 60.0,
+                lon_first: 0.0,
+                lat_last: -60.0,
+                lon_last: 350.0,
+                n_gaussians: 1,
+                points_per_row: vec![4, 6],
+                resolution_flags: flags(),
+                scanning_mode: scan(true, true),
+            }),
+            GridDescription::PolarStereographic(polar(scan(false, true))),
+            GridDescription::LambertConformal(lambert(scan(false, false))),
+            GridDescription::SphericalHarmonic(SphericalHarmonicGrid {
+                j: 63,
+                k: 63,
+                m: 63,
+                representation_type: 1,
+                representation_mode: 1,
+            }),
+            GridDescription::Unsupported { grid_type: 13 },
+        ]
+    }
+
+    /// The flags come back from the variant that holds them, and only the two
+    /// non-raster variants have none. Reading the pair off each grid is what
+    /// the hand-written arm lists in the hosts used to do.
+    #[test]
+    fn scanning_mode_reports_the_flags_of_every_grid_family() {
+        let expected = [
+            Some(scan(false, false)),
+            Some(scan(true, false)),
+            Some(scan(false, true)),
+            Some(scan(false, false)),
+            Some(scan(true, true)),
+            Some(scan(false, true)),
+            Some(scan(false, false)),
+            None,
+            None,
+        ];
+        let got: Vec<Option<ScanningMode>> = every_variant()
+            .iter()
+            .map(|g| g.scanning_mode().copied())
+            .collect();
+        assert_eq!(got, expected);
+    }
+
+    /// `has_raster` is exactly "dimensions and first point are reportable" —
+    /// the property a consumer actually wants when it asks. If a new variant
+    /// makes the two disagree, this fails rather than the host crashing on a
+    /// `None` it did not expect (#288).
+    #[test]
+    fn has_raster_agrees_with_dimensions_and_first_point() {
+        for gds in every_variant() {
+            let name = gds.grid_type_name();
+            assert_eq!(
+                gds.has_raster(),
+                gds.dimensions().is_some(),
+                "{name}: has_raster disagrees with dimensions()"
+            );
+            assert_eq!(
+                gds.has_raster(),
+                gds.first_point().is_some(),
+                "{name}: has_raster disagrees with first_point()"
+            );
+        }
+        // Named, so the invariant above cannot be satisfied by everything
+        // answering the same way.
+        assert!(GridDescription::PolarStereographic(polar(scan(false, true))).has_raster());
+        assert!(!GridDescription::Unsupported { grid_type: 13 }.has_raster());
+    }
+
+    /// Dx/Dy come out of the GDS as magnitudes; the scanning mode is what makes
+    /// them a direction. A north-to-south scan — the operational default —
+    /// walks `-Dy`.
+    #[test]
+    fn signed_increments_apply_the_scan_direction() {
+        assert_eq!(
+            polar(scan(false, false)).signed_increments(),
+            (60_000.0, -60_000.0)
+        );
+        assert_eq!(
+            polar(scan(true, true)).signed_increments(),
+            (-60_000.0, 60_000.0)
+        );
+        assert_eq!(
+            lambert(scan(false, false)).signed_increments(),
+            (12_000.0, -12_000.0)
+        );
+        assert_eq!(
+            lambert(scan(true, true)).signed_increments(),
+            (-12_000.0, 12_000.0)
+        );
+    }
+
+    /// ON388 fixes the true-scale parallel at ±60° and the projectors take the
+    /// magnitude, so a South-Pole grid reports the same 60 — the hemisphere is
+    /// `south_pole`, not the sign of `lad`.
+    #[test]
+    fn polar_stereo_lad_is_sixty_in_both_hemispheres() {
+        let north = polar(scan(false, true));
+        assert_eq!(north.lad(), 60.0);
+        let mut south = polar(scan(false, true));
+        south.south_pole = true;
+        assert_eq!(south.lad(), 60.0);
     }
 }

@@ -206,6 +206,35 @@ impl Grib1Packing for MatrixPacking {
     }
 }
 
+/// Whether a `grid_simple_matrix` BDS actually carries a matrix at every grid
+/// point, as opposed to a scalar field behind the same sub-header.
+///
+/// The `packingType` label alone does not answer this: `matrixOfValues = 0` is
+/// a plain simple-packed field that [`MatrixPacking::decode`] handles, and only
+/// `matrixOfValues = 1` needs [`decode_matrix_of_values`]. Routing on the label
+/// sends half of them to the wrong entry point, so
+/// [`crate::Grib1Reader::message_kind`] asks this instead.
+///
+/// `false` for anything that is not `grid_simple_matrix` packing at all, and
+/// for a sub-header too truncated or malformed to read — neither is a matrix
+/// field, and this is a routing hint, not a decode.
+pub(crate) fn is_matrix_of_values(bds: &[u8], header: &BdsHeader) -> bool {
+    if header.is_spherical_harmonic
+        || header.is_complex_packing
+        || header.is_integer_data
+        || !header.has_extra_flags
+    {
+        return false;
+    }
+    let section_len = header.section_len as usize;
+    // `parse_matrix_header` bounds its reads by `section_len` and documents
+    // this as a caller invariant.
+    if bds.len() < section_len {
+        return false;
+    }
+    parse_matrix_header(bds, section_len).is_ok_and(MatrixHeader::matrix_of_values)
+}
+
 /// A decoded `matrixOfValues = 1` field: an `nr × nc` matrix at every grid
 /// point. `values` is `expected_count · nr · nc` long, laid out grid-point
 /// major (scan order) with the `nr·nc` matrix cells of each point stored

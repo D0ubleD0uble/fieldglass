@@ -2,7 +2,7 @@ use crate::bds::{BdsHeader, decode_values, parse_bds_header};
 use crate::bms::{Bitmap, parse_bitmap};
 use crate::gds::{GridDescription, parse_grid_description};
 use crate::is::{IndicatorSection, parse_indicator};
-use crate::packing::matrix::decode_matrix_of_values;
+use crate::packing::matrix::{decode_matrix_of_values, is_matrix_of_values};
 use crate::packing::spherical::{SpectralCoefficients, decode_spectral};
 use crate::pds::{ProductDefinition, parse_product_definition};
 use fieldglass_core::FieldglassError;
@@ -56,6 +56,32 @@ impl Grib1Message {
 /// allocation at ~1 GB (16 bytes/element).
 pub const MAX_GRID_POINTS: usize = 64 * 1024 * 1024;
 
+/// Which decode entry point a message routes to.
+///
+/// GRIB1 has three shapes of payload behind one file format, and each has its
+/// own method on [`Grib1Reader`] because none of them is one `Option<f64>` per
+/// grid point in the same sense as the others. Deciding between them takes both
+/// the GDS grid type *and* the BDS flags — a `grid_simple_matrix` message with
+/// `matrixOfValues = 0` is an ordinary scalar field despite its label — so a
+/// consumer that routes on the packing label alone gets it wrong. Ask this
+/// instead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Grib1MessageKind {
+    /// One value per grid point: [`Grib1Reader::decode_message_values`].
+    Grid,
+    /// Spherical-harmonic coefficients:
+    /// [`Grib1Reader::decode_spectral_message`], or
+    /// [`Grib1Reader::synthesize_spectral_message`] to put them on a grid.
+    Spectral,
+    /// An `NR × NC` matrix at every grid point:
+    /// [`Grib1Reader::decode_matrix_message`].
+    Matrix,
+    /// No entry point applies: the index is out of range, the message declares
+    /// no grid this parser resolves (no GDS and no known predefined grid, or an
+    /// unmodelled grid type), or its BDS header does not parse.
+    Unsupported,
+}
+
 pub struct Grib1Reader {
     data: Vec<u8>,
     pub messages: Vec<Grib1Message>,
@@ -91,6 +117,40 @@ impl Grib1Reader {
         parse_bds_header(bytes)
             .ok()
             .map(|header| header.packing_type_label())
+    }
+
+    /// Which decode method applies to one message — see [`Grib1MessageKind`].
+    ///
+    /// Header-only, like [`Self::packing_label`]: it reads the GDS this reader
+    /// already parsed plus the 11-byte BDS header (and, for a matrix-packed
+    /// message, its sub-header), and never decodes values.
+    ///
+    /// [`Grib1MessageKind::Grid`] says which method to call, not that it will
+    /// succeed — a grid whose point count exceeds
+    /// [`MAX_GRID_POINTS`], or whose packing is unimplemented, still reports
+    /// `Grid` and fails at decode with a reason.
+    pub fn message_kind(&self, message_index: usize) -> Grib1MessageKind {
+        let Some(msg) = self.messages.get(message_index) else {
+            return Grib1MessageKind::Unsupported;
+        };
+        // GDS-driven, matching `decode_inputs` and `decode_spectral_message`:
+        // the grid type is what those two branch on, so routing has to agree
+        // with them or it sends a caller to a method that rejects the message.
+        match msg.gds.as_ref() {
+            None | Some(GridDescription::Unsupported { .. }) => Grib1MessageKind::Unsupported,
+            Some(GridDescription::SphericalHarmonic(_)) => Grib1MessageKind::Spectral,
+            Some(_) => {
+                let (start, end) = msg.bds_range;
+                let Some(bds) = self.data.get(start..end) else {
+                    return Grib1MessageKind::Unsupported;
+                };
+                match parse_bds_header(bds) {
+                    Ok(header) if is_matrix_of_values(bds, &header) => Grib1MessageKind::Matrix,
+                    Ok(_) => Grib1MessageKind::Grid,
+                    Err(_) => Grib1MessageKind::Unsupported,
+                }
+            }
+        }
     }
 
     /// Shared decode preamble for [`Self::decode_message_values`] and

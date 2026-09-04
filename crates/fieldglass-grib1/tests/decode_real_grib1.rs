@@ -43,6 +43,32 @@ fn parses_one_message_with_polar_stereo_grid() {
     assert!((lo2 - (-31.887)).abs() < 1e-2, "lon_last: {lo2}");
 }
 
+/// The grid's own accessors for the two things GRIB1 does not state outright:
+/// the sign of `Dx`/`Dy` (magnitudes in the GDS, direction in the scanning
+/// mode) and the latitude of true scale (no `LaD` field at all). Every consumer
+/// that builds [`PolarStereoParams`] needs both, and this fixture is the real
+/// message the numbers come from — eccodes reports `iScansNegatively = 0`,
+/// `jScansPositively = 1`, `DxInMetres = DyInMetres = 60000` for it.
+#[test]
+fn polar_stereo_accessors_supply_the_sign_and_the_true_scale() {
+    let reader = open();
+    let gds = reader.messages[0].gds.as_ref().expect("polar stereo GDS");
+    let GridDescription::PolarStereographic(g) = gds else {
+        panic!("expected a polar-stereographic grid");
+    };
+    // j scans positively here, so both increments stay positive — the case the
+    // whole-grid check below relies on.
+    assert_eq!(g.signed_increments(), (60_000.0, 60_000.0));
+    assert_eq!(g.lad(), 60.0);
+    // And the scan flags come off the enum without matching the variant.
+    let scan = gds
+        .scanning_mode()
+        .expect("a polar stereo grid has scan flags");
+    assert!(!scan.i_negative);
+    assert!(scan.j_positive);
+    assert!(gds.has_raster());
+}
+
 #[test]
 fn polar_stereo_grid_points_match_the_eccodes_iterator() {
     // The whole grid, not just a corner. Values are eccodes' own `grib_get_data`
@@ -65,7 +91,7 @@ fn polar_stereo_grid_points_match_the_eccodes_iterator() {
         lat_first: g.lat_first,
         lon_first: g.lon_first,
         lov: g.lov,
-        lad: 60.0,
+        lad: g.lad(),
         dx_metres: g.dx_m as f64,
         dy_metres: g.dy_m as f64,
         south_pole: g.south_pole,
