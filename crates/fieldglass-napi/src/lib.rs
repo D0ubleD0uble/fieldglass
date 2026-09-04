@@ -10225,6 +10225,14 @@ mod curvilinear_render_tests {
 
     fn nc(bytes: &[u8]) -> NetcdfHandle {
         let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("fixture parses");
+        // `view()` serves both backings, where the `from_hdf5` call this
+        // replaced would have failed on a classic file. These fixtures are
+        // NetCDF-4, so say so rather than letting a swap pass quietly.
+        assert!(
+            matches!(reader.backing, NetcdfBacking::Hdf5(_)),
+            "expected HDF5 backing, got {:?}",
+            reader.backing.label()
+        );
         let view = reader.view().expect("hdf5 metadata");
         NetcdfHandle {
             reader,
