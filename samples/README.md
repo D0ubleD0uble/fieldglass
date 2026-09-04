@@ -14,7 +14,11 @@ large and licence-varied, so it stays local.
 ```sh
 tools/fetch_samples.sh            # all freely-available models
 tools/fetch_samples.sh gfs hrrr   # just the named ones
+DATE=20260629 CYCLE=12 tools/fetch_samples.sh   # pin a run
 ```
+
+It defaults to yesterday's 00Z. MRMS, NBM, ECCC and ICON keep only a day or
+two, so if one 404s, re-run that model with today's `DATE`.
 
 The script pulls from public, no-credential endpoints (NOAA NOMADS / AWS Open
 Data, ECMWF open data, ECCC datamart). Auth-gated sources (MERRA-2, ERA5,

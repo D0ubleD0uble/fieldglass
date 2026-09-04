@@ -17,6 +17,9 @@
 #   tools/fetch_samples.sh gfs hrrr goes   # only the named ones
 #   DATE=20260629 CYCLE=00 tools/fetch_samples.sh   # pin a run (see note below)
 #
+# DATE is YYYYMMDD and CYCLE an hour (6 and 06 both work); a bad one stops the
+# run instead of putting a hole in fourteen URLs.
+#
 # Run availability: defaults to yesterday's 00Z, which is safe for the NCEP/ECMWF
 # models. MRMS, NBM, ECCC and ICON keep only ~1-2 days of data — if one 404s,
 # re-run that model with today's DATE.
@@ -26,14 +29,48 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$REPO/samples"
 mkdir -p "$OUT"
 
-DATE="${DATE:-$(date -u -d yesterday +%Y%m%d)}"
-CYCLE="${CYCLE:-00}"
-YEAR="${DATE:0:4}"
-DOY="$(date -u -d "${DATE}" +%j)"
-
 info() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 ok()   { printf '\033[1;32m ok\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m  ! \033[0m %s\n' "$*" >&2; }
+die()  { printf '\033[1;31merror\033[0m %s\n' "$*" >&2; exit 2; }
+
+# GNU coreutils and BSD/macOS `date` take incompatible flags for both things
+# this script needs — "one day ago" and "parse this YYYYMMDD" — so pick the
+# pair up front. Deliberately not a `gnu_form || bsd_form` fallback chain:
+# BSD `date` reads the argument of -d as a daylight-saving flag and then still
+# prints *today*, so the chain would succeed and hand every URL a plausible
+# wrong date. Only GNU date answers `--version`, and asking costs nothing.
+if date --version >/dev/null 2>&1; then
+  utc_yesterday() { date -u -d yesterday +%Y%m%d; }
+  day_of_year()   { date -u -d "$1" +%j; }
+else
+  utc_yesterday() { date -u -v-1d +%Y%m%d; }
+  day_of_year()   { date -u -j -f %Y%m%d "$1" +%j; }
+fi
+
+DATE="${DATE:-$(utc_yesterday)}"
+CYCLE="${CYCLE:-00}"
+
+# Validate before fetching rather than after. An unusable DATE used to leave a
+# hole in every URL and fail all fourteen models one confusing 404 at a time;
+# the only tell was the blank in the run banner.
+case "$DATE" in
+  [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) ;;
+  *) die "DATE must be YYYYMMDD (got '${DATE}'). Pass one explicitly: DATE=$(date -u +%Y%m%d) tools/fetch_samples.sh" ;;
+esac
+case "$CYCLE" in
+  ''|*[!0-9]*) die "CYCLE must be an hour 0-23 (got '${CYCLE}')" ;;
+esac
+[ "$((10#$CYCLE))" -le 23 ] || die "CYCLE must be an hour 0-23 (got '${CYCLE}')"
+
+# Normalise 6 -> 06 once, here, so every model's URL gets the padded form.
+# `10#` is why this is arithmetic expansion and not `printf '%02d' 10#$CYCLE`:
+# bash's printf rejects a based literal outright ("10#00: invalid number").
+CYCLE="$(printf '%02d' "$((10#$CYCLE))")"
+
+YEAR="${DATE:0:4}"
+DOY="$(day_of_year "$DATE")" || die "could not read a day-of-year out of DATE=${DATE}"
+[ -n "$DOY" ] || die "could not read a day-of-year out of DATE=${DATE}"
 
 # Extract the first GRIB2 message matching a regex from a wgrib2-style .idx,
 # via a byte-range request. $1 grib url, $2 output path, $3 idx line regex.
@@ -140,9 +177,7 @@ get_goes() { # NetCDF-4, geostationary — mesoscale band 13
   # S3 lists lexicographically, and the band token (M6C13) sorts before the
   # timestamp — so the band must be in the prefix or a page of keys never
   # reaches band 13. Target sector M1, band 13 directly.
-  local hh prefix
-  hh="$(printf '%02d' 10#"$CYCLE")"
-  prefix="ABI-L2-CMIPM/${YEAR}/${DOY}/${hh}/OR_ABI-L2-CMIPM1-M6C13"
+  local prefix="ABI-L2-CMIPM/${YEAR}/${DOY}/${CYCLE}/OR_ABI-L2-CMIPM1-M6C13"
   local list="https://noaa-goes19.s3.amazonaws.com/?list-type=2&prefix=${prefix}&max-keys=5"
   local key
   key="$(curl -fsSL "$list" | grep -o '<Key>[^<]*</Key>' | head -1 | sed 's/<[^>]*>//g')" \
@@ -230,7 +265,7 @@ get_mirs() { # NetCDF-4, satellite swath (per-pixel 2-D lat/lon)
 ALL=(gfs hrrr nam rap nbm mrms ecmwf eccc icon goes oisst wrf rtofs mirs)
 targets=("$@"); [ ${#targets[@]} -eq 0 ] && targets=("${ALL[@]}")
 
-info "run: ${DATE} ${CYCLE}Z  ->  $OUT"
+info "run: ${DATE} ${CYCLE}Z (day ${DOY})  ->  $OUT"
 for t in "${targets[@]}"; do
   if declare -f "get_$t" >/dev/null; then "get_$t"; else warn "unknown model: $t"; fi
 done

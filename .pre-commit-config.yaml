@@ -109,6 +109,14 @@ repos:
         entry: python3 tools/test_check_generator_encoding.py
         pass_filenames: false
 
+      - id: fetch-samples-selftest
+        name: sample-fetch script self-test
+        stages: [pre-push]
+        language: system
+        files: ^tools/(fetch_samples|test_fetch_samples)\.sh$
+        entry: bash tools/test_fetch_samples.sh
+        pass_filenames: false
+
       - id: cargo-test
         name: cargo test --workspace
         stages: [pre-push]
