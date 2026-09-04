@@ -32,7 +32,6 @@ from __future__ import annotations
 import argparse
 import gzip
 import os
-import re
 import sys
 from pathlib import Path
 
@@ -86,6 +85,11 @@ def parse_readme_table(readme: Path) -> dict[str, tuple[int, int]]:
         raw, gz = cells[1].replace(",", ""), cells[2].replace(",", "")
         if not (raw.isdigit() and gz.isdigit()):
             continue  # the header row and the `|---|` rule
+        if int(raw) == 0 or int(gz) == 0:
+            # `drift` divides by the recorded figure, and a zero would be a
+            # traceback where the point is a readable failure. A recorded zero
+            # is a broken row anyway.
+            raise Failure(f"{readme}: build {name!r} records a size of zero")
         rows[name] = (int(raw), int(gz))
 
     if not rows:

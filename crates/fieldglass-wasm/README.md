@@ -142,14 +142,26 @@ x86-64 Linux machine, Node 22:
 
 | Field | Points | native ms | wasm ms | wasm / native |
 |---|---:|---:|---:|---:|
-| ECMWF IFS 0.25°, CCSDS (5.42) | 1,038,240 | 33.3 | 68.0 | 2.0× |
-| HRRR 3 km Lambert, complex+spd (5.3) | 1,905,141 | 36.4 | 54.7 | 1.5× |
-| RAP 13 km Lambert, JPEG 2000 (5.40) | 151,987 | 46.9 | 144.1 | 3.1× |
+| ECMWF IFS 0.25°, CCSDS (5.42) | 1,038,240 | 30.2 | 68.4 | 2.3× |
+| HRRR 3 km Lambert, complex+spd (5.3) | 1,905,141 | 33.3 | 56.0 | 1.7× |
+| RAP 13 km Lambert, JPEG 2000 (5.40) | 151,987 | 42.8 | 146.6 | 3.4× |
 
-1.5–3.1×, which is where the literature puts numeric wasm. JPEG 2000 is the
-outlier at both ends: the slowest per point natively and the worst ratio, so it
-is the one decode a browser host should expect to feel. `+simd128` moves every
-row by less than the run-to-run spread.
+Both columns move about 10% run to run on an unquiesced machine, so read the
+ratios as 1.5–3.5× rather than to two figures. That is where the literature puts
+numeric wasm. JPEG 2000 is the outlier at both ends — the slowest per point
+natively and the worst ratio — so it is the one decode a browser host should
+expect to feel, and the reason reduced-resolution 5.40 decode
+([#463](https://github.com/D0ubleD0uble/fieldglass/issues/463)) matters more in
+a browser than it does natively. `+simd128` moves every row by less than that
+spread.
+
+One correction to the scale #462 assumed. It put the HRRR field at 193 ms
+native, and it is not: 33 ms through `Session::decode`, and 36 ms through the
+napi addon's `decodeGrid` on a cold cache, on this machine. Where the older
+figure came from is not known — a different machine, a debug build, or a
+different message — so the useful part is that the browser cost of a
+1.9-million-point complex-packed field is tens of milliseconds, not a fifth of a
+second.
 
 Reproduce:
 

@@ -3,7 +3,7 @@
 //
 //   crates/fieldglass-wasm/build.sh nodejs
 //   node crates/fieldglass-wasm/tests/node/bench.mjs [--native native.json] \
-//       [--pkg pkg/nodejs] [--label baseline]
+//       [--pkg crates/fieldglass-wasm/pkg/nodejs] [--label baseline]
 //
 // The one load-bearing number nobody had measured (#462). Literature says
 // wasm runs numeric code 1.5-3x slower than native; this makes it a figure in
@@ -52,15 +52,22 @@ function die(message) {
   process.exit(1);
 }
 
-function argValue(flag) {
+// A flag that is present but has nothing after it is a mistake, not a default:
+// silently falling back would drop the native column, or benchmark the baseline
+// bundle under the `+simd128` heading, and the run would still look fine.
+function argValue(flag, fallback = null) {
   const i = process.argv.indexOf(flag);
-  return i === -1 ? null : process.argv[i + 1];
+  if (i === -1) return fallback;
+  const value = process.argv[i + 1];
+  if (value === undefined || value.startsWith('--')) die(`${flag} wants a value`);
+  return value;
 }
 
 // `--pkg` so the `+simd128` variant, which `build.sh --simd` writes to
 // `pkg/nodejs-simd`, is timed by the same harness rather than a second copy.
-const pkgDir = argValue('--pkg') ?? 'crates/fieldglass-wasm/pkg/nodejs';
-const variant = argValue('--label') ?? 'baseline';
+// Repository-relative, like every other path here.
+const pkgDir = argValue('--pkg', 'crates/fieldglass-wasm/pkg/nodejs');
+const variant = argValue('--label', 'baseline');
 const WASM = join(repoRoot, pkgDir, 'fieldglass_wasm.js');
 
 if (!existsSync(WASM)) {

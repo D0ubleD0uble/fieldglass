@@ -126,10 +126,17 @@ jobs:
             -p fieldglass-core -p fieldglass-grib1 -p fieldglass-grib2 \
             -p fieldglass-netcdf -p fieldglass-wasm
 
-      - name: Build the browser bundle (baseline and +simd128)
+      # Grouped baseline-then-simd on purpose. `--simd` changes RUSTFLAGS, which
+      # changes the fingerprint of every crate in the graph, so alternating the
+      # two would compile the whole tree four times instead of twice. The `web`
+      # and `nodejs` builds of one variant share their cargo artifact and differ
+      # only in the wasm-bindgen glue.
+      - name: Build the browser bundles
         run: |
           crates/fieldglass-wasm/build.sh web
+          crates/fieldglass-wasm/build.sh nodejs
           crates/fieldglass-wasm/build.sh web --simd
+          crates/fieldglass-wasm/build.sh nodejs --simd
 
       # Fails when either build drifts more than 5% from the figures in the
       # crate README, in either direction, so the documented size is the
@@ -152,8 +159,6 @@ jobs:
       # deliverable, and a per-run timing gate on a shared runner would be noise.
       - name: wasm decode benchmark
         run: |
-          crates/fieldglass-wasm/build.sh nodejs
-          crates/fieldglass-wasm/build.sh nodejs --simd
           node crates/fieldglass-wasm/tests/node/bench.mjs \
             --native "$RUNNER_TEMP/native.json"
           node crates/fieldglass-wasm/tests/node/bench.mjs \

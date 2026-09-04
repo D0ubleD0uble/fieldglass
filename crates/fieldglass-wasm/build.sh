@@ -50,12 +50,7 @@ if [ "$RUN_WASM_OPT" -eq 1 ] && ! command -v wasm-opt >/dev/null 2>&1; then
   exit 1
 fi
 
-# One list, used twice: once as the flag cargo compiles with, once as the flag
-# `rustc --print cfg` is asked under, so the wasm-opt feature set below matches
-# what was actually built rather than the bare target's defaults.
-TARGET_FEATURE_ARGS=()
 if [ "$SIMD" -eq 1 ]; then
-  TARGET_FEATURE_ARGS=(-C target-feature=+simd128)
   export RUSTFLAGS="${RUSTFLAGS:-} -C target-feature=+simd128"
 fi
 
@@ -79,6 +74,17 @@ if [ "$RUN_WASM_OPT" -eq 1 ]; then
   # toolchain rather than hardcoded, so a rustc that enables a new proposal is a
   # loud "Unknown option" here instead of a silently skipped optimisation.
   # Three of the names differ between rustc and binaryen.
+  #
+  # Asked under the same `-C target-feature` the build used, so `--simd` picks up
+  # `--enable-simd` without a second list to keep in step. Two `rustc` calls
+  # rather than one array of flags: expanding an empty array under `set -u` is an
+  # error in the bash 3.2 that macOS still ships.
+  if [ "$SIMD" -eq 1 ]; then
+    cfg="$(rustc --target wasm32-unknown-unknown -C target-feature=+simd128 --print cfg)"
+  else
+    cfg="$(rustc --target wasm32-unknown-unknown --print cfg)"
+  fi
+
   features=()
   while read -r feature; do
     case "$feature" in
@@ -87,8 +93,10 @@ if [ "$RUN_WASM_OPT" -eq 1 ]; then
       atomics)             feature=threads ;;
     esac
     features+=("--enable-$feature")
-  done < <(rustc --target wasm32-unknown-unknown "${TARGET_FEATURE_ARGS[@]}" --print cfg \
-             | sed -n 's/^target_feature="\(.*\)"$/\1/p')
+  done < <(printf '%s\n' "$cfg" | sed -n 's/^target_feature="\(.*\)"$/\1/p')
+
+  [ "${#features[@]}" -gt 0 ] \
+    || { echo "rustc named no target features for wasm32; refusing to guess" >&2; exit 1; }
 
   wasm-opt -Oz "${features[@]}" "$WASM" -o "$WASM.opt"
   mv "$WASM.opt" "$WASM"

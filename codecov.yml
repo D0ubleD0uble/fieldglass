@@ -95,3 +95,4 @@ ignore:
   - "crates/fieldglass-core/src/cct_tables.rs"
   - "crates/fieldglass-core/src/colormap_tables.rs"
   - "**/tests/**"
+  - "**/examples/**"

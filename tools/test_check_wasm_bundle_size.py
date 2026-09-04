@@ -72,6 +72,13 @@ class ParseTable(unittest.TestCase):
         with self.assertRaises(chk.Failure):
             chk.parse_readme_table(self.readme(gutted))
 
+    def test_a_recorded_zero_is_a_failure(self) -> None:
+        # `drift` divides by the recorded figure; a zero must be a readable
+        # failure rather than a ZeroDivisionError traceback.
+        zeroed = f"{chk.TABLE_MARKER}\n\n| Build | a | b |\n|---|---|---|\n| baseline | 0 | 0 |\n"
+        with self.assertRaises(chk.Failure):
+            chk.parse_readme_table(self.readme(zeroed))
+
     def test_the_real_readme_parses(self) -> None:
         # Guards the marker and the table shape in the file CI actually reads.
         rows = chk.parse_readme_table(chk.DEFAULT_README)

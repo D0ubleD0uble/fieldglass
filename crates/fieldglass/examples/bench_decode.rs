@@ -97,18 +97,26 @@ fn main() {
     );
 
     if json {
-        println!("{{");
-        println!("  \"iterations\": {ITERATIONS},");
-        println!("  \"fields\": [");
-        for (i, (file, label, points, open_ms, ms)) in rows.iter().enumerate() {
-            let comma = if i + 1 == rows.len() { "" } else { "," };
-            println!(
-                "    {{ \"file\": \"{file}\", \"label\": \"{label}\", \"points\": {points}, \
-                 \"openMs\": {open_ms:.3}, \"decodeMs\": {ms:.3} }}{comma}"
-            );
-        }
-        println!("  ]");
-        println!("}}");
+        // serde_json rather than hand-written braces: the labels are prose, and
+        // a future one with a quote in it would emit a file the reader parses
+        // wrong rather than a file it rejects.
+        let fields: Vec<serde_json::Value> = rows
+            .iter()
+            .map(|(file, label, points, open_ms, ms)| {
+                serde_json::json!({
+                    "file": file,
+                    "label": label,
+                    "points": points,
+                    "openMs": open_ms,
+                    "decodeMs": ms,
+                })
+            })
+            .collect();
+        let report = serde_json::json!({ "iterations": ITERATIONS, "fields": fields });
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).expect("plain values serialise")
+        );
     } else {
         println!("native decode, median of {ITERATIONS} (release)");
         println!(
