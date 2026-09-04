@@ -1,7 +1,6 @@
 //! Native decode timings for the wasm benchmark to be measured against.
 //!
-//!     cargo run --release -p fieldglass --example bench_decode
-//!     cargo run --release -p fieldglass --example bench_decode -- --json
+//!     cargo run --release -p fieldglass --example bench_decode > native.json
 //!
 //! The corpus is the three committed real-producer GRIB2 fixtures, so this runs
 //! from a clean clone with no network and no `samples/` (issue #462 asked for
@@ -14,8 +13,12 @@
 //! `Session::open` is timed separately because it only walks the section
 //! headers, so folding it in would dilute the figure the browser cares about.
 //!
-//! `--json` is what `crates/fieldglass-wasm/tests/node/bench.mjs` reads to put
-//! the wasm column beside this one.
+//! The output is pretty-printed JSON and nothing else: it is what
+//! `crates/fieldglass-wasm/tests/node/bench.mjs` reads to put the wasm column
+//! beside this one, and it is legible enough on its own that a second
+//! human-readable mode would only have been a flag to get wrong. Reading one off
+//! `std::env::args()` also trips `rust.lang.security.args.args`, and this repo
+//! keeps zero semgrep suppressions.
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -57,7 +60,6 @@ fn median_ms(samples: &mut [f64]) -> f64 {
 }
 
 fn main() {
-    let json = std::env::args().any(|a| a == "--json");
     let dir = fixtures_dir();
     let mut rows = Vec::new();
 
@@ -96,35 +98,24 @@ fn main() {
         "the corpus is empty, so nothing was measured"
     );
 
-    if json {
-        // serde_json rather than hand-written braces: the labels are prose, and
-        // a future one with a quote in it would emit a file the reader parses
-        // wrong rather than a file it rejects.
-        let fields: Vec<serde_json::Value> = rows
-            .iter()
-            .map(|(file, label, points, open_ms, ms)| {
-                serde_json::json!({
-                    "file": file,
-                    "label": label,
-                    "points": points,
-                    "openMs": open_ms,
-                    "decodeMs": ms,
-                })
+    // serde_json rather than hand-written braces: the labels are prose, and a
+    // future one with a quote in it would emit a file the reader parses wrong
+    // rather than a file it rejects.
+    let fields: Vec<serde_json::Value> = rows
+        .iter()
+        .map(|(file, label, points, open_ms, ms)| {
+            serde_json::json!({
+                "file": file,
+                "label": label,
+                "points": points,
+                "openMs": open_ms,
+                "decodeMs": ms,
             })
-            .collect();
-        let report = serde_json::json!({ "iterations": ITERATIONS, "fields": fields });
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&report).expect("plain values serialise")
-        );
-    } else {
-        println!("native decode, median of {ITERATIONS} (release)");
-        println!(
-            "{:<38} {:>10} {:>9} {:>9}",
-            "field", "points", "open ms", "ms"
-        );
-        for (_, label, points, open_ms, ms) in &rows {
-            println!("{label:<38} {points:>10} {open_ms:>9.2} {ms:>9.2}");
-        }
-    }
+        })
+        .collect();
+    let report = serde_json::json!({ "iterations": ITERATIONS, "fields": fields });
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&report).expect("plain values serialise")
+    );
 }

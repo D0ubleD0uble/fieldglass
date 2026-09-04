@@ -149,7 +149,7 @@ jobs:
 
       - name: Native decode baseline
         run: |
-          cargo run --release -q -p fieldglass --example bench_decode -- --json \
+          cargo run --release -q -p fieldglass --example bench_decode \
             > "$RUNNER_TEMP/native.json"
           cat "$RUNNER_TEMP/native.json"
 

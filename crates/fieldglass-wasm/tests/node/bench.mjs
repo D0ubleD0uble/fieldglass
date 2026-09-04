@@ -23,7 +23,7 @@
 // green on a module that decodes garbage.
 //
 // `--native <file>` is the JSON from
-// `cargo run --release -p fieldglass --example bench_decode -- --json`; without
+// `cargo run --release -p fieldglass --example bench_decode`; without
 // it the native column is omitted and the run says so.
 
 import { createRequire } from 'node:module';
@@ -81,7 +81,7 @@ if (nativePath) {
   if (!existsSync(nativePath)) {
     die(
       `missing: ${nativePath}\n  produce it with: cargo run --release -p fieldglass ` +
-        '--example bench_decode -- --json',
+        '--example bench_decode',
     );
   }
   const parsed = JSON.parse(readFileSync(nativePath, 'utf8'));

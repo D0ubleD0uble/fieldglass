@@ -166,7 +166,7 @@ second.
 Reproduce:
 
 ```sh
-cargo run --release -p fieldglass --example bench_decode -- --json > native.json
+cargo run --release -p fieldglass --example bench_decode > native.json
 crates/fieldglass-wasm/build.sh nodejs
 node crates/fieldglass-wasm/tests/node/bench.mjs --native native.json
 ```
