@@ -937,10 +937,10 @@ pub fn undo_alternate_rows(values: &mut [Option<f64>], ni: usize) {
             break;
         }
         values[start..end].reverse();
-        match end.checked_add(ni) {
-            Some(next) => start = next, // next odd row
-            None => break,
-        }
+        // `ni <= end <= values.len()` here (`start` opens at `ni` and only
+        // grows), so this sum is at most `2 · values.len()` — and a real slice
+        // of 16-byte elements cannot be half of the address space.
+        start = end + ni; // next odd row
     }
 }
 
@@ -2066,8 +2066,8 @@ mod tests {
     ///
     /// `ni` is a `u32` from §3 widened to `usize`; the decoder's cap bounds
     /// `ni · nj`, which says nothing about `ni` when `nj` is zero. On a 32-bit
-    /// target `start + ni` and `start + 2·ni` both wrap there — this is the
-    /// same arithmetic on any target, expressed so the checks are exercised.
+    /// target the first row start then wraps — this is that same arithmetic,
+    /// written at a width where any target reaches it.
     #[test]
     fn undo_alternate_rows_does_not_overflow_on_a_huge_width() {
         let mut v = some(&[1.0, 2.0, 3.0]);

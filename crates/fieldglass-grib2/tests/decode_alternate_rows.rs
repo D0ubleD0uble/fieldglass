@@ -223,3 +223,40 @@ fn a_reduced_grid_is_flipped_by_its_own_row_widths() {
     );
     assert_ne!(after, before, "at least one row must actually have moved");
 }
+
+/// A grid with no rows is neither flipped nor refused.
+///
+/// HEALPix (§3.150) is one list of pixels, not a raster: there is no row for
+/// bit 4 to reverse and no column for bit 3 to make consecutive, and the
+/// message still states a scanning mode because §3 gives it the octet. A
+/// refusal keyed on the two flags alone would turn such a message from
+/// something that renders into an error, so the check is scoped to the point
+/// where a flip is actually about to be applied. Both flags are set here and
+/// the field must come back unchanged.
+#[test]
+fn a_pixel_list_is_left_alone_by_both_flags() {
+    const HEALPIX: &[u8] = include_bytes!("fixtures/healpix_n2_ring.grib2");
+
+    let plain = Grib2Reader::from_bytes(HEALPIX.to_vec()).expect("fixture parses");
+    let before = plain.decode_message_values(0).expect("decode succeeds");
+
+    // §3.150's scanning mode is GDS octet 42.
+    let mut bytes = HEALPIX.to_vec();
+    let off = scanning_mode_offset(&bytes, 42);
+    assert_eq!(
+        bytes[off], 0,
+        "expected the fixture's scanning mode at {off}"
+    );
+    bytes[off] = fieldglass_grib2::SCAN_ALTERNATE_ROWS | fieldglass_grib2::SCAN_J_CONSECUTIVE;
+
+    let patched = Grib2Reader::from_bytes(bytes).expect("still parses");
+    assert_eq!(
+        patched.messages[0].gds.scanning_mode(),
+        Some(0x30),
+        "the patch must land on the scanning-mode octet, not another field"
+    );
+    let after = patched
+        .decode_message_values(0)
+        .expect("a pixel list has no row order to be wrong about");
+    assert_eq!(after, before);
+}

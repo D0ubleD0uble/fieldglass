@@ -60,6 +60,28 @@ pub struct Grib2Message {
     pub ds_range: (usize, usize),
 }
 
+/// Refuse a grid that alternates its rows *and* stores columns.
+///
+/// §3 Flag Table 3.4 bit 3 makes the stored run a column, so the reversal bit 4
+/// asks for is not a contiguous slice of the decoded field and the row flips
+/// above — uniform or ragged, both of which assume the run is a row — would
+/// silently scramble it. Called only where one of them is about to be applied,
+/// so a grid with no rows to reorder is not caught by it.
+///
+/// No such message is known in the wild; the alternative (returning the field
+/// with every other row backwards, which is what the napi layer used to do) is
+/// the one outcome a caller cannot detect.
+fn reject_j_consecutive(scanning_mode: u8) -> Result<(), FieldglassError> {
+    if scanning_mode & SCAN_J_CONSECUTIVE == 0 {
+        return Ok(());
+    }
+    Err(FieldglassError::UnsupportedSection(format!(
+        "scanning mode {scanning_mode} sets both alternate-row scanning (§3 Flag Table 3.4 \
+         bit 4) and j-consecutive point order (bit 3); the row order of that layout is not \
+         something this decoder can regularise"
+    )))
+}
+
 /// A decoded `grid_simple_matrix` field (template 5.1, `matrixBitmapsPresent =
 /// 1`): an `NR × NC` matrix at every grid point. `values` is `ni·nj·nr·nc` long,
 /// grid-point major (scan order) with each point's `nr·nc` matrix cells stored
@@ -138,27 +160,6 @@ impl Grib2Reader {
                  values on a grid — decode them with `Grib2Reader::decode_bifourier_message`"
                     .to_string(),
             ));
-        }
-
-        // A column-major grid that *also* alternates its row direction is a
-        // layout this cannot regularise: §3 Flag Table 3.4 bit 3 makes the
-        // stored run a column, so the reversal bit 4 asks for is not a
-        // contiguous slice of the decoded field and `undo_alternate_rows`
-        // would silently scramble it. Refuse it here, before the decode, the
-        // way the two coefficient guards above refuse a message that is not
-        // values on a grid — the flip itself is applied at the end of this
-        // function. No such message is known in the wild; the alternative
-        // (returning the field with every other row backwards, which is what
-        // the napi layer used to do) is the one outcome a caller cannot detect.
-        if let Some(sm) = msg.gds.scanning_mode()
-            && sm & SCAN_ALTERNATE_ROWS != 0
-            && sm & SCAN_J_CONSECUTIVE != 0
-        {
-            return Err(FieldglassError::UnsupportedSection(format!(
-                "scanning mode {sm} sets both alternate-row scanning (§3 Flag Table 3.4 bit 4) \
-                 and j-consecutive point order (bit 3); the row order of that layout is not \
-                 something this decoder can regularise"
-            )));
         }
 
         // How many values the grid layout says the message holds. Rasters get
@@ -286,24 +287,26 @@ impl Grib2Reader {
         // It composes with the second-order undo above rather than replacing
         // it: 5.50002's `boustrophedonicOrdering` is a property of the packing
         // and this is a property of the grid, and eccodes applies both, in this
-        // order. The j-consecutive combination is refused at the top of this
-        // function, so only the `i`-consecutive layout reaches here.
+        // order.
         if let Some(sm) = msg.gds.scanning_mode()
             && sm & SCAN_ALTERNATE_ROWS != 0
         {
-            match msg.gds.points_per_row() {
-                // A reduced grid is flipped by its own row widths, on the
-                // stored field — reversing a row after expansion is not the
-                // same operation, because expansion maps columns by longitude.
-                Some(pl) => undo_alternate_reduced_rows(&mut values, pl),
-                // `row_width` is `None` for the shapes with no uniform rows to
-                // flip (HEALPix's single pixel list, and the reduced grid
-                // handled above), which is exactly when this is a no-op.
-                None => {
-                    if let Some(ni) = row_width {
-                        undo_alternate_rows(&mut values, ni as usize);
-                    }
+            // A reduced grid is flipped by its own row widths, on the stored
+            // field — reversing a row after expansion is not the same
+            // operation, because expansion maps columns by longitude.
+            // `row_width` carries the uniform case, and is `None` for the
+            // shapes with no rows at all: HEALPix is one list of pixels, so
+            // there is nothing here to reorder and nothing to refuse.
+            match (msg.gds.points_per_row(), row_width) {
+                (Some(pl), _) => {
+                    reject_j_consecutive(sm)?;
+                    undo_alternate_reduced_rows(&mut values, pl);
                 }
+                (None, Some(ni)) => {
+                    reject_j_consecutive(sm)?;
+                    undo_alternate_rows(&mut values, ni as usize);
+                }
+                (None, None) => {}
             }
         }
         Ok(values)
