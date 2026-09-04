@@ -15,7 +15,9 @@ const MSG_DATATYPE: u16 = 0x0003;
 /// The decoded shape and element type of a dataset.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DatasetShape {
+    /// The dataset's decoded shape.
     pub dataspace: Dataspace,
+    /// The dataset's decoded element type.
     pub datatype: Datatype,
 }
 

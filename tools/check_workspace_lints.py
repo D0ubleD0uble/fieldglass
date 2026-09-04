@@ -52,7 +52,6 @@ DEBT = {
     "crates/fieldglass-core": 158,
     "crates/fieldglass-grib1": 110,
     "crates/fieldglass-grib2": 194,
-    "crates/fieldglass-netcdf": 118,
 }
 
 # `#![allow(missing_docs)]`, tolerating extra lints in the same attribute and

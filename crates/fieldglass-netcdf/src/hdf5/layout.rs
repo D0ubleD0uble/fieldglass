@@ -42,11 +42,19 @@ const MAX_CHUNK_RANK: usize = 32;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DataLayout {
     /// Elements stored inline in the layout message body.
-    Compact { data: Vec<u8> },
+    Compact {
+        /// The elements themselves, inline in the layout message.
+        data: Vec<u8>,
+    },
     /// One contiguous run at `address`; `size` bytes. `address` is `None` when
     /// the storage is unallocated (undefined-address sentinel) — the dataset
     /// reads entirely as its fill value.
-    Contiguous { address: Option<u64>, size: u64 },
+    Contiguous {
+        /// Byte offset of the run, or `None` when storage is unallocated.
+        address: Option<u64>,
+        /// Length of the run in bytes.
+        size: u64,
+    },
     /// Chunked storage, located through a chunk index (see [`ChunkIndex`]).
     Chunked(ChunkedLayout),
 }

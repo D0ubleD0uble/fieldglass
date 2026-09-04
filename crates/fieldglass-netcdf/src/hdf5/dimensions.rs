@@ -56,7 +56,9 @@ const HIDDEN_ATTRIBUTES: &[&str] = &[
 /// One resolved NetCDF-4 dimension.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DimensionInfo {
+    /// The dimension's name, path-qualified when it lives in a nested group.
     pub name: String,
+    /// The dimension's length — for the unlimited axis, its current extent.
     pub length: u64,
     /// `true` for the unlimited (`H5S_UNLIMITED`) dimension — the record axis.
     pub is_unlimited: bool,
@@ -67,7 +69,9 @@ pub struct DimensionInfo {
 /// variables and appear only in [`Hdf5Metadata::dimensions`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct VariableInfo {
+    /// The variable's name, path-qualified when it lives in a nested group.
     pub name: String,
+    /// The variable's element type, mapped onto the classic vocabulary.
     pub nc_type: NcType,
     /// Ordered dimension names, resolved from `DIMENSION_LIST` (or the scale's
     /// own name for a coordinate variable).
@@ -96,8 +100,12 @@ pub struct VariableInfo {
 /// that rather than the variable's position in this list.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Hdf5Metadata {
+    /// Every dimension in the file, pure dimensions included.
     pub dimensions: Vec<DimensionInfo>,
+    /// The root group's user attributes.
     pub global_attributes: Vec<Hdf5Attribute>,
+    /// Every variable in the file, sorted by name and excluding pure
+    /// dimensions — see the type doc for why the index space differs.
     pub variables: Vec<VariableInfo>,
 }
 

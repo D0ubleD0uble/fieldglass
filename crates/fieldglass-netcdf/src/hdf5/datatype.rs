@@ -21,21 +21,27 @@ use fieldglass_core::FieldglassError;
 /// Byte order of a numeric datatype.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ByteOrder {
+    /// Least significant byte first.
     LittleEndian,
+    /// Most significant byte first.
     BigEndian,
 }
 
 /// The datatype classes this decoder supports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DatatypeClass {
+    /// Class 0 — integer.
     FixedPoint,
+    /// Class 1 — IEEE float.
     FloatingPoint,
+    /// Class 3 — fixed-length string.
     FixedLengthString,
 }
 
 /// Decoded element type of a dataset or attribute.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Datatype {
+    /// Which of the three supported classes this is.
     pub class: DatatypeClass,
     /// Element size in bytes.
     pub size: u32,
@@ -77,7 +83,9 @@ pub enum ReferenceKind {
 /// (the superblock's offset size); an object reference value is that many bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ReferenceDatatype {
+    /// What the reference points at.
     pub kind: ReferenceKind,
+    /// The address width in bytes — the size of one reference value.
     pub size: u32,
 }
 
@@ -112,7 +120,10 @@ pub fn decode_reference(body: &[u8]) -> Result<ReferenceDatatype, FieldglassErro
 /// its class code so callers can reject it with a clear message.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VlenBase {
+    /// A reference base, decoded — what `DIMENSION_LIST` carries.
     Reference(ReferenceDatatype),
+    /// Any other base, reported by its class code so the caller can reject it
+    /// by name rather than as "unsupported".
     Other(u8),
 }
 
@@ -120,7 +131,9 @@ pub enum VlenBase {
 /// vlen sequence (`H5T_VLEN_SEQUENCE`, e.g. `DIMENSION_LIST`) from a vlen string.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VlenDatatype {
+    /// `true` for `H5T_VLEN_SEQUENCE`, `false` for a vlen string.
     pub is_sequence: bool,
+    /// The sequence's element type.
     pub base: VlenBase,
 }
 

@@ -21,6 +21,9 @@ use fieldglass_core::FieldglassError;
 /// Decoded dataset shape.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Dataspace {
+    /// A scalar dataspace — one element, no dimensions. `dims` is then empty,
+    /// which a rank-0 *simple* dataspace also is, so the flag distinguishes
+    /// them.
     pub is_scalar: bool,
     /// Current size of each dimension (empty for scalar).
     pub dims: Vec<u64>,

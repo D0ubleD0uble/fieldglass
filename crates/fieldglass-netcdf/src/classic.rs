@@ -32,6 +32,8 @@ pub enum ClassicVersion {
 }
 
 impl ClassicVersion {
+    /// The version from the magic's fourth byte, or `None` when it names none
+    /// of CDF-1, CDF-2 or CDF-5.
     pub fn from_byte(b: u8) -> Option<Self> {
         match b {
             1 => Some(Self::Cdf1),
@@ -63,17 +65,28 @@ impl ClassicVersion {
 /// spec; the CDF-5 entries (UBYTE…UINT64) are only legal in CDF-5 files.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NcType {
-    Byte,   // 1
-    Char,   // 2
-    Short,  // 3
-    Int,    // 4
-    Float,  // 5
-    Double, // 6
-    UByte,  // 7  (CDF-5)
-    UShort, // 8  (CDF-5)
-    UInt,   // 9  (CDF-5)
-    Int64,  // 10 (CDF-5)
-    UInt64, // 11 (CDF-5)
+    /// `NC_BYTE` (1) — signed 8-bit.
+    Byte,
+    /// `NC_CHAR` (2) — 8-bit text.
+    Char,
+    /// `NC_SHORT` (3) — signed 16-bit.
+    Short,
+    /// `NC_INT` (4) — signed 32-bit.
+    Int,
+    /// `NC_FLOAT` (5) — IEEE 32-bit.
+    Float,
+    /// `NC_DOUBLE` (6) — IEEE 64-bit.
+    Double,
+    /// `NC_UBYTE` (7) — unsigned 8-bit. CDF-5 only.
+    UByte,
+    /// `NC_USHORT` (8) — unsigned 16-bit. CDF-5 only.
+    UShort,
+    /// `NC_UINT` (9) — unsigned 32-bit. CDF-5 only.
+    UInt,
+    /// `NC_INT64` (10) — signed 64-bit. CDF-5 only.
+    Int64,
+    /// `NC_UINT64` (11) — unsigned 64-bit. CDF-5 only.
+    UInt64,
 }
 
 impl NcType {
@@ -129,8 +142,13 @@ impl NcType {
 /// dimension, which on disk is encoded with `dim_length == 0`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Dimension {
+    /// The dimension's name as the header declares it.
     pub name: String,
+    /// The dimension's length. For the record dimension this is the file's
+    /// record count, resolved from the header's `numrecs` rather than the
+    /// on-disk zero.
     pub length: u64,
+    /// Whether this is the unlimited (record) dimension.
     pub is_record: bool,
 }
 
@@ -139,7 +157,9 @@ pub struct Dimension {
 /// for numeric types it's a comma-separated decimal list.
 #[derive(Debug, Clone)]
 pub struct Attribute {
+    /// The attribute's name as the header declares it.
     pub name: String,
+    /// The attribute's declared external type.
     pub nc_type: NcType,
     /// Number of elements in the attribute's value.
     pub nelems: u64,
@@ -157,13 +177,19 @@ pub struct Attribute {
 /// variable's data for [`decode_variable_values`].
 #[derive(Debug, Clone)]
 pub struct Variable {
+    /// The variable's name as the header declares it.
     pub name: String,
     /// Indices into the parent header's `dimensions` list. May be empty
     /// (scalar variable).
     pub dim_ids: Vec<u32>,
+    /// The variable's declared external type.
     pub nc_type: NcType,
+    /// Every attribute on the variable, in header order.
     pub attributes: Vec<Attribute>,
+    /// On-disk size in bytes of the variable's data, padded to a 4-byte
+    /// boundary — for a record variable, of one record's slab.
     pub vsize: u64,
+    /// Byte offset of the variable's data from the start of the file.
     pub begin: u64,
 }
 
@@ -199,12 +225,16 @@ impl Variable {
 /// Top-level on-disk header for a NetCDF classic / 64-bit / CDF-5 file.
 #[derive(Debug, Clone)]
 pub struct ClassicHeader {
+    /// Which of the three classic layouts the magic declared.
     pub version: ClassicVersion,
     /// Number of records in the unlimited dimension. `None` for streaming
     /// files (`numrecs == 0xFFFFFFFF`).
     pub numrecs: Option<u64>,
+    /// Every dimension, in header order — the order `dim_ids` indexes into.
     pub dimensions: Vec<Dimension>,
+    /// The file-level attributes, in header order.
     pub global_attributes: Vec<Attribute>,
+    /// Every variable, in header order.
     pub variables: Vec<Variable>,
 }
 
