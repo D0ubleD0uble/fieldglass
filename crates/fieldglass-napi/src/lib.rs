@@ -3879,8 +3879,14 @@ fn parse_combine_op(tag: &str) -> napi::Result<CombineOp> {
 /// explicitly classified as geometry (a field here) or non-geometry (an
 /// `_`-ignored binding). That makes the old "remember to update `grids_match`"
 /// hazard impossible to get wrong — the compiler enforces completeness.
+///
+/// Named for the `MessageMeta` it views, not for the grid: `GridGeometry` is
+/// `fieldglass_core::projection`'s public enum, which models a grid family as
+/// the parameters that family actually defines. This is the flat, optional,
+/// every-family-at-once shape that predates it — an equality key, not a model
+/// — and the two must not read as the same thing (#560).
 #[derive(PartialEq)]
-struct GridGeometry<'a> {
+struct MetaGeometry<'a> {
     grid_type: &'a Option<String>,
     grid_ni: &'a Option<i32>,
     grid_nj: &'a Option<i32>,
@@ -3934,12 +3940,12 @@ struct GridGeometry<'a> {
 }
 
 impl MessageMeta {
-    /// Borrow the geometry-defining fields as a [`GridGeometry`]. See that type
+    /// Borrow the geometry-defining fields as a [`MetaGeometry`]. See that type
     /// for why the exhaustive destructure below makes grid-match completeness a
     /// compile-time guarantee.
-    fn geometry(&self) -> GridGeometry<'_> {
+    fn geometry(&self) -> MetaGeometry<'_> {
         // Exhaustive destructure — deliberately no `..` rest pattern. Every
-        // field is either forwarded into the returned `GridGeometry` (it defines
+        // field is either forwarded into the returned `MetaGeometry` (it defines
         // the grid) or bound to `_` (metadata or a value derived from the
         // geometry, ignored for alignment). A field added to `MessageMeta`
         // breaks this line until it is classified, which is the whole point.
@@ -4033,7 +4039,7 @@ impl MessageMeta {
             packing: _,
             reprojectable: _,
         } = self;
-        GridGeometry {
+        MetaGeometry {
             grid_type,
             grid_ni,
             grid_nj,
@@ -4091,7 +4097,7 @@ impl MessageMeta {
 /// Whether two messages sit on the same grid — identical dimensions and grid
 /// definition — so their decoded fields align cell-for-cell and combining them
 /// is meaningful. Compares every geometry-defining field of [`MessageMeta`] via
-/// [`GridGeometry`]; parameter, level, time, and packing metadata are
+/// [`MetaGeometry`]; parameter, level, time, and packing metadata are
 /// deliberately ignored (two fields differing only in those are exactly what a
 /// difference map compares).
 fn grids_match(a: &MessageMeta, b: &MessageMeta) -> bool {
@@ -8129,7 +8135,7 @@ mod netcdf_slice_tests {
         );
 
         // A geometry field buried deep in the struct (geostationary sweep) is
-        // covered too — the `GridGeometry` view compares it, so it must break
+        // covered too — the `MetaGeometry` view compares it, so it must break
         // the match. This is the case the old hand-maintained field list was
         // most at risk of silently dropping.
         let mut sweep = base_netcdf_meta("sst", "K", 180, 89);
