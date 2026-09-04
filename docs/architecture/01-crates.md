@@ -64,8 +64,10 @@ and deliberately not on `core`, so the rule is checked by `cargo test
 between every host and `core`, so taking core's defaults there would re-enable
 them for the browser by feature unification, and the wasm bundle would carry
 `detect_format`'s `std::fs` — dead weight on a target with no filesystem. It
-re-exports `render` as its own feature instead and does not forward `fs` at all;
-ADR-0005 hands every host bytes rather than a path. `fieldglass` does not depend
+names the two optional surfaces it does want, `render` and `analysis`, on the
+dependency itself, and does not forward `fs` at all; ADR-0005 hands every host
+bytes rather than a path. Turning those into the umbrella's own features, so a
+host can decline one, is #552. `fieldglass` does not depend
 on `fieldglass-netcdf` yet: NetCDF reaches the browser with its own issue, and
 an unused dependency here would be paid for in bundle size today.
 
