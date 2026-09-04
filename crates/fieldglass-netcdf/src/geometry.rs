@@ -71,8 +71,11 @@ pub struct VarView {
     pub nc_type: NcType,
     /// Ordered dimension names.
     pub dim_names: Vec<String>,
-    /// Attributes as `(name, display_value)`; only the CF axis attributes
-    /// (`units`, `standard_name`, `axis`) are consulted here.
+    /// Attributes as `(name, display_value)`. Axis detection reads the CF axis
+    /// attributes (`units`, `standard_name`, `axis`); [`VarView::unpack`] reads
+    /// the mask-and-scale ones (`scale_factor`, `add_offset`, `valid_range`,
+    /// `valid_min`, `valid_max`) back out of the same strings, so the values
+    /// here have to stay numerically faithful — see [`DatasetView::from_hdf5`].
     pub attrs: Vec<(String, String)>,
 }
 
@@ -93,10 +96,29 @@ impl VarView {
     fn is_numeric(&self) -> bool {
         self.nc_type != NcType::Char
     }
+
+    /// Apply the CF mask-and-scale this variable's own attributes call for to
+    /// values already decoded for it — [`crate::unpack_cf_data`] with
+    /// [`VarView::attrs`], which is the only correct attribute set for them.
+    ///
+    /// The decode ([`crate::NetcdfReader::decode_variable_values`]) returns raw
+    /// on-disk codes with only the fill / missing sentinels masked; this is the
+    /// second stage that turns them into physical units. Callers that decode and
+    /// unpack in one go want [`crate::NetcdfReader::decode_variable_physical`]
+    /// or [`crate::NetcdfReader::decode_plane`] instead; this method is for a
+    /// host that caches the raw decode per variable and re-slices it.
+    pub fn unpack(&self, raw: &[Option<f64>]) -> Vec<Option<f64>> {
+        crate::projection::unpack_cf_data(raw, &self.attrs)
+    }
 }
 
 /// A neutral, backing-agnostic view of a dataset's dimensions and variables.
-#[derive(Debug, Clone, PartialEq)]
+///
+/// [`Default`] is the empty view — no dimensions, no variables, no global
+/// attributes. It is what a host falls back to when
+/// [`crate::NetcdfReader::view`] fails on an HDF5 layout outside the decoded
+/// subset, so the file still opens on its format-level metadata alone.
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct DatasetView {
     /// Every dimension in the dataset, in declared order.
     pub dims: Vec<DimView>,
@@ -167,8 +189,14 @@ impl DatasetView {
     /// [`VarView::decode_index`] is the metadata's own
     /// [`crate::hdf5::dimensions::VariableInfo::decode_index`], which already
     /// accounts for the pure-dimension datasets the classic backing never has.
-    /// Only the CF axis attributes (`units`, `standard_name`, `axis`) are read
-    /// downstream, so the attribute values are taken as their display strings.
+    ///
+    /// Attribute values are taken as display strings, but they are **not** only
+    /// read for display: [`VarView::unpack`] parses `scale_factor`,
+    /// `add_offset` and `valid_range` back out of them, which is why a scalar
+    /// numeric attribute keeps its full `f64` precision here (see `attr_value`)
+    /// rather than the rounded form the metadata panel shows. Making that
+    /// formatter lossier silently mis-scales every packed field on this
+    /// backing.
     pub fn from_hdf5(meta: &Hdf5Metadata) -> Self {
         let dims = meta
             .dimensions
@@ -207,6 +235,15 @@ impl DatasetView {
 
     fn dim_length(&self, name: &str) -> Option<u64> {
         self.dims.iter().find(|d| d.name == name).map(|d| d.length)
+    }
+
+    /// The variable carrying `decode_index`, if the view has one. The index is
+    /// the decode order, not a position in [`DatasetView::vars`] — the HDF5
+    /// backing skips pure-dimension datasets, so the two differ there. Gives a
+    /// host holding only a [`RenderableVariable`] (which carries no attributes)
+    /// its way back to them, for [`VarView::unpack`].
+    pub fn var(&self, decode_index: usize) -> Option<&VarView> {
+        self.vars.iter().find(|v| v.decode_index == decode_index)
     }
 
     /// The decode index of a dimension's coordinate variable, if one exists (a
@@ -600,7 +637,27 @@ pub struct SliceGeometry {
     /// 0° — 180°..359.75°, 0°..179.75° — is not monotonic and stays `false`;
     /// its descending corner pair really is a wrap.) Descending *latitude*
     /// axes are common and handled; this flags longitude only.
+    ///
+    /// **The rule this exists for:** a slice is reprojectable exactly when
+    /// `!lon_descending`. That mirrors the GRIB scanning-mode gate, and a host
+    /// that offers reprojection on a descending-longitude slice draws the
+    /// field mirrored. Read it, don't re-derive it from the corner pair —
+    /// `lon_first > lon_last` is also true of a genuine wrap, which does
+    /// reproject.
     pub lon_descending: bool,
+    /// `true` when the latitude axis runs south to north, i.e. row 0 is the
+    /// *southern* edge. This is the corner comparison `lat_first < lat_last`,
+    /// deliberately not the strict monotonicity [`Self::lon_descending`] uses:
+    /// latitude has no wrap to be confused with, so the corners settle the row
+    /// order on their own.
+    ///
+    /// **The rule this exists for:** a NetCDF file carries no scanning mode, so
+    /// this is what GRIB reads from flag 0x40 — the raster has to be flipped to
+    /// face north-up when it is `true`. CF's common ordering is ascending, so
+    /// that is the usual case (#286). Only meaningful when the slice's Y axis
+    /// really is a latitude; a cross-section against level or time has no north
+    /// to face and stays in storage order.
+    pub lat_ascending: bool,
 }
 
 /// Synthesise the grid geometry from the decoded latitude and longitude
@@ -621,5 +678,6 @@ pub fn synthesize_geometry(lat: &[f64], lon: &[f64]) -> Result<SliceGeometry, Fi
         lon_last,
         irregular: !(lat_regular && lon_regular),
         lon_descending,
+        lat_ascending: lat_first < lat_last,
     })
 }

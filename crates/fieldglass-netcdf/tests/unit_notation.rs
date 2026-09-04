@@ -22,7 +22,7 @@
 //! --test unit_notation` and read the diff before committing it.
 
 use fieldglass_core::units::normalize_units;
-use fieldglass_netcdf::{DatasetView, NetcdfBacking, NetcdfReader};
+use fieldglass_netcdf::NetcdfReader;
 use std::collections::BTreeSet;
 
 const SNAPSHOT_PATH: &str = "tests/fixtures/unit_notation.snapshot.txt";
@@ -52,12 +52,8 @@ fn distinct_units() -> BTreeSet<String> {
         let Ok(reader) = NetcdfReader::from_bytes(bytes) else {
             continue;
         };
-        let view = match &reader.backing {
-            NetcdfBacking::Classic(h) => DatasetView::from_classic(h),
-            NetcdfBacking::Hdf5(_) => match reader.hdf5_metadata() {
-                Ok(meta) => DatasetView::from_hdf5(&meta),
-                Err(_) => continue,
-            },
+        let Ok(view) = reader.view() else {
+            continue;
         };
         files += 1;
         for var in &view.vars {

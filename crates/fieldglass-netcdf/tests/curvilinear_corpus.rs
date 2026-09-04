@@ -33,12 +33,12 @@ const SWATH_ORACLE: &str = include_str!("fixtures/mirs_swath_n21.nc.oracle.json"
 
 fn view(bytes: &[u8]) -> (NetcdfReader, DatasetView) {
     let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("fixture parses");
-    let view = match &reader.backing {
-        NetcdfBacking::Hdf5(_) => {
-            DatasetView::from_hdf5(&reader.hdf5_metadata().expect("hdf5 metadata"))
-        }
-        other => panic!("expected HDF5 backing, got {:?}", other.label()),
-    };
+    assert!(
+        matches!(reader.backing, NetcdfBacking::Hdf5(_)),
+        "expected HDF5 backing, got {:?}",
+        reader.backing.label()
+    );
+    let view = reader.view().expect("hdf5 metadata");
     (reader, view)
 }
 

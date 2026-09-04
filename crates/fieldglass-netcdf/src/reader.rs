@@ -3,6 +3,7 @@
 //! superblock probe. See `classic.rs` and `hdf5.rs` for the per-layout work.
 
 use crate::classic::{self, ClassicHeader};
+use crate::geometry::{DatasetView, VarView, extract_plane};
 use crate::hdf5::{self, Hdf5Probe};
 use fieldglass_core::FieldglassError;
 
@@ -68,8 +69,16 @@ impl NetcdfReader {
 
     /// Decode one variable's values into row-major (C / on-disk order)
     /// `Vec<Option<f64>>` — `Some(v)` for present points, `None` where the
-    /// element equals the variable's `_FillValue`. Mirrors the GRIB
-    /// `decode_message_values` surface.
+    /// element equals the variable's `_FillValue` or CF `missing_value`.
+    /// Mirrors the GRIB `decode_message_values` surface.
+    ///
+    /// **These are the raw on-disk codes.** Masking the sentinels is the only
+    /// thing done to them: the CF `scale_factor` / `add_offset` / `valid_range`
+    /// mask-and-scale is a separate stage, so a packed field (scaled `int16`, as
+    /// GOES / MERRA-2 / ERA5 store it) comes back as integer codes, not physical
+    /// units. Use [`Self::decode_variable_physical`] to get both stages in one
+    /// call, or [`Self::decode_plane`] to also pick a 2-D plane out of an N-D
+    /// variable.
     ///
     /// For HDF5 / NetCDF-4 backings a "variable" is any dataset in the file
     /// (nested groups included, #219), indexed in the same whole-file depth-first
@@ -118,6 +127,81 @@ impl NetcdfReader {
                 Ok(shape.dataspace.dims)
             }
         }
+    }
+
+    /// The neutral [`DatasetView`] of this file's dimensions, variables, and
+    /// global attributes, built from whichever backing it has. The one call
+    /// replaces matching on [`Self::backing`] and picking `from_classic` /
+    /// `from_hdf5` by hand — a host that does not care which layout it opened
+    /// should not have to name both.
+    ///
+    /// Fallible only for the HDF5 backing, whose metadata is resolved lazily and
+    /// can fail on a layout outside the decoded subset (decision 0003). A host
+    /// that wants to keep going on that failure — showing the format-level
+    /// metadata with no slice picker — can take `DatasetView::default()`, the
+    /// empty view.
+    pub fn view(&self) -> Result<DatasetView, FieldglassError> {
+        match &self.backing {
+            NetcdfBacking::Classic(header) => Ok(DatasetView::from_classic(header)),
+            NetcdfBacking::Hdf5(_) => Ok(DatasetView::from_hdf5(&self.hdf5_metadata()?)),
+        }
+    }
+
+    /// Decode one variable into CF **physical** units:
+    /// [`Self::decode_variable_values`] followed by the mask-and-scale its own
+    /// attributes call for ([`VarView::unpack`]). This is what a caller reading
+    /// a packed field almost always wants; the raw method is the stage below it.
+    ///
+    /// Resolves [`Self::view`] to reach the attributes, which for the HDF5
+    /// backing walks every dataset. A caller decoding many variables should
+    /// hold one view and take [`Self::decode_plane`] per variable; a caller
+    /// re-slicing *one* variable wants neither, since both decode it again —
+    /// cache [`Self::decode_variable_values`] yourself and apply
+    /// [`VarView::unpack`] to each plane, which is what the render host does.
+    ///
+    /// Errors for a decodable index the view has no variable for — a NetCDF-4
+    /// pure-dimension placeholder, which carries no attributes and so has no
+    /// physical form. The raw method still reads it. The view is resolved
+    /// before the decode so that failure costs nothing.
+    pub fn decode_variable_physical(
+        &self,
+        var_index: usize,
+    ) -> Result<Vec<Option<f64>>, FieldglassError> {
+        let view = self.view()?;
+        let var = view.var(var_index).ok_or_else(|| {
+            FieldglassError::Parse(format!(
+                "no variable at decode index {var_index}, so no CF attributes to unpack with"
+            ))
+        })?;
+        Ok(var.unpack(&self.decode_variable_values(var_index)?))
+    }
+
+    /// Decode one 2-D plane of a variable in CF physical units — the whole chain
+    /// in one call, in the order it has to run: decode, then [`extract_plane`],
+    /// then the CF mask-and-scale.
+    ///
+    /// `y_dim` / `x_dim` are axis positions within the variable's declared (C)
+    /// dimension order, and `fixed` holds one index per dimension for the axes
+    /// neither of them names (its entries for `y_dim` and `x_dim` are ignored),
+    /// exactly as [`extract_plane`] takes them. The output is row-major over the
+    /// picked plane, `nj` rows of `ni` values.
+    ///
+    /// Takes the [`VarView`] rather than a bare index because the CF attributes
+    /// live on it: passing it in is what keeps this from re-resolving the view
+    /// per call. It still decodes the variable on every call, so pulling many
+    /// planes out of one variable wants a cached decode and [`VarView::unpack`]
+    /// per plane instead.
+    pub fn decode_plane(
+        &self,
+        var: &VarView,
+        y_dim: usize,
+        x_dim: usize,
+        fixed: &[usize],
+    ) -> Result<Vec<Option<f64>>, FieldglassError> {
+        let raw = self.decode_variable_values(var.decode_index)?;
+        let shape = self.variable_shape(var.decode_index)?;
+        let plane = extract_plane(&raw, &shape, y_dim, x_dim, fixed)?;
+        Ok(var.unpack(&plane))
     }
 }
 

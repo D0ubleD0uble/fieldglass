@@ -5,7 +5,7 @@
 //! mask a point equal to *either* sentinel. The same logical field is bundled in
 //! both on-disk encodings so the classic and HDF5 decoders are each exercised.
 
-use fieldglass_netcdf::{DatasetView, NetcdfBacking, NetcdfReader};
+use fieldglass_netcdf::NetcdfReader;
 use serde_json::Value;
 
 const CLASSIC: &[u8] = include_bytes!("fixtures/missing_value_classic.nc");
@@ -14,12 +14,7 @@ const ORACLE: &str = include_str!("fixtures/missing_value.oracle.json");
 
 fn decode_temp(bytes: &[u8]) -> Vec<Option<f64>> {
     let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("parse");
-    let view = match &reader.backing {
-        NetcdfBacking::Classic(h) => DatasetView::from_classic(h),
-        NetcdfBacking::Hdf5(_) => {
-            DatasetView::from_hdf5(&reader.hdf5_metadata().expect("hdf5 metadata"))
-        }
-    };
+    let view = reader.view().expect("dataset view");
     let idx = view
         .vars
         .iter()
