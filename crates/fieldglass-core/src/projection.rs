@@ -155,16 +155,6 @@ pub fn signed_grid_increments(
     (sdx, sdy)
 }
 
-/// A projection whose source grid lies on a plane in metres — a fixed origin
-/// at the first scanned point and constant `(dx, dy)` spacing. Lambert
-/// conformal and polar stereographic both qualify; lat/lon and Gaussian grids
-/// are already geographic and don't.
-///
-/// Implementors supply four cheap accessors; the trait derives the grid
-/// corners from them. This is the one geometry shared by every planar warp
-/// setup (target-bbox derivation) and by GRIB `bounds()` reporting, which
-/// otherwise reimplement `origin + (n-1)·d` per projection.
-/// How far past a grid edge a computed index may sit and still be snapped
 /// What resampling a grid's geometry can support.
 ///
 /// Lives here rather than beside [`Resampling`](crate::warp::Resampling)
@@ -230,6 +220,7 @@ impl GridResampling {
 /// `tests/grid_round_trip.rs` is where the answer is checked.
 pub const DEFAULT_SNAP_EPS: SnapEps = SnapEps::Cells(1e-9);
 
+/// How far past a grid edge a computed index may sit and still be snapped
 /// back onto it. See [`PlanarGridProjector::snap_eps`].
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SnapEps {
