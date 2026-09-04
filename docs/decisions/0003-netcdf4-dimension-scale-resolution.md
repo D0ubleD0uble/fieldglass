@@ -169,6 +169,47 @@ rather than overloading the human-readable `Hdf5Attribute`.
 - #33's tracker can close once this plus the metadata-viewer wiring land; the
   curvilinear `_Netcdf4Coordinates` path stays with #168.
 
+## Amendment (2026-09-04): files with no dimension scales
+
+The decision above resolves dimensions *from* dimension scales, and is silent on
+the case where a file has none — an `.h5` written straight through HDF5 rather
+than by the netCDF-4 API. That silence had a cost: such a file surfaced its
+datasets as variables with invented `phony_dim_N` axis names that were never
+registered as dimensions, so every axis resolved to length 0 and nothing could
+be rendered ([#533](https://github.com/D0ubleD0uble/fieldglass/issues/533)).
+
+Those axes are now sized from each dataset's own dataspace, numbered the way
+netCDF-C numbers them so that `ncdump -h` and Fieldglass name the same axis. The
+rule was measured through netCDF4-python rather than reasoned about, because it
+is narrower than it first appears:
+
+| dataset | axes |
+| --- | --- |
+| `a_8x8` | `phony_dim_0` (8), `phony_dim_1` (8) |
+| `b_8x8` | `phony_dim_0`, `phony_dim_1` — reused |
+| `c_4x6` | `phony_dim_2` (4), `phony_dim_3` (6) |
+| `d_6x4` | `phony_dim_3`, `phony_dim_2` — reused, transposed |
+| `e_1d7` | `phony_dim_4` (7) |
+
+`a_8x8` rules out deduplicating by length, since both its axes are 8 long and it
+still takes two dimensions. `d_6x4` rules out matching whole shapes, since it
+reuses `c_4x6`'s pair the other way round. So the rule is per *axis*: reuse the
+lowest-numbered dimension of that extent the dataset is not already using, else
+allocate the next. Numbering follows the datasets' **name** order, not the
+on-disk discovery order — a second measurement, and the reason `resolve` walks
+name-sorted while keeping the decode index on the depth-first order.
+`H5S_UNLIMITED` carries through to the invented dimension.
+
+What this does **not** give such a file is geometry. With no dimension scales
+there are no coordinate variables, so 0002's CF axis detection finds nothing and
+the reader offers no geolocation: these files land where WRF output already
+sits — image axes picked by hand, source projection only. Files written by the
+netCDF-4 API are unaffected, since they declare their dimensions and never take
+this path.
+
+Pinned by `crates/fieldglass-netcdf/tests/hdf5_phony_dims.rs` against the
+`hdf5_phony_dims.h5` fixture, whose shapes exist to rule out each simpler rule.
+
 ## References
 
 - NetCDF User's Guide, NetCDF-4 File Format / File Format Specifications:
