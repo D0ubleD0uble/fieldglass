@@ -4605,7 +4605,7 @@ fn warp_message(
     // What the warp actually did, not what was asked for: a lookup grid
     // downgrades bilinear, and a summary echoing the request would name a blend
     // that never happened (#445).
-    let resample_label = match source.resampling.applied_to(resampling) {
+    let resample_label = match Resampling::from_grid(source.resampling, resampling) {
         Resampling::Nearest => "nearest",
         Resampling::Bilinear => "bilinear",
     };

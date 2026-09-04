@@ -84,6 +84,26 @@ pub enum Resampling {
     Bilinear,
 }
 
+impl Resampling {
+    /// What a `method` request actually becomes on a grid that reports `grid`.
+    ///
+    /// [`warp`] applies this before resampling, so a caller that wants to
+    /// *report* what happened — a render summary naming the method — must ask
+    /// the same question rather than echo the request back. Reporting
+    /// "bilinear" for a lookup grid names a blend that was never performed.
+    ///
+    /// The rule reads from `render` towards the parsing surface and not the
+    /// other way about: [`GridResampling`] is what a decoded grid reports and
+    /// stays available with `default-features = false`, so it cannot name a
+    /// `Resampling` that only exists when `render` is on.
+    pub fn from_grid(grid: GridResampling, method: Self) -> Self {
+        match grid {
+            GridResampling::NearestOnly => Self::Nearest,
+            GridResampling::Any => method,
+        }
+    }
+}
+
 /// A source-grid sample at integer cell `(i, j)`. `None` means the cell
 /// is bitmap-masked at the source and should not contribute to the warp.
 type Sample<'a> = &'a (dyn Fn(usize, usize) -> Option<f64> + 'a);
@@ -306,7 +326,7 @@ pub fn warp<T: TargetProjection>(
     // two cells that may be nowhere near each other. Downgrading rather than
     // erroring keeps a caller that asks for bilinear everywhere working, and
     // nearest is the honest best this geometry can do.
-    let method = source.resampling.applied_to(method);
+    let method = Resampling::from_grid(source.resampling, method);
     let (w, h) = target.dims();
     let width = w as usize;
     let height = h as usize;

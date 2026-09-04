@@ -2,10 +2,12 @@
 //! a formula.
 //!
 //! Three families need it: NetCDF 2-D coordinate variables (#218), GRIB2
-//! §3.204 (#418) and ICON §3.101 (#420). The [`warp`](mod@crate::warp) module is
-//! inverse-mapped — it walks output pixels and asks the source grid which cell
-//! contains each one — so those families need an implementation of that
-//! question, not a different renderer.
+//! §3.204 (#418) and ICON §3.101 (#420). The `warp` module is inverse-mapped —
+//! it walks output pixels and asks the source grid which cell contains each
+//! one — so those families need an implementation of that question, not a
+//! different renderer. (Named rather than linked: `warp` is behind the
+//! `render` feature and this module is not, so the link would not resolve in
+//! a parsing-only build.)
 //!
 //! # Why the index is built in three dimensions
 //!

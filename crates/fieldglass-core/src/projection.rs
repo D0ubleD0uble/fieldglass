@@ -157,9 +157,12 @@ pub fn signed_grid_increments(
 
 /// What resampling a grid's geometry can support.
 ///
-/// Lives here rather than beside [`Resampling`](crate::warp::Resampling)
-/// because [`GridGeometry`] reports it and must stay outside the `render`
-/// feature — the format crates take `core` with `default-features = false`.
+/// Lives here rather than beside `warp::Resampling` because [`GridGeometry`]
+/// reports it and must stay outside the `render` feature — the format crates
+/// take `core` with `default-features = false`. The rule it stands for is
+/// applied on the render side, by `warp::Resampling::from_grid`. Both are
+/// named in prose rather than linked for that reason: an intra-doc link from
+/// here into `warp` does not resolve in the build this type exists to serve.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum GridResampling {
     /// A raster grid: the fractional part of a [`GridIndex`] is a position
@@ -171,22 +174,6 @@ pub enum GridResampling {
     /// grid folds — so blending `(i, j)` with `(i + 1, j)` would average two
     /// places that are nowhere near each other.
     NearestOnly,
-}
-
-#[cfg(feature = "render")]
-impl GridResampling {
-    /// What a `method` request actually becomes on this geometry.
-    ///
-    /// [`crate::warp::warp`] applies this before resampling, so a caller that
-    /// wants to *report* what happened — a render summary naming the method —
-    /// must ask the same question rather than echo the request back. Reporting
-    /// "bilinear" for a lookup grid names a blend that was never performed.
-    pub fn applied_to(self, method: crate::warp::Resampling) -> crate::warp::Resampling {
-        match self {
-            Self::NearestOnly => crate::warp::Resampling::Nearest,
-            Self::Any => method,
-        }
-    }
 }
 
 /// The edge tolerance a projection whose round trip closes to float noise
