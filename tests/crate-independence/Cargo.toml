@@ -17,6 +17,9 @@ authors.workspace      = true
 repository.workspace   = true
 publish     = false
 
+[lints]
+workspace = true
+
 # Path-only, with no `=` version pin: this crate is never published, and a pin
 # here would be an extra line every release bump has to find.
 [dependencies]
