@@ -8,7 +8,7 @@
 # would make every test in here pass vacuously.
 [package]
 name        = "fieldglass-crate-independence"
-description = "Acceptance harness: each format crate used with no direct fieldglass-core dependency"
+description = "Acceptance harness: each format crate as a consumer's only Fieldglass dependency"
 version.workspace      = true
 edition.workspace      = true
 rust-version.workspace = true

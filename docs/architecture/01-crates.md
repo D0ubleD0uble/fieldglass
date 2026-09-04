@@ -48,10 +48,14 @@ manifest to write a `match` — and a manifest line written for one type is
 written without `default-features = false`, which unifies `render` and `fs`
 back on for everything in the graph, the browser included. So each format crate
 re-exports exactly the `core` names that appear in its own public signatures:
-the error type, `GridGeometry` for the two GRIB crates' `From` impls, and
-`ByteRange` / `ByteSource` for NetCDF's byte-access seam. The rule is *its own
-signatures*, not "whatever seems useful" — a re-export of something the crate
-does not itself hand back is core's API surface leaking through a second door.
+the error type; `GridGeometry` for the two GRIB crates' `From` impls;
+`ByteRange` / `ByteSource` for NetCDF's byte-access seam; and, in `grib2`, the
+three parameter structs a §3 template hands back by value
+(`LambertAzimuthalParams`, `TransverseMercatorParams`, `GeostationaryParams`).
+The rule is *its own signatures*, not "whatever seems useful" — a re-export of
+something the crate does not itself hand back is core's API surface leaking
+through a second door, and `GridGeometry`'s own payload structs are the line:
+they are core's API, reached by destructuring rather than by name.
 `tests/crate-independence` is a package that depends on the three format crates
 and deliberately not on `core`, so the rule is checked by `cargo test
 --workspace` rather than remembered.

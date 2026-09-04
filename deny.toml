@@ -38,6 +38,14 @@ confidence-threshold = 0.93
 # usually fine, but worth flagging so the tree doesn't drift.
 multiple-versions = "warn"
 wildcards = "deny"
+# ...except a path dependency inside this workspace, and then only from a crate
+# marked `publish = false`. `tests/crate-independence` stands in for a
+# downstream consumer and is never published, so pinning it to `=<version>`
+# would only add three more lines a release bump has to find and keep in step,
+# with nothing on crates.io depending on the answer. Every published crate here
+# still pins its workspace dependencies exactly; cargo-deny keeps checking
+# those.
+allow-wildcard-paths = true
 deny = []
 
 [sources]

@@ -16,7 +16,9 @@ use std::path::PathBuf;
 // and importing it from one crate would let a re-export dropped from either of
 // the other two still compile.
 use fieldglass_grib1::{FieldglassError as Grib1Error, Grib1Reader, GridGeometry as Grib1Geometry};
-use fieldglass_grib2::{FieldglassError as Grib2Error, Grib2Reader, GridGeometry as Grib2Geometry};
+use fieldglass_grib2::{
+    FieldglassError as Grib2Error, Grib2Reader, GridGeometry as Grib2Geometry, GridTemplate,
+};
 use fieldglass_netcdf::{
     ByteRange, ByteSource, FieldglassError as NetcdfError, NetcdfBacking, NetcdfReader, classic,
 };
@@ -35,13 +37,18 @@ fn fixture(relative: &str) -> Vec<u8> {
 /// because the re-exported names would resolve through it instead.
 #[test]
 fn the_manifest_names_no_direct_core_dependency() {
-    let manifest = fixture("tests/crate-independence/Cargo.toml");
-    let manifest = String::from_utf8(manifest).expect("Cargo.toml is UTF-8");
+    let manifest = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"))
+        .expect("this package has a manifest");
+    // Comments stripped first, so the substring search catches every spelling
+    // a dependency can take — `[dependencies.fieldglass-core]` and
+    // `fieldglass-core.workspace = true` as well as the plain one — without
+    // tripping over the manifest's own prose about why it is absent.
     for (n, line) in manifest.lines().enumerate() {
+        let code = line.split('#').next().unwrap_or("");
         assert!(
-            !line.trim_start().starts_with("fieldglass-core"),
+            !code.contains("fieldglass-core"),
             "Cargo.toml:{}: this package must not depend on fieldglass-core — \
-             its absence is what the tests in this file prove",
+             its absence is what every other test in this file rests on",
             n + 1
         );
     }
@@ -165,6 +172,50 @@ fn grib2_octahedral_grid_decodes_and_places() {
         }
         other => panic!("expected a Gaussian geometry, got {other:?}"),
     }
+}
+
+/// Three §3 templates hand back a `core` parameter struct by value, so a
+/// consumer that stores or forwards one has to be able to write the type.
+/// These signatures are the claim; the fixtures below make one of each real.
+fn azimuthal_ni(params: &fieldglass_grib2::LambertAzimuthalParams) -> u32 {
+    params.ni
+}
+
+fn transverse_ni(params: &fieldglass_grib2::TransverseMercatorParams) -> u32 {
+    params.ni
+}
+
+fn space_view_columns(params: &fieldglass_grib2::GeostationaryParams) -> u32 {
+    params.ni
+}
+
+#[test]
+fn grib2_projection_parameters_are_nameable() {
+    let reader = Grib2Reader::from_bytes(fixture(
+        "crates/fieldglass-grib2/tests/fixtures/lambert_azimuthal_efas.grib2",
+    ))
+    .expect("the fixture parses");
+    let GridTemplate::LambertAzimuthal(template) = &reader.messages[0].gds.template else {
+        panic!("the fixture is a §3.140 grid");
+    };
+    let (ni, _) = reader.messages[0].gds.dimensions().expect("a placed grid");
+    assert_eq!(azimuthal_ni(&template.projection_params()), ni);
+
+    let reader = Grib2Reader::from_bytes(fixture(
+        "crates/fieldglass-grib2/tests/fixtures/transverse_mercator_ukv.grib2",
+    ))
+    .expect("the fixture parses");
+    let GridTemplate::TransverseMercator(template) = &reader.messages[0].gds.template else {
+        panic!("the fixture is a §3.12 grid");
+    };
+    let (ni, _) = reader.messages[0].gds.dimensions().expect("a placed grid");
+    assert_eq!(transverse_ni(&template.projection_params()), ni);
+
+    // No §3.90 fixture is committed, so the space-view parameters are proven
+    // by the signature above and by naming the type here rather than by a
+    // decode. `scan_grid` is `Option`: a template with no `Nr` has no grid.
+    let no_grid: Option<fieldglass_grib2::GeostationaryParams> = None;
+    assert!(no_grid.as_ref().map(space_view_columns).is_none());
 }
 
 // ── The shared WMO tables ────────────────────────────────────────────────────

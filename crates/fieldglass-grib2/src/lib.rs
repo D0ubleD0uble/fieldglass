@@ -73,8 +73,17 @@ pub use ds::{DS_SECTION_NUMBER, decode_values};
 // The `fieldglass_core` types this crate's own signatures name (#537), so a
 // consumer needs no direct dependency on `fieldglass-core` — and cannot
 // accidentally take one without `default-features = false`, which would
-// re-enable `render` and `fs` across the whole dependency graph.
-pub use fieldglass_core::{FieldglassError, GridGeometry};
+// re-enable `render` and `fs` across the whole dependency graph. The three
+// parameter structs are here because three §3 templates hand one back by
+// value: `LambertAzimuthalTemplate::projection_params`,
+// `TransverseMercatorTemplate::projection_params` and
+// `SpaceViewTemplate::scan_grid`. The other families reach a consumer through
+// [`GridGeometry`], whose payload types are core's own API rather than this
+// crate's, and are not re-exported here.
+pub use fieldglass_core::{
+    FieldglassError, GeostationaryParams, GridGeometry, LambertAzimuthalParams,
+    TransverseMercatorParams,
+};
 pub use gds::{
     GDS_SECTION_NUMBER, GaussianTemplate, GridDefinitionSection, GridTemplate, LambertTemplate,
     LatLonTemplate, SCAN_ALTERNATE_ROWS, SCAN_J_CONSECUTIVE, SpaceViewTemplate,
