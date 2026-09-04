@@ -14,6 +14,14 @@ layer (warp, overlay, colormap) used by the rendering front end.
   `colormap`). Depend with `default-features = false` for just the parsing
   surface. `projection` is available either way, since decode-side consumers
   need it.
+- **`analysis`** *(default)* — `contour`, `csv`, and `combine`: operations over
+  a decoded field that return values rather than pixels. Separate from
+  `render`, so a host can draw isolines or export CSV without compiling the
+  painter.
+- **`fs`** *(default)* — `detect::detect_format`, which opens a path. Off for a
+  target without a filesystem: `wasm32-unknown-unknown` compiles `std::fs` and
+  then fails every call at runtime, so the gate is what stops detection from
+  silently degrading to a guess from the file extension. Not a `no_std` switch.
 
 ## Related crates
 

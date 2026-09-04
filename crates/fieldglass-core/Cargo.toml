@@ -16,8 +16,16 @@ categories  = ["science", "parser-implementations"]
 # `fieldglass-napi`. On by default so the workspace and downstream renderers get
 # it transitively; the format crates opt out with `default-features = false` to
 # keep their public API to the parsing surface. See the crate-level docs.
-default = ["render", "fs"]
+default = ["render", "fs", "analysis"]
 render = []
+# Analysis over a decoded field: `contour`, `csv`, `combine`. Host operations
+# rather than viewer ones — they take values and return values, and none of
+# them needs the RGBA painter — so they are their own feature and not part of
+# `render`: a values-first host (the browser one, #460) wants contours without
+# the painter, and #462's bundle-size gate is why `core`'s optional surfaces
+# are separable at all. Nothing else in the crate reads them; the three modules
+# have no `use crate::` line between them.
+analysis = []
 # Host-filesystem surface: `detect::detect_format`, the only thing in the four
 # format crates that touches `std::fs`. Off for hosts without a filesystem —
 # `wasm32-unknown-unknown` compiles `std::fs` but every call fails at runtime,

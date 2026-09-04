@@ -69,8 +69,13 @@ depends on `core` and on no other format crate; each host depends on
 **Features do not stop at a crate boundary.** `core`'s optional surfaces are
 off for a host that cannot use them only if every crate between the host and
 `core` says so. `fieldglass` must therefore take `core` with
-`default-features = false` and re-export `render` and `fs` as its own features.
-`fieldglass-napi` needs `render`; neither host needs `fs`, because ADR-0005
+`default-features = false` and re-export `render`, `analysis` and `fs` as its
+own features. `fieldglass-napi` needs `render` and `analysis`; so does the
+browser host today, since `Handle::palette` builds its colour table on the CPU.
+`analysis` is a third feature rather than part of `render` because contours,
+CSV and field arithmetic return values and not pixels: a decode-only consumer
+should not compile them at all, and a values-first host should be able to take
+them without the painter (#551). Neither host needs `fs`, because ADR-0005
 hands both of them bytes rather than a path — it is there for a Rust, CLI
 (#254) or PyO3 consumer that starts from one. Taking
 `core`'s defaults in the umbrella instead would re-enable them by feature

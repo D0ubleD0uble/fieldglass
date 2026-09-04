@@ -3,9 +3,12 @@
 //! Contours are the standard way to read a pressure or height field. The
 //! extraction runs in **grid space** — the output is line segments in
 //! fractional grid coordinates — so the caller can push those vertices through
-//! the same forward geolocation + [`project_polylines`](crate::project_polylines)
-//! path the coastline overlay uses, and contours then land correctly on every
-//! target projection with no per-projection code here.
+//! the same forward geolocation + `overlay::project_polylines` path the
+//! coastline overlay uses, and contours then land correctly on every target
+//! projection with no per-projection code here. (Named rather than linked:
+//! that function is behind `render` and this module is behind `analysis`, so
+//! a host taking contours without the painter — the case the split exists for
+//! — would have an unresolved link.)
 //!
 //! A cell with any missing or non-finite corner contributes no segments, so a
 //! contour breaks cleanly around a data hole rather than drawing a spurious line

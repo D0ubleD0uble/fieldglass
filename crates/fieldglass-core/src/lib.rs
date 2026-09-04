@@ -2,9 +2,15 @@
 //! Format-agnostic traits and shared types for the Fieldglass data viewer.
 //!
 //! The crate serves two audiences behind one API. The format crates
-//! (`fieldglass-grib1`, `-grib2`, `-netcdf`) consume only the *parsing* surface:
-//! [`error`], [`bits`], [`detect`], [`reader`], [`metadata`], and
-//! [`projection`] (GRIB1's GDS uses the projectors to recover grid corners).
+//! (`fieldglass-grib1`, `-grib2`, `-netcdf`) consume only the *parsing*
+//! surface: [`error`], [`bits`], [`bytes`], [`detect`], [`reader`],
+//! [`metadata`], [`projection`] (GRIB1's GDS uses the projectors to recover
+//! grid corners), and the three grids that arrive as something other than a
+//! rectangle of values — [`sht`], [`matrix`], and [`healpix`]. What those
+//! modules have in common is that none of them is behind a feature, which is
+//! what makes a `default-features = false` dependency work. Pre-commit builds
+//! the three format crate libraries against a `core` with every feature off,
+//! so reaching for gated code fails there rather than at a consumer.
 //!
 //! # Feature flags
 //!
@@ -13,6 +19,11 @@
 //!   `default-features = false` to get just the parsing surface (no warp
 //!   pipeline in your API). [`projection`] stays available either way, since
 //!   decode-side consumers need it.
+//! - **`analysis`** *(default)* — the modules `contour`, `csv`, and `combine`:
+//!   operations that take a decoded field and return values, not pixels.
+//!   Separate from `render` because a host can want isolines without the
+//!   painter, and separate from the parsing surface because a decode-only
+//!   consumer should not compile them at all.
 //! - **`fs`** *(default)* — `detect::detect_format`, which opens a path. The
 //!   only host-filesystem call in the format crates. Depend with
 //!   `default-features = false` on a target without a filesystem;
@@ -29,8 +40,11 @@ pub mod colormap;
 /// Generated colormap anchor tables (`tools/gen_colormaps.py`).
 #[cfg(feature = "render")]
 mod colormap_tables;
+#[cfg(feature = "analysis")]
 pub mod combine;
+#[cfg(feature = "analysis")]
 pub mod contour;
+#[cfg(feature = "analysis")]
 pub mod csv;
 /// Format sniffing from the leading bytes of a file.
 pub mod detect;
@@ -52,7 +66,9 @@ pub mod units;
 pub mod warp;
 
 pub use bytes::{ByteRange, ByteSource};
+#[cfg(feature = "analysis")]
 pub use combine::{CombineOp, combine_fields};
+#[cfg(feature = "analysis")]
 pub use contour::{
     ContourLevel, GridSegment, contour_segments, contour_segments_global, nice_levels,
 };
