@@ -45,7 +45,6 @@ pub mod gds;
 pub mod geometry;
 /// Section 0, the Indicator Section: message length and edition.
 pub mod is;
-/// The BDS packings, one module each, behind a common trait.
 pub mod packing;
 /// Section 1, the Product Definition Section: what the field is, and when.
 pub mod pds;

@@ -649,8 +649,12 @@ pub struct GridDefinitionSection {
     /// Source of the grid definition (Code Table 3.0). 0 means the template
     /// below defines it; anything else means it is defined outside the message.
     pub source: u8,
-    /// Number of data points the grid declares — the value count §7 must carry,
-    /// and the authority when a template's own `Ni × Nj` disagrees.
+    /// Number of grid points the section declares for itself (§3 octets 7-10).
+    /// Cross-checked against the template's own geometry — `Ni × Nj`, or
+    /// `sum(PL)` for a reduced grid — and a disagreement is a malformed
+    /// message rather than something to reconcile. Not the §7 value count,
+    /// which a bitmap makes smaller; that is
+    /// [`crate::drs::DataRepresentationSection::num_data_points`].
     pub num_data_points: u32,
     /// Octet width of each entry in the optional point-count list; 0 when there
     /// is no list. Non-zero for a quasi-regular grid.
