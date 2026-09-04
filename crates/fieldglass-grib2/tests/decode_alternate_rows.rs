@@ -34,17 +34,20 @@ fn numbers(v: &serde_json::Value, key: &str) -> Vec<f64> {
         .collect()
 }
 
-/// Byte offset of §3's scanning-mode octet (octet 65 of the GDS) within a
-/// single-message GRIB2 file. Walked rather than hard-coded so the test says
-/// what it is doing and survives a fixture rebuild that shifts the sections.
-fn scanning_mode_offset(bytes: &[u8]) -> usize {
+/// Byte offset of §3's scanning-mode octet within a single-message GRIB2 file.
+///
+/// `octet` is the WMO octet number within the GDS, which differs by template:
+/// 65 for §3.30 (Lambert), 72 for §3.40 (Gaussian). The section itself is
+/// walked rather than hard-coded, so the test says what it is doing and
+/// survives a fixture rebuild that shifts the sections.
+fn scanning_mode_offset(bytes: &[u8], octet: usize) -> usize {
     let mut off = 16; // past §0
     loop {
         assert!(off + 5 <= bytes.len(), "ran off the end looking for §3");
         assert_ne!(&bytes[off..off + 4], b"7777", "message has no §3");
         let len = u32::from_be_bytes(bytes[off..off + 4].try_into().unwrap()) as usize;
         if bytes[off + 4] == 3 {
-            return off + 64;
+            return off + octet - 1;
         }
         off += len;
     }
@@ -132,7 +135,7 @@ fn the_flip_is_not_a_no_op() {
 #[test]
 fn alternate_rows_with_j_consecutive_is_rejected() {
     let mut bytes = FIXTURE.to_vec();
-    let off = scanning_mode_offset(&bytes);
+    let off = scanning_mode_offset(&bytes, 65);
     assert_eq!(
         bytes[off], 80,
         "expected the fixture's scanning mode at {off}"
@@ -149,4 +152,74 @@ fn alternate_rows_with_j_consecutive_is_rejected() {
         text.contains("alternate-row") && text.contains("j-consecutive"),
         "error should name both flags, got: {text}"
     );
+}
+
+/// A reduced grid takes the ragged flip, by its own row widths.
+///
+/// `undo_alternate_reduced_rows` has always existed and is unit-tested, but
+/// nothing chose it: the policy lived in napi and no committed fixture sets the
+/// flag. It is reachable now, so pin the routing. No reduced grid in the wild
+/// carries alternate-row scanning (they are written west-to-east), and eccodes
+/// has no oracle to offer either way — `pointer_to_data` returns NULL for a
+/// grid with no uniform `nx`, so its geoiterator refuses such a message
+/// entirely. So this asserts the property directly: each `PL` row is reversed
+/// on the *stored* field, before expansion, and the odd rows are the ones that
+/// move.
+#[test]
+fn a_reduced_grid_is_flipped_by_its_own_row_widths() {
+    const REDUCED: &[u8] = include_bytes!("fixtures/reduced_gaussian_pressure_level.grib2");
+
+    let plain = Grib2Reader::from_bytes(REDUCED.to_vec()).expect("fixture parses");
+    let before = plain.decode_message_values(0).expect("decode succeeds");
+    let widths: Vec<usize> = plain.messages[0]
+        .gds
+        .points_per_row()
+        .expect("the fixture is a reduced grid")
+        .iter()
+        .map(|&n| n as usize)
+        .collect();
+    assert_eq!(
+        plain.messages[0].gds.scanning_mode(),
+        Some(0),
+        "the unpatched fixture must not already alternate its rows"
+    );
+
+    // §3.40's scanning mode is GDS octet 72, not the 65 of §3.30 above.
+    let mut bytes = REDUCED.to_vec();
+    let off = scanning_mode_offset(&bytes, 72);
+    assert_eq!(
+        bytes[off], 0,
+        "expected the fixture's scanning mode at {off}"
+    );
+    bytes[off] = fieldglass_grib2::SCAN_ALTERNATE_ROWS;
+
+    let patched = Grib2Reader::from_bytes(bytes).expect("still parses");
+    assert_eq!(
+        patched.messages[0].gds.points_per_row().map(<[u32]>::len),
+        Some(widths.len()),
+        "patching the scan flag must not disturb the PL list"
+    );
+    let after = patched.decode_message_values(0).expect("decode succeeds");
+    assert_eq!(
+        after.len(),
+        before.len(),
+        "the stored field keeps its length"
+    );
+
+    let mut start = 0usize;
+    for (row, &width) in widths.iter().enumerate() {
+        let end = start + width;
+        let mut want: Vec<Option<f64>> = before[start..end].to_vec();
+        if row % 2 == 1 {
+            want.reverse();
+        }
+        assert_eq!(after[start..end], want[..], "row {row} ({width} points)");
+        start = end;
+    }
+    assert_eq!(
+        start,
+        before.len(),
+        "PL must account for every stored point"
+    );
+    assert_ne!(after, before, "at least one row must actually have moved");
 }
