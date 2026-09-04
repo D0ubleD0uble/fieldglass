@@ -1512,16 +1512,21 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
       // The raster no longer mirrors the array: a curvilinear grid's shape says
       // nothing about its geography, so the box target takes its shape from the
       // window instead (#515). What must still hold is that this is a real 2-D
-      // image — the sliver #218 is about would have an axis of 1 — and that the
-      // pixel budget still comes from the source, nothing downsampled.
+      // image — the sliver #218 is about would have an axis of 1 — and that
+      // nothing is downsampled.
       assert.ok(
         rendered.width > 1 && rendered.height > 1,
         `${label}: expected a 2-D raster, got ${rendered.width}x${rendered.height}`,
       );
+      // Since #514 a reprojection is also floored to 720 on its long edge, so a
+      // coarse grid is drawn at display scale rather than at the data's. The
+      // long edge is therefore the source's or that floor, whichever is larger:
+      // the tripolar window is 260 across and takes the floor, the 768-line
+      // swath keeps its own. Nothing is downsampled either way.
       assert.strictEqual(
         Math.max(rendered.width, rendered.height),
-        Math.max(v.dims[y].length, v.dims[x].length),
-        `${label}: the long edge should keep the source's long edge`,
+        Math.max(v.dims[y].length, v.dims[x].length, 720),
+        `${label}: the long edge should be the source's, or the #514 floor`,
       );
     }
   });
