@@ -7,6 +7,9 @@ members = [
     "crates/fieldglass-netcdf",
     "crates/fieldglass-napi",
     "crates/fieldglass-wasm",
+    # Not a library: a stand-in consumer that proves the format crates are
+    # usable without a direct `fieldglass-core` dependency (#537).
+    "tests/crate-independence",
 ]
 resolver = "2"
 

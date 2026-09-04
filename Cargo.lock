@@ -104,6 +104,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "fieldglass-crate-independence"
+version = "0.5.0"
+dependencies = [
+ "fieldglass-grib1",
+ "fieldglass-grib2",
+ "fieldglass-netcdf",
+]
+
+[[package]]
 name = "fieldglass-grib1"
 version = "0.5.0"
 dependencies = [
