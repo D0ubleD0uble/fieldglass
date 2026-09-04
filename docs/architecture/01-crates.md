@@ -58,7 +58,13 @@ through a second door, and `GridGeometry`'s own payload structs are the line:
 they are core's API, reached by destructuring rather than by name.
 `tests/crate-independence` is a package that depends on the three format crates
 and deliberately not on `core`, so the rule is checked by `cargo test
---workspace` rather than remembered.
+--workspace` rather than remembered. That package catches a re-export that is
+*removed*; `tools/check_format_crate_reexports.py` (pre-commit) catches one that
+is never *added*, by reading each crate's own public signatures — `pub fn`
+headers, public fields, enum payloads, trait items and `impl … for …` headers,
+which is how `GridGeometry` enters both GRIB crates — and asking whether every
+`fieldglass_core` name in them can be spelled from the format crate alone. Its
+`ALLOWED_UNEXPORTED` list is where an exception has to be written down.
 
 **Why `fieldglass` takes `core` with `default-features = false`.** It sits
 between every host and `core`, so taking core's defaults there would re-enable
