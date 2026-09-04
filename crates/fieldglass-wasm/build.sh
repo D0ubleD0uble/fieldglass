@@ -1,22 +1,38 @@
 #!/usr/bin/env bash
 # Build the browser bundle: wasm32 under the `wasm-release` profile, then
-# wasm-bindgen's JS glue and `.d.ts`.
+# wasm-bindgen's JS glue and `.d.ts`, then `wasm-opt -Oz`.
 #
 # `wasm-bindgen` the CLI must be the same version as the `wasm-bindgen` crate
 # the build resolved, or the generated glue does not match the module's ABI.
 # This script checks that rather than letting the mismatch surface as an
 # "invalid schema version" at import time.
 #
-#     ./build.sh [web|nodejs]        (default: web)
+#     ./build.sh [web|nodejs] [--no-opt] [--simd]
+#
+#     --no-opt   skip wasm-opt (for a clone without binaryen; the sizes it
+#                prints are then not the shipped ones)
+#     --simd     add `-C target-feature=+simd128`, into `pkg/<kind>-simd`
 #
 # Output lands in `pkg/`, which is gitignored: it is a build product, and
 # publishing it to npm is #466.
 set -euo pipefail
 
-TARGET_KIND="${1:-web}"
+TARGET_KIND=web
+RUN_WASM_OPT=1
+SIMD=0
+for arg in "$@"; do
+  case "$arg" in
+    web|nodejs) TARGET_KIND="$arg" ;;
+    --no-opt)   RUN_WASM_OPT=0 ;;
+    --simd)     SIMD=1 ;;
+    *) echo "usage: $0 [web|nodejs] [--no-opt] [--simd]" >&2; exit 2 ;;
+  esac
+done
+
 CRATE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$CRATE_DIR/../.." && pwd)"
 OUT_DIR="$CRATE_DIR/pkg/$TARGET_KIND"
+[ "$SIMD" -eq 1 ] && OUT_DIR="$OUT_DIR-simd"
 
 want="$(grep -A1 '^name = "wasm-bindgen"$' "$REPO_ROOT/Cargo.lock" \
         | sed -n 's/^version = "\(.*\)"$/\1/p' | head -n1)"
@@ -25,6 +41,17 @@ if [ "$want" != "$have" ]; then
   echo "wasm-bindgen CLI is $have but the build resolves the crate at $want." >&2
   echo "Install the matching one:  cargo install wasm-bindgen-cli --version $want" >&2
   exit 1
+fi
+
+if [ "$RUN_WASM_OPT" -eq 1 ] && ! command -v wasm-opt >/dev/null 2>&1; then
+  echo "wasm-opt is not on PATH, and the shipped bundle is the -Oz output." >&2
+  echo "Install binaryen (https://github.com/WebAssembly/binaryen/releases)," >&2
+  echo "or pass --no-opt to build an unoptimised bundle." >&2
+  exit 1
+fi
+
+if [ "$SIMD" -eq 1 ]; then
+  export RUSTFLAGS="${RUSTFLAGS:-} -C target-feature=+simd128"
 fi
 
 cargo build --manifest-path "$REPO_ROOT/Cargo.toml" \
@@ -38,4 +65,47 @@ wasm-bindgen \
   --out-name fieldglass_wasm \
   "$REPO_ROOT/target/wasm32-unknown-unknown/wasm-release/fieldglass_wasm.wasm"
 
-echo "built $OUT_DIR ($(du -h "$OUT_DIR/fieldglass_wasm_bg.wasm" | cut -f1))"
+WASM="$OUT_DIR/fieldglass_wasm_bg.wasm"
+
+if [ "$RUN_WASM_OPT" -eq 1 ]; then
+  # wasm-opt validates against its *own* default feature set, not the module's,
+  # so a plain `-Oz` fails on every `memory.copy` rustc emits ("require bulk
+  # memory operations"). Enable exactly what the target turns on, read from the
+  # toolchain rather than hardcoded, so a rustc that enables a new proposal is a
+  # loud "Unknown option" here instead of a silently skipped optimisation.
+  # Three of the names differ between rustc and binaryen.
+  #
+  # Asked under the same `-C target-feature` the build used, so `--simd` picks up
+  # `--enable-simd` without a second list to keep in step. Two `rustc` calls
+  # rather than one array of flags: expanding an empty array under `set -u` is an
+  # error in the bash 3.2 that macOS still ships.
+  if [ "$SIMD" -eq 1 ]; then
+    cfg="$(rustc --target wasm32-unknown-unknown -C target-feature=+simd128 --print cfg)"
+  else
+    cfg="$(rustc --target wasm32-unknown-unknown --print cfg)"
+  fi
+
+  features=()
+  while read -r feature; do
+    case "$feature" in
+      nontrapping-fptoint) feature=nontrapping-float-to-int ;;
+      simd128)             feature=simd ;;
+      atomics)             feature=threads ;;
+    esac
+    features+=("--enable-$feature")
+  done < <(printf '%s\n' "$cfg" | sed -n 's/^target_feature="\(.*\)"$/\1/p')
+
+  [ "${#features[@]}" -gt 0 ] \
+    || { echo "rustc named no target features for wasm32; refusing to guess" >&2; exit 1; }
+
+  wasm-opt -Oz "${features[@]}" "$WASM" -o "$WASM.opt"
+  mv "$WASM.opt" "$WASM"
+fi
+
+# Raw bytes only. The gzipped figure -- the one the README records and CI gates
+# -- comes from `tools/check_wasm_bundle_size.py`, because GNU and BSD `gzip`
+# produce different sizes for the same input and a script that disagreed with
+# the gate on a maintainer's machine would be worse than not printing it.
+opt_note=$([ "$RUN_WASM_OPT" -eq 1 ] && echo "-Oz" || echo "no wasm-opt")
+echo "built $OUT_DIR ($opt_note): $(wc -c <"$WASM") bytes"
+echo "gzipped, and checked against the README: python3 tools/check_wasm_bundle_size.py --help"
