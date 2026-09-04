@@ -59,6 +59,32 @@ impl<T, E: std::fmt::Display> IntoNapi<T> for Result<T, E> {
     }
 }
 
+#[cfg(test)]
+mod into_napi_tests {
+    use super::IntoNapi;
+    use fieldglass_core::FieldglassError;
+
+    /// The reason is the error's own `Display`, verbatim and unprefixed. Every
+    /// reader-construction and decode failure the hosts surface is bridged
+    /// here, so giving the helper a context prefix would re-word all fifteen
+    /// messages at once — this is the test that would catch that.
+    #[test]
+    fn the_reason_is_the_display_text_verbatim() {
+        let failed: Result<(), _> = Err(FieldglassError::UnsupportedSection("5.61".into()));
+        assert_eq!(
+            failed.into_napi().unwrap_err().reason,
+            "unsupported section: 5.61"
+        );
+    }
+
+    /// The success side is a pass-through: the bridge touches only `Err`.
+    #[test]
+    fn an_ok_survives_the_bridge_unchanged() {
+        let decoded: Result<u32, FieldglassError> = Ok(7);
+        assert_eq!(decoded.into_napi().unwrap(), 7);
+    }
+}
+
 /// A message resolved for a feature: its field, the geometry meta to run it
 /// against, and the grid dimensions. Spectral messages resolve to the
 /// synthesized global lat/lon grid, everything else to its declared grid (#330).
@@ -3881,7 +3907,7 @@ fn parse_combine_op(tag: &str) -> napi::Result<CombineOp> {
 /// hazard impossible to get wrong — the compiler enforces completeness.
 ///
 /// Named for the `MessageMeta` it views, not for the grid: `GridGeometry` is
-/// `fieldglass_core::projection`'s public enum, which models a grid family as
+/// `fieldglass_core`'s public enum, which models a grid family as
 /// the parameters that family actually defines. This is the flat, optional,
 /// every-family-at-once shape that predates it — an equality key, not a model
 /// — and the two must not read as the same thing (#560).
