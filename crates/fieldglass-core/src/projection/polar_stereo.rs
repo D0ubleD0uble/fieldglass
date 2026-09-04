@@ -65,33 +65,6 @@ fn polar_stereo_constants(lad: f64, south_pole: bool, earth_radius_m: f64) -> Po
     }
 }
 
-/// Forward polar stereographic: `(lat, lon)` in degrees → `(x, y)` in
-/// metres, in a coordinate system centred on the projection pole with the
-/// y-axis along `lov`.
-///
-/// Defined everywhere except the *opposite* pole, where `tan` diverges. In
-/// `f64` that divergence does not actually reach infinity — `(PI/4 + PI/4).tan()`
-/// is about 1.6e16, because `PI/2` is not exactly representable — so a caller
-/// at the antipodal pole gets a finite `(x, y)` around 1e23 rather than `±inf`.
-/// [`PolarStereoProjector::inverse`] relies on that landing far outside any
-/// grid's extent rather than on a finiteness check.
-///
-/// `rho` is strictly monotonic in latitude across the whole open range, so the
-/// projection is injective there: a point in the hemisphere *opposite* the
-/// projection pole has a large `rho`, but it is still that point's own `rho`
-/// and cannot alias onto another. Grids that reach across the equator — the CMC
-/// regional grid is one — depend on this.
-///
-/// **Recomputes constants per call.** For warp loops use [`PolarStereoProjector`].
-pub fn polar_stereo_forward(p: &PolarStereoParams, lat: f64, lon: f64) -> (f64, f64) {
-    polar_stereo_forward_with(
-        &polar_stereo_constants(p.lad, p.south_pole, p.earth_radius_m),
-        p.lov,
-        lat,
-        lon,
-    )
-}
-
 fn polar_stereo_forward_with(k: &PolarStereoConstants, lov: f64, lat: f64, lon: f64) -> (f64, f64) {
     let lat_r = lat * DEG2RAD;
     let d_lon = (lon - lov) * DEG2RAD;
@@ -102,18 +75,6 @@ fn polar_stereo_forward_with(k: &PolarStereoConstants, lov: f64, lat: f64, lon: 
     let x = rho * d_lon.sin();
     let y = -k.sign * rho * d_lon.cos();
     (x, y)
-}
-
-/// Inverse polar stereographic: `(x, y)` in metres → `(lat, lon)` in
-/// degrees. Returns `(NaN, lov)` when `(x, y) == (0, 0)` (the projection
-/// pole), where longitude is undefined.
-pub fn polar_stereo_inverse_xy(p: &PolarStereoParams, x: f64, y: f64) -> (f64, f64) {
-    polar_stereo_inverse_xy_with(
-        &polar_stereo_constants(p.lad, p.south_pole, p.earth_radius_m),
-        p.lov,
-        x,
-        y,
-    )
 }
 
 fn polar_stereo_inverse_xy_with(k: &PolarStereoConstants, lov: f64, x: f64, y: f64) -> (f64, f64) {
@@ -130,13 +91,6 @@ fn polar_stereo_inverse_xy_with(k: &PolarStereoConstants, lov: f64, x: f64, y: f
     // for south-polar (same `sign` flip used in the forward direction).
     let lon = lov + x.atan2(-k.sign * y) * RAD2DEG;
     (lat, lon)
-}
-
-/// Inverse warp: `(lat, lon)` → fractional source grid index. **Recomputes
-/// constants and the grid origin per call** — for warp loops use
-/// [`PolarStereoProjector`].
-pub fn polar_stereo_inverse(p: &PolarStereoParams, lat: f64, lon: f64) -> Option<GridIndex> {
-    PolarStereoProjector::new(*p).inverse(lat, lon)
 }
 
 /// Precomputed inverse map for a polar stereographic grid. Owns the
@@ -172,12 +126,29 @@ impl PolarStereoProjector {
         PlanarGridProjector::inverse(self, lat, lon)
     }
 
-    /// Project a geographic point to projection-plane metres.
+    /// Project a geographic point to projection-plane metres, in a coordinate
+    /// system centred on the projection pole with the y-axis along `lov`.
+    ///
+    /// Defined everywhere except the *opposite* pole, where `tan` diverges. In
+    /// `f64` that divergence does not actually reach infinity — `(PI/4 + PI/4).tan()`
+    /// is about 1.6e16, because `PI/2` is not exactly representable — so a caller
+    /// at the antipodal pole gets a finite `(x, y)` around 1e23 rather than `±inf`.
+    /// [`inverse`](Self::inverse) relies on that landing far outside any grid's
+    /// extent rather than on a finiteness check.
+    ///
+    /// `rho` is strictly monotonic in latitude across the whole open range, so
+    /// the projection is injective there: a point in the hemisphere *opposite*
+    /// the projection pole has a large `rho`, but it is still that point's own
+    /// `rho` and cannot alias onto another. Grids that reach across the equator
+    /// — the CMC regional grid is one — depend on this.
     pub fn forward(&self, lat: f64, lon: f64) -> (f64, f64) {
         polar_stereo_forward_with(&self.constants, self.params.lov, lat, lon)
     }
 
     /// Invert projection-plane metres back to `(lat, lon)` in degrees.
+    /// `(0, 0)` is the projection pole, where longitude is undefined; it
+    /// answers with the pole latitude and `lov` by convention, so warp setup
+    /// that hits it does not NaN-pollute a downstream min/max.
     pub fn inverse_xy(&self, x: f64, y: f64) -> (f64, f64) {
         polar_stereo_inverse_xy_with(&self.constants, self.params.lov, x, y)
     }
@@ -253,10 +224,10 @@ mod tests {
 
     #[test]
     fn polar_stereo_forward_inverse_round_trip_north() {
-        let p = cmc_polar_params();
+        let proj = PolarStereoProjector::new(cmc_polar_params());
         for (lat, lon) in [(45.0, -90.0), (60.0, 0.0), (80.0, 100.0)] {
-            let (x, y) = polar_stereo_forward(&p, lat, lon);
-            let (lat_back, lon_back) = polar_stereo_inverse_xy(&p, x, y);
+            let (x, y) = proj.forward(lat, lon);
+            let (lat_back, lon_back) = proj.inverse_xy(x, y);
             assert!(near(lat_back, lat, 1e-7), "lat {lat} → {lat_back}");
             // Normalise to [-180, 180] before comparing — atan2 returns
             // (-π, π] and the test inputs are in that range too.
@@ -268,15 +239,15 @@ mod tests {
 
     #[test]
     fn polar_stereo_forward_inverse_round_trip_south() {
-        let p = PolarStereoParams {
+        let proj = PolarStereoProjector::new(PolarStereoParams {
             earth_radius_m: DEFAULT_EARTH_RADIUS_M,
             south_pole: true,
             lat_first: -11.43,
             ..cmc_polar_params()
-        };
+        });
         for (lat, lon) in [(-45.0, -90.0), (-60.0, 0.0), (-80.0, 100.0)] {
-            let (x, y) = polar_stereo_forward(&p, lat, lon);
-            let (lat_back, lon_back) = polar_stereo_inverse_xy(&p, x, y);
+            let (x, y) = proj.forward(lat, lon);
+            let (lat_back, lon_back) = proj.inverse_xy(x, y);
             assert!(near(lat_back, lat, 1e-7), "lat {lat} → {lat_back}");
             let lon_back = ((lon_back + 180.0).rem_euclid(360.0)) - 180.0;
             let lon_norm = ((lon + 180.0).rem_euclid(360.0)) - 180.0;
@@ -335,8 +306,7 @@ mod tests {
 
     #[test]
     fn polar_stereo_north_pole_projects_to_origin() {
-        let p = cmc_polar_params();
-        let (x, y) = polar_stereo_forward(&p, 90.0, 0.0);
+        let (x, y) = PolarStereoProjector::new(cmc_polar_params()).forward(90.0, 0.0);
         assert!(near(x, 0.0, 1e-6));
         assert!(near(y, 0.0, 1e-6));
     }
@@ -348,14 +318,14 @@ mod tests {
     /// fixed-60° convention (Snyder PP-1395, eq. 21-15).
     #[test]
     fn polar_stereo_lad_drives_pole_scale_factor() {
-        let at_60 = cmc_polar_params(); // lad = 60.0
-        let at_90 = PolarStereoParams {
+        let at_60 = PolarStereoProjector::new(cmc_polar_params()); // lad = 60.0
+        let at_90 = PolarStereoProjector::new(PolarStereoParams {
             earth_radius_m: DEFAULT_EARTH_RADIUS_M,
             lad: 90.0,
             ..cmc_polar_params()
-        };
-        let (x60, y60) = polar_stereo_forward(&at_60, 45.0, 247.0);
-        let (x90, y90) = polar_stereo_forward(&at_90, 45.0, 247.0);
+        });
+        let (x60, y60) = at_60.forward(45.0, 247.0);
+        let (x90, y90) = at_90.forward(45.0, 247.0);
         let rho60 = (x60 * x60 + y60 * y60).sqrt();
         let rho90 = (x90 * x90 + y90 * y90).sqrt();
         let k0_60 = (1.0 + (60.0_f64 * DEG2RAD).sin()) / 2.0;
@@ -372,12 +342,12 @@ mod tests {
 
     #[test]
     fn polar_stereo_south_pole_projects_to_origin() {
-        let p = PolarStereoParams {
+        let (x, y) = PolarStereoProjector::new(PolarStereoParams {
             earth_radius_m: DEFAULT_EARTH_RADIUS_M,
             south_pole: true,
             ..cmc_polar_params()
-        };
-        let (x, y) = polar_stereo_forward(&p, -90.0, 0.0);
+        })
+        .forward(-90.0, 0.0);
         assert!(near(x, 0.0, 1e-6));
         assert!(near(y, 0.0, 1e-6));
     }
@@ -385,7 +355,9 @@ mod tests {
     #[test]
     fn polar_stereo_inverse_maps_first_corner_to_zero() {
         let p = cmc_polar_params();
-        let idx = polar_stereo_inverse(&p, p.lat_first, p.lon_first).expect("corner");
+        let idx = PolarStereoProjector::new(p)
+            .inverse(p.lat_first, p.lon_first)
+            .expect("corner");
         assert!(near(idx.i, 0.0, 1e-6));
         assert!(near(idx.j, 0.0, 1e-6));
     }
@@ -394,43 +366,41 @@ mod tests {
     fn polar_stereo_inverse_rejects_wrong_hemisphere() {
         let p = cmc_polar_params();
         assert!(
-            polar_stereo_inverse(&p, -45.0, 0.0).is_none(),
+            PolarStereoProjector::new(p).inverse(-45.0, 0.0).is_none(),
             "north grid + south lat"
         );
-        let south = PolarStereoParams {
+        let south = PolarStereoProjector::new(PolarStereoParams {
             earth_radius_m: DEFAULT_EARTH_RADIUS_M,
             south_pole: true,
             lat_first: -11.43,
             ..p
-        };
-        assert!(
-            polar_stereo_inverse(&south, 45.0, 0.0).is_none(),
-            "south grid + north lat"
-        );
+        });
+        assert!(south.inverse(45.0, 0.0).is_none(), "south grid + north lat");
     }
 
     #[test]
     fn polar_stereo_inverse_rejects_off_grid_points() {
-        let p = cmc_polar_params();
         // A point in Antarctica is on the wrong hemisphere for a north-polar
         // grid; a tropical point near the equator is on the right hemisphere
         // but well outside the 135×95 box around the pole.
-        assert!(polar_stereo_inverse(&p, 5.0, 0.0).is_none());
+        let proj = PolarStereoProjector::new(cmc_polar_params());
+        assert!(proj.inverse(5.0, 0.0).is_none());
     }
 
     #[test]
     fn polar_stereo_inverse_rejects_nonfinite_and_degenerate_dims() {
         let p = cmc_polar_params();
-        assert!(polar_stereo_inverse(&p, f64::NAN, 0.0).is_none());
-        assert!(polar_stereo_inverse(&p, 60.0, f64::INFINITY).is_none());
-        let degenerate = PolarStereoParams { ni: 1, ..p };
-        assert!(polar_stereo_inverse(&degenerate, 60.0, 0.0).is_none());
-        let zero_dx = PolarStereoParams {
+        let proj = PolarStereoProjector::new(p);
+        assert!(proj.inverse(f64::NAN, 0.0).is_none());
+        assert!(proj.inverse(60.0, f64::INFINITY).is_none());
+        let degenerate = PolarStereoProjector::new(PolarStereoParams { ni: 1, ..p });
+        assert!(degenerate.inverse(60.0, 0.0).is_none());
+        let zero_dx = PolarStereoProjector::new(PolarStereoParams {
             earth_radius_m: DEFAULT_EARTH_RADIUS_M,
             dx_metres: 0.0,
             ..p
-        };
-        assert!(polar_stereo_inverse(&zero_dx, 60.0, 0.0).is_none());
+        });
+        assert!(zero_dx.inverse(60.0, 0.0).is_none());
     }
 
     #[test]
@@ -470,7 +440,7 @@ mod tests {
     #[test]
     fn polar_stereo_inverse_xy_origin_returns_pole_with_lov() {
         let p = cmc_polar_params();
-        let (lat, lon) = polar_stereo_inverse_xy(&p, 0.0, 0.0);
+        let (lat, lon) = PolarStereoProjector::new(p).inverse_xy(0.0, 0.0);
         assert!(near(lat, 90.0, 1e-9));
         assert!(near(lon, p.lov, 1e-9));
     }

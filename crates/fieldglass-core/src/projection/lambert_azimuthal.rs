@@ -218,19 +218,6 @@ fn lambert_azimuthal_constants(p: &LambertAzimuthalParams) -> LambertAzimuthalCo
 /// infinity.
 const LAEA_EPS: f64 = 1.0e-10;
 
-/// Forward Lambert azimuthal equal-area: `(lat, lon)` in degrees → `(x, y)` in
-/// metres from the tangent point.
-///
-/// Returns non-finite coordinates at the antipode of the tangent point, where
-/// the projection is undefined. Callers going through
-/// [`LambertAzimuthalProjector::inverse`] get `None` there instead.
-///
-/// **Recomputes the constants per call.** For warp loops use
-/// [`LambertAzimuthalProjector`].
-pub fn lambert_azimuthal_forward(p: &LambertAzimuthalParams, lat: f64, lon: f64) -> (f64, f64) {
-    lambert_azimuthal_forward_with(&lambert_azimuthal_constants(p), p, lat, lon)
-}
-
 fn lambert_azimuthal_forward_with(
     k: &LambertAzimuthalConstants,
     p: &LambertAzimuthalParams,
@@ -251,12 +238,6 @@ fn lambert_azimuthal_forward_with(
         k.semi_major_m * k.xmf * bb * cosb * d_lon.sin(),
         k.semi_major_m * k.ymf * bb * (k.cosb1 * sinb - k.sinb1 * cosb * d_lon.cos()),
     )
-}
-
-/// Inverse Lambert azimuthal equal-area: `(x, y)` in metres → `(lat, lon)` in
-/// degrees. Same recompute caveat as [`lambert_azimuthal_forward`].
-pub fn lambert_azimuthal_inverse_xy(p: &LambertAzimuthalParams, x: f64, y: f64) -> (f64, f64) {
-    lambert_azimuthal_inverse_xy_with(&lambert_azimuthal_constants(p), p, x, y)
 }
 
 fn lambert_azimuthal_inverse_xy_with(
@@ -287,16 +268,6 @@ fn lambert_azimuthal_inverse_xy_with(
     let lon = p.central_longitude + xy_x.atan2(xy_y) * RAD2DEG;
     let lat = authalic_to_geodetic(ab.clamp(-1.0, 1.0).asin(), &k.apa) * RAD2DEG;
     (lat, lon)
-}
-
-/// Inverse warp: `(lat, lon)` → fractional source grid index. **Recomputes the
-/// constants per call** — for warp loops prefer [`LambertAzimuthalProjector`].
-pub fn lambert_azimuthal_inverse(
-    p: &LambertAzimuthalParams,
-    lat: f64,
-    lon: f64,
-) -> Option<GridIndex> {
-    LambertAzimuthalProjector::new(*p).inverse(lat, lon)
 }
 
 /// Precomputed inverse map for a Lambert azimuthal equal-area grid. Owns the
@@ -331,7 +302,12 @@ impl LambertAzimuthalProjector {
         PlanarGridProjector::inverse(self, lat, lon)
     }
 
-    /// Forward-project through the cached constants.
+    /// Forward-project through the cached constants, to metres from the
+    /// tangent point.
+    ///
+    /// Returns non-finite coordinates at the antipode of the tangent point,
+    /// where the projection is undefined. Callers going through
+    /// [`inverse`](Self::inverse) get `None` there instead.
     pub fn forward(&self, lat: f64, lon: f64) -> (f64, f64) {
         lambert_azimuthal_forward_with(&self.constants, &self.params, lat, lon)
     }
@@ -631,7 +607,7 @@ mod tests {
     #[test]
     fn lambert_azimuthal_inverts_its_own_tangent_point() {
         let p = efas_params();
-        let (lat, lon) = lambert_azimuthal_inverse_xy(&p, 0.0, 0.0);
+        let (lat, lon) = LambertAzimuthalProjector::new(p).inverse_xy(0.0, 0.0);
         assert!(
             (lat - p.standard_parallel).abs() < 1e-9 && (lon - p.central_longitude).abs() < 1e-9,
             "the tangent point inverted to ({lat}, {lon})"
@@ -645,17 +621,17 @@ mod tests {
     #[test]
     fn lambert_azimuthal_declines_off_the_projection_disc() {
         let p = efas_params();
+        let projector = LambertAzimuthalProjector::new(p);
         // The antipode of 52°N 10°E.
-        let (x, y) = lambert_azimuthal_forward(&p, -52.0, -170.0);
+        let (x, y) = projector.forward(-52.0, -170.0);
         assert!(
             !x.is_finite() || !y.is_finite(),
             "the antipode projected to a finite ({x}, {y})"
         );
         // Well outside the disc: 4 Earth radii from the tangent point.
-        let (lat, lon) = lambert_azimuthal_inverse_xy(&p, 4.0 * p.semi_major_m, 0.0);
+        let (lat, lon) = projector.inverse_xy(4.0 * p.semi_major_m, 0.0);
         assert!(lat.is_nan() && lon.is_nan(), "got ({lat}, {lon})");
         // And the grid inverse declines for a point nowhere near the grid.
-        let projector = LambertAzimuthalProjector::new(p);
         for (lat, lon) in [(-52.0, -170.0), (-80.0, 100.0), (5.0, -150.0)] {
             assert!(
                 projector.inverse(lat, lon).is_none(),
@@ -690,10 +666,10 @@ mod tests {
     /// signed twin.
     #[test]
     fn lambert_azimuthal_wraps_longitude_before_projecting() {
-        let p = efas_params();
+        let projector = LambertAzimuthalProjector::new(efas_params());
         for (lat, lon) in [(35.0, -10.0), (52.0, 10.0), (60.1, -24.2)] {
-            let signed = lambert_azimuthal_forward(&p, lat, lon);
-            let unsigned = lambert_azimuthal_forward(&p, lat, lon + 360.0);
+            let signed = projector.forward(lat, lon);
+            let unsigned = projector.forward(lat, lon + 360.0);
             assert!(
                 (signed.0 - unsigned.0).abs() < 1e-6 && (signed.1 - unsigned.1).abs() < 1e-6,
                 "{lon} and {} projected differently",

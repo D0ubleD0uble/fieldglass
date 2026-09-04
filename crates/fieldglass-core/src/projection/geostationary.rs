@@ -115,12 +115,6 @@ fn geostationary_scan_angles(
     Some((x, y))
 }
 
-/// Inverse warp: `(lat, lon)` → fractional source grid index. **Recomputes
-/// constants per call** — for warp loops use [`GeostationaryProjector`].
-pub fn geostationary_inverse(p: &GeostationaryParams, lat: f64, lon: f64) -> Option<GridIndex> {
-    GeostationaryProjector::new(*p).inverse(lat, lon)
-}
-
 /// Precomputed inverse map for a geostationary grid. Owns the ellipsoid /
 /// sub-satellite constants, invariant across every output pixel of a warp.
 #[derive(Debug)]
@@ -373,17 +367,6 @@ mod tests {
             (x_goes - x_met).abs() > 1e-9 || (y_goes - y_met).abs() > 1e-9,
             "sweep axis had no effect"
         );
-    }
-
-    #[test]
-    fn geostationary_free_fn_matches_projector() {
-        let p = goes_east_params();
-        let a = geostationary_inverse(&p, 10.0, -70.0);
-        let b = GeostationaryProjector::new(p).inverse(10.0, -70.0);
-        assert_eq!(a.is_some(), b.is_some());
-        if let (Some(a), Some(b)) = (a, b) {
-            assert!(near(a.i, b.i, 1e-12) && near(a.j, b.j, 1e-12));
-        }
     }
 
     #[test]

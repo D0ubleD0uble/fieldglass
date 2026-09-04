@@ -213,7 +213,7 @@ pub fn gaussian_latitudes(n_parallels: u32) -> Vec<f64> {
 /// [`GaussianProjector`] per call** — for warp loops use
 /// [`GaussianProjector::new`] once outside the loop and call
 /// [`GaussianProjector::inverse`] inside it.
-pub fn gaussian_inverse(p: &GaussianParams, lat: f64, lon: f64) -> Option<GridIndex> {
+pub(crate) fn gaussian_inverse(p: &GaussianParams, lat: f64, lon: f64) -> Option<GridIndex> {
     GaussianProjector::new(*p).inverse(lat, lon)
 }
 

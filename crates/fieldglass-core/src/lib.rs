@@ -83,20 +83,20 @@ pub use metadata::Metadata;
 pub use metadata::Parameter;
 #[cfg(feature = "render")]
 pub use overlay::{ProjectedPolylines, SourceOverlayTarget, project_polylines};
+// The projector types, plus the free functions a format crate or a host calls.
+// The per-call `<family>_forward` / `_inverse` wrappers that used to sit here
+// were a second public path to arithmetic the projectors already expose, so
+// they are gone; build the projector once and call its methods.
 pub use projection::{
     DEFAULT_EARTH_RADIUS_M, GaussianParams, GaussianProjector, GeostationaryParams,
     GeostationaryProjector, GridGeometry, GridIndex, GridResampling, LambertAzimuthalParams,
     LambertAzimuthalProjector, LambertParams, LambertProjector, LatLonParams, MercatorParams,
     PlanarGridProjector, PlaneAffine, PlaneUnits, PolarStereoParams, PolarStereoProjector,
     RotatedLatLonParams, RotatedLatLonProjector, TransverseMercatorParams,
-    TransverseMercatorProjector, eastward_lon_span, expand_reduced_to_regular, gaussian_inverse,
-    gaussian_latitudes, geostationary_inverse, is_octahedral_pl, lambert_azimuthal_forward,
-    lambert_azimuthal_inverse, lambert_azimuthal_inverse_xy, lambert_forward, lambert_inverse,
-    lambert_inverse_xy, latlon_inverse, latlon_point, lon_grid_is_global, mercator_inverse,
-    mercator_point, normalise_lon, polar_stereo_forward, polar_stereo_inverse,
-    polar_stereo_inverse_xy, reduced_raster_lon_last, reduced_raster_width, rotate_latlon,
-    rotated_latlon_point, signed_grid_increments, transverse_mercator_forward,
-    transverse_mercator_inverse, transverse_mercator_inverse_xy, unrotate_latlon,
+    TransverseMercatorProjector, eastward_lon_span, expand_reduced_to_regular, gaussian_latitudes,
+    is_octahedral_pl, latlon_inverse, latlon_point, lon_grid_is_global, mercator_inverse,
+    mercator_point, normalise_lon, reduced_raster_lon_last, reduced_raster_width,
+    rotated_latlon_point, signed_grid_increments,
 };
 pub use reader::DataMessage;
 pub use reader::FormatReader;

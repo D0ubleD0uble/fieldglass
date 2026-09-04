@@ -101,20 +101,6 @@ fn lambert_constants(p: &LambertParams) -> LambertConstants {
     }
 }
 
-/// Forward Lambert: `(lat, lon)` in degrees → `(x, y)` in metres.
-///
-/// Lambert Conformal is undefined at the projection poles
-/// (`tan(π/4 ± π/4) = ±∞`). Real-world Lambert grids cover continental
-/// tiles and never reach the pole on their own pole side, so this is
-/// academic — but callers passing a pole latitude here will get `±inf`
-/// / `NaN`.
-///
-/// **Recomputes Lambert constants per call.** For warp loops use
-/// [`LambertProjector`] which caches them once.
-pub fn lambert_forward(p: &LambertParams, lat: f64, lon: f64) -> (f64, f64) {
-    lambert_forward_with(&lambert_constants(p), p.lov, lat, lon)
-}
-
 fn lambert_forward_with(k: &LambertConstants, lov: f64, lat: f64, lon: f64) -> (f64, f64) {
     let lat_r = lat * DEG2RAD;
     // Wrap (lon − lov) into [-180, 180] *before* scaling by the cone constant.
@@ -133,12 +119,6 @@ fn lambert_forward_with(k: &LambertConstants, lov: f64, lat: f64, lon: f64) -> (
     (x, y)
 }
 
-/// Inverse Lambert: `(x, y)` in metres → `(lat, lon)` in degrees. Same
-/// pole + recompute caveats as [`lambert_forward`].
-pub fn lambert_inverse_xy(p: &LambertParams, x: f64, y: f64) -> (f64, f64) {
-    lambert_inverse_xy_with(&lambert_constants(p), p.lov, x, y)
-}
-
 fn lambert_inverse_xy_with(k: &LambertConstants, lov: f64, x: f64, y: f64) -> (f64, f64) {
     let dy = k.rho0 - y;
     let rho = k.n.signum() * (x * x + dy * dy).sqrt();
@@ -146,15 +126,6 @@ fn lambert_inverse_xy_with(k: &LambertConstants, lov: f64, x: f64, y: f64) -> (f
     let lon = lov + (theta / k.n) * RAD2DEG;
     let lat = (2.0 * ((k.earth_r * k.f_const / rho).powf(1.0 / k.n)).atan() - PI / 2.0) * RAD2DEG;
     (lat, lon)
-}
-
-/// Inverse warp: `(lat, lon)` → fractional source grid index. Returns
-/// `None` when the requested point's projected coordinates fall outside
-/// the grid. **Recomputes Lambert constants per call** — for warp loops
-/// prefer [`LambertProjector::inverse`] which caches the constants and
-/// the forward-projected grid origin once.
-pub fn lambert_inverse(p: &LambertParams, lat: f64, lon: f64) -> Option<GridIndex> {
-    LambertProjector::new(*p).inverse(lat, lon)
 }
 
 /// Precomputed inverse map for a Lambert grid. Owns the cone constants
@@ -194,11 +165,18 @@ impl LambertProjector {
     /// Forward-project a `(lat, lon)` through the cached constants. Used
     /// by warp setup to derive equirectangular target bounds from the
     /// four source corners.
+    ///
+    /// Lambert Conformal is undefined at the projection poles
+    /// (`tan(π/4 ± π/4) = ±∞`). Real-world Lambert grids cover continental
+    /// tiles and never reach the pole on their own pole side, so this is
+    /// academic — but callers passing a pole latitude here will get `±inf`
+    /// / `NaN`.
     pub fn forward(&self, lat: f64, lon: f64) -> (f64, f64) {
         lambert_forward_with(&self.constants, self.params.lov, lat, lon)
     }
 
     /// Inverse-project a projected-metres `(x, y)` back to `(lat, lon)`.
+    /// Same pole caveat as [`forward`](Self::forward).
     pub fn inverse_xy(&self, x: f64, y: f64) -> (f64, f64) {
         lambert_inverse_xy_with(&self.constants, self.params.lov, x, y)
     }
@@ -266,9 +244,9 @@ mod tests {
 
     #[test]
     fn lambert_forward_inverse_round_trip() {
-        let p = lambert_params();
-        let (x, y) = lambert_forward(&p, 40.0, -100.0);
-        let (lat, lon) = lambert_inverse_xy(&p, x, y);
+        let proj = LambertProjector::new(lambert_params());
+        let (x, y) = proj.forward(40.0, -100.0);
+        let (lat, lon) = proj.inverse_xy(x, y);
         assert!(near(lat, 40.0, 1e-6));
         assert!(near(lon, -100.0, 1e-6));
     }
@@ -288,8 +266,9 @@ mod tests {
         // The forward map must be invariant to a 360° shift in the query
         // longitude (the fix wraps `lon − lov` before scaling by the cone
         // constant; without it the two differ by n·360°).
-        let f_pm180 = lambert_forward(&p, 40.0, -95.0);
-        let f_0_360 = lambert_forward(&p, 40.0, 265.0);
+        let proj = LambertProjector::new(p);
+        let f_pm180 = proj.forward(40.0, -95.0);
+        let f_0_360 = proj.forward(40.0, 265.0);
         assert!(
             near(f_pm180.0, f_0_360.0, 1e-6),
             "x invariant to +360 shift"
@@ -300,7 +279,9 @@ mod tests {
         );
         // And a ±180 query longitude (what the equirectangular target feeds in)
         // resolves to an in-grid index instead of falling off the grid.
-        let idx = lambert_inverse(&p, 40.0, -95.0).expect("on-grid point on the LoV meridian");
+        let idx = proj
+            .inverse(40.0, -95.0)
+            .expect("on-grid point on the LoV meridian");
         assert!(idx.i >= 0.0 && idx.i <= (p.ni as f64 - 1.0));
         assert!(idx.j >= 0.0 && idx.j <= (p.nj as f64 - 1.0));
     }
@@ -308,38 +289,35 @@ mod tests {
     #[test]
     fn lambert_inverse_maps_first_corner_to_zero() {
         let p = lambert_params();
-        let idx = lambert_inverse(&p, p.lat_first, p.lon_first).expect("corner");
+        let idx = LambertProjector::new(p)
+            .inverse(p.lat_first, p.lon_first)
+            .expect("corner");
         assert!(near(idx.i, 0.0, 1e-6));
         assert!(near(idx.j, 0.0, 1e-6));
     }
 
     #[test]
     fn lambert_inverse_rejects_off_grid_points() {
-        let p = lambert_params();
-        assert!(lambert_inverse(&p, 70.0, -100.0).is_none(), "north");
-        assert!(lambert_inverse(&p, 0.0, 0.0).is_none(), "southeast");
+        let proj = LambertProjector::new(lambert_params());
+        assert!(proj.inverse(70.0, -100.0).is_none(), "north");
+        assert!(proj.inverse(0.0, 0.0).is_none(), "southeast");
     }
 
     #[test]
     fn lambert_inverse_rejects_nonfinite_and_degenerate_dims() {
         let p = lambert_params();
-        assert!(lambert_inverse(&p, f64::NAN, -100.0).is_none(), "NaN lat");
-        assert!(
-            lambert_inverse(&p, 40.0, f64::INFINITY).is_none(),
-            "inf lon"
-        );
-        let degenerate = LambertParams { ni: 1, ..p };
-        assert!(
-            lambert_inverse(&degenerate, 40.0, -100.0).is_none(),
-            "ni < 2"
-        );
-        let zero_dx = LambertParams {
+        let proj = LambertProjector::new(p);
+        assert!(proj.inverse(f64::NAN, -100.0).is_none(), "NaN lat");
+        assert!(proj.inverse(40.0, f64::INFINITY).is_none(), "inf lon");
+        let degenerate = LambertProjector::new(LambertParams { ni: 1, ..p });
+        assert!(degenerate.inverse(40.0, -100.0).is_none(), "ni < 2");
+        let zero_dx = LambertProjector::new(LambertParams {
             earth_radius_m: DEFAULT_EARTH_RADIUS_M,
             dx_metres: 0.0,
             ..p
-        };
+        });
         assert!(
-            lambert_inverse(&zero_dx, 40.0, -100.0).is_none(),
+            zero_dx.inverse(40.0, -100.0).is_none(),
             "dx_metres = 0 must not divide"
         );
     }
@@ -428,7 +406,7 @@ mod tests {
             lad: 40.0,
             ..lambert_params()
         };
-        let (x, y) = lambert_forward(&p, 40.0, -95.0);
+        let (x, y) = LambertProjector::new(p).forward(40.0, -95.0);
         // At the projection origin (lad, lov), x and y should be ~0 in
         // the bare projection (no false-easting / false-northing).
         assert!(near(x, 0.0, 1.0));

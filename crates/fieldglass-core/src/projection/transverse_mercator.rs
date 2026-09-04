@@ -186,15 +186,6 @@ fn conformal_xi_eta(n: f64, lat: f64, d_lon: f64) -> (f64, f64) {
     (xi, eta.atanh())
 }
 
-/// Forward transverse Mercator: `(lat, lon)` in degrees → `(x, y)` in metres,
-/// including the false easting and northing.
-///
-/// **Recomputes the series coefficients per call.** For warp loops use
-/// [`TransverseMercatorProjector`], which caches them once.
-pub fn transverse_mercator_forward(p: &TransverseMercatorParams, lat: f64, lon: f64) -> (f64, f64) {
-    transverse_mercator_forward_with(&transverse_mercator_constants(p), p, lat, lon)
-}
-
 fn transverse_mercator_forward_with(
     k: &TransverseMercatorConstants,
     p: &TransverseMercatorParams,
@@ -217,12 +208,6 @@ fn transverse_mercator_forward_with(
         p.false_easting_m + scale * eta,
         p.false_northing_m + scale * (xi - k.xi_ref),
     )
-}
-
-/// Inverse transverse Mercator: `(x, y)` in metres → `(lat, lon)` in degrees.
-/// Same recompute caveat as [`transverse_mercator_forward`].
-pub fn transverse_mercator_inverse_xy(p: &TransverseMercatorParams, x: f64, y: f64) -> (f64, f64) {
-    transverse_mercator_inverse_xy_with(&transverse_mercator_constants(p), p, x, y)
 }
 
 fn transverse_mercator_inverse_xy_with(
@@ -250,16 +235,6 @@ fn transverse_mercator_inverse_xy_with(
     (lat * RAD2DEG, lon)
 }
 
-/// Inverse warp: `(lat, lon)` → fractional source grid index. **Recomputes the
-/// series per call** — for warp loops prefer [`TransverseMercatorProjector`].
-pub fn transverse_mercator_inverse(
-    p: &TransverseMercatorParams,
-    lat: f64,
-    lon: f64,
-) -> Option<GridIndex> {
-    TransverseMercatorProjector::new(*p).inverse(lat, lon)
-}
-
 /// Precomputed inverse map for a transverse Mercator grid. Owns the Krüger
 /// coefficients and the reference arc, both invariant across a warp's output
 /// pixels. Build once outside the per-pixel loop.
@@ -285,7 +260,8 @@ impl TransverseMercatorProjector {
         PlanarGridProjector::inverse(self, lat, lon)
     }
 
-    /// Forward-project through the cached coefficients.
+    /// Forward-project through the cached coefficients, to `(x, y)` in metres
+    /// including the false easting and northing.
     pub fn forward(&self, lat: f64, lon: f64) -> (f64, f64) {
         transverse_mercator_forward_with(&self.constants, &self.params, lat, lon)
     }
@@ -400,10 +376,10 @@ mod tests {
 
     #[test]
     fn transverse_mercator_inverse_matches_proj_on_the_spheroid() {
-        let p = ukv_params();
+        let proj = TransverseMercatorProjector::new(ukv_params());
         let mut worst: f64 = 0.0;
         for (x, y, lat, lon) in PROJ_ELLIPSOID {
-            let (got_lat, got_lon) = transverse_mercator_inverse_xy(&p, x, y);
+            let (got_lat, got_lon) = proj.inverse_xy(x, y);
             worst = worst.max(metres_apart(lat, lon, got_lat, got_lon));
         }
         // A millimetre, three orders of magnitude below the 2 km grid spacing
@@ -416,10 +392,10 @@ mod tests {
 
     #[test]
     fn transverse_mercator_forward_matches_proj_on_the_spheroid() {
-        let p = ukv_params();
+        let proj = TransverseMercatorProjector::new(ukv_params());
         let mut worst: f64 = 0.0;
         for (x, y, lat, lon) in PROJ_ELLIPSOID {
-            let (got_x, got_y) = transverse_mercator_forward(&p, lat, lon);
+            let (got_x, got_y) = proj.forward(lat, lon);
             worst = worst.max((got_x - x).hypot(got_y - y));
         }
         // Looser than the inverse only because the oracle latitudes are quoted
@@ -434,14 +410,14 @@ mod tests {
     /// that is the only spherical implementation there is.
     #[test]
     fn transverse_mercator_degenerates_to_the_sphere_when_the_axes_are_equal() {
-        let p = TransverseMercatorParams {
+        let proj = TransverseMercatorProjector::new(TransverseMercatorParams {
             semi_major_m: DEFAULT_EARTH_RADIUS_M,
             semi_minor_m: DEFAULT_EARTH_RADIUS_M,
             ..ukv_params()
-        };
+        });
         let mut worst: f64 = 0.0;
         for (x, y, lat, lon) in PROJ_SPHERE {
-            let (got_lat, got_lon) = transverse_mercator_inverse_xy(&p, x, y);
+            let (got_lat, got_lon) = proj.inverse_xy(x, y);
             worst = worst.max(metres_apart(lat, lon, got_lat, got_lon));
         }
         assert!(
@@ -459,15 +435,16 @@ mod tests {
     fn the_spherical_approximation_would_be_kilometres_out_on_a_ukv_grid() {
         let spheroid = ukv_params();
         let mean_radius = (2.0 * spheroid.semi_major_m + spheroid.semi_minor_m) / 3.0;
-        let sphere = TransverseMercatorParams {
+        let sphere = TransverseMercatorProjector::new(TransverseMercatorParams {
             semi_major_m: mean_radius,
             semi_minor_m: mean_radius,
             ..spheroid
-        };
+        });
+        let spheroid = TransverseMercatorProjector::new(spheroid);
         let mut worst: f64 = 0.0;
         for (x, y, _, _) in PROJ_ELLIPSOID {
-            let (a_lat, a_lon) = transverse_mercator_inverse_xy(&spheroid, x, y);
-            let (b_lat, b_lon) = transverse_mercator_inverse_xy(&sphere, x, y);
+            let (a_lat, a_lon) = spheroid.inverse_xy(x, y);
+            let (b_lat, b_lon) = sphere.inverse_xy(x, y);
             worst = worst.max(metres_apart(a_lat, a_lon, b_lat, b_lon));
         }
         assert!(
@@ -493,6 +470,7 @@ mod tests {
             false_northing_m: 0.0,
             ..ukv_params()
         };
+        let proj = TransverseMercatorProjector::new(p);
         let mut worst: f64 = 0.0;
         for (x, y, lat, lon) in [
             (500000.0, 0.0, 0.000000000, 3.000000000),
@@ -502,7 +480,7 @@ mod tests {
             (166000.0, 1000000.0, 9.033978846, -0.037660965),
             (834000.0, 1000000.0, 9.033978846, 6.037660965),
         ] {
-            let (got_lat, got_lon) = transverse_mercator_inverse_xy(&p, x, y);
+            let (got_lat, got_lon) = proj.inverse_xy(x, y);
             worst = worst.max(metres_apart(lat, lon, got_lat, got_lon));
         }
         assert!(worst < 1e-3, "worst deviation from PROJ was {worst} m");
@@ -523,6 +501,7 @@ mod tests {
             false_northing_m: 5_000_000.0,
             ..ukv_params()
         };
+        let proj = TransverseMercatorProjector::new(p);
         let mut worst: f64 = 0.0;
         for (x, y, lat, lon) in [
             (300000.0, 5000000.0, -33.000000000, 151.000000000),
@@ -530,7 +509,7 @@ mod tests {
             (500000.0, 5200000.0, -31.179175500, 153.097987240),
             (300000.0, 5600000.0, -27.587337109, 151.000000000),
         ] {
-            let (got_lat, got_lon) = transverse_mercator_inverse_xy(&p, x, y);
+            let (got_lat, got_lon) = proj.inverse_xy(x, y);
             worst = worst.max(metres_apart(lat, lon, got_lat, got_lon));
         }
         assert!(worst < 1e-3, "worst deviation from PROJ was {worst} m");
@@ -617,10 +596,10 @@ mod tests {
     /// the Eta Lambert grid.
     #[test]
     fn transverse_mercator_wraps_longitude_before_projecting() {
-        let p = ukv_params();
+        let proj = TransverseMercatorProjector::new(ukv_params());
         for (lat, lon) in [(60.3, -13.5), (49.0, -2.0), (60.2, -13.2)] {
-            let signed = transverse_mercator_forward(&p, lat, lon);
-            let unsigned = transverse_mercator_forward(&p, lat, lon + 360.0);
+            let signed = proj.forward(lat, lon);
+            let unsigned = proj.forward(lat, lon + 360.0);
             assert!(
                 (signed.0 - unsigned.0).abs() < 1e-6 && (signed.1 - unsigned.1).abs() < 1e-6,
                 "{lon} and {} projected differently",
