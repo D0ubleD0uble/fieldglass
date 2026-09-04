@@ -91,17 +91,25 @@ impl ScanningMode {
 /// Grid type 0 — Latitude/Longitude (equidistant cylindrical / Plate Carrée).
 #[derive(Debug)]
 pub struct LatLonGrid {
+    /// Points along a row (`Ni`).
     pub ni: u32,
+    /// Rows (`Nj`).
     pub nj: u32,
+    /// Latitude of the first scanned point (`La1`), degrees.
     pub lat_first: f64,
+    /// Longitude of the first scanned point (`Lo1`), degrees.
     pub lon_first: f64,
+    /// Latitude of the last scanned point (`La2`), degrees.
     pub lat_last: f64,
+    /// Longitude of the last scanned point (`Lo2`), degrees.
     pub lon_last: f64,
     /// East-west increment in degrees.
     pub di: f64,
     /// North-south increment in degrees.
     pub dj: f64,
+    /// Resolution and component flags (GDS octet 17).
     pub resolution_flags: ResolutionFlags,
+    /// Scanning-mode flags (GDS octet 28), which fix the order of the points.
     pub scanning_mode: ScanningMode,
 }
 
@@ -115,11 +123,17 @@ pub struct LatLonGrid {
 /// converting them to geographic is the reprojector's job, not the parser's.
 #[derive(Debug)]
 pub struct RotatedLatLonGrid {
+    /// Points along a row (`Ni`).
     pub ni: u32,
+    /// Rows (`Nj`).
     pub nj: u32,
+    /// Latitude of the first scanned point (`La1`), degrees.
     pub lat_first: f64,
+    /// Longitude of the first scanned point (`Lo1`), degrees.
     pub lon_first: f64,
+    /// Latitude of the last scanned point (`La2`), degrees.
     pub lat_last: f64,
+    /// Longitude of the last scanned point (`Lo2`), degrees.
     pub lon_last: f64,
     /// East-west increment in degrees.
     pub di: f64,
@@ -131,7 +145,9 @@ pub struct RotatedLatLonGrid {
     pub south_pole_lon: f64,
     /// Angle of rotation about the new polar axis (degrees).
     pub angle_of_rotation: f64,
+    /// Resolution and component flags (GDS octet 17).
     pub resolution_flags: ResolutionFlags,
+    /// Scanning-mode flags (GDS octet 28), which fix the order of the points.
     pub scanning_mode: ScanningMode,
 }
 
@@ -143,16 +159,23 @@ pub struct RotatedLatLonGrid {
 /// count is `points_per_row.sum()`, not `Ni·Nj`.
 #[derive(Debug)]
 pub struct ReducedLatLonGrid {
+    /// Rows (`Nj`).
     pub nj: u32,
+    /// Latitude of the first scanned point (`La1`), degrees.
     pub lat_first: f64,
+    /// Longitude of the first scanned point (`Lo1`), degrees.
     pub lon_first: f64,
+    /// Latitude of the last scanned point (`La2`), degrees.
     pub lat_last: f64,
+    /// Longitude of the last scanned point (`Lo2`), degrees.
     pub lon_last: f64,
     /// North-south increment in degrees.
     pub dj: f64,
     /// Number of points in each of the `Nj` rows (the GDS `PL` list).
     pub points_per_row: Vec<u32>,
+    /// Resolution and component flags (GDS octet 17).
     pub resolution_flags: ResolutionFlags,
+    /// Scanning-mode flags (GDS octet 28), which fix the order of the points.
     pub scanning_mode: ScanningMode,
 }
 
@@ -163,42 +186,61 @@ pub struct ReducedLatLonGrid {
 /// common ECMWF "reduced_gg" layout.
 #[derive(Debug)]
 pub struct ReducedGaussianGrid {
+    /// Rows (`Nj`).
     pub nj: u32,
+    /// Latitude of the first scanned point (`La1`), degrees.
     pub lat_first: f64,
+    /// Longitude of the first scanned point (`Lo1`), degrees.
     pub lon_first: f64,
+    /// Latitude of the last scanned point (`La2`), degrees.
     pub lat_last: f64,
+    /// Longitude of the last scanned point (`Lo2`), degrees.
     pub lon_last: f64,
     /// Number of Gaussian latitudes between pole and equator.
     pub n_gaussians: u16,
     /// Number of points in each of the `Nj` rows (the GDS `PL` list).
     pub points_per_row: Vec<u32>,
+    /// Resolution and component flags (GDS octet 17).
     pub resolution_flags: ResolutionFlags,
+    /// Scanning-mode flags (GDS octet 28), which fix the order of the points.
     pub scanning_mode: ScanningMode,
 }
 
 /// Grid type 4 — Gaussian Latitude/Longitude.
 #[derive(Debug)]
 pub struct GaussianGrid {
+    /// Points along a row (`Ni`).
     pub ni: u32,
+    /// Rows (`Nj`).
     pub nj: u32,
+    /// Latitude of the first scanned point (`La1`), degrees.
     pub lat_first: f64,
+    /// Longitude of the first scanned point (`Lo1`), degrees.
     pub lon_first: f64,
+    /// Latitude of the last scanned point (`La2`), degrees.
     pub lat_last: f64,
+    /// Longitude of the last scanned point (`Lo2`), degrees.
     pub lon_last: f64,
     /// East-west increment in degrees (may be absent; check resolution_flags).
     pub di: f64,
     /// Number of Gaussian latitudes between pole and equator.
     pub n_gaussians: u16,
+    /// Resolution and component flags (GDS octet 17).
     pub resolution_flags: ResolutionFlags,
+    /// Scanning-mode flags (GDS octet 28), which fix the order of the points.
     pub scanning_mode: ScanningMode,
 }
 
 /// Grid type 5 — Polar Stereographic.
 #[derive(Debug)]
 pub struct PolarStereoGrid {
+    /// Points along the projection plane's x axis (`Nx`).
     pub nx: u32,
+    /// Points along the projection plane's y axis (`Ny`).
     pub ny: u32,
+    /// Latitude of the first scanned point (`La1`), degrees.
     pub lat_first: f64,
+    /// Longitude of the first scanned point (`Lo1`), degrees.
     pub lon_first: f64,
     /// Orientation longitude — meridian parallel to y-axis (degrees).
     pub lov: f64,
@@ -208,7 +250,9 @@ pub struct PolarStereoGrid {
     pub dy_m: u32,
     /// True = South Pole on projection plane; false = North Pole.
     pub south_pole: bool,
+    /// Resolution and component flags (GDS octet 17).
     pub resolution_flags: ResolutionFlags,
+    /// Scanning-mode flags (GDS octet 28), which fix the order of the points.
     pub scanning_mode: ScanningMode,
 }
 
@@ -275,9 +319,13 @@ impl PolarStereoGrid {
 /// Grid type 3 — Lambert Conformal (conic or bi-polar).
 #[derive(Debug)]
 pub struct LambertGrid {
+    /// Points along the projection plane's x axis (`Nx`).
     pub nx: u32,
+    /// Points along the projection plane's y axis (`Ny`).
     pub ny: u32,
+    /// Latitude of the first scanned point (`La1`), degrees.
     pub lat_first: f64,
+    /// Longitude of the first scanned point (`Lo1`), degrees.
     pub lon_first: f64,
     /// Orientation longitude (degrees).
     pub lov: f64,
@@ -295,7 +343,9 @@ pub struct LambertGrid {
     pub lat_south_pole: f64,
     /// Southern pole longitude for oblique projection (degrees).
     pub lon_south_pole: f64,
+    /// Resolution and component flags (GDS octet 17).
     pub resolution_flags: ResolutionFlags,
+    /// Scanning-mode flags (GDS octet 28), which fix the order of the points.
     pub scanning_mode: ScanningMode,
 }
 
@@ -345,14 +395,25 @@ impl LambertGrid {
 // Top-level enum
 // ---------------------------------------------------------------------------
 
+/// The GDS, parsed into whichever grid family its type octet named.
+///
+/// [`GridDescription::grid_type_name`] is the stable string the rest of
+/// the workspace keys on; matching on the variant gets the parameters.
 #[derive(Debug)]
 pub enum GridDescription {
+    /// Grid type 0 — regular latitude/longitude.
     LatLon(LatLonGrid),
+    /// Grid type 10 — rotated latitude/longitude.
     RotatedLatLon(RotatedLatLonGrid),
+    /// Grid type 0 with `Ni` absent — quasi-regular latitude/longitude.
     ReducedLatLon(ReducedLatLonGrid),
+    /// Grid type 4 — regular Gaussian latitude/longitude.
     Gaussian(GaussianGrid),
+    /// Grid type 4 with `Ni` absent — quasi-regular Gaussian.
     ReducedGaussian(ReducedGaussianGrid),
+    /// Grid type 5 — polar stereographic.
     PolarStereographic(PolarStereoGrid),
+    /// Grid type 3 — Lambert conformal.
     LambertConformal(LambertGrid),
     /// Spherical-harmonic coefficients (grid type 50). Not a grid at all: the
     /// message stores the field's spectral coefficients, so it has no `Ni`/`Nj`
@@ -361,6 +422,7 @@ pub enum GridDescription {
     SphericalHarmonic(SphericalHarmonicGrid),
     /// Grid type present but not yet supported by this parser.
     Unsupported {
+        /// The unsupported type's ON388 Table 6 code, so a caller can name it.
         grid_type: u8,
     },
 }
@@ -382,6 +444,8 @@ pub struct SphericalHarmonicGrid {
 }
 
 impl GridDescription {
+    /// The grid family's stable name — `"latlon"`, `"lambert"`,
+    /// `"polar_stereo"`, … — as every other crate in the workspace spells it.
     pub fn grid_type_name(&self) -> &'static str {
         match self {
             Self::LatLon(_) => "latlon",

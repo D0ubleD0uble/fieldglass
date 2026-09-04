@@ -7,12 +7,21 @@ use crate::packing::spherical::{SpectralCoefficients, decode_spectral};
 use crate::pds::{ProductDefinition, parse_product_definition};
 use fieldglass_core::FieldglassError;
 
+/// One message located in the file, with its sections parsed and its data
+/// section left as a byte range to decode on demand.
 #[derive(Debug)]
 pub struct Grib1Message {
+    /// Position of the message in the file — the index the decode entry points
+    /// take.
     pub message_index: usize,
+    /// Byte offset of the message's `GRIB` magic within the file.
     pub byte_offset: usize,
+    /// Section 0, parsed.
     pub is: IndicatorSection,
+    /// Section 1, parsed.
     pub pds: ProductDefinition,
+    /// Section 2, parsed, or `None` when the message declares no GDS — the
+    /// grid is then whatever `pds.grid_number` predefines.
     pub gds: Option<GridDescription>,
     /// Byte range of the Bit Map Section within the file, if one is present.
     pub bms_range: Option<(usize, usize)>,
@@ -84,9 +93,11 @@ pub enum Grib1MessageKind {
     Unsupported,
 }
 
+/// A whole GRIB1 file: the bytes, and every message found by scanning them.
 #[derive(Debug)]
 pub struct Grib1Reader {
     data: Vec<u8>,
+    /// Every message in the file, in the order they appear in it.
     pub messages: Vec<Grib1Message>,
 }
 
@@ -97,6 +108,7 @@ impl Grib1Reader {
         Ok(Self { data, messages })
     }
 
+    /// How many messages the scan found. Message indices run `0..this`.
     pub fn message_count(&self) -> usize {
         self.messages.len()
     }

@@ -57,7 +57,9 @@ pub struct SpectralCoefficients {
     /// (the only form in the wild, and the only one eccodes decodes) has
     /// `j == k == m`.
     pub j: u16,
+    /// Pentagonal resolution parameter `K`.
     pub k: u16,
+    /// Pentagonal resolution parameter `M`.
     pub m: u16,
     /// `(real, imaginary)` pairs — see the type docs for the traversal.
     pub coefficients: Vec<f64>,

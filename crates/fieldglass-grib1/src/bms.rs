@@ -5,9 +5,12 @@ use fieldglass_core::FieldglassError;
 /// `false` means it is missing.
 #[derive(Debug)]
 pub struct Bitmap {
+    /// Length of the section in bytes, from its own 3-octet length prefix.
     pub section_len: u32,
     /// Predefined bitmap indicator (0 = bitmap follows in this section).
     pub predefined_indicator: u16,
+    /// One flag per grid point in scan order, truncated to the GDS point
+    /// count: `true` when the BDS carries a value for that point.
     pub bits: Vec<bool>,
 }
 

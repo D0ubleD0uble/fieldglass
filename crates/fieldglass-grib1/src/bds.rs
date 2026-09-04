@@ -4,6 +4,7 @@ use fieldglass_core::bits::{ibm_float_to_f64, sign_magnitude_i16};
 /// Header of the Binary Data Section. Does not own the packed data.
 #[derive(Debug)]
 pub struct BdsHeader {
+    /// Length of the section in bytes, from its own 3-octet length prefix.
     pub section_len: u32,
     /// True = spherical-harmonic coefficients (unsupported here).
     pub is_spherical_harmonic: bool,
@@ -222,7 +223,10 @@ pub enum SphericalExtendedHeader {
     /// coefficient — the field mean — as a bare IBM float, lifted out of the
     /// packed stream so its magnitude doesn't swamp the quantisation of every
     /// other coefficient. Data begins at octet 16.
-    Simple { real_part: f64 },
+    Simple {
+        /// The `(0, 0)` coefficient's real part — the field mean.
+        real_part: f64,
+    },
     /// `spectral_complex`: octets 12-13 `N`, 14-15 `P`, 16 `JS`, 17 `KS`,
     /// 18 `MS`. Data begins at octet 19.
     Complex {
@@ -233,7 +237,9 @@ pub enum SphericalExtendedHeader {
         /// equal (`DataComplexPacking.cc`), so a message that disagrees is
         /// malformed rather than a variant to support.
         js: u8,
+        /// Sub-truncation `KS`; see `js`.
         ks: u8,
+        /// Sub-truncation `MS`; see `js`.
         ms: u8,
     },
 }
@@ -242,6 +248,7 @@ pub enum SphericalExtendedHeader {
 /// section. `spectral_simple` ends after the 4-byte real part; `spectral_complex`
 /// ends after `MS`.
 pub const SPECTRAL_SIMPLE_DATA_OFFSET: usize = 15;
+/// Octet at which a `spectral_complex` BDS's data begins — after `MS`.
 pub const SPECTRAL_COMPLEX_DATA_OFFSET: usize = 18;
 
 fn parse_spherical_extended(

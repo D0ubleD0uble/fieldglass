@@ -36,23 +36,23 @@
 //! rather than surfacing as a plausible-looking picture.
 
 #![forbid(unsafe_code)]
-// `missing_docs` is `warn` in `[workspace.lints]`, and 110 public items in this
-// crate do not satisfy it yet. Allowed here rather than downgraded workspace-wide
-// so the standard stays one line in the root manifest and the debt stays visible
-// per crate: deleting this attribute is what finishes the burn-down, and a crate
-// added without it starts held to the lint. See `tools/check_workspace_lints.py`,
-// which is the list of crates still carrying one.
-#![allow(missing_docs)]
-
+/// Section 4, the Binary Data Section: its header and the value decode.
 pub mod bds;
+/// Section 3, the Bit Map Section: which grid points carry a value.
 pub mod bms;
+/// Section 2, the Grid Description Section: one struct per grid family.
 pub mod gds;
 pub mod geometry;
+/// Section 0, the Indicator Section: message length and edition.
 pub mod is;
+/// The BDS packings, one module each, behind a common trait.
 pub mod packing;
+/// Section 1, the Product Definition Section: what the field is, and when.
 pub mod pds;
 pub mod predefined;
+/// The message scanner and the decode entry points over a whole file.
 pub mod reader;
+/// WMO ON388 Table 2 parameter lookup, international and centre-local.
 pub mod tables;
 pub mod tables_cct;
 mod tables_ecmwf;

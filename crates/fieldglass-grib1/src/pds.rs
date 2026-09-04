@@ -1,17 +1,27 @@
 use fieldglass_core::FieldglassError;
 
+/// Section 1, the Product Definition Section — what the field is, and when.
 #[derive(Debug)]
 pub struct ProductDefinition {
+    /// Length of the section in bytes, from its own 3-octet length prefix.
     pub section_len: u32,
+    /// Parameter table version. Values from 128 select a centre-local table.
     pub table_version: u8,
+    /// Originating centre code (WMO Common Code Table C-1), which together
+    /// with `table_version` selects the parameter table.
     pub originating_centre: u8,
+    /// Generating process / model id, defined by the originating centre.
     pub generating_process: u8,
+    /// Predefined grid number (ON388 Table B). Only meaningful when `has_gds`
+    /// is false, where it is the message's only grid definition.
     pub grid_number: u8,
     /// True if a Grid Description Section follows.
     pub has_gds: bool,
     /// True if a Bit Map Section follows.
     pub has_bms: bool,
+    /// Parameter id, resolved against Table 2 for `table_version`.
     pub parameter_id: u8,
+    /// Level (fixed surface) type, ON388 Table 3.
     pub level_type: u8,
     /// First level value byte (interpretation depends on level_type).
     pub level_value_1: u8,
@@ -19,9 +29,13 @@ pub struct ProductDefinition {
     pub level_value_2: u8,
     /// Year within the century (1–100).
     pub reference_year: u8,
+    /// Reference month, 1–12.
     pub reference_month: u8,
+    /// Reference day of the month, 1–31.
     pub reference_day: u8,
+    /// Reference hour, 0–23 UTC.
     pub reference_hour: u8,
+    /// Reference minute, 0–59.
     pub reference_minute: u8,
     /// Time unit indicator (WMO Table 4).
     pub time_unit: u8,
@@ -33,6 +47,7 @@ pub struct ProductDefinition {
     pub time_range: u8,
     /// Century (e.g. 21 for the 2000s).
     pub century: u8,
+    /// Sub-centre code, meaningful only paired with `originating_centre`.
     pub sub_centre: u8,
     /// Decimal scale factor (signed).
     pub decimal_scale_factor: i16,

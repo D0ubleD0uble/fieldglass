@@ -28,6 +28,7 @@ const PRECISION_OFFSET: usize = 11;
 const IEEE_DATA_OFFSET: usize = 12;
 
 #[derive(Debug)]
+/// The [`Grib1Packing`] decoder for IEEE floating-point packing (`grid_ieee`).
 pub struct IeeePacking;
 
 impl Grib1Packing for IeeePacking {

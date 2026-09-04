@@ -50,7 +50,6 @@ REQUIRED_GROUPS = ("rust", "clippy")
 # forces this entry to go with it.
 DEBT = {
     "crates/fieldglass-core": 158,
-    "crates/fieldglass-grib1": 110,
     "crates/fieldglass-grib2": 194,
 }
 
