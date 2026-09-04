@@ -1,0 +1,121 @@
+{
+  "messages": [
+    {
+      "discipline": 0,
+      "editionNumber": 2,
+      "totalLength": 218,
+      "centre": 98,
+      "subCentre": 0,
+      "significanceOfReferenceTime": 1,
+      "dataDate": 20070323,
+      "dataTime": 1200,
+      "productionStatusOfProcessedData": 0,
+      "typeOfProcessedData": 2,
+      "gridDefinitionTemplateNumber": 30,
+      "shapeOfTheEarth": 6,
+      "numberOfDataPoints": 30,
+      "Ni": 6,
+      "Nj": 5,
+      "latitudeOfFirstGridPointInDegrees": 30,
+      "longitudeOfFirstGridPointInDegrees": 260,
+      "productDefinitionTemplateNumber": 0,
+      "parameterCategory": 0,
+      "parameterNumber": 0,
+      "typeOfGeneratingProcess": 0,
+      "indicatorOfUnitOfTimeRange": 1,
+      "forecastTime": 0,
+      "typeOfFirstFixedSurface": 1,
+      "scaleFactorOfFirstFixedSurface": null,
+      "scaledValueOfFirstFixedSurface": null,
+      "dataRepresentationTemplateNumber": 0,
+      "referenceValue": 1,
+      "binaryScaleFactor": -3,
+      "decimalScaleFactor": 0,
+      "bitsPerValue": 8,
+      "bitMapIndicator": 255
+    }
+  ],
+  "values": [
+    {
+      "count": 30,
+      "numberOfMissing": 0,
+      "minimum": 1,
+      "maximum": 30,
+      "average": 15.5,
+      "sample": [
+        [
+          0,
+          1
+        ],
+        [
+          1,
+          2
+        ],
+        [
+          2,
+          3
+        ],
+        [
+          3,
+          4
+        ],
+        [
+          4,
+          5
+        ],
+        [
+          5,
+          6
+        ],
+        [
+          6,
+          7
+        ],
+        [
+          7,
+          8
+        ],
+        [
+          8,
+          9
+        ],
+        [
+          9,
+          10
+        ],
+        [
+          10,
+          11
+        ],
+        [
+          11,
+          12
+        ],
+        [
+          12,
+          13
+        ],
+        [
+          13,
+          14
+        ],
+        [
+          14,
+          15
+        ],
+        [
+          15,
+          16
+        ],
+        [
+          16,
+          17
+        ],
+        [
+          17,
+          18
+        ]
+      ]
+    }
+  ]
+}

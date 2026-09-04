@@ -741,3 +741,38 @@ grib_api 1.14.0 and `gridName` since 1.14.4. The builder asserts those four keys
 rather than printing them, so a run that quietly produced a classic grid fails
 instead of leaving the branch untested. eccodes and its samples are released
 under the Apache 2.0 license.
+
+## `alternate_row_lambert.grib2` (+ `alternate_row_lambert_expected.json`)
+
+Synthetic, built by `tools/build_grib2_alternate_row_fixture.py` (#541). GDS
+template **3.30** (Lambert conformal) on a 6 x 5 CONUS grid at 200 km with
+`scanningMode = 80` — §3 Flag Table 3.4 bit 6 (j scans positively) plus bit 4
+(adjacent rows scan in opposite directions). That is the National Blend of
+Models' own scanning mode; NBM's 2345 x 1597 Lambert 2 m field is the
+real-world case and far too large to commit. The stored values are `1..30` in
+scan order, so the expected file reads as the permutation itself.
+
+Hand-built because eccodes ships no boustrophedon sample. Encoded with the
+eccodes **2.48** Python wheel (the CLI cannot set the §3.30 keys and the values
+array in one pass); the pinned 2.34.1 CLI reads every key back, which is what
+`alternate_row_lambert.grib2.eccodes.ref.json` pins.
+
+**Two eccodes answers, and which one is the oracle for what.** eccodes' `values`
+key returns the field in *storage* order — it does not undo alternate-row
+scanning, which is the separate, opt-in `swapScanningAlternativeRows` key
+(`ChangeAlternativeRowScanning::pack_long`). Its **geoiterator** does, in
+`transform_iterator_data`, so `grib_get_data` prints the regularised order.
+`alternate_row_lambert_expected.json` records both: `stored` is what
+`grib_dump -j` reports and what the `.eccodes.ref.json` value block holds;
+`regularised` is what `grib_get_data` prints and what `decode_message_values`
+must return.
+
+Lambert rather than the cheaper regular lat/lon **because of that oracle**: only
+the projections routing through `transform_iterator_data` apply the flag. The
+lat/lon iterator states the assumption `alternativeRowScanning == 0` in its own
+source and ignores it, so a `regular_ll` fixture's `grib_get_data` output is an
+oracle for nothing. Both were built and compared before choosing. Scanning mode
+80 also reduces that transform to *exactly* the row flip: `jScansPositively` is
+set and `iScansNegatively` clear, so the j- and i-flip branches of
+`pointer_to_data` are identities and what remains is
+`i = nx - 1 - i when the storage row is odd`.

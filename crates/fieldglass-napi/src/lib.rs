@@ -2390,6 +2390,10 @@ impl Grib2Handle {
         {
             return Ok(std::sync::Arc::clone(hit));
         }
+        // Alternate-row (boustrophedon) scanning is undone inside
+        // `decode_message_values` (#541), so what comes back is already the
+        // regular Ni·Nj row order every downstream path (decode_grid, render,
+        // overlay) addresses as `raw[j·ni + i]`.
         let mut raw = self
             .reader
             .decode_message_values(message_index as usize)
@@ -2399,29 +2403,6 @@ impl Grib2Handle {
             .messages
             .get(message_index as usize)
             .map(|m| &m.gds);
-        // Undo alternate-row (boustrophedon) scanning here, at the single decode
-        // boundary, so every downstream path (decode_grid, render, overlay) sees
-        // a regular Ni·Nj raster the projector can address as `raw[j·ni + i]`.
-        // GRIB2 Flag Table 3.4 bit 4 (0x10) marks it; NBM's Lambert 2 m field is
-        // the real-world case, and the decode is otherwise correct — the scan
-        // sign flags fold into the projection, but the alternate-row flip cannot.
-        // Only the common i-consecutive layout (bit 3 0x20 clear) is handled.
-        // A reduced grid is flipped by its own row widths, on the stored field,
-        // before the expansion below widens it.
-        if let Some(gds) = gds
-            && let Some(sm) = gds.scanning_mode()
-            && sm & fieldglass_grib2::SCAN_ALTERNATE_ROWS != 0
-            && sm & fieldglass_grib2::SCAN_J_CONSECUTIVE == 0
-        {
-            match gds.points_per_row() {
-                Some(pl) => fieldglass_grib2::undo_alternate_reduced_rows(&mut raw, pl),
-                None => {
-                    if let Some((ni, _nj)) = gds.dimensions() {
-                        fieldglass_grib2::undo_alternate_rows(&mut raw, ni as usize);
-                    }
-                }
-            }
-        }
         // Reduced grids decode to sum(PL) points laid out row by row. Expand
         // each row to the widest-row width here, at the same single boundary
         // `Grib1Handle` does it at, so every downstream path sees a regular
