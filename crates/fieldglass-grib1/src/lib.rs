@@ -16,11 +16,13 @@
 //! `fieldglass_core::projection` needs to place it on a map.
 //!
 //! A reduced grid stores `sum(PL)` values, not the `Ni × Nj` its
-//! [`GridDescription::dimensions`] reports. [`Grib1Reader::decode_message_raster`]
-//! is the entry point that hands back the rectangle, with
-//! [`GridDescription::raster_bounds`] as its extent;
-//! [`Grib1Reader::decode_message_values`] is the field exactly as the message
-//! stores it. Neither leaves the widening rule to the caller.
+//! [`GridDescription::dimensions`] reports, and a `j`-consecutive grid
+//! ([`ScanningMode::j_consecutive`]) stores meridians rather than parallels.
+//! [`Grib1Reader::decode_message_raster`] is the entry point that hands back
+//! the rectangle either way, with [`GridDescription::raster_bounds`] as its
+//! extent; [`Grib1Reader::decode_message_values`] is the field exactly as the
+//! message stores it. Neither leaves the widening or transpose rule to the
+//! caller.
 //!
 //! A message routes to one of three decode methods, and which one is not a
 //! property of its packing label alone —

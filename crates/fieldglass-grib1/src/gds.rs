@@ -70,7 +70,13 @@ pub struct ScanningMode {
     pub i_negative: bool,
     /// True = points scan in +j direction (south→north); false = north→south.
     pub j_positive: bool,
-    /// True = adjacent points are consecutive in j (column-major); false = row-major.
+    /// True = adjacent points are consecutive in j (column-major); false =
+    /// row-major.
+    ///
+    /// Unlike the two direction bits above, this one changes the *order* the
+    /// points are stored in rather than where they sit, so no geometry absorbs
+    /// it: [`crate::Grib1Reader::decode_message_raster`] transposes the field
+    /// instead, and the boustrophedonic undo takes its run length from `Nj`.
     pub j_consecutive: bool,
 }
 

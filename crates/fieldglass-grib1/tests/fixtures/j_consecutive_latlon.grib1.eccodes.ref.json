@@ -1,0 +1,128 @@
+{
+  "messages": [
+    {
+      "editionNumber": 1,
+      "table2Version": 128,
+      "centre": 98,
+      "subCentre": 0,
+      "generatingProcessIdentifier": 128,
+      "indicatorOfParameter": 167,
+      "indicatorOfTypeOfLevel": 1,
+      "level": 0,
+      "timeRangeIndicator": 0,
+      "dataDate": 20070323,
+      "dataTime": 1200,
+      "decimalScaleFactor": 0,
+      "GDSPresent": 1,
+      "bitmapPresent": 0,
+      "gridType": "regular_ll",
+      "Ni": 8,
+      "Nj": 5,
+      "Nx": 8,
+      "Ny": 5,
+      "numberOfDataPoints": 40,
+      "latitudeOfFirstGridPointInDegrees": 60,
+      "longitudeOfFirstGridPointInDegrees": 0,
+      "latitudeOfLastGridPointInDegrees": 40,
+      "longitudeOfLastGridPointInDegrees": 35,
+      "iDirectionIncrementInDegrees": 5,
+      "jDirectionIncrementInDegrees": 5,
+      "earthIsOblate": 0,
+      "uvRelativeToGrid": 0,
+      "iScansNegatively": 0,
+      "jScansPositively": 0,
+      "jPointsAreConsecutive": 1,
+      "packingType": "grid_simple",
+      "sphericalHarmonics": 0,
+      "complexPacking": 0,
+      "integerPointValues": 0,
+      "additionalFlagPresent": 0,
+      "bitsPerValue": 16,
+      "binaryScaleFactor": -10,
+      "referenceValue": 0
+    }
+  ],
+  "values": [
+    {
+      "count": 40,
+      "numberOfMissing": 0,
+      "minimum": 0,
+      "maximum": 47,
+      "average": 23.5,
+      "sample": [
+        [
+          0,
+          0
+        ],
+        [
+          2,
+          20
+        ],
+        [
+          4,
+          40
+        ],
+        [
+          6,
+          11
+        ],
+        [
+          8,
+          31
+        ],
+        [
+          10,
+          2
+        ],
+        [
+          12,
+          22
+        ],
+        [
+          14,
+          42
+        ],
+        [
+          16,
+          13
+        ],
+        [
+          18,
+          33
+        ],
+        [
+          20,
+          4
+        ],
+        [
+          22,
+          24
+        ],
+        [
+          24,
+          44
+        ],
+        [
+          26,
+          15
+        ],
+        [
+          28,
+          35
+        ],
+        [
+          30,
+          6
+        ],
+        [
+          32,
+          26
+        ],
+        [
+          34,
+          46
+        ]
+      ]
+    }
+  ]
+}

@@ -223,11 +223,19 @@ impl Grib1Reader {
             )));
         }
         // `cols` drives the uniform-width boustrophedonic undo in second-order
-        // packing. A reduced grid's rows differ in width, so a single column
-        // count is meaningless; pass 0 to skip it (correct for the simple/IEEE
-        // packings that dominate reduced grids and store rows left-to-right).
+        // packing, so it is the length of a *stored run*, not of a parallel. A
+        // reduced grid's rows differ in width, so a single column count is
+        // meaningless; pass 0 to skip it (correct for the simple/IEEE packings
+        // that dominate reduced grids and store rows left-to-right). Under
+        // j-consecutive scanning the stored run is a meridian of `Nj` points,
+        // and eccodes 2.34.1 reverses alternate runs of that length — checked
+        // by setting scan bit `0x20` on `ecmwf_spd3_boust_msg0.grib1` and
+        // diffing `grib_get_data`, which is what `decode_j_consecutive.rs`
+        // pins (#542).
         let cols = if gds.points_per_row().is_some() {
             0
+        } else if j_consecutive(gds) {
+            nj as usize
         } else {
             ni as usize
         };
@@ -257,13 +265,16 @@ impl Grib1Reader {
     /// stores them**. Returns one entry per stored data point: `Some(value)`
     /// for present points, `None` for points masked out by a Bit Map Section.
     ///
-    /// For a regular grid that is `Ni·Nj` values in row-major order. For a
+    /// For a regular grid that is `Ni·Nj` values, in the order the scanning
+    /// mode ([`crate::ScanningMode`]) puts them in — row-major unless
+    /// [`crate::ScanningMode::j_consecutive`] is set, in which case the message
+    /// stores columns and `values[i·nj + j]` is the point at `(i, j)`. For a
     /// reduced grid it is `sum(PL)` values, row by row, which is *not* the
     /// `Ni·Nj` [`GridDescription::dimensions`] reports — a consumer indexing
     /// `values[j·ni + i]` reads the wrong point from the second row on. Use
-    /// [`Self::decode_message_raster`] for the rectangle; use this when the
-    /// stored field itself is what you want (a statistic, a re-encode, a
-    /// point count checked against eccodes).
+    /// [`Self::decode_message_raster`] for the rectangle, which resolves both;
+    /// use this when the stored field itself is what you want (a statistic, a
+    /// re-encode, a point count checked against eccodes).
     pub fn decode_message_values(
         &self,
         message_index: usize,
@@ -284,13 +295,28 @@ impl Grib1Reader {
     /// `raster[j·ni + i]`.
     ///
     /// The same values [`Self::decode_message_values`] returns for every grid
-    /// whose rows are all `Ni` wide. For a reduced grid each stored row is
-    /// widened to `max(PL)` here, at the decode boundary, so a consumer never
-    /// has to know the field was quasi-regular
-    /// ([`fieldglass_core::expand_reduced_to_regular`] documents how a column
-    /// is chosen — nearest by longitude, wrapping at the antimeridian). The
-    /// matching extent is [`GridDescription::raster_bounds`], whose eastern
-    /// corner is derived for the same reason.
+    /// whose rows are all `Ni` wide and stored west-to-east *first*. Two
+    /// layouts are regularised here, at the decode boundary, so a consumer
+    /// never has to know which one it was handed:
+    ///
+    /// - **Reduced grids.** Each stored row is widened to `max(PL)`
+    ///   ([`fieldglass_core::expand_reduced_to_regular`] documents how a
+    ///   column is chosen — nearest by longitude, wrapping at the
+    ///   antimeridian). The matching extent is
+    ///   [`GridDescription::raster_bounds`], whose eastern corner is derived
+    ///   for the same reason.
+    /// - **`j`-consecutive grids** ([`crate::ScanningMode::j_consecutive`],
+    ///   GDS octet 28 bit 3). The message stores meridians, not parallels, so
+    ///   the field is transposed into `raster[j·ni + i]`. Without this a caller
+    ///   painting the stored order gets a transposed picture with no way to
+    ///   tell (#542).
+    ///
+    /// The *directions* the scanning mode also carries —
+    /// [`crate::ScanningMode::i_negative`] and
+    /// [`crate::ScanningMode::j_positive`] — are not touched, here or anywhere:
+    /// row 0 is the first scanned row and column 0 the first scanned point, and
+    /// the geometry says where those are (see `signed_increments` on the
+    /// projected grids). Only the storage *order* is normalised.
     ///
     /// A layout with no raster shape at all comes back untouched: there is
     /// nothing to widen and nothing to widen it to. GRIB1 has one such case
@@ -317,6 +343,13 @@ impl Grib1Reader {
                 pl,
                 width as usize,
             )),
+            // A quasi-regular grid has no columns to store, and eccodes 2.34.1
+            // ignores the bit on one (its reduced geoiterator walks rows either
+            // way, verified by setting `0x20` on `reduced_gg_n32_smooth.grib1`
+            // and diffing `grib_get_data`), so only the regular arm transposes.
+            (None, Some((ni, nj))) if j_consecutive(gds) => {
+                Ok(transpose_j_consecutive(&values, ni as usize, nj as usize))
+            }
             _ => Ok(values),
         }
     }
@@ -427,8 +460,9 @@ impl Grib1Reader {
 struct DecodeInputs<'a> {
     ni: usize,
     nj: usize,
-    /// Column count handed to the packing decoders for boustrophedonic row
-    /// undo. Equals `ni` for regular grids, `0` for reduced grids.
+    /// Length of one stored run, handed to the packing decoders for the
+    /// boustrophedonic undo. Equals `ni` for regular grids, `nj` for
+    /// j-consecutive ones (whose runs are meridians), `0` for reduced grids.
     cols: usize,
     expected_count: usize,
     decimal_scale: i16,
@@ -442,6 +476,36 @@ impl DecodeInputs<'_> {
     fn bitmap_bits(&self) -> Option<&[bool]> {
         self.bitmap.as_ref().map(|b| b.bits.as_slice())
     }
+}
+
+/// Whether this grid stores meridians rather than parallels — GDS octet 28
+/// bit 3, [`crate::ScanningMode::j_consecutive`].
+///
+/// A grid description with no scanning mode at all (spherical harmonics) is
+/// row-major by default, which is also the answer that leaves every other
+/// layout alone.
+fn j_consecutive(gds: &GridDescription) -> bool {
+    gds.scanning_mode().is_some_and(|s| s.j_consecutive)
+}
+
+/// Reorder a `j`-consecutive (column-major) field of `ni · nj` points into the
+/// row-major raster `out[j·ni + i] = values[i·nj + j]`.
+///
+/// Anything that is not exactly `ni · nj` long comes back untouched: the
+/// callers cap and cross-check both counts before getting here, so a mismatch
+/// is a grid this cannot describe, and returning it unchanged is the same
+/// answer a grid without the flag gets.
+fn transpose_j_consecutive(values: &[Option<f64>], ni: usize, nj: usize) -> Vec<Option<f64>> {
+    if ni.checked_mul(nj) != Some(values.len()) {
+        return values.to_vec();
+    }
+    let mut out = Vec::with_capacity(values.len());
+    for j in 0..nj {
+        for i in 0..ni {
+            out.push(values[i * nj + j]);
+        }
+    }
+    out
 }
 
 /// Scan `data` for GRIB messages. Each message starts with the `GRIB` magic
@@ -765,6 +829,52 @@ pub fn level_type_str(pds: &ProductDefinition) -> String {
     match level_unit(pds.level_type) {
         Some(unit) => format!("({unit}) {name}"),
         None => name.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod transpose_tests {
+    use super::*;
+
+    fn field(n: usize) -> Vec<Option<f64>> {
+        (0..n).map(|k| Some(k as f64)).collect()
+    }
+
+    /// `ni = 2`, `nj = 3`: the stored columns `[0,1,2]` and `[3,4,5]` become
+    /// the rows `[0,3]`, `[1,4]`, `[2,5]`.
+    #[test]
+    fn columns_become_rows() {
+        let out = transpose_j_consecutive(&field(6), 2, 3);
+        let want: Vec<Option<f64>> = [0.0, 3.0, 1.0, 4.0, 2.0, 5.0].map(Some).into();
+        assert_eq!(out, want);
+    }
+
+    /// Transposing twice with the axes swapped is the identity, which is the
+    /// property the raster path relies on: nothing is dropped or duplicated.
+    #[test]
+    fn transposing_back_is_the_identity() {
+        let original = field(35);
+        let once = transpose_j_consecutive(&original, 5, 7);
+        assert_eq!(transpose_j_consecutive(&once, 7, 5), original);
+    }
+
+    /// A masked point travels with its position rather than being filled in.
+    #[test]
+    fn a_masked_point_moves_with_its_neighbours() {
+        let mut values = field(6);
+        values[4] = None; // stored index 4 = column 1, row 1 = raster index 3.
+        assert_eq!(transpose_j_consecutive(&values, 2, 3)[3], None);
+    }
+
+    /// A count that is not `ni · nj` describes no rectangle, so there is
+    /// nothing to transpose and the field comes back as it went in. The
+    /// callers cap and cross-check both counts, so this is the guard rather
+    /// than a reachable layout — but an out-of-bounds index is the failure it
+    /// would otherwise be.
+    #[test]
+    fn a_field_that_is_not_the_rectangle_is_untouched() {
+        assert_eq!(transpose_j_consecutive(&field(5), 2, 3), field(5));
+        assert_eq!(transpose_j_consecutive(&field(0), usize::MAX, 2), field(0));
     }
 }
 

@@ -204,6 +204,40 @@ actually spans more than 1 K, so a run that quietly produced a constant fails
 instead of reproducing the gap it closes. eccodes and its samples are released
 under the Apache 2.0 license.
 
+## `j_consecutive_latlon.grib1`
+
+The only fixture in the corpus that sets `jPointsAreConsecutive` (GDS octet 28,
+bit 3) — the flag that says a message stores meridians rather than parallels.
+Without one, `decode_message_raster` could hand back a transposed field and
+every test still passed (#542).
+
+Built by `tools/build_grib1_j_consecutive_fixture.py` from the eccodes 2.34.1
+`regular_ll_sfc_grib1.tmpl` sample shrunk to 8 × 5 (60 → 40 °N, 0 → 35 °E, 5°
+steps, north-to-south, `grid_simple` at 16 bits, 188 bytes). The field is the
+ramp `10·j + i`, written in stored order (`i` outer, `j` inner), so every one
+of the 40 points names its own position and a single misplaced value fails an
+assertion. `Ni ≠ Nj` on purpose: on a square grid a transposed raster is still
+the right length and only the values give it away.
+
+Encoded with the `eccodes` PyPI wheel (2.48) because setting the values array
+needs `codes_set_values`; **verified with the pinned 2.34.1**, whose
+`regular_ll` geoiterator does honour the flag — it walks the message column by
+column, so `grib_get_data` is a valid value oracle here. The builder asserts
+that rather than assuming it: it re-reads all eight metadata keys and checks
+that the first `Nj` stored points share one longitude and step in latitude, so
+a toolchain that stopped honouring the bit fails the build instead of quietly
+producing a row-major file with a flag on it. The inherited PDS (ECMWF
+geopotential) does not describe this synthetic field; only the decode path is
+under test. eccodes and its samples are released under the Apache 2.0 license.
+
+The sibling case — boustrophedonic ordering *combined* with j-consecutive, where
+the reversed run is a meridian of `Nj` rather than a parallel of `Ni` — is
+pinned by `tests/decode_j_consecutive.rs`, which sets the same bit on
+`ecmwf_spd3_boust_msg0.grib1` in memory. That is a one-bit edit to a 55 kB file,
+so it is applied in the test rather than committed a second time; the test's
+doc comment records the `grib_get_data` run that made eccodes 2.34.1 the oracle
+for it.
+
 ## `hand_matrix_of_values.grib1`
 
 A hand-assembled `grid_simple_matrix` message with `matrixOfValues = 1` — a true
