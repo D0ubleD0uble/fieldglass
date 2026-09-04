@@ -520,35 +520,28 @@ fn grib1_decode_regular(
     })
 }
 
-/// GRIB2 decode with the alternate-row scan undone and reduced rows expanded.
+/// GRIB2 decode with reduced rows expanded.
 ///
-/// Both steps mirror `fieldglass-napi`'s single decode boundary. #541 moves the
-/// alternate-row undo into `decode_message_values` and #543 the expansion;
-/// until then a second host has to do the same two things or draw NBM's
-/// Lambert fields with every other row reversed.
+/// The expansion mirrors `fieldglass-napi`'s single decode boundary; #543 moves
+/// it inside `decode_message_values` and this function disappears when it does.
+///
+/// The alternate-row (boustrophedon) undo this used to carry alongside it is
+/// gone: #541 moved it into `decode_message_values`, so what comes back is
+/// already in raster order. Doing it a second time here would flip the rows
+/// straight back and draw NBM's Lambert fields with every other row reversed —
+/// the exact fault the copy existed to prevent.
 fn grib2_decode_regular(
     reader: &fieldglass_grib2::Grib2Reader,
     index: usize,
 ) -> Result<Vec<Option<f64>>, Error> {
-    let mut raw = reader.decode_message_values(index)?;
+    let raw = reader.decode_message_values(index)?;
     let gds = &reader.messages[index].gds;
-    if let Some(sm) = gds.scanning_mode()
-        && sm & fieldglass_grib2::SCAN_ALTERNATE_ROWS != 0
-        && sm & fieldglass_grib2::SCAN_J_CONSECUTIVE == 0
-    {
-        match gds.points_per_row() {
-            Some(pl) => fieldglass_grib2::undo_alternate_reduced_rows(&mut raw, pl),
-            None => {
-                if let Some((ni, _)) = gds.dimensions() {
-                    fieldglass_grib2::undo_alternate_rows(&mut raw, ni as usize);
-                }
-            }
+    Ok(match (gds.points_per_row(), gds.dimensions()) {
+        (Some(pl), Some((width, _))) => {
+            fieldglass_core::expand_reduced_to_regular(&raw, pl, width as usize)
         }
-    }
-    if let (Some(pl), Some((width, _))) = (gds.points_per_row(), gds.dimensions()) {
-        raw = fieldglass_core::expand_reduced_to_regular(&raw, pl, width as usize);
-    }
-    Ok(raw)
+        _ => raw,
+    })
 }
 
 // ---------------------------------------------------------------------------

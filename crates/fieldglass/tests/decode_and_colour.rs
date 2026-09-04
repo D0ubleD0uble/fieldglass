@@ -16,8 +16,8 @@
 //!    checks the rule itself, on real data, with no GPU.
 
 use fieldglass::{
-    DecodeOptions, Dtype, Palette, PaletteOptions, ScaleMode, Session, colormaps, shader_index,
-    shader_mask, shader_values,
+    DecodeOptions, Dtype, Palette, PaletteOptions, ScaleMode, Session, Values, colormaps,
+    shader_index, shader_mask, shader_values,
 };
 
 /// Committed fixtures covering all four modelled grid families and a spread of
@@ -366,4 +366,52 @@ fn unknown_bytes_are_refused_by_code() {
         panic!("64 zero bytes are not a container and must be refused");
     };
     assert_eq!(err.code(), "unsupported_format");
+}
+
+/// A boustrophedon field reaches a host in raster order, and is flipped exactly
+/// once.
+///
+/// This crate used to undo alternate-row scanning itself, mirroring what
+/// `fieldglass-napi` did, because `decode_message_values` did not (#541). It
+/// does now — so the copy had to go, and applying it a second time here would
+/// have flipped the rows straight back. That failure is invisible to every
+/// other check in this file: the raster keeps its shape, its length, its mask
+/// and its statistics, and only the position of each value changes. So compare
+/// against the crate the session decodes through, which is pinned point for
+/// point against eccodes' geoiterator in
+/// `fieldglass-grib2/tests/decode_alternate_rows.rs`.
+#[test]
+fn an_alternate_row_grid_is_not_flipped_twice() {
+    const PATH: &str = "../fieldglass-grib2/tests/fixtures/alternate_row_lambert.grib2";
+    let bytes = std::fs::read(PATH).unwrap_or_else(|e| panic!("{PATH}: {e}"));
+
+    let reader =
+        fieldglass_grib2::Grib2Reader::from_bytes(bytes.clone()).expect("the fixture parses");
+    assert_eq!(
+        reader.messages[0].gds.scanning_mode(),
+        Some(80),
+        "the fixture must still carry alternate-row scanning for this to test anything"
+    );
+    let want = reader.decode_message_values(0).expect("decode succeeds");
+
+    let session = Session::open(bytes).expect("the fixture opens");
+    let field = session
+        .decode(0, &DecodeOptions::default())
+        .expect("decode succeeds");
+
+    let got: Vec<f64> = match &field.values {
+        Values::F32(v) => v.iter().copied().map(f64::from).collect(),
+        Values::F64(v) => v.clone(),
+        // `Values` is `#[non_exhaustive]`; a width added later still has to
+        // arrive in raster order, so make that a failure rather than a skip.
+        other => panic!("unhandled value width: {other:?}"),
+    };
+    assert_eq!(got.len(), want.len());
+    for (i, (&a, b)) in got.iter().zip(&want).enumerate() {
+        let b = b.expect("the fixture carries no bitmap");
+        assert!(
+            (a - b).abs() < 1e-9,
+            "point {i}: session gave {a}, the decoder gave {b} — the rows were flipped twice"
+        );
+    }
 }
