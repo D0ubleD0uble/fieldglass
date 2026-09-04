@@ -567,7 +567,7 @@ fn every_fixture_matches_eccodes() {
         failures.join("\n")
     );
     assert!(
-        checked > 40,
+        checked > 41,
         "only {checked} fixtures were cross-checked — the directory walk found \
          too few, so this proves nothing (skipped: {skipped:?})"
     );
@@ -697,7 +697,7 @@ fn every_fixture_decodes_to_the_values_eccodes_decodes() {
         failures.join("\n")
     );
     assert!(
-        checked >= 46,
+        checked >= 47,
         "only {checked} fixtures were value-checked — too few to prove anything"
     );
     // The same guard the metadata pass carries: every branch of the comparison
@@ -771,7 +771,49 @@ fn decode_for_comparison(
         GridTemplate::BiFourier(_) => {
             coefficients(reader.decode_bifourier_message(index)?.coefficients)
         }
-        _ => Ok((reader.decode_message_values(index)?, Decoded::Field)),
+        _ => {
+            let mut values = reader.decode_message_values(index)?;
+            put_back_in_storage_order(&reader.messages[index].gds, &mut values);
+            Ok((values, Decoded::Field))
+        }
+    }
+}
+
+/// Re-apply alternate-row scanning, because eccodes' snapshot is in storage
+/// order and ours is not.
+///
+/// `decode_message_values` regularises a boustrophedon field's rows (#541).
+/// eccodes' `values` key does not: the flip lives in its *geoiterator*
+/// (`transform_iterator_data`, which is what `grib_get_data` prints), and
+/// rewriting the `values` array is the separate, opt-in
+/// `swapScanningAlternativeRows` key that `grib_dump -j` never packs. So the
+/// two decodes genuinely disagree about layout while agreeing about every
+/// value, and comparing them means picking one convention. This picks
+/// eccodes', since that is what the snapshots hold.
+///
+/// The cost is real and worth naming: for a fixture with this flag set, the
+/// sampled points stop being a check on row order — the helper is an
+/// involution, so applying it here undoes whatever the decoder did, right or
+/// wrong. What this pass still checks for such a fixture is the packing, which
+/// is its subject. Row order is checked, against eccodes' geoiterator rather
+/// than its `values` key, in `decode_alternate_rows.rs`.
+fn put_back_in_storage_order(
+    gds: &fieldglass_grib2::GridDefinitionSection,
+    values: &mut [Option<f64>],
+) {
+    let Some(sm) = gds.scanning_mode() else {
+        return;
+    };
+    if sm & fieldglass_grib2::SCAN_ALTERNATE_ROWS == 0 {
+        return;
+    }
+    match gds.points_per_row() {
+        Some(pl) => fieldglass_grib2::undo_alternate_reduced_rows(values, pl),
+        None => {
+            if let Some((ni, _)) = gds.dimensions() {
+                fieldglass_grib2::undo_alternate_rows(values, ni as usize);
+            }
+        }
     }
 }
 

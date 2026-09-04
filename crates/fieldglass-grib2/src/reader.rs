@@ -6,7 +6,9 @@ use crate::ds::{
     DS_SECTION_NUMBER, decode_values, parse_data_section_body, undo_second_order_boustrophedonic,
 };
 use crate::gds::{
-    GDS_SECTION_NUMBER, GridDefinitionSection, GridTemplate, parse_grid_definition_with_header,
+    GDS_SECTION_NUMBER, GridDefinitionSection, GridTemplate, SCAN_ALTERNATE_ROWS,
+    SCAN_J_CONSECUTIVE, parse_grid_definition_with_header, undo_alternate_reduced_rows,
+    undo_alternate_rows,
 };
 use crate::ids::{IDS_SECTION_NUMBER, IdentificationSection, parse_identification_with_header};
 use crate::is::{
@@ -56,6 +58,28 @@ pub struct Grib2Message {
     pub bms_range: (usize, usize),
     /// Byte range of the Data Section (Section 7) within the file.
     pub ds_range: (usize, usize),
+}
+
+/// Refuse a grid that alternates its rows *and* stores columns.
+///
+/// §3 Flag Table 3.4 bit 3 makes the stored run a column, so the reversal bit 4
+/// asks for is not a contiguous slice of the decoded field and the row flips
+/// above — uniform or ragged, both of which assume the run is a row — would
+/// silently scramble it. Called only where one of them is about to be applied,
+/// so a grid with no rows to reorder is not caught by it.
+///
+/// No such message is known in the wild; the alternative (returning the field
+/// with every other row backwards, which is what the napi layer used to do) is
+/// the one outcome a caller cannot detect.
+fn reject_j_consecutive(scanning_mode: u8) -> Result<(), FieldglassError> {
+    if scanning_mode & SCAN_J_CONSECUTIVE == 0 {
+        return Ok(());
+    }
+    Err(FieldglassError::UnsupportedSection(format!(
+        "scanning mode {scanning_mode} sets both alternate-row scanning (§3 Flag Table 3.4 \
+         bit 4) and j-consecutive point order (bit 3); the row order of that layout is not \
+         something this decoder can regularise"
+    )))
 }
 
 /// A decoded `grid_simple_matrix` field (template 5.1, `matrixBitmapsPresent =
@@ -247,6 +271,43 @@ impl Grib2Reader {
         // with no rows.
         if let Some(ni) = row_width {
             undo_second_order_boustrophedonic(&mut values, &msg.drs.template, ni as usize);
+        }
+        // §3 Flag Table 3.4 bit 4 — adjacent rows scan in opposite directions.
+        // The packing stores points in scan order, so every second row lands
+        // column-reversed; a caller addressing the field as `values[j·ni + i]`
+        // (which is what a raster is) needs them flipped back. This is the same
+        // fixup eccodes applies in `transform_iterator_data` when it builds the
+        // (lat, lon, value) triples `grib_get_data` prints — note it keys the
+        // parity off the *storage* row, as this does. eccodes' `values` key
+        // does not do it (that is the separate, opt-in
+        // `swapScanningAlternativeRows`), so a fixture's snapshot samples are
+        // in storage order and the eccodes value cross-check undoes this again
+        // before comparing.
+        //
+        // It composes with the second-order undo above rather than replacing
+        // it: 5.50002's `boustrophedonicOrdering` is a property of the packing
+        // and this is a property of the grid, and eccodes applies both, in this
+        // order.
+        if let Some(sm) = msg.gds.scanning_mode()
+            && sm & SCAN_ALTERNATE_ROWS != 0
+        {
+            // A reduced grid is flipped by its own row widths, on the stored
+            // field — reversing a row after expansion is not the same
+            // operation, because expansion maps columns by longitude.
+            // `row_width` carries the uniform case, and is `None` for the
+            // shapes with no rows at all: HEALPix is one list of pixels, so
+            // there is nothing here to reorder and nothing to refuse.
+            match (msg.gds.points_per_row(), row_width) {
+                (Some(pl), _) => {
+                    reject_j_consecutive(sm)?;
+                    undo_alternate_reduced_rows(&mut values, pl);
+                }
+                (None, Some(ni)) => {
+                    reject_j_consecutive(sm)?;
+                    undo_alternate_rows(&mut values, ni as usize);
+                }
+                (None, None) => {}
+            }
         }
         Ok(values)
     }

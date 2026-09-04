@@ -927,10 +927,20 @@ pub fn undo_alternate_rows(values: &mut [Option<f64>], ni: usize) {
     if ni == 0 {
         return;
     }
+    // Checked throughout: `ni` is a `u32` widened to `usize`, so on a 32-bit
+    // target a declared row width near `u32::MAX` makes `start + ni` wrap
+    // where a 64-bit build is comfortable. The row cap upstream bounds
+    // `ni · nj`, which does not bound `ni` when `nj` is zero.
     let mut start = ni; // first odd row
-    while start + ni <= values.len() {
-        values[start..start + ni].reverse();
-        start += 2 * ni; // next odd row
+    while let Some(end) = start.checked_add(ni) {
+        if end > values.len() {
+            break;
+        }
+        values[start..end].reverse();
+        // `ni <= end <= values.len()` here (`start` opens at `ni` and only
+        // grows), so this sum is at most `2 · values.len()` — and a real slice
+        // of 16-byte elements cannot be half of the address space.
+        start = end + ni; // next odd row
     }
 }
 
@@ -2050,6 +2060,21 @@ mod tests {
         let mut v = some(&[1.0, 2.0, 8.0, 7.0, 99.0, 98.0]);
         undo_alternate_rows(&mut v, 2);
         assert_eq!(v, some(&[1.0, 2.0, 7.0, 8.0, 99.0, 98.0]));
+    }
+
+    /// A row width that overflows when doubled must stop, not wrap.
+    ///
+    /// `ni` is a `u32` from §3 widened to `usize`; the decoder's cap bounds
+    /// `ni · nj`, which says nothing about `ni` when `nj` is zero. On a 32-bit
+    /// target the first row start then wraps — this is that same arithmetic,
+    /// written at a width where any target reaches it.
+    #[test]
+    fn undo_alternate_rows_does_not_overflow_on_a_huge_width() {
+        let mut v = some(&[1.0, 2.0, 3.0]);
+        undo_alternate_rows(&mut v, usize::MAX);
+        assert_eq!(v, some(&[1.0, 2.0, 3.0]));
+        undo_alternate_rows(&mut v, usize::MAX / 2 + 1);
+        assert_eq!(v, some(&[1.0, 2.0, 3.0]));
     }
 
     #[test]
