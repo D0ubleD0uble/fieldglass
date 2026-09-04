@@ -1860,26 +1860,22 @@ impl Grib1Handle {
         } else {
             let raw = self.cached_decode(message_index)?;
             let (ni, nj) = grib1_dimensions(&self.reader, message_index as usize)?;
-            let meta = self.grid_meta(message_index, ni)?;
+            let meta = self.grid_meta(message_index)?;
             Ok((raw, meta, ni, nj))
         }
     }
 
-    /// The declared meta, with a reduced grid's geometry replaced by the raster
-    /// its rows expand into (see [`reduced_render_meta`]).
-    fn grid_meta(&self, message_index: u32, ni: u32) -> napi::Result<MessageMeta> {
+    /// The declared meta, with the geometry replaced by the raster the values
+    /// are decoded onto (see [`raster_render_meta`]).
+    fn grid_meta(&self, message_index: u32) -> napi::Result<MessageMeta> {
         let meta = self.message_meta(message_index)?;
-        let reduced = self
+        let raster_bounds = self
             .reader
             .messages
             .get(message_index as usize)
             .and_then(|m| m.gds.as_ref())
-            .is_some_and(|gds| gds.points_per_row().is_some());
-        Ok(if reduced {
-            reduced_render_meta(meta, ni)
-        } else {
-            meta
-        })
+            .and_then(|gds| gds.raster_bounds());
+        Ok(raster_render_meta(meta, raster_bounds))
     }
 
     /// Just the resolved geometry of a message (#330) — the spectral synthesis
@@ -1890,8 +1886,11 @@ impl Grib1Handle {
             let (ni, nj) = spectral_render_dims(truncation);
             Ok(spectral_meta(self.message_meta(message_index)?, ni, nj))
         } else {
-            let (ni, _) = grib1_dimensions(&self.reader, message_index as usize)?;
-            self.grid_meta(message_index, ni)
+            // Kept as a check, not for its value: an overlay has nothing to
+            // project onto if the message declares no raster, and this is the
+            // error that says so.
+            grib1_dimensions(&self.reader, message_index as usize)?;
+            self.grid_meta(message_index)
         }
     }
 
@@ -1939,28 +1938,14 @@ impl Grib1Handle {
         {
             return Ok(std::sync::Arc::clone(hit));
         }
+        // A reduced grid's rows are widened to `max(PL)` inside
+        // `decode_message_raster` (#543), so what comes back already satisfies
+        // the `width·height == len` invariant every downstream path
+        // (decode_grid, render, overlay) addresses the field by.
         let raw = self
             .reader
-            .decode_message_values(message_index as usize)
+            .decode_message_raster(message_index as usize)
             .map_err(|e| napi::Error::from_reason(e.to_string()))?;
-        // Reduced grids decode to sum(PL) points laid out row by row. Expand
-        // each row to the widest-row width here, at the single decode boundary,
-        // so every downstream path (decode_grid, render, overlay) sees a
-        // regular Ni·Nj field and the `width·height == len` invariant holds.
-        let raw = match self
-            .reader
-            .messages
-            .get(message_index as usize)
-            .and_then(|m| m.gds.as_ref())
-        {
-            Some(gds) => match (gds.points_per_row(), gds.dimensions()) {
-                (Some(pl), Some((width, _))) => {
-                    fieldglass_core::expand_reduced_to_regular(&raw, pl, width as usize)
-                }
-                _ => raw,
-            },
-            None => raw,
-        };
         let arc = std::sync::Arc::new(raw);
         self.decoded
             .lock()
@@ -2274,9 +2259,8 @@ impl Grib2Handle {
         }
     }
 
-    /// The declared meta plus the raster shape, with a reduced grid's geometry
-    /// replaced by the raster its rows expand into (see
-    /// [`reduced_render_meta`]).
+    /// The declared meta plus the raster shape, with the geometry replaced by
+    /// the raster the values are decoded onto (see [`raster_render_meta`]).
     fn grid_meta(&self, message_index: u32) -> napi::Result<(MessageMeta, u32, u32)> {
         let meta = self.message_meta(message_index)?;
         let gds = &self
@@ -2288,12 +2272,7 @@ impl Grib2Handle {
         let (ni, nj) = gds.dimensions().ok_or_else(|| {
             napi::Error::from_reason("grid has no declared dimensions".to_string())
         })?;
-        let meta = if gds.points_per_row().is_some() {
-            reduced_render_meta(meta, ni)
-        } else {
-            meta
-        };
-        Ok((meta, ni, nj))
+        Ok((raster_render_meta(meta, gds.raster_bounds()), ni, nj))
     }
 
     /// Resolved geometry only (#330), no decode/synthesis — sibling to
@@ -2354,27 +2333,14 @@ impl Grib2Handle {
             return Ok(std::sync::Arc::clone(hit));
         }
         // Alternate-row (boustrophedon) scanning is undone inside
-        // `decode_message_values` (#541), so what comes back is already the
-        // regular Ni·Nj row order every downstream path (decode_grid, render,
-        // overlay) addresses as `raw[j·ni + i]`.
-        let mut raw = self
+        // `decode_message_values` (#541) and a reduced grid's rows are widened
+        // to `max(PL)` inside `decode_message_raster` (#543), so what comes
+        // back is already the regular Ni·Nj row order every downstream path
+        // (decode_grid, render, overlay) addresses as `raw[j·ni + i]`.
+        let raw = self
             .reader
-            .decode_message_values(message_index as usize)
+            .decode_message_raster(message_index as usize)
             .map_err(|e| napi::Error::from_reason(e.to_string()))?;
-        let gds = self
-            .reader
-            .messages
-            .get(message_index as usize)
-            .map(|m| &m.gds);
-        // Reduced grids decode to sum(PL) points laid out row by row. Expand
-        // each row to the widest-row width here, at the same single boundary
-        // `Grib1Handle` does it at, so every downstream path sees a regular
-        // Ni·Nj field and the `width·height == len` invariant holds (#503).
-        if let Some(gds) = gds
-            && let (Some(pl), Some((width, _))) = (gds.points_per_row(), gds.dimensions())
-        {
-            raw = fieldglass_core::expand_reduced_to_regular(&raw, pl, width as usize);
-        }
         let arc = std::sync::Arc::new(raw);
         self.decoded
             .lock()
@@ -3478,25 +3444,30 @@ fn spectral_meta(base: MessageMeta, ni: usize, nj: usize) -> MessageMeta {
     spectral_render_meta_from(base, ni as i32, nj as i32, lon_last)
 }
 
-/// The render geometry of a reduced grid, which is the raster its rows expand
-/// into — not the grid the message declares (#503).
+/// The render geometry of a decoded field: the extent of the raster
+/// `cached_decode` hands back, which is the grid's own for every family except
+/// a reduced one (#503, #543).
 ///
-/// Everything downstream of `cached_decode` sees `max(PL) × Nj` values, so the
-/// meta the warp reads has to describe that rectangle. The corner it cannot
-/// take from the file is the eastern one: under §3's interpretation code 1 each
-/// row spans the whole circle in its own number of steps, and ECMWF writes
-/// `lo2` from the `4N`-wide *reference* grid. For a classic `N32` that is the
-/// widest row too and nothing moves; for an octahedral `O32` the widest row is
-/// 144 against a declared 128, and trusting the file would draw every column up
-/// to an eighth of a cell west of its data.
+/// `bounds` is the format crate's `raster_bounds()` — [`MessageMeta`] already
+/// carries the declared corners, and this replaces them with the raster's. The
+/// two differ only in the eastern corner, and only for a reduced grid: its rows
+/// expand to `max(PL)` columns, while the file's `lo2` describes the narrower
+/// `4N` reference grid. `None` (a template that states no corners, such as
+/// §3.12, whose meta derives them through its projector instead) leaves the
+/// meta alone.
 ///
 /// The same override the spectral and HEALPix paths make for the same reason:
 /// the message table keeps showing what the file says, and only the render
 /// geometry is derived.
-fn reduced_render_meta(base: MessageMeta, width: u32) -> MessageMeta {
-    let lon_first = base.lon_first.unwrap_or(0.0);
+fn raster_render_meta(base: MessageMeta, bounds: Option<(f64, f64, f64, f64)>) -> MessageMeta {
+    let Some((lat_first, lon_first, lat_last, lon_last)) = bounds else {
+        return base;
+    };
     MessageMeta {
-        lon_last: Some(fieldglass_core::reduced_raster_lon_last(lon_first, width)),
+        lat_first: Some(lat_first),
+        lon_first: Some(lon_first),
+        lat_last: Some(lat_last),
+        lon_last: Some(lon_last),
         ..base
     }
 }

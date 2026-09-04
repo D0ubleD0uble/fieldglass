@@ -183,14 +183,14 @@ impl Session {
                     detail: "the message carries no grid description".to_string(),
                 })?;
                 let geometry = GridGeometry::from(gds);
-                let raw = grib1_decode_regular(r, i)?;
+                let raw = r.decode_message_raster(i)?;
                 let (parameter, units) = grib1_parameter(&r.messages[i]);
                 (raw, geometry, parameter, units)
             }
             Reader::Grib2(r) => {
                 let msg = &r.messages[i];
                 let geometry = GridGeometry::from(&msg.gds);
-                let raw = grib2_decode_regular(r, i)?;
+                let raw = r.decode_message_raster(i)?;
                 let (_, parameter, units) = grib2_parameter(msg);
                 (raw, geometry, parameter, units)
             }
@@ -493,55 +493,6 @@ fn build_palette(field: &Field, options: &PaletteOptions) -> Result<Palette, Err
         });
     }
     Ok(Palette::build(colormap, options.reversed, min, max, scale))
-}
-
-// ---------------------------------------------------------------------------
-// Per-format decode boundaries
-// ---------------------------------------------------------------------------
-
-/// GRIB1 decode with the reduced-row expansion applied.
-///
-/// The expansion lives here rather than in the reader for now, mirroring what
-/// `fieldglass-napi` does; #543 moves it inside `decode_message_values`, and
-/// this function disappears when it does.
-fn grib1_decode_regular(
-    reader: &fieldglass_grib1::Grib1Reader,
-    index: usize,
-) -> Result<Vec<Option<f64>>, Error> {
-    let raw = reader.decode_message_values(index)?;
-    let Some(gds) = reader.messages[index].gds.as_ref() else {
-        return Ok(raw);
-    };
-    Ok(match (gds.points_per_row(), gds.dimensions()) {
-        (Some(pl), Some((width, _))) => {
-            fieldglass_core::expand_reduced_to_regular(&raw, pl, width as usize)
-        }
-        _ => raw,
-    })
-}
-
-/// GRIB2 decode with reduced rows expanded.
-///
-/// The expansion mirrors `fieldglass-napi`'s single decode boundary; #543 moves
-/// it inside `decode_message_values` and this function disappears when it does.
-///
-/// The alternate-row (boustrophedon) undo this used to carry alongside it is
-/// gone: #541 moved it into `decode_message_values`, so what comes back is
-/// already in raster order. Doing it a second time here would flip the rows
-/// straight back and draw NBM's Lambert fields with every other row reversed —
-/// the exact fault the copy existed to prevent.
-fn grib2_decode_regular(
-    reader: &fieldglass_grib2::Grib2Reader,
-    index: usize,
-) -> Result<Vec<Option<f64>>, Error> {
-    let raw = reader.decode_message_values(index)?;
-    let gds = &reader.messages[index].gds;
-    Ok(match (gds.points_per_row(), gds.dimensions()) {
-        (Some(pl), Some((width, _))) => {
-            fieldglass_core::expand_reduced_to_regular(&raw, pl, width as usize)
-        }
-        _ => raw,
-    })
 }
 
 // ---------------------------------------------------------------------------
