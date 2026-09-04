@@ -40,6 +40,22 @@ and reuses `core`'s projection, warp, and overlay through the decoded field and
 grid geometry, so it never ripples outward. Reprojection keys on grid type and
 spacing alone, so a new field works the moment it decodes.
 
+**Why a format crate re-exports the `core` types it names.** Depending on
+`fieldglass-grib1` alone has to be enough to *use* it, and every fallible call
+it makes returns `fieldglass_core::FieldglassError`. If the crate does not
+re-export that name, a consumer has to add `fieldglass-core` to their own
+manifest to write a `match` — and a manifest line written for one type is
+written without `default-features = false`, which unifies `render` and `fs`
+back on for everything in the graph, the browser included. So each format crate
+re-exports exactly the `core` names that appear in its own public signatures:
+the error type, `GridGeometry` for the two GRIB crates' `From` impls, and
+`ByteRange` / `ByteSource` for NetCDF's byte-access seam. The rule is *its own
+signatures*, not "whatever seems useful" — a re-export of something the crate
+does not itself hand back is core's API surface leaking through a second door.
+`tests/crate-independence` is a package that depends on the three format crates
+and deliberately not on `core`, so the rule is checked by `cargo test
+--workspace` rather than remembered.
+
 **Why `fieldglass` takes `core` with `default-features = false`.** It sits
 between every host and `core`, so taking core's defaults there would re-enable
 them for the browser by feature unification, and the wasm bundle would carry
