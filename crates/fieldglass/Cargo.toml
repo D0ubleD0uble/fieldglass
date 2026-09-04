@@ -22,9 +22,11 @@ publish = false
 # `default-features = false` on purpose (ADR-0006, planned/01-crates.md): the
 # umbrella sits between every host and `core`, so taking core's defaults here
 # would re-enable `fs` for the wasm host by feature unification and drag
-# `detect_format`'s `std::fs` into a target that has no filesystem. `render` is
-# re-exported as this crate's own feature instead; `fs` is not forwarded at all,
-# because ADR-0005 hands every host bytes rather than a path.
+# `detect_format`'s `std::fs` into a target that has no filesystem. The two
+# surfaces this crate does want, `render` and `analysis`, are named here
+# instead; `fs` is not forwarded at all, because ADR-0005 hands every host
+# bytes rather than a path. Turning these into features of this crate, so a
+# host can decline one, is #552 — there is no `render` feature here today.
 fieldglass-core = { path = "../fieldglass-core", version = "=0.5.0", default-features = false, features = ["render", "analysis"] }
 fieldglass-grib1 = { path = "../fieldglass-grib1", version = "=0.5.0" }
 fieldglass-grib2 = { path = "../fieldglass-grib2", version = "=0.5.0" }

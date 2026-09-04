@@ -6,9 +6,11 @@
 //! surface: [`error`], [`bits`], [`bytes`], [`detect`], [`reader`],
 //! [`metadata`], [`projection`] (GRIB1's GDS uses the projectors to recover
 //! grid corners), and the three grids that arrive as something other than a
-//! rectangle of values — [`sht`], [`matrix`], and [`healpix`]. That list is
-//! what `default-features = false` leaves standing, and it is checked by
-//! building those crates against exactly that.
+//! rectangle of values — [`sht`], [`matrix`], and [`healpix`]. What those
+//! modules have in common is that none of them is behind a feature, which is
+//! what makes a `default-features = false` dependency work. Pre-commit builds
+//! the three format crate libraries against a `core` with every feature off,
+//! so reaching for gated code fails there rather than at a consumer.
 //!
 //! # Feature flags
 //!
