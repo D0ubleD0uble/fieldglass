@@ -483,14 +483,14 @@ mod lut_bytes {
     use serde::{Deserializer, Serializer};
     use std::fmt;
 
-    pub fn serialize<S: Serializer>(
+    pub(super) fn serialize<S: Serializer>(
         lut: &[u8; PALETTE_LUT_LEN],
         serializer: S,
     ) -> Result<S::Ok, S::Error> {
         serializer.serialize_bytes(lut)
     }
 
-    pub fn deserialize<'de, D: Deserializer<'de>>(
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(
         deserializer: D,
     ) -> Result<[u8; PALETTE_LUT_LEN], D::Error> {
         struct LutVisitor;

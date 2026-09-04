@@ -103,6 +103,7 @@ pub struct MatrixField {
 
 /// Top-level reader for a GRIB2 file. Owns the underlying bytes and a
 /// per-message metadata vector populated by [`Grib2Reader::from_bytes`].
+#[derive(Debug)]
 pub struct Grib2Reader {
     data: Vec<u8>,
     pub messages: Vec<Grib2Message>,

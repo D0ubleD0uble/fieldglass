@@ -256,6 +256,7 @@ pub fn transverse_mercator_inverse(
 /// Precomputed inverse map for a transverse Mercator grid. Owns the Krüger
 /// coefficients and the reference arc, both invariant across a warp's output
 /// pixels. Build once outside the per-pixel loop.
+#[derive(Debug)]
 pub struct TransverseMercatorProjector {
     pub params: TransverseMercatorParams,
     constants: TransverseMercatorConstants,

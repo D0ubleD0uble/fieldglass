@@ -1,4 +1,5 @@
 /// A human-readable parameter (e.g. "Temperature", "Wind Speed")
+#[derive(Debug)]
 pub struct Parameter {
     pub name: String,
     pub abbreviation: String,
@@ -7,6 +8,7 @@ pub struct Parameter {
 }
 
 /// A vertical level descriptor
+#[derive(Debug)]
 pub struct Level {
     pub level_type: String,
     pub value: f64,
@@ -14,6 +16,7 @@ pub struct Level {
 }
 
 /// Geographic grid geometry
+#[derive(Debug)]
 pub struct GridDefinition {
     pub grid_type: String,
     pub ni: i32,
@@ -28,6 +31,7 @@ pub struct GridDefinition {
 
 /// All metadata for a single data message, format-agnostic.
 /// raw_fields carries format-specific extras without polluting the struct.
+#[derive(Debug)]
 pub struct Metadata {
     pub parameter: Parameter,
     pub level: Level,

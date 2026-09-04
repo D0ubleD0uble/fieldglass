@@ -134,6 +134,7 @@ pub fn polar_stereo_inverse(p: &PolarStereoParams, lat: f64, lon: f64) -> Option
 /// Precomputed inverse map for a polar stereographic grid. Owns the
 /// pole-scale constant and the forward-projected grid origin — both
 /// invariant across every output pixel of a warp.
+#[derive(Debug)]
 pub struct PolarStereoProjector {
     pub params: PolarStereoParams,
     constants: PolarStereoConstants,

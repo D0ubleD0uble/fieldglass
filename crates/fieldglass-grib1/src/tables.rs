@@ -1,5 +1,6 @@
 /// Parameter entry from a GRIB1 Table 2 (WMO ON388 international table, or a
 /// centre-local table such as ECMWF 128/129).
+#[derive(Debug)]
 pub struct ParameterEntry {
     pub name: &'static str,
     pub abbreviation: &'static str,

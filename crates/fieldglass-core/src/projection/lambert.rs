@@ -150,6 +150,7 @@ pub fn lambert_inverse(p: &LambertParams, lat: f64, lon: f64) -> Option<GridInde
 /// (`n`, `F`, `ρ₀`) and the forward-projected grid origin — both
 /// invariant across every output pixel of a warp. Build once outside
 /// the per-pixel loop; call [`Self::inverse`] inside it.
+#[derive(Debug)]
 pub struct LambertProjector {
     pub params: LambertParams,
     constants: LambertConstants,

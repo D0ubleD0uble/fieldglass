@@ -117,6 +117,7 @@ pub fn geostationary_inverse(p: &GeostationaryParams, lat: f64, lon: f64) -> Opt
 
 /// Precomputed inverse map for a geostationary grid. Owns the ellipsoid /
 /// sub-satellite constants, invariant across every output pixel of a warp.
+#[derive(Debug)]
 pub struct GeostationaryProjector {
     pub params: GeostationaryParams,
     constants: GeostationaryConstants,

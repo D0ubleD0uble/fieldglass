@@ -164,6 +164,7 @@ pub fn ibm_float_to_f64(raw: u32) -> f64 {
 /// MSB-first bit reader for packed integer streams up to 32 bits per value.
 /// Used by GRIB BDS / DRS decoders and any future format that packs values
 /// at non-byte-aligned widths.
+#[derive(Debug)]
 pub struct BitReader<'a> {
     bytes: &'a [u8],
     bit_offset: usize,

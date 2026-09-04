@@ -106,6 +106,7 @@ fn check_declared_size(
 /// The scalar-grid decoder. A spectral message has no grid, so this always
 /// refuses — and names the call that *does* decode it, rather than leaving the
 /// caller to guess.
+#[derive(Debug)]
 pub struct SphericalPacking;
 
 impl Grib1Packing for SphericalPacking {

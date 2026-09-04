@@ -8,6 +8,7 @@ use fieldglass_core::{
 // ---------------------------------------------------------------------------
 
 /// Resolution and component flags — WMO ON388 Code Table 7 (GDS octet 17).
+#[derive(Debug)]
 pub struct ResolutionFlags {
     /// True if Di/Dj increments are given in the GDS.
     pub increments_given: bool,
@@ -88,6 +89,7 @@ impl ScanningMode {
 // ---------------------------------------------------------------------------
 
 /// Grid type 0 — Latitude/Longitude (equidistant cylindrical / Plate Carrée).
+#[derive(Debug)]
 pub struct LatLonGrid {
     pub ni: u32,
     pub nj: u32,
@@ -111,6 +113,7 @@ pub struct LatLonGrid {
 /// scanning-mode octet (after four reserved octets). The corner coordinates
 /// (`lat_first`/`lon_first`/`lat_last`/`lon_last`) are in the rotated frame —
 /// converting them to geographic is the reprojector's job, not the parser's.
+#[derive(Debug)]
 pub struct RotatedLatLonGrid {
     pub ni: u32,
     pub nj: u32,
@@ -138,6 +141,7 @@ pub struct RotatedLatLonGrid {
 /// `0xFFFF`) and instead carries a `PL` list giving the number of points in
 /// each of the `Nj` rows — fewer points toward the poles. The total point
 /// count is `points_per_row.sum()`, not `Ni·Nj`.
+#[derive(Debug)]
 pub struct ReducedLatLonGrid {
     pub nj: u32,
     pub lat_first: f64,
@@ -157,6 +161,7 @@ pub struct ReducedLatLonGrid {
 /// As [`ReducedLatLonGrid`], but the row latitudes are Gauss–Legendre nodes
 /// (`n_gaussians` between pole and equator) rather than equispaced. This is the
 /// common ECMWF "reduced_gg" layout.
+#[derive(Debug)]
 pub struct ReducedGaussianGrid {
     pub nj: u32,
     pub lat_first: f64,
@@ -172,6 +177,7 @@ pub struct ReducedGaussianGrid {
 }
 
 /// Grid type 4 — Gaussian Latitude/Longitude.
+#[derive(Debug)]
 pub struct GaussianGrid {
     pub ni: u32,
     pub nj: u32,
@@ -188,6 +194,7 @@ pub struct GaussianGrid {
 }
 
 /// Grid type 5 — Polar Stereographic.
+#[derive(Debug)]
 pub struct PolarStereoGrid {
     pub nx: u32,
     pub ny: u32,
@@ -266,6 +273,7 @@ impl PolarStereoGrid {
 }
 
 /// Grid type 3 — Lambert Conformal (conic or bi-polar).
+#[derive(Debug)]
 pub struct LambertGrid {
     pub nx: u32,
     pub ny: u32,
@@ -337,6 +345,7 @@ impl LambertGrid {
 // Top-level enum
 // ---------------------------------------------------------------------------
 
+#[derive(Debug)]
 pub enum GridDescription {
     LatLon(LatLonGrid),
     RotatedLatLon(RotatedLatLonGrid),

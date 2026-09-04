@@ -214,6 +214,7 @@ pub fn gaussian_inverse(p: &GaussianParams, lat: f64, lon: f64) -> Option<GridIn
 /// touching the global Gauss–Legendre cache or re-reversing the vec.
 ///
 /// Build once outside the warp loop; call `inverse` per output pixel.
+#[derive(Debug)]
 pub struct GaussianProjector {
     pub params: GaussianParams,
     row_lats: Vec<f64>,

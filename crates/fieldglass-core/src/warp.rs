@@ -118,6 +118,22 @@ pub struct SourceGrid<'a> {
     pub resampling: GridResampling,
 }
 
+/// Written out rather than derived: `sample` and `inverse_at` are `dyn Fn`s,
+/// which have no `Debug`. The geometry fields are the ones worth seeing in a
+/// failing assertion, so they print and the two closures are elided.
+impl std::fmt::Debug for SourceGrid<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SourceGrid")
+            .field("ni", &self.ni)
+            .field("nj", &self.nj)
+            .field("sample", &"<closure>")
+            .field("inverse_at", &"<closure>")
+            .field("periodic_i", &self.periodic_i)
+            .field("resampling", &self.resampling)
+            .finish()
+    }
+}
+
 /// Target raster definition for the warp. `lat_max` sits at output pixel
 /// row 0 (north-up convention).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -142,6 +158,7 @@ pub struct TargetRaster {
 /// Output of a warp call. `values` holds the resampled source values
 /// row-major (length `width * height`); `mask` carries the per-pixel
 /// presence flag (1 = present, 0 = absent / off-grid / masked).
+#[derive(Debug)]
 pub struct WarpedRaster {
     pub values: Vec<f64>,
     pub mask: Vec<u8>,

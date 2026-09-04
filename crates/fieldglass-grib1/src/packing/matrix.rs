@@ -132,6 +132,7 @@ fn parse_matrix_header(bds: &[u8], section_len: usize) -> Result<MatrixHeader, F
     })
 }
 
+#[derive(Debug)]
 pub struct MatrixPacking;
 
 impl Grib1Packing for MatrixPacking {

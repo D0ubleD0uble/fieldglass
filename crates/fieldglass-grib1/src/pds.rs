@@ -1,5 +1,6 @@
 use fieldglass_core::FieldglassError;
 
+#[derive(Debug)]
 pub struct ProductDefinition {
     pub section_len: u32,
     pub table_version: u8,

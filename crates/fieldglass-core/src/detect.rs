@@ -3,6 +3,7 @@ use std::fs::File;
 #[cfg(feature = "fs")]
 use std::io::Read;
 
+#[derive(Debug)]
 pub enum Format {
     Grib1,
     Grib2,

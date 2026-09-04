@@ -7,6 +7,7 @@ use crate::packing::spherical::{SpectralCoefficients, decode_spectral};
 use crate::pds::{ProductDefinition, parse_product_definition};
 use fieldglass_core::FieldglassError;
 
+#[derive(Debug)]
 pub struct Grib1Message {
     pub message_index: usize,
     pub byte_offset: usize,
@@ -26,6 +27,7 @@ pub struct Grib1Message {
 /// marks a bitmap-masked cell or grid point. Such a field is not a single
 /// renderable 2-D panel, which is why it has its own decode entry rather than
 /// flowing through [`Grib1Reader::decode_message_values`].
+#[derive(Debug)]
 pub struct MatrixField {
     /// Grid columns (points per row).
     pub ni: usize,
@@ -82,6 +84,7 @@ pub enum Grib1MessageKind {
     Unsupported,
 }
 
+#[derive(Debug)]
 pub struct Grib1Reader {
     data: Vec<u8>,
     pub messages: Vec<Grib1Message>,

@@ -18,7 +18,7 @@ use crate::tables::ParameterEntry;
 /// Look up an ECMWF local-table parameter. Returns `None` when the table
 /// version is not an ECMWF local table we carry, or the id is undefined in
 /// it (so the caller can fall back to "Unknown").
-pub fn lookup(table_version: u8, id: u8) -> Option<ParameterEntry> {
+pub(crate) fn lookup(table_version: u8, id: u8) -> Option<ParameterEntry> {
     match table_version {
         128 => ecmwf_128(id),
         129 => ecmwf_129(id),

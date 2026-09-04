@@ -296,6 +296,7 @@ pub fn lambert_azimuthal_inverse(
 /// Precomputed inverse map for a Lambert azimuthal equal-area grid. Owns the
 /// authalic constants and the forward-projected grid origin, both invariant
 /// across a warp's output pixels.
+#[derive(Debug)]
 pub struct LambertAzimuthalProjector {
     pub params: LambertAzimuthalParams,
     constants: LambertAzimuthalConstants,

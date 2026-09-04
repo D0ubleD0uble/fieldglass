@@ -1,5 +1,6 @@
 use fieldglass_core::FieldglassError;
 
+#[derive(Debug)]
 pub struct IndicatorSection {
     /// Total length of the GRIB message in bytes (IS + all sections + ES).
     pub total_length: u32,

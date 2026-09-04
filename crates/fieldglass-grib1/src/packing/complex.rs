@@ -12,6 +12,7 @@ use crate::bds::BdsHeader;
 
 use super::Grib1Packing;
 
+#[derive(Debug)]
 pub struct ComplexPacking;
 
 impl Grib1Packing for ComplexPacking {

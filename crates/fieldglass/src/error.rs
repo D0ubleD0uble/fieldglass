@@ -14,16 +14,33 @@ use fieldglass_core::FieldglassError;
 #[serde(tag = "code", rename_all = "snake_case")]
 pub enum Error {
     /// The bytes are not a container this build can open.
-    UnsupportedFormat { detail: String },
+    UnsupportedFormat {
+        /// What was detected instead, in prose.
+        detail: String,
+    },
     /// The container opened but a section did not parse.
-    Decode { detail: String },
+    Decode {
+        /// The underlying `core` error, rendered.
+        detail: String,
+    },
     /// A message index outside `0..count()`.
-    NoSuchMessage { index: u32, count: u32 },
+    NoSuchMessage {
+        /// The index that was asked for.
+        index: u32,
+        /// How many messages the session actually holds.
+        count: u32,
+    },
     /// The operation is defined but this message's family does not support it —
     /// a grid with no geometry asked to warp, a spectral field asked to probe.
-    Unsupported { detail: String },
+    Unsupported {
+        /// Which operation, and what about this message refuses it.
+        detail: String,
+    },
     /// A caller-supplied option is out of range or self-contradictory.
-    InvalidOption { detail: String },
+    InvalidOption {
+        /// Which option, and what it would have had to be.
+        detail: String,
+    },
 }
 
 impl Error {

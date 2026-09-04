@@ -14,6 +14,7 @@ use crate::bds::{BDS_DATA_OFFSET, BdsHeader};
 
 use super::{Grib1Packing, interleave_with_bitmap, present_count, unpack_simple_values};
 
+#[derive(Debug)]
 pub struct SimplePacking;
 
 impl Grib1Packing for SimplePacking {
