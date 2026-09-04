@@ -670,79 +670,6 @@ fn render_forecast(common: &HorizontalProductCommon) -> (i32, String) {
     (hours_i32, display)
 }
 
-/// The geostationary scan-angle grid derived from a GRIB2 §3.90 space-view
-/// template, ready to populate the `geos_*` `MessageMeta` fields and rebuild a
-/// `GeostationaryProjector`.
-#[derive(Debug, Clone, Copy)]
-struct GeosScanGrid {
-    sub_lon: f64,
-    height: f64,
-    r_eq: f64,
-    r_pol: f64,
-    sweep_x: bool,
-    x0: f64,
-    dx_rad: f64,
-    y0: f64,
-    dy_rad: f64,
-}
-
-/// Reconstruct the scan-angle grid from a §3.90 template, following the CGMS
-/// LRIT/HRIT geometry that eccodes' space-view iterator decodes:
-/// `angular_size = 2·asin(1/Nr)`, the satellite distance `H = Nr·r_eq`, and
-/// per-grid-length scan increments `rx = angular_size/dx`,
-/// `ry = (r_pol/r_eq)·angular_size/dy`. The sub-satellite point's grid offset
-/// (`Xp`/`Yp` relative to the sector origin `Xo`/`Yo`, adjusted for scan
-/// direction) fixes the scan angle at index 0. Returns `None` for an
-/// orthographic view (`Nr` missing) or a degenerate apparent diameter, which
-/// then can't reproject. GRIB2 §3.90 is the GOES-R sweep-`x` convention.
-fn space_view_scan_grid(t: &fieldglass_grib2::SpaceViewTemplate) -> Option<GeosScanGrid> {
-    // `Nr` is the camera altitude in units of the Earth's radius × 10⁶.
-    let nr = t.nr? as f64 * 1.0e-6;
-    // Nr ≤ 1 would put the camera at or below the Earth's surface (asin domain);
-    // a zero apparent diameter has no scan increment.
-    if nr <= 1.0 || t.dx == 0 || t.dy == 0 {
-        return None;
-    }
-    let angular_size = 2.0 * (1.0 / nr).asin();
-    let rx = angular_size / t.dx as f64;
-    let ry = (t.r_pol / t.r_eq) * angular_size / t.dy as f64;
-
-    // Scan-direction adjustment of the sub-satellite grid offset, matching the
-    // eccodes space-view iterator so index 0 lands at the correct scan angle.
-    let i_scans_neg = t.scanning_mode & 0x80 != 0;
-    let j_scans_pos = t.scanning_mode & 0x40 != 0;
-    let xp_off = t.xp - t.xo as f64;
-    let yp_off = t.yp - t.yo as f64;
-    let xp_adj = if i_scans_neg {
-        (t.nx as f64 - 1.0) - xp_off
-    } else {
-        xp_off
-    };
-    let yp_adj = if j_scans_pos {
-        yp_off
-    } else {
-        (t.ny as f64 - 1.0) - yp_off
-    };
-
-    // eccodes emits scan rows in reverse (`for iy = ny-1 .. 0`), so stored data
-    // row `k` is geometric row `iy = (ny-1) - k`: the scan angle of stored row
-    // `k` is `((ny-1) - yp_adj - k)·ry`, i.e. y0 at k=0 with a negative per-row
-    // step. The column loop is not reversed, so x keeps a positive step. Index
-    // (i, j) must address the stored raster (`raw[j·ni + i]`), so this matches
-    // eccodes' data order — otherwise the reprojected image is flipped in y.
-    Some(GeosScanGrid {
-        sub_lon: t.lop,
-        height: nr * t.r_eq,
-        r_eq: t.r_eq,
-        r_pol: t.r_pol,
-        sweep_x: true,
-        x0: -xp_adj * rx,
-        dx_rad: rx,
-        y0: (t.ny as f64 - 1.0 - yp_adj) * ry,
-        dy_rad: -ry,
-    })
-}
-
 /// Parse a GRIB2 file from raw bytes and return per-message metadata.
 /// Surfaces §0 + §1 + §3 + §4 fields (edition, discipline, centre, ref-time,
 /// parameter triple, level + level type, forecast time, production status,
@@ -892,8 +819,12 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
     let transverse_mercator_reprojectable_inc =
         transverse_mercator_corners.and(transverse_mercator_inc);
 
+    // The scan-angle grid is derived from §3.90's apparent Earth diameter and
+    // camera altitude, and `fieldglass-grib2` is what derives it — read here
+    // rather than repeated, so a standalone consumer of that crate and this
+    // host cannot disagree about where a pixel points.
     let space_view = match &msg.gds.template {
-        fieldglass_grib2::GridTemplate::SpaceView(t) => space_view_scan_grid(t),
+        fieldglass_grib2::GridTemplate::SpaceView(t) => t.scan_grid(),
         _ => None,
     };
 
@@ -1007,8 +938,8 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
         rotated_south_pole_lat,
         rotated_south_pole_lon,
         rotated_angle_of_rotation,
-        geos_sub_lon: space_view.map(|g| g.sub_lon),
-        geos_height: space_view.map(|g| g.height),
+        geos_sub_lon: space_view.map(|g| g.sub_lon_deg),
+        geos_height: space_view.map(|g| g.h_metres),
         geos_r_eq: space_view.map(|g| g.r_eq),
         geos_r_pol: space_view.map(|g| g.r_pol),
         geos_sweep_x: space_view.map(|g| g.sweep_x),
@@ -9109,66 +9040,10 @@ mod space_view_geos_tests {
         }
     }
 
-    #[test]
-    fn scan_grid_places_subsatellite_point_at_its_grid_index() {
-        let g = space_view_scan_grid(&space_view_template()).expect("scan grid");
-        // Default scan (i+, j-): sub-satellite point resolves to (5, 5).
-        let p = GeostationaryParams {
-            ni: 11,
-            nj: 11,
-            h_metres: g.height,
-            r_eq: g.r_eq,
-            r_pol: g.r_pol,
-            sub_lon_deg: g.sub_lon,
-            sweep_x: g.sweep_x,
-            x0: g.x0,
-            dx_rad: g.dx_rad,
-            y0: g.y0,
-            dy_rad: g.dy_rad,
-        };
-        let proj = GeostationaryProjector::new(p);
-        let idx = proj.inverse(0.0, -75.0).expect("sub-sat on grid");
-        assert!((idx.i - 5.0).abs() < 1e-6, "i = {}", idx.i);
-        assert!((idx.j - 5.0).abs() < 1e-6, "j = {}", idx.j);
-        // Camera height is Nr (×10⁻⁶) Earth radii from the centre, ~6.6 r_eq.
-        assert!((g.height / g.r_eq - 6.610_71).abs() < 1e-4);
-        assert!(g.sweep_x, "GRIB2 §3.90 is the GOES-R sweep-x convention");
-        // Off-disk far-side longitude is not on the grid.
-        assert!(proj.inverse(0.0, 105.0).is_none());
-
-        // Orientation must match the stored data order eccodes decodes (the
-        // row loop is reversed, the column loop is not). With this template's
-        // j-scans-negative mode, stored row 0 is the northernmost, so a point
-        // north of the sub-satellite point indexes a SMALLER row, a southern
-        // point a LARGER row, and an eastern point a LARGER column.
-        let north = proj.inverse(20.0, -75.0).expect("north on grid");
-        let south = proj.inverse(-20.0, -75.0).expect("south on grid");
-        let east = proj.inverse(0.0, -60.0).expect("east on grid");
-        assert!(north.j < 5.0, "north row {} should be < centre", north.j);
-        assert!(south.j > 5.0, "south row {} should be > centre", south.j);
-        assert!(east.i > 5.0, "east col {} should be > centre", east.i);
-        // North and south are symmetric about the centre row for points
-        // equidistant in latitude.
-        assert!(
-            ((north.j - 5.0) + (south.j - 5.0)).abs() < 1e-6,
-            "north/south not symmetric: {} / {}",
-            north.j,
-            south.j
-        );
-    }
-
-    #[test]
-    fn orthographic_view_has_no_scan_grid() {
-        // Nr missing ⇒ orthographic projection, which we don't reproject.
-        let mut t = space_view_template();
-        t.nr = None;
-        assert!(space_view_scan_grid(&t).is_none());
-    }
-
     /// A space-view `MessageMeta` with only the fields the warp consults set;
     /// every other slot is left empty so the synthetic stays minimal.
     fn space_view_meta() -> MessageMeta {
-        let g = space_view_scan_grid(&space_view_template()).unwrap();
+        let g = space_view_template().scan_grid().unwrap();
         MessageMeta {
             p1_octet: None,
             earth_radius_metres: None,
@@ -9230,8 +9105,8 @@ mod space_view_geos_tests {
             rotated_south_pole_lat: None,
             rotated_south_pole_lon: None,
             rotated_angle_of_rotation: None,
-            geos_sub_lon: Some(g.sub_lon),
-            geos_height: Some(g.height),
+            geos_sub_lon: Some(g.sub_lon_deg),
+            geos_height: Some(g.h_metres),
             geos_r_eq: Some(g.r_eq),
             geos_r_pol: Some(g.r_pol),
             geos_sweep_x: Some(g.sweep_x),

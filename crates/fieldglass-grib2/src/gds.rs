@@ -11,9 +11,9 @@
 
 use crate::section::{SectionHeader, parse_section_header};
 use fieldglass_core::{
-    FieldglassError, LambertAzimuthalParams, LambertAzimuthalProjector, LambertParams,
-    LambertProjector, PlanarGridProjector, PolarStereoParams, PolarStereoProjector,
-    bits::sign_magnitude_to_i64, normalise_lon, signed_grid_increments,
+    FieldglassError, GeostationaryParams, LambertAzimuthalParams, LambertAzimuthalProjector,
+    LambertParams, LambertProjector, PlanarGridProjector, PolarStereoParams, PolarStereoProjector,
+    TransverseMercatorParams, bits::sign_magnitude_to_i64, normalise_lon, signed_grid_increments,
 };
 
 /// Section number for the Grid Definition Section.
@@ -568,17 +568,19 @@ impl LambertTemplate {
 }
 
 impl LambertAzimuthalTemplate {
-    /// Geographic `(lat, lon)` of the last scanned grid point. §3.140 states a
-    /// real first point but no second one, so the corner is derived the same
-    /// way §3.20 and §3.30 derive theirs.
-    pub fn last_point(&self) -> Option<(f64, f64)> {
+    /// The template as `core`'s projection parameters. §3.140 stores `Dx`/`Dy`
+    /// as unsigned magnitudes with the direction in the scanning-mode flags,
+    /// like every other planar template, so the sign is baked in here — read
+    /// this rather than the raw fields, or a north-down grid walks the plane
+    /// upward.
+    pub fn projection_params(&self) -> LambertAzimuthalParams {
         let (dx, dy) = signed_grid_increments(
             self.dx_metres,
             self.dy_metres,
             self.scanning_mode & 0x80 != 0,
             self.scanning_mode & 0x40 != 0,
         );
-        let projector = LambertAzimuthalProjector::new(LambertAzimuthalParams {
+        LambertAzimuthalParams {
             semi_major_m: self.earth_major_m,
             semi_minor_m: self.earth_minor_m,
             ni: self.nx,
@@ -589,11 +591,110 @@ impl LambertAzimuthalTemplate {
             central_longitude: self.central_longitude,
             dx_metres: dx,
             dy_metres: dy,
-        });
+        }
+    }
+
+    /// Geographic `(lat, lon)` of the last scanned grid point. §3.140 states a
+    /// real first point but no second one, so the corner is derived the same
+    /// way §3.20 and §3.30 derive theirs.
+    pub fn last_point(&self) -> Option<(f64, f64)> {
+        let projector = LambertAzimuthalProjector::new(self.projection_params());
         finite_lonlat(
             projector.is_well_defined(),
             projector.last_grid_point_lonlat(),
         )
+    }
+}
+
+impl TransverseMercatorTemplate {
+    /// The template as `core`'s projection parameters.
+    ///
+    /// Unlike every other planar template §3.12 states its origin in the plane
+    /// (`X1`/`Y1`) rather than as a corner latitude, so there is no forward
+    /// projection to do here — only the scan sign, which §3.12 keeps in the
+    /// flags like the rest.
+    pub fn projection_params(&self) -> TransverseMercatorParams {
+        let (dx, dy) = signed_grid_increments(
+            self.di_metres,
+            self.dj_metres,
+            self.scanning_mode & 0x80 != 0,
+            self.scanning_mode & 0x40 != 0,
+        );
+        TransverseMercatorParams {
+            semi_major_m: self.earth_major_m,
+            semi_minor_m: self.earth_minor_m,
+            ni: self.ni,
+            nj: self.nj,
+            lat_ref: self.lat_ref,
+            lon_ref: self.lon_ref,
+            scale_factor: self.scale_factor,
+            false_easting_m: self.false_easting_m,
+            false_northing_m: self.false_northing_m,
+            x1_metres: self.x1_metres,
+            y1_metres: self.y1_metres,
+            dx_metres: dx,
+            dy_metres: dy,
+        }
+    }
+}
+
+impl SpaceViewTemplate {
+    /// The scan-angle grid §3.90 describes, as `core`'s projection parameters,
+    /// or `None` for a message that describes no usable camera.
+    ///
+    /// §3.90 does not state scan angles: it states the Earth's *apparent
+    /// diameter* in grid lengths (`Dx`/`Dy`) and the camera altitude `Nr` in
+    /// units of the Earth's radius x 10^6, and the angles follow from them.
+    /// `Nr <= 1` puts the camera at or below the surface, where the `asin`
+    /// has no answer, and a zero apparent diameter has no scan increment;
+    /// both are declined rather than turned into infinities.
+    ///
+    /// The row arithmetic is the subtle half. eccodes emits scan rows in
+    /// reverse (`for iy = ny-1 .. 0`), so stored data row `k` is geometric row
+    /// `(ny-1) - k`: `y0` is the angle of stored row 0 and the per-row step is
+    /// negative, while the column loop is not reversed and keeps a positive
+    /// step. Index `(i, j)` has to address the stored raster (`raw[j*ni + i]`),
+    /// so matching eccodes' data order here is what keeps a reprojected image
+    /// from coming out flipped in y.
+    pub fn scan_grid(&self) -> Option<GeostationaryParams> {
+        let nr = f64::from(self.nr?) * 1.0e-6;
+        if nr <= 1.0 || self.dx == 0 || self.dy == 0 {
+            return None;
+        }
+        let angular_size = 2.0 * (1.0 / nr).asin();
+        let rx = angular_size / f64::from(self.dx);
+        let ry = (self.r_pol / self.r_eq) * angular_size / f64::from(self.dy);
+
+        // Scan-direction adjustment of the sub-satellite grid offset, matching
+        // the eccodes space-view iterator so index 0 lands at the right angle.
+        let i_scans_neg = self.scanning_mode & 0x80 != 0;
+        let j_scans_pos = self.scanning_mode & 0x40 != 0;
+        let xp_off = self.xp - f64::from(self.xo);
+        let yp_off = self.yp - f64::from(self.yo);
+        let xp_adj = if i_scans_neg {
+            (f64::from(self.nx) - 1.0) - xp_off
+        } else {
+            xp_off
+        };
+        let yp_adj = if j_scans_pos {
+            yp_off
+        } else {
+            (f64::from(self.ny) - 1.0) - yp_off
+        };
+
+        Some(GeostationaryParams {
+            ni: self.nx,
+            nj: self.ny,
+            h_metres: nr * self.r_eq,
+            r_eq: self.r_eq,
+            r_pol: self.r_pol,
+            sub_lon_deg: self.lop,
+            sweep_x: true,
+            x0: -xp_adj * rx,
+            dx_rad: rx,
+            y0: (f64::from(self.ny) - 1.0 - yp_adj) * ry,
+            dy_rad: -ry,
+        })
     }
 }
 
