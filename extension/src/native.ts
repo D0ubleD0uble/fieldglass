@@ -99,15 +99,30 @@ export interface VariableMeta {
   attributes: AttributeMeta[];
 }
 
+/** A NetCDF-4 dataset left out of {@link DatasetMeta.variables} because its
+ *  HDF5 datatype is outside the decoded subset. */
+export interface UnsupportedVariableMeta {
+  name: string;
+  reason: string;
+}
+
 export interface DatasetMeta {
   backing: string;
   backingLabel: string;
+  /** Whether the tables below are populated. A file with one undecodable
+   *  variable keeps this `true` and lists that variable in
+   *  {@link DatasetMeta.unsupportedVariables} — showing the rest is the point,
+   *  so this must not gate the tables on it. */
   fullyParsed: boolean;
   note?: string;
   dimensions: DimensionMeta[];
   globalAttributes: AttributeMeta[];
   variables: VariableMeta[];
   hdf5SuperblockVersion?: number;
+  /** NetCDF-4 variables whose HDF5 datatype (compound, enum, variable-length,
+   *  opaque, array) this build does not decode. Empty for classic files and for
+   *  NetCDF-4 files every variable of which decoded. */
+  unsupportedVariables: UnsupportedVariableMeta[];
 }
 
 // ---------------------------------------------------------------------------

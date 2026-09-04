@@ -1725,6 +1725,64 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     assert.ok(html.includes("<td>degree_C</td>"), "sst's units must be in a cell of their own");
   });
 
+  // A NetCDF-4 file that carries one variable in an HDF5 datatype Fieldglass
+  // does not decode — a compound or variable-length type, as a station-record
+  // file or a TROPOMI granule does — used to resolve to nothing at all: the
+  // resolver failed on that dataset, the view came back empty, and the editor
+  // showed the superblock line instead of the file (#550).
+  //
+  // Asserted through the real native binding and the real markup, because the
+  // failure was invisible to the Rust gates: the metadata resolved to an error,
+  // napi turned that into the empty fallback, and only the rendered page showed
+  // that the tables had gone.
+  test("a netcdf4 file with an undecodable variable still lists the others", () => {
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+    const bytes = fs.readFileSync(fixturePath("netcdf4_unsupported_type.nc"));
+    const meta = native.NetcdfHandle.fromBytes(bytes).metadata();
+
+    assert.ok(
+      meta.fullyParsed,
+      "the tables are populated, so this must stay true or the view hides them",
+    );
+    assert.deepStrictEqual(
+      meta.variables.map((v) => v.name).sort(),
+      ["temperature", "time"],
+      "the decodable variables must all be listed",
+    );
+    assert.deepStrictEqual(
+      meta.unsupportedVariables.map((v) => v.name).sort(),
+      ["station_info", "visits"],
+      "and the two undecodable ones reported rather than dropped silently",
+    );
+    assert.ok(
+      meta.unsupportedVariables.every((v) => /class \d+ \(/.test(v.reason)),
+      `each reason must name the HDF5 class: ${JSON.stringify(meta.unsupportedVariables)}`,
+    );
+
+    const html = renderHtml(
+      { cspSource: "" } as unknown as vscode.Webview,
+      "netcdf",
+      "/tmp/example.nc",
+      undefined,
+      meta,
+      undefined,
+      false,
+      undefined,
+    );
+    assert.ok(/<h2>Variables<\/h2>/.test(html), "the variables table must render");
+    assert.ok(html.includes("<td>temperature</td>"), "temperature must be in it");
+    assert.ok(
+      /<h2>Variables not decoded<\/h2>/.test(html),
+      "and the skipped ones get a section of their own",
+    );
+    assert.ok(html.includes("<td>station_info</td>"), "naming the compound variable");
+    // Every table, the new one included, stays inside the scroll container.
+    const tables = (html.match(/<table>/g) ?? []).length;
+    const wrapped = (html.match(/<div class="table-scroll">\s*<table>/g) ?? []).length;
+    assert.strictEqual(wrapped, tables, `${tables - wrapped} table(s) are not wrapped`);
+  });
+
   // raw P1 octet: under a 3-hourly unit the box read 12 for a P1 of 4, so
   // saving it untouched tripled the lead time.
   test("the dormant P1 edit box carries the octet it writes, not normalised hours", () => {
