@@ -1,0 +1,42 @@
+[package]
+name = "fieldglass"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Host-neutral API over the Fieldglass decoders: open bytes, decode a field, place it on the Earth, colour it."
+keywords = ["grib", "grib2", "meteorology", "weather", "raster"]
+categories = ["science", "parser-implementations"]
+readme = "README.md"
+# Not on crates.io yet. This is the first cut of the surface ADR-0006 describes,
+# filed under #460 so `fieldglass-wasm` has something to bind; #464 fixes the
+# `Session` methods and DTO fields against a second real consumer and moves the
+# render orchestration out of `fieldglass-napi`. Publishing 0.5.0 would pin a
+# shape that is about to move, and would add a fifth crate to a release process
+# (RELEASING.md) written around four.
+publish = false
+
+[dependencies]
+# `default-features = false` on purpose (ADR-0006, planned/01-crates.md): the
+# umbrella sits between every host and `core`, so taking core's defaults here
+# would re-enable `fs` for the wasm host by feature unification and drag
+# `detect_format`'s `std::fs` into a target that has no filesystem. `render` is
+# re-exported as this crate's own feature instead; `fs` is not forwarded at all,
+# because ADR-0005 hands every host bytes rather than a path.
+fieldglass-core = { path = "../fieldglass-core", version = "=0.5.0", default-features = false, features = ["render"] }
+fieldglass-grib1 = { path = "../fieldglass-grib1", version = "=0.5.0" }
+fieldglass-grib2 = { path = "../fieldglass-grib2", version = "=0.5.0" }
+serde = { workspace = true }
+schemars = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[features]
+default = ["schema"]
+# JSON Schema derives on every API type (ADR-0006 decision 2), which is what a
+# host's `.d.ts` is generated from. Off for the wasm host, whose bundle pays for
+# every byte and whose declarations come from wasm-bindgen.
+schema = ["dep:schemars"]

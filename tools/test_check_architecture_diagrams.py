@@ -155,6 +155,27 @@ class CrateDeps(unittest.TestCase):
         )
         self.assertEqual(chk.crate_deps_from_toml(toml), {"core"})
 
+    def test_umbrella_crate_reads_as_its_bare_name(self):
+        # `fieldglass` and `fieldglass-core` both start with the same eight
+        # characters; the node id for the first is the bare name, and getting
+        # that wrong silently drops every edge into or out of the umbrella.
+        toml = (
+            "[dependencies]\n"
+            'fieldglass = { path = "../fieldglass" }\n'
+            'fieldglass-core = { path = "../fieldglass-core" }\n'
+        )
+        self.assertEqual(chk.crate_deps_from_toml(toml), {"fieldglass", "core"})
+
+    def test_every_first_party_crate_is_recognised(self):
+        # A new crate that the dependency regex does not know about produces no
+        # edges at all, so the diagram would pass while describing nothing.
+        for name in chk.FIRST_PARTY_CRATES:
+            dep = "fieldglass" if name == "fieldglass" else f"fieldglass-{name}"
+            toml = f'[dependencies]\n{dep} = {{ path = "../{dep}" }}\n'
+            self.assertEqual(
+                chk.crate_deps_from_toml(toml), {name}, f"{dep} is not recognised"
+            )
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

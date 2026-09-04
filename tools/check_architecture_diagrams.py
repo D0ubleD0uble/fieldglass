@@ -227,6 +227,28 @@ def composition_type_nodes(text: str) -> set[str]:
     return {n for n in nodes if n not in NON_TYPE_TOKENS}
 
 
+# Every first-party crate, by the base name the diagram uses as a node id: the
+# directory name with the ``fieldglass-`` prefix stripped, so ``crates/fieldglass``
+# itself is ``fieldglass``. Listed rather than globbed so a new crate that nobody
+# drew fails the guard instead of quietly not being checked.
+FIRST_PARTY_CRATES = (
+    "fieldglass",
+    "core",
+    "grib1",
+    "grib2",
+    "netcdf",
+    "napi",
+    "wasm",
+)
+
+# ``fieldglass-core = `` → ``core``; a bare ``fieldglass = `` → ``fieldglass``.
+# The optional suffix group is ordered longest-first only for readability; the
+# alternation is anchored by ``\s*=`` either way.
+CRATE_DEP_RE = re.compile(
+    r"fieldglass(?:-(core|grib1|grib2|netcdf|napi|wasm))?\s*="
+)
+
+
 def crate_deps_from_toml(text: str) -> set[str]:
     """First-party crate base names depended on under ``[dependencies]``.
 
@@ -240,9 +262,9 @@ def crate_deps_from_toml(text: str) -> set[str]:
             in_deps = line == "[dependencies]"
             continue
         if in_deps:
-            m = re.match(r"fieldglass-(core|grib1|grib2|netcdf)\s*=", line)
+            m = CRATE_DEP_RE.match(line)
             if m:
-                deps.add(m.group(1))
+                deps.add(m.group(1) or "fieldglass")
     return deps
 
 
@@ -291,8 +313,14 @@ def diagram_crate_edges() -> set[tuple[str, str]]:
 
 
 def actual_crate_edges() -> set[tuple[str, str]]:
+    """Path-dependency edges between the workspace crates.
+
+    The glob is ``fieldglass*`` rather than ``fieldglass-*`` so the umbrella
+    crate at ``crates/fieldglass`` is seen; its node id is the bare name, since
+    there is no prefix to strip.
+    """
     edges: set[tuple[str, str]] = set()
-    for toml in CRATES_DIR.glob("fieldglass-*/Cargo.toml"):
+    for toml in CRATES_DIR.glob("fieldglass*/Cargo.toml"):
         consumer = toml.parent.name.removeprefix("fieldglass-")
         for dep in crate_deps_from_toml(_read(toml)):
             edges.add((consumer, dep))

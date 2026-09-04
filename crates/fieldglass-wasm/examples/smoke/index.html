@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>fieldglass-wasm smoke test</title>
+    <style>
+      body {
+        font: 14px/1.5 system-ui, sans-serif;
+        margin: 2rem;
+        max-width: 60rem;
+      }
+      canvas {
+        border: 1px solid #ccc;
+        max-width: 100%;
+        image-rendering: pixelated;
+      }
+      pre {
+        background: #f6f6f6;
+        padding: 0.75rem;
+        overflow-x: auto;
+      }
+      .verdict {
+        font-weight: 600;
+        padding: 0.5rem 0.75rem;
+        border-radius: 4px;
+      }
+      .pass { background: #e6f4ea; color: #12622c; }
+      .fail { background: #fce8e6; color: #a50e0e; }
+    </style>
+  </head>
+  <body>
+    <h1>fieldglass-wasm smoke test</h1>
+    <p>
+      Decodes one GRIB2 message in a Web Worker, colours it twice — once on the
+      CPU through <code>render()</code>, once on the GPU through the shader
+      <code>glslSnippet()</code> exports — and compares a WebGL
+      <code>readPixels</code> of the second against the first. The CPU painter is
+      the oracle; the acceptance rule allows one lookup-table entry at a bin edge
+      and nothing else.
+    </p>
+    <p>
+      Serve the repository root over HTTP and open
+      <code>/crates/fieldglass-wasm/examples/smoke/</code>. Build the module
+      first with <code>crates/fieldglass-wasm/build.sh web</code>.
+    </p>
+
+    <p id="verdict" class="verdict">running…</p>
+    <canvas id="canvas"></canvas>
+    <pre id="report"></pre>
+
+    <script type="module">
+      const verdict = document.getElementById('verdict');
+      const report = document.getElementById('report');
+      const canvas = document.getElementById('canvas');
+
+      // A committed fixture, so the page works in a fresh clone. `samples/` is
+      // git-ignored, and a smoke test that needs a file most clones do not have
+      // is a smoke test nobody runs.
+      const FIXTURE = '/crates/fieldglass-grib2/tests/fixtures/rap_jpeg2000_lambert.grib2';
+
+      function fail(message) {
+        verdict.textContent = message;
+        verdict.className = 'verdict fail';
+        console.error('[smoke] FAIL', message);
+      }
+
+      try {
+        const response = await fetch(FIXTURE);
+        if (!response.ok) throw new Error(`${FIXTURE}: HTTP ${response.status}`);
+        const bytes = await response.arrayBuffer();
+
+        const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
+        worker.onmessage = (event) => {
+          if (event.data.error) {
+            fail(event.data.error);
+            return;
+          }
+          const r = event.data.report;
+          report.textContent = JSON.stringify(r, null, 2);
+          if (r.ok) {
+            verdict.textContent =
+              `PASS — ${r.compared} pixels compared, ${r.offByOne} off by one ` +
+              `lookup entry, 0 mismatched.`;
+            verdict.className = 'verdict pass';
+            console.log('[smoke] PASS', JSON.stringify(r));
+          } else {
+            fail(`${r.mismatched} pixels disagree; first at ${JSON.stringify(r.firstMismatch)}`);
+            report.textContent = JSON.stringify(r, null, 2);
+          }
+          if (event.data.bitmap) {
+            canvas.width = event.data.bitmap.width;
+            canvas.height = event.data.bitmap.height;
+            canvas.getContext('bitmaprenderer').transferFromImageBitmap(event.data.bitmap);
+          }
+        };
+        worker.onerror = (e) => fail(`worker error: ${e.message}`);
+
+        const offscreen = document.createElement('canvas').transferControlToOffscreen();
+        worker.postMessage(
+          { bytes, canvas: offscreen, messageIndex: 0, paletteOptions: {} },
+          [bytes, offscreen],
+        );
+      } catch (e) {
+        fail(e.message || String(e));
+      }
+    </script>
+  </body>
+</html>

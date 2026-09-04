@@ -1,0 +1,23 @@
+[package]
+name = "fieldglass-wasm"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "wasm-bindgen façade over the Fieldglass decoders for browser hosts."
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# `default-features = false`: the umbrella's `schema` feature exists so a host
+# can generate declarations from a JSON schema. wasm-bindgen emits the `.d.ts`
+# for this host, so schemars would be bundle weight with no consumer.
+fieldglass = { path = "../fieldglass", version = "=0.5.0", default-features = false }
+js-sys = "0.3"
+serde = { workspace = true }
+serde-wasm-bindgen = "0.6"
+wasm-bindgen = "0.2"

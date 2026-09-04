@@ -4,6 +4,22 @@ All notable changes to Fieldglass are documented here. The format roughly follow
 
 Versioning is plain [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and every release is a stable one. Pre-1.0, a minor bump (`0.3.0` → `0.4.0`) may break the Rust API; a patch (`0.3.0` → `0.3.1`) does not. The same version numbers the extension and the library crates.
 
+## [Unreleased]
+
+### Added
+
+- **Fieldglass runs in a browser.** Two new crates. `fieldglass` is the host-neutral API the project has been heading toward since [ADR-0006](docs/decisions/0006-hosts-are-bindings-over-a-plain-data-api.md): open bytes, list messages, decode a field, and get back contiguous values, a separate presence mask, and enough georeferencing to place the raster on a map — a PROJ string and an origin-and-spacing affine. `fieldglass-wasm` is a binding of it for `wasm32-unknown-unknown`, meant to run in a Web Worker, and it is only the buffer handoff and the error mapping; everything it does is decided upstream. GRIB1 and GRIB2, and the four grid families NOAA and ECMWF publish on. Nothing in the VS Code extension changes. Closes #460.
+
+- **Colour is decided once, in Rust, and a GPU can consume the decision.** A browser map colours on the graphics card so that changing the colormap never re-decodes the file, which normally means writing the colour rule a second time in a shader and watching the two drift apart. Instead the painter's own 256-entry table leaves Rust as data and the package ships the shader that reads it, so the CPU painter is the reference the GPU is checked against rather than its rival. The field is rebased in double precision before it reaches the shader, which is not a detail: a shader that does that subtraction itself in single precision loses the range rather than the last digit, and for a tight display range over large values — geopotential, pressure in pascals — it can be wrong by half the colour table. Over the committed fixtures the two paths pick the same table entry for all 6,292,128 cells tested, and a WebGL read-back of a real field in a browser matched the CPU picture pixel for pixel.
+
+- **The value type follows the file.** A decoded field comes back as 32-bit floats only when every value in it survives that narrowing exactly, and as 64-bit otherwise. The usual shortcut — "the packing used 24 bits or fewer, so it fits" — is not true once the reference value sits far from zero or the file uses a decimal scale factor, and it silently costs digits on ordinary NCEP output. A caller that wants 32-bit for a graphics texture regardless asks for it by name and gets the conversion it chose.
+
+- **A parsed grid description converts to one typed value.** GRIB1 and GRIB2 grids now convert directly into `GridGeometry`, the type `fieldglass-core` gained for placing a field on the Earth, so a consumer no longer re-derives the per-family dispatch from a flat bag of optional fields. A family that is not modelled yet reports itself by name rather than failing, so a message can say which grid was declined.
+
+### Fixed
+
+- **A global grid's default map window covers the seam.** Reprojecting a whole-world field onto its own extent stopped at the last column the file declares rather than going the full way round, leaving the antimeridian as a one-cell stripe of background. The gap between the last column and the first belongs to the grid, and is now filled.
+
 ## [0.5.0] — 2026-09-04
 
 ### Added
