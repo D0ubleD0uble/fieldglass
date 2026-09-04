@@ -9460,6 +9460,29 @@ mod planar_geolocation_tests {
     /// given to 3 decimals.
     ///
     /// eccodes 2.34.1: `grib_get_data -L "%.9f %.9f" cmc_wind_300_…grib`.
+    #[test]
+    fn polar_stereographic_geolocates_as_eccodes_does() {
+        let handle = grib1_handle(CMC_POLAR);
+        let (_, meta, ni, nj) = handle.resolved(0).expect("message 0 resolves");
+        assert_eq!((ni, nj), (135, 95));
+        assert_eq!(meta.grid_type.as_deref(), Some("polar_stereo"));
+        let forward = forward_map(&meta, ni, nj);
+
+        for (i, j, lat, lon) in [
+            (0u32, 0u32, 27.203000000_f64, -135.213000000_f64),
+            (134, 0, 19.925909679, -73.552939656),
+            (0, 94, 60.485093888, 177.136689840),
+            (134, 94, 43.064248041, -31.886937598),
+            (67, 47, 53.346329051, -95.593023496),
+        ] {
+            let (got_lat, got_lon) = forward(i, j).expect("every point geolocates");
+            assert!(
+                (got_lat - lat).abs() < 2e-3 && (got_lon - lon).abs() < 2e-3,
+                "({i},{j}) gave ({got_lat:.6}, {got_lon:.6}), eccodes says ({lat}, {lon})"
+            );
+        }
+    }
+
     /// Characterisation of the GRIB1 grid-policy seam (#544): the projection
     /// parameters and scan flags this layer used to derive with its own
     /// per-variant matches now come off `GridDescription`, and the payload the
@@ -9484,29 +9507,6 @@ mod planar_geolocation_tests {
         // nothing here.
         assert_eq!(meta.j_scans_positive, Some(true));
         assert!(meta.reprojectable);
-    }
-
-    #[test]
-    fn polar_stereographic_geolocates_as_eccodes_does() {
-        let handle = grib1_handle(CMC_POLAR);
-        let (_, meta, ni, nj) = handle.resolved(0).expect("message 0 resolves");
-        assert_eq!((ni, nj), (135, 95));
-        assert_eq!(meta.grid_type.as_deref(), Some("polar_stereo"));
-        let forward = forward_map(&meta, ni, nj);
-
-        for (i, j, lat, lon) in [
-            (0u32, 0u32, 27.203000000_f64, -135.213000000_f64),
-            (134, 0, 19.925909679, -73.552939656),
-            (0, 94, 60.485093888, 177.136689840),
-            (134, 94, 43.064248041, -31.886937598),
-            (67, 47, 53.346329051, -95.593023496),
-        ] {
-            let (got_lat, got_lon) = forward(i, j).expect("every point geolocates");
-            assert!(
-                (got_lat - lat).abs() < 2e-3 && (got_lon - lon).abs() < 2e-3,
-                "({i},{j}) gave ({got_lat:.6}, {got_lon:.6}), eccodes says ({lat}, {lon})"
-            );
-        }
     }
 
     /// Lambert azimuthal equal-area, against the same eccodes readings the

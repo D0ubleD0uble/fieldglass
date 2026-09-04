@@ -422,9 +422,9 @@ impl GridDescription {
     /// which was patched in the TypeScript host rather than named here.
     ///
     /// The converse does not hold for [`Self::bounds`] alone: a Lambert grid
-    /// whose cone collapses has a raster but no far corner (see
-    /// [`LambertGrid::last_point`]). `dimensions` and `first_point` are `Some`
-    /// exactly when this is true.
+    /// whose cone collapses has a raster but no far corner, because that corner
+    /// is recovered from the projection rather than stated. `dimensions` and
+    /// `first_point` are `Some` exactly when this is true.
     pub fn has_raster(&self) -> bool {
         match self {
             Self::LatLon(_)
@@ -1414,6 +1414,24 @@ mod accessor_tests {
         }
     }
 
+    /// A discriminant per variant. Adding a grid family to the enum stops this
+    /// compiling until it is given an arm, which is what makes
+    /// [`every_variant`]'s claim to cover the whole enum enforceable rather
+    /// than a promise — see [`every_variant_is_one_of_each`].
+    fn variant_tag(gds: &GridDescription) -> usize {
+        match gds {
+            GridDescription::LatLon(_) => 0,
+            GridDescription::RotatedLatLon(_) => 1,
+            GridDescription::ReducedLatLon(_) => 2,
+            GridDescription::Gaussian(_) => 3,
+            GridDescription::ReducedGaussian(_) => 4,
+            GridDescription::PolarStereographic(_) => 5,
+            GridDescription::LambertConformal(_) => 6,
+            GridDescription::SphericalHarmonic(_) => 7,
+            GridDescription::Unsupported { .. } => 8,
+        }
+    }
+
     /// One of every variant, so the exhaustive-match accessors below are
     /// checked against the whole enum rather than the grids a test happened to
     /// name.
@@ -1492,6 +1510,15 @@ mod accessor_tests {
             }),
             GridDescription::Unsupported { grid_type: 13 },
         ]
+    }
+
+    /// The list above is one of each, in discriminant order. Without this, a
+    /// new grid family could be given a wrong arm in `has_raster` and no test
+    /// below would ever see it: they only check the examples the list holds.
+    #[test]
+    fn every_variant_is_one_of_each() {
+        let tags: Vec<usize> = every_variant().iter().map(variant_tag).collect();
+        assert_eq!(tags, (0..=8).collect::<Vec<_>>());
     }
 
     /// The flags come back from the variant that holds them, and only the two
