@@ -16,11 +16,13 @@
 //!   the napi warp setup use, for the same reason: a grid scanning
 //!   north-to-south walks `-Dy`.
 //! * **A reduced grid reports the raster its rows expand into**, not the row
-//!   list. [`crate::Grib1Reader::decode_message_values`] widens every row to
+//!   list. [`crate::Grib1Reader::decode_message_raster`] widens every row to
 //!   `max(PL)` at the decode boundary, so the geometry that places those values
 //!   has to describe the widened raster — including its last-column longitude,
-//!   which is derived ([`reduced_raster_lon_last`]) and is *not* the `Lo2` the
-//!   message declares. See that function for why.
+//!   which is derived and is *not* the `Lo2` the message declares. That
+//!   derivation is [`GridDescription::raster_bounds`], read here rather than
+//!   repeated, so this conversion and the hosts cannot drift apart about where
+//!   an octahedral grid's east edge is.
 //! * **An unmodelled family is `Unsupported`, not an error.** A rotated lat/lon
 //!   or spectral message still has metadata worth listing; the geometry simply
 //!   cannot place its points, and it says which family it declined.
@@ -30,10 +32,20 @@
 
 use fieldglass_core::{
     GaussianParams, GridGeometry, LambertParams, LatLonParams, PolarStereoParams,
-    reduced_raster_lon_last, reduced_raster_width,
+    reduced_raster_width,
 };
 
 use crate::gds::GridDescription;
+
+/// The east edge of the raster a reduced grid's rows expand into, read off the
+/// GDS ([`GridDescription::raster_bounds`]) so this conversion shares the one
+/// rule rather than restating it.
+///
+/// `declared` is the fallback, and a reduced grid never takes it: every reduced
+/// variant reports `bounds()`, so `raster_bounds()` is always `Some` here.
+fn raster_lon_last(gds: &GridDescription, declared: f64) -> f64 {
+    gds.raster_bounds().map_or(declared, |(_, _, _, lo2)| lo2)
+}
 
 impl From<&GridDescription> for GridGeometry {
     fn from(gds: &GridDescription) -> Self {
@@ -54,7 +66,7 @@ impl From<&GridDescription> for GridGeometry {
                     lat_first: g.lat_first,
                     lon_first: g.lon_first,
                     lat_last: g.lat_last,
-                    lon_last: reduced_raster_lon_last(g.lon_first, ni),
+                    lon_last: raster_lon_last(gds, g.lon_last),
                 })
             }
             GridDescription::Gaussian(g) => Self::Gaussian(GaussianParams {
@@ -74,7 +86,7 @@ impl From<&GridDescription> for GridGeometry {
                     lat_first: g.lat_first,
                     lon_first: g.lon_first,
                     lat_last: g.lat_last,
-                    lon_last: reduced_raster_lon_last(g.lon_first, ni),
+                    lon_last: raster_lon_last(gds, g.lon_last),
                     n_parallels: u32::from(g.n_gaussians),
                 })
             }

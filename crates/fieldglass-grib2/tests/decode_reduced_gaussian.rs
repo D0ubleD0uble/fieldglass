@@ -183,6 +183,15 @@ fn the_expanded_raster_east_edge_is_derived_not_declared() {
             fieldglass_core::reduced_raster_lon_last(lon_first, width),
             "{label}: and it is the shared rule, not a second one"
         );
+        // The GridGeometry conversion reads that same accessor rather than
+        // deriving the corner again (#543). Two hosts placing the same
+        // octahedral grid differently is exactly what this pins shut.
+        let fieldglass_core::GridGeometry::Gaussian(p) = fieldglass_core::GridGeometry::from(gds)
+        else {
+            panic!("{label}: expected a Gaussian geometry");
+        };
+        assert_eq!(p.lon_last, raster_lon_last, "{label}: geometry agrees");
+        assert_eq!((p.ni, p.nj), (width, 64), "{label}: and on the shape");
     }
     // The two differ for exactly one of them, which is what makes the
     // distinction worth drawing rather than a restatement of the same number.

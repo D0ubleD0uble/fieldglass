@@ -12,7 +12,7 @@
 
 use fieldglass_core::{
     GaussianParams, GridGeometry, LambertParams, LatLonParams, PolarStereoParams,
-    reduced_raster_lon_last, reduced_raster_width, signed_grid_increments,
+    reduced_raster_width, signed_grid_increments,
 };
 
 use crate::gds::{GridDefinitionSection, GridTemplate};
@@ -30,14 +30,18 @@ impl From<&GridDefinitionSection> for GridGeometry {
             }),
             GridTemplate::Gaussian(t) => {
                 // A reduced grid states no `Ni`; the raster its rows expand
-                // into does, and `decode_message_values` produces exactly that
-                // raster. `points_per_row` is `None` for a regular grid, which
-                // then reports its declared corners unchanged.
+                // into does, and `decode_message_raster` produces exactly that
+                // raster. Its east edge is derived rather than declared, and
+                // the section is what derives it — read here rather than
+                // repeated, so this conversion and the hosts cannot drift apart
+                // about where an octahedral grid's east edge is (#543).
+                // `points_per_row` is `None` for a regular grid, which then
+                // reports its declared corners unchanged.
                 let (ni, lon_last) = match gds.points_per_row() {
-                    Some(pl) => {
-                        let ni = reduced_raster_width(pl);
-                        (ni, reduced_raster_lon_last(t.lo1, ni))
-                    }
+                    Some(pl) => (
+                        reduced_raster_width(pl),
+                        gds.raster_bounds().map_or(t.lo2, |(_, _, _, lo2)| lo2),
+                    ),
                     // A regular Gaussian grid with no `Ni` at all is malformed
                     // rather than reduced; `dims()` of `0` is what the section
                     // itself reports and keeps the two answers consistent.

@@ -92,9 +92,10 @@ does not describe the raster. **That derivation lives in the format crates**
 beside `dimensions()`, and `decode_message_raster` for the values that go in
 it), so `GridGeometry::from` and the napi render seam both read it rather than
 each deriving it again (#543). A `GridGeometry::Gaussian` built from `lo2` at
-face value would misplace every octahedral grid by up to an eighth of a cell. The grid's own name (`N32`, `O32`,
-and `F32` for the regular case eccodes also names) is not recoverable from `ni`
-and `nj`, so it travels beside them the way `Nside` does (#500).
+face value would misplace every octahedral grid by up to an eighth of a cell.
+The grid's own name (`N32`, `O32`, and `F32` for the regular case eccodes also
+names) is not recoverable from `ni` and `nj`, so it travels beside them the way
+`Nside` does (#500).
 
 The family tag is the other thing the conversion loses. Both readers report
 `reduced_gaussian` today, which is what eccodes calls `reduced_gg` and what the

@@ -191,9 +191,9 @@ impl Grib2Reader {
             // A reduced grid stores `sum(PL)` points, not `Ni·Nj` — its rows
             // differ in width, so `dimensions()` reports the raster they expand
             // into rather than a shape the message contains. Size the decode to
-            // the storage layout; widening to that raster is the caller's step,
-            // at the one boundary that does it (`fieldglass_core::
-            // expand_reduced_to_regular`), the way `Grib1Handle` does.
+            // the storage layout; widening to that raster happens in
+            // `decode_message_raster` below, which is the one boundary that
+            // does it, in both format crates (#543).
             _ if msg.gds.points_per_row().is_some() => {
                 let pl = msg.gds.points_per_row().expect("just matched");
                 let stored = pl.iter().map(|&n| n as usize).sum::<usize>();

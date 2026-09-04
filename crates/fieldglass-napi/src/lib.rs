@@ -4973,8 +4973,9 @@ const GEOLOCATABLE_GRIDS: &[(&str, &str)] = &[
     ("gaussian", "Gaussian"),
     // A reduced grid reaches every consumer already widened to a regular
     // raster, whose columns are evenly spaced by construction — so the forward
-    // map is its family's, on the derived geometry `reduced_render_meta`
-    // supplies. GRIB2 has always taken this route, reporting a reduced Gaussian
+    // map is its family's, on the derived geometry `raster_render_meta`
+    // supplies from the GDS's own `raster_bounds()`. GRIB2 has always taken
+    // this route, reporting a reduced Gaussian
     // grid as `"gaussian"`; GRIB1 names its reduced grids and was refused here
     // while its *inverse* map already treated them the same way, so the image
     // and the contours over it disagreed about one grid (#503).
