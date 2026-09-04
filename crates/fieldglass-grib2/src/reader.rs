@@ -106,6 +106,7 @@ pub struct MatrixField {
 #[derive(Debug)]
 pub struct Grib2Reader {
     data: Vec<u8>,
+    /// Every message in the file, in the order they appear in it.
     pub messages: Vec<Grib2Message>,
 }
 
@@ -119,6 +120,7 @@ impl Grib2Reader {
         Ok(Self { data, messages })
     }
 
+    /// How many messages the scan found. Message indices run `0..this`.
     pub fn message_count(&self) -> usize {
         self.messages.len()
     }

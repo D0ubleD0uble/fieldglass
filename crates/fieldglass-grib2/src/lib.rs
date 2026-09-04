@@ -28,24 +28,18 @@
 //! Neither leaves the widening rule to the caller.
 
 #![forbid(unsafe_code)]
-// `missing_docs` is `warn` in `[workspace.lints]`, and 194 public items in this
-// crate do not satisfy it yet. Allowed here rather than downgraded workspace-wide
-// so the standard stays one line in the root manifest and the debt stays visible
-// per crate: deleting this attribute is what finishes the burn-down, and a crate
-// added without it starts held to the lint. See `tools/check_workspace_lints.py`,
-// which is the list of crates still carrying one.
-#![allow(missing_docs)]
-
 pub mod bms;
 pub mod drs;
 pub mod ds;
 pub mod gds;
 pub mod geometry;
 pub mod ids;
+/// §0, the Indicator Section: discipline, edition and total length.
 pub mod is;
 pub mod lus;
 pub mod matrix;
 pub mod pds;
+/// The message scanner and the decode entry points over a whole file.
 pub mod reader;
 pub mod section;
 pub mod spectral;

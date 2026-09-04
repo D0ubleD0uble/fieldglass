@@ -252,6 +252,7 @@ pub struct Originator {
 }
 
 impl Originator {
+    /// The three §1 codes that together select a centre's local tables.
     pub fn new(centre: u16, sub_centre: u16, local_tables_version: u8) -> Self {
         Self {
             centre,

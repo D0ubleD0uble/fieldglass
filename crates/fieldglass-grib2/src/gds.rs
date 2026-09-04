@@ -143,16 +143,30 @@ fn resolve_earth_shape(p: &[u8]) -> (f64, f64) {
 /// Template 3.0 — regular latitude/longitude (equidistant cylindrical).
 #[derive(Debug, Clone, Copy)]
 pub struct LatLonTemplate {
+    /// Shape of the Earth (Code Table 3.2), which fixes the radius or the
+    /// ellipsoid the template's coordinates are on.
     pub shape_of_earth: u8,
+    /// Points along a parallel (`Ni`).
     pub ni: u32,
+    /// Points along a meridian (`Nj`).
     pub nj: u32,
+    /// Latitude of the first scanned point (`La1`), degrees.
     pub la1: f64,
+    /// Longitude of the first scanned point (`Lo1`), degrees.
     pub lo1: f64,
+    /// Latitude of the last scanned point (`La2`), degrees.
     pub la2: f64,
+    /// Longitude of the last scanned point (`Lo2`), degrees.
     pub lo2: f64,
+    /// i-direction increment in degrees, or `None` when the resolution flags
+    /// say it is not given.
     pub di: Option<f64>,
+    /// j-direction increment in degrees, or `None` when the resolution flags
+    /// say it is not given.
     pub dj: Option<f64>,
+    /// Resolution and component flags (Flag Table 3.3).
     pub resolution_flags: u8,
+    /// Scanning-mode flags (Flag Table 3.4), which fix the order of the points.
     pub scanning_mode: u8,
 }
 
@@ -161,16 +175,30 @@ pub struct LatLonTemplate {
 /// and an IEEE angle of rotation (COSMO, DWD/ECMWF limited-area runs).
 #[derive(Debug, Clone, Copy)]
 pub struct RotatedLatLonTemplate {
+    /// Shape of the Earth (Code Table 3.2), which fixes the radius or the
+    /// ellipsoid the template's coordinates are on.
     pub shape_of_earth: u8,
+    /// Points along a parallel (`Ni`).
     pub ni: u32,
+    /// Points along a meridian (`Nj`).
     pub nj: u32,
+    /// Latitude of the first scanned point (`La1`), degrees.
     pub la1: f64,
+    /// Longitude of the first scanned point (`Lo1`), degrees.
     pub lo1: f64,
+    /// Latitude of the last scanned point (`La2`), degrees.
     pub la2: f64,
+    /// Longitude of the last scanned point (`Lo2`), degrees.
     pub lo2: f64,
+    /// i-direction increment in degrees, or `None` when the resolution flags
+    /// say it is not given.
     pub di: Option<f64>,
+    /// j-direction increment in degrees, or `None` when the resolution flags
+    /// say it is not given.
     pub dj: Option<f64>,
+    /// Resolution and component flags (Flag Table 3.3).
     pub resolution_flags: u8,
+    /// Scanning-mode flags (Flag Table 3.4), which fix the order of the points.
     pub scanning_mode: u8,
     /// Latitude of the southern pole of projection (degrees).
     pub south_pole_lat: f64,
@@ -185,21 +213,33 @@ pub struct RotatedLatLonTemplate {
 /// products).
 #[derive(Debug, Clone, Copy)]
 pub struct MercatorTemplate {
+    /// Shape of the Earth (Code Table 3.2), which fixes the radius or the
+    /// ellipsoid the template's coordinates are on.
     pub shape_of_earth: u8,
+    /// Points along a parallel (`Ni`).
     pub ni: u32,
+    /// Points along a meridian (`Nj`).
     pub nj: u32,
+    /// Latitude of the first scanned point (`La1`), degrees.
     pub la1: f64,
+    /// Longitude of the first scanned point (`Lo1`), degrees.
     pub lo1: f64,
     /// Latitude at which the projection intersects the Earth — where Di and
     /// Dj are specified.
     pub lad: f64,
+    /// Latitude of the last scanned point (`La2`), degrees.
     pub la2: f64,
+    /// Longitude of the last scanned point (`Lo2`), degrees.
     pub lo2: f64,
     /// Orientation of the grid: angle between i-direction and the equator.
     pub orientation: f64,
+    /// i-direction grid spacing in metres.
     pub di_metres: f64,
+    /// j-direction grid spacing in metres.
     pub dj_metres: f64,
+    /// Resolution and component flags (Flag Table 3.3).
     pub resolution_flags: u8,
+    /// Scanning-mode flags (Flag Table 3.4), which fix the order of the points.
     pub scanning_mode: u8,
 }
 
@@ -207,25 +247,37 @@ pub struct MercatorTemplate {
 /// sea-ice products).
 #[derive(Debug, Clone, Copy)]
 pub struct PolarStereographicTemplate {
+    /// Shape of the Earth (Code Table 3.2), which fixes the radius or the
+    /// ellipsoid the template's coordinates are on.
     pub shape_of_earth: u8,
     /// Radius of the sphere to project on, resolved from the earth-shape fields.
     pub earth_radius_m: f64,
+    /// Points along the projection plane's x axis (`Nx`).
     pub nx: u32,
+    /// Points along the projection plane's y axis (`Ny`).
     pub ny: u32,
+    /// Latitude of the first scanned point (`La1`), degrees.
     pub la1: f64,
+    /// Longitude of the first scanned point (`Lo1`), degrees.
     pub lo1: f64,
     /// Latitude where Dx and Dy are specified.
     pub lad: f64,
     /// Orientation of the grid — longitude of the meridian parallel to the
     /// y-axis (LoV).
     pub lov: f64,
+    /// i-direction grid spacing in metres, at the latitude of true scale.
     pub dx_metres: f64,
+    /// j-direction grid spacing in metres, at the latitude of true scale.
     pub dy_metres: f64,
+    /// Resolution and component flags (Flag Table 3.3).
     pub resolution_flags: u8,
+    /// Projection-centre flags (Flag Table 3.5): which pole the plane touches,
+    /// and whether the projection is bi-polar.
     pub projection_centre: u8,
     /// `true` when the south pole is on the projection plane (projection-centre
     /// flag bit 1 set); `false` → north pole.
     pub south_pole: bool,
+    /// Scanning-mode flags (Flag Table 3.4), which fix the order of the points.
     pub scanning_mode: u8,
 }
 
@@ -234,13 +286,18 @@ pub struct PolarStereographicTemplate {
 /// rather than corner lat/lon, so it has no `bounds()`.
 #[derive(Debug, Clone, Copy)]
 pub struct SpaceViewTemplate {
+    /// Shape of the Earth (Code Table 3.2), which fixes the radius or the
+    /// ellipsoid the template's coordinates are on.
     pub shape_of_earth: u8,
     /// Ellipsoid semi-major / semi-minor axes in metres, resolved from the
     /// shape-of-earth group. Geostationary geolocation is ellipsoidal (GOES
     /// uses GRS80, Meteosat WGS84), unlike the spherical projectors.
     pub r_eq: f64,
+    /// Polar radius in metres.
     pub r_pol: f64,
+    /// Points along the projection plane's x axis (`Nx`).
     pub nx: u32,
+    /// Points along the projection plane's y axis (`Ny`).
     pub ny: u32,
     /// Latitude of the sub-satellite point (degrees).
     pub lap: f64,
@@ -248,10 +305,12 @@ pub struct SpaceViewTemplate {
     pub lop: f64,
     /// Apparent diameter of the Earth in grid lengths, X- and Y-direction.
     pub dx: u32,
+    /// Apparent diameter of the Earth in grid lengths, Y-direction.
     pub dy: u32,
     /// X/Y coordinate of the sub-satellite point, in grid lengths (the raw
     /// 10⁻³-grid-length integers divided down to whole grid lengths).
     pub xp: f64,
+    /// Y coordinate of the sub-satellite point, in grid lengths.
     pub yp: f64,
     /// Orientation of the grid (degrees).
     pub orientation: f64,
@@ -260,51 +319,77 @@ pub struct SpaceViewTemplate {
     pub nr: Option<u32>,
     /// X/Y coordinate of the origin of the sector image, in grid lengths.
     pub xo: u32,
+    /// Y coordinate of the origin of the sector image, in grid lengths.
     pub yo: u32,
+    /// Resolution and component flags (Flag Table 3.3).
     pub resolution_flags: u8,
+    /// Scanning-mode flags (Flag Table 3.4), which fix the order of the points.
     pub scanning_mode: u8,
 }
 
 /// Template 3.30 — Lambert Conformal projection.
 #[derive(Debug, Clone, Copy)]
 pub struct LambertTemplate {
+    /// Shape of the Earth (Code Table 3.2), which fixes the radius or the
+    /// ellipsoid the template's coordinates are on.
     pub shape_of_earth: u8,
     /// Radius of the sphere to project on, resolved from the earth-shape fields.
     pub earth_radius_m: f64,
+    /// Points along the projection plane's x axis (`Nx`).
     pub nx: u32,
+    /// Points along the projection plane's y axis (`Ny`).
     pub ny: u32,
+    /// Latitude of the first scanned point (`La1`), degrees.
     pub la1: f64,
+    /// Longitude of the first scanned point (`Lo1`), degrees.
     pub lo1: f64,
     /// Latitude where Dx and Dy are specified.
     pub lad: f64,
     /// Longitude of meridian parallel to y-axis.
     pub lov: f64,
+    /// i-direction grid spacing in metres, at the latitude of true scale.
     pub dx_metres: f64,
+    /// j-direction grid spacing in metres, at the latitude of true scale.
     pub dy_metres: f64,
+    /// First standard parallel (`Latin1`), degrees.
     pub latin1: f64,
+    /// Second standard parallel (`Latin2`), degrees.
     pub latin2: f64,
+    /// Resolution and component flags (Flag Table 3.3).
     pub resolution_flags: u8,
+    /// Projection-centre flags (Flag Table 3.5): which pole the plane touches,
+    /// and whether the projection is bi-polar.
     pub projection_centre: u8,
+    /// Scanning-mode flags (Flag Table 3.4), which fix the order of the points.
     pub scanning_mode: u8,
 }
 
 /// Template 3.40 — Gaussian latitude/longitude (regular or reduced).
 #[derive(Debug, Clone, Copy)]
 pub struct GaussianTemplate {
+    /// Shape of the Earth (Code Table 3.2), which fixes the radius or the
+    /// ellipsoid the template's coordinates are on.
     pub shape_of_earth: u8,
     /// `None` for reduced grids — the row width varies and lives in the
     /// optional list of numbers at the end of the section.
     pub ni: Option<u32>,
+    /// Points along a meridian (`Nj`).
     pub nj: u32,
+    /// Latitude of the first scanned point (`La1`), degrees.
     pub la1: f64,
+    /// Longitude of the first scanned point (`Lo1`), degrees.
     pub lo1: f64,
+    /// Latitude of the last scanned point (`La2`), degrees.
     pub la2: f64,
+    /// Longitude of the last scanned point (`Lo2`), degrees.
     pub lo2: f64,
     /// `None` for reduced grids (no constant Di).
     pub di: Option<f64>,
     /// Number of parallels between a pole and the equator.
     pub n_parallels: u32,
+    /// Resolution and component flags (Flag Table 3.3).
     pub resolution_flags: u8,
+    /// Scanning-mode flags (Flag Table 3.4), which fix the order of the points.
     pub scanning_mode: u8,
     /// True if the section carries a non-empty optional list of numbers,
     /// indicating a reduced (per-row) grid.
@@ -392,6 +477,8 @@ pub struct BiFourierTemplate {
 ///   `0.99960124`.
 #[derive(Debug, Clone, Copy)]
 pub struct TransverseMercatorTemplate {
+    /// Shape of the Earth (Code Table 3.2), which fixes the radius or the
+    /// ellipsoid the template's coordinates are on.
     pub shape_of_earth: u8,
     /// Semi-major and semi-minor axes in metres, from `resolve_earth_shape`.
     /// Both are carried rather than a single mean radius: the Krüger series
@@ -400,27 +487,38 @@ pub struct TransverseMercatorTemplate {
     /// them first — and a UKV grid on Airy 1830 lands about 2.8 km out if you
     /// do.
     pub earth_major_m: f64,
+    /// Semi-minor axis in metres, when `shape_of_earth` names an ellipsoid.
     pub earth_minor_m: f64,
+    /// Points along a parallel (`Ni`).
     pub ni: u32,
+    /// Points along a meridian (`Nj`).
     pub nj: u32,
     /// `LaR` / `LoR` — the reference point the cylinder is tangent at, in
     /// degrees. Both are sign-magnitude, longitude included.
     pub lat_ref: f64,
+    /// `LoR` — the reference longitude (the central meridian), degrees.
     pub lon_ref: f64,
+    /// Resolution and component flags (Flag Table 3.3).
     pub resolution_flags: u8,
     /// `m` — scale factor at the reference meridian.
     pub scale_factor: f64,
     /// `XR` / `YR` — false easting and northing in metres.
     pub false_easting_m: f64,
+    /// `YR` — false northing in metres.
     pub false_northing_m: f64,
+    /// Scanning-mode flags (Flag Table 3.4), which fix the order of the points.
     pub scanning_mode: u8,
     /// `Di` / `Dj` — grid spacing in metres.
     pub di_metres: f64,
+    /// j-direction grid spacing in metres.
     pub dj_metres: f64,
     /// `X1`..`Y2` — first and last grid point in projection metres.
     pub x1_metres: f64,
+    /// `Y1` — the first grid point's northing in projection metres.
     pub y1_metres: f64,
+    /// `X2` — the last grid point's easting in projection metres.
     pub x2_metres: f64,
+    /// `Y2` — the last grid point's northing in projection metres.
     pub y2_metres: f64,
 }
 
@@ -435,23 +533,35 @@ pub struct TransverseMercatorTemplate {
 /// the same as 3.10/3.20/3.30 and *not* the same as 3.12.
 #[derive(Debug, Clone, Copy)]
 pub struct LambertAzimuthalTemplate {
+    /// Shape of the Earth (Code Table 3.2), which fixes the radius or the
+    /// ellipsoid the template's coordinates are on.
     pub shape_of_earth: u8,
     /// Semi-major and semi-minor axes in metres. Both are carried, not a mean
     /// radius: eccodes projects an oblate §3.140 on the true spheroid, and the
     /// mean-radius approximation is 13.5 km out over the EFAS domain.
     pub earth_major_m: f64,
+    /// Semi-minor axis in metres, when `shape_of_earth` names an ellipsoid.
     pub earth_minor_m: f64,
+    /// Points along the projection plane's x axis (`Nx`).
     pub nx: u32,
+    /// Points along the projection plane's y axis (`Ny`).
     pub ny: u32,
+    /// Latitude of the first scanned point (`La1`), degrees.
     pub la1: f64,
+    /// Longitude of the first scanned point (`Lo1`), degrees.
     pub lo1: f64,
     /// The tangent point: `standardParallel` is its latitude, `centralLongitude`
     /// its longitude. Both in degrees.
     pub standard_parallel: f64,
+    /// The tangent point's longitude, degrees.
     pub central_longitude: f64,
+    /// Resolution and component flags (Flag Table 3.3).
     pub resolution_flags: u8,
+    /// i-direction grid spacing in metres, at the latitude of true scale.
     pub dx_metres: f64,
+    /// j-direction grid spacing in metres, at the latitude of true scale.
     pub dy_metres: f64,
+    /// Scanning-mode flags (Flag Table 3.4), which fix the order of the points.
     pub scanning_mode: u8,
 }
 
@@ -463,7 +573,10 @@ pub struct LambertAzimuthalTemplate {
 /// pixel count alone. Placing a pixel is `fieldglass_core::healpix`'s job.
 #[derive(Debug, Clone, Copy)]
 pub struct HealpixTemplate {
+    /// Shape of the Earth (Code Table 3.2), which fixes the radius or the
+    /// ellipsoid the template's coordinates are on.
     pub shape_of_earth: u8,
+    /// Resolution and component flags (Flag Table 3.3).
     pub resolution_flags: u8,
     /// Pixels along one side of each of the twelve base pixels. The field has
     /// `12·Nside²` points.
@@ -478,6 +591,7 @@ pub struct HealpixTemplate {
     pub grid_point_position: u8,
     /// `true` for NESTED, `false` for RING (code table 3.12).
     pub nested: bool,
+    /// Scanning-mode flags (Flag Table 3.4), which fix the order of the points.
     pub scanning_mode: u8,
 }
 
@@ -493,18 +607,33 @@ impl HealpixTemplate {
 /// useful name without erroring out.
 #[derive(Debug, Clone, Copy)]
 pub enum GridTemplate {
+    /// §3.0 — regular latitude/longitude.
     LatLon(LatLonTemplate),
+    /// §3.1 — rotated latitude/longitude.
     RotatedLatLon(RotatedLatLonTemplate),
+    /// §3.10 — Mercator.
     Mercator(MercatorTemplate),
+    /// §3.12 — transverse Mercator.
     TransverseMercator(TransverseMercatorTemplate),
+    /// §3.20 — polar stereographic.
     PolarStereographic(PolarStereographicTemplate),
+    /// §3.30 — Lambert conformal.
     Lambert(LambertTemplate),
+    /// §3.140 — Lambert azimuthal equal-area.
     LambertAzimuthal(LambertAzimuthalTemplate),
+    /// §3.40 — Gaussian latitude/longitude.
     Gaussian(GaussianTemplate),
+    /// §3.90 — space view (geostationary).
     SpaceView(SpaceViewTemplate),
+    /// §3.50 — spherical-harmonic coefficients. Not a grid: the message stores
+    /// the field's spectral coefficients.
     SphericalHarmonic(SphericalHarmonicTemplate),
+    /// §3.51 — bi-Fourier coefficients on a limited-area domain.
     BiFourier(BiFourierTemplate),
+    /// §3.150 — HEALPix.
     Healpix(HealpixTemplate),
+    /// A template this build does not model, carrying its number so a caller
+    /// can name it.
     Unsupported(u16),
 }
 
@@ -515,12 +644,24 @@ pub enum GridTemplate {
 /// parsed once per message and cloned nowhere on a hot path (#503).
 #[derive(Debug, Clone)]
 pub struct GridDefinitionSection {
+    /// Length of §3 in bytes, from its own 4-octet length prefix.
     pub section_length: u32,
+    /// Source of the grid definition (Code Table 3.0). 0 means the template
+    /// below defines it; anything else means it is defined outside the message.
     pub source: u8,
+    /// Number of data points the grid declares — the value count §7 must carry,
+    /// and the authority when a template's own `Ni × Nj` disagrees.
     pub num_data_points: u32,
+    /// Octet width of each entry in the optional point-count list; 0 when there
+    /// is no list. Non-zero for a quasi-regular grid.
     pub optional_list_octet_size: u8,
+    /// How to interpret the optional point-count list (Code Table 3.11).
     pub optional_list_interp: u8,
+    /// Grid Definition Template number (Code Table 3.1), as the message states
+    /// it — kept even for a template this build does not model.
     pub template_number: u16,
+    /// The template, parsed, or [`GridTemplate::Unsupported`] carrying the
+    /// number when this build does not model it.
     pub template: GridTemplate,
     /// §3's optional list of numbers, read as the `PL` row widths of a reduced
     /// grid — empty when the section carries no list, or one it does not
