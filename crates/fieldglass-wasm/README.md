@@ -114,8 +114,8 @@ browser actually downloads.
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
-| baseline | 902,462 | 349,500 |
-| `+simd128` | 900,742 | 348,858 |
+| baseline | 911,281 | 353,812 |
+| `+simd128` | 909,043 | 353,083 |
 
 The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
 build drifts more than 5% from these figures in either direction, so a change
@@ -124,12 +124,12 @@ that moves the bundle has to say so here. Update both cells when it does.
 Two things worth knowing before optimising further:
 
 - `wasm-opt -Oz` is a **raw** win and a **transfer** loss. It takes the module
-  from 952,134 to 902,462 bytes (-5.2%) and takes it from 344,097 to 349,500
+  from 962,710 to 911,281 bytes (-5.3%) and takes it from 348,151 to 353,812
   gzipped (+1.6%). Its size passes trade repetition for smaller encodings, and
   DEFLATE was already being paid for the repetition. It stays on because parse
   and instantiate cost track the raw module, but a transfer-size-only argument
   for `-Oz` does not survive measurement.
-- `+simd128` buys 1,720 raw bytes and nothing measurable in time (below). The
+- `+simd128` buys 2,238 raw bytes and nothing measurable in time (below). The
   decode kernels are bit-unpacking loops with data-dependent control flow, not
   the float-per-lane arithmetic autovectorisation looks for, and `std` is not
   rebuilt with it without `-Zbuild-std`. Recorded so nobody re-derives it.
@@ -142,9 +142,9 @@ x86-64 Linux machine, Node 22:
 
 | Field | Points | native ms | wasm ms | wasm / native |
 |---|---:|---:|---:|---:|
-| ECMWF IFS 0.25°, CCSDS (5.42) | 1,038,240 | 30.2 | 68.4 | 2.3× |
-| HRRR 3 km Lambert, complex+spd (5.3) | 1,905,141 | 33.3 | 56.0 | 1.7× |
-| RAP 13 km Lambert, JPEG 2000 (5.40) | 151,987 | 42.8 | 146.6 | 3.4× |
+| ECMWF IFS 0.25°, CCSDS (5.42) | 1,038,240 | 33.1 | 69.3 | 2.1× |
+| HRRR 3 km Lambert, complex+spd (5.3) | 1,905,141 | 35.9 | 57.4 | 1.6× |
+| RAP 13 km Lambert, JPEG 2000 (5.40) | 151,987 | 45.0 | 147.4 | 3.3× |
 
 Both columns move about 10% run to run on an unquiesced machine, so read the
 ratios as 1.5–3.5× rather than to two figures. That is where the literature puts
@@ -156,7 +156,7 @@ a browser than it does natively. `+simd128` moves every row by less than that
 spread.
 
 One correction to the scale #462 assumed. It put the HRRR field at 193 ms
-native, and it is not: 33 ms through `Session::decode`, and 36 ms through the
+native, and it is not: 36 ms through `Session::decode`, and 37 ms through the
 napi addon's `decodeGrid` on a cold cache, on this machine. Where the older
 figure came from is not known — a different machine, a debug build, or a
 different message — so the useful part is that the browser cost of a
