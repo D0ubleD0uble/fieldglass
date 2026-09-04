@@ -3,6 +3,17 @@
 //! and attributes, plus per-variable value decode into `Vec<Option<f64>>`.
 //! See the per-module docs for the per-layout detail.
 //!
+//! **Decoding is two stages, and the reader offers both composed.**
+//! [`NetcdfReader::decode_variable_values`] returns the raw on-disk codes with
+//! only the fill / missing sentinels masked; the CF `scale_factor` /
+//! `add_offset` / `valid_range` mask-and-scale is applied on top of them, from
+//! the variable's own attributes. A caller that wants physical units — which is
+//! nearly always, since GOES, MERRA-2 and ERA5 all store packed `int16` — takes
+//! [`NetcdfReader::decode_variable_physical`], or
+//! [`NetcdfReader::decode_plane`] to pick a 2-D plane out of an N-D variable in
+//! the same call. [`NetcdfReader::view`] builds the neutral [`DatasetView`]
+//! those need without the caller naming which on-disk layout it opened.
+//!
 //! The error type every `Result` here returns ([`FieldglassError`]) and the
 //! two halves of the byte-access seam ([`ByteRange`], [`ByteSource`]) are
 //! re-exported from `fieldglass-core`, so this crate can be the only
