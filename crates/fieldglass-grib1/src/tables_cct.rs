@@ -6,6 +6,15 @@
 //! GRIB1 (PDS octet 5) has its own assignments; the generator's module docs say why this
 //! is not shared with the other edition. 239 codes.
 
+/// Sub-centre names, from WMO Common Code Table C-12.
+///
+/// The other half of the pair a message's header shows, re-exported from
+/// `fieldglass-core` (#537) so both halves come out of one module and a
+/// consumer of this crate needs no direct dependency on `fieldglass-core`.
+/// C-12 is shared between the editions where C-1 and C-11 are not, which is
+/// why it lives in core rather than beside the centre table below.
+pub use fieldglass_core::cct_tables::lookup_sub_centre;
+
 /// Look up an originating/generating centre name (WMO Common Code Table C-1).
 ///
 /// `None` for codes the table does not assign; callers render the numeric id.
