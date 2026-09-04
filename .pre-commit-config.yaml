@@ -92,6 +92,17 @@ repos:
         entry: python3 tools/check_generator_encoding.py
         pass_filenames: false
 
+      - id: workspace-lints
+        name: every workspace member inherits [workspace.lints]
+        language: system
+        # A member that omits `lints.workspace = true` compiles under the
+        # default lint levels and cargo says nothing, so the inheritance is
+        # checked rather than assumed. Also ratchets the `missing_docs`
+        # opt-outs; see the checker's docstring.
+        files: ^(Cargo\.toml|crates/[^/]+/(Cargo\.toml|src/lib\.rs)|tools/check_workspace_lints\.py)$
+        entry: python3 tools/check_workspace_lints.py
+        pass_filenames: false
+
       # ── Pre-push (slower) hooks
       - id: architecture-diagrams-selftest
         name: architecture diagram checker self-test
@@ -107,6 +118,14 @@ repos:
         language: system
         files: ^tools/(check_generator_encoding|test_check_generator_encoding)\.py$
         entry: python3 tools/test_check_generator_encoding.py
+        pass_filenames: false
+
+      - id: workspace-lints-selftest
+        name: workspace-lints checker self-test
+        stages: [pre-push]
+        language: system
+        files: ^tools/(check_workspace_lints|test_check_workspace_lints)\.py$
+        entry: python3 tools/test_check_workspace_lints.py
         pass_filenames: false
 
       - id: wasm-bundle-size-selftest

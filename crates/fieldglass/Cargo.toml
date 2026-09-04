@@ -40,3 +40,6 @@ default = ["schema"]
 # host's `.d.ts` is generated from. Off for the wasm host, whose bundle pays for
 # every byte and whose declarations come from wasm-bindgen.
 schema = ["dep:schemars"]
+
+[lints]
+workspace = true

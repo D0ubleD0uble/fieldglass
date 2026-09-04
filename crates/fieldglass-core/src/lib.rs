@@ -1,4 +1,11 @@
 #![forbid(unsafe_code)]
+// `missing_docs` is `warn` in `[workspace.lints]`, and 158 public items in this
+// crate do not satisfy it yet. Allowed here rather than downgraded workspace-wide
+// so the standard stays one line in the root manifest and the debt stays visible
+// per crate: deleting this attribute is what finishes the burn-down, and a crate
+// added without it starts held to the lint. See `tools/check_workspace_lints.py`,
+// which is the list of crates still carrying one.
+#![allow(missing_docs)]
 //! Format-agnostic traits and shared types for the Fieldglass data viewer.
 //!
 //! The crate serves two audiences behind one API. The format crates

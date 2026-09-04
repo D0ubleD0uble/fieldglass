@@ -85,3 +85,30 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = true
+
+# The lint standard, in the tree rather than only on a clippy command line.
+# Before this table the bar lived in `.pre-commit-config.yaml` and CI, so a
+# plain `cargo build`, rust-analyzer, and anyone reading these crates from
+# crates.io saw none of it. Every member inherits it with `lints.workspace =
+# true`; a new member that forgets that line silently opts out, which is what
+# `tools/check_workspace_lints.py` exists to catch.
+[workspace.lints.rust]
+# Public items are the contract these crates publish. `cargo doc` for a
+# crates.io consumer is the only description of the format structures they get,
+# so an undocumented `pub` field is a gap in the API, not a style nit.
+missing_docs = "warn"
+# A `pub` item nothing can reach is a visibility mistake: either it was meant to
+# be exported and the `pub use` is missing, or it should be `pub(crate)`. Both
+# readings are worth a warning, and the fix is a one-word edit.
+unreachable_pub = "warn"
+# Every public type printable in a panic message, an `assert_eq!`, or a host's
+# error path. Cheap to derive, and impossible to add later without a breaking
+# change for a type a downstream `#[derive(Debug)]` wants to contain.
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+# Deny rather than warn: `clippy::all` is what the pre-commit hook and CI have
+# always enforced with `-D warnings`, so this states the level that was already
+# in force. Nothing outside `all` is enabled — the conventions deliberately do
+# not take `pedantic` wholesale (2,019 warnings, ~790 of them the noisy lints).
+all = "deny"

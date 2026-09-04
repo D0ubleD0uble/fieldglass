@@ -23,3 +23,6 @@ rust-j2k = { workspace = true }
 # that checks them against the shared oracle needs to see the GRIB1 one too.
 fieldglass-grib1 = { path = "../fieldglass-grib1", version = "=0.5.0" }
 serde_json = { workspace = true }
+
+[lints]
+workspace = true
