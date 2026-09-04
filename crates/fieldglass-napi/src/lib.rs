@@ -36,6 +36,29 @@ use fieldglass_netcdf::{
 use napi_derive::napi;
 use std::sync::Mutex;
 
+/// Bridge a foreign crate's error into a [`napi::Error`] by its `Display` text.
+///
+/// `impl From<FieldglassError> for napi::Error` is what this would rather be,
+/// but the orphan rule forbids it: both types are foreign to this crate. An
+/// extension trait on `Result` is the local equivalent, and it collapses the
+/// `map_err` closure that every reader and decoder call otherwise repeats
+/// verbatim.
+///
+/// The blanket impl is bound only on `Display`, which `napi::Error` itself
+/// satisfies — so `.into_napi()` compiles on a `napi::Result` too, and there it
+/// is wrong: it re-wraps the reason and drops the original `napi::Status` to
+/// `GenericFailure`. A `napi::Result` needs no bridging; use `?` on it.
+trait IntoNapi<T> {
+    /// Map the error side to a [`napi::Error`] carrying its `Display` text.
+    fn into_napi(self) -> napi::Result<T>;
+}
+
+impl<T, E: std::fmt::Display> IntoNapi<T> for Result<T, E> {
+    fn into_napi(self) -> napi::Result<T> {
+        self.map_err(|e| napi::Error::from_reason(e.to_string()))
+    }
+}
+
 /// A message resolved for a feature: its field, the geometry meta to run it
 /// against, and the grid dimensions. Spectral messages resolve to the
 /// synthesized global lat/lon grid, everything else to its declared grid (#330).
@@ -1039,8 +1062,7 @@ pub struct DatasetMeta {
 /// HDF5 files succeed with `fully_parsed = false`.
 #[napi]
 pub fn open_netcdf(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<DatasetMeta> {
-    let reader = NetcdfReader::from_bytes(bytes.to_vec())
-        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let reader = NetcdfReader::from_bytes(bytes.to_vec()).into_napi()?;
     Ok(dataset_meta_from(&reader))
 }
 
@@ -1221,14 +1243,13 @@ pub fn decode_netcdf_variable(
     bytes: napi::bindgen_prelude::Buffer,
     variable_index: u32,
 ) -> napi::Result<DecodedVariable> {
-    let reader = NetcdfReader::from_bytes(bytes.to_vec())
-        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let reader = NetcdfReader::from_bytes(bytes.to_vec()).into_napi()?;
     let raw = reader
         .decode_variable_values(variable_index as usize)
-        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        .into_napi()?;
     let shape = reader
         .variable_shape(variable_index as usize)
-        .map_err(|e| napi::Error::from_reason(e.to_string()))?
+        .into_napi()?
         .into_iter()
         .map(|d| {
             u32::try_from(d)
@@ -1506,8 +1527,7 @@ impl Grib1Handle {
     /// reader alive for the lifetime of the JS object.
     #[napi(factory)]
     pub fn from_bytes(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<Self> {
-        let reader = Grib1Reader::from_bytes(bytes.to_vec())
-            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        let reader = Grib1Reader::from_bytes(bytes.to_vec()).into_napi()?;
         Ok(Self {
             reader,
             decoded: Mutex::new(std::collections::HashMap::new()),
@@ -1846,7 +1866,7 @@ impl Grib1Handle {
         let values = self
             .reader
             .synthesize_spectral_message(message_index as usize, &lats, &lons)
-            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+            .into_napi()?;
         let arc = std::sync::Arc::new(values.into_iter().map(Some).collect::<Vec<_>>());
         self.synthesized
             .lock()
@@ -1876,7 +1896,7 @@ impl Grib1Handle {
         let raw = self
             .reader
             .decode_message_raster(message_index as usize)
-            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+            .into_napi()?;
         let arc = std::sync::Arc::new(raw);
         self.decoded
             .lock()
@@ -1908,8 +1928,7 @@ pub struct Grib2Handle {
 impl Grib2Handle {
     #[napi(factory)]
     pub fn from_bytes(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<Self> {
-        let reader = Grib2Reader::from_bytes(bytes.to_vec())
-            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        let reader = Grib2Reader::from_bytes(bytes.to_vec()).into_napi()?;
         Ok(Self {
             reader,
             decoded: Mutex::new(std::collections::HashMap::new()),
@@ -2245,7 +2264,7 @@ impl Grib2Handle {
         let values = self
             .reader
             .synthesize_spectral_message(message_index as usize, &lats, &lons)
-            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+            .into_napi()?;
         let arc = std::sync::Arc::new(values.into_iter().map(Some).collect::<Vec<_>>());
         self.synthesized
             .lock()
@@ -2271,7 +2290,7 @@ impl Grib2Handle {
         let raw = self
             .reader
             .decode_message_raster(message_index as usize)
-            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+            .into_napi()?;
         let arc = std::sync::Arc::new(raw);
         self.decoded
             .lock()
@@ -2365,8 +2384,7 @@ type CurvilinearCache =
 impl NetcdfHandle {
     #[napi(factory)]
     pub fn from_bytes(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<Self> {
-        let reader = NetcdfReader::from_bytes(bytes.to_vec())
-            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        let reader = NetcdfReader::from_bytes(bytes.to_vec()).into_napi()?;
         // Both backings build the neutral view that drives the slice picker. The
         // HDF5 metadata is resolved lazily and can fail for a layout outside the
         // decoded subset (decision 0003); on failure the view is empty and the
@@ -2697,10 +2715,7 @@ impl NetcdfHandle {
         {
             return Ok(std::sync::Arc::clone(hit));
         }
-        let raw = self
-            .reader
-            .decode_variable_values(index)
-            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        let raw = self.reader.decode_variable_values(index).into_napi()?;
         let arc = std::sync::Arc::new(raw);
         self.decoded
             .lock()
@@ -2724,10 +2739,7 @@ impl NetcdfHandle {
         slice_indices: &[u32],
     ) -> napi::Result<Vec<Option<f64>>> {
         let values = self.cached_decode(var.decode_index)?;
-        let shape = self
-            .reader
-            .variable_shape(var.decode_index)
-            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        let shape = self.reader.variable_shape(var.decode_index).into_napi()?;
         if slice_indices.len() != shape.len() {
             return Err(napi::Error::from_reason(format!(
                 "sliceIndices length {} does not match variable rank {}",
@@ -2736,8 +2748,7 @@ impl NetcdfHandle {
             )));
         }
         let fixed: Vec<usize> = slice_indices.iter().map(|&i| i as usize).collect();
-        let plane = extract_plane(values.as_ref(), &shape, y_dim, x_dim, &fixed)
-            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        let plane = extract_plane(values.as_ref(), &shape, y_dim, x_dim, &fixed).into_napi()?;
         let attrs = self
             .view
             .vars
@@ -2935,10 +2946,7 @@ impl NetcdfHandle {
             (Some(lat_i), Some(lon_i)) => {
                 let lat = self.coordinate_values(lat_i)?;
                 let lon = self.coordinate_values(lon_i)?;
-                Some(
-                    synthesize_geometry(&lat, &lon)
-                        .map_err(|e| napi::Error::from_reason(e.to_string()))?,
-                )
+                Some(synthesize_geometry(&lat, &lon).into_napi()?)
             }
             _ => None,
         };
