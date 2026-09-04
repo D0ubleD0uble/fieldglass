@@ -167,11 +167,31 @@ fn the_expanded_raster_east_edge_is_derived_not_declared() {
             "{label}: bounds() stays faithful to the file: {lon_last}"
         );
         let (width, _) = gds.dimensions().expect("a raster shape");
-        let raster_lon_last = fieldglass_core::reduced_raster_lon_last(lon_first, width);
+        // `raster_bounds()` is where that derivation lives now (#543): the
+        // crate answers it, rather than every consumer recomputing it from
+        // `reduced_raster_lon_last` and hoping to agree.
+        let (_, raster_lon_first, _, raster_lon_last) = gds
+            .raster_bounds()
+            .expect("a reduced grid has a raster extent");
+        assert_eq!(raster_lon_first, lon_first, "{label}: only Lo2 is derived");
         assert!(
             (raster_lon_last - derived).abs() < 1e-9,
             "{label}: raster east edge {raster_lon_last}, expected {derived}"
         );
+        assert_eq!(
+            raster_lon_last,
+            fieldglass_core::reduced_raster_lon_last(lon_first, width),
+            "{label}: and it is the shared rule, not a second one"
+        );
+        // The GridGeometry conversion reads that same accessor rather than
+        // deriving the corner again (#543). Two hosts placing the same
+        // octahedral grid differently is exactly what this pins shut.
+        let fieldglass_core::GridGeometry::Gaussian(p) = fieldglass_core::GridGeometry::from(gds)
+        else {
+            panic!("{label}: expected a Gaussian geometry");
+        };
+        assert_eq!(p.lon_last, raster_lon_last, "{label}: geometry agrees");
+        assert_eq!((p.ni, p.nj), (width, 64), "{label}: and on the shape");
     }
     // The two differ for exactly one of them, which is what makes the
     // distinction worth drawing rather than a restatement of the same number.
@@ -211,5 +231,78 @@ fn expansion_fills_the_raster_and_keeps_the_widest_rows_intact() {
             .iter()
             .all(|v| stored.contains(&v.expect("present").to_bits())),
         "expansion introduced a value the message does not contain"
+    );
+}
+
+/// `decode_message_raster` hands back the rectangle `dimensions()` promises,
+/// with no expansion step left to the caller (#543).
+///
+/// Run on the octahedral fixture because it is the one where the raster and the
+/// stored field differ most: 5248 stored points against a 144x64 = 9216 raster,
+/// and a declared `Lo2` that does not describe either. A standalone consumer
+/// indexing `values[j*ni + i]` on the storage-order decode reads the wrong row
+/// from row 1 on.
+#[test]
+fn decode_message_raster_fills_the_shape_dimensions_promises() {
+    for (bytes, label, stored_count) in [(CLASSIC, "N32", 6114usize), (OCTAHEDRAL, "O32", 5248)] {
+        let reader = Grib2Reader::from_bytes(bytes.to_vec()).expect("fixture parses");
+        let gds = &reader.messages[0].gds;
+        let (ni, nj) = gds.dimensions().expect("a raster shape");
+
+        let stored = reader
+            .decode_message_values(0)
+            .expect("storage-order decode");
+        let raster = reader.decode_message_raster(0).expect("raster decode");
+        assert_eq!(stored.len(), stored_count, "{label}: sum(PL)");
+        assert_eq!(
+            raster.len(),
+            (ni as usize) * (nj as usize),
+            "{label}: Ni*Nj"
+        );
+        assert!(raster.len() > stored.len(), "{label}: not the same call");
+        assert!(raster.iter().all(|v| v.is_some()), "{label}: no holes");
+
+        // The entry point is the shared expansion, not a second copy of it.
+        assert_eq!(
+            raster,
+            fieldglass_core::expand_reduced_to_regular(
+                &stored,
+                gds.points_per_row().expect("a reduced grid"),
+                ni as usize,
+            ),
+            "{label}"
+        );
+
+        // Expansion resamples; it never invents a value the message lacks.
+        let present: std::collections::BTreeSet<u64> = stored
+            .iter()
+            .map(|v| v.expect("present").to_bits())
+            .collect();
+        assert!(
+            raster
+                .iter()
+                .all(|v| present.contains(&v.expect("present").to_bits())),
+            "{label}: expansion introduced a value the message does not contain"
+        );
+    }
+}
+
+/// A regular grid decodes the same either way — the raster entry point is a
+/// reduced-grid correction, not a second decode path (#543).
+#[test]
+fn a_regular_grid_decodes_identically_through_both_entry_points() {
+    const REGULAR: &[u8] = include_bytes!("fixtures/gfs_c255_latlon.grib2");
+    let reader = Grib2Reader::from_bytes(REGULAR.to_vec()).expect("fixture parses");
+    let gds = &reader.messages[0].gds;
+    assert!(
+        gds.points_per_row().is_none(),
+        "the premise: rows are uniform"
+    );
+    assert_eq!(gds.raster_bounds(), gds.bounds(), "and so is the extent");
+    assert_eq!(
+        reader.decode_message_raster(0).expect("raster decode"),
+        reader
+            .decode_message_values(0)
+            .expect("storage-order decode"),
     );
 }

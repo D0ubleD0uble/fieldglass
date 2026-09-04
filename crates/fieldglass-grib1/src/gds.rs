@@ -548,6 +548,11 @@ impl GridDescription {
         }
     }
 
+    /// The corners **as the message states them**.
+    ///
+    /// For a reduced grid this is not the box the raster
+    /// [`Self::dimensions`] reports occupies — see [`Self::raster_bounds`],
+    /// which is what a consumer placing decoded values wants.
     pub fn bounds(&self) -> Option<(f64, f64, f64, f64)> {
         match self {
             Self::LatLon(g) => Some((g.lat_first, g.lon_first, g.lat_last, g.lon_last)),
@@ -569,6 +574,39 @@ impl GridDescription {
             // global by construction and lives in wavenumber space.
             Self::SphericalHarmonic(_) => None,
             Self::Unsupported { .. } => None,
+        }
+    }
+
+    /// The corners of the raster [`Self::dimensions`] describes, as
+    /// `(lat_first, lon_first, lat_last, lon_last)`.
+    ///
+    /// Identical to [`Self::bounds`] for every grid whose rows are all the same
+    /// width, which is most of them. It differs for a reduced grid, and only in
+    /// the eastern corner: [`Self::dimensions`] reports the widest row, and the
+    /// raster those rows expand into puts its last column at
+    /// `lon_first + (width - 1)·360/width` by construction. The message's own
+    /// `Lo2` describes the `4N`-wide reference grid instead — the same number
+    /// for a classic `N32`, wrong by up to an eighth of a cell for an
+    /// octahedral `O32`, whose widest row is 144 against a declared 128. See
+    /// [`fieldglass_core::reduced_raster_lon_last`].
+    ///
+    /// Pair this with [`crate::Grib1Reader::decode_message_raster`]: together
+    /// they are the shape, the values and the extent of one rectangle, with no
+    /// correction left for the caller. A message table showing what the file
+    /// says wants [`Self::bounds`].
+    pub fn raster_bounds(&self) -> Option<(f64, f64, f64, f64)> {
+        let (la1, lo1, la2, lo2) = self.bounds()?;
+        match self.points_per_row() {
+            Some(pl) => Some((
+                la1,
+                lo1,
+                la2,
+                fieldglass_core::reduced_raster_lon_last(
+                    lo1,
+                    fieldglass_core::reduced_raster_width(pl),
+                ),
+            )),
+            None => Some((la1, lo1, la2, lo2)),
         }
     }
 }
@@ -1132,6 +1170,62 @@ mod grid_variant_tests {
         };
         assert_eq!(g.nj, 4);
         assert_eq!(g.dj, 2.5);
+    }
+
+    /// `raster_bounds()` describes the rectangle a decoded field lands in;
+    /// `bounds()` keeps saying what the file says (#543).
+    ///
+    /// The two differ for a reduced grid, and only in the eastern corner. This
+    /// grid's rows step by exactly four (`is_octahedral_pl`), so its widest row
+    /// is 32 while the declared `Lo2` of 350° describes a narrower reference
+    /// grid — trusting it would place 32 columns on a span that holds fewer.
+    #[test]
+    fn raster_bounds_derives_the_east_edge_of_a_reduced_grid() {
+        let mut header = reduced_header(u16be(4)); // N = 4
+        header[2..4].copy_from_slice(&u16be(8)); // Nj = 8 rows
+        let pl = [20u16, 24, 28, 32, 32, 28, 24, 20];
+        let parsed = parse_grid_description(&build_reduced_gds(4, &header, &pl))
+            .expect("octahedral reduced Gaussian GDS parses");
+
+        let widths: Vec<u32> = pl.iter().map(|&n| u32::from(n)).collect();
+        assert!(
+            fieldglass_core::is_octahedral_pl(&widths),
+            "the premise: rows step by four"
+        );
+        assert_eq!(
+            parsed.dimensions(),
+            Some((32, 8)),
+            "widest row by row count"
+        );
+
+        // Unchanged: the message table shows the file's own corner.
+        assert_eq!(parsed.bounds(), Some((60.0, 0.0, -60.0, 350.0)));
+
+        let (la1, lo1, la2, lo2) = parsed.raster_bounds().expect("a reduced grid has a raster");
+        assert_eq!((la1, lo1, la2), (60.0, 0.0, -60.0), "only Lo2 is derived");
+        // 32 columns around the circle put the last one at 31 * 360/32.
+        assert!((lo2 - 348.75).abs() < 1e-9, "raster east edge {lo2}");
+        assert_ne!(lo2, 350.0, "the declared corner is not the raster's");
+    }
+
+    /// Every grid whose rows are all `Ni` wide reports the same box twice —
+    /// the correction above is reduced-grid-only, not a second geometry.
+    #[test]
+    fn raster_bounds_matches_bounds_for_a_regular_grid() {
+        let mut body = Vec::new();
+        body.extend(u16be(360)); // ni
+        body.extend(u16be(181)); // nj
+        body.extend(sm24(90_000)); // lat_first = 90.000°
+        body.extend(sm24(0)); // lon_first = 0.000°
+        body.push(0x80); // resolution flags: increments_given
+        body.extend(sm24(-90_000)); // lat_last = -90.000°
+        body.extend(sm24(359_000)); // lon_last = 359.000°
+        body.extend(u16be(1_000)); // Di = 1.000°
+        body.extend(u16be(1_000)); // Dj = 1.000°
+        body.push(0x00); // scanning mode
+        let parsed = parse_grid_description(&build_gds(0, &body)).expect("lat/lon GDS parses");
+        assert_eq!(parsed.raster_bounds(), parsed.bounds());
+        assert!(parsed.bounds().is_some(), "and it is not None twice");
     }
 
     #[test]

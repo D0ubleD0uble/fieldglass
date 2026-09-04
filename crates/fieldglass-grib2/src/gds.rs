@@ -815,6 +815,11 @@ impl GridDefinitionSection {
         }
     }
 
+    /// The corners **as the section states them**.
+    ///
+    /// For a reduced grid this is not the box the raster [`Self::dimensions`]
+    /// reports occupies — see [`Self::raster_bounds`], which is what a consumer
+    /// placing decoded values wants.
     pub fn bounds(&self) -> Option<(f64, f64, f64, f64)> {
         match &self.template {
             GridTemplate::LatLon(t) => Some((t.la1, t.lo1, t.la2, t.lo2)),
@@ -854,6 +859,40 @@ impl GridDefinitionSection {
             // sphere, which is not what this reports.
             GridTemplate::Healpix(_) => None,
             GridTemplate::Unsupported(_) => None,
+        }
+    }
+
+    /// The corners of the raster [`Self::dimensions`] describes, as
+    /// `(la1, lo1, la2, lo2)`.
+    ///
+    /// Identical to [`Self::bounds`] for every grid whose rows are all the same
+    /// width, which is most of them. It differs for a reduced grid, and only in
+    /// the eastern corner: [`Self::dimensions`] reports the widest row, and the
+    /// raster those rows expand into puts its last column at
+    /// `lo1 + (width - 1)·360/width` by construction. §3's own `Lo2` describes
+    /// the `4N`-wide reference grid instead — the same number for a classic
+    /// `N32`, wrong by up to an eighth of a cell for an octahedral `O32`, whose
+    /// widest row is 144 against a declared 128. See
+    /// [`fieldglass_core::reduced_raster_lon_last`].
+    ///
+    /// Pair this with [`crate::Grib2Reader::decode_message_raster`]: together
+    /// they are the shape, the values and the extent of one rectangle, with no
+    /// correction left for the caller. A message table showing what the file
+    /// says wants [`Self::bounds`]. Mirrors
+    /// `fieldglass_grib1::GridDescription::raster_bounds`.
+    pub fn raster_bounds(&self) -> Option<(f64, f64, f64, f64)> {
+        let (la1, lo1, la2, lo2) = self.bounds()?;
+        match self.points_per_row() {
+            Some(pl) => Some((
+                la1,
+                lo1,
+                la2,
+                fieldglass_core::reduced_raster_lon_last(
+                    lo1,
+                    fieldglass_core::reduced_raster_width(pl),
+                ),
+            )),
+            None => Some((la1, lo1, la2, lo2)),
         }
     }
 

@@ -57,6 +57,114 @@ fn decode_yields_native_point_count_matching_eccodes() {
     }
 }
 
+/// `decode_message_raster` hands back the rectangle `dimensions()` promises,
+/// with no expansion step left to the caller (#543).
+///
+/// The distinction this pins is the one a standalone consumer gets wrong: the
+/// same message decodes to 6114 values in storage order and 8192 on the raster,
+/// and only the second can be indexed as `raster[j*ni + i]`. Row 0 is 20 points
+/// widened to 128, so a correct expansion repeats each of them; the wrong one —
+/// treating storage order as row-major — would put row 1's data in row 0's tail.
+#[test]
+fn decode_message_raster_fills_the_shape_dimensions_promises() {
+    let reader = Grib1Reader::from_bytes(FIXTURE.to_vec()).expect("fixture parses");
+    let gds = reader.messages[0].gds.as_ref().expect("message has a GDS");
+    let (ni, nj) = gds.dimensions().expect("a row-expanded raster shape");
+    assert_eq!((ni, nj), (128, 64));
+
+    let stored = reader
+        .decode_message_values(0)
+        .expect("storage-order decode");
+    let raster = reader.decode_message_raster(0).expect("raster decode");
+    assert_eq!(stored.len(), 6114, "sum(PL), the layout the message stores");
+    assert_eq!(raster.len(), (ni * nj) as usize, "Ni*Nj, the raster");
+    assert!(raster.len() > stored.len(), "the two are not the same call");
+
+    // Every raster value came from the field; the fixture is constant 285.5.
+    assert!(
+        raster.iter().all(|v| v.is_some()),
+        "no holes after widening"
+    );
+    for (i, v) in raster.iter().enumerate() {
+        let v = v.expect("present");
+        assert!((v - 285.5).abs() < 1e-6, "raster[{i}] = {v}");
+    }
+}
+
+/// Each raster row is drawn from its own stored row, and from no other.
+///
+/// The assertion above runs on the constant fixture, where every value is
+/// 285.5 and a wrongly segmented raster would pass it unchanged. This runs on
+/// the smooth fixture, where the rows differ: row `j` of the raster may contain
+/// only the `PL[j]` values stored for row `j`. Passing the storage order
+/// straight through, or slicing the rows at the wrong offsets, puts a later
+/// row's data in an earlier row's columns and fails here.
+#[test]
+fn every_raster_row_comes_from_its_own_stored_row() {
+    const SMOOTH: &[u8] = include_bytes!("fixtures/reduced_gg_n32_smooth.grib1");
+
+    let reader = Grib1Reader::from_bytes(SMOOTH.to_vec()).expect("fixture parses");
+    let gds = reader.messages[0].gds.as_ref().expect("message has a GDS");
+    let (ni, _) = gds.dimensions().expect("a raster shape");
+    let stored = reader
+        .decode_message_values(0)
+        .expect("storage-order decode");
+    let raster = reader.decode_message_raster(0).expect("raster decode");
+
+    let mut offset = 0usize;
+    for (j, &count) in PL.iter().enumerate() {
+        let count = count as usize;
+        let source: std::collections::BTreeSet<u64> = stored[offset..offset + count]
+            .iter()
+            .map(|v| v.expect("present").to_bits())
+            .collect();
+        for (i, v) in raster[j * ni as usize..(j + 1) * ni as usize]
+            .iter()
+            .enumerate()
+        {
+            assert!(
+                source.contains(&v.expect("present").to_bits()),
+                "raster[{j}][{i}] is not one of row {j}'s {count} stored values"
+            );
+        }
+        offset += count;
+    }
+    assert_eq!(offset, stored.len(), "the PL list accounts for every value");
+
+    // The rows are not interchangeable, or the check above would be vacuous.
+    let row_0: Vec<Option<f64>> = raster[..ni as usize].to_vec();
+    let row_32: Vec<Option<f64>> = raster[32 * ni as usize..33 * ni as usize].to_vec();
+    assert_ne!(row_0, row_32, "the fixture's rows must differ");
+}
+
+/// The raster the values land on and the box they are placed in come from the
+/// same pair of calls (#543).
+///
+/// `bounds()` still reports the file's own `Lo2`; `raster_bounds()` reports the
+/// corner 128 columns around the circle actually reach. For this classic `N32`
+/// the widest row *is* the `4N` reference width, so the two agree — the point
+/// here is that the derived value is right where it can be checked against the
+/// file, with `gds.rs`'s octahedral unit test covering where they diverge.
+#[test]
+fn raster_bounds_places_the_expanded_raster() {
+    let reader = Grib1Reader::from_bytes(FIXTURE.to_vec()).expect("fixture parses");
+    let gds = reader.messages[0].gds.as_ref().expect("message has a GDS");
+    let (width, _) = gds.dimensions().expect("a raster shape");
+    assert_eq!(width, 128, "N32: the widest row is the 4N reference width");
+
+    let (_, _, _, declared) = gds.bounds().expect("a reduced grid has bounds");
+    let (la1, lo1, la2, lo2) = gds.raster_bounds().expect("and a raster extent");
+    assert!((la1 - 87.864).abs() < 1e-3, "lat_first: {la1}");
+    assert_eq!(lo1, 0.0);
+    assert!((la2 + 87.864).abs() < 1e-3, "lat_last: {la2}");
+    // 0 + 127 * 360/128, which for this grid is also what the file declares.
+    assert!((lo2 - 357.1875).abs() < 1e-9, "raster east edge {lo2}");
+    assert!(
+        (lo2 - declared).abs() < 1e-3,
+        "N32: derived matches declared"
+    );
+}
+
 /// A reduced Gaussian grid is named, not measured (#500).
 ///
 /// This grid *does* have `dimensions()` — the widest row paired with the row
@@ -125,8 +233,13 @@ fn a_reduced_gaussian_field_contours_once_expanded() {
     assert!(max - min > 40.0, "field spans only {:.3} K", max - min);
 
     let (ni, nj) = gds.dimensions().expect("row-expanded raster shape");
-    let raster = expand_reduced_to_regular(&values, PL.as_slice(), ni as usize);
+    let raster = reader.decode_message_raster(0).expect("raster decode");
     assert_eq!(raster.len(), (ni * nj) as usize);
+    // The entry point is the expansion, not a second implementation of it.
+    assert_eq!(
+        raster,
+        expand_reduced_to_regular(&values, PL.as_slice(), ni as usize)
+    );
 
     // Global west-to-east grid, so the seam-spanning entry point is the correct
     // one; a bounded march would break every isoline at the antimeridian.
