@@ -99,6 +99,74 @@ the shader is checked against rather than a second colour implementation. See
 [`../fieldglass/README.md`](../fieldglass/README.md) for why the field is
 rebased in Rust before it reaches the shader.
 
+## Measured
+
+Both numbers are CI gates on every pull request, so what follows is what a check
+printed rather than an estimate (#462). Machine-dependent, so read the ratio and
+the shape, not the absolute milliseconds.
+
+### Bundle
+
+`build.sh web` — wasm-bindgen, then `wasm-opt -Oz` — gzipped, which is what a
+browser actually downloads.
+
+<!-- checked by tools/check_wasm_bundle_size.py -->
+
+| Build | `.wasm` bytes | gzipped bytes |
+|---|---:|---:|
+| baseline | 902,462 | 349,500 |
+| `+simd128` | 900,742 | 348,858 |
+
+The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
+build drifts more than 5% from these figures in either direction, so a change
+that moves the bundle has to say so here. Update both cells when it does.
+
+Two things worth knowing before optimising further:
+
+- `wasm-opt -Oz` is a **raw** win and a **transfer** loss. It takes the module
+  from 952,134 to 902,462 bytes (-5.2%) and takes it from 344,097 to 349,500
+  gzipped (+1.6%). Its size passes trade repetition for smaller encodings, and
+  DEFLATE was already being paid for the repetition. It stays on because parse
+  and instantiate cost track the raw module, but a transfer-size-only argument
+  for `-Oz` does not survive measurement.
+- `+simd128` buys 1,720 raw bytes and nothing measurable in time (below). The
+  decode kernels are bit-unpacking loops with data-dependent control flow, not
+  the float-per-lane arithmetic autovectorisation looks for, and `std` is not
+  rebuilt with it without `-Zbuild-std`. Recorded so nobody re-derives it.
+
+### Decode
+
+`tests/node/bench.mjs`, median of five decodes after a warm-up, against the
+native release build of the same code through the same `Session::decode`. On one
+x86-64 Linux machine, Node 22:
+
+| Field | Points | native ms | wasm ms | wasm / native |
+|---|---:|---:|---:|---:|
+| ECMWF IFS 0.25°, CCSDS (5.42) | 1,038,240 | 33.3 | 68.0 | 2.0× |
+| HRRR 3 km Lambert, complex+spd (5.3) | 1,905,141 | 36.4 | 54.7 | 1.5× |
+| RAP 13 km Lambert, JPEG 2000 (5.40) | 151,987 | 46.9 | 144.1 | 3.1× |
+
+1.5–3.1×, which is where the literature puts numeric wasm. JPEG 2000 is the
+outlier at both ends: the slowest per point natively and the worst ratio, so it
+is the one decode a browser host should expect to feel. `+simd128` moves every
+row by less than the run-to-run spread.
+
+Reproduce:
+
+```sh
+cargo run --release -p fieldglass --example bench_decode -- --json > native.json
+crates/fieldglass-wasm/build.sh nodejs
+node crates/fieldglass-wasm/tests/node/bench.mjs --native native.json
+```
+
+The corpus is the committed real-producer GRIB2 fixtures, not `samples/`:
+`samples/` is git-ignored, so a CI benchmark over it would either skip — and a
+benchmark that measures nothing is worse than none — or fetch a live model run
+and measure a different file every day. Every field is checked against its
+eccodes oracle before it is timed, because the failure mode of a bad `wasm-opt`
+rewrite is a fast wrong answer, which a timing harness alone reports as an
+improvement.
+
 ## Checking it
 
 **`examples/smoke/`** — the browser check. Serve the repository root over HTTP
@@ -118,12 +186,15 @@ is worse than no parity check.
 
 ## Not here yet
 
-Threads and SIMD ([#462](https://github.com/D0ubleD0uble/fieldglass/issues/462)),
-npm publishing ([#466](https://github.com/D0ubleD0uble/fieldglass/issues/466)),
-NetCDF, Zarr, caller-sized output
+Threads (the façade is single-threaded by design — ADR-0005 — and shared memory
+needs COOP/COEP), npm publishing
+([#466](https://github.com/D0ubleD0uble/fieldglass/issues/466)), NetCDF, Zarr,
+caller-sized output
 ([#465](https://github.com/D0ubleD0uble/fieldglass/issues/465)), and
 reduced-resolution decode
 ([#463](https://github.com/D0ubleD0uble/fieldglass/issues/463)).
+
+`+simd128` is measured above and not enabled: it buys nothing here.
 
 ## Licence
 

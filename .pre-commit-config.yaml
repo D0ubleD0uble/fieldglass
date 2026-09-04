@@ -109,6 +109,17 @@ repos:
         entry: python3 tools/test_check_generator_encoding.py
         pass_filenames: false
 
+      - id: wasm-bundle-size-selftest
+        name: wasm bundle-size checker self-test
+        stages: [pre-push]
+        language: system
+        # The crate README is in the pattern because the checker reads its table
+        # as the gate's source of truth, and one of the tests asserts that the
+        # real README still parses.
+        files: ^(tools/(check_wasm_bundle_size|test_check_wasm_bundle_size)\.py|crates/fieldglass-wasm/README\.md)$
+        entry: python3 tools/test_check_wasm_bundle_size.py
+        pass_filenames: false
+
       - id: fetch-samples-selftest
         name: sample-fetch script self-test
         stages: [pre-push]

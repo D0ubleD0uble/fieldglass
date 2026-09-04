@@ -63,6 +63,103 @@ jobs:
       - name: Check the published crate manifest
         run: cargo publish --dry-run -p fieldglass-core
 
+  wasm:
+    name: wasm32 build, bundle size, decode benchmark
+    runs-on: ubuntu-latest
+    env:
+      # binaryen ships `wasm-opt`, which is not in taiki-e/install-action's
+      # manifest, so it is fetched from GitHub Releases and checksummed here.
+      # Pinned: `-Oz` output feeds the size gate, and a floating optimiser would
+      # move the recorded figures on an unrelated commit.
+      BINARYEN_VERSION: version_132
+      BINARYEN_SHA256: 195ddc94f9bc89f45abdabb0b9eea86023d727ba90eac8b35b80f2544fc30572
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
+      # The wasm-bindgen CLI has to be the exact version the build resolves or
+      # the glue does not match the module's ABI, so the version comes out of
+      # Cargo.lock rather than being written twice. build.sh checks the same
+      # thing and fails loudly, but reading the lock means a Dependabot bump of
+      # the crate does not need a matching edit here.
+      - name: Read the resolved wasm-bindgen version
+        id: wasm-bindgen-version
+        run: |
+          version="$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock \
+                     | sed -n 's/^version = "\(.*\)"$/\1/p' | head -n1)"
+          test -n "$version" || { echo "no wasm-bindgen in Cargo.lock"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install wasm-bindgen CLI
+        uses: taiki-e/install-action@ba47c86ac325773530516bb756137ac718732518 # v2.86.5
+        with:
+          tool: wasm-bindgen@${{ steps.wasm-bindgen-version.outputs.version }}
+
+      - name: Install binaryen (wasm-opt)
+        run: |
+          tarball="binaryen-${BINARYEN_VERSION}-x86_64-linux.tar.gz"
+          curl -fsSLO "https://github.com/WebAssembly/binaryen/releases/download/${BINARYEN_VERSION}/${tarball}"
+          echo "${BINARYEN_SHA256}  ${tarball}" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/binaryen"
+          tar xzf "$tarball" -C "$RUNNER_TEMP/binaryen" --strip-components=1
+          echo "$RUNNER_TEMP/binaryen/bin" >> "$GITHUB_PATH"
+
+      # The build status the milestone is actually asking for: the format crates
+      # and the façade compile for the browser. A `--workspace` check cannot say
+      # this, because fieldglass-napi does not build for wasm32 at all.
+      - name: cargo check --target wasm32-unknown-unknown
+        run: |
+          cargo check --target wasm32-unknown-unknown \
+            -p fieldglass-core -p fieldglass-grib1 -p fieldglass-grib2 \
+            -p fieldglass-netcdf -p fieldglass-wasm
+
+      - name: Build the browser bundle (baseline and +simd128)
+        run: |
+          crates/fieldglass-wasm/build.sh web
+          crates/fieldglass-wasm/build.sh web --simd
+
+      # Fails when either build drifts more than 5% from the figures in the
+      # crate README, in either direction, so the documented size is the
+      # measured size. Writes the table into the run summary.
+      - name: Bundle-size gate
+        run: |
+          python3 tools/check_wasm_bundle_size.py \
+            --build baseline=crates/fieldglass-wasm/pkg/web/fieldglass_wasm_bg.wasm \
+            --build '+simd128=crates/fieldglass-wasm/pkg/web-simd/fieldglass_wasm_bg.wasm'
+
+      - name: Native decode baseline
+        run: |
+          cargo run --release -q -p fieldglass --example bench_decode -- --json \
+            > "$RUNNER_TEMP/native.json"
+          cat "$RUNNER_TEMP/native.json"
+
+      # Decodes the committed real-producer GRIB2 fixtures under Node, checks
+      # every field against its eccodes oracle before timing it, and prints
+      # milliseconds beside the native column. Not a threshold: the number is the
+      # deliverable, and a per-run timing gate on a shared runner would be noise.
+      - name: wasm decode benchmark
+        run: |
+          crates/fieldglass-wasm/build.sh nodejs
+          crates/fieldglass-wasm/build.sh nodejs --simd
+          node crates/fieldglass-wasm/tests/node/bench.mjs \
+            --native "$RUNNER_TEMP/native.json"
+          node crates/fieldglass-wasm/tests/node/bench.mjs \
+            --native "$RUNNER_TEMP/native.json" \
+            --pkg crates/fieldglass-wasm/pkg/nodejs-simd --label '+simd128'
+
   build-extension:
     name: Build extension
     runs-on: ubuntu-latest
