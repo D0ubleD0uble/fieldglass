@@ -63,6 +63,17 @@ from the classic one, and the metadata-parity test (#411) needs both. Built by
 `tools/build_netcdf4_dimscale_fixture.py`; canonical copy:
 `crates/fieldglass-netcdf/tests/fixtures/NOTICE.md`.
 
+## `netcdf4_unsupported_type.nc`
+
+Synthetic NetCDF-4 / HDF5 file written by the Unidata `netCDF4` library that
+mixes ordinary `double` / `float` variables with two whose HDF5 datatype is
+outside the decoded subset — a compound `station_info` and a variable-length
+`visits`. The extension test needs it to confirm the metadata view lists the
+variables that did decode and names the two that did not, which is the whole
+point of #550: one such variable used to blank the table. Built by
+`tools/build_netcdf4_unsupported_type_fixture.py`; canonical copy:
+`crates/fieldglass-netcdf/tests/fixtures/NOTICE.md`.
+
 ## `healpix_n4_ring.grib2`
 
 GRIB2 §3.150 (HEALPix) at Nside 4 — 192 equal-area pixels, no `Ni`/`Nj`. Built

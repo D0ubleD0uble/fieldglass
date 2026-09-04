@@ -19,7 +19,7 @@
 //! *Out of scope*).
 
 use crate::classic::{ClassicHeader, NcType};
-use crate::hdf5::dimensions::Hdf5Metadata;
+use crate::hdf5::dimensions::{Hdf5Metadata, UnsupportedVariable};
 use fieldglass_core::FieldglassError;
 
 /// The horizontal axis a coordinate variable represents.
@@ -117,7 +117,10 @@ impl VarView {
 /// [`Default`] is the empty view — no dimensions, no variables, no global
 /// attributes. It is what a host falls back to when
 /// [`crate::NetcdfReader::view`] fails on an HDF5 layout outside the decoded
-/// subset, so the file still opens on its format-level metadata alone.
+/// subset, so the file still opens on its format-level metadata alone. That is
+/// the whole-file failure only: a single dataset whose *datatype* is outside
+/// the subset no longer costs the view, and lands in
+/// [`DatasetView::unsupported`] instead (#550).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct DatasetView {
     /// Every dimension in the dataset, in declared order.
@@ -129,6 +132,12 @@ pub struct DatasetView {
     /// non-CF projection metadata WRF stores at the file level (`MAP_PROJ`,
     /// `TRUELAT1`, …); see [`crate::projection`].
     pub global_attrs: Vec<(String, String)>,
+    /// The datasets left out of `vars` because their datatype is outside the
+    /// decoded subset, and why (#550). Always empty for a classic backing,
+    /// which has no such types. A host that lists variables should say these
+    /// exist: everything else in the view is complete, and this is the
+    /// difference between it and the file.
+    pub unsupported: Vec<UnsupportedVariable>,
 }
 
 impl DatasetView {
@@ -181,6 +190,8 @@ impl DatasetView {
             dims,
             vars,
             global_attrs,
+            // A classic file has no datatype outside the decoded subset.
+            unsupported: Vec::new(),
         }
     }
 
@@ -230,6 +241,7 @@ impl DatasetView {
             dims,
             vars,
             global_attrs,
+            unsupported: meta.unsupported.clone(),
         }
     }
 

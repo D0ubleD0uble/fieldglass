@@ -20,6 +20,7 @@
 "degrees_east"	"degrees_east"
 "degrees_north"	"degrees_north"
 "hours since 2020-01-01 00:00:00"	"hours since 2020-01-01 00:00:00"
+"hours since 2021-03-01 00:00:00"	"hours since 2021-03-01 00:00:00"
 "kelvin"	"kelvin"
 "m"	"m"
 "m/s"	"m s⁻¹"

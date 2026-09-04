@@ -1739,6 +1739,30 @@ function renderDatasetBody(
       </div>`);
   }
 
+  // Variables the reader had to leave out, listed after the ones it read.
+  // Their absence from the table above is otherwise invisible, and a NetCDF-4
+  // file mixing a compound or variable-length variable in with ordinary fields
+  // is routine — a station-record file, a TROPOMI granule (#550).
+  if (d.unsupportedVariables && d.unsupportedVariables.length > 0) {
+    const rows = d.unsupportedVariables.map((v) => `
+      <tr>
+        <td>${escapeHtml(v.name)}</td>
+        <td title="${escapeHtml(v.reason)}">${previewAttr(v.reason)}</td>
+      </tr>`).join("");
+    sections.push(`
+      <h2>Variables not decoded</h2>
+      <div class="table-scroll">
+      <table>
+        <thead><tr><th>Name</th><th>Reason</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      </div>
+      <div class="render-legend">
+        The rest of this file's metadata is complete; these variables use an
+        HDF5 datatype Fieldglass does not decode.
+      </div>`);
+  }
+
   if (d.dimensions.length === 0 && d.globalAttributes.length === 0 && d.variables.length === 0) {
     sections.push(`<div class="status">Empty NetCDF dataset.</div>`);
   }

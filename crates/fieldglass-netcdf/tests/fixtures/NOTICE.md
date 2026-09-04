@@ -297,6 +297,40 @@ dimension names, and whether it is a coordinate variable. `nc_type` is the
 canonical netCDF type name (matching the Rust reader's `NcType::name()`), not the
 numpy alias. `tests/hdf5_dimension_scales.rs` pins the resolver against it.
 
+## NetCDF-4 unsupported-datatype fixture (`netcdf4_unsupported_type.nc`)
+
+A small NetCDF-4 file written with the canonical Unidata `netCDF4` library that
+mixes variables the reader decodes with variables it does not, the target for
+#550. `hdf5/datatype.rs` maps three HDF5 datatype classes onto `NcType` —
+fixed-point, IEEE floating point, fixed-length string — and files carrying a
+compound or variable-length variable alongside ordinary fields are routine:
+station-record files, OMI / TROPOMI granules, anything written through
+`nc_def_compound`. One such dataset used to fail metadata resolution for the
+whole file. Built by `tools/build_netcdf4_unsupported_type_fixture.py` (run from
+the repo root; needs `netCDF4`).
+
+It carries, in this creation order:
+
+- `station_info(station)` — an HDF5 **compound** datatype (class 6),
+- `visits(station)` — an HDF5 **variable-length** datatype (class 9),
+- `time(time)` — a plain `double` coordinate variable,
+- `temperature(time)` — a plain `float` data variable,
+- `station` — a pure dimension with no coordinate variable.
+
+The two undecodable datasets are written **first** on purpose, so both take a
+lower whole-file dataset index than `temperature`. That index space is the one
+`decode_variable_values` walks, so skipping a dataset must leave a hole rather
+than close one; `tests/hdf5_unsupported_datatype.rs` proves it by decoding
+`temperature` through the `decode_index` the resolver reports for it and
+comparing the values against the oracle.
+
+The sibling `netcdf4_unsupported_type.nc.oracle.json` is `ncdump -h` in JSON
+form, as for `netcdf4_dimscale.nc`, plus a `decodable_datatype` flag per
+variable (`false` for the compound and vlen ones) and the `time` /
+`temperature` values. A user-defined type is reported by its kind
+(`"compound"`, `"vlen"`, `"enum"`) where a plain variable reports its netCDF
+type name.
+
 ## NetCDF-4 nested-group fixture (`netcdf4_grouped.nc`)
 
 A small grouped NetCDF-4 file written with the canonical Unidata `netCDF4`

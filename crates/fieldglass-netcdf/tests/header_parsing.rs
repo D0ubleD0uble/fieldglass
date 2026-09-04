@@ -128,10 +128,20 @@ fn hdf5_backing_resolves_dimension_metadata() {
     );
 }
 
+/// The classic backing carries its whole header in `NetcdfBacking::Classic`,
+/// so a view costs no second pass over the bytes and cannot fail. This replaces
+/// the `is_fully_parsed()` predicate, whose own doc admitted it answered `false`
+/// for HDF5 "even though that metadata is now fully available" (#550).
 #[test]
-fn classic_backing_reports_full_parse() {
+fn classic_backing_carries_its_header_eagerly() {
     let reader = NetcdfReader::from_bytes(CLASSIC.to_vec()).unwrap();
-    assert!(reader.backing.is_fully_parsed());
+    let NetcdfBacking::Classic(header) = &reader.backing else {
+        panic!("expected the classic backing");
+    };
+    assert!(!header.variables.is_empty());
+    let view = reader.view().expect("a classic view is infallible");
+    assert_eq!(view.vars.len(), header.variables.len());
+    assert_eq!(view.dims.len(), header.dimensions.len());
 }
 
 #[test]

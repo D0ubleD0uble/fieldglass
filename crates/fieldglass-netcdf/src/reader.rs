@@ -30,14 +30,6 @@ impl NetcdfBacking {
             Self::Hdf5(_) => "NetCDF-4 / HDF5",
         }
     }
-
-    /// Whether the metadata is parsed eagerly at construction (`true` for
-    /// classic). HDF5 carries only the superblock probe in the backing and
-    /// resolves its metadata lazily via [`NetcdfReader::hdf5_metadata`], so this
-    /// is `false` for HDF5 even though that metadata is now fully available.
-    pub fn is_fully_parsed(&self) -> bool {
-        matches!(self, Self::Classic(_))
-    }
 }
 
 /// Top-level reader. Always carries the raw bytes so per-variable decode can
@@ -52,8 +44,9 @@ pub struct NetcdfReader {
 
 impl NetcdfReader {
     /// Parse a NetCDF file from raw bytes. Errors only for files that are
-    /// neither classic CDF nor HDF5; HDF5 files succeed but expose only the
-    /// superblock probe (see `NetcdfBacking::is_fully_parsed`).
+    /// neither classic CDF nor HDF5; an HDF5 file succeeds carrying only its
+    /// superblock probe, and resolves the rest of its metadata on demand
+    /// through [`Self::hdf5_metadata`] or [`Self::view`].
     pub fn from_bytes(data: Vec<u8>) -> Result<Self, FieldglassError> {
         let backing = if data.len() >= 4 && &data[0..3] == b"CDF" {
             let header = classic::parse_header(&data)?;
@@ -104,13 +97,19 @@ impl NetcdfReader {
     /// with ordered dimension lists, and global attributes — across the whole
     /// file, descending into nested groups (#219, variables path-qualified as
     /// `/GROUP/name`), by reading the dimension-scale convention (decision 0003).
-    /// Errors for a non-HDF5 backing and for HDF5 layouts outside the decoded
-    /// subset.
+    ///
+    /// Errors with [`FieldglassError::WrongLayout`] for a classic backing, which
+    /// has no HDF5 metadata to resolve — a distinct condition from a failure to
+    /// parse, and one a caller that matched on [`Self::backing`] first cannot
+    /// reach. Otherwise errors only for HDF5 layouts outside the decoded subset.
+    /// A single *dataset* whose datatype is outside that subset is not one of
+    /// them: it is skipped and listed in
+    /// [`hdf5::dimensions::Hdf5Metadata::unsupported`] (#550).
     pub fn hdf5_metadata(&self) -> Result<hdf5::dimensions::Hdf5Metadata, FieldglassError> {
         match &self.backing {
             NetcdfBacking::Hdf5(probe) => hdf5::dimensions::resolve(&self.data, probe),
-            NetcdfBacking::Classic(_) => Err(FieldglassError::Parse(
-                "hdf5_metadata is only available for the NetCDF-4 / HDF5 backing".into(),
+            NetcdfBacking::Classic(_) => Err(FieldglassError::WrongLayout(
+                "hdf5_metadata is only for the NetCDF-4 / HDF5 backing".into(),
             )),
         }
     }
@@ -139,7 +138,9 @@ impl NetcdfReader {
     /// can fail on a layout outside the decoded subset (decision 0003). A host
     /// that wants to keep going on that failure — showing the format-level
     /// metadata with no slice picker — can take `DatasetView::default()`, the
-    /// empty view.
+    /// empty view. One dataset carrying an undecodable *datatype* is not such a
+    /// failure: the view holds every other variable and names that one in
+    /// [`DatasetView::unsupported`] (#550).
     pub fn view(&self) -> Result<DatasetView, FieldglassError> {
         match &self.backing {
             NetcdfBacking::Classic(header) => Ok(DatasetView::from_classic(header)),

@@ -1133,6 +1133,11 @@ pub struct DatasetMeta {
     /// `true` for classic; `true` for HDF5 once its dimension-scale metadata
     /// resolves, and `false` (with `note` set) only when an HDF5 file uses a
     /// layout outside the decoded subset.
+    ///
+    /// A file with an undecodable *datatype* on one variable keeps
+    /// `fully_parsed = true` and names that variable in
+    /// `unsupported_variables`: the tables are populated, so a host that hides
+    /// them on `false` would hide everything over one variable (#550).
     pub fully_parsed: bool,
     /// Free-form note for the provider to surface when `fully_parsed` is
     /// false — e.g. why an HDF5 file's metadata could not be fully resolved.
@@ -1146,6 +1151,25 @@ pub struct DatasetMeta {
     pub variables: Vec<VariableMeta>,
     /// HDF5 superblock version, when applicable. `None` for classic files.
     pub hdf5_superblock_version: Option<i32>,
+    /// NetCDF-4 datasets left out of `variables` because their HDF5 datatype is
+    /// outside the decoded subset — compound, enum, variable-length, opaque or
+    /// array (#550). Empty for a classic file and for a NetCDF-4 file every
+    /// variable of which decoded.
+    ///
+    /// `fully_parsed` stays `true` when this is non-empty: the rest of the
+    /// metadata *is* resolved, and a host should show it and name these
+    /// alongside rather than fall back to the superblock-only view.
+    pub unsupported_variables: Vec<UnsupportedVariableMeta>,
+}
+
+/// One NetCDF-4 dataset the reader declined, for [`DatasetMeta::unsupported_variables`].
+#[napi(object)]
+#[derive(Debug)]
+pub struct UnsupportedVariableMeta {
+    /// The variable's name, path-qualified when it lives in a nested group.
+    pub name: String,
+    /// Why it could not be described, as the decoder phrased it.
+    pub reason: String,
 }
 
 /// Parse a NetCDF file from raw bytes and return the top-level dataset
@@ -1232,6 +1256,7 @@ fn dataset_meta_from(reader: &NetcdfReader) -> DatasetMeta {
                 global_attributes,
                 variables,
                 hdf5_superblock_version: None,
+                unsupported_variables: Vec::new(),
             }
         }
         // HDF5 is handled above, before this match is reached.
@@ -1241,6 +1266,17 @@ fn dataset_meta_from(reader: &NetcdfReader) -> DatasetMeta {
 
 /// Map a resolved NetCDF-4 / HDF5 root group to the JS dataset metadata.
 fn hdf5_dataset_meta(label: String, superblock: Option<i32>, meta: Hdf5Metadata) -> DatasetMeta {
+    // Datasets the resolver skipped rather than failed the file for (#550).
+    // They are reported next to the variables that did resolve, not instead of
+    // them, which is why `fully_parsed` below stays `true`.
+    let unsupported: Vec<UnsupportedVariableMeta> = meta
+        .unsupported
+        .into_iter()
+        .map(|u| UnsupportedVariableMeta {
+            name: u.name,
+            reason: u.reason,
+        })
+        .collect();
     let dimensions = meta
         .dimensions
         .into_iter()
@@ -1278,6 +1314,7 @@ fn hdf5_dataset_meta(label: String, superblock: Option<i32>, meta: Hdf5Metadata)
             .collect(),
         variables,
         hdf5_superblock_version: superblock,
+        unsupported_variables: unsupported,
     }
 }
 
@@ -1296,6 +1333,9 @@ fn hdf5_unparsed_meta(label: String, superblock: Option<i32>, reason: &str) -> D
         global_attributes: Vec::new(),
         variables: Vec::new(),
         hdf5_superblock_version: superblock,
+        // Nothing resolved, so there is no partial list to qualify: the note
+        // above already says the whole file's metadata is unavailable.
+        unsupported_variables: Vec::new(),
     }
 }
 
@@ -2581,9 +2621,13 @@ impl NetcdfHandle {
     pub fn from_bytes(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<Self> {
         let reader = NetcdfReader::from_bytes(bytes.to_vec()).into_napi()?;
         // Both backings build the neutral view that drives the slice picker. The
-        // HDF5 metadata is resolved lazily and can fail for a layout outside the
-        // decoded subset (decision 0003); on failure the view is empty and the
-        // panel falls back to the metadata dump, mirroring `open_netcdf`.
+        // HDF5 metadata is resolved lazily and can fail for a *whole-file* layout
+        // outside the decoded subset (decision 0003); on failure the view is
+        // empty and the panel falls back to the metadata dump, mirroring
+        // `open_netcdf` — which is what keeps such a file openable at all, since
+        // `metadata()` below is what renders that dump. One variable carrying an
+        // undecodable datatype no longer reaches this path: the view holds every
+        // other variable and `DatasetMeta::unsupported_variables` names it (#550).
         let view = reader.view().unwrap_or_default();
         Ok(Self {
             reader,

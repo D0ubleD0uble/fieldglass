@@ -5,7 +5,11 @@
 //! Only the datatype classes NetCDF-4 climate data actually uses are decoded:
 //! fixed-point integers, IEEE floating point, and fixed-length strings. The
 //! compound / enum / array / opaque / reference / variable-length classes are
-//! out of scope (#39 non-goals) and rejected with a clear error.
+//! out of scope (#39 non-goals) and rejected with
+//! [`FieldglassError::UnsupportedSection`] naming the class — not `Parse`,
+//! because a caller acts on the two differently: the dimension-scale layer
+//! skips a dataset whose type it cannot decode and reports it, where a parse
+//! failure still fails the file (#550).
 //!
 //! The on-disk message begins with a "class and version" byte whose **low
 //! nibble is the class** and **high nibble is the version**, followed by a
@@ -190,8 +194,8 @@ pub fn decode(body: &[u8]) -> Result<Datatype, FieldglassError> {
                 4 => NcType::Float,
                 8 => NcType::Double,
                 other => {
-                    return Err(FieldglassError::Parse(format!(
-                        "unsupported floating-point size {other} bytes"
+                    return Err(FieldglassError::UnsupportedSection(format!(
+                        "HDF5 floating-point datatype of {other} bytes"
                     )));
                 }
             };
@@ -210,10 +214,43 @@ pub fn decode(body: &[u8]) -> Result<Datatype, FieldglassError> {
             byte_order: None,
             nc_type: NcType::Char,
         }),
-        other => Err(FieldglassError::Parse(format!(
-            "unsupported HDF5 datatype class {other}"
-        ))),
+        other => Err(unsupported_class(other)),
     }
+}
+
+/// The spelling of an HDF5 datatype class code, for an error a user reads.
+/// The three [`decode`] handles are named too, so this reads as the class
+/// table from the format specification rather than as a list of failures.
+///
+/// Reference: HDF5 file format specification version 3, "Datatype Message",
+/// Table: Datatype class.
+fn class_name(class: u8) -> &'static str {
+    match class {
+        CLASS_FIXED_POINT => "fixed-point",
+        CLASS_FLOATING_POINT => "floating-point",
+        2 => "time",
+        CLASS_STRING => "string",
+        4 => "bit field",
+        5 => "opaque",
+        6 => "compound",
+        CLASS_REFERENCE => "reference",
+        8 => "enumeration",
+        CLASS_VARIABLE_LENGTH => "variable-length",
+        10 => "array",
+        _ => "reserved",
+    }
+}
+
+/// A datatype class outside the decoded subset. [`FieldglassError::UnsupportedSection`],
+/// not [`FieldglassError::Parse`]: the message parsed fine and says something
+/// this build does not implement, and the two are acted on differently — the
+/// dimension-scale layer skips a dataset it cannot describe and reports it
+/// (#550), where a genuine parse failure still fails the file.
+fn unsupported_class(class: u8) -> FieldglassError {
+    FieldglassError::UnsupportedSection(format!(
+        "HDF5 datatype class {class} ({})",
+        class_name(class)
+    ))
 }
 
 impl Datatype {
@@ -277,8 +314,8 @@ fn fixed_point_nc_type(size: u32, signed: bool) -> Result<NcType, FieldglassErro
         (8, true) => NcType::Int64,
         (8, false) => NcType::UInt64,
         (other, _) => {
-            return Err(FieldglassError::Parse(format!(
-                "unsupported fixed-point size {other} bytes"
+            return Err(FieldglassError::UnsupportedSection(format!(
+                "HDF5 fixed-point datatype of {other} bytes"
             )));
         }
     })
@@ -366,11 +403,43 @@ mod tests {
         assert_eq!(s.read_element_f64(b"degC\0\0\0\0"), None);
     }
 
+    /// A class outside the decoded subset is `UnsupportedSection`, not `Parse`
+    /// — the distinction the dimension-scale layer acts on (#550) — and the
+    /// message names the class so a user can tell compound from vlen.
     #[test]
-    fn rejects_unsupported_class() {
-        // Class 6 = compound.
-        let err = decode(&datatype(6, 0x00, 16)).unwrap_err();
-        assert!(matches!(err, FieldglassError::Parse(_)));
+    fn rejects_unsupported_class_as_unsupported_not_malformed() {
+        for (class, name) in [
+            (5u8, "opaque"),
+            (6, "compound"),
+            (8, "enumeration"),
+            (9, "variable-length"),
+            (10, "array"),
+        ] {
+            let err = decode(&datatype(class, 0x00, 16)).unwrap_err();
+            match err {
+                FieldglassError::UnsupportedSection(msg) => {
+                    assert!(
+                        msg.contains(&format!("class {class} ({name})")),
+                        "class {class}: {msg:?}"
+                    );
+                }
+                other => panic!("class {class}: expected UnsupportedSection, got {other:?}"),
+            }
+        }
+    }
+
+    /// A numeric class of a width with no `NcType` (a 16-bit half float, a
+    /// 3-byte integer) is likewise not-implemented rather than malformed.
+    #[test]
+    fn rejects_unsupported_numeric_widths_as_unsupported() {
+        assert!(matches!(
+            decode(&datatype(CLASS_FLOATING_POINT, 0x00, 2)).unwrap_err(),
+            FieldglassError::UnsupportedSection(_)
+        ));
+        assert!(matches!(
+            decode(&datatype(CLASS_FIXED_POINT, 0x08, 3)).unwrap_err(),
+            FieldglassError::UnsupportedSection(_)
+        ));
     }
 
     #[test]
