@@ -44,7 +44,8 @@ pub use hdf5::dataset::{DatasetShape, describe as describe_dataset};
 pub use hdf5::dataspace::Dataspace;
 pub use hdf5::datatype::{ByteOrder, Datatype, DatatypeClass};
 pub use hdf5::dimensions::{
-    DimensionInfo, Hdf5Metadata, VariableInfo, resolve as resolve_hdf5_metadata,
+    DimensionInfo, Hdf5Metadata, UnsupportedVariable, VariableInfo,
+    resolve as resolve_hdf5_metadata,
 };
 pub use hdf5::group::{ChildKind, GroupChild, list_all_children, list_root_children};
 pub use hdf5::object_header::{HeaderMessage, ObjectHeader};

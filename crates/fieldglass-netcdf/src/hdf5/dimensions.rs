@@ -21,6 +21,11 @@
 //! that isn't a vlen of object references) return a clear error rather than a
 //! silent misread, matching the rest of the HDF5 reader.
 //!
+//! A single *dataset* whose datatype is outside the decoded subset is the one
+//! thing that does not fail the file: it is skipped and listed in
+//! [`Hdf5Metadata::unsupported`], so a station-record file or a TROPOMI granule
+//! resolves everything but that variable (#550).
+//!
 //! Reference: HDF5 file format specification version 3; NetCDF User's Guide,
 //! "NetCDF-4 File Format"; Unidata, "NetCDF-4 use of dimension scales".
 
@@ -88,6 +93,27 @@ pub struct VariableInfo {
     pub decode_index: usize,
 }
 
+/// A dataset the reader could not describe, and why. It would have been a
+/// variable: a station-record file or an OMI / TROPOMI granule stores one in an
+/// HDF5 compound or variable-length datatype, which is outside the subset
+/// [`super::datatype::decode`] maps to an [`NcType`].
+///
+/// Reported rather than fatal (#550). One such dataset used to fail metadata
+/// resolution for the whole file, so a host showed nothing instead of
+/// everything but the one variable. Only a dataset that fails with
+/// [`FieldglassError::UnsupportedSection`] lands here; a genuine parse failure
+/// still fails the file, so "not implemented" and "corrupt" stay
+/// distinguishable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnsupportedVariable {
+    /// The dataset's name, path-qualified when it lives in a nested group —
+    /// the same spelling a decodable variable would carry.
+    pub name: String,
+    /// Why it was skipped, as the decoder phrased it (e.g.
+    /// `"unsupported section: HDF5 datatype class 6 (compound)"`).
+    pub reason: String,
+}
+
 /// The fully resolved metadata for a NetCDF-4 / HDF5 file — every group,
 /// descended depth-first — the HDF5 analogue of the classic header, ready for
 /// the napi `DatasetMeta`. Objects in nested groups carry a path-qualified name.
@@ -107,6 +133,12 @@ pub struct Hdf5Metadata {
     /// Every variable in the file, sorted by name and excluding pure
     /// dimensions — see the type doc for why the index space differs.
     pub variables: Vec<VariableInfo>,
+    /// The datasets that were skipped because their datatype is outside the
+    /// decoded subset, in the order they were met. Empty for a file every
+    /// dataset of which resolved. A host should surface these: the file's
+    /// remaining metadata is complete, but this list is the difference between
+    /// it and the file.
+    pub unsupported: Vec<UnsupportedVariable>,
 }
 
 /// A dimension scale, keyed in the table by its object-header address so a
@@ -137,17 +169,37 @@ struct DatasetInfo {
 }
 
 /// Resolve the root group's dimensions, variables, and global attributes.
+///
+/// A dataset whose datatype is outside the decoded subset (compound, enum,
+/// variable-length, opaque, array) is **skipped and recorded** in
+/// [`Hdf5Metadata::unsupported`] rather than failing the file (#550) — and it
+/// keeps its slot in the dataset list, because
+/// [`crate::NetcdfReader::decode_variable_values`] indexes that same list and
+/// closing the gap would silently renumber every variable after it. Any other
+/// failure still propagates: a file that does not parse is a different thing
+/// from a file carrying a type this build does not implement.
 pub fn resolve(bytes: &[u8], probe: &Hdf5Probe) -> Result<Hdf5Metadata, FieldglassError> {
-    let datasets: Vec<DatasetInfo> = group::all_children(bytes, probe)?
+    let mut unsupported = Vec::new();
+    let datasets: Vec<Option<DatasetInfo>> = group::all_children(bytes, probe)?
         .iter()
         .filter(|c| c.kind == ChildKind::Dataset)
-        .map(|child| describe(bytes, probe, child.clone()))
+        .map(|child| match describe(bytes, probe, child.clone()) {
+            Ok(info) => Ok(Some(info)),
+            Err(e @ FieldglassError::UnsupportedSection(_)) => {
+                unsupported.push(UnsupportedVariable {
+                    name: child.name.clone(),
+                    reason: e.to_string(),
+                });
+                Ok(None)
+            }
+            Err(other) => Err(other),
+        })
         .collect::<Result<_, _>>()?;
 
     // Pass 1: a table from each scale's object-header address to its name, plus
     // the ordered dimension list.
     let mut name_by_address: HashMap<u64, String> = HashMap::new();
-    for d in &datasets {
+    for d in datasets.iter().flatten() {
         if let Some(scale) = &d.scale {
             name_by_address.insert(d.address, scale.name.clone());
         }
@@ -159,18 +211,17 @@ pub fn resolve(bytes: &[u8], probe: &Hdf5Probe) -> Result<Hdf5Metadata, Fieldgla
     // `ncdump -h` and Fieldglass calling the same axis `phony_dim_0`. Results are
     // stored back against each dataset's own position, so the decode order below
     // is untouched.
-    let mut by_name: Vec<usize> = (0..datasets.len()).collect();
-    by_name.sort_by(|&a, &b| datasets[a].name.cmp(&datasets[b].name));
+    let mut by_name: Vec<(usize, &DatasetInfo)> = datasets
+        .iter()
+        .enumerate()
+        .filter_map(|(index, d)| d.as_ref().map(|d| (index, d)))
+        .collect();
+    by_name.sort_by(|(_, a), (_, b)| a.name.cmp(&b.name));
     let mut phony = PhonyDimensions::default();
     let mut dimension_names: Vec<Vec<String>> = vec![Vec::new(); datasets.len()];
-    for index in by_name {
-        dimension_names[index] = resolve_variable_dimensions(
-            bytes,
-            probe,
-            &datasets[index],
-            &name_by_address,
-            &mut phony,
-        )?;
+    for (index, d) in by_name {
+        dimension_names[index] =
+            resolve_variable_dimensions(bytes, probe, d, &name_by_address, &mut phony)?;
     }
 
     let dimensions = build_dimensions(&datasets, &phony);
@@ -182,6 +233,8 @@ pub fn resolve(bytes: &[u8], probe: &Hdf5Probe) -> Result<Hdf5Metadata, Fieldgla
     // it survives the by-name sort below, where the vector position no longer does.
     let mut variables = Vec::new();
     for (decode_index, d) in datasets.iter().enumerate() {
+        // A skipped dataset holds its slot so the indices after it don't move.
+        let Some(d) = d else { continue };
         // The pure-dimension placeholder is a dimension, not a variable.
         if matches!(&d.scale, Some(s) if !s.has_coordinate_values) {
             continue;
@@ -208,6 +261,7 @@ pub fn resolve(bytes: &[u8], probe: &Hdf5Probe) -> Result<Hdf5Metadata, Fieldgla
         dimensions,
         global_attributes,
         variables,
+        unsupported,
     })
 }
 
@@ -330,9 +384,13 @@ impl PhonyDimensions {
 /// Build the dimension list, ordered by `_Netcdf4Dimid` (falling back to
 /// discovery order for scales an older writer left without one), then the
 /// anonymous dimensions invented for datasets that declared none.
-fn build_dimensions(datasets: &[DatasetInfo], phony: &PhonyDimensions) -> Vec<DimensionInfo> {
+fn build_dimensions(
+    datasets: &[Option<DatasetInfo>],
+    phony: &PhonyDimensions,
+) -> Vec<DimensionInfo> {
     let mut scales: Vec<(i64, DimensionInfo)> = datasets
         .iter()
+        .flatten()
         .filter_map(|d| d.scale.as_ref())
         .enumerate()
         .map(|(discovery, s)| {

@@ -1,0 +1,68 @@
+{
+  "source": "netCDF4 1.7.4 (libnetcdf 4.9.3, HDF5 1.14.6)",
+  "format": "NETCDF4",
+  "dimensions": [
+    {
+      "name": "time",
+      "length": 4,
+      "unlimited": false
+    },
+    {
+      "name": "station",
+      "length": 3,
+      "unlimited": false
+    }
+  ],
+  "variables": [
+    {
+      "name": "station_info",
+      "nc_type": "compound",
+      "dimensions": [
+        "station"
+      ],
+      "is_coordinate": false,
+      "decodable_datatype": false
+    },
+    {
+      "name": "visits",
+      "nc_type": "vlen",
+      "dimensions": [
+        "station"
+      ],
+      "is_coordinate": false,
+      "decodable_datatype": false
+    },
+    {
+      "name": "time",
+      "nc_type": "double",
+      "dimensions": [
+        "time"
+      ],
+      "is_coordinate": true,
+      "decodable_datatype": true
+    },
+    {
+      "name": "temperature",
+      "nc_type": "float",
+      "dimensions": [
+        "time"
+      ],
+      "is_coordinate": false,
+      "decodable_datatype": true
+    }
+  ],
+  "values": {
+    "time": [
+      0.0,
+      6.0,
+      12.0,
+      18.0
+    ],
+    "temperature": [
+      270.5,
+      271.5,
+      272.5,
+      273.5
+    ]
+  }
+}
