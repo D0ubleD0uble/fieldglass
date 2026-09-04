@@ -26,6 +26,7 @@ pub mod bms;
 pub mod drs;
 pub mod ds;
 pub mod gds;
+pub mod geometry;
 pub mod ids;
 pub mod is;
 pub mod lus;
