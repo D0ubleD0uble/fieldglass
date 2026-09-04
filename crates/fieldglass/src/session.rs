@@ -18,13 +18,15 @@ use fieldglass_core::{
 };
 
 use crate::api::{
-    ContourLevel, Dtype, Field, Format, Georef, MessageInfo, Probe, Scan, Stats, Values, Warped,
+    Dtype, Field, Georef, Isoline, MessageInfo, Probe, Scan, SourceFormat, Stats, Values, Warped,
 };
 use crate::error::Error;
 
 /// How a decode should be shaped.
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
 #[non_exhaustive]
 pub struct DecodeOptions {
     #[serde(default)]
@@ -34,6 +36,8 @@ pub struct DecodeOptions {
 /// How a field should be resampled onto a geographic box.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
 #[non_exhaustive]
 pub struct WarpOptions {
     /// Bilinear when true, nearest otherwise. A grid that is a list of cell
@@ -62,6 +66,8 @@ impl Default for WarpOptions {
 /// Colour, decided once in Rust and exported as data.
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
 #[non_exhaustive]
 pub struct PaletteOptions {
     /// A colormap name `core` knows. Unknown names are an error rather than a
@@ -83,6 +89,8 @@ pub struct PaletteOptions {
 /// A painted raster: RGBA bytes plus the dimensions they cover.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
 #[non_exhaustive]
 pub struct Raster {
     pub rgba: Vec<u8>,
@@ -128,10 +136,10 @@ impl Session {
         Ok(Self { reader })
     }
 
-    pub fn format(&self) -> Format {
+    pub fn format(&self) -> SourceFormat {
         match self.reader {
-            Reader::Grib1(_) => Format::Grib1,
-            Reader::Grib2(_) => Format::Grib2,
+            Reader::Grib1(_) => SourceFormat::Grib1,
+            Reader::Grib2(_) => SourceFormat::Grib2,
         }
     }
 
@@ -176,15 +184,15 @@ impl Session {
                 })?;
                 let geometry = GridGeometry::from(gds);
                 let raw = grib1_decode_regular(r, i)?;
-                let info = grib1_message(r, i);
-                (raw, geometry, info.parameter, info.units)
+                let (parameter, units) = grib1_parameter(&r.messages[i]);
+                (raw, geometry, parameter, units)
             }
             Reader::Grib2(r) => {
                 let msg = &r.messages[i];
                 let geometry = GridGeometry::from(&msg.gds);
                 let raw = grib2_decode_regular(r, i)?;
-                let info = grib2_message(r, i);
-                (raw, geometry, info.parameter, info.units)
+                let (_, parameter, units) = grib2_parameter(msg);
+                (raw, geometry, parameter, units)
             }
         };
 
@@ -273,8 +281,24 @@ impl Session {
     ) -> Result<Raster, Error> {
         let palette = build_palette(field, options)?;
         let values = field.values.to_f64();
+        let rgba = palette.paint(&values, Some(&field.mask), field.ni, field.nj, flip_y);
+        // `paint` answers an empty buffer for a raster whose byte count this
+        // target cannot address — `usize` is 32 bits on wasm32, the host this
+        // exists for. Say so, rather than handing back dimensions with no
+        // pixels behind them for a host to read off the end of.
+        let expected = (field.ni as usize)
+            .checked_mul(field.nj as usize)
+            .and_then(|px| px.checked_mul(4));
+        if Some(rgba.len()) != expected {
+            return Err(Error::Unsupported {
+                detail: format!(
+                    "a {}×{} RGBA raster does not fit this target's address space",
+                    field.ni, field.nj
+                ),
+            });
+        }
         Ok(Raster {
-            rgba: palette.paint(&values, Some(&field.mask), field.ni, field.nj, flip_y),
+            rgba,
             width: field.ni,
             height: field.nj,
         })
@@ -282,6 +306,12 @@ impl Session {
 
     /// Sample one geographic point out of a field.
     pub fn probe(&self, field: &Field, lat: f64, lon: f64) -> Option<Probe> {
+        // An empty raster has no cell to report, and `f64::clamp` *panics* when
+        // its bounds cross — which `0.0 ..= ni - 1.0` does at `ni == 0`. A
+        // malformed file reaching here is exactly the input a fuzzer supplies.
+        if field.ni == 0 || field.nj == 0 {
+            return None;
+        }
         let index = field.georef.geometry.inverse(lat, lon)?;
         let i = index.i.round().clamp(0.0, f64::from(field.ni) - 1.0) as usize;
         let j = index.j.round().clamp(0.0, f64::from(field.nj) - 1.0) as usize;
@@ -299,7 +329,7 @@ impl Session {
     /// Isolines through a field, in fractional grid coordinates.
     ///
     /// `levels` empty asks for a nice set spanning the field's own range.
-    pub fn contours(&self, field: &Field, levels: &[f64]) -> Result<Vec<ContourLevel>, Error> {
+    pub fn contours(&self, field: &Field, levels: &[f64]) -> Result<Vec<Isoline>, Error> {
         let chosen: Vec<f64> = if levels.is_empty() {
             match (field.stats.min, field.stats.max) {
                 (Some(min), Some(max)) => nice_levels(min, max, 10),
@@ -321,7 +351,7 @@ impl Session {
         };
         Ok(raw
             .into_iter()
-            .map(|level| ContourLevel {
+            .map(|level| Isoline {
                 value: level.level,
                 segments: level
                     .segments
@@ -379,10 +409,17 @@ fn warp_field(field: &Field, options: &WarpOptions) -> Result<Warped, Error> {
         });
     }
 
-    let cells = optional_values(field);
+    // Sampled in place rather than through `optional_values`: that shape is
+    // 16 bytes a cell, so a 3.7-million-point NBM field would cost 60 MB of
+    // linear memory on top of the field it already holds, for no gain here.
     let ni = field.ni as usize;
-    let sample =
-        move |i: usize, j: usize| -> Option<f64> { cells.get(j * ni + i).copied().flatten() };
+    let sample = |i: usize, j: usize| -> Option<f64> {
+        let k = j * ni + i;
+        if field.mask.get(k).copied().unwrap_or(0) != 1 {
+            return None;
+        }
+        field.values.get(k)
+    };
     let inverse = geometry.inverse_at();
     let source = SourceGrid {
         ni: field.ni,
@@ -441,6 +478,20 @@ fn build_palette(field: &Field, options: &PaletteOptions) -> Result<Palette, Err
             detail: "the field has no present values, so it has no range to colour".to_string(),
         })?;
     let max = options.max.or(field.stats.max).unwrap_or(min);
+    // A logarithm needs a positive domain. `transformed_domain` would answer
+    // `-inf` (for 0) or `NaN`, and every cell would then paint the low end of
+    // the ramp — a picture that looks like data and is not. `core` documents
+    // that its callers reject this; this is that rejection.
+    // Written as "not (finite and positive)" rather than `min <= 0.0`: a `NaN`
+    // minimum fails every comparison, so the simpler form would let it through
+    // and produce exactly the domain this guard exists to refuse.
+    if matches!(scale, ScaleMode::Log10) && !(min.is_finite() && min > 0.0) {
+        return Err(Error::InvalidOption {
+            detail: format!(
+                "a log10 scale needs a finite, positive minimum; the range starts at {min}"
+            ),
+        });
+    }
     Ok(Palette::build(colormap, options.reversed, min, max, scale))
 }
 
@@ -544,6 +595,26 @@ fn grib2_scan(msg: &fieldglass_grib2::Grib2Message) -> Scan {
     }
 }
 
+/// `(name, units)` for one GRIB1 message.
+///
+/// Split out of [`grib1_message`] so [`Session::decode`] does not build a whole
+/// `MessageInfo` for two strings: that would build the `Georef` too, and a
+/// projected family's `lonlat_bbox` walks its perimeter 512 times per edge.
+fn grib1_parameter(msg: &fieldglass_grib1::Grib1Message) -> (String, String) {
+    let param = fieldglass_grib1::tables::lookup_parameter(
+        msg.pds.parameter_id,
+        msg.pds.table_version,
+        msg.pds.originating_centre,
+    );
+    // Normalised at the display seam, the same way the napi host does it: the
+    // ECMWF local tables are generated from eccodes' Fortran-style exponents
+    // and ON388 chains solidi, so the raw strings disagree about the same unit.
+    (
+        param.name.to_string(),
+        normalize_units(param.units).into_owned(),
+    )
+}
+
 fn grib1_message(reader: &fieldglass_grib1::Grib1Reader, index: usize) -> MessageInfo {
     let msg = &reader.messages[index];
     let param = fieldglass_grib1::tables::lookup_parameter(
@@ -555,16 +626,13 @@ fn grib1_message(reader: &fieldglass_grib1::Grib1Reader, index: usize) -> Messag
         .gds
         .as_ref()
         .map(|gds| Georef::from_geometry(&GridGeometry::from(gds), grib1_scan(msg)));
+    let (parameter, units) = grib1_parameter(msg);
     MessageInfo {
         index: index as u32,
         offset_bytes: msg.byte_offset as u64,
-        parameter: param.name.to_string(),
+        parameter,
         abbreviation: param.abbreviation.to_string(),
-        // Normalised at the display seam, the same way the napi host does it:
-        // the ECMWF local tables are generated from eccodes' Fortran-style
-        // exponents and ON388 chains solidi, so the raw strings disagree about
-        // the same unit.
-        units: normalize_units(param.units).into_owned(),
+        units,
         level: fieldglass_grib1::level_value_str(&msg.pds),
         level_type: fieldglass_grib1::level_type_str(&msg.pds),
         reference_time: Some(fieldglass_grib1::reference_time(&msg.pds)),
@@ -575,11 +643,11 @@ fn grib1_message(reader: &fieldglass_grib1::Grib1Reader, index: usize) -> Messag
     }
 }
 
-fn grib2_message(reader: &fieldglass_grib2::Grib2Reader, index: usize) -> MessageInfo {
-    let msg = &reader.messages[index];
-    let common = msg.pds.common();
+/// `(abbreviation, name, units)` for one GRIB2 message. Split out for the
+/// reason [`grib1_parameter`] is.
+fn grib2_parameter(msg: &fieldglass_grib2::Grib2Message) -> (String, String, String) {
     let discipline = msg.is.discipline;
-    let (abbreviation, parameter, units) = match common.and_then(|c| {
+    match msg.pds.common().and_then(|c| {
         fieldglass_grib2::lookup_parameter(
             msg.ids.originator(),
             discipline,
@@ -593,15 +661,30 @@ fn grib2_message(reader: &fieldglass_grib2::Grib2Reader, index: usize) -> Messag
             normalize_units(units).into_owned(),
         ),
         None => (String::new(), String::new(), String::new()),
-    };
+    }
+}
+
+fn grib2_message(reader: &fieldglass_grib2::Grib2Reader, index: usize) -> MessageInfo {
+    let msg = &reader.messages[index];
+    let common = msg.pds.common();
+    let (abbreviation, parameter, units) = grib2_parameter(msg);
     let (level, level_type) = match common {
-        Some(c) => (
-            c.first_surface
-                .value()
-                .map(|v| format!("{v}"))
-                .unwrap_or_else(|| "—".to_string()),
-            fieldglass_grib2::lookup_fixed_surface(c.first_surface.surface_type).to_string(),
-        ),
+        Some(c) => {
+            let surface = &c.first_surface;
+            let label = fieldglass_grib2::lookup_fixed_surface(surface.surface_type).to_string();
+            // A surface with no scaled value is named rather than numbered —
+            // "Ground or water surface" has no height to print — and the WMO
+            // missing sentinel is neither.
+            let level = if surface.is_missing() {
+                "—".to_string()
+            } else {
+                match surface.value() {
+                    Some(v) => format!("{v}"),
+                    None => label.clone(),
+                }
+            };
+            (level, label)
+        }
         None => ("—".to_string(), "—".to_string()),
     };
     MessageInfo {
@@ -613,8 +696,17 @@ fn grib2_message(reader: &fieldglass_grib2::Grib2Reader, index: usize) -> Messag
         level,
         level_type,
         reference_time: Some(msg.ids.reference_time_iso8601()),
+        // The producer's own unit, not hours: MRMS states its lead time in
+        // minutes, and normalising to hours would report `0` for every step of
+        // a nowcast series. `+30 Minute` is what the napi host shows too.
         forecast: common
-            .map(|c| format!("{}", c.forecast_time))
+            .map(|c| {
+                format!(
+                    "+{} {}",
+                    c.forecast_time,
+                    fieldglass_grib2::lookup_time_range_unit(c.forecast_time_unit)
+                )
+            })
             .unwrap_or_else(|| "—".to_string()),
         packing: msg.drs.template_name(),
         grid: Some(Georef::from_geometry(
@@ -634,5 +726,66 @@ impl Scan {
             j_positive: false,
             j_consecutive: false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fieldglass_core::{LatLonParams, projection::GridGeometry};
+
+    /// A message can declare a zero-width grid, and `decode` accepts it: zero
+    /// values match a zero-cell raster. `probe` must answer `None` for such a
+    /// field.
+    ///
+    /// The guard it exercises is belt-and-braces, and honestly so: every
+    /// geometry's own inverse already refuses a grid with no extent, so the
+    /// clamp below it is not reached today. It is there because the clamp's
+    /// bounds are `0.0 ..= ni - 1.0`, which *cross* at `ni == 0`, and
+    /// `f64::clamp` panics rather than saturating when its bounds cross —
+    /// see the assertion at the end. A future geometry whose inverse is more
+    /// permissive would turn that into an aborted Worker.
+    #[test]
+    fn probing_an_empty_raster_answers_rather_than_panicking() {
+        let geometry = GridGeometry::LatLon(LatLonParams {
+            ni: 0,
+            nj: 0,
+            lat_first: 90.0,
+            lon_first: 0.0,
+            lat_last: -90.0,
+            lon_last: 359.0,
+        });
+        let field = Field {
+            values: Values::F64(Vec::new()),
+            mask: Vec::new(),
+            ni: 0,
+            nj: 0,
+            georef: Georef::from_geometry(&geometry, Scan::default_north_down()),
+            stats: Stats {
+                min: None,
+                max: None,
+                valid_count: 0,
+            },
+            parameter: String::new(),
+            units: String::new(),
+        };
+        // The session is irrelevant to `probe`; it reads only the field.
+        let session = Session {
+            reader: Reader::Grib2(Box::new(
+                fieldglass_grib2::Grib2Reader::from_bytes(
+                    std::fs::read("../fieldglass-grib2/tests/fixtures/gfs_c255_latlon.grib2")
+                        .expect("fixture"),
+                )
+                .expect("parse"),
+            )),
+        };
+        assert!(session.probe(&field, 0.0, 0.0).is_none());
+
+        // The hazard the guard exists for, stated rather than assumed.
+        assert!(
+            std::panic::catch_unwind(|| 0.0_f64.clamp(0.0, -1.0)).is_err(),
+            "f64::clamp is expected to panic on crossed bounds; if it ever \
+             saturates instead, the guard above is redundant"
+        );
     }
 }

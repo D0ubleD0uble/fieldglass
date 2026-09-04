@@ -43,6 +43,12 @@ flag_management:
 #    a `napi::Buffer` and returns napi-typed errors / objects, so it can
 #    only be exercised from a Node embedding. The JS side is what should
 #    be covered; Rust-side coverage of this crate would be permanently 0%.
+#  - `crates/fieldglass-wasm/src/**`: the browser host, and the same argument
+#    as `fieldglass-napi` — every function converts a `JsValue` or a typed
+#    array and forwards, so it can only be exercised from a browser or a Node
+#    embedding. What it forwards to (`crates/fieldglass/src/**`) is covered.
+#    The two host-side checks that do exist are `examples/smoke/` (WebGL) and
+#    `tests/node/parity.mjs`, neither of which reports Rust line coverage.
 #  - `crates/fieldglass-netcdf/src/**`: stub-exclusion to be lifted in a
 #    follow-up; pulling it now would bundle an unrelated coverage delta
 #    with this PR.
@@ -76,6 +82,7 @@ flag_management:
 #    covered there.
 ignore:
   - "crates/fieldglass-napi/src/**"
+  - "crates/fieldglass-wasm/src/**"
   - "crates/fieldglass-netcdf/src/**"
   - "crates/fieldglass-grib1/src/tables_ecmwf.rs"
   - "crates/fieldglass-grib2/src/tables_wmo.rs"

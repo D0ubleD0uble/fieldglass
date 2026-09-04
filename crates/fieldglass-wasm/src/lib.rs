@@ -33,7 +33,7 @@
 //! Built with `panic = "abort"`: a decoder panic kills the Worker. The fuzz
 //! targets make that rare; treat the Worker as disposable and restart it.
 
-use fieldglass::{ContourLevel, DecodeOptions, Field, PaletteOptions, Session, WarpOptions};
+use fieldglass::{DecodeOptions, Field, Isoline, PaletteOptions, Session, WarpOptions};
 use wasm_bindgen::prelude::*;
 
 /// The shader snippet a GPU host pastes into its own fragment program.
@@ -197,7 +197,7 @@ impl Handle {
     /// Isolines in fractional grid coordinates. An empty `levels` asks for a
     /// nice set spanning the field's own range.
     pub fn contours(&self, field: &WasmField, levels: &[f64]) -> Result<JsValue, JsValue> {
-        let out: Vec<ContourLevel> = self.session.contours(&field.field, levels).map_err(throw)?;
+        let out: Vec<Isoline> = self.session.contours(&field.field, levels).map_err(throw)?;
         to_js(&out)
     }
 

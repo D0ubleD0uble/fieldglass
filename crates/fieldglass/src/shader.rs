@@ -38,6 +38,8 @@ pub const GLSL: &str = r#"// fieldglass palette shader (GLSL ES 3.00 / WebGL2).
 //
 //   u_field      : R32F,  one texel per cell — shaderValues(field, options)
 //   u_mask       : R8,    one texel per cell — shaderMask(field, options)
+//                         R8 is a *normalised* format: the byte 1 samples as
+//                         1/255, not as 1.0. Scale back before testing it.
 //   u_lut        : RGBA8, 256 x 1, NEAREST/CLAMP — palette.lut
 //   u_span       : palette.t1 - palette.t0
 //   u_maskedRgba : palette.maskedRgba / 255.0
@@ -49,7 +51,10 @@ uniform highp float u_span;
 uniform highp vec4 u_maskedRgba;
 
 vec4 fieldglassColor(vec2 uv) {
-    if (texture(u_mask, uv).r < 0.5) {
+    // Any non-zero byte means present, so this reads the same whether the host
+    // uploaded 1 or 255. Testing the normalised value against 0.5 instead would
+    // mask the entire field, which is what it did before a real GPU ran it.
+    if (texture(u_mask, uv).r * 255.0 < 0.5) {
         return u_maskedRgba;
     }
     // Already log10'd where the palette says so, and already rebased by t0.

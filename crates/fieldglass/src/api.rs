@@ -23,7 +23,15 @@ use fieldglass_core::{
     lon_grid_is_global,
 };
 
-/// Convenience: every API type derives the same set.
+/// Convenience: every API type derives the same set. Each states its own
+/// `rename_all`.
+///
+/// Structs are **`camelCase` on the wire**, `snake_case` in Rust: every host
+/// binding this crate today is JavaScript-shaped, napi-rs renames
+/// automatically, and the two hosts would otherwise disagree about the same
+/// field's name. Enum *variants* stay `snake_case`, because a variant tag is a
+/// wire value a host compares strings against and `"polar_stereo"` is the one
+/// `core` already reports.
 macro_rules! api_type {
     ($($item:item)*) => {
         $(
@@ -37,8 +45,12 @@ macro_rules! api_type {
 
 api_type! {
     /// The container a session was opened from.
+    ///
+    /// Named for the source rather than `Format` so it does not collide with
+    /// `core`'s detection enum, which also answers NetCDF and "unknown" — this
+    /// one enumerates only what a session can actually be.
     #[serde(rename_all = "snake_case")]
-    pub enum Format {
+    pub enum SourceFormat {
         Grib1,
         Grib2,
     }
@@ -65,6 +77,8 @@ api_type! {
     /// the one thing geometry cannot answer: which way *up* a host should draw
     /// the rows. A `j_positive` grid scans south-to-north, so a north-up canvas
     /// flips it.
+    #[serde(rename_all = "camelCase")]
+    #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
     pub struct Scan {
         /// Points run east→west rather than west→east.
         pub i_negative: bool,
@@ -93,6 +107,8 @@ api_type! {
     /// family that cannot state it says so rather than guessing — a Gaussian
     /// grid's rows are not uniformly spaced, so its `dy` is absent, and a grid
     /// this build does not model has none of it.
+    #[serde(rename_all = "camelCase")]
+    #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
     pub struct Georef {
         /// The grid itself, as `core` models it.
         ///
@@ -146,6 +162,8 @@ api_type! {
 
     /// Range and count of the present cells. Absent cells are excluded, so an
     /// all-masked field reports no range at all rather than `±inf`.
+    #[serde(rename_all = "camelCase")]
+    #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
     pub struct Stats {
         pub min: Option<f64>,
         pub max: Option<f64>,
@@ -158,6 +176,8 @@ api_type! {
     /// never shrinks and an animation holds many fields — so a field is handed
     /// out once and passed back by reference to every operation that consumes
     /// one.
+    #[serde(rename_all = "camelCase")]
+    #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
     pub struct Field {
         pub values: Values,
         /// One byte per cell: `1` present, `0` absent. Same length as `values`.
@@ -174,6 +194,8 @@ api_type! {
     ///
     /// Lazy by design: a thousand-message file should not serialise a thousand
     /// of these to open.
+    #[serde(rename_all = "camelCase")]
+    #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
     pub struct MessageInfo {
         pub index: u32,
         pub offset_bytes: u64,
@@ -193,6 +215,8 @@ api_type! {
     }
 
     /// A resampled raster: [`crate::Session::warp`] without the paint step.
+    #[serde(rename_all = "camelCase")]
+    #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
     pub struct Warped {
         pub values: Vec<f32>,
         pub mask: Vec<u8>,
@@ -203,6 +227,8 @@ api_type! {
     }
 
     /// One point sampled out of a field.
+    #[serde(rename_all = "camelCase")]
+    #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
     pub struct Probe {
         pub lat: f64,
         pub lon: f64,
@@ -213,8 +239,10 @@ api_type! {
         pub value: Option<f64>,
     }
 
-    /// One contour level's line segments, in grid coordinates.
-    pub struct ContourLevel {
+    /// One level's isoline segments, in grid coordinates.
+    #[serde(rename_all = "camelCase")]
+    #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
+    pub struct Isoline {
         pub value: f64,
         /// `[i0, j0, i1, j1]` per segment, in fractional grid indices.
         pub segments: Vec<[f64; 4]>,

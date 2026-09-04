@@ -40,8 +40,8 @@ pub mod session;
 pub mod shader;
 
 pub use api::{
-    AxisUnits, ContourLevel, Dtype, Field, Format, Georef, MessageInfo, Probe, Scan, Stats, Values,
-    Warped,
+    AxisUnits, Dtype, Field, Georef, Isoline, MessageInfo, Probe, Scan, SourceFormat, Stats,
+    Values, Warped,
 };
 pub use error::Error;
 pub use session::{DecodeOptions, PaletteOptions, Raster, Session, WarpOptions};

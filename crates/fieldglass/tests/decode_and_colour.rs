@@ -307,6 +307,57 @@ fn a_degenerate_grid_is_declined() {
     assert_eq!(err.code(), "invalid_option");
 }
 
+/// A logarithm needs a positive domain. Left to `core`, a non-positive minimum
+/// produces `-inf` or `NaN` bounds and paints every cell the low end of the
+/// ramp — a picture that looks like data. It is refused here instead.
+#[test]
+fn a_log_scale_refuses_a_non_positive_minimum() {
+    let session = open(FIXTURES[0].1);
+    let field = session
+        .decode(0, &DecodeOptions::default())
+        .expect("decode");
+    for min in [0.0, -5.0, f64::NAN] {
+        let mut options = PaletteOptions::default();
+        options.scale = Some("log10".to_string());
+        options.min = Some(min);
+        options.max = Some(1000.0);
+        let Err(err) = session.palette(&field, &options) else {
+            panic!("a log ramp starting at {min} has no domain and must be refused");
+        };
+        assert_eq!(err.code(), "invalid_option", "min = {min}");
+    }
+}
+
+/// An unknown colormap or scale name is an error, not a silent fallback: a host
+/// that misspells one should hear about it rather than get the default.
+#[test]
+fn an_unknown_palette_name_is_refused() {
+    let session = open(FIXTURES[0].1);
+    let field = session
+        .decode(0, &DecodeOptions::default())
+        .expect("decode");
+
+    let mut bad_colormap = PaletteOptions::default();
+    bad_colormap.colormap = Some("not-a-colormap".to_string());
+    assert_eq!(
+        session
+            .palette(&field, &bad_colormap)
+            .expect_err("unknown colormap")
+            .code(),
+        "invalid_option"
+    );
+
+    let mut bad_scale = PaletteOptions::default();
+    bad_scale.scale = Some("logarithmic".to_string());
+    assert_eq!(
+        session
+            .palette(&field, &bad_scale)
+            .expect_err("unknown scale")
+            .code(),
+        "invalid_option"
+    );
+}
+
 /// Bytes that are not a container this build knows are refused by code, so a
 /// host can tell "wrong file" from "broken file".
 #[test]
