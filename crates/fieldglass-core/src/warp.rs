@@ -77,7 +77,10 @@ const POLAR_STEREO_EQUATOR_RHO: f64 = 2.0;
 /// Resampling method when warping into the output raster.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Resampling {
+    /// Take the nearest source cell's value unchanged.
     Nearest,
+    /// Blend the four surrounding cells. Downgraded to nearest for a grid that
+    /// is a list of cell centres — see [`GridResampling`].
     Bilinear,
 }
 
@@ -95,9 +98,13 @@ type Inverse<'a> = &'a (dyn Fn(f64, f64) -> Option<GridIndex> + 'a);
 /// bitmap-masked typed array — anything); `inverse_at` is the projection
 /// helper from [`crate::projection`].
 pub struct SourceGrid<'a> {
+    /// Source grid columns.
     pub ni: u32,
+    /// Source grid rows.
     pub nj: u32,
+    /// Reads one source cell's value; `None` for a masked or absent cell.
     pub sample: Sample<'a>,
+    /// Maps a geographic point to a fractional source cell index.
     pub inverse_at: Inverse<'a>,
     /// `true` when the grid is periodic in `i` — a global west-to-east grid
     /// whose next column past `ni - 1` is column 0 again (see
@@ -138,11 +145,18 @@ impl std::fmt::Debug for SourceGrid<'_> {
 /// row 0 (north-up convention).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TargetRaster {
+    /// Output columns.
     pub width: u32,
+    /// Output rows.
     pub height: u32,
+    /// North edge of the output window, at pixel row 0.
     pub lat_max: f64,
+    /// South edge of the output window.
     pub lat_min: f64,
+    /// West edge of the output window.
     pub lon_min: f64,
+    /// East edge of the output window. May exceed 180 for a window spanning
+    /// the antimeridian; do not normalise it without collapsing the span.
     pub lon_max: f64,
     /// Whether the longitude window closes on itself — widened to a full turn
     /// because the *source* is periodic in longitude, so its two ends are the
@@ -160,9 +174,13 @@ pub struct TargetRaster {
 /// presence flag (1 = present, 0 = absent / off-grid / masked).
 #[derive(Debug)]
 pub struct WarpedRaster {
+    /// Resampled values, row-major from the north-west corner.
     pub values: Vec<f64>,
+    /// One byte per output pixel: `1` present, `0` off-grid or masked.
     pub mask: Vec<u8>,
+    /// Output columns.
     pub width: u32,
+    /// Output rows.
     pub height: u32,
 }
 
@@ -224,7 +242,10 @@ pub enum SeamSplit {
     /// so a tapered map (Mollweide narrows below half-width near the poles) is
     /// handled the same as a rectangular one. Used by the world and lat/lon-box
     /// targets.
-    Meridian { centre_deg: f64 },
+    Meridian {
+        /// The map's central meridian; the seam is at `centre_deg ± 180°`.
+        centre_deg: f64,
+    },
     /// Break on a greater-than-half-raster-width jump in pixel x. The source
     /// projection only: its raster is the rectangular grid laid straight in, so
     /// a column wrap really is a half-width x jump, and its wrap meridian (which
@@ -250,6 +271,8 @@ pub enum SeamSplit {
 /// nearest its window centre, so a vertex just outside an edge projects to a
 /// pixel just past that edge (continuous) rather than wrapping to the far side.
 pub trait ForwardMap {
+    /// Fractional output pixel for a geographic point, or `None` outside the
+    /// projection's visible domain — see the trait docs.
     fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)>;
 
     /// This target's seam-split rule (see [`SeamSplit`]). Defaults to

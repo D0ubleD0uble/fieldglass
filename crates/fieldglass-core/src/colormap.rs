@@ -29,7 +29,9 @@ use serde::{Deserialize, Serialize};
 /// suits anomalies and differences.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ColormapKind {
+    /// A ramp read low → high.
     Sequential,
+    /// Two hues either side of a neutral midpoint.
     Diverging,
 }
 
@@ -51,8 +53,11 @@ impl ColormapKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ScaleMode {
+    /// Colour position is the value's position in the range.
     #[default]
     Linear,
+    /// Colour position is `log10(value)`'s position in the range; a
+    /// non-positive value paints as missing.
     Log10,
 }
 

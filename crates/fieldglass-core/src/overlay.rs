@@ -103,7 +103,9 @@ impl ForwardMap for SourceOverlayTarget<'_> {
 /// visible run, so `seg_lengths.iter().sum::<u32>() * 2 == xy.len()`.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ProjectedPolylines {
+    /// Flat `[x0, y0, x1, y1, …]` vertex coordinates in output pixel space.
     pub xy: Vec<f64>,
+    /// Vertex count of each visible run, in the order the runs appear in `xy`.
     pub seg_lengths: Vec<u32>,
 }
 

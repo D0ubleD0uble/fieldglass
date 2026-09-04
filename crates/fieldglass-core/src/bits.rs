@@ -171,6 +171,7 @@ pub struct BitReader<'a> {
 }
 
 impl<'a> BitReader<'a> {
+    /// A reader positioned at the first bit of `bytes`.
     pub fn new(bytes: &'a [u8]) -> Self {
         Self {
             bytes,

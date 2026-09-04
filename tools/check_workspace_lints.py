@@ -49,7 +49,7 @@ REQUIRED_GROUPS = ("rust", "clippy")
 # what is checked is that the attribute is present, so that finishing a crate
 # forces this entry to go with it.
 DEBT = {
-    "crates/fieldglass-core": 158,
+    "crates/fieldglass-core": 85,
 }
 
 # `#![allow(missing_docs)]`, tolerating extra lints in the same attribute and

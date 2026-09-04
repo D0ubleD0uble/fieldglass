@@ -63,11 +63,14 @@ use std::borrow::Cow;
 /// bounded the value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ByteRange {
+    /// Offset of the first byte from the start of the source.
     pub start: u64,
+    /// Length of the range in bytes.
     pub len: u64,
 }
 
 impl ByteRange {
+    /// A range of `len` bytes beginning at `start`.
     pub fn new(start: u64, len: u64) -> Self {
         Self { start, len }
     }

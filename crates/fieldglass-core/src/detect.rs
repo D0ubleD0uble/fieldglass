@@ -3,11 +3,16 @@ use std::fs::File;
 #[cfg(feature = "fs")]
 use std::io::Read;
 
+/// What the leading bytes of a file turned out to be.
 #[derive(Debug)]
 pub enum Format {
+    /// WMO FM 92 GRIB edition 1.
     Grib1,
+    /// WMO FM 92 GRIB edition 2.
     Grib2,
+    /// NetCDF, either the classic layout or NetCDF-4 / HDF5.
     NetCdf,
+    /// None of the above — the caller has no reader for these bytes.
     Unknown,
 }
 
