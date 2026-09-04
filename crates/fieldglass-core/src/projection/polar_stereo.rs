@@ -146,8 +146,9 @@ impl PolarStereoProjector {
     }
 
     /// Invert projection-plane metres back to `(lat, lon)` in degrees.
-    /// Returns `lov` for the longitude when `(x, y) == (0, 0)` (the projection
-    /// pole), where longitude is undefined.
+    /// `(0, 0)` is the projection pole, where longitude is undefined; it
+    /// answers with the pole latitude and `lov` by convention, so warp setup
+    /// that hits it does not NaN-pollute a downstream min/max.
     pub fn inverse_xy(&self, x: f64, y: f64) -> (f64, f64) {
         polar_stereo_inverse_xy_with(&self.constants, self.params.lov, x, y)
     }

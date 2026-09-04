@@ -470,6 +470,7 @@ mod tests {
             false_northing_m: 0.0,
             ..ukv_params()
         };
+        let proj = TransverseMercatorProjector::new(p);
         let mut worst: f64 = 0.0;
         for (x, y, lat, lon) in [
             (500000.0, 0.0, 0.000000000, 3.000000000),
@@ -479,7 +480,7 @@ mod tests {
             (166000.0, 1000000.0, 9.033978846, -0.037660965),
             (834000.0, 1000000.0, 9.033978846, 6.037660965),
         ] {
-            let (got_lat, got_lon) = TransverseMercatorProjector::new(p).inverse_xy(x, y);
+            let (got_lat, got_lon) = proj.inverse_xy(x, y);
             worst = worst.max(metres_apart(lat, lon, got_lat, got_lon));
         }
         assert!(worst < 1e-3, "worst deviation from PROJ was {worst} m");
@@ -500,6 +501,7 @@ mod tests {
             false_northing_m: 5_000_000.0,
             ..ukv_params()
         };
+        let proj = TransverseMercatorProjector::new(p);
         let mut worst: f64 = 0.0;
         for (x, y, lat, lon) in [
             (300000.0, 5000000.0, -33.000000000, 151.000000000),
@@ -507,7 +509,7 @@ mod tests {
             (500000.0, 5200000.0, -31.179175500, 153.097987240),
             (300000.0, 5600000.0, -27.587337109, 151.000000000),
         ] {
-            let (got_lat, got_lon) = TransverseMercatorProjector::new(p).inverse_xy(x, y);
+            let (got_lat, got_lon) = proj.inverse_xy(x, y);
             worst = worst.max(metres_apart(lat, lon, got_lat, got_lon));
         }
         assert!(worst < 1e-3, "worst deviation from PROJ was {worst} m");
