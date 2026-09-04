@@ -8,7 +8,9 @@
 //! position in `vars` and the wrong one silently unpacks with another
 //! variable's attributes.
 
-use fieldglass_netcdf::{DatasetView, NetcdfBacking, NetcdfReader, extract_plane, unpack_cf_data};
+use fieldglass_netcdf::{
+    DatasetView, NcType, NetcdfBacking, NetcdfReader, extract_plane, unpack_cf_data,
+};
 
 const CLASSIC: &[u8] = include_bytes!("fixtures/ersst_v5_187001_cdf1.nc");
 const NC4: &[u8] = include_bytes!("fixtures/netcdf4_dimscale.nc");
@@ -46,16 +48,27 @@ fn the_default_view_is_empty() {
     assert!(empty.renderable_variables().is_empty());
 }
 
-/// Every variable of both backings, decoded both ways. `decode_variable_physical`
-/// has to equal decode-then-unpack-with-*that*-variable's-attributes for all of
-/// them, which is the mistake the convenience exists to prevent.
+/// Every numeric variable of both backings, decoded both ways.
+/// `decode_variable_physical` has to equal
+/// decode-then-unpack-with-*that*-variable's-attributes for all of them, which
+/// is the mistake the convenience exists to prevent. `char` variables are
+/// skipped: value decode refuses them by design, so a fixture that gained a
+/// text variable would otherwise fail this test rather than the code.
 #[test]
 fn physical_decode_equals_decode_then_unpack_for_every_variable() {
     for (label, bytes) in [("classic", CLASSIC), ("nc4", NC4)] {
         let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("parses");
         let view = reader.view().expect("view");
-        assert!(!view.vars.is_empty(), "{label}: fixture has variables");
-        for var in &view.vars {
+        let numeric: Vec<_> = view
+            .vars
+            .iter()
+            .filter(|v| v.nc_type != NcType::Char)
+            .collect();
+        assert!(
+            !numeric.is_empty(),
+            "{label}: fixture has numeric variables"
+        );
+        for var in numeric {
             let raw = reader
                 .decode_variable_values(var.decode_index)
                 .unwrap_or_else(|e| panic!("{label}: {} decodes: {e}", var.name));

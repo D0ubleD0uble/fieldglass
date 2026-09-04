@@ -153,22 +153,27 @@ impl NetcdfReader {
     /// a packed field almost always wants; the raw method is the stage below it.
     ///
     /// Resolves [`Self::view`] to reach the attributes, which for the HDF5
-    /// backing walks every dataset. A caller decoding many variables, or
-    /// re-slicing one, should hold a view and use [`Self::decode_plane`] or
-    /// [`VarView::unpack`] instead of paying that per call.
+    /// backing walks every dataset. A caller decoding many variables should
+    /// hold one view and take [`Self::decode_plane`] per variable; a caller
+    /// re-slicing *one* variable wants neither, since both decode it again —
+    /// cache [`Self::decode_variable_values`] yourself and apply
+    /// [`VarView::unpack`] to each plane, which is what the render host does.
     ///
-    /// Returns [`FieldglassError::OutOfRange`] for a decodable index the view
-    /// has no variable for — a NetCDF-4 pure-dimension placeholder, which
-    /// carries no attributes and so has no physical form. The raw method still
-    /// reads it.
+    /// Errors for a decodable index the view has no variable for — a NetCDF-4
+    /// pure-dimension placeholder, which carries no attributes and so has no
+    /// physical form. The raw method still reads it. The view is resolved
+    /// before the decode so that failure costs nothing.
     pub fn decode_variable_physical(
         &self,
         var_index: usize,
     ) -> Result<Vec<Option<f64>>, FieldglassError> {
-        let raw = self.decode_variable_values(var_index)?;
         let view = self.view()?;
-        let var = view.var(var_index).ok_or(FieldglassError::OutOfRange)?;
-        Ok(var.unpack(&raw))
+        let var = view.var(var_index).ok_or_else(|| {
+            FieldglassError::Parse(format!(
+                "no variable at decode index {var_index}, so no CF attributes to unpack with"
+            ))
+        })?;
+        Ok(var.unpack(&self.decode_variable_values(var_index)?))
     }
 
     /// Decode one 2-D plane of a variable in CF physical units — the whole chain
@@ -183,7 +188,9 @@ impl NetcdfReader {
     ///
     /// Takes the [`VarView`] rather than a bare index because the CF attributes
     /// live on it: passing it in is what keeps this from re-resolving the view
-    /// per call.
+    /// per call. It still decodes the variable on every call, so pulling many
+    /// planes out of one variable wants a cached decode and [`VarView::unpack`]
+    /// per plane instead.
     pub fn decode_plane(
         &self,
         var: &VarView,

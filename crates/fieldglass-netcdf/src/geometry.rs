@@ -71,8 +71,11 @@ pub struct VarView {
     pub nc_type: NcType,
     /// Ordered dimension names.
     pub dim_names: Vec<String>,
-    /// Attributes as `(name, display_value)`; only the CF axis attributes
-    /// (`units`, `standard_name`, `axis`) are consulted here.
+    /// Attributes as `(name, display_value)`. Axis detection reads the CF axis
+    /// attributes (`units`, `standard_name`, `axis`); [`VarView::unpack`] reads
+    /// the mask-and-scale ones (`scale_factor`, `add_offset`, `valid_range`,
+    /// `valid_min`, `valid_max`) back out of the same strings, so the values
+    /// here have to stay numerically faithful — see [`DatasetView::from_hdf5`].
     pub attrs: Vec<(String, String)>,
 }
 
@@ -186,8 +189,14 @@ impl DatasetView {
     /// [`VarView::decode_index`] is the metadata's own
     /// [`crate::hdf5::dimensions::VariableInfo::decode_index`], which already
     /// accounts for the pure-dimension datasets the classic backing never has.
-    /// Only the CF axis attributes (`units`, `standard_name`, `axis`) are read
-    /// downstream, so the attribute values are taken as their display strings.
+    ///
+    /// Attribute values are taken as display strings, but they are **not** only
+    /// read for display: [`VarView::unpack`] parses `scale_factor`,
+    /// `add_offset` and `valid_range` back out of them, which is why a scalar
+    /// numeric attribute keeps its full `f64` precision here (see `attr_value`)
+    /// rather than the rounded form the metadata panel shows. Making that
+    /// formatter lossier silently mis-scales every packed field on this
+    /// backing.
     pub fn from_hdf5(meta: &Hdf5Metadata) -> Self {
         let dims = meta
             .dimensions
