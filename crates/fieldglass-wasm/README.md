@@ -13,13 +13,25 @@ upstream ([ADR-0006](../../docs/decisions/0006-hosts-are-bindings-over-a-plain-d
 ```sh
 ./build.sh web      # ES module for a browser  → pkg/web
 ./build.sh nodejs   # CommonJS for Node        → pkg/nodejs
+./build.sh web --simd    # the +simd128 variant → pkg/web-simd
+./build.sh web --no-opt  # skip wasm-opt
 ```
 
-`pkg/` is a build product and is gitignored. The script checks that the
-`wasm-bindgen` CLI matches the `wasm-bindgen` crate version the build resolved,
-because a mismatch surfaces as an opaque "invalid schema version" at import
-time rather than as a build failure. Install the matching one with
-`cargo install wasm-bindgen-cli --version <the version it names>`.
+`pkg/` is a build product and is gitignored. Two tools have to be there:
+
+- **`wasm-bindgen`**, at the same version as the `wasm-bindgen` crate the build
+  resolved. The script checks, because a mismatch surfaces as an opaque
+  "invalid schema version" at import time rather than as a build failure.
+  Install the matching one with
+  `cargo install wasm-bindgen-cli --version <the version it names>`.
+- **`wasm-opt`** ([binaryen](https://github.com/WebAssembly/binaryen/releases)),
+  because `-Oz` is part of what ships and the sizes under **Measured** are the
+  optimised ones. `--no-opt` builds without it; the bundle is then not the
+  shipped one.
+
+`wasm-opt` is invoked with the target's own feature list, read out of
+`rustc --print cfg`. Its defaults are narrower than the target's, so a bare
+`wasm-opt -Oz` rejects every `memory.copy` rustc emits.
 
 Not wasm-pack, and not napi-rs's wasm target: napi-rs only ships loaders for
 `wasm32-wasip1-threads`, which needs COOP/COEP cross-origin isolation and about
