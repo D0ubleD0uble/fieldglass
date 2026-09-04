@@ -54,19 +54,142 @@ fn eta_lambert() -> LambertParams {
     }
 }
 
+/// The five families added in #464, each the real grid its round-trip test
+/// uses (`grid_round_trip.rs`) rather than a convenient synthetic one — #488
+/// hid in a synthetic grid that never left the northern hemisphere.
+fn maritime_mercator() -> MercatorParams {
+    MercatorParams {
+        ni: 40,
+        nj: 40,
+        lat_first: -40.0,
+        lon_first: 100.0,
+        lat_last: 40.0,
+        lon_last: 140.0,
+    }
+}
+
+/// A COSMO-EU-shaped rotated grid, coarsened: the pole is moved to 40S 10E and
+/// the grid is laid out around the new equator. Its corners are rotated-frame
+/// degrees, so the region it actually covers — western and central Europe — is
+/// nowhere near the numbers below.
+fn cosmo_rotated() -> RotatedLatLonParams {
+    RotatedLatLonParams {
+        ni: 40,
+        nj: 42,
+        lat_first: -20.0,
+        lon_first: -18.0,
+        lat_last: 21.0,
+        lon_last: 21.0,
+        south_pole_lat: -40.0,
+        south_pole_lon: 10.0,
+        angle_of_rotation: 0.0,
+    }
+}
+
+fn ukv_transverse_mercator() -> TransverseMercatorParams {
+    TransverseMercatorParams {
+        semi_major_m: 6_377_563.0,
+        semi_minor_m: 6_356_257.0,
+        ni: 24,
+        nj: 30,
+        lat_ref: 49.0,
+        lon_ref: -2.0,
+        scale_factor: 0.999_601_244_926_452_6,
+        false_easting_m: 400_000.0,
+        false_northing_m: -100_000.0,
+        x1_metres: -238_000.0,
+        y1_metres: 1_222_000.0,
+        dx_metres: 48_000.0,
+        dy_metres: -48_000.0,
+    }
+}
+
+fn efas_lambert_azimuthal() -> LambertAzimuthalParams {
+    LambertAzimuthalParams {
+        semi_major_m: 6_378_137.0,
+        semi_minor_m: 6_356_752.314,
+        ni: 20,
+        nj: 16,
+        lat_first: 35.0,
+        lon_first: -10.0,
+        standard_parallel: 52.0,
+        central_longitude: 10.0,
+        dx_metres: 200_000.0,
+        dy_metres: 200_000.0,
+    }
+}
+
+/// A GOES-16 ABI mesoscale window, well inside the limb so every grid point is
+/// a place on Earth. The near-limb case is `grid_geometry_proj.rs`'s.
+fn abi_mesoscale() -> GeostationaryParams {
+    GeostationaryParams {
+        ni: 100,
+        nj: 100,
+        h_metres: 42_164_160.0,
+        r_eq: 6_378_137.0,
+        r_pol: 6_356_752.314_14,
+        sub_lon_deg: -75.0,
+        sweep_x: true,
+        x0: -0.028,
+        dx_rad: 0.056 / 99.0,
+        y0: 0.078,
+        dy_rad: -0.056 / 99.0,
+    }
+}
+
+/// Every variant, for the tests that must not quietly stop covering one.
+fn every_modelled_family() -> Vec<GridGeometry> {
+    vec![
+        GridGeometry::LatLon(ecmwf_wrapping()),
+        GridGeometry::Gaussian(n80_gaussian()),
+        GridGeometry::Mercator(maritime_mercator()),
+        GridGeometry::RotatedLatLon(cosmo_rotated()),
+        GridGeometry::Lambert(eta_lambert()),
+        GridGeometry::PolarStereo(cmc_polar()),
+        GridGeometry::TransverseMercator(ukv_transverse_mercator()),
+        GridGeometry::LambertAzimuthal(efas_lambert_azimuthal()),
+        GridGeometry::Geostationary(abi_mesoscale()),
+    ]
+}
+
+fn n80_gaussian() -> GaussianParams {
+    GaussianParams {
+        ni: 320,
+        nj: 160,
+        lat_first: 89.142,
+        lon_first: 0.0,
+        lat_last: -89.142,
+        lon_last: 358.875,
+        n_parallels: 80,
+    }
+}
+
 #[test]
 fn each_variant_reports_the_tag_the_hosts_already_use() {
     // These strings are load-bearing: #464 swaps napi's `grid_type` string
     // dispatch for this enum, and a rename here would be a host-visible break.
-    assert_eq!(GridGeometry::LatLon(ecmwf_wrapping()).kind(), "latlon");
-    assert_eq!(GridGeometry::Lambert(eta_lambert()).kind(), "lambert");
+    let families = every_modelled_family();
+    let tags: Vec<&str> = families.iter().map(|g| g.kind()).collect();
     assert_eq!(
-        GridGeometry::PolarStereo(cmc_polar()).kind(),
-        "polar_stereo"
+        tags,
+        [
+            "latlon",
+            "gaussian",
+            "mercator",
+            "rotated_latlon",
+            "lambert",
+            "polar_stereo",
+            "transverse_mercator",
+            "lambert_azimuthal",
+            // The variant is named for the projection and the tag for the
+            // template, because `space_view` is what both readers and the hosts
+            // already print for a §3.90 message.
+            "space_view",
+        ],
     );
     assert_eq!(
         GridGeometry::Unsupported {
-            label: "space_view".into()
+            label: "spherical_harmonic".into()
         }
         .kind(),
         "unsupported",
@@ -74,10 +197,10 @@ fn each_variant_reports_the_tag_the_hosts_already_use() {
     );
     assert_eq!(
         GridGeometry::Unsupported {
-            label: "space_view".into()
+            label: "spherical_harmonic".into()
         }
         .label(),
-        "space_view",
+        "spherical_harmonic",
         "label() is what says which grid was declined",
     );
 }
@@ -86,20 +209,7 @@ fn each_variant_reports_the_tag_the_hosts_already_use() {
 fn every_grid_point_round_trips_through_the_enum() {
     // The dispatch is what is under test, not the projections: if `forward`
     // and `inverse` reached different families the indices would not come back.
-    for geom in [
-        GridGeometry::LatLon(ecmwf_wrapping()),
-        GridGeometry::Lambert(eta_lambert()),
-        GridGeometry::PolarStereo(cmc_polar()),
-        GridGeometry::Gaussian(GaussianParams {
-            ni: 320,
-            nj: 160,
-            lat_first: 89.142,
-            lon_first: 0.0,
-            lat_last: -89.142,
-            lon_last: 358.875,
-            n_parallels: 80,
-        }),
-    ] {
+    for geom in every_modelled_family() {
         let (ni, nj) = geom.dims().expect("a modelled family has dimensions");
         let mut worst = 0.0f64;
         // Stride so the global grids stay quick; the exhaustive walk is
@@ -315,7 +425,7 @@ fn the_closure_and_the_one_shot_inverse_agree() {
     // And a family with no map hands back a closure rather than making the
     // caller branch.
     let none = GridGeometry::Unsupported {
-        label: "space_view".into(),
+        label: "spherical_harmonic".into(),
     };
     assert!((none.inverse_at())(45.0, 0.0).is_none());
 }
@@ -324,14 +434,12 @@ fn the_closure_and_the_one_shot_inverse_agree() {
 fn the_enum_survives_a_json_round_trip() {
     // ADR-0006 requires serde on every API type; a host derives its own DTO
     // from this one, so the tag has to be stable and the payload complete.
-    for geom in [
-        GridGeometry::LatLon(ecmwf_wrapping()),
-        GridGeometry::Lambert(eta_lambert()),
-        GridGeometry::PolarStereo(cmc_polar()),
-        GridGeometry::Unsupported {
-            label: "space_view".into(),
-        },
-    ] {
+    for geom in every_modelled_family()
+        .into_iter()
+        .chain([GridGeometry::Unsupported {
+            label: "spherical_harmonic".into(),
+        }])
+    {
         let json = serde_json::to_string(&geom).expect("serialises");
         assert!(
             json.contains(&format!("\"kind\":\"{}\"", geom.kind())),
@@ -340,4 +448,127 @@ fn the_enum_survives_a_json_round_trip() {
         let back: GridGeometry = serde_json::from_str(&json).expect("deserialises");
         assert_eq!(back, geom);
     }
+}
+
+#[test]
+fn a_rotated_grid_reports_where_it_really_is_not_where_its_corners_say() {
+    // The corners (-18..21E, -20..21N in the rotated frame) are not a place:
+    // read as geographic they would put half the grid in the Sahara. The box
+    // has to come from unrotating the perimeter, which puts it over Europe.
+    let geom = GridGeometry::RotatedLatLon(cosmo_rotated());
+    let (lat_min, lat_max, lon_min, lon_max) =
+        geom.lonlat_bbox().expect("a rotated grid is placed");
+    let (lat, lon) = geom.forward(0, 0).expect("first point");
+    // The box runs east from `lon_min` and may pass 180 rather than wrapping —
+    // the convention `lonlat_bbox` documents — so bring the point into that
+    // turn before comparing.
+    let lon = lon_min + (lon - lon_min).rem_euclid(360.0);
+    assert!(
+        (lat_min..=lat_max).contains(&lat) && (lon_min..=lon_max).contains(&lon),
+        "the box ({lat_min}..{lat_max}, {lon_min}..{lon_max}) must contain its own \
+         first point ({lat}, {lon})",
+    );
+    assert!(
+        lat_min > 25.0 && lat_max < 75.0,
+        "the box ({lat_min}..{lat_max}) is not over Europe, so the perimeter was \
+         read as geographic instead of unrotated",
+    );
+}
+
+/// The one modelled family with no CRS. It places its points perfectly well;
+/// what it cannot yet do is name the frame they are laid out in, so it says so
+/// rather than naming an unchecked one. See `GridGeometry::proj4`.
+#[test]
+fn a_rotated_grid_names_no_crs_but_still_places_its_points() {
+    let geom = GridGeometry::RotatedLatLon(cosmo_rotated());
+    assert_eq!(geom.proj4(), None);
+    assert_eq!(geom.plane_affine(), None);
+    let (lat, lon) = geom
+        .forward(3, 4)
+        .expect("a rotated grid places its points");
+    let idx = geom.inverse(lat, lon).expect("and finds them again");
+    assert!(
+        (idx.i - 3.0).abs() < 1e-9 && (idx.j - 4.0).abs() < 1e-9,
+        "{idx:?}"
+    );
+}
+
+/// A message can declare a spheroid that is not one — GRIB2 §3 lets it — and
+/// the Krüger and authalic series stay arithmetically finite when it does. So
+/// the two spheroidal families check their own constants before answering;
+/// without that gate a nonsense §3.12 would geolocate every point somewhere
+/// plausible and wrong.
+#[test]
+fn a_spheroid_that_is_not_one_is_declined_rather_than_projected() {
+    let broken = [
+        GridGeometry::TransverseMercator(TransverseMercatorParams {
+            semi_major_m: 1.0,
+            semi_minor_m: -1.0,
+            ..ukv_transverse_mercator()
+        }),
+        GridGeometry::LambertAzimuthal(LambertAzimuthalParams {
+            semi_major_m: 0.0,
+            semi_minor_m: 0.0,
+            ..efas_lambert_azimuthal()
+        }),
+    ];
+    for geom in broken {
+        assert!(geom.forward(0, 0).is_none(), "{}: forward", geom.kind());
+        assert!(geom.lonlat_bbox().is_none(), "{}: bbox", geom.kind());
+        assert!(geom.plane_affine().is_none(), "{}: affine", geom.kind());
+        // `dims` still answers: the raster shape is a fact about the message,
+        // not about whether its projection resolves.
+        assert!(geom.dims().is_some(), "{}: dims", geom.kind());
+    }
+}
+
+/// The affine and the CRS are one claim in two halves, so a family reports
+/// both or neither. `grid_geometry_proj.rs` checks the numbers against PROJ;
+/// what is checked here is that the two halves cannot disagree about whether
+/// there is a plane at all.
+#[test]
+fn a_family_with_a_crs_has_an_affine_and_the_other_way_round() {
+    for geom in every_modelled_family() {
+        assert_eq!(
+            geom.proj4().is_some(),
+            geom.plane_affine().is_some(),
+            "{}: a CRS without an affine places nothing, and an affine without \
+             a CRS is a number with no plane",
+            geom.kind(),
+        );
+    }
+}
+
+#[test]
+fn the_geographic_families_measure_their_affine_in_degrees() {
+    let latlon = GridGeometry::LatLon(ecmwf_wrapping())
+        .plane_affine()
+        .expect("a lat/lon grid has an affine");
+    assert_eq!(latlon.units, PlaneUnits::Degrees);
+    assert_eq!(
+        latlon.x0, 180.0,
+        "the stated first point, not a normalised one"
+    );
+    assert_eq!(latlon.dx, Some(0.25));
+    assert_eq!(latlon.dy, Some(-0.25), "the grid scans north to south");
+
+    // Gaussian rows are Gauss-Legendre nodes: there is no constant spacing,
+    // and a mean one would misplace every row but the middle.
+    let gaussian = GridGeometry::Gaussian(n80_gaussian())
+        .plane_affine()
+        .expect("a Gaussian grid has an affine");
+    assert_eq!(gaussian.units, PlaneUnits::Degrees);
+    assert!(gaussian.dx.is_some());
+    assert_eq!(gaussian.dy, None);
+}
+
+#[test]
+fn a_family_with_no_plane_reports_no_affine() {
+    assert_eq!(
+        GridGeometry::Unsupported {
+            label: "bifourier".into()
+        }
+        .plane_affine(),
+        None,
+    );
 }

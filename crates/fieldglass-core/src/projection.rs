@@ -155,7 +155,7 @@ pub fn latlon_inverse(p: &LatLonParams, lat: f64, lon: f64) -> Option<GridIndex>
 // Mercator (GRIB2 template 3.10)
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct MercatorParams {
     pub ni: u32,
     pub nj: u32,
@@ -1353,7 +1353,7 @@ impl PlanarGridProjector for PolarStereoProjector {
 /// The series degenerates on its own when `a == b`: the authalic corrections
 /// are a power series in the eccentricity, `qsfn` collapses to `2 sin φ`, and
 /// what is left is the spherical formula eccodes' own `init_sphere` uses.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct LambertAzimuthalParams {
     /// Semi-major and semi-minor axes in metres, as the message declares them.
     pub semi_major_m: f64,
@@ -1728,7 +1728,7 @@ impl PlanarGridProjector for LambertAzimuthalProjector {
 /// spherical formulae on its own** when `a == b`: every α, β and δ coefficient
 /// is a power series in `n = f / (2 - f)`, and `n` is zero for a sphere. There
 /// is no separate spherical path to keep in step, and no accuracy to trade.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TransverseMercatorParams {
     /// Semi-major and semi-minor axes in metres, as the message declares them.
     pub semi_major_m: f64,
@@ -2033,7 +2033,7 @@ impl PlanarGridProjector for TransverseMercatorProjector {
 /// by `lon_first..lon_last`), so the corner fields are rotated-frame degrees,
 /// not geographic. Locating a geographic point means rotating it into that
 /// frame first, then indexing exactly like [`latlon_inverse`].
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RotatedLatLonParams {
     pub ni: u32,
     pub nj: u32,
@@ -2250,7 +2250,7 @@ impl RotatedLatLonProjector {
 /// which is the analytic inverse of the CGMS LRIT/HRIT forward that GRIB2 §3.90
 /// encodes. Off-disk points (no Earth intersection) invert to `None` so the
 /// limb renders transparent.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct GeostationaryParams {
     pub ni: u32,
     pub nj: u32,
@@ -2657,9 +2657,12 @@ impl GeostationaryProjector {
 /// placed, and [`GridGeometry::Unsupported`] carries the label it could not
 /// handle instead of erroring — a host can then say *which* grid it declined.
 ///
-/// The first cut covers what NOAA NODD and ECMWF publish. The other families
-/// `core` projects (Mercator, rotated lat/lon, transverse Mercator, Lambert
-/// azimuthal, geostationary) have projectors already and are additive here.
+/// Every family `core` can project has a variant, so a grid that reaches
+/// [`GridGeometry::Unsupported`] is one no projector exists for at all — a
+/// spectral or bi-Fourier message, or a template the reader parsed only far
+/// enough to name. The variants are ordered as the families are listed
+/// throughout the docs: the two geographic ones, the two that are geographic
+/// with a twist, then the four planar projections and the view from orbit.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[non_exhaustive]
 #[serde(tag = "kind")]
@@ -2668,10 +2671,32 @@ pub enum GridGeometry {
     LatLon(LatLonParams),
     #[serde(rename = "gaussian")]
     Gaussian(GaussianParams),
+    /// Evenly spaced in longitude and in the Mercator ordinate, so its rows
+    /// crowd toward the equator; the corners still state it geographically.
+    #[serde(rename = "mercator")]
+    Mercator(MercatorParams),
+    /// A lat/lon grid on a sphere whose pole has been moved. Its corners are
+    /// **rotated-frame** degrees, which is why it is a family of its own rather
+    /// than a [`LatLon`](Self::LatLon) with extra fields.
+    #[serde(rename = "rotated_latlon")]
+    RotatedLatLon(RotatedLatLonParams),
     #[serde(rename = "lambert")]
     Lambert(LambertParams),
     #[serde(rename = "polar_stereo")]
     PolarStereo(PolarStereoParams),
+    /// Transverse Mercator (GRIB2 §3.12), on the spheroid the message declares
+    /// rather than a mean sphere — see [`TransverseMercatorParams`].
+    #[serde(rename = "transverse_mercator")]
+    TransverseMercator(TransverseMercatorParams),
+    /// Lambert azimuthal equal-area (GRIB2 §3.140), likewise on the spheroid.
+    #[serde(rename = "lambert_azimuthal")]
+    LambertAzimuthal(LambertAzimuthalParams),
+    /// The view from geostationary orbit (GRIB2 §3.90). Tagged `space_view`
+    /// rather than `geostationary` because that is the template name both
+    /// readers and the hosts already print; the variant is named for the
+    /// projection, the tag for the grid the message declares.
+    #[serde(rename = "space_view")]
+    Geostationary(GeostationaryParams),
     /// A grid that is a list of cell centres rather than a formula — NetCDF
     /// 2-D coordinates, GRIB2 §3.204, ICON §3.101. Answers with a cell, never
     /// a position inside one; see [`GridResampling::NearestOnly`].
@@ -2697,8 +2722,13 @@ impl GridGeometry {
         match self {
             Self::LatLon(_) => "latlon",
             Self::Gaussian(_) => "gaussian",
+            Self::Mercator(_) => "mercator",
+            Self::RotatedLatLon(_) => "rotated_latlon",
             Self::Lambert(_) => "lambert",
             Self::PolarStereo(_) => "polar_stereo",
+            Self::TransverseMercator(_) => "transverse_mercator",
+            Self::LambertAzimuthal(_) => "lambert_azimuthal",
+            Self::Geostationary(_) => "space_view",
             Self::Lookup(_) => "lookup",
             Self::Unsupported { .. } => "unsupported",
         }
@@ -2719,8 +2749,13 @@ impl GridGeometry {
         match self {
             Self::LatLon(p) => Some((p.ni, p.nj)),
             Self::Gaussian(p) => Some((p.ni, p.nj)),
+            Self::Mercator(p) => Some((p.ni, p.nj)),
+            Self::RotatedLatLon(p) => Some((p.ni, p.nj)),
             Self::Lambert(p) => Some((p.ni, p.nj)),
             Self::PolarStereo(p) => Some((p.ni, p.nj)),
+            Self::TransverseMercator(p) => Some((p.ni, p.nj)),
+            Self::LambertAzimuthal(p) => Some((p.ni, p.nj)),
+            Self::Geostationary(p) => Some((p.ni, p.nj)),
             Self::Lookup(ix) => Some(ix.dims()),
             Self::Unsupported { .. } => None,
         }
@@ -2736,8 +2771,26 @@ impl GridGeometry {
         match self {
             Self::LatLon(p) => latlon_point(p, i, j),
             Self::Gaussian(p) => GaussianProjector::new(*p).grid_point_lonlat(i, j),
+            Self::Mercator(p) => mercator_point(p, i, j),
+            Self::RotatedLatLon(p) => rotated_latlon_point(p, i, j),
             Self::Lambert(p) => Some(LambertProjector::new(*p).grid_point_lonlat(i, j)),
             Self::PolarStereo(p) => Some(PolarStereoProjector::new(*p).grid_point_lonlat(i, j)),
+            // The two spheroidal projections answer `None` for a spheroid that
+            // is not one. Their constants stay finite when `a` and `b` are
+            // nonsense, so without this gate a degenerate §3.12 message would
+            // geolocate every point somewhere plausible-looking; it is the same
+            // check the warp setup makes before offering a reprojection.
+            Self::TransverseMercator(p) => {
+                let proj = TransverseMercatorProjector::new(*p);
+                proj.is_well_defined().then(|| proj.grid_point_lonlat(i, j))
+            }
+            Self::LambertAzimuthal(p) => {
+                let proj = LambertAzimuthalProjector::new(*p);
+                proj.is_well_defined().then(|| proj.grid_point_lonlat(i, j))
+            }
+            // A pixel whose line of sight misses the Earth is space, and the
+            // projector already says so.
+            Self::Geostationary(p) => GeostationaryProjector::new(*p).grid_point_lonlat(i, j),
             // Answered from the index's own centres (#445). The longitude
             // comes back normalised to [-180, 180]; see `SpatialIndex::centre`.
             Self::Lookup(ix) => ix.centre(i, j),
@@ -2775,12 +2828,31 @@ impl GridGeometry {
                 // so the closure captures the params rather than a projector.
                 Box::new(move |lat, lon| gaussian_inverse(p, lat, lon))
             }
+            Self::Mercator(p) => Box::new(move |lat, lon| mercator_inverse(p, lat, lon)),
+            Self::RotatedLatLon(p) => {
+                // The projector caches the rotated-frame corner grid once; the
+                // closure reuses it for every output pixel.
+                let proj = RotatedLatLonProjector::new(*p);
+                Box::new(move |lat, lon| proj.inverse(lat, lon))
+            }
             Self::Lambert(p) => {
                 let proj = LambertProjector::new(*p);
                 Box::new(move |lat, lon| proj.inverse(lat, lon))
             }
             Self::PolarStereo(p) => {
                 let proj = PolarStereoProjector::new(*p);
+                Box::new(move |lat, lon| proj.inverse(lat, lon))
+            }
+            Self::TransverseMercator(p) => {
+                let proj = TransverseMercatorProjector::new(*p);
+                Box::new(move |lat, lon| proj.inverse(lat, lon))
+            }
+            Self::LambertAzimuthal(p) => {
+                let proj = LambertAzimuthalProjector::new(*p);
+                Box::new(move |lat, lon| proj.inverse(lat, lon))
+            }
+            Self::Geostationary(p) => {
+                let proj = GeostationaryProjector::new(*p);
                 Box::new(move |lat, lon| proj.inverse(lat, lon))
             }
             Self::Lookup(ix) => Box::new(move |lat, lon| ix.nearest(lat, lon)),
@@ -2831,6 +2903,18 @@ impl GridGeometry {
                 p.lat_last,
                 p.lon_last,
             )),
+            // Rows crowd toward the equator, but the extreme latitudes are
+            // still the two stated corners, so the box is the corners here too.
+            Self::Mercator(p) => Some(corner_bbox(
+                p.lat_first,
+                p.lon_first,
+                p.lat_last,
+                p.lon_last,
+            )),
+            // The corners are rotated-frame degrees, so — unlike every other
+            // geographic family — they are not the geographic extent. The
+            // projector walks the rotated perimeter and unrotates it.
+            Self::RotatedLatLon(p) => Some(RotatedLatLonProjector::new(*p).lonlat_bbox()),
             // The extent of its own centres (#445), widened to the full circle
             // when they surround a pole and the enclosing arc stops meaning
             // anything — the same degeneracy `PolarStereo` handles below.
@@ -2853,6 +2937,33 @@ impl GridGeometry {
                     Some((lat_min, lat_max, lon_min, lon_max))
                 }
             }
+            // Gated on the spheroid the same way `forward` is: a box walked
+            // with degenerate constants is finite and meaningless, which frames
+            // a render on nothing.
+            Self::TransverseMercator(p) => {
+                let proj = TransverseMercatorProjector::new(*p);
+                proj.is_well_defined().then(|| proj.lonlat_bbox())
+            }
+            Self::LambertAzimuthal(p) => {
+                let proj = LambertAzimuthalProjector::new(*p);
+                proj.is_well_defined().then(|| proj.lonlat_bbox())
+            }
+            // The on-disk extent, so a cropped sector (GOES CONUS or
+            // mesoscale, a Meteosat sector) frames its sector rather than a
+            // hemisphere. A full disc whose whole perimeter is limb has no
+            // on-disk sample to walk; fall back there to the full latitude span
+            // and a quarter-turn of longitude either side of the sub-satellite
+            // point, which is what the napi warp has framed such a grid with
+            // since §3.90 landed. Off-disk pixels invert to `None` regardless,
+            // so the fallback affects framing and never correctness.
+            Self::Geostationary(p) => {
+                Some(GeostationaryProjector::new(*p).lonlat_bbox().unwrap_or((
+                    -90.0,
+                    90.0,
+                    p.sub_lon_deg - 90.0,
+                    p.sub_lon_deg + 90.0,
+                )))
+            }
             Self::Unsupported { .. } => None,
         }
     }
@@ -2870,7 +2981,21 @@ impl GridGeometry {
     ///
     /// The Earth is the sphere the message declared (`+R=`), never a datum:
     /// a GRIB grid states a radius, and substituting WGS84 would move a
-    /// continental grid by kilometres.
+    /// continental grid by kilometres. The two spheroidal families state both
+    /// axes (`+a=` / `+b=`) for the same reason — a UKV grid on Airy 1830 is
+    /// 2.8 km out on a mean radius, an EFAS grid 13.5 km.
+    ///
+    /// Transverse Mercator is the one family whose CRS *does* carry a false
+    /// easting and northing: §3.12 states them, and `X1`/`Y1` are already
+    /// measured in the plane they define, so leaving them out of the string
+    /// would move the grid by exactly them.
+    ///
+    /// [`RotatedLatLon`](Self::RotatedLatLon) answers `None` even though it
+    /// places its points perfectly well. Its raster axes are degrees in the
+    /// *rotated* frame, so the CRS would have to be a PROJ `ob_tran`, whose
+    /// pole convention and output units this crate has no oracle for yet;
+    /// naming a CRS that has not been checked against PROJ is worse than
+    /// naming none, because the caller cannot tell.
     pub fn proj4(&self) -> Option<String> {
         match self {
             // Geographic: the values `forward` returns are already lon/lat.
@@ -2899,9 +3024,168 @@ impl GridGeometry {
                 p.lov,
                 p.earth_radius_m
             )),
+            // The grid is evenly spaced in longitude and in the Mercator
+            // ordinate, which is exactly the plane `+proj=merc` lays out. The
+            // params carry no radius — they pin the grid by its corners alone —
+            // so the CRS states core's default sphere and the affine is
+            // measured on it. `+lat_ts=0` keeps the scale on the equator, which
+            // is where the ordinate is defined from.
+            Self::Mercator(_) => Some(format!(
+                "+proj=merc +lat_ts=0 +lon_0=0 +R={DEFAULT_EARTH_RADIUS_M} +units=m +no_defs"
+            )),
+            Self::TransverseMercator(p) => Some(format!(
+                "+proj=tmerc +lat_0={} +lon_0={} +k_0={} +x_0={} +y_0={} +a={} +b={} \
+                 +units=m +no_defs",
+                p.lat_ref,
+                p.lon_ref,
+                p.scale_factor,
+                p.false_easting_m,
+                p.false_northing_m,
+                p.semi_major_m,
+                p.semi_minor_m
+            )),
+            Self::LambertAzimuthal(p) => Some(format!(
+                "+proj=laea +lat_0={} +lon_0={} +a={} +b={} +units=m +no_defs",
+                p.standard_parallel, p.central_longitude, p.semi_major_m, p.semi_minor_m
+            )),
+            // PROJ measures a geostationary plane in metres on the satellite's
+            // sight line: one radian of scan angle is `+h` metres, and `+h` is
+            // the height above the ellipsoid, not the distance from its centre
+            // that `h_metres` carries.
+            Self::Geostationary(p) => Some(format!(
+                "+proj=geos +h={} +lon_0={} +sweep={} +a={} +b={} +units=m +no_defs",
+                p.h_metres - p.r_eq,
+                p.sub_lon_deg,
+                if p.sweep_x { "x" } else { "y" },
+                p.r_eq,
+                p.r_pol
+            )),
+            // See the method's doc: it can place its points, but not yet name
+            // the frame they are laid out in.
+            Self::RotatedLatLon(_) => None,
             Self::Unsupported { .. } => None,
         }
     }
+
+    /// Where the raster sits in the plane [`proj4`](Self::proj4) names: the
+    /// first grid point and the step to the next one along each axis.
+    ///
+    /// This is the other half of what a map library needs. `proj4` says which
+    /// plane; this says where in it the corner pixel goes and how big a pixel
+    /// is. The two are computed from the same params in the same place so they
+    /// cannot describe different planes — a host that derived the affine itself
+    /// would be re-deriving the Mercator ordinate, the false easting, and the
+    /// scan-angle-to-metre factor that the CRS strings already encode.
+    ///
+    /// `None` where there is no such plane: a lookup grid is a list of centres,
+    /// a rotated lat/lon grid has no CRS to be affine in (see `proj4`), and an
+    /// unmodelled family has neither. An axis with no constant step reports
+    /// `dx`/`dy` of `None` while the origin still stands — a Gaussian grid's
+    /// rows are Gauss–Legendre nodes, and a mean spacing would misplace every
+    /// row but the middle one.
+    pub fn plane_affine(&self) -> Option<PlaneAffine> {
+        /// Spacing of `n` points spanning `span`, or `None` for a single-point
+        /// axis, where no spacing is defined.
+        fn step(span: f64, n: u32) -> Option<f64> {
+            (n > 1).then(|| span / f64::from(n - 1))
+        }
+        /// The origin and spacing of a planar projection's grid, as the
+        /// projector itself reports them.
+        fn planar(proj: &dyn PlanarGridProjector) -> PlaneAffine {
+            let (x0, y0) = proj.grid_origin();
+            let (dx, dy) = proj.grid_spacing();
+            PlaneAffine {
+                x0,
+                y0,
+                dx: Some(dx),
+                dy: Some(dy),
+                units: PlaneUnits::Metres,
+            }
+        }
+        match self {
+            Self::LatLon(p) => Some(PlaneAffine {
+                x0: p.lon_first,
+                y0: p.lat_first,
+                dx: step(eastward_lon_span(p.lon_first, p.lon_last), p.ni),
+                dy: step(p.lat_last - p.lat_first, p.nj),
+                units: PlaneUnits::Degrees,
+            }),
+            Self::Gaussian(p) => Some(PlaneAffine {
+                x0: p.lon_first,
+                y0: p.lat_first,
+                dx: step(eastward_lon_span(p.lon_first, p.lon_last), p.ni),
+                dy: None,
+                units: PlaneUnits::Degrees,
+            }),
+            // Measured on the `+proj=merc` plane of core's default sphere, the
+            // one `proj4` names: metres east are `R·λ` and metres north are
+            // `R·ln(tan(π/4 + φ/2))`, which is what makes the rows uniform.
+            Self::Mercator(p) => {
+                let r = DEFAULT_EARTH_RADIUS_M;
+                let y_first = mercator_ordinate(p.lat_first);
+                let y_last = mercator_ordinate(p.lat_last);
+                Some(PlaneAffine {
+                    x0: r * p.lon_first * DEG2RAD,
+                    y0: r * y_first,
+                    dx: step(
+                        r * eastward_lon_span(p.lon_first, p.lon_last) * DEG2RAD,
+                        p.ni,
+                    ),
+                    dy: step(r * (y_last - y_first), p.nj),
+                    units: PlaneUnits::Metres,
+                })
+            }
+            Self::Lambert(p) => Some(planar(&LambertProjector::new(*p))),
+            Self::PolarStereo(p) => Some(planar(&PolarStereoProjector::new(*p))),
+            Self::TransverseMercator(p) => {
+                let proj = TransverseMercatorProjector::new(*p);
+                proj.is_well_defined().then(|| planar(&proj))
+            }
+            Self::LambertAzimuthal(p) => {
+                let proj = LambertAzimuthalProjector::new(*p);
+                proj.is_well_defined().then(|| planar(&proj))
+            }
+            // Scan angles become metres on the same sight line `+h` measures
+            // along, so the affine and the CRS agree by construction.
+            Self::Geostationary(p) => {
+                let h = p.h_metres - p.r_eq;
+                Some(PlaneAffine {
+                    x0: h * p.x0,
+                    y0: h * p.y0,
+                    dx: Some(h * p.dx_rad),
+                    dy: Some(h * p.dy_rad),
+                    units: PlaneUnits::Metres,
+                })
+            }
+            Self::RotatedLatLon(_) | Self::Lookup(_) | Self::Unsupported { .. } => None,
+        }
+    }
+}
+
+/// The units a [`PlaneAffine`] is measured in — the axes of the CRS
+/// [`GridGeometry::proj4`] names for the same grid.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum PlaneUnits {
+    /// `x` is a longitude and `y` a latitude, both in degrees.
+    Degrees,
+    /// Projection-plane metres.
+    Metres,
+}
+
+/// Where a grid's raster sits in its own projection plane: the first scanned
+/// point, and the step from it to the next one along each axis.
+///
+/// The step carries the scan sign, as the projected families' `dx`/`dy` do:
+/// a north-to-south grid steps by a negative `dy`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PlaneAffine {
+    pub x0: f64,
+    pub y0: f64,
+    /// `None` for an axis with no constant step — a single-point axis, or a
+    /// Gaussian grid's rows.
+    pub dx: Option<f64>,
+    pub dy: Option<f64>,
+    pub units: PlaneUnits,
 }
 
 /// Box of a geographic grid from its two stated corners, in the same

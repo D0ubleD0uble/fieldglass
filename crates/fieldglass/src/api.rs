@@ -18,10 +18,7 @@
 //! * **`#[non_exhaustive]`, serde derives, and (under the `schema` feature) a
 //!   JSON Schema**, which is what a host's declarations are generated from.
 
-use fieldglass_core::{
-    GridGeometry, LambertProjector, PlanarGridProjector, PolarStereoProjector, eastward_lon_span,
-    lon_grid_is_global,
-};
+use fieldglass_core::{GridGeometry, PlaneUnits, eastward_lon_span, lon_grid_is_global};
 
 /// Convenience: every API type derives the same set. Each states its own
 /// `rename_all`.
@@ -352,46 +349,17 @@ impl Georef {
     /// placing the raster needs both halves and this carries them together.
     pub fn from_geometry(geom: &GridGeometry, scan: Scan) -> Self {
         let (ni, nj) = geom.dims().unwrap_or((0, 0));
-        let (axis_units, x0, y0, dx, dy) = match geom {
-            GridGeometry::LatLon(p) => {
-                let span = eastward_lon_span(p.lon_first, p.lon_last);
-                (
-                    AxisUnits::Degrees,
-                    Some(p.lon_first),
-                    Some(p.lat_first),
-                    step(span, p.ni),
-                    step(p.lat_last - p.lat_first, p.nj),
-                )
-            }
-            GridGeometry::Gaussian(p) => {
-                let span = eastward_lon_span(p.lon_first, p.lon_last);
-                (
-                    AxisUnits::Degrees,
-                    Some(p.lon_first),
-                    Some(p.lat_first),
-                    step(span, p.ni),
-                    // Gaussian latitudes are Gauss–Legendre nodes: there is no
-                    // constant row spacing to report, and inventing a mean one
-                    // would misplace every row but the middle.
-                    None,
-                )
-            }
-            GridGeometry::Lambert(p) => {
-                let proj = LambertProjector::new(*p);
-                let (x0, y0) = proj.grid_origin();
-                let (dx, dy) = proj.grid_spacing();
-                (AxisUnits::Metres, Some(x0), Some(y0), Some(dx), Some(dy))
-            }
-            GridGeometry::PolarStereo(p) => {
-                let proj = PolarStereoProjector::new(*p);
-                let (x0, y0) = proj.grid_origin();
-                let (dx, dy) = proj.grid_spacing();
-                (AxisUnits::Metres, Some(x0), Some(y0), Some(dx), Some(dy))
-            }
-            // A list of cell centres has no affine, and an unmodelled family
-            // has nothing at all.
-            _ => (AxisUnits::Degrees, None, None, None, None),
+        // One question, asked of `core`: a family that has a plane reports its
+        // origin and step in that plane's own units, and one that has none (a
+        // list of cell centres, a rotated frame with no CRS, an unmodelled
+        // grid) reports nothing rather than a plausible-looking zero.
+        let affine = geom.plane_affine();
+        let axis_units = match affine.map(|a| a.units) {
+            Some(PlaneUnits::Metres) => AxisUnits::Metres,
+            Some(PlaneUnits::Degrees) | None => AxisUnits::Degrees,
         };
+        let (x0, y0) = (affine.map(|a| a.x0), affine.map(|a| a.y0));
+        let (dx, dy) = (affine.and_then(|a| a.dx), affine.and_then(|a| a.dy));
         Self {
             geometry: geom.clone(),
             kind: geom.kind().to_string(),
@@ -426,12 +394,6 @@ fn geometry_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
     })
 }
 
-/// Spacing of `n` points spanning `span`, or `None` for a single-point axis
-/// where no spacing is defined.
-fn step(span: f64, n: u32) -> Option<f64> {
-    (n > 1).then(|| span / f64::from(n - 1))
-}
-
 /// Whether the grid's column axis closes on itself.
 ///
 /// Only the geographic families can be: a projected grid's columns are
@@ -446,6 +408,19 @@ fn geometry_is_periodic_x(geom: &GridGeometry) -> bool {
         GridGeometry::Gaussian(p) => {
             lon_grid_is_global(eastward_lon_span(p.lon_first, p.lon_last), p.ni)
         }
+        // Evenly spaced in longitude like the two above, so the same corner
+        // test decides it.
+        GridGeometry::Mercator(p) => {
+            lon_grid_is_global(eastward_lon_span(p.lon_first, p.lon_last), p.ni)
+        }
+        // Judged in its own rotated frame, which is the frame its corners and
+        // its inverse map are both stated in. A rotated grid that closes on
+        // itself there closes on itself on the sphere too.
+        GridGeometry::RotatedLatLon(p) => {
+            lon_grid_is_global(eastward_lon_span(p.lon_first, p.lon_last), p.ni)
+        }
+        // A projected grid's columns are projection-plane metres, and no finite
+        // number of them wraps the Earth.
         _ => false,
     }
 }
@@ -453,7 +428,7 @@ fn geometry_is_periodic_x(geom: &GridGeometry) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fieldglass_core::{LambertParams, LatLonParams};
+    use fieldglass_core::{LambertParams, LambertProjector, LatLonParams, PlanarGridProjector};
 
     fn scan() -> Scan {
         Scan {
