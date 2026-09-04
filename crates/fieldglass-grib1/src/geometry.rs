@@ -23,16 +23,16 @@
 //!   derivation is [`GridDescription::raster_bounds`], read here rather than
 //!   repeated, so this conversion and the hosts cannot drift apart about where
 //!   an octahedral grid's east edge is.
-//! * **An unmodelled family is `Unsupported`, not an error.** A rotated lat/lon
-//!   or spectral message still has metadata worth listing; the geometry simply
-//!   cannot place its points, and it says which family it declined.
+//! * **An unmodelled family is `Unsupported`, not an error.** A spectral
+//!   message still has metadata worth listing; the geometry simply cannot
+//!   place its points, and it says which family it declined.
 //!
 //! GRIB1 has no `LaD` field for polar stereographic: ON388 fixes the latitude
 //! of true scale at ±60°, which [`crate::gds::PolarStereoGrid::lad`] supplies.
 
 use fieldglass_core::{
     GaussianParams, GridGeometry, LambertParams, LatLonParams, PolarStereoParams,
-    reduced_raster_width,
+    RotatedLatLonParams, reduced_raster_width,
 };
 
 use crate::gds::GridDescription;
@@ -109,6 +109,21 @@ impl From<&GridDescription> for GridGeometry {
                     latin2: g.latin2,
                 })
             }
+            // Grid type 10. Its corners are **rotated-frame** degrees, so
+            // they are handed over as stated — unrotating them here would
+            // place the grid twice. Same shape as the GRIB2 §3.1 conversion,
+            // because it is the same grid written in different octets.
+            GridDescription::RotatedLatLon(g) => Self::RotatedLatLon(RotatedLatLonParams {
+                ni: g.ni,
+                nj: g.nj,
+                lat_first: g.lat_first,
+                lon_first: g.lon_first,
+                lat_last: g.lat_last,
+                lon_last: g.lon_last,
+                south_pole_lat: g.south_pole_lat,
+                south_pole_lon: g.south_pole_lon,
+                angle_of_rotation: g.angle_of_rotation,
+            }),
             GridDescription::PolarStereographic(g) => {
                 let (dx, dy) = g.signed_increments();
                 Self::PolarStereo(PolarStereoParams {
@@ -124,10 +139,10 @@ impl From<&GridDescription> for GridGeometry {
                     south_pole: g.south_pole,
                 })
             }
-            // Modelled by `core`'s projectors but not yet by `GridGeometry`
-            // (rotated lat/lon), or not a raster at all (spherical harmonics,
-            // which `synthesize_spectral_message` turns into a lat/lon grid
-            // with its own geometry). Both name themselves rather than erroring.
+            // Not a raster at all: spherical harmonics live in wavenumber
+            // space, and `synthesize_spectral_message` is what turns one into a
+            // lat/lon grid with its own geometry. It names itself rather than
+            // erroring, and so does a grid type this parser never read past.
             other => Self::Unsupported {
                 label: other.grid_type_name().to_string(),
             },
@@ -140,7 +155,7 @@ mod tests {
     use super::*;
     use crate::gds::{
         GaussianGrid, LambertGrid, LatLonGrid, PolarStereoGrid, ReducedGaussianGrid,
-        ResolutionFlags, ScanningMode,
+        ResolutionFlags, RotatedLatLonGrid, ScanningMode,
     };
 
     fn flags() -> ResolutionFlags {
@@ -290,6 +305,52 @@ mod tests {
         assert_eq!(p.lad, 60.0, "ON388 fixes GRIB1's true scale at 60°");
         assert!(!p.south_pole);
         assert_eq!(p.dy_metres, 190_500.0, "south-to-north scan walks +Dy");
+    }
+
+    /// Grid type 10's corners are rotated-frame degrees. The conversion hands
+    /// them over untouched, and the proof that this is right is that the
+    /// geometry then places the grid somewhere else: a COSMO-EU-shaped domain
+    /// whose corners read as -18..21E lands over Europe, not the Sahara.
+    #[test]
+    fn rotated_latlon_keeps_its_corners_in_the_rotated_frame() {
+        let gds = GridDescription::RotatedLatLon(RotatedLatLonGrid {
+            ni: 40,
+            nj: 42,
+            lat_first: -20.0,
+            lon_first: -18.0,
+            lat_last: 21.0,
+            lon_last: 21.0,
+            di: 1.0,
+            dj: 1.0,
+            south_pole_lat: -40.0,
+            south_pole_lon: 10.0,
+            angle_of_rotation: 0.0,
+            resolution_flags: flags(),
+            scanning_mode: ScanningMode {
+                i_negative: false,
+                j_positive: true,
+                j_consecutive: false,
+            },
+        });
+        let GridGeometry::RotatedLatLon(p) = GridGeometry::from(&gds) else {
+            panic!("grid type 10 should convert to a rotated geometry");
+        };
+        assert_eq!((p.lat_first, p.lon_first), (-20.0, -18.0));
+        assert_eq!((p.south_pole_lat, p.south_pole_lon), (-40.0, 10.0));
+
+        let geom = GridGeometry::from(&gds);
+        let (lat, lon) = geom.forward(0, 0).expect("a rotated grid is placed");
+        assert!(
+            (lat - p.lat_first).abs() > 1e-6 || (lon - p.lon_first).abs() > 1e-6,
+            "the first point came back at its rotated-frame corner ({lat}, {lon}), \
+             so the rotation was never applied",
+        );
+        let (lat_min, lat_max, ..) = geom.lonlat_bbox().expect("and framed");
+        assert!(
+            lat_min > 25.0 && lat_max < 75.0,
+            "the box ({lat_min}..{lat_max}) is not over Europe, so the perimeter \
+             was read as geographic instead of unrotated",
+        );
     }
 
     #[test]

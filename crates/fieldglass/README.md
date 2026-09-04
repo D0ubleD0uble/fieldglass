@@ -73,10 +73,17 @@ it rather than with a struct literal.
 
 ## Scope of this first cut
 
-GRIB1 and GRIB2, and the four grid families NOAA NODD and ECMWF publish
-(lat/lon, Gaussian, Lambert conformal, polar stereographic). Anything else
+GRIB1 and GRIB2, and every grid family the engine can project: lat/lon,
+Gaussian, Mercator, rotated lat/lon, Lambert conformal, polar stereographic,
+transverse Mercator, Lambert azimuthal equal-area, and the geostationary space
+view. A grid that is not a raster at all — spherical harmonics, bi-Fourier —
 reports `Unsupported` with its own label rather than erroring, so a message can
 still say which grid was declined.
+
+Every projected family also names a PROJ CRS and the affine placing its raster
+in it, checked against PROJ itself rather than against a golden of our own
+output. Rotated lat/lon is the exception: it places its points, but its axes
+are degrees in a rotated frame and it does not yet name that frame as a CRS.
 
 Filed under
 [#460](https://github.com/D0ubleD0uble/fieldglass/issues/460) so
