@@ -10,13 +10,22 @@ use std::f64::consts::PI;
 use super::latlon::{eastward_lon_span, eastward_rel_lon};
 use super::{DEG2RAD, GridIndex, RAD2DEG};
 
+/// A Mercator grid — GRIB2 template 3.10. Longitude is linear and the rows
+/// are evenly spaced in the Mercator ordinate, so the two stated corners
+/// describe it: `dx`/`dy` in metres never enter the geolocation.
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct MercatorParams {
+    /// Points along a row (`Ni`).
     pub ni: u32,
+    /// Rows (`Nj`).
     pub nj: u32,
+    /// Latitude of the first scanned point, degrees.
     pub lat_first: f64,
+    /// Longitude of the first scanned point, degrees.
     pub lon_first: f64,
+    /// Latitude of the last scanned point, degrees.
     pub lat_last: f64,
+    /// Longitude of the last scanned point, degrees.
     pub lon_last: f64,
 }
 

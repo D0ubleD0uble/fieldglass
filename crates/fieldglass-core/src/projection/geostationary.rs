@@ -25,7 +25,9 @@ use super::{DEFAULT_SNAP_EPS, DEG2RAD, GridIndex, enclosing_lon_arc, snap_to_ran
 /// limb renders transparent.
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct GeostationaryParams {
+    /// Points along a row (`Ni`).
     pub ni: u32,
+    /// Rows (`Nj`).
     pub nj: u32,
     /// Distance from the Earth's **centre** to the satellite, metres
     /// (`perspective_point_height + r_eq` for CF; `Nr · r_eq` for GRIB2 §3.90).
@@ -50,6 +52,10 @@ pub struct GeostationaryParams {
     pub dy_rad: f64,
 }
 
+/// Ellipsoid and sub-satellite terms derived once from a
+/// [`GeostationaryParams`], since a warp reuses them for every pixel.
+///
+/// `pub` so projector helpers can hand them around; the fields are private.
 #[derive(Debug, Clone, Copy)]
 pub struct GeostationaryConstants {
     sub_lon_rad: f64,
@@ -119,11 +125,14 @@ pub fn geostationary_inverse(p: &GeostationaryParams, lat: f64, lon: f64) -> Opt
 /// sub-satellite constants, invariant across every output pixel of a warp.
 #[derive(Debug)]
 pub struct GeostationaryProjector {
+    /// The grid this projector was built for.
     pub params: GeostationaryParams,
     constants: GeostationaryConstants,
 }
 
 impl GeostationaryProjector {
+    /// Precompute the ellipsoid constants for `params`. Build once outside a
+    /// warp loop.
     pub fn new(params: GeostationaryParams) -> Self {
         let constants = geostationary_constants(&params);
         Self { params, constants }
@@ -135,6 +144,8 @@ impl GeostationaryProjector {
         geostationary_scan_angles(&self.params, &self.constants, lat, lon)
     }
 
+    /// Fractional grid index for a geographic point, or `None` when the point
+    /// is off the visible disc or outside the grid's extent.
     pub fn inverse(&self, lat: f64, lon: f64) -> Option<GridIndex> {
         if !lat.is_finite() || !lon.is_finite() {
             return None;

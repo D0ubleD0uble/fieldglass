@@ -1,14 +1,4 @@
 #![forbid(unsafe_code)]
-// `missing_docs` is `warn` in `[workspace.lints]`, and 85 public items in this
-// crate do not satisfy it yet — all of them in `projection.rs`, whose 2 000-odd
-// lines #557 splits into a `projection/` directory. Documenting them here would
-// write 85 doc comments into a file that is about to become nine, so they wait
-// for the split and land in the file each one belongs to.
-//
-// Every other crate in the workspace is clean. Deleting this attribute is what
-// finishes the burn-down, and `tools/check_workspace_lints.py` keeps a new
-// opt-out from appearing anywhere without a reviewer seeing it.
-#![allow(missing_docs)]
 //! Format-agnostic traits and shared types for the Fieldglass data viewer.
 //!
 //! The crate serves two audiences behind one API. The format crates

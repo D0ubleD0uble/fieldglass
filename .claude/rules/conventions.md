@@ -49,10 +49,10 @@ inherited by every member with `lints.workspace = true`. Add lints there, not as
 a crate-root `#![deny(...)]`, so `cargo build`, rust-analyzer and a crates.io
 reader see the same bar the hook does. A member that omits the inheritance line
 gets no diagnostic from cargo, so `tools/check_workspace_lints.py` (pre-commit)
-asserts it — and ratchets the `#![allow(missing_docs)]` opt-outs, which are the
-remaining `missing_docs` burn-down. Finishing a crate means deleting its
-attribute *and* its `DEBT` entry; adding a new opt-out means editing that file,
-where a reviewer sees it.
+asserts it. The same checker holds the list of crates allowed a crate-root
+`#![allow(missing_docs)]`, which is the one-line way to opt a whole crate out of
+the standard. That list is empty — every public item is documented — so adding
+such an attribute means editing the checker, where a reviewer sees it.
 
 **Extension (Electron) tests are off by default in the working loop.**
 `@vscode/test-electron` (`npm test` in `extension/`) needs a display and is

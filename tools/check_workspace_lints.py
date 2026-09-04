@@ -15,19 +15,17 @@ gate that fails open. A new crate added to the workspace is exactly when it
 happens, and exactly when nobody is looking at the other six manifests. So the
 inheritance line is checked here rather than assumed.
 
-The second half is the `missing_docs` burn-down. That lint is `warn` in the
+The second half is the `missing_docs` opt-outs. That lint is `warn` in the
 workspace table, which the pre-commit hook turns into an error with
-`-D warnings`, so the crates that still carry undocumented public items opt out
-with a crate-root `#![allow(missing_docs)]`. Those opt-outs are debt, and debt
-that nothing counts grows: a crate that finishes its burn-down and forgets to
-delete the attribute is indistinguishable from one that never started, and a
-crate that quietly adds the attribute to silence a new warning looks like it was
-always there.
+`-D warnings`, so a crate with undocumented public items can silence it with a
+crate-root `#![allow(missing_docs)]`. That is a one-line way to opt a whole
+crate out of the standard, and nothing else would notice.
 
-`DEBT` is therefore a ratchet, checked in both directions. A crate holding the
-attribute must be listed, and a listed crate must still hold it — so finishing a
-crate is a two-line diff (delete the attribute, delete the entry) and starting a
-new opt-out cannot happen without editing this file, where a reviewer sees it.
+`DEBT` is the list of crates allowed to, checked in both directions: a crate
+holding the attribute must be listed, and a listed crate must still hold it. It
+is **empty** — every crate is documented — so today the rule reads "no crate may
+carry that attribute". Adding one means editing this file, where a reviewer sees
+it; finishing a burn-down means deleting the attribute and the entry together.
 """
 
 from __future__ import annotations
@@ -44,13 +42,11 @@ ROOT = Path(__file__).resolve().parent.parent
 # have always enforced — is a failure and not a silent relaxation.
 REQUIRED_GROUPS = ("rust", "clippy")
 
-# Crates that still carry `#![allow(missing_docs)]`, with the public-item count
-# measured when the opt-out was written. The count is prose, not an assertion:
-# what is checked is that the attribute is present, so that finishing a crate
-# forces this entry to go with it.
-DEBT = {
-    "crates/fieldglass-core": 85,
-}
+# Crates allowed to carry `#![allow(missing_docs)]`, mapped to the public-item
+# count measured when the opt-out was written. Empty: every crate in the
+# workspace is documented, so any such attribute is a regression until it is
+# added here deliberately.
+DEBT: dict[str, int] = {}
 
 # `#![allow(missing_docs)]`, tolerating extra lints in the same attribute and
 # whitespace anywhere a Rust attribute allows it.

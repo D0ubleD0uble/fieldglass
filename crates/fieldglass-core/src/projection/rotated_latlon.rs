@@ -22,12 +22,17 @@ use super::{DEG2RAD, GridIndex, RAD2DEG, axis_position, enclosing_lon_arc, snap_
 /// frame first, then indexing exactly like [`latlon_inverse`].
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RotatedLatLonParams {
+    /// Points along a row (`Ni`).
     pub ni: u32,
+    /// Rows (`Nj`).
     pub nj: u32,
     /// First/last grid-point coordinates **in the rotated frame** (degrees).
     pub lat_first: f64,
+    /// Longitude of the first scanned point **in the rotated frame**, degrees.
     pub lon_first: f64,
+    /// Latitude of the last scanned point **in the rotated frame**, degrees.
     pub lat_last: f64,
+    /// Longitude of the last scanned point **in the rotated frame**, degrees.
     pub lon_last: f64,
     /// Geographic latitude of the projection's southern pole (degrees).
     pub south_pole_lat: f64,
@@ -116,6 +121,8 @@ pub struct RotatedLatLonProjector {
 }
 
 impl RotatedLatLonProjector {
+    /// Precompute the rotation terms for `params`. Build once outside a warp
+    /// loop.
     pub fn new(params: RotatedLatLonParams) -> Self {
         let rotated_grid = LatLonParams {
             ni: params.ni,

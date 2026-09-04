@@ -13,13 +13,22 @@ use std::f64::consts::PI;
 use super::latlon::{eastward_lon_span, eastward_rel_lon};
 use super::{GridIndex, RAD2DEG};
 
+/// A Gaussian latitude/longitude grid: longitude is evenly spaced, but the
+/// rows sit on the `2 · n_parallels` Gauss–Legendre quadrature nodes, which
+/// crowd toward the equator. GRIB1 `grid_type` 4, GRIB2 template 3.40.
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct GaussianParams {
+    /// Points along a row (`Ni`).
     pub ni: u32,
+    /// Rows (`Nj`).
     pub nj: u32,
+    /// Latitude of the first scanned point, degrees.
     pub lat_first: f64,
+    /// Longitude of the first scanned point, degrees.
     pub lon_first: f64,
+    /// Latitude of the last scanned point, degrees.
     pub lat_last: f64,
+    /// Longitude of the last scanned point, degrees.
     pub lon_last: f64,
     /// "N" — number of parallels between a pole and the equator. The
     /// full grid has `2N` Gaussian latitudes.
@@ -216,12 +225,14 @@ pub fn gaussian_inverse(p: &GaussianParams, lat: f64, lon: f64) -> Option<GridIn
 /// Build once outside the warp loop; call `inverse` per output pixel.
 #[derive(Debug)]
 pub struct GaussianProjector {
+    /// The grid this projector was built for.
     pub params: GaussianParams,
     row_lats: Vec<f64>,
     north_to_south: bool,
 }
 
 impl GaussianProjector {
+    /// Precompute the node list for `params`. Build once outside a warp loop.
     pub fn new(params: GaussianParams) -> Self {
         let north_to_south = params.lat_first > params.lat_last;
         let mut row_lats = gaussian_latitudes(params.n_parallels);
@@ -235,6 +246,8 @@ impl GaussianProjector {
         }
     }
 
+    /// Fractional grid index for a geographic point, or `None` outside the
+    /// grid's extent.
     pub fn inverse(&self, lat: f64, lon: f64) -> Option<GridIndex> {
         if !lat.is_finite() || !lon.is_finite() {
             return None;
