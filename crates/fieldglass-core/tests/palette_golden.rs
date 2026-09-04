@@ -1,9 +1,3 @@
-// The colour path is `render`-gated, and the format crates build `core` with
-// default features off. Without this the file would fail to compile in that
-// configuration, which `cargo clippy -p fieldglass-core --no-default-features`
-// checks on every commit.
-#![cfg(feature = "render")]
-
 //! Characterisation golden for the colour path.
 //!
 //! [`Palette`] (#485) extracted the 256-entry lookup table and the
@@ -16,6 +10,14 @@
 //! A failure here means the painted bytes moved. That is a behaviour change,
 //! not a test to re-baseline — regenerate the table only alongside a deliberate,
 //! documented change to the colours or the scale rule.
+
+// The colour path is `render`-gated, and the format crates build `core` with
+// default features off. Without this the file would fail to compile in that
+// configuration, which `cargo clippy -p fieldglass-core --no-default-features`
+// checks on every commit. It sits *below* the crate doc: with `render` off the
+// `cfg` strips everything under it, and a crate doc stripped along with the
+// rest reads to `missing_docs` as a crate carrying none.
+#![cfg(feature = "render")]
 
 use fieldglass_core::colormap::{
     PALETTE_LUT_LEN, Palette, ScaleMode, colormaps, paint_grid_rgba, scale_position,

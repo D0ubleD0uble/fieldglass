@@ -17,7 +17,9 @@ pub const LUS_SECTION_NUMBER: u8 = 2;
 /// specific payload (`section_length - 5`).
 #[derive(Debug, Clone, Copy)]
 pub struct LocalUseSection {
+    /// Length of the section in bytes, from its own 4-octet length prefix.
     pub section_length: u32,
+    /// Byte length of the centre-specific payload (`section_length - 5`).
     pub local_data_len: usize,
 }
 

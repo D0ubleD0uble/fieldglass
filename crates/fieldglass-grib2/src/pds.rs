@@ -85,8 +85,12 @@ fn read_fixed_surface(bytes: &[u8]) -> FixedSurface {
 /// second surface is type 255 (missing) and both scale fields are 0xFF.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FixedSurface {
+    /// The surface type (Code Table 4.5); 255 is the "missing" sentinel.
     pub surface_type: u8,
+    /// Decimal scale factor, or `None` when the octet is the missing sentinel.
     pub scale_factor: Option<i8>,
+    /// The scaled value, or `None` when the octets are the missing sentinel.
+    /// [`FixedSurface::value`] combines it with the scale factor.
     pub scaled_value: Option<i64>,
 }
 
@@ -128,16 +132,23 @@ pub struct TimeRangeSpec {
 /// Time-statistical-processing block shared by templates 4.8 and 4.11.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StatisticalProcessing {
+    /// End-of-interval year, four digits.
     pub end_year: u16,
+    /// End-of-interval month, 1–12.
     pub end_month: u8,
+    /// End-of-interval day of the month, 1–31.
     pub end_day: u8,
+    /// End-of-interval hour, 0–23 UTC.
     pub end_hour: u8,
+    /// End-of-interval minute, 0–59.
     pub end_minute: u8,
+    /// End-of-interval second, 0–60.
     pub end_second: u8,
     /// Number of time-range specifications that follow.
     pub num_time_range_specs: u8,
     /// Total number of data values missing in the statistical process.
     pub num_values_missing: u32,
+    /// The time-range specifications themselves, `num_time_range_specs` long.
     pub specs: Vec<TimeRangeSpec>,
 }
 
@@ -168,37 +179,54 @@ pub struct HorizontalProductCommon {
     pub parameter_number: u8,
     /// WMO Code Table 4.3.
     pub generating_process_type: u8,
+    /// Background generating-process identifier, defined by the centre.
     pub background_process_id: u8,
+    /// Forecast generating-process identifier, defined by the centre — the
+    /// model that produced the field.
     pub forecast_process_id: u8,
+    /// Hours after the reference time at which observations were cut off.
     pub obs_cutoff_hours: u16,
+    /// Minutes of the observation cut-off, added to `obs_cutoff_hours`.
     pub obs_cutoff_minutes: u8,
     /// WMO Code Table 4.4 — unit of the forecast-time field below.
     pub forecast_time_unit: u8,
     /// Forecast time in units of `forecast_time_unit`. Sign-magnitude on the
     /// wire; widened to `i64` to hold the full encoded range cleanly.
     pub forecast_time: i64,
+    /// The level, or the top of a layer.
     pub first_surface: FixedSurface,
+    /// The bottom of a layer; missing for a single-level field.
     pub second_surface: FixedSurface,
 }
 
+/// Template 4.0 — analysis or forecast at a horizontal level or layer.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Template40 {
+    /// The parameter, generating process, forecast time and surfaces.
     pub common: HorizontalProductCommon,
 }
 
+/// Template 4.8 — as 4.0, but statistically processed over a time interval.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Template48 {
+    /// The parameter, generating process, forecast time and surfaces.
     pub common: HorizontalProductCommon,
+    /// The interval, and what was done over it.
     pub stats: StatisticalProcessing,
 }
 
+/// Template 4.11 — as 4.8, for one member of an ensemble.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Template411 {
+    /// The parameter, generating process, forecast time and surfaces.
     pub common: HorizontalProductCommon,
     /// WMO Code Table 4.6 — type of ensemble forecast.
     pub ensemble_type: u8,
+    /// Which member of the ensemble this field is.
     pub perturbation_number: u8,
+    /// How many members the ensemble has.
     pub num_forecasts_in_ensemble: u8,
+    /// The interval, and what was done over it.
     pub stats: StatisticalProcessing,
 }
 
@@ -207,20 +235,28 @@ pub struct Template411 {
 /// header fields and a useful name without erroring.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ProductTemplate {
+    /// §4.0.
     HorizontalAnalysisForecast(Template40),
+    /// §4.8.
     HorizontalTimeInterval(Template48),
+    /// §4.11.
     EnsembleTimeInterval(Template411),
+    /// A template this build does not model, carrying its number.
     Unsupported(u16),
 }
 
 /// Parsed contents of the Product Definition Section.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductDefinitionSection {
+    /// Length of the section in bytes, from its own 4-octet length prefix.
     pub section_length: u32,
     /// Number of coordinate values appended after the template payload
     /// (used by hybrid-coordinate vertical grids; usually 0).
     pub num_coordinate_values: u16,
+    /// Product Definition Template number (Code Table 4.0), as the message
+    /// states it — kept even for a template this build does not model.
     pub template_number: u16,
+    /// The template, parsed, or [`ProductTemplate::Unsupported`].
     pub template: ProductTemplate,
 }
 

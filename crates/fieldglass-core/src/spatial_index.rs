@@ -119,6 +119,7 @@ impl SpatialIndex {
         self
     }
 
+    /// The source grid's `(ni, nj)`, which the returned cell indices address.
     pub fn dims(&self) -> (u32, u32) {
         (self.ni, self.nj)
     }
@@ -162,6 +163,8 @@ impl SpatialIndex {
         self.tree.len()
     }
 
+    /// Whether no cell is searchable — every centre the source gave was
+    /// non-finite, so nothing can be looked up.
     pub fn is_empty(&self) -> bool {
         self.tree.is_empty()
     }
@@ -404,7 +407,7 @@ fn search_inner(
 /// depend on the build algorithm, and reading them back would let a
 /// hand-written payload claim a tree that does not match its own points. Both
 /// are recomputed on the way in.
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct IndexCoords {
     ni: u32,
     nj: u32,

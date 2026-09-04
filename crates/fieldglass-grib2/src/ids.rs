@@ -32,19 +32,35 @@ pub const IDS_MIN_LEN: usize = 21;
 /// | 21     | type of processed data (Code Table 1.4)                  |
 #[derive(Debug, Clone, Copy)]
 pub struct IdentificationSection {
+    /// Length of the section in bytes, from its own 4-octet length prefix.
     pub section_length: u32,
+    /// Originating centre (WMO Common Code Table C-11).
     pub centre: u16,
+    /// Originating sub-centre (C-12), meaningful only paired with `centre`.
     pub sub_centre: u16,
+    /// GRIB master tables version, which fixes which WMO table revision the
+    /// parameter codes resolve against.
     pub master_tables_version: u8,
+    /// The centre's own table revision; 0 or 255 mean "not used".
     pub local_tables_version: u8,
+    /// What the reference time below means (Code Table 1.2) — analysis, start
+    /// of forecast, observation time, …
     pub reference_time_significance: u8,
+    /// Reference-time year, four digits.
     pub year: u16,
+    /// Reference-time month, 1–12.
     pub month: u8,
+    /// Reference-time day of the month, 1–31.
     pub day: u8,
+    /// Reference-time hour, 0–23 UTC.
     pub hour: u8,
+    /// Reference-time minute, 0–59.
     pub minute: u8,
+    /// Reference-time second, 0–60.
     pub second: u8,
+    /// Production status of the data (Code Table 1.3) — operational, test, …
     pub production_status: u8,
+    /// Type of processed data (Code Table 1.4) — analysis, forecast, …
     pub data_type: u8,
 }
 

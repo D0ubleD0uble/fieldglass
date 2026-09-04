@@ -132,6 +132,8 @@ fn parse_matrix_header(bds: &[u8], section_len: usize) -> Result<MatrixHeader, F
     })
 }
 
+#[derive(Debug)]
+/// The [`Grib1Packing`] decoder for the `matrixOfValues` form of simple packing.
 pub struct MatrixPacking;
 
 impl Grib1Packing for MatrixPacking {
@@ -242,8 +244,11 @@ pub(crate) fn is_matrix_of_values(bds: &[u8], header: &BdsHeader) -> bool {
 /// cell or grid point.
 #[derive(Debug, Clone)]
 pub struct MatrixValues {
+    /// Rows of each grid point's matrix (`NR`).
     pub nr: usize,
+    /// Columns of each grid point's matrix (`NC`).
     pub nc: usize,
+    /// The cells themselves — see the type docs for the layout.
     pub values: Vec<Option<f64>>,
 }
 

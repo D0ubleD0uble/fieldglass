@@ -27,6 +27,8 @@ const PRECISION_OFFSET: usize = 11;
 /// Byte offset (within the BDS) at which the raw IEEE value stream begins.
 const IEEE_DATA_OFFSET: usize = 12;
 
+#[derive(Debug)]
+/// The [`Grib1Packing`] decoder for IEEE floating-point packing (`grid_ieee`).
 pub struct IeeePacking;
 
 impl Grib1Packing for IeeePacking {

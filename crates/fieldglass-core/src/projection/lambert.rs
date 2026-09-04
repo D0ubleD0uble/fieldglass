@@ -10,15 +10,22 @@ use std::f64::consts::PI;
 
 use super::{DEG2RAD, GridIndex, PlanarGridProjector, RAD2DEG};
 
+/// A Lambert Conformal Conic grid — GRIB1 `grid_type` 3, GRIB2 template
+/// 3.30. Two standard parallels, with a tangent-cone branch when they are
+/// equal; the plane is metres.
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct LambertParams {
     /// Radius of the spherical Earth the grid is projected on, in metres. The
     /// message declares it (GRIB1's earth-shape flag, GRIB2's
     /// `shapeOfTheEarth`); [`super::DEFAULT_EARTH_RADIUS_M`] is the fallback.
     pub earth_radius_m: f64,
+    /// Points along a row (`Ni`).
     pub ni: u32,
+    /// Rows (`Nj`).
     pub nj: u32,
+    /// Latitude of the first scanned point, degrees.
     pub lat_first: f64,
+    /// Longitude of the first scanned point, degrees.
     pub lon_first: f64,
     /// Latitude of true scale (`LaD`), in degrees.
     pub lad: f64,
@@ -26,8 +33,12 @@ pub struct LambertParams {
     pub lov: f64,
     /// Grid spacing in metres along x and y at the latitude of true scale.
     pub dx_metres: f64,
+    /// Grid spacing along y in metres — see `dx_metres`.
     pub dy_metres: f64,
+    /// First standard parallel (`Latin1`), degrees.
     pub latin1: f64,
+    /// Second standard parallel (`Latin2`), degrees. Equal to `latin1` for a
+    /// tangent cone.
     pub latin2: f64,
 }
 
@@ -150,13 +161,17 @@ pub fn lambert_inverse(p: &LambertParams, lat: f64, lon: f64) -> Option<GridInde
 /// (`n`, `F`, `ρ₀`) and the forward-projected grid origin — both
 /// invariant across every output pixel of a warp. Build once outside
 /// the per-pixel loop; call [`Self::inverse`] inside it.
+#[derive(Debug)]
 pub struct LambertProjector {
+    /// The grid this projector was built for.
     pub params: LambertParams,
     constants: LambertConstants,
     origin: (f64, f64),
 }
 
 impl LambertProjector {
+    /// Precompute the cone constants and the projected origin for `params`.
+    /// Build once outside a warp loop.
     pub fn new(params: LambertParams) -> Self {
         let constants = lambert_constants(&params);
         let origin =

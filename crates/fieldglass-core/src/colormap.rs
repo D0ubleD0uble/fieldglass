@@ -29,7 +29,9 @@ use serde::{Deserialize, Serialize};
 /// suits anomalies and differences.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ColormapKind {
+    /// A ramp read low → high.
     Sequential,
+    /// Two hues either side of a neutral midpoint.
     Diverging,
 }
 
@@ -51,8 +53,11 @@ impl ColormapKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ScaleMode {
+    /// Colour position is the value's position in the range.
     #[default]
     Linear,
+    /// Colour position is `log10(value)`'s position in the range; a
+    /// non-positive value paints as missing.
     Log10,
 }
 
@@ -483,14 +488,14 @@ mod lut_bytes {
     use serde::{Deserializer, Serializer};
     use std::fmt;
 
-    pub fn serialize<S: Serializer>(
+    pub(super) fn serialize<S: Serializer>(
         lut: &[u8; PALETTE_LUT_LEN],
         serializer: S,
     ) -> Result<S::Ok, S::Error> {
         serializer.serialize_bytes(lut)
     }
 
-    pub fn deserialize<'de, D: Deserializer<'de>>(
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(
         deserializer: D,
     ) -> Result<[u8; PALETTE_LUT_LEN], D::Error> {
         struct LutVisitor;

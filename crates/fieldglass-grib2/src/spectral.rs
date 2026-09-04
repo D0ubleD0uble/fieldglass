@@ -36,7 +36,9 @@ pub struct SpectralCoefficients {
     /// Pentagonal resolution parameters from §3.50. Triangular truncation (the
     /// only form eccodes decodes) has `j == k == m`.
     pub j: u32,
+    /// Pentagonal resolution parameter `K`.
     pub k: u32,
+    /// Pentagonal resolution parameter `M`.
     pub m: u32,
     /// `(real, imaginary)` pairs — see the type docs for the traversal.
     pub coefficients: Vec<f64>,
@@ -373,6 +375,7 @@ const TRUNC_DIAMOND: u8 = 99;
 pub struct BiFourierCoefficients {
     /// Bi-Fourier resolution parameters `(N, M)` from §3 (`bif_i`, `bif_j`).
     pub bif_i: u32,
+    /// Bi-Fourier resolution parameter `M` (`bif_j`).
     pub bif_j: u32,
     /// Truncation shape (Code Table 3.25): 77 rectangle, 88 ellipse, 99 diamond.
     pub truncation_type: u8,

@@ -30,19 +30,25 @@ use super::{DEG2RAD, GridIndex, PlanarGridProjector, RAD2DEG, SnapEps};
 pub struct LambertAzimuthalParams {
     /// Semi-major and semi-minor axes in metres, as the message declares them.
     pub semi_major_m: f64,
+    /// Semi-minor axis in metres, as the message declares it.
     pub semi_minor_m: f64,
+    /// Points along a row (`Ni`).
     pub ni: u32,
+    /// Rows (`Nj`).
     pub nj: u32,
     /// First grid point, in degrees. §3.140 states it geographically, so the
     /// projector forward-projects it to find the grid origin in the plane.
     pub lat_first: f64,
+    /// Longitude of the first scanned point, degrees.
     pub lon_first: f64,
     /// The tangent point: `standardParallel` is its latitude and
     /// `centralLongitude` its longitude.
     pub standard_parallel: f64,
+    /// The tangent point's `centralLongitude`, degrees.
     pub central_longitude: f64,
     /// Grid spacing in metres, carrying the scanning-mode sign.
     pub dx_metres: f64,
+    /// Grid spacing along y in metres — see `dx_metres`.
     pub dy_metres: f64,
 }
 
@@ -296,13 +302,17 @@ pub fn lambert_azimuthal_inverse(
 /// Precomputed inverse map for a Lambert azimuthal equal-area grid. Owns the
 /// authalic constants and the forward-projected grid origin, both invariant
 /// across a warp's output pixels.
+#[derive(Debug)]
 pub struct LambertAzimuthalProjector {
+    /// The grid this projector was built for.
     pub params: LambertAzimuthalParams,
     constants: LambertAzimuthalConstants,
     origin: (f64, f64),
 }
 
 impl LambertAzimuthalProjector {
+    /// Precompute the authalic constants and the projected origin for
+    /// `params`. Build once outside a warp loop.
     pub fn new(params: LambertAzimuthalParams) -> Self {
         let constants = lambert_azimuthal_constants(&params);
         let origin =

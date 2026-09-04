@@ -66,6 +66,17 @@ pub struct SourceOverlayTarget<'a> {
     inverse: &'a dyn Fn(f64, f64) -> Option<GridIndex>,
 }
 
+/// Written out rather than derived: the only field is a `dyn Fn`, which has no
+/// `Debug`. There is nothing else to print, so the impl exists to keep the type
+/// usable inside a caller's own `#[derive(Debug)]` rather than to say anything.
+impl std::fmt::Debug for SourceOverlayTarget<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SourceOverlayTarget")
+            .field("inverse", &"<closure>")
+            .finish()
+    }
+}
+
 impl<'a> SourceOverlayTarget<'a> {
     /// Wrap the warp's inverse map (`lat, lon →` fractional grid index) as the
     /// source projection's overlay forward map.
@@ -92,7 +103,9 @@ impl ForwardMap for SourceOverlayTarget<'_> {
 /// visible run, so `seg_lengths.iter().sum::<u32>() * 2 == xy.len()`.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ProjectedPolylines {
+    /// Flat `[x0, y0, x1, y1, …]` vertex coordinates in output pixel space.
     pub xy: Vec<f64>,
+    /// Vertex count of each visible run, in the order the runs appear in `xy`.
     pub seg_lengths: Vec<u32>,
 }
 

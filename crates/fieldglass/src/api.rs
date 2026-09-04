@@ -48,7 +48,9 @@ api_type! {
     /// one enumerates only what a session can actually be.
     #[serde(rename_all = "snake_case")]
     pub enum SourceFormat {
+        /// WMO FM 92 GRIB edition 1.
         Grib1,
+        /// WMO FM 92 GRIB edition 2.
         Grib2,
     }
 
@@ -131,30 +133,47 @@ api_type! {
         /// The most specific name available — the decoder's own grid-type
         /// string for a family this build does not model.
         pub label: String,
+        /// Grid columns (west-to-east point count of one row).
         pub ni: u32,
+        /// Grid rows.
         pub nj: u32,
         /// `[lat_min, lat_max, lon_min, lon_max]` in degrees. `lon_min` may
         /// fall below -180 (or `lon_max` above 180) to describe a window
         /// spanning the antimeridian; do not normalise it into range without
         /// collapsing the span.
         pub bounds_lonlat: Option<[f64; 4]>,
+        /// A PROJ string for the grid's own plane, for a map library that
+        /// takes one. `None` for a family this build does not name a CRS for.
         pub proj4: Option<String>,
+        /// What `x0` / `y0` / `dx` / `dy` are measured in.
         pub axis_units: AxisUnits,
+        /// Plane coordinate of the first grid point's cell centre, along the
+        /// column axis. `None` when the family has no affine.
         pub x0: Option<f64>,
+        /// Plane coordinate of the first grid point's cell centre, along the
+        /// row axis.
         pub y0: Option<f64>,
+        /// Signed step between columns, in [`Georef::axis_units`].
         pub dx: Option<f64>,
+        /// Signed step between rows. Negative for the usual north-to-south
+        /// scan, so `y0 + j * dy` walks the rows as stored.
         pub dy: Option<f64>,
         /// The grid closes on itself in the column axis: one column step past
         /// the last column lands back on the first. A renderer wraps rather
         /// than clamping there, or the seam meridian draws as a hole.
         pub periodic_x: bool,
+        /// The scan order the message's own flags state, so a consumer can
+        /// walk `values` without re-deriving it.
         pub scan: Scan,
     }
 
     /// Decoded values, in whichever element type the source supports.
     #[serde(rename_all = "snake_case", tag = "dtype", content = "data")]
     pub enum Values {
+        /// Single precision — what a source packed to 32 bits or fewer decodes
+        /// to, and what [`Dtype::F32`] forces.
         F32(Vec<f32>),
+        /// Double precision — an IEEE-64 source, or [`Dtype::F64`].
         F64(Vec<f64>),
     }
 
@@ -163,8 +182,11 @@ api_type! {
     #[serde(rename_all = "camelCase")]
     #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
     pub struct Stats {
+        /// Smallest present value. `None` when no cell is present.
         pub min: Option<f64>,
+        /// Largest present value. `None` when no cell is present.
         pub max: Option<f64>,
+        /// How many cells are present, i.e. the count of `1`s in the mask.
         pub valid_count: u32,
     }
 
@@ -177,14 +199,24 @@ api_type! {
     #[serde(rename_all = "camelCase")]
     #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
     pub struct Field {
+        /// The cell values in scan order, `ni * nj` of them. Read `mask`
+        /// before a value: an absent cell still occupies its slot.
         pub values: Values,
         /// One byte per cell: `1` present, `0` absent. Same length as `values`.
         pub mask: Vec<u8>,
+        /// Grid columns.
         pub ni: u32,
+        /// Grid rows.
         pub nj: u32,
+        /// Where the cells sit on the Earth.
         pub georef: Georef,
+        /// Range and count over the present cells.
         pub stats: Stats,
+        /// The parameter's human-readable name, or `"Unknown"` when no table
+        /// in this build resolves the message's parameter id.
         pub parameter: String,
+        /// The parameter's units as its table states them. Empty when the
+        /// parameter did not resolve, or is dimensionless.
         pub units: String,
     }
 
@@ -195,15 +227,31 @@ api_type! {
     #[serde(rename_all = "camelCase")]
     #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
     pub struct MessageInfo {
+        /// Position in `0..Session::count()`; the handle every other call
+        /// takes.
         pub index: u32,
+        /// Byte offset of the message's first byte within the container, so a
+        /// host can range-fetch this message alone on a later visit.
         pub offset_bytes: u64,
+        /// Human-readable parameter name, or `"Unknown"`.
         pub parameter: String,
+        /// The table's short name for the parameter, e.g. `"2t"`. Empty when
+        /// the parameter did not resolve.
         pub abbreviation: String,
+        /// Units as the parameter's table states them.
         pub units: String,
+        /// The level, rendered — `"500 hPa"`, `"2 m above ground"`.
         pub level: String,
+        /// The level's surface type on its own, for grouping messages that
+        /// share a surface at different values.
         pub level_type: String,
+        /// Reference (analysis) time as RFC 3339. `None` when the message
+        /// carries no usable date.
         pub reference_time: Option<String>,
+        /// Forecast time relative to `reference_time`, rendered — `"+6 h"`.
         pub forecast: String,
+        /// Which packing the data section uses, named — what decodes it, and
+        /// the first thing to look at when a decode is wrong.
         pub packing: String,
         /// `None` when the message carries no grid at all (a spectral field).
         pub grid: Option<Georef>,
@@ -216,9 +264,13 @@ api_type! {
     #[serde(rename_all = "camelCase")]
     #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
     pub struct Warped {
+        /// Resampled values, row-major from the north-west corner of `bounds`.
         pub values: Vec<f32>,
+        /// One byte per output pixel: `1` present, `0` off-grid or masked.
         pub mask: Vec<u8>,
+        /// Output columns.
         pub width: u32,
+        /// Output rows.
         pub height: u32,
         /// `[lat_min, lat_max, lon_min, lon_max]` of the output window.
         pub bounds: [f64; 4],
@@ -228,10 +280,13 @@ api_type! {
     #[serde(rename_all = "camelCase")]
     #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
     pub struct Probe {
+        /// Latitude asked for, echoed back.
         pub lat: f64,
+        /// Longitude asked for, echoed back.
         pub lon: f64,
         /// Fractional column / row the point landed on.
         pub i: f64,
+        /// Fractional row the point landed on.
         pub j: f64,
         /// `None` when the cell is masked.
         pub value: Option<f64>,
@@ -241,6 +296,7 @@ api_type! {
     #[serde(rename_all = "camelCase")]
     #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
     pub struct Isoline {
+        /// The level these segments trace.
         pub value: f64,
         /// `[i0, j0, i1, j1]` per segment, in fractional grid indices.
         pub segments: Vec<[f64; 4]>,
@@ -256,6 +312,7 @@ impl Values {
         }
     }
 
+    /// Whether there are no elements at all.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }

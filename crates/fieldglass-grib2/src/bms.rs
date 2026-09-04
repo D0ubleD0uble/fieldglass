@@ -37,6 +37,7 @@ const BMS_MIN_LEN: usize = SECTION_HEADER_LEN + 1;
 /// Parsed contents of the Bit-Map Section.
 #[derive(Debug, Clone)]
 pub struct BitMapSection {
+    /// Length of the section in bytes, from its own 4-octet length prefix.
     pub section_length: u32,
     /// Bit-map indicator (WMO Code Table 6.0). `Some(bitmap)` only when
     /// `indicator == 0`; for indicator 1..=254 the `bitmap` field is empty

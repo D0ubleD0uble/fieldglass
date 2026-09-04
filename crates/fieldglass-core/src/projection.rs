@@ -93,7 +93,9 @@ const RAD2DEG: f64 = 180.0 / PI;
 /// when the requested `(lat, lon)` lies outside the grid coverage.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GridIndex {
+    /// Fractional column. `0.0` is the first column's centre.
     pub i: f64,
+    /// Fractional row. `0.0` is the first row's centre.
     pub j: f64,
 }
 
@@ -251,6 +253,13 @@ impl SnapEps {
     }
 }
 
+/// The shared body of every family whose plane is projected metres — Lambert,
+/// polar stereographic, transverse Mercator, Lambert azimuthal.
+///
+/// An implementor supplies the four primitives below; the grid-index, corner
+/// and bounding-box machinery is provided here, so a new planar family gets
+/// them without restating the walk. The geographic families and the space view
+/// do not implement it: their axes are degrees and scan angles respectively.
 pub trait PlanarGridProjector {
     /// Grid origin (first scanned point) in projected metres.
     fn grid_origin(&self) -> (f64, f64);
@@ -571,8 +580,10 @@ fn axis_position(first: f64, last: f64, n: u32, k: u32) -> f64 {
 #[non_exhaustive]
 #[serde(tag = "kind")]
 pub enum GridGeometry {
+    /// Evenly spaced in degrees on both axes.
     #[serde(rename = "latlon")]
     LatLon(LatLonParams),
+    /// Evenly spaced in longitude, with rows on the Gauss–Legendre nodes.
     #[serde(rename = "gaussian")]
     Gaussian(GaussianParams),
     /// Evenly spaced in longitude and in the Mercator ordinate, so its rows
@@ -584,8 +595,10 @@ pub enum GridGeometry {
     /// than a [`LatLon`](Self::LatLon) with extra fields.
     #[serde(rename = "rotated_latlon")]
     RotatedLatLon(RotatedLatLonParams),
+    /// Lambert conformal conic, on a sphere the message declares.
     #[serde(rename = "lambert")]
     Lambert(LambertParams),
+    /// Polar stereographic, on a sphere the message declares.
     #[serde(rename = "polar_stereo")]
     PolarStereo(PolarStereoParams),
     /// Transverse Mercator (GRIB2 §3.12), on the spheroid the message declares
@@ -609,7 +622,10 @@ pub enum GridGeometry {
     /// A family this type does not model yet. `label` is the grid type as the
     /// decoder named it, so the message can say what was declined.
     #[serde(rename = "unsupported")]
-    Unsupported { label: String },
+    Unsupported {
+        /// The grid type as the decoder named it.
+        label: String,
+    },
 }
 
 impl GridGeometry {
@@ -1098,12 +1114,16 @@ pub enum PlaneUnits {
 /// a north-to-south grid steps by a negative `dy`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PlaneAffine {
+    /// Plane coordinate of the first scanned point along the column axis.
     pub x0: f64,
+    /// Plane coordinate of the first scanned point along the row axis.
     pub y0: f64,
     /// `None` for an axis with no constant step — a single-point axis, or a
     /// Gaussian grid's rows.
     pub dx: Option<f64>,
+    /// Signed step between rows — see `dx`.
     pub dy: Option<f64>,
+    /// What `x0` / `y0` / `dx` / `dy` are measured in.
     pub units: PlaneUnits,
 }
 

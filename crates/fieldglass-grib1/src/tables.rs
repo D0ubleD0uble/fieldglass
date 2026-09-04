@@ -1,8 +1,13 @@
 /// Parameter entry from a GRIB1 Table 2 (WMO ON388 international table, or a
 /// centre-local table such as ECMWF 128/129).
+#[derive(Debug)]
 pub struct ParameterEntry {
+    /// The parameter's human-readable name, e.g. `"Temperature"`.
     pub name: &'static str,
+    /// The table's short name, e.g. `"t"`.
     pub abbreviation: &'static str,
+    /// The parameter's units as the table states them; empty when it is
+    /// dimensionless.
     pub units: &'static str,
 }
 

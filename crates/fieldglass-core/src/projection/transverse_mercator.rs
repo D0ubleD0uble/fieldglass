@@ -30,25 +30,32 @@ use super::{DEG2RAD, GridIndex, PlanarGridProjector, RAD2DEG};
 pub struct TransverseMercatorParams {
     /// Semi-major and semi-minor axes in metres, as the message declares them.
     pub semi_major_m: f64,
+    /// Semi-minor axis in metres, as the message declares it.
     pub semi_minor_m: f64,
+    /// Points along a row (`Ni`).
     pub ni: u32,
+    /// Rows (`Nj`).
     pub nj: u32,
     /// `LaR` / `LoR` — the reference point, in degrees. `lon_ref` is the
     /// central meridian.
     pub lat_ref: f64,
+    /// `LoR` — the reference longitude, which is the central meridian, degrees.
     pub lon_ref: f64,
     /// `m` — scale factor at the central meridian.
     pub scale_factor: f64,
     /// `XR` / `YR` — false easting and northing in metres.
     pub false_easting_m: f64,
+    /// `YR` — false northing in metres.
     pub false_northing_m: f64,
     /// `X1` / `Y1` — the first scanned grid point, in projection metres. Unlike
     /// Lambert and polar stereographic, §3.12 states the origin in the plane, so
     /// there is no forward projection to do to find it.
     pub x1_metres: f64,
+    /// `Y1` — the first scanned point's northing in projection metres.
     pub y1_metres: f64,
     /// Grid spacing in metres, carrying the scanning-mode sign.
     pub dx_metres: f64,
+    /// Grid spacing along y in metres — see `dx_metres`.
     pub dy_metres: f64,
 }
 
@@ -256,12 +263,16 @@ pub fn transverse_mercator_inverse(
 /// Precomputed inverse map for a transverse Mercator grid. Owns the Krüger
 /// coefficients and the reference arc, both invariant across a warp's output
 /// pixels. Build once outside the per-pixel loop.
+#[derive(Debug)]
 pub struct TransverseMercatorProjector {
+    /// The grid this projector was built for.
     pub params: TransverseMercatorParams,
     constants: TransverseMercatorConstants,
 }
 
 impl TransverseMercatorProjector {
+    /// Precompute the Krüger coefficients and the reference arc for `params`.
+    /// Build once outside a warp loop.
     pub fn new(params: TransverseMercatorParams) -> Self {
         let constants = transverse_mercator_constants(&params);
         Self { params, constants }

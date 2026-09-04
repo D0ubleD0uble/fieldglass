@@ -32,8 +32,11 @@ const MAX_ATTRIBUTES: usize = 1 << 20;
 /// A decoded HDF5 attribute.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Hdf5Attribute {
+    /// The attribute's link name.
     pub name: String,
+    /// The attribute's decoded element type.
     pub datatype: Datatype,
+    /// The attribute's decoded shape.
     pub dataspace: Dataspace,
     /// Display value: UTF-8 text for strings, comma-separated decimals for
     /// numeric types (matching the classic NetCDF render path).
@@ -51,10 +54,13 @@ pub struct Hdf5Attribute {
 /// because their datatype class isn't one [`datatype::decode`] maps to `NcType`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RawAttribute {
+    /// The attribute's link name.
     pub name: String,
     /// The attribute's datatype message body, undecoded (caller dispatches on
     /// its class — reference, variable-length, fixed-point, …).
     pub datatype_bytes: Vec<u8>,
+    /// The attribute's decoded shape — the one message this path does decode,
+    /// because the element count is what the caller needs to walk `data`.
     pub dataspace: Dataspace,
     /// The attribute's raw value bytes.
     pub data: Vec<u8>,

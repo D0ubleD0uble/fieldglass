@@ -12,6 +12,8 @@ use crate::bds::BdsHeader;
 
 use super::Grib1Packing;
 
+#[derive(Debug)]
+/// The [`Grib1Packing`] decoder for ECMWF complex packing (`grid_complex`).
 pub struct ComplexPacking;
 
 impl Grib1Packing for ComplexPacking {

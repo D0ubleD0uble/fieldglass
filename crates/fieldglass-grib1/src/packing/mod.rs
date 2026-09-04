@@ -36,6 +36,8 @@ pub mod spherical;
 /// `Option<f64>` per grid point — `None` for bitmap-masked points,
 /// `Some(value)` otherwise.
 pub trait Grib1Packing {
+    /// Decode the section's values, one `Option<f64>` per grid point. See the
+    /// trait docs for what each argument carries.
     fn decode(
         &self,
         bds: &[u8],

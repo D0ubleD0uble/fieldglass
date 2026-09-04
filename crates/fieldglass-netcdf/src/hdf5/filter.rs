@@ -65,6 +65,7 @@ const MAX_ZSTD_WINDOW: u64 = 64 << 20;
 /// One stage of a filter pipeline.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Filter {
+    /// The registered HDF5 filter id — 1 deflate, 2 shuffle, 32015 zstd, …
     pub id: u16,
     /// Client data values (filter parameters); shuffle stores the element size
     /// here, deflate the compression level.
@@ -74,6 +75,7 @@ pub struct Filter {
 /// A dataset's decoded filter pipeline, in write (application) order.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct FilterPipeline {
+    /// The stages in write order; reading applies their inverses in reverse.
     pub filters: Vec<Filter>,
 }
 

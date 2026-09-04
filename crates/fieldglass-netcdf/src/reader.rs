@@ -18,6 +18,7 @@ pub enum NetcdfBacking {
 }
 
 impl NetcdfBacking {
+    /// The backing's human-readable name, e.g. `"NetCDF classic (CDF-1)"`.
     pub fn label(&self) -> &'static str {
         match self {
             Self::Classic(h) => match h.version {
@@ -42,6 +43,8 @@ impl NetcdfBacking {
 /// pull data on demand without re-reading the file.
 #[derive(Debug)]
 pub struct NetcdfReader {
+    /// Which on-disk layout the file turned out to be, with whatever the probe
+    /// resolved eagerly for it.
     pub backing: NetcdfBacking,
     data: Vec<u8>,
 }

@@ -19,7 +19,7 @@ use std::collections::BTreeMap;
 const PINNED_ECCODES: &str = "2.34.1";
 
 /// One centre's `--oracle` snapshot, parsed.
-pub struct Oracle {
+pub(crate) struct Oracle {
     /// WMO Common Code Table C-11 code the snapshot was collected under. The
     /// oracle sets §1 `centre` because that is what selects the `localConcepts`
     /// directory; if it disagreed with what `tables_local` dispatches on, the
@@ -32,7 +32,7 @@ pub struct Oracle {
 }
 
 impl Oracle {
-    pub fn load(json: &str) -> Self {
+    pub(crate) fn load(json: &str) -> Self {
         let parsed: serde_json::Value = serde_json::from_str(json).expect("oracle is valid JSON");
         assert_eq!(
             parsed["eccodes"].as_str(),
@@ -64,7 +64,7 @@ impl Oracle {
     ///
     /// `minimum` is what stops a snapshot that failed to load from passing
     /// vacuously; set it just under the table's real size.
-    pub fn assert_every_entry_matches(&self, minimum: usize) {
+    pub(crate) fn assert_every_entry_matches(&self, minimum: usize) {
         assert!(
             self.entries.len() > minimum,
             "only {} oracle entries — it is not loaded, so this proves nothing",
@@ -99,7 +99,7 @@ impl Oracle {
     /// than cosmetic: an entry constrained by §4 keys would show up here as
     /// `unknown`. The generator refuses to write such a snapshot; this is the
     /// check that survives a hand-edited one.
-    pub fn assert_nothing_unresolved(&self) {
+    pub(crate) fn assert_nothing_unresolved(&self) {
         let unresolved: Vec<_> = self
             .entries
             .iter()
@@ -120,7 +120,7 @@ impl Oracle {
     /// 635 identical ECMWF entries with no short name and no units; showing
     /// that instead of the numeric triple would be strictly worse for the
     /// reader.
-    pub fn assert_no_placeholder_names(&self) {
+    pub(crate) fn assert_no_placeholder_names(&self) {
         for (raw, (short, name, units)) in &self.entries {
             let (_, discipline, category, number) = key(raw);
             let lowered = name.to_lowercase();
@@ -144,7 +144,7 @@ impl Oracle {
     /// seam is keyed on the centre, so the property is that they get *different*
     /// answers — asserting `None` for everyone else only held while the registry
     /// was nearly empty, and would fail again with every centre added.
-    pub fn assert_scoped_to_its_centre(&self, sample: (u8, u8, u8), others: &[u16]) {
+    pub(crate) fn assert_scoped_to_its_centre(&self, sample: (u8, u8, u8), others: &[u16]) {
         let (discipline, category, number) = sample;
         let mine = Originator::new(self.centre_code, 0, 0);
         let ours = lookup_parameter(mine, discipline, category, number);
@@ -174,7 +174,7 @@ impl Oracle {
 }
 
 /// Split an oracle key back into `(version, discipline, category, number)`.
-pub fn key(part: &str) -> (u8, u8, u8, u8) {
+pub(crate) fn key(part: &str) -> (u8, u8, u8, u8) {
     let mut it = part
         .split('/')
         .map(|n| n.parse::<u8>().expect("numeric key part"));

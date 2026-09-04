@@ -25,14 +25,19 @@ use fieldglass_core::FieldglassError;
 /// The horizontal axis a coordinate variable represents.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AxisKind {
+    /// The variable is the grid's latitude / y axis.
     Latitude,
+    /// The variable is the grid's longitude / x axis.
     Longitude,
 }
 
 /// One dimension in the neutral view.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DimView {
+    /// The dimension's name, as both backings report it.
     pub name: String,
+    /// The dimension's runtime length; the record dimension resolves to its
+    /// count rather than the on-disk zero.
     pub length: u64,
 }
 
@@ -56,8 +61,13 @@ fn attr_value(display: &str, first_value: Option<f64>) -> String {
 /// maps straight back to its data.
 #[derive(Debug, Clone, PartialEq)]
 pub struct VarView {
+    /// Index [`crate::NetcdfReader::decode_variable_values`] takes, so a
+    /// chosen variable maps straight back to its data.
     pub decode_index: usize,
+    /// The variable's name.
     pub name: String,
+    /// The variable's element type, mapped onto the classic vocabulary for
+    /// both backings.
     pub nc_type: NcType,
     /// Ordered dimension names.
     pub dim_names: Vec<String>,
@@ -88,7 +98,10 @@ impl VarView {
 /// A neutral, backing-agnostic view of a dataset's dimensions and variables.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DatasetView {
+    /// Every dimension in the dataset, in declared order.
     pub dims: Vec<DimView>,
+    /// Every variable in the dataset, in decode order — coordinate variables
+    /// included, unlike [`DatasetView::renderable_variables`].
     pub vars: Vec<VarView>,
     /// Global (root-group) attributes as `(name, display_value)`. Carries the
     /// non-CF projection metadata WRF stores at the file level (`MAP_PROJ`,
@@ -408,9 +421,14 @@ pub struct CurvilinearCoords {
 /// the user picks them by hand).
 #[derive(Debug, Clone, PartialEq)]
 pub struct RenderableVariable {
+    /// Index [`crate::NetcdfReader::decode_variable_values`] takes.
     pub decode_index: usize,
+    /// The variable's name.
     pub name: String,
+    /// The variable's element type.
     pub nc_type: NcType,
+    /// The variable's axes in declared (C) order — the order `detected_y_dim`
+    /// and `detected_x_dim` index into.
     pub dims: Vec<DimView>,
     /// Position (axis index) of the latitude dimension within `dims`.
     pub detected_y_dim: Option<usize>,
@@ -561,11 +579,17 @@ pub fn extract_plane(
 /// is approximate).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SliceGeometry {
+    /// Columns in the slice — the length of its longitude axis.
     pub ni: u32,
+    /// Rows in the slice — the length of its latitude axis.
     pub nj: u32,
+    /// Latitude of the first row, degrees.
     pub lat_first: f64,
+    /// Latitude of the last row, degrees.
     pub lat_last: f64,
+    /// Longitude of the first column, degrees.
     pub lon_first: f64,
+    /// Longitude of the last column, degrees.
     pub lon_last: f64,
     /// `true` when either coordinate axis has non-uniform spacing.
     pub irregular: bool,

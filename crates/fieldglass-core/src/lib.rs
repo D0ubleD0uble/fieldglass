@@ -32,14 +32,18 @@ mod colormap_tables;
 pub mod combine;
 pub mod contour;
 pub mod csv;
+/// Format sniffing from the leading bytes of a file.
 pub mod detect;
+/// The crate's one error type.
 pub mod error;
 pub mod healpix;
 pub mod matrix;
+/// Format-agnostic message metadata the hosts render.
 pub mod metadata;
 #[cfg(feature = "render")]
 pub mod overlay;
 pub mod projection;
+/// The format-reader trait surface.
 pub mod reader;
 pub mod sht;
 pub mod spatial_index;

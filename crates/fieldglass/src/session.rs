@@ -29,6 +29,8 @@ use crate::error::Error;
 #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
 #[non_exhaustive]
 pub struct DecodeOptions {
+    /// Element type to decode into. [`Dtype::Auto`] keeps the source's own
+    /// width and is the only setting that never loses precision.
     #[serde(default)]
     pub dtype: Dtype,
 }
@@ -74,11 +76,14 @@ pub struct PaletteOptions {
     /// silent fallback: a host that misspells one should hear about it.
     #[serde(default)]
     pub colormap: Option<String>,
+    /// Walk the colormap high-to-low. Applied after `colormap` is resolved,
+    /// so a reversed unknown name is still an error.
     #[serde(default)]
     pub reversed: bool,
-    /// Display range. `None` takes the field's own min / max.
+    /// Low end of the display range. `None` takes the field's own minimum.
     #[serde(default)]
     pub min: Option<f64>,
+    /// High end of the display range. `None` takes the field's own maximum.
     #[serde(default)]
     pub max: Option<f64>,
     /// `"linear"` (default) or `"log10"`.
@@ -93,16 +98,22 @@ pub struct PaletteOptions {
 #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
 #[non_exhaustive]
 pub struct Raster {
+    /// Non-premultiplied RGBA, `width * height * 4` bytes, row-major from the
+    /// top-left. Ready for `putImageData` or an `RGBA8` texture upload.
     pub rgba: Vec<u8>,
+    /// Raster columns.
     pub width: u32,
+    /// Raster rows.
     pub height: u32,
 }
 
 /// An open file.
+#[derive(Debug)]
 pub struct Session {
     reader: Reader,
 }
 
+#[derive(Debug)]
 enum Reader {
     Grib1(Box<fieldglass_grib1::Grib1Reader>),
     Grib2(Box<fieldglass_grib2::Grib2Reader>),
@@ -136,6 +147,8 @@ impl Session {
         Ok(Self { reader })
     }
 
+    /// Which container the bytes turned out to be. Detected at
+    /// [`Session::open`], never re-sniffed.
     pub fn format(&self) -> SourceFormat {
         match self.reader {
             Reader::Grib1(_) => SourceFormat::Grib1,
@@ -143,6 +156,8 @@ impl Session {
         }
     }
 
+    /// How many messages the container holds. Message indices run
+    /// `0..count()`; anything outside is [`Error::NoSuchMessage`].
     pub fn count(&self) -> u32 {
         let n = match &self.reader {
             Reader::Grib1(r) => r.message_count(),

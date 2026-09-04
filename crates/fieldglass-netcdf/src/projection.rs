@@ -60,18 +60,31 @@ fn axis_first_step(coord: &[f64]) -> Option<(f64, f64)> {
 /// minus the dependence on that crate so this stays a leaf module.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GeostationaryGrid {
+    /// Columns — the length of the `x` scan-angle axis.
     pub ni: u32,
+    /// Rows — the length of the `y` scan-angle axis.
     pub nj: u32,
     /// Earth-centre → satellite distance, metres (`perspective_point_height`
     /// is height above the surface, so `+ semi_major_axis`).
     pub h_metres: f64,
+    /// Equatorial radius, metres (CF `semi_major_axis`).
     pub r_eq: f64,
+    /// Polar radius, metres (CF `semi_minor_axis`).
     pub r_pol: f64,
+    /// Sub-satellite longitude, degrees east
+    /// (`longitude_of_projection_origin`).
     pub sub_lon_deg: f64,
+    /// `true` when the instrument sweeps the x axis (`sweep_angle_axis = "x"`),
+    /// as GOES-R does; `false` for the y sweep of the Meteosat convention. The
+    /// two orders are not interchangeable — swapping them shears the image.
     pub sweep_x: bool,
+    /// Scan angle of the first column's cell centre, radians.
     pub x0: f64,
+    /// Signed scan-angle step between columns, radians.
     pub dx_rad: f64,
+    /// Scan angle of the first row's cell centre, radians.
     pub y0: f64,
+    /// Signed scan-angle step between rows, radians.
     pub dy_rad: f64,
 }
 
@@ -115,28 +128,37 @@ pub fn resolve_cf_geostationary(
     })
 }
 
-/// A Lambert Conformal grid resolved from WRF global attributes. Mirrors the
-/// `lambert_*` + corner fields of a `MessageMeta`; the napi layer copies these
-/// straight across and reuses the existing Lambert projector.
 /// The sphere WRF projects on (`module_map_utils`). WRF fixes it at 6 370 000 m,
 /// which is neither of the WMO spherical radii — so a `wrfout` grid must be
 /// projected on WRF's own sphere, not on a GRIB default, or the domain lands a
 /// few hundred metres off its true position.
 pub const WRF_EARTH_RADIUS_M: f64 = 6_370_000.0;
 
+/// A Lambert Conformal grid resolved from WRF global attributes. Mirrors the
+/// `lambert_*` + corner fields of a `MessageMeta`; the napi layer copies these
+/// straight across and reuses the existing Lambert projector.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct WrfLambertGrid {
+    /// Columns — the `west_east` dimension.
     pub ni: u32,
+    /// Rows — the `south_north` dimension.
     pub nj: u32,
     /// Geographic coordinates of the first scanned point (`XLAT`/`XLONG` at
     /// `south_north = west_east = 0`) — the Lambert grid origin.
     pub lat_first: f64,
+    /// Longitude of the first scanned point, degrees.
     pub lon_first: f64,
+    /// Latitude of true scale — WRF specifies `DX`/`DY` at `TRUELAT1`.
     pub lad: f64,
+    /// Orientation longitude (meridian parallel to the y-axis) — `STAND_LON`.
     pub lov: f64,
+    /// Grid spacing along x in metres — `DX`.
     pub dx_metres: f64,
+    /// Grid spacing along y in metres — `DY`.
     pub dy_metres: f64,
+    /// First standard parallel — `TRUELAT1`.
     pub latin1: f64,
+    /// Second standard parallel — `TRUELAT2`.
     pub latin2: f64,
 }
 
@@ -235,17 +257,22 @@ pub fn resolve_wrf_lambert(
 /// these straight across and reuses the existing polar stereographic projector.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct WrfPolarStereoGrid {
+    /// Columns — the `west_east` dimension.
     pub ni: u32,
+    /// Rows — the `south_north` dimension.
     pub nj: u32,
     /// Geographic coordinates of the first scanned point (`XLAT`/`XLONG` at
     /// `south_north = west_east = 0`) — the grid origin.
     pub lat_first: f64,
+    /// Longitude of the first scanned point, degrees.
     pub lon_first: f64,
     /// Latitude of true scale — WRF specifies `DX`/`DY` at `TRUELAT1`.
     pub lad: f64,
     /// Orientation longitude (meridian parallel to the y-axis) — `STAND_LON`.
     pub lov: f64,
+    /// Grid spacing along x in metres — `DX`.
     pub dx_metres: f64,
+    /// Grid spacing along y in metres — `DY`.
     pub dy_metres: f64,
     /// `true` ⇒ south-pole projection. WRF has no projection-centre flag; the
     /// hemisphere follows the sign of `TRUELAT1` (the WPS convention).
@@ -291,15 +318,19 @@ pub fn resolve_wrf_polar_stereo(
 /// `DX`/`DY`/`TRUELAT1` therefore never enter the geolocation.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct WrfMercatorGrid {
+    /// Columns — the `west_east` dimension.
     pub ni: u32,
+    /// Rows — the `south_north` dimension.
     pub nj: u32,
     /// Geographic coordinates of the first scanned point (`XLAT`/`XLONG` at
     /// `south_north = west_east = 0`).
     pub lat_first: f64,
+    /// Longitude of the first scanned point, degrees.
     pub lon_first: f64,
     /// Geographic coordinates of the last scanned point (`XLAT`/`XLONG` at the
     /// far corner of the first time step).
     pub lat_last: f64,
+    /// Longitude of the last scanned point, degrees.
     pub lon_last: f64,
 }
 
@@ -337,15 +368,19 @@ pub fn resolve_wrf_mercator(
 /// geolocation.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct WrfLatLonGrid {
+    /// Columns — the `west_east` dimension.
     pub ni: u32,
+    /// Rows — the `south_north` dimension.
     pub nj: u32,
     /// Geographic coordinates of the first scanned point (`XLAT`/`XLONG` at
     /// `south_north = west_east = 0`).
     pub lat_first: f64,
+    /// Longitude of the first scanned point, degrees.
     pub lon_first: f64,
     /// Geographic coordinates of the last scanned point (`XLAT`/`XLONG` at the
     /// far corner of the first time step).
     pub lat_last: f64,
+    /// Longitude of the last scanned point, degrees.
     pub lon_last: f64,
 }
 

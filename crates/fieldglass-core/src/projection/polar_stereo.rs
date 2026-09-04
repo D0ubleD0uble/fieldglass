@@ -10,12 +10,16 @@ use std::f64::consts::PI;
 
 use super::{DEG2RAD, GridIndex, PlanarGridProjector, RAD2DEG};
 
+/// A polar stereographic grid — GRIB1 `grid_type` 5, GRIB2 template 3.20.
+/// The plane touches one pole and is metres.
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PolarStereoParams {
     /// Radius of the spherical Earth the grid is projected on, in metres. See
     /// [`super::LambertParams::earth_radius_m`].
     pub earth_radius_m: f64,
+    /// Points along a row (`Ni`).
     pub ni: u32,
+    /// Rows (`Nj`).
     pub nj: u32,
     /// Latitude of the grid origin (first scanned point), degrees.
     pub lat_first: f64,
@@ -38,6 +42,10 @@ pub struct PolarStereoParams {
     pub south_pole: bool,
 }
 
+/// Pole-scale terms derived once from a [`PolarStereoParams`], since a warp
+/// reuses them for every pixel.
+///
+/// `pub` so projector helpers can hand them around; the fields are private.
 #[derive(Debug, Clone, Copy)]
 pub struct PolarStereoConstants {
     /// `2 · R · k₀` where `k₀ = (1 + sin|LaD|)/2` is the pole scale factor for
@@ -134,13 +142,17 @@ pub fn polar_stereo_inverse(p: &PolarStereoParams, lat: f64, lon: f64) -> Option
 /// Precomputed inverse map for a polar stereographic grid. Owns the
 /// pole-scale constant and the forward-projected grid origin — both
 /// invariant across every output pixel of a warp.
+#[derive(Debug)]
 pub struct PolarStereoProjector {
+    /// The grid this projector was built for.
     pub params: PolarStereoParams,
     constants: PolarStereoConstants,
     origin: (f64, f64),
 }
 
 impl PolarStereoProjector {
+    /// Precompute the pole-scale constant and the projected origin for
+    /// `params`. Build once outside a warp loop.
     pub fn new(params: PolarStereoParams) -> Self {
         let constants =
             polar_stereo_constants(params.lad, params.south_pole, params.earth_radius_m);
@@ -160,14 +172,17 @@ impl PolarStereoProjector {
         PlanarGridProjector::inverse(self, lat, lon)
     }
 
+    /// Project a geographic point to projection-plane metres.
     pub fn forward(&self, lat: f64, lon: f64) -> (f64, f64) {
         polar_stereo_forward_with(&self.constants, self.params.lov, lat, lon)
     }
 
+    /// Invert projection-plane metres back to `(lat, lon)` in degrees.
     pub fn inverse_xy(&self, x: f64, y: f64) -> (f64, f64) {
         polar_stereo_inverse_xy_with(&self.constants, self.params.lov, x, y)
     }
 
+    /// The grid's first scanned point, in projection-plane metres.
     pub fn origin(&self) -> (f64, f64) {
         self.origin
     }

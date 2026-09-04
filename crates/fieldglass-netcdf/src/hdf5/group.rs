@@ -51,8 +51,11 @@ const MAX_BTREE_NODES: usize = 4096;
 /// What an object header turned out to be.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChildKind {
+    /// A group — descend into it for more children.
     Group,
+    /// A dataset — a NetCDF variable, or a pure dimension scale.
     Dataset,
+    /// A named datatype. Not a variable, and not descended into.
     CommittedDatatype,
 }
 
@@ -60,8 +63,12 @@ pub enum ChildKind {
 /// and its classified kind.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GroupChild {
+    /// The child's link name within its parent group.
     pub name: String,
+    /// Byte offset of the child's object header, which is also the identity a
+    /// `DIMENSION_LIST` reference resolves against.
     pub object_header_address: u64,
+    /// What the object header turned out to be.
     pub kind: ChildKind,
 }
 

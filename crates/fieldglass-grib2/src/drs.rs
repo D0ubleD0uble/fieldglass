@@ -661,32 +661,53 @@ pub struct SecondOrderPackingTemplate {
 /// level-value table.
 #[derive(Debug, Clone, PartialEq)]
 pub enum DataRepresentationTemplate {
+    /// §5.0 — simple packing.
     Simple(SimplePackingTemplate),
+    /// §5.1 — matrix values at each grid point, simple packing.
     MatrixSimple(MatrixSimplePackingTemplate),
+    /// §5.2 — complex packing.
     Complex(ComplexPackingTemplate),
+    /// §5.3 — complex packing with spatial differencing.
     ComplexSpatialDiff(ComplexSpatialDiffTemplate),
+    /// §5.4 — IEEE floating point.
     Ieee(IeeePackingTemplate),
+    /// §5.41 — PNG. Also the local NCEP 5.40010, which shares the layout.
     Png(PngPackingTemplate),
+    /// §5.42 — CCSDS / AEC.
     Ccsds(CcsdsPackingTemplate),
+    /// §5.40 — JPEG 2000. Also the local NCEP 5.40000, which predates it and
+    /// shares the layout.
     Jpeg2000(Jpeg2000PackingTemplate),
+    /// §5.200 — run-length packing against a level-value table.
     RunLength(RunLengthPackingTemplate),
+    /// §5.61 — simple packing with logarithmic pre-processing.
     LogPreprocessing(LogPreprocessingPackingTemplate),
+    /// §5.50 — spectral simple packing.
     SpectralSimple(SpectralSimplePackingTemplate),
+    /// §5.51 — spectral complex packing.
     SpectralComplex(SpectralComplexPackingTemplate),
+    /// §5.53 — bi-Fourier complex packing.
     BiFourier(BiFourierPackingTemplate),
+    /// §5.50001 / §5.50002 — second-order (general-extended) packing, the
+    /// GRIB1 codec carried into GRIB2. Local templates, not registered ones.
     SecondOrder(SecondOrderPackingTemplate),
+    /// A template this build does not model, carrying its number.
     Unsupported(u16),
 }
 
 /// Parsed contents of the Data Representation Section.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DataRepresentationSection {
+    /// Length of the section in bytes, from its own 4-octet length prefix.
     pub section_length: u32,
     /// Number of data values for which the §7 payload carries packed
     /// values. Equals the GDS grid-point count unless a §6 bitmap drops
     /// some points, in which case it equals the count of present points.
     pub num_data_points: u32,
+    /// Data Representation Template number (Code Table 5.0), as the message
+    /// states it — kept even for a template this build does not model.
     pub template_number: u16,
+    /// The template, parsed, or [`DataRepresentationTemplate::Unsupported`].
     pub template: DataRepresentationTemplate,
 }
 

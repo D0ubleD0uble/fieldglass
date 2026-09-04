@@ -103,8 +103,10 @@ pub struct MatrixField {
 
 /// Top-level reader for a GRIB2 file. Owns the underlying bytes and a
 /// per-message metadata vector populated by [`Grib2Reader::from_bytes`].
+#[derive(Debug)]
 pub struct Grib2Reader {
     data: Vec<u8>,
+    /// Every message in the file, in the order they appear in it.
     pub messages: Vec<Grib2Message>,
 }
 
@@ -118,6 +120,7 @@ impl Grib2Reader {
         Ok(Self { data, messages })
     }
 
+    /// How many messages the scan found. Message indices run `0..this`.
     pub fn message_count(&self) -> usize {
         self.messages.len()
     }

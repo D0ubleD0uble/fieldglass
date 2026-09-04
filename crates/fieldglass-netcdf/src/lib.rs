@@ -4,7 +4,6 @@
 //! See the per-module docs for the per-layout detail.
 
 #![forbid(unsafe_code)]
-
 pub mod classic;
 pub mod geometry;
 pub mod hdf5;

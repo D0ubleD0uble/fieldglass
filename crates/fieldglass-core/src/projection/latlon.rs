@@ -8,13 +8,22 @@
 
 use super::{GridIndex, axis_position};
 
+/// A regular latitude/longitude grid — GRIB1 `grid_type` 0, GRIB2 template
+/// 3.0. Both axes are evenly spaced in degrees, so the two stated corners
+/// and the point counts describe it completely.
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct LatLonParams {
+    /// Points along a row (`Ni`).
     pub ni: u32,
+    /// Rows (`Nj`).
     pub nj: u32,
+    /// Latitude of the first scanned point, degrees.
     pub lat_first: f64,
+    /// Longitude of the first scanned point, degrees.
     pub lon_first: f64,
+    /// Latitude of the last scanned point, degrees.
     pub lat_last: f64,
+    /// Longitude of the last scanned point, degrees.
     pub lon_last: f64,
 }
 
@@ -86,6 +95,9 @@ pub(super) fn eastward_rel_lon(
     Some((rel, east_span))
 }
 
+/// Fractional grid index for a geographic point on a regular lat/lon grid,
+/// or `None` outside its extent. Longitude is folded into the grid's
+/// eastward span first, so an antimeridian-spanning grid indexes correctly.
 pub fn latlon_inverse(p: &LatLonParams, lat: f64, lon: f64) -> Option<GridIndex> {
     if !lat.is_finite() || !lon.is_finite() {
         return None;

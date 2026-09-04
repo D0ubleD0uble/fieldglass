@@ -74,6 +74,7 @@ fn from_js<T: serde::de::DeserializeOwned + Default>(value: JsValue) -> Result<T
 
 /// An open file. Holds the bytes and the parsed message index, nothing else.
 #[wasm_bindgen]
+#[derive(Debug)]
 pub struct Handle {
     session: Session,
 }
@@ -250,6 +251,7 @@ fn set(object: &js_sys::Object, key: &str, value: impl Into<JsValue>) -> Result<
 
 /// One decoded field, owned by the caller.
 #[wasm_bindgen]
+#[derive(Debug)]
 pub struct WasmField {
     field: Field,
 }
@@ -285,10 +287,12 @@ impl WasmField {
         js_sys::Uint8Array::from(&self.field.mask[..])
     }
 
+    /// Grid columns (west-to-east point count of one row).
     pub fn ni(&self) -> u32 {
         self.field.ni
     }
 
+    /// Grid rows. `values()` is `ni * nj` long, row-major.
     pub fn nj(&self) -> u32 {
         self.field.nj
     }
@@ -304,10 +308,14 @@ impl WasmField {
         to_js(&self.field.stats)
     }
 
+    /// The parameter's human-readable name, e.g. `"Temperature"`. `"Unknown"`
+    /// when no table in the crate resolves the message's parameter id.
     pub fn parameter(&self) -> String {
         self.field.parameter.clone()
     }
 
+    /// The parameter's units as the originating table states them, e.g.
+    /// `"K"`. Empty when the parameter did not resolve, or is dimensionless.
     pub fn units(&self) -> String {
         self.field.units.clone()
     }
