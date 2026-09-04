@@ -1,0 +1,214 @@
+{
+  "source": "h5py 3.16.0 (libhdf5 2.0.0), libver='latest'",
+  "note": "scale-less datasets; every axis is an invented phony dimension (#533). Expected netCDF-C numbering: phony_dim_0..4 = 8,8,4,6,7.",
+  "objects": {
+    "a_8x8": {
+      "kind": "dataset",
+      "datatype": {
+        "class": "floating-point",
+        "size_bytes": 4,
+        "byte_order": "little-endian"
+      },
+      "dataspace": {
+        "class": "simple",
+        "rank": 2,
+        "dims": [
+          8,
+          8
+        ],
+        "max_dims": [
+          8,
+          8
+        ]
+      },
+      "storage": {
+        "layout": "contiguous",
+        "chunks": null,
+        "filters": []
+      },
+      "fill_value": 0.0,
+      "attributes": [],
+      "values": {
+        "count": 64,
+        "present_count": 63,
+        "missing_count": 1,
+        "samples": {
+          "0": 0.0,
+          "1": 0.5,
+          "32": 16.0,
+          "62": 31.0,
+          "63": 31.5
+        },
+        "min": 0.5,
+        "max": 31.5,
+        "mean": 16.0
+      }
+    },
+    "b_8x8": {
+      "kind": "dataset",
+      "datatype": {
+        "class": "floating-point",
+        "size_bytes": 4,
+        "byte_order": "little-endian"
+      },
+      "dataspace": {
+        "class": "simple",
+        "rank": 2,
+        "dims": [
+          8,
+          8
+        ],
+        "max_dims": [
+          8,
+          8
+        ]
+      },
+      "storage": {
+        "layout": "contiguous",
+        "chunks": null,
+        "filters": []
+      },
+      "fill_value": 0.0,
+      "attributes": [],
+      "values": {
+        "count": 64,
+        "present_count": 63,
+        "missing_count": 1,
+        "samples": {
+          "0": 0.0,
+          "1": 1.0,
+          "32": 32.0,
+          "62": 62.0,
+          "63": 63.0
+        },
+        "min": 1.0,
+        "max": 63.0,
+        "mean": 32.0
+      }
+    },
+    "c_4x6": {
+      "kind": "dataset",
+      "datatype": {
+        "class": "floating-point",
+        "size_bytes": 4,
+        "byte_order": "little-endian"
+      },
+      "dataspace": {
+        "class": "simple",
+        "rank": 2,
+        "dims": [
+          4,
+          6
+        ],
+        "max_dims": [
+          4,
+          6
+        ]
+      },
+      "storage": {
+        "layout": "contiguous",
+        "chunks": null,
+        "filters": []
+      },
+      "fill_value": 0.0,
+      "attributes": [],
+      "values": {
+        "count": 24,
+        "present_count": 23,
+        "missing_count": 1,
+        "samples": {
+          "0": 0.0,
+          "1": 1.0,
+          "12": 12.0,
+          "22": 22.0,
+          "23": 23.0
+        },
+        "min": 1.0,
+        "max": 23.0,
+        "mean": 12.0
+      }
+    },
+    "d_6x4": {
+      "kind": "dataset",
+      "datatype": {
+        "class": "floating-point",
+        "size_bytes": 4,
+        "byte_order": "little-endian"
+      },
+      "dataspace": {
+        "class": "simple",
+        "rank": 2,
+        "dims": [
+          6,
+          4
+        ],
+        "max_dims": [
+          6,
+          4
+        ]
+      },
+      "storage": {
+        "layout": "contiguous",
+        "chunks": null,
+        "filters": []
+      },
+      "fill_value": 0.0,
+      "attributes": [],
+      "values": {
+        "count": 24,
+        "present_count": 23,
+        "missing_count": 1,
+        "samples": {
+          "0": 0.0,
+          "1": 1.0,
+          "12": 12.0,
+          "22": 22.0,
+          "23": 23.0
+        },
+        "min": 1.0,
+        "max": 23.0,
+        "mean": 12.0
+      }
+    },
+    "e_1d7": {
+      "kind": "dataset",
+      "datatype": {
+        "class": "fixed-point unsigned",
+        "size_bytes": 1,
+        "byte_order": "not-applicable"
+      },
+      "dataspace": {
+        "class": "simple",
+        "rank": 1,
+        "dims": [
+          7
+        ],
+        "max_dims": [
+          7
+        ]
+      },
+      "storage": {
+        "layout": "contiguous",
+        "chunks": null,
+        "filters": []
+      },
+      "fill_value": 0.0,
+      "attributes": [],
+      "values": {
+        "count": 7,
+        "present_count": 6,
+        "missing_count": 1,
+        "samples": {
+          "0": 0.0,
+          "1": 1.0,
+          "3": 3.0,
+          "5": 5.0,
+          "6": 6.0
+        },
+        "min": 1.0,
+        "max": 6.0,
+        "mean": 3.5
+      }
+    }
+  }
+}

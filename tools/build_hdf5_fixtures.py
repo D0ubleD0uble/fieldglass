@@ -802,6 +802,58 @@ def _find_all(raw: bytes, sig: bytes) -> list[int]:
     return out
 
 
+def build_phony_dims(name: str) -> None:
+    """A scale-less file pinning netCDF-C's anonymous-dimension numbering (#533).
+
+    Written by plain ``h5py``, so no dataset carries a ``DIMENSION_SCALE`` class
+    and none carries a ``DIMENSION_LIST``: every axis has to be invented. The
+    shapes are chosen so the numbering rule cannot be satisfied by a simpler one
+    than netCDF-C's actual per-axis reuse:
+
+      * ``a_8x8`` and ``b_8x8`` share a shape, so the second must *reuse* the
+        first's pair rather than allocate more;
+      * ``a_8x8``'s two axes are both 8 long and still need two dimensions,
+        which rules out deduplicating by length alone;
+      * ``d_6x4`` is ``c_4x6`` transposed, so it reuses the same pair in the
+        other order — which rules out matching whole shapes;
+      * ``e_1d7`` is 1-D, and is excluded from the render list for being so
+        while its dimension still appears in the table.
+
+    Read back through netCDF4-python, netCDF-C names these
+    ``phony_dim_0..4`` = 8, 8, 4, 6, 7. Datasets are created in an order that
+    differs from their alphabetical order, because netCDF-C numbers by *name*
+    and a builder that agreed by accident would hide the difference.
+    """
+    path = FIXturesDir / name
+    with h5py.File(path, "w", libver="latest") as f:
+        # Deliberately not in alphabetical order.
+        f.create_dataset("e_1d7", data=np.arange(7, dtype="u1"), track_times=False)
+        f.create_dataset("d_6x4", data=np.arange(24, dtype="f4").reshape(6, 4),
+                         track_times=False)
+        f.create_dataset("c_4x6", data=np.arange(24, dtype="f4").reshape(4, 6),
+                         track_times=False)
+        f.create_dataset("b_8x8", data=np.arange(64, dtype="f4").reshape(8, 8),
+                         track_times=False)
+        f.create_dataset("a_8x8", data=(np.arange(64, dtype="f4") * 0.5).reshape(8, 8),
+                         track_times=False)
+    with h5py.File(path, "r") as f:
+        for n in f:
+            if "DIMENSION_LIST" in f[n].attrs or "CLASS" in f[n].attrs:
+                raise SystemExit(f"{name}: {n} carries dimension-scale metadata; "
+                                 f"this fixture must have none")
+        oracle = {
+            "source": f"h5py {h5py.__version__} (libhdf5 {h5py.version.hdf5_version}), "
+                      f"libver='latest'",
+            "note": "scale-less datasets; every axis is an invented phony dimension "
+                    "(#533). Expected netCDF-C numbering: phony_dim_0..4 = 8,8,4,6,7.",
+            "objects": {n: dataset_oracle(f[n]) for n in f
+                        if isinstance(f[n], h5py.Dataset)},
+        }
+    (FIXturesDir / f"{name}.oracle.json").write_text(
+        json.dumps(oracle, indent=2) + "\n", encoding="utf-8")
+    print(f"wrote {path} + oracle")
+
+
 def main() -> int:
     if not FIXturesDir.is_dir():
         raise SystemExit("run from the repo root")
@@ -829,6 +881,8 @@ def main() -> int:
     build_fletcher32("hdf5_fletcher32.h5")
     # zstd filter (id 32015). Needs `hdf5plugin`, unlike every other builder here.
     build_zstd("hdf5_zstd.h5")
+    # Scale-less datasets: every axis is an invented anonymous dimension (#533).
+    build_phony_dims("hdf5_phony_dims.h5")
     return 0
 
 

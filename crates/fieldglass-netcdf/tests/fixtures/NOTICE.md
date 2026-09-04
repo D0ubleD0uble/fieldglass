@@ -542,6 +542,26 @@ without the plugin it supplies. The builder fails the build rather than emit a
 fixture with the filter silently absent. `tests/hdf5_zstd.rs` checks the decoded
 values and the corrupt-frame report. Part of #413.
 
+## Anonymous-dimension fixture (`hdf5_phony_dims.h5`)
+
+A synthetic `h5py` (libhdf5) file written with `libver='latest'` carrying **no
+dimension scales at all**, so no dataset declares an axis and every one has to
+be invented (#533).
+
+Five datasets, shaped to rule out every rule simpler than netCDF-C's actual
+per-axis reuse: `a_8x8` and `b_8x8` share a shape (the second must reuse the
+first's pair); `a_8x8`'s two axes are both 8 long and still need two dimensions
+(so length alone cannot deduplicate); `d_6x4` is `c_4x6` transposed (so whole
+shapes cannot match either); and `e_1d7` is 1-D. Datasets are **created in an
+order that differs from their alphabetical order**, because netCDF-C numbers
+invented dimensions by name — a builder that agreed by accident would hide a
+reader that numbered by discovery order instead.
+
+The oracle is netCDF-C itself, read through netCDF4-python: `phony_dim_0..4` =
+8, 8, 4, 6, 7, with `a_8x8`/`b_8x8` on `(0, 1)`, `c_4x6` on `(2, 3)`, `d_6x4` on
+`(3, 2)` and `e_1d7` on `(4)`. `tests/hdf5_phony_dims.rs` pins all of it.
+Built by `tools/build_hdf5_fixtures.py`. Part of #533.
+
 ## Curvilinear corpus (`rtofs_tripolar_arctic.nc`, `mirs_swath_n21.nc`)
 
 The two-dimensional-coordinate corpus for #444, built by

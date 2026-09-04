@@ -118,7 +118,12 @@ struct DatasetInfo {
     address: u64,
     name: String,
     nc_type: NcType,
-    rank: usize,
+    /// The dataspace extents, one per axis. Kept whole rather than reduced to a
+    /// rank because a dataset with no dimension scales has nowhere else to get
+    /// its axis lengths from ([`PhonyDimensions`]).
+    extents: Vec<u64>,
+    /// Which of those axes the writer declared `H5S_UNLIMITED`, per axis.
+    unlimited_axes: Vec<bool>,
     attributes: Vec<Hdf5Attribute>,
     scale: Option<DimScale>,
 }
@@ -139,9 +144,30 @@ pub fn resolve(bytes: &[u8], probe: &Hdf5Probe) -> Result<Hdf5Metadata, Fieldgla
             name_by_address.insert(d.address, scale.name.clone());
         }
     }
-    let dimensions = build_dimensions(&datasets);
+    // Pass 2: resolve every dataset's ordered dimension names, walking in *name*
+    // order rather than the depth-first order `datasets` arrives in. Only the
+    // anonymous fallback cares, but it cares exactly: netCDF-C numbers the
+    // dimensions it invents in name order, and matching that is what keeps
+    // `ncdump -h` and Fieldglass calling the same axis `phony_dim_0`. Results are
+    // stored back against each dataset's own position, so the decode order below
+    // is untouched.
+    let mut by_name: Vec<usize> = (0..datasets.len()).collect();
+    by_name.sort_by(|&a, &b| datasets[a].name.cmp(&datasets[b].name));
+    let mut phony = PhonyDimensions::default();
+    let mut dimension_names: Vec<Vec<String>> = vec![Vec::new(); datasets.len()];
+    for index in by_name {
+        dimension_names[index] = resolve_variable_dimensions(
+            bytes,
+            probe,
+            &datasets[index],
+            &name_by_address,
+            &mut phony,
+        )?;
+    }
 
-    // Pass 2: classify each dataset, resolving its dimension names. `datasets` is
+    let dimensions = build_dimensions(&datasets, &phony);
+
+    // Pass 3: classify each dataset. `datasets` is
     // in the same whole-file depth-first order `decode_variable_values` indexes
     // (`hdf5_dataset_address` walks the identical `list_all_children` filter), so
     // the enumerate position is the variable's decode index — recorded now because
@@ -152,7 +178,7 @@ pub fn resolve(bytes: &[u8], probe: &Hdf5Probe) -> Result<Hdf5Metadata, Fieldgla
         if matches!(&d.scale, Some(s) if !s.has_coordinate_values) {
             continue;
         }
-        let dims = resolve_variable_dimensions(bytes, probe, d, &name_by_address)?;
+        let dims = std::mem::take(&mut dimension_names[decode_index]);
         variables.push(VariableInfo {
             name: d.name.clone(),
             nc_type: d.nc_type,
@@ -208,15 +234,95 @@ fn describe(
         address: child.object_header_address,
         name: child.name,
         nc_type: shape.datatype.nc_type,
-        rank: shape.dataspace.dims.len(),
+        // A missing max-dims block means no axis is extensible, so an absent
+        // entry reads as bounded rather than defaulting the other way.
+        unlimited_axes: (0..shape.dataspace.dims.len())
+            .map(|axis| {
+                shape
+                    .dataspace
+                    .max_dims
+                    .get(axis)
+                    .is_some_and(Option::is_none)
+            })
+            .collect(),
+        extents: shape.dataspace.dims,
         attributes,
         scale,
     })
 }
 
+/// Allocates the anonymous dimensions a bare HDF5 dataset needs, following
+/// netCDF-C's rule so that `ncdump -h` and Fieldglass name the same axes.
+///
+/// Measured against netCDF-C (through netCDF4-python) on a file whose datasets
+/// deliberately repeat, differ and transpose their shapes:
+///
+/// ```text
+/// a_8x8 → (phony_dim_0=8, phony_dim_1=8)    b_8x8 → (phony_dim_0, phony_dim_1)
+/// c_4x6 → (phony_dim_2=4, phony_dim_3=6)    d_6x4 → (phony_dim_3, phony_dim_2)
+/// e_1d7 → (phony_dim_4=7)
+/// ```
+///
+/// So the rule is per *axis*, not per shape: reuse the lowest-numbered existing
+/// anonymous dimension of that extent which this dataset is not already using,
+/// and otherwise allocate the next number. `a_8x8` is the case that rules out
+/// deduplicating by length alone — both its axes are 8 long and it still gets
+/// two dimensions — and `d_6x4` is the case that rules out matching whole
+/// shapes, since it reuses `c_4x6`'s pair transposed.
+#[derive(Default)]
+struct PhonyDimensions {
+    /// The length of `phony_dim_N`, indexed by `N`.
+    lengths: Vec<u64>,
+    /// Whether `phony_dim_N` is extensible. netCDF-C carries `H5S_UNLIMITED`
+    /// through to the dimension it invents — `hdf5_ea_chunk_index.h5` reads back
+    /// as `phony_dim_0 = 600 (unlimited)` — so this does too.
+    unlimited: Vec<bool>,
+}
+
+impl PhonyDimensions {
+    /// The ordered dimension names for a dataset of these extents, allocating
+    /// as it goes.
+    fn axes_for(&mut self, extents: &[u64], unlimited_axes: &[bool]) -> Vec<String> {
+        let mut taken: Vec<usize> = Vec::with_capacity(extents.len());
+        for (axis, &length) in extents.iter().enumerate() {
+            let extensible = unlimited_axes.get(axis).copied().unwrap_or(false);
+            let existing =
+                (0..self.lengths.len()).find(|i| self.lengths[*i] == length && !taken.contains(i));
+            let index = match existing {
+                Some(i) => i,
+                None => {
+                    self.lengths.push(length);
+                    self.unlimited.push(false);
+                    self.lengths.len() - 1
+                }
+            };
+            // Shared by extent, so two datasets can disagree about whether the
+            // axis grows. One writer saying it does is enough: the dimension
+            // describes what the file permits, not what any one dataset uses.
+            self.unlimited[index] |= extensible;
+            taken.push(index);
+        }
+        taken.iter().map(|i| format!("phony_dim_{i}")).collect()
+    }
+
+    /// Dimension-table entries for everything allocated.
+    fn dimensions(&self) -> Vec<DimensionInfo> {
+        self.lengths
+            .iter()
+            .enumerate()
+            .map(|(index, &length)| DimensionInfo {
+                name: format!("phony_dim_{index}"),
+                length,
+                is_unlimited: self.unlimited[index],
+            })
+            .collect()
+    }
+}
+
 /// Build the dimension list, ordered by `_Netcdf4Dimid` (falling back to
-/// discovery order for scales an older writer left without one).
-fn build_dimensions(datasets: &[DatasetInfo]) -> Vec<DimensionInfo> {
+/// discovery order for scales an older writer left without one), then the
+/// anonymous dimensions invented for datasets that declared none.
+fn build_dimensions(datasets: &[DatasetInfo], phony: &PhonyDimensions) -> Vec<DimensionInfo> {
     let mut scales: Vec<(i64, DimensionInfo)> = datasets
         .iter()
         .filter_map(|d| d.scale.as_ref())
@@ -233,18 +339,25 @@ fn build_dimensions(datasets: &[DatasetInfo]) -> Vec<DimensionInfo> {
         })
         .collect();
     scales.sort_by_key(|(dimid, _)| *dimid);
-    scales.into_iter().map(|(_, dim)| dim).collect()
+    // Declared dimensions first: a `_Netcdf4Dimid` orders only its own writer's
+    // dimensions, and says nothing about where an invented one belongs.
+    let mut dimensions: Vec<DimensionInfo> = scales.into_iter().map(|(_, dim)| dim).collect();
+    dimensions.extend(phony.dimensions());
+    dimensions
 }
 
 /// Resolve a variable's ordered dimension names. A coordinate variable's single
 /// dimension is itself; any other variable reads its `DIMENSION_LIST`. A dataset
 /// with neither (a bare HDF5 dataset, not written by netCDF) falls back to
-/// anonymous `phony_dim_N` axes sized from its dataspace.
+/// anonymous `phony_dim_N` axes sized from its dataspace by [`PhonyDimensions`],
+/// which is what lets such a file be rendered at all: an axis whose name is not
+/// in the dimension table resolves to length 0.
 fn resolve_variable_dimensions(
     bytes: &[u8],
     probe: &Hdf5Probe,
     d: &DatasetInfo,
     name_by_address: &HashMap<u64, String>,
+    phony: &mut PhonyDimensions,
 ) -> Result<Vec<String>, FieldglassError> {
     if d.scale.is_some() {
         // A coordinate variable carries no DIMENSION_LIST; its axis is its own
@@ -252,10 +365,8 @@ fn resolve_variable_dimensions(
         return Ok(vec![d.name.clone()]);
     }
     match attribute::raw_attribute(bytes, d.address, probe, "DIMENSION_LIST")? {
-        Some(raw) => decode_dimension_list(bytes, probe, &raw, d.rank, name_by_address),
-        None => Ok((0..d.rank)
-            .map(|axis| format!("phony_dim_{axis}"))
-            .collect()),
+        Some(raw) => decode_dimension_list(bytes, probe, &raw, d.extents.len(), name_by_address),
+        None => Ok(phony.axes_for(&d.extents, &d.unlimited_axes)),
     }
 }
 
@@ -328,4 +439,93 @@ fn visible_attributes(attrs: &[Hdf5Attribute]) -> Vec<Hdf5Attribute> {
         .filter(|a| !HIDDEN_ATTRIBUTES.contains(&a.name.as_str()))
         .cloned()
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The anonymous-dimension rule, pinned against netCDF-C.
+    ///
+    /// These are the exact names netCDF-C gives a scale-less file whose datasets
+    /// repeat, differ and transpose their shapes — read back through
+    /// netCDF4-python and reproduced here so the rule cannot drift silently.
+    /// `build_hdf5_fixtures.py` writes that file as `hdf5_phony_dims.h5` and
+    /// `hdf5_phony_dims.rs` checks the same expectations end to end.
+    #[test]
+    fn anonymous_dimensions_are_numbered_the_way_netcdf_c_numbers_them() {
+        let mut phony = PhonyDimensions::default();
+
+        // Two axes of the same length still get two dimensions: an anonymous
+        // dimension is per axis, not per distinct length.
+        assert_eq!(phony.axes_for(&[8, 8], &[]), ["phony_dim_0", "phony_dim_1"]);
+        // An identical shape reuses them rather than allocating more.
+        assert_eq!(phony.axes_for(&[8, 8], &[]), ["phony_dim_0", "phony_dim_1"]);
+        // New extents allocate.
+        assert_eq!(phony.axes_for(&[4, 6], &[]), ["phony_dim_2", "phony_dim_3"]);
+        // A transposed shape reuses the same pair the other way round, which is
+        // what rules out matching whole shapes instead of individual extents.
+        assert_eq!(phony.axes_for(&[6, 4], &[]), ["phony_dim_3", "phony_dim_2"]);
+        assert_eq!(phony.axes_for(&[7], &[]), ["phony_dim_4"]);
+
+        assert_eq!(
+            phony
+                .dimensions()
+                .iter()
+                .map(|d| (d.name.as_str(), d.length, d.is_unlimited))
+                .collect::<Vec<_>>(),
+            [
+                ("phony_dim_0", 8, false),
+                ("phony_dim_1", 8, false),
+                ("phony_dim_2", 4, false),
+                ("phony_dim_3", 6, false),
+                ("phony_dim_4", 7, false),
+            ]
+        );
+    }
+
+    /// Three axes of one length need three dimensions, not two — the `taken`
+    /// check has to exclude everything this dataset already holds, not just the
+    /// one it matched last.
+    #[test]
+    fn a_dataset_never_reuses_a_dimension_within_itself() {
+        let mut phony = PhonyDimensions::default();
+        assert_eq!(
+            phony.axes_for(&[5, 5, 5], &[]),
+            ["phony_dim_0", "phony_dim_1", "phony_dim_2"]
+        );
+        assert_eq!(phony.lengths, [5, 5, 5]);
+    }
+
+    /// A dimension is shared by extent, so two datasets can disagree about
+    /// whether that axis grows. One writer saying it does is enough — the
+    /// dimension describes what the file permits.
+    #[test]
+    fn a_shared_dimension_is_unlimited_if_any_user_says_so() {
+        let mut phony = PhonyDimensions::default();
+        // Bounded first, then the same extent declared extensible.
+        assert_eq!(phony.axes_for(&[4], &[false]), ["phony_dim_0"]);
+        assert_eq!(phony.axes_for(&[4], &[true]), ["phony_dim_0"]);
+        assert!(phony.dimensions()[0].is_unlimited);
+
+        // And it does not leak the other way: an untouched dimension stays bounded.
+        let mut bounded = PhonyDimensions::default();
+        bounded.axes_for(&[4, 9], &[true, false]);
+        assert_eq!(
+            bounded
+                .dimensions()
+                .iter()
+                .map(|d| d.is_unlimited)
+                .collect::<Vec<_>>(),
+            [true, false]
+        );
+    }
+
+    /// A scalar dataset has no axes, and must not invent one.
+    #[test]
+    fn a_scalar_dataset_allocates_nothing() {
+        let mut phony = PhonyDimensions::default();
+        assert!(phony.axes_for(&[], &[]).is_empty());
+        assert!(phony.dimensions().is_empty());
+    }
 }
