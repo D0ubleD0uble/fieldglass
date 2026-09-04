@@ -1,10 +1,12 @@
 [workspace]
 members = [
+    "crates/fieldglass",
     "crates/fieldglass-core",
     "crates/fieldglass-grib1",
     "crates/fieldglass-grib2",
     "crates/fieldglass-netcdf",
     "crates/fieldglass-napi",
+    "crates/fieldglass-wasm",
 ]
 resolver = "2"
 
@@ -29,6 +31,11 @@ serde = { version = "1", features = ["derive"] }
 # exactly. Costs a slower parse and nothing else.
 serde_json = { version = "1", features = ["float_roundtrip"] }
 thiserror = "2"
+# JSON Schema derives for the API types (ADR-0006 decision 2). A host's
+# TypeScript / Python declarations are generated from the schema rather than
+# kept by hand, so the schema has to be derivable from the same structs serde
+# reads. Optional in `fieldglass`; the wasm host builds without it.
+schemars = "1"
 # Secure temporary files for the `detect_format` tests. Not decoration: the temp
 # directory is shared between users, so a predictable name plus a plain create
 # lets another user plant a symlink and have the test write through it. This
@@ -60,3 +67,21 @@ miniz_oxide = "0.9"
 # widely-used general-purpose crate, in the same class as `png` and
 # `miniz_oxide`. Decode only — we never write zstd.
 ruzstd = "0.9"
+
+# The wasm host's release profile. `panic = "abort"` and `opt-level = "z"` are
+# the browser bundle's, not the workspace's: a custom profile keeps them off
+# every other crate while still living in one manifest, so `cargo fmt`,
+# `clippy`, `cargo deny` and `cargo test --workspace` all still see the crate.
+#
+#     cargo build -p fieldglass-wasm --profile wasm-release \
+#         --target wasm32-unknown-unknown
+#
+# A decoder panic kills the Worker under `abort`; the host must treat the Worker
+# as disposable and restart it. See crates/fieldglass-wasm/README.md.
+[profile.wasm-release]
+inherits = "release"
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
