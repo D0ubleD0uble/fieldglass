@@ -238,9 +238,17 @@ impl Grib1Reader {
         })
     }
 
-    /// Decode the grid values for one message. Returns one entry per grid
-    /// point: `Some(value)` for present points, `None` for points masked out
-    /// by a Bit Map Section.
+    /// Decode the grid values for one message, **in the layout the message
+    /// stores them**. Returns one entry per stored data point: `Some(value)`
+    /// for present points, `None` for points masked out by a Bit Map Section.
+    ///
+    /// For a regular grid that is `Ni·Nj` values in row-major order. For a
+    /// reduced grid it is `sum(PL)` values, row by row, which is *not* the
+    /// `Ni·Nj` [`GridDescription::dimensions`] reports — a consumer indexing
+    /// `values[j·ni + i]` reads the wrong point from the second row on. Use
+    /// [`Self::decode_message_raster`] for the rectangle; use this when the
+    /// stored field itself is what you want (a statistic, a re-encode, a
+    /// point count checked against eccodes).
     pub fn decode_message_values(
         &self,
         message_index: usize,
@@ -254,6 +262,48 @@ impl Grib1Reader {
             inputs.expected_count,
             inputs.cols,
         )
+    }
+
+    /// Decode one message onto the raster [`GridDescription::dimensions`]
+    /// describes: `ni · nj` values in row-major order, ready to index as
+    /// `raster[j·ni + i]`.
+    ///
+    /// The same values [`Self::decode_message_values`] returns for every grid
+    /// whose rows are all `Ni` wide. For a reduced grid each stored row is
+    /// widened to `max(PL)` here, at the decode boundary, so a consumer never
+    /// has to know the field was quasi-regular
+    /// ([`fieldglass_core::expand_reduced_to_regular`] documents how a column
+    /// is chosen — nearest by longitude, wrapping at the antimeridian). The
+    /// matching extent is [`GridDescription::raster_bounds`], whose eastern
+    /// corner is derived for the same reason.
+    ///
+    /// A layout with no raster shape at all comes back untouched: there is
+    /// nothing to widen and nothing to widen it to. GRIB1 has one such case
+    /// and it does not reach here — spherical-harmonic coefficients are
+    /// refused by [`Self::decode_message_values`], which names
+    /// [`Self::decode_spectral_message`].
+    pub fn decode_message_raster(
+        &self,
+        message_index: usize,
+    ) -> Result<Vec<Option<f64>>, FieldglassError> {
+        let values = self.decode_message_values(message_index)?;
+        // `decode_message_values` has already resolved the message and capped
+        // the raster, so this can only be a grid it accepted.
+        let Some(gds) = self
+            .messages
+            .get(message_index)
+            .and_then(|m| m.gds.as_ref())
+        else {
+            return Ok(values);
+        };
+        match (gds.points_per_row(), gds.dimensions()) {
+            (Some(pl), Some((width, _))) => Ok(fieldglass_core::expand_reduced_to_regular(
+                &values,
+                pl,
+                width as usize,
+            )),
+            _ => Ok(values),
+        }
     }
 
     /// Decode a spherical-harmonic message into its spectral coefficients.

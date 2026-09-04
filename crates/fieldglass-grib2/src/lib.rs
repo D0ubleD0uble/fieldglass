@@ -19,6 +19,13 @@
 //! templates 5.40000 / 5.40010 decode too (the latter eccodes cannot). Value
 //! decoders are cross-checked against eccodes; for the handful eccodes cannot
 //! handle, against the definitive spec and independent implementations.
+//!
+//! Those entry points all return the field **as the message stores it**. A
+//! reduced Gaussian grid stores `sum(PL)` values, not the `Ni × Nj` its
+//! [`GridDefinitionSection::dimensions`] reports, so
+//! [`Grib2Reader::decode_message_raster`] is the entry point that hands back
+//! the rectangle, with [`GridDefinitionSection::raster_bounds`] as its extent.
+//! Neither leaves the widening rule to the caller.
 
 #![forbid(unsafe_code)]
 

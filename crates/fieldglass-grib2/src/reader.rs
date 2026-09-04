@@ -123,9 +123,18 @@ impl Grib2Reader {
     }
 
     /// Decode the grid values for one message, mirroring the GRIB1 reader's
-    /// API. Returns one entry per grid point: `Some(value)` for present
+    /// API. Returns one entry per stored data point: `Some(value)` for present
     /// points, `None` for points masked out by the §6 bitmap or substituted
     /// as missing by §5 missing-value management.
+    ///
+    /// The values come back **in the layout the message stores them**. For a
+    /// regular grid that is `Ni·Nj` in row-major order; for a reduced grid it
+    /// is `sum(PL)` values, row by row, which is *not* the `Ni·Nj`
+    /// [`GridDefinitionSection::dimensions`] reports, and for HEALPix it is
+    /// `12·Nside²` pixels with no rows at all. Use
+    /// [`Self::decode_message_raster`] for the rectangle; use this when the
+    /// stored field itself is what you want (a statistic, a re-encode, a point
+    /// count checked against eccodes).
     ///
     /// Currently supports DRS templates 5.0 (simple packing), 5.2 / 5.3
     /// (complex packing, with and without spatial differencing — both
@@ -310,6 +319,44 @@ impl Grib2Reader {
             }
         }
         Ok(values)
+    }
+
+    /// Decode one message onto the raster
+    /// [`GridDefinitionSection::dimensions`] describes: `ni · nj` values in
+    /// row-major order, ready to index as `raster[j·ni + i]`.
+    ///
+    /// The same values [`Self::decode_message_values`] returns for every grid
+    /// whose rows are all `Ni` wide. For a reduced grid each stored row is
+    /// widened to `max(PL)` here, at the decode boundary, so a consumer never
+    /// has to know the field was quasi-regular
+    /// ([`fieldglass_core::expand_reduced_to_regular`] documents how a column
+    /// is chosen — nearest by longitude, wrapping at the antimeridian). The
+    /// matching extent is [`GridDefinitionSection::raster_bounds`], whose
+    /// eastern corner is derived for the same reason. Mirrors
+    /// `fieldglass_grib1::Grib1Reader::decode_message_raster`.
+    ///
+    /// A layout with no raster shape comes back untouched: there is nothing to
+    /// widen and nothing to widen it to. HEALPix is that case — one list of
+    /// `12·Nside²` pixels, which #443 resamples onto a lat/lon grid rather than
+    /// pretending it is a one-row raster.
+    pub fn decode_message_raster(
+        &self,
+        message_index: usize,
+    ) -> Result<Vec<Option<f64>>, FieldglassError> {
+        let values = self.decode_message_values(message_index)?;
+        // `decode_message_values` has already resolved the message and capped
+        // the raster, so this can only be a grid it accepted.
+        let Some(gds) = self.messages.get(message_index).map(|m| &m.gds) else {
+            return Ok(values);
+        };
+        match (gds.points_per_row(), gds.dimensions()) {
+            (Some(pl), Some((width, _))) => Ok(fieldglass_core::expand_reduced_to_regular(
+                &values,
+                pl,
+                width as usize,
+            )),
+            _ => Ok(values),
+        }
     }
 
     /// Decode a `grid_simple_matrix` message (template 5.1) that carries an
