@@ -1355,7 +1355,13 @@ mod grid_variant_tests {
 }
 
 #[cfg(test)]
-mod tests {
+mod accessor_tests {
+    //! The grid-policy accessors (#544): the flags, signs and fixed constants
+    //! a consumer would otherwise re-derive from the raw fields. Built from
+    //! synthetic structs so every variant of the enum is covered, including
+    //! the two that describe no raster; `tests/decode_real_grib1.rs` checks
+    //! the same accessors against a real polar-stereographic message.
+
     use super::*;
 
     fn flags() -> ResolutionFlags {

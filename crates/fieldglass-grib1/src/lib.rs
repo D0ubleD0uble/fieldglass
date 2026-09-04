@@ -15,6 +15,14 @@
 //! number. Every grid reports the corners and geometry
 //! `fieldglass_core::projection` needs to place it on a map.
 //!
+//! A message routes to one of three decode methods, and which one is not a
+//! property of its packing label alone —
+//! [`Grib1Reader::message_kind`] is the answer. Grid policy the file states
+//! obliquely (the scan direction behind unsigned `Dx`/`Dy`, the ±60° true-scale
+//! parallel GRIB1 never writes down, whether a message has a raster at all)
+//! lives on [`GridDescription`] and its per-family structs rather than in each
+//! consumer.
+//!
 //! Decoders are cross-checked against eccodes: `tests/eccodes_reference.rs`
 //! walks every committed fixture and compares both the metadata keys and the
 //! decoded values against a pinned snapshot, so a packing bug fails the suite

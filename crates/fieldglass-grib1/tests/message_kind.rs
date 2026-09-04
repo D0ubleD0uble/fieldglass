@@ -64,7 +64,10 @@ fn an_out_of_range_index_has_no_entry_point() {
 #[test]
 fn an_unmodelled_grid_type_has_no_entry_point() {
     let mut bytes = include_bytes!("fixtures/cmc_wind_300_2010052400_p012.grib").to_vec();
-    let gds_offset = 8 + usize::from(u16::from_be_bytes([bytes[9], bytes[10]]));
+    // IS is 8 octets; the PDS states its own 3-octet length, and the GDS
+    // follows it.
+    let pds_len = u32::from_be_bytes([0, bytes[8], bytes[9], bytes[10]]) as usize;
+    let gds_offset = 8 + pds_len;
     assert_eq!(bytes[gds_offset + 5], 5, "fixture is polar stereographic");
     bytes[gds_offset + 5] = 13; // unassigned in ON388 Table 6
     let r = reader(&bytes);
