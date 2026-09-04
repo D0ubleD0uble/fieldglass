@@ -124,8 +124,9 @@ api_type! {
         /// to. A generated `.d.ts` types it loosely and a host does not read it.
         #[cfg_attr(feature = "schema", schemars(schema_with = "geometry_schema"))]
         pub geometry: GridGeometry,
-        /// The family tag `core` reports: `latlon`, `gaussian`, `lambert`,
-        /// `polar_stereo`, `lookup`, or `unsupported`.
+        /// The family tag `core` reports: `latlon`, `gaussian`, `mercator`,
+        /// `rotated_latlon`, `lambert`, `polar_stereo`, `transverse_mercator`,
+        /// `lambert_azimuthal`, `space_view`, `lookup`, or `unsupported`.
         pub kind: String,
         /// The most specific name available — the decoder's own grid-type
         /// string for a family this build does not model.
