@@ -59,7 +59,9 @@ class Fixture:
 
     def __init__(self, files: dict[str, str]):
         self._tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self._tmp.name)
+        # Resolved: on macOS the temp root is a symlink, and a message built
+        # with `relative_to` against the unresolved path would raise.
+        self.root = Path(self._tmp.name).resolve()
         for relative, body in files.items():
             path = self.root / "crates" / CRATE / "src" / relative
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -124,6 +126,84 @@ class ARequiredNameIsChecked(unittest.TestCase):
                 )
                 + "\nimpl From<&Reader> for GridGeometry {\n"
                 "    fn from(_: &Reader) -> Self {\n        unimplemented!()\n    }\n}\n"
+            }
+        )
+        self.addCleanup(fx.close)
+        self.assertEqual(fx.run(), 1)
+
+    def test_an_associated_type_in_a_trait_impl_counts(self):
+        # `type Error = FieldglassError;` is how a core name most often reaches
+        # a consumer through a conversion, and it is not a `pub fn` anywhere.
+        fx = Fixture.clean(
+            **{
+                "lib.rs": "pub mod reader;\n",
+                "reader.rs": "use fieldglass_core::FieldglassError;\n\npub struct Reader;\n\n"
+                "impl TryFrom<&[u8]> for Reader {\n    type Error = FieldglassError;\n\n"
+                "    fn try_from(_: &[u8]) -> Result<Self, Self::Error> {\n"
+                "        unimplemented!()\n    }\n}\n",
+            }
+        )
+        self.addCleanup(fx.close)
+        self.assertEqual(fx.run(), 1)
+
+    def test_a_trait_impl_method_return_type_counts(self):
+        fx = Fixture.clean(
+            **{
+                "lib.rs": "pub mod reader;\n",
+                "reader.rs": "use fieldglass_core::Metadata;\n\npub struct Reader;\n\n"
+                "impl Describe for Reader {\n    fn describe(&self) -> Metadata {\n"
+                "        unimplemented!()\n    }\n}\n",
+            }
+        )
+        self.addCleanup(fx.close)
+        self.assertEqual(fx.run(), 1)
+
+    def test_a_private_helper_in_an_inherent_impl_does_not(self):
+        # The counterpart: items in an inherent `impl` are only public when
+        # they say `pub`, so a private helper must not be reported.
+        fx = Fixture.clean(
+            **{
+                "lib.rs": "pub mod reader;\n",
+                "reader.rs": "use fieldglass_core::GridGeometry;\n\npub struct Reader;\n\n"
+                "impl Reader {\n    fn helper(&self) -> GridGeometry {\n"
+                "        unimplemented!()\n    }\n}\n",
+            }
+        )
+        self.addCleanup(fx.close)
+        self.assertEqual(fx.run(), 0)
+
+    def test_a_method_on_a_type_re_exported_out_of_a_private_module_counts(self):
+        # Reachability turns on the *type's* name, not the method's: grib2
+        # publishes `LocalTableCentre` out of a private `tables_local`.
+        fx = Fixture(
+            {
+                "lib.rs": "mod tables;\n\npub use tables::Table;\n",
+                "tables.rs": "use fieldglass_core::GridGeometry;\n\npub struct Table;\n\n"
+                "impl Table {\n    pub fn geometry(&self) -> GridGeometry {\n"
+                "        unimplemented!()\n    }\n}\n",
+            }
+        )
+        self.addCleanup(fx.close)
+        self.assertEqual(fx.run(), 1)
+
+    def test_a_renamed_re_export_still_names_the_declared_item(self):
+        fx = Fixture(
+            {
+                "lib.rs": "mod tables;\n\npub use tables::Table as Centre;\n",
+                "tables.rs": "use fieldglass_core::GridGeometry;\n\npub struct Table;\n\n"
+                "impl Table {\n    pub fn geometry(&self) -> GridGeometry {\n"
+                "        unimplemented!()\n    }\n}\n",
+            }
+        )
+        self.addCleanup(fx.close)
+        self.assertEqual(fx.run(), 1)
+
+    def test_a_glob_re_export_publishes_the_whole_module(self):
+        fx = Fixture(
+            {
+                "lib.rs": "mod tables;\n\npub use tables::*;\n",
+                "tables.rs": "use fieldglass_core::GridGeometry;\n\n"
+                "pub fn geometry() -> GridGeometry {\n    unimplemented!()\n}\n",
             }
         )
         self.addCleanup(fx.close)
@@ -284,6 +364,41 @@ class GatesThatWouldOtherwiseFailOpen(unittest.TestCase):
         self.addCleanup(fx.close)
         self.assertEqual(fx.run(), 1)
 
+    def test_the_same_rename_spelled_as_self_is_rejected_too(self):
+        fx = Fixture.clean(
+            **{
+                "reader.rs": "use fieldglass_core::{self as fc, FieldglassError};\n\n"
+                "pub fn geometry() -> fc::GridGeometry {\n    unimplemented!()\n}\n"
+                "pub struct Reader { pub e: Option<FieldglassError> }\n"
+            }
+        )
+        self.addCleanup(fx.close)
+        self.assertEqual(fx.run(), 1)
+
+    def test_a_where_clause_does_not_hide_a_public_field(self):
+        fx = Fixture.clean(
+            **{
+                "lib.rs": "pub mod reader;\n",
+                "reader.rs": "use fieldglass_core::ByteRange;\n\n"
+                "pub struct Plan<T>\nwhere\n    T: Clone,\n{\n"
+                "    pub ranges: Vec<ByteRange>,\n    pub other: T,\n}\n",
+            }
+        )
+        self.addCleanup(fx.close)
+        self.assertEqual(fx.run(), 1)
+
+    def test_a_reported_line_number_is_the_line_in_the_file(self):
+        # Line numbers indexed into a list with test items *removed* would be
+        # off by the size of every test module above the finding.
+        text = (
+            "#[cfg(test)]\nmod tests {\n    fn a() {}\n    fn b() {}\n}\n\n"
+            "use fieldglass_core::GridGeometry;\n\n"
+            "pub fn geometry() -> GridGeometry {\n    unimplemented!()\n}\n"
+        )
+        signatures = chk.public_signatures(text, module_is_public=True, reexported=set())
+        self.assertEqual([line for line, _ in signatures], [9])
+        self.assertEqual(chk.core_names_from_text(text)[0], {"GridGeometry": "GridGeometry"})
+
     def test_a_source_file_the_module_walk_never_reaches_fails(self):
         fx = Fixture.clean(**{"orphan.rs": "use fieldglass_core::GridGeometry;\n"})
         self.addCleanup(fx.close)
@@ -427,8 +542,10 @@ class TheRepoItselfPasses(unittest.TestCase):
                 "FieldglassError",
                 "FormatReader",
                 "GeostationaryParams",
+                "GridDefinition",
                 "GridGeometry",
                 "LambertAzimuthalParams",
+                "Metadata",
                 "TransverseMercatorParams",
             },
             "fieldglass-netcdf": {"ByteRange", "ByteSource", "FieldglassError"},

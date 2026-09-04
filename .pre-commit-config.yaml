@@ -125,10 +125,8 @@ repos:
         language: system
         # `tests/crate-independence` catches a re-export that is deleted; this
         # catches one that is never written, which compiles fine and costs a
-        # consumer a `fieldglass-core` line in their own manifest. The
-        # architecture checker is in the pattern because this one borrows its
-        # `production_lines`.
-        files: ^(crates/fieldglass-(grib1|grib2|netcdf)/src/.*\.rs|tools/check_(format_crate_reexports|architecture_diagrams)\.py)$
+        # consumer a `fieldglass-core` line in their own manifest.
+        files: ^(crates/fieldglass-(grib1|grib2|netcdf)/src/.*\.rs|tools/check_format_crate_reexports\.py)$
         entry: python3 tools/check_format_crate_reexports.py
         pass_filenames: false
 
@@ -161,7 +159,7 @@ repos:
         name: format-crate re-export checker self-test
         stages: [pre-push]
         language: system
-        files: ^tools/(check_format_crate_reexports|test_check_format_crate_reexports|check_architecture_diagrams)\.py$
+        files: ^tools/(check_format_crate_reexports|test_check_format_crate_reexports)\.py$
         entry: python3 tools/test_check_format_crate_reexports.py
         pass_filenames: false
 

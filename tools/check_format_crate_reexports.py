@@ -26,11 +26,20 @@ that file's own `use` statements, plus any `fieldglass_core::…::Name` path
 written out in place of an import. A name is *required* when it appears in a
 public signature: the header of a `pub fn` / `pub struct` / `pub enum` /
 `pub trait` / `pub type` / `pub const` / `pub static`, a `pub` field of a public
-struct, an enum variant payload, a method signature inside a `pub trait`, or an
-`impl … for …` header — the last because a trait impl is reachable from
-anywhere both types are, which is how `GridGeometry` enters both GRIB crates'
-API (via `From<&GridDescription>`) without any `pub fn` naming it. A `pub` item
-in a private module counts only when `lib.rs` re-exports it by name.
+struct, an enum variant payload, a method signature inside a `pub trait`, an
+`impl … for …` header, or any item inside one of those impls. The last two
+carry most of the weight. A trait impl is reachable from anywhere both its
+types are, which is how `GridGeometry` enters both GRIB crates' API (via
+`From<&GridDescription>`) without any `pub fn` naming it, and its items are the
+trait's signatures rather than private helpers — `type Error = FieldglassError;`
+on a `TryFrom` impl is a name a consumer has to write and appears nowhere else.
+Items in an *inherent* impl are only public when they say `pub`, and they are
+reachable when the type the impl hangs them on is, which is not the same
+question as whether the method's own name is re-exported.
+
+A `pub` item in a private module counts only when a public module re-exports it
+— by name, by its declared name behind a rename, or through a `pub use mod::*;`
+that publishes the module whole.
 
 Accepted limitations, in the shape `check_architecture_diagrams.py` documents
 its own:
@@ -47,9 +56,14 @@ its own:
     the file's own visibility, so that one over-reports rather than under-.
     Every inline module in the three crates today is `#[cfg(test)]`, which is
     dropped before any of this.
-  * `use fieldglass_core::*;` and `use fieldglass_core as …;` are rejected
-    outright for the same reason: the checker cannot see through either, and
-    either would silently blind it.
+  * `use fieldglass_core::*;`, `use fieldglass_core as …;` and its in-tree
+    spelling `use fieldglass_core::{self as fc, …};` are rejected outright for
+    the same reason: the checker cannot see through any of them, and each would
+    silently blind it.
+
+Line numbers in every message are line numbers in the file. `#[cfg(test)]` items
+are blanked in place rather than removed for exactly that reason — one of these
+crates carries 1,496 lines of test module in a single file.
 
 `ALLOWED_UNEXPORTED` is the line the rule draws, per crate and per name, and is
 checked in both directions — an entry naming something that is no longer in a
@@ -76,7 +90,6 @@ also runs in CI via `pre-commit run --all-files`.
 
 from __future__ import annotations
 
-import importlib.util
 import re
 import sys
 from pathlib import Path
@@ -102,25 +115,21 @@ FORMAT_CRATES = ("fieldglass-grib1", "fieldglass-grib2", "fieldglass-netcdf")
 ALLOWED_UNEXPORTED: dict[str, dict[str, str]] = {
     "fieldglass-grib2": {
         # Two self-less stub traits with no usable methods, whose impls exist
-        # only until #540 retires them. Re-exporting them would publish, and
-        # promise, a surface that is being deleted.
+        # only until #540 retires them, and the two core types those impls
+        # return because the traits say so. Re-exporting any of the four would
+        # publish, and promise, a surface that is being deleted — and the last
+        # two are core's own API reached through core's own trait, so they are
+        # not names this crate hands back on its own account.
         "FormatReader": "self-less stub trait; #540 retires it",
         "DataMessage": "self-less stub trait; #540 retires it",
+        "Metadata": "return type the #540 stub impls inherit from the trait",
+        "GridDefinition": "return type the #540 stub impls inherit from the trait",
     },
 }
 
-# `production_lines` drops `#[cfg(test)]`-attributed items, which is exactly
-# what this checker needs too — a mock `impl` in a test module is not public
-# API. Imported rather than copied: it is a brace scanner with edge cases, and
-# `tools/test_check_architecture_diagrams.py` already holds it to them.
-_spec = importlib.util.spec_from_file_location(
-    "check_architecture_diagrams",
-    Path(__file__).resolve().parent / "check_architecture_diagrams.py",
-)
-assert _spec and _spec.loader
-_arch = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_arch)
-production_lines = _arch.production_lines
+# A `#[cfg(...)]` attribute whose predicate mentions `test` (covers
+# `#[cfg(test)]` and `#[cfg(all(test, feature = "x"))]`).
+CFG_TEST_RE = re.compile(r"#\[\s*cfg\s*\([^)]*\btest\b")
 
 # `mod x;` / `pub mod x;` / `pub(crate) mod x;` — group 1 present means some
 # `pub`, group 2 present means it is restricted and therefore not public API.
@@ -157,6 +166,13 @@ INLINE_PATH_RE = re.compile(r"\bfieldglass_core\s*::\s*(?:[A-Za-z_][A-Za-z0-9_]*
 # glob is: a check that cannot see the names must say so, not pass.
 CRATE_RENAME_RE = re.compile(r"^\s*(?:pub\s*(?:\([^)]*\))?\s+)?use\s+fieldglass_core\s+as\s+")
 
+# The same rename spelled from inside the tree: `use fieldglass_core::{self as
+# fc, …};`. `self` binds the crate, so `fc::GridGeometry` is the renamed form
+# and is just as invisible.
+SELF_RENAME_RE = re.compile(r"\bself\s+as\s+[A-Za-z_]")
+
+_IMPL_KEYWORD_RE = re.compile(r"^\s*(?:unsafe\s+)?impl\b\s*(?:<[^>]*>)?")
+
 _LINE_COMMENT_RE = re.compile(r"//.*$")
 _STRING_OR_CHAR_RE = re.compile(r'"(?:\\.|[^"\\])*"' r"|'(?:\\.|[^'\\])'")
 
@@ -170,23 +186,57 @@ def strip_noise(line: str) -> str:
     return _STRING_OR_CHAR_RE.sub("''", _LINE_COMMENT_RE.sub("", line))
 
 
-def _block_end(lines: list[str], start: int) -> int:
-    """Index of the line closing the brace-delimited block opened at ``start``.
+def _item_span(lines: list[str], start: int) -> int:
+    """Index of the last line of the item beginning at ``lines[start]``.
 
-    ``start`` is the header line carrying the opening brace. A run-away scan
-    here would swallow the rest of the file, so callers must only ask about a
-    header that really opened a block (see :func:`_logical_header`).
+    Handles a brace-delimited item (``impl`` / ``struct { … }``) and a
+    ``;``-terminated one (``struct X;``, ``use …;``) alike. A run-away scan here
+    would swallow the rest of the file, so callers that mean "the block this
+    header opened" must first check that the header really opened one (see
+    :func:`_logical_header`).
     """
     depth = 0
-    seen = False
+    seen_brace = False
     for k in range(start, len(lines)):
         clean = strip_noise(lines[k])
         depth += clean.count("{") - clean.count("}")
         if "{" in clean:
-            seen = True
-        if seen and depth <= 0:
+            seen_brace = True
+        if seen_brace and depth <= 0:
+            return k
+        if not seen_brace and ";" in clean:
             return k
     return len(lines) - 1
+
+
+def masked_lines(text: str) -> list[str]:
+    """Source lines with every ``#[cfg(<…test…>)]`` item blanked *in place*.
+
+    A test mock's `impl` is not public API, so it must not be scanned. Blanked
+    rather than deleted because every message this checker prints carries a line
+    number: `crates/fieldglass-grib2/src/ds.rs` alone is 1,496 lines of test
+    module, so a list with those lines removed would send a reader to a
+    completely different part of the file.
+
+    Assumes the attribute sits on its own line, which rustfmt guarantees.
+    """
+    lines = text.splitlines()
+    out = list(lines)
+    i, n = 0, len(lines)
+    while i < n:
+        if CFG_TEST_RE.search(lines[i]):
+            # Skip any further attribute lines to reach the item they gate.
+            j = i + 1
+            while j < n and (lines[j].strip() == "" or lines[j].lstrip().startswith("#[")):
+                j += 1
+            if j < n:
+                end = _item_span(out, j)
+                for k in range(i, end + 1):
+                    out[k] = ""
+                i = end + 1
+                continue
+        i += 1
+    return out
 
 
 def _logical_header(lines: list[str], start: int, stop: str = "{;=,") -> tuple[str, int, str]:
@@ -305,9 +355,9 @@ def core_names_from_text(text: str) -> tuple[dict[str, str], set[str], list[int]
     in_scope: dict[str, str] = {}
     re_exported: set[str] = set()
     opaque: list[int] = []
-    lines = production_lines(text)
+    lines = masked_lines(text)
     for line_no, is_pub, body in core_use_statements(lines):
-        if "*" in body:
+        if "*" in body or SELF_RENAME_RE.search(body):
             opaque.append(line_no)
             continue
         for binding, name in flatten_use_tree(body):
@@ -320,15 +370,19 @@ def core_names_from_text(text: str) -> tuple[dict[str, str], set[str], list[int]
     return in_scope, re_exported, sorted(opaque)
 
 
-def local_reexported_names(text: str) -> set[str]:
-    """Item names a file re-exports from elsewhere in its own crate.
+def local_reexported_names(text: str) -> tuple[set[str], set[str]]:
+    """What a file publishes from elsewhere in its own crate.
 
     A `pub` item in a private module is public API only when something reaches
     out and re-exports it, which is how `fieldglass-grib2` publishes
-    `tables_local::LocalTableCentre` from a private module.
+    `tables_local::LocalTableCentre` from a private module. Returns the item
+    names — both the declared name and any alias, since a rename leaves the
+    declaration under its own name — and separately the modules re-exported
+    whole with a glob, which makes everything public in them.
     """
     names: set[str] = set()
-    lines = production_lines(text)
+    glob_modules: set[str] = set()
+    lines = masked_lines(text)
     i = 0
     while i < len(lines):
         clean = strip_noise(lines[i])
@@ -339,32 +393,65 @@ def local_reexported_names(text: str) -> set[str]:
                 k += 1
                 buffer += " " + strip_noise(lines[k]).strip()
             body = buffer.split("use", 1)[1].split(";", 1)[0]
-            names.update(binding for binding, _ in flatten_use_tree(body))
+            for binding, name in flatten_use_tree(body):
+                names.update({binding, name})
+            glob_modules.update(re.findall(r"([A-Za-z_][A-Za-z0-9_]*)\s*::\s*\*", body))
             i = k
         i += 1
-    return names
+    return names, glob_modules
+
+
+def impl_self_type(header: str) -> str | None:
+    """The base name of the type an `impl` header hangs items on.
+
+    `impl<'a> From<&GridDescription> for GridGeometry` gives `GridGeometry`;
+    `impl LambertAzimuthalTemplate` gives the template. Used to ask whether the
+    methods inside are reachable, which turns on the *type's* name and not on
+    each method's.
+    """
+    body = header.split("{", 1)[0].split(" where ", 1)[0]
+    tail = _IMPL_KEYWORD_RE.sub("", body.rsplit(" for ", 1)[-1])
+    match = re.search(r"(?:[A-Za-z_][A-Za-z0-9_]*\s*::\s*)*([A-Za-z_][A-Za-z0-9_]*)", tail)
+    return match.group(1) if match else None
 
 
 def public_signatures(text: str, *, module_is_public: bool, reexported: set[str]) -> list[tuple[int, str]]:
     """`(line number, joined signature)` for everything a consumer must name.
 
     `module_is_public` says whether the file's module is reachable through
-    `pub mod`; when it is not, only items `reexported` by name from a public
-    module count. `impl … for …` headers count either way — a trait impl is
-    visible wherever both of its types are, regardless of where it is written.
+    `pub mod`; when it is not, an item counts only if it — or, for a method, the
+    type its `impl` block hangs it on — is `reexported` by name from a public
+    module. `impl … for …` headers count either way: a trait impl is visible
+    wherever both of its types are, regardless of where it is written, and every
+    item inside one is as reachable as the impl, which is how
+    `type Error = FieldglassError;` becomes a name a consumer has to write.
     """
-    lines = production_lines(text)
+    lines = masked_lines(text)
     signatures: list[tuple[int, str]] = []
+    # `(last line of the block, self type)` for each `impl` we are inside.
+    impl_stack: list[tuple[int, str | None]] = []
     i = 0
     while i < len(lines):
+        while impl_stack and impl_stack[-1][0] < i:
+            impl_stack.pop()
         clean = strip_noise(lines[i])
 
         if IMPL_HEADER_RE.match(clean):
-            header, end, _ = _logical_header(lines, i)
+            header, end, terminator = _logical_header(lines, i, stop="{;")
             signatures.append((i + 1, header))
-            # Descend rather than skip: an inherent `impl` block is where the
-            # `pub fn`s live, and three of grib2's §3 templates hand a core
-            # parameter struct back from one.
+            block_end = _item_span(lines, end) if terminator == "{" else end
+            if " for " in f" {header} ":
+                # A trait impl: its items are the trait's signatures, not
+                # private helpers, so all of them count.
+                for k in range(end + 1, block_end):
+                    if TRAIT_ITEM_RE.match(strip_noise(lines[k])):
+                        signatures.append((k + 1, _logical_header(lines, k, stop="{;")[0]))
+                i = block_end + 1
+                continue
+            # An inherent impl: descend rather than skip, because its `pub fn`s
+            # are where three of grib2's §3 templates hand a core parameter
+            # struct back.
+            impl_stack.append((block_end, impl_self_type(header)))
             i = end + 1
             continue
 
@@ -375,10 +462,12 @@ def public_signatures(text: str, *, module_is_public: bool, reexported: set[str]
 
         kind, name = item.group(1), item.group(2)
         # An alias puts the type it names on the far side of the `=`, so that is
-        # not where its header ends.
-        header, end, terminator = _logical_header(lines, i, stop="{;" if kind == "type" else "{;=,")
-        body_end = _block_end(lines, end) if terminator == "{" else end
-        if module_is_public or name in reexported:
+        # not where its header ends. No item header ends at a top-level comma
+        # either — that only happens in a `where` clause rustfmt has wrapped.
+        header, end, terminator = _logical_header(lines, i, stop="{;" if kind == "type" else "{;=")
+        body_end = _item_span(lines, end) if terminator == "{" else end
+        owner = impl_stack[-1][1] if impl_stack else None
+        if module_is_public or name in reexported or (owner is not None and owner in reexported):
             # The item's own name is dropped: a `pub fn` may legitimately share
             # a name with something imported from core without naming the type.
             signatures.append((i + 1, re.sub(rf"\b{re.escape(name)}\b", "", header, count=1)))
@@ -393,7 +482,7 @@ def public_signatures(text: str, *, module_is_public: bool, reexported: set[str]
             elif kind == "trait":
                 for k in range(end + 1, body_end):
                     if TRAIT_ITEM_RE.match(strip_noise(lines[k])):
-                        signatures.append((k + 1, _logical_header(lines, k)[0]))
+                        signatures.append((k + 1, _logical_header(lines, k, stop="{;")[0]))
         i = body_end + 1
     return signatures
 
@@ -416,14 +505,18 @@ def module_files(src_dir: Path) -> tuple[list[tuple[Path, bool]], set[str]]:
         seen.add(path)
         reached.append((path, is_public))
         text = path.read_text(encoding="utf-8")
+        names, glob_modules = local_reexported_names(text)
         if is_public:
-            reexported |= local_reexported_names(text)
+            reexported |= names
         child_dir = path.parent if path.name in ("lib.rs", "mod.rs") else path.parent / path.stem
-        for line in production_lines(text):
+        for line in masked_lines(text):
             decl = MOD_DECL_RE.match(strip_noise(line))
             if not decl:
                 continue
-            child_public = is_public and bool(decl.group(1)) and not decl.group(2)
+            declared_public = bool(decl.group(1)) and not decl.group(2)
+            # `pub use tables::*;` publishes a private module's items wholesale,
+            # so the module is as public as a `pub mod` would have made it.
+            child_public = is_public and (declared_public or decl.group(3) in glob_modules)
             for candidate in (child_dir / f"{decl.group(3)}.rs", child_dir / decl.group(3) / "mod.rs"):
                 if candidate.is_file():
                     queue.append((candidate, child_public))
@@ -436,8 +529,10 @@ def check_crate(crate: str, src_dir: Path) -> list[str]:
     problems: list[str] = []
     files, reexported_items = module_files(src_dir)
 
-    on_disk = {p.resolve() for p in src_dir.rglob("*.rs")}
-    unreached = sorted(on_disk - {p.resolve() for p, _ in files})
+    # Both sides are built from `src_dir`, so they compare without resolving —
+    # and resolving only one of them would break the message's `relative_to`
+    # under a symlinked root.
+    unreached = sorted(set(src_dir.rglob("*.rs")) - {path for path, _ in files})
     for path in unreached:
         problems.append(
             f"{path.relative_to(REPO_ROOT)}: not reachable from lib.rs through "
