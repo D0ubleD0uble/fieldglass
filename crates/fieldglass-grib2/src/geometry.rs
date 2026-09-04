@@ -137,7 +137,7 @@ impl From<&GridDefinitionSection> for GridGeometry {
             GridTemplate::SpaceView(t) => match t.scan_grid() {
                 Some(params) => Self::Geostationary(params),
                 None => Self::Unsupported {
-                    label: "space_view".to_string(),
+                    label: template_label(&gds.template).to_string(),
                 },
             },
             other => Self::Unsupported {

@@ -517,26 +517,51 @@ fn a_spheroid_that_is_not_one_is_declined_rather_than_projected() {
         assert!(geom.lonlat_bbox().is_none(), "{}: bbox", geom.kind());
         assert!(geom.plane_affine().is_none(), "{}: affine", geom.kind());
         // `dims` still answers: the raster shape is a fact about the message,
-        // not about whether its projection resolves.
+        // not about whether its projection resolves. So does `proj4` — the
+        // plane belongs to the projection, and it is this grid that cannot be
+        // put in it.
         assert!(geom.dims().is_some(), "{}: dims", geom.kind());
+        assert!(geom.proj4().is_some(), "{}: proj4", geom.kind());
     }
 }
 
-/// The affine and the CRS are one claim in two halves, so a family reports
-/// both or neither. `grid_geometry_proj.rs` checks the numbers against PROJ;
-/// what is checked here is that the two halves cannot disagree about whether
-/// there is a plane at all.
+/// An affine is a position in a plane, so there has to be a plane to name.
+/// The converse does not hold and is not asserted: a grid whose projection
+/// does not resolve still belongs to a projection, so `proj4` keeps naming it
+/// while `plane_affine` declines — see the two tests below.
+///
+/// `grid_geometry_proj.rs` checks the numbers themselves against PROJ; what is
+/// checked here is that the two cannot disagree about whether there is a plane.
 #[test]
-fn a_family_with_a_crs_has_an_affine_and_the_other_way_round() {
+fn an_affine_is_never_reported_without_a_crs_to_measure_it_in() {
     for geom in every_modelled_family() {
-        assert_eq!(
-            geom.proj4().is_some(),
-            geom.plane_affine().is_some(),
-            "{}: a CRS without an affine places nothing, and an affine without \
-             a CRS is a number with no plane",
-            geom.kind(),
-        );
+        if geom.plane_affine().is_some() {
+            assert!(
+                geom.proj4().is_some(),
+                "{}: an affine with no CRS is a number with no plane",
+                geom.kind(),
+            );
+        }
     }
+}
+
+/// §3.10 states its corner latitudes, and nothing stops a message stating one
+/// at a pole — where the Mercator ordinate diverges. The forward and inverse
+/// maps have always refused such a grid; the affine has to refuse it too, or a
+/// host receives an infinite origin and a NaN step, which JSON renders as
+/// `null` and which place the raster nowhere.
+#[test]
+fn a_mercator_corner_at_a_pole_has_no_affine() {
+    let geom = GridGeometry::Mercator(MercatorParams {
+        lat_first: -90.0,
+        ..maritime_mercator()
+    });
+    assert_eq!(geom.plane_affine(), None);
+    assert_eq!(geom.forward(0, 0), None);
+    assert_eq!(geom.inverse(0.0, 120.0), None);
+    // The plane is still `+proj=merc`; it is this grid that cannot be put in
+    // it, which is what the one-way implication above is about.
+    assert!(geom.proj4().is_some());
 }
 
 #[test]

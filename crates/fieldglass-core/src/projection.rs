@@ -3083,6 +3083,13 @@ impl GridGeometry {
     /// `dx`/`dy` of `None` while the origin still stands — a Gaussian grid's
     /// rows are Gauss–Legendre nodes, and a mean spacing would misplace every
     /// row but the middle one.
+    ///
+    /// `None` also for a grid whose own projection does not resolve — a
+    /// spheroid that is not one, a Mercator corner at a pole. The implication
+    /// runs one way only: an affine means there is a CRS to measure it in,
+    /// while [`proj4`](Self::proj4) can still name the plane of a grid that
+    /// cannot be placed in it, because the plane is a property of the
+    /// projection and the affine is a property of the grid.
     pub fn plane_affine(&self) -> Option<PlaneAffine> {
         /// Spacing of `n` points spanning `span`, or `None` for a single-point
         /// axis, where no spacing is defined.
@@ -3124,6 +3131,14 @@ impl GridGeometry {
                 let r = DEFAULT_EARTH_RADIUS_M;
                 let y_first = mercator_ordinate(p.lat_first);
                 let y_last = mercator_ordinate(p.lat_last);
+                if !y_first.is_finite() || !y_last.is_finite() {
+                    // A corner sits at a pole, where the ordinate diverges —
+                    // the same malformed-grid guard `mercator_point` and
+                    // `mercator_inverse` apply. Without it the affine leaves
+                    // here as an infinite origin and a NaN step, which JSON
+                    // renders as `null` and which place the raster nowhere.
+                    return None;
+                }
                 Some(PlaneAffine {
                     x0: r * p.lon_first * DEG2RAD,
                     y0: r * y_first,
