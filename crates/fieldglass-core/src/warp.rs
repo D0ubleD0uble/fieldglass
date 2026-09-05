@@ -14,7 +14,7 @@
 //! lat/lon-box entry retained as a thin wrapper. Web Mercator / ortho /
 //! polar-stereo targets (#71) add their own [`TargetProjection`] impls.
 
-use crate::projection::{GridIndex, GridResampling};
+use crate::projection::{GridIndex, GridResampling, LonLatBox};
 use std::f64::consts::PI;
 
 const DEG2RAD: f64 = PI / 180.0;
@@ -490,11 +490,10 @@ impl WebMercator {
         }
     }
 
-    /// The clamped lat/lon-box extent actually rendered, as
-    /// `(lat_min, lat_max, lon_min, lon_max)` — echoed back so a UI can
-    /// pre-fill the manual-bounds inputs with the post-clamp band.
-    pub fn extent(&self) -> (f64, f64, f64, f64) {
-        (self.lat_min, self.lat_max, self.lon_min, self.lon_max)
+    /// The clamped lat/lon-box extent actually rendered — echoed back so a UI
+    /// can pre-fill the manual-bounds inputs with the post-clamp band.
+    pub fn extent(&self) -> LonLatBox {
+        LonLatBox::new(self.lat_min, self.lat_max, self.lon_min, self.lon_max)
     }
 }
 
@@ -1360,8 +1359,9 @@ fn span_step(span: f64, n: u32) -> f64 {
 
 /// How close a longitude span must be to a full turn to be treated as one.
 /// The global windows this fires on are built from the literal `360.0` in
-/// `latlon_family_bbox`, so no slack beyond float noise is wanted: a window
-/// deliberately one cell short of the circle must keep the node convention.
+/// [`LonLatBox::widened_to_full_turn`], so no slack beyond float noise is
+/// wanted: a window deliberately one cell short of the circle must keep the
+/// node convention.
 const FULL_TURN_EPS_DEG: f64 = 1e-9;
 
 /// Per-pixel step along a longitude axis.
@@ -1861,7 +1861,9 @@ mod tests {
         // Poles are outside Web Mercator's domain — `new` must pull the
         // extent into the valid band rather than producing infinite Y.
         let t = WebMercator::new(4, 4, -90.0, 90.0, -180.0, 180.0, false);
-        let (lat_min, lat_max, ..) = t.extent();
+        let LonLatBox {
+            lat_min, lat_max, ..
+        } = t.extent();
         assert!(lat_max < 85.06 && lat_max > 85.05, "clamped max {lat_max}");
         assert!(
             lat_min > -85.06 && lat_min < -85.05,

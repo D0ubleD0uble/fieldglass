@@ -44,7 +44,7 @@ use crate::gds::GridDescription;
 /// `declared` is the fallback, and a reduced grid never takes it: every reduced
 /// variant reports `bounds()`, so `raster_bounds()` is always `Some` here.
 fn raster_lon_last(gds: &GridDescription, declared: f64) -> f64 {
-    gds.raster_bounds().map_or(declared, |(_, _, _, lo2)| lo2)
+    gds.raster_bounds().map_or(declared, |c| c.lon_last)
 }
 
 impl From<&GridDescription> for GridGeometry {
@@ -157,6 +157,7 @@ mod tests {
         GaussianGrid, LambertGrid, LatLonGrid, PolarStereoGrid, ReducedGaussianGrid,
         ResolutionFlags, RotatedLatLonGrid, ScanningMode,
     };
+    use fieldglass_core::LonLatBox;
 
     fn flags() -> ResolutionFlags {
         ResolutionFlags {
@@ -345,7 +346,9 @@ mod tests {
             "the first point came back at its rotated-frame corner ({lat}, {lon}), \
              so the rotation was never applied",
         );
-        let (lat_min, lat_max, ..) = geom.lonlat_bbox().expect("and framed");
+        let LonLatBox {
+            lat_min, lat_max, ..
+        } = geom.lonlat_bbox().expect("and framed");
         assert!(
             lat_min > 25.0 && lat_max < 75.0,
             "the box ({lat_min}..{lat_max}) is not over Europe, so the perimeter \

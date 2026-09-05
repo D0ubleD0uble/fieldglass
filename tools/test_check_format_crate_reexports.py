@@ -536,8 +536,14 @@ class TheRepoItselfPasses(unittest.TestCase):
         cannot express.
         """
         expected = {
-            "fieldglass-grib1": {"FieldglassError", "GridGeometry", "StoredRuns"},
+            "fieldglass-grib1": {
+                "CornerPair",
+                "FieldglassError",
+                "GridGeometry",
+                "StoredRuns",
+            },
             "fieldglass-grib2": {
+                "CornerPair",
                 "FieldglassError",
                 "GeostationaryParams",
                 "GridGeometry",

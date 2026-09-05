@@ -9,7 +9,9 @@
 //! [`super`], which is where the rotated grid's fixture is exercised.
 
 use super::latlon::{LatLonParams, eastward_lon_span, latlon_inverse};
-use super::{DEG2RAD, GridIndex, RAD2DEG, axis_position, enclosing_lon_arc, snap_to_range};
+use super::{
+    DEG2RAD, GridIndex, LonLatBox, RAD2DEG, axis_position, enclosing_lon_arc, snap_to_range,
+};
 
 /// A regular lat/lon grid laid out on a *rotated* sphere: the geographic south
 /// pole is moved to `(south_pole_lat, south_pole_lon)` and the sphere spun by
@@ -163,13 +165,12 @@ impl RotatedLatLonProjector {
         latlon_inverse(&self.rotated_grid, rlat, rlon)
     }
 
-    /// Geographic lat/lon bounding box of the grid, as
-    /// `(lat_min, lat_max, lon_min, lon_max)`. A rotated grid's edges are
+    /// Geographic lat/lon bounding box of the grid. A rotated grid's edges are
     /// straight in the rotated frame but curve in geographic coordinates, with
     /// extrema generally in the interior of an edge — so walk a dense sample of
     /// the perimeter and unrotate each point, mirroring the planar
     /// [`super::PlanarGridProjector::lonlat_bbox`].
-    pub fn lonlat_bbox(&self) -> (f64, f64, f64, f64) {
+    pub fn lonlat_bbox(&self) -> LonLatBox {
         // 512 samples/edge pins the closest-to-pole latitude tightly while
         // staying a trivial ~2k unrotations regardless of grid size.
         const PER_EDGE: u32 = 512;
@@ -207,7 +208,7 @@ impl RotatedLatLonProjector {
             visit(p.lat_last, rlon); // last-row edge
         }
         let (lon_min, lon_max) = enclosing_lon_arc(&mut lons);
-        (lat_min, lat_max, lon_min, lon_max)
+        LonLatBox::new(lat_min, lat_max, lon_min, lon_max)
     }
 }
 

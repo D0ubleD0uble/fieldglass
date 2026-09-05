@@ -144,11 +144,11 @@ fn assert_message_matches(
                 },
             },
             "latitudeOfFirstGridPointInDegrees" => match msg.gds.bounds() {
-                Some((la1, _, _, _)) => check_f64(key, expected, la1),
+                Some(c) => check_f64(key, expected, c.lat_first),
                 None => true,
             },
             "longitudeOfFirstGridPointInDegrees" => match msg.gds.bounds() {
-                Some((_, lo1, _, _)) => check_f64(key, expected, lo1),
+                Some(c) => check_f64(key, expected, c.lon_first),
                 None => true,
             },
             "latitudeOfLastGridPointInDegrees" => match &msg.gds.template {

@@ -263,7 +263,12 @@ fn an_unsupported_family_declines_every_question_but_its_name() {
 
 #[test]
 fn a_global_grid_published_from_the_antimeridian_keeps_its_full_span() {
-    let (lat_min, lat_max, lon_min, lon_max) = GridGeometry::LatLon(ecmwf_wrapping())
+    let LonLatBox {
+        lat_min,
+        lat_max,
+        lon_min,
+        lon_max,
+    } = GridGeometry::LatLon(ecmwf_wrapping())
         .lonlat_bbox()
         .expect("lat/lon has a box");
     // The failure this guards is the span collapsing to one 0.25 deg cell,
@@ -283,7 +288,9 @@ fn a_regional_grid_that_straddles_the_antimeridian_keeps_a_continuous_span() {
     // A Pacific tile running 170 degE to 170 degW is 20 degrees wide. Reported
     // as 170..190 rather than -170..170, which would be the 340 degrees of
     // world the grid does *not* cover.
-    let (_, _, lon_min, lon_max) = GridGeometry::LatLon(LatLonParams {
+    let LonLatBox {
+        lon_min, lon_max, ..
+    } = GridGeometry::LatLon(LatLonParams {
         ni: 81,
         nj: 41,
         lat_first: 20.0,
@@ -299,7 +306,12 @@ fn a_regional_grid_that_straddles_the_antimeridian_keeps_a_continuous_span() {
 
 #[test]
 fn an_ordinary_grid_reports_its_corners_unchanged() {
-    let (lat_min, lat_max, lon_min, lon_max) = GridGeometry::LatLon(LatLonParams {
+    let LonLatBox {
+        lat_min,
+        lat_max,
+        lon_min,
+        lon_max,
+    } = GridGeometry::LatLon(LatLonParams {
         ni: 100,
         nj: 50,
         lat_first: 60.0,
@@ -319,7 +331,9 @@ fn an_ordinary_grid_reports_its_corners_unchanged() {
 fn a_projected_grid_crossing_the_equator_reports_the_half_below_it() {
     // The #488 grid: its far corner sits at 4.718 degS. A bounds that stopped
     // at the equator would be describing a grid the file does not contain.
-    let (lat_min, lat_max, ..) = GridGeometry::PolarStereo(cmc_polar())
+    let LonLatBox {
+        lat_min, lat_max, ..
+    } = GridGeometry::PolarStereo(cmc_polar())
         .lonlat_bbox()
         .expect("polar stereo has a box");
     // Measured, not guessed: -4.71787 degN is the corner #488 was about. The
@@ -351,7 +365,12 @@ fn a_grid_containing_the_pole_covers_every_meridian() {
         geom.inverse(90.0, 0.0).is_some(),
         "test grid must actually contain the pole for this to mean anything",
     );
-    let (_, lat_max, lon_min, lon_max) = geom.lonlat_bbox().unwrap();
+    let LonLatBox {
+        lat_max,
+        lon_min,
+        lon_max,
+        ..
+    } = geom.lonlat_bbox().unwrap();
     assert!(
         (lon_min - -180.0).abs() < 1e-9 && (lon_max - 180.0).abs() < 1e-9,
         "every meridian is present; got {lon_min}..{lon_max}"
@@ -367,7 +386,9 @@ fn the_lambert_perimeter_bulges_past_its_corners() {
     // A conic's edges are curves. Taking the four corners would understate the
     // box, which is the reason the projector's walk subdivides each edge.
     let geom = GridGeometry::Lambert(eta_lambert());
-    let (lat_min, lat_max, ..) = geom.lonlat_bbox().unwrap();
+    let LonLatBox {
+        lat_min, lat_max, ..
+    } = geom.lonlat_bbox().unwrap();
     let (ni, nj) = geom.dims().unwrap();
     let corners = [(0, 0), (ni - 1, 0), (0, nj - 1), (ni - 1, nj - 1)];
     let corner_north = corners
@@ -457,8 +478,12 @@ fn a_rotated_grid_reports_where_it_really_is_not_where_its_corners_say() {
     // read as geographic they would put half the grid in the Sahara. The box
     // has to come from unrotating the perimeter, which puts it over Europe.
     let geom = GridGeometry::RotatedLatLon(cosmo_rotated());
-    let (lat_min, lat_max, lon_min, lon_max) =
-        geom.lonlat_bbox().expect("a rotated grid is placed");
+    let LonLatBox {
+        lat_min,
+        lat_max,
+        lon_min,
+        lon_max,
+    } = geom.lonlat_bbox().expect("a rotated grid is placed");
     let (lat, lon) = geom.forward(0, 0).expect("first point");
     // The box runs east from `lon_min` and may pass 180 rather than wrapping —
     // the convention `lonlat_bbox` documents — so bring the point into that
@@ -849,7 +874,10 @@ fn a_space_view_with_no_raster_to_walk_is_not_framed_as_a_hemisphere() {
         dy_rad: 0.4 / 99.0,
         ..abi_mesoscale()
     });
-    assert_eq!(full_disc.lonlat_bbox(), Some((-90.0, 90.0, -165.0, 15.0)));
+    assert_eq!(
+        full_disc.lonlat_bbox(),
+        Some(LonLatBox::new(-90.0, 90.0, -165.0, 15.0))
+    );
 }
 
 /// The planar families hold the same line, revisited in #603 and kept.
@@ -889,7 +917,9 @@ fn a_planar_raster_too_thin_to_interpolate_still_has_a_position() {
         column.plane_affine().is_some(),
         "the plane the column sits in is stated by the message"
     );
-    let (lat_min, lat_max, ..) = column.lonlat_bbox().expect("the column's own extent");
+    let LonLatBox {
+        lat_min, lat_max, ..
+    } = column.lonlat_bbox().expect("the column's own extent");
     assert!(
         lat_max - lat_min > 40.0,
         "a 95-point transect spans real latitude, got {lat_min}..{lat_max}"

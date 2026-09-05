@@ -7,6 +7,7 @@
 //! the `7777` end marker. The scanner parses structure without decoding the
 //! BDS, so the stub body is never interpreted.
 
+use fieldglass_core::CornerPair;
 use fieldglass_grib1::Grib1Reader;
 
 /// Build a single-message GRIB1 stream with no GDS and the given grid number.
@@ -48,7 +49,7 @@ fn gds_absent_message_resolves_predefined_grid_2() {
         .expect("predefined grid 2 fills in the absent GDS");
     assert_eq!(gds.grid_type_name(), "latlon");
     assert_eq!(gds.dimensions(), Some((144, 73)));
-    assert_eq!(gds.bounds(), Some((90.0, 0.0, -90.0, 357.5)));
+    assert_eq!(gds.bounds(), Some(CornerPair::new(90.0, 0.0, -90.0, 357.5)));
 }
 
 #[test]

@@ -102,6 +102,7 @@ pub fn predefined_grid(grid_number: u8) -> Option<GridDescription> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use fieldglass_core::CornerPair;
 
     #[test]
     fn grid_2_is_the_global_2p5_degree_grid() {
@@ -128,9 +129,11 @@ mod tests {
             assert_eq!(gd.grid_type_name(), "latlon");
             assert_eq!(gd.dimensions(), Some((ni, nj)));
             assert_eq!(gd.num_data_points(), Some((ni * nj) as usize));
-            let (la1, lo1, la2, got_lo2) = gd.bounds().expect("has bounds");
-            assert_eq!((la1, lo1, la2), (90.0, 0.0, -90.0));
-            assert_eq!(got_lo2, lo2);
+            assert_eq!(
+                gd.bounds(),
+                Some(CornerPair::new(90.0, 0.0, -90.0, lo2)),
+                "predefined grid {number}"
+            );
         }
     }
 

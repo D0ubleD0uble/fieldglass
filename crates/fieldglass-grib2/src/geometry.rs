@@ -40,7 +40,7 @@ impl From<&GridDefinitionSection> for GridGeometry {
                 let (ni, lon_last) = match gds.points_per_row() {
                     Some(pl) => (
                         reduced_raster_width(pl),
-                        gds.raster_bounds().map_or(t.lo2, |(_, _, _, lo2)| lo2),
+                        gds.raster_bounds().map_or(t.lo2, |c| c.lon_last),
                     ),
                     // A regular Gaussian grid with no `Ni` at all is malformed
                     // rather than reduced; `dims()` of `0` is what the section

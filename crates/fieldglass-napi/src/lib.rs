@@ -6,13 +6,13 @@
 //! paint logic belongs in those crates, never in this one (ADR-0006).
 
 use fieldglass_core::{
-    CombineOp, EqualEarth, Format, GaussianParams, GaussianProjector, GeostationaryParams,
-    GeostationaryProjector, GridResampling, LambertAzimuthalParams, LambertAzimuthalProjector,
-    LambertParams, LambertProjector, LatLonParams, MercatorParams, Mollweide, Orthographic,
-    PlanarGridProjector, PolarStereoParams, PolarStereoProjector, PolarStereographic,
-    ProjectedPolylines, Resampling, Robinson, RotatedLatLonParams, RotatedLatLonProjector,
-    SourceGrid, SourceOverlayTarget, SpatialIndex, TargetRaster, TransverseMercatorParams,
-    TransverseMercatorProjector, WebMercator,
+    CombineOp, CornerPair, EqualEarth, Format, GaussianParams, GaussianProjector,
+    GeostationaryParams, GeostationaryProjector, GridResampling, LambertAzimuthalParams,
+    LambertAzimuthalProjector, LambertParams, LambertProjector, LatLonParams, LonLatBox,
+    MercatorParams, Mollweide, Orthographic, PlanarGridProjector, PolarStereoParams,
+    PolarStereoProjector, PolarStereographic, ProjectedPolylines, Resampling, Robinson,
+    RotatedLatLonParams, RotatedLatLonProjector, SourceGrid, SourceOverlayTarget, SpatialIndex,
+    TargetRaster, TransverseMercatorParams, TransverseMercatorProjector, WebMercator,
     cct_tables::lookup_sub_centre,
     colormap::{Colormap, ScaleMode, min_max_ignoring_mask, paint_grid_rgba},
     combine_fields,
@@ -560,8 +560,8 @@ fn build_grib1_message_meta(
                     gds.size_label(),
                     first.map(|(la1, _)| la1),
                     first.map(|(_, lo1)| lo1),
-                    bounds.map(|(_, _, la2, _)| la2),
-                    bounds.map(|(_, _, _, lo2)| lo2),
+                    bounds.map(|c| c.lat_last),
+                    bounds.map(|c| c.lon_last),
                 )
             }
             None => (None, None, None, None, None, None, None, None),
@@ -926,7 +926,7 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
                 }
                 let (lat_first, lon_first) = projector.grid_point_lonlat(0, 0);
                 let (lat_last, lon_last) = projector.last_grid_point_lonlat();
-                Some((
+                Some(CornerPair::new(
                     lat_first,
                     normalise_lon(lon_first),
                     lat_last,
@@ -1056,17 +1056,17 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
         // starts, and dropping that would lose a fact the message spells out
         // (#472).
         lat_first: transverse_mercator_corners
-            .map(|(la1, _, _, _)| la1)
+            .map(|c| c.lat_first)
             .or_else(|| msg.gds.first_point().map(|(la1, _)| la1)),
         lon_first: transverse_mercator_corners
-            .map(|(_, lo1, _, _)| lo1)
+            .map(|c| c.lon_first)
             .or_else(|| msg.gds.first_point().map(|(_, lo1)| lo1)),
         lat_last: transverse_mercator_corners
-            .map(|(_, _, la2, _)| la2)
-            .or_else(|| bounds.map(|(_, _, la2, _)| la2)),
+            .map(|c| c.lat_last)
+            .or_else(|| bounds.map(|c| c.lat_last)),
         lon_last: transverse_mercator_corners
-            .map(|(_, _, _, lo2)| lo2)
-            .or_else(|| bounds.map(|(_, _, _, lo2)| lo2)),
+            .map(|c| c.lon_last)
+            .or_else(|| bounds.map(|c| c.lon_last)),
         format: "grib2".to_string(),
         edition: Some(i32::from(msg.is.edition)),
         discipline: Some(lookup_discipline(msg.is.discipline).to_string()),
@@ -3179,8 +3179,14 @@ impl NetcdfHandle {
         // Resolved through the same cache the render path uses, so a slice that
         // reports `"curvilinear"` here is one the warp can always place.
         if let Some(index) = self.curvilinear_index(var, y_dim, x_dim)? {
-            let (lat_min, lat_max, lon_min, lon_max) =
-                index.lonlat_bbox().unwrap_or((-90.0, 90.0, -180.0, 180.0));
+            let LonLatBox {
+                lat_min,
+                lat_max,
+                lon_min,
+                lon_max,
+            } = index
+                .lonlat_bbox()
+                .unwrap_or(LonLatBox::new(-90.0, 90.0, -180.0, 180.0));
             return Ok(MessageMeta {
                 grid_type: Some("curvilinear".to_string()),
                 grid_ni: Some(ni as i32),
@@ -3718,15 +3724,15 @@ fn spectral_meta(base: MessageMeta, ni: usize, nj: usize) -> MessageMeta {
 /// The same override the spectral and HEALPix paths make for the same reason:
 /// the message table keeps showing what the file says, and only the render
 /// geometry is derived.
-fn raster_render_meta(base: MessageMeta, bounds: Option<(f64, f64, f64, f64)>) -> MessageMeta {
-    let Some((lat_first, lon_first, lat_last, lon_last)) = bounds else {
+fn raster_render_meta(base: MessageMeta, bounds: Option<CornerPair>) -> MessageMeta {
+    let Some(corners) = bounds else {
         return base;
     };
     MessageMeta {
-        lat_first: Some(lat_first),
-        lon_first: Some(lon_first),
-        lat_last: Some(lat_last),
-        lon_last: Some(lon_last),
+        lat_first: Some(corners.lat_first),
+        lon_first: Some(corners.lon_first),
+        lat_last: Some(corners.lat_last),
+        lon_last: Some(corners.lon_last),
         ..base
     }
 }
@@ -3942,7 +3948,7 @@ struct ResolvedOptions {
     flip_y: bool,
     range_min: Option<f64>,
     range_max: Option<f64>,
-    bounds: Option<RenderBounds>,
+    bounds: Option<LonLatBox>,
     colormap: &'static Colormap,
     reverse_colormap: bool,
     scale: ScaleMode,
@@ -3960,40 +3966,18 @@ enum TargetKind {
     Warp(WarpTarget),
 }
 
-/// A validated equirectangular render window. Only constructed when the
-/// caller supplied all four edges and they form a non-degenerate box.
-#[derive(Clone, Copy)]
-#[cfg_attr(test, derive(Debug, PartialEq))]
-struct RenderBounds {
-    lat_min: f64,
-    lat_max: f64,
-    lon_min: f64,
-    lon_max: f64,
-}
-
-impl RenderBounds {
-    /// Build from the four optional `RenderOptions` fields. Returns `None`
-    /// unless every edge is present and the box is non-degenerate — a
-    /// partially-filled or inverted box silently falls back to the computed
-    /// bounds, mirroring the manual-range behaviour.
-    fn from_options(o: &RenderOptions) -> Option<Self> {
-        let (lat_min, lat_max, lon_min, lon_max) = (
-            o.bounds_lat_min?,
-            o.bounds_lat_max?,
-            o.bounds_lon_min?,
-            o.bounds_lon_max?,
-        );
-        if lat_max > lat_min && lon_max > lon_min {
-            Some(Self {
-                lat_min,
-                lat_max,
-                lon_min,
-                lon_max,
-            })
-        } else {
-            None
-        }
-    }
+/// The caller's manual render window, from the four optional `RenderOptions`
+/// fields. Returns `None` unless every edge is present and they form a
+/// non-degenerate box — a partially-filled or inverted box silently falls back
+/// to the computed bounds, mirroring the manual-range behaviour.
+fn manual_render_window(o: &RenderOptions) -> Option<LonLatBox> {
+    let window = LonLatBox::new(
+        o.bounds_lat_min?,
+        o.bounds_lat_max?,
+        o.bounds_lon_min?,
+        o.bounds_lon_max?,
+    );
+    (window.lat_max > window.lat_min && window.lon_max > window.lon_min).then_some(window)
 }
 
 impl ResolvedOptions {
@@ -4065,7 +4049,7 @@ impl ResolvedOptions {
             flip_y: options.flip_y,
             range_min: options.range_min,
             range_max: options.range_max,
-            bounds: RenderBounds::from_options(options),
+            bounds: manual_render_window(options),
             colormap,
             reverse_colormap: options.reverse_colormap.unwrap_or(false),
             scale,
@@ -4120,17 +4104,10 @@ fn world_central_meridian(o: &RenderOptions) -> f64 {
 }
 
 /// Output of a projection stage (`paint_source` / `warp_message`):
-/// `(values, mask, width, height, geographic_bounds, summary)`. The bounds
-/// are `(lat_min, lat_max, lon_min, lon_max)` for the equirectangular target,
-/// or `None` for source projection (no geographic extent).
-type ProjectionStage = (
-    Vec<f64>,
-    Vec<u8>,
-    u32,
-    u32,
-    Option<(f64, f64, f64, f64)>,
-    String,
-);
+/// `(values, mask, width, height, geographic_bounds, summary)`. The bounds are
+/// the box actually rendered for the equirectangular target, or `None` for
+/// source projection (no geographic extent).
+type ProjectionStage = (Vec<f64>, Vec<u8>, u32, u32, Option<LonLatBox>, String);
 
 /// Effective vertical flip for the source projection.
 ///
@@ -4531,9 +4508,12 @@ fn render_with_options(
     );
 
     let (used_lat_min, used_lat_max, used_lon_min, used_lon_max) = match used_bounds {
-        Some((la_min, la_max, lo_min, lo_max)) => {
-            (Some(la_min), Some(la_max), Some(lo_min), Some(lo_max))
-        }
+        Some(b) => (
+            Some(b.lat_min),
+            Some(b.lat_max),
+            Some(b.lon_min),
+            Some(b.lon_max),
+        ),
         None => (None, None, None, None),
     };
 
@@ -4679,7 +4659,7 @@ fn warp_message(
     raw: &[Option<f64>],
     target_kind: WarpTarget,
     resampling: Resampling,
-    bounds_override: Option<RenderBounds>,
+    bounds_override: Option<LonLatBox>,
     // The cell-centre index for a `"curvilinear"` grid; `None` for every
     // family whose geometry is a formula (#445).
     lookup: Option<&SpatialIndex>,
@@ -4835,7 +4815,7 @@ impl BuiltTarget {
 
 /// `(BuiltTarget, used extent)` — the concrete warp target plus the lat/lon
 /// box it actually rendered (`None` for the azimuthal targets).
-type BuiltWarpTarget = (BuiltTarget, Option<(f64, f64, f64, f64)>);
+type BuiltWarpTarget = (BuiltTarget, Option<LonLatBox>);
 
 /// Build the concrete [`BuiltTarget`] for a warp, returning the geographic
 /// extent actually used for the lat/lon-box targets (echoed back to the UI)
@@ -4861,7 +4841,7 @@ fn build_warp_target(
     ni: u32,
     nj: u32,
     bbox_thunk: BboxThunk,
-    bounds_override: Option<RenderBounds>,
+    bounds_override: Option<LonLatBox>,
     lon_periodic: bool,
     // Whether the source's array axes carry no geographic shape, so the box
     // targets must take theirs from the window instead ([`box_raster_dims`]).
@@ -4869,13 +4849,18 @@ fn build_warp_target(
 ) -> napi::Result<BuiltWarpTarget> {
     match target_kind {
         WarpTarget::Equirectangular => {
-            let (lat_min, lat_max, lon_min, lon_max) =
-                resolve_box_extent(bbox_thunk, bounds_override);
+            let window = resolve_box_extent(bbox_thunk, bounds_override);
+            let LonLatBox {
+                lat_min,
+                lat_max,
+                lon_min,
+                lon_max,
+            } = window;
             // The window's shape, then floored so the seam, the map body edge
             // and the overlays that must register against them resolve at
             // display scale rather than at the data's (#514).
             let (width, height) = raise_to_min_raster(if shapeless_axes {
-                box_raster_dims(ni, nj, (lat_min, lat_max, lon_min, lon_max))
+                box_raster_dims(ni, nj, window)
             } else {
                 (ni, nj)
             });
@@ -4888,19 +4873,21 @@ fn build_warp_target(
                 lon_max,
                 lon_periodic,
             };
-            Ok((
-                BuiltTarget::Equirect(target),
-                Some((lat_min, lat_max, lon_min, lon_max)),
-            ))
+            Ok((BuiltTarget::Equirect(target), Some(window)))
         }
         WarpTarget::WebMercator => {
-            let (lat_min, lat_max, lon_min, lon_max) =
-                resolve_box_extent(bbox_thunk, bounds_override);
+            let window = resolve_box_extent(bbox_thunk, bounds_override);
+            let LonLatBox {
+                lat_min,
+                lat_max,
+                lon_min,
+                lon_max,
+            } = window;
             // The window's shape, then floored so the seam, the map body edge
             // and the overlays that must register against them resolve at
             // display scale rather than at the data's (#514).
             let (width, height) = raise_to_min_raster(if shapeless_axes {
-                box_raster_dims(ni, nj, (lat_min, lat_max, lon_min, lon_max))
+                box_raster_dims(ni, nj, window)
             } else {
                 (ni, nj)
             });
@@ -4913,7 +4900,11 @@ fn build_warp_target(
                 lon_max,
                 lon_periodic,
             );
-            let (used_lat_min, used_lat_max, _, _) = merc.extent();
+            let LonLatBox {
+                lat_min: used_lat_min,
+                lat_max: used_lat_max,
+                ..
+            } = merc.extent();
             // A lat band lying entirely outside the ±85.0511° Web Mercator
             // cutoff clamps to a single edge, collapsing the Y span to zero and
             // smearing every row to one latitude. Reject it rather than emit a
@@ -4980,10 +4971,9 @@ fn build_warp_target(
 ///
 /// A degenerate window (no extent on one axis, or non-finite corners) has no
 /// aspect to honour, so the source shape stands.
-fn box_raster_dims(ni: u32, nj: u32, extent: (f64, f64, f64, f64)) -> (u32, u32) {
-    let (lat_min, lat_max, lon_min, lon_max) = extent;
-    let geo_w = lon_max - lon_min;
-    let geo_h = lat_max - lat_min;
+fn box_raster_dims(ni: u32, nj: u32, extent: LonLatBox) -> (u32, u32) {
+    let geo_w = extent.lon_max - extent.lon_min;
+    let geo_h = extent.lat_max - extent.lat_min;
     if !geo_w.is_finite() || !geo_h.is_finite() || geo_w <= 0.0 || geo_h <= 0.0 {
         return (ni, nj);
     }
@@ -5806,12 +5796,11 @@ fn probe_impl(
 
 // --- Per-template warp-setup helpers ---------------------------------------
 
-/// Lazily computes the source grid's `(lat_min, lat_max, lon_min, lon_max)`
-/// extent. Deferred behind a thunk because the planar sources (Lambert,
-/// polar stereographic) derive it from a 512-point-per-edge perimeter walk
-/// that the azimuthal targets don't need — only the lat/lon-box targets
-/// invoke it.
-type BboxThunk = Box<dyn FnOnce() -> (f64, f64, f64, f64)>;
+/// Lazily computes the source grid's lat/lon extent. Deferred behind a thunk
+/// because the planar sources (Lambert, polar stereographic) derive it from a
+/// 512-point-per-edge perimeter walk that the azimuthal targets don't need —
+/// only the lat/lon-box targets invoke it.
+type BboxThunk = Box<dyn FnOnce() -> LonLatBox>;
 
 /// `(inverse map, lazy lat/lon-box extent)`. The inverse closure owns a
 /// projector with its constants precomputed once; the bbox thunk builds its
@@ -5820,43 +5809,27 @@ type WarpSetup = (Box<dyn Fn(f64, f64) -> Option<GridIndex>>, BboxThunk);
 
 /// Resolve the lat/lon-box extent for a box target: the source bbox from the
 /// thunk, replaced wholesale by the caller's manual window when present.
-fn resolve_box_extent(
-    bbox: BboxThunk,
-    bounds_override: Option<RenderBounds>,
-) -> (f64, f64, f64, f64) {
-    match bounds_override {
-        Some(b) => (b.lat_min, b.lat_max, b.lon_min, b.lon_max),
-        None => bbox(),
-    }
+fn resolve_box_extent(bbox: BboxThunk, bounds_override: Option<LonLatBox>) -> LonLatBox {
+    bounds_override.unwrap_or_else(bbox)
 }
 
-/// Axis-aligned lat/lon extent of a corner-pinned west-to-east grid, shared by
-/// the lat/lon, Gaussian, and Mercator setups. Unwraps an antimeridian-crossing
-/// grid (see `eastward_lon_span`) so the window is the grid's true span
-/// (`lon_first .. lon_first + east_span`) rather than a collapsed `min..max`
-/// sliver; `lon_max` may exceed 360°, which the warp targets accept (query
-/// longitudes wrap to the nearest 360° multiple). A global grid's window
-/// extends through the seam gap to the full 360° so the wrap column at the
-/// eastern edge is painted too (the periodic sampler fills it).
-fn latlon_family_bbox(
-    lat_first: f64,
-    lat_last: f64,
-    lon_first: f64,
-    lon_last: f64,
-    ni: u32,
-) -> (f64, f64, f64, f64) {
-    let east_span = eastward_lon_span(lon_first, lon_last);
-    let lon_span = if lon_grid_is_global(east_span, ni) {
-        360.0
+/// The render window of a corner-pinned west-to-east grid, shared by the
+/// lat/lon, Gaussian, and Mercator setups.
+///
+/// `LonLatBox::from_corners` gives where the data is, unwrapping an
+/// antimeridian-crossing grid so the span is the grid's true one rather than a
+/// collapsed `min..max` sliver; a global grid is then widened through the seam
+/// gap to the full turn so the wrap column at the eastern edge is painted too
+/// (the periodic sampler fills it). `lon_max` may therefore exceed 360°, which
+/// the warp targets accept — query longitudes wrap to the nearest 360°
+/// multiple.
+fn latlon_family_bbox(corners: CornerPair, ni: u32) -> LonLatBox {
+    let extent = LonLatBox::from_corners(corners);
+    if lon_grid_is_global(eastward_lon_span(corners.lon_first, corners.lon_last), ni) {
+        extent.widened_to_full_turn()
     } else {
-        east_span
-    };
-    (
-        lat_first.min(lat_last),
-        lat_first.max(lat_last),
-        lon_first,
-        lon_first + lon_span,
-    )
+        extent
+    }
 }
 
 /// Whether the source grid is periodic in its column axis: a corner-pinned
@@ -5891,7 +5864,10 @@ fn latlon_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpS
     let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
         Box::new(move |lat, lon| latlon_inverse(&p, lat, lon));
     let bbox: BboxThunk = Box::new(move || {
-        latlon_family_bbox(p.lat_first, p.lat_last, p.lon_first, p.lon_last, p.ni)
+        latlon_family_bbox(
+            CornerPair::new(p.lat_first, p.lon_first, p.lat_last, p.lon_last),
+            p.ni,
+        )
     });
     Ok((inverse, bbox))
 }
@@ -5927,7 +5903,7 @@ fn curvilinear_warp_setup(lookup: Option<&SpatialIndex>) -> napi::Result<WarpSet
         // exists so the thunk needs no panic.
         bbox_index
             .lonlat_bbox()
-            .unwrap_or((-90.0, 90.0, -180.0, 180.0))
+            .unwrap_or(LonLatBox::new(-90.0, 90.0, -180.0, 180.0))
     });
     Ok((inverse, bbox))
 }
@@ -5952,7 +5928,10 @@ fn gaussian_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<War
     let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
         Box::new(move |lat, lon| projector.inverse(lat, lon));
     let bbox: BboxThunk = Box::new(move || {
-        latlon_family_bbox(p.lat_first, p.lat_last, p.lon_first, p.lon_last, p.ni)
+        latlon_family_bbox(
+            CornerPair::new(p.lat_first, p.lon_first, p.lat_last, p.lon_last),
+            p.ni,
+        )
     });
     Ok((inverse, bbox))
 }
@@ -5973,7 +5952,10 @@ fn mercator_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<War
     // rows are non-uniform in latitude, but the box is still bounded by the
     // corner latitudes.)
     let bbox: BboxThunk = Box::new(move || {
-        latlon_family_bbox(p.lat_first, p.lat_last, p.lon_first, p.lon_last, p.ni)
+        latlon_family_bbox(
+            CornerPair::new(p.lat_first, p.lon_first, p.lat_last, p.lon_last),
+            p.ni,
+        )
     });
     Ok((inverse, bbox))
 }
@@ -6143,7 +6125,12 @@ fn polar_stereo_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result
     let bbox: BboxThunk = Box::new(move || {
         let projector = PolarStereoProjector::new(p);
         let pole_inside = projector.pole_inside_grid();
-        let (mut lat_min, mut lat_max, mut lon_min, mut lon_max) = projector.lonlat_bbox();
+        let LonLatBox {
+            mut lat_min,
+            mut lat_max,
+            mut lon_min,
+            mut lon_max,
+        } = projector.lonlat_bbox();
         if pole_inside {
             lon_min = -180.0;
             lon_max = 180.0;
@@ -6153,7 +6140,7 @@ fn polar_stereo_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result
                 lat_max = 90.0;
             }
         }
-        (lat_min, lat_max, lon_min, lon_max)
+        LonLatBox::new(lat_min, lat_max, lon_min, lon_max)
     });
     Ok((inverse, bbox))
 }
@@ -6332,7 +6319,7 @@ fn geostationary_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Resul
             .lonlat_bbox()
             .unwrap_or_else(|| {
                 let lon = p.sub_lon_deg;
-                (-90.0, 90.0, lon - 90.0, lon + 90.0)
+                LonLatBox::new(-90.0, 90.0, lon - 90.0, lon + 90.0)
             })
     });
     Ok((inverse, bbox))
@@ -6410,7 +6397,7 @@ mod resolved_options_tests {
         o.bounds_lon_max = Some(-40.0);
         assert_eq!(
             ResolvedOptions::parse(&o).unwrap().bounds,
-            Some(RenderBounds {
+            Some(LonLatBox {
                 lat_min: 10.0,
                 lat_max: 50.0,
                 lon_min: -120.0,
@@ -6621,7 +6608,7 @@ mod resolved_options_tests {
         // The NOAA-21 half orbit: 96 fields of view by 768 scan lines, over a
         // window 355° wide and 117° tall. Drawn at the array's shape that is a
         // 3:1 area in a 1:8 raster — more than twentyfold too tall.
-        let (w, h) = box_raster_dims(96, 768, (-89.93, 26.79, -30.33, 324.58));
+        let (w, h) = box_raster_dims(96, 768, LonLatBox::new(-89.93, 26.79, -30.33, 324.58));
         let aspect = f64::from(w) / f64::from(h);
         let want = (324.58 - -30.33) / (26.79 - -89.93);
         assert!(
@@ -6636,7 +6623,7 @@ mod resolved_options_tests {
         );
 
         // A window taller than it is wide puts the source's long edge on height.
-        let (w, h) = box_raster_dims(96, 768, (-80.0, 80.0, 0.0, 40.0));
+        let (w, h) = box_raster_dims(96, 768, LonLatBox::new(-80.0, 80.0, 0.0, 40.0));
         assert_eq!(h, 768);
         assert!(
             w < h,
@@ -6645,10 +6632,16 @@ mod resolved_options_tests {
 
         // Degenerate windows have no aspect to honour, so the source shape stands
         // rather than collapsing the raster.
-        assert_eq!(box_raster_dims(96, 768, (10.0, 10.0, 0.0, 40.0)), (96, 768));
-        assert_eq!(box_raster_dims(96, 768, (0.0, 10.0, 5.0, 5.0)), (96, 768));
         assert_eq!(
-            box_raster_dims(96, 768, (0.0, f64::NAN, 0.0, 40.0)),
+            box_raster_dims(96, 768, LonLatBox::new(10.0, 10.0, 0.0, 40.0)),
+            (96, 768)
+        );
+        assert_eq!(
+            box_raster_dims(96, 768, LonLatBox::new(0.0, 10.0, 5.0, 5.0)),
+            (96, 768)
+        );
+        assert_eq!(
+            box_raster_dims(96, 768, LonLatBox::new(0.0, f64::NAN, 0.0, 40.0)),
             (96, 768)
         );
     }
@@ -7047,7 +7040,9 @@ mod polar_stereo_warp_tests {
                 assert_eq!(values[i], 1.0, "present pixel {i} should be 1.0");
             }
         }
-        let (lat_min, lat_max, _, _) = bounds.expect("web mercator has bounds");
+        let LonLatBox {
+            lat_min, lat_max, ..
+        } = bounds.expect("web mercator has bounds");
         assert!(
             lat_min >= -85.06 && lat_max <= 85.06,
             "lat extent must be clamped to the Mercator band, got {lat_min}..{lat_max}"
@@ -7265,7 +7260,7 @@ mod polar_stereo_warp_tests {
         let default_bounds = default_bounds.expect("equirectangular has bounds");
 
         // Explicit window → that window is rendered and echoed back verbatim.
-        let window = RenderBounds {
+        let window = LonLatBox {
             lat_min: 30.0,
             lat_max: 60.0,
             lon_min: -140.0,
@@ -7280,7 +7275,7 @@ mod polar_stereo_warp_tests {
             None,
         )
         .expect("windowed warp");
-        assert_eq!(used, Some((30.0, 60.0, -140.0, -60.0)));
+        assert_eq!(used, Some(LonLatBox::new(30.0, 60.0, -140.0, -60.0)));
         assert_ne!(
             used.unwrap(),
             default_bounds,
@@ -7319,7 +7314,7 @@ mod polar_stereo_warp_tests {
         // would smear every row to one latitude. It must be rejected instead.
         let meta = cmc_polar_meta();
         let raw = vec![Some(1.0); 135 * 95];
-        let band = RenderBounds {
+        let band = LonLatBox {
             lat_min: 86.0,
             lat_max: 88.0,
             lon_min: -10.0,
@@ -7384,7 +7379,12 @@ mod polar_stereo_warp_tests {
             }
         }
         // The source extent is the geographic corner box.
-        let (lat_min, lat_max, lon_min, lon_max) = bounds.expect("mercator has bounds");
+        let LonLatBox {
+            lat_min,
+            lat_max,
+            lon_min,
+            lon_max,
+        } = bounds.expect("mercator has bounds");
         assert!(
             lat_min >= -0.01 && lat_max <= 30.01,
             "lat box {lat_min}..{lat_max}"
@@ -7597,7 +7597,12 @@ mod polar_stereo_warp_tests {
         // The geographic extent is the unrotated perimeter box. With the pole at
         // (0,0) the fixture's grid sweeps the high-latitude north side; the
         // reported box must be non-degenerate and stay within valid ranges.
-        let (lat_min, lat_max, lon_min, lon_max) = bounds.expect("rotated grid has bounds");
+        let LonLatBox {
+            lat_min,
+            lat_max,
+            lon_min,
+            lon_max,
+        } = bounds.expect("rotated grid has bounds");
         assert!(
             lat_max > lat_min && lat_max <= 90.01,
             "lat box {lat_min}..{lat_max}"
@@ -9898,7 +9903,12 @@ mod space_view_geos_tests {
         // tightly — strictly inside the ±90° hemisphere fallback.
         let meta = space_view_meta();
         let (_inverse, bbox) = warp_setup_for(&meta, 11, 11, None).expect("space view warp setup");
-        let (lat_min, lat_max, lon_min, lon_max) = bbox();
+        let LonLatBox {
+            lat_min,
+            lat_max,
+            lon_min,
+            lon_max,
+        } = bbox();
         assert!(
             lat_min > -90.0 && lat_max < 90.0,
             "lat {lat_min}..{lat_max}"
@@ -9923,7 +9933,12 @@ mod space_view_geos_tests {
         meta.geos_dx_rad = Some(2.0 * half / 10.0);
         meta.geos_dy_rad = Some(2.0 * half / 10.0);
         let (_inverse, bbox) = warp_setup_for(&meta, 11, 11, None).expect("space view warp setup");
-        let (lat_min, lat_max, lon_min, lon_max) = bbox();
+        let LonLatBox {
+            lat_min,
+            lat_max,
+            lon_min,
+            lon_max,
+        } = bbox();
         assert_eq!((lat_min, lat_max), (-90.0, 90.0));
         assert_eq!((lon_min, lon_max), (-165.0, 15.0));
     }

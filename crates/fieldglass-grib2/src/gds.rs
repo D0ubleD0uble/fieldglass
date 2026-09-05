@@ -11,10 +11,10 @@
 
 use crate::section::{SectionHeader, parse_section_header};
 use fieldglass_core::{
-    FieldglassError, GeostationaryParams, LambertAzimuthalParams, LambertAzimuthalProjector,
-    LambertParams, LambertProjector, PlanarGridProjector, PolarStereoParams, PolarStereoProjector,
-    StoredRuns, TransverseMercatorParams, bits::sign_magnitude_to_i64, normalise_lon,
-    signed_grid_increments,
+    CornerPair, FieldglassError, GeostationaryParams, LambertAzimuthalParams,
+    LambertAzimuthalProjector, LambertParams, LambertProjector, PlanarGridProjector,
+    PolarStereoParams, PolarStereoProjector, StoredRuns, TransverseMercatorParams,
+    bits::sign_magnitude_to_i64, normalise_lon, signed_grid_increments,
 };
 
 /// Section number for the Grid Definition Section.
@@ -1030,12 +1030,6 @@ impl GridDefinitionSection {
         }
     }
 
-    /// `(la1, lo1, la2, lo2)` corner coordinates in degrees, when the
-    /// template defines them. The projection grids that lack an explicit last
-    /// grid point — Lambert and polar stereographic — return
-    /// `(la1, lo1, lad, lov)`, the natural projection parameters that pair
-    /// with the metadata the napi layer surfaces. Space view carries no
-    /// corner coordinates (only a sub-satellite point) and returns `None`.
     /// The `(lat, lon)` of the declared first grid point, for the templates
     /// that state one.
     ///
@@ -1070,11 +1064,11 @@ impl GridDefinitionSection {
     /// For a reduced grid this is not the box the raster [`Self::dimensions`]
     /// reports occupies — see [`Self::raster_bounds`], which is what a consumer
     /// placing decoded values wants.
-    pub fn bounds(&self) -> Option<(f64, f64, f64, f64)> {
+    pub fn bounds(&self) -> Option<CornerPair> {
         match &self.template {
-            GridTemplate::LatLon(t) => Some((t.la1, t.lo1, t.la2, t.lo2)),
-            GridTemplate::RotatedLatLon(t) => Some((t.la1, t.lo1, t.la2, t.lo2)),
-            GridTemplate::Mercator(t) => Some((t.la1, t.lo1, t.la2, t.lo2)),
+            GridTemplate::LatLon(t) => Some(CornerPair::new(t.la1, t.lo1, t.la2, t.lo2)),
+            GridTemplate::RotatedLatLon(t) => Some(CornerPair::new(t.la1, t.lo1, t.la2, t.lo2)),
+            GridTemplate::Mercator(t) => Some(CornerPair::new(t.la1, t.lo1, t.la2, t.lo2)),
             // Transverse Mercator carries no corner latitudes at all — `X1`
             // and `Y1` are projection metres — and unlike Lambert and polar
             // stereographic below, substituting the projection parameters
@@ -1090,18 +1084,20 @@ impl GridDefinitionSection {
             // same two values are already reported as the projection parameters
             // they are. A grid whose projection cannot place the corner reports
             // the first point alone rather than a substitute.
-            GridTemplate::PolarStereographic(t) => {
-                t.last_point().map(|(la2, lo2)| (t.la1, t.lo1, la2, lo2))
-            }
-            GridTemplate::Lambert(t) => t.last_point().map(|(la2, lo2)| (t.la1, t.lo1, la2, lo2)),
+            GridTemplate::PolarStereographic(t) => t
+                .last_point()
+                .map(|(la2, lo2)| CornerPair::new(t.la1, t.lo1, la2, lo2)),
+            GridTemplate::Lambert(t) => t
+                .last_point()
+                .map(|(la2, lo2)| CornerPair::new(t.la1, t.lo1, la2, lo2)),
             // §3.140 likewise states a real first point and no second one.
             // It used to report the tangent point in the corner's place; the
             // napi layer already replaced that with the derived corner, and now
             // the crate does, so both agree (#472).
-            GridTemplate::LambertAzimuthal(t) => {
-                t.last_point().map(|(la2, lo2)| (t.la1, t.lo1, la2, lo2))
-            }
-            GridTemplate::Gaussian(t) => Some((t.la1, t.lo1, t.la2, t.lo2)),
+            GridTemplate::LambertAzimuthal(t) => t
+                .last_point()
+                .map(|(la2, lo2)| CornerPair::new(t.la1, t.lo1, la2, lo2)),
+            GridTemplate::Gaussian(t) => Some(CornerPair::new(t.la1, t.lo1, t.la2, t.lo2)),
             GridTemplate::SpaceView(_) => None,
             GridTemplate::SphericalHarmonic(_) => None,
             GridTemplate::BiFourier(_) => None,
@@ -1112,8 +1108,7 @@ impl GridDefinitionSection {
         }
     }
 
-    /// The corners of the raster [`Self::dimensions`] describes, as
-    /// `(la1, lo1, la2, lo2)`.
+    /// The corners of the raster [`Self::dimensions`] describes.
     ///
     /// Identical to [`Self::bounds`] for every grid whose rows are all the same
     /// width, which is most of them. It differs for a reduced grid, and only in
@@ -1130,19 +1125,17 @@ impl GridDefinitionSection {
     /// correction left for the caller. A message table showing what the file
     /// says wants [`Self::bounds`]. Mirrors
     /// `fieldglass_grib1::GridDescription::raster_bounds`.
-    pub fn raster_bounds(&self) -> Option<(f64, f64, f64, f64)> {
-        let (la1, lo1, la2, lo2) = self.bounds()?;
+    pub fn raster_bounds(&self) -> Option<CornerPair> {
+        let corners = self.bounds()?;
         match self.points_per_row() {
-            Some(pl) => Some((
-                la1,
-                lo1,
-                la2,
-                fieldglass_core::reduced_raster_lon_last(
-                    lo1,
+            Some(pl) => Some(CornerPair {
+                lon_last: fieldglass_core::reduced_raster_lon_last(
+                    corners.lon_first,
                     fieldglass_core::reduced_raster_width(pl),
                 ),
-            )),
-            None => Some((la1, lo1, la2, lo2)),
+                ..corners
+            }),
+            None => Some(corners),
         }
     }
 
@@ -2029,7 +2022,7 @@ mod tests {
         assert!((t.south_pole_lon - 10.0).abs() < 1e-9);
         assert!((t.angle_of_rotation - 15.0).abs() < 1e-6);
         assert_eq!(gds.dimensions(), Some((16, 31)));
-        assert_eq!(gds.bounds(), Some((60.0, 0.0, 0.0, 30.0)));
+        assert_eq!(gds.bounds(), Some(CornerPair::new(60.0, 0.0, 0.0, 30.0)));
         assert_eq!(gds.template_name(), "rotated_latlon");
     }
 
@@ -2145,7 +2138,12 @@ mod tests {
         // `grib_get_data` from the pinned 2.34.1 CLI reports the last point as
         // (6.919425280, 182.657847210), i.e. -177.342152790 in the ±180
         // convention this crate reports.
-        let (la1, lo1, la2, lo2) = gds.bounds().expect("polar stereo has bounds");
+        let CornerPair {
+            lat_first: la1,
+            lon_first: lo1,
+            lat_last: la2,
+            lon_last: lo2,
+        } = gds.bounds().expect("polar stereo has bounds");
         assert_eq!((la1, lo1), (-20.0, 225.0), "first point unchanged");
         assert!(
             (la2 - 6.919_425_280).abs() < 1e-6 && (lo2 - (-177.342_152_790)).abs() < 1e-6,

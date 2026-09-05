@@ -84,9 +84,12 @@ pub use ds::{DS_SECTION_NUMBER, decode_values};
 // `StoredRuns` is here because `undo_second_order_boustrophedonic` takes the
 // grid's stored run layout — uniform for a rectangle, ragged for a reduced
 // grid (#605).
+// `CornerPair` is here because `GridDefinitionSection::bounds` and
+// `raster_bounds` hand one back, so reading a grid's declared corners means
+// naming it (#553).
 pub use fieldglass_core::{
-    FieldglassError, GeostationaryParams, GridGeometry, LambertAzimuthalParams, StoredRuns,
-    TransverseMercatorParams,
+    CornerPair, FieldglassError, GeostationaryParams, GridGeometry, LambertAzimuthalParams,
+    StoredRuns, TransverseMercatorParams,
 };
 pub use gds::{
     GDS_SECTION_NUMBER, GaussianTemplate, GridDefinitionSection, GridTemplate, LambertTemplate,

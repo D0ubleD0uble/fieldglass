@@ -9,6 +9,7 @@
 //! decoder (no eccodes/pygrib dependency) — see /tmp/reference_decode.py
 //! in the development environment.
 
+use fieldglass_core::CornerPair;
 use fieldglass_core::{PlanarGridProjector, PolarStereoParams, PolarStereoProjector};
 use fieldglass_grib1::{Grib1Reader, GridDescription};
 
@@ -31,7 +32,12 @@ fn parses_one_message_with_polar_stereo_grid() {
     // GRIB1 polar-stereographic GDS carries only the first grid point; the
     // opposite corner is derived from the projection. `bounds()` must return
     // that derived corner, not the old (0, 0) placeholder.
-    let (la1, lo1, la2, lo2) = gds.bounds().expect("polar stereo has bounds");
+    let CornerPair {
+        lat_first: la1,
+        lon_first: lo1,
+        lat_last: la2,
+        lon_last: lo2,
+    } = gds.bounds().expect("polar stereo has bounds");
     assert!((la1 - 27.203).abs() < 1e-3, "lat_first: {la1}");
     assert!((lo1 - (-135.213)).abs() < 1e-3, "lon_first: {lo1}");
     // Last point, straight from eccodes' own point iterator on this fixture:

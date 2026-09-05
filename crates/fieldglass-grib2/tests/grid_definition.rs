@@ -1,6 +1,7 @@
 //! Integration coverage for §3 GDS template parsing across the three
 //! fixtures shipped with the crate.
 
+use fieldglass_core::CornerPair;
 use fieldglass_core::{
     LambertAzimuthalParams, LambertAzimuthalProjector, PlanarGridProjector,
     TransverseMercatorParams, TransverseMercatorProjector,
@@ -81,7 +82,12 @@ fn eta_lambert_decodes_template_3_30() {
     // eccodes 2.34.1's own iterator on this fixture
     // (`grib_get_data -L "%.9f %.9f"`, last row) gives
     // (57.289403949, 310.614902750); the longitude here is the ±180 form.
-    let (la1, lo1, la2, lo2) = msg.gds.bounds().expect("Lambert has bounds");
+    let CornerPair {
+        lat_first: la1,
+        lon_first: lo1,
+        lat_last: la2,
+        lon_last: lo2,
+    } = msg.gds.bounds().expect("Lambert has bounds");
     assert!((la1 - 12.190).abs() < 1e-3 && (lo1 - 226.541).abs() < 1e-3);
     assert!(
         (la2 - 57.289_403_949).abs() < 1e-6 && (lo2 - (-49.385_097_250)).abs() < 1e-6,
@@ -484,7 +490,12 @@ fn the_template_3_140_grid_geolocates_as_eccodes_does() {
     // And the section reports that same corner (#472): §3.140 used to put its
     // tangent point in the last-point slot at the crate level, while the napi
     // layer substituted the derived one — two answers to one question.
-    let (la1, lo1, la2, lo2) = reader.messages[0]
+    let CornerPair {
+        lat_first: la1,
+        lon_first: lo1,
+        lat_last: la2,
+        lon_last: lo2,
+    } = reader.messages[0]
         .gds
         .bounds()
         .expect("Lambert azimuthal has bounds");

@@ -1,6 +1,6 @@
 use fieldglass_core::{
-    FieldglassError, LambertParams, LambertProjector, PlanarGridProjector, PolarStereoParams,
-    PolarStereoProjector, bits::ibm_float_to_f64, signed_grid_increments,
+    CornerPair, FieldglassError, LambertParams, LambertProjector, PlanarGridProjector,
+    PolarStereoParams, PolarStereoProjector, bits::ibm_float_to_f64, signed_grid_increments,
 };
 
 // ---------------------------------------------------------------------------
@@ -615,10 +615,6 @@ impl GridDescription {
         }
     }
 
-    /// Geographic bounds as (lat_first, lon_first, lat_last, lon_last), if available.
-    ///
-    /// For [`Self::RotatedLatLon`] these are the corner coordinates in the
-    /// rotated frame, not geographic; unrotating them is the reprojector's job.
     /// The `(lat, lon)` of the declared first grid point. Unlike
     /// [`Self::bounds`] this survives a projection too degenerate to place the
     /// far corner: the message states where the grid starts either way.
@@ -637,26 +633,54 @@ impl GridDescription {
 
     /// The corners **as the message states them**.
     ///
+    /// For [`Self::RotatedLatLon`] these are the corner coordinates in the
+    /// rotated frame, not geographic; unrotating them is the reprojector's job.
+    ///
     /// For a reduced grid this is not the box the raster
     /// [`Self::dimensions`] reports occupies — see [`Self::raster_bounds`],
     /// which is what a consumer placing decoded values wants.
-    pub fn bounds(&self) -> Option<(f64, f64, f64, f64)> {
+    pub fn bounds(&self) -> Option<CornerPair> {
         match self {
-            Self::LatLon(g) => Some((g.lat_first, g.lon_first, g.lat_last, g.lon_last)),
-            Self::RotatedLatLon(g) => Some((g.lat_first, g.lon_first, g.lat_last, g.lon_last)),
-            Self::ReducedLatLon(g) => Some((g.lat_first, g.lon_first, g.lat_last, g.lon_last)),
-            Self::Gaussian(g) => Some((g.lat_first, g.lon_first, g.lat_last, g.lon_last)),
-            Self::ReducedGaussian(g) => Some((g.lat_first, g.lon_first, g.lat_last, g.lon_last)),
+            Self::LatLon(g) => Some(CornerPair::new(
+                g.lat_first,
+                g.lon_first,
+                g.lat_last,
+                g.lon_last,
+            )),
+            Self::RotatedLatLon(g) => Some(CornerPair::new(
+                g.lat_first,
+                g.lon_first,
+                g.lat_last,
+                g.lon_last,
+            )),
+            Self::ReducedLatLon(g) => Some(CornerPair::new(
+                g.lat_first,
+                g.lon_first,
+                g.lat_last,
+                g.lon_last,
+            )),
+            Self::Gaussian(g) => Some(CornerPair::new(
+                g.lat_first,
+                g.lon_first,
+                g.lat_last,
+                g.lon_last,
+            )),
+            Self::ReducedGaussian(g) => Some(CornerPair::new(
+                g.lat_first,
+                g.lon_first,
+                g.lat_last,
+                g.lon_last,
+            )),
             // Neither states a second corner, so it is derived from the
             // projection; a grid whose projection cannot place one reports no
             // pair at all rather than a `NaN` (its declared first point is
             // still available from [`Self::first_point`]).
             Self::PolarStereographic(g) => g
                 .last_point()
-                .map(|(la2, lo2)| (g.lat_first, g.lon_first, la2, lo2)),
+                .map(|(la2, lo2)| CornerPair::new(g.lat_first, g.lon_first, la2, lo2)),
             Self::LambertConformal(g) => g
                 .last_point()
-                .map(|(la2, lo2)| (g.lat_first, g.lon_first, la2, lo2)),
+                .map(|(la2, lo2)| CornerPair::new(g.lat_first, g.lon_first, la2, lo2)),
             // Spectral coefficients have no corner coordinates: the field is
             // global by construction and lives in wavenumber space.
             Self::SphericalHarmonic(_) => None,
@@ -664,8 +688,7 @@ impl GridDescription {
         }
     }
 
-    /// The corners of the raster [`Self::dimensions`] describes, as
-    /// `(lat_first, lon_first, lat_last, lon_last)`.
+    /// The corners of the raster [`Self::dimensions`] describes.
     ///
     /// Identical to [`Self::bounds`] for every grid whose rows are all the same
     /// width, which is most of them. It differs for a reduced grid, and only in
@@ -681,19 +704,17 @@ impl GridDescription {
     /// they are the shape, the values and the extent of one rectangle, with no
     /// correction left for the caller. A message table showing what the file
     /// says wants [`Self::bounds`].
-    pub fn raster_bounds(&self) -> Option<(f64, f64, f64, f64)> {
-        let (la1, lo1, la2, lo2) = self.bounds()?;
+    pub fn raster_bounds(&self) -> Option<CornerPair> {
+        let corners = self.bounds()?;
         match self.points_per_row() {
-            Some(pl) => Some((
-                la1,
-                lo1,
-                la2,
-                fieldglass_core::reduced_raster_lon_last(
-                    lo1,
+            Some(pl) => Some(CornerPair {
+                lon_last: fieldglass_core::reduced_raster_lon_last(
+                    corners.lon_first,
                     fieldglass_core::reduced_raster_width(pl),
                 ),
-            )),
-            None => Some((la1, lo1, la2, lo2)),
+                ..corners
+            }),
+            None => Some(corners),
         }
     }
 }
@@ -1141,7 +1162,12 @@ mod grid_variant_tests {
         body.extend(sm24(0));
 
         let parsed = parse_grid_description(&build_gds(3, &body)).expect("parses");
-        let (la1, lo1, la2, lo2) = parsed.bounds().expect("Lambert has bounds");
+        let CornerPair {
+            lat_first: la1,
+            lon_first: lo1,
+            lat_last: la2,
+            lon_last: lo2,
+        } = parsed.bounds().expect("Lambert has bounds");
         assert_eq!((la1, lo1), (38.500, -126.000), "first point unchanged");
         assert!(
             (la2, lo2) != (0.0, 0.0),
@@ -1380,7 +1406,10 @@ mod grid_variant_tests {
         let parsed = parse_grid_description(&gds).expect("rotated lat/lon GDS parses");
         assert_eq!(parsed.grid_type_name(), "rotated_latlon");
         assert_eq!(parsed.dimensions(), Some((100, 90)));
-        assert_eq!(parsed.bounds(), Some((-18.0, -12.0, 20.0, 15.0)));
+        assert_eq!(
+            parsed.bounds(),
+            Some(CornerPair::new(-18.0, -12.0, 20.0, 15.0))
+        );
         let GridDescription::RotatedLatLon(g) = parsed else {
             panic!("expected RotatedLatLon");
         };
@@ -1455,7 +1484,10 @@ mod grid_variant_tests {
         assert_eq!(parsed.dimensions(), Some((8, 4)), "Ni = widest row");
         assert_eq!(parsed.num_data_points(), Some(24), "sum of PL");
         assert_eq!(parsed.points_per_row(), Some([4u32, 8, 8, 4].as_slice()));
-        assert_eq!(parsed.bounds(), Some((60.0, 0.0, -60.0, 350.0)));
+        assert_eq!(
+            parsed.bounds(),
+            Some(CornerPair::new(60.0, 0.0, -60.0, 350.0))
+        );
         let GridDescription::ReducedLatLon(g) = parsed else {
             panic!("expected ReducedLatLon");
         };
@@ -1490,9 +1522,17 @@ mod grid_variant_tests {
         );
 
         // Unchanged: the message table shows the file's own corner.
-        assert_eq!(parsed.bounds(), Some((60.0, 0.0, -60.0, 350.0)));
+        assert_eq!(
+            parsed.bounds(),
+            Some(CornerPair::new(60.0, 0.0, -60.0, 350.0))
+        );
 
-        let (la1, lo1, la2, lo2) = parsed.raster_bounds().expect("a reduced grid has a raster");
+        let CornerPair {
+            lat_first: la1,
+            lon_first: lo1,
+            lat_last: la2,
+            lon_last: lo2,
+        } = parsed.raster_bounds().expect("a reduced grid has a raster");
         assert_eq!((la1, lo1, la2), (60.0, 0.0, -60.0), "only Lo2 is derived");
         // 32 columns around the circle put the last one at 31 * 360/32.
         assert!((lo2 - 348.75).abs() < 1e-9, "raster east edge {lo2}");
@@ -1604,7 +1644,12 @@ mod grid_variant_tests {
         body.push(0x40);
 
         let parsed = parse_grid_description(&build_gds(5, &body)).expect("parses");
-        let (la1, lo1, la2, lo2) = parsed.bounds().expect("polar stereo has bounds");
+        let CornerPair {
+            lat_first: la1,
+            lon_first: lo1,
+            lat_last: la2,
+            lon_last: lo2,
+        } = parsed.bounds().expect("polar stereo has bounds");
         assert_eq!((la1, lo1), (-20.826, -145.000), "first point unchanged");
         // No longer the (0, 0) sentinel.
         assert!(
@@ -1706,7 +1751,11 @@ mod grid_variant_tests {
             body.push(0x00); // projection centre: north pole on plane
             body.push(scanning_mode);
             let parsed = parse_grid_description(&build_gds(5, &body)).expect("parses");
-            let (_, _, la2, lo2) = parsed.bounds().expect("polar stereo has bounds");
+            let CornerPair {
+                lat_last: la2,
+                lon_last: lo2,
+                ..
+            } = parsed.bounds().expect("polar stereo has bounds");
             (la2, lo2)
         };
 

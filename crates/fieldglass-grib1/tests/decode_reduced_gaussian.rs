@@ -6,6 +6,7 @@
 //! points, not `Ni·Nj`, so `decode_message_values` must size its output to the
 //! `PL` list. `grib_get_data` (eccodes) is the oracle — 6114 points, all 285.5.
 
+use fieldglass_core::CornerPair;
 use fieldglass_grib1::{Grib1Reader, GridDescription};
 
 const FIXTURE: &[u8] = include_bytes!("fixtures/reduced_gg_n32.grib1");
@@ -33,7 +34,12 @@ fn reduced_gaussian_gds_reports_geometry() {
     };
     assert_eq!(g.n_gaussians, 32);
     // First parallel near the north pole; box spans the full longitude circle.
-    let (la1, lo1, _, lo2) = gds.bounds().expect("reduced grid has bounds");
+    let CornerPair {
+        lat_first: la1,
+        lon_first: lo1,
+        lon_last: lo2,
+        ..
+    } = gds.bounds().expect("reduced grid has bounds");
     assert!((la1 - 87.864).abs() < 1e-3, "lat_first: {la1}");
     assert_eq!(lo1, 0.0);
     assert!((lo2 - 357.188).abs() < 1e-3, "lon_last: {lo2}");
@@ -152,8 +158,15 @@ fn raster_bounds_places_the_expanded_raster() {
     let (width, _) = gds.dimensions().expect("a raster shape");
     assert_eq!(width, 128, "N32: the widest row is the 4N reference width");
 
-    let (_, _, _, declared) = gds.bounds().expect("a reduced grid has bounds");
-    let (la1, lo1, la2, lo2) = gds.raster_bounds().expect("and a raster extent");
+    let CornerPair {
+        lon_last: declared, ..
+    } = gds.bounds().expect("a reduced grid has bounds");
+    let CornerPair {
+        lat_first: la1,
+        lon_first: lo1,
+        lat_last: la2,
+        lon_last: lo2,
+    } = gds.raster_bounds().expect("and a raster extent");
     assert!((la1 - 87.864).abs() < 1e-3, "lat_first: {la1}");
     assert_eq!(lo1, 0.0);
     assert!((la2 + 87.864).abs() < 1e-3, "lat_last: {la2}");

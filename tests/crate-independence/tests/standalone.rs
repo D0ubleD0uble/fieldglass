@@ -118,7 +118,9 @@ fn grib1_reduced_grid_decodes_and_places() {
             // the one its widened rows reach (#543).
             assert_eq!(
                 params.lon_last,
-                gds.raster_bounds().expect("a placed grid has bounds").3
+                gds.raster_bounds()
+                    .expect("a placed grid has bounds")
+                    .lon_last
             );
         }
         other => panic!("expected a Gaussian geometry, got {other:?}"),
@@ -167,7 +169,9 @@ fn grib2_octahedral_grid_decodes_and_places() {
             assert_eq!((params.ni, params.nj), (ni, nj));
             assert_eq!(
                 params.lon_last,
-                gds.raster_bounds().expect("a placed grid has bounds").3
+                gds.raster_bounds()
+                    .expect("a placed grid has bounds")
+                    .lon_last
             );
         }
         other => panic!("expected a Gaussian geometry, got {other:?}"),
