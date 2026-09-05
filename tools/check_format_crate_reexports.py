@@ -112,20 +112,13 @@ FORMAT_CRATES = ("fieldglass-grib1", "fieldglass-grib2", "fieldglass-netcdf")
 # parameter structs grib2 hands back by value (`LambertAzimuthalParams`,
 # `TransverseMercatorParams`, `GeostationaryParams`) are re-exported for exactly
 # that reason.
-ALLOWED_UNEXPORTED: dict[str, dict[str, str]] = {
-    "fieldglass-grib2": {
-        # Two self-less stub traits with no usable methods, whose impls exist
-        # only until #540 retires them, and the two core types those impls
-        # return because the traits say so. Re-exporting any of the four would
-        # publish, and promise, a surface that is being deleted — and the last
-        # two are core's own API reached through core's own trait, so they are
-        # not names this crate hands back on its own account.
-        "FormatReader": "self-less stub trait; #540 retires it",
-        "DataMessage": "self-less stub trait; #540 retires it",
-        "Metadata": "return type the #540 stub impls inherit from the trait",
-        "GridDefinition": "return type the #540 stub impls inherit from the trait",
-    },
-}
+#
+# Empty, and the default answer to a new finding is a re-export rather than an
+# entry here. Its only occupants so far were the four names grib2's `FormatReader`
+# / `DataMessage` stub impls dragged into its public API, and #540 deleted the
+# stubs instead of excusing them. Add `"Name": "why",` only when the name is one
+# the crate does not hand back on its own account.
+ALLOWED_UNEXPORTED: dict[str, dict[str, str]] = {}
 
 # A `#[cfg(...)]` attribute whose predicate mentions `test` (covers
 # `#[cfg(test)]` and `#[cfg(all(test, feature = "x"))]`).

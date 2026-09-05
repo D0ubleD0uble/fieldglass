@@ -538,14 +538,10 @@ class TheRepoItselfPasses(unittest.TestCase):
         expected = {
             "fieldglass-grib1": {"FieldglassError", "GridGeometry"},
             "fieldglass-grib2": {
-                "DataMessage",
                 "FieldglassError",
-                "FormatReader",
                 "GeostationaryParams",
-                "GridDefinition",
                 "GridGeometry",
                 "LambertAzimuthalParams",
-                "Metadata",
                 "TransverseMercatorParams",
             },
             "fieldglass-netcdf": {"ByteRange", "ByteSource", "FieldglassError"},
