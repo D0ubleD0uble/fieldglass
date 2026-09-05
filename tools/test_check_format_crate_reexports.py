@@ -539,6 +539,7 @@ class TheRepoItselfPasses(unittest.TestCase):
             "fieldglass-grib1": {
                 "CornerPair",
                 "FieldglassError",
+                "GlobalGrid",
                 "GridGeometry",
                 "StoredRuns",
             },
@@ -546,6 +547,7 @@ class TheRepoItselfPasses(unittest.TestCase):
                 "CornerPair",
                 "FieldglassError",
                 "GeostationaryParams",
+                "GlobalGrid",
                 "GridGeometry",
                 "LambertAzimuthalParams",
                 "StoredRuns",

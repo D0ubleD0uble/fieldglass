@@ -6,12 +6,13 @@
 //! surface: [`error`], [`bits`], [`bytes`], [`detect`], [`cct_tables`] (both
 //! GRIB editions share the WMO sub-centre lookup), [`projection`] (GRIB1's GDS
 //! uses the projectors to recover grid corners), [`scan`] (the storage orders a
-//! decoder regularises), and the three grids that arrive as something other
-//! than a rectangle of values — [`sht`], [`matrix`], and [`healpix`]. What
-//! those modules have in common is that none of them is behind a feature, which
-//! is what makes a `default-features = false` dependency work. Pre-commit builds
-//! the three format crate libraries against a `core` with every feature off,
-//! so reaching for gated code fails there rather than at a consumer.
+//! decoder regularises), the three grids that arrive as something other than a
+//! rectangle of values — [`sht`], [`matrix`], and [`healpix`] — and
+//! [`global_grid`], the lat/lon grid the first and last of those are put onto.
+//! What those modules have in common is that none of them is behind a feature,
+//! which is what makes a `default-features = false` dependency work. Pre-commit
+//! builds the three format crate libraries against a `core` with every feature
+//! off, so reaching for gated code fails there rather than at a consumer.
 //!
 //! # Feature flags
 //!
@@ -51,6 +52,7 @@ pub mod csv;
 pub mod detect;
 /// The crate's one error type.
 pub mod error;
+pub mod global_grid;
 pub mod healpix;
 pub mod matrix;
 #[cfg(feature = "render")]
@@ -75,6 +77,7 @@ pub use detect::Format;
 pub use detect::detect_format;
 pub use detect::detect_from_bytes;
 pub use error::FieldglassError;
+pub use global_grid::GlobalGrid;
 #[cfg(feature = "render")]
 pub use overlay::{ProjectedPolylines, SourceOverlayTarget, project_polylines};
 // The projector types, plus the free functions a format crate or a host calls.

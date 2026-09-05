@@ -184,15 +184,87 @@ fn a_hostile_nside_does_not_panic() {
 // Resampling onto a lat/lon grid (#443)
 // ---------------------------------------------------------------------------
 
-use fieldglass_core::healpix::resample_to_latlon;
+use fieldglass_core::global_grid::{GlobalGrid, SYNTHESIS_NI, SYNTHESIS_NJ};
+use fieldglass_core::healpix::{
+    healpix_render_dims, healpix_render_grid, resample_to_global, resample_to_latlon,
+};
 
 /// A grid at the same resolution as the source, so no pixel is skipped.
 fn latlon_grid(ni: usize, nj: usize) -> (Vec<f64>, Vec<f64>) {
-    let lats = (0..nj)
-        .map(|j| 90.0 - j as f64 * 180.0 / (nj as f64 - 1.0))
-        .collect();
-    let lons = (0..ni).map(|i| i as f64 * 360.0 / ni as f64).collect();
-    (lats, lons)
+    GlobalGrid::new(ni, nj).axes()
+}
+
+/// The rule: sample at the HEALPix pixel scale so no pixel is skipped, never
+/// finer than the 0.5° the spectral path pins.
+#[test]
+fn render_dims_track_the_pixel_scale() {
+    for nside in [2u32, 4, 8, 16, 32, 64] {
+        let (ni, nj) = healpix_render_dims(nside);
+        let step = 360.0 / ni as f64;
+        let pixel = 58.632_047_691_1 / nside as f64;
+        assert!(
+            step <= pixel * 1.02,
+            "Nside {nside}: step {step} is coarser than the {pixel}° pixel, so pixels \
+             would be skipped"
+        );
+        assert!(
+            step > pixel * 0.4,
+            "Nside {nside}: step {step} is far finer than the {pixel}° pixel, which only \
+             repeats pixels at a cost in memory"
+        );
+        assert_eq!(
+            nj,
+            ni / 2 + 1,
+            "Nside {nside}: {ni}×{nj} is not pole to pole"
+        );
+        assert_eq!(healpix_render_grid(nside).dims(), (ni, nj));
+    }
+}
+
+/// Nside 1024 at its own pixel scale would be about 6285×3143 — some 300 MB of
+/// `Option<f64>`, and past what a viewer can show.
+#[test]
+fn render_dims_are_capped_for_a_large_nside() {
+    for nside in [128u32, 256, 1024, 4096] {
+        assert_eq!(
+            healpix_render_dims(nside),
+            (SYNTHESIS_NI, SYNTHESIS_NJ),
+            "Nside {nside} must be capped at the spectral 0.5° pin"
+        );
+    }
+}
+
+/// The grid the postage-stamp report was made against (#514): Nside 4 resamples
+/// to 26 × 14, which is correct for its pixel scale and far too coarse to draw
+/// a projection at.
+#[test]
+fn the_report_grid_is_still_the_one_the_pixel_scale_asks_for() {
+    assert_eq!(healpix_render_dims(4), (26, 14));
+}
+
+/// The paired call hands back the field and the grid it is on together, so a
+/// host cannot declare one shape in its render meta and evaluate at another.
+#[test]
+fn the_paired_resample_agrees_with_the_two_step_one() {
+    let nside = 2;
+    let values: Vec<Option<f64>> = (0..48).map(|k| Some(k as f64)).collect();
+    let (grid, out) = resample_to_global(nside, false, &values).expect("resamples");
+    // Pinned by hand, not restated from `healpix_render_grid`: comparing the
+    // paired call against a function it itself calls would pass with any grid.
+    assert_eq!(
+        grid.dims(),
+        (14, 8),
+        "Nside 2 samples at its own pixel scale"
+    );
+    assert_eq!(grid, healpix_render_grid(nside));
+    let (lats, lons) = grid.axes();
+    assert_eq!(out.len(), grid.len());
+    assert_eq!(
+        out,
+        resample_to_latlon(nside, false, &values, &lats, &lons).expect("resamples")
+    );
+    // The same length mismatch the unpaired call refuses.
+    assert!(resample_to_global(nside, false, &values[..47]).is_none());
 }
 
 /// Every resampled point must hold the value of the pixel that contains it —

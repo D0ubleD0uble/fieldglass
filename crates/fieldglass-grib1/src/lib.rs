@@ -5,8 +5,11 @@
 //! floating point, ECMWF complex, second-order in both the classic and general
 //! extended forms (with spatial differencing and boustrophedonic row order),
 //! the `matrixOfValues` form, and spherical-harmonic coefficients — which
-//! [`Grib1Reader::synthesize_spectral_message`] transforms back onto a lat/lon
-//! grid so a spectral field can be rendered rather than only listed.
+//! [`Grib1Reader::synthesize_spectral_global`] transforms back onto a lat/lon
+//! grid so a spectral field can be rendered rather than only listed. That grid
+//! is the shared convention in [`fieldglass_core::global_grid`], so a host does
+//! not have to invent one; [`Grib1Reader::synthesize_spectral_message`] takes
+//! a grid of your own if you do want to.
 //!
 //! [`GridDescription`] covers regular and rotated lat/lon, Gaussian, polar
 //! stereographic, Lambert conformal, and the reduced (quasi-regular) lat/lon
@@ -35,8 +38,8 @@
 //! The error type every `Result` here returns
 //! ([`FieldglassError`]) and the typed grid value [`GridGeometry`] converts
 //! into are re-exported from `fieldglass-core`, so this crate can be the only
-//! Fieldglass dependency in a consumer's manifest; the shared WMO sub-centre
-//! lookup is re-exported the same way, from [`tables_cct`].
+//! Fieldglass dependency in a consumer's manifest; so are the synthesis grid
+//! [`GlobalGrid`] and the shared WMO sub-centre lookup (from [`tables_cct`]).
 //!
 //! Decoders are cross-checked against eccodes: `tests/eccodes_reference.rs`
 //! walks every committed fixture and compares both the metadata keys and the
@@ -81,8 +84,10 @@ pub use gds::{GridDescription, ScanningMode, SphericalHarmonicGrid};
 // naming the type (#605).
 // `CornerPair` likewise: `GridDescription::bounds` and `raster_bounds` hand one
 // back, so reading a grid's declared corners means naming it (#553).
+// `GlobalGrid` is the grid `synthesize_spectral_global` hands back beside the
+// synthesised field, so reading either means naming it (#546).
 pub use fieldglass_core::{
-    CornerPair, FieldglassError, GridGeometry, StoredRuns, expand_reduced_to_regular,
+    CornerPair, FieldglassError, GlobalGrid, GridGeometry, StoredRuns, expand_reduced_to_regular,
 };
 pub use is::IndicatorSection;
 pub use packing::spherical::SpectralCoefficients;

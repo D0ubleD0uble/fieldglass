@@ -769,13 +769,19 @@ fn world_raster_dims(ni: u32, nj: u32, aspect: f64) -> (u32, u32) {
 /// projection's true limb, which reads as missing data around the rim, and the
 /// exported PNG is a postage stamp.
 ///
-/// 720 is the same 0.5° the two synthesis paths already pin to, and the history
-/// is worth restating here: the spectral render met this exact symptom first —
-/// "a postage-stamp render whose PNG exported 382 pixels wide" — and settled on
+/// 720 is the same 0.5° the two synthesis paths already pin to
+/// ([`fieldglass_core::global_grid::SYNTHESIS_NI`]), and the history is worth
+/// restating here: the spectral render met this exact symptom first — "a
+/// postage-stamp render whose PNG exported 382 pixels wide" — and settled on
 /// 0.5°. The HEALPix render then borrowed that number as its *cap* without the
 /// floor that motivated it. This is the floor, applied where every warped target
 /// passes through rather than per grid family, so a coarse grid of any origin is
 /// covered.
+///
+/// Written out rather than bound to that constant, because the two are free to
+/// move apart: this is a display-density floor for *any* source grid, and that
+/// one is the resolution a synthesised field is evaluated at. They coincide
+/// today for the reason above, which is history, not a constraint.
 ///
 /// Upsampling adds no information about the *field*. What it buys is that the
 /// projection's own geometry — the limb, the seam, the map body outline — is
