@@ -3,7 +3,7 @@
 //!
 //! The crate serves two audiences behind one API. The format crates
 //! (`fieldglass-grib1`, `-grib2`, `-netcdf`) consume only the *parsing*
-//! surface: [`error`], [`bits`], [`bytes`], [`detect`], [`metadata`],
+//! surface: [`error`], [`bits`], [`bytes`], [`detect`],
 //! [`cct_tables`] (both GRIB editions share the WMO sub-centre lookup),
 //! [`projection`] (GRIB1's GDS uses the projectors to recover
 //! grid corners), [`scan`] (the storage orders a decoder regularises), and the
@@ -54,8 +54,6 @@ pub mod detect;
 pub mod error;
 pub mod healpix;
 pub mod matrix;
-/// Format-agnostic message metadata the hosts render.
-pub mod metadata;
 #[cfg(feature = "render")]
 pub mod overlay;
 pub mod projection;
@@ -78,10 +76,6 @@ pub use detect::Format;
 pub use detect::detect_format;
 pub use detect::detect_from_bytes;
 pub use error::FieldglassError;
-pub use metadata::GridDefinition;
-pub use metadata::Level;
-pub use metadata::Metadata;
-pub use metadata::Parameter;
 #[cfg(feature = "render")]
 pub use overlay::{ProjectedPolylines, SourceOverlayTarget, project_polylines};
 // The projector types, plus the free functions a format crate or a host calls.
