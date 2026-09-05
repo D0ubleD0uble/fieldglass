@@ -87,6 +87,11 @@
 //! FIELDGLASS_UPDATE_GOLDEN=1 cargo test -p fieldglass-napi characterisation
 //! ```
 //!
+//! That run **fails on purpose** after writing: a run that re-recorded has
+//! verified nothing, so it must not be mistaken for a green one, and an
+//! environment with the variable left set cannot silently turn the golden into
+//! a no-op that re-baselines every diff it exists to catch.
+//!
 //! A diff to this file is a behaviour change in the display path. During #571
 //! and #572 it should be empty; anywhere else it needs a reason in the commit
 //! message.
@@ -805,8 +810,15 @@ fn the_display_path_matches_its_recording() {
     let observed = observed();
     if std::env::var(UPDATE_ENV).is_ok() {
         std::fs::write(GOLDEN_PATH, render_golden(&observed)).expect("write the golden");
-        println!("re-recorded {} cases into {GOLDEN_PATH}", observed.len());
-        return;
+        // Fail rather than pass. A run that rewrote the recording has verified
+        // nothing, and an environment with this variable left set would
+        // otherwise turn the whole golden into a green no-op that quietly
+        // re-baselines every diff it was supposed to catch.
+        panic!(
+            "re-recorded {} cases into {GOLDEN_PATH}. Re-run without {UPDATE_ENV} \
+             to verify, and read the diff before committing it.",
+            observed.len()
+        );
     }
     let recorded = recorded();
 
