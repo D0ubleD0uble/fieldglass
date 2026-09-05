@@ -1,0 +1,880 @@
+//! Characterisation golden for render, probe, contours and CSV (#570).
+//!
+//! The existing oracles stop at decoded values: `.eccodes.ref.json` and
+//! `tools/preflight_samples.js` pin metadata and the numbers a message decodes
+//! to. Nothing pinned what the *display* half does with those numbers — the
+//! warp, the palette, the point probe, the contour tracer, the CSV writer —
+//! which is exactly the layer #571 and #572 lift out of this crate and onto
+//! `fieldglass::Session`. This file records that layer's output so those moves
+//! can be proved rather than argued, and it is the seed of the ADR-0006
+//! conformance suite (#573).
+//!
+//! # What is recorded
+//!
+//! `golden/render_characterisation.tsv`, one line per case:
+//!
+//! ```text
+//! <field>\t<case>\t<portable>\t<exact>
+//! ```
+//!
+//! `<field>` names a fixture message or NetCDF slice, `<case>` names one
+//! operation with every input pinned in it. `<portable>` is the case's
+//! *discrete* result written out in the open — raster size, opaque-pixel count,
+//! probe hit or miss and the grid cell it landed on, contour run and vertex
+//! counts, CSV row count. `<exact>` is an FNV fold over everything the call
+//! produced, RGBA bytes and `f64` bits included.
+//!
+//! # Why two columns
+//!
+//! ADR-0009: cross-target agreement is a tolerance, and bit-identical results
+//! are a property of one libm rather than of this repository. A warp runs the
+//! planar inverses per output pixel, so an ULP of difference in `atan2` can in
+//! principle move a sampled cell and repaint a pixel. The `<exact>` column is
+//! therefore asserted only where `support::libm_fingerprint()` recognises the
+//! libm that recorded it; `<portable>` is asserted everywhere.
+//!
+//! `<portable>` is not a weaker copy of `<exact>`. It is deliberately made of
+//! the *discrete* outputs — the `Some`/`None`-shaped decisions and the counts —
+//! which ADR-0009 measured as identical across libms and named as "the
+//! assumption most worth re-checking, because it is the one that would actually
+//! be visible". A grid cell index or an opaque-pixel count that started
+//! disagreeing between targets is a real product defect, and this column is
+//! where it would surface.
+//!
+//! The gate cannot quietly stop matching: `planar_inverse_golden.rs`'s
+//! `the_reference_toolchain_is_the_recorded_libm` asserts the same shared
+//! constant outright on x86_64 glibc.
+//!
+//! # Why the committed fixtures and not `samples/`
+//!
+//! #464 asked for "every `samples/` and fixture field". `samples/` cannot be
+//! part of a golden that also has to run in the default gate and reproduce on a
+//! fresh clone: `.gitignore` keeps every file under it but the README, the
+//! corpus is fetched by `tools/fetch_samples.sh`, and CI has none of it. A
+//! golden keyed on it would degrade to a no-op that passes while pinning
+//! nothing — the failure the issue's own "a fixture leaving the corpus fails
+//! here" criterion exists to prevent. So the input is the committed corpus
+//! under `crates/*/tests/fixtures/`, the set `every_fixture_places_its_own_first_point`
+//! and `grid_geometry_proj.rs` already enumerate. A `samples/`-wide sweep, if it
+//! is ever wanted, has to be a separate check that *asserts* the corpus is
+//! present rather than skipping when it is not.
+//!
+//! # Two tiers, and why
+//!
+//! Every field in the corpus is recorded, so a fixture leaving it fails here.
+//! Each gets its resolved geometry, a source-projection render and an
+//! equirectangular render.
+//!
+//! [`DEEP_FIELDS`] then names one field per source grid family and gives it the
+//! full matrix: every target projection under both resamplings, the manual
+//! render window, the flipped source view, probes, contours and both CSV
+//! formats. That is where the per-family warp setups actually differ. Running
+//! the matrix over all 144 fields instead of 14 was measured at 55 s against
+//! 9.5 s in release, about three and a half minutes against 35 s in the debug
+//! `cargo test` that the pre-commit hook runs, and the extra cases differ only
+//! in the data flowing through the same code path.
+//! `every_grid_family_in_the_golden_has_a_deep_field` is what keeps that list
+//! honest: a family that arrives with no representative fails rather than being
+//! covered shallowly.
+//!
+//! # Re-recording
+//!
+//! ```sh
+//! FIELDGLASS_UPDATE_GOLDEN=1 cargo test -p fieldglass-napi characterisation
+//! ```
+//!
+//! A diff to this file is a behaviour change in the display path. During #571
+//! and #572 it should be empty; anywhere else it needs a reason in the commit
+//! message.
+
+use super::*;
+use std::collections::{BTreeMap, BTreeSet};
+
+// The FNV fold and the libm fingerprint, shared with
+// `fieldglass-core/tests/planar_inverse_golden.rs` so one `REFERENCE_LIBM`
+// serves both goldens. This crate is a cdylib whose tests are unit tests, so it
+// has no integration-test directory to hold a copy of its own.
+#[path = "../../fieldglass-core/tests/support/mod.rs"]
+mod support;
+
+/// The recording, relative to this crate's manifest directory (which is what
+/// cargo makes the working directory of a test).
+const GOLDEN_PATH: &str = "golden/render_characterisation.tsv";
+
+/// Set to re-record rather than compare. Deliberately not a `--ignored` test:
+/// the golden must run in the ordinary gate, and only writing is opt-in.
+const UPDATE_ENV: &str = "FIELDGLASS_UPDATE_GOLDEN";
+
+/// Every target projection the picker offers, in `RenderOptions::projection`
+/// spelling. Written out rather than derived from the parser so that a target
+/// being added, renamed or dropped shows up here as a decision.
+const PROJECTIONS: [&str; 8] = [
+    "source",
+    "equirectangular",
+    "web_mercator",
+    "orthographic",
+    "polar_stereographic",
+    "mollweide",
+    "robinson",
+    "equal_earth",
+];
+
+/// The pixels every deep field is probed at, in output-raster coordinates.
+///
+/// Two land inside any raster (the minimum is 720 wide for a reprojected
+/// target and as small as the source grid for `"source"`), one lands inside a
+/// world raster only, and one is off the end of everything — so "off the
+/// raster" is recorded as a result rather than left untested.
+const PROBE_PIXELS: [(u32, u32); 4] = [(0, 0), (7, 3), (359, 180), (719, 719)];
+
+/// The manual render window the bounds case asks for: a box that is neither
+/// global nor symmetric, crosses the prime meridian and the equator, and is
+/// inside every fixture's own extent for none of them — so a grid that ignores
+/// it and a grid that clips to it look different.
+const WINDOW: (f64, f64, f64, f64) = (-20.0, 40.0, -30.0, 60.0);
+
+/// One field per source grid family, given the full matrix.
+///
+/// Chosen as the cheapest fixture in each family, plus the two source paths
+/// that synthesise a lat/lon grid instead of describing one (spectral,
+/// HEALPix), plus the degenerate polar stereographic that projects nowhere
+/// (#603) so the refusal path is recorded and not just the success one.
+/// `every_grid_family_in_the_golden_has_a_deep_field` asserts the coverage.
+const DEEP_FIELDS: [&str; 14] = [
+    // A lat/lon grid whose row order is the awkward one, from GRIB1.
+    "grib1/j_consecutive_latlon.grib1#00",
+    // Spectral: no grid of its own, synthesised onto a global 0.5° lat/lon.
+    "grib1/spectral_simple_t63.grib1#00",
+    "grib2/eta_lambert_msg0.grib2#00",
+    "grib2/healpix_n4_ring.grib2#00",
+    "grib2/lambert_azimuthal_efas.grib2#00",
+    "grib2/octahedral_gaussian_o32.grib2#00",
+    // A §3.20 whose stated radius places no point: every planar target refuses.
+    "grib2/polar_stereographic_surface.grib2#00",
+    "grib2/regular_gaussian_f32.grib2#00",
+    "grib2/rotated_latlon_surface.grib2#00",
+    "grib2/runlength_4bit_regular_latlon.grib2#00",
+    "grib2/transverse_mercator_ukv.grib2#00",
+    // A geostationary scan-angle grid, and a swath with a cell-centre index.
+    "netcdf/goes_geostationary.nc#Rad",
+    "netcdf/mirs_swath_n21.nc#TPW",
+    // WRF's Mercator projection: the only Mercator grid in the corpus, and a
+    // geometry synthesised from projection attributes rather than declared.
+    "netcdf/wrf_mercator.nc#T2",
+];
+
+/// One recorded case.
+#[derive(PartialEq, Eq)]
+struct Row {
+    /// The discrete result, asserted on every target.
+    portable: String,
+    /// A fold over everything the call produced, asserted on the reference
+    /// libm only.
+    exact: u64,
+}
+
+/// The recording, keyed by `(field, case)` so a missing or extra case is a
+/// key difference rather than a line-number difference.
+type Golden = BTreeMap<(String, String), Row>;
+
+/// A `RenderOptions` with **every** field stated.
+///
+/// Nothing here is left to a default. A golden that moved when
+/// `default_colormap()` changed would fail on the wrong commit, and the four
+/// `None`-defaulting knobs (colormap, reverse, scale, presets) are exactly the
+/// ones a future change is most likely to redefine.
+fn options(projection: &str, resampling: &str) -> RenderOptions {
+    RenderOptions {
+        projection: projection.to_string(),
+        // The azimuthal and world targets read `center_lat`/`center_lon`, which
+        // are pinned below, so the preset is never consulted; stated anyway.
+        projection_preset: Some("atlantic".to_string()),
+        center_lat: Some(0.0),
+        center_lon: Some(0.0),
+        resampling: resampling.to_string(),
+        flip_y: false,
+        range_min: None,
+        range_max: None,
+        bounds_lat_min: None,
+        bounds_lat_max: None,
+        bounds_lon_min: None,
+        bounds_lon_max: None,
+        colormap: Some("viridis".to_string()),
+        reverse_colormap: Some(false),
+        scale_mode: Some("linear".to_string()),
+    }
+}
+
+/// `options`, with the manual render window filled in.
+fn windowed(projection: &str, resampling: &str) -> RenderOptions {
+    let (lat_min, lat_max, lon_min, lon_max) = WINDOW;
+    RenderOptions {
+        bounds_lat_min: Some(lat_min),
+        bounds_lat_max: Some(lat_max),
+        bounds_lon_min: Some(lon_min),
+        bounds_lon_max: Some(lon_max),
+        ..options(projection, resampling)
+    }
+}
+
+/// One field of the corpus, borrowed from the handle that owns its file.
+enum Subject<'a> {
+    Grib1(&'a Grib1Handle, u32),
+    Grib2(&'a Grib2Handle, u32),
+    /// A NetCDF slice: variable, image axes, and the held index of every other
+    /// dimension.
+    Netcdf(&'a NetcdfHandle, u32, u32, u32, Vec<u32>),
+}
+
+impl Subject<'_> {
+    /// The geometry the display path will actually run on — the resolved one,
+    /// so a spectral or HEALPix message reports its synthesis grid.
+    fn meta(&self) -> napi::Result<MessageMeta> {
+        match self {
+            Self::Grib1(h, i) => h.resolved_meta(*i),
+            Self::Grib2(h, i) => h.resolved_meta(*i),
+            Self::Netcdf(h, v, y, x, _) => {
+                let var = h.renderable(*v)?;
+                h.slice_meta(&var, *y as usize, *x as usize)
+            }
+        }
+    }
+
+    fn render(&self, o: RenderOptions) -> napi::Result<RenderedGrid> {
+        match self {
+            Self::Grib1(h, i) => h.render_grid(*i, o),
+            Self::Grib2(h, i) => h.render_grid(*i, o),
+            Self::Netcdf(h, v, y, x, idx) => h.render_slice(*v, *y, *x, idx.clone(), o),
+        }
+    }
+
+    fn probe(&self, o: RenderOptions, px: u32, py: u32) -> napi::Result<Option<ProbeResult>> {
+        match self {
+            Self::Grib1(h, i) => h.probe(*i, o, px, py),
+            Self::Grib2(h, i) => h.probe(*i, o, px, py),
+            Self::Netcdf(h, v, y, x, idx) => h.probe(*v, *y, *x, idx.clone(), o, px, py),
+        }
+    }
+
+    fn contours(&self, o: RenderOptions) -> napi::Result<ProjectedOverlay> {
+        // `interval: None` — the eight auto levels over the field's own used
+        // range. A fixed absolute interval cannot serve a corpus that mixes
+        // kelvin, pascals and metres per second: it would trace nothing for one
+        // field and hundreds of thousands of segments for the next.
+        match self {
+            Self::Grib1(h, i) => h.project_contours(*i, o, None),
+            Self::Grib2(h, i) => h.project_contours(*i, o, None),
+            Self::Netcdf(h, v, y, x, idx) => h.project_contours(*v, *y, *x, idx.clone(), o, None),
+        }
+    }
+
+    fn csv(&self, format: &str) -> napi::Result<napi::bindgen_prelude::Buffer> {
+        let format = format.to_string();
+        match self {
+            Self::Grib1(h, i) => h.export_csv(*i, format),
+            Self::Grib2(h, i) => h.export_csv(*i, format),
+            Self::Netcdf(h, v, y, x, idx) => h.export_csv(*v, *y, *x, idx.clone(), format),
+        }
+    }
+}
+
+/// Fixture files of one extension in one crate's corpus, in path order.
+fn fixtures(dir: &str, extension: &str) -> Vec<std::path::PathBuf> {
+    let mut paths: Vec<std::path::PathBuf> = std::fs::read_dir(dir)
+        .unwrap_or_else(|e| panic!("{dir} is the committed fixture corpus: {e}"))
+        .map(|entry| entry.expect("directory entry").path())
+        .filter(|p| p.extension().and_then(|e| e.to_str()) == Some(extension))
+        .collect();
+    paths.sort();
+    paths
+}
+
+/// The file's name, for the field id.
+fn stem(path: &std::path::Path) -> String {
+    path.file_name()
+        .expect("fixture file name")
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// Visit every field of the committed corpus, in a fixed order, calling `f`
+/// with its id.
+///
+/// A file that does not parse is **not** skipped silently: it is visited with
+/// no subject, so it still occupies a line in the golden and a corpus that
+/// stopped decoding shows up as a diff rather than as an absence.
+fn for_each_field(mut f: impl FnMut(String, Option<&Subject<'_>>)) {
+    for extension in ["grib", "grib1"] {
+        for path in fixtures("../fieldglass-grib1/tests/fixtures", extension) {
+            let bytes = std::fs::read(&path).expect("fixture bytes");
+            let Ok(reader) = Grib1Reader::from_bytes(bytes) else {
+                f(format!("grib1/{}#unparsed", stem(&path)), None);
+                continue;
+            };
+            let count = reader.messages.len();
+            let handle = Grib1Handle {
+                reader,
+                decoded: Mutex::new(std::collections::HashMap::new()),
+                synthesized: Mutex::new(std::collections::HashMap::new()),
+            };
+            for i in 0..count {
+                let id = format!("grib1/{}#{i:02}", stem(&path));
+                f(id, Some(&Subject::Grib1(&handle, i as u32)));
+            }
+        }
+    }
+    for path in fixtures("../fieldglass-grib2/tests/fixtures", "grib2") {
+        let bytes = std::fs::read(&path).expect("fixture bytes");
+        let Ok(reader) = Grib2Reader::from_bytes(bytes) else {
+            f(format!("grib2/{}#unparsed", stem(&path)), None);
+            continue;
+        };
+        let count = reader.messages.len();
+        let handle = Grib2Handle {
+            reader,
+            decoded: Mutex::new(std::collections::HashMap::new()),
+            synthesized: Mutex::new(std::collections::HashMap::new()),
+        };
+        for i in 0..count {
+            let id = format!("grib2/{}#{i:02}", stem(&path));
+            f(id, Some(&Subject::Grib2(&handle, i as u32)));
+        }
+    }
+    for extension in ["h5", "nc"] {
+        for path in fixtures("../fieldglass-netcdf/tests/fixtures", extension) {
+            let bytes = std::fs::read(&path).expect("fixture bytes");
+            let Ok(reader) = NetcdfReader::from_bytes(bytes) else {
+                f(format!("netcdf/{}#unparsed", stem(&path)), None);
+                continue;
+            };
+            let view = reader.view().unwrap_or_default();
+            let handle = NetcdfHandle {
+                reader,
+                view,
+                decoded: Mutex::new(std::collections::HashMap::new()),
+                curvilinear: Mutex::new(std::collections::HashMap::new()),
+            };
+            for v in handle.variables() {
+                let (y, x) = slice_axes(&v);
+                let id = format!("netcdf/{}#{}", stem(&path), v.name);
+                let indices = vec![0u32; v.dims.len()];
+                let subject = Subject::Netcdf(&handle, v.variable_index as u32, y, x, indices);
+                f(id, Some(&subject));
+            }
+        }
+    }
+}
+
+/// The image axes of a NetCDF variable: the CF-detected pair, or the trailing
+/// two dimensions when detection found none.
+///
+/// This golden pins the engine, not the picker. The host falls back to
+/// dimensions 0 and 1, which for a WRF file is `Time` × `south_north` — a 5x1
+/// strip that reaches none of the four `synth_*_meta` builders (measured, and
+/// recorded on #549). The trailing pair is the plane those grids actually lie
+/// on, so choosing it here is what puts WRF's Lambert, polar stereographic and
+/// Mercator geometry in the recording at all. Every other variable in the
+/// corpus has either a detected pair or exactly two dimensions, where the two
+/// rules agree.
+fn slice_axes(v: &NetcdfVariableMeta) -> (u32, u32) {
+    match (v.detected_y_dim, v.detected_x_dim) {
+        (Some(y), Some(x)) => (y as u32, x as u32),
+        _ => {
+            let last = v.dims.len().saturating_sub(1) as u32;
+            (last.saturating_sub(1), last)
+        }
+    }
+}
+
+/// Start a fold.
+fn hasher() -> u64 {
+    support::FNV_OFFSET
+}
+
+/// Fold a `&str`, length-prefixed so `"ab" + "c"` and `"a" + "bc"` differ.
+fn mix_str(h: &mut u64, s: &str) {
+    support::fnv(h, &(s.len() as u64).to_le_bytes());
+    support::fnv(h, s.as_bytes());
+}
+
+/// Fold an optional `f64` by its bits, with a presence tag.
+fn mix_opt_f64(h: &mut u64, v: Option<f64>) {
+    match v {
+        None => support::fnv(h, &[0xff]),
+        Some(v) => {
+            support::fnv(h, &[0x01]);
+            support::fnv(h, &v.to_bits().to_le_bytes());
+        }
+    }
+}
+
+/// Fold an optional `i32`, with a presence tag.
+fn mix_opt_i32(h: &mut u64, v: Option<i32>) {
+    match v {
+        None => support::fnv(h, &[0xff]),
+        Some(v) => {
+            support::fnv(h, &[0x01]);
+            support::fnv(h, &v.to_le_bytes());
+        }
+    }
+}
+
+/// How an error is recorded: the reason is folded verbatim, because the
+/// message a host surfaces is part of what these moves must preserve, but only
+/// `"err"` reaches the portable column — several reasons interpolate an `f64`.
+fn error_row(e: &napi::Error) -> Row {
+    let mut h = hasher();
+    mix_str(&mut h, "err");
+    mix_str(&mut h, &e.reason);
+    Row {
+        portable: "err".to_string(),
+        exact: h,
+    }
+}
+
+/// The resolved geometry: family, raster shape and reprojection offer in the
+/// open, every geometry-defining field of `MessageMeta` in the fold.
+fn meta_row(subject: &Subject<'_>) -> Row {
+    let meta = match subject.meta() {
+        Ok(m) => m,
+        Err(e) => return error_row(&e),
+    };
+    let mut h = hasher();
+    mix_str(&mut h, "meta");
+    // The exhaustive destructure behind `geometry()` is what makes this
+    // complete: a field added to the geometry enters the golden by itself.
+    mix_str(&mut h, &format!("{:?}", meta.geometry()));
+    Row {
+        portable: format!(
+            "family={} ni={} nj={} reprojectable={}",
+            meta.grid_type.as_deref().unwrap_or("-"),
+            meta.grid_ni.unwrap_or(-1),
+            meta.grid_nj.unwrap_or(-1),
+            meta.reprojectable,
+        ),
+        exact: h,
+    }
+}
+
+/// A render: raster shape and opaque-pixel count in the open, the RGBA bytes,
+/// the used range, the echoed window and the summary string in the fold.
+///
+/// The opaque count is the discrete half of a warp — for every output pixel,
+/// whether the inverse landed on the grid at all. ADR-0009 measured that
+/// decision as identical across libms over 323,620 probes; recording it here
+/// is what would catch it ceasing to be.
+fn render_row(subject: &Subject<'_>, o: RenderOptions) -> Row {
+    let rendered = match subject.render(o) {
+        Ok(r) => r,
+        Err(e) => return error_row(&e),
+    };
+    let mut h = hasher();
+    mix_str(&mut h, "render");
+    support::fnv(&mut h, &rendered.width.to_le_bytes());
+    support::fnv(&mut h, &rendered.height.to_le_bytes());
+    support::fnv(&mut h, &rendered.rgba);
+    mix_opt_f64(&mut h, Some(rendered.used_min));
+    mix_opt_f64(&mut h, Some(rendered.used_max));
+    mix_opt_f64(&mut h, rendered.used_lat_min);
+    mix_opt_f64(&mut h, rendered.used_lat_max);
+    mix_opt_f64(&mut h, rendered.used_lon_min);
+    mix_opt_f64(&mut h, rendered.used_lon_max);
+    mix_str(&mut h, &rendered.projection_summary);
+    let opaque = rendered
+        .rgba
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .filter(|p| p[3] != 0)
+        .count();
+    Row {
+        portable: format!(
+            "ok w={} h={} opaque={opaque}",
+            rendered.width, rendered.height
+        ),
+        exact: h,
+    }
+}
+
+/// A point probe: hit or miss and the source cell in the open, the coordinates
+/// and the value in the fold.
+///
+/// `grid_i`/`grid_j` are in the portable column on purpose. They are the
+/// floored index of a per-pixel inverse, so they are the most sensitive
+/// *discrete* output the display path has, and a libm that started moving one
+/// is a libm that is about to move a pixel.
+fn probe_row(subject: &Subject<'_>, o: RenderOptions, px: u32, py: u32) -> Row {
+    let probed = match subject.probe(o, px, py) {
+        Ok(p) => p,
+        Err(e) => return error_row(&e),
+    };
+    let mut h = hasher();
+    mix_str(&mut h, "probe");
+    let Some(p) = probed else {
+        mix_str(&mut h, "miss");
+        return Row {
+            portable: "miss".to_string(),
+            exact: h,
+        };
+    };
+    mix_str(&mut h, "hit");
+    mix_opt_f64(&mut h, p.lat);
+    mix_opt_f64(&mut h, p.lon);
+    mix_opt_f64(&mut h, p.value);
+    mix_opt_i32(&mut h, p.grid_i);
+    mix_opt_i32(&mut h, p.grid_j);
+    let cell = match (p.grid_i, p.grid_j) {
+        (Some(i), Some(j)) => format!("{i},{j}"),
+        _ => "-".to_string(),
+    };
+    Row {
+        portable: format!(
+            "hit cell={cell} geo={} value={}",
+            if p.lat.is_some() && p.lon.is_some() {
+                "yes"
+            } else {
+                "no"
+            },
+            if p.value.is_some() { "yes" } else { "no" },
+        ),
+        exact: h,
+    }
+}
+
+/// Contours: run and vertex counts in the open, every vertex in the fold.
+fn contour_row(subject: &Subject<'_>, o: RenderOptions) -> Row {
+    let overlay = match subject.contours(o) {
+        Ok(c) => c,
+        Err(e) => return error_row(&e),
+    };
+    let mut h = hasher();
+    mix_str(&mut h, "contours");
+    for length in overlay.seg_lengths.as_ref() {
+        support::fnv(&mut h, &length.to_le_bytes());
+    }
+    for v in overlay.xy.as_ref() {
+        support::fnv(&mut h, &v.to_bits().to_le_bytes());
+    }
+    Row {
+        portable: format!(
+            "ok runs={} points={}",
+            overlay.seg_lengths.len(),
+            overlay.xy.len() / 2
+        ),
+        exact: h,
+    }
+}
+
+/// CSV: the row count in the open, every byte in the fold.
+fn csv_row(subject: &Subject<'_>, format: &str) -> Row {
+    let csv = match subject.csv(format) {
+        Ok(c) => c,
+        Err(e) => return error_row(&e),
+    };
+    let mut h = hasher();
+    mix_str(&mut h, "csv");
+    support::fnv(&mut h, &csv);
+    Row {
+        portable: format!("ok rows={}", csv.iter().filter(|&&b| b == b'\n').count()),
+        exact: h,
+    }
+}
+
+/// Every case of one field, in a fixed order.
+fn cases(id: &str, subject: &Subject<'_>, into: &mut Golden) {
+    let mut record = |case: String, row: Row| {
+        let previous = into.insert((id.to_string(), case.clone()), row);
+        assert!(previous.is_none(), "{id}: duplicate case {case}");
+    };
+    record("meta".to_string(), meta_row(subject));
+    record(
+        "render/source/nearest".to_string(),
+        render_row(subject, options("source", "nearest")),
+    );
+    record(
+        "render/equirectangular/nearest".to_string(),
+        render_row(subject, options("equirectangular", "nearest")),
+    );
+    if !DEEP_FIELDS.contains(&id) {
+        return;
+    }
+    for projection in PROJECTIONS {
+        for resampling in ["nearest", "bilinear"] {
+            // `source/nearest` is already recorded above for every field.
+            if projection == "source" && resampling == "nearest" {
+                continue;
+            }
+            if projection == "equirectangular" && resampling == "nearest" {
+                continue;
+            }
+            record(
+                format!("render/{projection}/{resampling}"),
+                render_row(subject, options(projection, resampling)),
+            );
+        }
+    }
+    // The manual render window, and the source view painted bottom-up — the
+    // two render inputs that are neither a projection nor a resampling.
+    record(
+        "render/equirectangular/nearest+window".to_string(),
+        render_row(subject, windowed("equirectangular", "nearest")),
+    );
+    record(
+        "render/source/nearest+flip_y".to_string(),
+        render_row(
+            subject,
+            RenderOptions {
+                flip_y: true,
+                ..options("source", "nearest")
+            },
+        ),
+    );
+    for (px, py) in PROBE_PIXELS {
+        for projection in ["source", "equirectangular", "orthographic"] {
+            record(
+                format!("probe/{projection}/{px},{py}"),
+                probe_row(subject, options(projection, "nearest"), px, py),
+            );
+        }
+    }
+    for projection in ["source", "equirectangular", "mollweide"] {
+        record(
+            format!("contours/{projection}/auto"),
+            contour_row(subject, options(projection, "nearest")),
+        );
+    }
+    for format in ["matrix", "long"] {
+        record(format!("csv/{format}"), csv_row(subject, format));
+    }
+}
+
+/// Replay the whole corpus.
+fn observed() -> Golden {
+    let mut golden = Golden::new();
+    for_each_field(|id, subject| match subject {
+        Some(subject) => cases(&id, subject, &mut golden),
+        None => {
+            golden.insert(
+                (id, "parse".to_string()),
+                Row {
+                    portable: "err".to_string(),
+                    exact: hasher(),
+                },
+            );
+        }
+    });
+    golden
+}
+
+/// Parse the recording. Every line must have four tab-separated columns; a
+/// malformed one is a failure rather than a skipped line.
+fn parse(text: &str) -> Golden {
+    let mut golden = Golden::new();
+    for (n, line) in text.lines().enumerate() {
+        if line.starts_with('#') || line.is_empty() {
+            continue;
+        }
+        let columns: Vec<&str> = line.split('\t').collect();
+        assert_eq!(
+            columns.len(),
+            4,
+            "{GOLDEN_PATH}:{}: expected 4 tab-separated columns, got {}",
+            n + 1,
+            columns.len()
+        );
+        let exact = u64::from_str_radix(columns[3], 16)
+            .unwrap_or_else(|e| panic!("{GOLDEN_PATH}:{}: bad hash {:?}: {e}", n + 1, columns[3]));
+        golden.insert(
+            (columns[0].to_string(), columns[1].to_string()),
+            Row {
+                portable: columns[2].to_string(),
+                exact,
+            },
+        );
+    }
+    golden
+}
+
+/// Render the recording back out.
+fn render_golden(golden: &Golden) -> String {
+    let mut out = String::from(
+        "# Characterisation golden for render, probe, contours and CSV (#570).\n\
+         # field\tcase\tportable\texact\n\
+         # Re-record: FIELDGLASS_UPDATE_GOLDEN=1 cargo test -p fieldglass-napi characterisation\n\
+         # `portable` is asserted on every target; `exact` only on the recorded\n\
+         # libm (ADR-0009). See src/characterisation.rs for what each column holds.\n",
+    );
+    for ((field, case), row) in golden {
+        out.push_str(&format!(
+            "{field}\t{case}\t{}\t{:016x}\n",
+            row.portable, row.exact
+        ));
+    }
+    out
+}
+
+/// The recording as committed.
+fn recorded() -> Golden {
+    let text = std::fs::read_to_string(GOLDEN_PATH).unwrap_or_else(|e| {
+        panic!(
+            "{GOLDEN_PATH} is the recording this test replays and it must be \
+             committed: {e}"
+        )
+    });
+    let golden = parse(&text);
+    assert!(
+        !golden.is_empty(),
+        "{GOLDEN_PATH} parsed to no cases at all — an empty recording would \
+         pass every comparison below while pinning nothing"
+    );
+    golden
+}
+
+/// The corpus, replayed against its recording.
+///
+/// The comparison is in three parts, and each says something different: the
+/// case *set* catches a fixture leaving the corpus or a case being dropped, the
+/// portable column catches a behaviour change on any target, and the exact
+/// column catches one down to the last RGBA byte where the libm is the recorded
+/// one.
+#[test]
+fn the_display_path_matches_its_recording() {
+    let observed = observed();
+    if std::env::var(UPDATE_ENV).is_ok() {
+        std::fs::write(GOLDEN_PATH, render_golden(&observed)).expect("write the golden");
+        println!("re-recorded {} cases into {GOLDEN_PATH}", observed.len());
+        return;
+    }
+    let recorded = recorded();
+
+    let observed_keys: BTreeSet<&(String, String)> = observed.keys().collect();
+    let recorded_keys: BTreeSet<&(String, String)> = recorded.keys().collect();
+    let missing: Vec<&&(String, String)> = recorded_keys.difference(&observed_keys).collect();
+    let extra: Vec<&&(String, String)> = observed_keys.difference(&recorded_keys).collect();
+    assert!(
+        missing.is_empty() && extra.is_empty(),
+        "the corpus no longer produces the recorded set of cases.\n\
+         recorded but not produced ({}): {missing:?}\n\
+         produced but not recorded ({}): {extra:?}",
+        missing.len(),
+        extra.len()
+    );
+
+    let mut differences = Vec::new();
+    for (key, want) in &recorded {
+        let got = &observed[key];
+        if got.portable != want.portable {
+            differences.push(format!(
+                "{} {}: recorded {:?}, produced {:?}",
+                key.0, key.1, want.portable, got.portable
+            ));
+        }
+    }
+    assert!(
+        differences.is_empty(),
+        "the display path changed what it produces ({} cases):\n{}",
+        differences.len(),
+        differences.join("\n")
+    );
+
+    if !support::is_reference_libm() {
+        println!(
+            "skipped the exact column: this target's libm is {:#018x}, and the \
+             recording was made against {:#018x}. The discrete results above are \
+             still compared. See \
+             docs/decisions/0009-cross-target-floating-point-agreement.md.",
+            support::libm_fingerprint(),
+            support::REFERENCE_LIBM,
+        );
+        return;
+    }
+    let mut exact = Vec::new();
+    for (key, want) in &recorded {
+        let got = &observed[key];
+        if got.exact != want.exact {
+            exact.push(format!(
+                "{} {}: recorded {:016x}, produced {:016x}",
+                key.0, key.1, want.exact, got.exact
+            ));
+        }
+    }
+    assert!(
+        exact.is_empty(),
+        "the display path produced the same shape but different bytes ({} cases):\n{}",
+        exact.len(),
+        exact.join("\n")
+    );
+}
+
+/// Every source grid family in the corpus has a field with the full matrix.
+///
+/// The shallow tier covers each family's *existence*; only the deep tier covers
+/// its warp setup under every target. A new family arriving with no
+/// representative would otherwise be recorded — and left untested where it
+/// differs. Reads the recording rather than the corpus, so it costs nothing.
+#[test]
+fn every_grid_family_in_the_golden_has_a_deep_field() {
+    let golden = recorded();
+    let mut families: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for ((field, case), row) in &golden {
+        if case != "meta" {
+            continue;
+        }
+        let Some(family) = row
+            .portable
+            .strip_prefix("family=")
+            .and_then(|rest| rest.split(' ').next())
+        else {
+            continue;
+        };
+        families
+            .entry(family.to_string())
+            .or_default()
+            .insert(field.clone());
+    }
+    assert!(
+        !families.is_empty(),
+        "no field in {GOLDEN_PATH} reported a grid family"
+    );
+    let deep: BTreeSet<&str> = DEEP_FIELDS.into_iter().collect();
+    let uncovered: Vec<&String> = families
+        .iter()
+        .filter(|(_, fields)| !fields.iter().any(|f| deep.contains(f.as_str())))
+        .map(|(family, _)| family)
+        .collect();
+    assert!(
+        uncovered.is_empty(),
+        "these grid families have no field in DEEP_FIELDS, so nothing records \
+         them under every target projection: {uncovered:?}"
+    );
+}
+
+/// Every named deep field is still in the recording.
+///
+/// `DEEP_FIELDS` is a list of names, and a name that stopped matching anything
+/// would silently take its family's full matrix with it while every other
+/// assertion stayed green. The case-set comparison above is what fails when a
+/// fixture leaves the corpus; this is what fails once that has been re-recorded,
+/// or when the list is edited to a name that was never there.
+#[test]
+fn every_deep_field_is_still_in_the_corpus() {
+    let golden = recorded();
+    let recorded_fields: BTreeSet<&str> = golden.keys().map(|(field, _)| field.as_str()).collect();
+    let gone: Vec<&&str> = DEEP_FIELDS
+        .iter()
+        .filter(|f| !recorded_fields.contains(*f))
+        .collect();
+    assert!(
+        gone.is_empty(),
+        "DEEP_FIELDS names fields that are not in {GOLDEN_PATH}: {gone:?}"
+    );
+    // Every deep field must actually carry deep cases: a name that is in the
+    // corpus but whose matrix was never recorded is the same hole by another
+    // route.
+    for field in DEEP_FIELDS {
+        assert!(
+            golden.contains_key(&(field.to_string(), "csv/long".to_string())),
+            "{field} is named in DEEP_FIELDS but has no deep cases recorded"
+        );
+    }
+}

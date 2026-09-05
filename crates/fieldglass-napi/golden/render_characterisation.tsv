@@ -1,0 +1,899 @@
+# Characterisation golden for render, probe, contours and CSV (#570).
+# field	case	portable	exact
+# Re-record: FIELDGLASS_UPDATE_GOLDEN=1 cargo test -p fieldglass-napi characterisation
+# `portable` is asserted on every target; `exact` only on the recorded
+# libm (ADR-0009). See src/characterisation.rs for what each column holds.
+grib1/cmc_wind_300_2010052400_p012.grib#00	meta	family=polar_stereo ni=135 nj=95 reprojectable=true	5a69fdd0885dc1a5
+grib1/cmc_wind_300_2010052400_p012.grib#00	render/equirectangular/nearest	ok w=720 h=507 opaque=227460	7b4da6066260f941
+grib1/cmc_wind_300_2010052400_p012.grib#00	render/source/nearest	ok w=135 h=95 opaque=12825	7807fa1fa7b13cbf
+grib1/ecmwf_lfpw_msg0.grib1#00	meta	family=latlon ni=240 nj=121 reprojectable=true	ade3f9be2ca6ce03
+grib1/ecmwf_lfpw_msg0.grib1#00	render/equirectangular/nearest	ok w=720 h=363 opaque=261360	bc7294e973424290
+grib1/ecmwf_lfpw_msg0.grib1#00	render/source/nearest	ok w=240 h=121 opaque=29040	b4a29728a5ef858d
+grib1/ecmwf_spd3_boust_msg0.grib1#00	meta	family=latlon ni=240 nj=121 reprojectable=true	ade3f9be2ca6ce03
+grib1/ecmwf_spd3_boust_msg0.grib1#00	render/equirectangular/nearest	ok w=720 h=363 opaque=261360	88421d48fd86df5c
+grib1/ecmwf_spd3_boust_msg0.grib1#00	render/source/nearest	ok w=240 h=121 opaque=29040	c95c7ffd186186e1
+grib1/ecmwf_spd3_msg0.grib1#00	meta	family=latlon ni=240 nj=121 reprojectable=true	ade3f9be2ca6ce03
+grib1/ecmwf_spd3_msg0.grib1#00	render/equirectangular/nearest	ok w=720 h=363 opaque=261360	bc7294e973424290
+grib1/ecmwf_spd3_msg0.grib1#00	render/source/nearest	ok w=240 h=121 opaque=29040	b4a29728a5ef858d
+grib1/hand_matrix_of_values.grib1#00	meta	family=latlon ni=16 nj=31 reprojectable=true	0cb35944ca06e314
+grib1/hand_matrix_of_values.grib1#00	render/equirectangular/nearest	err	ed16078dfeabff2b
+grib1/hand_matrix_of_values.grib1#00	render/source/nearest	err	ed16078dfeabff2b
+grib1/hand_second_order_SPD1.grib1#00	meta	family=latlon ni=240 nj=121 reprojectable=true	ade3f9be2ca6ce03
+grib1/hand_second_order_SPD1.grib1#00	render/equirectangular/nearest	ok w=720 h=363 opaque=261360	40adf0bd9f0ea024
+grib1/hand_second_order_SPD1.grib1#00	render/source/nearest	ok w=240 h=121 opaque=29040	e4cfa3399229654f
+grib1/hand_second_order_constant_width.grib1#00	meta	family=latlon ni=240 nj=121 reprojectable=true	ade3f9be2ca6ce03
+grib1/hand_second_order_constant_width.grib1#00	render/equirectangular/nearest	ok w=720 h=363 opaque=261360	eabc62c5243bf551
+grib1/hand_second_order_constant_width.grib1#00	render/source/nearest	ok w=240 h=121 opaque=29040	0adab21a38a4e34e
+grib1/hand_second_order_general_grib1.grib1#00	meta	family=latlon ni=240 nj=121 reprojectable=true	ade3f9be2ca6ce03
+grib1/hand_second_order_general_grib1.grib1#00	render/equirectangular/nearest	ok w=720 h=363 opaque=261360	71d1edf33cd5a8f9
+grib1/hand_second_order_general_grib1.grib1#00	render/source/nearest	ok w=240 h=121 opaque=29040	0d8f897e0bbc6ceb
+grib1/hand_second_order_no_SPD.grib1#00	meta	family=latlon ni=240 nj=121 reprojectable=true	ade3f9be2ca6ce03
+grib1/hand_second_order_no_SPD.grib1#00	render/equirectangular/nearest	ok w=720 h=363 opaque=261360	38abfb6903f5f81c
+grib1/hand_second_order_no_SPD.grib1#00	render/source/nearest	ok w=240 h=121 opaque=29040	3e5eb286ee0cd461
+grib1/hand_second_order_row_by_row.grib1#00	meta	family=latlon ni=240 nj=121 reprojectable=true	ade3f9be2ca6ce03
+grib1/hand_second_order_row_by_row.grib1#00	render/equirectangular/nearest	ok w=720 h=363 opaque=261360	c25d25822ecb9b31
+grib1/hand_second_order_row_by_row.grib1#00	render/source/nearest	ok w=240 h=121 opaque=29040	958b7382520b854a
+grib1/ieee32_cmc_wind.grib1#00	meta	family=polar_stereo ni=135 nj=95 reprojectable=true	5a69fdd0885dc1a5
+grib1/ieee32_cmc_wind.grib1#00	render/equirectangular/nearest	ok w=720 h=507 opaque=227460	687d207876c37dab
+grib1/ieee32_cmc_wind.grib1#00	render/source/nearest	ok w=135 h=95 opaque=12825	1bcd43c87651a2fe
+grib1/ieee64_cmc_wind.grib1#00	meta	family=polar_stereo ni=135 nj=95 reprojectable=true	5a69fdd0885dc1a5
+grib1/ieee64_cmc_wind.grib1#00	render/equirectangular/nearest	ok w=720 h=507 opaque=227460	7b4da6066260f941
+grib1/ieee64_cmc_wind.grib1#00	render/source/nearest	ok w=135 h=95 opaque=12825	7807fa1fa7b13cbf
+grib1/j_consecutive_latlon.grib1#00	contours/equirectangular/auto	ok runs=60 points=120	df044a46aaa63626
+grib1/j_consecutive_latlon.grib1#00	contours/mollweide/auto	ok runs=60 points=120	c87465b9ae36f62f
+grib1/j_consecutive_latlon.grib1#00	contours/source/auto	ok runs=60 points=120	996f55588758e1da
+grib1/j_consecutive_latlon.grib1#00	csv/long	ok rows=41	2b393735a4cb1633
+grib1/j_consecutive_latlon.grib1#00	csv/matrix	ok rows=5	b2c4c8fe9f13fbfc
+grib1/j_consecutive_latlon.grib1#00	meta	family=latlon ni=8 nj=5 reprojectable=true	2f58c14f5fdbf730
+grib1/j_consecutive_latlon.grib1#00	probe/equirectangular/0,0	hit cell=0,0 geo=yes value=yes	d9f37f98c8914297
+grib1/j_consecutive_latlon.grib1#00	probe/equirectangular/359,180	hit cell=3,2 geo=yes value=yes	b9e363c79b8c2f0e
+grib1/j_consecutive_latlon.grib1#00	probe/equirectangular/7,3	hit cell=0,0 geo=yes value=yes	d0184248dc03f8f1
+grib1/j_consecutive_latlon.grib1#00	probe/equirectangular/719,719	miss	c4e0642f982dc6de
+grib1/j_consecutive_latlon.grib1#00	probe/orthographic/0,0	miss	c4e0642f982dc6de
+grib1/j_consecutive_latlon.grib1#00	probe/orthographic/359,180	hit cell=- geo=yes value=no	542c39f9eaccd6ca
+grib1/j_consecutive_latlon.grib1#00	probe/orthographic/7,3	miss	c4e0642f982dc6de
+grib1/j_consecutive_latlon.grib1#00	probe/orthographic/719,719	miss	c4e0642f982dc6de
+grib1/j_consecutive_latlon.grib1#00	probe/source/0,0	hit cell=0,0 geo=yes value=yes	d9f37f98c8914297
+grib1/j_consecutive_latlon.grib1#00	probe/source/359,180	miss	c4e0642f982dc6de
+grib1/j_consecutive_latlon.grib1#00	probe/source/7,3	hit cell=7,3 geo=yes value=yes	54800f1d3cb79fac
+grib1/j_consecutive_latlon.grib1#00	probe/source/719,719	miss	c4e0642f982dc6de
+grib1/j_consecutive_latlon.grib1#00	render/equal_earth/bilinear	ok w=720 h=360 opaque=2424	c4642ba37388c4ab
+grib1/j_consecutive_latlon.grib1#00	render/equal_earth/nearest	ok w=720 h=360 opaque=2424	c3977f568b46ee68
+grib1/j_consecutive_latlon.grib1#00	render/equirectangular/bilinear	ok w=720 h=450 opaque=324000	a98eb556c37c50f0
+grib1/j_consecutive_latlon.grib1#00	render/equirectangular/nearest	ok w=720 h=450 opaque=324000	0868eaf576462a7e
+grib1/j_consecutive_latlon.grib1#00	render/equirectangular/nearest+window	ok w=720 h=450 opaque=280	1fc9e4f1728f4e21
+grib1/j_consecutive_latlon.grib1#00	render/mollweide/bilinear	ok w=720 h=360 opaque=2225	56ab6e779e44afc0
+grib1/j_consecutive_latlon.grib1#00	render/mollweide/nearest	ok w=720 h=360 opaque=2225	37a37b2f3fdd8cc5
+grib1/j_consecutive_latlon.grib1#00	render/orthographic/bilinear	ok w=720 h=720 opaque=10714	d34d8d2f1d2420d2
+grib1/j_consecutive_latlon.grib1#00	render/orthographic/nearest	ok w=720 h=720 opaque=10714	a692f7d4d2557d82
+grib1/j_consecutive_latlon.grib1#00	render/polar_stereographic/bilinear	ok w=720 h=720 opaque=5751	993f129a57ce640e
+grib1/j_consecutive_latlon.grib1#00	render/polar_stereographic/nearest	ok w=720 h=720 opaque=5751	37e93eabadbfc1f6
+grib1/j_consecutive_latlon.grib1#00	render/robinson/bilinear	ok w=720 h=360 opaque=2601	409e08be3bc2c130
+grib1/j_consecutive_latlon.grib1#00	render/robinson/nearest	ok w=720 h=360 opaque=2601	8df4d565a731fe21
+grib1/j_consecutive_latlon.grib1#00	render/source/bilinear	ok w=8 h=5 opaque=40	89969c49c8e4f8cf
+grib1/j_consecutive_latlon.grib1#00	render/source/nearest	ok w=8 h=5 opaque=40	89969c49c8e4f8cf
+grib1/j_consecutive_latlon.grib1#00	render/source/nearest+flip_y	ok w=8 h=5 opaque=40	3546096a16d2a4eb
+grib1/j_consecutive_latlon.grib1#00	render/web_mercator/bilinear	ok w=720 h=450 opaque=324000	42698872ff38e782
+grib1/j_consecutive_latlon.grib1#00	render/web_mercator/nearest	ok w=720 h=450 opaque=324000	af3e5669b93faaf9
+grib1/matrix_simple_cmc_wind.grib1#00	meta	family=polar_stereo ni=135 nj=95 reprojectable=true	5a69fdd0885dc1a5
+grib1/matrix_simple_cmc_wind.grib1#00	render/equirectangular/nearest	ok w=720 h=507 opaque=227460	7b4da6066260f941
+grib1/matrix_simple_cmc_wind.grib1#00	render/source/nearest	ok w=135 h=95 opaque=12825	7807fa1fa7b13cbf
+grib1/reduced_gg_n32.grib1#00	meta	family=reduced_gaussian ni=128 nj=64 reprojectable=true	7285e001837fd4c1
+grib1/reduced_gg_n32.grib1#00	render/equirectangular/nearest	ok w=720 h=360 opaque=259200	8f1faf0a578e2875
+grib1/reduced_gg_n32.grib1#00	render/source/nearest	ok w=128 h=64 opaque=8192	d42302b18f89b820
+grib1/reduced_gg_n32_smooth.grib1#00	meta	family=reduced_gaussian ni=128 nj=64 reprojectable=true	7285e001837fd4c1
+grib1/reduced_gg_n32_smooth.grib1#00	render/equirectangular/nearest	ok w=720 h=360 opaque=259200	0836806ae2c89804
+grib1/reduced_gg_n32_smooth.grib1#00	render/source/nearest	ok w=128 h=64 opaque=8192	5fe292891fbf6ebf
+grib1/reduced_gg_second_order.grib1#00	meta	family=reduced_gaussian ni=128 nj=64 reprojectable=true	7285e001837fd4c1
+grib1/reduced_gg_second_order.grib1#00	render/equirectangular/nearest	ok w=720 h=360 opaque=259200	0836806ae2c89804
+grib1/reduced_gg_second_order.grib1#00	render/source/nearest	ok w=128 h=64 opaque=8192	5fe292891fbf6ebf
+grib1/reduced_gg_second_order_boust.grib1#00	meta	family=reduced_gaussian ni=128 nj=64 reprojectable=true	7285e001837fd4c1
+grib1/reduced_gg_second_order_boust.grib1#00	render/equirectangular/nearest	ok w=720 h=360 opaque=259200	0836806ae2c89804
+grib1/reduced_gg_second_order_boust.grib1#00	render/source/nearest	ok w=128 h=64 opaque=8192	5fe292891fbf6ebf
+grib1/spectral_complex_t63.grib1#00	meta	family=latlon ni=720 nj=361 reprojectable=true	3bcef7e346021f7e
+grib1/spectral_complex_t63.grib1#00	render/equirectangular/nearest	ok w=720 h=361 opaque=259920	50c7e83021fbebb6
+grib1/spectral_complex_t63.grib1#00	render/source/nearest	ok w=720 h=361 opaque=259920	5e79355754c16ad8
+grib1/spectral_simple_t63.grib1#00	contours/equirectangular/auto	ok runs=16031 points=32062	ec15518ccca9fa69
+grib1/spectral_simple_t63.grib1#00	contours/mollweide/auto	ok runs=16027 points=32054	5ec36c3c777e4aaf
+grib1/spectral_simple_t63.grib1#00	contours/source/auto	ok runs=16031 points=32062	edebe72822a0de35
+grib1/spectral_simple_t63.grib1#00	csv/long	ok rows=259921	79ecef35ea287600
+grib1/spectral_simple_t63.grib1#00	csv/matrix	ok rows=361	ca814cb348eca165
+grib1/spectral_simple_t63.grib1#00	meta	family=latlon ni=720 nj=361 reprojectable=true	3bcef7e346021f7e
+grib1/spectral_simple_t63.grib1#00	probe/equirectangular/0,0	hit cell=0,0 geo=yes value=yes	4e4376ad23fd5fc9
+grib1/spectral_simple_t63.grib1#00	probe/equirectangular/359,180	hit cell=359,180 geo=yes value=yes	c3f85f008af3a445
+grib1/spectral_simple_t63.grib1#00	probe/equirectangular/7,3	hit cell=7,3 geo=yes value=yes	ed98acf032236bfa
+grib1/spectral_simple_t63.grib1#00	probe/equirectangular/719,719	miss	c4e0642f982dc6de
+grib1/spectral_simple_t63.grib1#00	probe/orthographic/0,0	miss	c4e0642f982dc6de
+grib1/spectral_simple_t63.grib1#00	probe/orthographic/359,180	hit cell=0,120 geo=yes value=yes	f1a22d051548306e
+grib1/spectral_simple_t63.grib1#00	probe/orthographic/7,3	miss	c4e0642f982dc6de
+grib1/spectral_simple_t63.grib1#00	probe/orthographic/719,719	miss	c4e0642f982dc6de
+grib1/spectral_simple_t63.grib1#00	probe/source/0,0	hit cell=0,0 geo=yes value=yes	4e4376ad23fd5fc9
+grib1/spectral_simple_t63.grib1#00	probe/source/359,180	hit cell=359,180 geo=yes value=yes	c3f85f008af3a445
+grib1/spectral_simple_t63.grib1#00	probe/source/7,3	hit cell=7,3 geo=yes value=yes	ed98acf032236bfa
+grib1/spectral_simple_t63.grib1#00	probe/source/719,719	miss	c4e0642f982dc6de
+grib1/spectral_simple_t63.grib1#00	render/equal_earth/bilinear	ok w=1479 h=720 opaque=937140	e2a3b62ae3f4fcdd
+grib1/spectral_simple_t63.grib1#00	render/equal_earth/nearest	ok w=1479 h=720 opaque=937140	39c0e6163e32f688
+grib1/spectral_simple_t63.grib1#00	render/equirectangular/bilinear	ok w=720 h=361 opaque=259920	71af9cbc0ea870fb
+grib1/spectral_simple_t63.grib1#00	render/equirectangular/nearest	ok w=720 h=361 opaque=259920	5c391255ffce6c24
+grib1/spectral_simple_t63.grib1#00	render/equirectangular/nearest+window	ok w=720 h=361 opaque=259920	921fd8dd3a833601
+grib1/spectral_simple_t63.grib1#00	render/mollweide/bilinear	ok w=1440 h=720 opaque=812568	22575d61d755c6cd
+grib1/spectral_simple_t63.grib1#00	render/mollweide/nearest	ok w=1440 h=720 opaque=812568	fd09cff762149bc4
+grib1/spectral_simple_t63.grib1#00	render/orthographic/bilinear	ok w=720 h=720 opaque=405960	f0d525bca2073ff7
+grib1/spectral_simple_t63.grib1#00	render/orthographic/nearest	ok w=720 h=720 opaque=405960	c127b09cdd7112bf
+grib1/spectral_simple_t63.grib1#00	render/polar_stereographic/bilinear	ok w=720 h=720 opaque=405960	09d4c5ff2999effc
+grib1/spectral_simple_t63.grib1#00	render/polar_stereographic/nearest	ok w=720 h=720 opaque=405960	fa95813be767d5de
+grib1/spectral_simple_t63.grib1#00	render/robinson/bilinear	ok w=1420 h=720 opaque=891396	0f6ebc12717966c6
+grib1/spectral_simple_t63.grib1#00	render/robinson/nearest	ok w=1420 h=720 opaque=891396	a17586b6001d88df
+grib1/spectral_simple_t63.grib1#00	render/source/bilinear	ok w=720 h=361 opaque=259920	493a950a11ae268a
+grib1/spectral_simple_t63.grib1#00	render/source/nearest	ok w=720 h=361 opaque=259920	493a950a11ae268a
+grib1/spectral_simple_t63.grib1#00	render/source/nearest+flip_y	ok w=720 h=361 opaque=259920	2599816b8c8ac1f2
+grib1/spectral_simple_t63.grib1#00	render/web_mercator/bilinear	ok w=720 h=361 opaque=259920	de65e66875e1068c
+grib1/spectral_simple_t63.grib1#00	render/web_mercator/nearest	ok w=720 h=361 opaque=259920	4da4c218a8edcdbb
+grib2/alternate_row_lambert.grib2#00	meta	family=lambert ni=6 nj=5 reprojectable=true	c79d144fe30fa916
+grib2/alternate_row_lambert.grib2#00	render/equirectangular/nearest	ok w=720 h=600 opaque=395620	2ae4f0b68984e2f5
+grib2/alternate_row_lambert.grib2#00	render/source/nearest	ok w=6 h=5 opaque=30	a00fcf74c5cecddc
+grib2/bifourier_diamond_no_axes.grib2#00	meta	err	3bfbf8e313925536
+grib2/bifourier_diamond_no_axes.grib2#00	render/equirectangular/nearest	err	675a58ae95e9b7bd
+grib2/bifourier_diamond_no_axes.grib2#00	render/source/nearest	err	675a58ae95e9b7bd
+grib2/bifourier_ellipse_ieee32.grib2#00	meta	err	3bfbf8e313925536
+grib2/bifourier_ellipse_ieee32.grib2#00	render/equirectangular/nearest	err	675a58ae95e9b7bd
+grib2/bifourier_ellipse_ieee32.grib2#00	render/source/nearest	err	675a58ae95e9b7bd
+grib2/bifourier_ellipse_keepaxes.grib2#00	meta	err	3bfbf8e313925536
+grib2/bifourier_ellipse_keepaxes.grib2#00	render/equirectangular/nearest	err	675a58ae95e9b7bd
+grib2/bifourier_ellipse_keepaxes.grib2#00	render/source/nearest	err	675a58ae95e9b7bd
+grib2/bifourier_rectangle_keepaxes.grib2#00	meta	err	3bfbf8e313925536
+grib2/bifourier_rectangle_keepaxes.grib2#00	render/equirectangular/nearest	err	675a58ae95e9b7bd
+grib2/bifourier_rectangle_keepaxes.grib2#00	render/source/nearest	err	675a58ae95e9b7bd
+grib2/ccsds_regular_latlon.grib2#00	meta	family=latlon ni=16 nj=31 reprojectable=true	0cb35944ca06e314
+grib2/ccsds_regular_latlon.grib2#00	render/equirectangular/nearest	ok w=372 h=720 opaque=267840	c197fff5549f169d
+grib2/ccsds_regular_latlon.grib2#00	render/source/nearest	ok w=16 h=31 opaque=496	8dc93032dbb6755d
+grib2/ccsds_regular_latlon_24bit.grib2#00	meta	family=latlon ni=16 nj=31 reprojectable=true	0cb35944ca06e314
+grib2/ccsds_regular_latlon_24bit.grib2#00	render/equirectangular/nearest	ok w=372 h=720 opaque=267840	c197fff5549f169d
+grib2/ccsds_regular_latlon_24bit.grib2#00	render/source/nearest	ok w=16 h=31 opaque=496	8dc93032dbb6755d
+grib2/ccsds_regular_latlon_8bit.grib2#00	meta	family=latlon ni=16 nj=31 reprojectable=true	0cb35944ca06e314
+grib2/ccsds_regular_latlon_8bit.grib2#00	render/equirectangular/nearest	ok w=372 h=720 opaque=267840	70dd4748390a7ce3
+grib2/ccsds_regular_latlon_8bit.grib2#00	render/source/nearest	ok w=16 h=31 opaque=496	d79e4a45ae9ee00e
+grib2/complex_mvm1_regular_latlon.grib2#00	meta	family=latlon ni=16 nj=31 reprojectable=true	0cb35944ca06e314
+grib2/complex_mvm1_regular_latlon.grib2#00	render/equirectangular/nearest	ok w=372 h=720 opaque=242688	29efa87b2e8f2a25
+grib2/complex_mvm1_regular_latlon.grib2#00	render/source/nearest	ok w=16 h=31 opaque=450	9e0616b3d85a7957
+grib2/complex_mvm2_regular_latlon.grib2#00	meta	family=latlon ni=16 nj=31 reprojectable=true	0cb35944ca06e314
+grib2/complex_mvm2_regular_latlon.grib2#00	render/equirectangular/nearest	ok w=372 h=720 opaque=241788	84b5e068f144c661
+grib2/complex_mvm2_regular_latlon.grib2#00	render/source/nearest	ok w=16 h=31 opaque=448	31963e7d377a096b
+grib2/complex_ng0_regular_latlon.grib2#00	meta	family=latlon ni=16 nj=31 reprojectable=true	0cb35944ca06e314
+grib2/complex_ng0_regular_latlon.grib2#00	render/equirectangular/nearest	ok w=372 h=720 opaque=267840	99329ac95f848622
+grib2/complex_ng0_regular_latlon.grib2#00	render/source/nearest	ok w=16 h=31 opaque=496	fdabb4028c6849d8
+grib2/complex_regular_latlon.grib2#00	meta	family=latlon ni=16 nj=31 reprojectable=true	0cb35944ca06e314
+grib2/complex_regular_latlon.grib2#00	render/equirectangular/nearest	ok w=372 h=720 opaque=267840	c197fff5549f169d
+grib2/complex_regular_latlon.grib2#00	render/source/nearest	ok w=16 h=31 opaque=496	8dc93032dbb6755d
+grib2/complex_rowbyrow_regular_latlon.grib2#00	meta	family=latlon ni=16 nj=31 reprojectable=true	0cb35944ca06e314
+grib2/complex_rowbyrow_regular_latlon.grib2#00	render/equirectangular/nearest	ok w=372 h=720 opaque=267840	c197fff5549f169d
+grib2/complex_rowbyrow_regular_latlon.grib2#00	render/source/nearest	ok w=16 h=31 opaque=496	8dc93032dbb6755d
+grib2/complex_spd2_mvm1_regular_latlon.grib2#00	meta	family=latlon ni=16 nj=31 reprojectable=true	0cb35944ca06e314
+grib2/complex_spd2_mvm1_regular_latlon.grib2#00	render/equirectangular/nearest	ok w=372 h=720 opaque=242688	29efa87b2e8f2a25
+grib2/complex_spd2_mvm1_regular_latlon.grib2#00	render/source/nearest	ok w=16 h=31 opaque=450	9e0616b3d85a7957
+grib2/complex_spd2_ng0_regular_latlon.grib2#00	meta	family=latlon ni=16 nj=31 reprojectable=true	0cb35944ca06e314
+grib2/complex_spd2_ng0_regular_latlon.grib2#00	render/equirectangular/nearest	ok w=372 h=720 opaque=267840	99329ac95f848622
+grib2/complex_spd2_ng0_regular_latlon.grib2#00	render/source/nearest	ok w=16 h=31 opaque=496	fdabb4028c6849d8
+grib2/complex_spd2_regular_latlon.grib2#00	meta	family=latlon ni=16 nj=31 reprojectable=true	0cb35944ca06e314
+grib2/complex_spd2_regular_latlon.grib2#00	render/equirectangular/nearest	ok w=372 h=720 opaque=267840	c197fff5549f169d
+grib2/complex_spd2_regular_latlon.grib2#00	render/source/nearest	ok w=16 h=31 opaque=496	8dc93032dbb6755d
+grib2/ecmwf_ccsds_latlon.grib2#00	meta	family=latlon ni=1440 nj=721 reprojectable=true	2e5d20c7adadde83
+grib2/ecmwf_ccsds_latlon.grib2#00	render/equirectangular/nearest	ok w=1440 h=721 opaque=1038240	3192496ead9ed9e5
+grib2/ecmwf_ccsds_latlon.grib2#00	render/source/nearest	ok w=1440 h=721 opaque=1038240	44febd1c998fcb7d
+grib2/eta_lambert_msg0.grib2#00	contours/equirectangular/auto	ok runs=1417 points=2834	0b7b086f6e34b106
+grib2/eta_lambert_msg0.grib2#00	contours/mollweide/auto	ok runs=1417 points=2834	3f34184074a2fb00
+grib2/eta_lambert_msg0.grib2#00	contours/source/auto	ok runs=1385 points=2770	634bb2a1badbe57a
+grib2/eta_lambert_msg0.grib2#00	csv/long	ok rows=6046	03a57efe5f557576
+grib2/eta_lambert_msg0.grib2#00	csv/matrix	ok rows=65	077c6a3fbaac0fa4
+grib2/eta_lambert_msg0.grib2#00	meta	family=lambert ni=93 nj=65 reprojectable=true	a9ed23d5a5394a9e
+grib2/eta_lambert_msg0.grib2#00	probe/equirectangular/0,0	hit cell=- geo=yes value=no	8889cb26e16a3568
+grib2/eta_lambert_msg0.grib2#00	probe/equirectangular/359,180	hit cell=46,36 geo=yes value=yes	3148eda1c314a2b5
+grib2/eta_lambert_msg0.grib2#00	probe/equirectangular/7,3	hit cell=- geo=yes value=no	565f125117e35012
+grib2/eta_lambert_msg0.grib2#00	probe/equirectangular/719,719	miss	c4e0642f982dc6de
+grib2/eta_lambert_msg0.grib2#00	probe/orthographic/0,0	miss	c4e0642f982dc6de
+grib2/eta_lambert_msg0.grib2#00	probe/orthographic/359,180	hit cell=- geo=yes value=no	542c39f9eaccd6ca
+grib2/eta_lambert_msg0.grib2#00	probe/orthographic/7,3	miss	c4e0642f982dc6de
+grib2/eta_lambert_msg0.grib2#00	probe/orthographic/719,719	miss	c4e0642f982dc6de
+grib2/eta_lambert_msg0.grib2#00	probe/source/0,0	hit cell=0,64 geo=yes value=yes	2a5159eaf468c9eb
+grib2/eta_lambert_msg0.grib2#00	probe/source/359,180	miss	c4e0642f982dc6de
+grib2/eta_lambert_msg0.grib2#00	probe/source/7,3	hit cell=7,61 geo=yes value=yes	8c1886cb84c41997
+grib2/eta_lambert_msg0.grib2#00	probe/source/719,719	miss	c4e0642f982dc6de
+grib2/eta_lambert_msg0.grib2#00	render/equal_earth/bilinear	ok w=720 h=351 opaque=15118	ee176caddca46039
+grib2/eta_lambert_msg0.grib2#00	render/equal_earth/nearest	ok w=720 h=351 opaque=15118	6e2bb50df71f9ad6
+grib2/eta_lambert_msg0.grib2#00	render/equirectangular/bilinear	ok w=720 h=503 opaque=264754	192917dc53d0101c
+grib2/eta_lambert_msg0.grib2#00	render/equirectangular/nearest	ok w=720 h=503 opaque=264754	91ac07ec05e0fb64
+grib2/eta_lambert_msg0.grib2#00	render/equirectangular/nearest+window	ok w=720 h=503 opaque=0	393c29a4d0fdb3d6
+grib2/eta_lambert_msg0.grib2#00	render/mollweide/bilinear	ok w=720 h=360 opaque=13816	f9334d7d6a44dc8e
+grib2/eta_lambert_msg0.grib2#00	render/mollweide/nearest	ok w=720 h=360 opaque=13816	a638dc7518a0f1b8
+grib2/eta_lambert_msg0.grib2#00	render/orthographic/bilinear	ok w=720 h=720 opaque=8531	f45461822db8bf98
+grib2/eta_lambert_msg0.grib2#00	render/orthographic/nearest	ok w=720 h=720 opaque=8531	45d92cc498140d20
+grib2/eta_lambert_msg0.grib2#00	render/polar_stereographic/bilinear	ok w=720 h=720 opaque=45481	bea71c5a05c9768b
+grib2/eta_lambert_msg0.grib2#00	render/polar_stereographic/nearest	ok w=720 h=720 opaque=45481	5b8993fdd7d6d6bc
+grib2/eta_lambert_msg0.grib2#00	render/robinson/bilinear	ok w=720 h=366 opaque=15092	07386264f7d454d8
+grib2/eta_lambert_msg0.grib2#00	render/robinson/nearest	ok w=720 h=366 opaque=15092	5d7da4e96bc87243
+grib2/eta_lambert_msg0.grib2#00	render/source/bilinear	ok w=93 h=65 opaque=6045	687e348609613f18
+grib2/eta_lambert_msg0.grib2#00	render/source/nearest	ok w=93 h=65 opaque=6045	687e348609613f18
+grib2/eta_lambert_msg0.grib2#00	render/source/nearest+flip_y	ok w=93 h=65 opaque=6045	6b7e5a5433e68754
+grib2/eta_lambert_msg0.grib2#00	render/web_mercator/bilinear	ok w=720 h=503 opaque=271179	e872456722f05f49
+grib2/eta_lambert_msg0.grib2#00	render/web_mercator/nearest	ok w=720 h=503 opaque=271179	4a62ff531c30c4a9
+grib2/gfs_c255_latlon.grib2#00	meta	family=latlon ni=144 nj=73 reprojectable=true	bba9c26da16cd794
+grib2/gfs_c255_latlon.grib2#00	render/equirectangular/nearest	ok w=720 h=365 opaque=71965	911782c36a33f54f
+grib2/gfs_c255_latlon.grib2#00	render/source/nearest	ok w=144 h=73 opaque=2847	14edf672d15365b3
+grib2/healpix_n2_nested.grib2#00	meta	family=latlon ni=14 nj=8 reprojectable=true	d2b50667ead67f15
+grib2/healpix_n2_nested.grib2#00	render/equirectangular/nearest	ok w=720 h=411 opaque=295920	ff36036c116d22c7
+grib2/healpix_n2_nested.grib2#00	render/source/nearest	ok w=14 h=8 opaque=112	0f3d868f8c744e57
+grib2/healpix_n2_ring.grib2#00	meta	family=latlon ni=14 nj=8 reprojectable=true	d2b50667ead67f15
+grib2/healpix_n2_ring.grib2#00	render/equirectangular/nearest	ok w=720 h=411 opaque=295920	ea59bd371998338b
+grib2/healpix_n2_ring.grib2#00	render/source/nearest	ok w=14 h=8 opaque=112	cb801abeedc206bd
+grib2/healpix_n4_nested.grib2#00	meta	family=latlon ni=26 nj=14 reprojectable=true	cf3542b34bbe72a5
+grib2/healpix_n4_nested.grib2#00	render/equirectangular/nearest	ok w=720 h=388 opaque=279360	5a0e14b8fb18a26e
+grib2/healpix_n4_nested.grib2#00	render/source/nearest	ok w=26 h=14 opaque=364	a6312f49485e2aa3
+grib2/healpix_n4_ring.grib2#00	contours/equirectangular/auto	ok runs=339 points=678	b75f8dfdd8bab121
+grib2/healpix_n4_ring.grib2#00	contours/mollweide/auto	ok runs=339 points=678	1f9d409179fde5d2
+grib2/healpix_n4_ring.grib2#00	contours/source/auto	ok runs=339 points=678	b126653e8ab9500c
+grib2/healpix_n4_ring.grib2#00	csv/long	ok rows=365	5266e123857ae0c2
+grib2/healpix_n4_ring.grib2#00	csv/matrix	ok rows=14	cfff0629330a722b
+grib2/healpix_n4_ring.grib2#00	meta	family=latlon ni=26 nj=14 reprojectable=true	cf3542b34bbe72a5
+grib2/healpix_n4_ring.grib2#00	probe/equirectangular/0,0	hit cell=0,0 geo=yes value=yes	9acf37a66b4abebf
+grib2/healpix_n4_ring.grib2#00	probe/equirectangular/359,180	hit cell=13,6 geo=yes value=yes	9c7f733ff5f0f1b4
+grib2/healpix_n4_ring.grib2#00	probe/equirectangular/7,3	hit cell=0,0 geo=yes value=yes	3b4cb587c78d7f90
+grib2/healpix_n4_ring.grib2#00	probe/equirectangular/719,719	miss	c4e0642f982dc6de
+grib2/healpix_n4_ring.grib2#00	probe/orthographic/0,0	miss	c4e0642f982dc6de
+grib2/healpix_n4_ring.grib2#00	probe/orthographic/359,180	hit cell=0,4 geo=yes value=yes	5dc0c2d4fc09443c
+grib2/healpix_n4_ring.grib2#00	probe/orthographic/7,3	miss	c4e0642f982dc6de
+grib2/healpix_n4_ring.grib2#00	probe/orthographic/719,719	miss	c4e0642f982dc6de
+grib2/healpix_n4_ring.grib2#00	probe/source/0,0	hit cell=0,0 geo=yes value=yes	9acf37a66b4abebf
+grib2/healpix_n4_ring.grib2#00	probe/source/359,180	miss	c4e0642f982dc6de
+grib2/healpix_n4_ring.grib2#00	probe/source/7,3	hit cell=7,3 geo=yes value=yes	e5fa3c67ddb8bcdc
+grib2/healpix_n4_ring.grib2#00	probe/source/719,719	miss	c4e0642f982dc6de
+grib2/healpix_n4_ring.grib2#00	render/equal_earth/bilinear	ok w=720 h=353 opaque=223416	442a88f296546ea7
+grib2/healpix_n4_ring.grib2#00	render/equal_earth/nearest	ok w=720 h=353 opaque=223416	d9fa7583fcf76fd7
+grib2/healpix_n4_ring.grib2#00	render/equirectangular/bilinear	ok w=720 h=388 opaque=279360	fbe1250e0004840f
+grib2/healpix_n4_ring.grib2#00	render/equirectangular/nearest	ok w=720 h=388 opaque=279360	de74c8811b647db7
+grib2/healpix_n4_ring.grib2#00	render/equirectangular/nearest+window	ok w=720 h=388 opaque=279360	95b0260ebbabcb55
+grib2/healpix_n4_ring.grib2#00	render/mollweide/bilinear	ok w=720 h=360 opaque=202676	258138842da29cf9
+grib2/healpix_n4_ring.grib2#00	render/mollweide/nearest	ok w=720 h=360 opaque=202676	12e795ad777799b4
+grib2/healpix_n4_ring.grib2#00	render/orthographic/bilinear	ok w=720 h=720 opaque=405960	7c69acc8e4d1cc51
+grib2/healpix_n4_ring.grib2#00	render/orthographic/nearest	ok w=720 h=720 opaque=405960	a75be95414f5d3bb
+grib2/healpix_n4_ring.grib2#00	render/polar_stereographic/bilinear	ok w=720 h=720 opaque=405960	e56580ac4b9d4e2d
+grib2/healpix_n4_ring.grib2#00	render/polar_stereographic/nearest	ok w=720 h=720 opaque=405960	1ed17858c41a9911
+grib2/healpix_n4_ring.grib2#00	render/robinson/bilinear	ok w=720 h=367 opaque=230128	0873ec3f054f493e
+grib2/healpix_n4_ring.grib2#00	render/robinson/nearest	ok w=720 h=367 opaque=230128	8020d6a3006f48ee
+grib2/healpix_n4_ring.grib2#00	render/source/bilinear	ok w=26 h=14 opaque=364	8e2089ee397a89db
+grib2/healpix_n4_ring.grib2#00	render/source/nearest	ok w=26 h=14 opaque=364	8e2089ee397a89db
+grib2/healpix_n4_ring.grib2#00	render/source/nearest+flip_y	ok w=26 h=14 opaque=364	559cab0d0a2bdd4f
+grib2/healpix_n4_ring.grib2#00	render/web_mercator/bilinear	ok w=720 h=388 opaque=279360	cfbb53d1ae69fb17
+grib2/healpix_n4_ring.grib2#00	render/web_mercator/nearest	ok w=720 h=388 opaque=279360	b4b13ba78af9adab
+grib2/hrrr_complex_spd_lambert.grib2#00	meta	family=lambert ni=1799 nj=1059 reprojectable=true	0f54d0eae7da63bd
+grib2/hrrr_complex_spd_lambert.grib2#00	render/equirectangular/nearest	ok w=1799 h=1059 opaque=1437692	cda90f3c9884ed37
+grib2/hrrr_complex_spd_lambert.grib2#00	render/source/nearest	ok w=1799 h=1059 opaque=1905141	12d0dc323504459a
+grib2/ieee32_regular_latlon.grib2#00	meta	family=latlon ni=16 nj=31 reprojectable=true	0cb35944ca06e314
+grib2/ieee32_regular_latlon.grib2#00	render/equirectangular/nearest	ok w=372 h=720 opaque=267840	9cd3b2fcde27a053
+grib2/ieee32_regular_latlon.grib2#00	render/source/nearest	ok w=16 h=31 opaque=496	98a7637e64b95f63
+grib2/ieee64_regular_latlon.grib2#00	meta	family=latlon ni=16 nj=31 reprojectable=true	0cb35944ca06e314
+grib2/ieee64_regular_latlon.grib2#00	render/equirectangular/nearest	ok w=372 h=720 opaque=267840	9cd3b2fcde27a053
+grib2/ieee64_regular_latlon.grib2#00	render/source/nearest	ok w=16 h=31 opaque=496	98a7637e64b95f63
+grib2/j_consecutive_latlon.grib2#00	meta	family=latlon ni=8 nj=5 reprojectable=true	2f58c14f5fdbf730
+grib2/j_consecutive_latlon.grib2#00	render/equirectangular/nearest	ok w=720 h=450 opaque=324000	0868eaf576462a7e
+grib2/j_consecutive_latlon.grib2#00	render/source/nearest	ok w=8 h=5 opaque=40	89969c49c8e4f8cf
+grib2/jpeg2000_local_40000.grib2#00	meta	family=latlon ni=16 nj=31 reprojectable=true	0cb35944ca06e314
+grib2/jpeg2000_local_40000.grib2#00	render/equirectangular/nearest	ok w=372 h=720 opaque=267840	c197fff5549f169d
+grib2/jpeg2000_local_40000.grib2#00	render/source/nearest	ok w=16 h=31 opaque=496	8dc93032dbb6755d
+grib2/jpeg2000_regular_latlon.grib2#00	meta	family=latlon ni=16 nj=31 reprojectable=true	0cb35944ca06e314
+grib2/jpeg2000_regular_latlon.grib2#00	render/equirectangular/nearest	ok w=372 h=720 opaque=267840	c197fff5549f169d
+grib2/jpeg2000_regular_latlon.grib2#00	render/source/nearest	ok w=16 h=31 opaque=496	8dc93032dbb6755d
+grib2/lambert_azimuthal_efas.grib2#00	contours/equirectangular/auto	ok runs=117 points=234	f767173d1328815a
+grib2/lambert_azimuthal_efas.grib2#00	contours/mollweide/auto	ok runs=117 points=234	49f8f4697a15e1b3
+grib2/lambert_azimuthal_efas.grib2#00	contours/source/auto	ok runs=108 points=216	1ac5ada2e385a3ec
+grib2/lambert_azimuthal_efas.grib2#00	csv/long	ok rows=321	635f67ce337d32a6
+grib2/lambert_azimuthal_efas.grib2#00	csv/matrix	ok rows=16	48efca810f576fa6
+grib2/lambert_azimuthal_efas.grib2#00	meta	family=lambert_azimuthal ni=20 nj=16 reprojectable=true	da3f2b746adbfddf
+grib2/lambert_azimuthal_efas.grib2#00	probe/equirectangular/0,0	hit cell=- geo=yes value=no	aad5a1220ce4d14f
+grib2/lambert_azimuthal_efas.grib2#00	probe/equirectangular/359,180	hit cell=9,10 geo=yes value=yes	2c96924539a4c390
+grib2/lambert_azimuthal_efas.grib2#00	probe/equirectangular/7,3	hit cell=- geo=yes value=no	760074d8c20d2305
+grib2/lambert_azimuthal_efas.grib2#00	probe/equirectangular/719,719	miss	c4e0642f982dc6de
+grib2/lambert_azimuthal_efas.grib2#00	probe/orthographic/0,0	miss	c4e0642f982dc6de
+grib2/lambert_azimuthal_efas.grib2#00	probe/orthographic/359,180	hit cell=- geo=yes value=no	542c39f9eaccd6ca
+grib2/lambert_azimuthal_efas.grib2#00	probe/orthographic/7,3	miss	c4e0642f982dc6de
+grib2/lambert_azimuthal_efas.grib2#00	probe/orthographic/719,719	miss	c4e0642f982dc6de
+grib2/lambert_azimuthal_efas.grib2#00	probe/source/0,0	hit cell=0,15 geo=yes value=yes	e0759026e78566a2
+grib2/lambert_azimuthal_efas.grib2#00	probe/source/359,180	miss	c4e0642f982dc6de
+grib2/lambert_azimuthal_efas.grib2#00	probe/source/7,3	hit cell=7,12 geo=yes value=yes	5a8d1505c339f012
+grib2/lambert_azimuthal_efas.grib2#00	probe/source/719,719	miss	c4e0642f982dc6de
+grib2/lambert_azimuthal_efas.grib2#00	render/equal_earth/bilinear	ok w=720 h=351 opaque=4935	a7aceb971b805602
+grib2/lambert_azimuthal_efas.grib2#00	render/equal_earth/nearest	ok w=720 h=351 opaque=4935	49fe7bdc1bec220d
+grib2/lambert_azimuthal_efas.grib2#00	render/equirectangular/bilinear	ok w=720 h=576 opaque=289635	a6f43e1e7b2c0784
+grib2/lambert_azimuthal_efas.grib2#00	render/equirectangular/nearest	ok w=720 h=576 opaque=289635	6a5120f342e03719
+grib2/lambert_azimuthal_efas.grib2#00	render/equirectangular/nearest+window	ok w=720 h=576 opaque=12363	9884918dbcaa42ac
+grib2/lambert_azimuthal_efas.grib2#00	render/mollweide/bilinear	ok w=720 h=360 opaque=4518	eec99aff515bd08f
+grib2/lambert_azimuthal_efas.grib2#00	render/mollweide/nearest	ok w=720 h=360 opaque=4518	b9cd4fdacbf29b17
+grib2/lambert_azimuthal_efas.grib2#00	render/orthographic/bilinear	ok w=720 h=720 opaque=21971	8410e8ed291253b3
+grib2/lambert_azimuthal_efas.grib2#00	render/orthographic/nearest	ok w=720 h=720 opaque=21971	04a4c2d02e2684f4
+grib2/lambert_azimuthal_efas.grib2#00	render/polar_stereographic/bilinear	ok w=720 h=720 opaque=11838	0fc5003770d43bbf
+grib2/lambert_azimuthal_efas.grib2#00	render/polar_stereographic/nearest	ok w=720 h=720 opaque=11838	d119943026b15620
+grib2/lambert_azimuthal_efas.grib2#00	render/robinson/bilinear	ok w=720 h=369 opaque=5502	9d715521ea9b85f3
+grib2/lambert_azimuthal_efas.grib2#00	render/robinson/nearest	ok w=720 h=369 opaque=5502	6cf4b07e62507be8
+grib2/lambert_azimuthal_efas.grib2#00	render/source/bilinear	ok w=20 h=16 opaque=320	912e92ae2dbee862
+grib2/lambert_azimuthal_efas.grib2#00	render/source/nearest	ok w=20 h=16 opaque=320	912e92ae2dbee862
+grib2/lambert_azimuthal_efas.grib2#00	render/source/nearest+flip_y	ok w=20 h=16 opaque=320	c4aeb554d69a89de
+grib2/lambert_azimuthal_efas.grib2#00	render/web_mercator/bilinear	ok w=720 h=576 opaque=296440	b0e9a1d748c4392f
+grib2/lambert_azimuthal_efas.grib2#00	render/web_mercator/nearest	ok w=720 h=576 opaque=296440	a58ee1383fd96a2b
+grib2/log_negative_regular_latlon.grib2#00	meta	family=latlon ni=16 nj=31 reprojectable=true	0cb35944ca06e314
+grib2/log_negative_regular_latlon.grib2#00	render/equirectangular/nearest	ok w=372 h=720 opaque=267840	be84cd7200ec516a
+grib2/log_negative_regular_latlon.grib2#00	render/source/nearest	ok w=16 h=31 opaque=496	08d49413948fe803
+grib2/log_regular_latlon.grib2#00	meta	family=latlon ni=16 nj=31 reprojectable=true	0cb35944ca06e314
+grib2/log_regular_latlon.grib2#00	render/equirectangular/nearest	ok w=372 h=720 opaque=267840	3f941dd02065d78a
+grib2/log_regular_latlon.grib2#00	render/source/nearest	ok w=16 h=31 opaque=496	5d6ac005b23c023e
+grib2/matrix_reshape_16x31.grib2#00	meta	family=latlon ni=16 nj=31 reprojectable=true	0cb35944ca06e314
+grib2/matrix_reshape_16x31.grib2#00	render/equirectangular/nearest	err	03a8faa967606bf8
+grib2/matrix_reshape_16x31.grib2#00	render/source/nearest	err	03a8faa967606bf8
+grib2/matrix_simple_regular_latlon.grib2#00	meta	family=latlon ni=16 nj=31 reprojectable=true	0cb35944ca06e314
+grib2/matrix_simple_regular_latlon.grib2#00	render/equirectangular/nearest	ok w=372 h=720 opaque=267840	0ef089bed094bbfc
+grib2/matrix_simple_regular_latlon.grib2#00	render/source/nearest	ok w=16 h=31 opaque=496	b51b2b6ab3ecc751
+grib2/octahedral_gaussian_o32.grib2#00	contours/equirectangular/auto	ok runs=32898 points=65796	3f7bf78682b52fbc
+grib2/octahedral_gaussian_o32.grib2#00	contours/mollweide/auto	ok runs=32880 points=65760	027c79ed44b3e6d9
+grib2/octahedral_gaussian_o32.grib2#00	contours/source/auto	ok runs=32898 points=65796	7e2211e9afdf27ab
+grib2/octahedral_gaussian_o32.grib2#00	csv/long	ok rows=9217	30e6480439b6b84b
+grib2/octahedral_gaussian_o32.grib2#00	csv/matrix	ok rows=64	909d7876b98569ce
+grib2/octahedral_gaussian_o32.grib2#00	meta	family=reduced_gaussian ni=144 nj=64 reprojectable=true	5247861d78496994
+grib2/octahedral_gaussian_o32.grib2#00	probe/equirectangular/0,0	hit cell=0,0 geo=yes value=yes	b32523c658bd1c17
+grib2/octahedral_gaussian_o32.grib2#00	probe/equirectangular/359,180	hit cell=72,36 geo=yes value=yes	18259bf8cd0fc2be
+grib2/octahedral_gaussian_o32.grib2#00	probe/equirectangular/7,3	hit cell=1,1 geo=yes value=yes	4b90b445ef80701e
+grib2/octahedral_gaussian_o32.grib2#00	probe/equirectangular/719,719	miss	c4e0642f982dc6de
+grib2/octahedral_gaussian_o32.grib2#00	probe/orthographic/0,0	miss	c4e0642f982dc6de
+grib2/octahedral_gaussian_o32.grib2#00	probe/orthographic/359,180	hit cell=0,21 geo=yes value=yes	04bf5235e18df55d
+grib2/octahedral_gaussian_o32.grib2#00	probe/orthographic/7,3	miss	c4e0642f982dc6de
+grib2/octahedral_gaussian_o32.grib2#00	probe/orthographic/719,719	miss	c4e0642f982dc6de
+grib2/octahedral_gaussian_o32.grib2#00	probe/source/0,0	hit cell=0,0 geo=yes value=yes	520c869c8c8db1fe
+grib2/octahedral_gaussian_o32.grib2#00	probe/source/359,180	miss	c4e0642f982dc6de
+grib2/octahedral_gaussian_o32.grib2#00	probe/source/7,3	hit cell=7,3 geo=yes value=yes	4b3491f1b54f9007
+grib2/octahedral_gaussian_o32.grib2#00	probe/source/719,719	miss	c4e0642f982dc6de
+grib2/octahedral_gaussian_o32.grib2#00	render/equal_earth/bilinear	ok w=720 h=350 opaque=220648	42eef712b03fec89
+grib2/octahedral_gaussian_o32.grib2#00	render/equal_earth/nearest	ok w=720 h=350 opaque=220648	5ebbae43e16e4109
+grib2/octahedral_gaussian_o32.grib2#00	render/equirectangular/bilinear	ok w=720 h=320 opaque=230400	6df5625b64bed251
+grib2/octahedral_gaussian_o32.grib2#00	render/equirectangular/nearest	ok w=720 h=320 opaque=230400	bae26e85f87bcb0a
+grib2/octahedral_gaussian_o32.grib2#00	render/equirectangular/nearest+window	ok w=720 h=320 opaque=230400	00c014549f1eafd1
+grib2/octahedral_gaussian_o32.grib2#00	render/mollweide/bilinear	ok w=720 h=360 opaque=202524	672431f45c756a39
+grib2/octahedral_gaussian_o32.grib2#00	render/mollweide/nearest	ok w=720 h=360 opaque=202524	03ba687580f8fc36
+grib2/octahedral_gaussian_o32.grib2#00	render/orthographic/bilinear	ok w=720 h=720 opaque=405960	373e8f432e95c6c5
+grib2/octahedral_gaussian_o32.grib2#00	render/orthographic/nearest	ok w=720 h=720 opaque=405960	34897c297f174d74
+grib2/octahedral_gaussian_o32.grib2#00	render/polar_stereographic/bilinear	ok w=720 h=720 opaque=405812	799854574b7c6001
+grib2/octahedral_gaussian_o32.grib2#00	render/polar_stereographic/nearest	ok w=720 h=720 opaque=405812	8287525eaf84a111
+grib2/octahedral_gaussian_o32.grib2#00	render/robinson/bilinear	ok w=720 h=365 opaque=227268	8c5f0203b6a04c01
+grib2/octahedral_gaussian_o32.grib2#00	render/robinson/nearest	ok w=720 h=365 opaque=227268	33909fdeaf5370b7
+grib2/octahedral_gaussian_o32.grib2#00	render/source/bilinear	ok w=144 h=64 opaque=9216	471e92362a30b2d1
+grib2/octahedral_gaussian_o32.grib2#00	render/source/nearest	ok w=144 h=64 opaque=9216	471e92362a30b2d1
+grib2/octahedral_gaussian_o32.grib2#00	render/source/nearest+flip_y	ok w=144 h=64 opaque=9216	d73eabfea789c319
+grib2/octahedral_gaussian_o32.grib2#00	render/web_mercator/bilinear	ok w=720 h=320 opaque=230400	23f5384e08db759d
+grib2/octahedral_gaussian_o32.grib2#00	render/web_mercator/nearest	ok w=720 h=320 opaque=230400	9f0b00de0b7d8616
+grib2/png_eta_lambert.grib2#00	meta	family=lambert ni=93 nj=65 reprojectable=true	a9ed23d5a5394a9e
+grib2/png_eta_lambert.grib2#00	render/equirectangular/nearest	ok w=720 h=503 opaque=264754	91ac07ec05e0fb64
+grib2/png_eta_lambert.grib2#00	render/source/nearest	ok w=93 h=65 opaque=6045	687e348609613f18
+grib2/png_local_40010.grib2#00	meta	family=lambert ni=93 nj=65 reprojectable=true	a9ed23d5a5394a9e
+grib2/png_local_40010.grib2#00	render/equirectangular/nearest	ok w=720 h=503 opaque=264754	91ac07ec05e0fb64
+grib2/png_local_40010.grib2#00	render/source/nearest	ok w=93 h=65 opaque=6045	687e348609613f18
+grib2/polar_stereographic_surface.grib2#00	contours/equirectangular/auto	err	17a42677fa759663
+grib2/polar_stereographic_surface.grib2#00	contours/mollweide/auto	err	17a42677fa759663
+grib2/polar_stereographic_surface.grib2#00	contours/source/auto	err	17a42677fa759663
+grib2/polar_stereographic_surface.grib2#00	csv/long	err	17a42677fa759663
+grib2/polar_stereographic_surface.grib2#00	csv/matrix	ok rows=31	bdeac24d6363405c
+grib2/polar_stereographic_surface.grib2#00	meta	family=polar_stereo ni=16 nj=31 reprojectable=false	3fe324c4d155c083
+grib2/polar_stereographic_surface.grib2#00	probe/equirectangular/0,0	err	17a42677fa759663
+grib2/polar_stereographic_surface.grib2#00	probe/equirectangular/359,180	err	17a42677fa759663
+grib2/polar_stereographic_surface.grib2#00	probe/equirectangular/7,3	err	17a42677fa759663
+grib2/polar_stereographic_surface.grib2#00	probe/equirectangular/719,719	err	17a42677fa759663
+grib2/polar_stereographic_surface.grib2#00	probe/orthographic/0,0	err	17a42677fa759663
+grib2/polar_stereographic_surface.grib2#00	probe/orthographic/359,180	err	17a42677fa759663
+grib2/polar_stereographic_surface.grib2#00	probe/orthographic/7,3	err	17a42677fa759663
+grib2/polar_stereographic_surface.grib2#00	probe/orthographic/719,719	err	17a42677fa759663
+grib2/polar_stereographic_surface.grib2#00	probe/source/0,0	hit cell=0,0 geo=no value=yes	b9986c98f017ec20
+grib2/polar_stereographic_surface.grib2#00	probe/source/359,180	miss	c4e0642f982dc6de
+grib2/polar_stereographic_surface.grib2#00	probe/source/7,3	hit cell=7,3 geo=no value=yes	540489ca27f34bd6
+grib2/polar_stereographic_surface.grib2#00	probe/source/719,719	miss	c4e0642f982dc6de
+grib2/polar_stereographic_surface.grib2#00	render/equal_earth/bilinear	err	17a42677fa759663
+grib2/polar_stereographic_surface.grib2#00	render/equal_earth/nearest	err	17a42677fa759663
+grib2/polar_stereographic_surface.grib2#00	render/equirectangular/bilinear	err	17a42677fa759663
+grib2/polar_stereographic_surface.grib2#00	render/equirectangular/nearest	err	17a42677fa759663
+grib2/polar_stereographic_surface.grib2#00	render/equirectangular/nearest+window	err	17a42677fa759663
+grib2/polar_stereographic_surface.grib2#00	render/mollweide/bilinear	err	17a42677fa759663
+grib2/polar_stereographic_surface.grib2#00	render/mollweide/nearest	err	17a42677fa759663
+grib2/polar_stereographic_surface.grib2#00	render/orthographic/bilinear	err	17a42677fa759663
+grib2/polar_stereographic_surface.grib2#00	render/orthographic/nearest	err	17a42677fa759663
+grib2/polar_stereographic_surface.grib2#00	render/polar_stereographic/bilinear	err	17a42677fa759663
+grib2/polar_stereographic_surface.grib2#00	render/polar_stereographic/nearest	err	17a42677fa759663
+grib2/polar_stereographic_surface.grib2#00	render/robinson/bilinear	err	17a42677fa759663
+grib2/polar_stereographic_surface.grib2#00	render/robinson/nearest	err	17a42677fa759663
+grib2/polar_stereographic_surface.grib2#00	render/source/bilinear	ok w=16 h=31 opaque=496	02e1ec7ea91d69e8
+grib2/polar_stereographic_surface.grib2#00	render/source/nearest	ok w=16 h=31 opaque=496	02e1ec7ea91d69e8
+grib2/polar_stereographic_surface.grib2#00	render/source/nearest+flip_y	ok w=16 h=31 opaque=496	02e1ec7ea91d69e8
+grib2/polar_stereographic_surface.grib2#00	render/web_mercator/bilinear	err	17a42677fa759663
+grib2/polar_stereographic_surface.grib2#00	render/web_mercator/nearest	err	17a42677fa759663
+grib2/rap_jpeg2000_lambert.grib2#00	meta	family=lambert ni=451 nj=337 reprojectable=true	d9c326588b388f29
+grib2/rap_jpeg2000_lambert.grib2#00	render/equirectangular/nearest	ok w=720 h=538 opaque=296831	2d700866579c11bd
+grib2/rap_jpeg2000_lambert.grib2#00	render/source/nearest	ok w=451 h=337 opaque=151987	929292def77f8dbe
+grib2/reduced_gaussian_pressure_level.grib2#00	meta	family=reduced_gaussian ni=128 nj=64 reprojectable=true	504517cf493a990f
+grib2/reduced_gaussian_pressure_level.grib2#00	render/equirectangular/nearest	ok w=720 h=360 opaque=259200	d006add5f9b274c0
+grib2/reduced_gaussian_pressure_level.grib2#00	render/source/nearest	ok w=128 h=64 opaque=8192	a2b2122ff5e1b88d
+grib2/regular_gaussian_f32.grib2#00	contours/equirectangular/auto	ok runs=0 points=0	f7bb42cf778c232e
+grib2/regular_gaussian_f32.grib2#00	contours/mollweide/auto	ok runs=0 points=0	f7bb42cf778c232e
+grib2/regular_gaussian_f32.grib2#00	contours/source/auto	ok runs=0 points=0	f7bb42cf778c232e
+grib2/regular_gaussian_f32.grib2#00	csv/long	ok rows=8193	492ec9f334a09c67
+grib2/regular_gaussian_f32.grib2#00	csv/matrix	ok rows=64	573c3f1b14eff916
+grib2/regular_gaussian_f32.grib2#00	meta	family=gaussian ni=128 nj=64 reprojectable=true	6f15660199f47c5c
+grib2/regular_gaussian_f32.grib2#00	probe/equirectangular/0,0	hit cell=0,0 geo=yes value=yes	df8048439499d32e
+grib2/regular_gaussian_f32.grib2#00	probe/equirectangular/359,180	hit cell=64,32 geo=yes value=yes	9954430356f9dbbe
+grib2/regular_gaussian_f32.grib2#00	probe/equirectangular/7,3	hit cell=1,1 geo=yes value=yes	658d6feb8f4c0e6c
+grib2/regular_gaussian_f32.grib2#00	probe/equirectangular/719,719	miss	c4e0642f982dc6de
+grib2/regular_gaussian_f32.grib2#00	probe/orthographic/0,0	miss	c4e0642f982dc6de
+grib2/regular_gaussian_f32.grib2#00	probe/orthographic/359,180	hit cell=0,21 geo=yes value=yes	a3aec3f31e3c298c
+grib2/regular_gaussian_f32.grib2#00	probe/orthographic/7,3	miss	c4e0642f982dc6de
+grib2/regular_gaussian_f32.grib2#00	probe/orthographic/719,719	miss	c4e0642f982dc6de
+grib2/regular_gaussian_f32.grib2#00	probe/source/0,0	hit cell=0,0 geo=yes value=yes	e9fb9c5b20cafce7
+grib2/regular_gaussian_f32.grib2#00	probe/source/359,180	miss	c4e0642f982dc6de
+grib2/regular_gaussian_f32.grib2#00	probe/source/7,3	hit cell=7,3 geo=yes value=yes	364e800c954f15bc
+grib2/regular_gaussian_f32.grib2#00	probe/source/719,719	miss	c4e0642f982dc6de
+grib2/regular_gaussian_f32.grib2#00	render/equal_earth/bilinear	ok w=720 h=350 opaque=220648	92f09b70ef524d61
+grib2/regular_gaussian_f32.grib2#00	render/equal_earth/nearest	ok w=720 h=350 opaque=220648	5409a1cdb6e92c58
+grib2/regular_gaussian_f32.grib2#00	render/equirectangular/bilinear	ok w=720 h=360 opaque=259200	87a77e34bf0d805f
+grib2/regular_gaussian_f32.grib2#00	render/equirectangular/nearest	ok w=720 h=360 opaque=259200	3d39d358299c2f6c
+grib2/regular_gaussian_f32.grib2#00	render/equirectangular/nearest+window	ok w=720 h=360 opaque=259200	db89a052b42ba4ee
+grib2/regular_gaussian_f32.grib2#00	render/mollweide/bilinear	ok w=720 h=360 opaque=202524	a281dc766f9b095b
+grib2/regular_gaussian_f32.grib2#00	render/mollweide/nearest	ok w=720 h=360 opaque=202524	0932851742e4d218
+grib2/regular_gaussian_f32.grib2#00	render/orthographic/bilinear	ok w=720 h=720 opaque=405960	87d5f938c808c512
+grib2/regular_gaussian_f32.grib2#00	render/orthographic/nearest	ok w=720 h=720 opaque=405960	40b2c253850cf9aa
+grib2/regular_gaussian_f32.grib2#00	render/polar_stereographic/bilinear	ok w=720 h=720 opaque=405812	ee89b6758ad7c95f
+grib2/regular_gaussian_f32.grib2#00	render/polar_stereographic/nearest	ok w=720 h=720 opaque=405812	3d7d5c709ac7612f
+grib2/regular_gaussian_f32.grib2#00	render/robinson/bilinear	ok w=720 h=366 opaque=227928	21fd892ac31b9943
+grib2/regular_gaussian_f32.grib2#00	render/robinson/nearest	ok w=720 h=366 opaque=227928	d468e8423a718171
+grib2/regular_gaussian_f32.grib2#00	render/source/bilinear	ok w=128 h=64 opaque=8192	44dedc086cb11952
+grib2/regular_gaussian_f32.grib2#00	render/source/nearest	ok w=128 h=64 opaque=8192	44dedc086cb11952
+grib2/regular_gaussian_f32.grib2#00	render/source/nearest+flip_y	ok w=128 h=64 opaque=8192	44dedc086cb11952
+grib2/regular_gaussian_f32.grib2#00	render/web_mercator/bilinear	ok w=720 h=360 opaque=259200	ad7eed9f748050d6
+grib2/regular_gaussian_f32.grib2#00	render/web_mercator/nearest	ok w=720 h=360 opaque=259200	5d41c8b632af2e52
+grib2/regular_latlon_surface.grib2#00	meta	family=latlon ni=16 nj=31 reprojectable=true	0cb35944ca06e314
+grib2/regular_latlon_surface.grib2#00	render/equirectangular/nearest	ok w=372 h=720 opaque=267840	c197fff5549f169d
+grib2/regular_latlon_surface.grib2#00	render/source/nearest	ok w=16 h=31 opaque=496	8dc93032dbb6755d
+grib2/rotated_latlon_surface.grib2#00	contours/equirectangular/auto	ok runs=0 points=0	f7bb42cf778c232e
+grib2/rotated_latlon_surface.grib2#00	contours/mollweide/auto	ok runs=0 points=0	f7bb42cf778c232e
+grib2/rotated_latlon_surface.grib2#00	contours/source/auto	ok runs=0 points=0	f7bb42cf778c232e
+grib2/rotated_latlon_surface.grib2#00	csv/long	ok rows=497	dd89b5daaad55282
+grib2/rotated_latlon_surface.grib2#00	csv/matrix	ok rows=31	bdeac24d6363405c
+grib2/rotated_latlon_surface.grib2#00	meta	family=rotated_latlon ni=16 nj=31 reprojectable=true	51546077ed778e08
+grib2/rotated_latlon_surface.grib2#00	probe/equirectangular/0,0	hit cell=0,30 geo=yes value=yes	768eea94636ca2b0
+grib2/rotated_latlon_surface.grib2#00	probe/equirectangular/359,180	hit cell=1,22 geo=yes value=yes	aefa0ba4d9a13fe4
+grib2/rotated_latlon_surface.grib2#00	probe/equirectangular/7,3	hit cell=- geo=yes value=no	495aabfbe1a5a3d8
+grib2/rotated_latlon_surface.grib2#00	probe/equirectangular/719,719	miss	c4e0642f982dc6de
+grib2/rotated_latlon_surface.grib2#00	probe/orthographic/0,0	miss	c4e0642f982dc6de
+grib2/rotated_latlon_surface.grib2#00	probe/orthographic/359,180	hit cell=- geo=yes value=no	542c39f9eaccd6ca
+grib2/rotated_latlon_surface.grib2#00	probe/orthographic/7,3	miss	c4e0642f982dc6de
+grib2/rotated_latlon_surface.grib2#00	probe/orthographic/719,719	miss	c4e0642f982dc6de
+grib2/rotated_latlon_surface.grib2#00	probe/source/0,0	hit cell=0,0 geo=yes value=yes	461201e9cefcdb8f
+grib2/rotated_latlon_surface.grib2#00	probe/source/359,180	miss	c4e0642f982dc6de
+grib2/rotated_latlon_surface.grib2#00	probe/source/7,3	hit cell=7,3 geo=yes value=yes	b0c50833934941bc
+grib2/rotated_latlon_surface.grib2#00	probe/source/719,719	miss	c4e0642f982dc6de
+grib2/rotated_latlon_surface.grib2#00	render/equal_earth/bilinear	ok w=720 h=349 opaque=8333	1563ec86a28a7815
+grib2/rotated_latlon_surface.grib2#00	render/equal_earth/nearest	ok w=720 h=349 opaque=8333	bf2bd192645850b9
+grib2/rotated_latlon_surface.grib2#00	render/equirectangular/bilinear	ok w=372 h=720 opaque=90506	7d2013972f15bce2
+grib2/rotated_latlon_surface.grib2#00	render/equirectangular/nearest	ok w=372 h=720 opaque=90506	59eb3189df0c6d00
+grib2/rotated_latlon_surface.grib2#00	render/equirectangular/nearest+window	ok w=372 h=720 opaque=0	a59a09a281912fb5
+grib2/rotated_latlon_surface.grib2#00	render/mollweide/bilinear	ok w=720 h=360 opaque=7314	bab911865d6611a1
+grib2/rotated_latlon_surface.grib2#00	render/mollweide/nearest	ok w=720 h=360 opaque=7314	38c6522fe28aa63e
+grib2/rotated_latlon_surface.grib2#00	render/orthographic/bilinear	ok w=720 h=720 opaque=0	cdb369ce870c6ae0
+grib2/rotated_latlon_surface.grib2#00	render/orthographic/nearest	ok w=720 h=720 opaque=0	a3a6ef5086fc3321
+grib2/rotated_latlon_surface.grib2#00	render/polar_stereographic/bilinear	ok w=720 h=720 opaque=18110	2f0d8a0cbf3e58ba
+grib2/rotated_latlon_surface.grib2#00	render/polar_stereographic/nearest	ok w=720 h=720 opaque=18110	abc9ae5642b542c3
+grib2/rotated_latlon_surface.grib2#00	render/robinson/bilinear	ok w=720 h=366 opaque=10919	a3785a3472c8e945
+grib2/rotated_latlon_surface.grib2#00	render/robinson/nearest	ok w=720 h=366 opaque=10919	131bbd750df35bed
+grib2/rotated_latlon_surface.grib2#00	render/source/bilinear	ok w=16 h=31 opaque=496	a80a26c955a91c4c
+grib2/rotated_latlon_surface.grib2#00	render/source/nearest	ok w=16 h=31 opaque=496	a80a26c955a91c4c
+grib2/rotated_latlon_surface.grib2#00	render/source/nearest+flip_y	ok w=16 h=31 opaque=496	a80a26c955a91c4c
+grib2/rotated_latlon_surface.grib2#00	render/web_mercator/bilinear	ok w=372 h=720 opaque=109316	aace44dd04c9ce3d
+grib2/rotated_latlon_surface.grib2#00	render/web_mercator/nearest	ok w=372 h=720 opaque=109316	feaa116007d73d4a
+grib2/runlength_4bit_regular_latlon.grib2#00	contours/equirectangular/auto	ok runs=48 points=96	8118c83ad342c0fd
+grib2/runlength_4bit_regular_latlon.grib2#00	contours/mollweide/auto	ok runs=48 points=96	5410117bc0a14329
+grib2/runlength_4bit_regular_latlon.grib2#00	contours/source/auto	ok runs=48 points=96	9bdd95dcb76c94a7
+grib2/runlength_4bit_regular_latlon.grib2#00	csv/long	ok rows=497	1896ae952ca416ea
+grib2/runlength_4bit_regular_latlon.grib2#00	csv/matrix	ok rows=31	9aefb0c6bdbab1c7
+grib2/runlength_4bit_regular_latlon.grib2#00	meta	family=latlon ni=16 nj=31 reprojectable=true	0cb35944ca06e314
+grib2/runlength_4bit_regular_latlon.grib2#00	probe/equirectangular/0,0	hit cell=0,0 geo=yes value=yes	dbae632b01aff8b3
+grib2/runlength_4bit_regular_latlon.grib2#00	probe/equirectangular/359,180	hit cell=15,8 geo=yes value=yes	7005addd5aad1687
+grib2/runlength_4bit_regular_latlon.grib2#00	probe/equirectangular/7,3	hit cell=0,0 geo=yes value=yes	45dc78d05fb4bf47
+grib2/runlength_4bit_regular_latlon.grib2#00	probe/equirectangular/719,719	miss	c4e0642f982dc6de
+grib2/runlength_4bit_regular_latlon.grib2#00	probe/orthographic/0,0	miss	c4e0642f982dc6de
+grib2/runlength_4bit_regular_latlon.grib2#00	probe/orthographic/359,180	hit cell=- geo=yes value=no	542c39f9eaccd6ca
+grib2/runlength_4bit_regular_latlon.grib2#00	probe/orthographic/7,3	miss	c4e0642f982dc6de
+grib2/runlength_4bit_regular_latlon.grib2#00	probe/orthographic/719,719	miss	c4e0642f982dc6de
+grib2/runlength_4bit_regular_latlon.grib2#00	probe/source/0,0	hit cell=0,0 geo=yes value=yes	dbae632b01aff8b3
+grib2/runlength_4bit_regular_latlon.grib2#00	probe/source/359,180	miss	c4e0642f982dc6de
+grib2/runlength_4bit_regular_latlon.grib2#00	probe/source/7,3	hit cell=7,3 geo=yes value=yes	ca85946b8af2d8d8
+grib2/runlength_4bit_regular_latlon.grib2#00	probe/source/719,719	miss	c4e0642f982dc6de
+grib2/runlength_4bit_regular_latlon.grib2#00	render/equal_earth/bilinear	ok w=720 h=349 opaque=5978	b3b820fd38232f73
+grib2/runlength_4bit_regular_latlon.grib2#00	render/equal_earth/nearest	ok w=720 h=349 opaque=6220	a48e25ead2b9c740
+grib2/runlength_4bit_regular_latlon.grib2#00	render/equirectangular/bilinear	ok w=372 h=720 opaque=202392	fe1b6c11a83fb610
+grib2/runlength_4bit_regular_latlon.grib2#00	render/equirectangular/nearest	ok w=372 h=720 opaque=211896	976fccd1b85628ef
+grib2/runlength_4bit_regular_latlon.grib2#00	render/equirectangular/nearest+window	ok w=372 h=720 opaque=40872	d3f15ed113345423
+grib2/runlength_4bit_regular_latlon.grib2#00	render/mollweide/bilinear	ok w=720 h=360 opaque=5466	4bcc093d64598c21
+grib2/runlength_4bit_regular_latlon.grib2#00	render/mollweide/nearest	ok w=720 h=360 opaque=5714	d9d64c1589800366
+grib2/runlength_4bit_regular_latlon.grib2#00	render/orthographic/bilinear	ok w=720 h=720 opaque=35458	2c6d48fcf032e0ea
+grib2/runlength_4bit_regular_latlon.grib2#00	render/orthographic/nearest	ok w=720 h=720 opaque=37150	77b994cbbd4cb906
+grib2/runlength_4bit_regular_latlon.grib2#00	render/polar_stereographic/bilinear	ok w=720 h=720 opaque=24628	75550c91d61f8194
+grib2/runlength_4bit_regular_latlon.grib2#00	render/polar_stereographic/nearest	ok w=720 h=720 opaque=25620	4fc335768c8ff8d8
+grib2/runlength_4bit_regular_latlon.grib2#00	render/robinson/bilinear	ok w=720 h=366 opaque=5662	5b3ca9350317caaf
+grib2/runlength_4bit_regular_latlon.grib2#00	render/robinson/nearest	ok w=720 h=366 opaque=5921	bb09dae0673172a0
+grib2/runlength_4bit_regular_latlon.grib2#00	render/source/bilinear	ok w=16 h=31 opaque=396	6b5810d3d283c1f5
+grib2/runlength_4bit_regular_latlon.grib2#00	render/source/nearest	ok w=16 h=31 opaque=396	6b5810d3d283c1f5
+grib2/runlength_4bit_regular_latlon.grib2#00	render/source/nearest+flip_y	ok w=16 h=31 opaque=396	5ab0226be543cfe1
+grib2/runlength_4bit_regular_latlon.grib2#00	render/web_mercator/bilinear	ok w=372 h=720 opaque=207201	350ee4f85df4f1db
+grib2/runlength_4bit_regular_latlon.grib2#00	render/web_mercator/nearest	ok w=372 h=720 opaque=216285	6b05e7ef82772c15
+grib2/runlength_regular_latlon.grib2#00	meta	family=latlon ni=16 nj=31 reprojectable=true	0cb35944ca06e314
+grib2/runlength_regular_latlon.grib2#00	render/equirectangular/nearest	ok w=372 h=720 opaque=241968	7a03aae508d7be0d
+grib2/runlength_regular_latlon.grib2#00	render/source/nearest	ok w=16 h=31 opaque=450	32552812d5c10a2d
+grib2/second_order_boust_reduced_gaussian.grib2#00	meta	family=reduced_gaussian ni=128 nj=64 reprojectable=true	504517cf493a990f
+grib2/second_order_boust_reduced_gaussian.grib2#00	render/equirectangular/nearest	ok w=720 h=360 opaque=259200	d006add5f9b274c0
+grib2/second_order_boust_reduced_gaussian.grib2#00	render/source/nearest	ok w=128 h=64 opaque=8192	a2b2122ff5e1b88d
+grib2/second_order_boust_regular_latlon.grib2#00	meta	family=latlon ni=16 nj=31 reprojectable=true	0cb35944ca06e314
+grib2/second_order_boust_regular_latlon.grib2#00	render/equirectangular/nearest	ok w=372 h=720 opaque=267840	f63e63d03903399d
+grib2/second_order_boust_regular_latlon.grib2#00	render/source/nearest	ok w=16 h=31 opaque=496	703a4dfb36a25d2d
+grib2/second_order_no_boust_regular_latlon.grib2#00	meta	family=latlon ni=16 nj=31 reprojectable=true	0cb35944ca06e314
+grib2/second_order_no_boust_regular_latlon.grib2#00	render/equirectangular/nearest	ok w=372 h=720 opaque=267840	c197fff5549f169d
+grib2/second_order_no_boust_regular_latlon.grib2#00	render/source/nearest	ok w=16 h=31 opaque=496	8dc93032dbb6755d
+grib2/second_order_reduced_gaussian.grib2#00	meta	family=reduced_gaussian ni=128 nj=64 reprojectable=true	504517cf493a990f
+grib2/second_order_reduced_gaussian.grib2#00	render/equirectangular/nearest	ok w=720 h=360 opaque=259200	d006add5f9b274c0
+grib2/second_order_reduced_gaussian.grib2#00	render/source/nearest	ok w=128 h=64 opaque=8192	a2b2122ff5e1b88d
+grib2/second_order_regular_latlon.grib2#00	meta	family=latlon ni=16 nj=31 reprojectable=true	0cb35944ca06e314
+grib2/second_order_regular_latlon.grib2#00	render/equirectangular/nearest	ok w=372 h=720 opaque=267840	c197fff5549f169d
+grib2/second_order_regular_latlon.grib2#00	render/source/nearest	ok w=16 h=31 opaque=496	8dc93032dbb6755d
+grib2/spectral_complex_t63.grib2#00	meta	family=latlon ni=720 nj=361 reprojectable=true	3bcef7e346021f7e
+grib2/spectral_complex_t63.grib2#00	render/equirectangular/nearest	ok w=720 h=361 opaque=259920	2b86a10b209e2d2a
+grib2/spectral_complex_t63.grib2#00	render/source/nearest	ok w=720 h=361 opaque=259920	40919148c95bdf94
+grib2/spectral_simple_t63.grib2#00	meta	family=latlon ni=720 nj=361 reprojectable=true	3bcef7e346021f7e
+grib2/spectral_simple_t63.grib2#00	render/equirectangular/nearest	ok w=720 h=361 opaque=259920	01647ad83e8436cf
+grib2/spectral_simple_t63.grib2#00	render/source/nearest	ok w=720 h=361 opaque=259920	75d05bfdd2ccc42f
+grib2/transverse_mercator_ukv.grib2#00	contours/equirectangular/auto	ok runs=240 points=480	3fb2f31f8ff47d6c
+grib2/transverse_mercator_ukv.grib2#00	contours/mollweide/auto	ok runs=240 points=480	9f7cbb2881d81059
+grib2/transverse_mercator_ukv.grib2#00	contours/source/auto	ok runs=220 points=440	e9b7eb98662f6aa0
+grib2/transverse_mercator_ukv.grib2#00	csv/long	ok rows=721	079ea84e43b06da3
+grib2/transverse_mercator_ukv.grib2#00	csv/matrix	ok rows=30	a27dc302587c9790
+grib2/transverse_mercator_ukv.grib2#00	meta	family=transverse_mercator ni=24 nj=30 reprojectable=true	d71d9899142d30dc
+grib2/transverse_mercator_ukv.grib2#00	probe/equirectangular/0,0	hit cell=- geo=yes value=no	513fc710cdfb1ae3
+grib2/transverse_mercator_ukv.grib2#00	probe/equirectangular/359,180	hit cell=14,7 geo=yes value=yes	cab346be7fd98be7
+grib2/transverse_mercator_ukv.grib2#00	probe/equirectangular/7,3	hit cell=- geo=yes value=no	981a43a3d5030fe2
+grib2/transverse_mercator_ukv.grib2#00	probe/equirectangular/719,719	miss	c4e0642f982dc6de
+grib2/transverse_mercator_ukv.grib2#00	probe/orthographic/0,0	miss	c4e0642f982dc6de
+grib2/transverse_mercator_ukv.grib2#00	probe/orthographic/359,180	hit cell=- geo=yes value=no	542c39f9eaccd6ca
+grib2/transverse_mercator_ukv.grib2#00	probe/orthographic/7,3	miss	c4e0642f982dc6de
+grib2/transverse_mercator_ukv.grib2#00	probe/orthographic/719,719	miss	c4e0642f982dc6de
+grib2/transverse_mercator_ukv.grib2#00	probe/source/0,0	hit cell=0,0 geo=yes value=yes	54a7118810c1bf4e
+grib2/transverse_mercator_ukv.grib2#00	probe/source/359,180	miss	c4e0642f982dc6de
+grib2/transverse_mercator_ukv.grib2#00	probe/source/7,3	hit cell=7,3 geo=yes value=yes	effd7a0135f19385
+grib2/transverse_mercator_ukv.grib2#00	probe/source/719,719	miss	c4e0642f982dc6de
+grib2/transverse_mercator_ukv.grib2#00	render/equal_earth/bilinear	ok w=720 h=348 opaque=660	d279e3c3aabc5bf3
+grib2/transverse_mercator_ukv.grib2#00	render/equal_earth/nearest	ok w=720 h=348 opaque=660	0f1a90e57b34175d
+grib2/transverse_mercator_ukv.grib2#00	render/equirectangular/bilinear	ok w=576 h=720 opaque=343836	d49fb3a73eab631a
+grib2/transverse_mercator_ukv.grib2#00	render/equirectangular/nearest	ok w=576 h=720 opaque=343836	099129e129356b12
+grib2/transverse_mercator_ukv.grib2#00	render/equirectangular/nearest+window	ok w=576 h=720 opaque=0	a22e372269276600
+grib2/transverse_mercator_ukv.grib2#00	render/mollweide/bilinear	ok w=720 h=360 opaque=610	17da9e75f08d4f24
+grib2/transverse_mercator_ukv.grib2#00	render/mollweide/nearest	ok w=720 h=360 opaque=610	44b103f1ddc2b790
+grib2/transverse_mercator_ukv.grib2#00	render/orthographic/bilinear	ok w=720 h=720 opaque=2802	293d8d4c16ffca8e
+grib2/transverse_mercator_ukv.grib2#00	render/orthographic/nearest	ok w=720 h=720 opaque=2802	b5e1c39d96e705f7
+grib2/transverse_mercator_ukv.grib2#00	render/polar_stereographic/bilinear	ok w=720 h=720 opaque=1481	bc25687701a1df8c
+grib2/transverse_mercator_ukv.grib2#00	render/polar_stereographic/nearest	ok w=720 h=720 opaque=1481	6ab8907476083ce7
+grib2/transverse_mercator_ukv.grib2#00	render/robinson/bilinear	ok w=720 h=366 opaque=770	67ffb76f18d77e29
+grib2/transverse_mercator_ukv.grib2#00	render/robinson/nearest	ok w=720 h=366 opaque=770	954f4992695f36db
+grib2/transverse_mercator_ukv.grib2#00	render/source/bilinear	ok w=24 h=30 opaque=720	e81ded52fd1911bd
+grib2/transverse_mercator_ukv.grib2#00	render/source/nearest	ok w=24 h=30 opaque=720	e81ded52fd1911bd
+grib2/transverse_mercator_ukv.grib2#00	render/source/nearest+flip_y	ok w=24 h=30 opaque=720	e555723ad0d43031
+grib2/transverse_mercator_ukv.grib2#00	render/web_mercator/bilinear	ok w=576 h=720 opaque=346807	c4818d12b3a67a90
+grib2/transverse_mercator_ukv.grib2#00	render/web_mercator/nearest	ok w=576 h=720 opaque=346807	b2a582aa7380f838
+netcdf/cf_packed_data.nc#temp	meta	family=latlon ni=4 nj=3 reprojectable=true	7248886778dd6724
+netcdf/cf_packed_data.nc#temp	render/equirectangular/nearest	ok w=720 h=540 opaque=275400	e96d1e1fbac80949
+netcdf/cf_packed_data.nc#temp	render/source/nearest	ok w=4 h=3 opaque=9	45b2263fdcf69591
+netcdf/ersst_v5_187001_cdf1.nc#sst	meta	family=latlon ni=180 nj=89 reprojectable=true	f89e27d06d0afc2f
+netcdf/ersst_v5_187001_cdf1.nc#sst	render/equirectangular/nearest	ok w=720 h=356 opaque=176092	e1cefcf6e02706b6
+netcdf/ersst_v5_187001_cdf1.nc#sst	render/source/nearest	ok w=180 h=89 opaque=10988	81c98f19333ea9d9
+netcdf/ersst_v5_187001_cdf1.nc#ssta	meta	family=latlon ni=180 nj=89 reprojectable=true	f89e27d06d0afc2f
+netcdf/ersst_v5_187001_cdf1.nc#ssta	render/equirectangular/nearest	ok w=720 h=356 opaque=176092	0baed80979deca3d
+netcdf/ersst_v5_187001_cdf1.nc#ssta	render/source/nearest	ok w=180 h=89 opaque=10988	b31c45154ba237f4
+netcdf/ersst_v5_187001_cdf2.nc#sst	meta	family=latlon ni=180 nj=89 reprojectable=true	f89e27d06d0afc2f
+netcdf/ersst_v5_187001_cdf2.nc#sst	render/equirectangular/nearest	ok w=720 h=356 opaque=176092	e1cefcf6e02706b6
+netcdf/ersst_v5_187001_cdf2.nc#sst	render/source/nearest	ok w=180 h=89 opaque=10988	81c98f19333ea9d9
+netcdf/ersst_v5_187001_cdf2.nc#ssta	meta	family=latlon ni=180 nj=89 reprojectable=true	f89e27d06d0afc2f
+netcdf/ersst_v5_187001_cdf2.nc#ssta	render/equirectangular/nearest	ok w=720 h=356 opaque=176092	0baed80979deca3d
+netcdf/ersst_v5_187001_cdf2.nc#ssta	render/source/nearest	ok w=180 h=89 opaque=10988	b31c45154ba237f4
+netcdf/ersst_v5_187001_cdf5.nc#sst	meta	family=latlon ni=180 nj=89 reprojectable=true	f89e27d06d0afc2f
+netcdf/ersst_v5_187001_cdf5.nc#sst	render/equirectangular/nearest	ok w=720 h=356 opaque=176092	e1cefcf6e02706b6
+netcdf/ersst_v5_187001_cdf5.nc#sst	render/source/nearest	ok w=180 h=89 opaque=10988	81c98f19333ea9d9
+netcdf/ersst_v5_187001_cdf5.nc#ssta	meta	family=latlon ni=180 nj=89 reprojectable=true	f89e27d06d0afc2f
+netcdf/ersst_v5_187001_cdf5.nc#ssta	render/equirectangular/nearest	ok w=720 h=356 opaque=176092	0baed80979deca3d
+netcdf/ersst_v5_187001_cdf5.nc#ssta	render/source/nearest	ok w=180 h=89 opaque=10988	b31c45154ba237f4
+netcdf/goes16_abi_cmip.nc#CMI	meta	family=space_view ni=24 nj=24 reprojectable=true	df846e0382edee2f
+netcdf/goes16_abi_cmip.nc#CMI	render/equirectangular/nearest	ok w=720 h=720 opaque=513694	8e0bba9606a5a96b
+netcdf/goes16_abi_cmip.nc#CMI	render/source/nearest	ok w=24 h=24 opaque=576	06403e576c96a24a
+netcdf/goes16_abi_cmip.nc#DQF	meta	family=space_view ni=24 nj=24 reprojectable=true	df846e0382edee2f
+netcdf/goes16_abi_cmip.nc#DQF	render/equirectangular/nearest	ok w=720 h=720 opaque=513694	b59642042ab99a36
+netcdf/goes16_abi_cmip.nc#DQF	render/source/nearest	ok w=24 h=24 opaque=576	819f60293d0e00f8
+netcdf/goes_geostationary.nc#Rad	contours/equirectangular/auto	err	97694725b6e12b7e
+netcdf/goes_geostationary.nc#Rad	contours/mollweide/auto	err	97694725b6e12b7e
+netcdf/goes_geostationary.nc#Rad	contours/source/auto	err	97694725b6e12b7e
+netcdf/goes_geostationary.nc#Rad	csv/long	err	3423a552bf4d38fd
+netcdf/goes_geostationary.nc#Rad	csv/matrix	ok rows=6	1ee8f5b4c5642312
+netcdf/goes_geostationary.nc#Rad	meta	family=space_view ni=6 nj=6 reprojectable=true	d351a9fbde3b3a6c
+netcdf/goes_geostationary.nc#Rad	probe/equirectangular/0,0	hit cell=0,0 geo=yes value=yes	43fd769654da3bec
+netcdf/goes_geostationary.nc#Rad	probe/equirectangular/359,180	hit cell=2,1 geo=yes value=yes	a3358e227dd8cb9b
+netcdf/goes_geostationary.nc#Rad	probe/equirectangular/7,3	hit cell=0,0 geo=yes value=yes	ba7b6ac488f37e66
+netcdf/goes_geostationary.nc#Rad	probe/equirectangular/719,719	hit cell=5,5 geo=yes value=yes	46648ff43888d3b4
+netcdf/goes_geostationary.nc#Rad	probe/orthographic/0,0	miss	c4e0642f982dc6de
+netcdf/goes_geostationary.nc#Rad	probe/orthographic/359,180	hit cell=- geo=yes value=no	542c39f9eaccd6ca
+netcdf/goes_geostationary.nc#Rad	probe/orthographic/7,3	miss	c4e0642f982dc6de
+netcdf/goes_geostationary.nc#Rad	probe/orthographic/719,719	miss	c4e0642f982dc6de
+netcdf/goes_geostationary.nc#Rad	probe/source/0,0	hit cell=0,0 geo=no value=yes	cbdc09f75fc92af4
+netcdf/goes_geostationary.nc#Rad	probe/source/359,180	miss	c4e0642f982dc6de
+netcdf/goes_geostationary.nc#Rad	probe/source/7,3	miss	c4e0642f982dc6de
+netcdf/goes_geostationary.nc#Rad	probe/source/719,719	miss	c4e0642f982dc6de
+netcdf/goes_geostationary.nc#Rad	render/equal_earth/bilinear	ok w=720 h=360 opaque=928	30fd8e7d8b11c275
+netcdf/goes_geostationary.nc#Rad	render/equal_earth/nearest	ok w=720 h=360 opaque=928	66f09bab7ea93cdd
+netcdf/goes_geostationary.nc#Rad	render/equirectangular/bilinear	ok w=720 h=720 opaque=513608	52be0918a7ea58cf
+netcdf/goes_geostationary.nc#Rad	render/equirectangular/nearest	ok w=720 h=720 opaque=513608	973ac7952ca26c91
+netcdf/goes_geostationary.nc#Rad	render/equirectangular/nearest+window	ok w=720 h=720 opaque=0	417561d9b27e1061
+netcdf/goes_geostationary.nc#Rad	render/mollweide/bilinear	ok w=720 h=360 opaque=824	1dffec8bee75fdab
+netcdf/goes_geostationary.nc#Rad	render/mollweide/nearest	ok w=720 h=360 opaque=824	ef788bc6b2187ee2
+netcdf/goes_geostationary.nc#Rad	render/orthographic/bilinear	ok w=720 h=720 opaque=1708	ff1001429b125332
+netcdf/goes_geostationary.nc#Rad	render/orthographic/nearest	ok w=720 h=720 opaque=1708	1b78d9a7085cfbd6
+netcdf/goes_geostationary.nc#Rad	render/polar_stereographic/bilinear	ok w=720 h=720 opaque=2964	2275064704092499
+netcdf/goes_geostationary.nc#Rad	render/polar_stereographic/nearest	ok w=720 h=720 opaque=2964	97bde6f5f69432f1
+netcdf/goes_geostationary.nc#Rad	render/robinson/bilinear	ok w=720 h=360 opaque=722	7394b93615cd4d95
+netcdf/goes_geostationary.nc#Rad	render/robinson/nearest	ok w=720 h=360 opaque=722	61010bf2b2ba05e5
+netcdf/goes_geostationary.nc#Rad	render/source/bilinear	ok w=6 h=6 opaque=36	e169bc4fbda758f0
+netcdf/goes_geostationary.nc#Rad	render/source/nearest	ok w=6 h=6 opaque=36	e169bc4fbda758f0
+netcdf/goes_geostationary.nc#Rad	render/source/nearest+flip_y	ok w=6 h=6 opaque=36	46f5a02311103eec
+netcdf/goes_geostationary.nc#Rad	render/web_mercator/bilinear	ok w=720 h=720 opaque=513612	2d0ed3af2009770d
+netcdf/goes_geostationary.nc#Rad	render/web_mercator/nearest	ok w=720 h=720 opaque=513612	a1e9d15f1390265e
+netcdf/hdf5_fletcher32.h5#f32_deflate	meta	family=latlon ni=8 nj=8 reprojectable=false	228cc1ccea66cbf9
+netcdf/hdf5_fletcher32.h5#f32_deflate	render/equirectangular/nearest	err	d6e947bf16a3ed58
+netcdf/hdf5_fletcher32.h5#f32_deflate	render/source/nearest	ok w=8 h=8 opaque=64	c4d7b276e25147b3
+netcdf/hdf5_fletcher32.h5#f32_only	meta	family=latlon ni=8 nj=8 reprojectable=false	228cc1ccea66cbf9
+netcdf/hdf5_fletcher32.h5#f32_only	render/equirectangular/nearest	err	d6e947bf16a3ed58
+netcdf/hdf5_fletcher32.h5#f32_only	render/source/nearest	ok w=8 h=8 opaque=64	c4d7b276e25147b3
+netcdf/hdf5_fletcher32.h5#f32_shuffle	meta	family=latlon ni=8 nj=8 reprojectable=false	228cc1ccea66cbf9
+netcdf/hdf5_fletcher32.h5#f32_shuffle	render/equirectangular/nearest	err	d6e947bf16a3ed58
+netcdf/hdf5_fletcher32.h5#f32_shuffle	render/source/nearest	ok w=8 h=8 opaque=64	c4d7b276e25147b3
+netcdf/hdf5_fletcher32.h5#f32_shuffle_deflate	meta	family=latlon ni=8 nj=8 reprojectable=false	228cc1ccea66cbf9
+netcdf/hdf5_fletcher32.h5#f32_shuffle_deflate	render/equirectangular/nearest	err	d6e947bf16a3ed58
+netcdf/hdf5_fletcher32.h5#f32_shuffle_deflate	render/source/nearest	ok w=8 h=8 opaque=64	c4d7b276e25147b3
+netcdf/hdf5_fletcher32.h5#plain_deflate	meta	family=latlon ni=8 nj=8 reprojectable=false	228cc1ccea66cbf9
+netcdf/hdf5_fletcher32.h5#plain_deflate	render/equirectangular/nearest	err	d6e947bf16a3ed58
+netcdf/hdf5_fletcher32.h5#plain_deflate	render/source/nearest	ok w=8 h=8 opaque=64	c4d7b276e25147b3
+netcdf/hdf5_implicit_index.h5#implicit	meta	family=latlon ni=8 nj=8 reprojectable=false	228cc1ccea66cbf9
+netcdf/hdf5_implicit_index.h5#implicit	render/equirectangular/nearest	err	d6e947bf16a3ed58
+netcdf/hdf5_implicit_index.h5#implicit	render/source/nearest	ok w=8 h=8 opaque=64	ec0ab9fe43b0c423
+netcdf/hdf5_implicit_index.h5#implicit_partial	meta	family=latlon ni=7 nj=5 reprojectable=false	d3111e2a2f11befb
+netcdf/hdf5_implicit_index.h5#implicit_partial	render/equirectangular/nearest	err	d6e947bf16a3ed58
+netcdf/hdf5_implicit_index.h5#implicit_partial	render/source/nearest	ok w=7 h=5 opaque=35	b9b54209042ea785
+netcdf/hdf5_phony_dims.h5#a_8x8	meta	family=latlon ni=8 nj=8 reprojectable=false	228cc1ccea66cbf9
+netcdf/hdf5_phony_dims.h5#a_8x8	render/equirectangular/nearest	err	d6e947bf16a3ed58
+netcdf/hdf5_phony_dims.h5#a_8x8	render/source/nearest	ok w=8 h=8 opaque=64	c4d7b276e25147b3
+netcdf/hdf5_phony_dims.h5#b_8x8	meta	family=latlon ni=8 nj=8 reprojectable=false	228cc1ccea66cbf9
+netcdf/hdf5_phony_dims.h5#b_8x8	render/equirectangular/nearest	err	d6e947bf16a3ed58
+netcdf/hdf5_phony_dims.h5#b_8x8	render/source/nearest	ok w=8 h=8 opaque=64	ec0ab9fe43b0c423
+netcdf/hdf5_phony_dims.h5#c_4x6	meta	family=latlon ni=6 nj=4 reprojectable=false	5194c483dd5202f7
+netcdf/hdf5_phony_dims.h5#c_4x6	render/equirectangular/nearest	err	d6e947bf16a3ed58
+netcdf/hdf5_phony_dims.h5#c_4x6	render/source/nearest	ok w=6 h=4 opaque=24	54c95a94d5b243a7
+netcdf/hdf5_phony_dims.h5#d_6x4	meta	family=latlon ni=4 nj=6 reprojectable=false	168d0132427ab0b3
+netcdf/hdf5_phony_dims.h5#d_6x4	render/equirectangular/nearest	err	d6e947bf16a3ed58
+netcdf/hdf5_phony_dims.h5#d_6x4	render/source/nearest	ok w=4 h=6 opaque=24	80b13c94b4c2b00b
+netcdf/hdf5_v1_symboltable.h5#compressed	meta	family=latlon ni=8 nj=8 reprojectable=false	228cc1ccea66cbf9
+netcdf/hdf5_v1_symboltable.h5#compressed	render/equirectangular/nearest	err	d6e947bf16a3ed58
+netcdf/hdf5_v1_symboltable.h5#compressed	render/source/nearest	ok w=8 h=8 opaque=64	ec0ab9fe43b0c423
+netcdf/hdf5_v1_symboltable.h5#temp_i32	meta	family=latlon ni=4 nj=3 reprojectable=false	749fb4ced5a06e7a
+netcdf/hdf5_v1_symboltable.h5#temp_i32	render/equirectangular/nearest	err	d6e947bf16a3ed58
+netcdf/hdf5_v1_symboltable.h5#temp_i32	render/source/nearest	ok w=4 h=3 opaque=12	e6d916f5c02a1221
+netcdf/hdf5_v2_btree_index.h5#bt2	meta	family=latlon ni=4 nj=4 reprojectable=false	403d5e9aa0f09179
+netcdf/hdf5_v2_btree_index.h5#bt2	render/equirectangular/nearest	err	d6e947bf16a3ed58
+netcdf/hdf5_v2_btree_index.h5#bt2	render/source/nearest	ok w=4 h=4 opaque=16	c140b22da4bd7cbb
+netcdf/hdf5_v2_btree_index.h5#bt2_filtered	meta	family=latlon ni=4 nj=4 reprojectable=false	403d5e9aa0f09179
+netcdf/hdf5_v2_btree_index.h5#bt2_filtered	render/equirectangular/nearest	err	d6e947bf16a3ed58
+netcdf/hdf5_v2_btree_index.h5#bt2_filtered	render/source/nearest	ok w=4 h=4 opaque=16	c140b22da4bd7cbb
+netcdf/hdf5_v2_btree_index.h5#bt2_multi	meta	family=latlon ni=8 nj=8 reprojectable=false	228cc1ccea66cbf9
+netcdf/hdf5_v2_btree_index.h5#bt2_multi	render/equirectangular/nearest	err	d6e947bf16a3ed58
+netcdf/hdf5_v2_btree_index.h5#bt2_multi	render/source/nearest	ok w=8 h=8 opaque=64	ec0ab9fe43b0c423
+netcdf/hdf5_v2_linkinfo.h5#chunked	meta	family=latlon ni=10 nj=10 reprojectable=false	e0b603984c5f6441
+netcdf/hdf5_v2_linkinfo.h5#chunked	render/equirectangular/nearest	err	d6e947bf16a3ed58
+netcdf/hdf5_v2_linkinfo.h5#chunked	render/source/nearest	ok w=10 h=10 opaque=100	a5b0f1466391dc56
+netcdf/hdf5_v2_linkinfo.h5#temp_i32	meta	family=latlon ni=4 nj=3 reprojectable=false	749fb4ced5a06e7a
+netcdf/hdf5_v2_linkinfo.h5#temp_i32	render/equirectangular/nearest	err	d6e947bf16a3ed58
+netcdf/hdf5_v2_linkinfo.h5#temp_i32	render/source/nearest	ok w=4 h=3 opaque=12	e6d916f5c02a1221
+netcdf/hdf5_v4_chunk_index.h5#fixed_array	meta	family=latlon ni=8 nj=8 reprojectable=false	228cc1ccea66cbf9
+netcdf/hdf5_v4_chunk_index.h5#fixed_array	render/equirectangular/nearest	err	d6e947bf16a3ed58
+netcdf/hdf5_v4_chunk_index.h5#fixed_array	render/source/nearest	ok w=8 h=8 opaque=64	ec0ab9fe43b0c423
+netcdf/hdf5_v4_chunk_index.h5#single_chunk	meta	family=latlon ni=4 nj=4 reprojectable=false	403d5e9aa0f09179
+netcdf/hdf5_v4_chunk_index.h5#single_chunk	render/equirectangular/nearest	err	d6e947bf16a3ed58
+netcdf/hdf5_v4_chunk_index.h5#single_chunk	render/source/nearest	ok w=4 h=4 opaque=16	c140b22da4bd7cbb
+netcdf/hdf5_v4_chunk_index.h5#single_chunk_filtered	meta	family=latlon ni=4 nj=4 reprojectable=false	403d5e9aa0f09179
+netcdf/hdf5_v4_chunk_index.h5#single_chunk_filtered	render/equirectangular/nearest	err	d6e947bf16a3ed58
+netcdf/hdf5_v4_chunk_index.h5#single_chunk_filtered	render/source/nearest	ok w=4 h=4 opaque=16	c140b22da4bd7cbb
+netcdf/hdf5_zstd.h5#plain_deflate	meta	family=latlon ni=8 nj=8 reprojectable=false	228cc1ccea66cbf9
+netcdf/hdf5_zstd.h5#plain_deflate	render/equirectangular/nearest	err	d6e947bf16a3ed58
+netcdf/hdf5_zstd.h5#plain_deflate	render/source/nearest	ok w=8 h=8 opaque=64	c4d7b276e25147b3
+netcdf/hdf5_zstd.h5#shuffle_zstd	meta	family=latlon ni=8 nj=8 reprojectable=false	228cc1ccea66cbf9
+netcdf/hdf5_zstd.h5#shuffle_zstd	render/equirectangular/nearest	err	d6e947bf16a3ed58
+netcdf/hdf5_zstd.h5#shuffle_zstd	render/source/nearest	ok w=8 h=8 opaque=64	c4d7b276e25147b3
+netcdf/hdf5_zstd.h5#zstd	meta	family=latlon ni=8 nj=8 reprojectable=false	228cc1ccea66cbf9
+netcdf/hdf5_zstd.h5#zstd	render/equirectangular/nearest	err	d6e947bf16a3ed58
+netcdf/hdf5_zstd.h5#zstd	render/source/nearest	ok w=8 h=8 opaque=64	c4d7b276e25147b3
+netcdf/hdf5_zstd.h5#zstd_fletcher32	meta	family=latlon ni=8 nj=8 reprojectable=false	228cc1ccea66cbf9
+netcdf/hdf5_zstd.h5#zstd_fletcher32	render/equirectangular/nearest	err	d6e947bf16a3ed58
+netcdf/hdf5_zstd.h5#zstd_fletcher32	render/source/nearest	ok w=8 h=8 opaque=64	c4d7b276e25147b3
+netcdf/hdf5_zstd.h5#zstd_high	meta	family=latlon ni=8 nj=8 reprojectable=false	228cc1ccea66cbf9
+netcdf/hdf5_zstd.h5#zstd_high	render/equirectangular/nearest	err	d6e947bf16a3ed58
+netcdf/hdf5_zstd.h5#zstd_high	render/source/nearest	ok w=8 h=8 opaque=64	c4d7b276e25147b3
+netcdf/mirs_swath_n21.nc#RR	meta	family=curvilinear ni=96 nj=100 reprojectable=true	6be025c772567ff0
+netcdf/mirs_swath_n21.nc#RR	render/equirectangular/nearest	ok w=720 h=50 opaque=0	ff8ff0aaa4ba2f21
+netcdf/mirs_swath_n21.nc#RR	render/source/nearest	ok w=96 h=100 opaque=0	34621fadc8b1f0d0
+netcdf/mirs_swath_n21.nc#SIce	meta	family=curvilinear ni=96 nj=100 reprojectable=true	6be025c772567ff0
+netcdf/mirs_swath_n21.nc#SIce	render/equirectangular/nearest	ok w=720 h=50 opaque=357	0fc428dea8621de8
+netcdf/mirs_swath_n21.nc#SIce	render/source/nearest	ok w=96 h=100 opaque=175	662c6895f541d93a
+netcdf/mirs_swath_n21.nc#TPW	contours/equirectangular/auto	ok runs=523 points=1046	298fddb52ae498bf
+netcdf/mirs_swath_n21.nc#TPW	contours/mollweide/auto	ok runs=519 points=1038	dbbb1136a58c8538
+netcdf/mirs_swath_n21.nc#TPW	contours/source/auto	ok runs=523 points=1046	0dad6def5e5c5dab
+netcdf/mirs_swath_n21.nc#TPW	csv/long	ok rows=9601	433bc5af0f7bdb74
+netcdf/mirs_swath_n21.nc#TPW	csv/matrix	ok rows=100	833b71a6cd49c5d9
+netcdf/mirs_swath_n21.nc#TPW	meta	family=curvilinear ni=96 nj=100 reprojectable=true	6be025c772567ff0
+netcdf/mirs_swath_n21.nc#TPW	probe/equirectangular/0,0	hit cell=- geo=yes value=no	a074154fb5f6766e
+netcdf/mirs_swath_n21.nc#TPW	probe/equirectangular/359,180	miss	c4e0642f982dc6de
+netcdf/mirs_swath_n21.nc#TPW	probe/equirectangular/7,3	hit cell=- geo=yes value=no	550003f0ae690b45
+netcdf/mirs_swath_n21.nc#TPW	probe/equirectangular/719,719	miss	c4e0642f982dc6de
+netcdf/mirs_swath_n21.nc#TPW	probe/orthographic/0,0	miss	c4e0642f982dc6de
+netcdf/mirs_swath_n21.nc#TPW	probe/orthographic/359,180	hit cell=- geo=yes value=no	542c39f9eaccd6ca
+netcdf/mirs_swath_n21.nc#TPW	probe/orthographic/7,3	miss	c4e0642f982dc6de
+netcdf/mirs_swath_n21.nc#TPW	probe/orthographic/719,719	miss	c4e0642f982dc6de
+netcdf/mirs_swath_n21.nc#TPW	probe/source/0,0	hit cell=0,0 geo=yes value=yes	6125836888e80b14
+netcdf/mirs_swath_n21.nc#TPW	probe/source/359,180	miss	c4e0642f982dc6de
+netcdf/mirs_swath_n21.nc#TPW	probe/source/7,3	hit cell=7,3 geo=yes value=yes	6faedd77f3fa48b0
+netcdf/mirs_swath_n21.nc#TPW	probe/source/719,719	miss	c4e0642f982dc6de
+netcdf/mirs_swath_n21.nc#TPW	render/equal_earth/bilinear	ok w=720 h=351 opaque=2266	69c33f043e10163f
+netcdf/mirs_swath_n21.nc#TPW	render/equal_earth/nearest	ok w=720 h=351 opaque=2266	69c33f043e10163f
+netcdf/mirs_swath_n21.nc#TPW	render/equirectangular/bilinear	ok w=720 h=50 opaque=14146	fa501d3552f3c71c
+netcdf/mirs_swath_n21.nc#TPW	render/equirectangular/nearest	ok w=720 h=50 opaque=14146	fa501d3552f3c71c
+netcdf/mirs_swath_n21.nc#TPW	render/equirectangular/nearest+window	ok w=720 h=482 opaque=0	134c0112f921703a
+netcdf/mirs_swath_n21.nc#TPW	render/mollweide/bilinear	ok w=720 h=360 opaque=1893	a2de3edf8fcb5335
+netcdf/mirs_swath_n21.nc#TPW	render/mollweide/nearest	ok w=720 h=360 opaque=1893	a2de3edf8fcb5335
+netcdf/mirs_swath_n21.nc#TPW	render/orthographic/bilinear	ok w=720 h=720 opaque=671	da8a6fd1e434a6a7
+netcdf/mirs_swath_n21.nc#TPW	render/orthographic/nearest	ok w=720 h=720 opaque=671	da8a6fd1e434a6a7
+netcdf/mirs_swath_n21.nc#TPW	render/polar_stereographic/bilinear	ok w=720 h=720 opaque=0	a880d3c2353652d3
+netcdf/mirs_swath_n21.nc#TPW	render/polar_stereographic/nearest	ok w=720 h=720 opaque=0	a880d3c2353652d3
+netcdf/mirs_swath_n21.nc#TPW	render/robinson/bilinear	ok w=720 h=365 opaque=4998	fbd3854d0e878905
+netcdf/mirs_swath_n21.nc#TPW	render/robinson/nearest	ok w=720 h=365 opaque=4998	fbd3854d0e878905
+netcdf/mirs_swath_n21.nc#TPW	render/source/bilinear	ok w=96 h=100 opaque=9600	f7c9982b1e14de00
+netcdf/mirs_swath_n21.nc#TPW	render/source/nearest	ok w=96 h=100 opaque=9600	f7c9982b1e14de00
+netcdf/mirs_swath_n21.nc#TPW	render/source/nearest+flip_y	ok w=96 h=100 opaque=9600	99c0ae226286d43c
+netcdf/mirs_swath_n21.nc#TPW	render/web_mercator/bilinear	ok w=720 h=50 opaque=11340	9133ee0028681408
+netcdf/mirs_swath_n21.nc#TPW	render/web_mercator/nearest	ok w=720 h=50 opaque=11340	9133ee0028681408
+netcdf/mirs_swath_n21.nc#TSkin	meta	family=curvilinear ni=96 nj=100 reprojectable=true	6be025c772567ff0
+netcdf/mirs_swath_n21.nc#TSkin	render/equirectangular/nearest	ok w=720 h=50 opaque=14146	3260e246b9fcd980
+netcdf/mirs_swath_n21.nc#TSkin	render/source/nearest	ok w=96 h=100 opaque=9600	34b236b019f44562
+netcdf/missing_value_classic.nc#temp	meta	family=latlon ni=3 nj=2 reprojectable=false	3505e2006325d84c
+netcdf/missing_value_classic.nc#temp	render/equirectangular/nearest	err	d6e947bf16a3ed58
+netcdf/missing_value_classic.nc#temp	render/source/nearest	ok w=3 h=2 opaque=3	424d9dd191138fc3
+netcdf/missing_value_nc4.nc#temp	meta	family=latlon ni=3 nj=2 reprojectable=false	3505e2006325d84c
+netcdf/missing_value_nc4.nc#temp	render/equirectangular/nearest	err	d6e947bf16a3ed58
+netcdf/missing_value_nc4.nc#temp	render/source/nearest	ok w=3 h=2 opaque=3	424d9dd191138fc3
+netcdf/netcdf4_dimscale.nc#lat_bnds	meta	family=latlon ni=2 nj=3 reprojectable=false	80bdbd8ab746cee0
+netcdf/netcdf4_dimscale.nc#lat_bnds	render/equirectangular/nearest	err	d6e947bf16a3ed58
+netcdf/netcdf4_dimscale.nc#lat_bnds	render/source/nearest	ok w=2 h=3 opaque=6	ee746a6d1b3a31a4
+netcdf/netcdf4_dimscale.nc#temperature	meta	family=latlon ni=4 nj=3 reprojectable=true	8dbac49210904c96
+netcdf/netcdf4_dimscale.nc#temperature	render/equirectangular/nearest	ok w=720 h=540 opaque=388800	f81f602e1460cf73
+netcdf/netcdf4_dimscale.nc#temperature	render/source/nearest	ok w=4 h=3 opaque=12	ae897e6957eb51bd
+netcdf/netcdf4_grouped.nc#/PRODUCT/SUPPORT_DATA/surface_altitude	meta	family=latlon ni=4 nj=3 reprojectable=false	749fb4ced5a06e7a
+netcdf/netcdf4_grouped.nc#/PRODUCT/SUPPORT_DATA/surface_altitude	render/equirectangular/nearest	err	d6e947bf16a3ed58
+netcdf/netcdf4_grouped.nc#/PRODUCT/SUPPORT_DATA/surface_altitude	render/source/nearest	ok w=4 h=3 opaque=12	ac0aad0e3e08fcf4
+netcdf/netcdf4_grouped.nc#/PRODUCT/latitude	meta	family=latlon ni=4 nj=3 reprojectable=false	749fb4ced5a06e7a
+netcdf/netcdf4_grouped.nc#/PRODUCT/latitude	render/equirectangular/nearest	err	d6e947bf16a3ed58
+netcdf/netcdf4_grouped.nc#/PRODUCT/latitude	render/source/nearest	ok w=4 h=3 opaque=12	e6d916f5c02a1221
+netcdf/netcdf4_grouped.nc#/PRODUCT/longitude	meta	family=latlon ni=4 nj=3 reprojectable=false	749fb4ced5a06e7a
+netcdf/netcdf4_grouped.nc#/PRODUCT/longitude	render/equirectangular/nearest	err	d6e947bf16a3ed58
+netcdf/netcdf4_grouped.nc#/PRODUCT/longitude	render/source/nearest	ok w=4 h=3 opaque=12	8980cc09e691c7b7
+netcdf/netcdf4_grouped.nc#/PRODUCT/qa_value	meta	family=latlon ni=4 nj=3 reprojectable=false	749fb4ced5a06e7a
+netcdf/netcdf4_grouped.nc#/PRODUCT/qa_value	render/equirectangular/nearest	err	d6e947bf16a3ed58
+netcdf/netcdf4_grouped.nc#/PRODUCT/qa_value	render/source/nearest	ok w=4 h=3 opaque=12	e6d916f5c02a1221
+netcdf/netcdf_classic_dummy.nc#AGC_1202	meta	err	8adefd39286100c4
+netcdf/netcdf_classic_dummy.nc#AGC_1202	render/equirectangular/nearest	err	8adefd39286100c4
+netcdf/netcdf_classic_dummy.nc#AGC_1202	render/source/nearest	err	8adefd39286100c4
+netcdf/netcdf_classic_dummy.nc#CD_310	meta	err	8adefd39286100c4
+netcdf/netcdf_classic_dummy.nc#CD_310	render/equirectangular/nearest	err	8adefd39286100c4
+netcdf/netcdf_classic_dummy.nc#CD_310	render/source/nearest	err	8adefd39286100c4
+netcdf/netcdf_classic_dummy.nc#CS_300	meta	err	8adefd39286100c4
+netcdf/netcdf_classic_dummy.nc#CS_300	render/equirectangular/nearest	err	8adefd39286100c4
+netcdf/netcdf_classic_dummy.nc#CS_300	render/source/nearest	err	8adefd39286100c4
+netcdf/netcdf_classic_dummy.nc#u_1205	meta	err	8adefd39286100c4
+netcdf/netcdf_classic_dummy.nc#u_1205	render/equirectangular/nearest	err	8adefd39286100c4
+netcdf/netcdf_classic_dummy.nc#u_1205	render/source/nearest	err	8adefd39286100c4
+netcdf/netcdf_classic_dummy.nc#v_1206	meta	err	8adefd39286100c4
+netcdf/netcdf_classic_dummy.nc#v_1206	render/equirectangular/nearest	err	8adefd39286100c4
+netcdf/netcdf_classic_dummy.nc#v_1206	render/source/nearest	err	8adefd39286100c4
+netcdf/netcdf_classic_dummy.nc#w_1204	meta	err	8adefd39286100c4
+netcdf/netcdf_classic_dummy.nc#w_1204	render/equirectangular/nearest	err	8adefd39286100c4
+netcdf/netcdf_classic_dummy.nc#w_1204	render/source/nearest	err	8adefd39286100c4
+netcdf/oisst_avhrr_v2.nc#ice	meta	family=latlon ni=32 nj=32 reprojectable=true	3fd33a31c1bc540c
+netcdf/oisst_avhrr_v2.nc#ice	render/equirectangular/nearest	ok w=720 h=720 opaque=272226	2458f58ae9ee343c
+netcdf/oisst_avhrr_v2.nc#ice	render/source/nearest	ok w=32 h=32 opaque=540	7488284658947b78
+netcdf/oisst_avhrr_v2.nc#sst	meta	family=latlon ni=32 nj=32 reprojectable=true	3fd33a31c1bc540c
+netcdf/oisst_avhrr_v2.nc#sst	render/equirectangular/nearest	ok w=720 h=720 opaque=342692	bf4577d7cd7aa9e0
+netcdf/oisst_avhrr_v2.nc#sst	render/source/nearest	ok w=32 h=32 opaque=680	f63b59fd4bd53523
+netcdf/rtofs_tripolar_arctic.nc#ice_coverage	meta	family=curvilinear ni=260 nj=200 reprojectable=true	bc656901c5ce3498
+netcdf/rtofs_tripolar_arctic.nc#ice_coverage	render/equirectangular/nearest	ok w=720 h=22 opaque=7716	98a95d2e52ddd382
+netcdf/rtofs_tripolar_arctic.nc#ice_coverage	render/source/nearest	ok w=260 h=200 opaque=52000	cd22e07d4f52dd79
+netcdf/rtofs_tripolar_arctic.nc#ice_temperature	meta	family=curvilinear ni=260 nj=200 reprojectable=true	bc656901c5ce3498
+netcdf/rtofs_tripolar_arctic.nc#ice_temperature	render/equirectangular/nearest	ok w=720 h=22 opaque=7716	bfd43b7b94a2b3a4
+netcdf/rtofs_tripolar_arctic.nc#ice_temperature	render/source/nearest	ok w=260 h=200 opaque=52000	e14eea5cd16dc180
+netcdf/rtofs_tripolar_arctic.nc#ice_thickness	meta	family=curvilinear ni=260 nj=200 reprojectable=true	bc656901c5ce3498
+netcdf/rtofs_tripolar_arctic.nc#ice_thickness	render/equirectangular/nearest	ok w=720 h=22 opaque=7716	03a6b1c3b3f40d62
+netcdf/rtofs_tripolar_arctic.nc#ice_thickness	render/source/nearest	ok w=260 h=200 opaque=52000	c2f3eba895d2f073
+netcdf/wrf_lambert.nc#T2	meta	family=lambert ni=6 nj=5 reprojectable=true	67992c47912063d1
+netcdf/wrf_lambert.nc#T2	render/equirectangular/nearest	ok w=720 h=600 opaque=412594	7bf95cfb05655e67
+netcdf/wrf_lambert.nc#T2	render/source/nearest	ok w=6 h=5 opaque=30	569dc3de2e95e307
+netcdf/wrf_lambert.nc#XLAT	meta	family=lambert ni=6 nj=5 reprojectable=true	67992c47912063d1
+netcdf/wrf_lambert.nc#XLAT	render/equirectangular/nearest	ok w=720 h=600 opaque=412594	299e83fd1a4a299b
+netcdf/wrf_lambert.nc#XLAT	render/source/nearest	ok w=6 h=5 opaque=30	e984f4e1fa2b198d
+netcdf/wrf_lambert.nc#XLONG	meta	family=lambert ni=6 nj=5 reprojectable=true	67992c47912063d1
+netcdf/wrf_lambert.nc#XLONG	render/equirectangular/nearest	ok w=720 h=600 opaque=412594	ae51d3733a8614c6
+netcdf/wrf_lambert.nc#XLONG	render/source/nearest	ok w=6 h=5 opaque=30	13d8924071a649d9
+netcdf/wrf_latlon.nc#T2	meta	family=latlon ni=6 nj=5 reprojectable=true	a38ac1b65e52da91
+netcdf/wrf_latlon.nc#T2	render/equirectangular/nearest	ok w=720 h=600 opaque=432000	96c6242fa60f7361
+netcdf/wrf_latlon.nc#T2	render/source/nearest	ok w=6 h=5 opaque=30	04abc932ab9ed785
+netcdf/wrf_latlon.nc#XLAT	meta	family=latlon ni=6 nj=5 reprojectable=true	a38ac1b65e52da91
+netcdf/wrf_latlon.nc#XLAT	render/equirectangular/nearest	ok w=720 h=600 opaque=432000	315bdf5ead7a9136
+netcdf/wrf_latlon.nc#XLAT	render/source/nearest	ok w=6 h=5 opaque=30	12ccad8be670aaa4
+netcdf/wrf_latlon.nc#XLONG	meta	family=latlon ni=6 nj=5 reprojectable=true	a38ac1b65e52da91
+netcdf/wrf_latlon.nc#XLONG	render/equirectangular/nearest	ok w=720 h=600 opaque=432000	b5d9137aeae36bfd
+netcdf/wrf_latlon.nc#XLONG	render/source/nearest	ok w=6 h=5 opaque=30	f834c35a86dd3527
+netcdf/wrf_mercator.nc#T2	contours/equirectangular/auto	ok runs=35 points=70	601580758fc8da36
+netcdf/wrf_mercator.nc#T2	contours/mollweide/auto	ok runs=35 points=70	31e9b20f7441bd66
+netcdf/wrf_mercator.nc#T2	contours/source/auto	ok runs=35 points=70	f9488f811f8dd4f8
+netcdf/wrf_mercator.nc#T2	csv/long	ok rows=31	52cc990790f82d80
+netcdf/wrf_mercator.nc#T2	csv/matrix	ok rows=5	177bb4a5edf0bf1e
+netcdf/wrf_mercator.nc#T2	meta	family=mercator ni=6 nj=5 reprojectable=true	82740e9e2b5797be
+netcdf/wrf_mercator.nc#T2	probe/equirectangular/0,0	hit cell=0,4 geo=yes value=yes	ea269c598ef3633e
+netcdf/wrf_mercator.nc#T2	probe/equirectangular/359,180	hit cell=2,3 geo=yes value=yes	13374dfde9c63cea
+netcdf/wrf_mercator.nc#T2	probe/equirectangular/7,3	hit cell=0,4 geo=yes value=yes	26f1d52e906d861d
+netcdf/wrf_mercator.nc#T2	probe/equirectangular/719,719	miss	c4e0642f982dc6de
+netcdf/wrf_mercator.nc#T2	probe/orthographic/0,0	miss	c4e0642f982dc6de
+netcdf/wrf_mercator.nc#T2	probe/orthographic/359,180	hit cell=- geo=yes value=no	542c39f9eaccd6ca
+netcdf/wrf_mercator.nc#T2	probe/orthographic/7,3	miss	c4e0642f982dc6de
+netcdf/wrf_mercator.nc#T2	probe/orthographic/719,719	miss	c4e0642f982dc6de
+netcdf/wrf_mercator.nc#T2	probe/source/0,0	hit cell=0,0 geo=yes value=yes	efc5ada22362e572
+netcdf/wrf_mercator.nc#T2	probe/source/359,180	miss	c4e0642f982dc6de
+netcdf/wrf_mercator.nc#T2	probe/source/7,3	miss	c4e0642f982dc6de
+netcdf/wrf_mercator.nc#T2	probe/source/719,719	miss	c4e0642f982dc6de
+netcdf/wrf_mercator.nc#T2	render/equal_earth/bilinear	ok w=720 h=360 opaque=5	f5ff83a571f14447
+netcdf/wrf_mercator.nc#T2	render/equal_earth/nearest	ok w=720 h=360 opaque=5	80e458d3410643a3
+netcdf/wrf_mercator.nc#T2	render/equirectangular/bilinear	ok w=720 h=600 opaque=432000	3432f8e0c88b7488
+netcdf/wrf_mercator.nc#T2	render/equirectangular/nearest	ok w=720 h=600 opaque=432000	2736a4e62ecc70bd
+netcdf/wrf_mercator.nc#T2	render/equirectangular/nearest+window	ok w=720 h=600 opaque=0	643a1a57a1b8d4c7
+netcdf/wrf_mercator.nc#T2	render/mollweide/bilinear	ok w=720 h=360 opaque=6	00af0a1722051e95
+netcdf/wrf_mercator.nc#T2	render/mollweide/nearest	ok w=720 h=360 opaque=6	08065ebea796a55c
+netcdf/wrf_mercator.nc#T2	render/orthographic/bilinear	ok w=720 h=720 opaque=22	04d84cd57bccc661
+netcdf/wrf_mercator.nc#T2	render/orthographic/nearest	ok w=720 h=720 opaque=22	d3451453911cc251
+netcdf/wrf_mercator.nc#T2	render/polar_stereographic/bilinear	ok w=720 h=720 opaque=31	1705f6702e2c74a4
+netcdf/wrf_mercator.nc#T2	render/polar_stereographic/nearest	ok w=720 h=720 opaque=31	3e32807ad20a8456
+netcdf/wrf_mercator.nc#T2	render/robinson/bilinear	ok w=720 h=360 opaque=4	e750c870fa1ea8b8
+netcdf/wrf_mercator.nc#T2	render/robinson/nearest	ok w=720 h=360 opaque=4	6cfdaf328da9a660
+netcdf/wrf_mercator.nc#T2	render/source/bilinear	ok w=6 h=5 opaque=30	42c5123c170a270d
+netcdf/wrf_mercator.nc#T2	render/source/nearest	ok w=6 h=5 opaque=30	42c5123c170a270d
+netcdf/wrf_mercator.nc#T2	render/source/nearest+flip_y	ok w=6 h=5 opaque=30	529ffa271ca5897d
+netcdf/wrf_mercator.nc#T2	render/web_mercator/bilinear	ok w=720 h=600 opaque=431280	0da177620d86ca89
+netcdf/wrf_mercator.nc#T2	render/web_mercator/nearest	ok w=720 h=600 opaque=431280	cdca587bc3dc99fd
+netcdf/wrf_mercator.nc#XLAT	meta	family=mercator ni=6 nj=5 reprojectable=true	82740e9e2b5797be
+netcdf/wrf_mercator.nc#XLAT	render/equirectangular/nearest	ok w=720 h=600 opaque=432000	70a7fd6e26bee92c
+netcdf/wrf_mercator.nc#XLAT	render/source/nearest	ok w=6 h=5 opaque=30	e446ecf5d684186e
+netcdf/wrf_mercator.nc#XLONG	meta	family=mercator ni=6 nj=5 reprojectable=true	82740e9e2b5797be
+netcdf/wrf_mercator.nc#XLONG	render/equirectangular/nearest	ok w=720 h=600 opaque=432000	50fee323c5f73504
+netcdf/wrf_mercator.nc#XLONG	render/source/nearest	ok w=6 h=5 opaque=30	5e0ce0a27016ad70
+netcdf/wrf_polar.nc#T2	meta	family=polar_stereo ni=6 nj=5 reprojectable=true	a87b633a9c34277a
+netcdf/wrf_polar.nc#T2	render/equirectangular/nearest	ok w=720 h=600 opaque=261304	9f5a2b579d833c92
+netcdf/wrf_polar.nc#T2	render/source/nearest	ok w=6 h=5 opaque=30	09443979b8b27945
+netcdf/wrf_polar.nc#XLAT	meta	family=polar_stereo ni=6 nj=5 reprojectable=true	a87b633a9c34277a
+netcdf/wrf_polar.nc#XLAT	render/equirectangular/nearest	ok w=720 h=600 opaque=261304	89c92550a0e59611
+netcdf/wrf_polar.nc#XLAT	render/source/nearest	ok w=6 h=5 opaque=30	11887a35d232fe2c
+netcdf/wrf_polar.nc#XLONG	meta	family=polar_stereo ni=6 nj=5 reprojectable=true	a87b633a9c34277a
+netcdf/wrf_polar.nc#XLONG	render/equirectangular/nearest	ok w=720 h=600 opaque=261304	ef0b255f1022b1d3
+netcdf/wrf_polar.nc#XLONG	render/source/nearest	ok w=6 h=5 opaque=30	9697109a94734e9c
