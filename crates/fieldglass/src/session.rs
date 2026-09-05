@@ -398,23 +398,14 @@ fn warp_field(field: &Field, options: &WarpOptions) -> Result<Warped, Error> {
         // the order is not the type's statement; read it back through the
         // type so it is stated once rather than at the destructure below.
         Some(b) => LonLatBox::from_array(b),
-        None => {
-            let extent = geometry.lonlat_bbox().ok_or_else(|| Error::Unsupported {
-                detail: format!("a {} grid states no extent to warp onto", geometry.label()),
-            })?;
-            // A global grid's default window runs the full turn, not to its
-            // last declared column. The gap between the last column and the
-            // first belongs to the grid — the periodic sampler fills it — and
-            // stopping at `lon_last` leaves the seam meridian as a stripe of
-            // background one cell wide. `lonlat_bbox` reports where the data
-            // is, which is the right answer to a different question; the
-            // widening turns it into a window.
-            if field.georef.periodic_x {
-                extent.widened_to_full_turn()
-            } else {
-                extent
-            }
-        }
+        // `lonlat_bbox` reports where the data is, which is the right answer
+        // to a different question; `render_window` is the window question, and
+        // states once — in `core`, for both hosts — that a periodic grid's
+        // window runs the full turn rather than stopping at its last declared
+        // column (#571).
+        None => geometry.render_window().ok_or_else(|| Error::Unsupported {
+            detail: format!("a {} grid states no extent to warp onto", geometry.label()),
+        })?,
     };
     let LonLatBox {
         lat_min,
@@ -523,30 +514,20 @@ fn build_palette(field: &Field, options: &PaletteOptions) -> Result<Palette, Err
 
 fn grib1_scan(msg: &fieldglass_grib1::Grib1Message) -> Scan {
     match &msg.gds {
-        Some(gds) => match scan_of_grib1(gds) {
-            Some(s) => s,
-            None => Scan::default_north_down(),
-        },
-        None => Scan::default_north_down(),
+        Some(gds) => scan_of_grib1(gds).unwrap_or_else(Scan::north_down),
+        None => Scan::north_down(),
     }
 }
 
 fn scan_of_grib1(gds: &fieldglass_grib1::GridDescription) -> Option<Scan> {
-    gds.scanning_mode().map(|m| Scan {
-        i_negative: m.i_negative,
-        j_positive: m.j_positive,
-        j_consecutive: m.j_consecutive,
-    })
+    gds.scanning_mode()
+        .map(|m| Scan::new(m.i_negative, m.j_positive, m.j_consecutive))
 }
 
 fn grib2_scan(msg: &fieldglass_grib2::Grib2Message) -> Scan {
     match msg.gds.scanning_mode() {
-        Some(sm) => Scan {
-            i_negative: sm & 0x80 != 0,
-            j_positive: sm & 0x40 != 0,
-            j_consecutive: sm & 0x20 != 0,
-        },
-        None => Scan::default_north_down(),
+        Some(sm) => Scan::new(sm & 0x80 != 0, sm & 0x40 != 0, sm & 0x20 != 0),
+        None => Scan::north_down(),
     }
 }
 
@@ -676,18 +657,6 @@ fn grib2_message(reader: &fieldglass_grib2::Grib2Reader, index: usize) -> Messag
     }
 }
 
-impl Scan {
-    /// The operational default — west-to-east, north-to-south, row-major — used
-    /// where a message states no scan at all.
-    fn default_north_down() -> Self {
-        Self {
-            i_negative: false,
-            j_positive: false,
-            j_consecutive: false,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -719,7 +688,7 @@ mod tests {
             mask: Vec::new(),
             ni: 0,
             nj: 0,
-            georef: Georef::from_geometry(&geometry, Scan::default_north_down()),
+            georef: Georef::from_geometry(&geometry, Scan::north_down()),
             stats: Stats {
                 min: None,
                 max: None,
