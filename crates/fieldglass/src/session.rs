@@ -10,7 +10,7 @@
 //! reference to every operation that consumes one.
 
 use fieldglass_core::{
-    Format as CoreFormat, GridGeometry, Resampling, SourceGrid, TargetRaster,
+    Format as CoreFormat, GridGeometry, LonLatBox, Resampling, SourceGrid, TargetRaster,
     colormap::{Colormap, Palette, ScaleMode, default_colormap},
     contour_segments, contour_segments_global, detect_from_bytes, nice_levels,
     units::normalize_units,
@@ -393,8 +393,11 @@ fn optional_values(field: &Field) -> Vec<Option<f64>> {
 
 fn warp_field(field: &Field, options: &WarpOptions) -> Result<Warped, Error> {
     let geometry = &field.georef.geometry;
-    let bounds = match options.bounds {
-        Some(b) => b,
+    let window = match options.bounds {
+        // The host hands the window over positionally, which is the one place
+        // the order is not the type's statement; read it back through the
+        // type so it is stated once rather than at the destructure below.
+        Some(b) => LonLatBox::from_array(b),
         None => {
             let extent = geometry.lonlat_bbox().ok_or_else(|| Error::Unsupported {
                 detail: format!("a {} grid states no extent to warp onto", geometry.label()),
@@ -407,19 +410,24 @@ fn warp_field(field: &Field, options: &WarpOptions) -> Result<Warped, Error> {
             // is, which is the right answer to a different question; the
             // widening turns it into a window.
             if field.georef.periodic_x {
-                extent.widened_to_full_turn().to_array()
+                extent.widened_to_full_turn()
             } else {
-                extent.to_array()
+                extent
             }
         }
     };
-    let [lat_min, lat_max, lon_min, lon_max] = bounds;
+    let LonLatBox {
+        lat_min,
+        lat_max,
+        lon_min,
+        lon_max,
+    } = window;
     if !(lat_min.is_finite() && lat_max.is_finite() && lon_min.is_finite() && lon_max.is_finite())
         || lat_max <= lat_min
         || lon_max <= lon_min
     {
         return Err(Error::InvalidOption {
-            detail: format!("the warp window {bounds:?} encloses no area"),
+            detail: format!("the warp window {window:?} encloses no area"),
         });
     }
 
@@ -465,7 +473,7 @@ fn warp_field(field: &Field, options: &WarpOptions) -> Result<Warped, Error> {
         mask: out.mask,
         width: out.width,
         height: out.height,
-        bounds,
+        bounds: window.to_array(),
     })
 }
 

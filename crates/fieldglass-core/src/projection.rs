@@ -1354,6 +1354,24 @@ pub struct PlaneAffine {
 /// fn frame(_: LonLatBox) {}
 /// frame(CornerPair::new(60.0, 0.0, -60.0, 350.0));
 /// ```
+///
+/// The conversion is the only way across, and it is not the identity — the
+/// grid above runs north-down, so the box reorders its latitudes:
+///
+/// ```
+/// use fieldglass_core::{CornerPair, LonLatBox};
+/// fn frame(_: LonLatBox) {}
+/// let corners = CornerPair::new(60.0, 0.0, -60.0, 350.0);
+/// assert_eq!(LonLatBox::from_corners(corners).lat_min, -60.0);
+/// frame(LonLatBox::from_corners(corners));
+/// ```
+///
+/// The second example is what keeps the first honest. `compile_fail` is
+/// satisfied by *any* compilation failure — rustdoc does not enforce an
+/// `E0308` annotation on stable — so on its own it would still pass if
+/// `CornerPair::new` changed arity or either type were renamed. The passing
+/// example names the same items, so that drift fails a test rather than
+/// quietly weakening one.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CornerPair {
     /// Latitude of the first scanned grid point.
@@ -1399,7 +1417,9 @@ pub struct LonLatBox {
     pub lat_max: f64,
     /// Western edge.
     pub lon_min: f64,
-    /// Eastern edge, always `>= lon_min` for a box built here.
+    /// Eastern edge. `>= lon_min` for a box from [`Self::from_corners`] or a
+    /// projector's perimeter walk; [`Self::new`] validates nothing, so a box
+    /// built from a caller's own numbers is only as ordered as they were.
     pub lon_max: f64,
 }
 

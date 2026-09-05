@@ -926,7 +926,7 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
                 }
                 let (lat_first, lon_first) = projector.grid_point_lonlat(0, 0);
                 let (lat_last, lon_last) = projector.last_grid_point_lonlat();
-                Some((
+                Some(CornerPair::new(
                     lat_first,
                     normalise_lon(lon_first),
                     lat_last,
@@ -1056,16 +1056,16 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
         // starts, and dropping that would lose a fact the message spells out
         // (#472).
         lat_first: transverse_mercator_corners
-            .map(|(la1, _, _, _)| la1)
+            .map(|c| c.lat_first)
             .or_else(|| msg.gds.first_point().map(|(la1, _)| la1)),
         lon_first: transverse_mercator_corners
-            .map(|(_, lo1, _, _)| lo1)
+            .map(|c| c.lon_first)
             .or_else(|| msg.gds.first_point().map(|(_, lo1)| lo1)),
         lat_last: transverse_mercator_corners
-            .map(|(_, _, la2, _)| la2)
+            .map(|c| c.lat_last)
             .or_else(|| bounds.map(|c| c.lat_last)),
         lon_last: transverse_mercator_corners
-            .map(|(_, _, _, lo2)| lo2)
+            .map(|c| c.lon_last)
             .or_else(|| bounds.map(|c| c.lon_last)),
         format: "grib2".to_string(),
         edition: Some(i32::from(msg.is.edition)),
