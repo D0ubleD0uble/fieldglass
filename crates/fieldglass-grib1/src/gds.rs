@@ -318,7 +318,10 @@ impl PolarStereoGrid {
         // The inverse is `lov + atan2(..)` and can land outside [-180, 180]
         // (e.g. lov=247 yields ~328°); normalise so the reported corner is
         // consistent with the first point's longitude convention.
-        finite_lonlat(projector.last_grid_point_lonlat())
+        finite_lonlat(
+            projector.is_well_defined(),
+            projector.last_grid_point_lonlat(),
+        )
     }
 }
 
@@ -393,7 +396,10 @@ impl LambertGrid {
         // A collapsed cone (both standard parallels on the equator, say)
         // inverts to `NaN`, which used to reach the message table as the text
         // "NaN"; report no corner instead.
-        finite_lonlat(projector.last_grid_point_lonlat())
+        finite_lonlat(
+            projector.is_well_defined(),
+            projector.last_grid_point_lonlat(),
+        )
     }
 }
 
@@ -500,10 +506,12 @@ impl GridDescription {
     /// gets `None` where it expected a number — the shape of the #288 crash,
     /// which was patched in the TypeScript host rather than named here.
     ///
-    /// The converse does not hold for [`Self::bounds`] alone: a Lambert grid
-    /// whose cone collapses has a raster but no far corner, because that corner
-    /// is recovered from the projection rather than stated. `dimensions` and
-    /// `first_point` are `Some` exactly when this is true.
+    /// The converse does not hold for [`Self::bounds`] alone: a planar grid
+    /// whose projection places no point has a raster but no far corner, because
+    /// that corner is recovered from the projection rather than stated — a
+    /// Lambert cone the standard parallels collapse, or either family's cell
+    /// declared wider than the plane it sits in. `dimensions` and `first_point`
+    /// are `Some` exactly when this is true.
     pub fn has_raster(&self) -> bool {
         match self {
             Self::LatLon(_)
@@ -956,17 +964,27 @@ fn read_signed_magnitude_24(b: &[u8]) -> i32 {
 /// A derived corner, or `None` when the projection could not place one, with the
 /// longitude wrapped into the half-open range (-180, 180].
 ///
-/// `fieldglass_grib2`'s helper of the same name takes the projector's
-/// `is_well_defined` as well, because a §3 message declares its own Earth
-/// radius and a declared zero collapses the plane while every number stays
-/// finite (#603). GRIB1 cannot say that: [`ResolutionFlags::earth_radius_m`]
-/// answers one of two constants from a single flag bit, and the polar
-/// stereographic `LaD` is fixed at 60°, so both families' constants are
-/// well-defined by construction here and finiteness is the whole test. The
-/// collapsed cone this does catch comes from the standard parallels, which
-/// GRIB1 *does* state.
-fn finite_lonlat((lat, lon): (f64, f64)) -> Option<(f64, f64)> {
-    (lat.is_finite() && lon.is_finite()).then(|| (lat, normalise_longitude(lon)))
+/// Takes the projector's `is_well_defined` as well as the coordinates, the same
+/// shape `fieldglass_grib2`'s helper of the same name has, and for the same
+/// reason: a projection can be too degenerate to place a point while every
+/// number it produces stays finite, so finiteness alone is not the test.
+///
+/// GRIB1 states less of its projection than §3 does, and the two collapses a §3
+/// message reaches through its declared Earth are indeed out of reach here:
+/// [`ResolutionFlags::earth_radius_m`] answers one of two constants from a
+/// single flag bit, so there is no declared zero (#603), and the polar
+/// stereographic `LaD` is fixed at 60°, so the pole scale factor cannot be
+/// driven to zero either. Two collapses remain, and GRIB1 states both.
+///
+/// The standard parallels are stated, so a Lambert cone still collapses on
+/// `Latin1 == Latin2 == 0` — a cone constant of zero, which does go non-finite.
+/// And Dx/Dy are three octets of unsigned metres, so a grid can declare a
+/// 16 777 km cell: wider than either GRIB1 Earth, and wider than the 11 882 km
+/// plane a ±60° latitude of true scale leaves the polar stereographic family.
+/// The whole projection then collapses inside one cell (#610) with nothing
+/// going non-finite — a corner comes back, and it is not a position.
+fn finite_lonlat(well_defined: bool, (lat, lon): (f64, f64)) -> Option<(f64, f64)> {
+    (well_defined && lat.is_finite() && lon.is_finite()).then(|| (lat, normalise_longitude(lon)))
 }
 
 fn normalise_longitude(lon: f64) -> f64 {
@@ -1150,6 +1168,127 @@ mod grid_variant_tests {
         let (x, y) = projector.forward(la2, lo2);
         assert!((x - (ox + 600.0 * 13_545.0)).abs() < 1e-3, "x metres: {x}");
         assert!((y - (oy + 400.0 * 13_545.0)).abs() < 1e-3, "y metres: {y}");
+    }
+
+    /// Both standard parallels on the equator give a cone constant of zero, so
+    /// the forward map divides by it and the recovered corner is `NaN`. It has
+    /// always been refused; the test is here so the two ways a GRIB1 planar
+    /// grid loses its corner sit side by side.
+    #[test]
+    fn lambert_collapsed_cone_reports_no_corner() {
+        let mut body = Vec::new();
+        body.extend(u16be(601));
+        body.extend(u16be(401));
+        body.extend(sm24(38_500));
+        body.extend(sm24(-126_000));
+        body.push(0xC0);
+        body.extend(sm24(-95_000));
+        body.extend(u24(13_545));
+        body.extend(u24(13_545));
+        body.push(0);
+        body.push(0x40);
+        body.extend(sm24(0)); // latin1 = 0
+        body.extend(sm24(0)); // latin2 = 0 ⇒ n = sin 0 = 0
+        body.extend(sm24(0));
+        body.extend(sm24(0));
+
+        let parsed = parse_grid_description(&build_gds(3, &body)).expect("parses");
+        assert!(parsed.has_raster(), "the raster shape is still declared");
+        assert_eq!(parsed.first_point(), Some((38.500, -126.000)));
+        assert_eq!(parsed.bounds(), None, "a collapsed cone places no corner");
+    }
+
+    /// Dx/Dy are three octets of unsigned metres, so a GRIB1 message can
+    /// declare a cell wider than the Earth it is projected on. Nothing goes
+    /// non-finite there — the corner inverts to a perfectly ordinary lat/lon —
+    /// but the projection has collapsed inside one cell and the position means
+    /// nothing, so no corner is reported (#610).
+    #[test]
+    fn lambert_cell_wider_than_the_plane_reports_no_corner() {
+        let mut body = Vec::new();
+        body.extend(u16be(2));
+        body.extend(u16be(2));
+        body.extend(sm24(38_500));
+        body.extend(sm24(-126_000));
+        body.push(0xC0);
+        body.extend(sm24(-95_000));
+        body.extend(u24(16_777_215)); // dx_m — the widest a u24 can say
+        body.extend(u24(16_777_215)); // dy_m, both > the 6 367 470 m Earth
+        body.push(0);
+        body.push(0x40);
+        body.extend(sm24(38_500));
+        body.extend(sm24(38_500));
+        body.extend(sm24(0));
+        body.extend(sm24(0));
+
+        let parsed = parse_grid_description(&build_gds(3, &body)).expect("parses");
+        let GridDescription::LambertConformal(g) = &parsed else {
+            panic!("expected LambertConformal");
+        };
+        // The corner the projection hands back is finite — this is exactly the
+        // case finiteness cannot catch.
+        let (dx, dy) = g.signed_increments();
+        let projector = LambertProjector::new(LambertParams {
+            earth_radius_m: g.resolution_flags.earth_radius_m(),
+            ni: g.nx,
+            nj: g.ny,
+            lat_first: g.lat_first,
+            lon_first: g.lon_first,
+            lad: g.latin1,
+            lov: g.lov,
+            dx_metres: dx,
+            dy_metres: dy,
+            latin1: g.latin1,
+            latin2: g.latin2,
+        });
+        let (lat, lon) = projector.last_grid_point_lonlat();
+        assert!(lat.is_finite() && lon.is_finite(), "({lat}, {lon})");
+        assert!(!projector.is_well_defined(), "the plane holds no cell");
+
+        assert!(parsed.has_raster(), "the raster shape is still declared");
+        assert_eq!(parsed.bounds(), None, "a collapsed plane places no corner");
+    }
+
+    /// The polar stereographic half of the same rule. ON388 fixes the latitude
+    /// of true scale at ±60°, so the plane is `2·R·k₀` ≈ 11 882 km wide — and a
+    /// u24 Dx reaches past it.
+    #[test]
+    fn polar_stereo_cell_wider_than_the_plane_reports_no_corner() {
+        let mut body = Vec::new();
+        body.extend(u16be(2)); // nx
+        body.extend(u16be(2)); // ny
+        body.extend(sm24(-20_826)); // lat_first
+        body.extend(sm24(-145_000)); // lon_first
+        body.push(0x88);
+        body.extend(sm24(-80_000)); // lov
+        body.extend(u24(16_777_215)); // dx_m
+        body.extend(u24(16_777_215)); // dy_m
+        body.push(0x80); // south pole on plane
+        body.push(0x40);
+
+        let parsed = parse_grid_description(&build_gds(5, &body)).expect("parses");
+        let GridDescription::PolarStereographic(g) = &parsed else {
+            panic!("expected PolarStereographic");
+        };
+        let (dx, dy) = g.signed_increments();
+        let projector = PolarStereoProjector::new(PolarStereoParams {
+            earth_radius_m: g.resolution_flags.earth_radius_m(),
+            ni: g.nx,
+            nj: g.ny,
+            lat_first: g.lat_first,
+            lon_first: g.lon_first,
+            lov: g.lov,
+            lad: g.lad(),
+            dx_metres: dx,
+            dy_metres: dy,
+            south_pole: g.south_pole,
+        });
+        let (lat, lon) = projector.last_grid_point_lonlat();
+        assert!(lat.is_finite() && lon.is_finite(), "({lat}, {lon})");
+        assert!(!projector.is_well_defined(), "the plane holds no cell");
+
+        assert!(parsed.has_raster(), "the raster shape is still declared");
+        assert_eq!(parsed.bounds(), None, "a collapsed plane places no corner");
     }
 
     #[test]
