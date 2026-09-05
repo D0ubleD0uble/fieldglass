@@ -26,8 +26,8 @@
 //! * `ni` and `nj`, because [`GridGeometry::Unsupported`] carries no dimensions
 //!   and a synthesised raster's shape is not the one its family states. That is
 //!   also why [`Source`] states them separately in the first place.
-//! * [`Scan`], because two grids that are identical apart from the direction
-//!   their rows were stored in hold their cells the other way up.
+//! * [`crate::api::Scan`], because two grids that are identical apart from the
+//!   direction their rows were stored in hold their cells the other way up.
 
 use fieldglass_core::{GridGeometry, combine_cell, combine_fields};
 
