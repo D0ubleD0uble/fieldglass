@@ -17,12 +17,12 @@
 //! <field>\t<case>\t<portable>\t<exact>
 //! ```
 //!
-//! `<field>` names a fixture message or NetCDF slice, `<case>` names one
-//! operation with every input pinned in it. `<portable>` is the case's
-//! *discrete* result written out in the open — raster size, opaque-pixel count,
-//! probe hit or miss and the grid cell it landed on, contour run and vertex
-//! counts, CSV row count. `<exact>` is an FNV fold over everything the call
-//! produced, RGBA bytes and `f64` bits included.
+//! `<field>` names a fixture file, one of its messages, or one NetCDF slice of
+//! it; `<case>` names one operation with every input pinned in it.
+//! `<portable>` is the case's *discrete* result written out in the open —
+//! raster size, opaque-pixel count, probe hit or miss and the grid cell it
+//! landed on, contour run and vertex counts, CSV row count. `<exact>` is an FNV
+//! fold over everything the call produced, RGBA bytes and `f64` bits included.
 //!
 //! # Why two columns
 //!
@@ -61,9 +61,13 @@
 //!
 //! # Two tiers, and why
 //!
-//! Every field in the corpus is recorded, so a fixture leaving it fails here.
-//! Each gets its resolved geometry, a source-projection render and an
-//! equirectangular render.
+//! All 105 fixture files are recorded, each with the number of fields it
+//! yielded. Six of them yield none — a NetCDF-4 or HDF5 file with no renderable
+//! variable — and without their own line they would be absent from the
+//! recording rather than named in it, which is the difference between a corpus
+//! that is enumerated and one that is merely counted. Every one of the 144
+//! fields is recorded too, with its resolved geometry, a source-projection
+//! render and an equirectangular render.
 //!
 //! [`DEEP_FIELDS`] then names one field per source grid family and gives it the
 //! full matrix: every target projection under both resamplings, the manual
@@ -297,56 +301,108 @@ fn stem(path: &std::path::Path) -> String {
         .into_owned()
 }
 
-/// Visit every field of the committed corpus, in a fixed order, calling `f`
-/// with its id.
+/// What a visitor is handed: one file, then each of the fields it yielded.
+enum Visit<'a> {
+    /// A fixture file, with whether it parsed and how many fields it produced.
+    File { parsed: bool, fields: usize },
+    /// One message or slice of that file.
+    Field(&'a Subject<'a>),
+}
+
+/// Visit the committed corpus in a fixed order: every file, and every field
+/// each file yields.
 ///
-/// A file that does not parse is **not** skipped silently: it is visited with
-/// no subject, so it still occupies a line in the golden and a corpus that
-/// stopped decoding shows up as a diff rather than as an absence.
-fn for_each_field(mut f: impl FnMut(String, Option<&Subject<'_>>)) {
+/// **Every file is visited, including the ones that yield nothing.** Six
+/// NetCDF-4 and HDF5 fixtures have no renderable variable at all. Recording
+/// fields alone would leave those six out of the recording entirely, so nobody
+/// reading it could tell them apart from files that are not in the corpus —
+/// and a seventh joining them would be a silent shrink rather than a diff.
+fn for_each_visit(mut f: impl FnMut(String, Visit<'_>)) {
     for extension in ["grib", "grib1"] {
         for path in fixtures("../fieldglass-grib1/tests/fixtures", extension) {
+            let file = format!("grib1/{}", stem(&path));
             let bytes = std::fs::read(&path).expect("fixture bytes");
             let Ok(reader) = Grib1Reader::from_bytes(bytes) else {
-                f(format!("grib1/{}#unparsed", stem(&path)), None);
+                f(
+                    file,
+                    Visit::File {
+                        parsed: false,
+                        fields: 0,
+                    },
+                );
                 continue;
             };
             let count = reader.messages.len();
+            f(
+                file.clone(),
+                Visit::File {
+                    parsed: true,
+                    fields: count,
+                },
+            );
             let handle = Grib1Handle {
                 reader,
                 decoded: Mutex::new(std::collections::HashMap::new()),
                 synthesized: Mutex::new(std::collections::HashMap::new()),
             };
             for i in 0..count {
-                let id = format!("grib1/{}#{i:02}", stem(&path));
-                f(id, Some(&Subject::Grib1(&handle, i as u32)));
+                f(
+                    format!("{file}#{i:02}"),
+                    Visit::Field(&Subject::Grib1(&handle, i as u32)),
+                );
             }
         }
     }
     for path in fixtures("../fieldglass-grib2/tests/fixtures", "grib2") {
+        let file = format!("grib2/{}", stem(&path));
         let bytes = std::fs::read(&path).expect("fixture bytes");
         let Ok(reader) = Grib2Reader::from_bytes(bytes) else {
-            f(format!("grib2/{}#unparsed", stem(&path)), None);
+            f(
+                file,
+                Visit::File {
+                    parsed: false,
+                    fields: 0,
+                },
+            );
             continue;
         };
         let count = reader.messages.len();
+        f(
+            file.clone(),
+            Visit::File {
+                parsed: true,
+                fields: count,
+            },
+        );
         let handle = Grib2Handle {
             reader,
             decoded: Mutex::new(std::collections::HashMap::new()),
             synthesized: Mutex::new(std::collections::HashMap::new()),
         };
         for i in 0..count {
-            let id = format!("grib2/{}#{i:02}", stem(&path));
-            f(id, Some(&Subject::Grib2(&handle, i as u32)));
+            f(
+                format!("{file}#{i:02}"),
+                Visit::Field(&Subject::Grib2(&handle, i as u32)),
+            );
         }
     }
     for extension in ["h5", "nc"] {
         for path in fixtures("../fieldglass-netcdf/tests/fixtures", extension) {
+            let file = format!("netcdf/{}", stem(&path));
             let bytes = std::fs::read(&path).expect("fixture bytes");
             let Ok(reader) = NetcdfReader::from_bytes(bytes) else {
-                f(format!("netcdf/{}#unparsed", stem(&path)), None);
+                f(
+                    file,
+                    Visit::File {
+                        parsed: false,
+                        fields: 0,
+                    },
+                );
                 continue;
             };
+            // `unwrap_or_default` mirrors the handle's own constructor: a view
+            // that will not resolve leaves the picker empty rather than failing
+            // the open. The file's line records that it resolved to nothing.
             let view = reader.view().unwrap_or_default();
             let handle = NetcdfHandle {
                 reader,
@@ -354,12 +410,19 @@ fn for_each_field(mut f: impl FnMut(String, Option<&Subject<'_>>)) {
                 decoded: Mutex::new(std::collections::HashMap::new()),
                 curvilinear: Mutex::new(std::collections::HashMap::new()),
             };
-            for v in handle.variables() {
+            let variables = handle.variables();
+            f(
+                file.clone(),
+                Visit::File {
+                    parsed: true,
+                    fields: variables.len(),
+                },
+            );
+            for v in variables {
                 let (y, x) = slice_axes(&v);
-                let id = format!("netcdf/{}#{}", stem(&path), v.name);
                 let indices = vec![0u32; v.dims.len()];
                 let subject = Subject::Netcdf(&handle, v.variable_index as u32, y, x, indices);
-                f(id, Some(&subject));
+                f(format!("{file}#{}", v.name), Visit::Field(&subject));
             }
         }
     }
@@ -651,16 +714,16 @@ fn cases(id: &str, subject: &Subject<'_>, into: &mut Golden) {
 /// Replay the whole corpus.
 fn observed() -> Golden {
     let mut golden = Golden::new();
-    for_each_field(|id, subject| match subject {
-        Some(subject) => cases(&id, subject, &mut golden),
-        None => {
-            golden.insert(
-                (id, "parse".to_string()),
-                Row {
-                    portable: "err".to_string(),
-                    exact: hasher(),
-                },
-            );
+    for_each_visit(|id, visit| match visit {
+        Visit::Field(subject) => cases(&id, subject, &mut golden),
+        Visit::File { parsed, fields } => {
+            let portable = format!("parsed={parsed} fields={fields}");
+            let mut h = hasher();
+            mix_str(&mut h, "file");
+            mix_str(&mut h, &portable);
+            let previous =
+                golden.insert((id.clone(), "file".to_string()), Row { portable, exact: h });
+            assert!(previous.is_none(), "{id}: visited twice");
         }
     });
     golden
@@ -857,7 +920,7 @@ fn every_grid_family_in_the_golden_has_a_deep_field() {
 /// fixture leaves the corpus; this is what fails once that has been re-recorded,
 /// or when the list is edited to a name that was never there.
 #[test]
-fn every_deep_field_is_still_in_the_corpus() {
+fn every_deep_field_is_still_in_the_recording() {
     let golden = recorded();
     let recorded_fields: BTreeSet<&str> = golden.keys().map(|(field, _)| field.as_str()).collect();
     let gone: Vec<&&str> = DEEP_FIELDS
