@@ -18,11 +18,12 @@
 //! ```
 //!
 //! `<field>` names a fixture file, one of its messages, or one NetCDF slice of
-//! it; `<case>` names one operation with every input pinned in it.
-//! `<portable>` is the case's *discrete* result written out in the open —
-//! raster size, opaque-pixel count, probe hit or miss and the grid cell it
-//! landed on, contour run and vertex counts, CSV row count. `<exact>` is an FNV
-//! fold over everything the call produced, RGBA bytes and `f64` bits included.
+//! it; `<case>` names one operation with its inputs in it. `<portable>` is the
+//! case's *discrete* result written out in the open — raster size,
+//! opaque-pixel count, probe hit or miss and the grid cell it landed on,
+//! contour run and vertex counts, CSV line count, and for a refusal the reason
+//! with its numbers elided. `<exact>` is an FNV fold over everything the call
+//! produced, RGBA bytes, `f64` bits and the unelided reason included.
 //!
 //! # Why two columns
 //!
@@ -34,12 +35,29 @@
 //! libm that recorded it; `<portable>` is asserted everywhere.
 //!
 //! `<portable>` is not a weaker copy of `<exact>`. It is deliberately made of
-//! the *discrete* outputs — the `Some`/`None`-shaped decisions and the counts —
-//! which ADR-0009 measured as identical across libms and named as "the
+//! the *discrete* outputs — the `Some`/`None`-shaped decisions, the counts and
+//! which refusal a case produces — which is the class ADR-0009 named as "the
 //! assumption most worth re-checking, because it is the one that would actually
 //! be visible". A grid cell index or an opaque-pixel count that started
 //! disagreeing between targets is a real product defect, and this column is
 //! where it would surface.
+//!
+//! Two limits of that column, stated rather than left to be discovered:
+//!
+//! * **ADR-0009 did not measure these outputs.** Its 323,620-probe measurement
+//!   covers the four planar inverses. The opaque counts here are millions of
+//!   per-pixel decisions across Mollweide, Robinson, Equal Earth, orthographic,
+//!   the geostationary scan grid and a curvilinear nearest-neighbour search,
+//!   and a raster height like 503 is a rounded result on a libm-computed
+//!   extent. This column extends the ADR's finding to the whole display path on
+//!   purpose, so that a target where it does *not* hold says so. If one ever
+//!   reddens here, the response is ADR-0009's "a discrete output starts
+//!   disagreeing across targets" revisit bullet, not a re-baseline.
+//! * **`fieldglass-napi` does not build for `wasm32`**, so unlike the planar
+//!   golden this column has no second target in CI today. It is here for a
+//!   downstream running `cargo test` on macOS or musl, and for #572, which
+//!   moves this code onto `fieldglass::Session` — a crate the wasm job does
+//!   build and test.
 //!
 //! The gate cannot quietly stop matching: `planar_inverse_golden.rs`'s
 //! `the_reference_toolchain_is_the_recorded_libm` asserts the same shared
@@ -54,10 +72,16 @@
 //! golden keyed on it would degrade to a no-op that passes while pinning
 //! nothing — the failure the issue's own "a fixture leaving the corpus fails
 //! here" criterion exists to prevent. So the input is the committed corpus
-//! under `crates/*/tests/fixtures/`, the set `every_fixture_places_its_own_first_point`
-//! and `grid_geometry_proj.rs` already enumerate. A `samples/`-wide sweep, if it
-//! is ever wanted, has to be a separate check that *asserts* the corpus is
-//! present rather than skipping when it is not.
+//! under `crates/*/tests/fixtures/`. Nothing in the repository enumerated that
+//! whole set before: `every_fixture_places_its_own_first_point` walks the 53
+//! GRIB2 files only, and `grid_geometry_proj.rs` reads no fixture directory at
+//! all — it checks three hand-written grids against a PROJ-generated JSON
+//! golden. `every_fixture_file_is_classified` is what holds the corpus to the
+//! extension allow-list this file reaches it by, so a fixture arriving as
+//! `.grb2` or in a subdirectory fails instead of quietly staying outside.
+//!
+//! A `samples/`-wide sweep, if it is ever wanted, has to be a separate check
+//! that *asserts* the corpus is present rather than skipping when it is not.
 //!
 //! # Two tiers, and why
 //!
@@ -69,17 +93,28 @@
 //! fields is recorded too, with its resolved geometry, a source-projection
 //! render and an equirectangular render.
 //!
-//! [`DEEP_FIELDS`] then names one field per source grid family and gives it the
-//! full matrix: every target projection under both resamplings, the manual
-//! render window, the flipped source view, probes, contours and both CSV
-//! formats. That is where the per-family warp setups actually differ. Running
-//! the matrix over all 144 fields instead of 14 was measured at 55 s against
-//! 9.5 s in release, about three and a half minutes against 35 s in the debug
-//! `cargo test` that the pre-commit hook runs, and the extra cases differ only
-//! in the data flowing through the same code path.
-//! `every_grid_family_in_the_golden_has_a_deep_field` is what keeps that list
-//! honest: a family that arrives with no representative fails rather than being
-//! covered shallowly.
+//! [`DEEP_FIELDS`] then names 15 of them and gives each the full matrix: every
+//! target projection under both resamplings, three manual render windows, the
+//! flipped source view, probes, contours and both CSV formats. That is where
+//! the per-family warp setups actually differ. Running the matrix over all 144
+//! fields instead of 15 was measured at 59 s against 10 s in
+//! release, 3 min 31 s against 38 s in the debug `cargo test` the hook
+//! runs, and the extra cases differ only in the data flowing through the same
+//! code path.
+//!
+//! The 15 are one per *source path*, which is a finer partition than the render
+//! family: spectral synthesis, HEALPix resampling and two ordinary lat/lon
+//! grids all report `family=latlon`, and the fifteen entries cover twelve
+//! families. `every_grid_family_in_the_golden_has_a_deep_field` enforces the
+//! coarser half — a family arriving with no representative fails rather than
+//! being covered shallowly — while the finer half is the named list itself,
+//! held in place by `every_deep_field_is_still_in_the_recording`.
+//!
+//! Two of the fifteen trace no contours at all under any target: the regular
+//! Gaussian and the rotated lat/lon fixtures are constant fields, so the auto
+//! levels have nothing to cross. They are each the only fixture of their family
+//! in the corpus, so there is nothing to swap them for; the tracer is covered
+//! by the other thirteen.
 //!
 //! # Re-recording
 //!
@@ -138,32 +173,64 @@ const PROJECTIONS: [&str; 8] = [
 /// the raster" is a result here rather than an untested path.
 const PROBE_PIXELS: [(u32, u32); 4] = [(0, 0), (7, 3), (359, 180), (719, 719)];
 
-/// The manual render window the bounds case asks for: 20 degrees south to 40
-/// north, 30 west to 60 east. Neither global nor symmetric, and it crosses both
-/// the equator and the prime meridian, so a target that ignores it and one that
-/// honours it cannot agree by accident.
-///
-/// Measured against the recording: it changes the bytes for thirteen of the
-/// fourteen deep fields — the fourteenth is the degenerate polar stereographic
-/// that refuses every target either way — and the opaque-pixel count for nine.
-/// The five it leaves unchanged in the portable column are the global grids,
-/// which cover the whole window, so only the exact column sees the difference
-/// there. That split is the two columns doing their separate jobs, not a case
-/// going untested.
-const WINDOW: (f64, f64, f64, f64) = (-20.0, 40.0, -30.0, 60.0);
+/// A manual render window as `RenderOptions` states one:
+/// `(lat_min, lat_max, lon_min, lon_max)`, in degrees.
+type Window = (f64, f64, f64, f64);
 
-/// One field per source grid family, given the full matrix.
+/// One of [`WINDOWS`]: its name in a case id, and the box itself.
+type NamedWindow = (&'static str, Window);
+
+/// One fixture directory: the prefix its fields carry in a field id, the path,
+/// the extensions this golden reads as data, and the companion extensions it
+/// knows are not data.
+type CorpusDir = (
+    &'static str,
+    &'static str,
+    &'static [&'static str],
+    &'static [&'static str],
+);
+
+/// The manual render windows the bounds cases ask for, by name.
 ///
-/// Chosen as the cheapest fixture in each family, plus the two source paths
-/// that synthesise a lat/lon grid instead of describing one (spectral,
-/// HEALPix), plus the degenerate polar stereographic that projects nowhere
-/// (#603) so the refusal path is recorded and not just the success one.
-/// `every_grid_family_in_the_golden_has_a_deep_field` asserts the coverage.
-const DEEP_FIELDS: [&str; 14] = [
+/// `world` is the whole globe, `afro_eurasia` is 20 degrees south to 40 north
+/// and 30 west to 60 east, `conus` is 25 to 50 north and 125 to 65 west. None
+/// is degenerate and the middle one crosses both the equator and the prime
+/// meridian, so a target that ignores a window and one that honours it cannot
+/// agree by accident.
+///
+/// Three rather than one because a window that misses records only
+/// `opaque = 0`, which pins the *exclusion* and nothing else, and no single
+/// fixed box intersects a corpus spread over Europe, North America, a
+/// geostationary disc and a polar swath. `world` is the one every field that
+/// renders at all paints under, so the clipping is pinned positively for each
+/// of them; the two regional boxes are what make a grid that ignores its
+/// window look different from one that honours it.
+const WINDOWS: [NamedWindow; 3] = [
+    ("world", (-90.0, 90.0, -180.0, 180.0)),
+    ("afro_eurasia", (-20.0, 40.0, -30.0, 60.0)),
+    ("conus", (25.0, 50.0, -125.0, -65.0)),
+];
+
+/// The fields given the full matrix: one per source path.
+///
+/// A finer partition than the render family, and deliberately so — spectral
+/// synthesis, HEALPix resampling and two ordinary lat/lon grids all report
+/// `family=latlon`, so these fifteen cover twelve families. Chosen as the
+/// cheapest fixture in each family, plus the two source paths that synthesise a
+/// lat/lon grid instead of describing one, plus the two refusals: a §3.20 whose
+/// stated radius places no point (#603) and a §3.51 whose geometry never
+/// resolves at all. `every_grid_family_in_the_golden_has_a_deep_field` asserts
+/// the family half of that coverage; the source-path half is this list, held in
+/// place by `every_deep_field_is_still_in_the_recording`.
+const DEEP_FIELDS: [&str; 15] = [
     // A lat/lon grid whose row order is the awkward one, from GRIB1.
     "grib1/j_consecutive_latlon.grib1#00",
     // Spectral: no grid of its own, synthesised onto a global 0.5° lat/lon.
     "grib1/spectral_simple_t63.grib1#00",
+    // A §3.51 bi-Fourier grid: `resolved_meta` refuses it, so this is the
+    // `family=unresolved` representative — what every target does with a field
+    // whose geometry never arrives.
+    "grib2/bifourier_ellipse_ieee32.grib2#00",
     "grib2/eta_lambert_msg0.grib2#00",
     "grib2/healpix_n4_ring.grib2#00",
     "grib2/lambert_azimuthal_efas.grib2#00",
@@ -224,9 +291,9 @@ fn options(projection: &str, resampling: &str) -> RenderOptions {
     }
 }
 
-/// `options`, with the manual render window filled in.
-fn windowed(projection: &str, resampling: &str) -> RenderOptions {
-    let (lat_min, lat_max, lon_min, lon_max) = WINDOW;
+/// `options`, with one of [`WINDOWS`] filled in.
+fn windowed(projection: &str, resampling: &str, window: Window) -> RenderOptions {
+    let (lat_min, lat_max, lon_min, lon_max) = window;
     RenderOptions {
         bounds_lat_min: Some(lat_min),
         bounds_lat_max: Some(lat_max),
@@ -297,6 +364,34 @@ impl Subject<'_> {
     }
 }
 
+/// The three fixture directories, with the extensions this golden treats as
+/// data and the ones it knows are not.
+///
+/// Written as data so `every_fixture_file_is_classified` can hold the corpus to
+/// it. Without that, a fixture added as `.grb2`, `.nc4` or `.hdf5` would simply
+/// never enter the recording, and nothing would say so — the same fail-open as
+/// a `samples/`-keyed golden, arriving by a different door.
+const CORPUS: [CorpusDir; 3] = [
+    (
+        "grib1",
+        "../fieldglass-grib1/tests/fixtures",
+        &["grib", "grib1"],
+        &["json", "txt", "md"],
+    ),
+    (
+        "grib2",
+        "../fieldglass-grib2/tests/fixtures",
+        &["grib2"],
+        &["json", "txt", "md", "j2k"],
+    ),
+    (
+        "netcdf",
+        "../fieldglass-netcdf/tests/fixtures",
+        &["h5", "nc"],
+        &["json", "txt", "md", "py"],
+    ),
+];
+
 /// Fixture files of one extension in one crate's corpus, in path order.
 fn fixtures(dir: &str, extension: &str) -> Vec<std::path::PathBuf> {
     let mut paths: Vec<std::path::PathBuf> = std::fs::read_dir(dir)
@@ -333,8 +428,8 @@ enum Visit<'a> {
 /// reading it could tell them apart from files that are not in the corpus —
 /// and a seventh joining them would be a silent shrink rather than a diff.
 fn for_each_visit(mut f: impl FnMut(String, Visit<'_>)) {
-    for extension in ["grib", "grib1"] {
-        for path in fixtures("../fieldglass-grib1/tests/fixtures", extension) {
+    for extension in CORPUS[0].2 {
+        for path in fixtures(CORPUS[0].1, extension) {
             let file = format!("grib1/{}", stem(&path));
             let bytes = std::fs::read(&path).expect("fixture bytes");
             let Ok(reader) = Grib1Reader::from_bytes(bytes) else {
@@ -368,7 +463,7 @@ fn for_each_visit(mut f: impl FnMut(String, Visit<'_>)) {
             }
         }
     }
-    for path in fixtures("../fieldglass-grib2/tests/fixtures", "grib2") {
+    for path in fixtures(CORPUS[1].1, CORPUS[1].2[0]) {
         let file = format!("grib2/{}", stem(&path));
         let bytes = std::fs::read(&path).expect("fixture bytes");
         let Ok(reader) = Grib2Reader::from_bytes(bytes) else {
@@ -401,8 +496,8 @@ fn for_each_visit(mut f: impl FnMut(String, Visit<'_>)) {
             );
         }
     }
-    for extension in ["h5", "nc"] {
-        for path in fixtures("../fieldglass-netcdf/tests/fixtures", extension) {
+    for extension in CORPUS[2].2 {
+        for path in fixtures(CORPUS[2].1, extension) {
             let file = format!("netcdf/{}", stem(&path));
             let bytes = std::fs::read(&path).expect("fixture bytes");
             let Ok(reader) = NetcdfReader::from_bytes(bytes) else {
@@ -458,8 +553,18 @@ fn slice_axes(v: &NetcdfVariableMeta) -> (u32, u32) {
     match (v.detected_y_dim, v.detected_x_dim) {
         (Some(y), Some(x)) => (y as u32, x as u32),
         _ => {
-            let last = v.dims.len().saturating_sub(1) as u32;
-            (last.saturating_sub(1), last)
+            // `renderable_variables` only offers variables of two dimensions or
+            // more, so the trailing pair always exists. Assert it rather than
+            // saturating into `(0, 0)`, which would silently record a
+            // degenerate slice whose two axes are the same dimension.
+            assert!(
+                v.dims.len() >= 2,
+                "{} has {} dimensions; a renderable variable has at least two",
+                v.name,
+                v.dims.len()
+            );
+            let last = (v.dims.len() - 1) as u32;
+            (last - 1, last)
         }
     }
 }
@@ -497,31 +602,201 @@ fn mix_opt_i32(h: &mut u64, v: Option<i32>) {
     }
 }
 
-/// How an error is recorded: the reason is folded verbatim, because the
-/// message a host surfaces is part of what these moves must preserve, but only
-/// `"err"` reaches the portable column — several reasons interpolate an `f64`.
+/// Fold an optional `bool`, with a presence tag.
+fn mix_opt_bool(h: &mut u64, v: Option<bool>) {
+    match v {
+        None => support::fnv(h, &[0xff]),
+        Some(v) => {
+            support::fnv(h, &[0x01]);
+            support::fnv(h, &[u8::from(v)]);
+        }
+    }
+}
+
+/// Fold an optional string, with a presence tag.
+fn mix_opt_str(h: &mut u64, v: Option<&str>) {
+    match v {
+        None => support::fnv(h, &[0xff]),
+        Some(v) => {
+            support::fnv(h, &[0x01]);
+            mix_str(h, v);
+        }
+    }
+}
+
+/// An error reason with every run of digits replaced by `#`, tabs and newlines
+/// flattened to spaces.
+///
+/// Which error a case produces is a discrete fact and belongs in the portable
+/// column — without it, 98 of the 999 rows assert only "this still fails", and
+/// on a foreign libm the recording cannot tell "slice has no x-axis size" from
+/// "unknown colormap". The reasons that interpolate an `f64` are what kept them
+/// out; eliding the digits keeps the sentence and drops the only part a
+/// different libm could move.
+fn elided(reason: &str) -> String {
+    let mut out = String::with_capacity(reason.len());
+    let mut in_number = false;
+    for c in reason.chars() {
+        if c.is_ascii_digit() {
+            if !in_number {
+                out.push('#');
+                in_number = true;
+            }
+            continue;
+        }
+        in_number = false;
+        out.push(if c == '\t' || c == '\n' || c == '\r' {
+            ' '
+        } else {
+            c
+        });
+    }
+    out
+}
+
+/// How an error is recorded: the reason verbatim in the fold, because the
+/// message a host surfaces is part of what #571 and #572 must preserve, and
+/// the same reason with its numbers elided in the portable column, so a
+/// foreign libm still checks *which* refusal this is.
 fn error_row(e: &napi::Error) -> Row {
     let mut h = hasher();
     mix_str(&mut h, "err");
     mix_str(&mut h, &e.reason);
     Row {
-        portable: "err".to_string(),
+        portable: format!("err: {}", elided(&e.reason)),
         exact: h,
     }
 }
 
 /// The resolved geometry: family, raster shape and reprojection offer in the
-/// open, every geometry-defining field of `MessageMeta` in the fold.
+/// open, every geometry-defining field in the fold.
+///
+/// The fold destructures `MetaGeometry` exhaustively with no rest pattern, for
+/// the same reason `MessageMeta::geometry()` does: a field added to the
+/// geometry is a compile error here until someone decides where it goes.
+/// Folding each field by its own bits rather than through `Debug` also keeps
+/// the recording out of reach of two things that are not behaviour — the
+/// toolchain's float formatting, and the field names.
 fn meta_row(subject: &Subject<'_>) -> Row {
     let meta = match subject.meta() {
         Ok(m) => m,
-        Err(e) => return error_row(&e),
+        // A geometry that will not resolve is its own family as far as the
+        // coverage guard is concerned: `family=unresolved` keeps those fields
+        // inside `every_grid_family_in_the_golden_has_a_deep_field` instead of
+        // being skipped by it, which is how the bi-Fourier grids were invisible
+        // to a check written to notice exactly that.
+        Err(e) => {
+            let row = error_row(&e);
+            return Row {
+                portable: format!("family=unresolved {}", row.portable),
+                ..row
+            };
+        }
     };
     let mut h = hasher();
     mix_str(&mut h, "meta");
-    // The exhaustive destructure behind `geometry()` is what makes this
-    // complete: a field added to the geometry enters the golden by itself.
-    mix_str(&mut h, &format!("{:?}", meta.geometry()));
+    let MetaGeometry {
+        grid_type,
+        grid_ni,
+        grid_nj,
+        lat_first,
+        lon_first,
+        lat_last,
+        lon_last,
+        earth_radius_metres,
+        lambert_lad,
+        lambert_lov,
+        lambert_dx_metres,
+        lambert_dy_metres,
+        lambert_latin1,
+        lambert_latin2,
+        gaussian_n_parallels,
+        polar_stereo_lov,
+        polar_stereo_lad,
+        polar_stereo_dx_metres,
+        polar_stereo_dy_metres,
+        polar_stereo_south_pole,
+        lambert_azimuthal_semi_major_metres,
+        lambert_azimuthal_semi_minor_metres,
+        lambert_azimuthal_standard_parallel,
+        lambert_azimuthal_central_longitude,
+        lambert_azimuthal_dx_metres,
+        lambert_azimuthal_dy_metres,
+        transverse_mercator_semi_major_metres,
+        transverse_mercator_semi_minor_metres,
+        transverse_mercator_lat_ref,
+        transverse_mercator_lon_ref,
+        transverse_mercator_scale_factor,
+        transverse_mercator_false_easting_metres,
+        transverse_mercator_false_northing_metres,
+        transverse_mercator_x1_metres,
+        transverse_mercator_y1_metres,
+        transverse_mercator_dx_metres,
+        transverse_mercator_dy_metres,
+        rotated_south_pole_lat,
+        rotated_south_pole_lon,
+        rotated_angle_of_rotation,
+        geos_sub_lon,
+        geos_height,
+        geos_r_eq,
+        geos_r_pol,
+        geos_sweep_x,
+        geos_x0,
+        geos_dx_rad,
+        geos_y0,
+        geos_dy_rad,
+        j_scans_positive,
+    } = meta.geometry();
+    mix_opt_str(&mut h, grid_type.as_deref());
+    mix_opt_i32(&mut h, *grid_ni);
+    mix_opt_i32(&mut h, *grid_nj);
+    mix_opt_f64(&mut h, *lat_first);
+    mix_opt_f64(&mut h, *lon_first);
+    mix_opt_f64(&mut h, *lat_last);
+    mix_opt_f64(&mut h, *lon_last);
+    mix_opt_f64(&mut h, *earth_radius_metres);
+    mix_opt_f64(&mut h, *lambert_lad);
+    mix_opt_f64(&mut h, *lambert_lov);
+    mix_opt_f64(&mut h, *lambert_dx_metres);
+    mix_opt_f64(&mut h, *lambert_dy_metres);
+    mix_opt_f64(&mut h, *lambert_latin1);
+    mix_opt_f64(&mut h, *lambert_latin2);
+    mix_opt_i32(&mut h, *gaussian_n_parallels);
+    mix_opt_f64(&mut h, *polar_stereo_lov);
+    mix_opt_f64(&mut h, *polar_stereo_lad);
+    mix_opt_f64(&mut h, *polar_stereo_dx_metres);
+    mix_opt_f64(&mut h, *polar_stereo_dy_metres);
+    mix_opt_bool(&mut h, *polar_stereo_south_pole);
+    mix_opt_f64(&mut h, *lambert_azimuthal_semi_major_metres);
+    mix_opt_f64(&mut h, *lambert_azimuthal_semi_minor_metres);
+    mix_opt_f64(&mut h, *lambert_azimuthal_standard_parallel);
+    mix_opt_f64(&mut h, *lambert_azimuthal_central_longitude);
+    mix_opt_f64(&mut h, *lambert_azimuthal_dx_metres);
+    mix_opt_f64(&mut h, *lambert_azimuthal_dy_metres);
+    mix_opt_f64(&mut h, *transverse_mercator_semi_major_metres);
+    mix_opt_f64(&mut h, *transverse_mercator_semi_minor_metres);
+    mix_opt_f64(&mut h, *transverse_mercator_lat_ref);
+    mix_opt_f64(&mut h, *transverse_mercator_lon_ref);
+    mix_opt_f64(&mut h, *transverse_mercator_scale_factor);
+    mix_opt_f64(&mut h, *transverse_mercator_false_easting_metres);
+    mix_opt_f64(&mut h, *transverse_mercator_false_northing_metres);
+    mix_opt_f64(&mut h, *transverse_mercator_x1_metres);
+    mix_opt_f64(&mut h, *transverse_mercator_y1_metres);
+    mix_opt_f64(&mut h, *transverse_mercator_dx_metres);
+    mix_opt_f64(&mut h, *transverse_mercator_dy_metres);
+    mix_opt_f64(&mut h, *rotated_south_pole_lat);
+    mix_opt_f64(&mut h, *rotated_south_pole_lon);
+    mix_opt_f64(&mut h, *rotated_angle_of_rotation);
+    mix_opt_f64(&mut h, *geos_sub_lon);
+    mix_opt_f64(&mut h, *geos_height);
+    mix_opt_f64(&mut h, *geos_r_eq);
+    mix_opt_f64(&mut h, *geos_r_pol);
+    mix_opt_bool(&mut h, *geos_sweep_x);
+    mix_opt_f64(&mut h, *geos_x0);
+    mix_opt_f64(&mut h, *geos_dx_rad);
+    mix_opt_f64(&mut h, *geos_y0);
+    mix_opt_f64(&mut h, *geos_dy_rad);
+    mix_opt_bool(&mut h, *j_scans_positive);
     Row {
         portable: format!(
             "family={} ni={} nj={} reprojectable={}",
@@ -643,7 +918,8 @@ fn contour_row(subject: &Subject<'_>, o: RenderOptions) -> Row {
     }
 }
 
-/// CSV: the row count in the open, every byte in the fold.
+/// CSV: the line count in the open (header included, so it is one more than
+/// the number of data rows), every byte in the fold.
 fn csv_row(subject: &Subject<'_>, format: &str) -> Row {
     let csv = match subject.csv(format) {
         Ok(c) => c,
@@ -653,7 +929,7 @@ fn csv_row(subject: &Subject<'_>, format: &str) -> Row {
     mix_str(&mut h, "csv");
     support::fnv(&mut h, &csv);
     Row {
-        portable: format!("ok rows={}", csv.iter().filter(|&&b| b == b'\n').count()),
+        portable: format!("ok lines={}", csv.iter().filter(|&&b| b == b'\n').count()),
         exact: h,
     }
 }
@@ -693,10 +969,12 @@ fn cases(id: &str, subject: &Subject<'_>, into: &mut Golden) {
     }
     // The manual render window, and the source view painted bottom-up — the
     // two render inputs that are neither a projection nor a resampling.
-    record(
-        "render/equirectangular/nearest+window".to_string(),
-        render_row(subject, windowed("equirectangular", "nearest")),
-    );
+    for (name, window) in WINDOWS {
+        record(
+            format!("render/equirectangular/nearest+window/{name}"),
+            render_row(subject, windowed("equirectangular", "nearest", window)),
+        );
+    }
     record(
         "render/source/nearest+flip_y".to_string(),
         render_row(
@@ -800,6 +1078,16 @@ fn render_golden(golden: &Golden) -> String {
     out
 }
 
+/// Whether this run is re-recording rather than comparing.
+///
+/// The three tests run concurrently under cargo's harness and the re-record
+/// truncates the file in place, so the two that only read it stand aside
+/// rather than racing a half-written recording and failing with a confusing
+/// parse error instead of the deliberate one.
+fn updating() -> bool {
+    std::env::var(UPDATE_ENV).is_ok()
+}
+
 /// The recording as committed.
 fn recorded() -> Golden {
     let text = std::fs::read_to_string(GOLDEN_PATH).unwrap_or_else(|e| {
@@ -827,7 +1115,7 @@ fn recorded() -> Golden {
 #[test]
 fn the_display_path_matches_its_recording() {
     let observed = observed();
-    if std::env::var(UPDATE_ENV).is_ok() {
+    if updating() {
         std::fs::write(GOLDEN_PATH, render_golden(&observed)).expect("write the golden");
         // Fail rather than pass. A run that rewrote the recording has verified
         // nothing, and an environment with this variable left set would
@@ -908,6 +1196,9 @@ fn the_display_path_matches_its_recording() {
 /// differs. Reads the recording rather than the corpus, so it costs nothing.
 #[test]
 fn every_grid_family_in_the_golden_has_a_deep_field() {
+    if updating() {
+        return;
+    }
     let golden = recorded();
     let mut families: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for ((field, case), row) in &golden {
@@ -952,6 +1243,9 @@ fn every_grid_family_in_the_golden_has_a_deep_field() {
 /// or when the list is edited to a name that was never there.
 #[test]
 fn every_deep_field_is_still_in_the_recording() {
+    if updating() {
+        return;
+    }
     let golden = recorded();
     let recorded_fields: BTreeSet<&str> = golden.keys().map(|(field, _)| field.as_str()).collect();
     let gone: Vec<&&str> = DEEP_FIELDS
@@ -969,6 +1263,45 @@ fn every_deep_field_is_still_in_the_recording() {
         assert!(
             golden.contains_key(&(field.to_string(), "csv/long".to_string())),
             "{field} is named in DEEP_FIELDS but has no deep cases recorded"
+        );
+    }
+}
+
+/// Every file in the three fixture directories is either data this golden
+/// records or a companion this golden knows about.
+///
+/// The corpus is reached by an extension allow-list, so a fixture added under
+/// an unlisted extension — `.grb2`, `.nc4`, `.hdf5` — or in a subdirectory
+/// would never enter the recording and no other assertion would notice: the
+/// case set would simply not gain it. This is the check that turns that from a
+/// silence into a failure.
+#[test]
+fn every_fixture_file_is_classified() {
+    for (label, dir, data, companions) in CORPUS {
+        let mut unclassified = Vec::new();
+        for entry in std::fs::read_dir(dir).unwrap_or_else(|e| panic!("{dir}: {e}")) {
+            let path = entry.expect("directory entry").path();
+            if path.is_dir() {
+                unclassified.push(format!(
+                    "{} (a directory; the walk is flat)",
+                    path.display()
+                ));
+                continue;
+            }
+            let extension = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or_default()
+                .to_string();
+            if !data.contains(&extension.as_str()) && !companions.contains(&extension.as_str()) {
+                unclassified.push(path.display().to_string());
+            }
+        }
+        assert!(
+            unclassified.is_empty(),
+            "{label}: these files are neither recorded as data ({data:?}) nor \
+             known companions ({companions:?}), so they are silently outside \
+             the golden: {unclassified:?}"
         );
     }
 }
