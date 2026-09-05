@@ -219,8 +219,37 @@ impl PolarStereoProjector {
     /// checks its own: the plane can be fine and the grid still state a first
     /// point the forward map cannot follow, leaving the raster with no position
     /// in a plane that is otherwise sound.
+    ///
+    /// The plane is finally checked against the grid's own step, by
+    /// [`plane_spans_a_grid_cell`](super::plane_spans_a_grid_cell): its radius
+    /// can be positive, finite and still far too small to carry the raster,
+    /// and the whole plane then collapses inside one cell (#610).
+    ///
+    /// The quantity measured is `2·R·k₀`, not the declared `R`. **Both factors
+    /// shrink the plane and a message states both.** A radius of 1e-6 m is the
+    /// case #610 was filed for, but §3.20 carries the latitude of true scale in
+    /// sign-magnitude microdegrees, so `LaD = 268°` is as declarable as 60° and
+    /// puts `k₀ = (1 + sin|LaD|)/2` at 3.0e-4 — a plane 3.9 km across on a
+    /// perfectly ordinary Earth, against 60 km CMC cells. #603 closed only the
+    /// exact `k₀ == 0` point at `LaD = ±270°`, and a floor under the declared
+    /// radius would not have caught this at all.
+    ///
+    /// The band this leaves is worth stating, since it is the price of the
+    /// loose floor rather than an oversight: on that grid `LaD = 262°` gives a
+    /// plane 1.03 cells wide and is admitted, and only `LaD ≳ 263°` is refused.
+    /// A tighter rule would have to compare the plane against the grid's whole
+    /// extent, and it cannot: a real `LaD = 0°` grid has a plane radius of 106
+    /// cells against a 135-cell raster, so the honest grids sit on both sides
+    /// of that line. See [`plane_spans_a_grid_cell`](super::plane_spans_a_grid_cell).
     pub fn is_well_defined(&self) -> bool {
-        self.constants.well_defined() && self.origin.0.is_finite() && self.origin.1.is_finite()
+        self.constants.well_defined()
+            && self.origin.0.is_finite()
+            && self.origin.1.is_finite()
+            && super::plane_spans_a_grid_cell(
+                self.constants.two_r_k0,
+                self.params.dx_metres,
+                self.params.dy_metres,
+            )
     }
 }
 
@@ -520,6 +549,88 @@ mod tests {
             PolarStereoProjector::new(p).is_well_defined(),
             "the real CMC grid is unaffected"
         );
+    }
+
+    /// #610: the other side of the guard above. A declared radius of 1e-6 m —
+    /// GRIB2 shape-of-earth 1 with `scale = 6, value = 1` — is positive,
+    /// finite, and leaves `2·R·k₀` positive too, so every check the zero case
+    /// added still passes while the whole plane fits inside one 60 km cell.
+    #[test]
+    fn polar_stereo_rejects_an_earth_smaller_than_one_grid_cell() {
+        let p = cmc_polar_params();
+        // `2·R·k₀` is what must fall under the 60 km cell, and `k₀` is 0.933 at
+        // the CMC grid's ±60° true scale, so the radius itself has to be under
+        // ~32 km. That the boundary is not simply `R < dx` is the point: the
+        // plane, not the planet, is what the raster sits on.
+        for radius in [1e-6, 1.0, 30_000.0] {
+            let proj = PolarStereoProjector::new(PolarStereoParams {
+                earth_radius_m: radius,
+                ..p
+            });
+            assert!(
+                !proj.is_well_defined(),
+                "radius {radius} m cannot carry a {} m cell",
+                p.dx_metres
+            );
+            assert!(
+                proj.inverse(60.0, -90.0).is_none(),
+                "radius {radius}: a point resolved on a collapsed plane"
+            );
+            assert!(
+                proj.inverse(-20.0, 10.0).is_none(),
+                "radius {radius}: a point off the grid resolved onto it"
+            );
+        }
+        // A smaller planet is not the problem, only one smaller than the grid.
+        for radius in [469_730.0, 1_737_400.0, 3_396_190.0] {
+            assert!(
+                PolarStereoProjector::new(PolarStereoParams {
+                    earth_radius_m: radius,
+                    ..p
+                })
+                .is_well_defined(),
+                "a {radius} m body still carries the grid"
+            );
+        }
+    }
+
+    /// The other half of the plane, and the quieter one. `2·R·k₀` is what the
+    /// forward map multiplies by, and a message states both factors: §3.20
+    /// carries `LaD` in sign-magnitude microdegrees, so 260° is as declarable
+    /// as 60° and puts `k₀ = (1 + sin|LaD|)/2` at 0.0076. The Earth is then
+    /// perfectly ordinary and the whole plane is 97 km across — 1.6 CMC cells.
+    ///
+    /// #603 closed only the exact `k₀ == 0` point at ±270°, and a floor under
+    /// the *declared radius* would not have caught this at all, which is why
+    /// `is_well_defined` measures the constants rather than `params`.
+    #[test]
+    fn polar_stereo_rejects_a_true_scale_latitude_that_shrinks_the_plane() {
+        let p = cmc_polar_params();
+        for lad in [265.0, 268.0, -265.0, 269.9] {
+            let proj = PolarStereoProjector::new(PolarStereoParams { lad, ..p });
+            assert!(
+                !proj.is_well_defined(),
+                "LaD {lad} leaves a plane smaller than the grid"
+            );
+            // The South Atlantic is not on a Canadian grid, and a collapsed
+            // plane used to place it there along with everywhere else.
+            assert!(
+                proj.inverse(-20.0, 10.0).is_none(),
+                "LaD {lad}: a point off the grid resolved onto it"
+            );
+            assert!(
+                proj.inverse(60.0, -90.0).is_none(),
+                "LaD {lad}: a point resolved on a collapsed plane"
+            );
+        }
+        // The parallels a message really states are untouched, by two orders
+        // of magnitude: these give planes 106 to 212 cells wide.
+        for lad in [90.0, 60.0, 30.0, 0.0, -60.0] {
+            assert!(
+                PolarStereoProjector::new(PolarStereoParams { lad, ..p }).is_well_defined(),
+                "LaD {lad} is a true scale latitude grids are published on"
+            );
+        }
     }
 
     /// The forward map is what makes a zero radius quiet: it stays finite, so

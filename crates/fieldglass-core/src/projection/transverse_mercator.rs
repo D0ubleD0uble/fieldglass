@@ -284,10 +284,31 @@ impl TransverseMercatorProjector {
     /// split between this method and [`PlanarGridProjector::accepts`], which let
     /// a caller gating on this one geolocate a grid whose `inverse` declined
     /// every point of it.
+    ///
+    /// The third is the plane's *size* against the grid's own step, by
+    /// [`plane_spans_a_grid_cell`](super::plane_spans_a_grid_cell). The
+    /// one-metre sphere the Krüger check below already describes is not the
+    /// smallest a message can state: shape-of-earth code 1 reaches here as any
+    /// positive scaled value, and the axes check admits every one of them
+    /// (#610).
+    ///
+    /// What is measured is `k · rectifying radius`, the product
+    /// `transverse_mercator_forward_with` actually multiplies by — because the
+    /// scale factor shrinks the plane just as the spheroid does, and unlike the
+    /// two checks above it is not enough for it to be non-zero. A `k` of 1e-5
+    /// on Airy 1830 leaves a plane 64 m across against 48 km UKV cells, and it
+    /// is the quietest form of all: every point on Earth lands on the false
+    /// origin, which on that grid is index (13.3, 27.5) — *inside* the raster,
+    /// so England and Mexico read back the same cell.
     pub fn is_well_defined(&self) -> bool {
         self.constants.well_defined()
             && self.params.scale_factor.is_finite()
             && self.params.scale_factor != 0.0
+            && super::plane_spans_a_grid_cell(
+                self.params.scale_factor.abs() * self.constants.rectifying_radius,
+                self.params.dx_metres,
+                self.params.dy_metres,
+            )
     }
 }
 
@@ -673,6 +694,89 @@ mod tests {
             assert!(
                 !projector.is_well_defined(),
                 "scale factor {scale_factor} is usable"
+            );
+        }
+    }
+
+    /// #610: the "one-metre sphere" the test above describes in passing, made
+    /// reachable. `(1.0, 1.0)` is a *positive* pair of axes, so the Krüger
+    /// check admits it and the projection really does work — on a one-metre
+    /// planet, where every point on Earth lands inside a single 48 km UKV
+    /// cell. The floor is the grid's own step, so the whole family of such
+    /// radii goes with it.
+    #[test]
+    fn transverse_mercator_rejects_a_spheroid_smaller_than_one_grid_cell() {
+        let p = ukv_params();
+        for radius in [1e-6, 1.0, 47_999.0, p.dx_metres] {
+            let projector = TransverseMercatorProjector::new(TransverseMercatorParams {
+                semi_major_m: radius,
+                semi_minor_m: radius,
+                ..p
+            });
+            assert!(
+                !projector.is_well_defined(),
+                "a {radius} m spheroid cannot carry a {} m cell",
+                p.dx_metres
+            );
+            assert!(
+                projector.inverse(54.0, -2.0).is_none(),
+                "a {radius} m spheroid resolved a grid index"
+            );
+        }
+        // Small bodies are fine; only ones smaller than the grid are not.
+        for radius in [469_730.0, 1_737_400.0, 3_396_190.0] {
+            assert!(
+                TransverseMercatorProjector::new(TransverseMercatorParams {
+                    semi_major_m: radius,
+                    semi_minor_m: radius,
+                    ..p
+                })
+                .is_well_defined(),
+                "a {radius} m body still carries the grid"
+            );
+        }
+    }
+
+    /// The scale factor shrinks the plane exactly as the spheroid does, and it
+    /// is not enough for it to be non-zero: `k · rectifying radius` is what the
+    /// forward map multiplies by. `k` is read from §3.12 as a plain IEEE `f32`
+    /// with no guard, so a malformed message lands anywhere on it.
+    ///
+    /// This is the quietest form of #610 anywhere in the workspace. Every point
+    /// on Earth projects onto the false origin, which on the UKV grid is index
+    /// (13.3, 27.5) — *inside* a 24×30 raster rather than at a corner — so
+    /// England and Mexico used to read back the same cell with no sign that
+    /// anything was wrong.
+    #[test]
+    fn transverse_mercator_rejects_a_scale_factor_that_shrinks_the_plane() {
+        let p = ukv_params();
+        for k in [1e-5, 1e-3, 0.007, -1e-5] {
+            let projector = TransverseMercatorProjector::new(TransverseMercatorParams {
+                scale_factor: k,
+                ..p
+            });
+            assert!(
+                !projector.is_well_defined(),
+                "scale factor {k} leaves a plane smaller than the grid"
+            );
+            for (lat, lon) in [(54.0, -2.0), (20.0, -100.0)] {
+                assert!(
+                    projector.inverse(lat, lon).is_none(),
+                    "scale factor {k}: ({lat}, {lon}) resolved on a collapsed plane"
+                );
+            }
+        }
+        // The scale factors §3.12 grids are actually published on, and the
+        // negative twin of the UKV's, which is a mirrored plane rather than a
+        // collapsed one.
+        for k in [p.scale_factor, -p.scale_factor, 1.0, 0.9996] {
+            assert!(
+                TransverseMercatorProjector::new(TransverseMercatorParams {
+                    scale_factor: k,
+                    ..p
+                })
+                .is_well_defined(),
+                "scale factor {k} is one grids are published on"
             );
         }
     }

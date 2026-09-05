@@ -200,8 +200,20 @@ impl LambertProjector {
     /// zero and the forward map divides by it: the origin becomes infinite,
     /// `inverse` declines every point, and the inverse map still hands back a
     /// finite `(-90, lon)` for each of them — a coordinate, not a refusal.
+    ///
+    /// The declared radius is finally checked against the grid's own step, by
+    /// [`plane_spans_a_grid_cell`](super::plane_spans_a_grid_cell): a radius can
+    /// be positive, finite and still far too small to carry the raster, and the
+    /// whole cone then collapses inside one cell (#610).
     pub fn is_well_defined(&self) -> bool {
-        self.constants.well_defined() && self.origin.0.is_finite() && self.origin.1.is_finite()
+        self.constants.well_defined()
+            && self.origin.0.is_finite()
+            && self.origin.1.is_finite()
+            && super::plane_spans_a_grid_cell(
+                self.params.earth_radius_m,
+                self.params.dx_metres,
+                self.params.dy_metres,
+            )
     }
 }
 
@@ -353,6 +365,62 @@ mod tests {
         assert!(proj.inverse(equator.lat_first, equator.lon_first).is_none());
         // A healthy cone still reports itself usable.
         assert!(LambertProjector::new(lambert_params()).is_well_defined());
+    }
+
+    /// #610: a radius that is positive and finite and still leaves no plane.
+    /// GRIB2 shape-of-earth 1 states a scale factor and a scaled value, so
+    /// `scale = 6, value = 1` is a legal 1e-6 m sphere. Every `> 0.0` check
+    /// passes, the cone constants are fine, and the whole Earth projects to
+    /// within a micrometre of the origin — so the Eta grid's own 81 km step
+    /// puts every point on the planet at index 0.
+    #[test]
+    fn lambert_rejects_an_earth_smaller_than_one_grid_cell() {
+        let p = lambert_params();
+        for radius in [1e-6, 1.0, p.dx_metres, p.dx_metres * 0.999] {
+            let proj = LambertProjector::new(LambertParams {
+                earth_radius_m: radius,
+                ..p
+            });
+            assert!(
+                !proj.is_well_defined(),
+                "radius {radius} m cannot carry an {} m cell",
+                p.dx_metres
+            );
+            // The point the pre-fix code placed at cell (0, 0) along with
+            // everywhere else on Earth.
+            assert!(
+                proj.inverse(40.0, -95.0).is_none(),
+                "radius {radius}: a point resolved on a collapsed plane"
+            );
+        }
+    }
+
+    /// The floor is the grid's own step, not a guess about planets: any body
+    /// big enough to carry the raster keeps working, which is why an absolute
+    /// metre threshold was not the fix.
+    #[test]
+    fn lambert_accepts_any_body_that_can_carry_the_grid() {
+        let p = lambert_params();
+        for (body, radius) in [
+            ("Earth", DEFAULT_EARTH_RADIUS_M),
+            ("Mars", 3_396_190.0),
+            ("Moon", 1_737_400.0),
+            ("Ceres", 469_730.0),
+            // Smaller than the grid it carries is the failure; a body merely
+            // smaller than the grid *spacing is not* — 82 km against an 81 km
+            // cell is absurd but arithmetically sound, and refusing it would
+            // mean picking a planet size.
+            ("a body one cell across", p.dx_metres * 1.01),
+        ] {
+            assert!(
+                LambertProjector::new(LambertParams {
+                    earth_radius_m: radius,
+                    ..p
+                })
+                .is_well_defined(),
+                "{body} ({radius} m) should still carry the grid"
+            );
+        }
     }
 
     #[test]
