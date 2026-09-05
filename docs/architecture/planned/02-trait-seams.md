@@ -19,14 +19,23 @@ lookup (`SpatialIndex`, #437) for grids that are only a list of cell centres.
 ```mermaid
 classDiagram
     class GridGeometry {
-        <<planned #460 then #464>>
+        <<planned #460 then #464; the questions shipped #571>>
         +inverse_at() Inverse closure for SourceGrid
         +forward(i, j) Option~(lat, lon)~
-        +lonlat_bbox()
-        +reprojectable() bool
+        +lonlat_bbox() where the data is
+        +render_window() what a render frames
+        +reprojectable(scan) bool
+        +is_periodic_x() bool
+        +contour_seam_wraps() bool
         +resampling() Any | NearestOnly
         +proj4() Option~String~
     }
+    class Scan {
+        <<shipped #571, crate fieldglass-core>>
+        +i_negative, j_positive, j_consecutive
+        +flips_source_rows(requested) bool
+    }
+    Scan ..> GridGeometry : passed to reprojectable()
     class PlanarGridProjector {
         <<trait>>
         shipped #486
