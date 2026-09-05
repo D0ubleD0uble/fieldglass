@@ -249,6 +249,13 @@ fn the_paired_resample_agrees_with_the_two_step_one() {
     let nside = 2;
     let values: Vec<Option<f64>> = (0..48).map(|k| Some(k as f64)).collect();
     let (grid, out) = resample_to_global(nside, false, &values).expect("resamples");
+    // Pinned by hand, not restated from `healpix_render_grid`: comparing the
+    // paired call against a function it itself calls would pass with any grid.
+    assert_eq!(
+        grid.dims(),
+        (14, 8),
+        "Nside 2 samples at its own pixel scale"
+    );
     assert_eq!(grid, healpix_render_grid(nside));
     let (lats, lons) = grid.axes();
     assert_eq!(out.len(), grid.len());

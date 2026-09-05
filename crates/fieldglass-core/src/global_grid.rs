@@ -30,7 +30,7 @@
 //!   the *cap* on it ([`crate::healpix::healpix_render_dims`]). Finer than the
 //!   pixel scale merely repeats pixels.
 
-use crate::projection::LatLonParams;
+use crate::projection::{LatLonParams, reduced_raster_lon_last};
 
 /// The finest step either synthesis path resamples at, in degrees.
 ///
@@ -49,8 +49,16 @@ pub const SYNTHESIS_NJ: usize = 361;
 /// A global regular lat/lon grid of `ni × nj` points, in the convention this
 /// module's docs state.
 ///
-/// Only the shape is stored. The coordinates are derived, so there is no way to
-/// hold a grid whose axes disagree with its declared corners.
+/// Only the shape is stored. Every coordinate — the axes, both derived corners,
+/// and the [`LatLonParams`] a host declares — comes from that shape, so a grid
+/// whose axes disagree with its declared corners is unrepresentable, degenerate
+/// shapes included.
+///
+/// Nothing bounds `ni` and `nj`: [`latitudes`](Self::latitudes) and
+/// [`longitudes`](Self::longitudes) allocate one element each, so a caller
+/// building a grid from an untrusted number owns that bound. The rules that
+/// build one here ([`crate::sht::spectral_render_grid`],
+/// [`crate::healpix::healpix_render_grid`]) cap it at 720 × 361.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct GlobalGrid {
     /// Columns — longitudes, `0 … 360 − 360/ni`.
@@ -78,9 +86,10 @@ impl GlobalGrid {
 
     /// Number of grid points, `ni · nj`.
     ///
-    /// Saturating: both dimensions reach a synthesis rule that derives them
-    /// from an untrusted `Nside` or truncation, so a wrapped count would make an
-    /// out-of-range value look in range.
+    /// Saturating: `ni` reaches a synthesis rule that derives it from an
+    /// untrusted `Nside` ([`crate::healpix::healpix_render_dims`]), so a wrapped
+    /// count would make an out-of-range value look in range. (The spectral rule
+    /// ignores its truncation, so that half cannot be driven from a message.)
     pub const fn len(&self) -> usize {
         self.ni.saturating_mul(self.nj)
     }
@@ -120,19 +129,37 @@ impl GlobalGrid {
     /// The eastern corner a render meta declares: the last longitude, one step
     /// short of 360.
     ///
-    /// Computed as `(ni − 1) · 360 / ni` — the same expression
+    /// `(ni − 1) · 360 / ni` — the same expression
     /// [`longitudes`](Self::longitudes) evaluates for its final element, so the
     /// declared corner is bit-identical to the coordinate the field was
     /// evaluated at. `360 − 360/ni` is the same number in exact arithmetic but
     /// not in `f64` (they differ at `ni` = 19, 43 and 2071 below 4000), which is
-    /// why the corner is derived here instead of respelled per call site.
+    /// why the corner is derived rather than respelled per call site.
+    ///
+    /// Delegated to [`reduced_raster_lon_last`], which states the identical rule
+    /// for a reduced grid's expanded raster and had it first — a synthesis grid
+    /// is that grid with `lon_first = 0`. The `u32` clamp cannot bite: a grid
+    /// that wide has no axes to build, since [`longitudes`](Self::longitudes)
+    /// would allocate `ni` elements.
     ///
     /// Zero for an empty grid, which has no last column.
     pub fn lon_last(&self) -> f64 {
-        if self.ni == 0 {
-            return 0.0;
+        reduced_raster_lon_last(0.0, u32::try_from(self.ni).unwrap_or(u32::MAX))
+    }
+
+    /// The southern corner: `−90`, matching
+    /// [`latitudes().last()`](Self::latitudes).
+    ///
+    /// The north pole for a grid of fewer than two rows, which has no span to
+    /// divide and so never reaches the south — the corner and the axis agree
+    /// there too rather than the corner asserting a row the axis does not hold.
+    /// Zero for a grid with no rows at all.
+    pub fn lat_last(&self) -> f64 {
+        match self.nj {
+            0 => 0.0,
+            1 => 90.0,
+            _ => -90.0,
         }
-        (self.ni as f64 - 1.0) * 360.0 / self.ni as f64
     }
 }
 
@@ -157,7 +184,7 @@ impl From<GlobalGrid> for LatLonParams {
             nj: u32::try_from(grid.nj).unwrap_or(u32::MAX),
             lat_first: 90.0,
             lon_first: 0.0,
-            lat_last: -90.0,
+            lat_last: grid.lat_last(),
             lon_last: grid.lon_last(),
         }
     }
@@ -217,6 +244,46 @@ mod tests {
         assert_eq!(disagree, vec![19, 43, 2071]);
     }
 
+    /// The type doc's guarantee, checked rather than asserted: both derived
+    /// corners are the axes' own endpoints, for every shape including the
+    /// degenerate ones a public `new` can build.
+    #[test]
+    fn the_derived_corners_are_the_axes_own_endpoints() {
+        for (ni, nj) in [(720, 361), (26, 14), (2, 2), (1, 1), (4, 1), (0, 4), (4, 0)] {
+            let grid = GlobalGrid::new(ni, nj);
+            let (lats, lons) = grid.axes();
+            assert_eq!(
+                lats.last().copied().unwrap_or(0.0),
+                grid.lat_last(),
+                "{grid:?}: lat_last is not the last latitude"
+            );
+            assert_eq!(
+                lons.last().copied().unwrap_or(0.0),
+                grid.lon_last(),
+                "{grid:?}: lon_last is not the last longitude"
+            );
+            let params = LatLonParams::from(grid);
+            assert_eq!(
+                (params.lat_last, params.lon_last),
+                (grid.lat_last(), grid.lon_last())
+            );
+        }
+    }
+
+    /// The rule already had a home for a reduced grid's expanded raster, and
+    /// this is that grid with `lon_first = 0`. If the two ever disagree, one of
+    /// them has been rewritten.
+    #[test]
+    fn the_corner_agrees_with_the_reduced_raster_rule_it_delegates_to() {
+        for ni in (0..=2048).chain([4096, 65_536]) {
+            assert_eq!(
+                GlobalGrid::new(ni, 3).lon_last(),
+                reduced_raster_lon_last(0.0, ni as u32),
+                "ni {ni}"
+            );
+        }
+    }
+
     #[test]
     fn a_degenerate_grid_answers_rather_than_dividing_by_zero() {
         // A single row has no span to divide: it sits on the pole.
@@ -241,6 +308,8 @@ mod tests {
         assert_eq!((params.ni, params.nj), (720, 361));
         assert_eq!((params.lat_first, params.lat_last), (90.0, -90.0));
         assert_eq!(params.lon_first, 0.0);
+        // 359.5 by hand: 720 columns at 0.5°, the last one a step short of 360.
+        assert_eq!(params.lon_last, 359.5);
         assert_eq!(params.lon_last, grid.lon_last());
         assert_eq!(GlobalGrid::from((720, 361)), grid);
     }

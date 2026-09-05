@@ -2086,16 +2086,16 @@ impl Grib1Handle {
             return Ok(std::sync::Arc::clone(hit));
         }
         // The grid comes back with the field rather than being chosen here, so
-        // the raster this caches cannot disagree with the meta `resolved`
-        // declares for it (#546).
+        // there is one construction of it rather than two (#546).
         let (grid, values) = self
             .reader
             .synthesize_spectral_global(message_index as usize)
             .into_napi()?;
-        // `resolved` sizes the meta from the truncation it reads off the GDS
-        // without decoding; the reader sizes the grid from the coefficients it
-        // did decode. The two read the same field, and a disagreement would put
-        // the raster and the meta out of step.
+        // `resolved` still has to size the meta without decoding, from the
+        // truncation it reads off the GDS, while the reader sizes the grid from
+        // the coefficients it did decode — so two derivations survive and this
+        // holds them together. It cannot fail while `spectral_render_dims`
+        // ignores its truncation; it is here for when one of them stops.
         debug_assert_eq!(
             Some(grid),
             self.spectral_truncation(message_index)
@@ -2433,15 +2433,23 @@ impl Grib2Handle {
         }
         let pixels = self.cached_decode(message_index)?;
         // The grid comes back with the field rather than being chosen here, so
-        // the raster this caches cannot disagree with the meta `resolved`
-        // declares for it (#546).
-        let (_grid, values) = fieldglass_core::healpix::resample_to_global(nside, nested, &pixels)
+        // there is one construction of it rather than two (#546).
+        let (grid, values) = fieldglass_core::healpix::resample_to_global(nside, nested, &pixels)
             .ok_or_else(|| {
-                napi::Error::from_reason(format!(
-                    "HEALPix field has {} values, not the 12*{nside}^2 its geometry declares",
-                    pixels.len()
-                ))
-            })?;
+            napi::Error::from_reason(format!(
+                "HEALPix field has {} values, not the 12*{nside}^2 its geometry declares",
+                pixels.len()
+            ))
+        })?;
+        // `resolved` sizes the meta from `Nside` alone, without resampling, so
+        // the same two derivations survive here as on the spectral side and the
+        // same assertion holds them together. Unlike that one this can fail:
+        // `healpix_render_dims` really does read its argument.
+        debug_assert_eq!(
+            grid,
+            healpix_render_grid(nside),
+            "the resample grid disagrees with the one the render meta declares"
+        );
         let arc = std::sync::Arc::new(values);
         self.synthesized
             .lock()
@@ -2528,16 +2536,16 @@ impl Grib2Handle {
             return Ok(std::sync::Arc::clone(hit));
         }
         // The grid comes back with the field rather than being chosen here, so
-        // the raster this caches cannot disagree with the meta `resolved`
-        // declares for it (#546).
+        // there is one construction of it rather than two (#546).
         let (grid, values) = self
             .reader
             .synthesize_spectral_global(message_index as usize)
             .into_napi()?;
-        // `resolved` sizes the meta from the truncation it reads off the GDS
-        // without decoding; the reader sizes the grid from the coefficients it
-        // did decode. The two read the same field, and a disagreement would put
-        // the raster and the meta out of step.
+        // `resolved` still has to size the meta without decoding, from the
+        // truncation it reads off the GDS, while the reader sizes the grid from
+        // the coefficients it did decode — so two derivations survive and this
+        // holds them together. It cannot fail while `spectral_render_dims`
+        // ignores its truncation; it is here for when one of them stops.
         debug_assert_eq!(
             Some(grid),
             self.spectral_truncation(message_index)
@@ -6481,7 +6489,8 @@ mod netcdf_slice_tests {
     #[test]
     fn contour_and_probe_agree_on_periodicity_for_the_families_contours_wrap() {
         for family in ["latlon", "mercator", "gaussian"] {
-            for (lon_last, want) in [(360.0 - 360.0 / 8.0, true), (40.0, false)] {
+            let global = GlobalGrid::new(8, 4).lon_last();
+            for (lon_last, want) in [(global, true), (40.0, false)] {
                 let mut meta = as_family(global_latlon_meta(8, 4), family);
                 meta.lon_last = Some(lon_last);
                 assert_eq!(
@@ -6500,7 +6509,7 @@ mod netcdf_slice_tests {
     fn global_latlon_meta(ni: i32, nj: i32) -> MessageMeta {
         let mut meta = latlon_meta(ni, nj);
         meta.lon_first = Some(0.0);
-        meta.lon_last = Some(360.0 - 360.0 / ni as f64);
+        meta.lon_last = Some(GlobalGrid::new(ni as usize, nj as usize).lon_last());
         meta
     }
 
