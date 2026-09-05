@@ -1,7 +1,8 @@
 # 0006 — Hosts are derived bindings over a plain-data API
 
-**Status:** Accepted (2026-08-24). Shapes #464 and #460 in milestone 11; informs
-the PyO3 and CLI hosts named in ROADMAP "New host surfaces" and #254.
+**Status:** Accepted (2026-08-24), amended 2026-09-05 (#579: `combine` joins
+the operation list). Shapes #464 and #460 in milestone 11; informs the PyO3 and
+CLI hosts named in ROADMAP "New host surfaces" and #254.
 
 ## Context
 
@@ -37,8 +38,8 @@ milestone 11 and dropped; see decision 4).
 
 A new umbrella crate, `fieldglass`, holds a `Session` type with the operations
 a host needs — `open`, `count`, `message(i)`, `decode(i, opts)`, `warp`,
-`render`, `probe`, `contours`, `overlay`, `csv` — taking `&[u8]` and returning
-owned plain data. It depends on `core` and the format crates, and it is the
+`render`, `palette`, `probe`, `contours`, `combine`, `overlay`, `csv` — taking
+`&[u8]` and returning owned plain data. It depends on `core` and the format crates, and it is the
 crate a Rust user reaches for; the format crates stay independently usable.
 No host type appears in it. The operation list is the shape, not a frozen
 signature: as with ADR-0005's `ByteSource`, the exact methods and DTO fields
@@ -57,6 +58,41 @@ in Rust reads a DTO back. Dependencies point down only: `core` knows no DTO,
 buffer conversion, error mapping, forwarding, and packaging. They depend on
 `fieldglass` and nothing below it. A host that does none of the engine's work
 is the acceptance test for this record.
+
+#### Amendment, 2026-09-05 (#579): `combine` is on `Session`
+
+The list above did not name `combine`, and nothing added it: #572's scope was
+"warp, probe, contours and CSV". The difference map has shipped since #239, so
+the omission meant `fieldglass` and `fieldglass-wasm` could not difference two
+fields while `fieldglass-napi` could — the exact split this record exists to
+close. It is now `Session::combine(&Field, &Field, CombineOp) -> Field`.
+
+**It takes two fields, and it is still on `Session`.** That is the one thing
+about it that does not fit the shape of the others, so it was decided rather
+than assumed. `Field::combine(&self, other, op)` was the alternative and is
+rejected: decision 2 makes every API type plain data a binding is *generated*
+from, and a method on one turns it into a smart object each host has to mirror
+by hand — the browser host's `WasmField` would become a second object with
+operations on it, in a surface whose whole point is that there is one. Arity is
+also not the distinction it looks like: `warp`, `render`, `probe` and
+`contours` already take a `&Field` the session need not have produced, so
+`Session` is where an operation over caller-owned fields lives, whatever the
+count.
+
+**Its precondition is `PartialEq` on `GridGeometry`,** which is what #464 meant
+by "grid equality for combined fields is `PartialEq` on it". The raster shape
+and the scan order are compared beside it, because a family this build does not
+model carries no dimensions and two grids stored opposite ways up hold their
+cells the other way round. Nothing else: a *derived* value, such as the far
+corner a projected family reports, is not part of what makes two grids the
+same.
+
+**`fieldglass::combine_values`** is the same operation for a host that already
+holds the engine's `Vec<Option<f64>>` and its own `Source` — `fieldglass-napi`,
+whose values would otherwise round through `Values`' narrowing rule on the way
+in and out of a `Field`. Two entry points, one gate and one arithmetic; that is
+the pattern to follow if another operation needs a second shape, not a second
+implementation.
 
 ### 2. API types follow rules a test can enforce
 

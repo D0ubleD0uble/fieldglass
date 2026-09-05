@@ -8136,7 +8136,16 @@ mod planar_geolocation_tests {
         let mut relabelled = grib2_geometry(ETA_LAMBERT).0;
         relabelled.lat_last = Some(meta.lat_last.unwrap() + 5.0);
         assert!(
-            combined_field(&meta, &values, None, &relabelled, &values, None, "a_minus_b").is_ok(),
+            combined_field(
+                &meta,
+                &values,
+                None,
+                &relabelled,
+                &values,
+                None,
+                "a_minus_b"
+            )
+            .is_ok(),
             "the far corner of a projected family is derived from the parameters \
              above, not a parameter of its own"
         );

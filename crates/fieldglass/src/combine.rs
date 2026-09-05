@@ -151,22 +151,43 @@ fn mismatch(property: &str, a: &str, b: &str) -> Error {
     }
 }
 
-/// How a geometry is named in a refusal: the family, plus the numbers that
-/// separate two grids of the *same* family.
+/// How a geometry is named in a refusal: its family, its raster shape, and
+/// where it puts that raster.
 ///
-/// `Debug` rather than a per-family formatter. It is one line, it names every
-/// parameter the comparison actually made, and a family added to
-/// [`GridGeometry`] describes itself here without this function being touched —
-/// which a hand-written `match` would not. The one arm worth special-casing is
-/// the cell-centre index, whose `Debug` is every cell of the swath.
+/// Written out rather than `{g:?}` for two reasons, one of them measured. The
+/// derived `Debug` is a Rust struct literal — `Lambert(LambertParams {
+/// earth_radius_m: 6371229.0, .. })` — and this string reaches a VS Code error
+/// toast and a browser console. It also drags `Debug` for eleven parameter
+/// structs into the wasm bundle, which is 5,853 bytes of `-Oz` output measured
+/// against binaryen 132 for a diagnostic nobody reads in that form.
+///
+/// The affine is what separates two grids of the same family in practice: it is
+/// the origin and the signed step, so a moved grid and a coarser one both show
+/// here. Two grids differing only in a projection constant — one cone's
+/// standard parallel against another's — describe alike, and the refusal then
+/// says only that their grids differ, which is true and is the case a `Debug`
+/// dump would have served better. `plane_affine` is a cheap accessor, unlike
+/// `lonlat_bbox`, which walks a projected perimeter 512 times an edge and has
+/// no business on an error path.
 fn describe(g: &GridGeometry) -> String {
-    match g {
-        GridGeometry::Lookup(_) => match g.dims() {
-            Some((ni, nj)) => format!("a {ni}x{nj} cell-centre index"),
-            None => "a cell-centre index".to_string(),
-        },
-        other => format!("{other:?}"),
+    let mut out = g.label().to_string();
+    if let Some((ni, nj)) = g.dims() {
+        out.push_str(&format!(" {ni}x{nj}"));
     }
+    if let Some(a) = g.plane_affine() {
+        let units = match a.units {
+            fieldglass_core::PlaneUnits::Degrees => "deg",
+            fieldglass_core::PlaneUnits::Metres => "m",
+        };
+        out.push_str(&format!(" from ({}, {}) {units}", a.x0, a.y0));
+        match (a.dx, a.dy) {
+            (Some(dx), Some(dy)) => out.push_str(&format!(" by ({dx}, {dy})")),
+            (Some(dx), None) => out.push_str(&format!(" by ({dx}, -)")),
+            (None, Some(dy)) => out.push_str(&format!(" by (-, {dy})")),
+            (None, None) => {}
+        }
+    }
+    out
 }
 
 /// A scan order, as the three flags a host reads off a `Georef`.
@@ -400,7 +421,19 @@ mod tests {
             "{}",
             e.message()
         );
-        assert!(e.message().contains("Lambert"), "{}", e.message());
+        // Named the way a user reads it, not as a Rust struct literal: the
+        // family, the raster shape, and where the raster sits — in degrees for
+        // a geographic family and in projection metres for a planar one.
+        assert!(
+            e.message().contains("A: latlon 8x4 from (0, 40) deg by ("),
+            "{}",
+            e.message()
+        );
+        assert!(
+            e.message().contains("B: lambert 8x4 from (") && e.message().contains(") m by ("),
+            "{}",
+            e.message()
+        );
 
         // Same family and dimensions, one row order reversed. The values would
         // combine upside down, so this must be refused rather than accepted on

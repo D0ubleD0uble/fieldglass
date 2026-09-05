@@ -167,6 +167,7 @@ classDiagram
         +palette(opts) Palette
         +probe(field, lat, lon)
         +contours(field, levels)
+        +combine(a, b, op) Field — #579
     }
     class Field {
         <<planned #460>>
@@ -200,7 +201,7 @@ classDiagram
         +open(bytes)
         +count() / message(i)
         +decode(i, opts) Field | DisplayField
-        +warp / render / palette / probe / contours / overlay / csv
+        +warp / render / palette / probe / contours / combine / overlay / csv
     }
     class ConformanceSuite {
         <<planned #464, crate fieldglass>>
