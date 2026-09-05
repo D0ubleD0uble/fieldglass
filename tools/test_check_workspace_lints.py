@@ -33,6 +33,9 @@ missing_docs = "warn"
 
 [workspace.lints.clippy]
 all = "deny"
+
+[workspace.lints.rustdoc]
+all = "deny"
 """
 
 MEMBER_INHERITING = """\
@@ -103,7 +106,20 @@ class RootTable(unittest.TestCase):
     def test_missing_clippy_group_fails(self):
         fx = Fixture(
             root_manifest='[workspace]\nmembers = ["crates/a"]\n\n'
-            '[workspace.lints.rust]\nmissing_docs = "warn"\n'
+            '[workspace.lints.rust]\nmissing_docs = "warn"\n\n'
+            '[workspace.lints.rustdoc]\nall = "deny"\n'
+        )
+        self.addCleanup(fx.close)
+        self.assertEqual(fx.run(), 1)
+
+    def test_missing_rustdoc_group_fails(self):
+        # The table #582 added. Rustdoc's lints are warn-by-default, so dropping
+        # it is silent everywhere else: `cargo doc` keeps exiting 0 and prints
+        # the broken links it used to print.
+        fx = Fixture(
+            root_manifest='[workspace]\nmembers = ["crates/a"]\n\n'
+            '[workspace.lints.rust]\nmissing_docs = "warn"\n\n'
+            '[workspace.lints.clippy]\nall = "deny"\n'
         )
         self.addCleanup(fx.close)
         self.assertEqual(fx.run(), 1)

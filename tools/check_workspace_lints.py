@@ -39,8 +39,11 @@ ROOT = Path(__file__).resolve().parent.parent
 
 # Lint groups the root manifest must define. Named rather than counted so that
 # dropping `[workspace.lints.clippy]` — the level the pre-commit hook and CI
-# have always enforced — is a failure and not a silent relaxation.
-REQUIRED_GROUPS = ("rust", "clippy")
+# have always enforced — is a failure and not a silent relaxation. `rustdoc`
+# joined them with #582: rustdoc's lints are warn-by-default and nothing ran
+# rustdoc at all, so deleting that table would put the repo straight back to
+# the state where thirteen broken doc links accumulated unnoticed.
+REQUIRED_GROUPS = ("rust", "clippy", "rustdoc")
 
 # Crates allowed to carry `#![allow(missing_docs)]`, mapped to the public-item
 # count measured when the opt-out was written. Empty: every crate in the
