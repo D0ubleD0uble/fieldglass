@@ -51,8 +51,8 @@ impl Grib1Packing for ComplexPacking {
 
         // The second-order layouts size their group / row / secondary-bitmap
         // reads against the *full* grid (`numberOfGroups · run length`, `P2`).
-        // When a
-        // BMS bit-map masks any point the BDS stores only the present values,
+        // When a BMS bit-map masks any point the BDS stores only the present
+        // values,
         // so those counts no longer line up: `row_by_row` would read past the
         // packed stream and misdecode, while `constant_width` / `general` fail
         // with a confusing "P2 != grid points". Reject the combination up front

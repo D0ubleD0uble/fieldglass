@@ -70,11 +70,13 @@ impl StoredRuns<'_> {
 /// packing's boustrophedonic bit gets reversed twice and comes back as stored,
 /// which is what eccodes produces for the same message.
 ///
-/// Anything the runs do not cover is left alone. A [`StoredRuns::Uniform`] run
-/// of `0`, or a trailing partial run, is not a run that was reversed on the way
-/// in; a [`StoredRuns::Ragged`] list that overruns `values` stops at the end of
-/// the field, since the callers cross-check `sum(PL)` against the section's own
-/// point count before getting here.
+/// Anything the runs do not cover is left alone, and a run that does not fit
+/// entirely is not covered: a [`StoredRuns::Uniform`] width of `0`, a trailing
+/// partial run, and a [`StoredRuns::Ragged`] list that overruns `values` all
+/// leave the tail exactly as it arrived. Reversing *part* of a run would be a
+/// reordering nothing wrote, which is worse than leaving a short field short.
+/// The readers cross-check `sum(PL)` against the section's own point count
+/// before getting here, so this is the guard rather than a reachable layout.
 pub fn reverse_alternate_runs<T>(values: &mut [T], runs: StoredRuns<'_>) {
     match runs {
         StoredRuns::Uniform(width) => {
@@ -101,9 +103,14 @@ pub fn reverse_alternate_runs<T>(values: &mut [T], runs: StoredRuns<'_>) {
         StoredRuns::Ragged(widths) => {
             let mut start = 0usize;
             for (run, &width) in widths.iter().enumerate() {
-                let end = start.saturating_add(width as usize).min(values.len());
+                let Some(end) = start.checked_add(width as usize) else {
+                    break;
+                };
+                if end > values.len() {
+                    break; // a run that does not fit was never written backwards
+                }
                 if run % 2 == 1 {
-                    values[start.min(end)..end].reverse();
+                    values[start..end].reverse();
                 }
                 start = end;
             }
@@ -204,16 +211,27 @@ mod tests {
         assert_eq!(v, field(6));
     }
 
-    /// A ragged list longer than the field stops at the end of it. The readers
-    /// cross-check `sum(PL)` against the section's own point count first, so
-    /// this is the guard rather than a reachable layout — an out-of-bounds
-    /// slice is the failure it would otherwise be.
+    /// A ragged run that runs off the end of the field is left alone, the same
+    /// answer the uniform shape gives a trailing partial run — reversing part
+    /// of a run would be a reordering nothing wrote. The readers cross-check
+    /// `sum(PL)` against the section's own point count first, so this is the
+    /// guard rather than a reachable layout; an out-of-bounds slice is the
+    /// failure it would otherwise be.
     #[test]
-    fn ragged_runs_past_the_end_of_the_field_stop_there() {
+    fn a_ragged_run_past_the_end_of_the_field_is_untouched() {
+        // Row 0 (2 wide) fits and is even; row 1 claims 9 of the 3 points left.
         let mut v = field(5);
         reverse_alternate_runs(&mut v, StoredRuns::Ragged(&[2, 9, 4]));
-        let want: Vec<Option<f64>> = [0.0, 1.0, 4.0, 3.0, 2.0].map(Some).into();
+        assert_eq!(v, field(5));
+        // The odd row before it is still reversed: only the overrun stops.
+        let mut v = field(5);
+        reverse_alternate_runs(&mut v, StoredRuns::Ragged(&[1, 2, 9]));
+        let want: Vec<Option<f64>> = [0.0, 2.0, 1.0, 3.0, 4.0].map(Some).into();
         assert_eq!(v, want);
+        // And a width that overflows when added stops rather than wrapping.
+        let mut v = field(3);
+        reverse_alternate_runs(&mut v, StoredRuns::Ragged(&[1, u32::MAX]));
+        assert_eq!(v, field(3));
     }
 
     /// A width that overflows when doubled must stop, not wrap. Widths are

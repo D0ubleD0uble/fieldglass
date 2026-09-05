@@ -203,6 +203,14 @@ pub fn parse_bds_header(bytes: &[u8]) -> Result<BdsHeader, FieldglassError> {
     // the bit here refused the message with "complex packing without
     // extra-flags octet". Found while building the reduced-grid fixture for
     // #605, which is such a message.
+    //
+    // The cost is that a *truncated* complex section — one that declares the
+    // packing in fewer than 14 octets — is now a parse error rather than a
+    // header whose flags were never read. `packing_label` and `message_kind`
+    // then report `None` / `Unsupported` for it instead of naming a packing on
+    // the strength of octets that are not there, so such a message drops out of
+    // the message table. That is the honest answer for a section this cannot
+    // read, and it is unreachable for any message a producer wrote.
     let complex_extended = if is_complex_packing && !is_spherical_harmonic {
         if bytes.len() < COMPLEX_EXTENDED_LEN {
             return Err(FieldglassError::Parse(format!(
