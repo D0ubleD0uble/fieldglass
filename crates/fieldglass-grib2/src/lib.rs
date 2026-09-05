@@ -11,8 +11,10 @@
 //! and the flat form of matrix-of-values (5.1). The non-scalar packings have
 //! their own entry points: spherical-harmonic spectral (§3.50 + 5.50 / 5.51) via
 //! [`Grib2Reader::decode_spectral_message`] — and
-//! [`Grib2Reader::synthesize_spectral_message`] runs the inverse transform back
-//! to a grid; bi-Fourier spectral (5.53) via
+//! [`Grib2Reader::synthesize_spectral_global`] runs the inverse transform back
+//! onto the shared lat/lon grid of [`fieldglass_core::global_grid`]
+//! ([`Grib2Reader::synthesize_spectral_message`] takes a grid of your own);
+//! bi-Fourier spectral (5.53) via
 //! [`Grib2Reader::decode_bifourier_message`]; and the true per-point matrix
 //! (5.1, `matrixBitmapsPresent = 1`) via
 //! [`Grib2Reader::decode_matrix_message`]. The pre-standard local image
@@ -23,8 +25,8 @@
 //! The error type every `Result` here returns ([`FieldglassError`]) and the
 //! typed grid value [`GridGeometry`] converts into are re-exported from
 //! `fieldglass-core`, so this crate can be the only Fieldglass dependency in a
-//! consumer's manifest; the shared WMO sub-centre lookup is re-exported the
-//! same way, from [`tables_cct`].
+//! consumer's manifest; so are the synthesis grid [`GlobalGrid`] and the shared
+//! WMO sub-centre lookup (from [`tables_cct`]).
 //!
 //! Those entry points all return the field **as the message stores it**. A
 //! reduced Gaussian grid stores `sum(PL)` values, not the `Ni × Nj` its
@@ -87,9 +89,11 @@ pub use ds::{DS_SECTION_NUMBER, decode_values};
 // `CornerPair` is here because `GridDefinitionSection::bounds` and
 // `raster_bounds` hand one back, so reading a grid's declared corners means
 // naming it (#553).
+// `GlobalGrid` is the grid `synthesize_spectral_global` hands back beside the
+// synthesised field, so reading either means naming it (#546).
 pub use fieldglass_core::{
-    CornerPair, FieldglassError, GeostationaryParams, GridGeometry, LambertAzimuthalParams,
-    StoredRuns, TransverseMercatorParams,
+    CornerPair, FieldglassError, GeostationaryParams, GlobalGrid, GridGeometry,
+    LambertAzimuthalParams, StoredRuns, TransverseMercatorParams,
 };
 pub use gds::{
     GDS_SECTION_NUMBER, GaussianTemplate, GridDefinitionSection, GridTemplate, LambertTemplate,

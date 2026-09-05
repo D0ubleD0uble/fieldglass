@@ -5,7 +5,7 @@ use crate::is::{IndicatorSection, parse_indicator};
 use crate::packing::matrix::{decode_matrix_of_values, is_matrix_of_values};
 use crate::packing::spherical::{SpectralCoefficients, decode_spectral};
 use crate::pds::{ProductDefinition, parse_product_definition};
-use fieldglass_core::{FieldglassError, StoredRuns};
+use fieldglass_core::{FieldglassError, GlobalGrid, StoredRuns};
 
 /// One message located in the file, with its sections parsed and its data
 /// section left as a byte range to decode on demand.
@@ -359,10 +359,10 @@ impl Grib1Reader {
     /// A spectral message stores the field in wavenumber space, not on a grid,
     /// so it has no `Ni`/`Nj` and cannot go through
     /// [`Grib1Reader::decode_message_values`] — the same reason a true
-    /// matrix-of-values field has its own entry point. Turning the coefficients
-    /// back into a grid needs an inverse Legendre transform, which this crate
-    /// does not do yet; what you get here is what eccodes' `grib_get_data`
-    /// prints for the same message.
+    /// matrix-of-values field has its own entry point. What you get here is what
+    /// eccodes' `grib_get_data` prints for the same message; to turn the
+    /// coefficients back into a grid, run the inverse transform with
+    /// [`Grib1Reader::synthesize_spectral_global`].
     ///
     /// Errors if the message is not spherical-harmonic.
     pub fn decode_spectral_message(
@@ -412,6 +412,11 @@ impl Grib1Reader {
     /// the ECMWF m-major layout the shared [`fieldglass_core::sht`] engine
     /// expects, so the same transform (validated against ECMWF's definitive
     /// spectral definition) applies.
+    ///
+    /// Choosing the grid is a separate question from evaluating the field on
+    /// it, and every host has answered it the same way: use
+    /// [`synthesize_spectral_global`](Self::synthesize_spectral_global) unless
+    /// you want a grid of your own.
     pub fn synthesize_spectral_message(
         &self,
         message_index: usize,
@@ -421,10 +426,42 @@ impl Grib1Reader {
         let coeffs = self.decode_spectral_message(message_index)?;
         fieldglass_core::sht::synthesize_spherical_harmonic(
             &coeffs.coefficients,
-            coeffs.j as u32,
+            u32::from(coeffs.j),
             latitudes_deg,
             longitudes_deg,
         )
+    }
+
+    /// Synthesize a spherical-harmonic message onto the global lat/lon grid
+    /// [`fieldglass_core::sht::spectral_render_grid`] chooses for its
+    /// truncation, and hand that grid back with it.
+    ///
+    /// The convention — pole-to-pole latitudes, longitudes `0 … 360 − Δ` with no
+    /// duplicated wrap column, at the 0.5° pin — lives once, in
+    /// [`fieldglass_core::global_grid`]. Getting the wrap column wrong doubles
+    /// the field at the antimeridian, so pairing the values with the grid they
+    /// were evaluated on is what this call is for: a host that builds its render
+    /// geometry from the returned [`GlobalGrid`] cannot declare one shape and
+    /// evaluate at another.
+    ///
+    /// Errors exactly where
+    /// [`synthesize_spectral_message`](Self::synthesize_spectral_message) does —
+    /// the message is not spherical-harmonic, or its coefficients do not decode.
+    pub fn synthesize_spectral_global(
+        &self,
+        message_index: usize,
+    ) -> Result<(GlobalGrid, Vec<f64>), FieldglassError> {
+        let coeffs = self.decode_spectral_message(message_index)?;
+        let truncation = u32::from(coeffs.j);
+        let grid = fieldglass_core::sht::spectral_render_grid(truncation);
+        let (lats, lons) = grid.axes();
+        let values = fieldglass_core::sht::synthesize_spherical_harmonic(
+            &coeffs.coefficients,
+            truncation,
+            &lats,
+            &lons,
+        )?;
+        Ok((grid, values))
     }
 
     /// Decode a `grid_simple_matrix` message that carries an `nr × nc` matrix at

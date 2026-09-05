@@ -7,14 +7,17 @@
 
 use fieldglass::render::{Projected, ResolvedOptions};
 use fieldglass_core::{
-    CornerPair, Format, GaussianParams, GeostationaryParams, LambertAzimuthalParams, LambertParams,
-    LatLonParams, LonLatBox, MercatorParams, PlanarGridProjector, PolarStereoParams,
+    CornerPair, Format, GaussianParams, GeostationaryParams, GlobalGrid, LambertAzimuthalParams,
+    LambertParams, LatLonParams, LonLatBox, MercatorParams, PlanarGridProjector, PolarStereoParams,
     ProjectedPolylines, RotatedLatLonParams, Scan, SpatialIndex, TransverseMercatorParams,
     TransverseMercatorProjector,
     cct_tables::lookup_sub_centre,
     colormap::{ScaleMode, min_max_ignoring_mask, paint_grid_rgba},
-    detect_from_bytes, normalise_lon, plane_spans_a_grid_cell,
+    detect_from_bytes,
+    healpix::healpix_render_grid,
+    normalise_lon, plane_spans_a_grid_cell,
     projection::GridGeometry,
+    sht::spectral_render_grid,
     signed_grid_increments,
     units::normalize_units,
 };
@@ -2021,11 +2024,11 @@ impl Grib1Handle {
     /// spectral branch.
     fn resolved(&self, message_index: u32) -> napi::Result<ResolvedField> {
         if let Some(truncation) = self.spectral_truncation(message_index) {
-            let (ni, nj) = spectral_render_dims(truncation);
-            let raw = self.cached_synthesize(message_index, truncation)?;
-            let meta = spectral_meta(self.message_meta(message_index)?, ni, nj);
+            let grid = spectral_render_grid(truncation);
+            let raw = self.cached_synthesize(message_index)?;
+            let meta = spectral_render_meta_from(self.message_meta(message_index)?, grid);
             // Synthesis-grid dimensions, bounded well inside `u32`.
-            Ok((raw, meta, ni as u32, nj as u32))
+            Ok((raw, meta, grid.ni as u32, grid.nj as u32))
         } else {
             let raw = self.cached_decode(message_index)?;
             let (ni, nj) = grib1_dimensions(&self.reader, message_index as usize)?;
@@ -2052,8 +2055,11 @@ impl Grib1Handle {
     /// decoding or synthesizing any values. For the geometry-only overlay path.
     fn resolved_meta(&self, message_index: u32) -> napi::Result<MessageMeta> {
         if let Some(truncation) = self.spectral_truncation(message_index) {
-            let (ni, nj) = spectral_render_dims(truncation);
-            Ok(spectral_meta(self.message_meta(message_index)?, ni, nj))
+            let grid = spectral_render_grid(truncation);
+            Ok(spectral_render_meta_from(
+                self.message_meta(message_index)?,
+                grid,
+            ))
         } else {
             // Kept as a check, not for its value: an overlay has nothing to
             // project onto if the message declares no raster, and this is the
@@ -2070,7 +2076,6 @@ impl Grib1Handle {
     fn cached_synthesize(
         &self,
         message_index: u32,
-        truncation: u32,
     ) -> napi::Result<std::sync::Arc<Vec<Option<f64>>>> {
         if let Some(hit) = self
             .synthesized
@@ -2080,11 +2085,23 @@ impl Grib1Handle {
         {
             return Ok(std::sync::Arc::clone(hit));
         }
-        let (lats, lons) = spectral_synthesis_lats_lons(truncation);
-        let values = self
+        // The grid comes back with the field rather than being chosen here, so
+        // the raster this caches cannot disagree with the meta `resolved`
+        // declares for it (#546).
+        let (grid, values) = self
             .reader
-            .synthesize_spectral_message(message_index as usize, &lats, &lons)
+            .synthesize_spectral_global(message_index as usize)
             .into_napi()?;
+        // `resolved` sizes the meta from the truncation it reads off the GDS
+        // without decoding; the reader sizes the grid from the coefficients it
+        // did decode. The two read the same field, and a disagreement would put
+        // the raster and the meta out of step.
+        debug_assert_eq!(
+            Some(grid),
+            self.spectral_truncation(message_index)
+                .map(spectral_render_grid),
+            "the synthesised grid disagrees with the one the render meta declares"
+        );
         let arc = std::sync::Arc::new(values.into_iter().map(Some).collect::<Vec<_>>());
         self.synthesized
             .lock()
@@ -2415,15 +2432,16 @@ impl Grib2Handle {
             return Ok(std::sync::Arc::clone(hit));
         }
         let pixels = self.cached_decode(message_index)?;
-        let (lats, lons) = healpix_resample_lats_lons(nside);
-        let values =
-            fieldglass_core::healpix::resample_to_latlon(nside, nested, &pixels, &lats, &lons)
-                .ok_or_else(|| {
-                    napi::Error::from_reason(format!(
-                        "HEALPix field has {} values, not the 12*{nside}^2 its geometry declares",
-                        pixels.len()
-                    ))
-                })?;
+        // The grid comes back with the field rather than being chosen here, so
+        // the raster this caches cannot disagree with the meta `resolved`
+        // declares for it (#546).
+        let (_grid, values) = fieldglass_core::healpix::resample_to_global(nside, nested, &pixels)
+            .ok_or_else(|| {
+                napi::Error::from_reason(format!(
+                    "HEALPix field has {} values, not the 12*{nside}^2 its geometry declares",
+                    pixels.len()
+                ))
+            })?;
         let arc = std::sync::Arc::new(values);
         self.synthesized
             .lock()
@@ -2440,23 +2458,18 @@ impl Grib2Handle {
     /// case otherwise.
     fn resolved(&self, message_index: u32) -> napi::Result<ResolvedField> {
         if let Some(truncation) = self.spectral_truncation(message_index) {
-            let (ni, nj) = spectral_render_dims(truncation);
-            let raw = self.cached_synthesize(message_index, truncation)?;
-            let meta = spectral_meta(self.message_meta(message_index)?, ni, nj);
+            let grid = spectral_render_grid(truncation);
+            let raw = self.cached_synthesize(message_index)?;
+            let meta = spectral_render_meta_from(self.message_meta(message_index)?, grid);
             // Synthesis-grid dimensions, bounded well inside `u32`.
-            Ok((raw, meta, ni as u32, nj as u32))
+            Ok((raw, meta, grid.ni as u32, grid.nj as u32))
         } else if let Some((nside, nested)) = self.healpix_geometry(message_index) {
-            let (ni, nj) = healpix_render_dims(nside);
+            let grid = healpix_render_grid(nside);
             let raw = self.cached_healpix_resample(message_index, nside, nested)?;
-            // `healpix_render_dims` sizes the synthesis grid from `Nside`; the
+            let meta = spectral_render_meta_from(self.message_meta(message_index)?, grid);
+            // `healpix_render_grid` sizes the resample grid from `Nside`; the
             // widest it reaches is a few thousand points a side.
-            let meta = spectral_render_meta_from(
-                self.message_meta(message_index)?,
-                ni as i32,
-                nj as i32,
-                360.0 - 360.0 / ni as f64,
-            );
-            Ok((raw, meta, ni as u32, nj as u32))
+            Ok((raw, meta, grid.ni as u32, grid.nj as u32))
         } else {
             let raw = self.cached_decode(message_index)?;
             let (meta, ni, nj) = self.grid_meta(message_index)?;
@@ -2484,16 +2497,15 @@ impl Grib2Handle {
     /// [`Grib1Handle::resolved_meta`]. For the geometry-only overlay path.
     fn resolved_meta(&self, message_index: u32) -> napi::Result<MessageMeta> {
         if let Some(truncation) = self.spectral_truncation(message_index) {
-            let (ni, nj) = spectral_render_dims(truncation);
-            Ok(spectral_meta(self.message_meta(message_index)?, ni, nj))
-        } else if let Some((nside, _)) = self.healpix_geometry(message_index) {
-            let (ni, nj) = healpix_render_dims(nside);
-            // Same synthesis-grid bound as `resolved`.
+            let grid = spectral_render_grid(truncation);
             Ok(spectral_render_meta_from(
                 self.message_meta(message_index)?,
-                ni as i32,
-                nj as i32,
-                360.0 - 360.0 / ni as f64,
+                grid,
+            ))
+        } else if let Some((nside, _)) = self.healpix_geometry(message_index) {
+            Ok(spectral_render_meta_from(
+                self.message_meta(message_index)?,
+                healpix_render_grid(nside),
             ))
         } else {
             Ok(self.grid_meta(message_index)?.0)
@@ -2506,7 +2518,6 @@ impl Grib2Handle {
     fn cached_synthesize(
         &self,
         message_index: u32,
-        truncation: u32,
     ) -> napi::Result<std::sync::Arc<Vec<Option<f64>>>> {
         if let Some(hit) = self
             .synthesized
@@ -2516,11 +2527,23 @@ impl Grib2Handle {
         {
             return Ok(std::sync::Arc::clone(hit));
         }
-        let (lats, lons) = spectral_synthesis_lats_lons(truncation);
-        let values = self
+        // The grid comes back with the field rather than being chosen here, so
+        // the raster this caches cannot disagree with the meta `resolved`
+        // declares for it (#546).
+        let (grid, values) = self
             .reader
-            .synthesize_spectral_message(message_index as usize, &lats, &lons)
+            .synthesize_spectral_global(message_index as usize)
             .into_napi()?;
+        // `resolved` sizes the meta from the truncation it reads off the GDS
+        // without decoding; the reader sizes the grid from the coefficients it
+        // did decode. The two read the same field, and a disagreement would put
+        // the raster and the meta out of step.
+        debug_assert_eq!(
+            Some(grid),
+            self.spectral_truncation(message_index)
+                .map(spectral_render_grid),
+            "the synthesised grid disagrees with the one the render meta declares"
+        );
         let arc = std::sync::Arc::new(values.into_iter().map(Some).collect::<Vec<_>>());
         self.synthesized
             .lock()
@@ -3604,99 +3627,42 @@ fn base_netcdf_meta(name: &str, units: &str, ni: i32, nj: i32) -> MessageMeta {
     }
 }
 
-/// The global regular lat/lon grid every spectral field is synthesized onto:
-/// 0.5°, i.e. 720 longitudes × 361 latitudes.
-const SPECTRAL_SYNTHESIS_NI: usize = 720;
-const SPECTRAL_SYNTHESIS_NJ: usize = 361;
-
-/// Choose the regular lat/lon grid to resample a HEALPix field onto.
+/// The `"latlon"` render meta for a field put onto the global synthesis
+/// `grid`: `base`'s parameter/level/time with that grid's geometry.
 ///
-/// A HEALPix pixel subtends `sqrt(4π/Npix) = sqrt(π/3)/Nside` radians, or
-/// `58.63/Nside` degrees, so sampling at that step visits every pixel and skips
-/// none. That is the rule — and it is a different rule from the spectral one
-/// directly above, for a reason worth keeping straight: a spectral field is
-/// band-limited and any grid at or above its minimum reproduces it *exactly*,
-/// while HEALPix is a sampled grid, so this is a genuine resample. Finer than
-/// the pixel scale merely repeats pixels; coarser drops them.
+/// Two families need it, for the same reason — neither has a raster shape of
+/// its own: spectral fields, synthesized by the inverse transform (GRIB1 and
+/// GRIB2 both), and HEALPix fields, resampled pixel by pixel (#443). The name
+/// is historical; what it builds is not spectral-specific.
 ///
-/// Capped at the same 0.5° the spectral path pins. Past that the memory is
-/// real — Nside 1024 at its own pixel scale would be 6285x3143, some 300 MB of
-/// `Option<f64>` — and a viewer cannot show the difference. A large `Nside` is
-/// therefore downsampled, exactly as a large truncation already is.
-fn healpix_render_dims(nside: u32) -> (usize, usize) {
-    // sqrt(pi/3) in degrees: the angular size of a HEALPix pixel times Nside.
-    const PIXEL_DEG_TIMES_NSIDE: f64 = 58.632_047_691_1;
-    let step = (PIXEL_DEG_TIMES_NSIDE / nside as f64).max(HEALPIX_MIN_STEP_DEG);
-    // Round the point count *up*: rounding to nearest can land a step coarser
-    // than a pixel — at Nside 2 it gives 30° against a 29.3° pixel — and then
-    // pixels are skipped, which is the one thing this rule exists to prevent.
-    // Up to an even `ni` as well, so the pole-to-pole grid has a whole number
-    // of rows and `nj = ni/2 + 1` holds exactly, at the cap included.
-    let ni = (((360.0 / step).ceil() as usize).next_multiple_of(2)).max(2);
-    let ni = ni.min(SPECTRAL_SYNTHESIS_NI);
-    (ni, ni / 2 + 1)
-}
-
-/// The finest step a HEALPix field is resampled at, matching the spectral pin.
-const HEALPIX_MIN_STEP_DEG: f64 = 0.5;
-
-/// Choose the global regular lat/lon grid to synthesize a spectral field onto.
-///
-/// `2(T+1)` latitudes is the smallest grid that holds everything a truncation
-/// `T` carries (≈ two grid points per wavenumber), and that used to be the grid
-/// itself below the cap — which put a T63 field on 256×128, a postage-stamp
-/// render whose PNG exported 382 pixels wide.
-///
-/// But a spectral message is a band-limited function, not a sampled grid: its
-/// coefficients can be evaluated anywhere, so any grid at or above the minimum
-/// reproduces the same field exactly, and a finer one is a sharper picture of
-/// it rather than interpolation between samples. Every field is therefore
-/// synthesized at 0.5° — which is also the ceiling a large truncation was
-/// already downsampled to, so `T ≥ 180` is unchanged and the cost of the
-/// densest case is unchanged with it.
-fn spectral_render_dims(_truncation: u32) -> (usize, usize) {
-    (SPECTRAL_SYNTHESIS_NI, SPECTRAL_SYNTHESIS_NJ)
-}
-
-/// The global synthesis grid's coordinates for `truncation`: latitudes 90..−90
-/// (pole to pole) and longitudes 0..360−Δ (no duplicated wrap column), matching
-/// the `lat_first`/`lat_last`/`lon_first`/`lon_last` the render meta declares.
-/// Shared by the GRIB1 and GRIB2 spectral synthesis paths.
-fn spectral_synthesis_lats_lons(truncation: u32) -> (Vec<f64>, Vec<f64>) {
-    let (ni, nj) = spectral_render_dims(truncation);
-    let lats: Vec<f64> = (0..nj)
-        .map(|i| 90.0 - (i as f64) * 180.0 / (nj as f64 - 1.0))
-        .collect();
-    let lons: Vec<f64> = (0..ni).map(|j| (j as f64) * 360.0 / ni as f64).collect();
-    (lats, lons)
-}
-
-/// The resample grid's coordinates for `nside`: latitudes 90..−90 pole to pole
-/// and longitudes 0..360−Δ with no duplicated wrap column, matching what
-/// [`spectral_render_meta_from`] declares — the same meta serves both, because
-/// after synthesis a HEALPix field *is* an ordinary lat/lon grid.
-fn healpix_resample_lats_lons(nside: u32) -> (Vec<f64>, Vec<f64>) {
-    let (ni, nj) = healpix_render_dims(nside);
-    let lats: Vec<f64> = (0..nj)
-        .map(|j| 90.0 - (j as f64) * 180.0 / (nj as f64 - 1.0))
-        .collect();
-    let lons: Vec<f64> = (0..ni).map(|i| (i as f64) * 360.0 / ni as f64).collect();
-    (lats, lons)
-}
-
-/// Finish a spectral render: build the `"latlon"` render meta from `base` and
-/// the synthesis grid, then run the (already synthesized) field `raw` through
-/// the ordinary render pipeline. Shared by the GRIB1 and GRIB2 spectral paths.
-/// The `"latlon"` render meta for a spectral field synthesized onto the
-/// `ni × nj` global grid: `base`'s parameter/level/time with the synthesis grid
-/// geometry. Shared by the resolve seam and the GRIB1/GRIB2 spectral paths.
-fn spectral_meta(base: MessageMeta, ni: usize, nj: usize) -> MessageMeta {
-    // Last longitude of the `0..360−Δ` grid — `lons.last()`, without rebuilding
-    // the vector (`(ni-1)·360/ni` is bit-identical to the synthesized value).
-    let lon_last = (ni as f64 - 1.0) * 360.0 / ni as f64;
-    // `ni` / `nj` are synthesis-grid dimensions from `spectral_render_dims` or
-    // `healpix_render_dims`, both bounded well inside `i32`.
-    spectral_render_meta_from(base, ni as i32, nj as i32, lon_last)
+/// Every coordinate comes from [`GlobalGrid`] rather than being spelled out
+/// here, so the corners this declares are the ones the field was evaluated at
+/// (#546).
+fn spectral_render_meta_from(base: MessageMeta, grid: GlobalGrid) -> MessageMeta {
+    let params = fieldglass_core::LatLonParams::from(grid);
+    gate_reprojection(
+        MessageMeta {
+            grid_type: Some("latlon".to_string()),
+            // The synthesis grids are capped far below `i32::MAX`; the cast is
+            // saturating so an absurd one clamps rather than wraps.
+            grid_ni: Some(i32::try_from(params.ni).unwrap_or(i32::MAX)),
+            grid_nj: Some(i32::try_from(params.nj).unwrap_or(i32::MAX)),
+            lat_first: Some(params.lat_first),
+            lon_first: Some(params.lon_first),
+            lat_last: Some(params.lat_last),
+            lon_last: Some(params.lon_last),
+            // Answered from the geometry, like every other builder. The grid
+            // this synthesises is one we chose, so the answer is not in doubt —
+            // but a second spelling of it here is a second place for the rule to
+            // live, which is the thing #571 removed.
+            reprojectable: false,
+            ..base
+        },
+        // A synthesised grid runs west-to-east from 0° and north-down from the
+        // pole, whatever the message it came from scanned like: nothing of the
+        // source raster survives an inverse transform or a HEALPix resample.
+        Scan::north_down(),
+    )
 }
 
 /// The render geometry of a decoded field: the extent of the raster
@@ -3725,38 +3691,6 @@ fn raster_render_meta(base: MessageMeta, bounds: Option<CornerPair>) -> MessageM
         lon_last: Some(corners.lon_last),
         ..base
     }
-}
-
-/// Build the `"latlon"` [`MessageMeta`] for a field put onto a global grid at
-/// decode: the real message's `base` parameter/level/time metadata with the
-/// grid geometry replaced by the grid it was put onto.
-///
-/// Two families need it, for the same reason — neither has a raster shape of
-/// its own: spectral fields, synthesized by the inverse transform (GRIB1 and
-/// GRIB2 both), and HEALPix fields, resampled pixel by pixel (#443). The name
-/// is historical; what it builds is not spectral-specific.
-fn spectral_render_meta_from(base: MessageMeta, ni: i32, nj: i32, lon_last: f64) -> MessageMeta {
-    gate_reprojection(
-        MessageMeta {
-            grid_type: Some("latlon".to_string()),
-            grid_ni: Some(ni),
-            grid_nj: Some(nj),
-            lat_first: Some(90.0),
-            lon_first: Some(0.0),
-            lat_last: Some(-90.0),
-            lon_last: Some(lon_last),
-            // Answered from the geometry, like every other builder. The grid
-            // this synthesises is one we chose, so the answer is not in doubt —
-            // but a second spelling of it here is a second place for the rule to
-            // live, which is the thing #571 removed.
-            reprojectable: false,
-            ..base
-        },
-        // A synthesised grid runs west-to-east from 0° and north-down from the
-        // pole, whatever the message it came from scanned like: nothing of the
-        // source raster survives an inverse transform or a HEALPix resample.
-        Scan::north_down(),
-    )
 }
 
 /// Build a synthesised `"latlon"` [`MessageMeta`] for a NetCDF slice. Only the
@@ -5892,27 +5826,6 @@ mod netcdf_slice_tests {
         // GRIB2 has no P1 at all.
         let m = &grib2_handle(SPECTRAL_T63).messages()[0];
         assert_eq!(m.p1_octet, None);
-    }
-
-    #[test]
-    fn spectral_synthesis_grid_is_half_degree_for_every_truncation() {
-        // The floor and the ceiling are the same grid, so a small truncation is
-        // synthesized as densely as a large one. T63 used to land on 256×128 —
-        // faithful to the truncation, but a postage-stamp picture of it.
-        for truncation in [2_u32, 63, 106, 179, 180, 639, 1279] {
-            assert_eq!(
-                spectral_render_dims(truncation),
-                (720, 361),
-                "truncation {truncation}"
-            );
-        }
-        // The grid the coordinates are built on agrees with the declared dims,
-        // pole to pole and without a duplicated wrap column.
-        let (lats, lons) = spectral_synthesis_lats_lons(63);
-        assert_eq!((lons.len(), lats.len()), (720, 361));
-        assert_eq!((lats[0], lats[lats.len() - 1]), (90.0, -90.0));
-        assert_eq!(lons[0], 0.0);
-        assert!(lons[lons.len() - 1] < 360.0);
     }
 
     #[test]
@@ -8934,65 +8847,12 @@ mod healpix_render_tests {
 
     /// The rule: sample at the HEALPix pixel scale so no pixel is skipped,
     /// never finer than the 0.5° the spectral path pins.
-    #[test]
-    fn render_dims_track_the_pixel_scale() {
-        for nside in [2u32, 4, 8, 16, 32, 64] {
-            let (ni, nj) = healpix_render_dims(nside);
-            let step = 360.0 / ni as f64;
-            let pixel = 58.632_047_691_1 / nside as f64;
-            assert!(
-                step <= pixel * 1.02,
-                "Nside {nside}: step {step} is coarser than the {pixel}° pixel, so pixels \
-                 would be skipped"
-            );
-            assert!(
-                step > pixel * 0.4,
-                "Nside {nside}: step {step} is far finer than the {pixel}° pixel, which only \
-                 repeats pixels at a cost in memory"
-            );
-            assert_eq!(
-                nj,
-                ni / 2 + 1,
-                "Nside {nside}: {ni}×{nj} is not pole to pole"
-            );
-        }
-    }
-
-    /// Nside 1024 at its own pixel scale would be about 6285×3143 — some 300 MB
-    /// of `Option<f64>`, and past what a viewer can show.
-    #[test]
-    fn render_dims_are_capped_for_a_large_nside() {
-        for nside in [128u32, 256, 1024, 4096] {
-            assert_eq!(
-                healpix_render_dims(nside),
-                (SPECTRAL_SYNTHESIS_NI, SPECTRAL_SYNTHESIS_NJ),
-                "Nside {nside} must be capped at the spectral 0.5° pin"
-            );
-        }
-    }
-
-    #[test]
-    fn the_resample_grid_covers_the_globe_without_a_duplicate_seam() {
-        let (lats, lons) = healpix_resample_lats_lons(8);
-        assert_eq!(lats.first(), Some(&90.0), "starts at the north pole");
-        assert_eq!(lats.last(), Some(&-90.0), "ends at the south");
-        assert_eq!(lons.first(), Some(&0.0));
-        // No duplicated wrap column: the last longitude is one step short of
-        // 360, matching what the render meta declares as `lon_last`.
-        let step = 360.0 / lons.len() as f64;
-        assert!(
-            (lons.last().unwrap() - (360.0 - step)).abs() < 1e-9,
-            "last longitude {} should be 360 − {step}",
-            lons.last().unwrap()
-        );
-    }
-
     /// The meta a resampled HEALPix field renders under must be an ordinary
     /// global lat/lon grid — that is the whole point of resampling, and if it
     /// were not reprojectable the picker would offer only the source view.
     #[test]
     fn the_render_meta_is_a_reprojectable_global_latlon_grid() {
-        let (ni, nj) = healpix_render_dims(16);
+        let grid = healpix_render_grid(16);
         // `MessageMeta` has no `Default` (every field is spelled out at each
         // construction site on purpose), so borrow the polar-stereo test's
         // helper and overwrite the two fields this is about.
@@ -9001,7 +8861,7 @@ mod healpix_render_tests {
             reprojectable: false,
             ..crate::meta_geometry_tests::cmc_polar_meta()
         };
-        let meta = spectral_render_meta_from(base, ni as i32, nj as i32, 360.0 - 360.0 / ni as f64);
+        let meta = spectral_render_meta_from(base, grid);
         assert_eq!(meta.grid_type.as_deref(), Some("latlon"));
         assert!(
             meta.reprojectable,
@@ -9009,21 +8869,23 @@ mod healpix_render_tests {
         );
         assert_eq!(meta.lat_first, Some(90.0));
         assert_eq!(meta.lat_last, Some(-90.0));
-        assert_eq!(meta.grid_ni, Some(ni as i32));
-        assert_eq!(meta.grid_nj, Some(nj as i32));
+        assert_eq!(meta.grid_ni, Some(grid.ni as i32));
+        assert_eq!(meta.grid_nj, Some(grid.nj as i32));
+        // The eastern corner is the last longitude the field was evaluated at,
+        // bit for bit — not a second spelling of it (#546).
+        assert_eq!(meta.lon_last, grid.longitudes().last().copied());
     }
 
     /// The grid the postage-stamp report was made against (#514): Nside 4
     /// resamples to 26 × 14, which is correct for its pixel scale and far too
     /// coarse to draw a projection at.
     fn nside4_render_meta() -> MessageMeta {
-        let (ni, nj) = healpix_render_dims(4);
         let base = MessageMeta {
             grid_type: Some("healpix".to_string()),
             reprojectable: false,
             ..crate::meta_geometry_tests::cmc_polar_meta()
         };
-        spectral_render_meta_from(base, ni as i32, nj as i32, 360.0 - 360.0 / ni as f64)
+        spectral_render_meta_from(base, healpix_render_grid(4))
     }
 
     /// Every reprojection of a coarse grid is drawn at display scale, so the
@@ -9032,7 +8894,7 @@ mod healpix_render_tests {
     #[test]
     fn every_reprojection_of_a_coarse_grid_reaches_the_raster_floor() {
         assert_eq!(
-            healpix_render_dims(4),
+            healpix_render_grid(4).dims(),
             (26, 14),
             "the grid the report was made against"
         );

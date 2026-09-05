@@ -9,7 +9,7 @@
 //! pin the convention with exact analytic single-coefficient cases; this test
 //! exercises the whole path on a realistic T63 temperature field.
 
-use fieldglass_grib2::Grib2Reader;
+use fieldglass_grib2::{GlobalGrid, Grib2Reader};
 
 const SPECTRAL_T63: &[u8] = include_bytes!("fixtures/spectral_simple_t63.grib2");
 const ORACLE: &str = include_str!("fixtures/spectral_render_t63.oracle.txt");
@@ -67,4 +67,58 @@ fn spectral_synthesis_matches_definitive_oracle() {
         max_abs < 1e-3,
         "agreement well within tolerance (max Δ={max_abs})"
     );
+}
+
+/// The convention this crate no longer has to be told: `synthesize_spectral_global`
+/// picks the shared grid and hands it back with the field, so the two cannot
+/// disagree (#546).
+#[test]
+fn the_global_synthesis_pairs_the_field_with_the_grid_it_is_on() {
+    let reader = Grib2Reader::from_bytes(SPECTRAL_T63.to_vec()).expect("parse");
+    let (grid, field) = reader
+        .synthesize_spectral_global(0)
+        .expect("synthesize onto the shared grid");
+
+    // The pinned 0.5° grid, whatever the truncation.
+    assert_eq!(grid, GlobalGrid::FINEST);
+    assert_eq!(grid.dims(), (720, 361));
+    assert_eq!(field.len(), grid.len());
+
+    // Same values as evaluating the message on that grid by hand: the paired
+    // call is a convenience over the explicit one, not a second transform.
+    let (lats, lons) = grid.axes();
+    assert_eq!(
+        field,
+        reader
+            .synthesize_spectral_message(0, &lats, &lons)
+            .expect("synthesize on the same axes")
+    );
+
+    // No duplicated wrap column: the eastern edge is a step short of the seam,
+    // so the row does not repeat longitude 0 at both ends. A field doubled at
+    // the antimeridian is what getting this wrong looks like.
+    let step = 360.0 / grid.ni as f64;
+    assert!((lons[grid.ni - 1] - (360.0 - step)).abs() < 1e-9);
+    // Checked on the equator, not on a pole row: a pole row is zonal whatever
+    // the longitudes are, so it would pass with the seam column duplicated.
+    let equator = &field[(grid.nj / 2) * grid.ni..][..grid.ni];
+    assert!(
+        equator.iter().any(|&v| (v - equator[0]).abs() > 1e-9),
+        "the equator row is longitude-dependent, or this proves nothing"
+    );
+    assert!(
+        (equator[0] - equator[grid.ni - 1]).abs() > 1e-9,
+        "column 0 and the last column sit a step apart, so they must differ"
+    );
+
+    // Pole to pole, north first: the first and last rows are each zonal.
+    for (name, row) in [
+        ("north pole", &field[..grid.ni]),
+        ("south pole", &field[field.len() - grid.ni..]),
+    ] {
+        assert!(
+            row.iter().all(|&v| (v - row[0]).abs() < 1e-9),
+            "the {name} row must be longitude-independent"
+        );
+    }
 }

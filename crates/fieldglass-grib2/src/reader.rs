@@ -23,7 +23,7 @@ use crate::spectral::{
     BiFourierCoefficients, SpectralCoefficients, decode_bifourier, decode_spectral_complex,
     decode_spectral_simple,
 };
-use fieldglass_core::{FieldglassError, StoredRuns};
+use fieldglass_core::{FieldglassError, GlobalGrid, StoredRuns};
 
 /// Hard cap on `ni · nj` for `decode_message_values`. Real grids top out
 /// around 10⁷ points; this guards against pathological inputs that would
@@ -573,6 +573,11 @@ impl Grib2Reader {
     /// in the ecosystem performs, letting a spectral message be turned back into
     /// a grid for rendering. The numerics are validated against ECMWF's
     /// definitive spectral definition (see [`fieldglass_core::sht`]).
+    ///
+    /// Choosing the grid is a separate question from evaluating the field on
+    /// it, and every host has answered it the same way: use
+    /// [`synthesize_spectral_global`](Self::synthesize_spectral_global) unless
+    /// you want a grid of your own.
     pub fn synthesize_spectral_message(
         &self,
         message_index: usize,
@@ -586,6 +591,37 @@ impl Grib2Reader {
             latitudes_deg,
             longitudes_deg,
         )
+    }
+
+    /// Synthesize a spherical-harmonic message onto the global lat/lon grid
+    /// [`fieldglass_core::sht::spectral_render_grid`] chooses for its
+    /// truncation, and hand that grid back with it.
+    ///
+    /// The convention — pole-to-pole latitudes, longitudes `0 … 360 − Δ` with no
+    /// duplicated wrap column, at the 0.5° pin — lives once, in
+    /// [`fieldglass_core::global_grid`]. Getting the wrap column wrong doubles
+    /// the field at the antimeridian, so pairing the values with the grid they
+    /// were evaluated on is what this call is for: a host that builds its render
+    /// geometry from the returned [`GlobalGrid`] cannot declare one shape and
+    /// evaluate at another.
+    ///
+    /// Errors exactly where
+    /// [`synthesize_spectral_message`](Self::synthesize_spectral_message) does —
+    /// the message is not spherical-harmonic, or its coefficients do not decode.
+    pub fn synthesize_spectral_global(
+        &self,
+        message_index: usize,
+    ) -> Result<(GlobalGrid, Vec<f64>), FieldglassError> {
+        let coeffs = self.decode_spectral_message(message_index)?;
+        let grid = fieldglass_core::sht::spectral_render_grid(coeffs.j);
+        let (lats, lons) = grid.axes();
+        let values = fieldglass_core::sht::synthesize_spherical_harmonic(
+            &coeffs.coefficients,
+            coeffs.j,
+            &lats,
+            &lons,
+        )?;
+        Ok((grid, values))
     }
 
     /// Decode a bi-Fourier message (§3.61/62/63 + §5.53) into its spectral
