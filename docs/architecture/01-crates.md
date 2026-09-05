@@ -19,7 +19,7 @@ Closing that gap is the rest of
 flowchart TD
     napi["fieldglass-napi<br/><i>N-API boundary (Node addon)</i>"]
     wasm["fieldglass-wasm<br/><i>wasm-bindgen façade (browser)</i>"]
-    fieldglass["fieldglass<br/><i>Session, plain-data API types, shader</i>"]
+    fieldglass["fieldglass<br/><i>Session, plain-data API types, shader, conformance suite</i>"]
     grib1["fieldglass-grib1<br/><i>GRIB1 decode</i>"]
     grib2["fieldglass-grib2<br/><i>GRIB2 decode</i>"]
     netcdf["fieldglass-netcdf<br/><i>NetCDF classic + NetCDF-4 / HDF5</i>"]
@@ -70,6 +70,32 @@ headers, public fields, enum payloads, trait items and `impl … for …` header
 which is how `GridGeometry` enters both GRIB crates — and asking whether every
 `fieldglass_core` name in them can be spelled from the format crate alone. Its
 `ALLOWED_UNEXPORTED` list is where an exception has to be written down.
+
+**The conformance suite is part of the API, not of any host.** ADR-0006
+decision 3 puts the fixtures and expected outputs in `fieldglass`, as data, and
+has each host run its own binding through them; `crates/fieldglass/conformance/suite.json`
+is that data and `fieldglass::conformance` (feature `conformance`, on by
+default) is the runner's machinery — the case list, the observation each
+operation produces, and the comparator. Three runners replay it:
+`crates/fieldglass/tests/conformance.rs` over `Session` (native, and
+`wasm32-wasip1` in CI), `fieldglass-napi`'s `conformance_host` module over the
+napi handles, and `crates/fieldglass-wasm/tests/node/conformance.mjs` over the
+built browser bundle from Node. The third is the one that exercises a
+*binding's* own work — serde-wasm-bindgen conversion, the typed arrays, the
+`e.code` error mapping — and it is a CI step in the wasm job, not a manual
+check.
+
+Two rules that follow from the same record are checked beside it.
+`crates/fieldglass/tests/api_rules.rs` holds every public type in the API
+modules to ADR-0006 decision 2 (no generics or lifetimes, contiguous values
+plus a `u8` mask, `#[non_exhaustive]`, the serde and schema derives, a stated
+`rename_all`), reading the crate's own source through `include_str!` so a type
+added without being classified fails rather than going unchecked, and rejecting
+a deliberately non-conforming type beside it so the gate is known to be
+connected. `tools/check_host_types.py` (pre-commit) is the other half of #464's
+acceptance — no function outside a host crate takes a host DTO or returns a
+host error type — which Rust cannot assert from inside the crate that would
+have the dependency.
 
 **Why `fieldglass` takes `core` with `default-features = false`.** It sits
 between every host and `core`, so taking core's defaults there would re-enable
