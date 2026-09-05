@@ -456,39 +456,96 @@ pub trait PlanarGridProjector {
     }
 }
 
-/// A planar family's grid point `(i, j)`, or `None` where the projection has no
-/// answer for it.
+/// Whether a planar grid can be placed on the Earth at all — the one predicate
+/// [`GridGeometry::forward`], [`GridGeometry::lonlat_bbox`] and
+/// [`GridGeometry::plane_affine`] gate on, so that none of the three can answer
+/// for a grid whose [`GridGeometry::inverse`] declines every point of it.
 ///
-/// Two ways there is none, and the enum's three grid-level answers
-/// ([`GridGeometry::forward`], [`GridGeometry::lonlat_bbox`],
-/// [`GridGeometry::plane_affine`]) have to refuse both if they are to agree with
-/// [`GridGeometry::inverse`] about whether a grid can be placed at all.
+/// Two conditions, and a message can fail either one on its own.
 ///
-/// `well_defined` is the projector's own constants check, passed in because it
-/// is an inherent method on each projector rather than part of
-/// [`PlanarGridProjector`] — the same shape the GRIB readers' `finite_lonlat`
-/// helpers use. `false` means [`PlanarGridProjector::accepts`] rejects every
-/// point, so `inverse` declines the whole grid. The arithmetic does not
+/// `projection_resolves` is the projector's own constants check. It is passed in
+/// rather than read off the trait because it is an inherent method on three of
+/// the four planar projectors and absent on the fourth — the same shape the GRIB
+/// readers' `finite_lonlat` helpers use. `false` means
+/// [`PlanarGridProjector::accepts`] rejects every point. The arithmetic does not
 /// necessarily go non-finite there: a Lambert cone on a declared radius of zero
 /// reports every grid point at the south pole, which reads downstream as a
 /// coordinate rather than as a broken grid.
 ///
-/// The finiteness check is the second way. A well-defined projection still has
-/// places it cannot invert — beyond a Lambert azimuthal equal-area disc,
+/// The second is that the *raster* has a resolvable position in the plane the
+/// projection defines. A grid may state a first point the forward map sends to
+/// infinity — a §3.30 corner at the pole opposite its cone — or merely so far
+/// out that one grid step no longer changes it: a §3.20 corner at the far pole
+/// puts the origin at ~1.9e23 m, where adding a 60 km step is a no-op in `f64`
+/// and every grid point collapses onto one position. `inverse` divides by that
+/// step and refuses both, so these answers must too. What this deliberately does
+/// **not** check is `ni`/`nj` — see [`GridGeometry::forward`], which still names
+/// the point of a raster too thin for `inverse` to interpolate across.
+fn planar_grid_is_placeable(projection_resolves: bool, proj: &dyn PlanarGridProjector) -> bool {
+    let (ox, oy) = proj.grid_origin();
+    let (dx, dy) = proj.grid_spacing();
+    projection_resolves
+        && ox.is_finite()
+        && oy.is_finite()
+        && dx.is_finite()
+        && dy.is_finite()
+        && ox + dx != ox
+        && oy + dy != oy
+}
+
+/// A planar family's grid point `(i, j)`, or `None` where the projection has no
+/// answer for it.
+///
+/// Beyond [`planar_grid_is_placeable`], which is about the grid, this rejects the
+/// individual point the projection cannot reach: a well-defined projection still
+/// has places it cannot invert — beyond a Lambert azimuthal equal-area disc,
 /// `grid_point_lonlat` comes back `NaN` — and a `NaN` leaving here serialises to
 /// JSON `null` or silently poisons an exporter's coordinates. Geostationary is
 /// the model: a pixel whose line of sight misses the Earth is `None`.
 fn placed_point(
-    well_defined: bool,
+    projection_resolves: bool,
     proj: &dyn PlanarGridProjector,
     i: u32,
     j: u32,
 ) -> Option<(f64, f64)> {
-    if !well_defined {
+    if !planar_grid_is_placeable(projection_resolves, proj) {
         return None;
     }
     let (lat, lon) = proj.grid_point_lonlat(i, j);
     (lat.is_finite() && lon.is_finite()).then_some((lat, lon))
+}
+
+/// A planar family's lat/lon box, or `None` when the grid cannot be placed or no
+/// part of its perimeter projects. The [`placed_point`] gate, for the box.
+fn placed_bbox(
+    projection_resolves: bool,
+    proj: &dyn PlanarGridProjector,
+) -> Option<(f64, f64, f64, f64)> {
+    planar_grid_is_placeable(projection_resolves, proj)
+        .then(|| proj.placed_lonlat_bbox())
+        .flatten()
+}
+
+/// A planar family's position in the plane its CRS names, or `None` when the
+/// grid cannot be placed. The [`placed_point`] gate, for the affine.
+///
+/// The origin and spacing are the projector's own, and the gate has already
+/// established that all four are finite — so unlike the Mercator arm, which
+/// computes its ordinate here, this cannot emit an infinite origin or a `NaN`
+/// step.
+fn placed_affine(projection_resolves: bool, proj: &dyn PlanarGridProjector) -> Option<PlaneAffine> {
+    if !planar_grid_is_placeable(projection_resolves, proj) {
+        return None;
+    }
+    let (x0, y0) = proj.grid_origin();
+    let (dx, dy) = proj.grid_spacing();
+    Some(PlaneAffine {
+        x0,
+        y0,
+        dx: Some(dx),
+        dy: Some(dy),
+        units: PlaneUnits::Metres,
+    })
 }
 
 /// Tightest longitude span (degrees) enclosing a set of perimeter-sample
@@ -508,7 +565,15 @@ fn placed_point(
 ///
 /// `total_cmp`: callers feed finite longitudes, but a total order degrades
 /// gracefully instead of panicking if a stray NaN ever slips through.
+///
+/// # Panics
+///
+/// On an empty slice — there is no arc to enclose, and both bounds index the
+/// samples directly. Every caller filters its perimeter walk down to the
+/// projectable samples and returns early when none survive, which is the check
+/// that keeps this unreachable.
 pub(crate) fn enclosing_lon_arc(lons: &mut [f64]) -> (f64, f64) {
+    debug_assert!(!lons.is_empty(), "an arc needs at least one sample");
     lons.sort_by(|a, b| a.total_cmp(b));
     let n = lons.len();
     let mut gap_start = 0usize; // index just after the largest gap
@@ -721,9 +786,12 @@ impl GridGeometry {
             // The planar families answer through one guard, so that a grid
             // whose `inverse` declines every point is declined here too and a
             // point beyond the projection's reach is space rather than `NaN`;
-            // see [`placed_point`]. Polar stereographic has no constants that
-            // can degenerate — its scale factor is `(1 + sin|LaD|)/2`, which no
-            // declarable `LaD` drives to zero — so it passes `true`.
+            // see [`placed_point`]. Polar stereographic passes `true` because
+            // it has no constants check of its own to pass — its scale factor
+            // is `(1 + sin|LaD|)/2`, which no declarable `LaD` drives to zero.
+            // That is a statement about `LaD` only: a declared radius of zero
+            // still collapses its plane, which `inverse` answers rather than
+            // declines, so it is a defect one level down and not this gate's.
             Self::Lambert(p) => {
                 let proj = LambertProjector::new(*p);
                 placed_point(proj.is_well_defined(), &proj, i, j)
@@ -822,13 +890,15 @@ impl GridGeometry {
     /// in degrees, or `None` for a family that cannot be placed.
     ///
     /// The projected families delegate to
-    /// [`PlanarGridProjector::lonlat_bbox`], which subdivides each edge 512
-    /// times rather than walking grid points: a conic's edges are curves and
-    /// the extreme latitude sits between two points, not on one. It also skips
-    /// perimeter samples that are not on the Earth at all, which an oversized
-    /// §3.140 grid produces, and widens to the full 360° when the domain
-    /// surrounds the projection pole and the enclosing longitude arc therefore
-    /// degenerates.
+    /// [`PlanarGridProjector::placed_lonlat_bbox`] — the `Option`-returning
+    /// form, because the empty box its total sibling reports for a grid that
+    /// projects nowhere would frame a render on null island. It subdivides each
+    /// edge 512 times rather than walking grid points: a conic's edges are
+    /// curves and the extreme latitude sits between two points, not on one. It
+    /// also skips perimeter samples that are not on the Earth at all, which an
+    /// oversized §3.140 grid produces, and widens to the full 360° when the
+    /// domain surrounds the projection pole and the enclosing longitude arc
+    /// therefore degenerates.
     ///
     /// `lon_min` may fall below -180 (or `lon_max` above 180) to describe a
     /// window spanning the antimeridian — the existing convention, which the
@@ -875,13 +945,11 @@ impl GridGeometry {
             // point of it.
             Self::Lambert(p) => {
                 let proj = LambertProjector::new(*p);
-                proj.is_well_defined()
-                    .then(|| proj.placed_lonlat_bbox())
-                    .flatten()
+                placed_bbox(proj.is_well_defined(), &proj)
             }
             Self::PolarStereo(p) => {
                 let proj = PolarStereoProjector::new(*p);
-                let (lat_min, lat_max, lon_min, lon_max) = proj.placed_lonlat_bbox()?;
+                let (lat_min, lat_max, lon_min, lon_max) = placed_bbox(true, &proj)?;
                 if proj.pole_inside_grid() {
                     // Every meridian is present and the enclosing arc has no
                     // empty gap to be the complement of, so the walk's
@@ -901,15 +969,11 @@ impl GridGeometry {
             // a render on nothing.
             Self::TransverseMercator(p) => {
                 let proj = TransverseMercatorProjector::new(*p);
-                proj.is_well_defined()
-                    .then(|| proj.placed_lonlat_bbox())
-                    .flatten()
+                placed_bbox(proj.is_well_defined(), &proj)
             }
             Self::LambertAzimuthal(p) => {
                 let proj = LambertAzimuthalProjector::new(*p);
-                proj.is_well_defined()
-                    .then(|| proj.placed_lonlat_bbox())
-                    .flatten()
+                placed_bbox(proj.is_well_defined(), &proj)
             }
             // The on-disk extent, so a cropped sector (GOES CONUS or
             // mesoscale, a Meteosat sector) frames its sector rather than a
@@ -1073,19 +1137,6 @@ impl GridGeometry {
         fn step(span: f64, n: u32) -> Option<f64> {
             (n > 1).then(|| span / f64::from(n - 1))
         }
-        /// The origin and spacing of a planar projection's grid, as the
-        /// projector itself reports them.
-        fn planar(proj: &dyn PlanarGridProjector) -> PlaneAffine {
-            let (x0, y0) = proj.grid_origin();
-            let (dx, dy) = proj.grid_spacing();
-            PlaneAffine {
-                x0,
-                y0,
-                dx: Some(dx),
-                dy: Some(dy),
-                units: PlaneUnits::Metres,
-            }
-        }
         match self {
             Self::LatLon(p) => Some(PlaneAffine {
                 x0: p.lon_first,
@@ -1129,31 +1180,45 @@ impl GridGeometry {
             }
             // Gated on the same predicate as `forward` and `lonlat_bbox`: an
             // affine for a cone that resolves nowhere places the raster in a
-            // plane no point of it can be read back out of.
+            // plane no point of it can be read back out of, and an origin the
+            // forward map sent to infinity reaches a host as JSON `null`.
             Self::Lambert(p) => {
                 let proj = LambertProjector::new(*p);
-                proj.is_well_defined().then(|| planar(&proj))
+                placed_affine(proj.is_well_defined(), &proj)
             }
-            Self::PolarStereo(p) => Some(planar(&PolarStereoProjector::new(*p))),
+            Self::PolarStereo(p) => placed_affine(true, &PolarStereoProjector::new(*p)),
             Self::TransverseMercator(p) => {
                 let proj = TransverseMercatorProjector::new(*p);
-                proj.is_well_defined().then(|| planar(&proj))
+                placed_affine(proj.is_well_defined(), &proj)
             }
             Self::LambertAzimuthal(p) => {
                 let proj = LambertAzimuthalProjector::new(*p);
-                proj.is_well_defined().then(|| planar(&proj))
+                placed_affine(proj.is_well_defined(), &proj)
             }
             // Scan angles become metres on the same sight line `+h` measures
             // along, so the affine and the CRS agree by construction.
+            //
+            // A zero or non-finite scan-angle step is the space-view form of
+            // the degeneracy `planar_grid_is_placeable` refuses: it puts every
+            // pixel of the raster on one plane coordinate, and `inverse`
+            // declines such a grid for exactly that reason.
             Self::Geostationary(p) => {
                 let h = p.h_metres - p.r_eq;
-                Some(PlaneAffine {
-                    x0: h * p.x0,
-                    y0: h * p.y0,
-                    dx: Some(h * p.dx_rad),
-                    dy: Some(h * p.dy_rad),
-                    units: PlaneUnits::Metres,
-                })
+                let (dx, dy) = (h * p.dx_rad, h * p.dy_rad);
+                let (x0, y0) = (h * p.x0, h * p.y0);
+                (x0.is_finite()
+                    && y0.is_finite()
+                    && dx.is_finite()
+                    && dy.is_finite()
+                    && x0 + dx != x0
+                    && y0 + dy != y0)
+                    .then_some(PlaneAffine {
+                        x0,
+                        y0,
+                        dx: Some(dx),
+                        dy: Some(dy),
+                        units: PlaneUnits::Metres,
+                    })
             }
             Self::RotatedLatLon(_) | Self::Lookup(_) | Self::Unsupported { .. } => None,
         }
