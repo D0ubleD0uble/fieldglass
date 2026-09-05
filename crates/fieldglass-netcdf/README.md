@@ -7,13 +7,13 @@ Covers both on-disk layouts end to end:
 
 - **Classic** — CDF-1, CDF-2, and CDF-5.
 - **NetCDF-4 / HDF5** — the object header, dataspace, datatype, and dimension
-  machinery, with contiguous, compact, and chunked storage (DEFLATE and
-  shuffle filters).
+  machinery, with contiguous, compact, and chunked storage (deflate, shuffle,
+  fletcher32, and zstd filters).
 
 Reads dimensions, variables, and attributes, resolves dimension scales, and
 decodes a variable's values into a `Vec<Option<f64>>` — including CF
-`scale_factor` / `add_offset` unpacking and `missing_value` masking. It
-implements the reader and metadata traits from
+`scale_factor` / `add_offset` unpacking and `missing_value` masking. Grid
+geometry is returned as the shared types from
 [`fieldglass-core`](https://crates.io/crates/fieldglass-core).
 
 ## License

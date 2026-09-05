@@ -5,10 +5,10 @@ a viewer for meteorological data files.
 
 Reads every GRIB1 message's sections — indicator, product definition (PDS),
 grid description (GDS), bitmap, and binary data (BDS) — and decodes grid values
-into a `Vec<Option<f64>>`. It implements the reader and metadata traits from
+into a `Vec<Option<f64>>`. Grid geometry is returned as the shared types from
 [`fieldglass-core`](https://crates.io/crates/fieldglass-core), so decoded fields
-carry the grid geometry needed for reprojection and overlays without any
-format-specific rendering code.
+carry what reprojection and overlays need without any format-specific rendering
+code.
 
 The non-gridded forms have their own entry points: spherical-harmonic **spectral**
 messages decode to coefficients (`decode_spectral_message`) and synthesize back

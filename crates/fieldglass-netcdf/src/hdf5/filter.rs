@@ -2,8 +2,8 @@
 //! (issue #121, under #33). A chunked dataset may pass each chunk through a
 //! pipeline of filters on write; reading reverses them, in the opposite order.
 //!
-//! Two filters cover the overwhelming majority of NetCDF-4 climate data, and
-//! both are decoded here in pure Rust:
+//! Four filters cover the overwhelming majority of NetCDF-4 climate data, and
+//! all are decoded here in pure Rust:
 //!
 //! * **deflate** (filter id 1) — a zlib stream, undone with `miniz_oxide`.
 //! * **shuffle** (filter id 2) — reorders an element's bytes so like-significance
