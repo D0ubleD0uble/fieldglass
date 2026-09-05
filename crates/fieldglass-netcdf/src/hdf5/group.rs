@@ -456,7 +456,7 @@ fn parse_link_message(body: &[u8], osize: u8) -> Result<Option<(String, u64)>, F
         cur.skip(1)?; // link name character set
     }
     let name_len_width = 1usize << (flags & 0x03);
-    let name_len = cur.uint(name_len_width)? as usize;
+    let name_len = cur.usize(name_len_width)?;
     let name = decode_name(cur.take(name_len)?)?;
     if link_type != 0 {
         return Ok(None); // not a hard link → no object-header target

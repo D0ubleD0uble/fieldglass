@@ -166,6 +166,8 @@ pub fn project_polylines<P: ForwardMap>(
         // Two floats per vertex; a run needs ≥ 2 vertices to stroke and its
         // bounding box must reach the viewport to be worth keeping.
         if run.len() >= 4 && keeps(run) {
+            // Vertex count of one polyline run, bounded by the overlay vector
+            // the host handed in; the render surface counts segments in `u32`.
             out.seg_lengths.push((run.len() / 2) as u32);
             out.xy.append(run);
         } else {

@@ -1057,7 +1057,8 @@ fn decode_run_length_packing(
             i += 1;
         }
         // `v <= max <= number_of_level_values == levels.len() - 1`, so this
-        // index is always in range; `get` keeps it total regardless.
+        // index is always in range — and bounded by an in-memory length, so it
+        // fits `usize` on a 32-bit target too. `get` keeps it total regardless.
         let level = *levels.get(v as usize).ok_or_else(|| {
             FieldglassError::Parse(format!(
                 "run-length packing: level index {v} has no table entry"

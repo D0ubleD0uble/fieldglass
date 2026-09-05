@@ -28,7 +28,10 @@ impl Grib1Packing for SimplePacking {
         expected_count: usize,
         _runs: StoredRuns<'_>,
     ) -> Result<Vec<Option<f64>>, FieldglassError> {
-        if (bds.len() as u32) < header.section_len {
+        // Widen rather than narrow: `section_len` is a 3-byte field, so this
+        // comparison is exact on any target, where `bds.len() as u32` would
+        // have wrapped a body longer than 4 GiB into "too short".
+        if bds.len() < header.section_len as usize {
             return Err(FieldglassError::Parse(format!(
                 "BDS body shorter than declared section_len {}",
                 header.section_len

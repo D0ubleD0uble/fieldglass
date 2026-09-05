@@ -40,6 +40,7 @@ use super::object_header::read_uint_le;
 use super::{Hdf5Probe, root_group_address};
 use crate::classic::NcType;
 use fieldglass_core::FieldglassError;
+use fieldglass_core::bytes::checked_usize;
 
 /// The `NAME` prefix netCDF-4 writes on a dimension scale that has **no**
 /// coordinate variable. The real attribute appends padding and the dimension
@@ -395,6 +396,8 @@ fn build_dimensions(
         .enumerate()
         .map(|(discovery, s)| {
             (
+                // Sort key only, and `discovery` counts dimension scales
+                // already held in memory, so the narrowing cannot wrap.
                 s.dimid.unwrap_or(discovery as i64),
                 DimensionInfo {
                     name: s.name.clone(),
@@ -459,7 +462,10 @@ fn decode_dimension_list(
     let axes = if raw.dataspace.is_scalar {
         1
     } else {
-        raw.dataspace.dims.first().copied().unwrap_or(0) as usize
+        checked_usize(
+            raw.dataspace.dims.first().copied().unwrap_or(0),
+            "HDF5 dimension-list length",
+        )?
     };
     if axes != rank {
         return Err(FieldglassError::Parse(format!(

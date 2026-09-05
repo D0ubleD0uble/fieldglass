@@ -673,6 +673,8 @@ fn scan_messages(data: &[u8]) -> Result<Vec<Grib2Message>, FieldglassError> {
                 )));
             }
         };
+        // `msg_end_u64 <= data.len()` from the match above, so the narrowing
+        // is exact however wide `usize` is on this target.
         let msg_end = msg_end_u64 as usize;
 
         // The "impossibly small length" guard above already implies

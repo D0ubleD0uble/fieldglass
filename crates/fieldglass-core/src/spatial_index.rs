@@ -93,7 +93,13 @@ impl SpatialIndex {
             .map(|(&lat, &lon)| unit_vector(lat, lon))
             .collect();
 
-        let mut tree: Vec<u32> = (0..n as u32)
+        // The tree addresses cells with `u32`, so a grid with more cells than
+        // that has no index — narrowing the count would build the tree over a
+        // silent prefix of the grid and answer every query from it. Unreachable
+        // with today's readers (`lats` would have to be 32 GiB), which is why it
+        // is a guard rather than an error.
+        let n_u32 = u32::try_from(n).ok()?;
+        let mut tree: Vec<u32> = (0..n_u32)
             .filter(|&k| xyz[k as usize][0].is_finite())
             .collect();
         if tree.is_empty() {

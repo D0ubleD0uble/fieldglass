@@ -196,6 +196,8 @@ pub fn nest2ring(nside: u32, ipnest: u64) -> Option<u64> {
     }
     let n = nside as u64;
     let npface = n * n;
+    // `ipnest < npix(nside) == 12 · npface`, so the face number is 0..12 and
+    // fits `usize` on any target.
     let face = (ipnest / npface) as usize;
     let pix = ipnest % npface;
     // The interleaved bits are the pixel's (x, y) within its face.
@@ -275,6 +277,9 @@ pub fn resample_to_latlon(
         let mut v = vec![None; values.len()];
         for (ipnest, value) in values.iter().enumerate() {
             let ring = nest2ring(nside, ipnest as u64)?;
+            // Both pixel numberings run over the same `npix`, which the guard
+            // above pinned to `values.len()` — an in-memory length, so every
+            // index here fits `usize` however wide it is.
             v[ring as usize] = *value;
         }
         Some(v)
@@ -287,6 +292,7 @@ pub fn resample_to_latlon(
     for &lat in lats {
         for &lon in lons {
             out.push(
+                // Same bound as the reindex above: `p < npix == source.len()`.
                 ang2pix_ring(nside, lat, lon)
                     .and_then(|p| source.get(p as usize).copied())
                     .flatten(),

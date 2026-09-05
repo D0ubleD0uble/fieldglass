@@ -19,7 +19,7 @@
 //! Reference: HDF5 file format specification version 3, "Data Storage - Filter
 //! Pipeline Message".
 
-use super::object_header::read_uint_le;
+use super::object_header::{read_uint_le, read_usize_le};
 use fieldglass_core::FieldglassError;
 
 /// HDF5 reserved filter identifiers we know how to reverse.
@@ -109,7 +109,7 @@ impl FilterPipeline {
             // Name length: always present in version 1; in version 2 only when
             // the filter id is >= 256 (the optional-name range).
             let name_len = if version == 1 || id >= 256 {
-                let n = read_uint_le(body, pos, 2)? as usize;
+                let n = read_usize_le(body, pos, 2)?;
                 pos += 2;
                 n
             } else {
@@ -117,7 +117,7 @@ impl FilterPipeline {
             };
             // flags (2) + number of client-data values (2).
             let _flags = read_uint_le(body, pos, 2)?;
-            let nvalues = read_uint_le(body, pos + 2, 2)? as usize;
+            let nvalues = read_usize_le(body, pos + 2, 2)?;
             pos += 4;
             // Name, padded to an 8-byte multiple in version 1 only.
             let name_padded = if version == 1 {

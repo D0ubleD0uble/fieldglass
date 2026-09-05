@@ -312,7 +312,9 @@ fn element_count(dataspace: &Dataspace) -> usize {
     dataspace
         .dims
         .iter()
-        .try_fold(1usize, |acc, &d| acc.checked_mul(d as usize))
+        .try_fold(1usize, |acc, &d| {
+            usize::try_from(d).ok().and_then(|d| acc.checked_mul(d))
+        })
         .unwrap_or(usize::MAX)
 }
 

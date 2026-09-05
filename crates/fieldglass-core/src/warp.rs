@@ -1487,6 +1487,9 @@ fn sample_source(source: &SourceGrid<'_>, idx: GridIndex, method: Resampling) ->
             if i0 < 0 || j0 < 0 || i0 >= ni || j0 >= nj {
                 return None;
             }
+            // `ni` and `nj` come from `u32` fields, and the guard above pinned
+            // `i0`/`j0` to `0..ni` / `0..nj`, so these fit `usize` on a 32-bit
+            // target as much as on a 64-bit one.
             let i0u = i0 as usize;
             let j0u = j0 as usize;
             let i1 = if source.periodic_i {

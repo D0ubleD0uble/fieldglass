@@ -73,6 +73,7 @@ fn triangular_value_count(t: u32) -> Result<usize, FieldglassError> {
     (t + 1)
         .checked_mul(t + 2)
         .filter(|&n| n <= MAX_SPECTRAL_VALUES)
+        // The cap is 2×10^8, so the count fits `usize` on a 32-bit target too.
         .map(|n| n as usize)
         .ok_or_else(|| {
             FieldglassError::Parse(format!(
@@ -328,6 +329,8 @@ pub fn decode_spectral_complex(
             sub_k -= 1;
         }
         for _ in unpacked_count..maxv {
+            // `lup` stays in `0..=J` per the traversal note above, and `scals`
+            // was sized `J + 1`, so this index fits `usize` on any target.
             let scale = scals[lup as usize];
             let re = d_inv * ((packed.read_bits(t.bits_per_value)? as f64) * s + reference) * scale;
             let mut im =
@@ -407,6 +410,7 @@ fn bifourier_max_count(bif_i: u32, bif_j: u32) -> Result<usize, FieldglassError>
     a.checked_mul(b)
         .and_then(|p| p.checked_mul(4))
         .filter(|&n| n <= MAX_SPECTRAL_VALUES)
+        // Same cap, same reasoning as `triangular_value_count`.
         .map(|n| n as usize)
         .ok_or_else(|| {
             FieldglassError::Parse(format!(
@@ -428,6 +432,9 @@ fn bifourier_truncation(
     ni: usize,
     nj: usize,
 ) -> Result<(Vec<i64>, Vec<i64>), FieldglassError> {
+    // `ni` / `nj` are the bi-Fourier truncation limits, already bounded by
+    // `bifourier_max_count`, so every `as i64` below is exact — and so is every
+    // `as usize` narrowing of a limit back to an index.
     let mut it = vec![0i64; nj + 1];
     let mut jt = vec![0i64; ni + 1];
     match kind {
@@ -544,6 +551,8 @@ pub fn decode_bifourier(
     // Whether coefficient (i, j) lives in the unpacked subset. Preserve eccodes'
     // short-circuit order so the sub arrays are only indexed within their
     // `1+sub_j` / `1+sub_i` bounds. `keepaxes` forces the axes into the subset.
+    // `i` and `j` index the truncation rectangle, bounded the same way, so the
+    // widenings here and the `as usize` narrowings below are all exact.
     let insub = |i: usize, j: usize| -> bool {
         let mut r = i <= sub_i && j <= sub_j;
         if r {
@@ -557,6 +566,8 @@ pub fn decode_bifourier(
     let mut size_bif = 0usize;
     let mut size_sub = 0usize;
     for (j, &itr_j) in itrunc_bif.iter().enumerate() {
+        // A truncation limit clamped to `>= 0` and bounded by `ni`, which
+        // `bifourier_max_count` already capped, so this fits `usize` anywhere.
         let icount = (itr_j + 1).max(0) as usize;
         size_bif += 4 * icount;
         for i in 0..icount {
@@ -609,6 +620,7 @@ pub fn decode_bifourier(
     let mut out = Vec::with_capacity(size_bif);
 
     for (j, &itr_j) in itrunc_bif.iter().enumerate() {
+        // Same clamped, capped limit the size pass walked.
         let icount = (itr_j + 1).max(0) as usize;
         for i in 0..icount {
             if insub(i, j) {

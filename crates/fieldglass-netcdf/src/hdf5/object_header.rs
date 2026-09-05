@@ -23,6 +23,7 @@
 //! — Data Object Headers" <https://docs.hdfgroup.org/hdf5/develop/_f_m_t3.html>.
 
 use fieldglass_core::FieldglassError;
+use fieldglass_core::bytes::checked_usize;
 use std::collections::VecDeque;
 
 /// Object-header continuation message (points at the next chunk of messages).
@@ -93,7 +94,7 @@ fn parse_v1(
 ) -> Result<ObjectHeader, FieldglassError> {
     // Prefix: version(1) reserved(1) num_messages(2) ref_count(4) size(4) = 12,
     // then 4 bytes of padding so messages begin on an 8-byte boundary.
-    let header_size = read_uint_le(bytes, start + 8, 4)? as usize;
+    let header_size = read_usize_le(bytes, start + 8, 4)?;
     let messages_start = start
         .checked_add(16)
         .ok_or_else(|| FieldglassError::Parse("v1 object header offset overflow".into()))?;
@@ -115,7 +116,7 @@ fn parse_v1(
         // Each message header is 8 bytes; stop when a header no longer fits.
         while pos + 8 <= run_len {
             let msg_type = read_uint_le(run, pos, 2)? as u16;
-            let data_size = read_uint_le(run, pos + 2, 2)? as usize;
+            let data_size = read_usize_le(run, pos + 2, 2)?;
             let flags = run[pos + 4];
             let body_start = pos + 8;
             let body_end = body_start
@@ -176,7 +177,7 @@ fn parse_v2(
     }
     // Bits 0-1 select the width of the "size of chunk 0" field: 1, 2, 4, or 8.
     let size_width = 1usize << (flags & 0x03);
-    let chunk0_size = read_uint_le(bytes, pos, size_width)? as usize;
+    let chunk0_size = read_usize_le(bytes, pos, size_width)?;
     pos += size_width;
 
     let track_creation_order = flags & 0x04 != 0;
@@ -262,7 +263,7 @@ fn parse_v2_run(
     // Trailing bytes too small to hold a message header are a permitted gap.
     while pos + header_len <= run_len {
         let msg_type = run[pos] as u16;
-        let data_size = read_uint_le(run, pos + 1, 2)? as usize;
+        let data_size = read_usize_le(run, pos + 1, 2)?;
         let flags = run[pos + 3];
         let body_start = pos + header_len;
         let body_end = body_start
@@ -386,6 +387,9 @@ pub(crate) fn checksum_lookup3(data: &[u8]) -> u32 {
         *c = c.wrapping_sub(rot(*b, 24));
     }
 
+    // libhdf5 seeds the hash with a 32-bit length, so the truncation here is
+    // the reference behaviour rather than a lapse: a longer input has to fold
+    // its length the same way or the checksums stop matching.
     let mut a = 0xdead_beefu32.wrapping_add(data.len() as u32);
     let (mut b, mut c) = (a, a);
 
@@ -458,6 +462,18 @@ pub(crate) fn read_uint_le(bytes: &[u8], at: usize, width: usize) -> Result<u64,
         value |= (byte as u64) << (8 * i);
     }
     Ok(value)
+}
+
+/// Read a little-endian unsigned integer of `width` bytes (1..=8) at `at` and
+/// narrow it to `usize`. The narrowing is checked rather than a cast, so a
+/// length or offset a 32-bit target cannot address fails the parse instead of
+/// wrapping into one it can — see [`fieldglass_core::bytes::checked_usize`].
+pub(crate) fn read_usize_le(
+    bytes: &[u8],
+    at: usize,
+    width: usize,
+) -> Result<usize, FieldglassError> {
+    checked_usize(read_uint_le(bytes, at, width)?, "HDF5 length or offset")
 }
 
 /// Whether an address field is the HDF5 "undefined address" sentinel (all ones)
