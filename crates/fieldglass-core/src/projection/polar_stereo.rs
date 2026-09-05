@@ -219,8 +219,20 @@ impl PolarStereoProjector {
     /// checks its own: the plane can be fine and the grid still state a first
     /// point the forward map cannot follow, leaving the raster with no position
     /// in a plane that is otherwise sound.
+    ///
+    /// The declared radius is finally checked against the grid's own step, by
+    /// [`plane_spans_a_grid_cell`](super::plane_spans_a_grid_cell): a radius can
+    /// be positive, finite and still far too small to carry the raster, and the
+    /// whole plane then collapses inside one cell (#610).
     pub fn is_well_defined(&self) -> bool {
-        self.constants.well_defined() && self.origin.0.is_finite() && self.origin.1.is_finite()
+        self.constants.well_defined()
+            && self.origin.0.is_finite()
+            && self.origin.1.is_finite()
+            && super::plane_spans_a_grid_cell(
+                self.params.earth_radius_m,
+                self.params.dx_metres,
+                self.params.dy_metres,
+            )
     }
 }
 
@@ -520,6 +532,45 @@ mod tests {
             PolarStereoProjector::new(p).is_well_defined(),
             "the real CMC grid is unaffected"
         );
+    }
+
+    /// #610: the other side of the guard above. A declared radius of 1e-6 m —
+    /// GRIB2 shape-of-earth 1 with `scale = 6, value = 1` — is positive,
+    /// finite, and leaves `2·R·k₀` positive too, so every check the zero case
+    /// added still passes while the whole plane fits inside one 60 km cell.
+    #[test]
+    fn polar_stereo_rejects_an_earth_smaller_than_one_grid_cell() {
+        let p = cmc_polar_params();
+        for radius in [1e-6, 1.0, p.dx_metres.abs()] {
+            let proj = PolarStereoProjector::new(PolarStereoParams {
+                earth_radius_m: radius,
+                ..p
+            });
+            assert!(
+                !proj.is_well_defined(),
+                "radius {radius} m cannot carry a {} m cell",
+                p.dx_metres
+            );
+            assert!(
+                proj.inverse(60.0, -90.0).is_none(),
+                "radius {radius}: a point resolved on a collapsed plane"
+            );
+            assert!(
+                proj.inverse(-20.0, 10.0).is_none(),
+                "radius {radius}: a point off the grid resolved onto it"
+            );
+        }
+        // A smaller planet is not the problem, only one smaller than the grid.
+        for radius in [469_730.0, 1_737_400.0, 3_396_190.0] {
+            assert!(
+                PolarStereoProjector::new(PolarStereoParams {
+                    earth_radius_m: radius,
+                    ..p
+                })
+                .is_well_defined(),
+                "a {radius} m body still carries the grid"
+            );
+        }
     }
 
     /// The forward map is what makes a zero radius quiet: it stays finite, so

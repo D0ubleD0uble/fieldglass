@@ -462,6 +462,53 @@ pub trait PlanarGridProjector {
     }
 }
 
+/// Whether the plane a sphere of `plane_radius_m` projects onto is wider than
+/// one cell of a grid spaced `dx_metres` × `dy_metres`. The floor every planar
+/// family's `is_well_defined` puts under its declared Earth radius (#610).
+///
+/// All four of them place a raster measured in **metres** on a plane whose
+/// entire content is a small multiple of that radius, and GRIB2 §3 lets a
+/// message state the radius itself: shape-of-earth code 1 is "spherical, radius
+/// specified by the data producer" as a scale factor and a scaled value, so
+/// `scale = 6, value = 1` is a legal encoding of 1e-6 m. Every point on Earth
+/// then projects to within a micrometre of the grid origin while the message
+/// still declares a 12 km step, `(x − ox) / dx` is zero for all of them, and a
+/// render samples cell (0, 0) for every pixel — a flat wash of one colour with
+/// nothing to say it is wrong. The `> 0.0` radius checks the constants already
+/// make (#603) all pass: 1e-6 is a perfectly good positive number.
+///
+/// **The floor is the grid's own step, not a number about planets.** Across the
+/// whole projected Earth there are about `R / |dx|` distinguishable columns, so
+/// `R / |dx| < 1` says exactly "the entire planet fits inside one cell" — the
+/// failure above and nothing else. It scales with the message, so a regional
+/// model on Mars, on the Moon, or on a 500 km body keeps working, where an
+/// absolute metre threshold would have to guess which planets are allowed. It is
+/// also the same kind of statement as the `ox + dx != ox` guard in
+/// [`planar_grid_is_placeable`]: a relation between the raster and its plane
+/// rather than a constant.
+///
+/// Two alternatives were tried against the real arithmetic first. A fixed metre
+/// threshold is arbitrary and has to admit every radius a producer might state.
+/// Comparing the grid's projected *span* against its origin does not fire at
+/// all: on a 1e-6 m sphere the origin is ~1e-7 m and the span still ~1e6 m, so
+/// the span is the one number that still looks healthy.
+///
+/// A grid with **no** spacing passes vacuously, and deliberately: a zero step
+/// is a different defect with its own refusals — `ox + dx != ox` in
+/// [`planar_grid_is_placeable`] and the explicit `dx == 0.0` in
+/// [`PlanarGridProjector::inverse`] — and folding it in here would put one rule
+/// in two places. The committed `polar_stereographic_surface.grib2` fixture is
+/// such a grid, so this is a case that occurs, not a hypothetical.
+///
+/// A non-positive or `NaN` radius fails both comparisons on its own, so this
+/// needs no separate positivity clause. The per-family constants keep theirs
+/// because they also guard quantities *derived* from the radius — the polar
+/// stereographic `2·R·k₀`, the transverse Mercator rectifying radius — which a
+/// declarable `LaD` or spheroid can zero while the radius itself is sound.
+pub fn plane_spans_a_grid_cell(plane_radius_m: f64, dx_metres: f64, dy_metres: f64) -> bool {
+    dx_metres.abs() < plane_radius_m && dy_metres.abs() < plane_radius_m
+}
+
 /// Whether a planar grid can be placed on the Earth at all — the one predicate
 /// [`GridGeometry::forward`], [`GridGeometry::lonlat_bbox`] and
 /// [`GridGeometry::plane_affine`] gate on, so that none of the three can answer
@@ -476,7 +523,9 @@ pub trait PlanarGridProjector {
 /// [`PlanarGridProjector::accepts`] rejects every point. The arithmetic does not
 /// necessarily go non-finite there: a Lambert cone on a declared radius of zero
 /// reports every grid point at the south pole, which reads downstream as a
-/// coordinate rather than as a broken grid.
+/// coordinate rather than as a broken grid. [`plane_spans_a_grid_cell`] rides in
+/// through this argument too, which is why an Earth small enough to fit inside
+/// one grid cell is refused here without a second condition of its own.
 ///
 /// The second is that the *raster* has a resolvable position in the plane the
 /// projection defines. A grid may state a first point the forward map sends to
@@ -1001,7 +1050,11 @@ impl GridGeometry {
             // grid the message does not contain.
             Self::Geostationary(p) => {
                 let proj = GeostationaryProjector::new(*p);
-                proj.raster_is_walkable().then(|| {
+                // The fallback describes the disc a satellite over `sub_lon_deg`
+                // would see, so it is only available when there is a body to
+                // see: a shapeless or unseeable ellipsoid has no hemisphere to
+                // frame either, and `inverse` declines every pixel of it (#610).
+                (proj.raster_is_walkable() && proj.is_well_defined()).then(|| {
                     proj.lonlat_bbox().unwrap_or((
                         -90.0,
                         90.0,
@@ -1219,7 +1272,13 @@ impl GridGeometry {
                 let h = p.h_metres - p.r_eq;
                 let (dx, dy) = (h * p.dx_rad, h * p.dy_rad);
                 let (x0, y0) = (h * p.x0, h * p.y0);
-                (x0.is_finite()
+                // And the ellipsoid itself has to describe a body the satellite
+                // can see, the same gate the four planar arms above put on
+                // `is_well_defined`. A prolate pair or a satellite inside the
+                // Earth leaves `h` finite and non-zero, so the step test below
+                // passes on a view whose every pixel `inverse` declines (#610).
+                (GeostationaryProjector::new(*p).is_well_defined()
+                    && x0.is_finite()
                     && y0.is_finite()
                     && dx.is_finite()
                     && dy.is_finite()
@@ -1312,6 +1371,35 @@ fn metres_apart(lat_a: f64, lon_a: f64, lat_b: f64, lon_b: f64) -> f64 {
 mod tests {
     use super::*;
     use rotated_latlon::{rotate_latlon, unrotate_latlon};
+
+    /// The rule itself, at its boundary and on the radii that are not numbers
+    /// describing a sphere. The doc claims the two comparisons subsume a
+    /// positivity clause; this is where that claim is checked, because a later
+    /// rewrite into `radius > dx.abs()` would quietly admit a `NaN` radius.
+    #[test]
+    fn a_plane_spans_a_cell_only_when_it_is_wider_than_one() {
+        assert!(plane_spans_a_grid_cell(6_371_229.0, 12_000.0, -12_000.0));
+        // The sign of the step is the grid's scan direction, not its size.
+        assert!(plane_spans_a_grid_cell(20.0, -19.0, 19.0));
+        // Exactly one cell across is still one cell: nothing is resolvable.
+        assert!(!plane_spans_a_grid_cell(12_000.0, 12_000.0, 12_000.0));
+        assert!(!plane_spans_a_grid_cell(11_999.0, 12_000.0, 12_000.0));
+        // One axis is enough to collapse the raster.
+        assert!(!plane_spans_a_grid_cell(20_000.0, 1_000.0, 30_000.0));
+        // #610 itself: shape-of-earth 1, scale = 6, value = 1.
+        assert!(!plane_spans_a_grid_cell(1e-6, 12_000.0, 12_000.0));
+        // A grid with no spacing passes vacuously; the doc says why, and
+        // `PlanarGridProjector::inverse` refuses it on its own account.
+        assert!(plane_spans_a_grid_cell(1e-6, 0.0, 0.0));
+        // No separate well-definedness clause needed — these fail the
+        // comparisons on their own.
+        for radius in [0.0, -6_371_229.0, f64::NAN] {
+            assert!(
+                !plane_spans_a_grid_cell(radius, 12_000.0, 12_000.0),
+                "radius {radius} passed"
+            );
+        }
+    }
 
     /// The committed `rotated_latlon_surface.grib2` fixture: 16×31 grid, rotated
     /// corners (60,0)→(0,30), southern pole at geographic (0,0), no rotation
@@ -1694,6 +1782,23 @@ mod tests {
                 idx.j
             );
         }
+
+        // #610: the geometry enum's three answers go with the projector's. A
+        // satellite inside the body it is looking at leaves `h - r_eq` finite
+        // and non-zero, so the affine's own step test would have handed back a
+        // plane for a view that places nothing.
+        let blind = GridGeometry::Geostationary(GeostationaryParams {
+            h_metres: p.r_eq / 2.0,
+            ..p
+        });
+        assert_eq!(blind.plane_affine(), None, "an unseeable Earth got a plane");
+        assert_eq!(blind.forward(10, 10), None, "and placed a pixel");
+        assert_eq!(blind.lonlat_bbox(), None, "and framed a box");
+        // The healthy grid still answers all three.
+        let seen = GridGeometry::Geostationary(p);
+        assert!(seen.plane_affine().is_some());
+        assert!(seen.forward(10, 10).is_some());
+        assert!(seen.lonlat_bbox().is_some());
     }
 
     #[test]

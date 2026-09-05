@@ -325,8 +325,21 @@ impl LambertAzimuthalProjector {
     /// Whether the projection is usable. `false` leaves
     /// [`inverse`](Self::inverse) returning `None` for every point, so callers
     /// can surface "not reprojectable" rather than render blank.
+    ///
+    /// The declared spheroid is also checked for *size* against the grid's own
+    /// step, by [`plane_spans_a_grid_cell`](super::plane_spans_a_grid_cell): the
+    /// authalic constants are well defined on any positive pair of axes, so a
+    /// producer-specified radius small enough to fold the whole disc into one
+    /// cell passes every other test here (#610).
     pub fn is_well_defined(&self) -> bool {
-        self.constants.well_defined() && self.origin.0.is_finite() && self.origin.1.is_finite()
+        self.constants.well_defined()
+            && self.origin.0.is_finite()
+            && self.origin.1.is_finite()
+            && super::plane_spans_a_grid_cell(
+                self.params.semi_major_m,
+                self.params.dx_metres,
+                self.params.dy_metres,
+            )
     }
 }
 
@@ -658,6 +671,42 @@ mod tests {
             assert!(
                 projector.inverse(52.0, 10.0).is_none(),
                 "({major}, {minor}) resolved a grid index"
+            );
+        }
+    }
+
+    /// #610: a spheroid that has a shape and is still too small to hold the
+    /// grid. The authalic series is well behaved on any positive pair of axes,
+    /// so `qp`, `rq` and `semi_major_m` all pass their own checks while the
+    /// entire equal-area disc folds inside one 200 km EFAS cell.
+    #[test]
+    fn lambert_azimuthal_rejects_a_spheroid_smaller_than_one_grid_cell() {
+        let p = efas_params();
+        for radius in [1e-6, 1.0, p.dx_metres] {
+            let projector = LambertAzimuthalProjector::new(LambertAzimuthalParams {
+                semi_major_m: radius,
+                semi_minor_m: radius,
+                ..p
+            });
+            assert!(
+                !projector.is_well_defined(),
+                "a {radius} m spheroid cannot carry a {} m cell",
+                p.dx_metres
+            );
+            assert!(
+                projector.inverse(52.0, 10.0).is_none(),
+                "a {radius} m spheroid resolved a grid index"
+            );
+        }
+        for radius in [469_730.0, 1_737_400.0, 3_396_190.0] {
+            assert!(
+                LambertAzimuthalProjector::new(LambertAzimuthalParams {
+                    semi_major_m: radius,
+                    semi_minor_m: radius,
+                    ..p
+                })
+                .is_well_defined(),
+                "a {radius} m body still carries the grid"
             );
         }
     }

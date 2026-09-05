@@ -284,10 +284,22 @@ impl TransverseMercatorProjector {
     /// split between this method and [`PlanarGridProjector::accepts`], which let
     /// a caller gating on this one geolocate a grid whose `inverse` declined
     /// every point of it.
+    ///
+    /// The third is the spheroid's *size* against the grid's own step, by
+    /// [`plane_spans_a_grid_cell`](super::plane_spans_a_grid_cell). The
+    /// one-metre sphere the Krüger check below already describes is not the
+    /// smallest a message can state: shape-of-earth code 1 reaches here as any
+    /// positive scaled value, and the axes check admits every one of them
+    /// (#610).
     pub fn is_well_defined(&self) -> bool {
         self.constants.well_defined()
             && self.params.scale_factor.is_finite()
             && self.params.scale_factor != 0.0
+            && super::plane_spans_a_grid_cell(
+                self.params.semi_major_m,
+                self.params.dx_metres,
+                self.params.dy_metres,
+            )
     }
 }
 
@@ -673,6 +685,45 @@ mod tests {
             assert!(
                 !projector.is_well_defined(),
                 "scale factor {scale_factor} is usable"
+            );
+        }
+    }
+
+    /// #610: the "one-metre sphere" the test above describes in passing, made
+    /// reachable. `(1.0, 1.0)` is a *positive* pair of axes, so the Krüger
+    /// check admits it and the projection really does work — on a one-metre
+    /// planet, where every point on Earth lands inside a single 48 km UKV
+    /// cell. The floor is the grid's own step, so the whole family of such
+    /// radii goes with it.
+    #[test]
+    fn transverse_mercator_rejects_a_spheroid_smaller_than_one_grid_cell() {
+        let p = ukv_params();
+        for radius in [1e-6, 1.0, 47_999.0, p.dx_metres] {
+            let projector = TransverseMercatorProjector::new(TransverseMercatorParams {
+                semi_major_m: radius,
+                semi_minor_m: radius,
+                ..p
+            });
+            assert!(
+                !projector.is_well_defined(),
+                "a {radius} m spheroid cannot carry a {} m cell",
+                p.dx_metres
+            );
+            assert!(
+                projector.inverse(54.0, -2.0).is_none(),
+                "a {radius} m spheroid resolved a grid index"
+            );
+        }
+        // Small bodies are fine; only ones smaller than the grid are not.
+        for radius in [469_730.0, 1_737_400.0, 3_396_190.0] {
+            assert!(
+                TransverseMercatorProjector::new(TransverseMercatorParams {
+                    semi_major_m: radius,
+                    semi_minor_m: radius,
+                    ..p
+                })
+                .is_well_defined(),
+                "a {radius} m body still carries the grid"
             );
         }
     }

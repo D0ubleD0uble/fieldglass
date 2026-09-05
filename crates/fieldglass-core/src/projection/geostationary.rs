@@ -133,8 +133,12 @@ impl GeostationaryProjector {
     }
 
     /// Geodetic `(lat, lon)` in degrees → scan angles `(x, y)` in radians, or
-    /// `None` off the visible disk.
+    /// `None` off the visible disk, or for any grid [`Self::is_well_defined`]
+    /// refuses.
     pub fn scan_angles(&self, lat: f64, lon: f64) -> Option<(f64, f64)> {
+        if !self.is_well_defined() {
+            return None;
+        }
         geostationary_scan_angles(&self.params, &self.constants, lat, lon)
     }
 
@@ -151,6 +155,42 @@ impl GeostationaryProjector {
     pub(crate) fn raster_is_walkable(&self) -> bool {
         let p = &self.params;
         p.ni >= 2 && p.nj >= 2 && p.dx_rad != 0.0 && p.dy_rad != 0.0
+    }
+
+    /// Whether the declared ellipsoid and satellite position describe a view at
+    /// all. `false` leaves every method here returning `None`, the same
+    /// contract the four planar families' `is_well_defined` methods carry.
+    ///
+    /// This grid needs no radius *floor* of the
+    /// [`plane_spans_a_grid_cell`](super::plane_spans_a_grid_cell) kind, unlike
+    /// the planar families: its axes are scan angles rather than metres and
+    /// every term the maths uses is a ratio — `r_pol/r_eq`, `h/r_eq`, the
+    /// apparent angular size — so shrinking the whole system leaves the picture
+    /// bit-for-bit the same. What it cannot survive is a *shapeless* ellipsoid.
+    /// A declared `r_eq` of zero makes `(r_pol/r_eq)²` a `NaN`, the ray/
+    /// ellipsoid quadratic's `disc < 0.0 || a <= 0.0` guard is false for `NaN`,
+    /// and [`Self::scan_to_lonlat`] used to answer `Some((NaN, NaN))` — a
+    /// coordinate, not a refusal, which is the #603 failure reached through the
+    /// one family that fix did not cover. GRIB2 §3.90 takes its axes from the
+    /// same producer-specified shape codes §3.30 does, and the CF path reads
+    /// them out of `semi_major_axis` / `semi_minor_axis` text attributes, so
+    /// both routes can state it.
+    pub fn is_well_defined(&self) -> bool {
+        let p = &self.params;
+        p.r_eq.is_finite()
+            && p.r_pol.is_finite()
+            && p.h_metres.is_finite()
+            && p.r_pol > 0.0
+            // Oblate, never prolate: WMO's shape table cannot describe a body
+            // squashed the other way, so `1 - (r_pol/r_eq)²` going negative
+            // means the message is corrupt rather than exotic — the same rule
+            // the transverse Mercator and Lambert azimuthal spheroids apply.
+            && p.r_pol <= p.r_eq
+            // The satellite has to be outside the body it is looking at, or
+            // there is no line of sight to intersect. GRIB2 §3.90 states this
+            // as `Nr = h / r_eq` and CF as a height above the surface, so both
+            // encodings mean the same thing here.
+            && p.h_metres > p.r_eq
     }
 
     /// Fractional grid index for a geographic point, or `None` when the point
@@ -195,7 +235,7 @@ impl GeostationaryProjector {
     /// `(cos x cos y, −sin x cos y, sin y)` for a `y`-sweep (Meteosat); both
     /// feed the same ray/ellipsoid quadratic.
     pub fn scan_to_lonlat(&self, x: f64, y: f64) -> Option<(f64, f64)> {
-        if !x.is_finite() || !y.is_finite() {
+        if !x.is_finite() || !y.is_finite() || !self.is_well_defined() {
             return None;
         }
         let p = &self.params;
@@ -490,5 +530,91 @@ mod tests {
             proj.lonlat_bbox().is_none(),
             "full-disk perimeter should be off-disk"
         );
+    }
+
+    /// #610's sibling: the space view was the family #603's radius fix did not
+    /// cover. A declared `r_eq` of zero — GRIB2 shape-of-earth 1 with a scaled
+    /// value of zero, or a CF `semi_major_axis` of `"0"` — makes `(r_pol/r_eq)²`
+    /// a `NaN`; the `disc < 0.0 || a <= 0.0` guard in `scan_to_lonlat` is false
+    /// for a `NaN`, so every method here used to answer `Some((NaN, NaN))`. A
+    /// prolate pair and a satellite inside the body are the same class of
+    /// corrupt shape and go the same way.
+    #[test]
+    fn geostationary_rejects_an_ellipsoid_it_cannot_see() {
+        let ok = goes_east_params();
+        for (label, p) in [
+            ("r_eq = 0", GeostationaryParams { r_eq: 0.0, ..ok }),
+            ("r_pol = 0", GeostationaryParams { r_pol: 0.0, ..ok }),
+            (
+                "negative r_eq",
+                GeostationaryParams {
+                    r_eq: -ok.r_eq,
+                    ..ok
+                },
+            ),
+            (
+                "prolate",
+                GeostationaryParams {
+                    r_eq: ok.r_pol,
+                    r_pol: ok.r_eq,
+                    ..ok
+                },
+            ),
+            (
+                "satellite inside the Earth",
+                GeostationaryParams {
+                    h_metres: ok.r_eq / 2.0,
+                    ..ok
+                },
+            ),
+            (
+                "non-finite height",
+                GeostationaryParams {
+                    h_metres: f64::NAN,
+                    ..ok
+                },
+            ),
+        ] {
+            let proj = GeostationaryProjector::new(p);
+            assert!(!proj.is_well_defined(), "{label} is usable");
+            assert_eq!(proj.grid_point_lonlat(5, 5), None, "{label} placed a pixel");
+            assert_eq!(proj.inverse(0.0, -75.0), None, "{label} resolved an index");
+            assert_eq!(proj.scan_angles(0.0, -75.0), None, "{label} scanned");
+            assert_eq!(proj.lonlat_bbox(), None, "{label} framed a box");
+        }
+        assert!(GeostationaryProjector::new(ok).is_well_defined());
+    }
+
+    /// Why this family needs no radius *floor* of the kind the four planar
+    /// families grew for #610: its axes are scan angles, not metres, and every
+    /// term is a ratio, so shrinking the whole system by twelve orders of
+    /// magnitude leaves the geolocation where it was. Recorded so the next
+    /// sweep for a collapsed plane does not have to re-derive it.
+    #[test]
+    fn geostationary_geolocation_is_invariant_under_the_ellipsoid_scale() {
+        let big = goes_east_params();
+        let shrink = 1e-6;
+        let small = GeostationaryParams {
+            h_metres: big.h_metres * shrink,
+            r_eq: big.r_eq * shrink,
+            r_pol: big.r_pol * shrink,
+            ..big
+        };
+        let (a, b) = (
+            GeostationaryProjector::new(big),
+            GeostationaryProjector::new(small),
+        );
+        for (i, j) in [(0, 0), (5, 5), (7, 3), (10, 10)] {
+            match (a.grid_point_lonlat(i, j), b.grid_point_lonlat(i, j)) {
+                (Some((lat1, lon1)), Some((lat2, lon2))) => {
+                    assert!(
+                        near(lat1, lat2, 1e-9) && near(lon1, lon2, 1e-9),
+                        "({i}, {j}): ({lat1}, {lon1}) vs ({lat2}, {lon2})"
+                    );
+                }
+                (None, None) => {}
+                (x, y) => panic!("({i}, {j}) disagreed on visibility: {x:?} vs {y:?}"),
+            }
+        }
     }
 }
