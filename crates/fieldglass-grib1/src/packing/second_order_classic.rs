@@ -336,6 +336,7 @@ pub fn decode_constant_width(
     let mut x: Vec<i64> = Vec::with_capacity(p2);
     let mut group: isize = -1;
     for (n, &bit) in sec_bitmap.iter().enumerate() {
+        // `sec_bitmap` holds one-bit values, so the widening is exact.
         group += bit as isize;
         let ref_val = usize::try_from(group)
             .ok()

@@ -102,8 +102,10 @@ pub struct MessageMeta {
     /// Position of the message in the file, and the handle every other call
     /// takes.
     pub message_index: i32,
-    /// Byte offset of the message's first byte within the file.
-    pub offset_bytes: i32,
+    /// Byte offset of the message's first byte within the file. A JS number,
+    /// not a 32-bit integer: GRIB and NetCDF archives run past 2 GiB, and an
+    /// `i32` offset goes negative there. Exact up to 2^53 bytes.
+    pub offset_bytes: f64,
     /// Human-readable parameter name, or `"Unknown"` when no table in this
     /// build resolves the message's parameter id.
     pub parameter_name: String,
@@ -623,8 +625,10 @@ fn build_grib1_message_meta(
         i_scan_negative,
     );
     gate_planar_reprojection(MessageMeta {
+        // Position in the reader's own message vector, so the narrowing to the
+        // JS-facing `i32` cannot wrap for any file that fits in memory.
         message_index: msg.message_index as i32,
-        offset_bytes: msg.byte_offset as i32,
+        offset_bytes: msg.byte_offset as f64,
         parameter_name: param.name.to_string(),
         // Same display-seam normalisation the GRIB2 side gets (#432). The GRIB1
         // tables carry a third notation on top of WMO's: the ECMWF local tables
@@ -1029,8 +1033,9 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
     gate_planar_reprojection(MessageMeta {
         // GRIB2 has no P1 octet — the lead time lives in the product template.
         p1_octet: None,
+        // Same in-memory bound as the GRIB1 side.
         message_index: msg.message_index as i32,
-        offset_bytes: msg.byte_offset as i32,
+        offset_bytes: msg.byte_offset as f64,
         parameter_name: product.parameter_name,
         parameter_units: product.parameter_units,
         parameter_abbreviation: product.parameter_abbreviation,
@@ -2089,6 +2094,7 @@ impl Grib1Handle {
             let (ni, nj) = spectral_render_dims(truncation);
             let raw = self.cached_synthesize(message_index, truncation)?;
             let meta = spectral_meta(self.message_meta(message_index)?, ni, nj);
+            // Synthesis-grid dimensions, bounded well inside `u32`.
             Ok((raw, meta, ni as u32, nj as u32))
         } else {
             let raw = self.cached_decode(message_index)?;
@@ -2486,10 +2492,13 @@ impl Grib2Handle {
             let (ni, nj) = spectral_render_dims(truncation);
             let raw = self.cached_synthesize(message_index, truncation)?;
             let meta = spectral_meta(self.message_meta(message_index)?, ni, nj);
+            // Synthesis-grid dimensions, bounded well inside `u32`.
             Ok((raw, meta, ni as u32, nj as u32))
         } else if let Some((nside, nested)) = self.healpix_geometry(message_index) {
             let (ni, nj) = healpix_render_dims(nside);
             let raw = self.cached_healpix_resample(message_index, nside, nested)?;
+            // `healpix_render_dims` sizes the synthesis grid from `Nside`; the
+            // widest it reaches is a few thousand points a side.
             let meta = spectral_render_meta_from(
                 self.message_meta(message_index)?,
                 ni as i32,
@@ -2528,6 +2537,7 @@ impl Grib2Handle {
             Ok(spectral_meta(self.message_meta(message_index)?, ni, nj))
         } else if let Some((nside, _)) = self.healpix_geometry(message_index) {
             let (ni, nj) = healpix_render_dims(nside);
+            // Same synthesis-grid bound as `resolved`.
             Ok(spectral_render_meta_from(
                 self.message_meta(message_index)?,
                 ni as i32,
@@ -2732,6 +2742,8 @@ impl NetcdfHandle {
             .renderable_variables()
             .into_iter()
             .map(|v| NetcdfVariableMeta {
+                // Positions within the header's variable and dimension lists,
+                // both already parsed into memory, so these fit an `i32`.
                 variable_index: v.decode_index as i32,
                 name: v.name,
                 nc_type: v.nc_type.name().to_string(),
@@ -3523,7 +3535,7 @@ fn base_netcdf_meta(name: &str, units: &str, ni: i32, nj: i32) -> MessageMeta {
         p1_octet: None,
         earth_radius_metres: None,
         message_index: 0,
-        offset_bytes: 0,
+        offset_bytes: 0.0,
         parameter_name: name.to_string(),
         parameter_units: normalize_units(units).into_owned(),
         parameter_abbreviation: name.to_string(),
@@ -3686,6 +3698,8 @@ fn spectral_meta(base: MessageMeta, ni: usize, nj: usize) -> MessageMeta {
     // Last longitude of the `0..360−Δ` grid — `lons.last()`, without rebuilding
     // the vector (`(ni-1)·360/ni` is bit-identical to the synthesized value).
     let lon_last = (ni as f64 - 1.0) * 360.0 / ni as f64;
+    // `ni` / `nj` are synthesis-grid dimensions from `spectral_render_dims` or
+    // `healpix_render_dims`, both bounded well inside `i32`.
     spectral_render_meta_from(base, ni as i32, nj as i32, lon_last)
 }
 
@@ -5191,6 +5205,8 @@ fn field_csv(
                 values,
                 ni as usize,
                 nj as usize,
+                // `i` / `j` walk the `u32` grid dimensions widened just above,
+                // so the round trip back to `u32` is exact.
                 |i, j| geo(i as u32, j as u32),
             ))
         }
@@ -5685,9 +5701,14 @@ fn probe_impl(
     // Read the decoded value at an integer grid cell, `None` if out of range or
     // masked.
     let value_at = |gi: i64, gj: i64| -> Option<f64> {
-        if gi < 0 || gj < 0 || gi as u32 >= ni || gj as u32 >= nj {
+        // Compare at `i64`. Narrowing to `u32` first would wrap an index of
+        // 2^32 back into range and let it through the guard; widening `ni`/`nj`
+        // instead is exact for every value either side can hold.
+        if gi < 0 || gj < 0 || gi >= i64::from(ni) || gj >= i64::from(nj) {
             return None;
         }
+        // Both are now inside a `u32` grid, so the narrowing is exact even
+        // where `usize` is 32 bits wide.
         raw.get(gj as usize * ni as usize + gi as usize)
             .copied()
             .flatten()
@@ -6861,7 +6882,7 @@ mod polar_stereo_warp_tests {
             p1_octet: None,
             earth_radius_metres: None,
             message_index: 0,
-            offset_bytes: 0,
+            offset_bytes: 0.0,
             parameter_name: String::new(),
             parameter_units: String::new(),
             parameter_abbreviation: String::new(),
@@ -8149,7 +8170,7 @@ mod overlay_projection_tests {
             p1_octet: None,
             earth_radius_metres: None,
             message_index: 0,
-            offset_bytes: 0,
+            offset_bytes: 0.0,
             parameter_name: String::new(),
             parameter_units: String::new(),
             parameter_abbreviation: String::new(),
@@ -9789,7 +9810,7 @@ mod space_view_geos_tests {
             p1_octet: None,
             earth_radius_metres: None,
             message_index: 0,
-            offset_bytes: 0,
+            offset_bytes: 0.0,
             parameter_name: String::new(),
             parameter_units: String::new(),
             parameter_abbreviation: String::new(),

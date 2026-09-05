@@ -576,6 +576,8 @@ fn grib1_message(reader: &fieldglass_grib1::Grib1Reader, index: usize) -> Messag
         .map(|gds| Georef::from_geometry(&GridGeometry::from(gds), grib1_scan(msg)));
     let (parameter, units) = grib1_parameter(msg);
     MessageInfo {
+        // Round-trips the `u32` handle `Session::message` was given and
+        // `check_index` widened, so it cannot be a narrowing in practice.
         index: index as u32,
         offset_bytes: msg.byte_offset as u64,
         parameter,
@@ -636,6 +638,8 @@ fn grib2_message(reader: &fieldglass_grib2::Grib2Reader, index: usize) -> Messag
         None => ("—".to_string(), "—".to_string()),
     };
     MessageInfo {
+        // Round-trips the `u32` handle `Session::message` was given and
+        // `check_index` widened, so it cannot be a narrowing in practice.
         index: index as u32,
         offset_bytes: msg.byte_offset as u64,
         parameter,

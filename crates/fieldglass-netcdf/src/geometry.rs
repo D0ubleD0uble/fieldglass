@@ -21,6 +21,7 @@
 use crate::classic::{ClassicHeader, NcType};
 use crate::hdf5::dimensions::{Hdf5Metadata, UnsupportedVariable};
 use fieldglass_core::FieldglassError;
+use fieldglass_core::bytes::checked_usize;
 
 /// The horizontal axis a coordinate variable represents.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -592,7 +593,7 @@ pub fn extract_plane(
     let mut strides = vec![1usize; rank];
     for d in (0..rank.saturating_sub(1)).rev() {
         strides[d] = strides[d + 1]
-            .checked_mul(shape[d + 1] as usize)
+            .checked_mul(checked_usize(shape[d + 1], "NetCDF dimension length")?)
             .ok_or_else(|| FieldglassError::Parse("variable shape overflows usize".into()))?;
     }
     // Base offset from the held (non-horizontal) indices.
@@ -601,7 +602,7 @@ pub fn extract_plane(
         if d == x_dim || d == y_dim {
             continue;
         }
-        if fixed[d] >= shape[d] as usize {
+        if fixed[d] >= checked_usize(shape[d], "NetCDF dimension length")? {
             return Err(FieldglassError::Parse(format!(
                 "slice index {} out of range for dimension {d} (length {})",
                 fixed[d], shape[d]
@@ -610,8 +611,8 @@ pub fn extract_plane(
         base += fixed[d] * strides[d];
     }
 
-    let nj = shape[y_dim] as usize;
-    let ni = shape[x_dim] as usize;
+    let nj = checked_usize(shape[y_dim], "NetCDF dimension length")?;
+    let ni = checked_usize(shape[x_dim], "NetCDF dimension length")?;
     let mut out = Vec::with_capacity(nj * ni);
     for j in 0..nj {
         let row = base + j * strides[y_dim];
@@ -681,9 +682,19 @@ pub fn synthesize_geometry(lat: &[f64], lon: &[f64]) -> Result<SliceGeometry, Fi
     let (lon_first, lon_last, lon_regular) = corner_and_regularity(lon)
         .ok_or_else(|| FieldglassError::Parse("empty longitude coordinate array".into()))?;
     let lon_descending = lon.len() >= 2 && lon.windows(2).all(|w| w[1] < w[0]);
+    // `SliceGeometry` counts points in `u32`, the width every grid type in the
+    // workspace uses. A coordinate array longer than that is not a grid this
+    // renderer can describe, so say so rather than wrapping the count.
+    let (Ok(ni), Ok(nj)) = (u32::try_from(lon.len()), u32::try_from(lat.len())) else {
+        return Err(FieldglassError::Parse(format!(
+            "coordinate arrays {}×{} exceed the u32 grid dimensions",
+            lon.len(),
+            lat.len()
+        )));
+    };
     Ok(SliceGeometry {
-        ni: lon.len() as u32,
-        nj: lat.len() as u32,
+        ni,
+        nj,
         lat_first,
         lat_last,
         lon_first,

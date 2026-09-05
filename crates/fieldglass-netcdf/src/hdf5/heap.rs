@@ -20,8 +20,9 @@
 //! "Version 2 B-trees".
 
 use super::filter::FilterPipeline;
-use super::object_header::{is_undefined_address, read_uint_le};
+use super::object_header::{is_undefined_address, read_uint_le, read_usize_le};
 use fieldglass_core::FieldglassError;
+use fieldglass_core::bytes::checked_usize;
 
 const SIG_BTREE_V2_HDR: &[u8; 4] = b"BTHD";
 const SIG_BTREE_V2_INTERNAL: &[u8; 4] = b"BTIN";
@@ -87,7 +88,7 @@ pub(crate) fn btree_v2_records(
     hdr.tag(SIG_BTREE_V2_HDR)?;
     hdr.skip(1)?; // version
     let btree_type = hdr.byte()?;
-    let node_size = hdr.uint(4)? as usize;
+    let node_size = hdr.usize(4)?;
     let record_size = hdr.u16()? as usize;
     let depth = hdr.u16()?;
     hdr.skip(2)?; // split + merge percent
@@ -265,7 +266,7 @@ fn walk_btree_v2_node(
     let mut children = Vec::with_capacity(nrec + 1);
     for _ in 0..=nrec {
         let child_addr = cur.uint(osize)?;
-        let child_nrec = cur.uint(count_bytes)? as usize;
+        let child_nrec = cur.usize(count_bytes)?;
         if cum_bytes > 0 {
             cur.skip(cum_bytes)?;
         }
@@ -375,7 +376,7 @@ impl FractalHeap {
         // case; the doubling table carries a filtered size + mask per direct
         // block in its indirect block instead.
         let filter = if io_filter_len != 0 {
-            let root_filtered_size = cur.uint(l)? as usize;
+            let root_filtered_size = cur.usize(l)?;
             let root_filter_mask = cur.uint(4)? as u32;
             let pipeline = FilterPipeline::decode(cur.take(io_filter_len)?)?;
             Some(HeapFilter {
@@ -477,7 +478,7 @@ impl FractalHeap {
             ));
         }
         let offset = read_uint_le(id, 1, self.offset_bytes)?;
-        let length = read_uint_le(id, 1 + self.offset_bytes, self.length_bytes)? as usize;
+        let length = read_usize_le(id, 1 + self.offset_bytes, self.length_bytes)?;
         let block = self
             .blocks
             .iter()
@@ -498,8 +499,10 @@ impl FractalHeap {
                 Ok(bytes[start..end].to_vec())
             }
             BlockContent::Decoded(image) => {
-                // `within < size == image.len()`, so the start is in range; the
-                // object's length must still fit the decompressed block.
+                // `within < size == image.len()`, so the start is in range —
+                // and bounded by an in-memory length, so it fits `usize` on a
+                // 32-bit target too. The object's length must still fit the
+                // decompressed block.
                 let start = within as usize;
                 let end = start
                     .checked_add(length)
@@ -733,7 +736,7 @@ fn walk_indirect(
             // or not), so these fields are read before the undefined-address
             // check. Child-indirect entries are unfiltered and have no prefix.
             let (filtered_size, filter_mask) = match (is_direct, filter) {
-                (true, Some(hf)) => (cur.uint(hf.lsize)? as usize, cur.uint(4)? as u32),
+                (true, Some(hf)) => (cur.usize(hf.lsize)?, cur.uint(4)? as u32),
                 _ => (0, 0),
             };
             // An undefined address marks an unallocated table slot — skip it, but
@@ -819,6 +822,15 @@ impl<'a> Cursor<'a> {
         Ok(value)
     }
 
+    /// Read a little-endian unsigned integer of `width` bytes and narrow it to
+    /// `usize`, so a length or offset that a 32-bit target cannot address fails
+    /// the parse instead of wrapping into one it can. See
+    /// [`fieldglass_core::bytes::checked_usize`]; only the 8-byte-wide HDF5
+    /// length and offset fields can actually exceed a 32-bit `usize`.
+    pub(crate) fn usize(&mut self, width: usize) -> Result<usize, FieldglassError> {
+        checked_usize(self.uint(width)?, "HDF5 length or offset")
+    }
+
     pub(crate) fn u16(&mut self) -> Result<u16, FieldglassError> {
         Ok(self.uint(2)? as u16)
     }
@@ -869,6 +881,34 @@ impl<'a> Cursor<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_length_a_32_bit_target_cannot_address_is_an_error_not_a_wrap() {
+        // An 8-byte HDF5 length field holding 0x1_0000_0001. Narrowed with a
+        // bare `as usize` this reads as 1 where `usize` is 32 bits wide — in
+        // range, past every bounds check that follows, and the reader goes on
+        // to take one byte where the file said four gigabytes. The assertion
+        // has to hold on both widths: a 64-bit target must pass the value
+        // through unchanged, a 32-bit one must refuse it. Neither may wrap.
+        let bytes = [0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00];
+        let mut cur = Cursor::over(&bytes);
+        match cur.usize(8) {
+            Ok(n) => {
+                assert_eq!(usize::BITS, 64, "only a 64-bit target can hold this");
+                assert_eq!(n as u64, 0x1_0000_0001);
+            }
+            Err(err) => {
+                assert_eq!(usize::BITS, 32);
+                assert!(
+                    err.to_string().contains("does not fit"),
+                    "unexpected message: {err}"
+                );
+            }
+        }
+        // Four bytes or fewer always fit, on either width.
+        let mut cur = Cursor::over(&bytes);
+        assert_eq!(cur.usize(4).unwrap(), 1);
+    }
 
     fn put(buf: &mut Vec<u8>, at: usize, data: &[u8]) {
         if buf.len() < at + data.len() {

@@ -122,6 +122,30 @@ pub trait ByteSource {
     fn read(&self, range: ByteRange) -> Result<Cow<'_, [u8]>, FieldglassError>;
 }
 
+/// Narrow a length, count or offset that came out of a file to `usize`.
+///
+/// This is the "at the point it has bounded the value" step [`ByteRange`]
+/// describes. A file field is `u64` because the file says so; `usize` is 32 bits
+/// wide on `wasm32-unknown-unknown`, the browser target the crate is built for.
+/// A bare `as usize` there wraps, and the wrapped value can still pass the
+/// bounds check that follows it — so the reader goes on to slice the wrong
+/// bytes and answer confidently with the wrong field. Failing the parse instead
+/// keeps a 32-bit host from disagreeing silently with a 64-bit one.
+///
+/// `what` names the field for the error message, e.g. `"NetCDF vsize"`.
+///
+/// Only a value that can genuinely exceed `u32::MAX` needs this. A field read
+/// from four bytes or fewer already fits `usize` on every target Rust supports,
+/// since `usize` is at least 32 bits wide; it is the 8-byte HDF5 lengths and
+/// offsets, and products of several dimensions, that can overflow.
+pub fn checked_usize(value: u64, what: &str) -> Result<usize, FieldglassError> {
+    usize::try_from(value).map_err(|_| {
+        FieldglassError::Parse(format!(
+            "{what} {value} does not fit this target's address space"
+        ))
+    })
+}
+
 /// Shared bounds check, so every in-memory implementation reports a range past
 /// the end the same way.
 fn slice_of(bytes: &[u8], range: ByteRange) -> Result<Cow<'_, [u8]>, FieldglassError> {
@@ -227,6 +251,36 @@ mod tests {
             data.prefetch(&[ByteRange::new(0, 4), ByteRange::new(99, 4)])
                 .is_ok()
         );
+    }
+
+    #[test]
+    fn checked_usize_passes_through_what_the_target_can_address() {
+        assert_eq!(checked_usize(0, "n").unwrap(), 0);
+        assert_eq!(checked_usize(4_294_967_295, "n").unwrap(), 4_294_967_295);
+    }
+
+    #[test]
+    fn checked_usize_refuses_to_wrap_a_value_a_32_bit_target_cannot_hold() {
+        // 0x1_0000_0000 fits `u64` and does not fit a 32-bit `usize`. The
+        // assertion has to hold on both widths, because the point of the helper
+        // is that the two disagree with an error rather than with a value: a
+        // 64-bit host returns the number unchanged, a 32-bit one refuses. What
+        // is ruled out on either is the wrap `as usize` would have given.
+        for value in [1u64 << 32, (1u64 << 32) + 7, u64::MAX] {
+            match checked_usize(value, "field") {
+                Ok(n) => {
+                    assert_eq!(usize::BITS, 64, "only a 64-bit target can hold {value}");
+                    assert_eq!(n as u64, value, "a value that fits must not be altered");
+                }
+                Err(err) => {
+                    assert_eq!(usize::BITS, 32);
+                    assert!(
+                        err.to_string().contains("does not fit"),
+                        "unexpected message: {err}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

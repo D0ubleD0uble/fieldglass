@@ -20,7 +20,7 @@
 
 use super::datatype::DatatypeClass;
 use super::layout::{ChunkIndex, ChunkedLayout, DataLayout};
-use super::object_header::{self, read_uint_le};
+use super::object_header::{self, read_usize_le};
 use super::{Hdf5Probe, attribute, dataspace, filter::FilterPipeline, layout};
 use crate::classic::{MAX_VAR_ELEMENTS, NcType};
 use fieldglass_core::FieldglassError;
@@ -462,7 +462,8 @@ fn collect_implicit_chunks(
         .collect();
     let grid_count: u64 = grid.iter().product();
     // Bound the chunk count like the B-tree walk so a malformed shape can't
-    // drive an unbounded allocation.
+    // drive an unbounded allocation. The cap is a `usize`, so passing it also
+    // makes every `grid_count as usize` below exact on a 32-bit target.
     if grid_count > MAX_BTREE_NODES as u64 {
         return Err(FieldglassError::Parse(
             "implicit chunk grid has too many chunks".into(),
@@ -531,7 +532,7 @@ fn collect_fixed_array_chunks(
     }
     let entry_size = h.byte()? as usize;
     let page_bits = h.byte()?;
-    let num_entries = h.uint(l)? as usize; // max num entries == chunk count
+    let num_entries = h.usize(l)?; // max num entries == chunk count
     let dblock_addr = h.uint(o)?;
 
     // Row-major chunk grid: ceil(shape / chunk) per dimension. Its cell count
@@ -724,6 +725,9 @@ fn collect_extensible_array_chunks(
     let mut s = 0usize;
     let mut direct_ord = 0usize; // running index into `direct_dblk_addrs`
     while chunk < grid_count {
+        // `s` counts super blocks, and the `checked_shl` below fails once the
+        // shift reaches 32 — so `s < 64` on every iteration that gets here and
+        // the narrowing to `u32` is exact on any target.
         let ndblks_s = 1usize
             .checked_shl((s / 2) as u32)
             .ok_or_else(|| FieldglassError::Parse("extensible array is too large".into()))?;
@@ -1044,21 +1048,31 @@ fn scatter_chunk(
             rem /= cd;
         }
         // Map to a dataset coordinate; skip elements past the dataset edge.
-        let mut ds_index = 0usize;
+        // The walk stays in `u64` — `shape` and `origin` are the file's own
+        // numbers, and narrowing them per dimension would wrap on a 32-bit
+        // target and turn the edge test below into the wrong answer. Only the
+        // final row-major index is narrowed, and an index `usize` cannot hold
+        // is by definition outside `raw`.
+        let mut ds_index = 0u64;
         let mut in_bounds = true;
         for d in 0..rank {
-            let ds_coord = origin[d] as usize + coord[d];
-            if ds_coord >= shape[d] as usize {
+            let ds_coord = origin[d].saturating_add(coord[d] as u64);
+            if ds_coord >= shape[d] {
                 in_bounds = false;
                 break;
             }
-            ds_index = ds_index * shape[d] as usize + ds_coord;
+            ds_index = ds_index.saturating_mul(shape[d]).saturating_add(ds_coord);
         }
         if !in_bounds {
             continue;
         }
+        let Ok(ds_index) = usize::try_from(ds_index) else {
+            continue;
+        };
         let src = c * elem;
-        let dst = ds_index * elem;
+        let Some(dst) = ds_index.checked_mul(elem) else {
+            continue;
+        };
         if src + elem <= chunk.len() && dst + elem <= raw.len() {
             raw[dst..dst + elem].copy_from_slice(&chunk[src..src + elem]);
         }
@@ -1114,7 +1128,7 @@ fn fill_value_default(body: &[u8]) -> Result<Option<Vec<u8>>, FieldglassError> {
     if !defined {
         return Ok(None);
     }
-    let size = read_uint_le(body, size_pos, 4)? as usize;
+    let size = read_usize_le(body, size_pos, 4)?;
     if size == 0 {
         return Ok(None);
     }

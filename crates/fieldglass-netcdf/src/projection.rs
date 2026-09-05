@@ -113,9 +113,13 @@ pub fn resolve_cf_geostationary(
         .unwrap_or(true);
     let (x0, dx_rad) = axis_first_step(x)?;
     let (y0, dy_rad) = axis_first_step(y)?;
+    // A coordinate axis longer than `u32::MAX` is not a grid the projectors can
+    // describe; `None` sends it down the non-geostationary path rather than
+    // wrapping the count.
+    let (ni, nj) = (u32::try_from(x.len()).ok()?, u32::try_from(y.len()).ok()?);
     Some(GeostationaryGrid {
-        ni: x.len() as u32,
-        nj: y.len() as u32,
+        ni,
+        nj,
         h_metres: pph + r_eq,
         r_eq,
         r_pol,

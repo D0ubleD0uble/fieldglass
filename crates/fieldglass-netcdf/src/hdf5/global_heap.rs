@@ -50,7 +50,7 @@ pub fn read_object(
     // Clamp it to the bytes actually on disk so a corrupt size can't make the
     // budget arithmetic below overflow or run past the file.
     let available = bytes.len() - start;
-    let collection_size = (cur.uint(l)? as usize).min(available);
+    let collection_size = cur.usize(l)?.min(available);
     // The collection size counts the 8-byte signature/version/reserved block plus
     // the length field, so the object run is whatever remains after the header.
     let header_len = OBJECT_HEADER_FIXED + l;
@@ -62,7 +62,7 @@ pub fn read_object(
         }
         let index = cur.u16()?;
         cur.skip(2 + 4)?; // reference count + reserved
-        let size = cur.uint(l)? as usize;
+        let size = cur.usize(l)?;
         // Index 0 is the free-space object that terminates the run.
         if index == 0 {
             break;

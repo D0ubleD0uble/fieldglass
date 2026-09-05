@@ -15,6 +15,7 @@
 //! padded to 4-byte boundaries — including odd-length strings, attribute
 //! values, and the implicit "fill to next word" after each variable record.
 
+use fieldglass_core::bytes::checked_usize;
 use fieldglass_core::{ByteRange, ByteSource, FieldglassError};
 
 /// Three on-disk variants of NetCDF classic. They differ in the width of size
@@ -260,13 +261,6 @@ pub const MAX_VAR_ELEMENTS: usize = 200_000_000;
 /// keeps a small but malicious header from forcing a large allocation per name.
 pub const MAX_NAME_LEN: u64 = 1 << 20; // 1 MiB
 
-/// Convert a NON_NEG (u64) read from the wire to usize, surfacing 32-bit
-/// truncation as a parse error instead of a silent wrap.
-fn nonneg_to_usize(n: u64, what: &str) -> Result<usize, FieldglassError> {
-    usize::try_from(n)
-        .map_err(|_| FieldglassError::Parse(format!("NetCDF {what} count {n} exceeds usize")))
-}
-
 /// Parse a NetCDF classic header from the start of `bytes`. Stops walking
 /// after `var_list`; the rest of the file is variable data, which we ignore.
 pub fn parse_header(bytes: &[u8]) -> Result<ClassicHeader, FieldglassError> {
@@ -465,7 +459,7 @@ fn variable_layout(
                 var.name
             ))
         })?;
-    let total = nonneg_to_usize(total_u64, "variable element count")?;
+    let total = checked_usize(total_u64, "NetCDF variable element count")?;
     if total > MAX_VAR_ELEMENTS {
         return Err(FieldglassError::Parse(format!(
             "variable {:?} has {total} elements, exceeds cap of {MAX_VAR_ELEMENTS}",
@@ -482,7 +476,7 @@ fn variable_layout(
         ));
     }
 
-    let begin = nonneg_to_usize(var.begin, "variable begin")?;
+    let begin = checked_usize(var.begin, "NetCDF variable begin")?;
     let span = |count: usize| -> Result<u64, FieldglassError> {
         count
             .checked_mul(elem)
@@ -494,7 +488,7 @@ fn variable_layout(
         // Record variable: `numrecs` records laid `recsize` bytes apart, where
         // `recsize` is the sum of every record variable's per-record `vsize`.
         // One range per record, because the records are not contiguous.
-        let numrecs = nonneg_to_usize(numrecs, "numrecs")?;
+        let numrecs = checked_usize(numrecs, "NetCDF numrecs")?;
         let per_record = total / numrecs; // shape[0] == numrecs, so this is exact
         let recsize = record_size(header)?;
         let len = span(per_record)?;
@@ -533,7 +527,7 @@ fn record_size(header: &ClassicHeader) -> Result<usize, FieldglassError> {
             .and_then(|&d| header.dimensions.get(d as usize))
             .is_some_and(|d| d.is_record);
         if is_record {
-            let vsize = nonneg_to_usize(v.vsize, "vsize")?;
+            let vsize = checked_usize(v.vsize, "NetCDF vsize")?;
             total = total.checked_add(vsize).ok_or_else(|| {
                 FieldglassError::Parse("record size sum overflows usize".to_string())
             })?;
@@ -698,7 +692,7 @@ impl<'a> Parser<'a> {
                 "name length {n} exceeds the {MAX_NAME_LEN}-byte cap or the file size"
             )));
         }
-        let raw = self.read_bytes_padded(nonneg_to_usize(n, "name length")?)?;
+        let raw = self.read_bytes_padded(checked_usize(n, "NetCDF name length")?)?;
         Ok(String::from_utf8_lossy(raw).into_owned())
     }
 
@@ -749,7 +743,7 @@ impl<'a> Parser<'a> {
                 "dim_list count {count} exceeds file size"
             )));
         }
-        let count = nonneg_to_usize(count, "dim_list")?;
+        let count = checked_usize(count, "NetCDF dim_list")?;
         // No with_capacity — count is wire-derived; let push grow naturally.
         let mut dims = Vec::new();
         for _ in 0..count {
@@ -774,7 +768,7 @@ impl<'a> Parser<'a> {
                 "att_list count {count} exceeds file size"
             )));
         }
-        let count = nonneg_to_usize(count, "att_list")?;
+        let count = checked_usize(count, "NetCDF att_list")?;
         let mut atts = Vec::new();
         for _ in 0..count {
             atts.push(self.read_attribute()?);
@@ -788,7 +782,7 @@ impl<'a> Parser<'a> {
         let nc_type = NcType::from_code(type_code, self.version)?;
         let nelems = self.read_nonneg()?;
 
-        let nelems_usize = nonneg_to_usize(nelems, "attribute element count")?;
+        let nelems_usize = checked_usize(nelems, "NetCDF attribute element count")?;
         let total_bytes = nelems_usize
             .checked_mul(nc_type.element_size())
             .ok_or_else(|| {
@@ -839,7 +833,7 @@ impl<'a> Parser<'a> {
                 "var_list count {count} exceeds file size"
             )));
         }
-        let count = nonneg_to_usize(count, "var_list")?;
+        let count = checked_usize(count, "NetCDF var_list")?;
         let mut vars = Vec::new();
         for _ in 0..count {
             vars.push(self.read_variable(num_dims)?);
@@ -855,7 +849,7 @@ impl<'a> Parser<'a> {
                 "variable {name:?} declares {dimensionality} dimensions, exceeds cap of {MAX_VAR_DIMS}"
             )));
         }
-        let dimensionality = nonneg_to_usize(dimensionality, "variable dimensionality")?;
+        let dimensionality = checked_usize(dimensionality, "NetCDF variable dimensionality")?;
         let mut dim_ids = Vec::with_capacity(dimensionality);
         for _ in 0..dimensionality {
             // `dimid` is `NON_NEG`: 4 bytes for CDF-1/2, 8 bytes for CDF-5

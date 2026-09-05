@@ -26,7 +26,7 @@
 //! (version 4 chunked storage property description) and "The Fixed Array Index".
 
 use super::Hdf5Probe;
-use super::object_header::{is_undefined_address, read_uint_le};
+use super::object_header::{is_undefined_address, read_uint_le, read_usize_le};
 use fieldglass_core::FieldglassError;
 
 // Layout class codes (the byte after the version).
@@ -147,7 +147,7 @@ pub fn decode(body: &[u8], probe: &Hdf5Probe) -> Result<DataLayout, FieldglassEr
     match class {
         CLASS_COMPACT => {
             // size (2 bytes) then `size` bytes of inline data.
-            let size = read_uint_le(body, 2, 2)? as usize;
+            let size = read_usize_le(body, 2, 2)?;
             let start = 4usize;
             let end = start
                 .checked_add(size)
