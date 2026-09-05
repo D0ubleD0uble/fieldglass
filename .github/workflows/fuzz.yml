@@ -79,7 +79,7 @@ jobs:
           workspaces: crates/fieldglass-grib1/fuzz
 
       - name: Install cargo-fuzz
-        uses: taiki-e/install-action@ba47c86ac325773530516bb756137ac718732518 # v2.86.5
+        uses: taiki-e/install-action@742a3317eac7bd62f91cd888b4eead5e784ba833 # v2.87.1
         with:
           tool: cargo-fuzz
 
@@ -117,7 +117,7 @@ jobs:
           workspaces: crates/fieldglass-grib2/fuzz
 
       - name: Install cargo-fuzz
-        uses: taiki-e/install-action@ba47c86ac325773530516bb756137ac718732518 # v2.86.5
+        uses: taiki-e/install-action@742a3317eac7bd62f91cd888b4eead5e784ba833 # v2.87.1
         with:
           tool: cargo-fuzz
 
@@ -155,7 +155,7 @@ jobs:
           workspaces: crates/fieldglass-netcdf/fuzz
 
       - name: Install cargo-fuzz
-        uses: taiki-e/install-action@ba47c86ac325773530516bb756137ac718732518 # v2.86.5
+        uses: taiki-e/install-action@742a3317eac7bd62f91cd888b4eead5e784ba833 # v2.87.1
         with:
           tool: cargo-fuzz
 
