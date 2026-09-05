@@ -715,6 +715,45 @@ fn a_projection_that_resolves_nowhere_is_declined_by_every_answer() {
             }),
             (40.0, -100.0),
         ),
+        // #610. Each of the four states a plane that is positive, finite and
+        // narrower than one of the grid's own cells, so every `> 0.0` check
+        // above passes and the raster resolves nothing. Two shrink the plane
+        // through the declared Earth and two through the second factor the
+        // message also states, which is why they are all four here rather than
+        // one representative.
+        (
+            "a Lambert cone on an Earth of one micrometre",
+            GridGeometry::Lambert(LambertParams {
+                earth_radius_m: 1e-6,
+                ..eta_lambert()
+            }),
+            (40.0, -100.0),
+        ),
+        (
+            "a Lambert azimuthal disc on a spheroid of one micrometre",
+            GridGeometry::LambertAzimuthal(LambertAzimuthalParams {
+                semi_major_m: 1e-6,
+                semi_minor_m: 1e-6,
+                ..efas_lambert_azimuthal()
+            }),
+            (52.0, 10.0),
+        ),
+        (
+            "a polar stereographic latitude of true scale that shrinks the plane",
+            GridGeometry::PolarStereo(PolarStereoParams {
+                lad: 268.0,
+                ..cmc_polar()
+            }),
+            (60.0, -90.0),
+        ),
+        (
+            "a §3.12 scale factor that shrinks the plane onto its false origin",
+            GridGeometry::TransverseMercator(TransverseMercatorParams {
+                scale_factor: 1e-5,
+                ..ukv_transverse_mercator()
+            }),
+            (54.0, -2.0),
+        ),
     ];
     for (what, geom, (lat, lon)) in broken {
         assert!(geom.inverse(lat, lon).is_none(), "{what}: inverse");

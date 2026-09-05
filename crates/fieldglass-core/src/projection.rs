@@ -462,9 +462,9 @@ pub trait PlanarGridProjector {
     }
 }
 
-/// Whether the plane a sphere of `plane_radius_m` projects onto is wider than
-/// one cell of a grid spaced `dx_metres` × `dy_metres`. The floor every planar
-/// family's `is_well_defined` puts under its declared Earth radius (#610).
+/// Whether a plane of radius `plane_radius_m` is wider than one cell of a grid
+/// spaced `dx_metres` × `dy_metres`. The floor every planar family's
+/// `is_well_defined` puts under the size of its own plane (#610).
 ///
 /// All four of them place a raster measured in **metres** on a plane whose
 /// entire content is a small multiple of that radius, and GRIB2 §3 lets a
@@ -477,15 +477,30 @@ pub trait PlanarGridProjector {
 /// nothing to say it is wrong. The `> 0.0` radius checks the constants already
 /// make (#603) all pass: 1e-6 is a perfectly good positive number.
 ///
-/// **The floor is the grid's own step, not a number about planets.** Across the
-/// whole projected Earth there are about `R / |dx|` distinguishable columns, so
-/// `R / |dx| < 1` says exactly "the entire planet fits inside one cell" — the
-/// failure above and nothing else. It scales with the message, so a regional
-/// model on Mars, on the Moon, or on a 500 km body keeps working, where an
-/// absolute metre threshold would have to guess which planets are allowed. It is
-/// also the same kind of statement as the `ox + dx != ox` guard in
-/// [`planar_grid_is_placeable`]: a relation between the raster and its plane
-/// rather than a constant.
+/// **Pass the plane's radius, not the declared Earth's.** They differ, and a
+/// message states both halves. `2·R·k₀` is the polar stereographic plane, and
+/// `LaD = 260°` puts `k₀` at 0.0076 with `R` perfectly ordinary; `k · rectifying
+/// radius` is the transverse Mercator plane, and `k` reaches the projector as an
+/// unguarded IEEE `f32`. Either collapses the plane on a healthy Earth, so a
+/// caller that hands over `R` alone has fixed half the defect. The two conics
+/// have no such second factor: Lambert is conformal with unit scale at its
+/// standard parallels, and the Lambert azimuthal authalic constants stay within
+/// a factor of √2 of `a`, so the declared axis *is* their plane radius.
+///
+/// **The floor is the grid's own step, not a number about planets.** The plane
+/// holds roughly `R / |dx|` distinguishable columns, so `R / |dx| < 1` is
+/// "the whole plane is inside one cell" — the failure above. It is a loose
+/// floor, deliberately: the true column count is a few times that (a conic's
+/// image is ~2πR wide, and polar stereographic and transverse Mercator are
+/// unbounded at their singularities), and a grid admitted at `R / |dx| = 1.2`
+/// still renders an almost-flat wash. Tightening it would mean choosing a
+/// multiple, and the multiple differs per family; erring loose costs a bad
+/// picture in a case no producer publishes, where erring tight costs a refused
+/// real grid. It scales with the message, so a regional model on Mars, on the
+/// Moon, or on a 500 km body keeps working, where an absolute metre threshold
+/// would have to guess which planets are allowed. It is also the same kind of
+/// statement as the `ox + dx != ox` guard in [`planar_grid_is_placeable`]:
+/// a relation between the raster and its plane rather than a constant.
 ///
 /// Two alternatives were tried against the real arithmetic first. A fixed metre
 /// threshold is arbitrary and has to admit every radius a producer might state.
@@ -501,10 +516,11 @@ pub trait PlanarGridProjector {
 /// such a grid, so this is a case that occurs, not a hypothetical.
 ///
 /// A non-positive or `NaN` radius fails both comparisons on its own, so this
-/// needs no separate positivity clause. The per-family constants keep theirs
-/// because they also guard quantities *derived* from the radius — the polar
-/// stereographic `2·R·k₀`, the transverse Mercator rectifying radius — which a
-/// declarable `LaD` or spheroid can zero while the radius itself is sound.
+/// needs no separate positivity clause. The per-family constants keep the
+/// `is_finite` and `> 0.0` tests they already have, which catch a plane radius
+/// of exactly zero or one that has gone non-finite — the two cases this floor
+/// does not distinguish from any other refusal, and the ones an infinite
+/// declared radius reaches.
 pub fn plane_spans_a_grid_cell(plane_radius_m: f64, dx_metres: f64, dy_metres: f64) -> bool {
     dx_metres.abs() < plane_radius_m && dy_metres.abs() < plane_radius_m
 }

@@ -872,6 +872,13 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
     });
     let lambert_dx_metres = lambert_inc.map(|(dx, _)| dx);
     let lambert_dy_metres = lambert_inc.map(|(_, dy)| dy);
+    // Whether to *offer* a reprojection is a different question from what the
+    // warp reads, and the two spheroidal families below already separate them:
+    // spacings alone would advertise a reprojection that resolves no point, so
+    // the offer is tied to the projection placing the far corner. §3.30 and
+    // §3.20 were left keyed on the spacings, so a grid with a collapsed cone or
+    // an Earth smaller than its own cell was offered and then threw (#610).
+    let lambert_reprojectable_inc = lambert.and_then(|t| t.last_point()).and(lambert_inc);
     let lambert_latin1 = lambert.map(|t| t.latin1);
     let lambert_latin2 = lambert.map(|t| t.latin2);
     let gaussian_n_parallels = match &msg.gds.template {
@@ -893,6 +900,10 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
             t.scanning_mode & 0x40 != 0,
         )
     });
+    // See `lambert_reprojectable_inc`.
+    let polar_stereo_reprojectable_inc = polar_stereo
+        .and_then(|t| t.last_point())
+        .and(polar_stereo_inc);
 
     // §3.1 carries the rotated-pole position and rotation angle alongside a
     // §3.0-style lat/lon layout; the warp uses them to rotate a geographic
@@ -941,20 +952,24 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
         fieldglass_grib2::GridTemplate::Gaussian(t) => t.scanning_mode & 0x80 != 0,
         _ => false,
     };
+    // A space view whose declared ellipsoid the satellite cannot see places no
+    // pixel either, so it is offered on the same terms as the planar four.
+    let space_view_reprojectable =
+        space_view.filter(|g| GeostationaryProjector::new(*g).is_well_defined());
     let reprojectable = grid_is_reprojectable(
         Some(grid_type.as_str()),
-        polar_stereo_inc
+        polar_stereo_reprojectable_inc
             .map(|(dx, _)| dx)
-            .or(lambert_dx_metres)
+            .or(lambert_reprojectable_inc.map(|(dx, _)| dx))
             .or(transverse_mercator_reprojectable_inc.map(|(dx, _)| dx))
             .or(lambert_azimuthal_reprojectable_inc.map(|(dx, _)| dx))
-            .or(space_view.map(|g| g.dx_rad)),
-        polar_stereo_inc
+            .or(space_view_reprojectable.map(|g| g.dx_rad)),
+        polar_stereo_reprojectable_inc
             .map(|(_, dy)| dy)
-            .or(lambert_dy_metres)
+            .or(lambert_reprojectable_inc.map(|(_, dy)| dy))
             .or(transverse_mercator_reprojectable_inc.map(|(_, dy)| dy))
             .or(lambert_azimuthal_reprojectable_inc.map(|(_, dy)| dy))
-            .or(space_view.map(|g| g.dy_rad)),
+            .or(space_view_reprojectable.map(|g| g.dy_rad)),
         i_scan_negative,
     );
 
@@ -5947,10 +5962,14 @@ fn require_usable_earth_radius(radius: f64) -> napi::Result<()> {
 ///
 /// [`require_earth_radius`] catches the radius that is not a sphere; this
 /// catches the one that is a sphere and still leaves nowhere to put the raster.
-/// Both are asked in the `*_params` builders rather than beside
-/// [`require_well_defined`], because only the builders are on both the warp path
-/// and the forward-geolocation path — a check only the latter makes would leave
-/// a collapsed grid rendering blank with nothing said about why (#610).
+/// Both are asked in the `*_params` builders, which the warp path and the
+/// forward-geolocation path share, so the radius is named on both — a check
+/// only the forward map made would leave a collapsed grid rendering blank with
+/// nothing said about why (#610). The four `*_warp_setup` functions now ask
+/// [`require_well_defined`] for the same reason, so the *other* degeneracies —
+/// a collapsed cone, a latitude of true scale past ±90°, a first point the
+/// projection cannot follow to — are reported on the warp path too rather than
+/// silently painting nothing.
 fn require_radius_spans_a_cell(
     radius_m: f64,
     dx_metres: f64,
@@ -6000,6 +6019,7 @@ fn lambert_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<Warp
     // when a box target needs the antimeridian-aware perimeter bbox (see
     // `PlanarGridProjector::lonlat_bbox`).
     let projector = LambertProjector::new(p);
+    require_well_defined(projector.is_well_defined(), "lambert")?;
     let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
         Box::new(move |lat, lon| projector.inverse(lat, lon));
     let bbox: BboxThunk = Box::new(move || LambertProjector::new(p).lonlat_bbox());
@@ -6033,6 +6053,7 @@ fn polar_stereo_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result
     let p = polar_stereo_params(meta, ni, nj)?;
 
     let projector = PolarStereoProjector::new(p);
+    require_well_defined(projector.is_well_defined(), "polar_stereo")?;
     let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
         Box::new(move |lat, lon| projector.inverse(lat, lon));
     // Antimeridian-aware bbox of the four grid corners (same shape as
@@ -6106,6 +6127,7 @@ fn lambert_azimuthal_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::R
     let p = lambert_azimuthal_params(meta, ni, nj)?;
 
     let projector = LambertAzimuthalProjector::new(p);
+    require_well_defined(projector.is_well_defined(), "lambert_azimuthal")?;
     let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
         Box::new(move |lat, lon| projector.inverse(lat, lon));
     let bbox: BboxThunk = Box::new(move || LambertAzimuthalProjector::new(p).lonlat_bbox());
@@ -6176,6 +6198,7 @@ fn transverse_mercator_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi:
     let p = transverse_mercator_params(meta, ni, nj)?;
 
     let projector = TransverseMercatorProjector::new(p);
+    require_well_defined(projector.is_well_defined(), "transverse_mercator")?;
     let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
         Box::new(move |lat, lon| projector.inverse(lat, lon));
     // Same antimeridian-aware four-corner walk as `lambert_warp_setup`; built
@@ -9488,6 +9511,52 @@ mod space_view_geos_tests {
         assert_eq!((lat_min, lat_max), (-90.0, 90.0));
         assert_eq!((lon_min, lon_max), (-165.0, 15.0));
     }
+
+    /// #610: the hemisphere fallback above is for a grid that *sees* an Earth
+    /// and finds only limb on its perimeter. An ellipsoid with no shape sees
+    /// nothing at all, and used to reach that same fallback by the wrong route
+    /// — a generous box around a satellite looking at nothing, over pixels that
+    /// geolocate as `NaN`. It is refused now, naming the numbers.
+    #[test]
+    fn space_view_refuses_an_ellipsoid_it_cannot_see() {
+        for (what, patch) in [
+            (
+                "a zero equatorial radius",
+                (Some(0.0), None, None) as (Option<f64>, Option<f64>, Option<f64>),
+            ),
+            ("a zero polar radius", (None, Some(0.0), None)),
+            (
+                "a prolate ellipsoid",
+                (Some(6_356_752.0), Some(6_378_137.0), None),
+            ),
+            (
+                "a satellite inside the Earth",
+                (None, None, Some(1_000_000.0)),
+            ),
+        ] {
+            let mut meta = space_view_meta();
+            let (r_eq, r_pol, h) = patch;
+            if let Some(v) = r_eq {
+                meta.geos_r_eq = Some(v);
+            }
+            if let Some(v) = r_pol {
+                meta.geos_r_pol = Some(v);
+            }
+            if let Some(v) = h {
+                meta.geos_height = Some(v);
+            }
+            let err = warp_setup_for(&meta, 11, 11, None)
+                .err()
+                .unwrap_or_else(|| panic!("{what} was accepted"));
+            assert!(
+                err.reason.contains("line of sight"),
+                "{what}: the message should say what it cannot see, got: {}",
+                err.reason
+            );
+        }
+        // The real GOES-like grid is untouched.
+        assert!(warp_setup_for(&space_view_meta(), 11, 11, None).is_ok());
+    }
 }
 
 /// Forward geolocation of the planar family — the map that long-format CSV,
@@ -9997,6 +10066,75 @@ mod planar_geolocation_tests {
                 warp_setup_for(&meta, ni, nj, None).is_err(),
                 "{family}: the warp still accepted a collapsed plane"
             );
+        }
+    }
+
+    /// The refusals above are only half of it: a grid the render will decline
+    /// must not be *offered* a reprojection in the first place, or the picker
+    /// lists a target that throws when chosen. §3.12 and §3.140 already tied
+    /// the offer to their projection placing the far corner; §3.30, §3.20 and
+    /// the space view were keyed on the grid spacings alone, which a collapsed
+    /// plane leaves perfectly ordinary (#610).
+    ///
+    /// §3.30 is the arm that discriminates: §3.12 and §3.140 pass here either
+    /// way and are regression guards, and the committed §3.20 fixture states
+    /// `Dx = Dy = 0`, so it is not offered a reprojection whatever its Earth is
+    /// and cannot demonstrate the change. The polar stereographic half of the
+    /// fix rides on the same line and is covered in `fieldglass-core`.
+    #[test]
+    fn a_grid_whose_plane_has_collapsed_is_not_offered_a_reprojection() {
+        for (family, bytes, patch) in [
+            ("lambert", ETA_LAMBERT, 30u16),
+            ("lambert_azimuthal", LAMBERT_AZIMUTHAL, 140),
+            ("transverse_mercator", TRANSVERSE_MERCATOR, 12),
+        ] {
+            let (meta, _, _) = grib2_geometry(bytes);
+            assert!(
+                meta.reprojectable,
+                "{family} (template {patch}): the real grid is offered a reprojection"
+            );
+        }
+        // The collapsed twins, built by rewriting the shape-of-earth octets of
+        // each fixture's §3 section in place — the same 16 bytes in all three
+        // templates, at a fixed offset from the section start.
+        for (family, bytes) in [
+            ("lambert", ETA_LAMBERT),
+            ("lambert_azimuthal", LAMBERT_AZIMUTHAL),
+            ("transverse_mercator", TRANSVERSE_MERCATOR),
+        ] {
+            let mut patched = bytes.to_vec();
+            let at = gds_shape_of_earth_offset(&patched);
+            // Shape 1 (producer-specified sphere), scale 6, value 1 → 1e-6 m;
+            // the major/minor axis pairs left "missing".
+            patched[at] = 1;
+            patched[at + 1] = 6;
+            patched[at + 2..at + 6].copy_from_slice(&1u32.to_be_bytes());
+            patched[at + 6..at + 16].fill(0xFF);
+            let (_, meta, ni, nj) = grib2_handle(&patched).resolved(0).expect("still parses");
+            assert!(
+                !meta.reprojectable,
+                "{family}: a collapsed plane was offered a reprojection"
+            );
+            assert!(
+                warp_setup_for(&meta, ni, nj, None).is_err(),
+                "{family}: and the warp would have accepted it"
+            );
+        }
+    }
+
+    /// Byte offset of the 16-octet shape-of-earth block inside the first §3
+    /// section of a GRIB2 message: the section's own header is 14 octets, and
+    /// every planar template starts its payload with that block.
+    fn gds_shape_of_earth_offset(bytes: &[u8]) -> usize {
+        // Walk the sections from the end of §0 (16 octets) until §3.
+        let mut at = 16;
+        loop {
+            let len = u32::from_be_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
+                as usize;
+            if bytes[at + 4] == 3 {
+                return at + 14;
+            }
+            at += len;
         }
     }
 

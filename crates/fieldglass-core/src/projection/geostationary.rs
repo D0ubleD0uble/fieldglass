@@ -152,9 +152,23 @@ impl GeostationaryProjector {
     /// It is asked separately because `lonlat_bbox` answers `None` for two
     /// different reasons, and only the *other* one (a full disc whose whole
     /// perimeter is limb) is a grid worth framing a hemisphere for.
+    ///
+    /// A non-finite scan-angle origin or step is refused here too, for the
+    /// reason `planar_grid_is_placeable` checks the same of its own plane:
+    /// `dx_rad != 0.0` is **true** for a `NaN`, and `inverse`'s
+    /// `i < 0.0 || i > i_max` bound test is **false** for one, so the pair used
+    /// to let a `NaN` index out as `Some` — the silent NaN index the polar
+    /// stereographic family was fixed for in #603.
     pub(crate) fn raster_is_walkable(&self) -> bool {
         let p = &self.params;
-        p.ni >= 2 && p.nj >= 2 && p.dx_rad != 0.0 && p.dy_rad != 0.0
+        p.ni >= 2
+            && p.nj >= 2
+            && p.x0.is_finite()
+            && p.y0.is_finite()
+            && p.dx_rad.is_finite()
+            && p.dy_rad.is_finite()
+            && p.dx_rad != 0.0
+            && p.dy_rad != 0.0
     }
 
     /// Whether the declared ellipsoid and satellite position describe a view at
@@ -166,7 +180,8 @@ impl GeostationaryProjector {
     /// the planar families: its axes are scan angles rather than metres and
     /// every term the maths uses is a ratio — `r_pol/r_eq`, `h/r_eq`, the
     /// apparent angular size — so shrinking the whole system leaves the picture
-    /// bit-for-bit the same. What it cannot survive is a *shapeless* ellipsoid.
+    /// where it was (analytically identical; in `f64`, to well under a
+    /// nanodegree, which is what the test asserts). What it cannot survive is a *shapeless* ellipsoid.
     /// A declared `r_eq` of zero makes `(r_pol/r_eq)²` a `NaN`, the ray/
     /// ellipsoid quadratic's `disc < 0.0 || a <= 0.0` guard is false for `NaN`,
     /// and [`Self::scan_to_lonlat`] used to answer `Some((NaN, NaN))` — a
