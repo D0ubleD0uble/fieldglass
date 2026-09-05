@@ -11,7 +11,7 @@
 //!   because `isnan()` is unreliable on some mobile GPUs and a `NaN` poisons
 //!   linear filtering in a texture.
 //! * **The element type follows the source.** [`Values`] is `f64` unless the
-//!   decoded field is exactly representable in `f32`; see [`Values::narrow`].
+//!   decoded field is exactly representable in `f32`; see [`Dtype::Auto`].
 //!   A host that wants an `R32F` texture regardless asks for it by name and
 //!   gets the lossy conversion it chose.
 //! * **Strings only for labels.** `kind`, `proj4`, `parameter`, `units`.
@@ -59,7 +59,20 @@ api_type! {
     #[serde(rename_all = "snake_case")]
     pub enum Dtype {
         /// Whatever the source supports losslessly — the default, and the only
-        /// setting that never discards precision. See [`Values::narrow`].
+        /// setting that never discards precision.
+        ///
+        /// [`Values::F32`] comes back **only if every present value survives the
+        /// round trip**, otherwise [`Values::F64`] does. That is stricter than
+        /// "the packing used 24 bits or fewer", and deliberately so. A
+        /// simple-packed value is `(R + X·2ᴱ)·10⁻ᴰ`: at 24 bits the *ordinals*
+        /// fit an `f32` mantissa, but the values need `log2(max|v| / 2ᴱ)` bits
+        /// once the reference value sits far from zero relative to the quantum,
+        /// and a non-zero decimal scale factor makes the quantum a negative
+        /// power of ten, which no binary float represents exactly at all.
+        /// Checking the decoded numbers costs one pass and answers the question
+        /// the bit count only approximates: does this field fit?
+        ///
+        /// Masked cells do not participate — their value is not data.
         #[default]
         Auto,
         /// Narrow to `f32` whatever the source was. The caller has decided the
@@ -372,16 +385,9 @@ impl Values {
     /// Narrow to `f32` **only if every present value survives the round trip**,
     /// otherwise keep `f64`.
     ///
-    /// This is stricter than "the packing used 24 bits or fewer", and
-    /// deliberately so. A simple-packed value is `(R + X·2ᴱ)·10⁻ᴰ`: at 24 bits
-    /// the *ordinals* fit an `f32` mantissa, but the values need
-    /// `log2(max|v| / 2ᴱ)` bits once the reference value sits far from zero
-    /// relative to the quantum, and a non-zero decimal scale factor makes the
-    /// quantum a negative power of ten, which no binary float represents
-    /// exactly at all. Checking the decoded numbers costs one pass and answers
-    /// the question the bit count only approximates: does this field fit?
-    ///
-    /// Masked cells do not participate — their value is not data.
+    /// The rule and why it is stricter than a bit count are on [`Dtype::Auto`],
+    /// which is where a caller meets it: this is private, and a doc a reader
+    /// cannot reach is not where the explanation belongs (#582).
     fn narrow(values: Vec<f64>, mask: &[u8]) -> Self {
         let exact = values
             .iter()

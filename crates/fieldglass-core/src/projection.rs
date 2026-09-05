@@ -499,8 +499,9 @@ pub trait PlanarGridProjector {
 /// real grid. It scales with the message, so a regional model on Mars, on the
 /// Moon, or on a 500 km body keeps working, where an absolute metre threshold
 /// would have to guess which planets are allowed. It is also the same kind of
-/// statement as the `ox + dx != ox` guard in [`planar_grid_is_placeable`]:
-/// a relation between the raster and its plane rather than a constant.
+/// statement as the `ox + dx != ox` guard these families already apply to a
+/// grid origin: a relation between the raster and its plane rather than a
+/// constant.
 ///
 /// Two alternatives were tried against the real arithmetic first. A fixed metre
 /// threshold is arbitrary and has to admit every radius a producer might state.
@@ -509,8 +510,8 @@ pub trait PlanarGridProjector {
 /// the span is the one number that still looks healthy.
 ///
 /// A grid with **no** spacing passes vacuously, and deliberately: a zero step
-/// is a different defect with its own refusals — `ox + dx != ox` in
-/// [`planar_grid_is_placeable`] and the explicit `dx == 0.0` in
+/// is a different defect with its own refusals — that same `ox + dx != ox`
+/// origin guard, and the explicit `dx == 0.0` in
 /// [`PlanarGridProjector::inverse`] — and folding it in here would put one rule
 /// in two places. The committed `polar_stereographic_surface.grib2` fixture is
 /// such a grid, so this is a case that occurs, not a hypothetical.

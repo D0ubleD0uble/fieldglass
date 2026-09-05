@@ -332,16 +332,17 @@ pub struct MessageMeta {
     /// the section can't be parsed.
     pub packing: Option<String>,
     /// Whether this message's grid can be reprojected (the render panel's
-    /// non-source projection targets). Mirrors [`warp_setup_for`]: only
-    /// lat/lon, rotated lat/lon, Gaussian, Mercator, curvilinear and the planar
-    /// families (Lambert, polar stereographic, transverse Mercator, Lambert
-    /// azimuthal, space view) reproject, and a planar grid additionally needs a
-    /// non-zero grid spacing (some sample files carry Dx = Dy = 0) *and* a
-    /// projection [`warp_setup_for`] will accept. The second half is asked by
-    /// [`gate_planar_reprojection`], which every builder routes its finished
-    /// meta through, so a collapsed cone or an Earth smaller than one cell stays
-    /// source-only rather than advertising a target the warp then refuses
-    /// (#610). The webview hides the reprojection options when this is `false`.
+    /// non-source projection targets). Mirrors what the warp itself accepts:
+    /// only lat/lon, rotated lat/lon, Gaussian, Mercator, curvilinear and the
+    /// planar families (Lambert, polar stereographic, transverse Mercator,
+    /// Lambert azimuthal, space view) reproject, and a planar grid additionally
+    /// needs a non-zero grid spacing (some sample files carry Dx = Dy = 0)
+    /// *and* a projection that resolves to a usable plane. The second half is
+    /// asked by running the finished meta through the warp's own setup, which
+    /// every builder does, so a collapsed cone or an Earth smaller than one
+    /// cell stays source-only rather than advertising a target the warp then
+    /// refuses (#610). The webview hides the reprojection options when this is
+    /// `false`.
     pub reprojectable: bool,
     /// Whether the grid's rows scan south→north (GRIB `jScansPositively`).
     /// The source projection paints grid row 0 at the top of the canvas, so a
@@ -1841,9 +1842,12 @@ impl Grib1Handle {
     /// Serialize one message's decoded field as CSV — `"matrix"` (a 2-D grid of
     /// values) or `"long"` (a `lat,lon,value` table), missing points as empty
     /// value cells. The long format needs per-point coordinates, so it covers
-    /// the same families as contours ([`GEOLOCATABLE_GRIDS`]); the matrix format
-    /// works for any grid with declared dimensions. See the GRIB2 counterpart
-    /// for details.
+    /// the same families as contours (the lat/lon family and the projected
+    /// planar ones); the matrix format works for any grid with declared
+    /// dimensions. See the GRIB2 counterpart for details. A grid outside that
+    /// set is refused with an error that names every family in it — the
+    /// authoritative list, read out of the table the gate itself consults, so
+    /// it cannot drift from what is actually accepted (#470).
     #[napi]
     pub fn export_csv(
         &self,
@@ -2247,9 +2251,12 @@ impl Grib2Handle {
     /// Serialize one message's decoded field as CSV. `format` is `"matrix"` (a
     /// 2-D grid of values) or `"long"` (a `lat,lon,value` table); missing points
     /// come out as empty value cells. The long format needs per-point
-    /// geolocation, so it covers the same families as contours
-    /// ([`GEOLOCATABLE_GRIDS`]: the lat/lon family and the projected planar
-    /// ones) — the matrix format works for any grid with declared dimensions.
+    /// geolocation, so it covers the same families as contours (the lat/lon
+    /// family and the projected planar ones) — the matrix format works for any
+    /// grid with declared dimensions. A grid outside that set is refused with
+    /// an error that names every family in it — the authoritative list, read
+    /// out of the table the gate itself consults, so it cannot drift from what
+    /// is actually accepted (#470).
     #[napi]
     pub fn export_csv(
         &self,
@@ -2642,8 +2649,8 @@ pub struct NetcdfVariableMeta {
 /// and synthesised geometry (NetCDF carries no GRIB-style GDS). The handle parses
 /// once, caches each decoded variable (including the lat/lon coordinate
 /// variables it reads for the corners), and feeds a synthesised `"latlon"`
-/// [`MessageMeta`] through the same [`render_with_options`] / [`project_overlay_impl`]
-/// the GRIB handles use — honouring the decode-decoupled rule.
+/// [`MessageMeta`] through the same render and overlay-projection paths the
+/// GRIB handles use — honouring the decode-decoupled rule.
 ///
 /// Covers both backings — classic (CDF-1/2/5) and NetCDF-4 / HDF5 (#169) — for
 /// regular 1-D lat/lon grids (decision 0002), projected grids (#168, decision
@@ -2782,10 +2789,9 @@ impl NetcdfHandle {
     /// The slice is picked exactly like [`render_slice`](Self::render_slice)
     /// (`yDim` / `xDim` are the image axes, `sliceIndices` fixes the rest). The
     /// long format needs per-point geolocation, so it covers any slice whose
-    /// synthesised geometry lands on a geolocated family
-    /// ([`GEOLOCATABLE_GRIDS`]) — a regular lat/lon grid, or a WRF file's
-    /// Lambert / polar stereographic / Mercator projection; the matrix format
-    /// works for any decodable slice.
+    /// synthesised geometry lands on a geolocated family — a regular lat/lon
+    /// grid, or a WRF file's Lambert / polar stereographic / Mercator
+    /// projection; the matrix format works for any decodable slice.
     #[napi]
     pub fn export_csv(
         &self,
@@ -2881,7 +2887,7 @@ impl NetcdfHandle {
     /// Sibling to [`Grib1Handle::project_contours`]. The slice's geometry is
     /// synthesised from the file's coordinates or projection attributes, so a
     /// NetCDF grid is contourable wherever that synthesis lands on a geolocated
-    /// family ([`GEOLOCATABLE_GRIDS`]) — every one but a GOES scan-angle grid.
+    /// family — every one but a GOES scan-angle (space view) grid.
     #[napi]
     pub fn project_contours(
         &self,
