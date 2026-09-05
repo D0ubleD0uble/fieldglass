@@ -5,25 +5,18 @@
 //! carry, and every function is a thin call through. Decode, projection and
 //! paint logic belongs in those crates, never in this one (ADR-0006).
 
+use fieldglass::render::{Projected, ResolvedOptions};
 use fieldglass_core::{
-    CombineOp, CornerPair, EqualEarth, Format, GaussianParams, GaussianProjector,
-    GeostationaryParams, GeostationaryProjector, GridResampling, LambertAzimuthalParams,
-    LambertAzimuthalProjector, LambertParams, LambertProjector, LatLonParams, LonLatBox,
-    MercatorParams, Mollweide, Orthographic, PlanarGridProjector, PolarStereoParams,
-    PolarStereoProjector, PolarStereographic, ProjectedPolylines, Resampling, Robinson,
-    RotatedLatLonParams, RotatedLatLonProjector, Scan, SourceGrid, SourceOverlayTarget,
-    SpatialIndex, TargetRaster, TransverseMercatorParams, TransverseMercatorProjector, WebMercator,
+    CombineOp, CornerPair, Format, GaussianParams, GeostationaryParams, LambertAzimuthalParams,
+    LambertParams, LatLonParams, LonLatBox, MercatorParams, PlanarGridProjector, PolarStereoParams,
+    ProjectedPolylines, RotatedLatLonParams, Scan, SpatialIndex, TransverseMercatorParams,
+    TransverseMercatorProjector,
     cct_tables::lookup_sub_centre,
-    colormap::{Colormap, ScaleMode, min_max_ignoring_mask, paint_grid_rgba},
-    combine_fields,
-    contour::{contour_segments, contour_segments_global, nice_levels},
-    csv::{field_to_csv_long, field_to_csv_matrix},
-    detect_from_bytes, latlon_inverse, latlon_point, mercator_inverse, mercator_point,
-    normalise_lon, plane_spans_a_grid_cell, project_polylines,
-    projection::{GridGeometry, GridIndex},
-    rotated_latlon_point, signed_grid_increments,
+    colormap::{ScaleMode, min_max_ignoring_mask, paint_grid_rgba},
+    combine_fields, detect_from_bytes, normalise_lon, plane_spans_a_grid_cell,
+    projection::GridGeometry,
+    signed_grid_increments,
     units::normalize_units,
-    warp::{PreparedTarget, TargetProjection, WarpedRaster, warp},
 };
 use fieldglass_grib1::{Grib1Reader, tables::lookup_parameter, tables_cct::lookup_centre};
 use fieldglass_grib2::{
@@ -2600,10 +2593,17 @@ pub struct NetcdfHandle {
     curvilinear: Mutex<CurvilinearCache>,
 }
 
-/// Cell-centre indices keyed by the pair of 2-D coordinate variables that built
-/// them, `None` recording a slice that resolved no usable pair.
+/// Lookup geometries keyed by the pair of 2-D coordinate variables whose
+/// cell centres built them, `None` recording a slice that resolved no usable
+/// pair.
+///
+/// The cached value is the whole [`GridGeometry::Lookup`] rather than the bare
+/// [`SpatialIndex`] it wraps, because that is the shape every display operation
+/// now takes (#572) and `SpatialIndex: Clone` is `O(n)` — 28 bytes a cell, ~28
+/// MB at a megapixel. Caching the geometry means a repaint borrows it; caching
+/// the index would mean wrapping (and so copying) it once per call.
 type CurvilinearCache =
-    std::collections::HashMap<(usize, usize), Option<std::sync::Arc<SpatialIndex>>>;
+    std::collections::HashMap<(usize, usize), Option<std::sync::Arc<GridGeometry>>>;
 
 #[napi]
 impl NetcdfHandle {
@@ -3006,7 +3006,7 @@ impl NetcdfHandle {
         var: &RenderableVariable,
         y_dim: usize,
         x_dim: usize,
-    ) -> napi::Result<Option<std::sync::Arc<SpatialIndex>>> {
+    ) -> napi::Result<Option<std::sync::Arc<GridGeometry>>> {
         let (Some(y_axis), Some(x_axis)) = (var.dims.get(y_dim), var.dims.get(x_dim)) else {
             return Ok(None);
         };
@@ -3038,7 +3038,7 @@ impl NetcdfHandle {
         let lats = self.coordinate_plane(coords.lat_index)?;
         let lons = self.coordinate_plane(coords.lon_index)?;
         let built = SpatialIndex::new(x_axis.length as u32, y_axis.length as u32, &lats, &lons)
-            .map(std::sync::Arc::new);
+            .map(|index| std::sync::Arc::new(GridGeometry::Lookup(index)));
         self.curvilinear
             .lock()
             .expect("curvilinear cache mutex poisoned")
@@ -3086,13 +3086,13 @@ impl NetcdfHandle {
         //
         // Resolved through the same cache the render path uses, so a slice that
         // reports `"curvilinear"` here is one the warp can always place.
-        if let Some(index) = self.curvilinear_index(var, y_dim, x_dim)? {
+        if let Some(geometry) = self.curvilinear_index(var, y_dim, x_dim)? {
             let LonLatBox {
                 lat_min,
                 lat_max,
                 lon_min,
                 lon_max,
-            } = index
+            } = geometry
                 .lonlat_bbox()
                 .unwrap_or(LonLatBox::new(-90.0, 90.0, -180.0, 180.0));
             return Ok(MessageMeta {
@@ -3105,23 +3105,21 @@ impl NetcdfHandle {
                 lat_last: Some(lat_min),
                 lon_first: Some(lon_min),
                 lon_last: Some(lon_max),
-                // The one answer here that is a constant rather than a call.
-                // `GridGeometry::reprojectable`'s `Lookup` arm owns the rule and
-                // the reason for it — a nearest-cell search over centres that
-                // carry their own positions has no scan direction to be wrong
-                // about (#445) — and it reads none of the index. Building the
-                // variant to ask would deep-copy the cells (28 bytes each,
-                // `Arc`-shared precisely so the render never does), on a path a
-                // probe runs per mouse move. So the constant is written and
-                // `a_lookup_slice_reports_what_the_geometry_would` holds it to
-                // what the geometry answers.
-                reprojectable: true,
+                // Asked of the geometry like every other family, now that the
+                // cache holds one and the question costs nothing (#572). It used
+                // to be the one constant here, because building the variant to
+                // ask would have deep-copied the cells on a path a probe runs
+                // per mouse move. `GridGeometry::reprojectable`'s `Lookup` arm
+                // owns the rule: a nearest-cell search over centres that carry
+                // their own positions has no scan direction to be wrong about
+                // (#445), so it reads neither the index nor the scan.
+                reprojectable: geometry.reprojectable(Scan::north_down()),
                 // A lookup grid has no latitude axis to read an ordering from,
                 // so the rows are compared directly: mean latitude of the first
                 // row against the last. A mean rather than one column because
                 // latitude is not monotonic in Y near a tripolar fold, where a
                 // single sample can sit on the wrong side of it.
-                j_scans_positive: rows_run_south_to_north(&index),
+                j_scans_positive: lookup_index(&geometry).and_then(rows_run_south_to_north),
                 ..synth_latlon_meta(&var.name, &units, ni as i32, nj as i32, None, false)
             });
         }
@@ -3910,180 +3908,6 @@ fn decoded_grid_from(raw: &[Option<f64>], width: u32, height: u32) -> DecodedGri
     }
 }
 
-/// Drive the warp + colormap pipeline for a single message. Returns the
-/// paint-ready RGBA buffer plus the (min, max) actually used + a
-/// human-readable summary of the source→target projection chain.
-/// Validated picker state. Lifts `RenderOptions`'s loose strings into a
-/// closed enum so the rest of the pipeline can pattern-match without
-/// silently falling to defaults on a typo.
-#[cfg_attr(test, derive(Debug))]
-struct ResolvedOptions {
-    projection: TargetKind,
-    resampling: Resampling,
-    flip_y: bool,
-    range_min: Option<f64>,
-    range_max: Option<f64>,
-    bounds: Option<LonLatBox>,
-    colormap: &'static Colormap,
-    reverse_colormap: bool,
-    scale: ScaleMode,
-}
-
-/// What the picker's `projection` string resolved to. Named `TargetKind`
-/// rather than `TargetProjection` to avoid colliding with the core
-/// `fieldglass_core::TargetProjection` *trait* — this is the napi-side
-/// dispatch enum, not the per-target math.
-#[cfg_attr(test, derive(Debug))]
-enum TargetKind {
-    /// Paint the source grid unchanged (no warp).
-    Source,
-    /// Inverse-warp into one of the geographic targets.
-    Warp(WarpTarget),
-}
-
-/// The caller's manual render window, from the four optional `RenderOptions`
-/// fields. Returns `None` unless every edge is present and they form a
-/// non-degenerate box — a partially-filled or inverted box silently falls back
-/// to the computed bounds, mirroring the manual-range behaviour.
-fn manual_render_window(o: &RenderOptions) -> Option<LonLatBox> {
-    let window = LonLatBox::new(
-        o.bounds_lat_min?,
-        o.bounds_lat_max?,
-        o.bounds_lon_min?,
-        o.bounds_lon_max?,
-    );
-    (window.lat_max > window.lat_min && window.lon_max > window.lon_min).then_some(window)
-}
-
-impl ResolvedOptions {
-    fn parse(options: &RenderOptions) -> napi::Result<Self> {
-        let preset = options.projection_preset.as_deref();
-        let projection = match options.projection.as_str() {
-            "source" => TargetKind::Source,
-            "equirectangular" => TargetKind::Warp(WarpTarget::Equirectangular),
-            "web_mercator" => TargetKind::Warp(WarpTarget::WebMercator),
-            "orthographic" => TargetKind::Warp(orthographic_from_options(options, preset)),
-            "polar_stereographic" => {
-                TargetKind::Warp(polar_stereographic_from_options(options, preset))
-            }
-            "mollweide" => TargetKind::Warp(WarpTarget::Mollweide {
-                lon0: world_central_meridian(options),
-            }),
-            "robinson" => TargetKind::Warp(WarpTarget::Robinson {
-                lon0: world_central_meridian(options),
-            }),
-            "equal_earth" => TargetKind::Warp(WarpTarget::EqualEarth {
-                lon0: world_central_meridian(options),
-            }),
-            other => {
-                return Err(napi::Error::from_reason(format!(
-                    "unknown projection {other:?} (expected \"source\", \"equirectangular\", \
-                     \"web_mercator\", \"orthographic\", \"polar_stereographic\", \"mollweide\", \
-                     \"robinson\", or \"equal_earth\")"
-                )));
-            }
-        };
-        let resampling = match options.resampling.as_str() {
-            "nearest" => Resampling::Nearest,
-            "bilinear" => Resampling::Bilinear,
-            other => {
-                return Err(napi::Error::from_reason(format!(
-                    "unknown resampling {other:?} (expected \"nearest\" or \"bilinear\")"
-                )));
-            }
-        };
-        // An unknown colormap is an error, not a silent fallback to viridis: a
-        // typo'd name should say so rather than paint the wrong colours.
-        let colormap = match options.colormap.as_deref() {
-            None => fieldglass_core::colormap::default_colormap(),
-            Some(name) => Colormap::by_name(name).ok_or_else(|| {
-                let known: Vec<&str> = fieldglass_core::colormap::colormaps()
-                    .iter()
-                    .map(|c| c.name())
-                    .collect();
-                napi::Error::from_reason(format!(
-                    "unknown colormap {name:?} (expected one of {})",
-                    known.join(", ")
-                ))
-            })?,
-        };
-        // An unknown scale mode is an error for the same reason an unknown
-        // colormap is: a typo should say so, not silently paint linearly.
-        let scale = match options.scale_mode.as_deref() {
-            None | Some("linear") => ScaleMode::Linear,
-            Some("log10") => ScaleMode::Log10,
-            Some(other) => {
-                return Err(napi::Error::from_reason(format!(
-                    "unknown scale mode {other:?} (expected \"linear\" or \"log10\")"
-                )));
-            }
-        };
-        Ok(Self {
-            projection,
-            resampling,
-            flip_y: options.flip_y,
-            range_min: options.range_min,
-            range_max: options.range_max,
-            bounds: manual_render_window(options),
-            colormap,
-            reverse_colormap: options.reverse_colormap.unwrap_or(false),
-            scale,
-        })
-    }
-}
-
-/// Resolve the orthographic centre. A free-form `center_lat`/`center_lon`
-/// (degrees) wins per component; otherwise the named preset supplies it; with
-/// neither the centre is the Atlantic view (0°N 0°E). (#71 shipped presets
-/// only; #113 added the free-form centre, of which the presets are now named
-/// shortcuts.)
-fn orthographic_from_options(o: &RenderOptions, preset: Option<&str>) -> WarpTarget {
-    let (preset_lat, preset_lon) = orthographic_preset_centre(preset);
-    WarpTarget::Orthographic {
-        lat0: o.center_lat.unwrap_or(preset_lat),
-        lon0: o.center_lon.unwrap_or(preset_lon),
-    }
-}
-
-/// The `(lat0, lon0)` of an orthographic centre preset. Unknown/`None`
-/// defaults to the Atlantic view (0°N 0°E).
-fn orthographic_preset_centre(preset: Option<&str>) -> (f64, f64) {
-    match preset {
-        Some("indian") => (0.0, 90.0),
-        Some("pacific") => (0.0, 180.0),
-        Some("americas") => (0.0, 270.0),
-        Some("north_pole") => (90.0, 0.0),
-        Some("south_pole") => (-90.0, 0.0),
-        // "atlantic" / None / unknown
-        _ => (0.0, 0.0),
-    }
-}
-
-/// Resolve the polar-stereographic target. The pole is the hemisphere preset
-/// (`"south"` ⇒ south aspect; otherwise north). `lon0` — the central meridian
-/// oriented toward the bottom edge — is the free-form `center_lon` when given,
-/// else 0°. (#113 added the free-form central meridian; #71 fixed it at 0°.)
-fn polar_stereographic_from_options(o: &RenderOptions, preset: Option<&str>) -> WarpTarget {
-    WarpTarget::PolarStereographic {
-        south_pole: matches!(preset, Some("south")),
-        lon0: o.center_lon.unwrap_or(0.0),
-    }
-}
-
-/// The central meridian of a whole-world target (Mollweide, Robinson, Equal
-/// Earth): the free-form `center_lon` when given, else 0° (Greenwich-centred).
-/// These take no preset — they always show the whole globe, and recentring is
-/// the only knob.
-fn world_central_meridian(o: &RenderOptions) -> f64 {
-    o.center_lon.unwrap_or(0.0)
-}
-
-/// Output of a projection stage (`paint_source` / `warp_message`):
-/// `(values, mask, width, height, geographic_bounds, summary)`. The bounds are
-/// the box actually rendered for the equirectangular target, or `None` for
-/// source projection (no geographic extent).
-type ProjectionStage = (Vec<f64>, Vec<u8>, u32, u32, Option<LonLatBox>, String);
-
 /// Effective vertical flip for the source projection.
 ///
 /// The source projection paints grid row 0 at the top of the canvas, so a grid
@@ -4102,6 +3926,20 @@ type ProjectionStage = (Vec<f64>, Vec<u8>, u32, u32, Option<LonLatBox>, String);
 ///
 /// `None` when the grid is too small to have two distinct rows, or when no row
 /// has a finite centre, since there is then nothing to compare.
+/// The cell-centre index inside a [`GridGeometry::Lookup`], or `None` for any
+/// other family.
+///
+/// The one place this host still reaches past the geometry into its payload:
+/// [`rows_run_south_to_north`] compares two rows of centres, which is a question
+/// about the index rather than about the grid, and only a lookup grid has to
+/// answer it from its own data.
+fn lookup_index(geometry: &GridGeometry) -> Option<&SpatialIndex> {
+    match geometry {
+        GridGeometry::Lookup(index) => Some(index),
+        _ => None,
+    }
+}
+
 fn rows_run_south_to_north(index: &SpatialIndex) -> Option<bool> {
     let (ni, nj) = index.dims();
     if nj < 2 || ni == 0 {
@@ -4417,8 +4255,8 @@ fn render_combined(
     options: &RenderOptions,
     // The cell-centre index for a `"curvilinear"` grid; `None` for every
     // family whose geometry is a formula (#445). Field A's geometry is the
-    // one the combined render uses, so this is field A's index.
-    lookup: Option<&SpatialIndex>,
+    // one the combined render uses, so this is field A's.
+    lookup: Option<&GridGeometry>,
 ) -> napi::Result<RenderedGrid> {
     let combined = combined_field(meta_a, raw_a, meta_b, raw_b, op)?;
     render_with_options(meta_a, &combined, options, lookup)
@@ -4428,24 +4266,23 @@ fn render_with_options(
     meta: &MessageMeta,
     raw: &[Option<f64>],
     options: &RenderOptions,
-    // The cell-centre index for a `"curvilinear"` grid; `None` for every
-    // family whose geometry is a formula (#445).
-    lookup: Option<&SpatialIndex>,
+    // The `GridGeometry::Lookup` a `"curvilinear"` slice's cell-centre index
+    // lives in; `None` for every family whose geometry is a formula (#445).
+    lookup: Option<&GridGeometry>,
 ) -> napi::Result<RenderedGrid> {
-    let resolved = ResolvedOptions::parse(options)?;
-    let is_source = matches!(resolved.projection, TargetKind::Source);
-    let (values, mask, width, height, used_bounds, summary) = match resolved.projection {
-        TargetKind::Source => paint_source(meta, raw)?,
-        TargetKind::Warp(target) => warp_message(
-            meta,
-            raw,
-            target,
-            resolved.resampling,
-            resolved.bounds,
-            lookup,
-        )?,
-    };
-    let flip_y = if is_source {
+    let engine = engine_options(options);
+    let resolved = ResolvedOptions::parse(&engine).into_napi()?;
+    let source = RenderSource::resolve(meta, lookup)?;
+    let Projected {
+        values,
+        mask,
+        width,
+        height,
+        bounds: used_bounds,
+        summary,
+        ..
+    } = fieldglass::render::project(&source.as_source(), raw, &engine).into_napi()?;
+    let flip_y = if resolved.paints_the_source() {
         source_flip_y(meta, resolved.flip_y)
     } else {
         resolved.flip_y
@@ -4491,12 +4328,11 @@ fn render_with_options(
     );
 
     let (used_lat_min, used_lat_max, used_lon_min, used_lon_max) = match used_bounds {
-        Some(b) => (
-            Some(b.lat_min),
-            Some(b.lat_max),
-            Some(b.lon_min),
-            Some(b.lon_max),
-        ),
+        // `[lat_min, lat_max, lon_min, lon_max]`, the order every window in
+        // this workspace is written in.
+        Some([lat_min, lat_max, lon_min, lon_max]) => {
+            (Some(lat_min), Some(lat_max), Some(lon_min), Some(lon_max))
+        }
         None => (None, None, None, None),
     };
 
@@ -4514,579 +4350,45 @@ fn render_with_options(
     })
 }
 
-fn source_projection_summary(meta: &MessageMeta) -> String {
-    let kind = meta.grid_type.as_deref().unwrap_or("unknown");
-    let dims = match (meta.grid_ni, meta.grid_nj) {
-        (Some(ni), Some(nj)) => format!("{ni}×{nj}"),
-        _ => "?".to_string(),
-    };
-    format!("source: {kind} {dims}")
-}
-
-/// Source-projection paint: paint the decoded values into a buffer the
-/// same shape as the source grid. NaN encodes masked cells.
-#[allow(clippy::type_complexity)]
-fn paint_source(meta: &MessageMeta, raw: &[Option<f64>]) -> napi::Result<ProjectionStage> {
-    let ni = meta
-        .grid_ni
-        .ok_or_else(|| napi::Error::from_reason("grid has no Ni".to_string()))? as u32;
-    let nj = meta
-        .grid_nj
-        .ok_or_else(|| napi::Error::from_reason("grid has no Nj".to_string()))? as u32;
-    let n = (ni as usize) * (nj as usize);
-    let mut values = vec![0.0f64; n];
-    let mut mask = vec![0u8; n];
-    for (i, v) in raw.iter().enumerate().take(n) {
-        if let Some(x) = v {
-            values[i] = *x;
-            mask[i] = 1;
-        } else {
-            values[i] = f64::NAN;
-        }
-    }
-    // Right-hand side names the actual source projection (e.g. "latlon",
-    // "lambert", "polar_stereo") so the picker caption reads
-    // `source: latlon 240×121 → latlon (no reprojection)`, mirroring the
-    // equirectangular shape but making it explicit *what* the source
-    // projection is rather than just labelling it "source projection".
-    let kind = meta.grid_type.as_deref().unwrap_or("unknown");
-    let summary = format!(
-        "{} → {kind} (no reprojection)",
-        source_projection_summary(meta),
-    );
-    // No geographic extent for the source-projection target.
-    Ok((values, mask, ni, nj, None, summary))
-}
-
-/// Dispatch warp setup to the right per-template helper. Each helper
-/// builds the inverse closure (using a projector with precomputed state)
-/// and the equirectangular target bounds; the shared finisher then runs
-/// the warp itself.
-///
-/// `bounds_override`, when present, replaces the computed source-grid extent
-/// so the caller can render an arbitrary equirectangular window. The bounds
-/// actually used are returned (last tuple element) for echo-back.
-///
-/// LIMITATION (warp output resolution): every setup sizes the output raster to
-/// the source dims (`width = ni`, `height = nj`) and the warp samples it
-/// uniformly in degrees across the lat/lon bbox. A *projected* source grid's
-/// degrees-per-cell varies across the tile — meridians converge poleward — so
-/// no single uniform output resolution matches it everywhere: the equator side
-/// of a polar grid is downsampled (nearest aliases; bilinear blurs) while the
-/// pole side is upsampled (one source cell magnified across several pixels).
-/// Aspect isn't preserved either, so degrees-per-pixel differs between axes.
-/// This is a deliberate fidelity/perf tradeoff — it keeps the RGBA buffer at a
-/// predictable size and spends roughly one output pixel per source cell. The
-/// manual-bounds window doubles as a zoom (the fixed pixel budget over a
-/// smaller extent recovers detail down to the source resolution), which covers
-/// the common "I need detail in this region" case without another knob.
-/// Revisit — derive output dims from the extent and a target degrees-per-pixel
-/// (capped to bound memory) — only if a real fixture shows aliasing or stretch
-/// that's objectionable at pixel scale.
-/// Which lat/lon → pixel target projection the warp paints into. Both
-/// targets share the same source inverse map and computed bbox; they
-/// differ only in how output rows are distributed (linear in latitude vs
-/// linear in Mercator Y).
-#[derive(Clone, Copy)]
-#[cfg_attr(test, derive(Debug, PartialEq))]
-enum WarpTarget {
-    /// Lat/lon-box targets: rows linear in latitude (equirectangular) or in
-    /// Mercator Y (web mercator). These honour a manual lat/lon window and
-    /// echo their geographic extent back.
-    Equirectangular,
-    WebMercator,
-    /// Azimuthal targets parameterised by a centre / hemisphere preset. They
-    /// fit a disc to the raster and have no lat/lon-box extent to echo.
-    Orthographic {
-        lat0: f64,
-        lon0: f64,
-    },
-    PolarStereographic {
-        south_pole: bool,
-        lon0: f64,
-    },
-    /// Pseudocylindrical equal-area world target parameterised by its central
-    /// meridian; fits an ellipse to a 2:1 raster with no lat/lon-box extent.
-    Mollweide {
-        lon0: f64,
-    },
-    /// Pseudocylindrical *compromise* world target (Robinson's table), likewise
-    /// parameterised by its central meridian only.
-    Robinson {
-        lon0: f64,
-    },
-    /// Pseudocylindrical equal-area world target (Equal Earth), likewise
-    /// parameterised by its central meridian only.
-    EqualEarth {
-        lon0: f64,
-    },
-}
-
-impl WarpTarget {
-    fn label(self) -> &'static str {
-        match self {
-            WarpTarget::Equirectangular => "equirectangular",
-            WarpTarget::WebMercator => "web mercator",
-            WarpTarget::Orthographic { .. } => "orthographic",
-            WarpTarget::PolarStereographic { .. } => "polar stereographic",
-            WarpTarget::Mollweide { .. } => "mollweide",
-            WarpTarget::Robinson { .. } => "robinson",
-            WarpTarget::EqualEarth { .. } => "equal earth",
-        }
-    }
-}
-
-#[allow(clippy::type_complexity)]
-fn warp_message(
-    meta: &MessageMeta,
-    raw: &[Option<f64>],
-    target_kind: WarpTarget,
-    resampling: Resampling,
-    bounds_override: Option<LonLatBox>,
-    // The cell-centre index for a `"curvilinear"` grid; `None` for every
-    // family whose geometry is a formula (#445).
-    lookup: Option<&SpatialIndex>,
-) -> napi::Result<ProjectionStage> {
-    let ni = grid_ni(meta)?;
-    let nj = grid_nj(meta)?;
-
-    let sample = |i: usize, j: usize| -> Option<f64> {
-        let k = j * ni as usize + i;
-        raw.get(k).copied().flatten()
-    };
-    let sample_ref: &dyn Fn(usize, usize) -> Option<f64> = &sample;
-
-    let (inverse_boxed, bbox_thunk) = warp_setup_for(meta, ni, nj, lookup)?;
-
-    let inverse_ref: &dyn Fn(f64, f64) -> Option<GridIndex> = inverse_boxed.as_ref();
-    let source = SourceGrid {
-        ni,
-        nj,
-        sample: sample_ref,
-        inverse_at: inverse_ref,
-        periodic_i: source_grid_is_periodic(meta),
-        // A lookup grid answers with a cell, not a position inside one, and its
-        // index-adjacent cells need not be spatially adjacent — a tripolar grid
-        // folds. `warp` downgrades a bilinear request against it rather than
-        // blending across the fold (#445).
-        resampling: match lookup {
-            Some(index) => index.resampling(),
-            None => GridResampling::Any,
-        },
-    };
-    // Construct the concrete target (shared with the overlay-projection path so
-    // both paint into byte-identical geometry), then warp the source into it.
-    let (built, used_bounds) = build_warp_target(
-        target_kind,
-        ni,
-        nj,
-        bbox_thunk,
-        bounds_override,
-        source_grid_is_periodic(meta),
-        lookup.is_some(),
-    )?;
-    let warped = built.warp(&source, resampling);
-    // What the warp actually did, not what was asked for: a lookup grid
-    // downgrades bilinear, and a summary echoing the request would name a blend
-    // that never happened (#445).
-    let resample_label = match Resampling::from_grid(source.resampling, resampling) {
-        Resampling::Nearest => "nearest",
-        Resampling::Bilinear => "bilinear",
-    };
-    let summary = format!(
-        "{} → {} ({resample_label})",
-        source_projection_summary(meta),
-        target_kind.label(),
-    );
-    Ok((
-        warped.values,
-        warped.mask,
-        warped.width,
-        warped.height,
-        used_bounds,
-        summary,
-    ))
-}
-
-/// A concrete, constructed render target — the same value the warp paints
-/// into and the overlay projects polylines onto. Centralising construction
-/// here guarantees `render_grid` and `project_overlay` agree on the exact
-/// raster (dims, clamped Mercator band, azimuthal disc side) pixel-for-pixel.
-enum BuiltTarget {
-    Equirect(TargetRaster),
-    Mercator(WebMercator),
-    Ortho(Orthographic),
-    Polar(PolarStereographic),
-    Moll(Mollweide),
-    Robin(Robinson),
-    EqEarth(EqualEarth),
-}
-
-impl BuiltTarget {
-    fn dims(&self) -> (u32, u32) {
-        match self {
-            BuiltTarget::Equirect(t) => t.dims(),
-            BuiltTarget::Mercator(t) => t.dims(),
-            BuiltTarget::Ortho(t) => t.dims(),
-            BuiltTarget::Polar(t) => t.dims(),
-            BuiltTarget::Moll(t) => t.dims(),
-            BuiltTarget::Robin(t) => t.dims(),
-            BuiltTarget::EqEarth(t) => t.dims(),
-        }
-    }
-
-    fn warp(&self, source: &SourceGrid<'_>, resampling: Resampling) -> WarpedRaster {
-        match self {
-            BuiltTarget::Equirect(t) => warp(source, t, resampling),
-            BuiltTarget::Mercator(t) => warp(source, t, resampling),
-            BuiltTarget::Ortho(t) => warp(source, t, resampling),
-            BuiltTarget::Polar(t) => warp(source, t, resampling),
-            BuiltTarget::Moll(t) => warp(source, t, resampling),
-            BuiltTarget::Robin(t) => warp(source, t, resampling),
-            BuiltTarget::EqEarth(t) => warp(source, t, resampling),
-        }
-    }
-
-    /// Project geographic `(lat, lon)` rings onto this target's pixel space,
-    /// applying `flip_y` to match a vertically-flipped render. Each target
-    /// reports its own seam-split rule (`ForwardMap::seam_split`), so the only
-    /// per-variant work here is preparing the concrete map.
-    fn project(&self, flip_y: bool, latlon: &[f64], ring_lengths: &[u32]) -> ProjectedPolylines {
-        let (w, h) = self.dims();
-        match self {
-            BuiltTarget::Equirect(t) => {
-                project_polylines(&t.prepare(), w, h, flip_y, latlon, ring_lengths)
-            }
-            BuiltTarget::Mercator(t) => {
-                project_polylines(&t.prepare(), w, h, flip_y, latlon, ring_lengths)
-            }
-            BuiltTarget::Ortho(t) => {
-                project_polylines(&t.prepare(), w, h, flip_y, latlon, ring_lengths)
-            }
-            BuiltTarget::Polar(t) => {
-                project_polylines(&t.prepare(), w, h, flip_y, latlon, ring_lengths)
-            }
-            BuiltTarget::Moll(t) => {
-                project_polylines(&t.prepare(), w, h, flip_y, latlon, ring_lengths)
-            }
-            BuiltTarget::Robin(t) => {
-                project_polylines(&t.prepare(), w, h, flip_y, latlon, ring_lengths)
-            }
-            BuiltTarget::EqEarth(t) => {
-                project_polylines(&t.prepare(), w, h, flip_y, latlon, ring_lengths)
-            }
-        }
-    }
-
-    /// The `(lat, lon)` a single output pixel maps to — the inverse of the
-    /// target projection, the same map [`warp`] walks per pixel. `None` when the
-    /// pixel falls off the globe (e.g. outside an azimuthal disc). `py` is in
-    /// the raster's own orientation (row 0 = top), so a flipped render must
-    /// un-flip the click first.
-    fn pixel_to_lonlat(&self, px: u32, py: u32) -> Option<(f64, f64)> {
-        match self {
-            BuiltTarget::Equirect(t) => t.prepare().pixel_to_lonlat(px, py),
-            BuiltTarget::Mercator(t) => t.prepare().pixel_to_lonlat(px, py),
-            BuiltTarget::Ortho(t) => t.prepare().pixel_to_lonlat(px, py),
-            BuiltTarget::Polar(t) => t.prepare().pixel_to_lonlat(px, py),
-            BuiltTarget::Moll(t) => t.prepare().pixel_to_lonlat(px, py),
-            BuiltTarget::Robin(t) => t.prepare().pixel_to_lonlat(px, py),
-            BuiltTarget::EqEarth(t) => t.prepare().pixel_to_lonlat(px, py),
-        }
-    }
-}
-
-/// `(BuiltTarget, used extent)` — the concrete warp target plus the lat/lon
-/// box it actually rendered (`None` for the azimuthal targets).
-type BuiltWarpTarget = (BuiltTarget, Option<LonLatBox>);
-
-/// Build the concrete [`BuiltTarget`] for a warp, returning the geographic
-/// extent actually used for the lat/lon-box targets (echoed back to the UI)
-/// or `None` for the azimuthal targets.
-///
-/// The lat/lon-box targets resolve a geographic extent (the lazy `bbox_thunk`,
-/// possibly replaced by a manual window); the azimuthal targets fit a disc to
-/// the raster, so they never invoke the thunk — skipping the perimeter-walk
-/// bbox for planar sources — and report no box extent. Output dims size to the
-/// source grid for the box targets; the azimuthal discs use a square raster
-/// (`side = max(ni, nj)`) so the globe stays circular rather than elliptical.
-/// Every one of them is then floored by [`raise_to_min_raster`], so a coarse
-/// grid's reprojection is drawn at display scale rather than at the data's
-/// (#514). This is the only place that floor is applied, which is why the
-/// `"source"` target — which never reaches here — keeps its native size.
-/// `lon_periodic` says the *source* closes on itself in longitude
-/// ([`GridGeometry::is_periodic_x`]), which is what decides whether a full-turn
-/// window tiles as a circle or as an interval. It cannot be read back off the
-/// window: a grid that declares a duplicated seam column also spans exactly
-/// 360°, and wants the interval treatment.
-fn build_warp_target(
-    target_kind: WarpTarget,
-    ni: u32,
-    nj: u32,
-    bbox_thunk: BboxThunk,
-    bounds_override: Option<LonLatBox>,
-    lon_periodic: bool,
-    // Whether the source's array axes carry no geographic shape, so the box
-    // targets must take theirs from the window instead ([`box_raster_dims`]).
-    shapeless_axes: bool,
-) -> napi::Result<BuiltWarpTarget> {
-    match target_kind {
-        WarpTarget::Equirectangular => {
-            let window = resolve_box_extent(bbox_thunk, bounds_override);
-            let LonLatBox {
-                lat_min,
-                lat_max,
-                lon_min,
-                lon_max,
-            } = window;
-            // The window's shape, then floored so the seam, the map body edge
-            // and the overlays that must register against them resolve at
-            // display scale rather than at the data's (#514).
-            let (width, height) = raise_to_min_raster(if shapeless_axes {
-                box_raster_dims(ni, nj, window)
-            } else {
-                (ni, nj)
-            });
-            let target = TargetRaster {
-                width,
-                height,
-                lat_max,
-                lat_min,
-                lon_min,
-                lon_max,
-                lon_periodic,
-            };
-            Ok((BuiltTarget::Equirect(target), Some(window)))
-        }
-        WarpTarget::WebMercator => {
-            let window = resolve_box_extent(bbox_thunk, bounds_override);
-            let LonLatBox {
-                lat_min,
-                lat_max,
-                lon_min,
-                lon_max,
-            } = window;
-            // The window's shape, then floored so the seam, the map body edge
-            // and the overlays that must register against them resolve at
-            // display scale rather than at the data's (#514).
-            let (width, height) = raise_to_min_raster(if shapeless_axes {
-                box_raster_dims(ni, nj, window)
-            } else {
-                (ni, nj)
-            });
-            let merc = WebMercator::new(
-                width,
-                height,
-                lat_min,
-                lat_max,
-                lon_min,
-                lon_max,
-                lon_periodic,
-            );
-            let LonLatBox {
-                lat_min: used_lat_min,
-                lat_max: used_lat_max,
-                ..
-            } = merc.extent();
-            // A lat band lying entirely outside the ±85.0511° Web Mercator
-            // cutoff clamps to a single edge, collapsing the Y span to zero and
-            // smearing every row to one latitude. Reject it rather than emit a
-            // degenerate single-row raster.
-            if used_lat_max - used_lat_min <= f64::EPSILON {
-                return Err(napi::Error::from_reason(format!(
-                    "Web Mercator latitude band [{lat_min}, {lat_max}] lies outside the \
-                     renderable ±85.0511° range",
-                )));
-            }
-            let used = merc.extent();
-            Ok((BuiltTarget::Mercator(merc), Some(used)))
-        }
-        WarpTarget::Orthographic { lat0, lon0 } => {
-            // Square so the globe stays circular, floored so its limb is a
-            // curve rather than a staircase (#514).
-            let (side, _) = raise_to_min_raster((ni.max(nj), ni.max(nj)));
-            Ok((
-                BuiltTarget::Ortho(Orthographic::new(side, side, lat0, lon0)),
-                None,
-            ))
-        }
-        WarpTarget::PolarStereographic { south_pole, lon0 } => {
-            // Square so the globe stays circular, floored so its limb is a
-            // curve rather than a staircase (#514).
-            let (side, _) = raise_to_min_raster((ni.max(nj), ni.max(nj)));
-            Ok((
-                BuiltTarget::Polar(PolarStereographic::new(side, side, south_pole, lon0)),
-                None,
-            ))
-        }
-        WarpTarget::Mollweide { lon0 } => {
-            let (w, h) = raise_to_min_raster(world_raster_dims(ni, nj, Mollweide::ASPECT_RATIO));
-            Ok((BuiltTarget::Moll(Mollweide::new(w, h, lon0)), None))
-        }
-        WarpTarget::Robinson { lon0 } => {
-            let (w, h) = raise_to_min_raster(world_raster_dims(ni, nj, Robinson::ASPECT_RATIO));
-            Ok((BuiltTarget::Robin(Robinson::new(w, h, lon0)), None))
-        }
-        WarpTarget::EqualEarth { lon0 } => {
-            let (w, h) = raise_to_min_raster(world_raster_dims(ni, nj, EqualEarth::ASPECT_RATIO));
-            Ok((BuiltTarget::EqEarth(EqualEarth::new(w, h, lon0)), None))
-        }
-    }
-}
-
-/// Raster dims for a lat/lon-box target whose source array carries no
-/// geographic shape (#515).
-///
-/// Every other family's array *is* its geography — a lat/lon or Gaussian grid
-/// is rows of latitude by columns of longitude, so taking the raster straight
-/// from `ni × nj` is not a fallback but the best answer available: the render
-/// is a 1:1 copy of the field, at least until [`raise_to_min_raster`] floors a
-/// coarse one. A curvilinear grid has no such correspondence.
-/// A satellite swath is stored scan line by field of view, which says nothing
-/// about where the pass went: a NOAA-21 half orbit is 96 × 768 for a window
-/// spanning 355° of longitude by 117° of latitude, so drawing it at the array's
-/// shape stretches it more than twentyfold.
-///
-/// So the shape comes from the window and the pixel budget from the source.
-/// The longer output edge takes the source's longer edge — nothing is
-/// downsampled, the same rule [`world_raster_dims`] applies to the whole-world
-/// targets — and the aspect of the resolved extent fixes the other.
-///
-/// A degenerate window (no extent on one axis, or non-finite corners) has no
-/// aspect to honour, so the source shape stands.
-fn box_raster_dims(ni: u32, nj: u32, extent: LonLatBox) -> (u32, u32) {
-    let geo_w = extent.lon_max - extent.lon_min;
-    let geo_h = extent.lat_max - extent.lat_min;
-    if !geo_w.is_finite() || !geo_h.is_finite() || geo_w <= 0.0 || geo_h <= 0.0 {
-        return (ni, nj);
-    }
-    let aspect = geo_w / geo_h;
-    let long_edge = f64::from(ni.max(nj));
-    let (w, h) = if aspect >= 1.0 {
-        (long_edge, long_edge / aspect)
-    } else {
-        (long_edge * aspect, long_edge)
-    };
-    // `as u32` saturates, and both edges keep at least one pixel so a sliver
-    // window cannot collapse the raster to nothing.
-    ((w.round() as u32).max(1), (h.round() as u32).max(1))
-}
-
-/// Raster dims for a whole-world target of the given width : height ratio.
-/// Height is the source's larger edge, so nothing is downsampled, and width
-/// follows from the projection's own aspect so the map body keeps its true
-/// proportions — 2:1 for Mollweide, ≈1.97:1 for Robinson, ≈2.05:1 for Equal
-/// Earth. These targets have no lat/lon-box extent to echo back to the UI.
-///
-/// The ratio is the whole of this function's job: the caller floors the result
-/// with [`raise_to_min_raster`], which scales both edges together and so leaves
-/// the proportions chosen here intact.
-fn world_raster_dims(ni: u32, nj: u32, aspect: f64) -> (u32, u32) {
-    let height = ni.max(nj);
-    // A saturating `as u32` cast: `aspect` is a positive constant just under 2,
-    // so an enormous source clamps at `u32::MAX` rather than wrapping to a tiny
-    // raster. A zero-size source stays zero-size, as it did before.
-    let width = (height as f64 * aspect).round() as u32;
-    (width, height)
-}
-
-/// The shortest long edge a *reprojected* raster is drawn at (#514).
-///
-/// Every warp target sizes itself from the source grid, which is the right
-/// instinct — nothing should be downsampled — but it was a ceiling with no
-/// floor under it. A HEALPix `Nside 4` field resamples to 26 × 14 at its own
-/// pixel scale, so it reprojected to a 26 × 26 orthographic disc: the data's
-/// edge is a staircase while the coastline overlay is a smooth curve on the
-/// projection's true limb, which reads as missing data around the rim, and the
-/// exported PNG is a postage stamp.
-///
-/// 720 is the same 0.5° the two synthesis paths already pin to
-/// ([`SPECTRAL_SYNTHESIS_NI`]), and the history is worth restating here:
-/// [`spectral_render_dims`] met this exact symptom first — "a postage-stamp
-/// render whose PNG exported 382 pixels wide" — and settled on 0.5°.
-/// [`healpix_render_dims`] then borrowed that number as its *cap* without the
-/// floor that motivated it. This is the floor, applied where every warped
-/// target passes through rather than per grid family, so a coarse grid of any
-/// origin is covered.
-///
-/// Upsampling adds no information about the *field*. What it buys is that the
-/// projection's own geometry — the limb, the seam, the map body outline — is
-/// sampled at display scale instead of at the data's, so the overlays register
-/// against it. The source projection is deliberately excluded: it never reaches
-/// [`build_warp_target`] at all, and there blocky is the honest view of the
-/// data.
-const MIN_REPROJECTED_LONG_EDGE: u32 = 720;
-
-/// Raise `dims` until its long edge reaches [`MIN_REPROJECTED_LONG_EDGE`],
-/// keeping the ratio the caller chose.
-///
-/// The scale is uniform because every arm of [`build_warp_target`] has already
-/// decided the aspect it wants — the source's shape, the window's, the
-/// projection's, or a square for the azimuthal discs — and the floor's business
-/// is density, not shape. It only ever raises, so no real forecast grid moves:
-/// GFS is 1440 wide, HRRR 1799.
-///
-/// The result is bounded. The long edge lands on exactly the floor and the
-/// short edge cannot exceed it, so this can never ask for more than 720 × 720
-/// pixels however extreme the aspect. A zero-size raster stays zero-size, as
-/// [`world_raster_dims`] promises.
-fn raise_to_min_raster(dims: (u32, u32)) -> (u32, u32) {
-    let (width, height) = dims;
-    let long_edge = width.max(height);
-    if width == 0 || height == 0 || long_edge >= MIN_REPROJECTED_LONG_EDGE {
-        return dims;
-    }
-    let scale = f64::from(MIN_REPROJECTED_LONG_EDGE) / f64::from(long_edge);
-    // Both edges keep at least one pixel: the short edge of an extreme aspect
-    // rounds to zero long before the long edge reaches the floor.
-    (
-        ((f64::from(width) * scale).round() as u32).max(1),
-        ((f64::from(height) * scale).round() as u32).max(1),
-    )
-}
-
-/// Dispatch to the per-grid-type warp setup, returning the source inverse map
-/// and the lazy lat/lon-box extent thunk. Shared by the warp (`warp_message`)
-/// and the overlay projection (`project_overlay`) so both derive identical
-/// target geometry from the same source parameters.
-/// The `core` geometry a finished [`MessageMeta`] describes.
+/// The `core` geometry a finished [`MessageMeta`] describes, or the refusal
+/// this host's own field names produced.
 ///
 /// The compatibility mapping this host keeps while the extension still reads
 /// `MessageMeta`'s field names (#464, #572). Everything `core` answers about a
-/// grid — is it periodic, does its contour seam wrap, can it be reprojected —
-/// is asked of a [`GridGeometry`] rather than of these fields, so the rules live
-/// in one crate and both hosts get the same answer (#571). The mapping is the
-/// only place left that dispatches on the grid-type string.
+/// grid — is it periodic, does its contour seam wrap, can it be reprojected,
+/// where does it warp onto — is asked of a [`GridGeometry`] rather than of these
+/// fields, so the rules live in one crate and both hosts get the same answer
+/// (#571). This is the only place left that dispatches on the grid-type string.
 ///
-/// Built through the same `*_params` functions [`warp_setup_for`] uses, so a
-/// message this declines is exactly a message the warp would have refused, and
-/// the questions above answer as they did when the host owned them. A message
-/// that states no usable parameters for its declared family maps to
-/// [`GridGeometry::Unsupported`], carrying the family name so a caller can still
-/// say what was declined.
+/// **The `Err` is deferred, not raised here**, which is the whole reason this
+/// returns one rather than falling back to [`GridGeometry::Unsupported`]. A
+/// message can name a family and then not supply the numbers for it — the
+/// eccodes `polar_stereographic_surface.grib2` sample states `Dx = Dy = 0` — and
+/// the display path does not agree about whether that matters: the source
+/// projection paints the array as stored and renders it fine, a probe on that
+/// view still reports the value under the pixel with no coordinate, and only the
+/// operations that place a point refuse. `fieldglass::Source` carries the
+/// refusal so each of them decides, which is exactly what they did when they
+/// read these slots one at a time.
 ///
-/// **`"curvilinear"` maps to `Unsupported`, deliberately.** Its `core` variant
-/// is [`GridGeometry::Lookup`], which owns its cell-centre index; the index is
-/// built once per slice and cached by the handle, and putting a copy in a value
-/// returned per operation would be an allocation over every cell of a swath.
-/// The two questions this seam asks are `false` for a lookup grid either way —
-/// it has no column axis to close — so the mapping is lossless for them. Its
-/// reprojection eligibility is answered where the index is in hand, in
-/// `NetcdfHandle::slice_meta`, and `GridGeometry::reprojectable`'s `Lookup` arm
-/// is the rule it states.
-fn meta_geometry(meta: &MessageMeta) -> GridGeometry {
-    // Borrowed, not cloned: this runs two or three times per render and probe,
-    // and only the declining path needs a `String`.
+/// A grid type this mapping does not know is **not** an error: it maps to
+/// `Unsupported`, and the operation that needed a geometry is the one that says
+/// so — `reprojection not yet supported for grid type "healpix"` from the warp,
+/// or the long-CSV refusal that points at the Matrix format instead.
+///
+/// `"curvilinear"` is the one arm that does not build anything. Its `core`
+/// variant is [`GridGeometry::Lookup`], which owns its cell-centre index, and
+/// cloning that is `O(n)` over every cell of a swath; the handle caches the
+/// whole geometry instead and hands it in through `lookup`, so this borrows it.
+fn try_meta_geometry<'a>(
+    meta: &MessageMeta,
+    ni: u32,
+    nj: u32,
+    lookup: Option<&'a GridGeometry>,
+) -> Result<std::borrow::Cow<'a, GridGeometry>, fieldglass::Error> {
+    // Borrowed, not cloned: this runs once per render and probe, and only the
+    // declining path needs a `String`.
     let label = meta.grid_type.as_deref().unwrap_or_default();
-    let unsupported = || GridGeometry::Unsupported {
-        label: label.to_string(),
-    };
-    let Ok(ni) = grid_ni(meta) else {
-        return unsupported();
-    };
-    let Ok(nj) = grid_nj(meta) else {
-        return unsupported();
-    };
     let built = match label {
         // Reduced grids are widened to a regular Ni x Nj raster at decode time,
         // so they arrive here as their regular sibling — the same collapse the
@@ -5097,6 +4399,23 @@ fn meta_geometry(meta: &MessageMeta) -> GridGeometry {
         }
         "mercator" => mercator_params(meta, ni, nj).map(GridGeometry::Mercator),
         "rotated_latlon" => rotated_latlon_params(meta, ni, nj).map(GridGeometry::RotatedLatLon),
+        // The index the handle built and cached, borrowed rather than rebuilt
+        // (#445): its inverse is a nearest-cell search of the coordinate arrays
+        // the file carries, and its extent is the extent of those cells.
+        "curvilinear" => {
+            return lookup.map(std::borrow::Cow::Borrowed).ok_or_else(|| {
+                // A `"curvilinear"` grid type with no index means the handle
+                // resolved 2-D coordinates for the message table and then failed
+                // to build or pass the geometry — a wiring bug, not a bad file,
+                // so it says so rather than falling back to a formula that would
+                // place the field somewhere wrong.
+                fieldglass::Error::Unsupported {
+                    detail: "a curvilinear grid needs its cell-centre index, and none was \
+                             supplied"
+                        .to_string(),
+                }
+            });
+        }
         "lambert" => lambert_params(meta, ni, nj).map(GridGeometry::Lambert),
         "polar_stereo" => polar_stereo_params(meta, ni, nj).map(GridGeometry::PolarStereo),
         "transverse_mercator" => {
@@ -5106,102 +4425,140 @@ fn meta_geometry(meta: &MessageMeta) -> GridGeometry {
             lambert_azimuthal_params(meta, ni, nj).map(GridGeometry::LambertAzimuthal)
         }
         "space_view" => geostationary_params(meta, ni, nj).map(GridGeometry::Geostationary),
-        _ => return unsupported(),
+        _ => {
+            return Ok(std::borrow::Cow::Owned(GridGeometry::Unsupported {
+                label: label.to_string(),
+            }));
+        }
     };
-    built.unwrap_or_else(|_| unsupported())
+    built
+        .map(std::borrow::Cow::Owned)
+        .map_err(|e| fieldglass::Error::Unsupported { detail: e.reason })
 }
 
-fn warp_setup_for(
-    meta: &MessageMeta,
+/// [`try_meta_geometry`] for the callers that only want an answer *about* the
+/// grid — is it periodic, may it be reprojected — for which a message that
+/// states no usable parameters is simply a grid nothing can be said about.
+///
+/// A `"curvilinear"` meta reaches this without its index and so reports
+/// `Unsupported`. That is lossless for every question asked through here: a
+/// lookup grid has no column axis to close, so both periodicity answers are
+/// `false` either way, and its reprojection eligibility is answered where the
+/// index is in hand, in `NetcdfHandle::slice_meta`.
+fn meta_geometry(meta: &MessageMeta) -> GridGeometry {
+    let unsupported = || GridGeometry::Unsupported {
+        label: meta.grid_type.clone().unwrap_or_default(),
+    };
+    let (Ok(ni), Ok(nj)) = (grid_ni(meta), grid_nj(meta)) else {
+        return unsupported();
+    };
+    try_meta_geometry(meta, ni, nj, None)
+        .map(std::borrow::Cow::into_owned)
+        .unwrap_or_else(|_| unsupported())
+}
+
+/// This host's [`RenderOptions`] as the engine's own plain-data form.
+///
+/// A field-by-field copy and nothing more: the vocabulary is the same on both
+/// sides, and `fieldglass::render::ResolvedOptions` is what turns the loose
+/// strings into a closed enum. Kept as a conversion rather than by making the
+/// engine read this DTO, which is the rule ADR-0006 states (#572).
+fn engine_options(o: &RenderOptions) -> fieldglass::RenderOptions {
+    let mut engine = fieldglass::RenderOptions::new(&o.projection, &o.resampling);
+    engine.projection_preset = o.projection_preset.clone();
+    engine.center_lat = o.center_lat;
+    engine.center_lon = o.center_lon;
+    engine.flip_y = o.flip_y;
+    engine.range_min = o.range_min;
+    engine.range_max = o.range_max;
+    engine.bounds_lat_min = o.bounds_lat_min;
+    engine.bounds_lat_max = o.bounds_lat_max;
+    engine.bounds_lon_min = o.bounds_lon_min;
+    engine.bounds_lon_max = o.bounds_lon_max;
+    engine.colormap = o.colormap.clone();
+    engine.reverse_colormap = o.reverse_colormap;
+    engine.scale_mode = o.scale_mode.clone();
+    engine
+}
+
+/// A message's resolved geometry, held so a [`fieldglass::Source`] can borrow
+/// it for the length of one operation.
+///
+/// `fieldglass::Source` borrows its geometry because the one family whose
+/// geometry is expensive to copy — a lookup grid, whose cells are 28 bytes each
+/// — must not be copied per repaint. This is the owner that makes that borrow
+/// possible from a host whose input is a flat DTO.
+struct RenderSource<'a> {
+    geometry: Result<std::borrow::Cow<'a, GridGeometry>, fieldglass::Error>,
     ni: u32,
     nj: u32,
-    lookup: Option<&SpatialIndex>,
-) -> napi::Result<WarpSetup> {
-    match meta.grid_type.as_deref().unwrap_or("") {
-        // Reduced grids are widened to a regular raster before the warp runs, so
-        // they share the regular lat/lon and Gaussian setups (ni = widest row).
-        "latlon" | "reduced_latlon" => latlon_warp_setup(meta, ni, nj),
-        "gaussian" | "reduced_gaussian" => gaussian_warp_setup(meta, ni, nj),
-        // A lookup grid has no formula: its inverse is a nearest-cell search of
-        // the coordinate arrays the file carries, and its extent is the extent
-        // of those cells (#445). The index is built and cached by the handle,
-        // because building it is O(n log n) over every cell and a repaint must
-        // not pay that again.
-        "curvilinear" => curvilinear_warp_setup(lookup),
-        "mercator" => mercator_warp_setup(meta, ni, nj),
-        "rotated_latlon" => rotated_latlon_warp_setup(meta, ni, nj),
-        "lambert" => lambert_warp_setup(meta, ni, nj),
-        "polar_stereo" => polar_stereo_warp_setup(meta, ni, nj),
-        "transverse_mercator" => transverse_mercator_warp_setup(meta, ni, nj),
-        "lambert_azimuthal" => lambert_azimuthal_warp_setup(meta, ni, nj),
-        "space_view" => geostationary_warp_setup(meta, ni, nj),
-        other => Err(napi::Error::from_reason(format!(
-            "reprojection not yet supported for grid type {other:?}"
-        ))),
+    scan: Scan,
+    family: String,
+}
+
+impl<'a> RenderSource<'a> {
+    /// Resolve from the dimensions the meta itself declares. A message with no
+    /// `Ni`/`Nj` has no raster for any of these operations to work on, so that
+    /// is refused here rather than carried.
+    fn resolve(meta: &MessageMeta, lookup: Option<&'a GridGeometry>) -> napi::Result<Self> {
+        let (ni, nj) = (grid_ni(meta)?, grid_nj(meta)?);
+        Ok(Self::sized(meta, ni, nj, lookup))
+    }
+
+    /// Resolve against dimensions the caller states, for the paths that already
+    /// hold them — a spectral message renders onto a synthesised raster whose
+    /// size is not the one its meta declares.
+    fn sized(meta: &MessageMeta, ni: u32, nj: u32, lookup: Option<&'a GridGeometry>) -> Self {
+        Self {
+            geometry: try_meta_geometry(meta, ni, nj, lookup),
+            ni,
+            nj,
+            // `MessageMeta` carries only the one direction bit the display
+            // needs; a message with no scan flag at all (a predefined GRIB1
+            // grid, a NetCDF variable whose Y axis is not a latitude) reads as
+            // north-down, which is `Scan::north_down` (#571).
+            scan: Scan::new(false, meta.j_scans_positive.unwrap_or(false), false),
+            family: meta.grid_type.clone().unwrap_or_default(),
+        }
+    }
+
+    fn as_source(&self) -> fieldglass::Source<'_> {
+        fieldglass::Source {
+            geometry: self
+                .geometry
+                .as_ref()
+                .map(std::borrow::Cow::as_ref)
+                .map_err(Clone::clone),
+            ni: self.ni,
+            nj: self.nj,
+            scan: self.scan,
+            family: &self.family,
+        }
     }
 }
 
 /// Project geographic `(lat, lon)` polylines onto the warped raster for a
-/// message, producing pixel-space runs for the render panel's overlay layer
-/// (#72). Geometry-only: it rebuilds the *same* target the warp paints into
-/// (via [`build_warp_target`]) but never decodes or samples values.
-///
-/// `latlon` is flat `[lat, lon, …]`; `ring_lengths[k]` is the vertex count of
-/// input ring `k`. See [`fieldglass_core::project_polylines`] for the
-/// run-splitting (visibility / antimeridian) rules.
-///
-/// The `"source"` projection paints grid point `(i, j)` at pixel `(i, j)`, so
-/// the warp's own inverse map (lat/lon → fractional grid index) doubles as its
-/// forward pixel map — the overlay projects straight through it
-/// ([`SourceOverlayTarget`]), no separate geographic forward projection needed.
+/// message — `fieldglass::render::overlay_polylines`, over this host's DTO.
 fn project_overlay_impl(
     meta: &MessageMeta,
     options: &RenderOptions,
     latlon: &[f64],
     ring_lengths: &[u32],
-    // The cell-centre index for a `"curvilinear"` grid; `None` for every
-    // family whose geometry is a formula (#445).
-    lookup: Option<&SpatialIndex>,
+    // The `GridGeometry::Lookup` a `"curvilinear"` slice's cell-centre index
+    // lives in; `None` for every family whose geometry is a formula (#445).
+    lookup: Option<&GridGeometry>,
 ) -> napi::Result<ProjectedPolylines> {
-    let resolved = ResolvedOptions::parse(options)?;
-    let ni = grid_ni(meta)?;
-    let nj = grid_nj(meta)?;
-    let (inverse, bbox_thunk) = warp_setup_for(meta, ni, nj, lookup)?;
-    match resolved.projection {
-        // A source grid can wrap longitude (a global grid's seam, or the cut
-        // meridian of a projected grid); `SourceOverlayTarget::seam_split`
-        // returns `PixelHalfWidth`, so a raster-width jump breaks the run. On a
-        // regional grid, out-of-coverage vertices invert to `None` and break
-        // runs there instead.
-        // The source raster is flipped to face north-up by default (#286); the
-        // overlay must ride the same flip so coastlines track the field.
-        TargetKind::Source => Ok(project_polylines(
-            &SourceOverlayTarget::new(inverse.as_ref()),
-            ni,
-            nj,
-            source_flip_y(meta, resolved.flip_y),
-            latlon,
-            ring_lengths,
-        )),
-        TargetKind::Warp(target_kind) => {
-            let (built, _used_bounds) = build_warp_target(
-                target_kind,
-                ni,
-                nj,
-                bbox_thunk,
-                resolved.bounds,
-                source_grid_is_periodic(meta),
-                lookup.is_some(),
-            )?;
-            Ok(built.project(resolved.flip_y, latlon, ring_lengths))
-        }
-    }
+    let engine = engine_options(options);
+    // The caller's own picker state first, the message second: a typo'd
+    // projection should be reported as a typo rather than as whatever the
+    // message happens to be missing. This is the order the host kept when it
+    // owned the pipeline, and the engine's operations do not fix an order
+    // between the two.
+    ResolvedOptions::parse(&engine).into_napi()?;
+    let source = RenderSource::resolve(meta, lookup)?;
+    fieldglass::render::overlay_polylines(&source.as_source(), &engine, latlon, ring_lengths)
+        .into_napi()
 }
-
-/// A source grid's forward geolocation: grid index `(i, j)` → `(lat, lon)`, or
-/// `None` for a malformed grid. Boxed so [`forward_geolocation_for`] can return
-/// a different closure per grid type.
-type ForwardGeo = Box<dyn Fn(u32, u32) -> Option<(f64, f64)>>;
 
 /// Hand the CSV text to Node as a `Buffer` (its UTF-8 bytes, moved not copied).
 /// Returning a `Buffer` rather than a `String` keeps the export on the UTF-8
@@ -5212,456 +4569,42 @@ fn csv_buffer(csv: String) -> napi::bindgen_prelude::Buffer {
     csv.into_bytes().into()
 }
 
-/// Format a decoded field as CSV, shared by the GRIB handles. The `"long"`
-/// (`lat,lon,value`) format reuses [`forward_geolocation_for`], so it inherits
-/// that function's gate ([`GEOLOCATABLE_GRIDS`]); the `"matrix"` format needs no
-/// coordinates and works for any grid with declared dimensions.
+/// Format a decoded field as CSV — `fieldglass::render::field_csv`, over this
+/// host's DTO. The `"long"` (`lat,lon,value`) format needs per-point
+/// coordinates and so inherits that function's family gate; `"matrix"` needs
+/// none and works for any grid with declared dimensions.
 fn field_csv(
     values: &[Option<f64>],
     meta: &MessageMeta,
     ni: u32,
     nj: u32,
     format: &str,
-    // The cell-centre index for a `"curvilinear"` grid; `None` for every
-    // family whose geometry is a formula (#445).
-    lookup: Option<&SpatialIndex>,
+    // The `GridGeometry::Lookup` a `"curvilinear"` slice's cell-centre index
+    // lives in; `None` for every family whose geometry is a formula (#445).
+    lookup: Option<&GridGeometry>,
 ) -> napi::Result<String> {
-    match format {
-        "matrix" => Ok(field_to_csv_matrix(values, ni as usize, nj as usize)),
-        "long" => {
-            let geo = forward_geolocation_for(meta, ni, nj, lookup, |gt| {
-                format!(
-                    "the long CSV format needs per-point coordinates, which grid type \
-                     {gt:?} doesn't provide (only {}); export as the Matrix format instead",
-                    geolocatable_families()
-                )
-            })?;
-            Ok(field_to_csv_long(
-                values,
-                ni as usize,
-                nj as usize,
-                // `i` / `j` walk the `u32` grid dimensions widened just above,
-                // so the round trip back to `u32` is exact.
-                |i, j| geo(i as u32, j as u32),
-            ))
-        }
-        other => Err(napi::Error::from_reason(format!(
-            "unknown CSV format {other:?} (expected \"long\" or \"matrix\")"
-        ))),
-    }
-}
-
-/// The grid types that carry a forward geolocation map, each paired with the
-/// name it goes by in user-facing prose.
-///
-/// One table, two jobs: it is the admission gate in [`forward_geolocation_for`]
-/// *and* the source of every "unsupported grid" message, so the dispatch and the
-/// prose can no longer drift apart the way they did before #470 (contours and
-/// long CSV both refused the planar grids their projectors had geolocated since
-/// #422/#423).
-///
-/// Two families are absent on purpose. Reduced grids widen to a regular raster
-/// for the warp, but placing their *points* needs the per-row longitudes the
-/// widening throws away. Space view (§3.90) has grid points off the disc
-/// entirely, which have no geographic position at all.
-const GEOLOCATABLE_GRIDS: &[(&str, &str)] = &[
-    ("latlon", "regular lat/lon"),
-    ("mercator", "Mercator"),
-    ("rotated_latlon", "rotated lat/lon"),
-    ("gaussian", "Gaussian"),
-    // A reduced grid reaches every consumer already widened to a regular
-    // raster, whose columns are evenly spaced by construction — so the forward
-    // map is its family's, on the derived geometry `raster_render_meta`
-    // supplies from the GDS's own `raster_bounds()`. GRIB2 has always taken
-    // this route, reporting a reduced Gaussian
-    // grid as `"gaussian"`; GRIB1 names its reduced grids and was refused here
-    // while its *inverse* map already treated them the same way, so the image
-    // and the contours over it disagreed about one grid (#503).
-    ("reduced_latlon", "reduced lat/lon"),
-    ("reduced_gaussian", "reduced Gaussian"),
-    // A 2-D coordinate grid geolocates from its own cell centres rather than a
-    // formula, which is a different mechanism but the same answer shape (#445).
-    ("curvilinear", "2-D coordinate (curvilinear)"),
-    ("lambert", "Lambert conformal"),
-    ("polar_stereo", "polar stereographic"),
-    ("transverse_mercator", "transverse Mercator"),
-    ("lambert_azimuthal", "Lambert azimuthal equal-area"),
-];
-
-/// [`GEOLOCATABLE_GRIDS`] as an Oxford-comma list ("a, b, and c") for the
-/// "unsupported grid" messages.
-fn geolocatable_families() -> String {
-    let names: Vec<&str> = GEOLOCATABLE_GRIDS.iter().map(|(_, name)| *name).collect();
-    match names.split_last() {
-        None => String::new(),
-        Some((last, [])) => (*last).to_string(),
-        Some((last, rest)) => format!("{}, and {last}", rest.join(", ")),
-    }
-}
-
-/// Build the per-grid forward geolocation closure `(i, j) → (lat, lon)` for a
-/// grid whose family is geolocated ([`GEOLOCATABLE_GRIDS`]). `unsupported`
-/// supplies the caller's own error message for a grid type outside that set,
-/// given the grid-type string — so the shared gate reads "contours not yet
-/// supported…" for the contour path and points long-CSV callers at the Matrix
-/// layout, instead of one feature's hard-coded wording leaking into the others
-/// (#337). A legitimate missing-coordinate error for a *supported* family still
-/// surfaces verbatim.
-///
-/// The table is checked before the dispatch rather than left to the fall-through
-/// arm: that way the list the error message reads out is the same list that
-/// decides what is refused.
-fn forward_geolocation_for(
-    meta: &MessageMeta,
-    ni: u32,
-    nj: u32,
-    lookup: Option<&SpatialIndex>,
-    unsupported: impl Fn(&str) -> String,
-) -> napi::Result<ForwardGeo> {
-    let grid_type = meta.grid_type.as_deref().unwrap_or("");
-    if !GEOLOCATABLE_GRIDS.iter().any(|(gt, _)| *gt == grid_type) {
-        return Err(napi::Error::from_reason(unsupported(grid_type)));
-    }
-    match grid_type {
-        "latlon" | "reduced_latlon" => {
-            let p = LatLonParams {
-                ni,
-                nj,
-                lat_first: require_f64(meta.lat_first, "latFirst")?,
-                lon_first: require_f64(meta.lon_first, "lonFirst")?,
-                lat_last: require_f64(meta.lat_last, "latLast")?,
-                lon_last: require_f64(meta.lon_last, "lonLast")?,
-            };
-            Ok(Box::new(move |i, j| latlon_point(&p, i, j)))
-        }
-        "mercator" => {
-            let p = MercatorParams {
-                ni,
-                nj,
-                lat_first: require_f64(meta.lat_first, "latFirst")?,
-                lon_first: require_f64(meta.lon_first, "lonFirst")?,
-                lat_last: require_f64(meta.lat_last, "latLast")?,
-                lon_last: require_f64(meta.lon_last, "lonLast")?,
-            };
-            Ok(Box::new(move |i, j| mercator_point(&p, i, j)))
-        }
-        "rotated_latlon" => {
-            let p = RotatedLatLonParams {
-                ni,
-                nj,
-                lat_first: require_f64(meta.lat_first, "latFirst")?,
-                lon_first: require_f64(meta.lon_first, "lonFirst")?,
-                lat_last: require_f64(meta.lat_last, "latLast")?,
-                lon_last: require_f64(meta.lon_last, "lonLast")?,
-                south_pole_lat: require_f64(meta.rotated_south_pole_lat, "rotatedSouthPoleLat")?,
-                south_pole_lon: require_f64(meta.rotated_south_pole_lon, "rotatedSouthPoleLon")?,
-                angle_of_rotation: require_f64(
-                    meta.rotated_angle_of_rotation,
-                    "rotatedAngleOfRotation",
-                )?,
-            };
-            Ok(Box::new(move |i, j| rotated_latlon_point(&p, i, j)))
-        }
-        // A lookup grid places a cell from its own centre — the position the
-        // file states for it, which is the only thing there is to go on (#445).
-        // This is what gives a curvilinear field contours and a `lat,lon,value`
-        // CSV, both of which run off the forward direction.
-        "curvilinear" => {
-            let index = require_lookup(lookup)?.clone();
-            Ok(Box::new(move |i, j| index.centre(i, j)))
-        }
-        "gaussian" | "reduced_gaussian" => {
-            let p = GaussianParams {
-                ni,
-                nj,
-                lat_first: require_f64(meta.lat_first, "latFirst")?,
-                lon_first: require_f64(meta.lon_first, "lonFirst")?,
-                lat_last: require_f64(meta.lat_last, "latLast")?,
-                lon_last: require_f64(meta.lon_last, "lonLast")?,
-                n_parallels: meta.gaussian_n_parallels.ok_or_else(|| {
-                    napi::Error::from_reason("missing gaussianNParallels".to_string())
-                })? as u32,
-            };
-            let projector = GaussianProjector::new(p);
-            Ok(Box::new(move |i, j| projector.grid_point_lonlat(i, j)))
-        }
-        // The planar family (#470). Every one of them walks the same
-        // `origin + i·dx` line in projected metres and inverts it, so they share
-        // one wrapper — and they read their parameters through the very helpers
-        // the warp setups use, so a grid can't geolocate one way for the image
-        // and another for the contours drawn over it.
-        "lambert" => {
-            let projector = LambertProjector::new(lambert_params(meta, ni, nj)?);
-            require_well_defined(projector.is_well_defined(), grid_type)?;
-            Ok(planar_forward(projector))
-        }
-        // This arm was left ungated on the grounds that the scale factor
-        // `(1 + sin|LaD|)/2` is one no declarable `LaD` drives to zero. Both
-        // halves of that were wrong (#603). The radius multiplies the factor,
-        // and `require_earth_radius` above is what catches a declared zero
-        // there. `LaD` itself reaches here as any finite number — §3.20 states
-        // it in sign-magnitude microdegrees — and ±270° puts `sin|LaD|` at -1,
-        // so the factor really is zero and the plane collapses onto its own
-        // origin with every number still finite.
-        "polar_stereo" => {
-            let projector = PolarStereoProjector::new(polar_stereo_params(meta, ni, nj)?);
-            require_well_defined(projector.is_well_defined(), grid_type)?;
-            Ok(planar_forward(projector))
-        }
-        "transverse_mercator" => {
-            let projector =
-                TransverseMercatorProjector::new(transverse_mercator_params(meta, ni, nj)?);
-            require_well_defined(projector.is_well_defined(), grid_type)?;
-            Ok(planar_forward(projector))
-        }
-        "lambert_azimuthal" => {
-            let projector = LambertAzimuthalProjector::new(lambert_azimuthal_params(meta, ni, nj)?);
-            require_well_defined(projector.is_well_defined(), grid_type)?;
-            Ok(planar_forward(projector))
-        }
-        // Unreachable: the table gate above admits only the arms listed here.
-        other => Err(napi::Error::from_reason(unsupported(other))),
-    }
-}
-
-/// Refuse a grid whose projection constants are degenerate — standard parallels
-/// that collapse the Lambert cone, a spheroid with no shape, a polar
-/// stereographic latitude of true scale past ±90° that zeroes the pole scale
-/// factor.
-///
-/// The warp already refuses these: the same constants leave
-/// `Projector::inverse` returning `None` for every pixel. The forward direction
-/// needs the check made explicitly, because a degenerate *spheroidal* family
-/// (transverse Mercator, Lambert azimuthal) produces finite, meaningless
-/// coordinates rather than the NaN [`planar_forward`] filters out — numbers that
-/// would reach a CSV cell looking exactly like a position.
-fn require_well_defined(ok: bool, grid_type: &str) -> napi::Result<()> {
-    if ok {
-        return Ok(());
-    }
-    Err(napi::Error::from_reason(format!(
-        "grid type {grid_type:?} declares degenerate projection parameters, so its \
-         grid points have no geographic position"
-    )))
-}
-
-/// Wrap a planar projector as a [`ForwardGeo`], built once and reused for every
-/// grid point.
-///
-/// Two things happen here that the geographic families don't need. Longitudes
-/// are normalised: a planar inverse reports `lov ± 180°`, so the CMC grid
-/// (`lov` = 247°) would otherwise export points at longitude 427. And
-/// non-finite results become `None` — a degenerate cone (Lambert with
-/// `latin1 = −latin2`) inverts to NaN, which would reach a CSV cell as the text
-/// `NaN`; `None` drops the row instead, and drops the contour segment, exactly
-/// as an ungeolocatable point does elsewhere.
-fn planar_forward<P: PlanarGridProjector + 'static>(projector: P) -> ForwardGeo {
-    Box::new(move |i, j| {
-        let (lat, lon) = projector.grid_point_lonlat(i, j);
-        (lat.is_finite() && lon.is_finite()).then(|| (lat, normalise_lon(lon)))
-    })
-}
-
-/// `(lat, lon)` of a fractional grid position, bilinearly interpolated from the
-/// four surrounding integer grid points via `forward`. A contour vertex sits on
-/// a cell edge (one integer coordinate, one fractional), for which the bilinear
-/// collapses to a linear interpolation along that edge. Longitudes come from the
-/// forward map in the grid's own frame, which is monotonic within a cell for
-/// the corner-pinned families. Where it is not — a rotated or planar grid whose
-/// own ±180° cut runs through the cell — the corners are pulled onto a common
-/// turn first; see [`cell_crosses_lon_cut`].
-fn forward_bilinear(
-    forward: &dyn Fn(u32, u32) -> Option<(f64, f64)>,
-    ni: u32,
-    nj: u32,
-    fi: f64,
-    fj: f64,
-    periodic_i: bool,
-) -> Option<(f64, f64)> {
-    if ni < 2 || nj < 2 {
-        return None;
-    }
-    // On a periodic grid a seam vertex sits in `(ni - 1, ni)`: its west corner
-    // is the last column and its east corner is column 0 again. Saturating `i0`
-    // at `ni - 2` the way a bounded grid does would drag both corners back onto
-    // the last two columns, collapsing the whole seam cell onto the last column.
-    let seam = periodic_i && fi > (ni - 1) as f64;
-    let (i0, i1) = if seam {
-        (ni - 1, 0)
-    } else {
-        let i0 = (fi.floor().max(0.0) as u32).min(ni - 2);
-        (i0, i0 + 1)
-    };
-    let j0 = (fj.floor().max(0.0) as u32).min(nj - 2);
-    let fx = (fi - i0 as f64).clamp(0.0, 1.0);
-    let fy = (fj - j0 as f64).clamp(0.0, 1.0);
-    let a = forward(i0, j0)?;
-    let mut b = forward(i1, j0)?;
-    let mut c = forward(i0, j0 + 1)?;
-    let mut d = forward(i1, j0 + 1)?;
-    // Either branch below leaves a corner longitude outside [-180, 180), so
-    // remember whether one ran and normalise only then.
-    let mut unwrapped = seam;
-    if seam {
-        // Column 0 lies one full turn east of the last column, not `east_span`
-        // degrees west of it. Without the +360 the interpolation sweeps
-        // backwards across the entire map and the "seam" segment is drawn as a
-        // streak from one rim to the other.
-        b.1 = unwrap_east_of(a.1, b.1);
-        d.1 = unwrap_east_of(c.1, d.1);
-    } else if cell_crosses_lon_cut([a.1, b.1, c.1, d.1]) {
-        // The forward map's own ±180° cut runs through this cell: one corner
-        // reads +179.9 and its neighbour a few kilometres away reads -179.9. A
-        // vertex interpolated between them lands near 0°, drawing the same
-        // rim-to-rim streak the seam branch exists to prevent. Planar grids meet
-        // this on any Pacific-crossing domain (the CMC polar grid's top row runs
-        // straight across the antimeridian); pull the other three corners onto
-        // whichever turn is nearest `a` and the cell is contiguous again.
-        b.1 = unwrap_near(a.1, b.1);
-        c.1 = unwrap_near(a.1, c.1);
-        d.1 = unwrap_near(a.1, d.1);
-        unwrapped = true;
-    }
-    let bilerp = |va: f64, vb: f64, vc: f64, vd: f64| {
-        let top = va + (vb - va) * fx;
-        let bot = vc + (vd - vc) * fx;
-        top + (bot - top) * fy
-    };
-    let lat = bilerp(a.0, b.0, c.0, d.0);
-    let lon = bilerp(a.1, b.1, c.1, d.1);
-    // Only an unwrapped cell can push a longitude past ±180 (the branches above
-    // deliberately move a corner a whole turn), so normalise just those. Every
-    // other vertex keeps the exact value it had before, which leaves the
-    // overwhelmingly common path bit-for-bit unchanged.
-    Some((lat, if unwrapped { normalise_lon(lon) } else { lon }))
-}
-
-/// Whether a grid cell's four corner longitudes straddle the ±180° cut.
-///
-/// No real grid cell spans half the globe, so a corner spread wider than 180°
-/// is the cut running through the cell, not geometry — the giveaway that the
-/// corners sit on different turns and must be unwrapped before interpolating.
-/// (The one grid whose cell genuinely reaches that far is a polar one at the
-/// pole itself, where longitude is degenerate anyway and the nearest-turn
-/// unwrap still keeps the vertex beside its corners.)
-fn cell_crosses_lon_cut(lons: [f64; 4]) -> bool {
-    let (min, max) = lons
-        .iter()
-        .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), &l| {
-            (lo.min(l), hi.max(l))
-        });
-    max - min > 180.0
-}
-
-/// `lon` moved onto whichever turn sits nearest `from` — i.e. `from + delta`
-/// where `delta ∈ [-180, 180)`. The two-sided counterpart of
-/// [`unwrap_east_of`], for a cut that a cell straddles in either direction.
-fn unwrap_near(from: f64, lon: f64) -> f64 {
-    from + normalise_lon(lon - from)
-}
-
-/// `lon` expressed as the first value east of `from` — i.e. `from + delta`
-/// where `delta ∈ [0, 360)`. Interpolating from the last column to column 0
-/// across the seam needs the eastern corner to read (say) 360.0 rather than
-/// 0.0, so the sweep is the quarter-degree gap and not 359.75° the wrong way.
-fn unwrap_east_of(from: f64, lon: f64) -> f64 {
-    from + (lon - from).rem_euclid(360.0)
-}
-
-/// Contour levels at every multiple of `step` strictly inside `(min, max)`. The
-/// manual-interval override; guarded against a tiny step producing an unbounded
-/// list.
-fn levels_by_interval(min: f64, max: f64, step: f64) -> Vec<f64> {
-    if step <= 0.0 || !step.is_finite() || min >= max {
-        return Vec::new();
-    }
-    let start = (min / step).ceil() * step;
-    let mut levels = Vec::new();
-    let mut k = 0i64;
-    loop {
-        let v = start + k as f64 * step;
-        k += 1;
-        if v <= min {
-            continue;
-        }
-        if v >= max {
-            break;
-        }
-        levels.push(v);
-        if levels.len() > 2000 {
-            break;
-        }
-    }
-    levels
-}
-/// Whether the contour pass may march the seam cell that wraps column `ni - 1`
-/// round to column `0`.
-///
-/// [`GridGeometry::contour_seam_wraps`] owns the rule, and its two conditions;
-/// this is the DTO adapter (#571).
-fn contour_seam_wraps(meta: &MessageMeta) -> bool {
-    meta_geometry(meta).contour_seam_wraps()
+    // The handle states the dimensions here — a spectral message renders onto a
+    // synthesised raster whose size is not the one its meta declares — so this
+    // is the one entry point that does not read them back off the meta.
+    let source = RenderSource::sized(meta, ni, nj, lookup);
+    fieldglass::render::field_csv(&source.as_source(), values, format).into_napi()
 }
 
 /// Extract contour isolines from a decoded field and project them onto the same
-/// raster the render / overlay use, returning pixel-space runs (#238). Levels
-/// come from `interval` (a manual spacing) when given and positive, else from
-/// [`nice_levels`] over the used range. The grid-space isolines are geolocated
-/// through [`forward_geolocation_for`] and then run through the ordinary overlay
-/// projection ([`project_overlay_impl`]), so they land on every target
-/// projection with the same visibility / seam handling as the coastlines.
+/// raster the render and the overlay use — `fieldglass::render::contour_polylines`,
+/// over this host's DTO.
 fn project_contours_impl(
     meta: &MessageMeta,
     raw: &[Option<f64>],
     options: &RenderOptions,
     interval: Option<f64>,
-    // The cell-centre index for a `"curvilinear"` grid; `None` for every
-    // family whose geometry is a formula (#445).
-    lookup: Option<&SpatialIndex>,
+    // The `GridGeometry::Lookup` a `"curvilinear"` slice's cell-centre index
+    // lives in; `None` for every family whose geometry is a formula (#445).
+    lookup: Option<&GridGeometry>,
 ) -> napi::Result<ProjectedPolylines> {
-    let ni = grid_ni(meta)?;
-    let nj = grid_nj(meta)?;
-    let forward = forward_geolocation_for(meta, ni, nj, lookup, |gt| {
-        format!(
-            "contours not yet supported for grid type {gt:?} (only {} for now)",
-            geolocatable_families()
-        )
-    })?;
-
-    // Levels span the same range the image is painted over, so contours line up
-    // with the colours: a manual range override wins, else the present-cell min/max.
-    let (used_min, used_max) = match (options.range_min, options.range_max) {
-        (Some(min), Some(max)) if max > min => (min, max),
-        _ => min_max_ignoring_mask(raw.iter().copied()).unwrap_or((0.0, 1.0)),
-    };
-    let levels = match interval {
-        Some(step) if step > 0.0 => levels_by_interval(used_min, used_max, step),
-        _ => nice_levels(used_min, used_max, 8),
-    };
-
-    // Each contour segment becomes a two-vertex ring in `(lat, lon)` order (what
-    // `project_polylines` consumes); a vertex that can't be geolocated drops its
-    // segment rather than the whole contour.
-    let periodic_i = contour_seam_wraps(meta);
-    let contours = if periodic_i {
-        contour_segments_global(raw, ni as usize, nj as usize, &levels)
-    } else {
-        contour_segments(raw, ni as usize, nj as usize, &levels)
-    };
-    let mut latlon: Vec<f64> = Vec::new();
-    let mut ring_lengths: Vec<u32> = Vec::new();
-    for level in &contours {
-        for seg in &level.segments {
-            let p0 = forward_bilinear(forward.as_ref(), ni, nj, seg[0].0, seg[0].1, periodic_i);
-            let p1 = forward_bilinear(forward.as_ref(), ni, nj, seg[1].0, seg[1].1, periodic_i);
-            if let (Some((lat0, lon0)), Some((lat1, lon1))) = (p0, p1) {
-                latlon.extend_from_slice(&[lat0, lon0, lat1, lon1]);
-                ring_lengths.push(2);
-            }
-        }
-    }
-
-    project_overlay_impl(meta, options, &latlon, &ring_lengths, lookup)
+    let engine = engine_options(options);
+    let source = RenderSource::resolve(meta, lookup)?;
+    fieldglass::render::contour_polylines(&source.as_source(), raw, &engine, interval).into_napi()
 }
 
 /// The result of probing one output pixel (#172): the geographic point under
@@ -5685,178 +4628,37 @@ pub struct ProbeResult {
 }
 
 /// Sample the field under one output pixel `(px, py)` in the *displayed*
-/// raster (post-`flip_y`). Reproduces the warp's per-pixel map — output pixel →
-/// `(lat, lon)` → source grid index → value — so the readout matches exactly
-/// what the image shows. Returns `None` when the pixel is off the raster or off
-/// the globe (outside an azimuthal disc), so there is nothing to report.
+/// raster (post-`flip_y`) — `fieldglass::render::probe_pixel`, over this host's
+/// DTO.
 fn probe_impl(
     meta: &MessageMeta,
     raw: &[Option<f64>],
     options: &RenderOptions,
     px: u32,
     py: u32,
-    // The cell-centre index for a `"curvilinear"` grid; `None` for every
-    // family whose geometry is a formula (#445).
-    lookup: Option<&SpatialIndex>,
+    // The `GridGeometry::Lookup` a `"curvilinear"` slice's cell-centre index
+    // lives in; `None` for every family whose geometry is a formula (#445).
+    lookup: Option<&GridGeometry>,
 ) -> napi::Result<Option<ProbeResult>> {
-    let resolved = ResolvedOptions::parse(options)?;
-    let ni = grid_ni(meta)?;
-    let nj = grid_nj(meta)?;
-    // Read the decoded value at an integer grid cell, `None` if out of range or
-    // masked.
-    let value_at = |gi: i64, gj: i64| -> Option<f64> {
-        // Compare at `i64`. Narrowing to `u32` first would wrap an index of
-        // 2^32 back into range and let it through the guard; widening `ni`/`nj`
-        // instead is exact for every value either side can hold.
-        if gi < 0 || gj < 0 || gi >= i64::from(ni) || gj >= i64::from(nj) {
-            return None;
-        }
-        // Both are now inside a `u32` grid, so the narrowing is exact even
-        // where `usize` is 32 bits wide.
-        raw.get(gj as usize * ni as usize + gi as usize)
-            .copied()
-            .flatten()
-    };
-
-    match resolved.projection {
-        TargetKind::Source => {
-            if px >= ni || py >= nj {
-                return Ok(None);
-            }
-            // The source view paints grid (i, j) at pixel (i, j), then flips
-            // vertically to face north-up; undo that flip to recover the row.
-            let flip = source_flip_y(meta, resolved.flip_y);
-            let gj = if flip { nj - 1 - py } else { py };
-            let (gi, gj) = (px, gj);
-            let value = value_at(gi as i64, gj as i64);
-            // Geolocate when the grid's forward map is wired (lat/lon family);
-            // otherwise report the value without a coordinate. The error branch
-            // is discarded here (`.ok()`), so the message is never shown.
-            let latlon = forward_geolocation_for(meta, ni, nj, lookup, |_| String::new())
-                .ok()
-                .and_then(|f| f(gi, gj));
-            let (lat, lon) = match latlon {
-                Some((la, lo)) => (Some(la), Some(normalise_lon(lo))),
-                None => (None, None),
-            };
-            Ok(Some(ProbeResult {
-                lat,
-                lon,
-                value,
-                grid_i: Some(gi as i32),
-                grid_j: Some(gj as i32),
-            }))
-        }
-        TargetKind::Warp(target) => {
-            let (inverse, bbox) = warp_setup_for(meta, ni, nj, lookup)?;
-            let (built, _) = build_warp_target(
-                target,
-                ni,
-                nj,
-                bbox,
-                resolved.bounds,
-                source_grid_is_periodic(meta),
-                lookup.is_some(),
-            )?;
-            let (w, h) = built.dims();
-            if px >= w || py >= h {
-                return Ok(None);
-            }
-            // Undo the render's vertical flip to reach the warp raster row.
-            let ry = if resolved.flip_y { h - 1 - py } else { py };
-            let Some((lat, lon)) = built.pixel_to_lonlat(px, ry) else {
-                // Off the globe (outside an azimuthal disc) — nothing there.
-                return Ok(None);
-            };
-            let lon_n = normalise_lon(lon);
-            match inverse(lat, lon) {
-                Some(idx) => {
-                    // Resolve the fractional index to a cell exactly as the
-                    // Nearest-resampling warp does (`sample_source` in
-                    // fieldglass-core), so the probe reads back the same cell
-                    // the pixel was painted from. On a periodic (global) grid
-                    // the seam gap past the last column is on-grid and lands in
-                    // `(ni-1, ni)`, which `round` sends to `ni`; wrapping with
-                    // `rem_euclid` brings it back to column 0 instead of falling
-                    // off the grid and reporting "no data" for a painted pixel
-                    // (#332). A bounded grid clamps defensively against float
-                    // error at the edge, matching the renderer.
-                    let gi = if source_grid_is_periodic(meta) {
-                        idx.i.round().rem_euclid(ni as f64) as i64
-                    } else {
-                        idx.i.round().clamp(0.0, (ni - 1) as f64) as i64
-                    };
-                    let gj = idx.j.round().clamp(0.0, (nj - 1) as f64) as i64;
-                    Ok(Some(ProbeResult {
-                        lat: Some(lat),
-                        lon: Some(lon_n),
-                        value: value_at(gi, gj),
-                        grid_i: Some(gi as i32),
-                        grid_j: Some(gj as i32),
-                    }))
-                }
-                // On the globe but off this grid's coverage.
-                None => Ok(Some(ProbeResult {
-                    lat: Some(lat),
-                    lon: Some(lon_n),
-                    value: None,
-                    grid_i: None,
-                    grid_j: None,
-                })),
-            }
-        }
-    }
+    let engine = engine_options(options);
+    // Picker state before message state — see `project_overlay_impl`.
+    ResolvedOptions::parse(&engine).into_napi()?;
+    let source = RenderSource::resolve(meta, lookup)?;
+    let probed =
+        fieldglass::render::probe_pixel(&source.as_source(), raw, &engine, px, py).into_napi()?;
+    Ok(probed.map(|p| ProbeResult {
+        lat: p.lat,
+        lon: p.lon,
+        value: p.value,
+        grid_i: p.grid_i,
+        grid_j: p.grid_j,
+    }))
 }
 
-// --- Per-template warp-setup helpers ---------------------------------------
-
-/// Lazily computes the source grid's lat/lon extent. Deferred behind a thunk
-/// because the planar sources (Lambert, polar stereographic) derive it from a
-/// 512-point-per-edge perimeter walk that the azimuthal targets don't need —
-/// only the lat/lon-box targets invoke it.
-type BboxThunk = Box<dyn FnOnce() -> LonLatBox>;
-
-/// `(inverse map, lazy lat/lon-box extent)`. The inverse closure owns a
-/// projector with its constants precomputed once; the bbox thunk builds its
-/// own throwaway projector only if a lat/lon-box target calls it.
-type WarpSetup = (Box<dyn Fn(f64, f64) -> Option<GridIndex>>, BboxThunk);
-
-/// Resolve the lat/lon-box extent for a box target: the source bbox from the
-/// thunk, replaced wholesale by the caller's manual window when present.
-fn resolve_box_extent(bbox: BboxThunk, bounds_override: Option<LonLatBox>) -> LonLatBox {
-    bounds_override.unwrap_or_else(bbox)
-}
-
-/// The render window a warp target frames a grid with, from `core`.
-///
-/// [`GridGeometry::render_window`] is the whole rule: the grid's own extent,
-/// carried a full turn east when the grid is periodic so the wrap column at the
-/// eastern edge is painted too (the periodic sampler fills it). `lon_max` may
-/// therefore exceed 360°, which the warp targets accept — query longitudes wrap
-/// to the nearest 360° multiple.
-///
-/// A family with no extent falls back to the whole globe. That is unreachable
-/// for every family routed here: each has already built its parameters, and a
-/// geographic grid always states an extent. It exists so the thunk needs no
-/// panic, the same reason `curvilinear_warp_setup` carries one.
-fn geometry_render_window(geometry: &GridGeometry) -> LonLatBox {
-    geometry
-        .render_window()
-        .unwrap_or(LonLatBox::new(-90.0, 90.0, -180.0, 180.0))
-}
-
-/// Whether the source grid is periodic in its column axis, so the warp may wrap
-/// column indices across the seam (see `SourceGrid::periodic_i`).
-///
-/// [`GridGeometry::is_periodic_x`] owns the rule; this is the DTO adapter
-/// (#571). It used to be a grid-type allow-list here and a second one in
-/// `fieldglass`, and the two disagreed about rotated lat/lon.
-fn source_grid_is_periodic(meta: &MessageMeta) -> bool {
-    meta_geometry(meta).is_periodic_x()
-}
+// --- Per-template parameter builders ---------------------------------------
 
 /// Regular lat/lon (and a reduced grid already widened to one) parameters,
-/// shared by the warp setup and [`meta_geometry`] — see [`lambert_params`].
+/// for [`try_meta_geometry`] — see [`lambert_params`].
 fn latlon_params(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<LatLonParams> {
     Ok(LatLonParams {
         ni,
@@ -5868,52 +4670,8 @@ fn latlon_params(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<LatLonPar
     })
 }
 
-fn latlon_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
-    let p = latlon_params(meta, ni, nj)?;
-    let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
-        Box::new(move |lat, lon| latlon_inverse(&p, lat, lon));
-    let bbox: BboxThunk = Box::new(move || geometry_render_window(&GridGeometry::LatLon(p)));
-    Ok((inverse, bbox))
-}
-
-/// The index a lookup grid's geometry lives in, or a clear refusal.
-///
-/// A `"curvilinear"` grid type and a missing index mean the handle resolved 2-D
-/// coordinates for the message table and then failed to build or pass the
-/// index — a wiring bug, not a bad file, so it says so rather than falling back
-/// to a formula that would place the field somewhere wrong.
-fn require_lookup(lookup: Option<&SpatialIndex>) -> napi::Result<&SpatialIndex> {
-    lookup.ok_or_else(|| {
-        napi::Error::from_reason(
-            "a curvilinear grid needs its cell-centre index, and none was supplied".to_string(),
-        )
-    })
-}
-
-/// Inverse map and extent for a lookup grid (#445).
-///
-/// The index is cloned into both closures rather than borrowed: `WarpSetup` is
-/// a pair of `'static` boxes, and the alternative is threading a lifetime
-/// through every warp setup for the one family that needs it. `SpatialIndex` is
-/// `Arc`-shared by the handle, so this clones a pointer, not the cells.
-fn curvilinear_warp_setup(lookup: Option<&SpatialIndex>) -> napi::Result<WarpSetup> {
-    let index = require_lookup(lookup)?.clone();
-    let bbox_index = index.clone();
-    let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
-        Box::new(move |lat, lon| index.nearest(lat, lon));
-    let bbox: BboxThunk = Box::new(move || {
-        // `SpatialIndex::new` refuses a grid with no finite centre, so an index
-        // that exists always has an extent; the fallback is unreachable and
-        // exists so the thunk needs no panic.
-        bbox_index
-            .lonlat_bbox()
-            .unwrap_or(LonLatBox::new(-90.0, 90.0, -180.0, 180.0))
-    });
-    Ok((inverse, bbox))
-}
-
-/// Gaussian (and reduced-Gaussian, already widened) parameters, shared by the
-/// warp setup and [`meta_geometry`] — see [`lambert_params`].
+/// Gaussian (and reduced-Gaussian, already widened) parameters, for
+/// [`try_meta_geometry`] — see [`lambert_params`].
 fn gaussian_params(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<GaussianParams> {
     let n_parallels = meta
         .gaussian_n_parallels
@@ -5930,19 +4688,7 @@ fn gaussian_params(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<Gaussia
     })
 }
 
-fn gaussian_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
-    let p = gaussian_params(meta, ni, nj)?;
-    // `GaussianProjector` caches the row-ordered Gauss-Legendre lats
-    // once; the inverse closure reuses it for every pixel.
-    let projector = GaussianProjector::new(p);
-    let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
-        Box::new(move |lat, lon| projector.inverse(lat, lon));
-    let bbox: BboxThunk = Box::new(move || geometry_render_window(&GridGeometry::Gaussian(p)));
-    Ok((inverse, bbox))
-}
-
-/// Mercator parameters, shared by the warp setup and [`meta_geometry`] — see
-/// [`lambert_params`].
+/// Mercator parameters, for [`try_meta_geometry`] — see [`lambert_params`].
 fn mercator_params(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<MercatorParams> {
     Ok(MercatorParams {
         ni,
@@ -5954,20 +4700,8 @@ fn mercator_params(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<Mercato
     })
 }
 
-fn mercator_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
-    let p = mercator_params(meta, ni, nj)?;
-    let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
-        Box::new(move |lat, lon| mercator_inverse(&p, lat, lon));
-    // The §3.10 corner coordinates are geographic, so the source extent is the
-    // axis-aligned box they span — same as the regular lat/lon source. (The
-    // rows are non-uniform in latitude, but the box is still bounded by the
-    // corner latitudes.)
-    let bbox: BboxThunk = Box::new(move || geometry_render_window(&GridGeometry::Mercator(p)));
-    Ok((inverse, bbox))
-}
-
-/// Rotated lat/lon parameters, shared by the warp setup and [`meta_geometry`]
-/// — see [`lambert_params`]. The corners stay rotated-frame degrees.
+/// Rotated lat/lon parameters, for [`try_meta_geometry`] — see
+/// [`lambert_params`]. The corners stay rotated-frame degrees.
 fn rotated_latlon_params(
     meta: &MessageMeta,
     ni: u32,
@@ -5984,21 +4718,6 @@ fn rotated_latlon_params(
         south_pole_lon: require_f64(meta.rotated_south_pole_lon, "rotatedSouthPoleLon")?,
         angle_of_rotation: require_f64(meta.rotated_angle_of_rotation, "rotatedAngleOfRotation")?,
     })
-}
-
-fn rotated_latlon_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
-    let p = rotated_latlon_params(meta, ni, nj)?;
-    // `RotatedLatLonProjector` caches the rotated-frame corner grid once; the
-    // inverse closure reuses it for every output pixel.
-    let projector = RotatedLatLonProjector::new(p);
-    let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
-        Box::new(move |lat, lon| projector.inverse(lat, lon));
-    // The grid's corner coordinates are in the rotated frame, so — unlike the
-    // geographic lat/lon source — the geographic extent is a curved region. The
-    // projector walks the rotated-grid perimeter and unrotates it to derive a
-    // tight lat/lon box.
-    let bbox: BboxThunk = Box::new(move || geometry_render_window(&GridGeometry::RotatedLatLon(p)));
-    Ok((inverse, bbox))
 }
 
 /// The Earth radius a message declares, or the WMO mean sphere when it declares
@@ -6021,8 +4740,8 @@ fn require_earth_radius(meta: &MessageMeta) -> napi::Result<f64> {
 /// The "is this a sphere at all" half of [`require_earth_radius`], split out so
 /// the spheroidal families — which read their axes from their own template
 /// fields rather than from `earthRadiusMetres` — refuse a shapeless one with
-/// the same words instead of falling through to the generic
-/// [`require_well_defined`] message.
+/// the same words instead of falling through to the engine's generic
+/// "degenerate projection parameters" message.
 fn require_usable_earth_radius(radius: f64) -> napi::Result<()> {
     if radius.is_finite() && radius > 0.0 {
         return Ok(());
@@ -6039,14 +4758,13 @@ fn require_usable_earth_radius(radius: f64) -> napi::Result<()> {
 ///
 /// [`require_earth_radius`] catches the radius that is not a sphere; this
 /// catches the one that is a sphere and still leaves nowhere to put the raster.
-/// Both are asked in the `*_params` builders, which the warp path and the
-/// forward-geolocation path share, so the radius is named on both — a check
-/// only the forward map made would leave a collapsed grid rendering blank with
-/// nothing said about why (#610). The four `*_warp_setup` functions now ask
-/// [`require_well_defined`] for the same reason, so the *other* degeneracies —
-/// a collapsed cone, a latitude of true scale past ±90°, a first point the
-/// projection cannot follow to — are reported on the warp path too rather than
-/// silently painting nothing.
+/// Both are asked in the `*_params` builders, which is the one place a message's
+/// own field names are still known, so the radius is named on both — a check
+/// only one path made would leave a collapsed grid rendering blank with nothing
+/// said about why (#610). The *other* degeneracies — a collapsed cone, a
+/// latitude of true scale past ±90°, a first point the projection cannot follow
+/// to — are `fieldglass::render`'s to report now, from the geometry rather than
+/// from these slots (#572).
 fn require_radius_spans_a_cell(
     radius_m: f64,
     dx_metres: f64,
@@ -6065,9 +4783,9 @@ fn require_radius_spans_a_cell(
 }
 
 /// Lambert conformal (GRIB2 §3.30 / GRIB1 grid type 3) parameters read out of a
-/// message's metadata. Shared by [`lambert_warp_setup`] and
-/// [`forward_geolocation_for`] so the warp and the forward geolocation read the
-/// same slots and can't disagree about the same grid (#470).
+/// message's metadata, for [`try_meta_geometry`] — the one mapping every
+/// display operation now goes through, so the warp and the forward geolocation
+/// cannot disagree about the same grid (#470, #572).
 fn lambert_params(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<LambertParams> {
     let earth_radius_m = require_earth_radius(meta)?;
     let dx_metres = require_nonzero_spacing(meta.lambert_dx_metres, "lambertDxMetres")?;
@@ -6086,21 +4804,6 @@ fn lambert_params(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<LambertP
         latin1: require_f64(meta.lambert_latin1, "lambertLatin1")?,
         latin2: require_f64(meta.lambert_latin2, "lambertLatin2")?,
     })
-}
-
-fn lambert_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
-    let p = lambert_params(meta, ni, nj)?;
-
-    // `LambertProjector` precomputes the cone constants + origin once for the
-    // inverse closure. The bbox thunk builds its own throwaway projector only
-    // when a box target needs the antimeridian-aware perimeter bbox (see
-    // `PlanarGridProjector::lonlat_bbox`).
-    let projector = LambertProjector::new(p);
-    require_well_defined(projector.is_well_defined(), "lambert")?;
-    let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
-        Box::new(move |lat, lon| projector.inverse(lat, lon));
-    let bbox: BboxThunk = Box::new(move || LambertProjector::new(p).lonlat_bbox());
-    Ok((inverse, bbox))
 }
 
 /// Polar stereographic (GRIB2 §3.20 / GRIB1 grid type 5) parameters, shared by
@@ -6124,41 +4827,6 @@ fn polar_stereo_params(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<Pol
             .polar_stereo_south_pole
             .ok_or_else(|| napi::Error::from_reason("missing polarStereoSouthPole".to_string()))?,
     })
-}
-
-fn polar_stereo_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
-    let p = polar_stereo_params(meta, ni, nj)?;
-
-    let projector = PolarStereoProjector::new(p);
-    require_well_defined(projector.is_well_defined(), "polar_stereo")?;
-    let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
-        Box::new(move |lat, lon| projector.inverse(lat, lon));
-    // Antimeridian-aware bbox of the four grid corners (same shape as
-    // `lambert_warp_setup`). When the projection pole falls inside the grid,
-    // every meridian is represented and the four-corner bbox is wrong: override
-    // longitude to the full 360° and clamp latitude to the relevant pole. Built
-    // lazily — only a box target invokes it.
-    let bbox: BboxThunk = Box::new(move || {
-        let projector = PolarStereoProjector::new(p);
-        let pole_inside = projector.pole_inside_grid();
-        let LonLatBox {
-            mut lat_min,
-            mut lat_max,
-            mut lon_min,
-            mut lon_max,
-        } = projector.lonlat_bbox();
-        if pole_inside {
-            lon_min = -180.0;
-            lon_max = 180.0;
-            if p.south_pole {
-                lat_min = -90.0;
-            } else {
-                lat_max = 90.0;
-            }
-        }
-        LonLatBox::new(lat_min, lat_max, lon_min, lon_max)
-    });
-    Ok((inverse, bbox))
 }
 
 /// Lambert azimuthal equal-area (§3.140) parameters, shared by the warp setup
@@ -6203,17 +4871,6 @@ fn lambert_azimuthal_params(
         dx_metres,
         dy_metres,
     })
-}
-
-fn lambert_azimuthal_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
-    let p = lambert_azimuthal_params(meta, ni, nj)?;
-
-    let projector = LambertAzimuthalProjector::new(p);
-    require_well_defined(projector.is_well_defined(), "lambert_azimuthal")?;
-    let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
-        Box::new(move |lat, lon| projector.inverse(lat, lon));
-    let bbox: BboxThunk = Box::new(move || LambertAzimuthalProjector::new(p).lonlat_bbox());
-    Ok((inverse, bbox))
 }
 
 /// Transverse Mercator (§3.12) parameters, shared by the warp setup and the
@@ -6276,21 +4933,8 @@ fn transverse_mercator_params(
     })
 }
 
-fn transverse_mercator_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
-    let p = transverse_mercator_params(meta, ni, nj)?;
-
-    let projector = TransverseMercatorProjector::new(p);
-    require_well_defined(projector.is_well_defined(), "transverse_mercator")?;
-    let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
-        Box::new(move |lat, lon| projector.inverse(lat, lon));
-    // Same antimeridian-aware four-corner walk as `lambert_warp_setup`; built
-    // lazily, only for a box target.
-    let bbox: BboxThunk = Box::new(move || TransverseMercatorProjector::new(p).lonlat_bbox());
-    Ok((inverse, bbox))
-}
-
 /// Geostationary (§3.90 / CF grid mapping) parameters, shared by the warp setup
-/// and [`meta_geometry`] — see [`lambert_params`].
+/// and [`try_meta_geometry`] — see [`lambert_params`].
 fn geostationary_params(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<GeostationaryParams> {
     Ok(GeostationaryParams {
         ni,
@@ -6307,44 +4951,6 @@ fn geostationary_params(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<Ge
         y0: require_f64(meta.geos_y0, "geosY0")?,
         dy_rad: require_nonzero_spacing(meta.geos_dy_rad, "geosDyRad")?,
     })
-}
-
-fn geostationary_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
-    let p = geostationary_params(meta, ni, nj)?;
-
-    let projector = GeostationaryProjector::new(p);
-    // The space view's analogue of `require_radius_spans_a_cell`. Its grid is
-    // scan angles rather than metres, so it needs no floor under the radius —
-    // the maths is all ratios and shrinking the whole system changes nothing —
-    // but a shapeless ellipsoid leaves it nothing to intersect. Say which
-    // numbers, rather than letting the whole disc render transparent (#610).
-    if !projector.is_well_defined() {
-        return Err(napi::Error::from_reason(format!(
-            "the message declares an Earth of r_eq = {} m and r_pol = {} m viewed from {} m \
-             (geosREq / geosRPol / geosHeight), which describes no body for the satellite's \
-             line of sight to meet",
-            p.r_eq, p.r_pol, p.h_metres
-        )));
-    }
-    let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
-        Box::new(move |lat, lon| projector.inverse(lat, lon));
-    // Frame the on-disk extent: walk the scan-angle perimeter and take the tight
-    // lat/lon box of the visible samples, so cropped sectors (GOES CONUS /
-    // mesoscale, Meteosat sectors) frame their sector instead of a whole
-    // hemisphere. A full disk whose perimeter is all limb has no on-disk sample;
-    // fall back there to a generous box — the full latitude span and ±90° of
-    // longitude around the sub-satellite point. Off-disk target pixels invert to
-    // `None` and stay transparent, so the fallback only affects default framing,
-    // never correctness.
-    let bbox: BboxThunk = Box::new(move || {
-        GeostationaryProjector::new(p)
-            .lonlat_bbox()
-            .unwrap_or_else(|| {
-                let lon = p.sub_lon_deg;
-                LonLatBox::new(-90.0, 90.0, lon - 90.0, lon + 90.0)
-            })
-    });
-    Ok((inverse, bbox))
 }
 
 fn grid_ni(meta: &MessageMeta) -> napi::Result<u32> {
@@ -6386,398 +4992,16 @@ fn require_nonzero_spacing(value: Option<f64>, name: &str) -> napi::Result<f64> 
 }
 
 #[cfg(test)]
-mod resolved_options_tests {
+mod colormap_export_tests {
     use super::*;
 
-    fn opts(projection: &str, resampling: &str) -> RenderOptions {
-        RenderOptions {
-            projection: projection.to_string(),
-            projection_preset: None,
-            center_lat: None,
-            center_lon: None,
-            resampling: resampling.to_string(),
-            flip_y: false,
-            range_min: None,
-            range_max: None,
-            bounds_lat_min: None,
-            bounds_lat_max: None,
-            bounds_lon_min: None,
-            bounds_lon_max: None,
-            colormap: None,
-            reverse_colormap: None,
-            scale_mode: None,
-        }
-    }
-
-    #[test]
-    fn bounds_parse_requires_all_four_edges_and_valid_box() {
-        // Complete, valid box → Some.
-        let mut o = opts("equirectangular", "nearest");
-        o.bounds_lat_min = Some(10.0);
-        o.bounds_lat_max = Some(50.0);
-        o.bounds_lon_min = Some(-120.0);
-        o.bounds_lon_max = Some(-40.0);
-        assert_eq!(
-            ResolvedOptions::parse(&o).unwrap().bounds,
-            Some(LonLatBox {
-                lat_min: 10.0,
-                lat_max: 50.0,
-                lon_min: -120.0,
-                lon_max: -40.0,
-            })
-        );
-
-        // Antimeridian window: lon_min < -180 is allowed (lon_max > lon_min).
-        o.bounds_lon_min = Some(-183.0);
-        o.bounds_lon_max = Some(-32.0);
-        assert!(ResolvedOptions::parse(&o).unwrap().bounds.is_some());
-
-        // Partial box → None (silent fallback to computed bounds).
-        o.bounds_lon_max = None;
-        assert!(ResolvedOptions::parse(&o).unwrap().bounds.is_none());
-
-        // Inverted box → None.
-        o.bounds_lon_min = Some(50.0);
-        o.bounds_lon_max = Some(-50.0);
-        assert!(ResolvedOptions::parse(&o).unwrap().bounds.is_none());
-    }
-
-    #[test]
-    fn parses_valid_combinations() {
-        let r = ResolvedOptions::parse(&opts("source", "nearest")).expect("source/nearest");
-        assert!(matches!(r.projection, TargetKind::Source));
-        assert_eq!(r.resampling, Resampling::Nearest);
-
-        let r = ResolvedOptions::parse(&opts("equirectangular", "bilinear")).expect("eqr/bilinear");
-        assert!(matches!(
-            r.projection,
-            TargetKind::Warp(WarpTarget::Equirectangular)
-        ));
-        assert_eq!(r.resampling, Resampling::Bilinear);
-
-        let r = ResolvedOptions::parse(&opts("web_mercator", "nearest")).expect("merc/nearest");
-        assert!(matches!(
-            r.projection,
-            TargetKind::Warp(WarpTarget::WebMercator)
-        ));
-
-        // Azimuthal targets resolve their preset into concrete parameters.
-        let r = ResolvedOptions::parse(&opts("orthographic", "nearest")).expect("ortho/nearest");
-        assert!(matches!(
-            r.projection,
-            TargetKind::Warp(WarpTarget::Orthographic { lat0, lon0 }) if lat0 == 0.0 && lon0 == 0.0
-        ));
-        let r =
-            ResolvedOptions::parse(&opts("polar_stereographic", "nearest")).expect("polar/nearest");
-        assert!(matches!(
-            r.projection,
-            TargetKind::Warp(WarpTarget::PolarStereographic {
-                south_pole: false,
-                ..
-            })
-        ));
-    }
-
-    #[test]
-    fn orthographic_preset_selects_centre() {
-        let mut o = opts("orthographic", "nearest");
-        o.projection_preset = Some("pacific".to_string());
-        assert!(matches!(
-            ResolvedOptions::parse(&o).unwrap().projection,
-            TargetKind::Warp(WarpTarget::Orthographic { lat0, lon0 }) if lat0 == 0.0 && lon0 == 180.0
-        ));
-        o.projection_preset = Some("indian".to_string());
-        assert!(matches!(
-            ResolvedOptions::parse(&o).unwrap().projection,
-            TargetKind::Warp(WarpTarget::Orthographic { lat0, lon0 }) if lat0 == 0.0 && lon0 == 90.0
-        ));
-        o.projection_preset = Some("americas".to_string());
-        assert!(matches!(
-            ResolvedOptions::parse(&o).unwrap().projection,
-            TargetKind::Warp(WarpTarget::Orthographic { lat0, lon0 }) if lat0 == 0.0 && lon0 == 270.0
-        ));
-        o.projection_preset = Some("north_pole".to_string());
-        assert!(matches!(
-            ResolvedOptions::parse(&o).unwrap().projection,
-            TargetKind::Warp(WarpTarget::Orthographic { lat0, .. }) if lat0 == 90.0
-        ));
-        // Unknown preset falls back to the Atlantic default.
-        o.projection_preset = Some("nonsense".to_string());
-        assert!(matches!(
-            ResolvedOptions::parse(&o).unwrap().projection,
-            TargetKind::Warp(WarpTarget::Orthographic { lat0, lon0 }) if lat0 == 0.0 && lon0 == 0.0
-        ));
-    }
-
-    #[test]
-    fn polar_stereographic_preset_selects_hemisphere() {
-        let mut o = opts("polar_stereographic", "nearest");
-        o.projection_preset = Some("south".to_string());
-        assert!(matches!(
-            ResolvedOptions::parse(&o).unwrap().projection,
-            TargetKind::Warp(WarpTarget::PolarStereographic {
-                south_pole: true,
-                ..
-            })
-        ));
-    }
-
-    #[test]
-    fn orthographic_free_form_centre_overrides_preset() {
-        // A free-form centre is honoured verbatim, with no preset present.
-        let mut o = opts("orthographic", "nearest");
-        o.center_lat = Some(37.5);
-        o.center_lon = Some(-122.25);
-        assert!(matches!(
-            ResolvedOptions::parse(&o).unwrap().projection,
-            TargetKind::Warp(WarpTarget::Orthographic { lat0, lon0 })
-                if lat0 == 37.5 && lon0 == -122.25
-        ));
-
-        // Free-form centre wins over a preset that would say otherwise.
-        o.projection_preset = Some("pacific".to_string());
-        assert!(matches!(
-            ResolvedOptions::parse(&o).unwrap().projection,
-            TargetKind::Warp(WarpTarget::Orthographic { lat0, lon0 })
-                if lat0 == 37.5 && lon0 == -122.25
-        ));
-
-        // Each component falls back independently: lon free-form, lat from preset.
-        o.center_lat = None;
-        o.center_lon = Some(10.0);
-        assert!(matches!(
-            ResolvedOptions::parse(&o).unwrap().projection,
-            // "pacific" preset is (0.0, 180.0); lon overridden to 10, lat from preset.
-            TargetKind::Warp(WarpTarget::Orthographic { lat0, lon0 })
-                if lat0 == 0.0 && lon0 == 10.0
-        ));
-    }
-
-    #[test]
-    fn polar_stereographic_free_form_central_meridian() {
-        // center_lon sets the central meridian; hemisphere still from the preset.
-        let mut o = opts("polar_stereographic", "nearest");
-        o.projection_preset = Some("south".to_string());
-        o.center_lon = Some(-45.0);
-        assert!(matches!(
-            ResolvedOptions::parse(&o).unwrap().projection,
-            TargetKind::Warp(WarpTarget::PolarStereographic { south_pole: true, lon0 })
-                if lon0 == -45.0
-        ));
-
-        // No center_lon → central meridian defaults to 0°.
-        o.center_lon = None;
-        assert!(matches!(
-            ResolvedOptions::parse(&o).unwrap().projection,
-            TargetKind::Warp(WarpTarget::PolarStereographic { south_pole: true, lon0 })
-                if lon0 == 0.0
-        ));
-    }
-
-    #[test]
-    fn world_targets_take_the_central_meridian_from_center_lon() {
-        // center_lon sets the central meridian; no preset applies to these.
-        for (name, lon0) in [
-            ("mollweide", -100.0),
-            ("robinson", 25.0),
-            ("equal_earth", 0.0),
-        ] {
-            let mut o = opts(name, "nearest");
-            o.center_lon = Some(lon0);
-            let got = match ResolvedOptions::parse(&o).unwrap().projection {
-                TargetKind::Warp(WarpTarget::Mollweide { lon0 })
-                | TargetKind::Warp(WarpTarget::Robinson { lon0 })
-                | TargetKind::Warp(WarpTarget::EqualEarth { lon0 }) => lon0,
-                other => panic!("{name} did not resolve to a world target: {other:?}"),
-            };
-            assert_eq!(got, lon0, "{name} central meridian");
-        }
-
-        // Each name must resolve to *its own* target, not merely to some world
-        // target — a copy-paste slip in the parse arms would pass the loop above.
-        assert!(matches!(
-            ResolvedOptions::parse(&opts("mollweide", "nearest"))
-                .unwrap()
-                .projection,
-            TargetKind::Warp(WarpTarget::Mollweide { .. })
-        ));
-        assert!(matches!(
-            ResolvedOptions::parse(&opts("robinson", "nearest"))
-                .unwrap()
-                .projection,
-            TargetKind::Warp(WarpTarget::Robinson { .. })
-        ));
-        assert!(matches!(
-            ResolvedOptions::parse(&opts("equal_earth", "nearest"))
-                .unwrap()
-                .projection,
-            TargetKind::Warp(WarpTarget::EqualEarth { .. })
-        ));
-
-        // No center_lon → central meridian defaults to 0° (Greenwich-centred).
-        assert!(matches!(
-            ResolvedOptions::parse(&opts("robinson", "nearest"))
-                .unwrap()
-                .projection,
-            TargetKind::Warp(WarpTarget::Robinson { lon0 }) if lon0 == 0.0
-        ));
-    }
-
-    /// A lookup grid's array shape says nothing about its geography, so the box
-    /// raster takes its shape from the window instead (#515).
-    #[test]
-    fn a_box_raster_takes_its_shape_from_the_window_not_the_array() {
-        // The NOAA-21 half orbit: 96 fields of view by 768 scan lines, over a
-        // window 355° wide and 117° tall. Drawn at the array's shape that is a
-        // 3:1 area in a 1:8 raster — more than twentyfold too tall.
-        let (w, h) = box_raster_dims(96, 768, LonLatBox::new(-89.93, 26.79, -30.33, 324.58));
-        let aspect = f64::from(w) / f64::from(h);
-        let want = (324.58 - -30.33) / (26.79 - -89.93);
-        assert!(
-            (aspect - want).abs() / want < 0.01,
-            "raster {w}x{h} has aspect {aspect}, window wants {want}"
-        );
-        // Nothing is downsampled: the longer edge keeps the source's longer edge.
-        assert_eq!(
-            w.max(h),
-            768,
-            "long edge should be the source's, got {w}x{h}"
-        );
-
-        // A window taller than it is wide puts the source's long edge on height.
-        let (w, h) = box_raster_dims(96, 768, LonLatBox::new(-80.0, 80.0, 0.0, 40.0));
-        assert_eq!(h, 768);
-        assert!(
-            w < h,
-            "a tall window must not produce a wide raster: {w}x{h}"
-        );
-
-        // Degenerate windows have no aspect to honour, so the source shape stands
-        // rather than collapsing the raster.
-        assert_eq!(
-            box_raster_dims(96, 768, LonLatBox::new(10.0, 10.0, 0.0, 40.0)),
-            (96, 768)
-        );
-        assert_eq!(
-            box_raster_dims(96, 768, LonLatBox::new(0.0, 10.0, 5.0, 5.0)),
-            (96, 768)
-        );
-        assert_eq!(
-            box_raster_dims(96, 768, LonLatBox::new(0.0, f64::NAN, 0.0, 40.0)),
-            (96, 768)
-        );
-    }
-
-    #[test]
-    fn world_raster_keeps_each_projections_true_proportions() {
-        // Height is the source's larger edge; width follows the projection's own
-        // aspect, so the three world maps are *not* interchangeable rasters.
-        assert_eq!(
-            world_raster_dims(100, 200, Mollweide::ASPECT_RATIO),
-            (400, 200)
-        );
-        assert_eq!(
-            world_raster_dims(100, 200, Robinson::ASPECT_RATIO),
-            (394, 200)
-        );
-        assert_eq!(
-            world_raster_dims(100, 200, EqualEarth::ASPECT_RATIO),
-            (411, 200)
-        );
-        // A degenerate source stays degenerate rather than wrapping.
-        assert_eq!(world_raster_dims(0, 0, Robinson::ASPECT_RATIO), (0, 0));
-    }
-
-    /// The floor raises a coarse raster to display scale and leaves everything
-    /// else alone (#514).
-    #[test]
-    fn the_raster_floor_raises_only_what_is_below_it() {
-        // A HEALPix Nside 4 field resamples to 26 × 14, the case in the report.
-        let (w, h) = raise_to_min_raster((26, 14));
-        assert_eq!(w, MIN_REPROJECTED_LONG_EDGE, "long edge lands on the floor");
-        let aspect = f64::from(w) / f64::from(h);
-        assert!(
-            (aspect - 26.0 / 14.0).abs() / (26.0 / 14.0) < 0.01,
-            "the source's aspect should survive, got {w}x{h}"
-        );
-
-        // Real forecast grids are already past the floor and must not move: a
-        // silent resample of GFS or HRRR would be a far worse bug than the one
-        // this fixes.
-        assert_eq!(raise_to_min_raster((1440, 721)), (1440, 721), "GFS");
-        assert_eq!(raise_to_min_raster((1799, 1059)), (1799, 1059), "HRRR");
-        assert_eq!(raise_to_min_raster((2880, 1440)), (2880, 1440), "GFS world");
-
-        // Exactly on the floor is already floored — no off-by-one rescale.
-        assert_eq!(
-            raise_to_min_raster((MIN_REPROJECTED_LONG_EDGE, 100)),
-            (MIN_REPROJECTED_LONG_EDGE, 100)
-        );
-
-        // A square target stays square, so an azimuthal disc stays circular.
-        let (w, h) = raise_to_min_raster((4, 4));
-        assert_eq!(
-            (w, h),
-            (MIN_REPROJECTED_LONG_EDGE, MIN_REPROJECTED_LONG_EDGE)
-        );
-
-        // A degenerate raster stays degenerate, as `world_raster_dims` promises.
-        assert_eq!(raise_to_min_raster((0, 0)), (0, 0));
-        assert_eq!(raise_to_min_raster((0, 40)), (0, 40));
-        assert_eq!(raise_to_min_raster((40, 0)), (40, 0));
-    }
-
-    /// Scaling to a *long* edge bounds the result: whatever the aspect, the
-    /// short edge cannot pass the floor either, so the floor can never ask for
-    /// more than `720 × 720` pixels.
-    #[test]
-    fn the_raster_floor_cannot_explode_an_extreme_aspect() {
-        for dims in [(1, 700), (700, 1), (1, 1), (3, 719), (719, 3), (2, 2)] {
-            let (w, h) = raise_to_min_raster(dims);
-            assert_eq!(
-                w.max(h),
-                MIN_REPROJECTED_LONG_EDGE,
-                "{dims:?} should reach the floor, got {w}x{h}"
-            );
-            assert!(
-                w <= MIN_REPROJECTED_LONG_EDGE && h <= MIN_REPROJECTED_LONG_EDGE,
-                "{dims:?} produced {w}x{h}, past the 720x720 bound"
-            );
-            assert!(w >= 1 && h >= 1, "{dims:?} collapsed an edge to zero");
-        }
-    }
-
-    #[test]
-    fn colormap_defaults_to_viridis_and_resolves_by_name() {
-        // A caller that never sets a colormap renders exactly as before.
-        let o = opts("source", "nearest");
-        let r = ResolvedOptions::parse(&o).expect("default colormap");
-        assert_eq!(r.colormap.name(), "viridis");
-        assert!(!r.reverse_colormap);
-
-        // Every registered name resolves to itself, so the picker and the
-        // renderer can't disagree about what a name means.
-        for c in fieldglass_core::colormap::colormaps() {
-            let mut o = opts("source", "nearest");
-            o.colormap = Some(c.name().to_string());
-            o.reverse_colormap = Some(true);
-            let r = ResolvedOptions::parse(&o).expect("registered colormap");
-            assert_eq!(r.colormap.name(), c.name());
-            assert!(r.reverse_colormap);
-        }
-    }
-
-    #[test]
-    fn rejects_unknown_colormap_naming_the_known_ones() {
-        let mut o = opts("source", "nearest");
-        o.colormap = Some("jet".to_string());
-        let err = ResolvedOptions::parse(&o).expect_err("unknown colormap must error");
-        let msg = err.to_string();
-        assert!(msg.contains("unknown colormap"), "{msg}");
-        // The message must list what *is* available, or it isn't actionable.
-        assert!(msg.contains("viridis"), "{msg}");
-    }
-
+    /// The picker's registry and the renderer's must be the same registry.
+    ///
+    /// The rest of `RenderOptions` parsing moved to
+    /// `fieldglass::render::ResolvedOptions` with the pipeline it feeds (#572);
+    /// this stays because `colormaps()` is a napi export, and the assertion that
+    /// matters here is that every name it offers a picker is one the engine then
+    /// resolves.
     #[test]
     fn colormaps_export_feeds_the_picker_and_the_legend() {
         let all = colormaps();
@@ -6801,7 +5025,7 @@ mod resolved_options_tests {
                 );
             }
             // Every name the picker offers must resolve on the render side.
-            let mut o = opts("source", "nearest");
+            let mut o = fieldglass::RenderOptions::new("source", "nearest");
             o.colormap = Some(c.name.clone());
             assert!(
                 ResolvedOptions::parse(&o).is_ok(),
@@ -6810,81 +5034,10 @@ mod resolved_options_tests {
             );
         }
     }
-
-    #[test]
-    fn scale_mode_defaults_to_linear_and_resolves_log10() {
-        // Unset renders exactly as before.
-        let r = ResolvedOptions::parse(&opts("source", "nearest")).expect("default scale");
-        assert_eq!(r.scale, ScaleMode::Linear);
-
-        for (wire, want) in [("linear", ScaleMode::Linear), ("log10", ScaleMode::Log10)] {
-            let mut o = opts("source", "nearest");
-            o.scale_mode = Some(wire.to_string());
-            let r = ResolvedOptions::parse(&o).expect("valid scale mode");
-            assert_eq!(r.scale, want, "wire {wire:?}");
-        }
-    }
-
-    #[test]
-    fn rejects_unknown_scale_mode() {
-        let mut o = opts("source", "nearest");
-        o.scale_mode = Some("symlog".to_string());
-        let err = ResolvedOptions::parse(&o).expect_err("unknown scale mode must error");
-        let msg = err.to_string();
-        assert!(msg.contains("unknown scale mode"), "{msg}");
-        assert!(
-            msg.contains("log10"),
-            "message names the valid modes: {msg}"
-        );
-    }
-
-    #[test]
-    fn rejects_unknown_projection() {
-        let err = ResolvedOptions::parse(&opts("aitoff", "nearest"))
-            .expect_err("unknown projection must error");
-        assert!(
-            err.to_string().contains("unknown projection"),
-            "error names the field, got: {err}"
-        );
-    }
-
-    #[test]
-    fn rejects_unknown_resampling() {
-        let err = ResolvedOptions::parse(&opts("source", "bicubic"))
-            .expect_err("unknown resampling must error");
-        assert!(
-            err.to_string().contains("unknown resampling"),
-            "error names the field, got: {err}"
-        );
-    }
 }
 
 #[cfg(test)]
-mod polar_stereo_warp_tests {
-    /// Assert a reprojected raster sits on the minimum long edge and kept the
-    /// aspect the target asked for (#514).
-    ///
-    /// `unfloored` is the raster the arm would have produced before the floor:
-    /// the source's shape for the lat/lon-box targets, a square for the
-    /// azimuthal discs. Spelled out as two properties rather than by calling
-    /// [`raise_to_min_raster`], so the test states the contract instead of
-    /// re-running the implementation it is checking.
-    #[track_caller]
-    fn assert_floored_raster(got: (u32, u32), unfloored: (u32, u32)) {
-        let (w, h) = got;
-        assert_eq!(
-            w.max(h),
-            super::MIN_REPROJECTED_LONG_EDGE,
-            "long edge should sit on the floor, got {w}x{h}"
-        );
-        let want = f64::from(unfloored.0) / f64::from(unfloored.1);
-        let aspect = f64::from(w) / f64::from(h);
-        assert!(
-            (aspect - want).abs() / want < 0.01,
-            "raster {w}x{h} has aspect {aspect}, wanted {want}"
-        );
-    }
-
+mod meta_geometry_tests {
     use super::*;
 
     /// MessageMeta mirroring the `cmc_wind_300_2010052400_p012.grib`
@@ -6969,340 +5122,63 @@ mod polar_stereo_warp_tests {
         }
     }
 
+    /// The half of the old warp-setup tests that is still this host's: a meta
+    /// that names a family and then omits one of its numbers must refuse by
+    /// *name*, not silently fall back to a default.
+    ///
+    /// The warp itself moved to `fieldglass::render` (#572), so what is checked
+    /// here is the mapping — and `warp_target_tests` in that crate checks that a
+    /// `Source` carrying this refusal really does stop a warp, with these words.
     #[test]
-    fn source_overlay_projects_onto_a_polar_stereo_grid() {
-        // #72: the source-projection overlay must work for *projected* grids,
-        // not just regular lat/lon — it reuses the grid's own inverse map. A
-        // short polyline over North America (inside the CMC polar grid)
-        // projects to a non-empty, shape-consistent run.
-        let opts = RenderOptions {
-            projection: "source".to_string(),
-            projection_preset: None,
-            center_lat: None,
-            center_lon: None,
-            resampling: "nearest".to_string(),
-            flip_y: false,
-            range_min: None,
-            range_max: None,
-            bounds_lat_min: None,
-            bounds_lat_max: None,
-            bounds_lon_min: None,
-            bounds_lon_max: None,
-            colormap: None,
-            reverse_colormap: None,
-            scale_mode: None,
-        };
-        let latlon = [40.0, -100.0, 41.0, -99.0, 42.0, -98.0];
-        let out = project_overlay_impl(&cmc_polar_meta(), &opts, &latlon, &[3], None)
-            .expect("source overlay on polar grid");
-        let total: u32 = out.seg_lengths.iter().copied().sum();
-        assert_eq!(total as usize * 2, out.xy.len(), "shape invariant");
-        assert!(!out.xy.is_empty(), "polyline over the grid should project");
-    }
-
-    #[test]
-    fn warps_polar_stereo_to_equirectangular() {
-        let meta = cmc_polar_meta();
-        // Synthetic uniform field — we're testing the warp geometry, not
-        // value transport. Every present output pixel should read back
-        // exactly 1.0.
-        let raw: Vec<Option<f64>> = vec![Some(1.0); 135 * 95];
-        let (values, mask, w, h, _bounds, summary) = warp_message(
-            &meta,
-            &raw,
-            WarpTarget::Equirectangular,
-            Resampling::Nearest,
-            None,
-            None,
-        )
-        .expect("warp");
-
-        assert_floored_raster((w, h), (135, 95));
-        let present_count = mask.iter().filter(|&&m| m == 1).count();
-        assert!(
-            present_count > 0,
-            "polar-stereo warp produced an entirely empty mask — \
-             either the inverse map rejects every pixel or warp_setup \
-             returned bad bounds"
-        );
-        for (i, &m) in mask.iter().enumerate() {
-            if m == 1 {
-                assert_eq!(values[i], 1.0, "present pixel {i} should be 1.0");
-            }
-        }
-        assert!(
-            summary.contains("polar_stereo") && summary.contains("equirectangular"),
-            "summary should name source kind + target, got: {summary}"
-        );
-    }
-
-    #[test]
-    fn warps_polar_stereo_to_web_mercator() {
-        // The Web Mercator target shares the polar-stereo source inverse map
-        // and bbox; it just distributes rows in Mercator Y. Verify the path
-        // produces a non-empty mask, transports values, clamps the latitude
-        // extent into the Mercator band, and names the target in the summary.
-        let meta = cmc_polar_meta();
-        let raw: Vec<Option<f64>> = vec![Some(1.0); 135 * 95];
-        let (values, mask, w, h, bounds, summary) = warp_message(
-            &meta,
-            &raw,
-            WarpTarget::WebMercator,
-            Resampling::Nearest,
-            None,
-            None,
-        )
-        .expect("mercator warp");
-
-        assert_floored_raster((w, h), (135, 95));
-        let present_count = mask.iter().filter(|&&m| m == 1).count();
-        assert!(present_count > 0, "mercator warp produced an empty mask");
-        for (i, &m) in mask.iter().enumerate() {
-            if m == 1 {
-                assert_eq!(values[i], 1.0, "present pixel {i} should be 1.0");
-            }
-        }
-        let LonLatBox {
-            lat_min, lat_max, ..
-        } = bounds.expect("web mercator has bounds");
-        assert!(
-            lat_min >= -85.06 && lat_max <= 85.06,
-            "lat extent must be clamped to the Mercator band, got {lat_min}..{lat_max}"
-        );
-        assert!(
-            summary.contains("polar_stereo") && summary.contains("web mercator"),
-            "summary should name source kind + target, got: {summary}"
-        );
-    }
-
-    #[test]
-    fn warps_polar_stereo_to_azimuthal_targets() {
-        // The orthographic and polar-stereographic *targets* fit a disc to the
-        // raster: they share the source inverse map but report no lat/lon-box
-        // extent. Verify both produce a non-empty mask and the right summary,
-        // and that bounds come back `None`.
-        let meta = cmc_polar_meta();
-        let raw: Vec<Option<f64>> = vec![Some(1.0); 135 * 95];
-
-        for (target, name) in [
+    fn a_meta_missing_a_declared_field_is_refused_by_name() {
+        for (field, bad) in [
             (
-                WarpTarget::Orthographic {
-                    lat0: 90.0,
-                    lon0: 0.0,
+                "polarStereoLov",
+                MessageMeta {
+                    polar_stereo_lov: None,
+                    ..cmc_polar_meta()
                 },
-                "orthographic",
             ),
             (
-                WarpTarget::PolarStereographic {
-                    south_pole: false,
-                    lon0: 0.0,
+                "polarStereoDxMetres",
+                MessageMeta {
+                    polar_stereo_dx_metres: Some(0.0),
+                    ..cmc_polar_meta()
                 },
-                "polar stereographic",
+            ),
+            (
+                "latFirst",
+                MessageMeta {
+                    lat_first: None,
+                    ..cmc_polar_meta()
+                },
             ),
         ] {
-            let (values, mask, w, h, bounds, summary) =
-                warp_message(&meta, &raw, target, Resampling::Nearest, None, None)
-                    .unwrap_or_else(|e| panic!("{name} warp failed: {e}"));
-            // Azimuthal discs render into a square raster (side = the larger
-            // source axis) so the globe stays circular rather than stretching
-            // into an ellipse on the 135×95 source.
-            assert_floored_raster((w, h), (135, 135));
-            let present = mask.iter().filter(|&&m| m == 1).count();
-            assert!(present > 0, "{name} target produced an empty mask");
-            for (i, &m) in mask.iter().enumerate() {
-                if m == 1 {
-                    assert_eq!(values[i], 1.0, "{name} present pixel {i} should be 1.0");
-                }
-            }
-            assert!(bounds.is_none(), "{name} target has no lat/lon-box extent");
+            let err = try_meta_geometry(&bad, 135, 95, None)
+                .err()
+                .unwrap_or_else(|| panic!("a meta with no {field} must be refused"));
             assert!(
-                summary.contains("polar_stereo") && summary.contains(name),
-                "{name} summary should name source + target, got: {summary}"
+                err.message().contains(field),
+                "error should name the missing field, got: {}",
+                err.message()
             );
         }
     }
 
+    /// A grid type this build does not model is not an error here: it maps to
+    /// `Unsupported` carrying the name the file used, and the operation that
+    /// needed a geometry is the one that says so.
     #[test]
-    fn warps_south_polar_stereo_to_equirectangular() {
-        // Mirror the CMC tile into the southern hemisphere: south-pole
-        // projection, negative lat_first. Exercises the `sign = -1` branch
-        // through the full warp_message → polar_stereo_warp_setup path,
-        // not just the projection-level round-trip tests.
-        let meta = MessageMeta {
-            lat_first: Some(-11.43),
-            polar_stereo_south_pole: Some(true),
+    fn an_unmodelled_family_maps_rather_than_refusing() {
+        let unknown = MessageMeta {
+            grid_type: Some("healpix".to_string()),
             ..cmc_polar_meta()
         };
-        let raw: Vec<Option<f64>> = vec![Some(1.0); 135 * 95];
-        let (values, mask, w, h, _bounds, summary) = warp_message(
-            &meta,
-            &raw,
-            WarpTarget::Equirectangular,
-            Resampling::Nearest,
-            None,
-            None,
-        )
-        .expect("south-polar warp");
-
-        assert_floored_raster((w, h), (135, 95));
-        let present_count = mask.iter().filter(|&&m| m == 1).count();
-        assert!(
-            present_count > 0,
-            "south-polar warp produced an entirely empty mask"
-        );
-        for (i, &m) in mask.iter().enumerate() {
-            if m == 1 {
-                assert_eq!(values[i], 1.0, "present pixel {i} should be 1.0");
-            }
-        }
-        assert!(summary.contains("polar_stereo") && summary.contains("equirectangular"));
-    }
-
-    #[test]
-    fn warps_hemispheric_grid_with_pole_inside() {
-        // A synthetic hemispheric grid whose projected extent surrounds the
-        // pole (same geometry as the projection-level
-        // `polar_stereo_pole_inside_grid_detection` test). Two things this
-        // pins that the regional CMC test does not:
-        //   1. negative `dy_metres` (south-scanning) is handled by the warp
-        //      setup, not just the projector unit test;
-        //   2. the 360°-longitude / pole-clamp override path in
-        //      polar_stereo_warp_setup is reachable through warp_message
-        //      and produces a fully-covered raster instead of a thin
-        //      four-corner sliver.
-        let meta = MessageMeta {
-            grid_ni: Some(4),
-            grid_nj: Some(4),
-            lat_first: Some(50.8),
-            lon_first: Some(-135.0),
-            polar_stereo_lov: Some(0.0),
-            polar_stereo_dx_metres: Some(2_000_000.0),
-            polar_stereo_dy_metres: Some(-2_000_000.0),
-            polar_stereo_south_pole: Some(false),
-            ..cmc_polar_meta()
-        };
-        let raw: Vec<Option<f64>> = vec![Some(1.0); 4 * 4];
-        let (_values, mask, w, h, _bounds, _summary) = warp_message(
-            &meta,
-            &raw,
-            WarpTarget::Equirectangular,
-            Resampling::Nearest,
-            None,
-            None,
-        )
-        .expect("hemispheric warp");
-
-        assert_floored_raster((w, h), (4, 4));
-        // With the pole inside the grid the target spans the full hemisphere,
-        // so a clear majority of the output pixels resolve to a source sample
-        // rather than the handful a four-corner bbox would cover. Stated as a
-        // fraction because the raster is floored to display scale (#514) — a
-        // fixed count would be met by a sliver once the raster is this large.
-        let total = (w * h) as usize;
-        let present_count = mask.iter().filter(|&&m| m == 1).count();
-        assert!(
-            present_count * 2 >= total,
-            "pole-inside grid should fill most of the raster, got {present_count}/{total} present"
-        );
-    }
-
-    #[test]
-    fn warps_grid_with_pole_exactly_on_origin() {
-        // lat_first = 90° puts the first scanned point at the pole, so the
-        // projected grid origin is exactly (0, 0). `pole_inside_grid` uses
-        // inclusive bounds, so this edge case must still take the
-        // 360°-longitude override and warp without panicking.
-        let meta = MessageMeta {
-            grid_ni: Some(4),
-            grid_nj: Some(4),
-            lat_first: Some(90.0),
-            lon_first: Some(0.0),
-            polar_stereo_lov: Some(0.0),
-            polar_stereo_dx_metres: Some(2_000_000.0),
-            polar_stereo_dy_metres: Some(2_000_000.0),
-            polar_stereo_south_pole: Some(false),
-            ..cmc_polar_meta()
-        };
-        let raw: Vec<Option<f64>> = vec![Some(1.0); 4 * 4];
-        let (_values, mask, w, h, _bounds, _summary) = warp_message(
-            &meta,
-            &raw,
-            WarpTarget::Equirectangular,
-            Resampling::Nearest,
-            None,
-            None,
-        )
-        .expect("pole-on-origin warp");
-        assert_floored_raster((w, h), (4, 4));
-        assert!(
-            mask.contains(&1),
-            "pole-on-origin grid should still resolve some pixels"
-        );
-    }
-
-    #[test]
-    fn polar_stereo_warp_errors_without_required_fields() {
-        // Missing polarStereoLov — warp setup must surface a clear error
-        // naming the field rather than silently falling back to a default.
-        let bad = MessageMeta {
-            polar_stereo_lov: None,
-            ..cmc_polar_meta()
-        };
-        let raw: Vec<Option<f64>> = vec![Some(1.0); 135 * 95];
-        let err = warp_message(
-            &bad,
-            &raw,
-            WarpTarget::Equirectangular,
-            Resampling::Nearest,
-            None,
-            None,
-        )
-        .expect_err("missing lov must error");
-        assert!(
-            err.to_string().contains("polarStereoLov"),
-            "error should name the missing field, got: {err}"
-        );
-    }
-
-    #[test]
-    fn bounds_override_replaces_computed_extent_and_echoes_back() {
-        let meta = cmc_polar_meta();
-        let raw: Vec<Option<f64>> = vec![Some(1.0); 135 * 95];
-
-        // Default: no override → echoed bounds are the computed source extent.
-        let (.., default_bounds, _) = warp_message(
-            &meta,
-            &raw,
-            WarpTarget::Equirectangular,
-            Resampling::Nearest,
-            None,
-            None,
-        )
-        .expect("default warp");
-        let default_bounds = default_bounds.expect("equirectangular has bounds");
-
-        // Explicit window → that window is rendered and echoed back verbatim.
-        let window = LonLatBox {
-            lat_min: 30.0,
-            lat_max: 60.0,
-            lon_min: -140.0,
-            lon_max: -60.0,
-        };
-        let (_v, _m, _w, _h, used, _s) = warp_message(
-            &meta,
-            &raw,
-            WarpTarget::Equirectangular,
-            Resampling::Nearest,
-            Some(window),
-            None,
-        )
-        .expect("windowed warp");
-        assert_eq!(used, Some(LonLatBox::new(30.0, 60.0, -140.0, -60.0)));
-        assert_ne!(
-            used.unwrap(),
-            default_bounds,
-            "override should differ from the computed default"
-        );
+        let geometry = try_meta_geometry(&unknown, 135, 95, None).expect("maps, not refuses");
+        assert!(matches!(
+            &*geometry,
+            GridGeometry::Unsupported { label } if label == "healpix"
+        ));
     }
 
     #[test]
@@ -7326,314 +5202,6 @@ mod polar_stereo_warp_tests {
         assert_eq!(
             signed_grid_increments(-5000.0, -5000.0, false, true),
             (5000.0, 5000.0)
-        );
-    }
-
-    #[test]
-    fn web_mercator_band_outside_clamp_is_rejected() {
-        // A manual latitude band lying entirely poleward of the ±85.0511°
-        // Web Mercator cutoff clamps to a single edge (zero Y span), which
-        // would smear every row to one latitude. It must be rejected instead.
-        let meta = cmc_polar_meta();
-        let raw = vec![Some(1.0); 135 * 95];
-        let band = LonLatBox {
-            lat_min: 86.0,
-            lat_max: 88.0,
-            lon_min: -10.0,
-            lon_max: 10.0,
-        };
-        let err = warp_message(
-            &meta,
-            &raw,
-            WarpTarget::WebMercator,
-            Resampling::Nearest,
-            Some(band),
-            None,
-        )
-        .expect_err("a lat band entirely outside ±85.05° must be rejected");
-        assert!(
-            err.reason.contains("Web Mercator"),
-            "expected a Web-Mercator-band error, got: {}",
-            err.reason
-        );
-    }
-
-    /// MessageMeta for a GRIB2 §3.10 Mercator grid (100×100 over the western
-    /// tropics). The Mercator inverse map is pinned by the corner coordinates,
-    /// so — like the regular lat/lon source — no metric grid spacing is needed.
-    fn mercator_meta() -> MessageMeta {
-        MessageMeta {
-            grid_type: Some("mercator".to_string()),
-            grid_ni: Some(100),
-            grid_nj: Some(100),
-            lat_first: Some(0.0),
-            lon_first: Some(-100.0),
-            lat_last: Some(30.0),
-            lon_last: Some(-60.0),
-            format: "grib2".to_string(),
-            edition: Some(2),
-            ..cmc_polar_meta()
-        }
-    }
-
-    #[test]
-    fn warps_mercator_to_equirectangular() {
-        // #119: a GRIB2 Mercator (§3.10) source grid must reproject. Synthetic
-        // uniform field — testing warp geometry, not value transport.
-        let meta = mercator_meta();
-        let raw: Vec<Option<f64>> = vec![Some(1.0); 100 * 100];
-        let (values, mask, w, h, bounds, summary) = warp_message(
-            &meta,
-            &raw,
-            WarpTarget::Equirectangular,
-            Resampling::Nearest,
-            None,
-            None,
-        )
-        .expect("mercator warp");
-
-        assert_floored_raster((w, h), (100, 100));
-        let present = mask.iter().filter(|&&m| m == 1).count();
-        assert!(present > 0, "mercator warp produced an empty mask");
-        for (i, &m) in mask.iter().enumerate() {
-            if m == 1 {
-                assert_eq!(values[i], 1.0, "present pixel {i} should be 1.0");
-            }
-        }
-        // The source extent is the geographic corner box.
-        let LonLatBox {
-            lat_min,
-            lat_max,
-            lon_min,
-            lon_max,
-        } = bounds.expect("mercator has bounds");
-        assert!(
-            lat_min >= -0.01 && lat_max <= 30.01,
-            "lat box {lat_min}..{lat_max}"
-        );
-        assert!(
-            lon_min >= -100.01 && lon_max <= -59.99,
-            "lon box {lon_min}..{lon_max}"
-        );
-        assert!(
-            summary.contains("mercator") && summary.contains("equirectangular"),
-            "summary should name source kind + target, got: {summary}"
-        );
-    }
-
-    /// MessageMeta for a GRIB2 §3.30 Lambert grid (100×100, 3 km, CONUS-like),
-    /// the way `build_grib2_message_meta` populates one.
-    fn lambert_meta() -> MessageMeta {
-        MessageMeta {
-            grid_type: Some("lambert".to_string()),
-            grid_ni: Some(100),
-            grid_nj: Some(100),
-            lat_first: Some(21.14),
-            lon_first: Some(-122.72),
-            lat_last: None,
-            lon_last: None,
-            lambert_lad: Some(38.5),
-            lambert_lov: Some(-97.5),
-            lambert_dx_metres: Some(3000.0),
-            lambert_dy_metres: Some(3000.0),
-            lambert_latin1: Some(38.5),
-            lambert_latin2: Some(38.5),
-            format: "grib2".to_string(),
-            edition: Some(2),
-            ..cmc_polar_meta()
-        }
-    }
-
-    #[test]
-    fn warps_grib2_lambert_to_equirectangular() {
-        // #119 audit half: confirm the GRIB2 Lambert (§3.30) params reach the
-        // warp and reproject a non-empty field — the same path GRIB1 Lambert
-        // already uses.
-        let meta = lambert_meta();
-        let raw: Vec<Option<f64>> = vec![Some(1.0); 100 * 100];
-        let (values, mask, w, h, _bounds, summary) = warp_message(
-            &meta,
-            &raw,
-            WarpTarget::Equirectangular,
-            Resampling::Nearest,
-            None,
-            None,
-        )
-        .expect("lambert warp");
-
-        assert_floored_raster((w, h), (100, 100));
-        let present = mask.iter().filter(|&&m| m == 1).count();
-        assert!(present > 0, "lambert warp produced an empty mask");
-        for (i, &m) in mask.iter().enumerate() {
-            if m == 1 {
-                assert_eq!(values[i], 1.0, "present pixel {i} should be 1.0");
-            }
-        }
-        assert!(
-            summary.contains("lambert") && summary.contains("equirectangular"),
-            "summary should name source kind + target, got: {summary}"
-        );
-    }
-
-    /// MessageMeta for a GRIB2 §3.1 rotated lat/lon grid, mirroring the
-    /// committed `rotated_latlon_surface.grib2` fixture: 16×31 grid, rotated
-    /// corners (60,0)→(0,30), southern pole at geographic (0,0), no rotation.
-    fn rotated_latlon_meta() -> MessageMeta {
-        MessageMeta {
-            grid_type: Some("rotated_latlon".to_string()),
-            grid_ni: Some(16),
-            grid_nj: Some(31),
-            lat_first: Some(60.0),
-            lon_first: Some(0.0),
-            lat_last: Some(0.0),
-            lon_last: Some(30.0),
-            lambert_azimuthal_semi_major_metres: None,
-            lambert_azimuthal_semi_minor_metres: None,
-            lambert_azimuthal_standard_parallel: None,
-            lambert_azimuthal_central_longitude: None,
-            lambert_azimuthal_dx_metres: None,
-            lambert_azimuthal_dy_metres: None,
-            transverse_mercator_semi_major_metres: None,
-            transverse_mercator_semi_minor_metres: None,
-            transverse_mercator_lat_ref: None,
-            transverse_mercator_lon_ref: None,
-            transverse_mercator_scale_factor: None,
-            transverse_mercator_false_easting_metres: None,
-            transverse_mercator_false_northing_metres: None,
-            transverse_mercator_x1_metres: None,
-            transverse_mercator_y1_metres: None,
-            transverse_mercator_dx_metres: None,
-            transverse_mercator_dy_metres: None,
-            rotated_south_pole_lat: Some(0.0),
-            rotated_south_pole_lon: Some(0.0),
-            rotated_angle_of_rotation: Some(0.0),
-            geos_sub_lon: None,
-            geos_height: None,
-            geos_r_eq: None,
-            geos_r_pol: None,
-            geos_sweep_x: None,
-            geos_x0: None,
-            geos_dx_rad: None,
-            geos_y0: None,
-            geos_dy_rad: None,
-            format: "grib2".to_string(),
-            edition: Some(2),
-            ..cmc_polar_meta()
-        }
-    }
-
-    fn latlon_meta() -> MessageMeta {
-        MessageMeta {
-            grid_type: Some("latlon".to_string()),
-            ..rotated_latlon_meta()
-        }
-    }
-
-    #[test]
-    fn field_csv_matrix_format() {
-        // 2×2 grid with a missing hole at (i=1, j=0).
-        let values = vec![Some(1.0), None, Some(3.0), Some(4.0)];
-        let csv = field_csv(&values, &latlon_meta(), 2, 2, "matrix", None).expect("matrix");
-        assert_eq!(csv, "1,\n3,4\n");
-    }
-
-    #[test]
-    fn field_csv_long_format_has_header_and_values() {
-        let values = vec![Some(1.0), None, Some(3.0), Some(4.0)];
-        let csv = field_csv(&values, &latlon_meta(), 2, 2, "long", None).expect("long");
-        let mut lines = csv.lines();
-        assert_eq!(lines.next(), Some("lat,lon,value"));
-        // One row per grid point, values in scan order in the 3rd column;
-        // the missing point (i=1, j=0) has an empty value cell.
-        let value_col: Vec<&str> = lines.map(|l| l.rsplit(',').next().unwrap()).collect();
-        assert_eq!(value_col, vec!["1", "", "3", "4"]);
-    }
-
-    #[test]
-    fn field_csv_rejects_unknown_format() {
-        let err =
-            field_csv(&[Some(1.0)], &latlon_meta(), 1, 1, "tsv", None).expect_err("bad format");
-        assert!(format!("{err}").contains("unknown CSV format"));
-    }
-
-    #[test]
-    fn field_csv_long_gates_grids_without_a_forward_map() {
-        // A projected grid geolocates now (#470), so the long format exports it
-        // rather than refusing.
-        let csv = field_csv(&[Some(1.0)], &cmc_polar_meta(), 1, 1, "long", None)
-            .expect("a polar-stereographic grid exports the long format");
-        let first = csv.lines().nth(1).expect("one data row");
-        let cells: Vec<f64> = first
-            .split(',')
-            .map(|c| c.parse().expect("numeric"))
-            .collect();
-        assert!(
-            (cells[0] - 11.43).abs() < 1e-6 && (cells[1] + 110.27).abs() < 1e-6,
-            "the row carries the grid's own first point, got: {first}"
-        );
-
-        // Space view (§3.90) still has no forward map — part of its scan-angle
-        // grid is off the disc — so it must error rather than emit bad
-        // coordinates. The message must be about CSV and point at the Matrix
-        // layout, not leak the shared gate's contour wording (#337).
-        let mut space_view = cmc_polar_meta();
-        space_view.grid_type = Some("space_view".to_string());
-        let err = field_csv(&[Some(1.0)], &space_view, 1, 1, "long", None)
-            .expect_err("a grid without coordinates is gated");
-        let msg = format!("{err}");
-        assert!(
-            msg.contains("long CSV") && msg.contains("Matrix"),
-            "actionable CSV-specific message, got: {msg}"
-        );
-        assert!(
-            !msg.contains("contour"),
-            "the CSV gate must not surface contour wording, got: {msg}"
-        );
-    }
-
-    #[test]
-    fn warps_grib2_rotated_latlon_to_equirectangular() {
-        // #120: a GRIB2 rotated lat/lon (§3.1) source grid must reproject. The
-        // corners are rotated-frame coordinates, so the warp rotates each
-        // geographic output point into the grid's frame before sampling.
-        // Synthetic uniform field — testing warp geometry, not value transport.
-        let meta = rotated_latlon_meta();
-        let raw: Vec<Option<f64>> = vec![Some(1.0); 16 * 31];
-        let (values, mask, w, h, bounds, summary) = warp_message(
-            &meta,
-            &raw,
-            WarpTarget::Equirectangular,
-            Resampling::Nearest,
-            None,
-            None,
-        )
-        .expect("rotated lat/lon warp");
-
-        let present = mask.iter().filter(|&&m| m == 1).count();
-        assert!(present > 0, "rotated warp produced an empty mask");
-        for (i, &m) in mask.iter().enumerate() {
-            if m == 1 {
-                assert_eq!(values[i], 1.0, "present pixel {i} should be 1.0");
-            }
-        }
-        // The geographic extent is the unrotated perimeter box. With the pole at
-        // (0,0) the fixture's grid sweeps the high-latitude north side; the
-        // reported box must be non-degenerate and stay within valid ranges.
-        let LonLatBox {
-            lat_min,
-            lat_max,
-            lon_min,
-            lon_max,
-        } = bounds.expect("rotated grid has bounds");
-        assert!(
-            lat_max > lat_min && lat_max <= 90.01,
-            "lat box {lat_min}..{lat_max}"
-        );
-        assert!(lon_max > lon_min, "lon box {lon_min}..{lon_max}");
-        assert!(w > 0 && h > 0);
-        assert!(
-            summary.contains("rotated_latlon") && summary.contains("equirectangular"),
-            "summary should name source kind + target, got: {summary}"
         );
     }
 }
@@ -8655,7 +6223,7 @@ mod netcdf_slice_tests {
             lat_ascending: false,
         };
         let meta = synth_latlon_meta("sst", "degree_C", 180, 89, Some(global), false);
-        assert!(source_grid_is_periodic(&meta));
+        assert!(meta_geometry(&meta).is_periodic_x());
 
         // A 90°-wide regional window is not periodic.
         let regional = fieldglass_netcdf::SliceGeometry {
@@ -8665,12 +6233,12 @@ mod netcdf_slice_tests {
             ..global
         };
         let meta = synth_latlon_meta("t", "K", 10, 89, Some(regional), false);
-        assert!(!source_grid_is_periodic(&meta));
+        assert!(!meta_geometry(&meta).is_periodic_x());
 
         // Planar grid types never wrap, whatever their corners say.
         let mut planar = synth_latlon_meta("t", "K", 180, 89, Some(global), false);
         planar.grid_type = Some("lambert".to_string());
-        assert!(!source_grid_is_periodic(&planar));
+        assert!(!meta_geometry(&planar).is_periodic_x());
     }
 
     /// End-to-end: open the committed classic ERSST fixture, pick the bottom
@@ -8917,48 +6485,6 @@ mod netcdf_slice_tests {
         );
     }
 
-    /// A regular lat/lon meta over a small region, for the contour tests.
-    fn latlon_meta(ni: i32, nj: i32) -> MessageMeta {
-        let mut meta = base_netcdf_meta("t", "K", ni, nj);
-        meta.grid_type = Some("latlon".to_string());
-        meta.lat_first = Some(40.0);
-        meta.lat_last = Some(10.0);
-        meta.lon_first = Some(0.0);
-        meta.lon_last = Some(40.0);
-        meta
-    }
-
-    #[test]
-    fn levels_by_interval_walks_the_range_on_multiples() {
-        assert_eq!(levels_by_interval(0.0, 10.0, 2.0), vec![2.0, 4.0, 6.0, 8.0]);
-        // Endpoints are excluded; a start below the range is skipped.
-        assert_eq!(levels_by_interval(-3.0, 3.0, 3.0), vec![0.0]);
-        // Degenerate inputs yield nothing.
-        assert!(levels_by_interval(5.0, 5.0, 1.0).is_empty());
-        assert!(levels_by_interval(0.0, 10.0, 0.0).is_empty());
-        assert!(levels_by_interval(0.0, 10.0, -1.0).is_empty());
-    }
-
-    #[test]
-    fn forward_geolocation_latlon_places_corners_then_interior() {
-        let meta = latlon_meta(5, 4);
-        let fwd = forward_geolocation_for(&meta, 5, 4, None, |_| String::new())
-            .expect("latlon forward map");
-        // Corner (0,0) is (latFirst, lonFirst); (4,3) is (latLast, lonLast).
-        assert_eq!(fwd(0, 0), Some((40.0, 0.0)));
-        assert_eq!(fwd(4, 3), Some((10.0, 40.0)));
-        // A fractional vertex on the bottom edge interpolates the longitude.
-        let (lat, lon) = forward_bilinear(fwd.as_ref(), 5, 4, 2.5, 0.0, false).expect("interior");
-        assert!(
-            (lat - 40.0).abs() < 1e-9,
-            "on the first row, lat = latFirst"
-        );
-        assert!(
-            (lon - 25.0).abs() < 1e-9,
-            "i=2.5 over 0..40/4 steps → lon 25, got {lon}"
-        );
-    }
-
     /// `render_forecast` had no tests at all, despite seven unit branches, a
     /// sign-magnitude value, and a fallback that silently produced 0.
     fn forecast_common(unit: u8, time: i64) -> fieldglass_grib2::pds::HorizontalProductCommon {
@@ -8981,6 +6507,17 @@ mod netcdf_slice_tests {
             first_surface: surface,
             second_surface: surface,
         }
+    }
+
+    /// A regular lat/lon meta over a small region, for the contour tests.
+    fn latlon_meta(ni: i32, nj: i32) -> MessageMeta {
+        let mut meta = base_netcdf_meta("t", "K", ni, nj);
+        meta.grid_type = Some("latlon".to_string());
+        meta.lat_first = Some(40.0);
+        meta.lat_last = Some(10.0);
+        meta.lon_first = Some(0.0);
+        meta.lon_last = Some(40.0);
+        meta
     }
 
     #[test]
@@ -9077,11 +6614,11 @@ mod netcdf_slice_tests {
         // is a full turn once the 22.5 step is counted).
         let rotated = as_family(global_latlon_meta(16, 4), "rotated_latlon");
         assert!(
-            source_grid_is_periodic(&rotated),
+            meta_geometry(&rotated).is_periodic_x(),
             "the grid really is periodic in its own (rotated) longitude",
         );
         assert!(
-            !contour_seam_wraps(&rotated),
+            !meta_geometry(&rotated).contour_seam_wraps(),
             "but the contour seam must not wrap it: the interpolation runs in \
              geographic lon, which is not uniform along a rotated row",
         );
@@ -9095,14 +6632,14 @@ mod netcdf_slice_tests {
         for family in ["latlon", "mercator", "gaussian"] {
             let meta = as_family(global_latlon_meta(8, 4), family);
             assert!(
-                contour_seam_wraps(&meta),
+                meta_geometry(&meta).contour_seam_wraps(),
                 "{family}: a global grid of this family must wrap the seam",
             );
             // Regional grids of the same family must not.
             let mut regional = as_family(global_latlon_meta(8, 4), family);
             regional.lon_last = Some(40.0);
             assert!(
-                !contour_seam_wraps(&regional),
+                !meta_geometry(&regional).contour_seam_wraps(),
                 "{family}: a regional grid must keep the bounded march",
             );
         }
@@ -9119,11 +6656,11 @@ mod netcdf_slice_tests {
                 let mut meta = as_family(global_latlon_meta(8, 4), family);
                 meta.lon_last = Some(lon_last);
                 assert_eq!(
-                    contour_seam_wraps(&meta),
-                    source_grid_is_periodic(&meta),
+                    meta_geometry(&meta).contour_seam_wraps(),
+                    meta_geometry(&meta).is_periodic_x(),
                     "{family} lon_last={lon_last}: the two must not disagree",
                 );
-                assert_eq!(contour_seam_wraps(&meta), want);
+                assert_eq!(meta_geometry(&meta).contour_seam_wraps(), want);
             }
         }
     }
@@ -9158,38 +6695,6 @@ mod netcdf_slice_tests {
             meta.rotated_angle_of_rotation = Some(0.0);
         }
         meta
-    }
-
-    /// A seam vertex sits in `(ni-1, ni)`, where the west corner is the last
-    /// column and the east corner is column 0 one turn further east. Clamping
-    /// `i0` at `ni-2` (the bounded rule) drags both corners onto the last two
-    /// columns and the seam collapses; interpolating without the +360 sweeps
-    /// backwards across the whole map instead of across the seam gap.
-    #[test]
-    fn forward_bilinear_interpolates_across_the_periodic_seam() {
-        let meta = global_latlon_meta(4, 3);
-        let fwd = forward_geolocation_for(&meta, 4, 3, None, |_| String::new())
-            .expect("latlon forward map");
-        // Columns are 90° apart: 0, 90, 180, 270.
-        assert_eq!(fwd(0, 0).map(|p| p.1), Some(0.0));
-        assert_eq!(fwd(3, 0).map(|p| p.1), Some(270.0));
-
-        // Midway through the seam cell → 315°, which normalises to -45.
-        let (_, lon) = forward_bilinear(fwd.as_ref(), 4, 3, 3.5, 0.0, true).expect("seam vertex");
-        assert!(
-            (normalise_lon(315.0) - lon).abs() < 1e-9,
-            "the seam midpoint must read 315 (≡ -45), got {lon}",
-        );
-
-        // Without the periodic flag the same vertex clamps back onto the last
-        // column — the collapse that left a gap at the seam meridian.
-        let (_, bounded) =
-            forward_bilinear(fwd.as_ref(), 4, 3, 3.5, 0.0, false).expect("bounded vertex");
-        assert!(
-            (bounded - 270.0).abs() < 1e-9,
-            "the bounded rule clamps the seam vertex onto the last column \
-             (lon 270, un-normalised), got {bounded}",
-        );
     }
 
     /// End to end: a global field's isolines must not stop a cell short of the
@@ -9260,8 +6765,24 @@ mod netcdf_slice_tests {
         // A grid type whose forward map isn't wired is still a clear error. The
         // planar family gained one in #470, so the holdout here is space view:
         // part of its scan-angle grid is off the disc, with no position at all.
+        //
+        // The §3.90 parameters below are a nominal GOES-East disc and are
+        // deliberately complete. Since #572 the geometry is resolved before the
+        // family gate runs, so a `"space_view"` meta stating *none* of them is
+        // refused for the field it omitted rather than for its family — which is
+        // a truthful answer to a message no decoder produces, but not the one
+        // this test is about.
         let mut space_view = latlon_meta(5, 4);
         space_view.grid_type = Some("space_view".to_string());
+        space_view.geos_sub_lon = Some(-75.0);
+        space_view.geos_height = Some(42_164_000.0);
+        space_view.geos_r_eq = Some(6_378_137.0);
+        space_view.geos_r_pol = Some(6_356_752.314);
+        space_view.geos_sweep_x = Some(true);
+        space_view.geos_x0 = Some(-0.101_2);
+        space_view.geos_dx_rad = Some(0.050_6);
+        space_view.geos_y0 = Some(0.101_2);
+        space_view.geos_dy_rad = Some(-0.050_6);
         match project_contours_impl(&space_view, &raw, &opts("source"), None, None) {
             Ok(_) => panic!("space view contours must error for now"),
             Err(e) => assert!(e.to_string().contains("contours not yet supported"), "{e}"),
@@ -9365,15 +6886,9 @@ mod netcdf_slice_tests {
         // keeps the probe count in the same range while covering the full
         // raster — the seam gap is 22.5° of 360°, some 45 columns of the 720,
         // so it is sampled far more densely than it was at 32 wide.
-        let (_, _, rw, rh, _, _) = warp_message(
-            &meta,
-            &raw,
-            WarpTarget::Mollweide { lon0: 0.0 },
-            Resampling::Nearest,
-            None,
-            None,
-        )
-        .expect("mollweide warp");
+        let rendered =
+            render_with_options(&meta, &raw, &opts("mollweide"), None).expect("mollweide warp");
+        let (rw, rh) = (rendered.width as u32, rendered.height as u32);
         let stride = (rw.max(rh) as usize / 32).max(1);
         let mut painted = 0;
         for py in (0..rh).step_by(stride) {
@@ -9476,15 +6991,9 @@ mod netcdf_slice_tests {
         meta.rotated_angle_of_rotation = Some(0.0);
         let raw: Vec<Option<f64>> = (0..16 * 8).map(|k| Some((k % 16) as f64)).collect();
 
-        let (_, _, rw, rh, _, _) = warp_message(
-            &meta,
-            &raw,
-            WarpTarget::Mollweide { lon0: 0.0 },
-            Resampling::Nearest,
-            None,
-            None,
-        )
-        .expect("mollweide warp");
+        let rendered =
+            render_with_options(&meta, &raw, &opts("mollweide"), None).expect("mollweide warp");
+        let (rw, rh) = (rendered.width as u32, rendered.height as u32);
         let stride = (rw.max(rh) as usize / 32).max(1);
         let mut resolved = 0;
         for py in (0..rh).step_by(stride) {
@@ -9947,11 +7456,15 @@ mod space_view_geos_tests {
         }
     }
 
+    /// A §3.90 meta resolves to a `GridGeometry::Geostationary` whose inverse
+    /// places the sub-satellite point at the middle of the crop and refuses the
+    /// far side. The mapping is the whole of what this host still owns for the
+    /// space view (#572); the warp setup it used to build is `core`'s now.
     #[test]
-    fn space_view_warp_setup_round_trips_through_meta() {
-        // Drive the full napi path: §3.90 meta → warp_setup_for → inverse.
+    fn space_view_meta_round_trips_into_the_geometry() {
         let meta = space_view_meta();
-        let (inverse, _bbox) = warp_setup_for(&meta, 11, 11, None).expect("space view warp setup");
+        let geometry = try_meta_geometry(&meta, 11, 11, None).expect("space view geometry");
+        let inverse = geometry.inverse_at();
         let idx = inverse(0.0, -75.0).expect("sub-sat on grid");
         assert!((idx.i - 5.0).abs() < 1e-6 && (idx.j - 5.0).abs() < 1e-6);
         assert!(inverse(0.0, 105.0).is_none(), "far side must be off-grid");
@@ -9959,16 +7472,18 @@ mod space_view_geos_tests {
 
     #[test]
     fn space_view_bbox_frames_on_disk_extent() {
-        // The 11×11 central crop is on-disk, so the thunk frames its extent
+        // The 11×11 central crop is on-disk, so the window frames its extent
         // tightly — strictly inside the ±90° hemisphere fallback.
         let meta = space_view_meta();
-        let (_inverse, bbox) = warp_setup_for(&meta, 11, 11, None).expect("space view warp setup");
+        let geometry = try_meta_geometry(&meta, 11, 11, None).expect("space view geometry");
         let LonLatBox {
             lat_min,
             lat_max,
             lon_min,
             lon_max,
-        } = bbox();
+        } = geometry
+            .render_window()
+            .expect("an on-disk crop has an extent");
         assert!(
             lat_min > -90.0 && lat_max < 90.0,
             "lat {lat_min}..{lat_max}"
@@ -9984,21 +7499,21 @@ mod space_view_geos_tests {
     #[test]
     fn space_view_bbox_falls_back_when_perimeter_off_disk() {
         // A scan window wider than the apparent disk (±0.16 rad > ~0.152 rad
-        // limb) has no on-disk perimeter sample, so the thunk returns the
-        // generous ±90° hemisphere box around the sub-satellite point.
+        // limb) has no on-disk perimeter sample, so the window is the generous
+        // ±90° hemisphere box around the sub-satellite point.
         let mut meta = space_view_meta();
         let half = 0.16;
         meta.geos_x0 = Some(-half);
         meta.geos_y0 = Some(-half);
         meta.geos_dx_rad = Some(2.0 * half / 10.0);
         meta.geos_dy_rad = Some(2.0 * half / 10.0);
-        let (_inverse, bbox) = warp_setup_for(&meta, 11, 11, None).expect("space view warp setup");
+        let geometry = try_meta_geometry(&meta, 11, 11, None).expect("space view geometry");
         let LonLatBox {
             lat_min,
             lat_max,
             lon_min,
             lon_max,
-        } = bbox();
+        } = geometry.render_window().expect("the fallback is an extent");
         assert_eq!((lat_min, lat_max), (-90.0, 90.0));
         assert_eq!((lon_min, lon_max), (-165.0, 15.0));
     }
@@ -10008,8 +7523,30 @@ mod space_view_geos_tests {
     /// nothing at all, and used to reach that same fallback by the wrong route
     /// — a generous box around a satellite looking at nothing, over pixels that
     /// geolocate as `NaN`. It is refused now, naming the numbers.
+    ///
+    /// Asked through `render_grid`'s own entry point rather than of the warp
+    /// setup it used to have: the refusal moved to `fieldglass::render` with the
+    /// warp (#572), and this is the path a caller actually meets it on.
     #[test]
     fn space_view_refuses_an_ellipsoid_it_cannot_see() {
+        let raw: Vec<Option<f64>> = (0..11 * 11).map(|k| Some(k as f64)).collect();
+        let warped = || RenderOptions {
+            projection: "equirectangular".to_string(),
+            projection_preset: None,
+            center_lat: None,
+            center_lon: None,
+            resampling: "nearest".to_string(),
+            flip_y: false,
+            range_min: None,
+            range_max: None,
+            bounds_lat_min: None,
+            bounds_lat_max: None,
+            bounds_lon_min: None,
+            bounds_lon_max: None,
+            colormap: None,
+            reverse_colormap: None,
+            scale_mode: None,
+        };
         for (what, patch) in [
             (
                 "a zero equatorial radius",
@@ -10036,7 +7573,7 @@ mod space_view_geos_tests {
             if let Some(v) = h {
                 meta.geos_height = Some(v);
             }
-            let err = warp_setup_for(&meta, 11, 11, None)
+            let err = render_with_options(&meta, &raw, &warped(), None)
                 .err()
                 .unwrap_or_else(|| panic!("{what} was accepted"));
             assert!(
@@ -10046,7 +7583,7 @@ mod space_view_geos_tests {
             );
         }
         // The real GOES-like grid is untouched.
-        assert!(warp_setup_for(&space_view_meta(), 11, 11, None).is_ok());
+        assert!(render_with_options(&space_view_meta(), &raw, &warped(), None).is_ok());
     }
 }
 
@@ -10061,6 +7598,7 @@ mod space_view_geos_tests {
 #[cfg(test)]
 mod planar_geolocation_tests {
     use super::*;
+    use fieldglass_core::contour::{contour_segments, nice_levels};
 
     /// NOAA Eta, GDS template 3.30 (Lambert conformal), 93×65 at 81.271 km.
     const ETA_LAMBERT: &[u8] =
@@ -10072,8 +7610,7 @@ mod planar_geolocation_tests {
     const TRANSVERSE_MERCATOR: &[u8] =
         include_bytes!("../../fieldglass-grib2/tests/fixtures/transverse_mercator_ukv.grib2");
     /// CMC 300 hPa wind, GRIB1 grid type 5 (polar stereographic), 135×95 at
-    /// 60 km. Its top row runs across the antimeridian, which is why it is the
-    /// fixture for the longitude-cut cases below.
+    /// 60 km.
     const CMC_POLAR: &[u8] =
         include_bytes!("../../fieldglass-grib1/tests/fixtures/cmc_wind_300_2010052400_p012.grib");
 
@@ -10121,11 +7658,38 @@ mod planar_geolocation_tests {
         }
     }
 
-    fn forward_map(meta: &MessageMeta, ni: u32, nj: u32) -> ForwardGeo {
-        forward_geolocation_for(meta, ni, nj, None, |gt| {
-            format!("no forward map for {gt:?}")
-        })
-        .expect("the planar family geolocates")
+    /// The `core` geometry this host's DTO mapping produces for a message, or a
+    /// panic naming the refusal. What every case below is really testing is that
+    /// the mapping reads the right slots.
+    fn geometry_of(meta: &MessageMeta, ni: u32, nj: u32) -> GridGeometry {
+        try_meta_geometry(meta, ni, nj, None)
+            .unwrap_or_else(|e| panic!("the fixture's parameters resolve: {}", e.message()))
+            .into_owned()
+    }
+
+    /// The forward map the display path reads, restated here over the public
+    /// [`GridGeometry::forward_at`].
+    ///
+    /// `fieldglass::render::forward_geolocation` is the real one and is private
+    /// to that crate; the only thing it adds on top of `forward_at` is the
+    /// ±180° normalisation the four *planar* families need, because a planar
+    /// inverse reports `lov ± 180°` and the CMC grid (`lov` = 247°) would
+    /// otherwise read 427. `the_geolocatable_table_matches_the_dispatch` over
+    /// there is what holds the real dispatch to its table; this is the same rule
+    /// spelled out so a fixture's coordinates can be checked against eccodes
+    /// without going through a CSV round trip.
+    fn forward_map(geometry: &GridGeometry) -> impl Fn(u32, u32) -> Option<(f64, f64)> + '_ {
+        let place = geometry.forward_at();
+        let planar = matches!(
+            geometry,
+            GridGeometry::Lambert(_)
+                | GridGeometry::PolarStereo(_)
+                | GridGeometry::TransverseMercator(_)
+                | GridGeometry::LambertAzimuthal(_)
+        );
+        move |i, j| {
+            place(i, j).map(|(lat, lon)| (lat, if planar { normalise_lon(lon) } else { lon }))
+        }
     }
 
     /// The long CSV of the committed Lambert fixture carries the coordinates
@@ -10196,7 +7760,8 @@ mod planar_geolocation_tests {
         let (_, meta, ni, nj) = handle.resolved(0).expect("message 0 resolves");
         assert_eq!((ni, nj), (135, 95));
         assert_eq!(meta.grid_type.as_deref(), Some("polar_stereo"));
-        let forward = forward_map(&meta, ni, nj);
+        let geometry = geometry_of(&meta, ni, nj);
+        let forward = forward_map(&geometry);
 
         for (i, j, lat, lon) in [
             (0u32, 0u32, 27.203000000_f64, -135.213000000_f64),
@@ -10247,7 +7812,8 @@ mod planar_geolocation_tests {
         let (meta, ni, nj) = grib2_geometry(LAMBERT_AZIMUTHAL);
         assert_eq!((ni, nj), (20, 16));
         assert_eq!(meta.grid_type.as_deref(), Some("lambert_azimuthal"));
-        let forward = forward_map(&meta, ni, nj);
+        let geometry = geometry_of(&meta, ni, nj);
+        let forward = forward_map(&geometry);
 
         for (i, j, lat, lon) in [
             (0u32, 0u32, 34.999999991_f64, -10.000000000_f64),
@@ -10267,7 +7833,8 @@ mod planar_geolocation_tests {
     /// from, through the *warp's* inverse — the check that stands in for an
     /// eccodes oracle on transverse Mercator, which eccodes 2.34.1 has no
     /// geo-iterator for. A forward map wired to the wrong metadata slot (dy for
-    /// dx, false easting for northing) fails to invert here.
+    /// dx, false easting for northing) fails to invert here, which is why this
+    /// runs off the DTO mapping rather than off hand-built parameters.
     #[test]
     fn every_planar_forward_map_inverts_back_to_its_grid_point() {
         let cmc = grib1_handle(CMC_POLAR).resolved(0).expect("cmc resolves");
@@ -10289,8 +7856,9 @@ mod planar_geolocation_tests {
 
         for (name, meta, ni, nj) in cases {
             assert_eq!(meta.grid_type.as_deref(), Some(name), "fixture grid type");
-            let forward = forward_map(&meta, ni, nj);
-            let (inverse, _bbox) = warp_setup_for(&meta, ni, nj, None).expect("warp setup");
+            let geometry = geometry_of(&meta, ni, nj);
+            let forward = forward_map(&geometry);
+            let inverse = geometry.inverse_at();
 
             for (i, j) in [
                 (0, 0),
@@ -10423,90 +7991,32 @@ mod planar_geolocation_tests {
         assert!(!runs.xy.is_empty(), "500 Pa isolines cross the Eta field");
     }
 
-    /// A cell the ±180° cut runs through interpolates *across* the cut, not the
-    /// long way round the globe. The CMC polar grid's top rows cross the
-    /// antimeridian, so the naive average of two corners a few kilometres apart
-    /// lands half a world away — the streak this guards against.
+    /// A spheroid with no shape is refused where its axes are read — in this
+    /// host's own parameter builders, which is why the message names the DTO
+    /// field rather than the family.
+    ///
+    /// The other half of this case, a Lambert cone whose two standard parallels
+    /// both sit on the equator, is not a DTO refusal at all: every number the
+    /// message states is present and finite, and only the projector's own
+    /// constants check catches it. It lives in `fieldglass`'s
+    /// `a_degenerate_projection_is_refused_rather_than_geolocated` now (#572).
     #[test]
-    fn a_cell_straddling_the_longitude_cut_interpolates_across_it() {
-        let handle = grib1_handle(CMC_POLAR);
-        let (_, meta, ni, nj) = handle.resolved(0).expect("message 0 resolves");
-        let forward = forward_map(&meta, ni, nj);
-        let lon = |i, j| forward(i, j).expect("every point geolocates").1;
-
-        // The first cell whose two upper corners sit on opposite sides of the
-        // cut — a contour vertex on that edge is the one that used to jump. The
-        // search finding a cell at all is part of the assertion: without one the
-        // test would pass vacuously.
-        let straddle = (0..nj - 1)
-            .flat_map(|j| (0..ni - 1).map(move |i| (i, j)))
-            .find(|&(i, j)| (lon(i + 1, j) - lon(i, j)).abs() > 180.0);
-        let (i, j) = straddle.expect("the CMC polar grid crosses the antimeridian");
-        let (west, east) = (lon(i, j), lon(i + 1, j));
-        assert!(
-            cell_crosses_lon_cut([west, east, lon(i, j + 1), lon(i + 1, j + 1)]),
-            "the cut runs through cell ({i},{j}): {west}..{east}"
-        );
-
-        let (_, mid) = forward_bilinear(forward.as_ref(), ni, nj, i as f64 + 0.5, j as f64, false)
-            .expect("the cell's midpoint geolocates");
-        // Half the short way from the west corner to the east one.
-        let want = normalise_lon(west + normalise_lon(east - west) * 0.5);
-        assert!(
-            normalise_lon(mid - want).abs() < 1e-9,
-            "cell ({i},{j}) spans {west}..{east}; its midpoint read {mid}, want {want}"
-        );
-        // What it used to read: the plain average of two corners on opposite
-        // turns, most of a hemisphere from either of them.
-        let naive = (west + east) / 2.0;
-        assert!(
-            normalise_lon(naive - want).abs() > 90.0,
-            "this cell should be one the naive average gets badly wrong, \
-             got {naive} against {want}"
-        );
-        // The vertex an unstraddled cell reports is untouched by any of this.
-        let m = ni / 2;
-        let (_, plain) = forward_bilinear(forward.as_ref(), ni, nj, m as f64 + 0.5, 0.0, false)
-            .expect("a mid-grid vertex geolocates");
-        let (w, e) = (lon(m, 0), lon(m + 1, 0));
-        assert!(
-            (plain - (w + e) / 2.0).abs() < 1e-9,
-            "an ordinary cell still interpolates plainly: {plain} vs {w}..{e}"
-        );
-    }
-
-    /// A grid whose projection constants are degenerate is refused outright,
-    /// rather than exporting the coordinates such a projector still produces.
-    /// The Lambert cone collapses when both standard parallels sit on the
-    /// equator (`n = sin 0 = 0`); the spheroidal families collapse when the
-    /// declared spheroid has no shape, and those produce *finite* nonsense, so
-    /// only the explicit check catches them.
-    #[test]
-    fn a_degenerate_projection_is_refused_rather_than_geolocated() {
-        let (lambert, ni, nj) = grib2_geometry(ETA_LAMBERT);
-        let mut flat_cone = grib2_geometry(ETA_LAMBERT).0;
-        flat_cone.lambert_latin1 = Some(0.0);
-        flat_cone.lambert_latin2 = Some(0.0);
-        let err =
-            forward_geolocation_for(&flat_cone, ni, nj, None, |gt| format!("unsupported {gt}"))
-                .err()
-                .expect("a collapsed cone has no forward map");
-        assert!(
-            err.reason.contains("degenerate"),
-            "the message should say why, got: {}",
-            err.reason
-        );
-        // The grid it was cloned from still geolocates, so the refusal is about
-        // the parameters and not the family.
-        assert!(forward_geolocation_for(&lambert, ni, nj, None, |_| String::new()).is_ok());
-
+    fn a_shapeless_spheroid_is_refused_when_the_meta_is_read() {
         let (mut laea, ni, nj) = grib2_geometry(LAMBERT_AZIMUTHAL);
         laea.lambert_azimuthal_semi_major_metres = Some(0.0);
         laea.lambert_azimuthal_semi_minor_metres = Some(0.0);
-        let err = forward_geolocation_for(&laea, ni, nj, None, |gt| format!("unsupported {gt}"))
-            .err()
-            .expect("a shapeless spheroid has no forward map");
-        assert!(err.reason.contains("describes no sphere"), "{}", err.reason);
+        let err = try_meta_geometry(&laea, ni, nj, None)
+            .expect_err("a shapeless spheroid has no geometry");
+        assert!(
+            err.message().contains("describes no sphere"),
+            "{}",
+            err.message()
+        );
+
+        // The fixture it was cloned from still resolves, so the refusal is about
+        // the axes and not the family.
+        let (real, real_ni, real_nj) = grib2_geometry(LAMBERT_AZIMUTHAL);
+        assert!(try_meta_geometry(&real, real_ni, real_nj, None).is_ok());
     }
 
     /// #610: the radius that is positive, finite, and still too small to hold
@@ -10521,41 +8031,57 @@ mod planar_geolocation_tests {
     fn an_earth_too_small_to_hold_the_grid_is_refused_by_every_planar_family() {
         // 1e-6 m: shape-of-earth 1 with scale = 6, value = 1.
         const TINY: f64 = 1e-6;
-        let mut cases: Vec<(&str, MessageMeta, u32, u32)> = Vec::new();
+        /// One planar family's case: what to call it, the meta the handle
+        /// built for it, its raster shape, and the decoded field.
+        type PlanarCase = (&'static str, MessageMeta, u32, u32, Vec<Option<f64>>);
+        let mut cases: Vec<PlanarCase> = Vec::new();
 
-        let (mut lambert, ni, nj) = grib2_geometry(ETA_LAMBERT);
+        let (values, mut lambert, ni, nj) =
+            grib2_handle(ETA_LAMBERT).resolved(0).expect("eta resolves");
         lambert.earth_radius_metres = Some(TINY);
-        cases.push(("lambert", lambert, ni, nj));
+        cases.push(("lambert", lambert, ni, nj, values.to_vec()));
 
-        let (_, mut polar, ni, nj) = grib1_handle(CMC_POLAR).resolved(0).expect("cmc resolves");
+        let (values, mut polar, ni, nj) =
+            grib1_handle(CMC_POLAR).resolved(0).expect("cmc resolves");
         polar.earth_radius_metres = Some(TINY);
-        cases.push(("polar_stereo", polar, ni, nj));
+        cases.push(("polar_stereo", polar, ni, nj, values.to_vec()));
 
-        let (mut tm, ni, nj) = grib2_geometry(TRANSVERSE_MERCATOR);
+        let (values, mut tm, ni, nj) = grib2_handle(TRANSVERSE_MERCATOR)
+            .resolved(0)
+            .expect("ukv resolves");
         tm.transverse_mercator_semi_major_metres = Some(TINY);
         tm.transverse_mercator_semi_minor_metres = Some(TINY);
-        cases.push(("transverse_mercator", tm, ni, nj));
+        cases.push(("transverse_mercator", tm, ni, nj, values.to_vec()));
 
-        let (mut laea, ni, nj) = grib2_geometry(LAMBERT_AZIMUTHAL);
+        let (values, mut laea, ni, nj) = grib2_handle(LAMBERT_AZIMUTHAL)
+            .resolved(0)
+            .expect("efas resolves");
         laea.lambert_azimuthal_semi_major_metres = Some(TINY);
         laea.lambert_azimuthal_semi_minor_metres = Some(TINY);
-        cases.push(("lambert_azimuthal", laea, ni, nj));
+        cases.push(("lambert_azimuthal", laea, ni, nj, values.to_vec()));
 
-        for (family, meta, ni, nj) in cases {
-            let err =
-                forward_geolocation_for(&meta, ni, nj, None, |gt| format!("unsupported {gt}"))
-                    .err()
-                    .unwrap_or_else(|| panic!("{family} geolocated on a 1e-6 m Earth"));
+        for (family, meta, ni, nj, values) in cases {
+            let err = try_meta_geometry(&meta, ni, nj, None)
+                .err()
+                .unwrap_or_else(|| panic!("{family} resolved a geometry on a 1e-6 m Earth"));
             assert!(
-                err.reason.contains("0.000001") && err.reason.contains("Earth radius"),
+                err.message().contains("0.000001") && err.message().contains("Earth radius"),
                 "{family}: the refusal should name the radius, got: {}",
-                err.reason
+                err.message()
             );
-            // The warp path reads the same builders, so it refuses too — a
-            // check only the forward map made would leave the render blank.
+            // The refusal travels with the source, so the operations that place
+            // a point carry it through: the warp refuses rather than painting
+            // nothing, and the long CSV refuses rather than writing a header
+            // with no rows under it.
+            let warped =
+                render_with_options(&meta, &values, &render_options("equirectangular"), None);
             assert!(
-                warp_setup_for(&meta, ni, nj, None).is_err(),
+                warped.is_err(),
                 "{family}: the warp still accepted a collapsed plane"
+            );
+            assert!(
+                field_csv(&values, &meta, ni, nj, "long", None).is_err(),
+                "{family}: the long CSV still exported coordinates"
             );
         }
     }
@@ -10601,13 +8127,14 @@ mod planar_geolocation_tests {
             patched[at + 1] = 6;
             patched[at + 2..at + 6].copy_from_slice(&1u32.to_be_bytes());
             patched[at + 6..at + 16].fill(0xFF);
-            let (_, meta, ni, nj) = grib2_handle(&patched).resolved(0).expect("still parses");
+            let (values, meta, _, _) = grib2_handle(&patched).resolved(0).expect("still parses");
             assert!(
                 !meta.reprojectable,
                 "{family}: a collapsed plane was offered a reprojection"
             );
             assert!(
-                warp_setup_for(&meta, ni, nj, None).is_err(),
+                render_with_options(&meta, &values, &render_options("equirectangular"), None)
+                    .is_err(),
                 "{family}: and the warp would have accepted it"
             );
         }
@@ -10659,7 +8186,8 @@ mod planar_geolocation_tests {
 
         // Two independent paths to the same corner: the metadata column and
         // the forward geolocation the contours and CSV export read (#470).
-        let forward = forward_map(&meta, ni, nj);
+        let geometry = geometry_of(&meta, ni, nj);
+        let forward = forward_map(&geometry);
         let (fwd_lat, fwd_lon) = forward(ni - 1, nj - 1).expect("last grid point geolocates");
         assert!(
             (fwd_lat - got_lat).abs() < 1e-9 && (fwd_lon - got_lon).abs() < 1e-9,
@@ -10696,7 +8224,7 @@ mod planar_geolocation_tests {
     }
 
     /// A declared Earth radius of zero is refused, on both the sphere-based
-    /// families and both the forward and the warp path.
+    /// families and on every operation that places a point.
     ///
     /// This is the quiet half of the degenerate case: the cone constants stay
     /// finite, so nothing goes NaN — every grid point simply inverts to the
@@ -10705,20 +8233,22 @@ mod planar_geolocation_tests {
     /// zero), so this is reachable from a file, not only from a synthetic meta.
     #[test]
     fn a_zero_earth_radius_is_refused_on_both_sphere_families() {
-        let (mut lambert, ni, nj) = grib2_geometry(ETA_LAMBERT);
+        let (values, mut lambert, ni, nj) = grib2_handle(ETA_LAMBERT)
+            .resolved(0)
+            .expect("message 0 resolves");
         lambert.earth_radius_metres = Some(0.0);
-        let err = forward_geolocation_for(&lambert, ni, nj, None, |gt| format!("unsupported {gt}"))
-            .err()
-            .expect("a radius-less sphere has no forward map");
+        let err = try_meta_geometry(&lambert, ni, nj, None)
+            .expect_err("a radius-less sphere has no geometry");
         assert!(
-            err.reason.contains("Earth radius"),
+            err.message().contains("Earth radius"),
             "the message should say why, got: {}",
-            err.reason
+            err.message()
         );
-        // The warp reads the same helper, so it refuses the grid too rather
+        // The warp carries the same refusal, so it declines the grid rather
         // than painting the pole across the raster.
         assert!(
-            warp_setup_for(&lambert, ni, nj, None).is_err(),
+            render_with_options(&lambert, &values, &render_options("equirectangular"), None)
+                .is_err(),
             "the warp refuses it"
         );
 
@@ -10727,92 +8257,14 @@ mod planar_geolocation_tests {
         let (_, mut polar, pni, pnj) = grib1_handle(CMC_POLAR).resolved(0).expect("cmc resolves");
         polar.earth_radius_metres = Some(-1.0);
         assert!(
-            forward_geolocation_for(&polar, pni, pnj, None, |gt| format!("unsupported {gt}"))
-                .is_err(),
+            try_meta_geometry(&polar, pni, pnj, None).is_err(),
             "a negative radius is refused as well"
         );
 
         // A message that declares no radius still falls back to the mean sphere.
         let (mut silent, ni, nj) = grib2_geometry(ETA_LAMBERT);
         silent.earth_radius_metres = None;
-        assert!(forward_geolocation_for(&silent, ni, nj, None, |_| String::new()).is_ok());
-    }
-
-    /// The other way to collapse a polar stereographic plane, and the one the
-    /// radius check above cannot reach: `LaD` past ±90°.
-    ///
-    /// The pole scale factor `k₀ = (1 + sin|LaD|)/2` is in `[0.5, 1]` for a real
-    /// latitude of true scale, which is why this arm carried no constants check
-    /// at all. §3.20 states `LaD` in sign-magnitude microdegrees though, so a
-    /// message can say 270°, where `sin|LaD|` is -1 and `k₀` is exactly zero.
-    /// The radius is then untouched and every number stays finite, so
-    /// `require_earth_radius` passes it straight through and only the
-    /// projector's own check refuses it (#603).
-    #[test]
-    fn a_polar_stereo_lad_past_the_pole_is_refused() {
-        let (_, mut polar, ni, nj) = grib1_handle(CMC_POLAR).resolved(0).expect("cmc resolves");
-        assert!(
-            forward_geolocation_for(&polar, ni, nj, None, |gt| format!("unsupported {gt}")).is_ok(),
-            "the real CMC grid geolocates"
-        );
-        polar.polar_stereo_lad = Some(270.0);
-        let err = forward_geolocation_for(&polar, ni, nj, None, |gt| format!("unsupported {gt}"))
-            .err()
-            .expect("a zero pole scale factor leaves no plane");
-        assert!(
-            err.reason.contains("degenerate projection parameters"),
-            "the message should name the degeneracy, got: {}",
-            err.reason
-        );
-        // The radius is intact, so the check that catches this is the
-        // projector's and not the shared radius guard.
-        assert!(
-            polar
-                .earth_radius_metres
-                .is_some_and(|r| r.is_finite() && r > 0.0),
-            "the radius guard has nothing to object to here"
-        );
-    }
-
-    /// The table is the gate: every grid type it names resolves to a forward
-    /// map, and the refusal message for one it doesn't name reads the same list
-    /// back. A family added to the dispatch without a table row simply never
-    /// arrives here, and a row without a dispatch arm fails the first half.
-    #[test]
-    fn the_geolocatable_table_gates_the_dispatch_and_writes_the_message() {
-        let prose = geolocatable_families();
-        for (grid_type, name) in GEOLOCATABLE_GRIDS {
-            assert!(
-                prose.contains(name),
-                "{grid_type} is geolocatable but {name:?} is missing from {prose:?}"
-            );
-        }
-        assert!(
-            prose.starts_with("regular lat/lon, Mercator") && prose.contains(", and "),
-            "the families read as a list: {prose}"
-        );
-
-        // The types `warp_setup_for` handles that deliberately have no forward
-        // map: space view, where points off the disc have no position at all.
-        // Reduced grids used to be here; they are widened to a regular raster
-        // before any consumer sees them, and that raster geolocates (#503).
-        for grid_type in ["space_view", "bifourier", ""] {
-            let mut meta = grib2_geometry(ETA_LAMBERT).0;
-            meta.grid_type = Some(grid_type.to_string());
-            let err = forward_geolocation_for(&meta, 93, 65, None, |gt| {
-                format!(
-                    "no coordinates for {gt:?} (only {})",
-                    geolocatable_families()
-                )
-            })
-            .err()
-            .unwrap_or_else(|| panic!("{grid_type} must not geolocate"));
-            let message = err.reason;
-            assert!(
-                message.contains(grid_type) && message.contains(&prose),
-                "the refusal for {grid_type:?} should name the grid and the supported list: {message}"
-            );
-        }
+        assert!(try_meta_geometry(&silent, ni, nj, None).is_ok());
     }
 }
 
@@ -10926,12 +8378,13 @@ mod reduced_grid_render_tests {
         let (_, meta1, ni1, nj1) = grib1_handle(GRIB1_N32).resolved(0).expect("grib1 resolves");
         assert_eq!((ni, nj), (ni1, nj1), "same raster");
 
-        let forward2 =
-            forward_geolocation_for(&meta2, ni, nj, None, |gt| format!("no map for {gt}"))
-                .expect("GRIB2 reduced Gaussian geolocates");
-        let forward1 =
-            forward_geolocation_for(&meta1, ni1, nj1, None, |gt| format!("no map for {gt}"))
-                .expect("GRIB1 reduced Gaussian geolocates");
+        // Both metas map to `GridGeometry::Gaussian` — a reduced grid arrives
+        // widened to its regular sibling — and the forward map is `core`'s,
+        // asked once per grid (#572).
+        let geom2 = try_meta_geometry(&meta2, ni, nj, None).expect("GRIB2 geometry");
+        let geom1 = try_meta_geometry(&meta1, ni1, nj1, None).expect("GRIB1 geometry");
+        let forward2 = geom2.forward_at();
+        let forward1 = geom1.forward_at();
 
         // Corners and a mid-grid point: enough to catch a row-order flip, a
         // longitude offset, or a different east edge.
@@ -10975,8 +8428,8 @@ mod reduced_grid_render_tests {
             declared.lon_last
         );
 
-        let forward = forward_geolocation_for(&meta, ni, nj, None, |gt| format!("no map for {gt}"))
-            .expect("geolocates");
+        let geometry = try_meta_geometry(&meta, ni, nj, None).expect("geolocates");
+        let forward = geometry.forward_at();
         let (_, east) = forward(143, 0).expect("east edge");
         assert!((east - 357.5).abs() < 1e-6, "east edge {east}");
         // Column 128 would be the whole grid's east edge under the declared
@@ -11119,14 +8572,18 @@ mod curvilinear_render_tests {
                 Some("curvilinear"),
                 "{name} is the lookup family this constant is about"
             );
-            let index = handle
+            let geometry = handle
                 .curvilinear_index(&var, y, x)
                 .expect("index resolves")
                 .expect("a curvilinear slice has one");
+            assert!(
+                matches!(&*geometry, GridGeometry::Lookup(_)),
+                "{name}: the cache holds the lookup geometry itself (#572)"
+            );
             assert_eq!(
                 meta.reprojectable,
-                GridGeometry::Lookup((*index).clone()).reprojectable(Scan::north_down()),
-                "{name}: the constant must be the geometry's own answer"
+                geometry.reprojectable(Scan::north_down()),
+                "{name}: the slice must report the geometry's own answer"
             );
         }
     }
@@ -11330,10 +8787,11 @@ mod curvilinear_render_tests {
             ("swath", SWATH, "TPW"),
         ] {
             let (handle, var, y, x, _) = slice(bytes, field);
-            let index = handle
+            let geometry = handle
                 .curvilinear_index(&var, y, x)
                 .expect("index resolves")
                 .expect("a curvilinear slice has one");
+            let index = lookup_index(&geometry).expect("a lookup geometry carries its index");
             let (ni, nj) = index.dims();
 
             let (mut dropped, mut moved, mut worst) = (0u32, 0u32, 0.0f64);
@@ -11589,7 +9047,7 @@ mod healpix_render_tests {
         let base = MessageMeta {
             grid_type: Some("healpix".to_string()),
             reprojectable: false,
-            ..crate::polar_stereo_warp_tests::cmc_polar_meta()
+            ..crate::meta_geometry_tests::cmc_polar_meta()
         };
         let meta = spectral_render_meta_from(base, ni as i32, nj as i32, 360.0 - 360.0 / ni as f64);
         assert_eq!(meta.grid_type.as_deref(), Some("latlon"));
@@ -11611,7 +9069,7 @@ mod healpix_render_tests {
         let base = MessageMeta {
             grid_type: Some("healpix".to_string()),
             reprojectable: false,
-            ..crate::polar_stereo_warp_tests::cmc_polar_meta()
+            ..crate::meta_geometry_tests::cmc_polar_meta()
         };
         spectral_render_meta_from(base, ni as i32, nj as i32, 360.0 - 360.0 / ni as f64)
     }
@@ -11628,29 +9086,30 @@ mod healpix_render_tests {
         );
         let meta = nside4_render_meta();
         let raw: Vec<Option<f64>> = vec![Some(1.0); 26 * 14];
+        let source = RenderSource::resolve(&meta, None).expect("the synthesised grid resolves");
 
-        for target in [
-            WarpTarget::Equirectangular,
-            WarpTarget::WebMercator,
-            WarpTarget::Orthographic {
-                lat0: 0.0,
-                lon0: 0.0,
-            },
-            WarpTarget::PolarStereographic {
-                south_pole: false,
-                lon0: 0.0,
-            },
-            WarpTarget::Mollweide { lon0: 0.0 },
-            WarpTarget::Robinson { lon0: 0.0 },
-            WarpTarget::EqualEarth { lon0: 0.0 },
+        // Every target the picker offers, by the name it is asked for.
+        for label in [
+            "equirectangular",
+            "web_mercator",
+            "orthographic",
+            "polar_stereographic",
+            "mollweide",
+            "robinson",
+            "equal_earth",
         ] {
-            let label = target.label();
-            let (values, mask, w, h, _bounds, _summary) =
-                warp_message(&meta, &raw, target, Resampling::Nearest, None, None)
-                    .expect("coarse warp");
+            let options = fieldglass::RenderOptions::new(label, "nearest");
+            let Projected {
+                values,
+                mask,
+                width: w,
+                height: h,
+                ..
+            } = fieldglass::render::project(&source.as_source(), &raw, &options)
+                .expect("coarse warp");
             assert_eq!(
                 w.max(h),
-                MIN_REPROJECTED_LONG_EDGE,
+                fieldglass::render::MIN_REPROJECTED_LONG_EDGE,
                 "{label} drew a {w}x{h} raster from a 26x14 grid"
             );
             // Upsampling must not invent or drop data: every painted pixel of a
@@ -11677,16 +9136,16 @@ mod healpix_render_tests {
     fn an_orthographic_disc_paints_a_true_circles_worth_of_its_raster() {
         let meta = nside4_render_meta();
         let raw: Vec<Option<f64>> = vec![Some(1.0); 26 * 14];
-        let (_values, mask, w, h, _bounds, _summary) = warp_message(
-            &meta,
+        let source = RenderSource::resolve(&meta, None).expect("the synthesised grid resolves");
+        let Projected {
+            mask,
+            width: w,
+            height: h,
+            ..
+        } = fieldglass::render::project(
+            &source.as_source(),
             &raw,
-            WarpTarget::Orthographic {
-                lat0: 0.0,
-                lon0: 0.0,
-            },
-            Resampling::Nearest,
-            None,
-            None,
+            &fieldglass::RenderOptions::new("orthographic", "nearest"),
         )
         .expect("orthographic warp");
 
@@ -11700,10 +9159,10 @@ mod healpix_render_tests {
         );
     }
 
-    /// The source projection is deliberately *not* floored: it never reaches
-    /// [`build_warp_target`], and there a blocky picture is the honest view of
-    /// the data. Probing past the grid's own width must still fall off the
-    /// raster (#514).
+    /// The source projection is deliberately *not* floored: it never reaches a
+    /// warp target at all, and there a blocky picture is the honest view of the
+    /// data. Probing past the grid's own width must still fall off the raster
+    /// (#514).
     #[test]
     fn the_source_view_of_a_coarse_grid_keeps_its_native_size() {
         let meta = nside4_render_meta();

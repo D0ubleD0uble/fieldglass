@@ -82,11 +82,11 @@ pub use overlay::{ProjectedPolylines, SourceOverlayTarget, project_polylines};
 // were a second public path to arithmetic the projectors already expose, so
 // they are gone; build the projector once and call its methods.
 pub use projection::{
-    CornerPair, DEFAULT_EARTH_RADIUS_M, GaussianParams, GaussianProjector, GeostationaryParams,
-    GeostationaryProjector, GridGeometry, GridIndex, GridResampling, LambertAzimuthalParams,
-    LambertAzimuthalProjector, LambertParams, LambertProjector, LatLonParams, LonLatBox,
-    MercatorParams, PlanarGridProjector, PlaneAffine, PlaneUnits, PolarStereoParams,
-    PolarStereoProjector, RotatedLatLonParams, RotatedLatLonProjector, Scan,
+    CornerPair, DEFAULT_EARTH_RADIUS_M, ForwardAt, GaussianParams, GaussianProjector,
+    GeostationaryParams, GeostationaryProjector, GridGeometry, GridIndex, GridResampling,
+    LambertAzimuthalParams, LambertAzimuthalProjector, LambertParams, LambertProjector,
+    LatLonParams, LonLatBox, MercatorParams, PlanarGridProjector, PlaneAffine, PlaneUnits,
+    PolarStereoParams, PolarStereoProjector, RotatedLatLonParams, RotatedLatLonProjector, Scan,
     TransverseMercatorParams, TransverseMercatorProjector, eastward_lon_span,
     expand_reduced_to_regular, gaussian_latitudes, is_octahedral_pl, latlon_inverse, latlon_point,
     lon_grid_is_global, mercator_inverse, mercator_point, normalise_lon, plane_spans_a_grid_cell,

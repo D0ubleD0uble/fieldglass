@@ -36,6 +36,7 @@
 
 pub mod api;
 pub mod error;
+pub mod render;
 pub mod session;
 pub mod shader;
 
@@ -44,6 +45,9 @@ pub use api::{
     Values, Warped,
 };
 pub use error::Error;
+pub use render::{
+    PixelProbe, Projected, RenderOptions, ResolvedOptions, Source, TargetKind, WarpTarget,
+};
 pub use session::{DecodeOptions, PaletteOptions, Raster, Session, WarpOptions};
 
 /// `core`'s colour type, re-exported: a host consumes the painter's own table
