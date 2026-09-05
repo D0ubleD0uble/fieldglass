@@ -130,16 +130,26 @@ const PROJECTIONS: [&str; 8] = [
 
 /// The pixels every deep field is probed at, in output-raster coordinates.
 ///
-/// Two land inside any raster (the minimum is 720 wide for a reprojected
-/// target and as small as the source grid for `"source"`), one lands inside a
-/// world raster only, and one is off the end of everything — so "off the
-/// raster" is recorded as a result rather than left untested.
+/// A reprojected raster is at least 720 wide; a source raster is the source
+/// grid, which for a deep field is as small as 6x5. So (0, 0) hits every
+/// non-empty raster, (7, 3) and (359, 180) hit the reprojected ones and fall
+/// off the smallest source views, and (719, 719) is off the end of nearly
+/// everything. Every one of the four is recorded as a hit or a miss, so "off
+/// the raster" is a result here rather than an untested path.
 const PROBE_PIXELS: [(u32, u32); 4] = [(0, 0), (7, 3), (359, 180), (719, 719)];
 
-/// The manual render window the bounds case asks for: a box that is neither
-/// global nor symmetric, crosses the prime meridian and the equator, and is
-/// inside every fixture's own extent for none of them — so a grid that ignores
-/// it and a grid that clips to it look different.
+/// The manual render window the bounds case asks for: 20 degrees south to 40
+/// north, 30 west to 60 east. Neither global nor symmetric, and it crosses both
+/// the equator and the prime meridian, so a target that ignores it and one that
+/// honours it cannot agree by accident.
+///
+/// Measured against the recording: it changes the bytes for thirteen of the
+/// fourteen deep fields — the fourteenth is the degenerate polar stereographic
+/// that refuses every target either way — and the opaque-pixel count for nine.
+/// The five it leaves unchanged in the portable column are the global grids,
+/// which cover the whole window, so only the exact column sees the difference
+/// there. That split is the two columns doing their separate jobs, not a case
+/// going untested.
 const WINDOW: (f64, f64, f64, f64) = (-20.0, 40.0, -30.0, 60.0);
 
 /// One field per source grid family, given the full matrix.
