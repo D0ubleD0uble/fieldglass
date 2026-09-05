@@ -33,6 +33,7 @@
 //! `(1/2)∫P̄²=1` normalisation difference.
 
 use crate::error::FieldglassError;
+use crate::global_grid::{GlobalGrid, SYNTHESIS_NI, SYNTHESIS_NJ};
 
 /// Upper bound on the truncation `T` this transform will accept. `T` is derived
 /// from attacker-controlled §3 fields, so it is capped up front to bound both
@@ -42,6 +43,36 @@ use crate::error::FieldglassError;
 /// values — and an `O(T·nlon)` longitude-phase table. The largest operational
 /// spectral truncation (~T3999) is far below this cap.
 pub const MAX_TRUNCATION: u32 = 10_000;
+
+/// Choose the global regular lat/lon grid to synthesize a spectral field onto.
+///
+/// `2(T+1)` latitudes is the smallest grid that holds everything a truncation
+/// `T` carries (≈ two grid points per wavenumber), and that used to be the grid
+/// itself below the cap — which put a T63 field on 256×128, a postage-stamp
+/// render whose PNG exported 382 pixels wide.
+///
+/// But a spectral message is a band-limited function, not a sampled grid: its
+/// coefficients can be evaluated anywhere, so any grid at or above the minimum
+/// reproduces the same field exactly, and a finer one is a sharper picture of
+/// it rather than interpolation between samples. Every field is therefore
+/// synthesized at [`SYNTHESIS_STEP_DEG`](crate::global_grid::SYNTHESIS_STEP_DEG)
+/// — which is also the ceiling a large truncation was already downsampled to,
+/// so `T ≥ 180` is unchanged and the cost of the densest case is unchanged with
+/// it.
+///
+/// Ignoring the truncation is what lets two spectral fields at different
+/// truncations land on the same raster and genuinely combine
+/// (`docs/architecture/planned/03-composition.md`). The parameter stays in the
+/// signature because that is the question a caller is asking.
+pub fn spectral_render_dims(_truncation: u32) -> (usize, usize) {
+    (SYNTHESIS_NI, SYNTHESIS_NJ)
+}
+
+/// [`spectral_render_dims`] as the grid itself, which is what the synthesis
+/// call and the render meta both want.
+pub fn spectral_render_grid(truncation: u32) -> GlobalGrid {
+    GlobalGrid::from(spectral_render_dims(truncation))
+}
 
 /// Number of stored real values (real *and* imaginary parts) for a triangular
 /// truncation `t`: `(t + 1)·(t + 2)`.
@@ -189,6 +220,32 @@ pub fn synthesize_spherical_harmonic(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_synthesis_grid_is_half_degree_for_every_truncation() {
+        // The floor and the ceiling are the same grid, so a small truncation is
+        // synthesized as densely as a large one. T63 used to land on 256×128 —
+        // faithful to the truncation, but a postage-stamp picture of it.
+        for truncation in [2_u32, 63, 106, 179, 180, 639, 1279] {
+            assert_eq!(
+                spectral_render_dims(truncation),
+                (720, 361),
+                "truncation {truncation}"
+            );
+            assert_eq!(
+                spectral_render_grid(truncation),
+                GlobalGrid::FINEST,
+                "truncation {truncation}"
+            );
+        }
+        // The grid the coordinates are built on agrees with the declared dims,
+        // pole to pole and without a duplicated wrap column.
+        let (lats, lons) = spectral_render_grid(63).axes();
+        assert_eq!((lons.len(), lats.len()), (720, 361));
+        assert_eq!((lats[0], lats[lats.len() - 1]), (90.0, -90.0));
+        assert_eq!(lons[0], 0.0);
+        assert!(lons[lons.len() - 1] < 360.0);
+    }
 
     /// Build a `(T+1)(T+2)`-length coefficient array with a single complex
     /// coefficient `(n, m)` set to `(re, im)`, in ECMWF m-major order.

@@ -21,6 +21,8 @@
 
 use std::f64::consts::PI;
 
+use crate::global_grid::{GlobalGrid, SYNTHESIS_NI, SYNTHESIS_STEP_DEG};
+
 /// Face-to-ring offsets from the HEALPix reference implementation: for each of
 /// the twelve base faces, the ring row and the phi column its corner sits on.
 /// The four north faces, four equatorial, four south, in face order.
@@ -300,4 +302,57 @@ pub fn resample_to_latlon(
         }
     }
     Some(out)
+}
+
+/// Choose the regular lat/lon grid to resample a HEALPix field onto.
+///
+/// A HEALPix pixel subtends `sqrt(4π/Npix) = sqrt(π/3)/Nside` radians, or
+/// `58.63/Nside` degrees, so sampling at that step visits every pixel and skips
+/// none. That is the rule — and it is a different rule from the spectral one
+/// ([`crate::sht::spectral_render_dims`]), for a reason worth keeping straight:
+/// a spectral field is band-limited and any grid at or above its minimum
+/// reproduces it *exactly*, while HEALPix is a sampled grid, so this is a
+/// genuine resample. Finer than the pixel scale merely repeats pixels; coarser
+/// drops them.
+///
+/// Capped at the same [`SYNTHESIS_STEP_DEG`] the spectral path pins. Past that
+/// the memory is what runs out first: Nside 1024 at its own pixel scale is
+/// about 6285×3143 points, some 300 MB of `Option<f64>`, and past what a viewer
+/// can show. A large `Nside` is therefore downsampled, exactly as a large
+/// truncation already is.
+pub fn healpix_render_dims(nside: u32) -> (usize, usize) {
+    // sqrt(pi/3) in degrees: the angular size of a HEALPix pixel times Nside.
+    const PIXEL_DEG_TIMES_NSIDE: f64 = 58.632_047_691_1;
+    let step = (PIXEL_DEG_TIMES_NSIDE / nside as f64).max(SYNTHESIS_STEP_DEG);
+    // Round the point count *up*: rounding to nearest can land a step coarser
+    // than a pixel — at Nside 2 it gives 30° against a 29.3° pixel — and then
+    // pixels are skipped, which is the one thing this rule exists to prevent.
+    // Up to an even `ni` as well, so the pole-to-pole grid has a whole number
+    // of rows and `nj = ni/2 + 1` holds exactly, at the cap included.
+    let ni = (((360.0 / step).ceil() as usize).next_multiple_of(2)).max(2);
+    let ni = ni.min(SYNTHESIS_NI);
+    (ni, ni / 2 + 1)
+}
+
+/// [`healpix_render_dims`] as the grid itself.
+pub fn healpix_render_grid(nside: u32) -> GlobalGrid {
+    GlobalGrid::from(healpix_render_dims(nside))
+}
+
+/// Resample a HEALPix field onto the grid [`healpix_render_grid`] chooses for
+/// its `Nside`, and hand that grid back with it.
+///
+/// The pairing is the point: the field and the grid it is on come from one
+/// call, so a host cannot declare one shape in its render meta and evaluate at
+/// another. Returns `None` on the same mismatch
+/// [`resample_to_latlon`] does — `values` not `12·Nside²` long.
+pub fn resample_to_global(
+    nside: u32,
+    nested: bool,
+    values: &[Option<f64>],
+) -> Option<(GlobalGrid, Vec<Option<f64>>)> {
+    let grid = healpix_render_grid(nside);
+    let (lats, lons) = grid.axes();
+    let out = resample_to_latlon(nside, nested, values, &lats, &lons)?;
+    Some((grid, out))
 }
