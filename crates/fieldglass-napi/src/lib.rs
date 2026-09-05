@@ -39,6 +39,12 @@ use std::sync::Mutex;
 #[cfg(test)]
 mod characterisation;
 
+// This host, run through the ADR-0006 conformance suite that ships in
+// `fieldglass` (#573). Test only, and the second runner of one set of
+// expectations — the browser host's Node runner is the third.
+#[cfg(test)]
+mod conformance_host;
+
 /// Bridge a foreign crate's error into a [`napi::Error`] by its `Display` text.
 ///
 /// `impl From<FieldglassError> for napi::Error` is what this would rather be,

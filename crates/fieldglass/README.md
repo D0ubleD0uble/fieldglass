@@ -62,14 +62,43 @@ pressure in Pa both reach under a tight manual range.
 Structs are `camelCase` on the wire and `snake_case` in Rust; enum *variants*
 stay `snake_case`, because a variant tag is a value a host compares strings
 against and `"polar_stereo"` is the one `core` already reports. Every API type
-is `#[non_exhaustive]`, so build an options struct from its default and adjust
-it rather than with a struct literal.
+is `#[non_exhaustive]`, so build an options struct through its `new` — every
+option type has one — and assign the rest.
+
+`render(field, options, flip_y)` composes `flip_y` with the message's own scan
+order rather than replacing it, so `false` means **north up** and not "rows as
+stored". `Georef::scan` still carries the flag, because a host drawing
+something other than a raster needs it; a host painting one passes the user's
+request straight through.
+
+## The conformance suite
+
+`conformance/suite.json` records what every operation answers over a set of
+committed GRIB fixtures, and `fieldglass::conformance` is the machinery a
+runner needs (ADR-0006 decision 3). Three runners replay it: this crate's own
+tests, on the native target and on `wasm32-wasip1`; `fieldglass-napi`'s
+`conformance_host`, through the napi handles; and
+`crates/fieldglass-wasm/tests/node/conformance.mjs`, through the built browser
+bundle from Node. Adding a host is then a checklist — implement the buffer
+handoff, map the error, pass the suite.
+
+Discrete answers (counts, lengths, raster sizes, the mask, every error code)
+are compared exactly and the geolocated numbers to a tolerance, which is what
+[ADR-0009](../../docs/decisions/0009-cross-target-floating-point-agreement.md)
+measured. Re-record with
+`FIELDGLASS_UPDATE_CONFORMANCE=1 cargo test -p fieldglass --test conformance`;
+that run fails afterwards on purpose.
 
 ## Feature flags
 
 - **`schema`** *(default)* — `schemars::JsonSchema` on every API type, which is
   what a host's TypeScript or Python declarations are generated from. Off for
   `fieldglass-wasm`, whose declarations come from wasm-bindgen.
+- **`conformance`** *(default)* — the suite above. Both hosts take this crate
+  with `default-features = false`, so neither the addon nor the browser bundle
+  carries it; it is on by default because `cargo test --workspace` does not
+  enable optional features, and a suite skipped there would pass while checking
+  nothing.
 
 ## Scope of this first cut
 

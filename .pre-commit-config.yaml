@@ -130,6 +130,17 @@ repos:
         entry: python3 tools/check_format_crate_reexports.py
         pass_filenames: false
 
+      - id: host-types
+        name: no host types outside a host crate
+        language: system
+        # ADR-0006 decision 1 and #464's acceptance: no function outside a host
+        # crate takes a host DTO or returns a host error type. Rust cannot
+        # assert the absence of a dependency edge from inside the crate that
+        # would have it, so the rule is checked over the sources and manifests.
+        files: ^(crates/.*\.(rs|toml)|tools/check_host_types\.py)$
+        entry: python3 tools/check_host_types.py
+        pass_filenames: false
+
       # ── Pre-push (slower) hooks
       - id: architecture-diagrams-selftest
         name: architecture diagram checker self-test
@@ -172,6 +183,14 @@ repos:
         # real README still parses.
         files: ^(tools/(check_wasm_bundle_size|test_check_wasm_bundle_size)\.py|crates/fieldglass-wasm/README\.md)$
         entry: python3 tools/test_check_wasm_bundle_size.py
+        pass_filenames: false
+
+      - id: host-types-selftest
+        name: host-type checker self-test
+        stages: [pre-push]
+        language: system
+        files: ^tools/(check_host_types|test_check_host_types)\.py$
+        entry: python3 tools/test_check_host_types.py
         pass_filenames: false
 
       - id: fetch-samples-selftest

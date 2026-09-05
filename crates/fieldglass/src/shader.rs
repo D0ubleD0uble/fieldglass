@@ -19,6 +19,15 @@
 //!
 //! So [`shader_values`] uploads `transform(v) - t0`, computed in `f64`, and the
 //! shader only ever divides by a span it is handed.
+//!
+//! # Orientation is the host's, here
+//!
+//! These arrays are in the field's own **data order**, cell `(i, j)` at index
+//! `j * ni + i`. [`crate::Session::render`] composes the message's scan flag
+//! before it paints, so its raster is north up; a GPU host uploading these
+//! textures has to compose `Georef::scan` itself, or its picture and the CPU
+//! painter's disagree for a grid that scans south to north. That is the one
+//! thing the oracle relationship does not hand a host for free.
 
 use fieldglass_core::colormap::{Palette, ScaleMode};
 

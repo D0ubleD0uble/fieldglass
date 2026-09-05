@@ -26,6 +26,13 @@ fieldglass-netcdf = { path = "../fieldglass-netcdf", version = "=0.5.0" }
 napi = { version = "3", features = ["napi6"] }
 napi-derive = "3"
 
+[dev-dependencies]
+# The conformance suite (ADR-0006 decision 3, #573): the shipped addon does not
+# run it, so it is asked for here rather than above. `conformance_host` drives
+# this crate's own handles through it and checks they agree with `Session`.
+fieldglass = { path = "../fieldglass", version = "=0.5.0", default-features = false, features = ["conformance"] }
+serde_json = { workspace = true }
+
 [build-dependencies]
 napi-build = "2"
 

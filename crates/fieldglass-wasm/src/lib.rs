@@ -169,8 +169,13 @@ impl Handle {
     }
 
     /// Paint a field to RGBA on the CPU — the fallback, and the oracle the
-    /// shader path is checked against. `flipY` emits rows bottom-to-top, which
-    /// a grid scanning south-to-north needs for a north-up canvas.
+    /// shader path is checked against.
+    ///
+    /// `flipY` composes with the message's own scan order rather than replacing
+    /// it, so `false` means **north up** and not "rows as stored": a grid
+    /// scanning south-to-north is flipped for you. Pass the user's own request
+    /// straight through; composing `grid().scan.jPositive` yourself would flip
+    /// twice.
     #[wasm_bindgen(js_name = render)]
     pub fn render(
         &self,

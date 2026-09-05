@@ -35,6 +35,20 @@ pub struct DecodeOptions {
     pub dtype: Dtype,
 }
 
+impl DecodeOptions {
+    /// The one field this type has.
+    ///
+    /// A constructor rather than a struct literal because the type is
+    /// `#[non_exhaustive]`: a caller outside this crate cannot write one, and
+    /// `Default::default()` followed by a field assignment is the pattern
+    /// `clippy::field_reassign_with_default` exists to discourage. Every option
+    /// type on this surface has one for that reason (#573).
+    #[must_use]
+    pub fn new(dtype: Dtype) -> Self {
+        Self { dtype }
+    }
+}
+
 /// How a field should be resampled onto a geographic box.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -65,6 +79,20 @@ impl Default for WarpOptions {
     }
 }
 
+impl WarpOptions {
+    /// The resampling this warp wants, with the source grid's own extent as the
+    /// window. Assign [`bounds`](Self::bounds) afterwards for a manual one.
+    ///
+    /// A constructor for the reason [`DecodeOptions::new`] gives.
+    #[must_use]
+    pub fn new(bilinear: bool) -> Self {
+        Self {
+            bilinear,
+            bounds: None,
+        }
+    }
+}
+
 /// Colour, decided once in Rust and exported as data.
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -89,6 +117,26 @@ pub struct PaletteOptions {
     /// `"linear"` (default) or `"log10"`.
     #[serde(default)]
     pub scale: Option<String>,
+}
+
+impl PaletteOptions {
+    /// The two fields that pick the ramp and the transform; the display range
+    /// and the reversal are assigned afterwards.
+    ///
+    /// Both are `Option` because `None` is a real answer for each — the default
+    /// colormap, and the linear scale — so this is not "the required fields" so
+    /// much as "the ones a caller almost always states". A constructor for the
+    /// reason [`DecodeOptions::new`] gives.
+    #[must_use]
+    pub fn new(colormap: Option<&str>, scale: Option<&str>) -> Self {
+        Self {
+            colormap: colormap.map(str::to_string),
+            reversed: false,
+            min: None,
+            max: None,
+            scale: scale.map(str::to_string),
+        }
+    }
 }
 
 /// A painted raster: RGBA bytes plus the dimensions they cover.
@@ -288,6 +336,17 @@ impl Session {
 
     /// Paint a field to RGBA on the CPU. The fallback path: a GPU host colours
     /// from [`Session::palette`] instead.
+    ///
+    /// **`flip_y` composes with the message's own scan order, it does not
+    /// replace it.** Grid point `(i, j)` paints at pixel `(i, j)`, so a field
+    /// stored south-to-north (`jScansPositively`) arrives upside down on a
+    /// canvas whose first row is the top; `false` therefore means *north up*,
+    /// not *rows as stored*, and `true` asks for the other one. This is the same
+    /// question [`Scan::flips_source_rows`] answers for
+    /// [`crate::render::probe_pixel`] and [`crate::render::overlay_polylines`],
+    /// asked here so all three agree about which row a pixel is (#573). A host
+    /// that composed the flag itself before calling this would flip twice;
+    /// hand the user's request straight through instead.
     pub fn render(
         &self,
         field: &Field,
@@ -296,7 +355,8 @@ impl Session {
     ) -> Result<Raster, Error> {
         let palette = build_palette(field, options)?;
         let values = field.values.to_f64();
-        let rgba = palette.paint(&values, Some(&field.mask), field.ni, field.nj, flip_y);
+        let flip = field.georef.scan.flips_source_rows(flip_y);
+        let rgba = palette.paint(&values, Some(&field.mask), field.ni, field.nj, flip);
         // `paint` answers an empty buffer for a raster whose byte count this
         // target cannot address — `usize` is 32 bits on wasm32, the host this
         // exists for. Say so, rather than handing back dimensions with no

@@ -32,16 +32,29 @@ fieldglass-grib1 = { path = "../fieldglass-grib1", version = "=0.5.0" }
 fieldglass-grib2 = { path = "../fieldglass-grib2", version = "=0.5.0" }
 serde = { workspace = true }
 schemars = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }
 
 [features]
-default = ["schema"]
+default = ["schema", "conformance"]
 # JSON Schema derives on every API type (ADR-0006 decision 2), which is what a
 # host's `.d.ts` is generated from. Off for the wasm host, whose bundle pays for
 # every byte and whose declarations come from wasm-bindgen.
 schema = ["dep:schemars"]
+# The ADR-0006 decision 3 conformance suite: the cases, the recorded
+# expectations, and the comparator, so a host's own test drives its binding
+# through them (#573).
+#
+# **Default on purpose.** The suite is this crate's own gate as well as a
+# host's, and `cargo test --workspace` does not enable non-default features —
+# a `required-features` test target would be skipped there and pass while
+# checking nothing. Both hosts take this crate with `default-features = false`,
+# so neither the browser bundle nor the addon carries it; `fieldglass-napi`
+# asks for it back in `[dev-dependencies]`, and the wasm host's runner reads
+# `conformance/suite.json` from Node without linking Rust at all.
+conformance = ["dep:serde_json"]
 
 [lints]
 workspace = true

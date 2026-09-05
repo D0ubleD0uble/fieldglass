@@ -1,0 +1,7706 @@
+{
+  "tolerance": {
+    "relative": 1e-9,
+    "absolute": 1e-9
+  },
+  "errorCodes": [
+    "decode",
+    "invalid_option",
+    "no_such_message",
+    "unsupported",
+    "unsupported_format"
+  ],
+  "cases": [
+    {
+      "id": "latlon/open",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
+      "op": "open",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "count": 1,
+        "format": "grib2"
+      }
+    },
+    {
+      "id": "latlon/message",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
+      "op": "message",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "abbreviation": "TMP",
+        "forecast": "+0 Hour",
+        "grid": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            0.0,
+            60.0,
+            0.0,
+            30.0
+          ],
+          "dx": 2.0,
+          "dy": -2.0,
+          "kind": "latlon",
+          "label": "latlon",
+          "ni": 16,
+          "nj": 31,
+          "periodicX": false,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 60.0
+        },
+        "index": 0,
+        "level": "2",
+        "levelType": "Specified height above ground (m)",
+        "offsetBytes": 0,
+        "packing": "simple",
+        "parameter": "Temperature",
+        "referenceTime": "2008-02-06T12:00:00Z",
+        "sizeLabel": null,
+        "units": "K"
+      }
+    },
+    {
+      "id": "latlon/decode/auto",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
+      "op": "decode",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            0.0,
+            60.0,
+            0.0,
+            30.0
+          ],
+          "dx": 2.0,
+          "dy": -2.0,
+          "kind": "latlon",
+          "label": "latlon",
+          "ni": 16,
+          "nj": 31,
+          "periodicX": false,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 60.0
+        },
+        "len": 496,
+        "maskLen": 496,
+        "maskOnes": 496,
+        "ni": 16,
+        "nj": 31,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 279.0
+          },
+          {
+            "i": 124,
+            "m": 1,
+            "v": 283.3017578125
+          },
+          {
+            "i": 248,
+            "m": 1,
+            "v": 289.1650390625
+          },
+          {
+            "i": 372,
+            "m": 1,
+            "v": 302.1474609375
+          },
+          {
+            "i": 495,
+            "m": 1,
+            "v": 300.8818359375
+          }
+        ],
+        "stats": {
+          "max": 311.0986328125,
+          "min": 270.466796875,
+          "validCount": 496
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "latlon/decode/f32",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
+      "op": "decode",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "f32",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            0.0,
+            60.0,
+            0.0,
+            30.0
+          ],
+          "dx": 2.0,
+          "dy": -2.0,
+          "kind": "latlon",
+          "label": "latlon",
+          "ni": 16,
+          "nj": 31,
+          "periodicX": false,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 60.0
+        },
+        "len": 496,
+        "maskLen": 496,
+        "maskOnes": 496,
+        "ni": 16,
+        "nj": 31,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 279.0
+          },
+          {
+            "i": 124,
+            "m": 1,
+            "v": 283.3017578125
+          },
+          {
+            "i": 248,
+            "m": 1,
+            "v": 289.1650390625
+          },
+          {
+            "i": 372,
+            "m": 1,
+            "v": 302.1474609375
+          },
+          {
+            "i": 495,
+            "m": 1,
+            "v": 300.8818359375
+          }
+        ],
+        "stats": {
+          "max": 311.0986328125,
+          "min": 270.466796875,
+          "validCount": 496
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "latlon/decode/f64",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
+      "op": "decode",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "f64",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "dtype": "f64",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            0.0,
+            60.0,
+            0.0,
+            30.0
+          ],
+          "dx": 2.0,
+          "dy": -2.0,
+          "kind": "latlon",
+          "label": "latlon",
+          "ni": 16,
+          "nj": 31,
+          "periodicX": false,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 60.0
+        },
+        "len": 496,
+        "maskLen": 496,
+        "maskOnes": 496,
+        "ni": 16,
+        "nj": 31,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 279.0
+          },
+          {
+            "i": 124,
+            "m": 1,
+            "v": 283.3017578125
+          },
+          {
+            "i": 248,
+            "m": 1,
+            "v": 289.1650390625
+          },
+          {
+            "i": 372,
+            "m": 1,
+            "v": 302.1474609375
+          },
+          {
+            "i": 495,
+            "m": 1,
+            "v": 300.8818359375
+          }
+        ],
+        "stats": {
+          "max": 311.0986328125,
+          "min": 270.466796875,
+          "validCount": 496
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "latlon/warp/nearest",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
+      "op": "warp",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": false,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "bounds": [
+          0.0,
+          60.0,
+          0.0,
+          30.0
+        ],
+        "height": 31,
+        "len": 496,
+        "maskOnes": 496,
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 279.0
+          },
+          {
+            "i": 124,
+            "m": 1,
+            "v": 283.3017578125
+          },
+          {
+            "i": 248,
+            "m": 1,
+            "v": 289.1650390625
+          },
+          {
+            "i": 372,
+            "m": 1,
+            "v": 302.1474609375
+          },
+          {
+            "i": 495,
+            "m": 1,
+            "v": 300.8818359375
+          }
+        ],
+        "width": 16
+      }
+    },
+    {
+      "id": "latlon/warp/bilinear",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
+      "op": "warp",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": true,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "bounds": [
+          0.0,
+          60.0,
+          0.0,
+          30.0
+        ],
+        "height": 31,
+        "len": 496,
+        "maskOnes": 496,
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 279.0
+          },
+          {
+            "i": 124,
+            "m": 1,
+            "v": 283.3017578125
+          },
+          {
+            "i": 248,
+            "m": 1,
+            "v": 289.1650390625
+          },
+          {
+            "i": 372,
+            "m": 1,
+            "v": 302.1474609375
+          },
+          {
+            "i": 495,
+            "m": 1,
+            "v": 300.8818359375
+          }
+        ],
+        "width": 16
+      }
+    },
+    {
+      "id": "latlon/warp/window",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
+      "op": "warp",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": true,
+        "bounds": [
+          -20.0,
+          40.0,
+          -30.0,
+          60.0
+        ],
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "bounds": [
+          -20.0,
+          40.0,
+          -30.0,
+          60.0
+        ],
+        "height": 31,
+        "len": 496,
+        "maskOnes": 126,
+        "samples": [
+          {
+            "i": 0,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 124,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 248,
+            "m": 1,
+            "v": 309.685546875
+          },
+          {
+            "i": 372,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 495,
+            "m": 0,
+            "v": null
+          }
+        ],
+        "width": 16
+      }
+    },
+    {
+      "id": "latlon/palette/viridis",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
+      "op": "palette",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "viridis",
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "lutLen": 1024,
+        "lutSamples": [
+          {
+            "b": 68,
+            "i": 0
+          },
+          {
+            "b": 59,
+            "i": 256
+          },
+          {
+            "b": 33,
+            "i": 512
+          },
+          {
+            "b": 96,
+            "i": 768
+          },
+          {
+            "b": 255,
+            "i": 1023
+          }
+        ],
+        "maskedRgba": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "scale": "linear",
+        "t0": 270.466796875,
+        "t1": 311.0986328125
+      }
+    },
+    {
+      "id": "latlon/palette/log_reversed_ranged",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
+      "op": "palette",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "plasma",
+        "reversed": true,
+        "scale": "log10",
+        "rangeMin": 1.0,
+        "rangeMax": 1000.0,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "lutLen": 1024,
+        "lutSamples": [
+          {
+            "b": 240,
+            "i": 0
+          },
+          {
+            "b": 248,
+            "i": 256
+          },
+          {
+            "b": 203,
+            "i": 512
+          },
+          {
+            "b": 125,
+            "i": 768
+          },
+          {
+            "b": 255,
+            "i": 1023
+          }
+        ],
+        "maskedRgba": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "scale": "log10",
+        "t0": 0.0,
+        "t1": 3.0
+      }
+    },
+    {
+      "id": "latlon/render/flip_false",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
+      "op": "render",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "viridis",
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": false,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "height": 31,
+        "opaque": 496,
+        "pixels": [
+          {
+            "i": 0,
+            "rgba": [
+              63,
+              71,
+              136,
+              255
+            ]
+          },
+          {
+            "i": 124,
+            "rgba": [
+              51,
+              99,
+              141,
+              255
+            ]
+          },
+          {
+            "i": 248,
+            "rgba": [
+              36,
+              135,
+              141,
+              255
+            ]
+          },
+          {
+            "i": 372,
+            "rgba": [
+              111,
+              206,
+              87,
+              255
+            ]
+          },
+          {
+            "i": 495,
+            "rgba": [
+              94,
+              200,
+              97,
+              255
+            ]
+          }
+        ],
+        "rgbaLen": 1984,
+        "width": 16
+      }
+    },
+    {
+      "id": "latlon/render/flip_true",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
+      "op": "render",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "viridis",
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": true,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "height": 31,
+        "opaque": 496,
+        "pixels": [
+          {
+            "i": 0,
+            "rgba": [
+              84,
+              196,
+              103,
+              255
+            ]
+          },
+          {
+            "i": 124,
+            "rgba": [
+              156,
+              216,
+              59,
+              255
+            ]
+          },
+          {
+            "i": 248,
+            "rgba": [
+              36,
+              135,
+              141,
+              255
+            ]
+          },
+          {
+            "i": 372,
+            "rgba": [
+              72,
+              33,
+              113,
+              255
+            ]
+          },
+          {
+            "i": 495,
+            "rgba": [
+              72,
+              31,
+              112,
+              255
+            ]
+          }
+        ],
+        "rgbaLen": 1984,
+        "width": 16
+      }
+    },
+    {
+      "id": "latlon/probe/0_0",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": 0.0,
+        "lon": 0.0,
+        "levels": null
+      },
+      "expect": {
+        "i": 0.0,
+        "j": 30.0,
+        "lat": 0.0,
+        "lon": 0.0,
+        "value": 300.119140625
+      }
+    },
+    {
+      "id": "latlon/probe/45_-100",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": 45.0,
+        "lon": -100.0,
+        "levels": null
+      },
+      "expect": null
+    },
+    {
+      "id": "latlon/probe/89.5_10",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": 89.5,
+        "lon": 10.0,
+        "levels": null
+      },
+      "expect": null
+    },
+    {
+      "id": "latlon/probe/-89.5_-170",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": -89.5,
+        "lon": -170.0,
+        "levels": null
+      },
+      "expect": null
+    },
+    {
+      "id": "latlon/contours/auto",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
+      "op": "contours",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": []
+      },
+      "expect": {
+        "levelCount": 8,
+        "levels": [
+          275.0,
+          280.0,
+          285.0,
+          290.0,
+          295.0,
+          300.0,
+          305.0,
+          310.0
+        ],
+        "segmentCounts": [
+          20,
+          64,
+          40,
+          51,
+          33,
+          34,
+          56,
+          11
+        ]
+      }
+    },
+    {
+      "id": "latlon/contours/explicit",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
+      "op": "contours",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": [
+          250.0,
+          275.0,
+          300.0
+        ]
+      },
+      "expect": {
+        "levelCount": 3,
+        "levels": [
+          250.0,
+          275.0,
+          300.0
+        ],
+        "segmentCounts": [
+          0,
+          20,
+          34
+        ]
+      }
+    },
+    {
+      "id": "gaussian/open",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_gaussian_f32.grib2",
+      "op": "open",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "count": 1,
+        "format": "grib2"
+      }
+    },
+    {
+      "id": "gaussian/message",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_gaussian_f32.grib2",
+      "op": "message",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "abbreviation": "TMP",
+        "forecast": "+0 Hour",
+        "grid": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            -87.863799,
+            87.863799,
+            0.0,
+            357.1875
+          ],
+          "dx": 2.8125,
+          "dy": null,
+          "kind": "gaussian",
+          "label": "gaussian",
+          "ni": 128,
+          "nj": 64,
+          "periodicX": true,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 87.863799
+        },
+        "index": 0,
+        "level": "Ground or water surface",
+        "levelType": "Ground or water surface",
+        "offsetBytes": 0,
+        "packing": "simple",
+        "parameter": "Temperature",
+        "referenceTime": "2007-03-23T12:00:00Z",
+        "sizeLabel": null,
+        "units": "K"
+      }
+    },
+    {
+      "id": "gaussian/decode/auto",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_gaussian_f32.grib2",
+      "op": "decode",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            -87.863799,
+            87.863799,
+            0.0,
+            357.1875
+          ],
+          "dx": 2.8125,
+          "dy": null,
+          "kind": "gaussian",
+          "label": "gaussian",
+          "ni": 128,
+          "nj": 64,
+          "periodicX": true,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 87.863799
+        },
+        "len": 8192,
+        "maskLen": 8192,
+        "maskOnes": 8192,
+        "ni": 128,
+        "nj": 64,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 2048,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 4096,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 6144,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 8191,
+            "m": 1,
+            "v": 1.0
+          }
+        ],
+        "stats": {
+          "max": 1.0,
+          "min": 1.0,
+          "validCount": 8192
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "gaussian/decode/f32",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_gaussian_f32.grib2",
+      "op": "decode",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "f32",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            -87.863799,
+            87.863799,
+            0.0,
+            357.1875
+          ],
+          "dx": 2.8125,
+          "dy": null,
+          "kind": "gaussian",
+          "label": "gaussian",
+          "ni": 128,
+          "nj": 64,
+          "periodicX": true,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 87.863799
+        },
+        "len": 8192,
+        "maskLen": 8192,
+        "maskOnes": 8192,
+        "ni": 128,
+        "nj": 64,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 2048,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 4096,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 6144,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 8191,
+            "m": 1,
+            "v": 1.0
+          }
+        ],
+        "stats": {
+          "max": 1.0,
+          "min": 1.0,
+          "validCount": 8192
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "gaussian/decode/f64",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_gaussian_f32.grib2",
+      "op": "decode",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "f64",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "dtype": "f64",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            -87.863799,
+            87.863799,
+            0.0,
+            357.1875
+          ],
+          "dx": 2.8125,
+          "dy": null,
+          "kind": "gaussian",
+          "label": "gaussian",
+          "ni": 128,
+          "nj": 64,
+          "periodicX": true,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 87.863799
+        },
+        "len": 8192,
+        "maskLen": 8192,
+        "maskOnes": 8192,
+        "ni": 128,
+        "nj": 64,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 2048,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 4096,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 6144,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 8191,
+            "m": 1,
+            "v": 1.0
+          }
+        ],
+        "stats": {
+          "max": 1.0,
+          "min": 1.0,
+          "validCount": 8192
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "gaussian/warp/nearest",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_gaussian_f32.grib2",
+      "op": "warp",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": false,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "bounds": [
+          -87.863799,
+          87.863799,
+          0.0,
+          360.0
+        ],
+        "height": 64,
+        "len": 8192,
+        "maskOnes": 8192,
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 2048,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 4096,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 6144,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 8191,
+            "m": 1,
+            "v": 1.0
+          }
+        ],
+        "width": 128
+      }
+    },
+    {
+      "id": "gaussian/warp/bilinear",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_gaussian_f32.grib2",
+      "op": "warp",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": true,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "bounds": [
+          -87.863799,
+          87.863799,
+          0.0,
+          360.0
+        ],
+        "height": 64,
+        "len": 8192,
+        "maskOnes": 8192,
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 2048,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 4096,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 6144,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 8191,
+            "m": 1,
+            "v": 1.0
+          }
+        ],
+        "width": 128
+      }
+    },
+    {
+      "id": "gaussian/warp/window",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_gaussian_f32.grib2",
+      "op": "warp",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": true,
+        "bounds": [
+          -20.0,
+          40.0,
+          -30.0,
+          60.0
+        ],
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "bounds": [
+          -20.0,
+          40.0,
+          -30.0,
+          60.0
+        ],
+        "height": 64,
+        "len": 8192,
+        "maskOnes": 8192,
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 2048,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 4096,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 6144,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 8191,
+            "m": 1,
+            "v": 1.0
+          }
+        ],
+        "width": 128
+      }
+    },
+    {
+      "id": "gaussian/palette/viridis",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_gaussian_f32.grib2",
+      "op": "palette",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "viridis",
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "lutLen": 1024,
+        "lutSamples": [
+          {
+            "b": 68,
+            "i": 0
+          },
+          {
+            "b": 59,
+            "i": 256
+          },
+          {
+            "b": 33,
+            "i": 512
+          },
+          {
+            "b": 96,
+            "i": 768
+          },
+          {
+            "b": 255,
+            "i": 1023
+          }
+        ],
+        "maskedRgba": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "scale": "linear",
+        "t0": 1.0,
+        "t1": 1.0
+      }
+    },
+    {
+      "id": "gaussian/palette/log_reversed_ranged",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_gaussian_f32.grib2",
+      "op": "palette",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "plasma",
+        "reversed": true,
+        "scale": "log10",
+        "rangeMin": 1.0,
+        "rangeMax": 1000.0,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "lutLen": 1024,
+        "lutSamples": [
+          {
+            "b": 240,
+            "i": 0
+          },
+          {
+            "b": 248,
+            "i": 256
+          },
+          {
+            "b": 203,
+            "i": 512
+          },
+          {
+            "b": 125,
+            "i": 768
+          },
+          {
+            "b": 255,
+            "i": 1023
+          }
+        ],
+        "maskedRgba": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "scale": "log10",
+        "t0": 0.0,
+        "t1": 3.0
+      }
+    },
+    {
+      "id": "gaussian/render/flip_false",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_gaussian_f32.grib2",
+      "op": "render",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "viridis",
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": false,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "height": 64,
+        "opaque": 8192,
+        "pixels": [
+          {
+            "i": 0,
+            "rgba": [
+              68,
+              1,
+              84,
+              255
+            ]
+          },
+          {
+            "i": 2048,
+            "rgba": [
+              68,
+              1,
+              84,
+              255
+            ]
+          },
+          {
+            "i": 4096,
+            "rgba": [
+              68,
+              1,
+              84,
+              255
+            ]
+          },
+          {
+            "i": 6144,
+            "rgba": [
+              68,
+              1,
+              84,
+              255
+            ]
+          },
+          {
+            "i": 8191,
+            "rgba": [
+              68,
+              1,
+              84,
+              255
+            ]
+          }
+        ],
+        "rgbaLen": 32768,
+        "width": 128
+      }
+    },
+    {
+      "id": "gaussian/render/flip_true",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_gaussian_f32.grib2",
+      "op": "render",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "viridis",
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": true,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "height": 64,
+        "opaque": 8192,
+        "pixels": [
+          {
+            "i": 0,
+            "rgba": [
+              68,
+              1,
+              84,
+              255
+            ]
+          },
+          {
+            "i": 2048,
+            "rgba": [
+              68,
+              1,
+              84,
+              255
+            ]
+          },
+          {
+            "i": 4096,
+            "rgba": [
+              68,
+              1,
+              84,
+              255
+            ]
+          },
+          {
+            "i": 6144,
+            "rgba": [
+              68,
+              1,
+              84,
+              255
+            ]
+          },
+          {
+            "i": 8191,
+            "rgba": [
+              68,
+              1,
+              84,
+              255
+            ]
+          }
+        ],
+        "rgbaLen": 32768,
+        "width": 128
+      }
+    },
+    {
+      "id": "gaussian/probe/0_0",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_gaussian_f32.grib2",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": 0.0,
+        "lon": 0.0,
+        "levels": null
+      },
+      "expect": {
+        "i": 0.0,
+        "j": 31.5,
+        "lat": 0.0,
+        "lon": 0.0,
+        "value": 1.0
+      }
+    },
+    {
+      "id": "gaussian/probe/45_-100",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_gaussian_f32.grib2",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": 45.0,
+        "lon": -100.0,
+        "levels": null
+      },
+      "expect": {
+        "i": 92.44444444444444,
+        "j": 15.374382606586847,
+        "lat": 45.0,
+        "lon": -100.0,
+        "value": 1.0
+      }
+    },
+    {
+      "id": "gaussian/probe/89.5_10",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_gaussian_f32.grib2",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": 89.5,
+        "lon": 10.0,
+        "levels": null
+      },
+      "expect": null
+    },
+    {
+      "id": "gaussian/probe/-89.5_-170",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_gaussian_f32.grib2",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": -89.5,
+        "lon": -170.0,
+        "levels": null
+      },
+      "expect": null
+    },
+    {
+      "id": "gaussian/contours/auto",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_gaussian_f32.grib2",
+      "op": "contours",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": []
+      },
+      "expect": {
+        "levelCount": 0,
+        "levels": [],
+        "segmentCounts": []
+      }
+    },
+    {
+      "id": "gaussian/contours/explicit",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_gaussian_f32.grib2",
+      "op": "contours",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": [
+          250.0,
+          275.0,
+          300.0
+        ]
+      },
+      "expect": {
+        "levelCount": 3,
+        "levels": [
+          250.0,
+          275.0,
+          300.0
+        ],
+        "segmentCounts": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": "lambert/open",
+      "fixture": "fieldglass-grib2/tests/fixtures/eta_lambert_msg0.grib2",
+      "op": "open",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "count": 1,
+        "format": "grib2"
+      }
+    },
+    {
+      "id": "lambert/message",
+      "fixture": "fieldglass-grib2/tests/fixtures/eta_lambert_msg0.grib2",
+      "op": "message",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "abbreviation": "MSLET",
+        "forecast": "+24 Hour",
+        "grid": {
+          "axisUnits": "metres",
+          "boundsLonlat": [
+            12.190000000000017,
+            61.279829031543585,
+            -152.8554590653166,
+            -49.38509724968685
+          ],
+          "dx": 81271.0,
+          "dy": 81271.0,
+          "kind": "lambert",
+          "label": "lambert",
+          "ni": 93,
+          "nj": 65,
+          "periodicX": false,
+          "proj4": "+proj=lcc +lat_1=25 +lat_2=25 +lat_0=25 +lon_0=265 +R=6371229 +units=m +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": true
+          },
+          "x0": -4226106.99691547,
+          "y0": -832698.2610175647
+        },
+        "index": 0,
+        "level": "0",
+        "levelType": "Mean sea level",
+        "offsetBytes": 0,
+        "packing": "simple",
+        "parameter": "MSLP (Eta model reduction)",
+        "referenceTime": "2004-12-08T12:00:00Z",
+        "sizeLabel": null,
+        "units": "Pa"
+      }
+    },
+    {
+      "id": "lambert/decode/auto",
+      "fixture": "fieldglass-grib2/tests/fixtures/eta_lambert_msg0.grib2",
+      "op": "decode",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "metres",
+          "boundsLonlat": [
+            12.190000000000017,
+            61.279829031543585,
+            -152.8554590653166,
+            -49.38509724968685
+          ],
+          "dx": 81271.0,
+          "dy": 81271.0,
+          "kind": "lambert",
+          "label": "lambert",
+          "ni": 93,
+          "nj": 65,
+          "periodicX": false,
+          "proj4": "+proj=lcc +lat_1=25 +lat_2=25 +lat_0=25 +lon_0=265 +R=6371229 +units=m +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": true
+          },
+          "x0": -4226106.99691547,
+          "y0": -832698.2610175647
+        },
+        "len": 6045,
+        "maskLen": 6045,
+        "maskOnes": 6045,
+        "ni": 93,
+        "nj": 65,
+        "parameter": "MSLP (Eta model reduction)",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 101333.0
+          },
+          {
+            "i": 1511,
+            "m": 1,
+            "v": 102259.0
+          },
+          {
+            "i": 3022,
+            "m": 1,
+            "v": 100714.0
+          },
+          {
+            "i": 4533,
+            "m": 1,
+            "v": 101865.0
+          },
+          {
+            "i": 6044,
+            "m": 1,
+            "v": 100828.0
+          }
+        ],
+        "stats": {
+          "max": 102712.0,
+          "min": 97392.0,
+          "validCount": 6045
+        },
+        "units": "Pa"
+      }
+    },
+    {
+      "id": "lambert/decode/f32",
+      "fixture": "fieldglass-grib2/tests/fixtures/eta_lambert_msg0.grib2",
+      "op": "decode",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "f32",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "metres",
+          "boundsLonlat": [
+            12.190000000000017,
+            61.279829031543585,
+            -152.8554590653166,
+            -49.38509724968685
+          ],
+          "dx": 81271.0,
+          "dy": 81271.0,
+          "kind": "lambert",
+          "label": "lambert",
+          "ni": 93,
+          "nj": 65,
+          "periodicX": false,
+          "proj4": "+proj=lcc +lat_1=25 +lat_2=25 +lat_0=25 +lon_0=265 +R=6371229 +units=m +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": true
+          },
+          "x0": -4226106.99691547,
+          "y0": -832698.2610175647
+        },
+        "len": 6045,
+        "maskLen": 6045,
+        "maskOnes": 6045,
+        "ni": 93,
+        "nj": 65,
+        "parameter": "MSLP (Eta model reduction)",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 101333.0
+          },
+          {
+            "i": 1511,
+            "m": 1,
+            "v": 102259.0
+          },
+          {
+            "i": 3022,
+            "m": 1,
+            "v": 100714.0
+          },
+          {
+            "i": 4533,
+            "m": 1,
+            "v": 101865.0
+          },
+          {
+            "i": 6044,
+            "m": 1,
+            "v": 100828.0
+          }
+        ],
+        "stats": {
+          "max": 102712.0,
+          "min": 97392.0,
+          "validCount": 6045
+        },
+        "units": "Pa"
+      }
+    },
+    {
+      "id": "lambert/decode/f64",
+      "fixture": "fieldglass-grib2/tests/fixtures/eta_lambert_msg0.grib2",
+      "op": "decode",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "f64",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "dtype": "f64",
+        "georef": {
+          "axisUnits": "metres",
+          "boundsLonlat": [
+            12.190000000000017,
+            61.279829031543585,
+            -152.8554590653166,
+            -49.38509724968685
+          ],
+          "dx": 81271.0,
+          "dy": 81271.0,
+          "kind": "lambert",
+          "label": "lambert",
+          "ni": 93,
+          "nj": 65,
+          "periodicX": false,
+          "proj4": "+proj=lcc +lat_1=25 +lat_2=25 +lat_0=25 +lon_0=265 +R=6371229 +units=m +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": true
+          },
+          "x0": -4226106.99691547,
+          "y0": -832698.2610175647
+        },
+        "len": 6045,
+        "maskLen": 6045,
+        "maskOnes": 6045,
+        "ni": 93,
+        "nj": 65,
+        "parameter": "MSLP (Eta model reduction)",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 101333.0
+          },
+          {
+            "i": 1511,
+            "m": 1,
+            "v": 102259.0
+          },
+          {
+            "i": 3022,
+            "m": 1,
+            "v": 100714.0
+          },
+          {
+            "i": 4533,
+            "m": 1,
+            "v": 101865.0
+          },
+          {
+            "i": 6044,
+            "m": 1,
+            "v": 100828.0
+          }
+        ],
+        "stats": {
+          "max": 102712.0,
+          "min": 97392.0,
+          "validCount": 6045
+        },
+        "units": "Pa"
+      }
+    },
+    {
+      "id": "lambert/warp/nearest",
+      "fixture": "fieldglass-grib2/tests/fixtures/eta_lambert_msg0.grib2",
+      "op": "warp",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": false,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "bounds": [
+          12.190000000000017,
+          61.279829031543585,
+          -152.8554590653166,
+          -49.38509724968685
+        ],
+        "height": 65,
+        "len": 6045,
+        "maskOnes": 4317,
+        "samples": [
+          {
+            "i": 0,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 1511,
+            "m": 1,
+            "v": 101036.0
+          },
+          {
+            "i": 3022,
+            "m": 1,
+            "v": 101009.0
+          },
+          {
+            "i": 4533,
+            "m": 1,
+            "v": 102037.0
+          },
+          {
+            "i": 6044,
+            "m": 0,
+            "v": null
+          }
+        ],
+        "width": 93
+      }
+    },
+    {
+      "id": "lambert/warp/bilinear",
+      "fixture": "fieldglass-grib2/tests/fixtures/eta_lambert_msg0.grib2",
+      "op": "warp",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": true,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "bounds": [
+          12.190000000000017,
+          61.279829031543585,
+          -152.8554590653166,
+          -49.38509724968685
+        ],
+        "height": 65,
+        "len": 6045,
+        "maskOnes": 4317,
+        "samples": [
+          {
+            "i": 0,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 1511,
+            "m": 1,
+            "v": 101021.796875
+          },
+          {
+            "i": 3022,
+            "m": 1,
+            "v": 101011.3515625
+          },
+          {
+            "i": 4533,
+            "m": 1,
+            "v": 102046.3984375
+          },
+          {
+            "i": 6044,
+            "m": 0,
+            "v": null
+          }
+        ],
+        "width": 93
+      }
+    },
+    {
+      "id": "lambert/warp/window",
+      "fixture": "fieldglass-grib2/tests/fixtures/eta_lambert_msg0.grib2",
+      "op": "warp",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": true,
+        "bounds": [
+          -20.0,
+          40.0,
+          -30.0,
+          60.0
+        ],
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "bounds": [
+          -20.0,
+          40.0,
+          -30.0,
+          60.0
+        ],
+        "height": 65,
+        "len": 6045,
+        "maskOnes": 0,
+        "samples": [
+          {
+            "i": 0,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 1511,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 3022,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 4533,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 6044,
+            "m": 0,
+            "v": null
+          }
+        ],
+        "width": 93
+      }
+    },
+    {
+      "id": "lambert/palette/viridis",
+      "fixture": "fieldglass-grib2/tests/fixtures/eta_lambert_msg0.grib2",
+      "op": "palette",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "viridis",
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "lutLen": 1024,
+        "lutSamples": [
+          {
+            "b": 68,
+            "i": 0
+          },
+          {
+            "b": 59,
+            "i": 256
+          },
+          {
+            "b": 33,
+            "i": 512
+          },
+          {
+            "b": 96,
+            "i": 768
+          },
+          {
+            "b": 255,
+            "i": 1023
+          }
+        ],
+        "maskedRgba": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "scale": "linear",
+        "t0": 97392.0,
+        "t1": 102712.0
+      }
+    },
+    {
+      "id": "lambert/palette/log_reversed_ranged",
+      "fixture": "fieldglass-grib2/tests/fixtures/eta_lambert_msg0.grib2",
+      "op": "palette",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "plasma",
+        "reversed": true,
+        "scale": "log10",
+        "rangeMin": 1.0,
+        "rangeMax": 1000.0,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "lutLen": 1024,
+        "lutSamples": [
+          {
+            "b": 240,
+            "i": 0
+          },
+          {
+            "b": 248,
+            "i": 256
+          },
+          {
+            "b": 203,
+            "i": 512
+          },
+          {
+            "b": 125,
+            "i": 768
+          },
+          {
+            "b": 255,
+            "i": 1023
+          }
+        ],
+        "maskedRgba": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "scale": "log10",
+        "t0": 0.0,
+        "t1": 3.0
+      }
+    },
+    {
+      "id": "lambert/render/flip_false",
+      "fixture": "fieldglass-grib2/tests/fixtures/eta_lambert_msg0.grib2",
+      "op": "render",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "viridis",
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": false,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "height": 65,
+        "opaque": 6045,
+        "pixels": [
+          {
+            "i": 0,
+            "rgba": [
+              70,
+              44,
+              121,
+              255
+            ]
+          },
+          {
+            "i": 1511,
+            "rgba": [
+              73,
+              193,
+              109,
+              255
+            ]
+          },
+          {
+            "i": 3022,
+            "rgba": [
+              42,
+              173,
+              127,
+              255
+            ]
+          },
+          {
+            "i": 4533,
+            "rgba": [
+              161,
+              217,
+              56,
+              255
+            ]
+          },
+          {
+            "i": 6044,
+            "rgba": [
+              107,
+              204,
+              90,
+              255
+            ]
+          }
+        ],
+        "rgbaLen": 24180,
+        "width": 93
+      }
+    },
+    {
+      "id": "lambert/render/flip_true",
+      "fixture": "fieldglass-grib2/tests/fixtures/eta_lambert_msg0.grib2",
+      "op": "render",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "viridis",
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": true,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "height": 65,
+        "opaque": 6045,
+        "pixels": [
+          {
+            "i": 0,
+            "rgba": [
+              90,
+              199,
+              99,
+              255
+            ]
+          },
+          {
+            "i": 1511,
+            "rgba": [
+              198,
+              224,
+              38,
+              255
+            ]
+          },
+          {
+            "i": 3022,
+            "rgba": [
+              42,
+              173,
+              127,
+              255
+            ]
+          },
+          {
+            "i": 4533,
+            "rgba": [
+              148,
+              215,
+              64,
+              255
+            ]
+          },
+          {
+            "i": 6044,
+            "rgba": [
+              50,
+              179,
+              123,
+              255
+            ]
+          }
+        ],
+        "rgbaLen": 24180,
+        "width": 93
+      }
+    },
+    {
+      "id": "lambert/probe/0_0",
+      "fixture": "fieldglass-grib2/tests/fixtures/eta_lambert_msg0.grib2",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": 0.0,
+        "lon": 0.0,
+        "levels": null
+      },
+      "expect": null
+    },
+    {
+      "id": "lambert/probe/45_-100",
+      "fixture": "fieldglass-grib2/tests/fixtures/eta_lambert_msg0.grib2",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": 45.0,
+        "lon": -100.0,
+        "levels": null
+      },
+      "expect": {
+        "i": 46.83247311335374,
+        "j": 38.307004859215944,
+        "lat": 45.0,
+        "lon": -100.0,
+        "value": 100288.0
+      }
+    },
+    {
+      "id": "lambert/probe/89.5_10",
+      "fixture": "fieldglass-grib2/tests/fixtures/eta_lambert_msg0.grib2",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": 89.5,
+        "lon": 10.0,
+        "levels": null
+      },
+      "expect": null
+    },
+    {
+      "id": "lambert/probe/-89.5_-170",
+      "fixture": "fieldglass-grib2/tests/fixtures/eta_lambert_msg0.grib2",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": -89.5,
+        "lon": -170.0,
+        "levels": null
+      },
+      "expect": null
+    },
+    {
+      "id": "lambert/contours/auto",
+      "fixture": "fieldglass-grib2/tests/fixtures/eta_lambert_msg0.grib2",
+      "op": "contours",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": []
+      },
+      "expect": {
+        "levelCount": 11,
+        "levels": [
+          97500.0,
+          98000.0,
+          98500.0,
+          99000.0,
+          99500.0,
+          100000.0,
+          100500.0,
+          101000.0,
+          101500.0,
+          102000.0,
+          102500.0
+        ],
+        "segmentCounts": [
+          7,
+          22,
+          28,
+          31,
+          50,
+          62,
+          151,
+          253,
+          389,
+          318,
+          106
+        ]
+      }
+    },
+    {
+      "id": "lambert/contours/explicit",
+      "fixture": "fieldglass-grib2/tests/fixtures/eta_lambert_msg0.grib2",
+      "op": "contours",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": [
+          250.0,
+          275.0,
+          300.0
+        ]
+      },
+      "expect": {
+        "levelCount": 3,
+        "levels": [
+          250.0,
+          275.0,
+          300.0
+        ],
+        "segmentCounts": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": "tmerc/open",
+      "fixture": "fieldglass-grib2/tests/fixtures/transverse_mercator_ukv.grib2",
+      "op": "open",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "count": 1,
+        "format": "grib2"
+      }
+    },
+    {
+      "id": "tmerc/message",
+      "fixture": "fieldglass-grib2/tests/fixtures/transverse_mercator_ukv.grib2",
+      "op": "message",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "abbreviation": "TMP",
+        "forecast": "+0 Hour",
+        "grid": {
+          "axisUnits": "metres",
+          "boundsLonlat": [
+            48.04996351439769,
+            60.881363042045734,
+            -13.611297212366253,
+            6.528817987152934
+          ],
+          "dx": 48000.0,
+          "dy": -48000.0,
+          "kind": "transverse_mercator",
+          "label": "transverse_mercator",
+          "ni": 24,
+          "nj": 30,
+          "periodicX": false,
+          "proj4": "+proj=tmerc +lat_0=49 +lon_0=-2 +k_0=0.9996012449264526 +x_0=400000 +y_0=-100000 +a=6377563 +b=6356257.000000001 +units=m +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": -238000.0,
+          "y0": 1222000.0
+        },
+        "index": 0,
+        "level": "Ground or water surface",
+        "levelType": "Ground or water surface",
+        "offsetBytes": 0,
+        "packing": "simple",
+        "parameter": "Temperature",
+        "referenceTime": "2007-03-23T12:00:00Z",
+        "sizeLabel": null,
+        "units": "K"
+      }
+    },
+    {
+      "id": "tmerc/decode/auto",
+      "fixture": "fieldglass-grib2/tests/fixtures/transverse_mercator_ukv.grib2",
+      "op": "decode",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "metres",
+          "boundsLonlat": [
+            48.04996351439769,
+            60.881363042045734,
+            -13.611297212366253,
+            6.528817987152934
+          ],
+          "dx": 48000.0,
+          "dy": -48000.0,
+          "kind": "transverse_mercator",
+          "label": "transverse_mercator",
+          "ni": 24,
+          "nj": 30,
+          "periodicX": false,
+          "proj4": "+proj=tmerc +lat_0=49 +lon_0=-2 +k_0=0.9996012449264526 +x_0=400000 +y_0=-100000 +a=6377563 +b=6356257.000000001 +units=m +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": -238000.0,
+          "y0": 1222000.0
+        },
+        "len": 720,
+        "maskLen": 720,
+        "maskOnes": 720,
+        "ni": 24,
+        "nj": 30,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 273.1499938964844
+          },
+          {
+            "i": 180,
+            "m": 1,
+            "v": 278.1499938964844
+          },
+          {
+            "i": 360,
+            "m": 1,
+            "v": 283.1499938964844
+          },
+          {
+            "i": 540,
+            "m": 1,
+            "v": 288.1499938964844
+          },
+          {
+            "i": 719,
+            "m": 1,
+            "v": 293.1221618652344
+          }
+        ],
+        "stats": {
+          "max": 293.1221618652344,
+          "min": 273.1499938964844,
+          "validCount": 720
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "tmerc/decode/f32",
+      "fixture": "fieldglass-grib2/tests/fixtures/transverse_mercator_ukv.grib2",
+      "op": "decode",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "f32",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "metres",
+          "boundsLonlat": [
+            48.04996351439769,
+            60.881363042045734,
+            -13.611297212366253,
+            6.528817987152934
+          ],
+          "dx": 48000.0,
+          "dy": -48000.0,
+          "kind": "transverse_mercator",
+          "label": "transverse_mercator",
+          "ni": 24,
+          "nj": 30,
+          "periodicX": false,
+          "proj4": "+proj=tmerc +lat_0=49 +lon_0=-2 +k_0=0.9996012449264526 +x_0=400000 +y_0=-100000 +a=6377563 +b=6356257.000000001 +units=m +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": -238000.0,
+          "y0": 1222000.0
+        },
+        "len": 720,
+        "maskLen": 720,
+        "maskOnes": 720,
+        "ni": 24,
+        "nj": 30,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 273.1499938964844
+          },
+          {
+            "i": 180,
+            "m": 1,
+            "v": 278.1499938964844
+          },
+          {
+            "i": 360,
+            "m": 1,
+            "v": 283.1499938964844
+          },
+          {
+            "i": 540,
+            "m": 1,
+            "v": 288.1499938964844
+          },
+          {
+            "i": 719,
+            "m": 1,
+            "v": 293.1221618652344
+          }
+        ],
+        "stats": {
+          "max": 293.1221618652344,
+          "min": 273.1499938964844,
+          "validCount": 720
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "tmerc/decode/f64",
+      "fixture": "fieldglass-grib2/tests/fixtures/transverse_mercator_ukv.grib2",
+      "op": "decode",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "f64",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "dtype": "f64",
+        "georef": {
+          "axisUnits": "metres",
+          "boundsLonlat": [
+            48.04996351439769,
+            60.881363042045734,
+            -13.611297212366253,
+            6.528817987152934
+          ],
+          "dx": 48000.0,
+          "dy": -48000.0,
+          "kind": "transverse_mercator",
+          "label": "transverse_mercator",
+          "ni": 24,
+          "nj": 30,
+          "periodicX": false,
+          "proj4": "+proj=tmerc +lat_0=49 +lon_0=-2 +k_0=0.9996012449264526 +x_0=400000 +y_0=-100000 +a=6377563 +b=6356257.000000001 +units=m +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": -238000.0,
+          "y0": 1222000.0
+        },
+        "len": 720,
+        "maskLen": 720,
+        "maskOnes": 720,
+        "ni": 24,
+        "nj": 30,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 273.1499938964844
+          },
+          {
+            "i": 180,
+            "m": 1,
+            "v": 278.1499938964844
+          },
+          {
+            "i": 360,
+            "m": 1,
+            "v": 283.1499938964844
+          },
+          {
+            "i": 540,
+            "m": 1,
+            "v": 288.1499938964844
+          },
+          {
+            "i": 719,
+            "m": 1,
+            "v": 293.1221618652344
+          }
+        ],
+        "stats": {
+          "max": 293.1221618652344,
+          "min": 273.1499938964844,
+          "validCount": 720
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "tmerc/warp/nearest",
+      "fixture": "fieldglass-grib2/tests/fixtures/transverse_mercator_ukv.grib2",
+      "op": "warp",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": false,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "bounds": [
+          48.04996351439769,
+          60.881363042045734,
+          -13.611297212366253,
+          6.528817987152934
+        ],
+        "height": 30,
+        "len": 720,
+        "maskOnes": 549,
+        "samples": [
+          {
+            "i": 0,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 180,
+            "m": 1,
+            "v": 278.1499938964844
+          },
+          {
+            "i": 360,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 540,
+            "m": 1,
+            "v": 288.8164978027344
+          },
+          {
+            "i": 719,
+            "m": 0,
+            "v": null
+          }
+        ],
+        "width": 24
+      }
+    },
+    {
+      "id": "tmerc/warp/bilinear",
+      "fixture": "fieldglass-grib2/tests/fixtures/transverse_mercator_ukv.grib2",
+      "op": "warp",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": true,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "bounds": [
+          48.04996351439769,
+          60.881363042045734,
+          -13.611297212366253,
+          6.528817987152934
+        ],
+        "height": 30,
+        "len": 720,
+        "maskOnes": 549,
+        "samples": [
+          {
+            "i": 0,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 180,
+            "m": 1,
+            "v": 278.2635803222656
+          },
+          {
+            "i": 360,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 540,
+            "m": 1,
+            "v": 288.5119934082031
+          },
+          {
+            "i": 719,
+            "m": 0,
+            "v": null
+          }
+        ],
+        "width": 24
+      }
+    },
+    {
+      "id": "tmerc/warp/window",
+      "fixture": "fieldglass-grib2/tests/fixtures/transverse_mercator_ukv.grib2",
+      "op": "warp",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": true,
+        "bounds": [
+          -20.0,
+          40.0,
+          -30.0,
+          60.0
+        ],
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "bounds": [
+          -20.0,
+          40.0,
+          -30.0,
+          60.0
+        ],
+        "height": 30,
+        "len": 720,
+        "maskOnes": 0,
+        "samples": [
+          {
+            "i": 0,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 180,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 360,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 540,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 719,
+            "m": 0,
+            "v": null
+          }
+        ],
+        "width": 24
+      }
+    },
+    {
+      "id": "tmerc/palette/viridis",
+      "fixture": "fieldglass-grib2/tests/fixtures/transverse_mercator_ukv.grib2",
+      "op": "palette",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "viridis",
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "lutLen": 1024,
+        "lutSamples": [
+          {
+            "b": 68,
+            "i": 0
+          },
+          {
+            "b": 59,
+            "i": 256
+          },
+          {
+            "b": 33,
+            "i": 512
+          },
+          {
+            "b": 96,
+            "i": 768
+          },
+          {
+            "b": 255,
+            "i": 1023
+          }
+        ],
+        "maskedRgba": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "scale": "linear",
+        "t0": 273.1499938964844,
+        "t1": 293.1221618652344
+      }
+    },
+    {
+      "id": "tmerc/palette/log_reversed_ranged",
+      "fixture": "fieldglass-grib2/tests/fixtures/transverse_mercator_ukv.grib2",
+      "op": "palette",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "plasma",
+        "reversed": true,
+        "scale": "log10",
+        "rangeMin": 1.0,
+        "rangeMax": 1000.0,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "lutLen": 1024,
+        "lutSamples": [
+          {
+            "b": 240,
+            "i": 0
+          },
+          {
+            "b": 248,
+            "i": 256
+          },
+          {
+            "b": 203,
+            "i": 512
+          },
+          {
+            "b": 125,
+            "i": 768
+          },
+          {
+            "b": 255,
+            "i": 1023
+          }
+        ],
+        "maskedRgba": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "scale": "log10",
+        "t0": 0.0,
+        "t1": 3.0
+      }
+    },
+    {
+      "id": "tmerc/render/flip_false",
+      "fixture": "fieldglass-grib2/tests/fixtures/transverse_mercator_ukv.grib2",
+      "op": "render",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "viridis",
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": false,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "height": 30,
+        "opaque": 720,
+        "pixels": [
+          {
+            "i": 0,
+            "rgba": [
+              68,
+              1,
+              84,
+              255
+            ]
+          },
+          {
+            "i": 180,
+            "rgba": [
+              59,
+              81,
+              138,
+              255
+            ]
+          },
+          {
+            "i": 360,
+            "rgba": [
+              33,
+              145,
+              140,
+              255
+            ]
+          },
+          {
+            "i": 540,
+            "rgba": [
+              96,
+              201,
+              96,
+              255
+            ]
+          },
+          {
+            "i": 719,
+            "rgba": [
+              253,
+              231,
+              37,
+              255
+            ]
+          }
+        ],
+        "rgbaLen": 2880,
+        "width": 24
+      }
+    },
+    {
+      "id": "tmerc/render/flip_true",
+      "fixture": "fieldglass-grib2/tests/fixtures/transverse_mercator_ukv.grib2",
+      "op": "render",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "viridis",
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": true,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "height": 30,
+        "opaque": 720,
+        "pixels": [
+          {
+            "i": 0,
+            "rgba": [
+              233,
+              228,
+              37,
+              255
+            ]
+          },
+          {
+            "i": 180,
+            "rgba": [
+              96,
+              201,
+              96,
+              255
+            ]
+          },
+          {
+            "i": 360,
+            "rgba": [
+              36,
+              136,
+              141,
+              255
+            ]
+          },
+          {
+            "i": 540,
+            "rgba": [
+              59,
+              81,
+              138,
+              255
+            ]
+          },
+          {
+            "i": 719,
+            "rgba": [
+              69,
+              12,
+              94,
+              255
+            ]
+          }
+        ],
+        "rgbaLen": 2880,
+        "width": 24
+      }
+    },
+    {
+      "id": "tmerc/probe/0_0",
+      "fixture": "fieldglass-grib2/tests/fixtures/transverse_mercator_ukv.grib2",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": 0.0,
+        "lon": 0.0,
+        "levels": null
+      },
+      "expect": null
+    },
+    {
+      "id": "tmerc/probe/45_-100",
+      "fixture": "fieldglass-grib2/tests/fixtures/transverse_mercator_ukv.grib2",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": 45.0,
+        "lon": -100.0,
+        "levels": null
+      },
+      "expect": null
+    },
+    {
+      "id": "tmerc/probe/89.5_10",
+      "fixture": "fieldglass-grib2/tests/fixtures/transverse_mercator_ukv.grib2",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": 89.5,
+        "lon": 10.0,
+        "levels": null
+      },
+      "expect": null
+    },
+    {
+      "id": "tmerc/probe/-89.5_-170",
+      "fixture": "fieldglass-grib2/tests/fixtures/transverse_mercator_ukv.grib2",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": -89.5,
+        "lon": -170.0,
+        "levels": null
+      },
+      "expect": null
+    },
+    {
+      "id": "tmerc/contours/auto",
+      "fixture": "fieldglass-grib2/tests/fixtures/transverse_mercator_ukv.grib2",
+      "op": "contours",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": []
+      },
+      "expect": {
+        "levelCount": 10,
+        "levels": [
+          274.0,
+          276.0,
+          278.0,
+          280.0,
+          282.0,
+          284.0,
+          286.0,
+          288.0,
+          290.0,
+          292.0
+        ],
+        "segmentCounts": [
+          24,
+          24,
+          24,
+          24,
+          24,
+          24,
+          24,
+          24,
+          24,
+          24
+        ]
+      }
+    },
+    {
+      "id": "tmerc/contours/explicit",
+      "fixture": "fieldglass-grib2/tests/fixtures/transverse_mercator_ukv.grib2",
+      "op": "contours",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": [
+          250.0,
+          275.0,
+          300.0
+        ]
+      },
+      "expect": {
+        "levelCount": 3,
+        "levels": [
+          250.0,
+          275.0,
+          300.0
+        ],
+        "segmentCounts": [
+          0,
+          24,
+          0
+        ]
+      }
+    },
+    {
+      "id": "rotated/open",
+      "fixture": "fieldglass-grib2/tests/fixtures/rotated_latlon_surface.grib2",
+      "op": "open",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "count": 1,
+        "format": "grib2"
+      }
+    },
+    {
+      "id": "rotated/message",
+      "fixture": "fieldglass-grib2/tests/fixtures/rotated_latlon_surface.grib2",
+      "op": "message",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "abbreviation": "TMP",
+        "forecast": "+0 Hour",
+        "grid": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            25.658906273255294,
+            90.0,
+            0.0,
+            180.0
+          ],
+          "dx": null,
+          "dy": null,
+          "kind": "rotated_latlon",
+          "label": "rotated_latlon",
+          "ni": 16,
+          "nj": 31,
+          "periodicX": false,
+          "proj4": null,
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": null,
+          "y0": null
+        },
+        "index": 0,
+        "level": "Ground or water surface",
+        "levelType": "Ground or water surface",
+        "offsetBytes": 0,
+        "packing": "simple",
+        "parameter": "Temperature",
+        "referenceTime": "2007-03-23T12:00:00Z",
+        "sizeLabel": null,
+        "units": "K"
+      }
+    },
+    {
+      "id": "rotated/decode/auto",
+      "fixture": "fieldglass-grib2/tests/fixtures/rotated_latlon_surface.grib2",
+      "op": "decode",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            25.658906273255294,
+            90.0,
+            0.0,
+            180.0
+          ],
+          "dx": null,
+          "dy": null,
+          "kind": "rotated_latlon",
+          "label": "rotated_latlon",
+          "ni": 16,
+          "nj": 31,
+          "periodicX": false,
+          "proj4": null,
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": null,
+          "y0": null
+        },
+        "len": 496,
+        "maskLen": 496,
+        "maskOnes": 496,
+        "ni": 16,
+        "nj": 31,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 273.1499938964844
+          },
+          {
+            "i": 124,
+            "m": 1,
+            "v": 273.1499938964844
+          },
+          {
+            "i": 248,
+            "m": 1,
+            "v": 273.1499938964844
+          },
+          {
+            "i": 372,
+            "m": 1,
+            "v": 273.1499938964844
+          },
+          {
+            "i": 495,
+            "m": 1,
+            "v": 273.1499938964844
+          }
+        ],
+        "stats": {
+          "max": 273.1499938964844,
+          "min": 273.1499938964844,
+          "validCount": 496
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "rotated/decode/f32",
+      "fixture": "fieldglass-grib2/tests/fixtures/rotated_latlon_surface.grib2",
+      "op": "decode",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "f32",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            25.658906273255294,
+            90.0,
+            0.0,
+            180.0
+          ],
+          "dx": null,
+          "dy": null,
+          "kind": "rotated_latlon",
+          "label": "rotated_latlon",
+          "ni": 16,
+          "nj": 31,
+          "periodicX": false,
+          "proj4": null,
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": null,
+          "y0": null
+        },
+        "len": 496,
+        "maskLen": 496,
+        "maskOnes": 496,
+        "ni": 16,
+        "nj": 31,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 273.1499938964844
+          },
+          {
+            "i": 124,
+            "m": 1,
+            "v": 273.1499938964844
+          },
+          {
+            "i": 248,
+            "m": 1,
+            "v": 273.1499938964844
+          },
+          {
+            "i": 372,
+            "m": 1,
+            "v": 273.1499938964844
+          },
+          {
+            "i": 495,
+            "m": 1,
+            "v": 273.1499938964844
+          }
+        ],
+        "stats": {
+          "max": 273.1499938964844,
+          "min": 273.1499938964844,
+          "validCount": 496
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "rotated/decode/f64",
+      "fixture": "fieldglass-grib2/tests/fixtures/rotated_latlon_surface.grib2",
+      "op": "decode",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "f64",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "dtype": "f64",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            25.658906273255294,
+            90.0,
+            0.0,
+            180.0
+          ],
+          "dx": null,
+          "dy": null,
+          "kind": "rotated_latlon",
+          "label": "rotated_latlon",
+          "ni": 16,
+          "nj": 31,
+          "periodicX": false,
+          "proj4": null,
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": null,
+          "y0": null
+        },
+        "len": 496,
+        "maskLen": 496,
+        "maskOnes": 496,
+        "ni": 16,
+        "nj": 31,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 273.1499938964844
+          },
+          {
+            "i": 124,
+            "m": 1,
+            "v": 273.1499938964844
+          },
+          {
+            "i": 248,
+            "m": 1,
+            "v": 273.1499938964844
+          },
+          {
+            "i": 372,
+            "m": 1,
+            "v": 273.1499938964844
+          },
+          {
+            "i": 495,
+            "m": 1,
+            "v": 273.1499938964844
+          }
+        ],
+        "stats": {
+          "max": 273.1499938964844,
+          "min": 273.1499938964844,
+          "validCount": 496
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "rotated/warp/nearest",
+      "fixture": "fieldglass-grib2/tests/fixtures/rotated_latlon_surface.grib2",
+      "op": "warp",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": false,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "bounds": [
+          25.658906273255294,
+          90.0,
+          0.0,
+          180.0
+        ],
+        "height": 31,
+        "len": 496,
+        "maskOnes": 177,
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 273.1499938964844
+          },
+          {
+            "i": 124,
+            "m": 1,
+            "v": 273.1499938964844
+          },
+          {
+            "i": 248,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 372,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 495,
+            "m": 0,
+            "v": null
+          }
+        ],
+        "width": 16
+      }
+    },
+    {
+      "id": "rotated/warp/bilinear",
+      "fixture": "fieldglass-grib2/tests/fixtures/rotated_latlon_surface.grib2",
+      "op": "warp",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": true,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "bounds": [
+          25.658906273255294,
+          90.0,
+          0.0,
+          180.0
+        ],
+        "height": 31,
+        "len": 496,
+        "maskOnes": 177,
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 273.1499938964844
+          },
+          {
+            "i": 124,
+            "m": 1,
+            "v": 273.1499938964844
+          },
+          {
+            "i": 248,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 372,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 495,
+            "m": 0,
+            "v": null
+          }
+        ],
+        "width": 16
+      }
+    },
+    {
+      "id": "rotated/warp/window",
+      "fixture": "fieldglass-grib2/tests/fixtures/rotated_latlon_surface.grib2",
+      "op": "warp",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": true,
+        "bounds": [
+          -20.0,
+          40.0,
+          -30.0,
+          60.0
+        ],
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "bounds": [
+          -20.0,
+          40.0,
+          -30.0,
+          60.0
+        ],
+        "height": 31,
+        "len": 496,
+        "maskOnes": 0,
+        "samples": [
+          {
+            "i": 0,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 124,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 248,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 372,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 495,
+            "m": 0,
+            "v": null
+          }
+        ],
+        "width": 16
+      }
+    },
+    {
+      "id": "rotated/palette/viridis",
+      "fixture": "fieldglass-grib2/tests/fixtures/rotated_latlon_surface.grib2",
+      "op": "palette",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "viridis",
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "lutLen": 1024,
+        "lutSamples": [
+          {
+            "b": 68,
+            "i": 0
+          },
+          {
+            "b": 59,
+            "i": 256
+          },
+          {
+            "b": 33,
+            "i": 512
+          },
+          {
+            "b": 96,
+            "i": 768
+          },
+          {
+            "b": 255,
+            "i": 1023
+          }
+        ],
+        "maskedRgba": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "scale": "linear",
+        "t0": 273.1499938964844,
+        "t1": 273.1499938964844
+      }
+    },
+    {
+      "id": "rotated/palette/log_reversed_ranged",
+      "fixture": "fieldglass-grib2/tests/fixtures/rotated_latlon_surface.grib2",
+      "op": "palette",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "plasma",
+        "reversed": true,
+        "scale": "log10",
+        "rangeMin": 1.0,
+        "rangeMax": 1000.0,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "lutLen": 1024,
+        "lutSamples": [
+          {
+            "b": 240,
+            "i": 0
+          },
+          {
+            "b": 248,
+            "i": 256
+          },
+          {
+            "b": 203,
+            "i": 512
+          },
+          {
+            "b": 125,
+            "i": 768
+          },
+          {
+            "b": 255,
+            "i": 1023
+          }
+        ],
+        "maskedRgba": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "scale": "log10",
+        "t0": 0.0,
+        "t1": 3.0
+      }
+    },
+    {
+      "id": "rotated/render/flip_false",
+      "fixture": "fieldglass-grib2/tests/fixtures/rotated_latlon_surface.grib2",
+      "op": "render",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "viridis",
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": false,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "height": 31,
+        "opaque": 496,
+        "pixels": [
+          {
+            "i": 0,
+            "rgba": [
+              68,
+              1,
+              84,
+              255
+            ]
+          },
+          {
+            "i": 124,
+            "rgba": [
+              68,
+              1,
+              84,
+              255
+            ]
+          },
+          {
+            "i": 248,
+            "rgba": [
+              68,
+              1,
+              84,
+              255
+            ]
+          },
+          {
+            "i": 372,
+            "rgba": [
+              68,
+              1,
+              84,
+              255
+            ]
+          },
+          {
+            "i": 495,
+            "rgba": [
+              68,
+              1,
+              84,
+              255
+            ]
+          }
+        ],
+        "rgbaLen": 1984,
+        "width": 16
+      }
+    },
+    {
+      "id": "rotated/render/flip_true",
+      "fixture": "fieldglass-grib2/tests/fixtures/rotated_latlon_surface.grib2",
+      "op": "render",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "viridis",
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": true,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "height": 31,
+        "opaque": 496,
+        "pixels": [
+          {
+            "i": 0,
+            "rgba": [
+              68,
+              1,
+              84,
+              255
+            ]
+          },
+          {
+            "i": 124,
+            "rgba": [
+              68,
+              1,
+              84,
+              255
+            ]
+          },
+          {
+            "i": 248,
+            "rgba": [
+              68,
+              1,
+              84,
+              255
+            ]
+          },
+          {
+            "i": 372,
+            "rgba": [
+              68,
+              1,
+              84,
+              255
+            ]
+          },
+          {
+            "i": 495,
+            "rgba": [
+              68,
+              1,
+              84,
+              255
+            ]
+          }
+        ],
+        "rgbaLen": 1984,
+        "width": 16
+      }
+    },
+    {
+      "id": "rotated/probe/0_0",
+      "fixture": "fieldglass-grib2/tests/fixtures/rotated_latlon_surface.grib2",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": 0.0,
+        "lon": 0.0,
+        "levels": null
+      },
+      "expect": null
+    },
+    {
+      "id": "rotated/probe/45_-100",
+      "fixture": "fieldglass-grib2/tests/fixtures/rotated_latlon_surface.grib2",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": 45.0,
+        "lon": -100.0,
+        "levels": null
+      },
+      "expect": null
+    },
+    {
+      "id": "rotated/probe/89.5_10",
+      "fixture": "fieldglass-grib2/tests/fixtures/rotated_latlon_surface.grib2",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": 89.5,
+        "lon": 10.0,
+        "levels": null
+      },
+      "expect": null
+    },
+    {
+      "id": "rotated/probe/-89.5_-170",
+      "fixture": "fieldglass-grib2/tests/fixtures/rotated_latlon_surface.grib2",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": -89.5,
+        "lon": -170.0,
+        "levels": null
+      },
+      "expect": null
+    },
+    {
+      "id": "rotated/contours/auto",
+      "fixture": "fieldglass-grib2/tests/fixtures/rotated_latlon_surface.grib2",
+      "op": "contours",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": []
+      },
+      "expect": {
+        "levelCount": 0,
+        "levels": [],
+        "segmentCounts": []
+      }
+    },
+    {
+      "id": "rotated/contours/explicit",
+      "fixture": "fieldglass-grib2/tests/fixtures/rotated_latlon_surface.grib2",
+      "op": "contours",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": [
+          250.0,
+          275.0,
+          300.0
+        ]
+      },
+      "expect": {
+        "levelCount": 3,
+        "levels": [
+          250.0,
+          275.0,
+          300.0
+        ],
+        "segmentCounts": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": "degenerate/open",
+      "fixture": "fieldglass-grib2/tests/fixtures/polar_stereographic_surface.grib2",
+      "op": "open",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "count": 1,
+        "format": "grib2"
+      }
+    },
+    {
+      "id": "degenerate/message",
+      "fixture": "fieldglass-grib2/tests/fixtures/polar_stereographic_surface.grib2",
+      "op": "message",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "abbreviation": "TMP",
+        "forecast": "+0 Hour",
+        "grid": {
+          "axisUnits": "degrees",
+          "boundsLonlat": null,
+          "dx": null,
+          "dy": null,
+          "kind": "polar_stereo",
+          "label": "polar_stereo",
+          "ni": 16,
+          "nj": 31,
+          "periodicX": false,
+          "proj4": "+proj=stere +lat_0=90 +lat_ts=60 +lon_0=0 +R=6371229 +units=m +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": null,
+          "y0": null
+        },
+        "index": 0,
+        "level": "Ground or water surface",
+        "levelType": "Ground or water surface",
+        "offsetBytes": 0,
+        "packing": "simple",
+        "parameter": "Temperature",
+        "referenceTime": "2007-03-23T12:00:00Z",
+        "sizeLabel": null,
+        "units": "K"
+      }
+    },
+    {
+      "id": "degenerate/decode/auto",
+      "fixture": "fieldglass-grib2/tests/fixtures/polar_stereographic_surface.grib2",
+      "op": "decode",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": null,
+          "dx": null,
+          "dy": null,
+          "kind": "polar_stereo",
+          "label": "polar_stereo",
+          "ni": 16,
+          "nj": 31,
+          "periodicX": false,
+          "proj4": "+proj=stere +lat_0=90 +lat_ts=60 +lon_0=0 +R=6371229 +units=m +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": null,
+          "y0": null
+        },
+        "len": 496,
+        "maskLen": 496,
+        "maskOnes": 496,
+        "ni": 16,
+        "nj": 31,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 273.1499938964844
+          },
+          {
+            "i": 124,
+            "m": 1,
+            "v": 273.1499938964844
+          },
+          {
+            "i": 248,
+            "m": 1,
+            "v": 273.1499938964844
+          },
+          {
+            "i": 372,
+            "m": 1,
+            "v": 273.1499938964844
+          },
+          {
+            "i": 495,
+            "m": 1,
+            "v": 273.1499938964844
+          }
+        ],
+        "stats": {
+          "max": 273.1499938964844,
+          "min": 273.1499938964844,
+          "validCount": 496
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "degenerate/decode/f32",
+      "fixture": "fieldglass-grib2/tests/fixtures/polar_stereographic_surface.grib2",
+      "op": "decode",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "f32",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": null,
+          "dx": null,
+          "dy": null,
+          "kind": "polar_stereo",
+          "label": "polar_stereo",
+          "ni": 16,
+          "nj": 31,
+          "periodicX": false,
+          "proj4": "+proj=stere +lat_0=90 +lat_ts=60 +lon_0=0 +R=6371229 +units=m +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": null,
+          "y0": null
+        },
+        "len": 496,
+        "maskLen": 496,
+        "maskOnes": 496,
+        "ni": 16,
+        "nj": 31,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 273.1499938964844
+          },
+          {
+            "i": 124,
+            "m": 1,
+            "v": 273.1499938964844
+          },
+          {
+            "i": 248,
+            "m": 1,
+            "v": 273.1499938964844
+          },
+          {
+            "i": 372,
+            "m": 1,
+            "v": 273.1499938964844
+          },
+          {
+            "i": 495,
+            "m": 1,
+            "v": 273.1499938964844
+          }
+        ],
+        "stats": {
+          "max": 273.1499938964844,
+          "min": 273.1499938964844,
+          "validCount": 496
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "degenerate/decode/f64",
+      "fixture": "fieldglass-grib2/tests/fixtures/polar_stereographic_surface.grib2",
+      "op": "decode",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "f64",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "dtype": "f64",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": null,
+          "dx": null,
+          "dy": null,
+          "kind": "polar_stereo",
+          "label": "polar_stereo",
+          "ni": 16,
+          "nj": 31,
+          "periodicX": false,
+          "proj4": "+proj=stere +lat_0=90 +lat_ts=60 +lon_0=0 +R=6371229 +units=m +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": null,
+          "y0": null
+        },
+        "len": 496,
+        "maskLen": 496,
+        "maskOnes": 496,
+        "ni": 16,
+        "nj": 31,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 273.1499938964844
+          },
+          {
+            "i": 124,
+            "m": 1,
+            "v": 273.1499938964844
+          },
+          {
+            "i": 248,
+            "m": 1,
+            "v": 273.1499938964844
+          },
+          {
+            "i": 372,
+            "m": 1,
+            "v": 273.1499938964844
+          },
+          {
+            "i": 495,
+            "m": 1,
+            "v": 273.1499938964844
+          }
+        ],
+        "stats": {
+          "max": 273.1499938964844,
+          "min": 273.1499938964844,
+          "validCount": 496
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "degenerate/warp/nearest",
+      "fixture": "fieldglass-grib2/tests/fixtures/polar_stereographic_surface.grib2",
+      "op": "warp",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": false,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "error": {
+          "code": "unsupported",
+          "hasMessage": true
+        }
+      }
+    },
+    {
+      "id": "degenerate/warp/bilinear",
+      "fixture": "fieldglass-grib2/tests/fixtures/polar_stereographic_surface.grib2",
+      "op": "warp",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": true,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "error": {
+          "code": "unsupported",
+          "hasMessage": true
+        }
+      }
+    },
+    {
+      "id": "degenerate/warp/window",
+      "fixture": "fieldglass-grib2/tests/fixtures/polar_stereographic_surface.grib2",
+      "op": "warp",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": true,
+        "bounds": [
+          -20.0,
+          40.0,
+          -30.0,
+          60.0
+        ],
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "bounds": [
+          -20.0,
+          40.0,
+          -30.0,
+          60.0
+        ],
+        "height": 31,
+        "len": 496,
+        "maskOnes": 0,
+        "samples": [
+          {
+            "i": 0,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 124,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 248,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 372,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 495,
+            "m": 0,
+            "v": null
+          }
+        ],
+        "width": 16
+      }
+    },
+    {
+      "id": "degenerate/palette/viridis",
+      "fixture": "fieldglass-grib2/tests/fixtures/polar_stereographic_surface.grib2",
+      "op": "palette",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "viridis",
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "lutLen": 1024,
+        "lutSamples": [
+          {
+            "b": 68,
+            "i": 0
+          },
+          {
+            "b": 59,
+            "i": 256
+          },
+          {
+            "b": 33,
+            "i": 512
+          },
+          {
+            "b": 96,
+            "i": 768
+          },
+          {
+            "b": 255,
+            "i": 1023
+          }
+        ],
+        "maskedRgba": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "scale": "linear",
+        "t0": 273.1499938964844,
+        "t1": 273.1499938964844
+      }
+    },
+    {
+      "id": "degenerate/palette/log_reversed_ranged",
+      "fixture": "fieldglass-grib2/tests/fixtures/polar_stereographic_surface.grib2",
+      "op": "palette",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "plasma",
+        "reversed": true,
+        "scale": "log10",
+        "rangeMin": 1.0,
+        "rangeMax": 1000.0,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "lutLen": 1024,
+        "lutSamples": [
+          {
+            "b": 240,
+            "i": 0
+          },
+          {
+            "b": 248,
+            "i": 256
+          },
+          {
+            "b": 203,
+            "i": 512
+          },
+          {
+            "b": 125,
+            "i": 768
+          },
+          {
+            "b": 255,
+            "i": 1023
+          }
+        ],
+        "maskedRgba": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "scale": "log10",
+        "t0": 0.0,
+        "t1": 3.0
+      }
+    },
+    {
+      "id": "degenerate/render/flip_false",
+      "fixture": "fieldglass-grib2/tests/fixtures/polar_stereographic_surface.grib2",
+      "op": "render",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "viridis",
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": false,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "height": 31,
+        "opaque": 496,
+        "pixels": [
+          {
+            "i": 0,
+            "rgba": [
+              68,
+              1,
+              84,
+              255
+            ]
+          },
+          {
+            "i": 124,
+            "rgba": [
+              68,
+              1,
+              84,
+              255
+            ]
+          },
+          {
+            "i": 248,
+            "rgba": [
+              68,
+              1,
+              84,
+              255
+            ]
+          },
+          {
+            "i": 372,
+            "rgba": [
+              68,
+              1,
+              84,
+              255
+            ]
+          },
+          {
+            "i": 495,
+            "rgba": [
+              68,
+              1,
+              84,
+              255
+            ]
+          }
+        ],
+        "rgbaLen": 1984,
+        "width": 16
+      }
+    },
+    {
+      "id": "degenerate/render/flip_true",
+      "fixture": "fieldglass-grib2/tests/fixtures/polar_stereographic_surface.grib2",
+      "op": "render",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "viridis",
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": true,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "height": 31,
+        "opaque": 496,
+        "pixels": [
+          {
+            "i": 0,
+            "rgba": [
+              68,
+              1,
+              84,
+              255
+            ]
+          },
+          {
+            "i": 124,
+            "rgba": [
+              68,
+              1,
+              84,
+              255
+            ]
+          },
+          {
+            "i": 248,
+            "rgba": [
+              68,
+              1,
+              84,
+              255
+            ]
+          },
+          {
+            "i": 372,
+            "rgba": [
+              68,
+              1,
+              84,
+              255
+            ]
+          },
+          {
+            "i": 495,
+            "rgba": [
+              68,
+              1,
+              84,
+              255
+            ]
+          }
+        ],
+        "rgbaLen": 1984,
+        "width": 16
+      }
+    },
+    {
+      "id": "degenerate/probe/0_0",
+      "fixture": "fieldglass-grib2/tests/fixtures/polar_stereographic_surface.grib2",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": 0.0,
+        "lon": 0.0,
+        "levels": null
+      },
+      "expect": null
+    },
+    {
+      "id": "degenerate/probe/45_-100",
+      "fixture": "fieldglass-grib2/tests/fixtures/polar_stereographic_surface.grib2",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": 45.0,
+        "lon": -100.0,
+        "levels": null
+      },
+      "expect": null
+    },
+    {
+      "id": "degenerate/probe/89.5_10",
+      "fixture": "fieldglass-grib2/tests/fixtures/polar_stereographic_surface.grib2",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": 89.5,
+        "lon": 10.0,
+        "levels": null
+      },
+      "expect": null
+    },
+    {
+      "id": "degenerate/probe/-89.5_-170",
+      "fixture": "fieldglass-grib2/tests/fixtures/polar_stereographic_surface.grib2",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": -89.5,
+        "lon": -170.0,
+        "levels": null
+      },
+      "expect": null
+    },
+    {
+      "id": "degenerate/contours/auto",
+      "fixture": "fieldglass-grib2/tests/fixtures/polar_stereographic_surface.grib2",
+      "op": "contours",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": []
+      },
+      "expect": {
+        "levelCount": 0,
+        "levels": [],
+        "segmentCounts": []
+      }
+    },
+    {
+      "id": "degenerate/contours/explicit",
+      "fixture": "fieldglass-grib2/tests/fixtures/polar_stereographic_surface.grib2",
+      "op": "contours",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": [
+          250.0,
+          275.0,
+          300.0
+        ]
+      },
+      "expect": {
+        "levelCount": 3,
+        "levels": [
+          250.0,
+          275.0,
+          300.0
+        ],
+        "segmentCounts": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": "grib1_jcons/open",
+      "fixture": "fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1",
+      "op": "open",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "count": 1,
+        "format": "grib1"
+      }
+    },
+    {
+      "id": "grib1_jcons/message",
+      "fixture": "fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1",
+      "op": "message",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "abbreviation": "2t",
+        "forecast": "+0h",
+        "grid": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            40.0,
+            60.0,
+            0.0,
+            35.0
+          ],
+          "dx": 5.0,
+          "dy": -5.0,
+          "kind": "latlon",
+          "label": "latlon",
+          "ni": 8,
+          "nj": 5,
+          "periodicX": false,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": true,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 60.0
+        },
+        "index": 0,
+        "level": "—",
+        "levelType": "Cloud base level",
+        "offsetBytes": 0,
+        "packing": "grid_simple",
+        "parameter": "2 metre temperature",
+        "referenceTime": "2007-03-23T12:00:00Z",
+        "sizeLabel": null,
+        "units": "K"
+      }
+    },
+    {
+      "id": "grib1_jcons/decode/auto",
+      "fixture": "fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1",
+      "op": "decode",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            40.0,
+            60.0,
+            0.0,
+            35.0
+          ],
+          "dx": 5.0,
+          "dy": -5.0,
+          "kind": "latlon",
+          "label": "latlon",
+          "ni": 8,
+          "nj": 5,
+          "periodicX": false,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": true,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 60.0
+        },
+        "len": 40,
+        "maskLen": 40,
+        "maskOnes": 40,
+        "ni": 8,
+        "nj": 5,
+        "parameter": "2 metre temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 10,
+            "m": 1,
+            "v": 12.0
+          },
+          {
+            "i": 20,
+            "m": 1,
+            "v": 24.0
+          },
+          {
+            "i": 30,
+            "m": 1,
+            "v": 36.0
+          },
+          {
+            "i": 39,
+            "m": 1,
+            "v": 47.0
+          }
+        ],
+        "stats": {
+          "max": 47.0,
+          "min": 0.0,
+          "validCount": 40
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "grib1_jcons/decode/f32",
+      "fixture": "fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1",
+      "op": "decode",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "f32",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            40.0,
+            60.0,
+            0.0,
+            35.0
+          ],
+          "dx": 5.0,
+          "dy": -5.0,
+          "kind": "latlon",
+          "label": "latlon",
+          "ni": 8,
+          "nj": 5,
+          "periodicX": false,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": true,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 60.0
+        },
+        "len": 40,
+        "maskLen": 40,
+        "maskOnes": 40,
+        "ni": 8,
+        "nj": 5,
+        "parameter": "2 metre temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 10,
+            "m": 1,
+            "v": 12.0
+          },
+          {
+            "i": 20,
+            "m": 1,
+            "v": 24.0
+          },
+          {
+            "i": 30,
+            "m": 1,
+            "v": 36.0
+          },
+          {
+            "i": 39,
+            "m": 1,
+            "v": 47.0
+          }
+        ],
+        "stats": {
+          "max": 47.0,
+          "min": 0.0,
+          "validCount": 40
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "grib1_jcons/decode/f64",
+      "fixture": "fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1",
+      "op": "decode",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "f64",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "dtype": "f64",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            40.0,
+            60.0,
+            0.0,
+            35.0
+          ],
+          "dx": 5.0,
+          "dy": -5.0,
+          "kind": "latlon",
+          "label": "latlon",
+          "ni": 8,
+          "nj": 5,
+          "periodicX": false,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": true,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 60.0
+        },
+        "len": 40,
+        "maskLen": 40,
+        "maskOnes": 40,
+        "ni": 8,
+        "nj": 5,
+        "parameter": "2 metre temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 10,
+            "m": 1,
+            "v": 12.0
+          },
+          {
+            "i": 20,
+            "m": 1,
+            "v": 24.0
+          },
+          {
+            "i": 30,
+            "m": 1,
+            "v": 36.0
+          },
+          {
+            "i": 39,
+            "m": 1,
+            "v": 47.0
+          }
+        ],
+        "stats": {
+          "max": 47.0,
+          "min": 0.0,
+          "validCount": 40
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "grib1_jcons/warp/nearest",
+      "fixture": "fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1",
+      "op": "warp",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": false,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "bounds": [
+          40.0,
+          60.0,
+          0.0,
+          35.0
+        ],
+        "height": 5,
+        "len": 40,
+        "maskOnes": 40,
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 10,
+            "m": 1,
+            "v": 12.0
+          },
+          {
+            "i": 20,
+            "m": 1,
+            "v": 24.0
+          },
+          {
+            "i": 30,
+            "m": 1,
+            "v": 36.0
+          },
+          {
+            "i": 39,
+            "m": 1,
+            "v": 47.0
+          }
+        ],
+        "width": 8
+      }
+    },
+    {
+      "id": "grib1_jcons/warp/bilinear",
+      "fixture": "fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1",
+      "op": "warp",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": true,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "bounds": [
+          40.0,
+          60.0,
+          0.0,
+          35.0
+        ],
+        "height": 5,
+        "len": 40,
+        "maskOnes": 40,
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 10,
+            "m": 1,
+            "v": 12.0
+          },
+          {
+            "i": 20,
+            "m": 1,
+            "v": 24.0
+          },
+          {
+            "i": 30,
+            "m": 1,
+            "v": 36.0
+          },
+          {
+            "i": 39,
+            "m": 1,
+            "v": 47.0
+          }
+        ],
+        "width": 8
+      }
+    },
+    {
+      "id": "grib1_jcons/warp/window",
+      "fixture": "fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1",
+      "op": "warp",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": true,
+        "bounds": [
+          -20.0,
+          40.0,
+          -30.0,
+          60.0
+        ],
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "bounds": [
+          -20.0,
+          40.0,
+          -30.0,
+          60.0
+        ],
+        "height": 5,
+        "len": 40,
+        "maskOnes": 3,
+        "samples": [
+          {
+            "i": 0,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 10,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 20,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 30,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 39,
+            "m": 0,
+            "v": null
+          }
+        ],
+        "width": 8
+      }
+    },
+    {
+      "id": "grib1_jcons/palette/viridis",
+      "fixture": "fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1",
+      "op": "palette",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "viridis",
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "lutLen": 1024,
+        "lutSamples": [
+          {
+            "b": 68,
+            "i": 0
+          },
+          {
+            "b": 59,
+            "i": 256
+          },
+          {
+            "b": 33,
+            "i": 512
+          },
+          {
+            "b": 96,
+            "i": 768
+          },
+          {
+            "b": 255,
+            "i": 1023
+          }
+        ],
+        "maskedRgba": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "scale": "linear",
+        "t0": 0.0,
+        "t1": 47.0
+      }
+    },
+    {
+      "id": "grib1_jcons/palette/log_reversed_ranged",
+      "fixture": "fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1",
+      "op": "palette",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "plasma",
+        "reversed": true,
+        "scale": "log10",
+        "rangeMin": 1.0,
+        "rangeMax": 1000.0,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "lutLen": 1024,
+        "lutSamples": [
+          {
+            "b": 240,
+            "i": 0
+          },
+          {
+            "b": 248,
+            "i": 256
+          },
+          {
+            "b": 203,
+            "i": 512
+          },
+          {
+            "b": 125,
+            "i": 768
+          },
+          {
+            "b": 255,
+            "i": 1023
+          }
+        ],
+        "maskedRgba": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "scale": "log10",
+        "t0": 0.0,
+        "t1": 3.0
+      }
+    },
+    {
+      "id": "grib1_jcons/render/flip_false",
+      "fixture": "fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1",
+      "op": "render",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "viridis",
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": false,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "height": 5,
+        "opaque": 40,
+        "pixels": [
+          {
+            "i": 0,
+            "rgba": [
+              68,
+              1,
+              84,
+              255
+            ]
+          },
+          {
+            "i": 10,
+            "rgba": [
+              58,
+              83,
+              138,
+              255
+            ]
+          },
+          {
+            "i": 20,
+            "rgba": [
+              33,
+              147,
+              140,
+              255
+            ]
+          },
+          {
+            "i": 30,
+            "rgba": [
+              103,
+              203,
+              92,
+              255
+            ]
+          },
+          {
+            "i": 39,
+            "rgba": [
+              253,
+              231,
+              37,
+              255
+            ]
+          }
+        ],
+        "rgbaLen": 160,
+        "width": 8
+      }
+    },
+    {
+      "id": "grib1_jcons/render/flip_true",
+      "fixture": "fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1",
+      "op": "render",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "viridis",
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": true,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "height": 5,
+        "opaque": 40,
+        "pixels": [
+          {
+            "i": 0,
+            "rgba": [
+              156,
+              216,
+              59,
+              255
+            ]
+          },
+          {
+            "i": 10,
+            "rgba": [
+              62,
+              187,
+              116,
+              255
+            ]
+          },
+          {
+            "i": 20,
+            "rgba": [
+              33,
+              147,
+              140,
+              255
+            ]
+          },
+          {
+            "i": 30,
+            "rgba": [
+              48,
+              105,
+              142,
+              255
+            ]
+          },
+          {
+            "i": 39,
+            "rgba": [
+              68,
+              51,
+              126,
+              255
+            ]
+          }
+        ],
+        "rgbaLen": 160,
+        "width": 8
+      }
+    },
+    {
+      "id": "grib1_jcons/probe/0_0",
+      "fixture": "fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": 0.0,
+        "lon": 0.0,
+        "levels": null
+      },
+      "expect": null
+    },
+    {
+      "id": "grib1_jcons/probe/45_-100",
+      "fixture": "fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": 45.0,
+        "lon": -100.0,
+        "levels": null
+      },
+      "expect": null
+    },
+    {
+      "id": "grib1_jcons/probe/89.5_10",
+      "fixture": "fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": 89.5,
+        "lon": 10.0,
+        "levels": null
+      },
+      "expect": null
+    },
+    {
+      "id": "grib1_jcons/probe/-89.5_-170",
+      "fixture": "fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": -89.5,
+        "lon": -170.0,
+        "levels": null
+      },
+      "expect": null
+    },
+    {
+      "id": "grib1_jcons/contours/auto",
+      "fixture": "fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1",
+      "op": "contours",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": []
+      },
+      "expect": {
+        "levelCount": 9,
+        "levels": [
+          5.0,
+          10.0,
+          15.0,
+          20.0,
+          25.0,
+          30.0,
+          35.0,
+          40.0,
+          45.0
+        ],
+        "segmentCounts": [
+          5,
+          7,
+          8,
+          7,
+          8,
+          7,
+          8,
+          7,
+          3
+        ]
+      }
+    },
+    {
+      "id": "grib1_jcons/contours/explicit",
+      "fixture": "fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1",
+      "op": "contours",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": [
+          250.0,
+          275.0,
+          300.0
+        ]
+      },
+      "expect": {
+        "levelCount": 3,
+        "levels": [
+          250.0,
+          275.0,
+          300.0
+        ],
+        "segmentCounts": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": "grib1_polar/open",
+      "fixture": "fieldglass-grib1/tests/fixtures/cmc_wind_300_2010052400_p012.grib",
+      "op": "open",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "count": 1,
+        "format": "grib1"
+      }
+    },
+    {
+      "id": "grib1_polar/message",
+      "fixture": "fieldglass-grib1/tests/fixtures/cmc_wind_300_2010052400_p012.grib",
+      "op": "message",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "abbreviation": "WIND",
+        "forecast": "+12h",
+        "grid": {
+          "axisUnits": "metres",
+          "boundsLonlat": [
+            19.925909679472877,
+            80.62451028740276,
+            -182.8633101600059,
+            -31.886937598141174
+          ],
+          "dx": 60000.0,
+          "dy": 60000.0,
+          "kind": "polar_stereo",
+          "label": "polar_stereo",
+          "ni": 135,
+          "nj": 95,
+          "periodicX": false,
+          "proj4": "+proj=stere +lat_0=90 +lat_ts=60 +lon_0=249 +R=6367470 +units=m +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": true
+          },
+          "x0": -2974382.2815761063,
+          "y0": -6614286.574716486
+        },
+        "index": 0,
+        "level": "300",
+        "levelType": "(hPa) Isobaric level",
+        "offsetBytes": 0,
+        "packing": "grid_simple",
+        "parameter": "Wind speed",
+        "referenceTime": "2010-05-24T00:00:00Z",
+        "sizeLabel": null,
+        "units": "m s⁻¹"
+      }
+    },
+    {
+      "id": "grib1_polar/decode/auto",
+      "fixture": "fieldglass-grib1/tests/fixtures/cmc_wind_300_2010052400_p012.grib",
+      "op": "decode",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "dtype": "f64",
+        "georef": {
+          "axisUnits": "metres",
+          "boundsLonlat": [
+            19.925909679472877,
+            80.62451028740276,
+            -182.8633101600059,
+            -31.886937598141174
+          ],
+          "dx": 60000.0,
+          "dy": 60000.0,
+          "kind": "polar_stereo",
+          "label": "polar_stereo",
+          "ni": 135,
+          "nj": 95,
+          "periodicX": false,
+          "proj4": "+proj=stere +lat_0=90 +lat_ts=60 +lon_0=249 +R=6367470 +units=m +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": true
+          },
+          "x0": -2974382.2815761063,
+          "y0": -6614286.574716486
+        },
+        "len": 12825,
+        "maskLen": 12825,
+        "maskOnes": 12825,
+        "ni": 135,
+        "nj": 95,
+        "parameter": "Wind speed",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 5.459607660770416
+          },
+          {
+            "i": 3206,
+            "m": 1,
+            "v": 8.709607660770416
+          },
+          {
+            "i": 6412,
+            "m": 1,
+            "v": 64.95960766077042
+          },
+          {
+            "i": 9618,
+            "m": 1,
+            "v": 25.959607660770416
+          },
+          {
+            "i": 12824,
+            "m": 1,
+            "v": 11.709607660770416
+          }
+        ],
+        "stats": {
+          "max": 75.20960766077042,
+          "min": 0.20960766077041626,
+          "validCount": 12825
+        },
+        "units": "m s⁻¹"
+      }
+    },
+    {
+      "id": "grib1_polar/decode/f32",
+      "fixture": "fieldglass-grib1/tests/fixtures/cmc_wind_300_2010052400_p012.grib",
+      "op": "decode",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "f32",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "metres",
+          "boundsLonlat": [
+            19.925909679472877,
+            80.62451028740276,
+            -182.8633101600059,
+            -31.886937598141174
+          ],
+          "dx": 60000.0,
+          "dy": 60000.0,
+          "kind": "polar_stereo",
+          "label": "polar_stereo",
+          "ni": 135,
+          "nj": 95,
+          "periodicX": false,
+          "proj4": "+proj=stere +lat_0=90 +lat_ts=60 +lon_0=249 +R=6367470 +units=m +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": true
+          },
+          "x0": -2974382.2815761063,
+          "y0": -6614286.574716486
+        },
+        "len": 12825,
+        "maskLen": 12825,
+        "maskOnes": 12825,
+        "ni": 135,
+        "nj": 95,
+        "parameter": "Wind speed",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 5.4596076011657715
+          },
+          {
+            "i": 3206,
+            "m": 1,
+            "v": 8.70960807800293
+          },
+          {
+            "i": 6412,
+            "m": 1,
+            "v": 64.95960998535156
+          },
+          {
+            "i": 9618,
+            "m": 1,
+            "v": 25.95960807800293
+          },
+          {
+            "i": 12824,
+            "m": 1,
+            "v": 11.70960807800293
+          }
+        ],
+        "stats": {
+          "max": 75.20960766077042,
+          "min": 0.20960766077041626,
+          "validCount": 12825
+        },
+        "units": "m s⁻¹"
+      }
+    },
+    {
+      "id": "grib1_polar/decode/f64",
+      "fixture": "fieldglass-grib1/tests/fixtures/cmc_wind_300_2010052400_p012.grib",
+      "op": "decode",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "f64",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "dtype": "f64",
+        "georef": {
+          "axisUnits": "metres",
+          "boundsLonlat": [
+            19.925909679472877,
+            80.62451028740276,
+            -182.8633101600059,
+            -31.886937598141174
+          ],
+          "dx": 60000.0,
+          "dy": 60000.0,
+          "kind": "polar_stereo",
+          "label": "polar_stereo",
+          "ni": 135,
+          "nj": 95,
+          "periodicX": false,
+          "proj4": "+proj=stere +lat_0=90 +lat_ts=60 +lon_0=249 +R=6367470 +units=m +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": true
+          },
+          "x0": -2974382.2815761063,
+          "y0": -6614286.574716486
+        },
+        "len": 12825,
+        "maskLen": 12825,
+        "maskOnes": 12825,
+        "ni": 135,
+        "nj": 95,
+        "parameter": "Wind speed",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 5.459607660770416
+          },
+          {
+            "i": 3206,
+            "m": 1,
+            "v": 8.709607660770416
+          },
+          {
+            "i": 6412,
+            "m": 1,
+            "v": 64.95960766077042
+          },
+          {
+            "i": 9618,
+            "m": 1,
+            "v": 25.959607660770416
+          },
+          {
+            "i": 12824,
+            "m": 1,
+            "v": 11.709607660770416
+          }
+        ],
+        "stats": {
+          "max": 75.20960766077042,
+          "min": 0.20960766077041626,
+          "validCount": 12825
+        },
+        "units": "m s⁻¹"
+      }
+    },
+    {
+      "id": "grib1_polar/warp/nearest",
+      "fixture": "fieldglass-grib1/tests/fixtures/cmc_wind_300_2010052400_p012.grib",
+      "op": "warp",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": false,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "bounds": [
+          19.925909679472877,
+          80.62451028740276,
+          -182.8633101600059,
+          -31.886937598141174
+        ],
+        "height": 95,
+        "len": 12825,
+        "maskOnes": 7869,
+        "samples": [
+          {
+            "i": 0,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 3206,
+            "m": 1,
+            "v": 11.70960807800293
+          },
+          {
+            "i": 6412,
+            "m": 1,
+            "v": 47.2096061706543
+          },
+          {
+            "i": 9618,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 12824,
+            "m": 0,
+            "v": null
+          }
+        ],
+        "width": 135
+      }
+    },
+    {
+      "id": "grib1_polar/warp/bilinear",
+      "fixture": "fieldglass-grib1/tests/fixtures/cmc_wind_300_2010052400_p012.grib",
+      "op": "warp",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": true,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "bounds": [
+          19.925909679472877,
+          80.62451028740276,
+          -182.8633101600059,
+          -31.886937598141174
+        ],
+        "height": 95,
+        "len": 12825,
+        "maskOnes": 7869,
+        "samples": [
+          {
+            "i": 0,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 3206,
+            "m": 1,
+            "v": 11.526792526245117
+          },
+          {
+            "i": 6412,
+            "m": 1,
+            "v": 46.86852264404297
+          },
+          {
+            "i": 9618,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 12824,
+            "m": 0,
+            "v": null
+          }
+        ],
+        "width": 135
+      }
+    },
+    {
+      "id": "grib1_polar/warp/window",
+      "fixture": "fieldglass-grib1/tests/fixtures/cmc_wind_300_2010052400_p012.grib",
+      "op": "warp",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": true,
+        "bounds": [
+          -20.0,
+          40.0,
+          -30.0,
+          60.0
+        ],
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "bounds": [
+          -20.0,
+          40.0,
+          -30.0,
+          60.0
+        ],
+        "height": 95,
+        "len": 12825,
+        "maskOnes": 0,
+        "samples": [
+          {
+            "i": 0,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 3206,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 6412,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 9618,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 12824,
+            "m": 0,
+            "v": null
+          }
+        ],
+        "width": 135
+      }
+    },
+    {
+      "id": "grib1_polar/palette/viridis",
+      "fixture": "fieldglass-grib1/tests/fixtures/cmc_wind_300_2010052400_p012.grib",
+      "op": "palette",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "viridis",
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "lutLen": 1024,
+        "lutSamples": [
+          {
+            "b": 68,
+            "i": 0
+          },
+          {
+            "b": 59,
+            "i": 256
+          },
+          {
+            "b": 33,
+            "i": 512
+          },
+          {
+            "b": 96,
+            "i": 768
+          },
+          {
+            "b": 255,
+            "i": 1023
+          }
+        ],
+        "maskedRgba": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "scale": "linear",
+        "t0": 0.20960766077041626,
+        "t1": 75.20960766077042
+      }
+    },
+    {
+      "id": "grib1_polar/palette/log_reversed_ranged",
+      "fixture": "fieldglass-grib1/tests/fixtures/cmc_wind_300_2010052400_p012.grib",
+      "op": "palette",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "plasma",
+        "reversed": true,
+        "scale": "log10",
+        "rangeMin": 1.0,
+        "rangeMax": 1000.0,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "lutLen": 1024,
+        "lutSamples": [
+          {
+            "b": 240,
+            "i": 0
+          },
+          {
+            "b": 248,
+            "i": 256
+          },
+          {
+            "b": 203,
+            "i": 512
+          },
+          {
+            "b": 125,
+            "i": 768
+          },
+          {
+            "b": 255,
+            "i": 1023
+          }
+        ],
+        "maskedRgba": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "scale": "log10",
+        "t0": 0.0,
+        "t1": 3.0
+      }
+    },
+    {
+      "id": "grib1_polar/render/flip_false",
+      "fixture": "fieldglass-grib1/tests/fixtures/cmc_wind_300_2010052400_p012.grib",
+      "op": "render",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "viridis",
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": false,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "height": 95,
+        "opaque": 12825,
+        "pixels": [
+          {
+            "i": 0,
+            "rgba": [
+              66,
+              63,
+              132,
+              255
+            ]
+          },
+          {
+            "i": 3206,
+            "rgba": [
+              53,
+              181,
+              121,
+              255
+            ]
+          },
+          {
+            "i": 6412,
+            "rgba": [
+              164,
+              218,
+              54,
+              255
+            ]
+          },
+          {
+            "i": 9618,
+            "rgba": [
+              58,
+              83,
+              138,
+              255
+            ]
+          },
+          {
+            "i": 12824,
+            "rgba": [
+              57,
+              86,
+              139,
+              255
+            ]
+          }
+        ],
+        "rgbaLen": 51300,
+        "width": 135
+      }
+    },
+    {
+      "id": "grib1_polar/render/flip_true",
+      "fixture": "fieldglass-grib1/tests/fixtures/cmc_wind_300_2010052400_p012.grib",
+      "op": "render",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "viridis",
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": true,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "height": 95,
+        "opaque": 12825,
+        "pixels": [
+          {
+            "i": 0,
+            "rgba": [
+              71,
+              26,
+              107,
+              255
+            ]
+          },
+          {
+            "i": 3206,
+            "rgba": [
+              71,
+              40,
+              119,
+              255
+            ]
+          },
+          {
+            "i": 6412,
+            "rgba": [
+              164,
+              218,
+              54,
+              255
+            ]
+          },
+          {
+            "i": 9618,
+            "rgba": [
+              48,
+              106,
+              142,
+              255
+            ]
+          },
+          {
+            "i": 12824,
+            "rgba": [
+              68,
+              53,
+              126,
+              255
+            ]
+          }
+        ],
+        "rgbaLen": 51300,
+        "width": 135
+      }
+    },
+    {
+      "id": "grib1_polar/probe/0_0",
+      "fixture": "fieldglass-grib1/tests/fixtures/cmc_wind_300_2010052400_p012.grib",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": 0.0,
+        "lon": 0.0,
+        "levels": null
+      },
+      "expect": null
+    },
+    {
+      "id": "grib1_polar/probe/45_-100",
+      "fixture": "fieldglass-grib1/tests/fixtures/cmc_wind_300_2010052400_p012.grib",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": 45.0,
+        "lon": -100.0,
+        "levels": null
+      },
+      "expect": {
+        "i": 65.22455255090016,
+        "j": 29.71804767489629,
+        "lat": 45.0,
+        "lon": -100.0,
+        "value": 23.459607660770416
+      }
+    },
+    {
+      "id": "grib1_polar/probe/89.5_10",
+      "fixture": "fieldglass-grib1/tests/fixtures/cmc_wind_300_2010052400_p012.grib",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": 89.5,
+        "lon": 10.0,
+        "levels": null
+      },
+      "expect": null
+    },
+    {
+      "id": "grib1_polar/probe/-89.5_-170",
+      "fixture": "fieldglass-grib1/tests/fixtures/cmc_wind_300_2010052400_p012.grib",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": -89.5,
+        "lon": -170.0,
+        "levels": null
+      },
+      "expect": null
+    },
+    {
+      "id": "grib1_polar/contours/auto",
+      "fixture": "fieldglass-grib1/tests/fixtures/cmc_wind_300_2010052400_p012.grib",
+      "op": "contours",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": []
+      },
+      "expect": {
+        "levelCount": 7,
+        "levels": [
+          10.0,
+          20.0,
+          30.0,
+          40.0,
+          50.0,
+          60.0,
+          70.0
+        ],
+        "segmentCounts": [
+          1588,
+          1390,
+          956,
+          596,
+          362,
+          205,
+          34
+        ]
+      }
+    },
+    {
+      "id": "grib1_polar/contours/explicit",
+      "fixture": "fieldglass-grib1/tests/fixtures/cmc_wind_300_2010052400_p012.grib",
+      "op": "contours",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": [
+          250.0,
+          275.0,
+          300.0
+        ]
+      },
+      "expect": {
+        "levelCount": 3,
+        "levels": [
+          250.0,
+          275.0,
+          300.0
+        ],
+        "segmentCounts": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": "error/unsupported_format",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
+      "op": "open",
+      "args": {
+        "index": 0,
+        "truncate": 3,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "error": {
+          "code": "unsupported_format",
+          "hasMessage": true
+        }
+      }
+    },
+    {
+      "id": "error/no_such_message",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
+      "op": "message",
+      "args": {
+        "index": 9999,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "error": {
+          "code": "no_such_message",
+          "hasMessage": true
+        }
+      }
+    },
+    {
+      "id": "error/decode",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
+      "op": "decode",
+      "args": {
+        "index": 0,
+        "truncate": 200,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "error": {
+          "code": "decode",
+          "hasMessage": true
+        }
+      }
+    },
+    {
+      "id": "error/invalid_option",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
+      "op": "palette",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "no-such-colormap",
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "error": {
+          "code": "invalid_option",
+          "hasMessage": true
+        }
+      }
+    },
+    {
+      "id": "error/unsupported",
+      "fixture": "fieldglass-grib2/tests/fixtures/healpix_n4_ring.grib2",
+      "op": "decode",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null
+      },
+      "expect": {
+        "error": {
+          "code": "unsupported",
+          "hasMessage": true
+        }
+      }
+    }
+  ]
+}
