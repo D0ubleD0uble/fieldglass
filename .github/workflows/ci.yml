@@ -192,6 +192,24 @@ jobs:
             --build baseline=crates/fieldglass-wasm/pkg/web/fieldglass_wasm_bg.wasm \
             --build '+simd128=crates/fieldglass-wasm/pkg/web-simd/fieldglass_wasm_bg.wasm'
 
+      # The third runner of the ADR-0006 conformance suite (#573): the same
+      # `crates/fieldglass/conformance/suite.json` the umbrella's own tests and
+      # `fieldglass-napi`'s `conformance_host` replay, driven here through the
+      # built browser bundle's JavaScript surface. That is the only place the
+      # binding's own work — serde-wasm-bindgen conversion, the typed arrays,
+      # the `e.code` error mapping — is under test.
+      #
+      # Needs no sample corpus: it reads the committed fixtures, and it exits
+      # non-zero when the bundle or the suite is missing rather than skipping.
+      # Both bundles: `+simd128` changes the arithmetic the warp and the
+      # projections run on, which is where a float result would most plausibly
+      # move, and a suite run against the baseline alone would not see it.
+      - name: Conformance suite (browser host)
+        run: |
+          node crates/fieldglass-wasm/tests/node/conformance.mjs
+          node crates/fieldglass-wasm/tests/node/conformance.mjs \
+            --pkg crates/fieldglass-wasm/pkg/nodejs-simd
+
       - name: Native decode baseline
         run: |
           cargo run --release -q -p fieldglass --example bench_decode \
