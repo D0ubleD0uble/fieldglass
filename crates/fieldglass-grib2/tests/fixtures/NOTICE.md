@@ -777,3 +777,45 @@ oracle for nothing. Both were built and compared before choosing. Scanning mode
 set and `iScansNegatively` clear, so the j- and i-flip branches of
 `pointer_to_data` are identities and what remains is
 `i = nx - 1 - i when the storage row is odd`.
+
+## `j_consecutive_latlon.grib2`
+
+The only fixture in the corpus that sets `jPointsAreConsecutive` (§3 Flag Table
+3.4, bit 3) — the flag that says a message stores meridians rather than
+parallels. Without one, `decode_message_raster` could hand back a transposed
+field and every test still passed (#602). The GRIB2 twin of GRIB1's
+`j_consecutive_latlon.grib1`, on the same grid so the two editions' tests read
+alike.
+
+Built by `tools/build_grib2_j_consecutive_fixture.py` from the eccodes 2.34.1
+`regular_ll_sfc_grib2.tmpl` sample shrunk to 8 × 5 (60 → 40 °N, 0 → 35 °E, 5°
+steps, north-to-south, `grid_simple` at 16 bits, 259 bytes). The field is the
+ramp `10·j + i`, written in stored order (`i` outer, `j` inner), so every one of
+the 40 points names its own position and a single misplaced value fails an
+assertion. `Ni ≠ Nj` on purpose: on a square grid a transposed raster is still
+the right length and only the values give it away.
+
+Encoded with the `eccodes` PyPI wheel (2.48) because setting the values array
+needs `codes_set_values`; **verified with the pinned 2.34.1**, whose GRIB2
+`regular_ll` geoiterator does honour the flag — it walks the message column by
+column, so `grib_get_data` is a valid value oracle here. The builder asserts
+that rather than assuming it: it re-reads ten metadata keys and checks that the
+first `Nj` stored points share one longitude and step in latitude, so a
+toolchain that stopped honouring the bit fails the build instead of quietly
+producing a row-major file with a flag on it. The inherited §4 does not describe
+this synthetic field; only the decode path is under test. eccodes and its
+samples are released under the Apache 2.0 license.
+
+Two sibling cases are pinned by `tests/decode_j_consecutive.rs` against a
+one-bit edit applied in memory rather than a second committed file, the same way
+`alternate_row_lambert.grib2`'s suite does it:
+
+- **Boustrophedonic ordering combined with j-consecutive**, where the reversed
+  run is a meridian of `Nj` rather than a parallel of `Ni`. Setting `0x20` on
+  `second_order_boust_regular_latlon.grib2` (16 × 31) and diffing
+  `grib_get_data` under the pin leaves its odd 16-runs un-reversed and reverses
+  its odd 31-runs instead, which is what makes eccodes 2.34.1 the oracle for it.
+- **A reduced grid**, which has no columns to store. `grib_get_data` output for
+  `reduced_gaussian_pressure_level.grib2` and `octahedral_gaussian_o32.grib2` is
+  byte-identical with and without the bit set, so the pin's reduced geoiterator
+  ignores it and the decoder leaves such a grid alone.

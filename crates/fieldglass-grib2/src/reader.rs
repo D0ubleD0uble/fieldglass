@@ -60,6 +60,17 @@ pub struct Grib2Message {
     pub ds_range: (usize, usize),
 }
 
+/// Whether this grid stores meridians rather than parallels — §3 Flag Table
+/// 3.4 bit 3, `jPointsAreConsecutive`.
+///
+/// A grid template that states no scanning mode at all (spherical harmonics,
+/// HEALPix) is row-major by default, which is also the answer that leaves every
+/// other layout alone. Mirrors `fieldglass_grib1::reader`'s namesake.
+fn j_consecutive(gds: &GridDefinitionSection) -> bool {
+    gds.scanning_mode()
+        .is_some_and(|sm| sm & SCAN_J_CONSECUTIVE != 0)
+}
+
 /// Refuse a grid that alternates its rows *and* stores columns.
 ///
 /// §3 Flag Table 3.4 bit 3 makes the stored run a column, so the reversal bit 4
@@ -131,8 +142,11 @@ impl Grib2Reader {
     /// as missing by §5 missing-value management.
     ///
     /// The values come back **in the layout the message stores them**. For a
-    /// regular grid that is `Ni·Nj` in row-major order; for a reduced grid it
-    /// is `sum(PL)` values, row by row, which is *not* the `Ni·Nj`
+    /// regular grid that is `Ni·Nj` in the order the scanning mode (§3 Flag
+    /// Table 3.4) puts them in — row-major unless bit 3
+    /// (`jPointsAreConsecutive`) is set, in which case the message stores
+    /// columns and `values[i·nj + j]` is the point at `(i, j)`. For a reduced
+    /// grid it is `sum(PL)` values, row by row, which is *not* the `Ni·Nj`
     /// [`GridDefinitionSection::dimensions`] reports, and for HEALPix it is
     /// `12·Nside²` pixels with no rows at all. Use
     /// [`Self::decode_message_raster`] for the rectangle; use this when the
@@ -179,7 +193,7 @@ impl Grib2Reader {
         // and `12·Nside²` is the same fact by a different route. Either way it
         // is cross-checked against §3's own count below, so a template that
         // disagrees with its section is refused rather than decoded.
-        let (shape, expected_count, row_width) = match msg.gds.template {
+        let (shape, expected_count, raster_dims) = match msg.gds.template {
             GridTemplate::Healpix(t) => {
                 let npix = usize::try_from(t.npix()).map_err(|_| {
                     FieldglassError::Parse(format!(
@@ -231,7 +245,7 @@ impl Grib2Reader {
                 let count = (ni as usize).checked_mul(nj as usize).ok_or_else(|| {
                     FieldglassError::Parse(format!("grid dimensions {ni}×{nj} overflow usize"))
                 })?;
-                (format!("grid dimensions {ni}×{nj}"), count, Some(ni))
+                (format!("grid dimensions {ni}×{nj}"), count, Some((ni, nj)))
             }
         };
         if expected_count > MAX_GRID_POINTS {
@@ -277,12 +291,21 @@ impl Grib2Reader {
         // message render (not per point), so the clone is not on any hot path.
         let mut values =
             decode_values(ds_payload, msg.drs.template.clone(), bitmap, expected_count)?;
-        // Second-order packing (template 5.50002) may store alternating rows
-        // right-to-left; undo it now that the grid width Ni is known. A no-op
-        // for every other template and for 5.50001, and inapplicable to a grid
-        // with no rows.
-        if let Some(ni) = row_width {
-            undo_second_order_boustrophedonic(&mut values, &msg.drs.template, ni as usize);
+        // Second-order packing (template 5.50002) may store alternate runs
+        // backwards; undo it now that the grid shape is known. A no-op for
+        // every other template and for 5.50001, and inapplicable to a grid with
+        // no rows.
+        //
+        // The run is a *stored* run, not a parallel: under j-consecutive
+        // scanning (§3 Flag Table 3.4 bit 3) the message stores meridians, so
+        // the run is `Nj` points long. eccodes 2.34.1 agrees — setting the bit
+        // on `second_order_boust_regular_latlon.grib2` (16×31) and diffing
+        // `grib_get_data` leaves its odd 16-runs un-reversed and reverses its
+        // odd 31-runs instead, which is what
+        // `decode_j_consecutive.rs` pins (#602).
+        if let Some((ni, nj)) = raster_dims {
+            let run = if j_consecutive(&msg.gds) { nj } else { ni };
+            undo_second_order_boustrophedonic(&mut values, &msg.drs.template, run as usize);
         }
         // §3 Flag Table 3.4 bit 4 — adjacent rows scan in opposite directions.
         // The packing stores points in scan order, so every second row lands
@@ -306,15 +329,15 @@ impl Grib2Reader {
             // A reduced grid is flipped by its own row widths, on the stored
             // field — reversing a row after expansion is not the same
             // operation, because expansion maps columns by longitude.
-            // `row_width` carries the uniform case, and is `None` for the
+            // `raster_dims` carries the uniform case, and is `None` for the
             // shapes with no rows at all: HEALPix is one list of pixels, so
             // there is nothing here to reorder and nothing to refuse.
-            match (msg.gds.points_per_row(), row_width) {
+            match (msg.gds.points_per_row(), raster_dims) {
                 (Some(pl), _) => {
                     reject_j_consecutive(sm)?;
                     undo_alternate_reduced_rows(&mut values, pl);
                 }
-                (None, Some(ni)) => {
+                (None, Some((ni, _))) => {
                     reject_j_consecutive(sm)?;
                     undo_alternate_rows(&mut values, ni as usize);
                 }
@@ -329,13 +352,26 @@ impl Grib2Reader {
     /// row-major order, ready to index as `raster[j·ni + i]`.
     ///
     /// The same values [`Self::decode_message_values`] returns for every grid
-    /// whose rows are all `Ni` wide. For a reduced grid each stored row is
-    /// widened to `max(PL)` here, at the decode boundary, so a consumer never
-    /// has to know the field was quasi-regular
-    /// ([`fieldglass_core::expand_reduced_to_regular`] documents how a column
-    /// is chosen — nearest by longitude, wrapping at the antimeridian). The
-    /// matching extent is [`GridDefinitionSection::raster_bounds`], whose
-    /// eastern corner is derived for the same reason. Mirrors
+    /// whose rows are all `Ni` wide and stored west-to-east *first*. Two
+    /// layouts are regularised here, at the decode boundary, so a consumer
+    /// never has to know which one it was handed:
+    ///
+    /// - **Reduced grids.** Each stored row is widened to `max(PL)`
+    ///   ([`fieldglass_core::expand_reduced_to_regular`] documents how a column
+    ///   is chosen — nearest by longitude, wrapping at the antimeridian). The
+    ///   matching extent is [`GridDefinitionSection::raster_bounds`], whose
+    ///   eastern corner is derived for the same reason.
+    /// - **`j`-consecutive grids** (§3 Flag Table 3.4 bit 3). The message
+    ///   stores meridians, not parallels, so the field is transposed into
+    ///   `raster[j·ni + i]` by [`fieldglass_core::transpose_j_consecutive`],
+    ///   which the GRIB1 reader calls for the same flag. Without this a caller
+    ///   painting the stored order gets a transposed picture with no way to
+    ///   tell (#602).
+    ///
+    /// The *directions* the scanning mode also carries are not touched, here or
+    /// anywhere: row 0 is the first scanned row and column 0 the first scanned
+    /// point, and the geometry says where those are. Only the storage *order*
+    /// is normalised. Mirrors
     /// `fieldglass_grib1::Grib1Reader::decode_message_raster`.
     ///
     /// A layout with no raster shape comes back untouched: there is nothing to
@@ -358,6 +394,15 @@ impl Grib2Reader {
                 pl,
                 width as usize,
             )),
+            // A quasi-regular grid has no columns to store, and eccodes 2.34.1
+            // ignores the bit on one (its reduced geoiterator walks rows either
+            // way, verified by setting `0x20` on
+            // `reduced_gaussian_pressure_level.grib2` and
+            // `octahedral_gaussian_o32.grib2` and diffing `grib_get_data`), so
+            // only the regular arm transposes.
+            (None, Some((ni, nj))) if j_consecutive(gds) => Ok(
+                fieldglass_core::transpose_j_consecutive(&values, ni as usize, nj as usize),
+            ),
             _ => Ok(values),
         }
     }

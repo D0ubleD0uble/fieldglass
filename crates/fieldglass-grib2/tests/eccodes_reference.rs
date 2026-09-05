@@ -26,7 +26,9 @@
 //! every arm, is coverage in name only, which is how §5 came to be listed here
 //! for years while being compared nowhere (#475).
 
-use fieldglass_grib2::{Grib2Reader, GridTemplate, parse_bit_map};
+use fieldglass_grib2::{
+    Grib2Reader, GridTemplate, SCAN_ALTERNATE_ROWS, SCAN_J_CONSECUTIVE, parse_bit_map,
+};
 use serde_json::Value;
 use std::cell::RefCell;
 use std::collections::BTreeSet;
@@ -186,6 +188,19 @@ fn assert_message_matches(
                     None => true,
                 },
                 _ => true,
+            },
+            // Flag Table 3.4 bits 3 and 4 — the two the decoder acts on. Bit 3
+            // makes the stored run a meridian (#602) and bit 4 reverses
+            // alternate rows (#541); the reader refuses their combination, so
+            // both are pinned rather than one. A template that states no
+            // scanning mode (spectral, HEALPix) has nothing to compare.
+            "jPointsAreConsecutive" => match msg.gds.scanning_mode() {
+                Some(sm) => check_bool(key, expected, sm & SCAN_J_CONSECUTIVE != 0),
+                None => true,
+            },
+            "alternativeRowScanning" => match msg.gds.scanning_mode() {
+                Some(sm) => check_bool(key, expected, sm & SCAN_ALTERNATE_ROWS != 0),
+                None => true,
             },
 
             // §4 Product Definition
@@ -417,6 +432,11 @@ fn check_u64(key: &str, expected: &Value, actual: u64) -> bool {
     true
 }
 
+/// eccodes prints a flag bit as `0` / `1`, so a bool compares as an integer.
+fn check_bool(key: &str, expected: &Value, actual: bool) -> bool {
+    check_u64(key, expected, u64::from(actual))
+}
+
 fn check_i64(key: &str, expected: &Value, actual: i64) -> bool {
     record(key);
     let exp = expected
@@ -567,7 +587,7 @@ fn every_fixture_matches_eccodes() {
         failures.join("\n")
     );
     assert!(
-        checked > 41,
+        checked > 42,
         "only {checked} fixtures were cross-checked — the directory walk found \
          too few, so this proves nothing (skipped: {skipped:?})"
     );
@@ -612,7 +632,7 @@ fn the_cross_check_compares_every_key_it_ships() {
         never_compared.len()
     );
     assert!(
-        compared.len() >= 30,
+        compared.len() >= 32,
         "only {} distinct keys were compared ({compared:?}) — too few for this \
          to be a cross-check of the parser",
         compared.len()
@@ -697,14 +717,14 @@ fn every_fixture_decodes_to_the_values_eccodes_decodes() {
         failures.join("\n")
     );
     assert!(
-        checked >= 47,
+        checked >= 48,
         "only {checked} fixtures were value-checked — too few to prove anything"
     );
     // The same guard the metadata pass carries: every branch of the comparison
     // is skippable when the snapshot omits a key, so count what was really
     // compared rather than trusting that the walk implies it.
     assert!(
-        compared_stats >= 120 && compared_points >= 770,
+        compared_stats >= 123 && compared_points >= 788,
         "the value check made {compared_stats} statistic and {compared_points} \
          point comparisons — too few to be checking the corpus"
     );

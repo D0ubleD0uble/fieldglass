@@ -21,6 +21,8 @@
       "latitudeOfLastGridPointInDegrees": -87.8638,
       "longitudeOfLastGridPointInDegrees": 357.188,
       "iDirectionIncrementInDegrees": 2.813,
+      "jPointsAreConsecutive": 0,
+      "alternativeRowScanning": 0,
       "productDefinitionTemplateNumber": 0,
       "parameterCategory": 0,
       "parameterNumber": 0,
