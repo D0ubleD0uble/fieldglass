@@ -80,7 +80,11 @@ jobs:
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
         with:
           toolchain: stable
-          targets: wasm32-unknown-unknown
+          # `wasm32-wasip1` is the *test* target: same 32-bit pointer width as
+          # the browser build, plus the stdio and file access libtest and the
+          # fixture-reading tests need. `wasm32-unknown-unknown` has neither, so
+          # it can only be checked, never run.
+          targets: wasm32-unknown-unknown,wasm32-wasip1
 
       - name: Cache cargo build
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -125,6 +129,45 @@ jobs:
           cargo check --target wasm32-unknown-unknown \
             -p fieldglass-core -p fieldglass-grib1 -p fieldglass-grib2 \
             -p fieldglass-netcdf -p fieldglass-wasm
+
+      # The decode suites run where `usize` is 32 bits wide. A check proves the
+      # crates compile for the browser; only this proves they *decode* the same
+      # there, which is what the pointer-width cast audit (#561) turns on: a
+      # `u64` length narrowed with a bare `as usize` wraps on this target, and
+      # the wrapped value passes the bounds check that follows it.
+      #
+      # `wasmtime` rather than Node's `node:wasi`: the latter segfaulted on a
+      # runner after a test binary had already reported every test green, which
+      # is exactly the failure mode a gate must not have.
+      #
+      # `--dir=.` is the package root cargo sets as the working directory, which
+      # every fixture path here is relative to; `--dir=..` is for the umbrella
+      # crate's tests, which read a sibling crate's fixtures.
+      - name: Install wasmtime
+        uses: taiki-e/install-action@742a3317eac7bd62f91cd888b4eead5e784ba833 # v2.87.1
+        with:
+          tool: wasmtime@27
+
+      # Three skips, none of them a decode result:
+      #   * `detect::fs_tests` calls `std::env::temp_dir`, which WASI has no
+      #     answer for.
+      #   * `probing_an_empty_raster_answers_rather_than_panicking` asserts its
+      #     own hazard with `catch_unwind`, and wasm32 aborts on panic rather
+      #     than unwinding, so nothing can catch it.
+      #   * `the_planar_inverses_match_their_pre_extraction_recording` is a
+      #     bit-exact golden, and wasm32 links Rust's own `libm` rather than the
+      #     host's, so the transcendentals in the Lambert inverse differ by an
+      #     ULP or two. Tracked separately (#617).
+      - name: cargo test --target wasm32-wasip1 (32-bit pointer width)
+        env:
+          CARGO_TARGET_WASM32_WASIP1_RUNNER: wasmtime --dir=. --dir=..
+        run: |
+          cargo test --target wasm32-wasip1 \
+            -p fieldglass-core -p fieldglass-grib1 -p fieldglass-grib2 \
+            -p fieldglass-netcdf -p fieldglass \
+            -- --skip detect::fs_tests \
+               --skip probing_an_empty_raster_answers_rather_than_panicking \
+               --skip the_planar_inverses_match_their_pre_extraction_recording
 
       # Grouped baseline-then-simd on purpose. `--simd` changes RUSTFLAGS, which
       # changes the fingerprint of every crate in the graph, so alternating the
