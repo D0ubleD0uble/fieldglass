@@ -29,9 +29,13 @@
 //!   deletes it, and the comparison becomes free at that point.
 //! * `probe` — napi probes an output *pixel*; the suite probes a geographic
 //!   point. Two different questions, not two answers to one.
-//! * `warp`, `palette`, `contours` — napi exposes no operation with these
-//!   shapes; its render does the warp inline and its contours come back as
-//!   projected polylines.
+//! * `warp`, `palette`, `contours`, `combine` — napi exposes no operation with
+//!   these shapes; its render does the warp inline, its contours come back as
+//!   projected polylines, and its combine paints in the same call, so there is
+//!   no combined *field* to compare. That last one is covered instead by the
+//!   characterisation golden, which records `renderGridCombined`,
+//!   `probeCombined` and `projectContoursCombined` over the whole corpus, and
+//!   by `combine::tests` in `fieldglass` for the alignment gate itself.
 //!
 //! Writing an adapter for those would mean writing the code #464 is deleting.
 //! The row `every_comparable_op_is_actually_compared` keeps that list honest:
@@ -80,6 +84,11 @@ const SKIPPED: &[(Op, &str)] = &[
     (
         Op::Contours,
         "napi returns projected polylines, not grid-space isolines",
+    ),
+    (
+        Op::Combine,
+        "napi has no combine-without-render operation; `renderGridCombined` \
+         paints in the same call (#574)",
     ),
 ];
 
@@ -228,7 +237,7 @@ fn observe(case: &Case, expect: &Value) -> Option<Value> {
         // `COMPARED` gates the entry, so nothing else reaches here. Written as
         // an explicit arm rather than a wildcard so that adding an op to
         // `COMPARED` without adding its adapter fails to compile.
-        Op::Message | Op::Warp | Op::Palette | Op::Probe | Op::Contours => None,
+        Op::Message | Op::Warp | Op::Palette | Op::Probe | Op::Contours | Op::Combine => None,
     }
 }
 

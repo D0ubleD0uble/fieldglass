@@ -40,7 +40,7 @@ half a megabyte of emnapi/WASI shims.
 ## Use
 
 ```js
-import init, { open, glslSnippet } from './pkg/web/fieldglass_wasm.js';
+import init, { open, glslSnippet, combineOps } from './pkg/web/fieldglass_wasm.js';
 await init();
 
 const handle = open(new Uint8Array(await response.arrayBuffer()));
@@ -61,6 +61,14 @@ handle.render(field, {}, false);   // RGBA, north up — see below
 handle.probe(field, lat, lon);
 handle.contours(field, new Float64Array([280, 290]));
 
+// Difference maps and their siblings. `combineOps()` is the picker's list:
+// [{ value: 'a_minus_b', label: 'A − B' }, …]. Both fields must sit on the
+// same grid; a mismatch throws with `code: 'unsupported'` naming what differs.
+const other = handle.decode(1, {});
+const diff = handle.combine(field, other, 'a_minus_b');
+
+diff.free();
+other.free();
 field.free();
 handle.free();
 ```
@@ -84,7 +92,7 @@ that where it lines the two pictures up.
 
 Linear memory never shrinks and an animation holds many fields at once, so
 **the façade keeps no decode cache**. `decode()` hands a field to JS and JS owns
-it; `warp`, `render`, `probe`, `contours`, and the shader accessors take it back
+it; `warp`, `render`, `probe`, `contours`, `combine`, and the shader accessors take it back
 by reference. Call `free()` on a field and on the handle when you are done —
 a dropped JS reference does not release the wasm allocation until the host's
 `FinalizationRegistry` runs, if it runs at all.
@@ -129,8 +137,8 @@ browser actually downloads.
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
-| baseline | 934,213 | 361,831 |
-| `+simd128` | 931,679 | 360,982 |
+| baseline | 942,529 | 365,734 |
+| `+simd128` | 939,943 | 365,066 |
 
 The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
 build drifts more than 5% from these figures in either direction, so a change
@@ -139,12 +147,12 @@ that moves the bundle has to say so here. Update both cells when it does.
 Two things worth knowing before optimising further:
 
 - `wasm-opt -Oz` is a **raw** win and a **transfer** loss. It takes the module
-  from 985,554 to 934,213 bytes (-5.2%) and takes it from 355,795 to 361,831
-  gzipped (+1.7%). Its size passes trade repetition for smaller encodings, and
+  from 994,474 to 942,529 bytes (-5.2%) and takes it from 359,035 to 365,734
+  gzipped (+1.9%). Its size passes trade repetition for smaller encodings, and
   DEFLATE was already being paid for the repetition. It stays on because parse
   and instantiate cost track the raw module, but a transfer-size-only argument
   for `-Oz` does not survive measurement.
-- `+simd128` buys 2,532 raw bytes and nothing measurable in time (below). The
+- `+simd128` buys 2,586 raw bytes and nothing measurable in time (below). The
   decode kernels are bit-unpacking loops with data-dependent control flow, not
   the float-per-lane arithmetic autovectorisation looks for, and `std` is not
   rebuilt with it without `-Zbuild-std`. Recorded so nobody re-derives it.

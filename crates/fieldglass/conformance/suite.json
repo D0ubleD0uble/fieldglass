@@ -29,7 +29,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "count": 1,
@@ -54,7 +55,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "abbreviation": "TMP",
@@ -112,7 +114,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "dtype": "f32",
@@ -199,7 +202,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "dtype": "f32",
@@ -286,7 +290,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "dtype": "f64",
@@ -373,7 +378,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "bounds": [
@@ -433,7 +439,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "bounds": [
@@ -498,7 +505,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "bounds": [
@@ -558,7 +566,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "lutLen": 1024,
@@ -613,7 +622,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "lutLen": 1024,
@@ -668,7 +678,8 @@
         "flipY": false,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "height": 31,
@@ -742,7 +753,8 @@
         "flipY": true,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "height": 31,
@@ -816,7 +828,8 @@
         "flipY": null,
         "lat": 0.0,
         "lon": 0.0,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "i": 0.0,
@@ -844,7 +857,8 @@
         "flipY": null,
         "lat": 45.0,
         "lon": -100.0,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": null
     },
@@ -866,7 +880,8 @@
         "flipY": null,
         "lat": 89.5,
         "lon": 10.0,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": null
     },
@@ -888,7 +903,8 @@
         "flipY": null,
         "lat": -89.5,
         "lon": -170.0,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": null
     },
@@ -910,7 +926,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": []
+        "levels": [],
+        "combineOp": null
       },
       "expect": {
         "levelCount": 8,
@@ -958,7 +975,8 @@
           250.0,
           275.0,
           300.0
-        ]
+        ],
+        "combineOp": null
       },
       "expect": {
         "levelCount": 3,
@@ -972,6 +990,446 @@
           20,
           34
         ]
+      }
+    },
+    {
+      "id": "latlon/combine/a_minus_b",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "a_minus_b"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            0.0,
+            60.0,
+            0.0,
+            30.0
+          ],
+          "dx": 2.0,
+          "dy": -2.0,
+          "kind": "latlon",
+          "label": "latlon",
+          "ni": 16,
+          "nj": 31,
+          "periodicX": false,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 60.0
+        },
+        "len": 496,
+        "maskLen": 496,
+        "maskOnes": 496,
+        "ni": 16,
+        "nj": 31,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 124,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 248,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 372,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 495,
+            "m": 1,
+            "v": 0.0
+          }
+        ],
+        "stats": {
+          "max": 0.0,
+          "min": 0.0,
+          "validCount": 496
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "latlon/combine/b_minus_a",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "b_minus_a"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            0.0,
+            60.0,
+            0.0,
+            30.0
+          ],
+          "dx": 2.0,
+          "dy": -2.0,
+          "kind": "latlon",
+          "label": "latlon",
+          "ni": 16,
+          "nj": 31,
+          "periodicX": false,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 60.0
+        },
+        "len": 496,
+        "maskLen": 496,
+        "maskOnes": 496,
+        "ni": 16,
+        "nj": 31,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 124,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 248,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 372,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 495,
+            "m": 1,
+            "v": 0.0
+          }
+        ],
+        "stats": {
+          "max": 0.0,
+          "min": 0.0,
+          "validCount": 496
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "latlon/combine/a_plus_b",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "a_plus_b"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            0.0,
+            60.0,
+            0.0,
+            30.0
+          ],
+          "dx": 2.0,
+          "dy": -2.0,
+          "kind": "latlon",
+          "label": "latlon",
+          "ni": 16,
+          "nj": 31,
+          "periodicX": false,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 60.0
+        },
+        "len": 496,
+        "maskLen": 496,
+        "maskOnes": 496,
+        "ni": 16,
+        "nj": 31,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 558.0
+          },
+          {
+            "i": 124,
+            "m": 1,
+            "v": 566.603515625
+          },
+          {
+            "i": 248,
+            "m": 1,
+            "v": 578.330078125
+          },
+          {
+            "i": 372,
+            "m": 1,
+            "v": 604.294921875
+          },
+          {
+            "i": 495,
+            "m": 1,
+            "v": 601.763671875
+          }
+        ],
+        "stats": {
+          "max": 622.197265625,
+          "min": 540.93359375,
+          "validCount": 496
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "latlon/combine/mean",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "mean"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            0.0,
+            60.0,
+            0.0,
+            30.0
+          ],
+          "dx": 2.0,
+          "dy": -2.0,
+          "kind": "latlon",
+          "label": "latlon",
+          "ni": 16,
+          "nj": 31,
+          "periodicX": false,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 60.0
+        },
+        "len": 496,
+        "maskLen": 496,
+        "maskOnes": 496,
+        "ni": 16,
+        "nj": 31,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 279.0
+          },
+          {
+            "i": 124,
+            "m": 1,
+            "v": 283.3017578125
+          },
+          {
+            "i": 248,
+            "m": 1,
+            "v": 289.1650390625
+          },
+          {
+            "i": 372,
+            "m": 1,
+            "v": 302.1474609375
+          },
+          {
+            "i": 495,
+            "m": 1,
+            "v": 300.8818359375
+          }
+        ],
+        "stats": {
+          "max": 311.0986328125,
+          "min": 270.466796875,
+          "validCount": 496
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "latlon/combine/ratio",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "ratio"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            0.0,
+            60.0,
+            0.0,
+            30.0
+          ],
+          "dx": 2.0,
+          "dy": -2.0,
+          "kind": "latlon",
+          "label": "latlon",
+          "ni": 16,
+          "nj": 31,
+          "periodicX": false,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 60.0
+        },
+        "len": 496,
+        "maskLen": 496,
+        "maskOnes": 496,
+        "ni": 16,
+        "nj": 31,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 124,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 248,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 372,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 495,
+            "m": 1,
+            "v": 1.0
+          }
+        ],
+        "stats": {
+          "max": 1.0,
+          "min": 1.0,
+          "validCount": 496
+        },
+        "units": "K"
       }
     },
     {
@@ -992,7 +1450,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "count": 1,
@@ -1017,7 +1476,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "abbreviation": "TMP",
@@ -1075,7 +1535,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "dtype": "f32",
@@ -1162,7 +1623,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "dtype": "f32",
@@ -1249,7 +1711,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "dtype": "f64",
@@ -1336,7 +1799,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "bounds": [
@@ -1396,7 +1860,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "bounds": [
@@ -1461,7 +1926,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "bounds": [
@@ -1521,7 +1987,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "lutLen": 1024,
@@ -1576,7 +2043,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "lutLen": 1024,
@@ -1631,7 +2099,8 @@
         "flipY": false,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "height": 64,
@@ -1705,7 +2174,8 @@
         "flipY": true,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "height": 64,
@@ -1779,7 +2249,8 @@
         "flipY": null,
         "lat": 0.0,
         "lon": 0.0,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "i": 0.0,
@@ -1807,7 +2278,8 @@
         "flipY": null,
         "lat": 45.0,
         "lon": -100.0,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "i": 92.44444444444444,
@@ -1835,7 +2307,8 @@
         "flipY": null,
         "lat": 89.5,
         "lon": 10.0,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": null
     },
@@ -1857,7 +2330,8 @@
         "flipY": null,
         "lat": -89.5,
         "lon": -170.0,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": null
     },
@@ -1879,7 +2353,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": []
+        "levels": [],
+        "combineOp": null
       },
       "expect": {
         "levelCount": 0,
@@ -1909,7 +2384,8 @@
           250.0,
           275.0,
           300.0
-        ]
+        ],
+        "combineOp": null
       },
       "expect": {
         "levelCount": 3,
@@ -1923,6 +2399,446 @@
           0,
           0
         ]
+      }
+    },
+    {
+      "id": "gaussian/combine/a_minus_b",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_gaussian_f32.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "a_minus_b"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            -87.863799,
+            87.863799,
+            0.0,
+            357.1875
+          ],
+          "dx": 2.8125,
+          "dy": null,
+          "kind": "gaussian",
+          "label": "gaussian",
+          "ni": 128,
+          "nj": 64,
+          "periodicX": true,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 87.863799
+        },
+        "len": 8192,
+        "maskLen": 8192,
+        "maskOnes": 8192,
+        "ni": 128,
+        "nj": 64,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 2048,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 4096,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 6144,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 8191,
+            "m": 1,
+            "v": 0.0
+          }
+        ],
+        "stats": {
+          "max": 0.0,
+          "min": 0.0,
+          "validCount": 8192
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "gaussian/combine/b_minus_a",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_gaussian_f32.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "b_minus_a"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            -87.863799,
+            87.863799,
+            0.0,
+            357.1875
+          ],
+          "dx": 2.8125,
+          "dy": null,
+          "kind": "gaussian",
+          "label": "gaussian",
+          "ni": 128,
+          "nj": 64,
+          "periodicX": true,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 87.863799
+        },
+        "len": 8192,
+        "maskLen": 8192,
+        "maskOnes": 8192,
+        "ni": 128,
+        "nj": 64,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 2048,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 4096,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 6144,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 8191,
+            "m": 1,
+            "v": 0.0
+          }
+        ],
+        "stats": {
+          "max": 0.0,
+          "min": 0.0,
+          "validCount": 8192
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "gaussian/combine/a_plus_b",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_gaussian_f32.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "a_plus_b"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            -87.863799,
+            87.863799,
+            0.0,
+            357.1875
+          ],
+          "dx": 2.8125,
+          "dy": null,
+          "kind": "gaussian",
+          "label": "gaussian",
+          "ni": 128,
+          "nj": 64,
+          "periodicX": true,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 87.863799
+        },
+        "len": 8192,
+        "maskLen": 8192,
+        "maskOnes": 8192,
+        "ni": 128,
+        "nj": 64,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 2.0
+          },
+          {
+            "i": 2048,
+            "m": 1,
+            "v": 2.0
+          },
+          {
+            "i": 4096,
+            "m": 1,
+            "v": 2.0
+          },
+          {
+            "i": 6144,
+            "m": 1,
+            "v": 2.0
+          },
+          {
+            "i": 8191,
+            "m": 1,
+            "v": 2.0
+          }
+        ],
+        "stats": {
+          "max": 2.0,
+          "min": 2.0,
+          "validCount": 8192
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "gaussian/combine/mean",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_gaussian_f32.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "mean"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            -87.863799,
+            87.863799,
+            0.0,
+            357.1875
+          ],
+          "dx": 2.8125,
+          "dy": null,
+          "kind": "gaussian",
+          "label": "gaussian",
+          "ni": 128,
+          "nj": 64,
+          "periodicX": true,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 87.863799
+        },
+        "len": 8192,
+        "maskLen": 8192,
+        "maskOnes": 8192,
+        "ni": 128,
+        "nj": 64,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 2048,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 4096,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 6144,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 8191,
+            "m": 1,
+            "v": 1.0
+          }
+        ],
+        "stats": {
+          "max": 1.0,
+          "min": 1.0,
+          "validCount": 8192
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "gaussian/combine/ratio",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_gaussian_f32.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "ratio"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            -87.863799,
+            87.863799,
+            0.0,
+            357.1875
+          ],
+          "dx": 2.8125,
+          "dy": null,
+          "kind": "gaussian",
+          "label": "gaussian",
+          "ni": 128,
+          "nj": 64,
+          "periodicX": true,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 87.863799
+        },
+        "len": 8192,
+        "maskLen": 8192,
+        "maskOnes": 8192,
+        "ni": 128,
+        "nj": 64,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 2048,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 4096,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 6144,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 8191,
+            "m": 1,
+            "v": 1.0
+          }
+        ],
+        "stats": {
+          "max": 1.0,
+          "min": 1.0,
+          "validCount": 8192
+        },
+        "units": "K"
       }
     },
     {
@@ -1943,7 +2859,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "count": 1,
@@ -1968,7 +2885,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "abbreviation": "MSLET",
@@ -2026,7 +2944,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "dtype": "f32",
@@ -2113,7 +3032,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "dtype": "f32",
@@ -2200,7 +3120,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "dtype": "f64",
@@ -2287,7 +3208,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "bounds": [
@@ -2347,7 +3269,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "bounds": [
@@ -2412,7 +3335,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "bounds": [
@@ -2472,7 +3396,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "lutLen": 1024,
@@ -2527,7 +3452,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "lutLen": 1024,
@@ -2582,7 +3508,8 @@
         "flipY": false,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "height": 65,
@@ -2656,7 +3583,8 @@
         "flipY": true,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "height": 65,
@@ -2730,7 +3658,8 @@
         "flipY": null,
         "lat": 0.0,
         "lon": 0.0,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": null
     },
@@ -2752,7 +3681,8 @@
         "flipY": null,
         "lat": 45.0,
         "lon": -100.0,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "i": 46.83247311335374,
@@ -2780,7 +3710,8 @@
         "flipY": null,
         "lat": 89.5,
         "lon": 10.0,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": null
     },
@@ -2802,7 +3733,8 @@
         "flipY": null,
         "lat": -89.5,
         "lon": -170.0,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": null
     },
@@ -2824,7 +3756,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": []
+        "levels": [],
+        "combineOp": null
       },
       "expect": {
         "levelCount": 11,
@@ -2878,7 +3811,8 @@
           250.0,
           275.0,
           300.0
-        ]
+        ],
+        "combineOp": null
       },
       "expect": {
         "levelCount": 3,
@@ -2892,6 +3826,446 @@
           0,
           0
         ]
+      }
+    },
+    {
+      "id": "lambert/combine/a_minus_b",
+      "fixture": "fieldglass-grib2/tests/fixtures/eta_lambert_msg0.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "a_minus_b"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "metres",
+          "boundsLonlat": [
+            12.190000000000017,
+            61.279829031543585,
+            -152.8554590653166,
+            -49.38509724968685
+          ],
+          "dx": 81271.0,
+          "dy": 81271.0,
+          "kind": "lambert",
+          "label": "lambert",
+          "ni": 93,
+          "nj": 65,
+          "periodicX": false,
+          "proj4": "+proj=lcc +lat_1=25 +lat_2=25 +lat_0=25 +lon_0=265 +R=6371229 +units=m +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": true
+          },
+          "x0": -4226106.99691547,
+          "y0": -832698.2610175647
+        },
+        "len": 6045,
+        "maskLen": 6045,
+        "maskOnes": 6045,
+        "ni": 93,
+        "nj": 65,
+        "parameter": "MSLP (Eta model reduction)",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 1511,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 3022,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 4533,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 6044,
+            "m": 1,
+            "v": 0.0
+          }
+        ],
+        "stats": {
+          "max": 0.0,
+          "min": 0.0,
+          "validCount": 6045
+        },
+        "units": "Pa"
+      }
+    },
+    {
+      "id": "lambert/combine/b_minus_a",
+      "fixture": "fieldglass-grib2/tests/fixtures/eta_lambert_msg0.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "b_minus_a"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "metres",
+          "boundsLonlat": [
+            12.190000000000017,
+            61.279829031543585,
+            -152.8554590653166,
+            -49.38509724968685
+          ],
+          "dx": 81271.0,
+          "dy": 81271.0,
+          "kind": "lambert",
+          "label": "lambert",
+          "ni": 93,
+          "nj": 65,
+          "periodicX": false,
+          "proj4": "+proj=lcc +lat_1=25 +lat_2=25 +lat_0=25 +lon_0=265 +R=6371229 +units=m +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": true
+          },
+          "x0": -4226106.99691547,
+          "y0": -832698.2610175647
+        },
+        "len": 6045,
+        "maskLen": 6045,
+        "maskOnes": 6045,
+        "ni": 93,
+        "nj": 65,
+        "parameter": "MSLP (Eta model reduction)",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 1511,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 3022,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 4533,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 6044,
+            "m": 1,
+            "v": 0.0
+          }
+        ],
+        "stats": {
+          "max": 0.0,
+          "min": 0.0,
+          "validCount": 6045
+        },
+        "units": "Pa"
+      }
+    },
+    {
+      "id": "lambert/combine/a_plus_b",
+      "fixture": "fieldglass-grib2/tests/fixtures/eta_lambert_msg0.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "a_plus_b"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "metres",
+          "boundsLonlat": [
+            12.190000000000017,
+            61.279829031543585,
+            -152.8554590653166,
+            -49.38509724968685
+          ],
+          "dx": 81271.0,
+          "dy": 81271.0,
+          "kind": "lambert",
+          "label": "lambert",
+          "ni": 93,
+          "nj": 65,
+          "periodicX": false,
+          "proj4": "+proj=lcc +lat_1=25 +lat_2=25 +lat_0=25 +lon_0=265 +R=6371229 +units=m +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": true
+          },
+          "x0": -4226106.99691547,
+          "y0": -832698.2610175647
+        },
+        "len": 6045,
+        "maskLen": 6045,
+        "maskOnes": 6045,
+        "ni": 93,
+        "nj": 65,
+        "parameter": "MSLP (Eta model reduction)",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 202666.0
+          },
+          {
+            "i": 1511,
+            "m": 1,
+            "v": 204518.0
+          },
+          {
+            "i": 3022,
+            "m": 1,
+            "v": 201428.0
+          },
+          {
+            "i": 4533,
+            "m": 1,
+            "v": 203730.0
+          },
+          {
+            "i": 6044,
+            "m": 1,
+            "v": 201656.0
+          }
+        ],
+        "stats": {
+          "max": 205424.0,
+          "min": 194784.0,
+          "validCount": 6045
+        },
+        "units": "Pa"
+      }
+    },
+    {
+      "id": "lambert/combine/mean",
+      "fixture": "fieldglass-grib2/tests/fixtures/eta_lambert_msg0.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "mean"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "metres",
+          "boundsLonlat": [
+            12.190000000000017,
+            61.279829031543585,
+            -152.8554590653166,
+            -49.38509724968685
+          ],
+          "dx": 81271.0,
+          "dy": 81271.0,
+          "kind": "lambert",
+          "label": "lambert",
+          "ni": 93,
+          "nj": 65,
+          "periodicX": false,
+          "proj4": "+proj=lcc +lat_1=25 +lat_2=25 +lat_0=25 +lon_0=265 +R=6371229 +units=m +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": true
+          },
+          "x0": -4226106.99691547,
+          "y0": -832698.2610175647
+        },
+        "len": 6045,
+        "maskLen": 6045,
+        "maskOnes": 6045,
+        "ni": 93,
+        "nj": 65,
+        "parameter": "MSLP (Eta model reduction)",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 101333.0
+          },
+          {
+            "i": 1511,
+            "m": 1,
+            "v": 102259.0
+          },
+          {
+            "i": 3022,
+            "m": 1,
+            "v": 100714.0
+          },
+          {
+            "i": 4533,
+            "m": 1,
+            "v": 101865.0
+          },
+          {
+            "i": 6044,
+            "m": 1,
+            "v": 100828.0
+          }
+        ],
+        "stats": {
+          "max": 102712.0,
+          "min": 97392.0,
+          "validCount": 6045
+        },
+        "units": "Pa"
+      }
+    },
+    {
+      "id": "lambert/combine/ratio",
+      "fixture": "fieldglass-grib2/tests/fixtures/eta_lambert_msg0.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "ratio"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "metres",
+          "boundsLonlat": [
+            12.190000000000017,
+            61.279829031543585,
+            -152.8554590653166,
+            -49.38509724968685
+          ],
+          "dx": 81271.0,
+          "dy": 81271.0,
+          "kind": "lambert",
+          "label": "lambert",
+          "ni": 93,
+          "nj": 65,
+          "periodicX": false,
+          "proj4": "+proj=lcc +lat_1=25 +lat_2=25 +lat_0=25 +lon_0=265 +R=6371229 +units=m +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": true
+          },
+          "x0": -4226106.99691547,
+          "y0": -832698.2610175647
+        },
+        "len": 6045,
+        "maskLen": 6045,
+        "maskOnes": 6045,
+        "ni": 93,
+        "nj": 65,
+        "parameter": "MSLP (Eta model reduction)",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 1511,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 3022,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 4533,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 6044,
+            "m": 1,
+            "v": 1.0
+          }
+        ],
+        "stats": {
+          "max": 1.0,
+          "min": 1.0,
+          "validCount": 6045
+        },
+        "units": "Pa"
       }
     },
     {
@@ -2912,7 +4286,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "count": 1,
@@ -2937,7 +4312,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "abbreviation": "TMP",
@@ -2995,7 +4371,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "dtype": "f32",
@@ -3082,7 +4459,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "dtype": "f32",
@@ -3169,7 +4547,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "dtype": "f64",
@@ -3256,7 +4635,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "bounds": [
@@ -3316,7 +4696,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "bounds": [
@@ -3381,7 +4762,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "bounds": [
@@ -3441,7 +4823,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "lutLen": 1024,
@@ -3496,7 +4879,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "lutLen": 1024,
@@ -3551,7 +4935,8 @@
         "flipY": false,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "height": 30,
@@ -3625,7 +5010,8 @@
         "flipY": true,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "height": 30,
@@ -3699,7 +5085,8 @@
         "flipY": null,
         "lat": 0.0,
         "lon": 0.0,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": null
     },
@@ -3721,7 +5108,8 @@
         "flipY": null,
         "lat": 45.0,
         "lon": -100.0,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": null
     },
@@ -3743,7 +5131,8 @@
         "flipY": null,
         "lat": 89.5,
         "lon": 10.0,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": null
     },
@@ -3765,7 +5154,8 @@
         "flipY": null,
         "lat": -89.5,
         "lon": -170.0,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": null
     },
@@ -3787,7 +5177,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": []
+        "levels": [],
+        "combineOp": null
       },
       "expect": {
         "levelCount": 10,
@@ -3839,7 +5230,8 @@
           250.0,
           275.0,
           300.0
-        ]
+        ],
+        "combineOp": null
       },
       "expect": {
         "levelCount": 3,
@@ -3853,6 +5245,446 @@
           24,
           0
         ]
+      }
+    },
+    {
+      "id": "tmerc/combine/a_minus_b",
+      "fixture": "fieldglass-grib2/tests/fixtures/transverse_mercator_ukv.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "a_minus_b"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "metres",
+          "boundsLonlat": [
+            48.04996351439769,
+            60.881363042045734,
+            -13.611297212366253,
+            6.528817987152934
+          ],
+          "dx": 48000.0,
+          "dy": -48000.0,
+          "kind": "transverse_mercator",
+          "label": "transverse_mercator",
+          "ni": 24,
+          "nj": 30,
+          "periodicX": false,
+          "proj4": "+proj=tmerc +lat_0=49 +lon_0=-2 +k_0=0.9996012449264526 +x_0=400000 +y_0=-100000 +a=6377563 +b=6356257.000000001 +units=m +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": -238000.0,
+          "y0": 1222000.0
+        },
+        "len": 720,
+        "maskLen": 720,
+        "maskOnes": 720,
+        "ni": 24,
+        "nj": 30,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 180,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 360,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 540,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 719,
+            "m": 1,
+            "v": 0.0
+          }
+        ],
+        "stats": {
+          "max": 0.0,
+          "min": 0.0,
+          "validCount": 720
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "tmerc/combine/b_minus_a",
+      "fixture": "fieldglass-grib2/tests/fixtures/transverse_mercator_ukv.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "b_minus_a"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "metres",
+          "boundsLonlat": [
+            48.04996351439769,
+            60.881363042045734,
+            -13.611297212366253,
+            6.528817987152934
+          ],
+          "dx": 48000.0,
+          "dy": -48000.0,
+          "kind": "transverse_mercator",
+          "label": "transverse_mercator",
+          "ni": 24,
+          "nj": 30,
+          "periodicX": false,
+          "proj4": "+proj=tmerc +lat_0=49 +lon_0=-2 +k_0=0.9996012449264526 +x_0=400000 +y_0=-100000 +a=6377563 +b=6356257.000000001 +units=m +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": -238000.0,
+          "y0": 1222000.0
+        },
+        "len": 720,
+        "maskLen": 720,
+        "maskOnes": 720,
+        "ni": 24,
+        "nj": 30,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 180,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 360,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 540,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 719,
+            "m": 1,
+            "v": 0.0
+          }
+        ],
+        "stats": {
+          "max": 0.0,
+          "min": 0.0,
+          "validCount": 720
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "tmerc/combine/a_plus_b",
+      "fixture": "fieldglass-grib2/tests/fixtures/transverse_mercator_ukv.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "a_plus_b"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "metres",
+          "boundsLonlat": [
+            48.04996351439769,
+            60.881363042045734,
+            -13.611297212366253,
+            6.528817987152934
+          ],
+          "dx": 48000.0,
+          "dy": -48000.0,
+          "kind": "transverse_mercator",
+          "label": "transverse_mercator",
+          "ni": 24,
+          "nj": 30,
+          "periodicX": false,
+          "proj4": "+proj=tmerc +lat_0=49 +lon_0=-2 +k_0=0.9996012449264526 +x_0=400000 +y_0=-100000 +a=6377563 +b=6356257.000000001 +units=m +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": -238000.0,
+          "y0": 1222000.0
+        },
+        "len": 720,
+        "maskLen": 720,
+        "maskOnes": 720,
+        "ni": 24,
+        "nj": 30,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 546.2999877929688
+          },
+          {
+            "i": 180,
+            "m": 1,
+            "v": 556.2999877929688
+          },
+          {
+            "i": 360,
+            "m": 1,
+            "v": 566.2999877929688
+          },
+          {
+            "i": 540,
+            "m": 1,
+            "v": 576.2999877929688
+          },
+          {
+            "i": 719,
+            "m": 1,
+            "v": 586.2443237304688
+          }
+        ],
+        "stats": {
+          "max": 586.2443237304688,
+          "min": 546.2999877929688,
+          "validCount": 720
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "tmerc/combine/mean",
+      "fixture": "fieldglass-grib2/tests/fixtures/transverse_mercator_ukv.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "mean"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "metres",
+          "boundsLonlat": [
+            48.04996351439769,
+            60.881363042045734,
+            -13.611297212366253,
+            6.528817987152934
+          ],
+          "dx": 48000.0,
+          "dy": -48000.0,
+          "kind": "transverse_mercator",
+          "label": "transverse_mercator",
+          "ni": 24,
+          "nj": 30,
+          "periodicX": false,
+          "proj4": "+proj=tmerc +lat_0=49 +lon_0=-2 +k_0=0.9996012449264526 +x_0=400000 +y_0=-100000 +a=6377563 +b=6356257.000000001 +units=m +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": -238000.0,
+          "y0": 1222000.0
+        },
+        "len": 720,
+        "maskLen": 720,
+        "maskOnes": 720,
+        "ni": 24,
+        "nj": 30,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 273.1499938964844
+          },
+          {
+            "i": 180,
+            "m": 1,
+            "v": 278.1499938964844
+          },
+          {
+            "i": 360,
+            "m": 1,
+            "v": 283.1499938964844
+          },
+          {
+            "i": 540,
+            "m": 1,
+            "v": 288.1499938964844
+          },
+          {
+            "i": 719,
+            "m": 1,
+            "v": 293.1221618652344
+          }
+        ],
+        "stats": {
+          "max": 293.1221618652344,
+          "min": 273.1499938964844,
+          "validCount": 720
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "tmerc/combine/ratio",
+      "fixture": "fieldglass-grib2/tests/fixtures/transverse_mercator_ukv.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "ratio"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "metres",
+          "boundsLonlat": [
+            48.04996351439769,
+            60.881363042045734,
+            -13.611297212366253,
+            6.528817987152934
+          ],
+          "dx": 48000.0,
+          "dy": -48000.0,
+          "kind": "transverse_mercator",
+          "label": "transverse_mercator",
+          "ni": 24,
+          "nj": 30,
+          "periodicX": false,
+          "proj4": "+proj=tmerc +lat_0=49 +lon_0=-2 +k_0=0.9996012449264526 +x_0=400000 +y_0=-100000 +a=6377563 +b=6356257.000000001 +units=m +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": -238000.0,
+          "y0": 1222000.0
+        },
+        "len": 720,
+        "maskLen": 720,
+        "maskOnes": 720,
+        "ni": 24,
+        "nj": 30,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 180,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 360,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 540,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 719,
+            "m": 1,
+            "v": 1.0
+          }
+        ],
+        "stats": {
+          "max": 1.0,
+          "min": 1.0,
+          "validCount": 720
+        },
+        "units": "K"
       }
     },
     {
@@ -3873,7 +5705,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "count": 1,
@@ -3898,7 +5731,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "abbreviation": "TMP",
@@ -3956,7 +5790,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "dtype": "f32",
@@ -4043,7 +5878,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "dtype": "f32",
@@ -4130,7 +5966,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "dtype": "f64",
@@ -4217,7 +6054,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "bounds": [
@@ -4277,7 +6115,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "bounds": [
@@ -4342,7 +6181,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "bounds": [
@@ -4402,7 +6242,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "lutLen": 1024,
@@ -4457,7 +6298,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "lutLen": 1024,
@@ -4512,7 +6354,8 @@
         "flipY": false,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "height": 31,
@@ -4586,7 +6429,8 @@
         "flipY": true,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "height": 31,
@@ -4660,7 +6504,8 @@
         "flipY": null,
         "lat": 0.0,
         "lon": 0.0,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": null
     },
@@ -4682,7 +6527,8 @@
         "flipY": null,
         "lat": 45.0,
         "lon": -100.0,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": null
     },
@@ -4704,7 +6550,8 @@
         "flipY": null,
         "lat": 89.5,
         "lon": 10.0,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": null
     },
@@ -4726,7 +6573,8 @@
         "flipY": null,
         "lat": -89.5,
         "lon": -170.0,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": null
     },
@@ -4748,7 +6596,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": []
+        "levels": [],
+        "combineOp": null
       },
       "expect": {
         "levelCount": 0,
@@ -4778,7 +6627,8 @@
           250.0,
           275.0,
           300.0
-        ]
+        ],
+        "combineOp": null
       },
       "expect": {
         "levelCount": 3,
@@ -4792,6 +6642,446 @@
           0,
           0
         ]
+      }
+    },
+    {
+      "id": "rotated/combine/a_minus_b",
+      "fixture": "fieldglass-grib2/tests/fixtures/rotated_latlon_surface.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "a_minus_b"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            25.658906273255294,
+            90.0,
+            0.0,
+            180.0
+          ],
+          "dx": null,
+          "dy": null,
+          "kind": "rotated_latlon",
+          "label": "rotated_latlon",
+          "ni": 16,
+          "nj": 31,
+          "periodicX": false,
+          "proj4": null,
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": null,
+          "y0": null
+        },
+        "len": 496,
+        "maskLen": 496,
+        "maskOnes": 496,
+        "ni": 16,
+        "nj": 31,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 124,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 248,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 372,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 495,
+            "m": 1,
+            "v": 0.0
+          }
+        ],
+        "stats": {
+          "max": 0.0,
+          "min": 0.0,
+          "validCount": 496
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "rotated/combine/b_minus_a",
+      "fixture": "fieldglass-grib2/tests/fixtures/rotated_latlon_surface.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "b_minus_a"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            25.658906273255294,
+            90.0,
+            0.0,
+            180.0
+          ],
+          "dx": null,
+          "dy": null,
+          "kind": "rotated_latlon",
+          "label": "rotated_latlon",
+          "ni": 16,
+          "nj": 31,
+          "periodicX": false,
+          "proj4": null,
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": null,
+          "y0": null
+        },
+        "len": 496,
+        "maskLen": 496,
+        "maskOnes": 496,
+        "ni": 16,
+        "nj": 31,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 124,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 248,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 372,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 495,
+            "m": 1,
+            "v": 0.0
+          }
+        ],
+        "stats": {
+          "max": 0.0,
+          "min": 0.0,
+          "validCount": 496
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "rotated/combine/a_plus_b",
+      "fixture": "fieldglass-grib2/tests/fixtures/rotated_latlon_surface.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "a_plus_b"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            25.658906273255294,
+            90.0,
+            0.0,
+            180.0
+          ],
+          "dx": null,
+          "dy": null,
+          "kind": "rotated_latlon",
+          "label": "rotated_latlon",
+          "ni": 16,
+          "nj": 31,
+          "periodicX": false,
+          "proj4": null,
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": null,
+          "y0": null
+        },
+        "len": 496,
+        "maskLen": 496,
+        "maskOnes": 496,
+        "ni": 16,
+        "nj": 31,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 546.2999877929688
+          },
+          {
+            "i": 124,
+            "m": 1,
+            "v": 546.2999877929688
+          },
+          {
+            "i": 248,
+            "m": 1,
+            "v": 546.2999877929688
+          },
+          {
+            "i": 372,
+            "m": 1,
+            "v": 546.2999877929688
+          },
+          {
+            "i": 495,
+            "m": 1,
+            "v": 546.2999877929688
+          }
+        ],
+        "stats": {
+          "max": 546.2999877929688,
+          "min": 546.2999877929688,
+          "validCount": 496
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "rotated/combine/mean",
+      "fixture": "fieldglass-grib2/tests/fixtures/rotated_latlon_surface.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "mean"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            25.658906273255294,
+            90.0,
+            0.0,
+            180.0
+          ],
+          "dx": null,
+          "dy": null,
+          "kind": "rotated_latlon",
+          "label": "rotated_latlon",
+          "ni": 16,
+          "nj": 31,
+          "periodicX": false,
+          "proj4": null,
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": null,
+          "y0": null
+        },
+        "len": 496,
+        "maskLen": 496,
+        "maskOnes": 496,
+        "ni": 16,
+        "nj": 31,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 273.1499938964844
+          },
+          {
+            "i": 124,
+            "m": 1,
+            "v": 273.1499938964844
+          },
+          {
+            "i": 248,
+            "m": 1,
+            "v": 273.1499938964844
+          },
+          {
+            "i": 372,
+            "m": 1,
+            "v": 273.1499938964844
+          },
+          {
+            "i": 495,
+            "m": 1,
+            "v": 273.1499938964844
+          }
+        ],
+        "stats": {
+          "max": 273.1499938964844,
+          "min": 273.1499938964844,
+          "validCount": 496
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "rotated/combine/ratio",
+      "fixture": "fieldglass-grib2/tests/fixtures/rotated_latlon_surface.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "ratio"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            25.658906273255294,
+            90.0,
+            0.0,
+            180.0
+          ],
+          "dx": null,
+          "dy": null,
+          "kind": "rotated_latlon",
+          "label": "rotated_latlon",
+          "ni": 16,
+          "nj": 31,
+          "periodicX": false,
+          "proj4": null,
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": null,
+          "y0": null
+        },
+        "len": 496,
+        "maskLen": 496,
+        "maskOnes": 496,
+        "ni": 16,
+        "nj": 31,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 124,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 248,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 372,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 495,
+            "m": 1,
+            "v": 1.0
+          }
+        ],
+        "stats": {
+          "max": 1.0,
+          "min": 1.0,
+          "validCount": 496
+        },
+        "units": "K"
       }
     },
     {
@@ -4812,7 +7102,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "count": 1,
@@ -4837,7 +7128,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "abbreviation": "TMP",
@@ -4890,7 +7182,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "dtype": "f32",
@@ -4972,7 +7265,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "dtype": "f32",
@@ -5054,7 +7348,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "dtype": "f64",
@@ -5136,7 +7431,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "error": {
@@ -5163,7 +7459,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "error": {
@@ -5195,7 +7492,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "bounds": [
@@ -5255,7 +7553,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "lutLen": 1024,
@@ -5310,7 +7609,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "lutLen": 1024,
@@ -5365,7 +7665,8 @@
         "flipY": false,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "height": 31,
@@ -5439,7 +7740,8 @@
         "flipY": true,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "height": 31,
@@ -5513,7 +7815,8 @@
         "flipY": null,
         "lat": 0.0,
         "lon": 0.0,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": null
     },
@@ -5535,7 +7838,8 @@
         "flipY": null,
         "lat": 45.0,
         "lon": -100.0,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": null
     },
@@ -5557,7 +7861,8 @@
         "flipY": null,
         "lat": 89.5,
         "lon": 10.0,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": null
     },
@@ -5579,7 +7884,8 @@
         "flipY": null,
         "lat": -89.5,
         "lon": -170.0,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": null
     },
@@ -5601,7 +7907,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": []
+        "levels": [],
+        "combineOp": null
       },
       "expect": {
         "levelCount": 0,
@@ -5631,7 +7938,8 @@
           250.0,
           275.0,
           300.0
-        ]
+        ],
+        "combineOp": null
       },
       "expect": {
         "levelCount": 3,
@@ -5645,6 +7953,421 @@
           0,
           0
         ]
+      }
+    },
+    {
+      "id": "degenerate/combine/a_minus_b",
+      "fixture": "fieldglass-grib2/tests/fixtures/polar_stereographic_surface.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "a_minus_b"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": null,
+          "dx": null,
+          "dy": null,
+          "kind": "polar_stereo",
+          "label": "polar_stereo",
+          "ni": 16,
+          "nj": 31,
+          "periodicX": false,
+          "proj4": "+proj=stere +lat_0=90 +lat_ts=60 +lon_0=0 +R=6371229 +units=m +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": null,
+          "y0": null
+        },
+        "len": 496,
+        "maskLen": 496,
+        "maskOnes": 496,
+        "ni": 16,
+        "nj": 31,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 124,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 248,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 372,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 495,
+            "m": 1,
+            "v": 0.0
+          }
+        ],
+        "stats": {
+          "max": 0.0,
+          "min": 0.0,
+          "validCount": 496
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "degenerate/combine/b_minus_a",
+      "fixture": "fieldglass-grib2/tests/fixtures/polar_stereographic_surface.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "b_minus_a"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": null,
+          "dx": null,
+          "dy": null,
+          "kind": "polar_stereo",
+          "label": "polar_stereo",
+          "ni": 16,
+          "nj": 31,
+          "periodicX": false,
+          "proj4": "+proj=stere +lat_0=90 +lat_ts=60 +lon_0=0 +R=6371229 +units=m +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": null,
+          "y0": null
+        },
+        "len": 496,
+        "maskLen": 496,
+        "maskOnes": 496,
+        "ni": 16,
+        "nj": 31,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 124,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 248,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 372,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 495,
+            "m": 1,
+            "v": 0.0
+          }
+        ],
+        "stats": {
+          "max": 0.0,
+          "min": 0.0,
+          "validCount": 496
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "degenerate/combine/a_plus_b",
+      "fixture": "fieldglass-grib2/tests/fixtures/polar_stereographic_surface.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "a_plus_b"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": null,
+          "dx": null,
+          "dy": null,
+          "kind": "polar_stereo",
+          "label": "polar_stereo",
+          "ni": 16,
+          "nj": 31,
+          "periodicX": false,
+          "proj4": "+proj=stere +lat_0=90 +lat_ts=60 +lon_0=0 +R=6371229 +units=m +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": null,
+          "y0": null
+        },
+        "len": 496,
+        "maskLen": 496,
+        "maskOnes": 496,
+        "ni": 16,
+        "nj": 31,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 546.2999877929688
+          },
+          {
+            "i": 124,
+            "m": 1,
+            "v": 546.2999877929688
+          },
+          {
+            "i": 248,
+            "m": 1,
+            "v": 546.2999877929688
+          },
+          {
+            "i": 372,
+            "m": 1,
+            "v": 546.2999877929688
+          },
+          {
+            "i": 495,
+            "m": 1,
+            "v": 546.2999877929688
+          }
+        ],
+        "stats": {
+          "max": 546.2999877929688,
+          "min": 546.2999877929688,
+          "validCount": 496
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "degenerate/combine/mean",
+      "fixture": "fieldglass-grib2/tests/fixtures/polar_stereographic_surface.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "mean"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": null,
+          "dx": null,
+          "dy": null,
+          "kind": "polar_stereo",
+          "label": "polar_stereo",
+          "ni": 16,
+          "nj": 31,
+          "periodicX": false,
+          "proj4": "+proj=stere +lat_0=90 +lat_ts=60 +lon_0=0 +R=6371229 +units=m +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": null,
+          "y0": null
+        },
+        "len": 496,
+        "maskLen": 496,
+        "maskOnes": 496,
+        "ni": 16,
+        "nj": 31,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 273.1499938964844
+          },
+          {
+            "i": 124,
+            "m": 1,
+            "v": 273.1499938964844
+          },
+          {
+            "i": 248,
+            "m": 1,
+            "v": 273.1499938964844
+          },
+          {
+            "i": 372,
+            "m": 1,
+            "v": 273.1499938964844
+          },
+          {
+            "i": 495,
+            "m": 1,
+            "v": 273.1499938964844
+          }
+        ],
+        "stats": {
+          "max": 273.1499938964844,
+          "min": 273.1499938964844,
+          "validCount": 496
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "degenerate/combine/ratio",
+      "fixture": "fieldglass-grib2/tests/fixtures/polar_stereographic_surface.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "ratio"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": null,
+          "dx": null,
+          "dy": null,
+          "kind": "polar_stereo",
+          "label": "polar_stereo",
+          "ni": 16,
+          "nj": 31,
+          "periodicX": false,
+          "proj4": "+proj=stere +lat_0=90 +lat_ts=60 +lon_0=0 +R=6371229 +units=m +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": null,
+          "y0": null
+        },
+        "len": 496,
+        "maskLen": 496,
+        "maskOnes": 496,
+        "ni": 16,
+        "nj": 31,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 124,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 248,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 372,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 495,
+            "m": 1,
+            "v": 1.0
+          }
+        ],
+        "stats": {
+          "max": 1.0,
+          "min": 1.0,
+          "validCount": 496
+        },
+        "units": "K"
       }
     },
     {
@@ -5665,7 +8388,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "count": 1,
@@ -5690,7 +8414,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "abbreviation": "2t",
@@ -5748,7 +8473,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "dtype": "f32",
@@ -5835,7 +8561,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "dtype": "f32",
@@ -5922,7 +8649,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "dtype": "f64",
@@ -6009,7 +8737,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "bounds": [
@@ -6069,7 +8798,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "bounds": [
@@ -6134,7 +8864,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "bounds": [
@@ -6194,7 +8925,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "lutLen": 1024,
@@ -6249,7 +8981,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "lutLen": 1024,
@@ -6304,7 +9037,8 @@
         "flipY": false,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "height": 5,
@@ -6378,7 +9112,8 @@
         "flipY": true,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "height": 5,
@@ -6452,7 +9187,8 @@
         "flipY": null,
         "lat": 0.0,
         "lon": 0.0,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": null
     },
@@ -6474,7 +9210,8 @@
         "flipY": null,
         "lat": 45.0,
         "lon": -100.0,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": null
     },
@@ -6496,7 +9233,8 @@
         "flipY": null,
         "lat": 89.5,
         "lon": 10.0,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": null
     },
@@ -6518,7 +9256,8 @@
         "flipY": null,
         "lat": -89.5,
         "lon": -170.0,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": null
     },
@@ -6540,7 +9279,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": []
+        "levels": [],
+        "combineOp": null
       },
       "expect": {
         "levelCount": 9,
@@ -6590,7 +9330,8 @@
           250.0,
           275.0,
           300.0
-        ]
+        ],
+        "combineOp": null
       },
       "expect": {
         "levelCount": 3,
@@ -6604,6 +9345,446 @@
           0,
           0
         ]
+      }
+    },
+    {
+      "id": "grib1_jcons/combine/a_minus_b",
+      "fixture": "fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "a_minus_b"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            40.0,
+            60.0,
+            0.0,
+            35.0
+          ],
+          "dx": 5.0,
+          "dy": -5.0,
+          "kind": "latlon",
+          "label": "latlon",
+          "ni": 8,
+          "nj": 5,
+          "periodicX": false,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": true,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 60.0
+        },
+        "len": 40,
+        "maskLen": 40,
+        "maskOnes": 40,
+        "ni": 8,
+        "nj": 5,
+        "parameter": "2 metre temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 10,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 20,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 30,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 39,
+            "m": 1,
+            "v": 0.0
+          }
+        ],
+        "stats": {
+          "max": 0.0,
+          "min": 0.0,
+          "validCount": 40
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "grib1_jcons/combine/b_minus_a",
+      "fixture": "fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "b_minus_a"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            40.0,
+            60.0,
+            0.0,
+            35.0
+          ],
+          "dx": 5.0,
+          "dy": -5.0,
+          "kind": "latlon",
+          "label": "latlon",
+          "ni": 8,
+          "nj": 5,
+          "periodicX": false,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": true,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 60.0
+        },
+        "len": 40,
+        "maskLen": 40,
+        "maskOnes": 40,
+        "ni": 8,
+        "nj": 5,
+        "parameter": "2 metre temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 10,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 20,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 30,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 39,
+            "m": 1,
+            "v": 0.0
+          }
+        ],
+        "stats": {
+          "max": 0.0,
+          "min": 0.0,
+          "validCount": 40
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "grib1_jcons/combine/a_plus_b",
+      "fixture": "fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "a_plus_b"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            40.0,
+            60.0,
+            0.0,
+            35.0
+          ],
+          "dx": 5.0,
+          "dy": -5.0,
+          "kind": "latlon",
+          "label": "latlon",
+          "ni": 8,
+          "nj": 5,
+          "periodicX": false,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": true,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 60.0
+        },
+        "len": 40,
+        "maskLen": 40,
+        "maskOnes": 40,
+        "ni": 8,
+        "nj": 5,
+        "parameter": "2 metre temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 10,
+            "m": 1,
+            "v": 24.0
+          },
+          {
+            "i": 20,
+            "m": 1,
+            "v": 48.0
+          },
+          {
+            "i": 30,
+            "m": 1,
+            "v": 72.0
+          },
+          {
+            "i": 39,
+            "m": 1,
+            "v": 94.0
+          }
+        ],
+        "stats": {
+          "max": 94.0,
+          "min": 0.0,
+          "validCount": 40
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "grib1_jcons/combine/mean",
+      "fixture": "fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "mean"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            40.0,
+            60.0,
+            0.0,
+            35.0
+          ],
+          "dx": 5.0,
+          "dy": -5.0,
+          "kind": "latlon",
+          "label": "latlon",
+          "ni": 8,
+          "nj": 5,
+          "periodicX": false,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": true,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 60.0
+        },
+        "len": 40,
+        "maskLen": 40,
+        "maskOnes": 40,
+        "ni": 8,
+        "nj": 5,
+        "parameter": "2 metre temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 10,
+            "m": 1,
+            "v": 12.0
+          },
+          {
+            "i": 20,
+            "m": 1,
+            "v": 24.0
+          },
+          {
+            "i": 30,
+            "m": 1,
+            "v": 36.0
+          },
+          {
+            "i": 39,
+            "m": 1,
+            "v": 47.0
+          }
+        ],
+        "stats": {
+          "max": 47.0,
+          "min": 0.0,
+          "validCount": 40
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "grib1_jcons/combine/ratio",
+      "fixture": "fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "ratio"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            40.0,
+            60.0,
+            0.0,
+            35.0
+          ],
+          "dx": 5.0,
+          "dy": -5.0,
+          "kind": "latlon",
+          "label": "latlon",
+          "ni": 8,
+          "nj": 5,
+          "periodicX": false,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": true,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 60.0
+        },
+        "len": 40,
+        "maskLen": 40,
+        "maskOnes": 39,
+        "ni": 8,
+        "nj": 5,
+        "parameter": "2 metre temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 10,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 20,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 30,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 39,
+            "m": 1,
+            "v": 1.0
+          }
+        ],
+        "stats": {
+          "max": 1.0,
+          "min": 1.0,
+          "validCount": 39
+        },
+        "units": "K"
       }
     },
     {
@@ -6624,7 +9805,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "count": 1,
@@ -6649,7 +9831,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "abbreviation": "WIND",
@@ -6707,7 +9890,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "dtype": "f64",
@@ -6794,7 +9978,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "dtype": "f32",
@@ -6881,7 +10066,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "dtype": "f64",
@@ -6968,7 +10154,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "bounds": [
@@ -7028,7 +10215,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "bounds": [
@@ -7093,7 +10281,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "bounds": [
@@ -7153,7 +10342,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "lutLen": 1024,
@@ -7208,7 +10398,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "lutLen": 1024,
@@ -7263,7 +10454,8 @@
         "flipY": false,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "height": 95,
@@ -7337,7 +10529,8 @@
         "flipY": true,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "height": 95,
@@ -7411,7 +10604,8 @@
         "flipY": null,
         "lat": 0.0,
         "lon": 0.0,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": null
     },
@@ -7433,7 +10627,8 @@
         "flipY": null,
         "lat": 45.0,
         "lon": -100.0,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "i": 65.22455255090016,
@@ -7461,7 +10656,8 @@
         "flipY": null,
         "lat": 89.5,
         "lon": 10.0,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": null
     },
@@ -7483,7 +10679,8 @@
         "flipY": null,
         "lat": -89.5,
         "lon": -170.0,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": null
     },
@@ -7505,7 +10702,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": []
+        "levels": [],
+        "combineOp": null
       },
       "expect": {
         "levelCount": 7,
@@ -7551,7 +10749,8 @@
           250.0,
           275.0,
           300.0
-        ]
+        ],
+        "combineOp": null
       },
       "expect": {
         "levelCount": 3,
@@ -7565,6 +10764,446 @@
           0,
           0
         ]
+      }
+    },
+    {
+      "id": "grib1_polar/combine/a_minus_b",
+      "fixture": "fieldglass-grib1/tests/fixtures/cmc_wind_300_2010052400_p012.grib",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "a_minus_b"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "metres",
+          "boundsLonlat": [
+            19.925909679472877,
+            80.62451028740276,
+            -182.8633101600059,
+            -31.886937598141174
+          ],
+          "dx": 60000.0,
+          "dy": 60000.0,
+          "kind": "polar_stereo",
+          "label": "polar_stereo",
+          "ni": 135,
+          "nj": 95,
+          "periodicX": false,
+          "proj4": "+proj=stere +lat_0=90 +lat_ts=60 +lon_0=249 +R=6367470 +units=m +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": true
+          },
+          "x0": -2974382.2815761063,
+          "y0": -6614286.574716486
+        },
+        "len": 12825,
+        "maskLen": 12825,
+        "maskOnes": 12825,
+        "ni": 135,
+        "nj": 95,
+        "parameter": "Wind speed",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 3206,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 6412,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 9618,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 12824,
+            "m": 1,
+            "v": 0.0
+          }
+        ],
+        "stats": {
+          "max": 0.0,
+          "min": 0.0,
+          "validCount": 12825
+        },
+        "units": "m s⁻¹"
+      }
+    },
+    {
+      "id": "grib1_polar/combine/b_minus_a",
+      "fixture": "fieldglass-grib1/tests/fixtures/cmc_wind_300_2010052400_p012.grib",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "b_minus_a"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "metres",
+          "boundsLonlat": [
+            19.925909679472877,
+            80.62451028740276,
+            -182.8633101600059,
+            -31.886937598141174
+          ],
+          "dx": 60000.0,
+          "dy": 60000.0,
+          "kind": "polar_stereo",
+          "label": "polar_stereo",
+          "ni": 135,
+          "nj": 95,
+          "periodicX": false,
+          "proj4": "+proj=stere +lat_0=90 +lat_ts=60 +lon_0=249 +R=6367470 +units=m +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": true
+          },
+          "x0": -2974382.2815761063,
+          "y0": -6614286.574716486
+        },
+        "len": 12825,
+        "maskLen": 12825,
+        "maskOnes": 12825,
+        "ni": 135,
+        "nj": 95,
+        "parameter": "Wind speed",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 3206,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 6412,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 9618,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 12824,
+            "m": 1,
+            "v": 0.0
+          }
+        ],
+        "stats": {
+          "max": 0.0,
+          "min": 0.0,
+          "validCount": 12825
+        },
+        "units": "m s⁻¹"
+      }
+    },
+    {
+      "id": "grib1_polar/combine/a_plus_b",
+      "fixture": "fieldglass-grib1/tests/fixtures/cmc_wind_300_2010052400_p012.grib",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "a_plus_b"
+      },
+      "expect": {
+        "dtype": "f64",
+        "georef": {
+          "axisUnits": "metres",
+          "boundsLonlat": [
+            19.925909679472877,
+            80.62451028740276,
+            -182.8633101600059,
+            -31.886937598141174
+          ],
+          "dx": 60000.0,
+          "dy": 60000.0,
+          "kind": "polar_stereo",
+          "label": "polar_stereo",
+          "ni": 135,
+          "nj": 95,
+          "periodicX": false,
+          "proj4": "+proj=stere +lat_0=90 +lat_ts=60 +lon_0=249 +R=6367470 +units=m +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": true
+          },
+          "x0": -2974382.2815761063,
+          "y0": -6614286.574716486
+        },
+        "len": 12825,
+        "maskLen": 12825,
+        "maskOnes": 12825,
+        "ni": 135,
+        "nj": 95,
+        "parameter": "Wind speed",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 10.919215321540833
+          },
+          {
+            "i": 3206,
+            "m": 1,
+            "v": 17.419215321540833
+          },
+          {
+            "i": 6412,
+            "m": 1,
+            "v": 129.91921532154083
+          },
+          {
+            "i": 9618,
+            "m": 1,
+            "v": 51.91921532154083
+          },
+          {
+            "i": 12824,
+            "m": 1,
+            "v": 23.419215321540833
+          }
+        ],
+        "stats": {
+          "max": 150.41921532154083,
+          "min": 0.4192153215408325,
+          "validCount": 12825
+        },
+        "units": "m s⁻¹"
+      }
+    },
+    {
+      "id": "grib1_polar/combine/mean",
+      "fixture": "fieldglass-grib1/tests/fixtures/cmc_wind_300_2010052400_p012.grib",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "mean"
+      },
+      "expect": {
+        "dtype": "f64",
+        "georef": {
+          "axisUnits": "metres",
+          "boundsLonlat": [
+            19.925909679472877,
+            80.62451028740276,
+            -182.8633101600059,
+            -31.886937598141174
+          ],
+          "dx": 60000.0,
+          "dy": 60000.0,
+          "kind": "polar_stereo",
+          "label": "polar_stereo",
+          "ni": 135,
+          "nj": 95,
+          "periodicX": false,
+          "proj4": "+proj=stere +lat_0=90 +lat_ts=60 +lon_0=249 +R=6367470 +units=m +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": true
+          },
+          "x0": -2974382.2815761063,
+          "y0": -6614286.574716486
+        },
+        "len": 12825,
+        "maskLen": 12825,
+        "maskOnes": 12825,
+        "ni": 135,
+        "nj": 95,
+        "parameter": "Wind speed",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 5.459607660770416
+          },
+          {
+            "i": 3206,
+            "m": 1,
+            "v": 8.709607660770416
+          },
+          {
+            "i": 6412,
+            "m": 1,
+            "v": 64.95960766077042
+          },
+          {
+            "i": 9618,
+            "m": 1,
+            "v": 25.959607660770416
+          },
+          {
+            "i": 12824,
+            "m": 1,
+            "v": 11.709607660770416
+          }
+        ],
+        "stats": {
+          "max": 75.20960766077042,
+          "min": 0.20960766077041626,
+          "validCount": 12825
+        },
+        "units": "m s⁻¹"
+      }
+    },
+    {
+      "id": "grib1_polar/combine/ratio",
+      "fixture": "fieldglass-grib1/tests/fixtures/cmc_wind_300_2010052400_p012.grib",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "ratio"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "metres",
+          "boundsLonlat": [
+            19.925909679472877,
+            80.62451028740276,
+            -182.8633101600059,
+            -31.886937598141174
+          ],
+          "dx": 60000.0,
+          "dy": 60000.0,
+          "kind": "polar_stereo",
+          "label": "polar_stereo",
+          "ni": 135,
+          "nj": 95,
+          "periodicX": false,
+          "proj4": "+proj=stere +lat_0=90 +lat_ts=60 +lon_0=249 +R=6367470 +units=m +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": true
+          },
+          "x0": -2974382.2815761063,
+          "y0": -6614286.574716486
+        },
+        "len": 12825,
+        "maskLen": 12825,
+        "maskOnes": 12825,
+        "ni": 135,
+        "nj": 95,
+        "parameter": "Wind speed",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 3206,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 6412,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 9618,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 12824,
+            "m": 1,
+            "v": 1.0
+          }
+        ],
+        "stats": {
+          "max": 1.0,
+          "min": 1.0,
+          "validCount": 12825
+        },
+        "units": "m s⁻¹"
       }
     },
     {
@@ -7585,7 +11224,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "error": {
@@ -7612,7 +11252,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "error": {
@@ -7639,7 +11280,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "error": {
@@ -7666,7 +11308,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "error": {
@@ -7693,7 +11336,8 @@
         "flipY": null,
         "lat": null,
         "lon": null,
-        "levels": null
+        "levels": null,
+        "combineOp": null
       },
       "expect": {
         "error": {

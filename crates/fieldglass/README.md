@@ -16,6 +16,10 @@ let info = session.message(0)?;          // lazy: one message, not all of them
 let field = session.decode(0, &Default::default())?;
 let palette = session.palette(&field, &Default::default())?;
 let rgba = session.render(&field, &Default::default(), false)?;
+
+// Two fields at once — the difference map and its siblings.
+let other = session.decode(1, &Default::default())?;
+let anomaly = session.combine(&field, &other, fieldglass::CombineOp::Difference)?;
 ```
 
 ## What a `Field` is
@@ -70,6 +74,18 @@ order rather than replacing it, so `false` means **north up** and not "rows as
 stored". `Georef::scan` still carries the flag, because a host drawing
 something other than a raster needs it; a host painting one passes the user's
 request straight through.
+
+## Combining two fields
+
+`Session::combine(a, b, op)` is the difference map and its siblings, and the one
+operation here that takes two fields. Its precondition is that they align cell
+for cell, which is `PartialEq` on the grid geometry plus the raster shape and
+the scan order; a mismatch is `Error::Unsupported` naming which of the three
+differs. The result is a `Field` on **A's** placement, so `warp`, `palette`,
+`render`, `probe` and `contours` take it like any other, and it carries A's
+`parameter` and `units` verbatim — the caption `A − B` is the host's to compose.
+`combine_ops()` is the vocabulary a Compare picker is built from, and
+`op_from_wire` parses a tag back.
 
 ## The conformance suite
 

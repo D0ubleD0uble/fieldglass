@@ -5,22 +5,38 @@
 //! geometry, a *computed* field rides that pipeline untouched — projection,
 //! overlays, palette, and manual bounds all apply to the combined field with no
 //! special casing. This module is only the arithmetic; the requirement that both
-//! inputs sit on identical grids is enforced by the caller (the napi layer),
-//! which compares the two fields' grid definitions before combining.
+//! inputs sit on identical grids is enforced by the caller. That caller is
+//! `fieldglass::combine`, which compares the two fields' [`crate::GridGeometry`]
+//! rather than a flat key of its own, so both hosts refuse the same pairs for
+//! the same reason (#579).
 
 /// How two aligned fields combine, element by element. `A` is the primary
 /// (foreground) field, `B` the secondary.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// The serde representation is the wire tag [`CombineOp::as_str`] reports and
+/// [`CombineOp::from_wire`] parses, spelled out per variant rather than left to
+/// a `rename_all`: `snake_case` would turn `Difference` into `"difference"` and
+/// the two spellings would drift apart the first time a host read one and wrote
+/// the other. `the_serde_tag_is_the_wire_tag` holds them in step.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, PartialOrd, Ord, Hash,
+)]
+#[non_exhaustive]
 pub enum CombineOp {
     /// `A − B` — the difference / anomaly map.
+    #[serde(rename = "a_minus_b")]
     Difference,
     /// `B − A`.
+    #[serde(rename = "b_minus_a")]
     ReverseDifference,
     /// `A + B`.
+    #[serde(rename = "a_plus_b")]
     Sum,
     /// `(A + B) / 2`.
+    #[serde(rename = "mean")]
     Mean,
     /// `A / B`.
+    #[serde(rename = "ratio")]
     Ratio,
 }
 
@@ -49,10 +65,11 @@ impl CombineOp {
         })
     }
 
-    /// Every operation, in menu order. This is the single source the napi layer
-    /// surfaces (see `combine_ops`) so the UI picker, its validation set, and
-    /// the tests all derive their op vocabulary from here rather than repeating
-    /// it — a new op added to the enum flows out automatically.
+    /// Every operation, in menu order. This is the single source both hosts
+    /// surface (through `fieldglass::combine_ops`) so each UI picker, its
+    /// validation set, and the tests all derive their op vocabulary from here
+    /// rather than repeating it — a new op added to the enum flows out
+    /// automatically.
     pub const ALL: [CombineOp; 5] = [
         CombineOp::Difference,
         CombineOp::ReverseDifference,
@@ -98,14 +115,29 @@ impl CombineOp {
 /// shorter, its absent tail reads as missing rather than panicking.
 pub fn combine_fields(a: &[Option<f64>], b: &[Option<f64>], op: CombineOp) -> Vec<Option<f64>> {
     (0..a.len())
-        .map(|i| match (a[i], b.get(i).copied().flatten()) {
-            (Some(x), Some(y)) => {
-                let v = op.apply(x, y);
-                v.is_finite().then_some(v)
-            }
-            _ => None,
-        })
+        .map(|i| combine_cell(a[i], b.get(i).copied().flatten(), op))
         .collect()
+}
+
+/// One cell of [`combine_fields`], for a caller that has the two fields in some
+/// other shape.
+///
+/// `fieldglass::Session::combine` holds each field as a contiguous `Vec<f64>`
+/// plus a `u8` mask (ADR-0006 decision 2) and walks them cell by cell rather
+/// than building two `Vec<Option<f64>>` first: that shape is 16 bytes a cell, so
+/// a 3.7-million-point NBM field would cost 120 MB of linear memory on top of
+/// the two fields it already holds. Exported so that walk applies **this** rule
+/// — present in both, and finite — rather than a second copy of it that could
+/// drift.
+#[must_use]
+pub fn combine_cell(a: Option<f64>, b: Option<f64>, op: CombineOp) -> Option<f64> {
+    match (a, b) {
+        (Some(x), Some(y)) => {
+            let v = op.apply(x, y);
+            v.is_finite().then_some(v)
+        }
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -208,11 +240,29 @@ mod tests {
         assert_eq!(CombineOp::from_wire(""), None);
     }
 
+    /// The serde tag and [`CombineOp::as_str`] are the same string by contract.
+    ///
+    /// Two spellings of one vocabulary is how a host that reads the JSON form
+    /// and one that calls the method come to disagree — `fieldglass`'s
+    /// conformance `Args` deserialises an op while the extension's picker sends
+    /// `as_str`, so the two really are both in use.
+    #[test]
+    fn the_serde_tag_is_the_wire_tag() {
+        for op in CombineOp::ALL {
+            let json = serde_json::to_string(&op).expect("serialises");
+            assert_eq!(json, format!("\"{}\"", op.as_str()), "{op:?}");
+            let back: CombineOp = serde_json::from_str(&json).expect("round trips");
+            assert_eq!(back, op);
+        }
+        // And a tag `from_wire` rejects is one serde rejects too.
+        assert!(serde_json::from_str::<CombineOp>("\"product\"").is_err());
+    }
+
     #[test]
     fn all_ops_have_distinct_non_empty_tags_and_labels() {
-        // `ALL` is the single source the napi/UI layer derives its op list from
-        // (see `combine_ops`), so every entry must carry a usable, unique wire
-        // tag and menu label.
+        // `ALL` is the single source both hosts derive their op list from (see
+        // `fieldglass::combine_ops`), so every entry must carry a usable,
+        // unique wire tag and menu label.
         let mut tags = std::collections::HashSet::new();
         let mut labels = std::collections::HashSet::new();
         for op in CombineOp::ALL {

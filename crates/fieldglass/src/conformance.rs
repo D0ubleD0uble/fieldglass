@@ -126,6 +126,8 @@ pub enum Op {
     Probe,
     /// [`Session::contours`].
     Contours,
+    /// [`Session::combine`].
+    Combine,
 }
 
 /// Everything a runner needs to reproduce one call.
@@ -169,6 +171,16 @@ pub struct Args {
     pub lon: Option<f64>,
     /// Explicit contour levels; empty asks for the automatic set.
     pub levels: Option<Vec<f64>>,
+    /// Which combination [`Session::combine`] runs. Typed for the reason
+    /// [`Args::dtype`] is.
+    ///
+    /// There is no second index beside it. `combine` takes two fields and every
+    /// case here hands it [`Args::index`] twice, because every GRIB fixture in
+    /// the committed corpus holds exactly one message — so an `index_b` would
+    /// be `0` in all 40 cases, a knob no case moves and therefore no case
+    /// checks. It comes back the day a fixture has a second message to point
+    /// it at.
+    pub combine_op: Option<crate::combine::CombineOp>,
 }
 
 /// One case: an operation on a fixture, and what it produced.
@@ -425,6 +437,33 @@ pub fn cases() -> Vec<Case> {
                 ..Args::default()
             },
         );
+
+        // Every combination, of the field with **itself**.
+        //
+        // Not a degenerate case: `a_minus_b` is zero everywhere present,
+        // `a_plus_b` is `2A`, `mean` is `A` again, `ratio` is `1` except where
+        // `A` is zero and the divide drops the cell, and `b_minus_a` is the sign
+        // mirror of the first — five distinct recordings, so a host that ignored
+        // `op` could match at most one of them. The dtype the result narrows to
+        // differs per op as well, which is what pins the `Dtype::Auto` rule on
+        // a *computed* field rather than only on a decoded one.
+        //
+        // A pair would be better, and there is no pair to be had: every GRIB
+        // fixture in the committed corpus holds exactly one message, so a
+        // second index would be out of range. The **refusal** therefore has no
+        // case here — it is unit-tested in `combine.rs` (one case per property
+        // the gate compares) and in `fieldglass-napi`.
+        for op in fieldglass_core::CombineOp::ALL {
+            push(
+                &format!("combine/{}", op.as_str()),
+                Op::Combine,
+                Args {
+                    dtype: Some(Dtype::Auto),
+                    combine_op: Some(op),
+                    ..Args::default()
+                },
+            );
+        }
     }
 
     // ---- The error cases, one per `Error` code -----------------------------
@@ -790,6 +829,20 @@ fn run(bytes: &[u8], case: &Case) -> Result<Value, Error> {
                 case.args.lon.unwrap_or(0.0),
             );
             value_of(&probe)
+        }
+        Op::Combine => {
+            // The same message decoded twice, which is two `Field` values
+            // however equal their contents — see `Args::combine_op` for why
+            // there is no second index.
+            let a = field(case.args.index)?;
+            let b = field(case.args.index)?;
+            // Missing rather than defaulted: `a_minus_b` is a plausible
+            // default and a case that lost its op would then record a real
+            // observation for the wrong operation.
+            let op = case.args.combine_op.ok_or_else(|| Error::InvalidOption {
+                detail: "a combine case states its op".to_string(),
+            })?;
+            field_value(&session.combine(&a, &b, op)?)
         }
         Op::Contours => {
             let field = field(case.args.index)?;

@@ -121,6 +121,33 @@ function decodeOptions(args) {
   return { dtype: args.dtype ?? 'auto' };
 }
 
+/** What a decoded field contributes to an observation —
+ *  `fieldglass::conformance::field_value`. Shared by `decode` and `combine`,
+ *  which record the same shape because `combine` answers a `Field` too. */
+function fieldObservation(field) {
+  const values = field.values();
+  const mask = field.mask();
+  return {
+    dtype: field.dtype(),
+    len: values.length,
+    maskLen: mask.length,
+    maskOnes: mask.reduce((n, m) => n + (m === 1 ? 1 : 0), 0),
+    ni: field.ni(),
+    nj: field.nj(),
+    parameter: field.parameter(),
+    units: field.units(),
+    stats: nulled(field.stats()),
+    georef: georef(field.grid()),
+    samples: sampleIndices(values.length).map((i) => ({
+      i,
+      // Read the mask first, as the DTO's own doc says: the buffer holds
+      // *something* at a masked slot and it is not data.
+      v: mask[i] === 1 ? real(values[i]) : null,
+      m: mask[i],
+    })),
+  };
+}
+
 /** What the browser host answers for one case. Failures become the same
  *  `{ error: { code, hasMessage } }` shape the Rust runner records — and the
  *  code is really there, because `throw()` sets it on the JS `Error`. */
@@ -172,28 +199,24 @@ function withHandle(caseSpec, handle) {
   const field = handle.decode(args.index, decodeOptions(args));
   try {
     switch (op) {
-      case 'decode': {
-        const values = field.values();
-        const mask = field.mask();
-        return {
-          dtype: field.dtype(),
-          len: values.length,
-          maskLen: mask.length,
-          maskOnes: mask.reduce((n, m) => n + (m === 1 ? 1 : 0), 0),
-          ni: field.ni(),
-          nj: field.nj(),
-          parameter: field.parameter(),
-          units: field.units(),
-          stats: nulled(field.stats()),
-          georef: georef(field.grid()),
-          samples: sampleIndices(values.length).map((i) => ({
-            i,
-            // Read the mask first, as the DTO's own doc says: the buffer holds
-            // *something* at a masked slot and it is not data.
-            v: mask[i] === 1 ? real(values[i]) : null,
-            m: mask[i],
-          })),
-        };
+      case 'decode':
+        return fieldObservation(field);
+      case 'combine': {
+        // Field B is a second decode of the same message: `combine` takes two
+        // fields, and every GRIB fixture in the corpus holds one message, so
+        // the suite has no second index to point at. Freed here rather than in
+        // the `finally` below, which owns field A.
+        const b = handle.decode(args.index, decodeOptions(args));
+        try {
+          const out = handle.combine(field, b, args.combineOp);
+          try {
+            return fieldObservation(out);
+          } finally {
+            out.free();
+          }
+        } finally {
+          b.free();
+        }
       }
       case 'warp': {
         const out = handle.warp(field, {

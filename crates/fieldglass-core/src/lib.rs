@@ -65,7 +65,7 @@ pub mod warp;
 
 pub use bytes::{ByteRange, ByteSource};
 #[cfg(feature = "analysis")]
-pub use combine::{CombineOp, combine_fields};
+pub use combine::{CombineOp, combine_cell, combine_fields};
 #[cfg(feature = "analysis")]
 pub use contour::{
     ContourLevel, GridSegment, contour_segments, contour_segments_global, nice_levels,
