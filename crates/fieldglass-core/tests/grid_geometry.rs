@@ -513,6 +513,13 @@ fn a_spheroid_that_is_not_one_is_declined_rather_than_projected() {
         }),
     ];
     for geom in broken {
+        // The predicate the other three have to agree with: a point inside the
+        // grid's nominal domain that the projection cannot place.
+        assert!(
+            geom.inverse(52.0, 0.0).is_none(),
+            "{}: inverse",
+            geom.kind()
+        );
         assert!(geom.forward(0, 0).is_none(), "{}: forward", geom.kind());
         assert!(geom.lonlat_bbox().is_none(), "{}: bbox", geom.kind());
         assert!(geom.plane_affine().is_none(), "{}: affine", geom.kind());
@@ -596,4 +603,136 @@ fn a_family_with_no_plane_reports_no_affine() {
         .plane_affine(),
         None,
     );
+}
+
+/// The other way a message declares a projection that resolves nowhere.
+///
+/// A degenerate spheroid (above) is not the only one, and the two that are not
+/// spheroids are the ones the enum used to answer for. §3.12's scale factor is
+/// read straight out of the template as an IEEE `f32` with no guard, and it
+/// multiplies the rectifying radius, so a zero collapses the whole plane onto
+/// the false origin; §3.30's declared Earth radius scales the Lambert cone, and
+/// a zero puts every point of the grid at the south pole — finite arithmetic,
+/// and a coordinate to anything reading it.
+///
+/// `inverse` declined all of these already. What is asserted here is that the
+/// other three answers agree with it, because they did not: a caller gating on
+/// `lonlat_bbox` got the empty box at null island and warped onto it.
+#[test]
+fn a_projection_that_resolves_nowhere_is_declined_by_every_answer() {
+    // Each case pairs the grid with a point inside its nominal domain, so the
+    // `inverse` assertion is about the projection rather than about the point
+    // being off the grid.
+    let broken = [
+        (
+            "a §3.12 scale factor of zero",
+            GridGeometry::TransverseMercator(TransverseMercatorParams {
+                scale_factor: 0.0,
+                ..ukv_transverse_mercator()
+            }),
+            (54.0, -2.0),
+        ),
+        (
+            "a §3.12 scale factor that is not a number",
+            GridGeometry::TransverseMercator(TransverseMercatorParams {
+                scale_factor: f64::NAN,
+                ..ukv_transverse_mercator()
+            }),
+            (54.0, -2.0),
+        ),
+        (
+            "a Lambert cone on a declared radius of zero",
+            GridGeometry::Lambert(LambertParams {
+                earth_radius_m: 0.0,
+                ..eta_lambert()
+            }),
+            (40.0, -100.0),
+        ),
+        (
+            "a Lambert cone with both parallels on the equator",
+            GridGeometry::Lambert(LambertParams {
+                latin1: 0.0,
+                latin2: 0.0,
+                ..eta_lambert()
+            }),
+            (40.0, -100.0),
+        ),
+    ];
+    for (what, geom, (lat, lon)) in broken {
+        assert!(geom.inverse(lat, lon).is_none(), "{what}: inverse");
+        assert!(geom.forward(0, 0).is_none(), "{what}: forward");
+        assert!(geom.lonlat_bbox().is_none(), "{what}: bbox");
+        assert!(geom.plane_affine().is_none(), "{what}: affine");
+        // Unchanged, and for the same reason as the spheroid case above: the
+        // raster shape and the plane are facts about the message, and it is
+        // this grid that cannot be put in that plane.
+        assert!(geom.dims().is_some(), "{what}: dims");
+        assert!(geom.proj4().is_some(), "{what}: proj4");
+    }
+}
+
+/// A well-defined projection still has places it cannot reach.
+///
+/// Lambert azimuthal equal-area maps the globe onto a disc whose outside is
+/// nowhere at all, and an oversized §3.140 — the EFAS domain at 900 km spacing
+/// rather than 200 km — puts most of its grid off it. `grid_point_lonlat`
+/// answers `(NaN, NaN)` there, which reaches a host as JSON `null` and poisons
+/// an exporter's coordinates. The geostationary arm has always called that
+/// space; so does this one now.
+#[test]
+fn a_grid_point_off_the_projection_disc_is_space_not_a_nan() {
+    let geom = GridGeometry::LambertAzimuthal(LambertAzimuthalParams {
+        ni: 40,
+        nj: 40,
+        dx_metres: 900_000.0,
+        dy_metres: 900_000.0,
+        ..efas_lambert_azimuthal()
+    });
+    // The origin corner is a real place — the grid is part-way off the disc,
+    // not wholly off it, so the family is not declined as a whole.
+    let (lat, lon) = geom.forward(0, 0).expect("the origin corner is on Earth");
+    assert!((lat - 35.0).abs() < 1e-6 && (lon - -10.0).abs() < 1e-6);
+    assert_eq!(geom.forward(39, 39), None, "the far corner is off the disc");
+    // And the box is still drawn around the part that exists.
+    assert!(geom.lonlat_bbox().is_some());
+}
+
+/// The space-view bbox fallback answers for the case it documents, and only it.
+///
+/// `GeostationaryProjector::lonlat_bbox` returns `None` for two different
+/// reasons. A full disc whose whole perimeter is limb has nothing on-disc to
+/// walk, and framing the hemisphere in view is right for it. A raster of one
+/// column — or one row, or a zero scan-angle step — is a grid with no extent at
+/// all, and `inverse` declines every point of it; framing a hemisphere there
+/// describes a grid the message does not contain.
+#[test]
+fn a_space_view_with_no_raster_to_walk_is_not_framed_as_a_hemisphere() {
+    let single_column = GridGeometry::Geostationary(GeostationaryParams {
+        ni: 1,
+        ..abi_mesoscale()
+    });
+    assert_eq!(single_column.lonlat_bbox(), None);
+    assert_eq!(
+        single_column.inverse(0.0, -75.0),
+        None,
+        "the inverse it has to agree with"
+    );
+
+    let zero_step = GridGeometry::Geostationary(GeostationaryParams {
+        dx_rad: 0.0,
+        ..abi_mesoscale()
+    });
+    assert_eq!(zero_step.lonlat_bbox(), None);
+
+    // The case the fallback is for, kept: a walkable raster whose perimeter is
+    // entirely off the disc (the apparent radius is ~0.151 rad, and this window
+    // is ±0.2) still frames the hemisphere in view.
+    let full_disc = GridGeometry::Geostationary(GeostationaryParams {
+        x0: -0.2,
+        dx_rad: 0.4 / 99.0,
+        y0: -0.2,
+        dy_rad: 0.4 / 99.0,
+        ..abi_mesoscale()
+    });
+    assert_eq!(full_disc.lonlat_bbox(), Some((-90.0, 90.0, -165.0, 15.0)));
 }
