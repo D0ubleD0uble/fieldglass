@@ -274,8 +274,20 @@ impl TransverseMercatorProjector {
     /// Whether the projection is usable. `false` leaves
     /// [`inverse`](Self::inverse) returning `None` for every point, so callers
     /// can surface "not reprojectable" rather than render blank.
+    ///
+    /// Both of §3.12's degeneracies are here. One is the spheroid, which the
+    /// Krüger constants check for themselves. The other is the
+    /// scale factor: it multiplies the rectifying radius, so zero collapses the
+    /// whole plane onto the false origin and a non-finite one makes every index
+    /// `NaN`. `k` is read straight out of the template as an IEEE `f32` with no
+    /// guard, so a malformed message lands on it. The two checks used to be
+    /// split between this method and [`PlanarGridProjector::accepts`], which let
+    /// a caller gating on this one geolocate a grid whose `inverse` declined
+    /// every point of it.
     pub fn is_well_defined(&self) -> bool {
         self.constants.well_defined()
+            && self.params.scale_factor.is_finite()
+            && self.params.scale_factor != 0.0
     }
 }
 
@@ -287,12 +299,10 @@ impl PlanarGridProjector for TransverseMercatorProjector {
         self.forward(lat, lon)
     }
     fn accepts(&self, _lat: f64, _lon: f64) -> bool {
-        // The scale factor multiplies the rectifying radius: zero collapses
-        // the whole plane onto the false origin, and a non-finite one makes
-        // every index `NaN`.
-        self.constants.well_defined()
-            && self.params.scale_factor.is_finite()
-            && self.params.scale_factor != 0.0
+        // One predicate, not two: `is_well_defined` is what every other caller
+        // gates on, and a second copy of the rule here is how the scale factor
+        // came to be checked in one place and not the other.
+        self.is_well_defined()
     }
     fn grid_dims(&self) -> (u32, u32) {
         (self.params.ni, self.params.nj)

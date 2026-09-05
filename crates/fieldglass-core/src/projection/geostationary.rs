@@ -138,6 +138,21 @@ impl GeostationaryProjector {
         geostationary_scan_angles(&self.params, &self.constants, lat, lon)
     }
 
+    /// Whether the raster the message declares can be walked at all: at least
+    /// two points and a non-zero scan-angle step on each axis.
+    ///
+    /// A one-point axis has no cell to interpolate across and a zero step would
+    /// divide the whole disc onto one index, so [`Self::inverse`] and
+    /// [`Self::lonlat_bbox`] both decline such a grid — the same rule
+    /// [`super::PlanarGridProjector::inverse`] applies to the planar families.
+    /// It is asked separately because `lonlat_bbox` answers `None` for two
+    /// different reasons, and only the *other* one (a full disc whose whole
+    /// perimeter is limb) is a grid worth framing a hemisphere for.
+    pub(crate) fn raster_is_walkable(&self) -> bool {
+        let p = &self.params;
+        p.ni >= 2 && p.nj >= 2 && p.dx_rad != 0.0 && p.dy_rad != 0.0
+    }
+
     /// Fractional grid index for a geographic point, or `None` when the point
     /// is off the visible disc or outside the grid's extent.
     pub fn inverse(&self, lat: f64, lon: f64) -> Option<GridIndex> {
@@ -145,7 +160,7 @@ impl GeostationaryProjector {
             return None;
         }
         let p = &self.params;
-        if p.ni < 2 || p.nj < 2 || p.dx_rad == 0.0 || p.dy_rad == 0.0 {
+        if !self.raster_is_walkable() {
             return None;
         }
         let (x, y) = self.scan_angles(lat, lon)?;
@@ -242,7 +257,7 @@ impl GeostationaryProjector {
         // fine enough to pin a bowed edge's extremum.
         const PER_EDGE: u32 = 512;
         let p = &self.params;
-        if p.ni < 2 || p.nj < 2 || p.dx_rad == 0.0 || p.dy_rad == 0.0 {
+        if !self.raster_is_walkable() {
             return None;
         }
         let x1 = p.x0 + (p.ni as f64 - 1.0) * p.dx_rad;
