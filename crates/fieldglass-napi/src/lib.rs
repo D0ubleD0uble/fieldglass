@@ -337,12 +337,11 @@ pub struct MessageMeta {
     /// families (Lambert, polar stereographic, transverse Mercator, Lambert
     /// azimuthal, space view) reproject, and a planar grid additionally needs a
     /// non-zero grid spacing (some sample files carry Dx = Dy = 0) *and* a
-    /// projection that places a point at all. The second half is the caller's
-    /// half: each format path offers the spacings to [`grid_is_reprojectable`]
-    /// only for a grid whose projection resolves, so a collapsed cone or an
-    /// Earth smaller than one cell stays source-only rather than advertising a
-    /// target the warp then refuses (#610). The webview hides the reprojection
-    /// options when this is `false`.
+    /// projection [`warp_setup_for`] will accept. The second half is asked by
+    /// [`gate_planar_reprojection`], which every builder routes its finished
+    /// meta through, so a collapsed cone or an Earth smaller than one cell stays
+    /// source-only rather than advertising a target the warp then refuses
+    /// (#610). The webview hides the reprojection options when this is `false`.
     pub reprojectable: bool,
     /// Whether the grid's rows scan south→north (GRIB `jScansPositively`).
     /// The source projection paints grid row 0 at the top of the canvas, so a
@@ -364,11 +363,76 @@ pub struct MessageMeta {
 /// scan sign is baked into Dx.)
 ///
 /// The spacing is only half the planar rule, and this half is all it can ask:
-/// the *other* half is whether the projection places a point at all, which
-/// needs the projector rather than two numbers. Callers answer that first and
-/// pass `None` for a grid that fails it — see the `*_reprojectable_inc`
-/// bindings on both GRIB paths and [`synthesised_planar_grid_is_placeable`] on
-/// the NetCDF one.
+/// the *other* half is whether the projection places a point at all, which needs
+/// the projector rather than two numbers. Every builder answers that half by
+/// passing its finished `MessageMeta` through [`gate_planar_reprojection`].
+/// The grid types whose reprojection needs projection constants — the families
+/// [`gate_planar_reprojection`] re-asks. The rest are pinned by their corner
+/// coordinates or carry their cell positions, so they have no constants to
+/// collapse and [`grid_is_reprojectable`]'s answer is the whole rule for them.
+const PLANAR_GRID_TYPES: [&str; 5] = [
+    "lambert",
+    "polar_stereo",
+    "transverse_mercator",
+    "lambert_azimuthal",
+    "space_view",
+];
+
+/// The second half of the planar reprojection rule, applied to a finished
+/// `MessageMeta`: does the warp actually accept this grid?
+///
+/// [`grid_is_reprojectable`] sees a grid type and two spacings, which is not
+/// enough. A message can state every number a planar family needs, all of them
+/// present and finite, and still describe a projection that places no point: a
+/// Lambert cone whose standard parallels are both on the equator, an Earth
+/// smaller than one cell of the grid drawn on it, a latitude of true scale past
+/// ±90°, a first corner at the pole the cone opens away from, a geostationary
+/// ellipsoid the satellite has no line of sight to. `reprojectable: true` there
+/// is the field promising a host a target the warp then refuses, which is the
+/// failure #610 named and fixed for the GRIB2 §3 paths alone.
+///
+/// Asked *through* [`warp_setup_for`] — the same call the render will make —
+/// rather than by re-deriving the answer from the projector, because
+/// re-deriving is how the two drift. They had already drifted: the offer that
+/// shipped with #610 read each projector's `is_well_defined`, which measures the
+/// family's own plane, while the `*_params` builders measure the *declared*
+/// radius. Those are the same number only for Lambert. A polar stereographic
+/// plane is `2·R·k₀` — 1.87 times the radius at a ±60° latitude of true scale —
+/// so a grid stating a cell between the two was offered and then refused, and a
+/// transverse Mercator scale factor above 1 opens the same gap. One predicate,
+/// and it is the one that decides the render.
+///
+/// Only the planar families are re-asked ([`PLANAR_GRID_TYPES`]). The others
+/// must not be: their rule includes conditions `warp_setup_for` never sees — a
+/// descending scan, a NetCDF slice's descending longitude axis — and a
+/// curvilinear grid's setup needs the spatial index this has no access to.
+///
+/// One host does not consult the answer yet. The VS Code NetCDF render panel
+/// synthesises its own stub meta in `provider.ts` rather than reading the
+/// per-slice one built here, so its picker is offered unconditionally and a
+/// collapsed WRF or CF grid reports the reason from the render call instead of
+/// having stayed source-only. That is noted where the stub is and is #574's to
+/// close; the field is still the answer this API gives, and a wrong one is what
+/// the panel would inherit the day it starts reading it.
+fn gate_planar_reprojection(mut meta: MessageMeta) -> MessageMeta {
+    if !meta.reprojectable
+        || !PLANAR_GRID_TYPES.contains(&meta.grid_type.as_deref().unwrap_or_default())
+    {
+        return meta;
+    }
+    let dims = meta
+        .grid_ni
+        .zip(meta.grid_nj)
+        .and_then(|(ni, nj)| Some((u32::try_from(ni).ok()?, u32::try_from(nj).ok()?)));
+    meta.reprojectable = match dims {
+        // A planar grid with no raster shape has nothing to reproject; the warp
+        // is never reached to say so.
+        None => false,
+        Some((ni, nj)) => warp_setup_for(&meta, ni, nj, None).is_ok(),
+    };
+    meta
+}
+
 fn grid_is_reprojectable(
     grid_type: Option<&str>,
     planar_dx: Option<f64>,
@@ -551,30 +615,13 @@ fn build_grib1_message_meta(
     let i_scan_negative = scan.is_some_and(|sm| sm.i_negative);
     // South→north row scan, so the source render can orient the raster (#286).
     let j_scans_positive = scan.map(|sm| sm.j_positive);
-    // Whether to *offer* a reprojection is a different question from what the
-    // warp reads, and the GRIB2 sibling already separates the two (see its
-    // `lambert_reprojectable_inc`). A GRIB1 planar grid states no second corner,
-    // so `GridDescription::bounds` returning `None` is precisely the projection
-    // that places no point — a Lambert cone the standard parallels collapse, or
-    // either family's cell declared wider than the plane. Those are the grids
-    // `lambert_warp_setup` / `polar_stereo_warp_setup` refuse, so offering them
-    // shows the panel a reprojection target that then throws (#610). The
-    // spacings still travel to `MessageMeta` either way: the warp reads them.
-    let planar_projection_places_a_corner = lat_last.is_some();
-    let lambert_reprojectable_inc = lambert_inc.filter(|_| planar_projection_places_a_corner);
-    let polar_stereo_reprojectable_inc =
-        polar_stereo_inc.filter(|_| planar_projection_places_a_corner);
     let reprojectable = grid_is_reprojectable(
         grid_type.as_deref(),
-        polar_stereo_reprojectable_inc
-            .map(|(dx, _)| dx)
-            .or(lambert_reprojectable_inc.map(|(dx, _)| dx)),
-        polar_stereo_reprojectable_inc
-            .map(|(_, dy)| dy)
-            .or(lambert_reprojectable_inc.map(|(_, dy)| dy)),
+        polar_stereo_dx_metres.or(lambert_dx_metres),
+        polar_stereo_dy_metres.or(lambert_dy_metres),
         i_scan_negative,
     );
-    MessageMeta {
+    gate_planar_reprojection(MessageMeta {
         message_index: msg.message_index as i32,
         offset_bytes: msg.byte_offset as i32,
         parameter_name: param.name.to_string(),
@@ -660,7 +707,7 @@ fn build_grib1_message_meta(
         packing,
         reprojectable,
         j_scans_positive,
-    }
+    })
 }
 
 /// Render the §4 product fields into the flat (`parameter_*`, `level`,
@@ -828,12 +875,6 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
             t.scanning_mode & 0x40 != 0,
         )
     });
-    // §3.140's corners now come from `bounds()` like every other geographic
-    // planar template (#472); what is still needed here is whether the
-    // projection can place the far corner at all, since spacings alone would
-    // advertise a reprojection that resolves no point.
-    let lambert_azimuthal_last = lambert_azimuthal.and_then(|t| t.last_point());
-    let lambert_azimuthal_reprojectable_inc = lambert_azimuthal_last.and(lambert_azimuthal_inc);
 
     let transverse_mercator = match &msg.gds.template {
         fieldglass_grib2::GridTemplate::TransverseMercator(t) => Some(t),
@@ -902,12 +943,9 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
     let lambert_dx_metres = lambert_inc.map(|(dx, _)| dx);
     let lambert_dy_metres = lambert_inc.map(|(_, dy)| dy);
     // Whether to *offer* a reprojection is a different question from what the
-    // warp reads, and the two spheroidal families below already separate them:
-    // spacings alone would advertise a reprojection that resolves no point, so
-    // the offer is tied to the projection placing the far corner. §3.30 and
-    // §3.20 were left keyed on the spacings, so a grid with a collapsed cone or
-    // an Earth smaller than its own cell was offered and then threw (#610).
-    let lambert_reprojectable_inc = lambert.and_then(|t| t.last_point()).and(lambert_inc);
+    // warp reads: spacings alone would advertise a reprojection that resolves no
+    // point (#610). The offer this builds is therefore only the spacing-and-scan
+    // half; `gate_planar_reprojection` asks the warp itself for the other half.
     let lambert_latin1 = lambert.map(|t| t.latin1);
     let lambert_latin2 = lambert.map(|t| t.latin2);
     let gaussian_n_parallels = match &msg.gds.template {
@@ -929,10 +967,6 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
             t.scanning_mode & 0x40 != 0,
         )
     });
-    // See `lambert_reprojectable_inc`.
-    let polar_stereo_reprojectable_inc = polar_stereo
-        .and_then(|t| t.last_point())
-        .and(polar_stereo_inc);
 
     // §3.1 carries the rotated-pole position and rotation angle alongside a
     // §3.0-style lat/lon layout; the warp uses them to rotate a geographic
@@ -947,13 +981,6 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
 
     // §3.90 space view: reconstruct the scan-angle grid for the geostationary
     // warp (sub-satellite point, ellipsoid, camera height, scan increments).
-    // Offer the spacings to the reprojectable check only when the projection
-    // is actually usable. A §3.12 message declaring a nonsense spheroid has
-    // perfectly good `Di`/`Dj`, so spacing alone would advertise a reprojection
-    // that resolves no point and paints an empty raster.
-    let transverse_mercator_reprojectable_inc =
-        transverse_mercator_corners.and(transverse_mercator_inc);
-
     // The scan-angle grid is derived from §3.90's apparent Earth diameter and
     // camera altitude, and `fieldglass-grib2` is what derives it — read here
     // rather than repeated, so a standalone consumer of that crate and this
@@ -981,28 +1008,24 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
         fieldglass_grib2::GridTemplate::Gaussian(t) => t.scanning_mode & 0x80 != 0,
         _ => false,
     };
-    // A space view whose declared ellipsoid the satellite cannot see places no
-    // pixel either, so it is offered on the same terms as the planar four.
-    let space_view_reprojectable =
-        space_view.filter(|g| GeostationaryProjector::new(*g).is_well_defined());
     let reprojectable = grid_is_reprojectable(
         Some(grid_type.as_str()),
-        polar_stereo_reprojectable_inc
+        polar_stereo_inc
             .map(|(dx, _)| dx)
-            .or(lambert_reprojectable_inc.map(|(dx, _)| dx))
-            .or(transverse_mercator_reprojectable_inc.map(|(dx, _)| dx))
-            .or(lambert_azimuthal_reprojectable_inc.map(|(dx, _)| dx))
-            .or(space_view_reprojectable.map(|g| g.dx_rad)),
-        polar_stereo_reprojectable_inc
+            .or(lambert_inc.map(|(dx, _)| dx))
+            .or(transverse_mercator_inc.map(|(dx, _)| dx))
+            .or(lambert_azimuthal_inc.map(|(dx, _)| dx))
+            .or(space_view.map(|g| g.dx_rad)),
+        polar_stereo_inc
             .map(|(_, dy)| dy)
-            .or(lambert_reprojectable_inc.map(|(_, dy)| dy))
-            .or(transverse_mercator_reprojectable_inc.map(|(_, dy)| dy))
-            .or(lambert_azimuthal_reprojectable_inc.map(|(_, dy)| dy))
-            .or(space_view_reprojectable.map(|g| g.dy_rad)),
+            .or(lambert_inc.map(|(_, dy)| dy))
+            .or(transverse_mercator_inc.map(|(_, dy)| dy))
+            .or(lambert_azimuthal_inc.map(|(_, dy)| dy))
+            .or(space_view.map(|g| g.dy_rad)),
         i_scan_negative,
     );
 
-    MessageMeta {
+    gate_planar_reprojection(MessageMeta {
         // GRIB2 has no P1 octet — the lead time lives in the product template.
         p1_octet: None,
         message_index: msg.message_index as i32,
@@ -1090,7 +1113,7 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
         reprojectable,
         // GRIB2 §3 Flag Table 3.4 bit 2 (0x40): rows scan south→north (#286).
         j_scans_positive: msg.gds.scanning_mode().map(|sm| sm & 0x40 != 0),
-    }
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -3744,36 +3767,11 @@ fn synth_latlon_meta(
     }
 }
 
-/// Whether the warp can place a synthesised planar grid — the gate the three
-/// planar NetCDF builders below put on `reprojectable`.
-///
-/// A resolver can hand back a grid whose every number is present and finite and
-/// whose projection still places no point. A WRF domain declaring
-/// `TRUELAT1 = TRUELAT2 = 0` has a cone constant of zero; a `DX` wider than the
-/// projection plane collapses the whole grid into one cell (#610); a CF
-/// geostationary mapping can declare an ellipsoid the satellite's line of sight
-/// never meets. These builders answered `reprojectable: true` for all of them,
-/// which is the field promising a host a target [`warp_setup_for`] then refuses
-/// — the GRIB paths' own version of that promise is what #610 fixed. (The VS
-/// Code NetCDF panel does not read this meta yet; it synthesises its own stub in
-/// `provider.ts`, which is noted there and is #574's to close. The field is
-/// still the answer this API gives, and giving a wrong one is how the panel
-/// inherits the bug the day it starts reading it.)
-///
-/// Asked *through* [`warp_setup_for`], not by rebuilding the projector here, so
-/// the offer and the warp cannot answer differently. The GRIB §3 paths tie
-/// theirs to the projection placing the far corner for the same reason; a
-/// NetCDF slice states no far corner to hang that on, and this is the same
-/// question asked directly.
-fn synthesised_planar_grid_is_placeable(meta: &MessageMeta, ni: u32, nj: u32) -> bool {
-    warp_setup_for(meta, ni, nj, None).is_ok()
-}
-
 /// Build a `"lambert"` [`MessageMeta`] from a WRF-resolved Lambert grid
 /// (decision 0004). The corner is the grid origin (first scanned point) and the
 /// `lambert_*` fields feed the same projector the GRIB2 §3.30 path uses.
 fn synth_lambert_meta(name: &str, units: &str, g: &WrfLambertGrid) -> MessageMeta {
-    let meta = MessageMeta {
+    gate_planar_reprojection(MessageMeta {
         // WRF projects on its own 6 370 000 m sphere, not a WMO default.
         earth_radius_metres: Some(WRF_EARTH_RADIUS_M),
         grid_type: Some("lambert".to_string()),
@@ -3785,14 +3783,9 @@ fn synth_lambert_meta(name: &str, units: &str, g: &WrfLambertGrid) -> MessageMet
         lambert_dy_metres: Some(g.dy_metres),
         lambert_latin1: Some(g.latin1),
         lambert_latin2: Some(g.latin2),
-        reprojectable: false,
+        reprojectable: true,
         ..base_netcdf_meta(name, units, g.ni as i32, g.nj as i32)
-    };
-    let reprojectable = synthesised_planar_grid_is_placeable(&meta, g.ni, g.nj);
-    MessageMeta {
-        reprojectable,
-        ..meta
-    }
+    })
 }
 
 /// Build a `"polar_stereo"` [`MessageMeta`] from a WRF-resolved polar
@@ -3800,7 +3793,7 @@ fn synth_lambert_meta(name: &str, units: &str, g: &WrfLambertGrid) -> MessageMet
 /// GRIB paths emit (routing into `polar_stereo_warp_setup`), distinct from the
 /// `"polar_stereographic"` *target*-projection picker option.
 fn synth_polar_stereo_meta(name: &str, units: &str, g: &WrfPolarStereoGrid) -> MessageMeta {
-    let meta = MessageMeta {
+    gate_planar_reprojection(MessageMeta {
         // WRF projects on its own 6 370 000 m sphere, not a WMO default.
         earth_radius_metres: Some(WRF_EARTH_RADIUS_M),
         grid_type: Some("polar_stereo".to_string()),
@@ -3811,14 +3804,9 @@ fn synth_polar_stereo_meta(name: &str, units: &str, g: &WrfPolarStereoGrid) -> M
         polar_stereo_dx_metres: Some(g.dx_metres),
         polar_stereo_dy_metres: Some(g.dy_metres),
         polar_stereo_south_pole: Some(g.south_pole),
-        reprojectable: false,
+        reprojectable: true,
         ..base_netcdf_meta(name, units, g.ni as i32, g.nj as i32)
-    };
-    let reprojectable = synthesised_planar_grid_is_placeable(&meta, g.ni, g.nj);
-    MessageMeta {
-        reprojectable,
-        ..meta
-    }
+    })
 }
 
 /// Build a `"mercator"` [`MessageMeta`] from a WRF-resolved Mercator grid
@@ -3864,7 +3852,7 @@ fn synth_geostationary_meta(
     units: &str,
     g: &fieldglass_netcdf::GeostationaryGrid,
 ) -> MessageMeta {
-    let meta = MessageMeta {
+    gate_planar_reprojection(MessageMeta {
         grid_type: Some("space_view".to_string()),
         geos_sub_lon: Some(g.sub_lon_deg),
         geos_height: Some(g.h_metres),
@@ -3875,14 +3863,9 @@ fn synth_geostationary_meta(
         geos_dx_rad: Some(g.dx_rad),
         geos_y0: Some(g.y0),
         geos_dy_rad: Some(g.dy_rad),
-        reprojectable: false,
+        reprojectable: true,
         ..base_netcdf_meta(name, units, g.ni as i32, g.nj as i32)
-    };
-    let reprojectable = synthesised_planar_grid_is_placeable(&meta, g.ni, g.nj);
-    MessageMeta {
-        reprojectable,
-        ..meta
-    }
+    })
 }
 
 fn grib1_dimensions(reader: &Grib1Reader, message_index: usize) -> napi::Result<(u32, u32)> {
@@ -7724,14 +7707,14 @@ mod reprojectable_tests {
 
 /// The other half of the planar rule: a grid whose spacings are fine and whose
 /// projection still places no point must not be offered a reprojection target
-/// the warp will refuse (#610). `grid_is_reprojectable` above cannot ask that —
-/// it sees two numbers — so each format path answers it before calling, and
-/// these are the tests of *those* answers.
+/// the warp will refuse (#610). `grid_is_reprojectable` cannot ask that — it
+/// sees a grid type and two numbers — so every builder routes its finished meta
+/// through `gate_planar_reprojection`, and these are the tests of that gate.
 #[cfg(test)]
 mod planar_offer_needs_a_placeable_projection_tests {
     use super::{
-        build_grib1_message_meta, synth_geostationary_meta, synth_lambert_meta,
-        synth_polar_stereo_meta,
+        MessageMeta, build_grib1_message_meta, gate_planar_reprojection, synth_geostationary_meta,
+        synth_lambert_meta, synth_polar_stereo_meta,
     };
     use fieldglass_netcdf::{GeostationaryGrid, WrfLambertGrid, WrfPolarStereoGrid};
 
@@ -7823,8 +7806,9 @@ mod planar_offer_needs_a_placeable_projection_tests {
             "a real WRF polar stereographic domain reprojects"
         );
 
-        // 2·R·k₀ at TRUELAT1 = 60° is ≈ 11 886 km, so a 12 000 km cell no
-        // longer fits in the plane it is measured in.
+        // Wider than WRF's own 6 370 000 m sphere. The gate is `warp_setup_for`,
+        // so what refuses this is `polar_stereo_params`' radius floor, before
+        // the projector is built.
         let giant_cell = WrfPolarStereoGrid {
             dx_metres: 12_000_000.0,
             dy_metres: 12_000_000.0,
@@ -7832,7 +7816,22 @@ mod planar_offer_needs_a_placeable_projection_tests {
         };
         assert!(
             !synth_polar_stereo_meta("t2", "K", &giant_cell).reprojectable,
-            "a cell wider than the plane must stay source-only"
+            "a cell wider than the declared Earth must stay source-only"
+        );
+
+        // The band between the two radii the old offer and the warp measured:
+        // the plane is 2·R·k₀ ≈ 11 886 km at TRUELAT1 = 60°, the sphere is
+        // 6 370 km, and a 8 000 km cell sits between them. `is_well_defined`
+        // accepts it and `polar_stereo_params` refuses it, so an offer derived
+        // from the projector rather than from the warp said yes and then threw.
+        let between_the_two_radii = WrfPolarStereoGrid {
+            dx_metres: 8_000_000.0,
+            dy_metres: 8_000_000.0,
+            ..wrf_polar_stereo()
+        };
+        assert!(
+            !synth_polar_stereo_meta("t2", "K", &between_the_two_radii).reprojectable,
+            "the offer must answer what the warp answers, not what the projector does"
         );
     }
 
@@ -7872,6 +7871,10 @@ mod planar_offer_needs_a_placeable_projection_tests {
     /// given grid type. Same hand-built section structure the `fieldglass-grib1`
     /// tests use: IS + a 28-byte PDS with the GDS-present flag set, the GDS, an
     /// opaque BDS stub the scanner never decodes, and `7777`.
+    ///
+    /// Metadata only. The BDS is twelve zero bytes against a GDS that declares
+    /// hundreds of thousands of points, so anything that actually decodes this
+    /// message will fail — `build_grib1_message_meta` reads §1 and §2 alone.
     fn grib1_message_with_gds(grid_type: u8, body: &[u8]) -> Vec<u8> {
         const BDS_LEN: usize = 12;
         let gds_len = 6 + body.len();
@@ -7907,14 +7910,18 @@ mod planar_offer_needs_a_placeable_projection_tests {
         msg
     }
 
-    /// 3-byte sign-and-magnitude, the GRIB1 lat/lon convention.
+    /// 3-byte sign-and-magnitude, the GRIB1 lat/lon convention. Asserts its own
+    /// range, as the `fieldglass-grib1` original does: silently clobbering the
+    /// sign bit would build a fixture that tests something else.
     fn sm24(v: i32) -> [u8; 3] {
         let mag = v.unsigned_abs();
+        assert!(mag < 0x80_0000, "magnitude {mag} too large for 24-bit");
         let raw = if v < 0 { 0x80_0000 | mag } else { mag };
         [(raw >> 16) as u8, (raw >> 8) as u8, raw as u8]
     }
 
     fn u24(v: u32) -> [u8; 3] {
+        assert!(v < 0x100_0000, "{v} too large for 24-bit");
         [(v >> 16) as u8, (v >> 8) as u8, v as u8]
     }
 
@@ -7989,6 +7996,49 @@ mod planar_offer_needs_a_placeable_projection_tests {
             !grib1_reprojectable(5, &polar_stereo_gds_body(16_777_215)),
             "a cell wider than the 11 882 km plane collapses the projection"
         );
+        // Between the sphere (6 367 km) and the plane (2·R·k₀ ≈ 11 882 km at
+        // the fixed ±60° true scale). See the WRF sibling: this is the band the
+        // projector accepts and `polar_stereo_params` refuses, so an offer that
+        // asked the projector said yes and the warp then threw.
+        assert!(
+            !grib1_reprojectable(5, &polar_stereo_gds_body(8_000_000)),
+            "the offer must answer what the warp answers"
+        );
+    }
+
+    /// The gate is one predicate applied to a finished meta, so it can be asked
+    /// directly — no fixture, and every planar family in one place.
+    #[test]
+    fn the_gate_is_the_warps_own_answer_for_every_planar_family() {
+        let placeable = synth_lambert_meta("t2", "K", &wrf_lambert());
+        assert!(gate_planar_reprojection(placeable).reprojectable);
+
+        // A planar grid with no raster shape has nothing to reproject, and the
+        // warp is never reached to say so.
+        let shapeless = MessageMeta {
+            grid_ni: None,
+            grid_nj: None,
+            ..synth_lambert_meta("t2", "K", &wrf_lambert())
+        };
+        assert!(!gate_planar_reprojection(shapeless).reprojectable);
+
+        // A family the gate does not re-ask keeps whatever
+        // `grid_is_reprojectable` decided: its rule includes conditions the warp
+        // setup never sees (a descending scan, a descending longitude axis), and
+        // a curvilinear grid's setup needs a spatial index this has no access to.
+        let curvilinear = MessageMeta {
+            grid_type: Some("curvilinear".to_string()),
+            reprojectable: true,
+            ..synth_lambert_meta("t2", "K", &wrf_lambert())
+        };
+        assert!(gate_planar_reprojection(curvilinear).reprojectable);
+
+        // And a grid `grid_is_reprojectable` already turned away is not revived.
+        let already_refused = MessageMeta {
+            reprojectable: false,
+            ..synth_lambert_meta("t2", "K", &wrf_lambert())
+        };
+        assert!(!gate_planar_reprojection(already_refused).reprojectable);
     }
 }
 

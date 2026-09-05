@@ -974,15 +974,22 @@ fn read_signed_magnitude_24(b: &[u8]) -> i32 {
 /// [`ResolutionFlags::earth_radius_m`] answers one of two constants from a
 /// single flag bit, so there is no declared zero (#603), and the polar
 /// stereographic `LaD` is fixed at 60°, so the pole scale factor cannot be
-/// driven to zero either. Two collapses remain, and GRIB1 states both.
+/// driven to zero either. Three collapses remain, and GRIB1 states all three —
+/// but only one of them needs this argument.
 ///
-/// The standard parallels are stated, so a Lambert cone still collapses on
-/// `Latin1 == Latin2 == 0` — a cone constant of zero, which does go non-finite.
-/// And Dx/Dy are three octets of unsigned metres, so a grid can declare a
-/// 16 777 km cell: wider than either GRIB1 Earth, and wider than the 11 882 km
-/// plane a ±60° latitude of true scale leaves the polar stereographic family.
-/// The whole projection then collapses inside one cell (#610) with nothing
-/// going non-finite — a corner comes back, and it is not a position.
+/// Two go non-finite on their own, and finiteness has always caught them: the
+/// standard parallels are stated, so a Lambert cone still collapses on
+/// `Latin1 == Latin2 == 0` (a cone constant of zero); and `La1` is three octets
+/// of sign-magnitude millidegrees, so a northern cone can be handed a first
+/// point at the south pole, where `tan(π/4 + φ/2)` is exactly zero and the
+/// projected origin runs to infinity.
+///
+/// The third is the quiet one, and it is why the flag is here. Dx/Dy are three
+/// octets of unsigned metres, so a grid can declare a 16 777 km cell: wider than
+/// either GRIB1 Earth, and wider than the 11 882 km plane a ±60° latitude of
+/// true scale leaves the polar stereographic family. The whole projection
+/// collapses inside one cell (#610) with every number staying finite — a corner
+/// comes back, and it is not a position.
 fn finite_lonlat(well_defined: bool, (lat, lon): (f64, f64)) -> Option<(f64, f64)> {
     (well_defined && lat.is_finite() && lon.is_finite()).then(|| (lat, normalise_longitude(lon)))
 }
@@ -1247,6 +1254,62 @@ mod grid_variant_tests {
 
         assert!(parsed.has_raster(), "the raster shape is still declared");
         assert_eq!(parsed.bounds(), None, "a collapsed plane places no corner");
+    }
+
+    /// The third way a GRIB1 Lambert grid loses its corner: a usable cone
+    /// handed a first point at the pole it opens away from. `La1` is three
+    /// octets of sign-magnitude millidegrees, so -90.000 is as declarable as
+    /// any other latitude, and there `tan(π/4 + φ/2)` is exactly zero — the
+    /// forward map divides by it and the projected origin runs to infinity.
+    /// This one has always been refused, by finiteness rather than by the
+    /// projector's own verdict; the test is here so all three sit together.
+    #[test]
+    fn lambert_first_point_at_the_far_pole_reports_no_corner() {
+        let mut body = Vec::new();
+        body.extend(u16be(601));
+        body.extend(u16be(401));
+        body.extend(sm24(-90_000)); // lat_first — the pole a northern cone opens away from
+        body.extend(sm24(-126_000));
+        body.push(0xC0);
+        body.extend(sm24(-95_000));
+        body.extend(u24(13_545));
+        body.extend(u24(13_545));
+        body.push(0);
+        body.push(0x40);
+        body.extend(sm24(38_500)); // a perfectly ordinary cone
+        body.extend(sm24(38_500));
+        body.extend(sm24(0));
+        body.extend(sm24(0));
+
+        let parsed = parse_grid_description(&build_gds(3, &body)).expect("parses");
+        let GridDescription::LambertConformal(g) = &parsed else {
+            panic!("expected LambertConformal");
+        };
+        let (dx, dy) = g.signed_increments();
+        let projector = LambertProjector::new(LambertParams {
+            earth_radius_m: g.resolution_flags.earth_radius_m(),
+            ni: g.nx,
+            nj: g.ny,
+            lat_first: g.lat_first,
+            lon_first: g.lon_first,
+            lad: g.latin1,
+            lov: g.lov,
+            dx_metres: dx,
+            dy_metres: dy,
+            latin1: g.latin1,
+            latin2: g.latin2,
+        });
+        let (ox, oy) = projector.origin();
+        assert!(!ox.is_finite() || !oy.is_finite(), "origin ({ox}, {oy})");
+        assert!(!projector.is_well_defined());
+
+        assert!(parsed.has_raster(), "the raster shape is still declared");
+        assert_eq!(parsed.first_point(), Some((-90.0, -126.000)));
+        assert_eq!(
+            parsed.bounds(),
+            None,
+            "an unreachable origin places no corner"
+        );
     }
 
     /// The polar stereographic half of the same rule. ON388 fixes the latitude
