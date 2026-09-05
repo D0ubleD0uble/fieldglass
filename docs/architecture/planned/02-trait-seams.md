@@ -1,9 +1,9 @@
 # Planned — Level 2: trait seams
 
 After milestones 7, 10, and 11. Compare with [`../02-trait-seams.md`](../02-trait-seams.md).
-Only the seams that change are drawn; `FormatReader` / `DataMessage`,
-`Grib1Packing`, and the `TargetProjection` / `PreparedTarget` / `ForwardMap`
-family are unchanged and stay in the guarded diagram.
+Only the seams that change are drawn; `Grib1Packing` and the
+`TargetProjection` / `PreparedTarget` / `ForwardMap` family are unchanged and
+stay in the guarded diagram.
 
 ## Grid geometry becomes a type; the inverse stays a closure
 

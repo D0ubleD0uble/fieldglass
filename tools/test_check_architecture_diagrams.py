@@ -67,34 +67,34 @@ class ProductionLines(unittest.TestCase):
             "mod tests {\n"
             '    const S: &str = "}";\n'
             "}\n"
-            "impl FormatReader for RealReader {}\n"
+            "impl SampleTrait for RealType {}\n"
         )
-        pairs = chk.impl_pairs_from_text(text, {"FormatReader"})
-        self.assertEqual(pairs, {("FormatReader", "RealReader")})
+        pairs = chk.impl_pairs_from_text(text, {"SampleTrait"})
+        self.assertEqual(pairs, {("SampleTrait", "RealType")})
 
 
 class ImplMatching(unittest.TestCase):
     def test_single_line(self):
-        text = "impl FormatReader for Grib2Reader {}\n"
+        text = "impl SampleTrait for SampleType {}\n"
         self.assertEqual(
-            chk.impl_pairs_from_text(text, {"FormatReader"}),
-            {("FormatReader", "Grib2Reader")},
+            chk.impl_pairs_from_text(text, {"SampleTrait"}),
+            {("SampleTrait", "SampleType")},
         )
 
     def test_multiline_header_joined(self):
-        text = "impl<T>\n    FormatReader\n    for Grib2Reader<T>\n{\n}\n"
+        text = "impl<T>\n    SampleTrait\n    for SampleType<T>\n{\n}\n"
         self.assertEqual(
-            chk.impl_pairs_from_text(text, {"FormatReader"}),
-            {("FormatReader", "Grib2Reader")},
+            chk.impl_pairs_from_text(text, {"SampleTrait"}),
+            {("SampleTrait", "SampleType")},
         )
 
     def test_ignores_non_first_party_trait(self):
         text = "impl Debug for Foo {}\n"
-        self.assertEqual(chk.impl_pairs_from_text(text, {"FormatReader"}), set())
+        self.assertEqual(chk.impl_pairs_from_text(text, {"SampleTrait"}), set())
 
     def test_inherent_impl_is_not_a_realization(self):
-        text = "impl Grib2Reader {\n    pub fn new() {}\n}\n"
-        self.assertEqual(chk.impl_pairs_from_text(text, {"FormatReader"}), set())
+        text = "impl SampleType {\n    pub fn new() {}\n}\n"
+        self.assertEqual(chk.impl_pairs_from_text(text, {"SampleTrait"}), set())
 
 
 class MermaidExtraction(unittest.TestCase):

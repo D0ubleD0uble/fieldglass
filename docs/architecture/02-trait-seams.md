@@ -2,29 +2,20 @@
 
 A reader can't know at compile time which packing or projection a file uses; the
 file's own type codes decide. Each trait below is the dispatch point for one of
-those choices. The reader reads a code, selects the matching implementer, and
-calls through the trait, so supporting a new packing, projection, or output
-raster takes one new implementer and nothing else.
+those choices: the code selects the implementer, and everything downstream calls
+through the trait rather than naming the variant.
 
-In each diagram the implementers point at the trait they satisfy.
+There is no trait over the readers themselves. Each format crate exposes a
+concrete reader — `Grib1Reader`, `Grib2Reader`, `NetcdfReader` — and every
+consumer names one: napi drives all three directly, and `Session` holds one per
+open file ([ADR-0006](../decisions/0006-hosts-are-bindings-over-a-plain-data-api.md),
+[`planned/03-composition.md`](planned/03-composition.md)). What used to sit here
+was a pair of traits declaring every method without a receiver, so no
+implementation of them could address a file; #540 deleted them along with the
+two stub impls that satisfied them. If a reader seam is wanted later it gets
+designed from the surface the consumers actually share.
 
-## Reading and decoding
-
-`FormatReader` walks raw bytes into a sequence of messages; `DataMessage`
-unpacks one message's values when asked. The scanner and the napi layer drive
-both as trait objects, iterating and decoding without naming a concrete format.
-
-```mermaid
-classDiagram
-    class FormatReader {
-        <<trait>>
-    }
-    class DataMessage {
-        <<trait>>
-    }
-    FormatReader <|.. Grib2Reader
-    DataMessage  <|.. Grib2Message
-```
+In each diagram below the implementers point at the trait they satisfy.
 
 ## Byte access
 
@@ -50,10 +41,17 @@ classDiagram
 
 ## GRIB1 packing
 
-The BDS flag byte names the packing. The reader matches it to one `Grib1Packing`
-implementer, which unpacks the bit-stream into the common field of values. Each
-implementer is one packing the decoder understands (GRIB2's equivalent set is
-the README "packing modes" table).
+The BDS flag byte names the packing. `decoder_for` matches it to one
+`Grib1Packing` implementer, which unpacks the bit-stream into the common field
+of values. Each implementer is one packing the decoder understands (GRIB2's
+equivalent set is the README "packing modes" table).
+
+The seam is internal, not an extension point: `decoder_for` is a closed
+if/return chain over the flag bits inside `fieldglass-grib1`, and nothing
+accepts a decoder from outside the crate. What the trait buys is that each
+packing is a separate type with a separate test, and that adding one is a new
+module plus a branch there rather than another case threaded through the shared
+decode path.
 
 ```mermaid
 classDiagram

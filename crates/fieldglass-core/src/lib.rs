@@ -3,8 +3,9 @@
 //!
 //! The crate serves two audiences behind one API. The format crates
 //! (`fieldglass-grib1`, `-grib2`, `-netcdf`) consume only the *parsing*
-//! surface: [`error`], [`bits`], [`bytes`], [`detect`], [`reader`],
-//! [`metadata`], [`projection`] (GRIB1's GDS uses the projectors to recover
+//! surface: [`error`], [`bits`], [`bytes`], [`detect`], [`metadata`],
+//! [`cct_tables`] (both GRIB editions share the WMO sub-centre lookup),
+//! [`projection`] (GRIB1's GDS uses the projectors to recover
 //! grid corners), and the three grids that arrive as something other than a
 //! rectangle of values — [`sht`], [`matrix`], and [`healpix`]. What those
 //! modules have in common is that none of them is behind a feature, which is
@@ -57,8 +58,6 @@ pub mod metadata;
 #[cfg(feature = "render")]
 pub mod overlay;
 pub mod projection;
-/// The format-reader trait surface.
-pub mod reader;
 pub mod sht;
 pub mod spatial_index;
 pub mod units;
@@ -98,8 +97,6 @@ pub use projection::{
     mercator_point, normalise_lon, reduced_raster_lon_last, reduced_raster_width,
     rotated_latlon_point, signed_grid_increments,
 };
-pub use reader::DataMessage;
-pub use reader::FormatReader;
 pub use spatial_index::SpatialIndex;
 #[cfg(feature = "render")]
 pub use warp::{
