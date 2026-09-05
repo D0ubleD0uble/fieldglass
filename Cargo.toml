@@ -109,6 +109,30 @@ unreachable_pub = "warn"
 # change for a type a downstream `#[derive(Debug)]` wants to contain.
 missing_debug_implementations = "warn"
 
+[workspace.lints.rustdoc]
+# Deny the whole group, the same way `clippy::all` is denied below, and for the
+# same reason: rustdoc's lints are warn-by-default, so `cargo doc` printed them
+# and carried on. Nothing in this repo ran rustdoc at all — not pre-commit, not
+# a workflow — so thirteen broken doc links accumulated across three crates and
+# were only noticed in passing (#582; nine when it was filed, and PRs #613 and
+# #614 added two each before it was taken — which is the argument for the gate
+# rather than the nine fixes). The level lives here rather than in a
+# `RUSTDOCFLAGS` on one command line so a contributor's own `cargo doc` and
+# rust-analyzer hold the same bar the hook does.
+#
+# `private_intra_doc_links` is the one that had fired. It is not cosmetic: a
+# link to a private item renders as *plain text with no link*, so the sentence
+# promises a reader an explanation the published documentation cannot deliver.
+# In `fieldglass-napi` it is worse still — napi-rs copies these doc comments
+# verbatim into the generated `index.d.ts`, so a TypeScript consumer's hover
+# tooltip shows a Rust intra-doc link to a Rust private function.
+#
+# Taking the group means a toolchain bump can add a lint and go red, which is
+# the deal `clippy::all = "deny"` already accepts here. The group was clean on
+# every crate once the thirteen were fixed, including `fieldglass-wasm`
+# documented for `wasm32-unknown-unknown`.
+all = "deny"
+
 [workspace.lints.clippy]
 # Deny rather than warn: `clippy::all` is what the pre-commit hook and CI have
 # always enforced with `-D warnings`, so this states the level that was already

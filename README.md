@@ -392,9 +392,10 @@ human-reviewable in PRs. To grow coverage to a new WMO key, add it to both
 ```sh
 cargo clippy --all-targets --workspace -- -D warnings
 cargo fmt --all -- --check
+cargo doc --workspace --no-deps --all-features
 ```
 
-The `fieldglass-napi` crate also enables `#![deny(clippy::all)]`, so warnings there are hard errors regardless.
+The lint levels live in `[workspace.lints]` in the root `Cargo.toml`, inherited by every member with `lints.workspace = true`, so a plain `cargo build`, an editor and a crates.io reader hold the code to the same bar the hooks do. That includes `[workspace.lints.rustdoc]`, which is why `cargo doc` is a gate and not just a build: rustdoc's lints are warn-by-default, so a broken doc link used to be printed and carried past.
 
 ### Pre-commit hooks
 
@@ -426,7 +427,7 @@ What runs:
 | `pre-commit` | `cargo fmt --check`, `cargo clippy -- -D warnings`, `tsc --noEmit` | Fast lints — usually under 3 s on incremental builds. |
 | `pre-commit` | `check-yaml`, `check-json`, `check-toml`, `end-of-file-fixer`, `trailing-whitespace`, `check-merge-conflict`, `check-added-large-files` | File-hygiene polish. |
 | `pre-commit` | `shellcheck`, `actionlint`, `gitleaks` | Lint shell scripts, GitHub Actions YAML, and scan staged diff for secrets. |
-| `pre-push` | `cargo test --workspace`, `cargo deny check`, `npm audit --omit=dev`, `semgrep scan` | Slower correctness + security checks. |
+| `pre-push` | `cargo test --workspace`, `cargo doc --no-deps`, `cargo deny check`, `npm audit --omit=dev`, `semgrep scan` | Slower correctness + security checks. |
 
 Bypass with `git commit --no-verify` / `git push --no-verify` when you really must — CI (below) runs the same checks at full strength regardless.
 

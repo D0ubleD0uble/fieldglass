@@ -196,6 +196,38 @@ repos:
         entry: cargo test -p fieldglass-core --no-default-features
         pass_filenames: false
 
+      - id: cargo-doc
+        name: cargo doc --workspace --no-deps --all-features
+        stages: [pre-push]
+        language: system
+        # Rustdoc ran nowhere in this repo — not here, not in a workflow — so
+        # its warn-by-default lints printed and were carried past, and thirteen
+        # broken doc links accumulated across three crates (#582). This is the
+        # gate that was missing. No `RUSTDOCFLAGS` on the command line: the
+        # levels live in `[workspace.lints.rustdoc]` (root manifest), so a
+        # contributor's own `cargo doc` fails the same way this does.
+        #
+        # `--all-features` documents the superset of items, which is what
+        # docs.rs renders and the combination in which every link target
+        # exists. It therefore cannot catch a link that resolves *only* with a
+        # feature on; the hook below covers the one feature axis that has a
+        # consumer (see #586 for the general version of that gap).
+        entry: cargo doc --workspace --no-deps --all-features
+        pass_filenames: false
+
+      - id: cargo-doc-core-no-default
+        name: cargo doc -p fieldglass-core --no-deps --no-default-features
+        stages: [pre-push]
+        language: system
+        # The doc-build sibling of `cargo-clippy-core-no-default`, and for the
+        # same reason: `render` off is a real consumer configuration (the
+        # format crates take core that way), so the parsing-only surface has to
+        # document as well as it compiles. A doc link from an ungated item into
+        # a `render`-gated one resolves under `--all-features` above and breaks
+        # only here.
+        entry: cargo doc -p fieldglass-core --no-deps --no-default-features
+        pass_filenames: false
+
       - id: cargo-deny
         name: cargo deny check
         stages: [pre-push]

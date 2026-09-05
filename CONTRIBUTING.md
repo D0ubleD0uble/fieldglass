@@ -40,7 +40,7 @@ Fieldglass uses a trunk-based model: feature branches are cut from `master` and 
    git fetch origin
    git switch -c my-feature origin/master
    ```
-2. Make your change. The local pre-commit hook runs `cargo fmt`, `cargo clippy -- -D warnings`, `tsc --noEmit`, plus file-hygiene polish on every commit. The pre-push hook runs `cargo test --workspace`, `cargo deny check`, `npm audit`, and a `semgrep` SAST scan.
+2. Make your change. The local pre-commit hook runs `cargo fmt`, `cargo clippy -- -D warnings`, `tsc --noEmit`, plus file-hygiene polish on every commit. The pre-push hook runs `cargo test --workspace`, `cargo doc --no-deps` (broken doc links are errors), `cargo deny check`, `npm audit`, and a `semgrep` SAST scan.
 3. Update [CHANGELOG.md](CHANGELOG.md) under the `## [Unreleased]` heading. If your change closes an issue, put `Closes #N` in the PR body — it closes automatically when the PR merges to `master`.
 4. Open the PR targeting `master`:
    ```sh
