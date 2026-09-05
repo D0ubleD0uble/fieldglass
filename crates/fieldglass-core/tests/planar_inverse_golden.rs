@@ -49,12 +49,11 @@
 //! measurements and the reasoning.
 use fieldglass_core::projection::*;
 
-fn fnv(h: &mut u64, bytes: &[u8]) {
-    for &b in bytes {
-        *h ^= b as u64;
-        *h = h.wrapping_mul(0x100000001b3);
-    }
-}
+// The FNV fold and the libm fingerprint are shared with `fieldglass-napi`'s
+// render characterisation golden, which is gated on the same constant for the
+// same reason. See `tests/support/mod.rs`.
+mod support;
+use support::{FNV_OFFSET, REFERENCE_LIBM, fnv, libm_fingerprint};
 fn mix(h: &mut u64, r: Option<GridIndex>) {
     match r {
         None => fnv(h, &[0xff]),
@@ -202,49 +201,6 @@ fn ukv() -> TransverseMercatorParams {
 /// live projector silently collapsing to "no point is on this grid" would
 /// otherwise be an ordinary-looking hash change.
 const ALL_REJECTED: u64 = 0xf69bbbe95fd1b93f;
-
-/// A fold over the exact libm surface the planar inverses stand on, at fixed
-/// inputs, so a target can say *which* libm it has rather than being guessed at
-/// from its triple.
-///
-/// `target_arch = "wasm32"` would be the obvious gate and it is the wrong one
-/// twice over: it assumes every other target agrees with the recording (musl
-/// and macOS need not, and neither need a future glibc), and it says nothing
-/// about which library is actually underneath. This asks.
-///
-/// Eleven of these fourteen already disagree between glibc 2.39 and the `libm`
-/// Rust links on `wasm32`, so the fold separates them with room to spare; `ln`,
-/// `exp` and `sqrt` agree today and are folded in anyway, for the next libm.
-fn libm_fingerprint() -> u64 {
-    let mut h: u64 = 0xcbf29ce484222325;
-    let fs: [fn(f64) -> f64; 14] = [
-        |t| (t * 7.3 + 1e-3).ln(),
-        |t| (t * 3.1 - 1.5).exp(),
-        |t| (t * 2.0 + 0.5).powf(1.7 + t),
-        |t| (t * 1.4).tan(),
-        |t| (t * 9.0 - 4.5).atan(),
-        |t| (t - 0.5).atan2(t * 2.0 - 1.3),
-        |t| (t * 6.0).sin(),
-        |t| (t * 6.0).cos(),
-        |t| (t * 0.001 - 0.5).asin(),
-        |t| (t * 2.0 - 1.0).sinh(),
-        |t| (t * 2.0 - 1.0).cosh(),
-        |t| (t - 0.4).hypot(t * 3.0 + 0.1),
-        |t| (t * 5.0).sqrt(),
-        |t| (t * 2.0 - 1.0).tanh(),
-    ];
-    for f in fs {
-        for k in 0..2000i64 {
-            fnv(&mut h, &f(k as f64 * 0.001 + 1e-9).to_bits().to_le_bytes());
-        }
-    }
-    h
-}
-
-/// The fingerprint of the libm the bit-exact column was recorded against:
-/// x86_64 Linux glibc 2.39, which is what CI's `ubuntu-latest` runners and the
-/// pre-commit hooks run.
-const REFERENCE_LIBM: u64 = 0x0951d9bc6bf359e4;
 
 /// Whether a case's parameters describe a usable grid or a degenerate one.
 #[derive(PartialEq)]
@@ -497,7 +453,7 @@ fn cases() -> Vec<Case> {
 }
 
 fn fold_with(p: &dyn PlanarGridProjector, mix: fn(&mut u64, Option<GridIndex>)) -> u64 {
-    let mut h: u64 = 0xcbf29ce484222325;
+    let mut h: u64 = FNV_OFFSET;
     let corners = p.grid_corners_lonlat();
     for (lat, lon) in probes(&corners) {
         mix(&mut h, p.inverse(lat, lon));
