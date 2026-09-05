@@ -191,7 +191,10 @@ impl Grib1Reader {
         // no-dimensions error below, which reads like a malformed grid.
         if matches!(gds, GridDescription::SphericalHarmonic(_)) {
             return Err(FieldglassError::UnsupportedSection(
-                "message holds spherical-harmonic coefficients, which are not values                  on a grid — decode them with `Grib1Reader::decode_spectral_message`"
+                "message holds spherical-harmonic coefficients, which are not values \
+                 on a grid — decode them with `Grib1Reader::decode_spectral_message`, or \
+                 `Grib1Reader::synthesize_spectral_global` to run the inverse transform \
+                 and get a lat/lon field"
                     .to_string(),
             ));
         }

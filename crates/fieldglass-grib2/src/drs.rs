@@ -445,8 +445,9 @@ pub struct LogPreprocessingPackingTemplate {
 /// every other coefficient part is simple-packed in §7 with the usual
 /// `R` / `E` / `D` transform. The decode produces coefficients (see the
 /// `spectral` module), so it does not ride [`decode_values`](crate::ds::decode_values);
-/// like GRIB1 spectral messages, these do not render as a 2-D field until an
-/// inverse spherical-harmonic transform lands.
+/// like GRIB1 spectral messages, they reach a 2-D field through the inverse
+/// spherical-harmonic transform instead
+/// ([`Grib2Reader::synthesize_spectral_global`](crate::Grib2Reader::synthesize_spectral_global)).
 ///
 /// [`real_part_of_00`]: SpectralSimplePackingTemplate::real_part_of_00
 #[derive(Debug, Clone, Copy, PartialEq)]

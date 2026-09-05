@@ -412,10 +412,11 @@ pub struct GaussianTemplate {
 /// Not a grid: the message carries spectral coefficients truncated at the
 /// pentagonal resolution `(J, K, M)`, so there are no `Ni`/`Nj` and no corner
 /// coordinates. Only the triangular truncation `J = K = M` is defined for the
-/// coefficient traversal the decoder uses. Rendering needs an inverse
-/// spherical-harmonic transform (tracked separately); this template exists so
-/// spectral messages parse their truncation metadata and decode to
-/// coefficients rather than surfacing as an unsupported grid.
+/// coefficient traversal the decoder uses. Rendering runs the coefficients
+/// through the inverse spherical-harmonic transform
+/// ([`Grib2Reader::synthesize_spectral_global`](crate::Grib2Reader::synthesize_spectral_global));
+/// this template exists so spectral messages parse their truncation metadata
+/// and decode to coefficients rather than surfacing as an unsupported grid.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SphericalHarmonicTemplate {
     /// `J` — pentagonal resolution parameter (octets 15–18).

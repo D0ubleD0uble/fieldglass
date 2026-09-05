@@ -192,7 +192,9 @@ impl Grib2Reader {
         if msg.gds.spherical_harmonic().is_some() {
             return Err(FieldglassError::UnsupportedSection(
                 "message holds spherical-harmonic coefficients (§3.50), which are not values \
-                 on a grid — decode them with `Grib2Reader::decode_spectral_message`"
+                 on a grid — decode them with `Grib2Reader::decode_spectral_message`, or \
+                 `Grib2Reader::synthesize_spectral_global` to run the inverse transform \
+                 and get a lat/lon field"
                     .to_string(),
             ));
         }
@@ -522,12 +524,12 @@ impl Grib2Reader {
     ///
     /// A spectral message stores the field in wavenumber space, not on a grid,
     /// so it has no `Ni`/`Nj` and cannot go through
-    /// [`Grib2Reader::decode_message_values`]. Turning the coefficients back
-    /// into a grid needs an inverse spherical-harmonic transform, which is not
-    /// implemented yet; what you get here is what eccodes' `grib_get_data`
-    /// prints for the same message. Errors if the message is not
+    /// [`Grib2Reader::decode_message_values`]. What you get here is what
+    /// eccodes' `grib_get_data` prints for the same message; to turn the
+    /// coefficients back into a grid, run the inverse transform with
+    /// [`Grib2Reader::synthesize_spectral_global`]. Errors if the message is not
     /// spherical-harmonic, or its §5 packing is not one the spectral decoder
-    /// supports (only `spectral_simple` / template 5.50 today).
+    /// supports (`spectral_simple` / 5.50 and `spectral_complex` / 5.51).
     pub fn decode_spectral_message(
         &self,
         message_index: usize,

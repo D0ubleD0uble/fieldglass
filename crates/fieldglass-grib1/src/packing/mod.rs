@@ -71,8 +71,9 @@ pub trait Grib1Packing {
 /// The integer-vs-matrix split matters: eccodes' concept lists `grid_ieee`
 /// (which requires `integerPointValues = 1`) ahead of `grid_simple_matrix`, so
 /// the extra-flags-present + integer-data combination resolves to IEEE.
-/// Spherical-harmonic wins over complex when both bits are set — spherical is
-/// only a stub today, so that precedence merely shapes the error message.
+/// Spherical-harmonic wins over complex when both bits are set — nothing
+/// spherical decodes on this scalar path either way (see the module docs), so
+/// that precedence merely shapes the error message.
 pub fn decoder_for(header: &BdsHeader) -> Box<dyn Grib1Packing> {
     if header.is_spherical_harmonic {
         return Box::new(spherical::SphericalPacking);
