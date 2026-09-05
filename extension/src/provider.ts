@@ -1564,7 +1564,15 @@ function defaultSliceSpec(v: NetcdfVariableMeta): SliceSpec {
 
 /** A `MessageMeta` synthesised for the NetCDF render panel's header + projection
  *  controls. The Rust side builds the authoritative per-slice geometry; this
- *  only carries what the panel HTML reads (title, units, reprojectable). */
+ *  only carries what the panel HTML reads (title, units, reprojectable).
+ *
+ *  `gridType` and `reprojectable` are stubs, not answers. A WRF file's slice is
+ *  Lambert or polar stereographic on the Rust side, and its `MessageMeta` there
+ *  now says whether the projection places a point at all — but that meta never
+ *  crosses the boundary, so the picker is offered unconditionally and a slice
+ *  whose projection has collapsed reports the reason from `renderSlice` instead
+ *  of having stayed source-only. Closing that means the panel reading the
+ *  per-slice geometry rather than inventing one; see #574. */
 export function syntheticNetcdfMeta(
   v: NetcdfVariableMeta,
   messageIndex = v.variableIndex,
