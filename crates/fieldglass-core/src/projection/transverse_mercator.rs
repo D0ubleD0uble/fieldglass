@@ -666,6 +666,14 @@ mod tests {
                 projector.inverse(54.0, -2.0).is_none(),
                 "scale factor {scale_factor} resolved a grid index"
             );
+            // `inverse` refused these before the scale factor joined
+            // `is_well_defined`, because the check lived in `accepts`. This is
+            // the assertion that pins the method the geometry enum and napi's
+            // `require_well_defined` actually gate on.
+            assert!(
+                !projector.is_well_defined(),
+                "scale factor {scale_factor} is usable"
+            );
         }
     }
 }

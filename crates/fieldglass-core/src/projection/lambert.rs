@@ -192,8 +192,16 @@ impl LambertProjector {
     /// parallels (see `LambertConstants::well_defined`); such a projector's
     /// [`inverse`](Self::inverse) always returns `None`, so callers can surface
     /// "not reprojectable" instead of rendering blank.
+    ///
+    /// The projected origin is checked too, the same way
+    /// [`LambertAzimuthalProjector::is_well_defined`](super::LambertAzimuthalProjector::is_well_defined)
+    /// checks its own. A grid may state a usable cone and then put its first
+    /// point at the pole the cone opens away from, where `tan(π/4 + φ/2)` is
+    /// zero and the forward map divides by it: the origin becomes infinite,
+    /// `inverse` declines every point, and the inverse map still hands back a
+    /// finite `(-90, lon)` for each of them — a coordinate, not a refusal.
     pub fn is_well_defined(&self) -> bool {
-        self.constants.well_defined()
+        self.constants.well_defined() && self.origin.0.is_finite() && self.origin.1.is_finite()
     }
 }
 
@@ -205,9 +213,11 @@ impl PlanarGridProjector for LambertProjector {
         self.forward(lat, lon)
     }
     fn accepts(&self, _lat: f64, _lon: f64) -> bool {
-        // Degenerate standard parallels (see `LambertConstants::well_defined`)
-        // leave no usable cone, so no point can be placed on this grid.
-        self.constants.well_defined()
+        // One predicate, not two. Degenerate standard parallels (see
+        // `LambertConstants::well_defined`) leave no usable cone, and a second
+        // copy of the rule here is how a later condition — the origin check —
+        // would be added in one place and missed in the other.
+        self.is_well_defined()
     }
     fn grid_dims(&self) -> (u32, u32) {
         (self.params.ni, self.params.nj)

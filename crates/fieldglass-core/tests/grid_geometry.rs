@@ -392,18 +392,19 @@ fn the_lambert_perimeter_bulges_past_its_corners() {
 
 #[test]
 fn the_box_is_the_projectors_own_and_not_a_second_implementation() {
-    // `PlanarGridProjector::lonlat_bbox` subdivides each edge 512 times, skips
-    // perimeter samples that are not on the Earth, and returns the empty box
-    // rather than infinities. Re-deriving any of that here would be a second
-    // thing to keep right; this pins the delegation instead.
+    // `PlanarGridProjector::placed_lonlat_bbox` subdivides each edge 512 times
+    // and skips perimeter samples that are not on the Earth. Re-deriving any of
+    // that here would be a second thing to keep right; this pins the delegation
+    // instead — and names the `Option` form, because the enum stopped going
+    // through the total one that reports the empty box.
     assert_eq!(
-        GridGeometry::Lambert(eta_lambert()).lonlat_bbox().unwrap(),
-        LambertProjector::new(eta_lambert()).lonlat_bbox(),
+        GridGeometry::Lambert(eta_lambert()).lonlat_bbox(),
+        LambertProjector::new(eta_lambert()).placed_lonlat_bbox(),
     );
     let polar = cmc_polar();
     assert_eq!(
-        GridGeometry::PolarStereo(polar).lonlat_bbox().unwrap(),
-        PolarStereoProjector::new(polar).lonlat_bbox(),
+        GridGeometry::PolarStereo(polar).lonlat_bbox(),
+        PolarStereoProjector::new(polar).placed_lonlat_bbox(),
         "a grid with the pole outside it passes the projector's answer straight through",
     );
 }
@@ -605,15 +606,20 @@ fn a_family_with_no_plane_reports_no_affine() {
     );
 }
 
-/// The other way a message declares a projection that resolves nowhere.
+/// The other ways a message declares a grid that cannot be placed.
 ///
-/// A degenerate spheroid (above) is not the only one, and the two that are not
-/// spheroids are the ones the enum used to answer for. §3.12's scale factor is
-/// read straight out of the template as an IEEE `f32` with no guard, and it
-/// multiplies the rectifying radius, so a zero collapses the whole plane onto
-/// the false origin; §3.30's declared Earth radius scales the Lambert cone, and
-/// a zero puts every point of the grid at the south pole — finite arithmetic,
-/// and a coordinate to anything reading it.
+/// A degenerate spheroid (above) is not the only one, and none of these are
+/// spheroids. §3.12's scale factor is read straight out of the template as an
+/// IEEE `f32` with no guard, and it multiplies the rectifying radius, so a zero
+/// collapses the whole plane onto the false origin; §3.30's declared Earth
+/// radius scales the Lambert cone, and a zero puts every point of the grid at
+/// the south pole — finite arithmetic, and a coordinate to anything reading it.
+///
+/// The last three state a projection that is fine and a *raster* that has no
+/// position in it: a first point at the pole the cone opens away from sends the
+/// origin to infinity, a §3.20 first point at the far pole puts it at ~1.9e23 m
+/// where a 60 km step is a no-op in `f64` and every grid point collapses onto
+/// one position, and a zero spacing divides the whole plane onto one index.
 ///
 /// `inverse` declined all of these already. What is asserted here is that the
 /// other three answers agree with it, because they did not: a caller gating on
@@ -653,6 +659,33 @@ fn a_projection_that_resolves_nowhere_is_declined_by_every_answer() {
             GridGeometry::Lambert(LambertParams {
                 latin1: 0.0,
                 latin2: 0.0,
+                ..eta_lambert()
+            }),
+            (40.0, -100.0),
+        ),
+        // The two below state a usable projection and then put their first
+        // point where the forward map cannot follow, so the *raster* has no
+        // position in the plane even though the plane is fine.
+        (
+            "a Lambert first point at the pole its cone opens away from",
+            GridGeometry::Lambert(LambertParams {
+                lat_first: -90.0,
+                ..eta_lambert()
+            }),
+            (40.0, -100.0),
+        ),
+        (
+            "a polar stereographic first point at the far pole",
+            GridGeometry::PolarStereo(PolarStereoParams {
+                lat_first: -90.0,
+                ..cmc_polar()
+            }),
+            (60.0, -90.0),
+        ),
+        (
+            "a planar grid with no spacing to step by",
+            GridGeometry::Lambert(LambertParams {
+                dx_metres: 0.0,
                 ..eta_lambert()
             }),
             (40.0, -100.0),
@@ -717,12 +750,30 @@ fn a_space_view_with_no_raster_to_walk_is_not_framed_as_a_hemisphere() {
         None,
         "the inverse it has to agree with"
     );
+    // `forward` is the one answer a one-column raster keeps, and the line is
+    // deliberate rather than an omission: that pixel's line of sight really
+    // does hit the Earth, so it has a position. `inverse` is an *interpolating*
+    // query and needs two points per axis to have a cell; `lonlat_bbox` is a
+    // window and a single column has no extent to frame. Naming the point is
+    // not the same claim as framing a map on it.
+    assert!(
+        single_column.forward(0, 0).is_some(),
+        "a real pixel still has a position",
+    );
 
+    // A zero scan-angle step is different: it puts every pixel on one plane
+    // coordinate, so there is no position to name and no affine to state.
     let zero_step = GridGeometry::Geostationary(GeostationaryParams {
         dx_rad: 0.0,
         ..abi_mesoscale()
     });
     assert_eq!(zero_step.lonlat_bbox(), None);
+    assert_eq!(zero_step.inverse(0.0, -75.0), None);
+    assert_eq!(
+        zero_step.plane_affine(),
+        None,
+        "an affine with a zero step places the whole raster on one pixel",
+    );
 
     // The case the fallback is for, kept: a walkable raster whose perimeter is
     // entirely off the disc (the apparent radius is ~0.151 rad, and this window
