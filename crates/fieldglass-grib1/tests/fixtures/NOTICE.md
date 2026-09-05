@@ -204,6 +204,57 @@ actually spans more than 1 K, so a run that quietly produced a constant fails
 instead of reproducing the gap it closes. eccodes and its samples are released
 under the Apache 2.0 license.
 
+## `reduced_gg_second_order.grib1` / `reduced_gg_second_order_boust.grib1` (+ `_expected.json`)
+
+Second-order packing is ECMWF's, and ECMWF's operational grids are reduced
+Gaussian, so the two go together in the wild — but every second-order fixture
+above is a regular lat/lon grid, which is why the reader could skip the
+boustrophedonic undo whenever the grid had no single column count and nothing
+noticed (#605). This pair puts `grid_second_order` on the N32 reduced Gaussian
+grid of `reduced_gg_n32_smooth.grib1` (64 rows of 20 to 128 points, 6114 total),
+built by `tools/build_grib1_reduced_second_order_fixtures.py`:
+
+```sh
+grib_set -r -s packingType=grid_second_order \
+  reduced_gg_n32_smooth.grib1 reduced_gg_second_order.grib1
+# Setting boustrophedonicOrdering already re-encodes the values (it changes the
+# packingType concept), so eccodes' own packer writes every odd row backwards.
+# No -r: that would ask for a second re-pack, of the message just written, which
+# goes through the broken unpack below and segfaults.
+grib_set -s boustrophedonicOrdering=1 \
+  reduced_gg_second_order.grib1 reduced_gg_second_order_boust.grib1
+```
+
+Both files hold **one field** in two storage orders, which is what
+`tests/decode_reduced_second_order.rs` asserts.
+
+### eccodes 2.34.1 cannot decode the boustrophedonic one
+
+`DataApplyBoustrophedonic::unpack` takes a separate branch when the message has
+a `pl` key, and that branch walks down from `start + pl[j]` with a
+post-decrement where the uniform branch uses `start + numberOfColumns - 1` — the
+`- 1` is simply missing. Every odd row lands one slot to the right, and on a
+64-row grid the last row is odd, so it writes one element past the end of the
+value buffer: `grib_dump`, `grib_get_data` and `grib_get -p numberOfValues` all
+**segfault**. (The GRIB2 edition of the same bug does not crash, because that
+grid's buffer has room; it silently misplaces 3028 of 6114 points. See the GRIB2
+`NOTICE.md`.) So this fixture is on `NO_ECCODES_SNAPSHOT` in
+`tests/eccodes_reference.rs` and on the `undecodable` list in
+`tools/regenerate-eccodes-snapshots.py`.
+
+`pack_double` has the pre-decrement and is correct, which is what makes the
+fixture buildable at all: eccodes is asked to **write** the boustrophedonic
+form, and both `_expected.json` files carry the pin's `grib_get_data` decode of
+the forward-stored sibling — count, statistics, and four sampled points from
+every one of the 64 rows. Sampling every row is deliberate: a reversal that used
+one width on a ragged grid would leave the early rows right and drift from
+there, which a handful of samples near the start would miss.
+
+Note also that eccodes writes both files with GRIB1 octet 4 bit 4
+(`additionalFlagPresent`) **clear**, and reads the extended-flag octet anyway —
+`grib1/section.4.def` gates that block on the complex bit alone. eccodes and its
+samples are released under the Apache 2.0 license.
+
 ## `j_consecutive_latlon.grib1`
 
 The only fixture in the corpus that sets `jPointsAreConsecutive` (GDS octet 28,

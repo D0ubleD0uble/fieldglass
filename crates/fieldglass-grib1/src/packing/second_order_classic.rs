@@ -54,7 +54,7 @@
 //! zero-width group), then `value = (R + X·2^E) / 10^D`.
 
 use fieldglass_core::{
-    FieldglassError,
+    FieldglassError, StoredRuns,
     bits::{BitReader, bits_to_bytes},
 };
 
@@ -214,7 +214,7 @@ pub fn decode_row_by_row(
     decimal_scale: i16,
     bitmap: Option<&[bool]>,
     expected_count: usize,
-    cols: usize,
+    runs: StoredRuns<'_>,
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
     let ext = header.complex_extended.ok_or_else(|| {
         FieldglassError::Parse("row_by_row decoder without complex_extended".into())
@@ -222,11 +222,23 @@ pub fn decode_row_by_row(
     let ClassicHeader {
         num_groups,
         width_of_first,
-        // P2 is unused here: the point count is derived from rows × cols.
+        // P2 is unused here: the point count is derived from rows × columns.
         ..
     } = common_header(bds, header, expected_count)?;
 
-    // One group per row ⇒ numberOfGroups rows of `cols` points each.
+    // One group per row ⇒ numberOfGroups rows of `cols` points each. A reduced
+    // grid has no single width, and eccodes' row-by-row accessor sizes group
+    // `j` by `pl[j]` for one — but nothing here can check that against an
+    // oracle, since eccodes 2.34.1 cannot encode this packing and no committed
+    // fixture pairs it with a reduced grid. Say so and refuse, rather than
+    // guess a layout (#605).
+    let Some(cols) = runs.uniform_width() else {
+        return Err(FieldglassError::UnsupportedSection(
+            "BDS uses `grid_second_order_row_by_row` on a reduced grid, whose rows \
+             differ in width; this decoder sizes its groups by a single column count"
+                .into(),
+        ));
+    };
     if cols == 0 {
         return Err(FieldglassError::Parse(
             "row_by_row needs a non-zero column count".into(),
@@ -261,7 +273,7 @@ pub fn decode_row_by_row(
         header,
         decimal_scale,
         ext.boustrophedonic(),
-        cols,
+        runs,
         bitmap,
         expected_count,
     )
@@ -276,7 +288,7 @@ pub fn decode_constant_width(
     decimal_scale: i16,
     bitmap: Option<&[bool]>,
     expected_count: usize,
-    cols: usize,
+    runs: StoredRuns<'_>,
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
     let ext = header.complex_extended.ok_or_else(|| {
         FieldglassError::Parse("constant_width decoder without complex_extended".into())
@@ -342,7 +354,7 @@ pub fn decode_constant_width(
         header,
         decimal_scale,
         ext.boustrophedonic(),
-        cols,
+        runs,
         bitmap,
         expected_count,
     )
@@ -360,7 +372,7 @@ pub fn decode_general(
     decimal_scale: i16,
     bitmap: Option<&[bool]>,
     expected_count: usize,
-    cols: usize,
+    runs: StoredRuns<'_>,
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
     let ext = header.complex_extended.ok_or_else(|| {
         FieldglassError::Parse("general_grib1 decoder without complex_extended".into())
@@ -423,8 +435,75 @@ pub fn decode_general(
         header,
         decimal_scale,
         ext.boustrophedonic(),
-        cols,
+        runs,
         bitmap,
         expected_count,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::bds::ComplexExtendedHeader;
+
+    /// A 22-octet `row_by_row` section: two groups, 8-bit first-order values,
+    /// and nothing after the header. Enough to reach the layout check and no
+    /// further, which is what these two assertions are about.
+    fn stub_row_by_row() -> (Vec<u8>, BdsHeader) {
+        let mut bds = vec![0u8; 22];
+        bds[0..3].copy_from_slice(&[0, 0, 22]);
+        bds[17] = 2; // codedNumberOfGroups = 2
+        let header = BdsHeader {
+            section_len: 22,
+            is_spherical_harmonic: false,
+            is_complex_packing: true,
+            is_integer_data: false,
+            has_extra_flags: false,
+            unused_trailing_bits: 0,
+            binary_scale_factor: 0,
+            reference_value: 0.0,
+            bits_per_value: 8,
+            spherical_extended: None,
+            complex_extended: Some(ComplexExtendedHeader {
+                n1: 0,
+                // secondOrderOfDifferentWidth, no secondary bitmap, no
+                // general-extended: `grid_second_order_row_by_row`.
+                extended_flag: 0x10,
+            }),
+        };
+        (bds, header)
+    }
+
+    /// `row_by_row` sizes its groups by one column count, so a reduced grid —
+    /// whose rows differ in width — is refused by name rather than decoded on a
+    /// guessed layout. eccodes sizes group `j` by `pl[j]` for one, but it
+    /// cannot encode this packing, so there is no oracle here to check that
+    /// against; #611 tracks closing the gap with a hand-built fixture.
+    #[test]
+    fn row_by_row_refuses_a_reduced_grid() {
+        let (bds, header) = stub_row_by_row();
+        let err = decode_row_by_row(&bds, &header, 0, None, 6, StoredRuns::Ragged(&[2, 4]))
+            .expect_err("a reduced grid has no single column count");
+        match err {
+            FieldglassError::UnsupportedSection(msg) => assert!(
+                msg.contains("row_by_row") && msg.contains("reduced grid"),
+                "error should name the packing and the grid, got: {msg}"
+            ),
+            other => panic!("expected UnsupportedSection, got {other:?}"),
+        }
+    }
+
+    /// The same stub with a uniform layout gets *past* that check and fails
+    /// later, on group descriptors the section does not carry — so the refusal
+    /// above is about the grid's shape, not about the stub being a stub.
+    #[test]
+    fn the_same_section_with_a_uniform_layout_reaches_the_group_descriptors() {
+        let (bds, header) = stub_row_by_row();
+        let err = decode_row_by_row(&bds, &header, 0, None, 6, StoredRuns::Uniform(3))
+            .expect_err("the stub carries no group widths");
+        assert!(
+            matches!(err, FieldglassError::Parse(_)),
+            "expected a Parse error past the layout check, got {err:?}"
+        );
+    }
 }

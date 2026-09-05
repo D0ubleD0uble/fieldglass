@@ -13,7 +13,8 @@ use crate::section::{SectionHeader, parse_section_header};
 use fieldglass_core::{
     FieldglassError, GeostationaryParams, LambertAzimuthalParams, LambertAzimuthalProjector,
     LambertParams, LambertProjector, PlanarGridProjector, PolarStereoParams, PolarStereoProjector,
-    TransverseMercatorParams, bits::sign_magnitude_to_i64, normalise_lon, signed_grid_increments,
+    StoredRuns, TransverseMercatorParams, bits::sign_magnitude_to_i64, normalise_lon,
+    signed_grid_increments,
 };
 
 /// Section number for the Grid Definition Section.
@@ -1211,25 +1212,12 @@ pub const SCAN_J_CONSECUTIVE: u8 = 0x20;
 /// `SCAN_ALTERNATE_ROWS` is set and `SCAN_J_CONSECUTIVE` is clear, and pass
 /// `ni` = points per row. A `values` length that is not a whole number of `ni`
 /// rows leaves any trailing partial row untouched.
+///
+/// The reversal itself is [`fieldglass_core::reverse_alternate_runs`], shared
+/// with the ragged sibling below, with GRIB1's second-order undo, and with
+/// GRIB2's own (#605) — four flags asking for one operation.
 pub fn undo_alternate_rows(values: &mut [Option<f64>], ni: usize) {
-    if ni == 0 {
-        return;
-    }
-    // Checked throughout: `ni` is a `u32` widened to `usize`, so on a 32-bit
-    // target a declared row width near `u32::MAX` makes `start + ni` wrap
-    // where a 64-bit build is comfortable. The row cap upstream bounds
-    // `ni · nj`, which does not bound `ni` when `nj` is zero.
-    let mut start = ni; // first odd row
-    while let Some(end) = start.checked_add(ni) {
-        if end > values.len() {
-            break;
-        }
-        values[start..end].reverse();
-        // `ni <= end <= values.len()` here (`start` opens at `ni` and only
-        // grows), so this sum is at most `2 · values.len()` — and a real slice
-        // of 16-byte elements cannot be half of the address space.
-        start = end + ni; // next odd row
-    }
+    fieldglass_core::reverse_alternate_runs(values, StoredRuns::Uniform(ni));
 }
 
 /// The ragged sibling of [`undo_alternate_rows`], for a reduced grid whose rows
@@ -1243,17 +1231,14 @@ pub fn undo_alternate_rows(values: &mut [Option<f64>], ni: usize) {
 ///
 /// No reduced grid in the wild sets the alternate-row flag (they carry simple
 /// or complex packing written west-to-east), so this exists to keep the flag
-/// honoured rather than quietly ignored on one grid family.
+/// honoured rather than quietly ignored on one grid family. The *packing's*
+/// boustrophedonic bit is a different matter: second-order packing is ECMWF's
+/// and ECMWF's operational grids are reduced Gaussian, which is why
+/// [`Grib2Reader::decode_message_values`] now reverses those runs too (#605).
+///
+/// [`Grib2Reader::decode_message_values`]: crate::Grib2Reader::decode_message_values
 pub fn undo_alternate_reduced_rows(values: &mut [Option<f64>], points_per_row: &[u32]) {
-    let mut start = 0usize;
-    for (row, &width) in points_per_row.iter().enumerate() {
-        let width = width as usize;
-        let end = start.saturating_add(width).min(values.len());
-        if row % 2 == 1 {
-            values[start.min(end)..end].reverse();
-        }
-        start = end;
-    }
+    fieldglass_core::reverse_alternate_runs(values, StoredRuns::Ragged(points_per_row));
 }
 
 /// Parse the Grid Definition Section starting at `bytes[0]`.

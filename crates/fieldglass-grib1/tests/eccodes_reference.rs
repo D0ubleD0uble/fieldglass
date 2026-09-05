@@ -526,14 +526,27 @@ fn read_fixture(fixture: &str) -> Vec<u8> {
 /// `tools/regenerate-eccodes-snapshots.py`. The two lists cannot import each
 /// other across languages, so [`the_exemption_list_has_no_stale_entries`]
 /// checks this one against the filesystem instead.
-const NO_ECCODES_SNAPSHOT: &[(&str, &str)] = &[(
-    "hand_matrix_of_values.grib1",
-    "the true `matrixOfValues` form, which eccodes 2.34.1 can neither encode \
-     nor decode — `grib_dump` aborts inside its own secondary-bitmap accessor \
-     (\"assertion failed: `m <= secondary_len'\"). Decode is cross-checked \
-     against the GRIB2 matrix decoder on the same hand-computed field in \
-     `decode_matrix.rs`.",
-)];
+const NO_ECCODES_SNAPSHOT: &[(&str, &str)] = &[
+    (
+        "hand_matrix_of_values.grib1",
+        "the true `matrixOfValues` form, which eccodes 2.34.1 can neither encode \
+         nor decode — `grib_dump` aborts inside its own secondary-bitmap accessor \
+         (\"assertion failed: `m <= secondary_len'\"). Decode is cross-checked \
+         against the GRIB2 matrix decoder on the same hand-computed field in \
+         `decode_matrix.rs`.",
+    ),
+    (
+        "reduced_gg_second_order_boust.grib1",
+        "second-order packing on a reduced grid with boustrophedonicOrdering = 1, \
+         which eccodes 2.34.1 can encode but not decode: its \
+         `DataApplyBoustrophedonic` reversal walks down from `start + pl[j]` \
+         where the uniform branch uses `start + numberOfColumns - 1`, so on this \
+         64-row grid the last (odd) row writes one element past the end of the \
+         value buffer and `grib_dump` segfaults. Its encoder is correct, so the \
+         oracle is the forward-stored sibling `reduced_gg_second_order.grib1` — \
+         the same field — checked in `decode_reduced_second_order.rs` (#605).",
+    ),
+];
 
 /// Every committed GRIB1 fixture is cross-checked against eccodes.
 ///

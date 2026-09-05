@@ -48,11 +48,12 @@
 //!    accumulators with `bias` added at each step (see `apply_spd_inverse`).
 //! 5. Multiply by `2^E`, add `R`, divide by `10^D` to get final values.
 //! 6. If a BMS bitmap is present, interleave `None` at masked positions.
-//! 7. If boustrophedonicOrdering is set, reverse alternate rows (cols is
-//!    needed for this — eccodes uses numberOfColumns from the GDS).
+//! 7. If boustrophedonicOrdering is set, reverse alternate stored runs (the
+//!    run lengths are needed for this — eccodes uses `numberOfColumns` from the
+//!    GDS, or `pl[j]` when the grid is reduced).
 
 use fieldglass_core::{
-    FieldglassError,
+    FieldglassError, StoredRuns,
     bits::{
         BitReader, apply_spd_inverse, bits_to_bytes, expand_second_order_groups,
         sign_magnitude_to_i64,
@@ -73,7 +74,7 @@ pub fn decode(
     decimal_scale: i16,
     bitmap: Option<&[bool]>,
     expected_count: usize,
-    cols: usize,
+    runs: StoredRuns<'_>,
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
     let ext = header.complex_extended.ok_or_else(|| {
         FieldglassError::Parse(
@@ -307,7 +308,7 @@ pub fn decode(
         header,
         decimal_scale,
         ext.boustrophedonic(),
-        cols,
+        runs,
         bitmap,
         expected_count,
     )
@@ -372,8 +373,15 @@ mod tests {
         let count = 7u16;
         let expected_count = count as usize + 1; // + orderOfSPD seed
         let (bds, header) = zero_width_spd1_bds(count, 33); // N2 = section_len + 1
-        let out = decode(&bds, &header, 0, None, expected_count, expected_count)
-            .expect("all-zero-width second-order BDS should decode");
+        let out = decode(
+            &bds,
+            &header,
+            0,
+            None,
+            expected_count,
+            StoredRuns::Uniform(expected_count),
+        )
+        .expect("all-zero-width second-order BDS should decode");
         let present: Vec<f64> = out.into_iter().map(|v| v.expect("no missing")).collect();
         let want: Vec<f64> = (0..=count).map(f64::from).collect();
         assert_eq!(present, want);
@@ -390,7 +398,7 @@ mod tests {
             0,
             None,
             count as usize + 1,
-            count as usize + 1,
+            StoredRuns::Uniform(count as usize + 1),
         )
         .expect_err("N2 beyond section end must be rejected");
         match err {

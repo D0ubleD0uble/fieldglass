@@ -81,8 +81,11 @@ pub use ds::{DS_SECTION_NUMBER, decode_values};
 // `SpaceViewTemplate::scan_grid`. The other families reach a consumer through
 // [`GridGeometry`], whose payload types are core's own API rather than this
 // crate's, and are not re-exported here.
+// `StoredRuns` is here because `undo_second_order_boustrophedonic` takes the
+// grid's stored run layout — uniform for a rectangle, ragged for a reduced
+// grid (#605).
 pub use fieldglass_core::{
-    FieldglassError, GeostationaryParams, GridGeometry, LambertAzimuthalParams,
+    FieldglassError, GeostationaryParams, GridGeometry, LambertAzimuthalParams, StoredRuns,
     TransverseMercatorParams,
 };
 pub use gds::{

@@ -16,7 +16,7 @@ use crate::drs::{
 };
 use crate::section::{SECTION_HEADER_LEN, SectionHeader};
 use fieldglass_core::{
-    FieldglassError,
+    FieldglassError, StoredRuns,
     bits::{BitReader, apply_spd_inverse, expand_second_order_groups, sign_magnitude_to_i64},
 };
 
@@ -1242,34 +1242,39 @@ fn decode_second_order(
 }
 
 /// Undo the template-5.50002 boustrophedonic row ordering in place, once the
-/// grid width is known. Odd rows (`1, 3, 5, …`) are stored right-to-left, so
-/// reversing each restores scan order. A no-op for any other template, when the
-/// boustrophedonic flag is clear, or when `columns == 0`.
+/// stored run lengths are known. Odd runs (`1, 3, 5, …`) are stored
+/// right-to-left, so reversing each restores scan order. A no-op for any other
+/// template, and when the boustrophedonic flag is clear.
+///
+/// `runs` is the grid's own layout: [`StoredRuns::Uniform`] of `Ni` (or `Nj`
+/// under `j`-consecutive scanning, where the stored run is a meridian) for a
+/// rectangle, and [`StoredRuns::Ragged`] of `PL` for a reduced grid, whose rows
+/// differ in width. eccodes branches on exactly that — `numberOfColumns` when
+/// the message has no `pl` key and `pl[j]` when it does — and the reduced half
+/// used to be skipped here, which left the field of an ECMWF reduced Gaussian
+/// message with every second row backwards (#605).
 ///
 /// eccodes applies this as a post-decode wrapper over the second-order accessor
 /// (`data_apply_boustrophedonic` in `template.7.50002.def`), so doing it here —
-/// after [`decode_values`] returns and the reader supplies `columns` (the grid
-/// width Ni) — mirrors that layering. Crucially, `template.7.50002.def` applies
-/// `data_apply_bitmap` *before* `data_apply_boustrophedonic`, so the reversal is
-/// meant to run on the full grid *after* the §6 bitmap has spread the present
-/// points into place. `decode_second_order` does exactly that ordering
-/// (`interleave_present_points`, then this reversal on the length-`expected_count`
-/// output), so the row reversal is correct whether or not a bitmap is present.
+/// after [`decode_values`] returns and the reader supplies the runs — mirrors
+/// that layering. Crucially, `template.7.50002.def` applies `data_apply_bitmap`
+/// *before* `data_apply_boustrophedonic`, so the reversal is meant to run on the
+/// full grid *after* the §6 bitmap has spread the present points into place.
+/// `decode_second_order` does exactly that ordering (`interleave_present_points`,
+/// then this reversal on the length-`expected_count` output), so the row
+/// reversal is correct whether or not a bitmap is present.
 pub fn undo_second_order_boustrophedonic(
     values: &mut [Option<f64>],
     template: &DataRepresentationTemplate,
-    columns: usize,
+    runs: StoredRuns<'_>,
 ) {
     let DataRepresentationTemplate::SecondOrder(t) = template else {
         return;
     };
-    if !t.boustrophedonic || columns == 0 {
+    if !t.boustrophedonic {
         return;
     }
-    let rows = values.len() / columns;
-    for row in (1..rows).step_by(2) {
-        values[row * columns..(row + 1) * columns].reverse();
-    }
+    fieldglass_core::reverse_alternate_runs(values, runs);
 }
 
 /// Spread `present` into the full grid using `bitmap` — `Some(value)` for
@@ -2792,7 +2797,7 @@ mod tests {
         // 2 columns × 3 rows: rows 1 (odd) reversed, rows 0 and 2 untouched.
         let template = DataRepresentationTemplate::SecondOrder(second_order_template(1, true));
         let mut v: Vec<Option<f64>> = (0..6).map(|i| Some(i as f64)).collect();
-        undo_second_order_boustrophedonic(&mut v, &template, 2);
+        undo_second_order_boustrophedonic(&mut v, &template, StoredRuns::Uniform(2));
         let got: Vec<f64> = v.into_iter().map(|x| x.unwrap()).collect();
         // row0 [0,1] kept; row1 [2,3]→[3,2]; row2 [4,5] kept.
         assert_eq!(got, vec![0.0, 1.0, 3.0, 2.0, 4.0, 5.0]);
@@ -2803,7 +2808,7 @@ mod tests {
         let template = DataRepresentationTemplate::SecondOrder(second_order_template(1, false));
         let mut v: Vec<Option<f64>> = (0..6).map(|i| Some(i as f64)).collect();
         let before = v.clone();
-        undo_second_order_boustrophedonic(&mut v, &template, 2);
+        undo_second_order_boustrophedonic(&mut v, &template, StoredRuns::Uniform(2));
         assert_eq!(v, before);
     }
 
@@ -2812,7 +2817,7 @@ mod tests {
         let template = simple_template(0.0, 0, 0, 8);
         let mut v: Vec<Option<f64>> = (0..6).map(|i| Some(i as f64)).collect();
         let before = v.clone();
-        undo_second_order_boustrophedonic(&mut v, &template, 2);
+        undo_second_order_boustrophedonic(&mut v, &template, StoredRuns::Uniform(2));
         assert_eq!(v, before);
     }
 }

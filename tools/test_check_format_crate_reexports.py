@@ -536,12 +536,13 @@ class TheRepoItselfPasses(unittest.TestCase):
         cannot express.
         """
         expected = {
-            "fieldglass-grib1": {"FieldglassError", "GridGeometry"},
+            "fieldglass-grib1": {"FieldglassError", "GridGeometry", "StoredRuns"},
             "fieldglass-grib2": {
                 "FieldglassError",
                 "GeostationaryParams",
                 "GridGeometry",
                 "LambertAzimuthalParams",
+                "StoredRuns",
                 "TransverseMercatorParams",
             },
             "fieldglass-netcdf": {"ByteRange", "ByteSource", "FieldglassError"},

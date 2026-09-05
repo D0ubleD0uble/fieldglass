@@ -16,7 +16,7 @@
 //! match eccodes and reject precision 3 (128-bit), which `DataRawPacking`
 //! itself returns `GRIB_NOT_IMPLEMENTED` for.
 
-use fieldglass_core::FieldglassError;
+use fieldglass_core::{FieldglassError, StoredRuns};
 
 use crate::bds::BdsHeader;
 
@@ -39,7 +39,7 @@ impl Grib1Packing for IeeePacking {
         _decimal_scale: i16,
         bitmap: Option<&[bool]>,
         expected_count: usize,
-        _cols: usize,
+        _runs: StoredRuns<'_>,
     ) -> Result<Vec<Option<f64>>, FieldglassError> {
         let section_len = header.section_len as usize;
         if bds.len() < section_len || section_len < IEEE_DATA_OFFSET {

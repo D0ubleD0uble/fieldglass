@@ -8,7 +8,7 @@
 //!
 //! This is the only packing supported today.
 
-use fieldglass_core::FieldglassError;
+use fieldglass_core::{FieldglassError, StoredRuns};
 
 use crate::bds::{BDS_DATA_OFFSET, BdsHeader};
 
@@ -26,7 +26,7 @@ impl Grib1Packing for SimplePacking {
         decimal_scale: i16,
         bitmap: Option<&[bool]>,
         expected_count: usize,
-        _cols: usize,
+        _runs: StoredRuns<'_>,
     ) -> Result<Vec<Option<f64>>, FieldglassError> {
         if (bds.len() as u32) < header.section_len {
             return Err(FieldglassError::Parse(format!(

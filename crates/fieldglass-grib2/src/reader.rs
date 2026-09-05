@@ -23,7 +23,7 @@ use crate::spectral::{
     BiFourierCoefficients, SpectralCoefficients, decode_bifourier, decode_spectral_complex,
     decode_spectral_simple,
 };
-use fieldglass_core::FieldglassError;
+use fieldglass_core::{FieldglassError, StoredRuns};
 
 /// Hard cap on `ni · nj` for `decode_message_values`. Real grids top out
 /// around 10⁷ points; this guards against pathological inputs that would
@@ -309,6 +309,19 @@ impl Grib2Reader {
         // message render (not per point), so the clone is not on any hot path.
         let mut values =
             decode_values(ds_payload, msg.drs.template.clone(), bitmap, expected_count)?;
+        // The runs the message stored, which is what both boustrophedonic
+        // undos below step by — decided once here rather than re-derived by
+        // each. `None` is the shape with no rows at all: HEALPix is one list of
+        // pixels, so there is nothing to reorder and nothing to refuse.
+        let stored_runs = match (msg.gds.points_per_row(), raster_dims) {
+            (Some(pl), _) => Some(StoredRuns::Ragged(pl)),
+            (None, Some((ni, nj))) => Some(StoredRuns::Uniform(if j_consecutive(&msg.gds) {
+                nj as usize
+            } else {
+                ni as usize
+            })),
+            (None, None) => None,
+        };
         // Second-order packing (template 5.50002) may store alternate runs
         // backwards; undo it now that the grid shape is known. A no-op for
         // every other template and for 5.50001, and inapplicable to a grid with
@@ -321,9 +334,17 @@ impl Grib2Reader {
         // `grib_get_data` leaves its odd 16-runs un-reversed and reverses its
         // odd 31-runs instead, which is what
         // `decode_j_consecutive.rs` pins (#602).
-        if let Some((ni, nj)) = raster_dims {
-            let run = if j_consecutive(&msg.gds) { nj } else { ni };
-            undo_second_order_boustrophedonic(&mut values, &msg.drs.template, run as usize);
+        //
+        // A reduced grid's runs are its `PL` rows, and it gets the ragged undo:
+        // second-order packing is ECMWF's and ECMWF's operational grids are
+        // reduced Gaussian, so skipping it there — which is what `raster_dims`
+        // being `None` used to do — left the commonest combination of the two
+        // with every second row backwards (#605). `PL` wins over the
+        // j-consecutive flag because a reduced grid's stored runs are its rows
+        // either way; eccodes' `DataApplyBoustrophedonic` branches on the `pl`
+        // key alone and never consults `numberOfColumns` when it is there.
+        if let Some(runs) = stored_runs {
+            undo_second_order_boustrophedonic(&mut values, &msg.drs.template, runs);
         }
         // §3 Flag Table 3.4 bit 4 — adjacent rows scan in opposite directions.
         // The packing stores points in scan order, so every second row lands
@@ -346,20 +367,15 @@ impl Grib2Reader {
         {
             // A reduced grid is flipped by its own row widths, on the stored
             // field — reversing a row after expansion is not the same
-            // operation, because expansion maps columns by longitude.
-            // `raster_dims` carries the uniform case, and is `None` for the
-            // shapes with no rows at all: HEALPix is one list of pixels, so
-            // there is nothing here to reorder and nothing to refuse.
-            match (msg.gds.points_per_row(), raster_dims) {
-                (Some(pl), _) => {
-                    reject_j_consecutive(sm)?;
-                    undo_alternate_reduced_rows(&mut values, pl);
+            // operation, because expansion maps columns by longitude. Both
+            // shapes are the `stored_runs` the second-order undo above already
+            // resolved, so the layout is decided once.
+            if let Some(runs) = stored_runs {
+                reject_j_consecutive(sm)?;
+                match runs {
+                    StoredRuns::Uniform(ni) => undo_alternate_rows(&mut values, ni),
+                    StoredRuns::Ragged(pl) => undo_alternate_reduced_rows(&mut values, pl),
                 }
-                (None, Some((ni, _))) => {
-                    reject_j_consecutive(sm)?;
-                    undo_alternate_rows(&mut values, ni as usize);
-                }
-                (None, None) => {}
             }
         }
         Ok(values)

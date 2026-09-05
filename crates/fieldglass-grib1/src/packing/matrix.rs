@@ -43,7 +43,7 @@
 //!   path ([`MatrixPacking::decode`]) rejects it since it isn't one value per
 //!   point.
 
-use fieldglass_core::{FieldglassError, bits::BitReader};
+use fieldglass_core::{FieldglassError, StoredRuns, bits::BitReader};
 
 use crate::bds::BdsHeader;
 
@@ -144,7 +144,7 @@ impl Grib1Packing for MatrixPacking {
         decimal_scale: i16,
         bitmap: Option<&[bool]>,
         expected_count: usize,
-        _cols: usize,
+        _runs: StoredRuns<'_>,
     ) -> Result<Vec<Option<f64>>, FieldglassError> {
         let section_len = header.section_len as usize;
         if bds.len() < section_len {

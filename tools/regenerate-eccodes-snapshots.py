@@ -198,6 +198,14 @@ EDITIONS: tuple[Edition, ...] = (
                 # secondary-bitmap accessor ("assertion failed: `m <=
                 # secondary_len'").
                 "hand_matrix_of_values.grib1",
+                # Second-order packing on a reduced grid with
+                # boustrophedonicOrdering = 1: eccodes' own
+                # `DataApplyBoustrophedonic` pl branch writes one element past
+                # the end of the value buffer on this 64-row grid, and 2.34.1
+                # segfaults on any key that decodes (#605). Its encoder is
+                # correct, so the fixture's oracle is the forward-stored
+                # sibling's decode in `reduced_gg_second_order_boust_expected.json`.
+                "reduced_gg_second_order_boust.grib1",
             }
         ),
     ),
