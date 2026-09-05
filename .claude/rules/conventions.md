@@ -73,6 +73,27 @@ state GRIB2 §5 decode coverage. When a template starts or stops decoding, updat
 Every other README mention of §5 packing is deliberately coverage-agnostic and
 points at the table; an HTML comment by the table records this rule.
 
+## One fix pattern covers every instance, in one task
+
+When a defect or a change has the same shape in more than one place — two
+format crates, several projection arms, every call site of a helper — fix all
+of them in one task. Don't file it or split it per crate, per format, or per
+module.
+
+Splitting looks tidy and costs real work. The second task inherits the first
+one's implementation and must either duplicate it or hoist it, so a refactor
+appears that would not have existed otherwise: fixing GRIB1's `j_consecutive`
+scanning alone (#542) put the transpose in `fieldglass-grib1`, and the GRIB2
+half (#602) then had to move it to `fieldglass-core` before it could reuse it.
+Fixed together, the helper is born in the crate it belongs in.
+
+So sweep before you write the fix: search for the pattern by concept, list
+every instance, and name in the PR body which ones you covered. An issue that
+mentions one instance is not a licence to leave the others — an instance left
+behind is a bug that outlives its own fix. Split only when an instance really
+needs its own oracle, fixture or design decision, and record that reason on the
+issue.
+
 ## Read the architecture docs before implementing, not at review time
 
 `docs/architecture/` describes the workspace as it is (drift-guarded against
