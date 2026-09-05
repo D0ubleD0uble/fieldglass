@@ -71,10 +71,14 @@ impl PolarStereoConstants {
     /// nothing to say it is wrong. A negative radius is louder but no better:
     /// `rho` comes back negative and the inverse reports latitudes past ±90°.
     ///
-    /// `LaD` is checked here too, for free. The pole scale factor
-    /// `k₀ = (1 + sin|LaD|)/2` is in `[0.5, 1]` for any finite `LaD` — which is
-    /// why the scale factor alone never needed a gate — but a non-finite one
-    /// poisons the product.
+    /// `LaD` is checked here too, and it needed checking. The pole scale factor
+    /// `k₀ = (1 + sin|LaD|)/2` is in `[0.5, 1]` for a *real* latitude of true
+    /// scale, `|LaD| ≤ 90`, which is where the standing claim that no
+    /// declarable `LaD` drives it to zero came from. §3.20 states `LaD` as
+    /// four octets of sign-magnitude microdegrees, so it can declare ±270°,
+    /// where `sin|LaD| = -1` and `k₀` is exactly zero — the same collapsed plane
+    /// a zero radius gives, reached from the other factor. A non-finite `LaD`
+    /// poisons the product as well.
     fn well_defined(&self) -> bool {
         self.two_r_k0.is_finite() && self.two_r_k0 > 0.0
     }
@@ -528,13 +532,56 @@ mod tests {
             ..cmc_polar_params()
         });
         for (lat, lon) in [(60.0, -90.0), (-20.0, 10.0), (11.43, -110.27)] {
-            assert_eq!(proj.forward(lat, lon), (0.0, 0.0), "({lat}, {lon})");
+            let (x, y) = proj.forward(lat, lon);
+            assert!(
+                x.is_finite() && y.is_finite(),
+                "({lat}, {lon}) went non-finite"
+            );
+            assert_eq!((x, y), (0.0, 0.0), "({lat}, {lon})");
         }
-        assert_eq!(proj.origin(), (0.0, -0.0));
+        let (ox, oy) = proj.origin();
+        assert_eq!(
+            (ox, oy),
+            (0.0, 0.0),
+            "the origin lands on the same point everything else does, \
+             which is why the spacing guard cannot see this"
+        );
+    }
+
+    /// The other factor in `two_r_k0`, and the one the standing claim was wrong
+    /// about. `k₀ = (1 + sin|LaD|)/2` is in `[0.5, 1]` only for `|LaD| ≤ 90`;
+    /// §3.20 states `LaD` in sign-magnitude microdegrees, so ±270° is
+    /// declarable and puts `sin|LaD|` at -1, zeroing the factor with the radius
+    /// untouched.
+    #[test]
+    fn polar_stereo_rejects_a_latitude_of_true_scale_past_the_pole() {
+        let p = cmc_polar_params();
+        for lad in [270.0, -270.0, f64::NAN] {
+            let proj = PolarStereoProjector::new(PolarStereoParams { lad, ..p });
+            assert!(!proj.is_well_defined(), "LaD {lad} should leave no plane");
+            assert!(proj.inverse(60.0, -90.0).is_none(), "LaD {lad}");
+        }
+        // A real latitude of true scale — and the two beyond ±90° that do *not*
+        // zero the factor — are untouched, so the gate is on the factor rather
+        // than on a range check applied to `LaD`.
+        for lad in [0.0, 60.0, 90.0, -90.0, 180.0, 210.0] {
+            assert!(
+                PolarStereoProjector::new(PolarStereoParams { lad, ..p }).is_well_defined(),
+                "LaD {lad} leaves a usable plane"
+            );
+        }
     }
 
     /// A grid whose first point the forward map cannot follow has no position
     /// in a plane that is otherwise fine — the origin half of the predicate.
+    ///
+    /// This one leaked further than the collapsed plane did. `inverse` rejects a
+    /// non-finite *query* and a non-finite forward result, but it divides by a
+    /// non-finite origin without looking: `(x - NaN) / dx` is `NaN`, and the
+    /// extent comparisons `i < 0.0 || i > i_max` are both false for `NaN`, so
+    /// the pre-fix code answered `Some(GridIndex { i: NaN, j: NaN })`. Polar
+    /// stereographic was the only planar family this could happen to, because
+    /// it was the only one whose `accepts` defaulted to `true`.
     #[test]
     fn polar_stereo_rejects_a_first_point_the_forward_map_cannot_follow() {
         let proj = PolarStereoProjector::new(PolarStereoParams {
@@ -542,7 +589,10 @@ mod tests {
             ..cmc_polar_params()
         });
         assert!(!proj.is_well_defined());
-        assert!(proj.inverse(60.0, -90.0).is_none());
+        assert!(
+            proj.inverse(60.0, -90.0).is_none(),
+            "a NaN origin used to answer a NaN index rather than nothing"
+        );
     }
 
     #[test]

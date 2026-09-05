@@ -795,8 +795,9 @@ impl GridGeometry {
             // see [`placed_point`]. All four pass their own constants check:
             // polar stereographic used to pass `true` on the grounds that its
             // scale factor `(1 + sin|LaD|)/2` is one no declarable `LaD` drives
-            // to zero, which is true of `LaD` and silent about the radius that
-            // multiplies it (#603).
+            // to zero. That is silent about the radius that multiplies it, and
+            // wrong about `LaD` besides — §3.20 can state ±270°, where the
+            // factor is exactly zero (#603).
             Self::Lambert(p) => {
                 let proj = LambertProjector::new(*p);
                 placed_point(proj.is_well_defined(), &proj, i, j)

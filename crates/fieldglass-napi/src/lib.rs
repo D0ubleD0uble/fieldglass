@@ -5271,12 +5271,14 @@ fn forward_geolocation_for(
             require_well_defined(projector.is_well_defined(), grid_type)?;
             Ok(planar_forward(projector))
         }
-        // The degenerate case here is the radius, not `LaD`. The scale factor
-        // `(1 + sin|LaD|)/2` really is one no declarable `LaD` drives to zero,
-        // which is why this arm was left ungated — but the radius multiplies it,
-        // and a declared zero collapses the plane onto its own origin without
-        // making anything non-finite, so every grid point reports the pole and
-        // every query resolves to cell (0, 0) (#603).
+        // This arm was left ungated on the grounds that the scale factor
+        // `(1 + sin|LaD|)/2` is one no declarable `LaD` drives to zero. Both
+        // halves of that were wrong (#603). The radius multiplies the factor,
+        // and `require_earth_radius` above is what catches a declared zero
+        // there. `LaD` itself reaches here as any finite number — §3.20 states
+        // it in sign-magnitude microdegrees — and ±270° puts `sin|LaD|` at -1,
+        // so the factor really is zero and the plane collapses onto its own
+        // origin with every number still finite.
         "polar_stereo" => {
             let projector = PolarStereoProjector::new(polar_stereo_params(meta, ni, nj)?);
             require_well_defined(projector.is_well_defined(), grid_type)?;
@@ -5299,7 +5301,9 @@ fn forward_geolocation_for(
 }
 
 /// Refuse a grid whose projection constants are degenerate — standard parallels
-/// that collapse the Lambert cone, a spheroid with no shape.
+/// that collapse the Lambert cone, a spheroid with no shape, a polar
+/// stereographic latitude of true scale past ±90° that zeroes the pole scale
+/// factor.
 ///
 /// The warp already refuses these: the same constants leave
 /// `Projector::inverse` returning `None` for every pixel. The forward direction
@@ -9966,8 +9970,8 @@ mod planar_geolocation_tests {
             "the warp refuses it"
         );
 
-        // Polar stereographic has no constants check of its own, which is why
-        // the radius is validated where the parameters are read.
+        // The radius is validated where the parameters are read, for every
+        // family at once, so it is refused before a projector is even built.
         let (_, mut polar, pni, pnj) = grib1_handle(CMC_POLAR).resolved(0).expect("cmc resolves");
         polar.earth_radius_metres = Some(-1.0);
         assert!(
@@ -9980,6 +9984,42 @@ mod planar_geolocation_tests {
         let (mut silent, ni, nj) = grib2_geometry(ETA_LAMBERT);
         silent.earth_radius_metres = None;
         assert!(forward_geolocation_for(&silent, ni, nj, None, |_| String::new()).is_ok());
+    }
+
+    /// The other way to collapse a polar stereographic plane, and the one the
+    /// radius check above cannot reach: `LaD` past ±90°.
+    ///
+    /// The pole scale factor `k₀ = (1 + sin|LaD|)/2` is in `[0.5, 1]` for a real
+    /// latitude of true scale, which is why this arm carried no constants check
+    /// at all. §3.20 states `LaD` in sign-magnitude microdegrees though, so a
+    /// message can say 270°, where `sin|LaD|` is -1 and `k₀` is exactly zero.
+    /// The radius is then untouched and every number stays finite, so
+    /// `require_earth_radius` passes it straight through and only the
+    /// projector's own check refuses it (#603).
+    #[test]
+    fn a_polar_stereo_lad_past_the_pole_is_refused() {
+        let (_, mut polar, ni, nj) = grib1_handle(CMC_POLAR).resolved(0).expect("cmc resolves");
+        assert!(
+            forward_geolocation_for(&polar, ni, nj, None, |gt| format!("unsupported {gt}")).is_ok(),
+            "the real CMC grid geolocates"
+        );
+        polar.polar_stereo_lad = Some(270.0);
+        let err = forward_geolocation_for(&polar, ni, nj, None, |gt| format!("unsupported {gt}"))
+            .err()
+            .expect("a zero pole scale factor leaves no plane");
+        assert!(
+            err.reason.contains("degenerate projection parameters"),
+            "the message should name the degeneracy, got: {}",
+            err.reason
+        );
+        // The radius is intact, so the check that catches this is the
+        // projector's and not the shared radius guard.
+        assert!(
+            polar
+                .earth_radius_metres
+                .is_some_and(|r| r.is_finite() && r > 0.0),
+            "the radius guard has nothing to object to here"
+        );
     }
 
     /// The table is the gate: every grid type it names resolves to a forward
