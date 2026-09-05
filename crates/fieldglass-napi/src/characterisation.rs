@@ -762,12 +762,21 @@ fn parse(text: &str) -> Golden {
         );
         let exact = u64::from_str_radix(columns[3], 16)
             .unwrap_or_else(|e| panic!("{GOLDEN_PATH}:{}: bad hash {:?}: {e}", n + 1, columns[3]));
-        golden.insert(
-            (columns[0].to_string(), columns[1].to_string()),
+        let key = (columns[0].to_string(), columns[1].to_string());
+        let previous = golden.insert(
+            key.clone(),
             Row {
                 portable: columns[2].to_string(),
                 exact,
             },
+        );
+        // A hand-edited file with the same case twice would otherwise keep the
+        // last one and drop the other without a word, which is a case that
+        // looks recorded and is not.
+        assert!(
+            previous.is_none(),
+            "{GOLDEN_PATH}:{}: {key:?} is recorded twice",
+            n + 1
         );
     }
     golden
