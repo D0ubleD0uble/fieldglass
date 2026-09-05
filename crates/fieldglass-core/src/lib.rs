@@ -86,11 +86,11 @@ pub use projection::{
     GeostationaryProjector, GridGeometry, GridIndex, GridResampling, LambertAzimuthalParams,
     LambertAzimuthalProjector, LambertParams, LambertProjector, LatLonParams, LonLatBox,
     MercatorParams, PlanarGridProjector, PlaneAffine, PlaneUnits, PolarStereoParams,
-    PolarStereoProjector, RotatedLatLonParams, RotatedLatLonProjector, TransverseMercatorParams,
-    TransverseMercatorProjector, eastward_lon_span, expand_reduced_to_regular, gaussian_latitudes,
-    is_octahedral_pl, latlon_inverse, latlon_point, lon_grid_is_global, mercator_inverse,
-    mercator_point, normalise_lon, plane_spans_a_grid_cell, reduced_raster_lon_last,
-    reduced_raster_width, rotated_latlon_point, signed_grid_increments,
+    PolarStereoProjector, RotatedLatLonParams, RotatedLatLonProjector, Scan,
+    TransverseMercatorParams, TransverseMercatorProjector, eastward_lon_span,
+    expand_reduced_to_regular, gaussian_latitudes, is_octahedral_pl, latlon_inverse, latlon_point,
+    lon_grid_is_global, mercator_inverse, mercator_point, normalise_lon, plane_spans_a_grid_cell,
+    reduced_raster_lon_last, reduced_raster_width, rotated_latlon_point, signed_grid_increments,
 };
 pub use scan::{StoredRuns, reverse_alternate_runs, transpose_j_consecutive};
 pub use spatial_index::SpatialIndex;

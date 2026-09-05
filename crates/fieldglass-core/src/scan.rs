@@ -18,7 +18,11 @@
 //! The *directions* the scanning mode also carries — whether `i` runs east or
 //! west, whether `j` runs north or south — are not this module's business. They
 //! move where a row starts, which the grid geometry already accounts for; only
-//! the storage order is normalised here.
+//! the storage order is normalised here. They travel beside the geometry
+//! instead, as [`crate::Scan`], which carries all three flags because a host
+//! reports all three; the two direction bits are what
+//! [`crate::GridGeometry::reprojectable`] and [`crate::Scan::flips_source_rows`]
+//! read.
 
 /// The runs a field was stored in — what a boustrophedonic reversal steps by.
 ///

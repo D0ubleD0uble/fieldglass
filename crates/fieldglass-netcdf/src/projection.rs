@@ -206,9 +206,10 @@ pub fn wrf_map_proj(global: &[(String, String)]) -> Option<WrfMapProj> {
 }
 
 /// Grid spacings parsed from `DX`/`DY`, required present, finite, and non-zero
-/// — the same gate `grid_is_reprojectable` applies to the GRIB planar grids, so
-/// a degenerate spacing falls back to source projection instead of advertising
-/// a reprojection that every warp would reject.
+/// — the same gate [`fieldglass_core::GridGeometry::reprojectable`] applies to
+/// the GRIB planar grids, so a degenerate spacing falls back to source
+/// projection instead of advertising a reprojection that every warp would
+/// reject.
 fn wrf_grid_spacing(global: &[(String, String)]) -> Option<(f64, f64)> {
     let dx = attr_f64(global, "DX")?;
     let dy = attr_f64(global, "DY")?;
@@ -629,7 +630,7 @@ mod tests {
     fn wrf_degenerate_spacing_falls_back_to_source() {
         // A zero DX advertises a grid no warp could invert; the resolver
         // rejects it so the render stays source-only — the same gate
-        // `grid_is_reprojectable` applies to the GRIB planar grids.
+        // `GridGeometry::reprojectable` applies to the GRIB planar grids.
         let zero_dx = attrs(&[
             ("MAP_PROJ", "2"),
             ("TRUELAT1", "60.0"),

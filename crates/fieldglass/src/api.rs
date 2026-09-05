@@ -18,7 +18,17 @@
 //! * **`#[non_exhaustive]`, serde derives, and (under the `schema` feature) a
 //!   JSON Schema**, which is what a host's declarations are generated from.
 
-use fieldglass_core::{GridGeometry, LonLatBox, PlaneUnits, eastward_lon_span, lon_grid_is_global};
+use fieldglass_core::{GridGeometry, LonLatBox, PlaneUnits};
+
+/// Scan order of the decoded raster, as the message's own flags state it.
+///
+/// `core`'s type, re-exported rather than restated: it is what
+/// [`GridGeometry::reprojectable`] is asked alongside, so a second copy here
+/// would be a host DTO that the engine then had to convert back (#571). The
+/// geometry already accounts for the two direction bits — `forward(0, 0)` is
+/// the declared first point whichever way the grid runs — which is why this is
+/// the one thing beside it: which way *up* a host should draw the rows.
+pub use fieldglass_core::Scan;
 
 /// Convenience: every API type derives the same set. Each states its own
 /// `rename_all`.
@@ -80,31 +90,6 @@ api_type! {
         F32,
         /// Widen to `f64` whatever the source was.
         F64,
-    }
-
-    /// Scan order of the decoded raster, as the message's own flags state it.
-    ///
-    /// The geometry already accounts for the scan — `forward(0, 0)` is the
-    /// declared first point whichever way the grid runs — so this is here for
-    /// the one thing geometry cannot answer: which way *up* a host should draw
-    /// the rows. A `j_positive` grid scans south-to-north, so a north-up canvas
-    /// flips it.
-    ///
-    /// [`Self::j_consecutive`] is the odd one out and is **descriptive only**:
-    /// the decoders transpose such a field before it reaches a caller, so the
-    /// raster this describes is row-major whatever that field says. Acting on
-    /// it transposes twice.
-    #[serde(rename_all = "camelCase")]
-    #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
-    pub struct Scan {
-        /// Points run east→west rather than west→east.
-        pub i_negative: bool,
-        /// Rows run south→north rather than north→south.
-        pub j_positive: bool,
-        /// The *message* stores adjacent points consecutive in `j`
-        /// (column-major). Descriptive only — the decoded raster has already
-        /// been transposed into rows; see the type docs.
-        pub j_consecutive: bool,
     }
 
     /// Units the [`Georef`] origin and spacing are expressed in.
@@ -184,6 +169,14 @@ api_type! {
         pub periodic_x: bool,
         /// The scan order the message's own flags state, so a consumer can
         /// walk `values` without re-deriving it.
+        ///
+        /// A `core` type, like [`geometry`](Self::geometry), so it is described
+        /// to a schema consumer the same way — but written out property by
+        /// property rather than loosely, because a host reads these three and
+        /// #574 generates its declarations from this schema.
+        /// `the_scan_schema_names_every_field_scan_serialises` holds the two in
+        /// step.
+        #[cfg_attr(feature = "schema", schemars(schema_with = "scan_schema"))]
         pub scan: Scan,
     }
 
@@ -444,7 +437,7 @@ impl Georef {
             y0,
             dx,
             dy,
-            periodic_x: geometry_is_periodic_x(geom),
+            periodic_x: geom.is_periodic_x(),
             scan,
         }
     }
@@ -463,35 +456,27 @@ fn geometry_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
     })
 }
 
-/// Whether the grid's column axis closes on itself.
+/// How [`Georef::scan`] is described to a schema consumer.
 ///
-/// Only the geographic families can be: a projected grid's columns are
-/// projection-plane metres, and no finite number of them wraps the Earth.
-/// Judged from the corner longitudes and the column count, which is exactly
-/// the rule the warp's `SourceGrid::periodic_i` is set from.
-fn geometry_is_periodic_x(geom: &GridGeometry) -> bool {
-    match geom {
-        GridGeometry::LatLon(p) => {
-            lon_grid_is_global(eastward_lon_span(p.lon_first, p.lon_last), p.ni)
-        }
-        GridGeometry::Gaussian(p) => {
-            lon_grid_is_global(eastward_lon_span(p.lon_first, p.lon_last), p.ni)
-        }
-        // Evenly spaced in longitude like the two above, so the same corner
-        // test decides it.
-        GridGeometry::Mercator(p) => {
-            lon_grid_is_global(eastward_lon_span(p.lon_first, p.lon_last), p.ni)
-        }
-        // Judged in its own rotated frame, which is the frame its corners and
-        // its inverse map are both stated in. A rotated grid that closes on
-        // itself there closes on itself on the sphere too.
-        GridGeometry::RotatedLatLon(p) => {
-            lon_grid_is_global(eastward_lon_span(p.lon_first, p.lon_last), p.ni)
-        }
-        // A projected grid's columns are projection-plane metres, and no finite
-        // number of them wraps the Earth.
-        _ => false,
-    }
+/// Written out rather than left loose like [`geometry_schema`]: these three
+/// booleans are what a host actually reads off a `Georef`, and #574 generates
+/// `native.ts` from this document. `core` cannot derive the schema itself —
+/// that would follow `schemars` into every format crate — so the property list
+/// is restated here and
+/// `the_scan_schema_names_every_field_scan_serialises` asserts it against what
+/// `Scan` really serialises to.
+#[cfg(feature = "schema")]
+fn scan_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    schemars::json_schema!({
+        "type": "object",
+        "required": ["iNegative", "jPositive", "jConsecutive"],
+        "properties": {
+            "iNegative": { "type": "boolean" },
+            "jPositive": { "type": "boolean" },
+            "jConsecutive": { "type": "boolean" }
+        },
+        "description": "fieldglass_core::Scan: the message's own scanning-mode direction flags."
+    })
 }
 
 #[cfg(test)]
@@ -499,12 +484,51 @@ mod tests {
     use super::*;
     use fieldglass_core::{LambertParams, LambertProjector, LatLonParams, PlanarGridProjector};
 
+    /// [`scan_schema`] restates `Scan`'s three properties by hand, because
+    /// `core` cannot derive `JsonSchema` — the derive would follow it into every
+    /// format crate. A restatement drifts, so this is what holds the two in
+    /// step: the schema's property names must be exactly the keys `Scan`
+    /// serialises to, and a field added, renamed or dropped in `core` fails
+    /// here rather than in a `.d.ts` #574 generates from the schema.
+    #[cfg(feature = "schema")]
+    #[test]
+    fn the_scan_schema_names_every_field_scan_serialises() {
+        let serialised = serde_json::to_value(Scan::new(true, false, true))
+            .expect("Scan serialises to an object");
+        let mut wire: Vec<String> = serialised
+            .as_object()
+            .expect("an object")
+            .keys()
+            .cloned()
+            .collect();
+        wire.sort();
+
+        let schema = scan_schema(&mut schemars::SchemaGenerator::default());
+        let json = serde_json::to_value(&schema).expect("the schema is JSON");
+        let mut declared: Vec<String> = json["properties"]
+            .as_object()
+            .expect("the schema declares properties")
+            .keys()
+            .cloned()
+            .collect();
+        declared.sort();
+        assert_eq!(declared, wire, "scan_schema must name what Scan serialises");
+
+        let mut required: Vec<String> = json["required"]
+            .as_array()
+            .expect("the schema lists required properties")
+            .iter()
+            .map(|v| v.as_str().expect("a name").to_string())
+            .collect();
+        required.sort();
+        assert_eq!(
+            required, wire,
+            "every property Scan always writes must be required"
+        );
+    }
+
     fn scan() -> Scan {
-        Scan {
-            i_negative: false,
-            j_positive: false,
-            j_consecutive: false,
-        }
+        Scan::north_down()
     }
 
     /// A field packed at a negative power of two round-trips through `f32`

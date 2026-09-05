@@ -1194,6 +1194,61 @@ fn the_display_path_matches_its_recording() {
 /// its warp setup under every target. A new family arriving with no
 /// representative would otherwise be recorded — and left untested where it
 /// differs. Reads the recording rather than the corpus, so it costs nothing.
+/// `meta_geometry` declines exactly the fields the warp declines.
+///
+/// That equivalence is the whole argument that moving the four grid questions
+/// into `core` (#571) preserved behaviour: every one of them is now asked of the
+/// geometry this mapping produces, and `GridGeometry::Unsupported` answers "not
+/// periodic, no seam wrap, not reprojectable". Those are three plausible
+/// answers, none of them a panic, so a family that quietly stopped mapping would
+/// move the golden only where a fixture's *output* moved with it — and for a
+/// grid that was already source-only, nothing would.
+///
+/// So it is asserted directly, over all 144 fields: the mapping produces a
+/// geometry if and only if `warp_setup_for` produces a setup. One family is
+/// excluded and states why — a lookup grid's geometry *is* its cell-centre
+/// index, which the DTO does not carry and which `meta_geometry` therefore
+/// declines by design while the warp, holding the index, accepts.
+#[test]
+fn meta_geometry_declines_exactly_what_the_warp_declines() {
+    let mut checked = 0usize;
+    let mut disagreed: Vec<String> = Vec::new();
+    for_each_visit(|id, visit| {
+        let Visit::Field(subject) = visit else {
+            return;
+        };
+        let Ok(meta) = subject.meta() else {
+            return;
+        };
+        if meta.grid_type.as_deref() == Some("curvilinear") {
+            return;
+        }
+        let (Ok(ni), Ok(nj)) = (grid_ni(&meta), grid_nj(&meta)) else {
+            return;
+        };
+        checked += 1;
+        let mapped = meta_geometry(&meta).kind() != "unsupported";
+        let warps = warp_setup_for(&meta, ni, nj, None).is_ok();
+        if mapped != warps {
+            disagreed.push(format!(
+                "{id}: grid_type {:?}, mapped={mapped}, warp_setup_for ok={warps}",
+                meta.grid_type
+            ));
+        }
+    });
+    assert!(
+        checked > 0,
+        "the corpus yielded no field with a raster shape"
+    );
+    assert!(
+        disagreed.is_empty(),
+        "{} of {checked} fields map to a geometry the warp disagrees about, so \
+         the four grid questions are being asked of something the render is not: \
+         {disagreed:#?}",
+        disagreed.len()
+    );
+}
+
 #[test]
 fn every_grid_family_in_the_golden_has_a_deep_field() {
     if updating() {

@@ -36,9 +36,13 @@ abstract, and every new grid pays there:
   orthographic and polar stereographic are `ni.max(nj)` square, world
   projections go through `world_raster_dims(ni, nj)`. A grid whose `(ni, nj)`
   is not a raster shape needs its own target-dims rule.
-- Reprojection eligibility is a grid-type string allow-list
-  (`grid_is_reprojectable`, `warp_setup_for`, `source_grid_is_periodic`), not
-  an abstract property. Each new grid touches several sites.
+- Reprojection eligibility *was* a grid-type string allow-list here
+  (`grid_is_reprojectable`, `gate_planar_reprojection`,
+  `source_grid_is_periodic`), so each new grid touched several sites. #571 made
+  it one property of the geometry — `GridGeometry::reprojectable`,
+  `is_periodic_x`, `contour_seam_wraps`, `render_window` — and napi keeps only
+  the mapping from its DTO to that type (`meta_geometry`). A new grid family now
+  adds arms in `core` and none here.
 - `GridGeometry` is ~30 scalars *and* is the render-cache key. A grid that
   needs coordinate arrays or an index handle changes the cache key and all
   three `warp_setup_for` callers (`warp_message`, `project_overlay_impl`,

@@ -359,7 +359,13 @@ impl Session {
         let cells: Vec<Option<f64>> = optional_values(field);
         let ni = field.ni as usize;
         let nj = field.nj as usize;
-        let raw = if field.georef.periodic_x {
+        // `periodic_x` is the wrong question here, and asking it was the same
+        // host divergence #571 set out to end: the tracer may only unwrap the
+        // seam where geographic longitude advances uniformly eastward with `i`,
+        // which a rotated grid's rows — small circles — do not. Unwrapping one
+        // of those eastward sweeps most of the way round the globe and draws a
+        // rim-to-rim streak in place of closing a one-cell gap.
+        let raw = if field.georef.geometry.contour_seam_wraps() {
             contour_segments_global(&cells, ni, nj, &chosen)
         } else {
             contour_segments(&cells, ni, nj, &chosen)
@@ -398,23 +404,14 @@ fn warp_field(field: &Field, options: &WarpOptions) -> Result<Warped, Error> {
         // the order is not the type's statement; read it back through the
         // type so it is stated once rather than at the destructure below.
         Some(b) => LonLatBox::from_array(b),
-        None => {
-            let extent = geometry.lonlat_bbox().ok_or_else(|| Error::Unsupported {
-                detail: format!("a {} grid states no extent to warp onto", geometry.label()),
-            })?;
-            // A global grid's default window runs the full turn, not to its
-            // last declared column. The gap between the last column and the
-            // first belongs to the grid — the periodic sampler fills it — and
-            // stopping at `lon_last` leaves the seam meridian as a stripe of
-            // background one cell wide. `lonlat_bbox` reports where the data
-            // is, which is the right answer to a different question; the
-            // widening turns it into a window.
-            if field.georef.periodic_x {
-                extent.widened_to_full_turn()
-            } else {
-                extent
-            }
-        }
+        // `lonlat_bbox` reports where the data is, which is the right answer
+        // to a different question; `render_window` is the window question, and
+        // states once — in `core`, for both hosts — that a periodic grid's
+        // window runs the full turn rather than stopping at its last declared
+        // column (#571).
+        None => geometry.render_window().ok_or_else(|| Error::Unsupported {
+            detail: format!("a {} grid states no extent to warp onto", geometry.label()),
+        })?,
     };
     let LonLatBox {
         lat_min,
@@ -523,30 +520,20 @@ fn build_palette(field: &Field, options: &PaletteOptions) -> Result<Palette, Err
 
 fn grib1_scan(msg: &fieldglass_grib1::Grib1Message) -> Scan {
     match &msg.gds {
-        Some(gds) => match scan_of_grib1(gds) {
-            Some(s) => s,
-            None => Scan::default_north_down(),
-        },
-        None => Scan::default_north_down(),
+        Some(gds) => scan_of_grib1(gds).unwrap_or_else(Scan::north_down),
+        None => Scan::north_down(),
     }
 }
 
 fn scan_of_grib1(gds: &fieldglass_grib1::GridDescription) -> Option<Scan> {
-    gds.scanning_mode().map(|m| Scan {
-        i_negative: m.i_negative,
-        j_positive: m.j_positive,
-        j_consecutive: m.j_consecutive,
-    })
+    gds.scanning_mode()
+        .map(|m| Scan::new(m.i_negative, m.j_positive, m.j_consecutive))
 }
 
 fn grib2_scan(msg: &fieldglass_grib2::Grib2Message) -> Scan {
     match msg.gds.scanning_mode() {
-        Some(sm) => Scan {
-            i_negative: sm & 0x80 != 0,
-            j_positive: sm & 0x40 != 0,
-            j_consecutive: sm & 0x20 != 0,
-        },
-        None => Scan::default_north_down(),
+        Some(sm) => Scan::new(sm & 0x80 != 0, sm & 0x40 != 0, sm & 0x20 != 0),
+        None => Scan::north_down(),
     }
 }
 
@@ -676,22 +663,10 @@ fn grib2_message(reader: &fieldglass_grib2::Grib2Reader, index: usize) -> Messag
     }
 }
 
-impl Scan {
-    /// The operational default — west-to-east, north-to-south, row-major — used
-    /// where a message states no scan at all.
-    fn default_north_down() -> Self {
-        Self {
-            i_negative: false,
-            j_positive: false,
-            j_consecutive: false,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fieldglass_core::{LatLonParams, projection::GridGeometry};
+    use fieldglass_core::{LatLonParams, RotatedLatLonParams, projection::GridGeometry};
 
     /// A message can declare a zero-width grid, and `decode` accepts it: zero
     /// values match a zero-cell raster. `probe` must answer `None` for such a
@@ -719,7 +694,7 @@ mod tests {
             mask: Vec::new(),
             ni: 0,
             nj: 0,
-            georef: Georef::from_geometry(&geometry, Scan::default_north_down()),
+            georef: Georef::from_geometry(&geometry, Scan::north_down()),
             stats: Stats {
                 min: None,
                 max: None,
@@ -729,7 +704,20 @@ mod tests {
             units: String::new(),
         };
         // The session is irrelevant to `probe`; it reads only the field.
-        let session = Session {
+        assert!(grib2_session().probe(&field, 0.0, 0.0).is_none());
+
+        // The hazard the guard exists for, stated rather than assumed.
+        assert!(
+            std::panic::catch_unwind(|| 0.0_f64.clamp(0.0, -1.0)).is_err(),
+            "f64::clamp is expected to panic on crossed bounds; if it ever \
+             saturates instead, the guard above is redundant"
+        );
+    }
+
+    /// A session over an arbitrary fixture, for the operations that read only
+    /// the `Field` handed to them and never the reader behind it.
+    fn grib2_session() -> Session {
+        Session {
             reader: Reader::Grib2(Box::new(
                 fieldglass_grib2::Grib2Reader::from_bytes(
                     std::fs::read("../fieldglass-grib2/tests/fixtures/gfs_c255_latlon.grib2")
@@ -737,14 +725,110 @@ mod tests {
                 )
                 .expect("parse"),
             )),
-        };
-        assert!(session.probe(&field, 0.0, 0.0).is_none());
+        }
+    }
 
-        // The hazard the guard exists for, stated rather than assumed.
+    /// A field on a grid periodic in its *rotated* frame, for the two questions
+    /// this crate used to answer with `periodic_x` and now asks the geometry.
+    fn rotated_periodic_field(values: Vec<f64>) -> Field {
+        let geometry = GridGeometry::RotatedLatLon(RotatedLatLonParams {
+            ni: 16,
+            nj: 8,
+            lat_first: 40.0,
+            lon_first: 0.0,
+            lat_last: -40.0,
+            // A full turn once the 22.5° step is counted.
+            lon_last: 337.5,
+            south_pole_lat: -30.0,
+            south_pole_lon: 10.0,
+            angle_of_rotation: 0.0,
+        });
+        let mask = vec![1u8; values.len()];
+        Field {
+            values: Values::F64(values),
+            mask,
+            ni: 16,
+            nj: 8,
+            georef: Georef::from_geometry(&geometry, Scan::north_down()),
+            stats: Stats {
+                min: Some(0.0),
+                max: Some(15.0),
+                valid_count: 128,
+            },
+            parameter: String::new(),
+            units: String::new(),
+        }
+    }
+
+    /// The two answers this crate composed for itself, now the geometry's — and
+    /// rotated lat/lon is the family where the two questions come apart.
+    ///
+    /// A rotated grid's columns close on themselves, so `periodic_x` is `true`
+    /// and the warp may wrap a column index. Neither of the questions below
+    /// follows from that, because both are about *geographic* longitude, which
+    /// along a rotated row is neither uniform nor monotonic:
+    ///
+    /// * the default warp window used to be widened a full turn on the strength
+    ///   of `periodic_x`, which frames a rotated polar cap 23° wide as the whole
+    ///   globe;
+    /// * the contour tracer used to be told to unwrap the seam on the same
+    ///   strength, which sweeps most of the way round the globe and draws a
+    ///   rim-to-rim streak in place of closing a one-cell gap.
+    ///
+    /// `fieldglass-napi` never did either, which is the divergence #571 closed.
+    #[test]
+    fn a_periodic_rotated_grid_neither_widens_its_window_nor_unwraps_its_seam() {
+        let field = rotated_periodic_field((0..128).map(|k| f64::from(k % 16)).collect());
         assert!(
-            std::panic::catch_unwind(|| 0.0_f64.clamp(0.0, -1.0)).is_err(),
-            "f64::clamp is expected to panic on crossed bounds; if it ever \
-             saturates instead, the guard above is redundant"
+            field.georef.periodic_x,
+            "the columns really do close on themselves"
+        );
+
+        let warped = warp_field(
+            &field,
+            &WarpOptions {
+                bounds: None,
+                bilinear: false,
+            },
+        )
+        .expect("a periodic rotated grid warps");
+        let extent = field
+            .georef
+            .geometry
+            .lonlat_bbox()
+            .expect("the walk places it");
+        let window = LonLatBox::from_array(warped.bounds);
+        assert!(
+            (window.lon_max - window.lon_min - (extent.lon_max - extent.lon_min)).abs() < 1e-9,
+            "the window must be the walked extent, not a full turn: got {}°, \
+             extent {}°",
+            window.lon_max - window.lon_min,
+            extent.lon_max - extent.lon_min
+        );
+
+        // The tracer takes the bounded march, asked through `Session::contours`
+        // itself rather than through a copy of its rule. A ramp across the
+        // columns crosses every level once per row, and the global march adds
+        // the seam cell between column 15 and column 0 — where the ramp falls 15
+        // back to 0 and so crosses every level a second time — so the two are
+        // distinguishable by segment count alone.
+        let session = grib2_session();
+        let levels = [4.5, 9.5];
+        let bounded: usize = session
+            .contours(&field, &levels)
+            .expect("contours")
+            .iter()
+            .map(|l| l.segments.len())
+            .sum();
+        let cells: Vec<Option<f64>> = optional_values(&field);
+        let unwrapped: usize = fieldglass_core::contour_segments_global(&cells, 16, 8, &levels)
+            .iter()
+            .map(|l| l.segments.len())
+            .sum();
+        assert!(
+            bounded < unwrapped,
+            "the bounded march must draw fewer segments than the unwrapped one, \
+             or this test cannot tell them apart: {bounded} vs {unwrapped}"
         );
     }
 }

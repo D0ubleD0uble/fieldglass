@@ -192,8 +192,8 @@ classDiagram
         +bounds_lonlat
         +Option~String~ proj4
         +x0, y0, dx, dy
-        +bool periodic_x
-        +scan flags
+        +bool periodic_x from GridGeometry#58;#58;is_periodic_x
+        +Scan scan core type, #571
     }
     class Session {
         <<planned #464, crate fieldglass>>
