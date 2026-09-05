@@ -19,7 +19,7 @@ use fieldglass_core::{
     contour::{contour_segments, contour_segments_global, nice_levels},
     csv::{field_to_csv_long, field_to_csv_matrix},
     detect_from_bytes, eastward_lon_span, latlon_inverse, latlon_point, lon_grid_is_global,
-    mercator_inverse, mercator_point, normalise_lon, project_polylines,
+    mercator_inverse, mercator_point, normalise_lon, plane_spans_a_grid_cell, project_polylines,
     projection::GridIndex,
     rotated_latlon_point, signed_grid_increments,
     units::normalize_units,
@@ -5922,12 +5922,49 @@ fn require_earth_radius(meta: &MessageMeta) -> napi::Result<f64> {
     let radius = meta
         .earth_radius_metres
         .unwrap_or(fieldglass_core::DEFAULT_EARTH_RADIUS_M);
+    require_usable_earth_radius(radius)?;
+    Ok(radius)
+}
+
+/// The "is this a sphere at all" half of [`require_earth_radius`], split out so
+/// the spheroidal families — which read their axes from their own template
+/// fields rather than from `earthRadiusMetres` — refuse a shapeless one with
+/// the same words instead of falling through to the generic
+/// [`require_well_defined`] message.
+fn require_usable_earth_radius(radius: f64) -> napi::Result<()> {
     if radius.is_finite() && radius > 0.0 {
-        return Ok(radius);
+        return Ok(());
     }
     Err(napi::Error::from_reason(format!(
         "the message declares an Earth radius of {radius} m, which describes no sphere \
          to place its grid points on"
+    )))
+}
+
+/// Refuse a planar grid whose declared Earth is too small to carry its own grid
+/// spacing — see [`fieldglass_core::plane_spans_a_grid_cell`], which owns the
+/// rule and the reasoning.
+///
+/// [`require_earth_radius`] catches the radius that is not a sphere; this
+/// catches the one that is a sphere and still leaves nowhere to put the raster.
+/// Both are asked in the `*_params` builders rather than beside
+/// [`require_well_defined`], because only the builders are on both the warp path
+/// and the forward-geolocation path — a check only the latter makes would leave
+/// a collapsed grid rendering blank with nothing said about why (#610).
+fn require_radius_spans_a_cell(
+    radius_m: f64,
+    dx_metres: f64,
+    dy_metres: f64,
+    field: &str,
+) -> napi::Result<()> {
+    require_usable_earth_radius(radius_m)?;
+    if plane_spans_a_grid_cell(radius_m, dx_metres, dy_metres) {
+        return Ok(());
+    }
+    Err(napi::Error::from_reason(format!(
+        "the message declares an Earth radius of {radius_m} m ({field}), smaller than one \
+         {dx_metres} × {dy_metres} m cell of its own grid — the whole projection collapses \
+         into a single cell, so no grid point has a distinguishable position"
     )))
 }
 
@@ -5936,16 +5973,20 @@ fn require_earth_radius(meta: &MessageMeta) -> napi::Result<f64> {
 /// [`forward_geolocation_for`] so the warp and the forward geolocation read the
 /// same slots and can't disagree about the same grid (#470).
 fn lambert_params(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<LambertParams> {
+    let earth_radius_m = require_earth_radius(meta)?;
+    let dx_metres = require_nonzero_spacing(meta.lambert_dx_metres, "lambertDxMetres")?;
+    let dy_metres = require_nonzero_spacing(meta.lambert_dy_metres, "lambertDyMetres")?;
+    require_radius_spans_a_cell(earth_radius_m, dx_metres, dy_metres, "earthRadiusMetres")?;
     Ok(LambertParams {
-        earth_radius_m: require_earth_radius(meta)?,
+        earth_radius_m,
         ni,
         nj,
         lat_first: require_f64(meta.lat_first, "latFirst")?,
         lon_first: require_f64(meta.lon_first, "lonFirst")?,
         lad: require_f64(meta.lambert_lad, "lambertLad")?,
         lov: require_f64(meta.lambert_lov, "lambertLov")?,
-        dx_metres: require_nonzero_spacing(meta.lambert_dx_metres, "lambertDxMetres")?,
-        dy_metres: require_nonzero_spacing(meta.lambert_dy_metres, "lambertDyMetres")?,
+        dx_metres,
+        dy_metres,
         latin1: require_f64(meta.lambert_latin1, "lambertLatin1")?,
         latin2: require_f64(meta.lambert_latin2, "lambertLatin2")?,
     })
@@ -5968,16 +6009,20 @@ fn lambert_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<Warp
 /// Polar stereographic (GRIB2 §3.20 / GRIB1 grid type 5) parameters, shared by
 /// the warp setup and the forward geolocation map — see [`lambert_params`].
 fn polar_stereo_params(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<PolarStereoParams> {
+    let earth_radius_m = require_earth_radius(meta)?;
+    let dx_metres = require_nonzero_spacing(meta.polar_stereo_dx_metres, "polarStereoDxMetres")?;
+    let dy_metres = require_nonzero_spacing(meta.polar_stereo_dy_metres, "polarStereoDyMetres")?;
+    require_radius_spans_a_cell(earth_radius_m, dx_metres, dy_metres, "earthRadiusMetres")?;
     Ok(PolarStereoParams {
-        earth_radius_m: require_earth_radius(meta)?,
+        earth_radius_m,
         ni,
         nj,
         lat_first: require_f64(meta.lat_first, "latFirst")?,
         lon_first: require_f64(meta.lon_first, "lonFirst")?,
         lov: require_f64(meta.polar_stereo_lov, "polarStereoLov")?,
         lad: require_f64(meta.polar_stereo_lad, "polarStereoLad")?,
-        dx_metres: require_nonzero_spacing(meta.polar_stereo_dx_metres, "polarStereoDxMetres")?,
-        dy_metres: require_nonzero_spacing(meta.polar_stereo_dy_metres, "polarStereoDyMetres")?,
+        dx_metres,
+        dy_metres,
         south_pole: meta
             .polar_stereo_south_pole
             .ok_or_else(|| napi::Error::from_reason("missing polarStereoSouthPole".to_string()))?,
@@ -6020,11 +6065,22 @@ fn lambert_azimuthal_params(
     ni: u32,
     nj: u32,
 ) -> napi::Result<LambertAzimuthalParams> {
+    let semi_major_m = require_f64(
+        meta.lambert_azimuthal_semi_major_metres,
+        "lambertAzimuthalSemiMajorMetres",
+    )?;
+    let dx_metres =
+        require_nonzero_spacing(meta.lambert_azimuthal_dx_metres, "lambertAzimuthalDxMetres")?;
+    let dy_metres =
+        require_nonzero_spacing(meta.lambert_azimuthal_dy_metres, "lambertAzimuthalDyMetres")?;
+    require_radius_spans_a_cell(
+        semi_major_m,
+        dx_metres,
+        dy_metres,
+        "lambertAzimuthalSemiMajorMetres",
+    )?;
     Ok(LambertAzimuthalParams {
-        semi_major_m: require_f64(
-            meta.lambert_azimuthal_semi_major_metres,
-            "lambertAzimuthalSemiMajorMetres",
-        )?,
+        semi_major_m,
         semi_minor_m: require_f64(
             meta.lambert_azimuthal_semi_minor_metres,
             "lambertAzimuthalSemiMinorMetres",
@@ -6041,14 +6097,8 @@ fn lambert_azimuthal_params(
             meta.lambert_azimuthal_central_longitude,
             "lambertAzimuthalCentralLongitude",
         )?,
-        dx_metres: require_nonzero_spacing(
-            meta.lambert_azimuthal_dx_metres,
-            "lambertAzimuthalDxMetres",
-        )?,
-        dy_metres: require_nonzero_spacing(
-            meta.lambert_azimuthal_dy_metres,
-            "lambertAzimuthalDyMetres",
-        )?,
+        dx_metres,
+        dy_metres,
     })
 }
 
@@ -6069,11 +6119,26 @@ fn transverse_mercator_params(
     ni: u32,
     nj: u32,
 ) -> napi::Result<TransverseMercatorParams> {
+    let semi_major_m = require_f64(
+        meta.transverse_mercator_semi_major_metres,
+        "transverseMercatorSemiMajorMetres",
+    )?;
+    let dx_metres = require_nonzero_spacing(
+        meta.transverse_mercator_dx_metres,
+        "transverseMercatorDxMetres",
+    )?;
+    let dy_metres = require_nonzero_spacing(
+        meta.transverse_mercator_dy_metres,
+        "transverseMercatorDyMetres",
+    )?;
+    require_radius_spans_a_cell(
+        semi_major_m,
+        dx_metres,
+        dy_metres,
+        "transverseMercatorSemiMajorMetres",
+    )?;
     Ok(TransverseMercatorParams {
-        semi_major_m: require_f64(
-            meta.transverse_mercator_semi_major_metres,
-            "transverseMercatorSemiMajorMetres",
-        )?,
+        semi_major_m,
         semi_minor_m: require_f64(
             meta.transverse_mercator_semi_minor_metres,
             "transverseMercatorSemiMinorMetres",
@@ -6102,14 +6167,8 @@ fn transverse_mercator_params(
             meta.transverse_mercator_y1_metres,
             "transverseMercatorY1Metres",
         )?,
-        dx_metres: require_nonzero_spacing(
-            meta.transverse_mercator_dx_metres,
-            "transverseMercatorDxMetres",
-        )?,
-        dy_metres: require_nonzero_spacing(
-            meta.transverse_mercator_dy_metres,
-            "transverseMercatorDyMetres",
-        )?,
+        dx_metres,
+        dy_metres,
     })
 }
 
@@ -6143,6 +6202,19 @@ fn geostationary_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Resul
     };
 
     let projector = GeostationaryProjector::new(p);
+    // The space view's analogue of `require_radius_spans_a_cell`. Its grid is
+    // scan angles rather than metres, so it needs no floor under the radius —
+    // the maths is all ratios and shrinking the whole system changes nothing —
+    // but a shapeless ellipsoid leaves it nothing to intersect. Say which
+    // numbers, rather than letting the whole disc render transparent (#610).
+    if !projector.is_well_defined() {
+        return Err(napi::Error::from_reason(format!(
+            "the message declares an Earth of r_eq = {} m and r_pol = {} m viewed from {} m \
+             (geosREq / geosRPol / geosHeight), which describes no body for the satellite's \
+             line of sight to meet",
+            p.r_eq, p.r_pol, p.h_metres
+        )));
+    }
     let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
         Box::new(move |lat, lon| projector.inverse(lat, lon));
     // Frame the on-disk extent: walk the scan-angle perimeter and take the tight
@@ -9874,7 +9946,58 @@ mod planar_geolocation_tests {
         let err = forward_geolocation_for(&laea, ni, nj, None, |gt| format!("unsupported {gt}"))
             .err()
             .expect("a shapeless spheroid has no forward map");
-        assert!(err.reason.contains("degenerate"), "{}", err.reason);
+        assert!(err.reason.contains("describes no sphere"), "{}", err.reason);
+    }
+
+    /// #610: the radius that is positive, finite, and still too small to hold
+    /// the grid. Shape-of-earth code 1 states a scale factor and a scaled
+    /// value, so `scale = 6, value = 1` is a legal 1e-6 m sphere; every
+    /// `> 0.0` check passes and every point on Earth lands in cell (0, 0).
+    ///
+    /// All four planar families take the radius the same way, so all four are
+    /// asked here, off the real fixtures — and the message has to name the
+    /// radius, or the picture is a flat wash with nothing to explain it.
+    #[test]
+    fn an_earth_too_small_to_hold_the_grid_is_refused_by_every_planar_family() {
+        // 1e-6 m: shape-of-earth 1 with scale = 6, value = 1.
+        const TINY: f64 = 1e-6;
+        let mut cases: Vec<(&str, MessageMeta, u32, u32)> = Vec::new();
+
+        let (mut lambert, ni, nj) = grib2_geometry(ETA_LAMBERT);
+        lambert.earth_radius_metres = Some(TINY);
+        cases.push(("lambert", lambert, ni, nj));
+
+        let (_, mut polar, ni, nj) = grib1_handle(CMC_POLAR).resolved(0).expect("cmc resolves");
+        polar.earth_radius_metres = Some(TINY);
+        cases.push(("polar_stereo", polar, ni, nj));
+
+        let (mut tm, ni, nj) = grib2_geometry(TRANSVERSE_MERCATOR);
+        tm.transverse_mercator_semi_major_metres = Some(TINY);
+        tm.transverse_mercator_semi_minor_metres = Some(TINY);
+        cases.push(("transverse_mercator", tm, ni, nj));
+
+        let (mut laea, ni, nj) = grib2_geometry(LAMBERT_AZIMUTHAL);
+        laea.lambert_azimuthal_semi_major_metres = Some(TINY);
+        laea.lambert_azimuthal_semi_minor_metres = Some(TINY);
+        cases.push(("lambert_azimuthal", laea, ni, nj));
+
+        for (family, meta, ni, nj) in cases {
+            let err =
+                forward_geolocation_for(&meta, ni, nj, None, |gt| format!("unsupported {gt}"))
+                    .err()
+                    .unwrap_or_else(|| panic!("{family} geolocated on a 1e-6 m Earth"));
+            assert!(
+                err.reason.contains("0.000001") && err.reason.contains("Earth radius"),
+                "{family}: the refusal should name the radius, got: {}",
+                err.reason
+            );
+            // The warp path reads the same builders, so it refuses too — a
+            // check only the forward map made would leave the render blank.
+            assert!(
+                warp_setup_for(&meta, ni, nj, None).is_err(),
+                "{family}: the warp still accepted a collapsed plane"
+            );
+        }
     }
 
     /// #472: the "last point" columns report the grid's real far corner, not
