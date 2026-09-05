@@ -5,7 +5,8 @@
 //! decodes to coefficients rather than through the scalar
 //! [`decode_values`](crate::ds::decode_values) path — mirroring the GRIB1
 //! reader. Recovering a lat/lon field needs an inverse spherical-harmonic
-//! transform, which is not implemented yet.
+//! transform, which lives one level up, in
+//! [`Grib2Reader::synthesize_spectral_global`](crate::Grib2Reader::synthesize_spectral_global).
 //!
 //! Template 5.50 (`spectral_simple`): the real part of the `(0, 0)` coefficient
 //! is stored out of band in §5 ([`SpectralSimplePackingTemplate::real_part_of_00`])

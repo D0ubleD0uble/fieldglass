@@ -6,10 +6,13 @@
 //! [`simple::SimplePacking`], the full second-order family
 //! ([`complex::ComplexPacking`] → [`second_order`] / [`second_order_classic`]),
 //! IEEE raw floats ([`ieee::IeeePacking`]), and matrix-of-values
-//! ([`matrix::MatrixPacking`]). [`spherical::SphericalPacking`] remains a stub
-//! that surfaces [`FieldglassError::UnsupportedSection`] with a message naming
-//! the packing mode, so users get a precise reason rather than a bare
-//! "unsupported section".
+//! ([`matrix::MatrixPacking`]). Both spherical-harmonic packings decode too, in
+//! [`spherical`] — but not through this trait, because their output is
+//! coefficients rather than one value per grid point: they have their own entry
+//! point, like the true `matrixOfValues` form.
+//! [`spherical::SphericalPacking`] is the scalar-path refusal that names it,
+//! surfacing [`FieldglassError::UnsupportedSection`] with the call to make
+//! instead rather than a bare "unsupported section".
 //!
 //! Adding a new packing means: drop a new module under `packing/`, implement
 //! `Grib1Packing::decode`, and route it from `decoder_for`. No other crates

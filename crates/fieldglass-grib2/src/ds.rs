@@ -125,9 +125,9 @@ pub fn decode_values(
         | DataRepresentationTemplate::SpectralComplex(_) => {
             Err(FieldglassError::UnsupportedSection(
                 "§7 holds spherical-harmonic coefficients (template 5.50 / 5.51), which are not \
-                 values on a grid — decode them with `Grib2Reader::decode_spectral_message`. \
-                 Rendering one as a 2-D field needs an inverse spherical-harmonic transform, \
-                 which is not implemented yet."
+                 values on a grid — decode them with `Grib2Reader::decode_spectral_message`, \
+                 or `Grib2Reader::synthesize_spectral_global` to run the inverse \
+                 spherical-harmonic transform and get a lat/lon field."
                     .to_string(),
             ))
         }

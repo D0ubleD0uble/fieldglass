@@ -7,7 +7,8 @@
 //! not routed through the scalar `decode_message_values` path — exactly as the
 //! true `matrixOfValues` form isn't, and for the same reason (see
 //! [`super::matrix`]). [`crate::Grib1Reader::decode_spectral_message`] is the
-//! entry point.
+//! entry point; the inverse transform that does recover a grid lives one level
+//! up, in [`crate::Grib1Reader::synthesize_spectral_global`].
 //!
 //! Two packings exist and both decode here:
 //!
@@ -123,9 +124,9 @@ impl Grib1Packing for SphericalPacking {
     ) -> Result<Vec<Option<f64>>, FieldglassError> {
         Err(FieldglassError::UnsupportedSection(
             "BDS holds spherical-harmonic coefficients, which are not values on \
-             a grid — decode them with `Grib1Reader::decode_spectral_message`. \
-             Rendering one as a 2-D field needs an inverse Legendre transform, \
-             which this crate does not do yet."
+             a grid — decode them with `Grib1Reader::decode_spectral_message`, \
+             or `Grib1Reader::synthesize_spectral_global` to run the inverse \
+             transform and get a lat/lon field."
                 .into(),
         ))
     }
