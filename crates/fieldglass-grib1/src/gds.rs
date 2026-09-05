@@ -953,8 +953,18 @@ fn read_signed_magnitude_24(b: &[u8]) -> i32 {
     }
 }
 
-/// Wrap a longitude in degrees into the half-open range (-180, 180].
-/// A derived corner, or `None` when the projection could not place one.
+/// A derived corner, or `None` when the projection could not place one, with the
+/// longitude wrapped into the half-open range (-180, 180].
+///
+/// `fieldglass_grib2`'s helper of the same name takes the projector's
+/// `is_well_defined` as well, because a §3 message declares its own Earth
+/// radius and a declared zero collapses the plane while every number stays
+/// finite (#603). GRIB1 cannot say that: [`ResolutionFlags::earth_radius_m`]
+/// answers one of two constants from a single flag bit, and the polar
+/// stereographic `LaD` is fixed at 60°, so both families' constants are
+/// well-defined by construction here and finiteness is the whole test. The
+/// collapsed cone this does catch comes from the standard parallels, which
+/// GRIB1 *does* state.
 fn finite_lonlat((lat, lon): (f64, f64)) -> Option<(f64, f64)> {
     (lat.is_finite() && lon.is_finite()).then(|| (lat, normalise_longitude(lon)))
 }

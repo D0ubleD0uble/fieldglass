@@ -5271,11 +5271,17 @@ fn forward_geolocation_for(
             require_well_defined(projector.is_well_defined(), grid_type)?;
             Ok(planar_forward(projector))
         }
-        // Polar stereographic has no degenerate case to check: its scale factor
-        // is `(1 + sin|LaD|)/2`, which no declarable `LaD` drives to zero.
-        "polar_stereo" => Ok(planar_forward(PolarStereoProjector::new(
-            polar_stereo_params(meta, ni, nj)?,
-        ))),
+        // The degenerate case here is the radius, not `LaD`. The scale factor
+        // `(1 + sin|LaD|)/2` really is one no declarable `LaD` drives to zero,
+        // which is why this arm was left ungated — but the radius multiplies it,
+        // and a declared zero collapses the plane onto its own origin without
+        // making anything non-finite, so every grid point reports the pole and
+        // every query resolves to cell (0, 0) (#603).
+        "polar_stereo" => {
+            let projector = PolarStereoProjector::new(polar_stereo_params(meta, ni, nj)?);
+            require_well_defined(projector.is_well_defined(), grid_type)?;
+            Ok(planar_forward(projector))
+        }
         "transverse_mercator" => {
             let projector =
                 TransverseMercatorProjector::new(transverse_mercator_params(meta, ni, nj)?);
