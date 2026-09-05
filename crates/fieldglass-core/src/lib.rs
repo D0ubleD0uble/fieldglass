@@ -99,7 +99,7 @@ pub use projection::{
     mercator_point, normalise_lon, reduced_raster_lon_last, reduced_raster_width,
     rotated_latlon_point, signed_grid_increments,
 };
-pub use scan::transpose_j_consecutive;
+pub use scan::{StoredRuns, reverse_alternate_runs, transpose_j_consecutive};
 pub use spatial_index::SpatialIndex;
 #[cfg(feature = "render")]
 pub use warp::{
