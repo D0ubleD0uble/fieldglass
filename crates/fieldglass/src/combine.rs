@@ -74,17 +74,27 @@ pub fn op_from_wire(tag: &str) -> Result<CombineOp, Error> {
 }
 
 /// `"a", "b", "c", or "d"` over every tag in [`CombineOp::ALL`].
+///
+/// Punctuated by position rather than by a slice pattern on purpose: a
+/// `split_last` form needs an empty arm and a one-element arm that
+/// `[CombineOp; 5]` can never reach, and an arm no test can reach is an arm
+/// nobody can say is right.
 fn known_tags() -> String {
-    let quoted: Vec<String> = CombineOp::ALL
+    let n = CombineOp::ALL.len();
+    CombineOp::ALL
         .iter()
-        .map(|op| format!("{:?}", op.as_str()))
-        .collect();
-    match quoted.split_last() {
-        // One op, or none, has no list to punctuate.
-        None => String::new(),
-        Some((last, [])) => last.clone(),
-        Some((last, rest)) => format!("{}, or {last}", rest.join(", ")),
-    }
+        .enumerate()
+        .map(|(i, op)| {
+            let separator = if i == 0 {
+                ""
+            } else if i + 1 == n {
+                ", or "
+            } else {
+                ", "
+            };
+            format!("{separator}{:?}", op.as_str())
+        })
+        .collect()
 }
 
 /// Whether two sources hold their cells in the same places, and if not, which
@@ -494,6 +504,47 @@ mod tests {
             GridGeometry::LatLon(p) => *p,
             other => panic!("not a lat/lon grid: {other:?}"),
         }
+    }
+
+    /// The two shapes a refusal has to describe besides the ordinary one: a
+    /// family with no uniform row spacing, and one with no raster at all.
+    ///
+    /// Both are reachable through a real message — a Gaussian grid's rows sit on
+    /// Gauss–Legendre nodes, so it states `dx` and no `dy`, and a family this
+    /// build does not model states neither dimensions nor a plane. Neither is
+    /// exercised by the cases above, and a description that panicked or read
+    /// `from (0, 0) deg by ()` for one of them would reach a VS Code error
+    /// toast before anyone noticed.
+    #[test]
+    fn a_refusal_describes_a_grid_with_no_row_spacing_and_one_with_no_raster() {
+        let gaussian = GridGeometry::Gaussian(fieldglass_core::GaussianParams {
+            ni: 8,
+            nj: 4,
+            lat_first: 87.0,
+            lon_first: 0.0,
+            lat_last: -87.0,
+            lon_last: 315.0,
+            n_parallels: 2,
+        });
+        let described = describe(&gaussian);
+        assert!(
+            described.starts_with("gaussian 8x4 from (0, 87) deg by (45,"),
+            "{described}"
+        );
+        assert!(
+            described.ends_with(", -)"),
+            "no row spacing to state: {described}"
+        );
+
+        let unmodelled = GridGeometry::Unsupported {
+            label: "healpix".to_string(),
+        };
+        assert_eq!(
+            describe(&unmodelled),
+            "healpix",
+            "a family with no raster and no plane reports the name the decoder \
+             gave it, and nothing more"
+        );
     }
 
     /// Every op, over a field with a hole in it, through the API form.

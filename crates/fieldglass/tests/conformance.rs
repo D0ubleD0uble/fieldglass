@@ -151,6 +151,55 @@ fn every_error_code_is_both_listed_and_reachable() {
     );
 }
 
+/// Exactly these cases record a failure; every other one produced an answer.
+///
+/// The five `error/…` cases exist to prove each [`fieldglass::Error`] code is
+/// reachable. The two beside them are the `degenerate` subject — a §3.20 grid
+/// stating `Dx = Dy = 0`, which decodes fine and has no extent to warp onto,
+/// which is why that fixture is in the suite. `degenerate/warp/window` is not
+/// here: a *manual* window gives the warp a box even when the grid states none,
+/// and that difference is worth having recorded.
+const CASES_THAT_RECORD_A_FAILURE: &[&str] = &[
+    "degenerate/warp/bilinear",
+    "degenerate/warp/nearest",
+    "error/decode",
+    "error/invalid_option",
+    "error/no_such_message",
+    "error/unsupported",
+    "error/unsupported_format",
+];
+
+/// A case that stopped exercising its operation records a failure instead, and
+/// passes for ever after.
+///
+/// This is the hole in a recorded suite: [`observe`] turns *any* failure into an
+/// observation, so an argument dropped in a refactor, a fixture that no longer
+/// decodes, or an option an operation newly rejects re-records as
+/// `{"error": …}` and nothing says so. The recording still matches, the case
+/// count is still right, and `every_error_code_is_both_listed_and_reachable` is
+/// satisfied by the deliberate cases whatever else joins them.
+///
+/// Asserted in both directions, because half of it would be the same fail-open:
+/// a case that starts failing has to be added here on purpose, and one that
+/// stops failing — a refusal quietly becoming an answer — is a change to the
+/// contract too.
+#[test]
+fn exactly_the_expected_cases_record_a_failure() {
+    let suite = shipped();
+    let mut failing: Vec<&str> = suite
+        .cases
+        .iter()
+        .filter(|r| r.expect.get("error").is_some())
+        .map(|r| r.case.id.as_str())
+        .collect();
+    failing.sort_unstable();
+    assert_eq!(
+        failing, CASES_THAT_RECORD_A_FAILURE,
+        "a case that records a failure proves nothing about the operation it \
+         names; add it here deliberately or find out why it stopped answering"
+    );
+}
+
 /// The recorded tolerance is the one this build chose.
 ///
 /// It is read out of the JSON and used by all three runners, so editing that
