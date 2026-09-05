@@ -3105,14 +3105,17 @@ impl NetcdfHandle {
                 lat_last: Some(lat_min),
                 lon_first: Some(lon_min),
                 lon_last: Some(lon_max),
-                // The one geometry `meta_geometry` cannot rebuild from the DTO
-                // — a lookup grid *is* its index — so it is asked here, where
-                // the index is in hand. The handle caches it behind an `Arc`,
-                // so this clones the cells once per slice rather than once per
-                // render call, which is what keeps the index out of
-                // `meta_geometry`.
-                reprojectable: GridGeometry::Lookup((*index).clone())
-                    .reprojectable(Scan::north_down()),
+                // The one answer here that is a constant rather than a call.
+                // `GridGeometry::reprojectable`'s `Lookup` arm owns the rule and
+                // the reason for it — a nearest-cell search over centres that
+                // carry their own positions has no scan direction to be wrong
+                // about (#445) — and it reads none of the index. Building the
+                // variant to ask would deep-copy the cells (28 bytes each,
+                // `Arc`-shared precisely so the render never does), on a path a
+                // probe runs per mouse move. So the constant is written and
+                // `a_lookup_slice_reports_what_the_geometry_would` holds it to
+                // what the geometry answers.
+                reprojectable: true,
                 // A lookup grid has no latitude axis to read an ordering from,
                 // so the rows are compared directly: mean latitude of the first
                 // row against the last. A mean rather than one column because
@@ -11080,6 +11083,33 @@ mod curvilinear_render_tests {
         let (y, x) = (var.dims.len() - 2, var.dims.len() - 1);
         let indices = vec![0u32; var.dims.len()];
         (handle, var, y, x, indices)
+    }
+
+    /// `slice_meta` writes `reprojectable: true` for a lookup grid as a constant
+    /// rather than by building a `GridGeometry::Lookup` to ask, because the
+    /// variant owns its index and building one would deep-copy the cells on a
+    /// path a probe runs per mouse move. This is what stops that constant from
+    /// drifting: the same index, asked properly, must give the same answer.
+    #[test]
+    fn a_lookup_slice_reports_what_the_geometry_would() {
+        for (bytes, name) in [(TRIPOLAR, "ice_thickness"), (SWATH, "TPW")] {
+            let (handle, var, y, x, _) = slice(bytes, name);
+            let meta = handle.slice_meta(&var, y, x).expect("slice meta");
+            assert_eq!(
+                meta.grid_type.as_deref(),
+                Some("curvilinear"),
+                "{name} is the lookup family this constant is about"
+            );
+            let index = handle
+                .curvilinear_index(&var, y, x)
+                .expect("index resolves")
+                .expect("a curvilinear slice has one");
+            assert_eq!(
+                meta.reprojectable,
+                GridGeometry::Lookup((*index).clone()).reprojectable(Scan::north_down()),
+                "{name}: the constant must be the geometry's own answer"
+            );
+        }
     }
 
     fn opts(projection: &str) -> RenderOptions {
