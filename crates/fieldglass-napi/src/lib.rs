@@ -348,9 +348,9 @@ pub struct MessageMeta {
     /// usable plane, so a collapsed cone or an Earth smaller than one cell stays
     /// source-only rather than advertising a target the warp then refuses
     /// (#603, #610). The rule and the reasons behind it are in
-    /// `fieldglass_core::GridGeometry::reprojectable`, which is also what the
-    /// browser host asks. The webview hides the reprojection options when this
-    /// is `false`.
+    /// `fieldglass_core::GridGeometry::reprojectable`, so a second host asking
+    /// the same question gets the same answer. The webview hides the
+    /// reprojection options when this is `false`.
     pub reprojectable: bool,
     /// Whether the grid's rows scan south→north (GRIB `jScansPositively`).
     /// The source projection paints grid row 0 at the top of the canvas, so a
@@ -3664,17 +3664,27 @@ fn raster_render_meta(base: MessageMeta, bounds: Option<CornerPair>) -> MessageM
 /// GRIB2 both), and HEALPix fields, resampled pixel by pixel (#443). The name
 /// is historical; what it builds is not spectral-specific.
 fn spectral_render_meta_from(base: MessageMeta, ni: i32, nj: i32, lon_last: f64) -> MessageMeta {
-    MessageMeta {
-        grid_type: Some("latlon".to_string()),
-        grid_ni: Some(ni),
-        grid_nj: Some(nj),
-        lat_first: Some(90.0),
-        lon_first: Some(0.0),
-        lat_last: Some(-90.0),
-        lon_last: Some(lon_last),
-        reprojectable: true,
-        ..base
-    }
+    gate_reprojection(
+        MessageMeta {
+            grid_type: Some("latlon".to_string()),
+            grid_ni: Some(ni),
+            grid_nj: Some(nj),
+            lat_first: Some(90.0),
+            lon_first: Some(0.0),
+            lat_last: Some(-90.0),
+            lon_last: Some(lon_last),
+            // Answered from the geometry, like every other builder. The grid
+            // this synthesises is one we chose, so the answer is not in doubt —
+            // but a second spelling of it here is a second place for the rule to
+            // live, which is the thing #571 removed.
+            reprojectable: false,
+            ..base
+        },
+        // A synthesised grid runs west-to-east from 0° and north-down from the
+        // pole, whatever the message it came from scanned like: nothing of the
+        // source raster survives an inverse transform or a HEALPix resample.
+        Scan::north_down(),
+    )
 }
 
 /// Build a synthesised `"latlon"` [`MessageMeta`] for a NetCDF slice. Only the
@@ -3714,7 +3724,13 @@ fn synth_latlon_meta(
         // read it as an antimeridian wrap. Handing it over as one flag is what
         // lets `core` apply the same rule to both formats. A slice with no
         // resolved geometry maps to `Unsupported`, which declines regardless.
-        Scan::new(geometry.is_some_and(|g| g.lon_descending), false, false),
+        Scan::new(
+            geometry.is_some_and(|g| g.lon_descending),
+            // Stated once: the same `lat_ascending` the `j_scans_positive` field
+            // above carries, rather than a second `false` beside it.
+            geometry.is_some_and(|g| g.lat_ascending),
+            false,
+        ),
     )
 }
 
@@ -5059,9 +5075,11 @@ fn raise_to_min_raster(dims: (u32, u32)) -> (u32, u32) {
 /// `NetcdfHandle::slice_meta`, and `GridGeometry::reprojectable`'s `Lookup` arm
 /// is the rule it states.
 fn meta_geometry(meta: &MessageMeta) -> GridGeometry {
-    let label = meta.grid_type.clone().unwrap_or_default();
+    // Borrowed, not cloned: this runs two or three times per render and probe,
+    // and only the declining path needs a `String`.
+    let label = meta.grid_type.as_deref().unwrap_or_default();
     let unsupported = || GridGeometry::Unsupported {
-        label: label.clone(),
+        label: label.to_string(),
     };
     let Ok(ni) = grid_ni(meta) else {
         return unsupported();
@@ -5069,7 +5087,7 @@ fn meta_geometry(meta: &MessageMeta) -> GridGeometry {
     let Ok(nj) = grid_nj(meta) else {
         return unsupported();
     };
-    let built = match label.as_str() {
+    let built = match label {
         // Reduced grids are widened to a regular Ni x Nj raster at decode time,
         // so they arrive here as their regular sibling — the same collapse the
         // two GRIB crates' `From<&…> for GridGeometry` impls make.
@@ -9376,66 +9394,67 @@ mod netcdf_slice_tests {
         assert!(painted > 0, "the global render has painted pixels");
     }
 
-    /// A rotated grid that closes on itself frames the whole turn, seam wedge
-    /// included — the behaviour the two hosts disagreed about before #571.
+    /// The window this host frames a grid with is `core`'s answer, for a
+    /// periodic grid as much as a regional one.
     ///
-    /// `fieldglass::session::warp_field` widened a periodic grid's window; this
-    /// host handed the rotated projector's perimeter walk straight to the warp
-    /// target. That walk bounds the *declared columns*, and on a periodic grid
-    /// they stop one step short of the seam — so the wedge between the last
-    /// column and the first was never framed. On this 16-column grid the walk
-    /// spans 304.4° and the turn is 360°, so 55.6° of the map went missing.
+    /// The tie between the DTO path and the type, at the seam #572 moves. It
+    /// matters most for rotated lat/lon, where the two hosts disagreed before
+    /// #571: `fieldglass` widened a grid periodic in its *rotated* frame to a
+    /// full turn of *geographic* longitude, and this host did not. `core` now
+    /// answers for both, and it answers the way this host did — a rotated grid's
+    /// extent and its periodicity are measured in different frames, and a
+    /// rotated polar cap widened on the strength of that is framed as the whole
+    /// globe (measured in `GridGeometry::render_window`).
     ///
-    /// **Equirectangular, not a world projection, and that is a measured
-    /// choice.** #332 / #346 recorded that a seam *gap* is invisible in
-    /// equirectangular, and #571's own notes carried that forward — but that
-    /// constraint is about *sampling* across the seam, where an `ni`-wide raster
-    /// lands its last pixel on the seam meridian and wraps it to column 0 by
-    /// accident. The window is a different question, and only the two box
-    /// targets ever ask it: `build_warp_target` hands `bbox_thunk` to
-    /// `Equirectangular` and `WebMercator` and to nothing else, because
+    /// Equirectangular, not a world projection, and that is a measured choice.
+    /// #332 / #346 recorded that a seam *gap* is invisible in equirectangular,
+    /// and #571's notes carried that forward — but that constraint is about
+    /// *sampling* across the seam. The window is a different question, and only
+    /// the two box targets ever ask it: `build_warp_target` hands `bbox_thunk`
+    /// to `Equirectangular` and `WebMercator` and to nothing else, because
     /// Mollweide, Robinson, Equal Earth, orthographic and polar stereographic
-    /// frame the whole globe by construction. A world projection cannot see this
-    /// change at all — verified by writing the test that way first and finding
-    /// `used_lon_min` absent. The sampling half is still covered, below.
+    /// frame the whole globe by construction. A world projection cannot see a
+    /// window change at all — verified by writing this the Mollweide way first
+    /// and finding `used_lon_min` absent. The sampling half is below.
     #[test]
-    fn a_periodic_rotated_grid_frames_the_seam_wedge() {
-        // 16 columns from 0° to 337.5° in the *rotated* frame: a full turn once
-        // the 22.5° step is counted, which is what makes it periodic.
-        let mut meta = latlon_meta(16, 8);
-        meta.grid_type = Some("rotated_latlon".to_string());
-        meta.lat_first = Some(40.0);
-        meta.lat_last = Some(-40.0);
-        meta.lon_first = Some(0.0);
-        meta.lon_last = Some(337.5);
-        meta.rotated_south_pole_lat = Some(-30.0);
-        meta.rotated_south_pole_lon = Some(10.0);
-        meta.rotated_angle_of_rotation = Some(0.0);
-        let raw: Vec<Option<f64>> = (0..16 * 8).map(|k| Some((k % 16) as f64)).collect();
+    fn the_framed_window_is_the_geometrys_own_answer() {
+        let mut rotated = latlon_meta(16, 8);
+        rotated.grid_type = Some("rotated_latlon".to_string());
+        rotated.lat_first = Some(40.0);
+        rotated.lat_last = Some(-40.0);
+        rotated.lon_first = Some(0.0);
+        // 16 columns 0° to 337.5°: a full turn in the rotated frame once the
+        // 22.5° step is counted, which is what makes it periodic.
+        rotated.lon_last = Some(337.5);
+        rotated.rotated_south_pole_lat = Some(-30.0);
+        rotated.rotated_south_pole_lon = Some(10.0);
+        rotated.rotated_angle_of_rotation = Some(0.0);
 
-        let rendered = render_with_options(&meta, &raw, &opts("equirectangular"), None)
-            .expect("a periodic rotated grid renders onto a box target");
-        let (lon_min, lon_max) = (
-            rendered.used_lon_min.expect("a box target states a window"),
-            rendered.used_lon_max.expect("a box target states a window"),
-        );
-        assert!(
-            (lon_max - lon_min - 360.0).abs() < 1e-9,
-            "the window must run the full turn, got {lon_min}..{lon_max} ({}°)",
-            lon_max - lon_min
-        );
+        let mut global = latlon_meta(8, 4);
+        global.lon_first = Some(0.0);
+        global.lon_last = Some(315.0);
 
-        // A regional rotated grid keeps its walked perimeter: the widening is
-        // the periodic grid's, not every rotated grid's.
-        let mut regional = meta;
+        let mut regional = latlon_meta(8, 4);
+        regional.lon_first = Some(0.0);
         regional.lon_last = Some(40.0);
-        let framed = render_with_options(&regional, &raw, &opts("equirectangular"), None)
-            .expect("a regional rotated grid renders too");
-        let span = framed.used_lon_max.expect("window") - framed.used_lon_min.expect("window");
-        assert!(
-            span < 359.0,
-            "a regional rotated grid must keep its own extent, got {span}°"
-        );
+
+        let raw: Vec<Option<f64>> = (0..16 * 8).map(|k| Some((k % 16) as f64)).collect();
+        for (label, meta) in [
+            ("periodic rotated", rotated),
+            ("periodic latlon", global),
+            ("regional latlon", regional),
+        ] {
+            let rendered = render_with_options(&meta, &raw, &opts("equirectangular"), None)
+                .unwrap_or_else(|e| panic!("{label} renders: {e}"));
+            let window = meta_geometry(&meta)
+                .render_window()
+                .unwrap_or_else(|| panic!("{label} states a window"));
+            assert_eq!(
+                (rendered.used_lon_min, rendered.used_lon_max),
+                (Some(window.lon_min), Some(window.lon_max)),
+                "{label}: the framed window must be the geometry's"
+            );
+        }
     }
 
     /// The sampling half of the same grid, on a world projection because that is
