@@ -148,16 +148,19 @@ jobs:
         with:
           tool: wasmtime@27
 
-      # Three skips, none of them a decode result:
+      # Two skips, neither of them a decode result, and both about what WASI
+      # cannot do rather than what it computes:
       #   * `detect::fs_tests` calls `std::env::temp_dir`, which WASI has no
       #     answer for.
       #   * `probing_an_empty_raster_answers_rather_than_panicking` asserts its
       #     own hazard with `catch_unwind`, and wasm32 aborts on panic rather
       #     than unwinding, so nothing can catch it.
-      #   * `the_planar_inverses_match_their_pre_extraction_recording` is a
-      #     bit-exact golden, and wasm32 links Rust's own `libm` rather than the
-      #     host's, so the transcendentals in the Lambert inverse differ by an
-      #     ULP or two. Tracked separately (#617).
+      #
+      # `the_planar_inverses_match_their_pre_extraction_recording` used to be a
+      # third: it is bit-exact, and wasm32 links Rust's own `libm` rather than
+      # the host's. It now recognises a foreign libm and stands aside for the
+      # quantised golden beside it (#617, ADR-0009), so nothing here has to know
+      # about it.
       - name: cargo test --target wasm32-wasip1 (32-bit pointer width)
         env:
           CARGO_TARGET_WASM32_WASIP1_RUNNER: wasmtime --dir=. --dir=..
@@ -166,8 +169,7 @@ jobs:
             -p fieldglass-core -p fieldglass-grib1 -p fieldglass-grib2 \
             -p fieldglass-netcdf -p fieldglass \
             -- --skip detect::fs_tests \
-               --skip probing_an_empty_raster_answers_rather_than_panicking \
-               --skip the_planar_inverses_match_their_pre_extraction_recording
+               --skip probing_an_empty_raster_answers_rather_than_panicking
 
       # Grouped baseline-then-simd on purpose. `--simd` changes RUSTFLAGS, which
       # changes the fingerprint of every crate in the graph, so alternating the
