@@ -42,10 +42,10 @@ pub struct LambertParams {
     pub latin2: f64,
 }
 
-/// `pub` so projector helpers can hand them around, but the fields are
-/// private — callers shouldn't construct these directly.
+/// Crate-internal: the projector holds one and the module's helpers pass it
+/// around. A caller reaches the same maths through [`LambertProjector`].
 #[derive(Debug, Clone, Copy)]
-pub struct LambertConstants {
+pub(crate) struct LambertConstants {
     n: f64,
     f_const: f64,
     rho0: f64,

@@ -42,26 +42,23 @@ pub use gaussian::{
     GaussianParams, GaussianProjector, expand_reduced_to_regular, gaussian_latitudes,
     is_octahedral_pl, reduced_raster_lon_last, reduced_raster_width,
 };
-pub use geostationary::{GeostationaryConstants, GeostationaryParams, GeostationaryProjector};
-pub use lambert::{LambertConstants, LambertParams, LambertProjector};
-pub use lambert_azimuthal::{
-    LambertAzimuthalConstants, LambertAzimuthalParams, LambertAzimuthalProjector,
-};
+pub use geostationary::{GeostationaryParams, GeostationaryProjector};
+pub use lambert::{LambertParams, LambertProjector};
+pub use lambert_azimuthal::{LambertAzimuthalParams, LambertAzimuthalProjector};
 pub use latlon::{
     LatLonParams, eastward_lon_span, latlon_inverse, latlon_point, lon_grid_is_global,
 };
 pub use mercator::{MercatorParams, mercator_inverse, mercator_point};
-pub use polar_stereo::{PolarStereoConstants, PolarStereoParams, PolarStereoProjector};
+pub use polar_stereo::{PolarStereoParams, PolarStereoProjector};
 pub use rotated_latlon::{RotatedLatLonParams, RotatedLatLonProjector, rotated_latlon_point};
-pub use transverse_mercator::{
-    TransverseMercatorConstants, TransverseMercatorParams, TransverseMercatorProjector,
-};
+pub use transverse_mercator::{TransverseMercatorParams, TransverseMercatorProjector};
 
 // Crate-internal: `GridGeometry` dispatches Gaussian queries through the
 // recompute-per-call form rather than holding a projector. Not part of the
 // crate's public contract — a caller reaches the same maths through
 // [`GaussianProjector`]. The rotation pair (`rotate_latlon` / `unrotate_latlon`)
-// is `pub(crate)` in its own module and named from there.
+// is `pub(crate)` in its own module and named from there, as is each family's
+// `*Constants`: a projector derives its own and no signature names one.
 pub(crate) use gaussian::gaussian_inverse;
 
 /// Earth radius used by Lambert projection math. WMO `shapeOfTheEarth = 6`

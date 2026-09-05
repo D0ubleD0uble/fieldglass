@@ -26,8 +26,8 @@ const FIRST_LOCAL_TABLE_VERSION: u8 = 128;
 ///
 /// The `"Unknown"` name is the stack-wide contract for an unresolved GRIB1
 /// parameter, documented on every type that carries one through to a host
-/// (`fieldglass::api`, `fieldglass_core::metadata`, the napi and wasm
-/// bindings), so it is a shared constant rather than a literal per return site.
+/// (`fieldglass::api`, the napi and wasm bindings), so it is a shared constant
+/// rather than a literal per return site.
 const UNKNOWN: ParameterEntry = ParameterEntry {
     name: "Unknown",
     abbreviation: "",
