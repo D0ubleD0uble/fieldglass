@@ -347,9 +347,9 @@ impl Grib1Reader {
             // ignores the bit on one (its reduced geoiterator walks rows either
             // way, verified by setting `0x20` on `reduced_gg_n32_smooth.grib1`
             // and diffing `grib_get_data`), so only the regular arm transposes.
-            (None, Some((ni, nj))) if j_consecutive(gds) => {
-                Ok(transpose_j_consecutive(&values, ni as usize, nj as usize))
-            }
+            (None, Some((ni, nj))) if j_consecutive(gds) => Ok(
+                fieldglass_core::transpose_j_consecutive(&values, ni as usize, nj as usize),
+            ),
             _ => Ok(values),
         }
     }
@@ -486,26 +486,6 @@ impl DecodeInputs<'_> {
 /// layout alone.
 fn j_consecutive(gds: &GridDescription) -> bool {
     gds.scanning_mode().is_some_and(|s| s.j_consecutive)
-}
-
-/// Reorder a `j`-consecutive (column-major) field of `ni · nj` points into the
-/// row-major raster `out[j·ni + i] = values[i·nj + j]`.
-///
-/// Anything that is not exactly `ni · nj` long comes back untouched: the
-/// callers cap and cross-check both counts before getting here, so a mismatch
-/// is a grid this cannot describe, and returning it unchanged is the same
-/// answer a grid without the flag gets.
-fn transpose_j_consecutive(values: &[Option<f64>], ni: usize, nj: usize) -> Vec<Option<f64>> {
-    if ni.checked_mul(nj) != Some(values.len()) {
-        return values.to_vec();
-    }
-    let mut out = Vec::with_capacity(values.len());
-    for j in 0..nj {
-        for i in 0..ni {
-            out.push(values[i * nj + j]);
-        }
-    }
-    out
 }
 
 /// Scan `data` for GRIB messages. Each message starts with the `GRIB` magic
@@ -829,52 +809,6 @@ pub fn level_type_str(pds: &ProductDefinition) -> String {
     match level_unit(pds.level_type) {
         Some(unit) => format!("({unit}) {name}"),
         None => name.to_string(),
-    }
-}
-
-#[cfg(test)]
-mod transpose_tests {
-    use super::*;
-
-    fn field(n: usize) -> Vec<Option<f64>> {
-        (0..n).map(|k| Some(k as f64)).collect()
-    }
-
-    /// `ni = 2`, `nj = 3`: the stored columns `[0,1,2]` and `[3,4,5]` become
-    /// the rows `[0,3]`, `[1,4]`, `[2,5]`.
-    #[test]
-    fn columns_become_rows() {
-        let out = transpose_j_consecutive(&field(6), 2, 3);
-        let want: Vec<Option<f64>> = [0.0, 3.0, 1.0, 4.0, 2.0, 5.0].map(Some).into();
-        assert_eq!(out, want);
-    }
-
-    /// Transposing twice with the axes swapped is the identity, which is the
-    /// property the raster path relies on: nothing is dropped or duplicated.
-    #[test]
-    fn transposing_back_is_the_identity() {
-        let original = field(35);
-        let once = transpose_j_consecutive(&original, 5, 7);
-        assert_eq!(transpose_j_consecutive(&once, 7, 5), original);
-    }
-
-    /// A masked point travels with its position rather than being filled in.
-    #[test]
-    fn a_masked_point_moves_with_its_neighbours() {
-        let mut values = field(6);
-        values[4] = None; // stored index 4 = column 1, row 1 = raster index 3.
-        assert_eq!(transpose_j_consecutive(&values, 2, 3)[3], None);
-    }
-
-    /// A count that is not `ni · nj` describes no rectangle, so there is
-    /// nothing to transpose and the field comes back as it went in. The
-    /// callers cap and cross-check both counts, so this is the guard rather
-    /// than a reachable layout — but an out-of-bounds index is the failure it
-    /// would otherwise be.
-    #[test]
-    fn a_field_that_is_not_the_rectangle_is_untouched() {
-        assert_eq!(transpose_j_consecutive(&field(5), 2, 3), field(5));
-        assert_eq!(transpose_j_consecutive(&field(0), usize::MAX, 2), field(0));
     }
 }
 

@@ -22,6 +22,8 @@
       "longitudeOfLastGridPointInDegrees": 357.5,
       "iDirectionIncrementInDegrees": 2.5,
       "jDirectionIncrementInDegrees": 2.5,
+      "jPointsAreConsecutive": 0,
+      "alternativeRowScanning": 0,
       "productDefinitionTemplateNumber": 0,
       "parameterCategory": 3,
       "parameterNumber": 0,

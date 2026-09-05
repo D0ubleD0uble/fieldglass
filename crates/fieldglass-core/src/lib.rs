@@ -6,7 +6,8 @@
 //! surface: [`error`], [`bits`], [`bytes`], [`detect`], [`metadata`],
 //! [`cct_tables`] (both GRIB editions share the WMO sub-centre lookup),
 //! [`projection`] (GRIB1's GDS uses the projectors to recover
-//! grid corners), and the three grids that arrive as something other than a
+//! grid corners), [`scan`] (the storage orders a decoder regularises), and the
+//! three grids that arrive as something other than a
 //! rectangle of values — [`sht`], [`matrix`], and [`healpix`]. What those
 //! modules have in common is that none of them is behind a feature, which is
 //! what makes a `default-features = false` dependency work. Pre-commit builds
@@ -58,6 +59,7 @@ pub mod metadata;
 #[cfg(feature = "render")]
 pub mod overlay;
 pub mod projection;
+pub mod scan;
 pub mod sht;
 pub mod spatial_index;
 pub mod units;
@@ -97,6 +99,7 @@ pub use projection::{
     mercator_point, normalise_lon, reduced_raster_lon_last, reduced_raster_width,
     rotated_latlon_point, signed_grid_increments,
 };
+pub use scan::transpose_j_consecutive;
 pub use spatial_index::SpatialIndex;
 #[cfg(feature = "render")]
 pub use warp::{

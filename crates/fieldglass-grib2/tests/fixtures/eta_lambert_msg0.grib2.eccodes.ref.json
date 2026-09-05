@@ -18,6 +18,8 @@
       "Nj": 65,
       "latitudeOfFirstGridPointInDegrees": 12.19,
       "longitudeOfFirstGridPointInDegrees": 226.541,
+      "jPointsAreConsecutive": 0,
+      "alternativeRowScanning": 0,
       "productDefinitionTemplateNumber": 0,
       "parameterCategory": 3,
       "parameterNumber": 192,

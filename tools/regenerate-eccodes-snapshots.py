@@ -70,6 +70,13 @@ GRIB2_KEYS: list[str] = [
     "longitudeOfLastGridPointInDegrees",
     "iDirectionIncrementInDegrees",
     "jDirectionIncrementInDegrees",
+    # Flag Table 3.4, the two bits the *decoder* acts on rather than the
+    # geometry: bit 3 makes the stored run a meridian and bit 4 reverses
+    # alternate rows. `Grib2Reader` refuses their combination, which a snapshot
+    # pinning only one of them could not see. The direction bits (1 and 2) move
+    # where a row starts, which is the projection's business, not the decode's.
+    "jPointsAreConsecutive",
+    "alternativeRowScanning",
     # §4 Product Definition
     "productDefinitionTemplateNumber",
     "parameterCategory",

@@ -28,10 +28,11 @@
 //!
 //! Those entry points all return the field **as the message stores it**. A
 //! reduced Gaussian grid stores `sum(PL)` values, not the `Ni × Nj` its
-//! [`GridDefinitionSection::dimensions`] reports, so
+//! [`GridDefinitionSection::dimensions`] reports, and a `j`-consecutive grid
+//! (§3 Flag Table 3.4 bit 3) stores meridians rather than parallels.
 //! [`Grib2Reader::decode_message_raster`] is the entry point that hands back
-//! the rectangle, with [`GridDefinitionSection::raster_bounds`] as its extent.
-//! Neither leaves the widening rule to the caller.
+//! the rectangle either way, with [`GridDefinitionSection::raster_bounds`] as
+//! its extent. Neither leaves the widening or transpose rule to the caller.
 
 #![forbid(unsafe_code)]
 pub mod bms;

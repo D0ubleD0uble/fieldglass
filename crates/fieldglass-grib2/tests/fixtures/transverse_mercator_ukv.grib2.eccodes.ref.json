@@ -16,6 +16,8 @@
       "numberOfDataPoints": 720,
       "Ni": 24,
       "Nj": 30,
+      "jPointsAreConsecutive": 0,
+      "alternativeRowScanning": 0,
       "productDefinitionTemplateNumber": 0,
       "parameterCategory": 0,
       "parameterNumber": 0,
