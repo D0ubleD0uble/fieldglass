@@ -132,12 +132,17 @@ async function run({ bytes, canvas, messageIndex, paletteOptions }) {
   const gpu = new Uint8Array(ni * nj * 4);
   gl.readPixels(0, 0, ni, nj, gl.RGBA, gl.UNSIGNED_BYTE, gpu);
 
-  // No flip. Two conventions cancel: `texImage2D` puts data row 0 at `v = 0`,
-  // which GL draws at the *bottom* of the framebuffer, and `readPixels` starts
-  // at the bottom too — so its row `j` is data row `j`, the same row
-  // `render(.., flipY = false)` emits `j`th. Flipping "to correct for
+  // Two conventions cancel: `texImage2D` puts data row 0 at `v = 0`, which GL
+  // draws at the *bottom* of the framebuffer, and `readPixels` starts at the
+  // bottom too — so its row `j` is **data** row `j`. Flipping "to correct for
   // readPixels" mirrors the image and makes 97% of the pixels disagree, which
   // is how this comment came to be written.
+  //
+  // `render(.., flipY = false)` emits data row `j` too, *unless* the message
+  // scans south to north: it composes `scan.jPositive` so its output is north
+  // up (#573). The shader textures are uploaded in data order, so a GPU host
+  // owes that same composition — here, by reading the CPU row this GPU row
+  // corresponds to.
   //
   // The comparison is on the *lookup index*, not on the RGB triple: the
   // acceptance rule allows one index at a bin edge, and two adjacent entries of
@@ -154,11 +159,15 @@ async function run({ bytes, canvas, messageIndex, paletteOptions }) {
   let offByOne = 0;
   let mismatched = 0;
   let firstMismatch = null;
+  const flipsRows = Boolean(grid.scan && grid.scan.jPositive);
   for (let j = 0; j < nj; j++) {
     const gpuRow = j * ni;
+    // The CPU raster's row for data row `j`. Identity for the usual
+    // north-down grid; mirrored for one that scans south to north.
+    const cpuRow = (flipsRows ? nj - 1 - j : j) * ni;
     for (let i = 0; i < ni; i++) {
       const g = (gpuRow + i) * 4;
-      const c = (j * ni + i) * 4;
+      const c = (cpuRow + i) * 4;
       const gKey = `${gpu[g]},${gpu[g + 1]},${gpu[g + 2]}`;
       const cKey = `${cpu[c]},${cpu[c + 1]},${cpu[c + 2]}`;
       if (gKey === cKey && gpu[g + 3] === cpu[c + 3]) {

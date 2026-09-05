@@ -16,8 +16,8 @@
 //!    checks the rule itself, on real data, with no GPU.
 
 use fieldglass::{
-    DecodeOptions, Dtype, Palette, PaletteOptions, ScaleMode, Session, Values, colormaps,
-    shader_index, shader_mask, shader_values,
+    DecodeOptions, Dtype, Palette, PaletteOptions, RenderOptions, ScaleMode, Session, Values,
+    colormaps, shader_index, shader_mask, shader_values,
 };
 
 /// Committed fixtures covering all four modelled grid families and a spread of
@@ -443,6 +443,107 @@ fn an_alternate_row_grid_is_not_flipped_twice() {
         assert!(
             (a - b).abs() < 1e-9,
             "point {i}: session gave {a}, the decoder gave {b} — the rows were flipped twice"
+        );
+    }
+}
+
+/// `Session::render` and `render::probe_pixel` agree about which grid row a
+/// raster row is, for a grid stored south-to-north as well as one stored
+/// north-down (#573).
+///
+/// Before this, `Session::render` passed the caller's `flip_y` straight to the
+/// painter while `probe_pixel` and `overlay_polylines` first composed it with
+/// `Scan::flips_source_rows`. So a `jScansPositively` field rendered through
+/// the wasm host drew south-up while the same field in VS Code drew north-up,
+/// and the crate's own two spellings of "the source view" disagreed about the
+/// row under a pixel. `Georef::scan` still hands the flag to a host — it is on
+/// the DTO for that reason — but a host that composed it itself would now flip
+/// twice, so the flag is applied here, in one place, and the hosts pass the
+/// user's request straight through.
+///
+/// The two fixtures are the control pair: without the north-down one, an
+/// implementation that flipped *everything* would pass.
+#[test]
+fn render_and_the_pixel_probe_agree_about_which_row_a_pixel_is() {
+    // (fixture, whether the message says its rows run south to north)
+    const CASES: [(&str, bool); 2] = [
+        (
+            "../fieldglass-grib1/tests/fixtures/cmc_wind_300_2010052400_p012.grib",
+            true,
+        ),
+        (
+            "../fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
+            false,
+        ),
+    ];
+
+    for (path, j_positive) in CASES {
+        let session = open(path);
+        let field = session
+            .decode(0, &DecodeOptions::default())
+            .expect("decode succeeds");
+        assert_eq!(
+            field.georef.scan.j_positive, j_positive,
+            "{path}: the fixture no longer has the scan order this case is about"
+        );
+
+        let palette_options = PaletteOptions::new(Some("viridis"), None);
+        let raster = session
+            .render(&field, &palette_options, false)
+            .expect("the source raster paints");
+        let palette = session
+            .palette(&field, &palette_options)
+            .expect("the palette builds");
+
+        // Which grid row the raster's first row must show: the last for a
+        // south-to-north grid, the first otherwise. The *whole* row, not its
+        // first pixel: two rows of a smooth field can share a colour at column
+        // zero, and an assertion that only looked there would pass either way.
+        let top_row = if j_positive { field.nj - 1 } else { 0 };
+        let start = (top_row as usize) * field.ni as usize;
+        let expected: Vec<u8> = (0..field.ni as usize)
+            .flat_map(|i| {
+                let cell = start + i;
+                palette.rgba(
+                    field
+                        .values
+                        .get(cell)
+                        .filter(|_| field.mask[cell] == 1)
+                        .unwrap_or(f64::NAN),
+                )
+            })
+            .collect();
+        assert_eq!(
+            &raster.rgba[..expected.len()],
+            &expected[..],
+            "{path}: the first painted row is not grid row {top_row}"
+        );
+
+        // And the pixel probe, asked about that same pixel of that same view,
+        // must name the same row.
+        let cells: Vec<Option<f64>> = (0..field.mask.len())
+            .map(|k| (field.mask[k] == 1).then(|| field.values.get(k)).flatten())
+            .collect();
+        let source = fieldglass::Source {
+            geometry: Ok(&field.georef.geometry),
+            ni: field.ni,
+            nj: field.nj,
+            scan: field.georef.scan,
+            family: &field.georef.kind,
+        };
+        let probe = fieldglass::render::probe_pixel(
+            &source,
+            &cells,
+            &RenderOptions::new("source", "nearest"),
+            0,
+            0,
+        )
+        .expect("the source view probes")
+        .expect("pixel (0, 0) is on the raster");
+        assert_eq!(
+            probe.grid_j,
+            Some(top_row as i32),
+            "{path}: probe_pixel and render disagree about the row under pixel (0, 0)"
         );
     }
 }

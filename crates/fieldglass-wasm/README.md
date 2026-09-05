@@ -57,13 +57,28 @@ handle.shaderValues(field, {});    // Float32Array: transformed and rebased by t
 handle.shaderMask(field, {});      // Uint8Array the shader tests
 
 handle.warp(field, {});            // resampled values, no paint
-handle.render(field, {}, false);   // RGBA, the CPU fallback
+handle.render(field, {}, false);   // RGBA, north up — see below
 handle.probe(field, lat, lon);
 handle.contours(field, new Float64Array([280, 290]));
 
 field.free();
 handle.free();
 ```
+
+### Which way up a raster comes out
+
+`render(field, options, flipY)` composes `flipY` with the message's own scan
+order rather than replacing it. Grid point `(i, j)` paints at pixel `(i, j)`, so
+a field whose rows run south to north (`grid().scan.jPositive`) arrives upside
+down on a canvas whose first row is the top — and `false` therefore means
+**north up**, not "rows as stored". Pass the user's own request straight
+through; composing the flag yourself would flip twice.
+
+`grid().scan` is still on the DTO, because it is the one thing the geometry
+cannot answer — and a **GPU host needs it**: `shaderValues()` and
+`shaderMask()` are in the field's own data order, so a host uploading them owes
+the same composition `render()` makes for you. `examples/smoke` does exactly
+that where it lines the two pictures up.
 
 ### The memory contract
 
@@ -114,8 +129,8 @@ browser actually downloads.
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
-| baseline | 933,960 | 361,746 |
-| `+simd128` | 931,428 | 360,916 |
+| baseline | 934,213 | 361,831 |
+| `+simd128` | 931,679 | 360,982 |
 
 The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
 build drifts more than 5% from these figures in either direction, so a change
@@ -124,7 +139,7 @@ that moves the bundle has to say so here. Update both cells when it does.
 Two things worth knowing before optimising further:
 
 - `wasm-opt -Oz` is a **raw** win and a **transfer** loss. It takes the module
-  from 985,301 to 933,960 bytes (-5.2%) and takes it from 355,711 to 361,746
+  from 985,554 to 934,213 bytes (-5.2%) and takes it from 355,795 to 361,831
   gzipped (+1.7%). Its size passes trade repetition for smaller encodings, and
   DEFLATE was already being paid for the repetition. It stays on because parse
   and instantiate cost track the raw module, but a transfer-size-only argument
