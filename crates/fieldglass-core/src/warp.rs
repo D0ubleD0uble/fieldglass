@@ -1516,7 +1516,7 @@ fn sample_source(source: &SourceGrid<'_>, idx: GridIndex, method: Resampling) ->
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::projection::{LatLonParams, eastward_lon_span, latlon_inverse, lon_grid_is_global};
+    use crate::projection::{LatLonParams, latlon_inverse};
 
     /// Build a source grid whose value at `(i, j)` is `j * 100 + i` — the
     /// pattern makes warp behaviour transparent to inspect.
@@ -1539,7 +1539,8 @@ mod tests {
     ) -> SourceGrid<'a> {
         let ni = p.ni;
         let nj = p.nj;
-        let periodic_i = lon_grid_is_global(eastward_lon_span(p.lon_first, p.lon_last), ni);
+        // The same answer the render path asks for, asked the same way (#571).
+        let periodic_i = crate::GridGeometry::LatLon(*p).is_periodic_x();
         let inverse = move |lat: f64, lon: f64| latlon_inverse(p, lat, lon);
         let inverse_ref: &'a dyn Fn(f64, f64) -> Option<GridIndex> = Box::leak(Box::new(inverse));
         SourceGrid {

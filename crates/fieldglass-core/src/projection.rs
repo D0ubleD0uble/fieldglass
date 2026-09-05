@@ -523,6 +523,31 @@ pub fn plane_spans_a_grid_cell(plane_radius_m: f64, dx_metres: f64, dy_metres: f
     dx_metres.abs() < plane_radius_m && dy_metres.abs() < plane_radius_m
 }
 
+/// The floor [`GridGeometry::reprojectable`] puts under a metre-plane family,
+/// measured on the radius the **message declared** rather than on the plane the
+/// projection derives from it.
+///
+/// Three conditions the projectors' own `is_well_defined` does not all cover:
+/// the declared radius has to describe a sphere at all, the grid has to have a
+/// step to walk, and that step has to fit inside the declared radius. The last
+/// is the one that differs — [`plane_spans_a_grid_cell`] is applied inside
+/// `is_well_defined` too, but against `2·R·k₀` for polar stereographic and
+/// `|k|·rectifying_radius` for transverse Mercator, either of which can be the
+/// larger or the smaller number. Both are asked, so a grid stating a cell
+/// between them is refused rather than offered and then refused again.
+///
+/// The zero-step clause is here rather than left to [`plane_spans_a_grid_cell`],
+/// which passes a spacing-free grid vacuously by design: a zero step is a
+/// different defect, and the committed `polar_stereographic_surface.grib2`
+/// fixture is one.
+fn declared_plane_carries_the_grid(radius_m: f64, dx_metres: f64, dy_metres: f64) -> bool {
+    radius_m.is_finite()
+        && radius_m > 0.0
+        && dx_metres != 0.0
+        && dy_metres != 0.0
+        && plane_spans_a_grid_cell(radius_m, dx_metres, dy_metres)
+}
+
 /// Whether a planar grid can be placed on the Earth at all — the one predicate
 /// [`GridGeometry::forward`], [`GridGeometry::lonlat_bbox`] and
 /// [`GridGeometry::plane_affine`] gate on, so that none of the three can answer
@@ -1076,6 +1101,168 @@ impl GridGeometry {
         }
     }
 
+    /// Whether the grid's column axis closes on itself: one column step past
+    /// the last column lands back on the first.
+    ///
+    /// Only a geographic family can. A projected grid's columns are
+    /// projection-plane metres and no finite number of them wraps the Earth; a
+    /// lookup grid is a list of centres with no column axis to close. Judged
+    /// from the stated corners and the column count, by [`lon_grid_is_global`],
+    /// which admits a grid whose last column stops one step short of the seam —
+    /// the ordinary case, since repeating the seam column would store it twice.
+    ///
+    /// [`RotatedLatLon`](Self::RotatedLatLon) is judged in its **rotated**
+    /// frame, because that is the frame its corners and its inverse map are both
+    /// stated in and therefore the frame a column index actually wraps in. A
+    /// rotated grid that closes on itself there closes on itself on the sphere
+    /// too.
+    ///
+    /// This is the one predicate for the question. Both hosts asked it
+    /// separately before #571 and disagreed about rotated lat/lon: the umbrella
+    /// widened such a grid's render window and the napi warp did not.
+    pub fn is_periodic_x(&self) -> bool {
+        // A reduced grid never reaches here as itself: both GRIB crates widen
+        // its rows to a regular `ni` raster in the conversion, so it arrives as
+        // `LatLon` or `Gaussian` with the raster's own east edge (#503, #543).
+        let corners = match self {
+            Self::LatLon(p) => (p.lon_first, p.lon_last, p.ni),
+            Self::Gaussian(p) => (p.lon_first, p.lon_last, p.ni),
+            // Evenly spaced in longitude like the two above, so the same corner
+            // test decides it; only the row spacing differs.
+            Self::Mercator(p) => (p.lon_first, p.lon_last, p.ni),
+            Self::RotatedLatLon(p) => (p.lon_first, p.lon_last, p.ni),
+            _ => return false,
+        };
+        lon_grid_is_global(eastward_lon_span(corners.0, corners.1), corners.2)
+    }
+
+    /// The window a render should frame, as opposed to
+    /// [`lonlat_bbox`](Self::lonlat_bbox), which is where the data is.
+    ///
+    /// A grid whose columns close on themselves owns the gap between its last
+    /// column and its first: the periodic sampler fills it, and a window that
+    /// stops at the last declared column leaves the seam meridian as a stripe of
+    /// background one cell wide. So a periodic grid's window is its extent
+    /// carried a full turn east ([`LonLatBox::widened_to_full_turn`]), and
+    /// everything else's window is its extent unchanged.
+    ///
+    /// Stating it here is the point: #553 gave the widening one home, and this
+    /// gives *when to apply it* one home too. Before #571 the umbrella and the
+    /// napi warp each decided it, under predicates that disagreed about rotated
+    /// lat/lon.
+    pub fn render_window(&self) -> Option<LonLatBox> {
+        let extent = self.lonlat_bbox()?;
+        Some(if self.is_periodic_x() {
+            extent.widened_to_full_turn()
+        } else {
+            extent
+        })
+    }
+
+    /// Whether the contour pass may march the seam cell that wraps column
+    /// `ni - 1` round to column `0`.
+    ///
+    /// Two conditions, and both matter:
+    ///
+    /// 1. The grid is periodic — [`is_periodic_x`](Self::is_periodic_x), the
+    ///    same answer the warp and the probe use (#332), read off the stated
+    ///    corners, which for a rotated grid are *rotated* coordinates: the space
+    ///    the index actually wraps in.
+    /// 2. The family's geographic longitude advances uniformly eastward with
+    ///    `i`. The seam interpolation runs in geographic longitude — a contour
+    ///    vertex never sees any other coordinate — so it is valid only where one
+    ///    step in `i` is one step east.
+    ///
+    /// A rotated grid that is global in rotated longitude therefore keeps its
+    /// seam gap, which is why it fails the second condition and not the first.
+    /// Its rows are small circles whose geographic longitude is neither uniform
+    /// nor monotonic, so unwrapping such a seam eastward could sweep most of the
+    /// way round the globe and draw a rim-to-rim streak in place of closing a
+    /// one-cell gap. Closing it properly needs the seam interpolated in rotated
+    /// space and rotated back, which is a larger change than the gap warrants.
+    pub fn contour_seam_wraps(&self) -> bool {
+        // Again the reduced families arrive widened, as `LatLon` or `Gaussian`;
+        // leaving them out gave the same grid a seam gap in GRIB1 and none in
+        // GRIB2 (#503).
+        matches!(
+            self,
+            Self::LatLon(_) | Self::Gaussian(_) | Self::Mercator(_)
+        ) && self.is_periodic_x()
+    }
+
+    /// Whether a render may offer to reproject this grid onto a map — that is,
+    /// whether [`inverse_at`](Self::inverse_at) will actually place points of
+    /// it.
+    ///
+    /// **One predicate, and it is the one the render consults.** It used to be
+    /// two, in the host: a grid-type allow-list that saw a family name and two
+    /// spacings, and a second pass that re-asked the warp setup. A message can
+    /// state every number a planar family needs, all present and finite, and
+    /// still describe a projection that places no point — a cone whose standard
+    /// parallels are both on the equator, an Earth smaller than one cell of the
+    /// grid drawn on it, a latitude of true scale past ±90°, a geostationary
+    /// ellipsoid the satellite has no line of sight to. Answering `true` there
+    /// promises a host a target the warp then refuses (#603, #610).
+    ///
+    /// The corner-pinned families answer from `scan` alone. Their inverse maps
+    /// assume columns run west to east, so an `i_negative` grid stays in its
+    /// source projection; the row direction does not matter, because the map is
+    /// built from the two stated corners whichever way they run.
+    ///
+    /// The projected families ignore `scan` entirely, because they have already
+    /// absorbed it: [`signed_grid_increments`] baked the direction bits into
+    /// their spacings before the variant was built. What they are asked instead
+    /// is whether the plane is real, and that is asked twice on purpose —
+    /// against the **declared** radius, which is what a message states and what
+    /// the render's own parameter builders measure, and against the family's own
+    /// plane inside `is_well_defined`, which is a different number for three of
+    /// the four. A polar stereographic plane is `2·R·k₀` (1.87·R at a ±60°
+    /// latitude of true scale) and a transverse Mercator plane is
+    /// `|k|·rectifying_radius`, so a grid stating a cell between the two would
+    /// otherwise be offered here and refused by the render.
+    ///
+    /// [`Lookup`](Self::Lookup) is always reprojectable: its inverse is a
+    /// nearest-cell search over centres that carry their own positions, so there
+    /// is no scan direction to be wrong about and no projection to collapse
+    /// (#445).
+    pub fn reprojectable(&self, scan: Scan) -> bool {
+        match self {
+            // Reduced grids arrive widened to a regular raster, so they reach
+            // this through the same two arms as their regular siblings.
+            Self::LatLon(_) | Self::Gaussian(_) | Self::Mercator(_) | Self::RotatedLatLon(_) => {
+                !scan.i_negative
+            }
+            Self::Lookup(_) => true,
+            Self::Lambert(p) => {
+                declared_plane_carries_the_grid(p.earth_radius_m, p.dx_metres, p.dy_metres)
+                    && LambertProjector::new(*p).is_well_defined()
+            }
+            Self::PolarStereo(p) => {
+                declared_plane_carries_the_grid(p.earth_radius_m, p.dx_metres, p.dy_metres)
+                    && PolarStereoProjector::new(*p).is_well_defined()
+            }
+            Self::TransverseMercator(p) => {
+                declared_plane_carries_the_grid(p.semi_major_m, p.dx_metres, p.dy_metres)
+                    && TransverseMercatorProjector::new(*p).is_well_defined()
+            }
+            Self::LambertAzimuthal(p) => {
+                declared_plane_carries_the_grid(p.semi_major_m, p.dx_metres, p.dy_metres)
+                    && LambertAzimuthalProjector::new(*p).is_well_defined()
+            }
+            // No radius floor: a space view's axes are scan angles rather than
+            // metres and every term of its maths is a ratio, so shrinking the
+            // whole system leaves the picture where it was. Its own
+            // `is_well_defined` is what catches a shapeless ellipsoid; all that
+            // is left is a grid with no step to walk.
+            Self::Geostationary(p) => {
+                p.dx_rad != 0.0
+                    && p.dy_rad != 0.0
+                    && GeostationaryProjector::new(*p).is_well_defined()
+            }
+            Self::Unsupported { .. } => false,
+        }
+    }
+
     /// A PROJ definition string for the grid's coordinate reference system, or
     /// `None` for a family this type cannot place.
     ///
@@ -1487,6 +1674,84 @@ impl LonLatBox {
     #[must_use]
     pub const fn from_array(edges: [f64; 4]) -> Self {
         Self::new(edges[0], edges[1], edges[2], edges[3])
+    }
+}
+
+/// The direction a message walked its grid, travelling **beside** the geometry
+/// rather than inside it (#571).
+///
+/// Beside, and not a field on each [`GridGeometry`] variant, for three reasons:
+///
+/// * The projected families already absorb the direction bits.
+///   [`signed_grid_increments`] bakes the `i` and `j` signs into `dx_metres` /
+///   `dy_metres` in both GRIB crates before a variant is built, so a flag on
+///   [`LambertParams`] would state the same fact a second time and let the two
+///   copies disagree.
+/// * [`j_consecutive`](Self::j_consecutive) is not a property of the grid at
+///   all. It says how the *message* stored its points, and both decoders
+///   transpose such a field before anyone indexes it (`crate::scan`), so a
+///   geometry carrying it would describe a layout that no longer exists.
+/// * Only two questions need it, one flag each — reprojection eligibility reads
+///   [`i_negative`](Self::i_negative), and which way up to draw the source view
+///   reads [`j_positive`](Self::j_positive) — so a parameter is the honest
+///   shape. [`GridGeometry::reprojectable`] and [`Self::flips_source_rows`] are
+///   those two questions.
+///
+/// The flags describe the raster a decoder **returns**, not the raw GDS byte
+/// (#541): a `j`-consecutive message is transposed on the way out, which is why
+/// that flag is descriptive here and acting on it would transpose twice.
+///
+/// `#[non_exhaustive]`, because it surfaces on the `fieldglass` API as
+/// `Georef::scan` and ADR-0006 requires it of every type there. Build one with
+/// [`Self::new`] or [`Self::north_down`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct Scan {
+    /// Points run east→west rather than west→east (GRIB1 GDS octet 28 bit 1,
+    /// GRIB2 §3 Flag Table 3.4 bit 1).
+    pub i_negative: bool,
+    /// Rows run south→north rather than north→south (bit 2).
+    pub j_positive: bool,
+    /// The *message* stored adjacent points consecutive in `j` (column-major,
+    /// bit 3). Descriptive only — see the type docs.
+    pub j_consecutive: bool,
+}
+
+impl Scan {
+    /// The three flags, in the order the flag tables list them.
+    #[must_use]
+    pub const fn new(i_negative: bool, j_positive: bool, j_consecutive: bool) -> Self {
+        Self {
+            i_negative,
+            j_positive,
+            j_consecutive,
+        }
+    }
+
+    /// West-to-east rows walked north to south, row-major: the orientation a
+    /// grid with no scan flag at all is read as.
+    ///
+    /// A predefined GRIB1 grid carries no GDS to state one, and a NetCDF file
+    /// has no scanning mode; both are treated as this rather than as unknown,
+    /// which is what the hosts already do with a missing flag.
+    #[must_use]
+    pub const fn north_down() -> Self {
+        Self::new(false, false, false)
+    }
+
+    /// Whether painting the source grid at one pixel per grid point has to flip
+    /// the rows, given the flip the caller asked for.
+    ///
+    /// The source view paints grid point `(i, j)` at pixel `(i, j)`, so a
+    /// [`j_positive`](Self::j_positive) grid — row 0 southernmost — arrives
+    /// upside down on a canvas whose first row is the top. Flipping it is what
+    /// makes north up (#286), and the caller's own request composes with it:
+    /// asking for a flipped view of an already-flipped grid is the grid as
+    /// stored.
+    #[must_use]
+    pub const fn flips_source_rows(self, requested_flip: bool) -> bool {
+        requested_flip ^ self.j_positive
     }
 }
 
@@ -2296,6 +2561,342 @@ mod tests {
         assert!(
             (span - 270.0).abs() < 1.0,
             "expected a tight ~270° span, got {span} ([{lon_min}, {lon_max}])"
+        );
+    }
+}
+
+/// The questions a host used to answer for itself, now `GridGeometry`'s (#571).
+///
+/// Their old homes were `fieldglass-napi`'s `grid_is_reprojectable` /
+/// `gate_planar_reprojection` / `source_grid_is_periodic` / `contour_seam_wraps`
+/// and `fieldglass`'s `geometry_is_periodic_x`; the coverage came with them,
+/// widened to every family rather than to the grid-type strings one host
+/// happened to spell.
+#[cfg(test)]
+mod grid_questions_tests {
+    use super::*;
+
+    fn latlon(ni: u32, lon_first: f64, lon_last: f64) -> GridGeometry {
+        GridGeometry::LatLon(LatLonParams {
+            ni,
+            nj: 4,
+            lat_first: 40.0,
+            lon_first,
+            lat_last: -40.0,
+            lon_last,
+        })
+    }
+
+    /// A healthy WRF-shaped Lambert domain: the family every planar assertion
+    /// below perturbs one number of.
+    fn lambert(earth_radius_m: f64, dx: f64, dy: f64) -> LambertParams {
+        LambertParams {
+            earth_radius_m,
+            ni: 100,
+            nj: 80,
+            lat_first: 21.14,
+            lon_first: -122.72,
+            lad: 38.5,
+            lov: -97.5,
+            dx_metres: dx,
+            dy_metres: dy,
+            latin1: 38.5,
+            latin2: 38.5,
+        }
+    }
+
+    fn polar_stereo(earth_radius_m: f64, dx: f64, dy: f64) -> PolarStereoParams {
+        PolarStereoParams {
+            earth_radius_m,
+            ni: 100,
+            nj: 80,
+            lat_first: 55.0,
+            lon_first: -120.0,
+            lov: -100.0,
+            lad: 60.0,
+            dx_metres: dx,
+            dy_metres: dy,
+            south_pole: false,
+        }
+    }
+
+    /// Two flags decide two questions and nothing else reads them, which is the
+    /// whole argument for scan travelling beside the geometry.
+    #[test]
+    fn a_south_to_north_scan_is_what_flips_the_source_view() {
+        // North-down: the canvas order is already the grid order, so only the
+        // caller's own request moves it.
+        assert!(!Scan::north_down().flips_source_rows(false));
+        assert!(Scan::north_down().flips_source_rows(true));
+        // South-to-north: row 0 is the southernmost, so it arrives upside down
+        // and the flip is what makes north up. Asking for a flipped view of it
+        // is the grid as stored.
+        let up = Scan::new(false, true, false);
+        assert!(up.flips_source_rows(false));
+        assert!(!up.flips_source_rows(true));
+        // The other two flags never reach this answer.
+        assert_eq!(
+            Scan::new(true, false, true).flips_source_rows(false),
+            Scan::north_down().flips_source_rows(false)
+        );
+    }
+
+    /// The corner-pinned families reproject west-to-east and stay in their
+    /// source projection otherwise: a −i scan would be read by their inverse
+    /// maps as an antimeridian wrap.
+    #[test]
+    fn corner_pinned_families_answer_from_the_scan_alone() {
+        let west_to_east = Scan::north_down();
+        let east_to_west = Scan::new(true, false, false);
+        let gaussian = GridGeometry::Gaussian(GaussianParams {
+            ni: 8,
+            nj: 4,
+            lat_first: 80.0,
+            lon_first: 0.0,
+            lat_last: -80.0,
+            lon_last: 315.0,
+            n_parallels: 2,
+        });
+        let mercator = GridGeometry::Mercator(MercatorParams {
+            ni: 8,
+            nj: 4,
+            lat_first: 40.0,
+            lon_first: 0.0,
+            lat_last: -40.0,
+            lon_last: 315.0,
+        });
+        let rotated = GridGeometry::RotatedLatLon(RotatedLatLonParams {
+            ni: 8,
+            nj: 4,
+            lat_first: 40.0,
+            lon_first: 0.0,
+            lat_last: -40.0,
+            lon_last: 315.0,
+            south_pole_lat: -30.0,
+            south_pole_lon: 10.0,
+            angle_of_rotation: 0.0,
+        });
+        for grid in [latlon(8, 0.0, 315.0), gaussian, mercator, rotated] {
+            let named = grid.kind().to_string();
+            assert!(grid.reprojectable(west_to_east), "{named} west-to-east");
+            assert!(!grid.reprojectable(east_to_west), "{named} east-to-west");
+        }
+    }
+
+    /// A lookup grid has no scan direction to be wrong about — its centres carry
+    /// their own positions (#445) — and an unmodelled family has no map at all.
+    #[test]
+    fn a_lookup_grid_always_reprojects_and_an_unmodelled_one_never_does() {
+        let index = crate::spatial_index::SpatialIndex::new(
+            2,
+            2,
+            &[10.0, 10.0, 20.0, 20.0],
+            &[0.0, 1.0, 0.0, 1.0],
+        )
+        .expect("four finite centres make an index");
+        let lookup = GridGeometry::Lookup(index);
+        assert!(lookup.reprojectable(Scan::north_down()));
+        assert!(lookup.reprojectable(Scan::new(true, true, true)));
+        assert!(
+            !GridGeometry::Unsupported {
+                label: "healpix".to_string(),
+            }
+            .reprojectable(Scan::north_down())
+        );
+    }
+
+    /// The planar families ignore the scan — their direction bits are already in
+    /// the signed spacings — and are asked instead whether the plane is real.
+    #[test]
+    fn planar_families_ignore_the_scan_and_need_a_plane_that_carries_a_cell() {
+        let healthy = GridGeometry::Lambert(lambert(6_370_000.0, 3_000.0, 3_000.0));
+        assert!(healthy.reprojectable(Scan::north_down()));
+        assert!(
+            healthy.reprojectable(Scan::new(true, true, false)),
+            "a −i scan is already baked into Dx, so it must not gate a planar grid"
+        );
+        // A cone with both standard parallels on the equator resolves to
+        // nothing, whatever its spacings say.
+        assert!(
+            !GridGeometry::Lambert(LambertParams {
+                latin1: 0.0,
+                latin2: 0.0,
+                ..lambert(6_370_000.0, 3_000.0, 3_000.0)
+            })
+            .reprojectable(Scan::north_down())
+        );
+        // A grid with no step to walk, and one whose cell is wider than the
+        // Earth it is drawn on.
+        assert!(
+            !GridGeometry::Lambert(lambert(6_370_000.0, 0.0, 3_000.0))
+                .reprojectable(Scan::north_down())
+        );
+        assert!(
+            !GridGeometry::Lambert(lambert(6_370_000.0, 12_000_000.0, 12_000_000.0))
+                .reprojectable(Scan::north_down())
+        );
+        // Not a sphere at all.
+        for radius in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+            assert!(
+                !GridGeometry::Lambert(lambert(radius, 3_000.0, 3_000.0))
+                    .reprojectable(Scan::north_down()),
+                "radius {radius} is not a sphere"
+            );
+        }
+    }
+
+    /// The band between the declared radius and the family's own plane, which is
+    /// why both are measured. A polar stereographic plane is `2·R·k₀` — 11 886
+    /// km at a ±60° latitude of true scale on a 6 370 km Earth — so a cell
+    /// between the two passes `is_well_defined` and would have been offered by a
+    /// predicate that asked only the projector, then refused by the render.
+    #[test]
+    fn the_declared_radius_is_measured_as_well_as_the_familys_own_plane() {
+        let between = polar_stereo(6_370_000.0, 8_000_000.0, 8_000_000.0);
+        assert!(
+            PolarStereoProjector::new(between).is_well_defined(),
+            "the projector's own plane carries this cell"
+        );
+        assert!(
+            !GridGeometry::PolarStereo(between).reprojectable(Scan::north_down()),
+            "but the declared Earth does not, and the render measures that one"
+        );
+        // The same grid at a real 5 km cell reprojects.
+        assert!(
+            GridGeometry::PolarStereo(polar_stereo(6_370_000.0, 5_000.0, 5_000.0))
+                .reprojectable(Scan::north_down())
+        );
+    }
+
+    /// A space view needs no radius floor — its axes are scan angles and its
+    /// maths is all ratios — but it does need a step, and a body to look at.
+    #[test]
+    fn a_space_view_needs_a_scan_step_and_a_visible_body() {
+        let goes = GeostationaryParams {
+            ni: 100,
+            nj: 100,
+            h_metres: 42_164_160.0,
+            r_eq: 6_378_137.0,
+            r_pol: 6_356_752.314_14,
+            sub_lon_deg: -75.0,
+            sweep_x: true,
+            x0: -0.101332,
+            dx_rad: 5.6e-5,
+            y0: 0.128212,
+            dy_rad: -5.6e-5,
+        };
+        assert!(GridGeometry::Geostationary(goes).reprojectable(Scan::north_down()));
+        // An orthographic view states no camera altitude, so it has no step.
+        assert!(
+            !GridGeometry::Geostationary(GeostationaryParams {
+                dx_rad: 0.0,
+                ..goes
+            })
+            .reprojectable(Scan::north_down())
+        );
+        // A shapeless ellipsoid: `(r_pol/r_eq)²` is a NaN and the ray meets
+        // nothing (#610).
+        assert!(
+            !GridGeometry::Geostationary(GeostationaryParams { r_eq: 0.0, ..goes })
+                .reprojectable(Scan::north_down())
+        );
+    }
+
+    /// Periodicity is a property of the column axis, so only the geographic
+    /// families can have it, and a rotated grid is judged in the frame its
+    /// corners are stated in.
+    #[test]
+    fn only_a_geographic_grid_closes_on_itself() {
+        // 8 columns 45° apart, stopping one step short of the seam.
+        assert!(latlon(8, 0.0, 315.0).is_periodic_x());
+        assert!(!latlon(8, 0.0, 40.0).is_periodic_x());
+        assert!(
+            !GridGeometry::Lambert(lambert(6_370_000.0, 3_000.0, 3_000.0)).is_periodic_x(),
+            "no finite number of projection-plane metres wraps the Earth"
+        );
+        assert!(
+            !GridGeometry::Unsupported {
+                label: "healpix".to_string(),
+            }
+            .is_periodic_x()
+        );
+    }
+
+    /// The seam wrap is periodicity *and* a uniformly eastward longitude, which
+    /// is what excludes the rotated family: its rows are small circles.
+    #[test]
+    fn the_contour_seam_wraps_only_where_longitude_advances_uniformly() {
+        assert!(latlon(8, 0.0, 315.0).contour_seam_wraps());
+        assert!(!latlon(8, 0.0, 40.0).contour_seam_wraps());
+        let rotated_global = GridGeometry::RotatedLatLon(RotatedLatLonParams {
+            ni: 16,
+            nj: 8,
+            lat_first: 40.0,
+            lon_first: 0.0,
+            lat_last: -40.0,
+            lon_last: 337.5,
+            south_pole_lat: -30.0,
+            south_pole_lon: 10.0,
+            angle_of_rotation: 0.0,
+        });
+        assert!(
+            rotated_global.is_periodic_x(),
+            "it really is periodic in its own frame"
+        );
+        assert!(
+            !rotated_global.contour_seam_wraps(),
+            "but its geographic longitude is neither uniform nor monotonic"
+        );
+    }
+
+    /// Where the data is and what window to frame it with are two answers, and
+    /// they differ by exactly one thing: the seam gap a periodic grid owns.
+    #[test]
+    fn the_render_window_is_the_extent_plus_the_seam_gap() {
+        let global = latlon(8, 0.0, 315.0);
+        let extent = global
+            .lonlat_bbox()
+            .expect("a lat/lon grid states an extent");
+        let window = global.render_window().expect("and a window");
+        assert_eq!(extent.lon_max, 315.0, "the data stops at the last column");
+        assert_eq!(window.lon_max, 360.0, "the window runs the turn");
+        assert_eq!(
+            (window.lat_min, window.lat_max, window.lon_min),
+            (extent.lat_min, extent.lat_max, extent.lon_min),
+            "widening moves the east edge and nothing else"
+        );
+        // A regional grid's two answers are the same box.
+        let regional = latlon(8, 0.0, 40.0);
+        assert_eq!(regional.render_window(), regional.lonlat_bbox());
+        // A rotated grid global in its own frame is widened too — the case the
+        // two hosts disagreed about. Its perimeter walk bounds the declared
+        // columns, which stop one step short of the seam.
+        let rotated = GridGeometry::RotatedLatLon(RotatedLatLonParams {
+            ni: 16,
+            nj: 8,
+            lat_first: 40.0,
+            lon_first: 0.0,
+            lat_last: -40.0,
+            lon_last: 337.5,
+            south_pole_lat: -30.0,
+            south_pole_lon: 10.0,
+            angle_of_rotation: 0.0,
+        });
+        let walked = rotated.lonlat_bbox().expect("the walk places it");
+        let framed = rotated.render_window().expect("and it is widened");
+        assert!(
+            (walked.lon_max - walked.lon_min) < 359.0,
+            "the walk bounds the declared columns, not the turn"
+        );
+        assert!((framed.lon_max - framed.lon_min - 360.0).abs() < 1e-9);
+        // A family with no extent has no window either, rather than a plausible
+        // box on null island.
+        assert_eq!(
+            GridGeometry::Unsupported {
+                label: "healpix".to_string(),
+            }
+            .render_window(),
+            None
         );
     }
 }
