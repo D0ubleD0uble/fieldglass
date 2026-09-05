@@ -38,6 +38,7 @@ Enforced by pre-commit (commit stage) and pre-push:
 - `cargo fmt --all -- --check`
 - `cargo clippy --all-targets --workspace -- -D warnings`
 - `cargo test --workspace`
+- `cargo doc --workspace --no-deps --all-features`
 - `cargo deny check`
 - semgrep (ERROR severity)
 
@@ -47,7 +48,10 @@ Coverage: Codecov patch target is 70%. Exclude generated / stub / FFI files in
 The lint levels themselves live in `[workspace.lints]` in the root manifest,
 inherited by every member with `lints.workspace = true`. Add lints there, not as
 a crate-root `#![deny(...)]`, so `cargo build`, rust-analyzer and a crates.io
-reader see the same bar the hook does. A member that omits the inheritance line
+reader see the same bar the hook does. That covers `rustdoc` as well as `rust`
+and `clippy`: rustdoc's lints are warn-by-default, so a broken doc link is
+printed and carried past unless the level is denied in the manifest. All three
+tables are required — `tools/check_workspace_lints.py` fails if one is dropped. A member that omits the inheritance line
 gets no diagnostic from cargo, so `tools/check_workspace_lints.py` (pre-commit)
 asserts it. The same checker holds the list of crates allowed a crate-root
 `#![allow(missing_docs)]`, which is the one-line way to opt a whole crate out of
