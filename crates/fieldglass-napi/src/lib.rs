@@ -1843,6 +1843,8 @@ impl Grib1Handle {
         op: String,
         options: RenderOptions,
     ) -> napi::Result<RenderedGrid> {
+        // Refused before either field is decoded — see `combined_field`.
+        let op = fieldglass::op_from_wire(&op).into_napi()?;
         let (raw_a, meta_a, _, _) = self.resolved(message_index_a)?;
         let (raw_b, meta_b, _, _) = self.resolved(message_index_b)?;
         render_combined(
@@ -1850,7 +1852,7 @@ impl Grib1Handle {
             raw_a.as_ref(),
             &meta_b,
             raw_b.as_ref(),
-            &op,
+            op.as_str(),
             &options,
             None,
             None,
@@ -1927,6 +1929,8 @@ impl Grib1Handle {
         px: u32,
         py: u32,
     ) -> napi::Result<Option<ProbeResult>> {
+        // Refused before either field is decoded — see `combined_field`.
+        let op = fieldglass::op_from_wire(&op).into_napi()?;
         let (raw_a, meta_a, _, _) = self.resolved(message_index_a)?;
         let (raw_b, meta_b, _, _) = self.resolved(message_index_b)?;
         let combined = combined_field(
@@ -1936,7 +1940,7 @@ impl Grib1Handle {
             &meta_b,
             raw_b.as_ref(),
             None,
-            &op,
+            op.as_str(),
         )?;
         probe_impl(&meta_a, &combined, &options, px, py, None)
     }
@@ -1953,6 +1957,8 @@ impl Grib1Handle {
         options: RenderOptions,
         interval: Option<f64>,
     ) -> napi::Result<ProjectedOverlay> {
+        // Refused before either field is decoded — see `combined_field`.
+        let op = fieldglass::op_from_wire(&op).into_napi()?;
         let (raw_a, meta_a, _, _) = self.resolved(message_index_a)?;
         let (raw_b, meta_b, _, _) = self.resolved(message_index_b)?;
         let combined = combined_field(
@@ -1962,7 +1968,7 @@ impl Grib1Handle {
             &meta_b,
             raw_b.as_ref(),
             None,
-            &op,
+            op.as_str(),
         )?;
         project_contours_impl(&meta_a, &combined, &options, interval, None)
             .map(ProjectedOverlay::from_polylines)
@@ -2227,6 +2233,8 @@ impl Grib2Handle {
         op: String,
         options: RenderOptions,
     ) -> napi::Result<RenderedGrid> {
+        // Refused before either field is decoded — see `combined_field`.
+        let op = fieldglass::op_from_wire(&op).into_napi()?;
         let (raw_a, meta_a, _, _) = self.resolved(message_index_a)?;
         let (raw_b, meta_b, _, _) = self.resolved(message_index_b)?;
         render_combined(
@@ -2234,7 +2242,7 @@ impl Grib2Handle {
             raw_a.as_ref(),
             &meta_b,
             raw_b.as_ref(),
-            &op,
+            op.as_str(),
             &options,
             None,
             None,
@@ -2304,6 +2312,8 @@ impl Grib2Handle {
         px: u32,
         py: u32,
     ) -> napi::Result<Option<ProbeResult>> {
+        // Refused before either field is decoded — see `combined_field`.
+        let op = fieldglass::op_from_wire(&op).into_napi()?;
         let (raw_a, meta_a, _, _) = self.resolved(message_index_a)?;
         let (raw_b, meta_b, _, _) = self.resolved(message_index_b)?;
         let combined = combined_field(
@@ -2313,7 +2323,7 @@ impl Grib2Handle {
             &meta_b,
             raw_b.as_ref(),
             None,
-            &op,
+            op.as_str(),
         )?;
         probe_impl(&meta_a, &combined, &options, px, py, None)
     }
@@ -2330,6 +2340,8 @@ impl Grib2Handle {
         options: RenderOptions,
         interval: Option<f64>,
     ) -> napi::Result<ProjectedOverlay> {
+        // Refused before either field is decoded — see `combined_field`.
+        let op = fieldglass::op_from_wire(&op).into_napi()?;
         let (raw_a, meta_a, _, _) = self.resolved(message_index_a)?;
         let (raw_b, meta_b, _, _) = self.resolved(message_index_b)?;
         let combined = combined_field(
@@ -2339,7 +2351,7 @@ impl Grib2Handle {
             &meta_b,
             raw_b.as_ref(),
             None,
-            &op,
+            op.as_str(),
         )?;
         project_contours_impl(&meta_a, &combined, &options, interval, None)
             .map(ProjectedOverlay::from_polylines)
@@ -2796,6 +2808,8 @@ impl NetcdfHandle {
         op: String,
         options: RenderOptions,
     ) -> napi::Result<RenderedGrid> {
+        // Refused before either field is decoded — see `combined_field`.
+        let op = fieldglass::op_from_wire(&op).into_napi()?;
         let (y, x) = (y_dim as usize, x_dim as usize);
         let var_a = self.renderable(variable_index_a)?;
         let var_b = self.renderable(variable_index_b)?;
@@ -2810,7 +2824,7 @@ impl NetcdfHandle {
             &plane_a,
             &meta_b,
             &plane_b,
-            &op,
+            op.as_str(),
             &options,
             index_a.as_deref(),
             index_b.as_deref(),
@@ -2908,6 +2922,8 @@ impl NetcdfHandle {
         px: u32,
         py: u32,
     ) -> napi::Result<Option<ProbeResult>> {
+        // Refused before either field is decoded — see `combined_field`.
+        let op = fieldglass::op_from_wire(&op).into_napi()?;
         let (y, x) = (y_dim as usize, x_dim as usize);
         let var_a = self.renderable(variable_index_a)?;
         let var_b = self.renderable(variable_index_b)?;
@@ -2924,7 +2940,7 @@ impl NetcdfHandle {
             &meta_b,
             &plane_b,
             index_b.as_deref(),
-            &op,
+            op.as_str(),
         )?;
         probe_impl(&meta_a, &combined, &options, px, py, index_a.as_deref())
     }
@@ -2946,6 +2962,8 @@ impl NetcdfHandle {
         options: RenderOptions,
         interval: Option<f64>,
     ) -> napi::Result<ProjectedOverlay> {
+        // Refused before either field is decoded — see `combined_field`.
+        let op = fieldglass::op_from_wire(&op).into_napi()?;
         let (y, x) = (y_dim as usize, x_dim as usize);
         let var_a = self.renderable(variable_index_a)?;
         let var_b = self.renderable(variable_index_b)?;
@@ -2962,7 +2980,7 @@ impl NetcdfHandle {
             &meta_b,
             &plane_b,
             index_b.as_deref(),
-            &op,
+            op.as_str(),
         )?;
         project_contours_impl(&meta_a, &combined, &options, interval, index_a.as_deref())
             .map(ProjectedOverlay::from_polylines)
@@ -4036,6 +4054,12 @@ fn source_flip_y(meta: &MessageMeta, flip_y: bool) -> bool {
 /// grid, one per field. Both are needed: a lookup grid *is* its cell array, so
 /// passing only A's would leave B resolving to `Unsupported` and refuse every
 /// curvilinear difference map.
+/// `op` arrives as a wire tag rather than as the parsed value because naming
+/// `fieldglass`'s op enum in this crate is what #574 requires it not to. Each
+/// entry point parses it first all the same, so a typo is refused before two
+/// fields are decoded for it and a call with both a bad op and a bad message
+/// index reports the op — which is what it did before #579. The second parse
+/// here is a five-arm match on a short string.
 fn combined_field(
     meta_a: &MessageMeta,
     raw_a: &[Option<f64>],

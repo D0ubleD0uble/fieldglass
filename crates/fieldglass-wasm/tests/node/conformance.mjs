@@ -202,11 +202,11 @@ function withHandle(caseSpec, handle) {
       case 'decode':
         return fieldObservation(field);
       case 'combine': {
-        // Field B is a second decode of the same file — `index_b`, which for
-        // every case in the suite today is `index` itself, because every GRIB
-        // fixture in the corpus holds one message. Freed here rather than in
+        // Field B is a second decode of the same message: `combine` takes two
+        // fields, and every GRIB fixture in the corpus holds one message, so
+        // the suite has no second index to point at. Freed here rather than in
         // the `finally` below, which owns field A.
-        const b = handle.decode(args.indexB ?? 0, decodeOptions(args));
+        const b = handle.decode(args.index, decodeOptions(args));
         try {
           const out = handle.combine(field, b, args.combineOp);
           try {

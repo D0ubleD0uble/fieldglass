@@ -30,7 +30,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -57,7 +56,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -117,7 +115,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -206,7 +203,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -295,7 +291,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -384,7 +379,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -446,7 +440,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -513,7 +506,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -575,7 +567,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -632,7 +623,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -689,7 +679,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -765,7 +754,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -841,7 +829,6 @@
         "lat": 0.0,
         "lon": 0.0,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -871,7 +858,6 @@
         "lat": 45.0,
         "lon": -100.0,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": null
@@ -895,7 +881,6 @@
         "lat": 89.5,
         "lon": 10.0,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": null
@@ -919,7 +904,6 @@
         "lat": -89.5,
         "lon": -170.0,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": null
@@ -943,7 +927,6 @@
         "lat": null,
         "lon": null,
         "levels": [],
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -993,7 +976,6 @@
           275.0,
           300.0
         ],
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -1029,7 +1011,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": "a_minus_b"
       },
       "expect": {
@@ -1118,7 +1099,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": "b_minus_a"
       },
       "expect": {
@@ -1207,7 +1187,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": "a_plus_b"
       },
       "expect": {
@@ -1296,7 +1275,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": "mean"
       },
       "expect": {
@@ -1385,7 +1363,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": "ratio"
       },
       "expect": {
@@ -1474,7 +1451,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -1501,7 +1477,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -1561,7 +1536,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -1650,7 +1624,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -1739,7 +1712,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -1828,7 +1800,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -1890,7 +1861,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -1957,7 +1927,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -2019,7 +1988,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -2076,7 +2044,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -2133,7 +2100,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -2209,7 +2175,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -2285,7 +2250,6 @@
         "lat": 0.0,
         "lon": 0.0,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -2315,7 +2279,6 @@
         "lat": 45.0,
         "lon": -100.0,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -2345,7 +2308,6 @@
         "lat": 89.5,
         "lon": 10.0,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": null
@@ -2369,7 +2331,6 @@
         "lat": -89.5,
         "lon": -170.0,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": null
@@ -2393,7 +2354,6 @@
         "lat": null,
         "lon": null,
         "levels": [],
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -2425,7 +2385,6 @@
           275.0,
           300.0
         ],
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -2461,7 +2420,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": "a_minus_b"
       },
       "expect": {
@@ -2550,7 +2508,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": "b_minus_a"
       },
       "expect": {
@@ -2639,7 +2596,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": "a_plus_b"
       },
       "expect": {
@@ -2728,7 +2684,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": "mean"
       },
       "expect": {
@@ -2817,7 +2772,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": "ratio"
       },
       "expect": {
@@ -2906,7 +2860,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -2933,7 +2886,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -2993,7 +2945,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -3082,7 +3033,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -3171,7 +3121,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -3260,7 +3209,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -3322,7 +3270,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -3389,7 +3336,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -3451,7 +3397,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -3508,7 +3453,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -3565,7 +3509,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -3641,7 +3584,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -3717,7 +3659,6 @@
         "lat": 0.0,
         "lon": 0.0,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": null
@@ -3741,7 +3682,6 @@
         "lat": 45.0,
         "lon": -100.0,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -3771,7 +3711,6 @@
         "lat": 89.5,
         "lon": 10.0,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": null
@@ -3795,7 +3734,6 @@
         "lat": -89.5,
         "lon": -170.0,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": null
@@ -3819,7 +3757,6 @@
         "lat": null,
         "lon": null,
         "levels": [],
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -3875,7 +3812,6 @@
           275.0,
           300.0
         ],
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -3911,7 +3847,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": "a_minus_b"
       },
       "expect": {
@@ -4000,7 +3935,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": "b_minus_a"
       },
       "expect": {
@@ -4089,7 +4023,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": "a_plus_b"
       },
       "expect": {
@@ -4178,7 +4111,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": "mean"
       },
       "expect": {
@@ -4267,7 +4199,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": "ratio"
       },
       "expect": {
@@ -4356,7 +4287,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -4383,7 +4313,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -4443,7 +4372,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -4532,7 +4460,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -4621,7 +4548,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -4710,7 +4636,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -4772,7 +4697,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -4839,7 +4763,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -4901,7 +4824,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -4958,7 +4880,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -5015,7 +4936,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -5091,7 +5011,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -5167,7 +5086,6 @@
         "lat": 0.0,
         "lon": 0.0,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": null
@@ -5191,7 +5109,6 @@
         "lat": 45.0,
         "lon": -100.0,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": null
@@ -5215,7 +5132,6 @@
         "lat": 89.5,
         "lon": 10.0,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": null
@@ -5239,7 +5155,6 @@
         "lat": -89.5,
         "lon": -170.0,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": null
@@ -5263,7 +5178,6 @@
         "lat": null,
         "lon": null,
         "levels": [],
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -5317,7 +5231,6 @@
           275.0,
           300.0
         ],
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -5353,7 +5266,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": "a_minus_b"
       },
       "expect": {
@@ -5442,7 +5354,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": "b_minus_a"
       },
       "expect": {
@@ -5531,7 +5442,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": "a_plus_b"
       },
       "expect": {
@@ -5620,7 +5530,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": "mean"
       },
       "expect": {
@@ -5709,7 +5618,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": "ratio"
       },
       "expect": {
@@ -5798,7 +5706,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -5825,7 +5732,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -5885,7 +5791,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -5974,7 +5879,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -6063,7 +5967,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -6152,7 +6055,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -6214,7 +6116,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -6281,7 +6182,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -6343,7 +6243,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -6400,7 +6299,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -6457,7 +6355,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -6533,7 +6430,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -6609,7 +6505,6 @@
         "lat": 0.0,
         "lon": 0.0,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": null
@@ -6633,7 +6528,6 @@
         "lat": 45.0,
         "lon": -100.0,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": null
@@ -6657,7 +6551,6 @@
         "lat": 89.5,
         "lon": 10.0,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": null
@@ -6681,7 +6574,6 @@
         "lat": -89.5,
         "lon": -170.0,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": null
@@ -6705,7 +6597,6 @@
         "lat": null,
         "lon": null,
         "levels": [],
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -6737,7 +6628,6 @@
           275.0,
           300.0
         ],
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -6773,7 +6663,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": "a_minus_b"
       },
       "expect": {
@@ -6862,7 +6751,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": "b_minus_a"
       },
       "expect": {
@@ -6951,7 +6839,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": "a_plus_b"
       },
       "expect": {
@@ -7040,7 +6927,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": "mean"
       },
       "expect": {
@@ -7129,7 +7015,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": "ratio"
       },
       "expect": {
@@ -7218,7 +7103,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -7245,7 +7129,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -7300,7 +7183,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -7384,7 +7266,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -7468,7 +7349,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -7552,7 +7432,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -7581,7 +7460,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -7615,7 +7493,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -7677,7 +7554,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -7734,7 +7610,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -7791,7 +7666,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -7867,7 +7741,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -7943,7 +7816,6 @@
         "lat": 0.0,
         "lon": 0.0,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": null
@@ -7967,7 +7839,6 @@
         "lat": 45.0,
         "lon": -100.0,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": null
@@ -7991,7 +7862,6 @@
         "lat": 89.5,
         "lon": 10.0,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": null
@@ -8015,7 +7885,6 @@
         "lat": -89.5,
         "lon": -170.0,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": null
@@ -8039,7 +7908,6 @@
         "lat": null,
         "lon": null,
         "levels": [],
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -8071,7 +7939,6 @@
           275.0,
           300.0
         ],
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -8107,7 +7974,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": "a_minus_b"
       },
       "expect": {
@@ -8191,7 +8057,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": "b_minus_a"
       },
       "expect": {
@@ -8275,7 +8140,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": "a_plus_b"
       },
       "expect": {
@@ -8359,7 +8223,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": "mean"
       },
       "expect": {
@@ -8443,7 +8306,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": "ratio"
       },
       "expect": {
@@ -8527,7 +8389,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -8554,7 +8415,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -8614,7 +8474,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -8703,7 +8562,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -8792,7 +8650,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -8881,7 +8738,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -8943,7 +8799,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -9010,7 +8865,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -9072,7 +8926,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -9129,7 +8982,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -9186,7 +9038,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -9262,7 +9113,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -9338,7 +9188,6 @@
         "lat": 0.0,
         "lon": 0.0,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": null
@@ -9362,7 +9211,6 @@
         "lat": 45.0,
         "lon": -100.0,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": null
@@ -9386,7 +9234,6 @@
         "lat": 89.5,
         "lon": 10.0,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": null
@@ -9410,7 +9257,6 @@
         "lat": -89.5,
         "lon": -170.0,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": null
@@ -9434,7 +9280,6 @@
         "lat": null,
         "lon": null,
         "levels": [],
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -9486,7 +9331,6 @@
           275.0,
           300.0
         ],
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -9522,7 +9366,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": "a_minus_b"
       },
       "expect": {
@@ -9611,7 +9454,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": "b_minus_a"
       },
       "expect": {
@@ -9700,7 +9542,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": "a_plus_b"
       },
       "expect": {
@@ -9789,7 +9630,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": "mean"
       },
       "expect": {
@@ -9878,7 +9718,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": "ratio"
       },
       "expect": {
@@ -9967,7 +9806,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -9994,7 +9832,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -10054,7 +9891,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -10143,7 +9979,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -10232,7 +10067,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -10321,7 +10155,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -10383,7 +10216,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -10450,7 +10282,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -10512,7 +10343,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -10569,7 +10399,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -10626,7 +10455,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -10702,7 +10530,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -10778,7 +10605,6 @@
         "lat": 0.0,
         "lon": 0.0,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": null
@@ -10802,7 +10628,6 @@
         "lat": 45.0,
         "lon": -100.0,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -10832,7 +10657,6 @@
         "lat": 89.5,
         "lon": 10.0,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": null
@@ -10856,7 +10680,6 @@
         "lat": -89.5,
         "lon": -170.0,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": null
@@ -10880,7 +10703,6 @@
         "lat": null,
         "lon": null,
         "levels": [],
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -10928,7 +10750,6 @@
           275.0,
           300.0
         ],
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -10964,7 +10785,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": "a_minus_b"
       },
       "expect": {
@@ -11053,7 +10873,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": "b_minus_a"
       },
       "expect": {
@@ -11142,7 +10961,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": "a_plus_b"
       },
       "expect": {
@@ -11231,7 +11049,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": "mean"
       },
       "expect": {
@@ -11320,7 +11137,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": "ratio"
       },
       "expect": {
@@ -11409,7 +11225,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -11438,7 +11253,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -11467,7 +11281,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -11496,7 +11309,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {
@@ -11525,7 +11337,6 @@
         "lat": null,
         "lon": null,
         "levels": null,
-        "indexB": 0,
         "combineOp": null
       },
       "expect": {

@@ -137,12 +137,65 @@ pub fn aligned(a: &Source<'_>, b: &Source<'_>) -> Result<(), Error> {
     // `PartialEq`, and the refusal names the field that was missing, so a grid
     // with no spacing and one with no first latitude are still refused against
     // each other — as is a placeable grid against an unplaceable one.
+    //
+    // **This arm is weaker than the flat key it replaces, and knowingly so.**
+    // A refusal names the field, not its value, so two grids that fail the same
+    // check for different numbers — two §3.20 messages of one shape, both
+    // stating `Dx = 0`, one over Alaska and one over Scandinavia — read alike
+    // here, where the old key compared their declared corners and refused. It
+    // is not a shape this crate can do better with: `Source` carries no corner,
+    // and the geometry that would carry one is the thing that failed to build.
+    // Refusing every unresolved pair instead costs more than it saves — it
+    // takes the difference map away from an HDF5 or NetCDF file with no
+    // coordinate arrays at all, which is a shipped capability over ten fields
+    // of the committed corpus and the ordinary way to compare two plain arrays.
+    //
+    // The arm is also transitional. It exists because `fieldglass-napi` rebuilds
+    // a geometry out of a flat DTO and its rebuilder is stricter than
+    // `GridGeometry::from` — `Session` itself builds a `PolarStereo` for that
+    // §3.20 message and reaches the `Ok` arm. #574 deletes that DTO, and this
+    // arm's cause with it.
     match (&a.geometry, &b.geometry) {
-        (Ok(ga), Ok(gb)) if ga != gb => Err(mismatch("grid", &describe(ga), &describe(gb))),
+        (Ok(ga), Ok(gb)) if !same_grid(ga, gb) => {
+            Err(mismatch("grid", &describe(ga), &describe(gb)))
+        }
         (Err(ea), Err(eb)) if ea != eb => Err(mismatch("grid", &unplaceable(ea), &unplaceable(eb))),
         (Ok(g), Err(e)) => Err(mismatch("grid", &describe(g), &unplaceable(e))),
         (Err(e), Ok(g)) => Err(mismatch("grid", &unplaceable(e), &describe(g))),
         _ => Ok(()),
+    }
+}
+
+/// Whether two geometries place their cells identically.
+///
+/// `==` for every family but one. A [`GridGeometry::Lookup`] is a list of cell
+/// centres, and two things about its derived `PartialEq` make it the wrong
+/// question here:
+///
+/// * **A centre the source left as a fill value is stored as `NaN`** so the
+///   indices stay aligned (see `SpatialIndex`), and `NaN != NaN` — so such an
+///   index does not equal *itself* rebuilt from the same file. A swath granule
+///   marks the fields of view that saw no Earth, so this is the ordinary case
+///   for one, not a corrupt one, and it would have refused every difference map
+///   over such a granule including a field against itself. No committed
+///   curvilinear fixture has a fill-valued coordinate, which is why the
+///   characterisation golden does not see it.
+/// * **It is `O(n)` and reads about 28 MB at a million cells**, which
+///   `SpatialIndex`'s own documentation says does not belong on a per-repaint
+///   path — and a combined probe runs this on every mouse move.
+///
+/// [`SpatialIndex::fingerprint`](fieldglass_core::SpatialIndex::fingerprint)
+/// answers both: it is the key that type nominates for exactly this, and it
+/// normalises `NaN` so an excluded cell hashes consistently. The pointer check
+/// in front of it is the common case — a host caching one index per coordinate
+/// pair hands the same borrow twice — and makes it free there.
+fn same_grid(a: &GridGeometry, b: &GridGeometry) -> bool {
+    if std::ptr::eq(a, b) {
+        return true;
+    }
+    match (a, b) {
+        (GridGeometry::Lookup(x), GridGeometry::Lookup(y)) => x.fingerprint() == y.fingerprint(),
+        _ => a == b,
     }
 }
 
@@ -504,6 +557,62 @@ mod tests {
             GridGeometry::LatLon(p) => *p,
             other => panic!("not a lat/lon grid: {other:?}"),
         }
+    }
+
+    /// A swath whose coordinates carry a fill value still combines with itself.
+    ///
+    /// `SpatialIndex` stores a non-finite centre as `NaN` so the cell indices
+    /// stay aligned, and `NaN != NaN`, so its derived `PartialEq` says an index
+    /// is not equal to itself rebuilt from the same file. Comparing the
+    /// geometries that way refused every difference map over such a granule —
+    /// including a field against itself, which is the case a user reaches by
+    /// clicking Compare twice on one variable. No committed curvilinear fixture
+    /// has a fill-valued coordinate, so the corpus golden cannot see this; the
+    /// index is built here by hand instead.
+    #[test]
+    fn a_swath_with_a_fill_valued_centre_still_matches_itself() {
+        let lats = [10.0, 11.0, f64::NAN, 13.0];
+        let lons = [20.0, 21.0, 22.0, 23.0];
+        let index = |lats: &[f64]| {
+            GridGeometry::Lookup(
+                fieldglass_core::SpatialIndex::new(2, 2, lats, &lons).expect("an index"),
+            )
+        };
+        let (a, b) = (index(&lats), index(&lats));
+        assert_ne!(
+            a, b,
+            "the hazard, stated: derived equality must still disagree here, or \
+             this test proves nothing"
+        );
+        assert!(
+            same_grid(&a, &b),
+            "the same mesh, rebuilt, is the same grid"
+        );
+
+        // Two *different* meshes are still refused, so the fix is not "say yes
+        // to every lookup grid".
+        let elsewhere = index(&[10.0, 11.0, f64::NAN, 13.5]);
+        assert!(!same_grid(&a, &elsewhere));
+
+        // And through the gate, in both directions.
+        let scan = Scan::north_down();
+        assert!(
+            aligned(
+                &source(&a, 2, 2, scan, "curvilinear"),
+                &source(&b, 2, 2, scan, "curvilinear")
+            )
+            .is_ok()
+        );
+        let e = aligned(
+            &source(&a, 2, 2, scan, "curvilinear"),
+            &source(&elsewhere, 2, 2, scan, "curvilinear"),
+        )
+        .expect_err("a different mesh");
+        assert!(
+            e.message().contains("their grid differs"),
+            "{}",
+            e.message()
+        );
     }
 
     /// The two shapes a refusal has to describe besides the ordinary one: a

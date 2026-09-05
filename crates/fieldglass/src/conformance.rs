@@ -171,10 +171,15 @@ pub struct Args {
     pub lon: Option<f64>,
     /// Explicit contour levels; empty asks for the automatic set.
     pub levels: Option<Vec<f64>>,
-    /// The second message [`Session::combine`] takes. `index` is field A.
-    pub index_b: u32,
     /// Which combination [`Session::combine`] runs. Typed for the reason
     /// [`Args::dtype`] is.
+    ///
+    /// There is no second index beside it. `combine` takes two fields and every
+    /// case here hands it [`Args::index`] twice, because every GRIB fixture in
+    /// the committed corpus holds exactly one message — so an `index_b` would
+    /// be `0` in all 40 cases, a knob no case moves and therefore no case
+    /// checks. It comes back the day a fixture has a second message to point
+    /// it at.
     pub combine_op: Option<crate::combine::CombineOp>,
 }
 
@@ -826,8 +831,11 @@ fn run(bytes: &[u8], case: &Case) -> Result<Value, Error> {
             value_of(&probe)
         }
         Op::Combine => {
+            // The same message decoded twice, which is two `Field` values
+            // however equal their contents — see `Args::combine_op` for why
+            // there is no second index.
             let a = field(case.args.index)?;
-            let b = field(case.args.index_b)?;
+            let b = field(case.args.index)?;
             // Missing rather than defaulted: `a_minus_b` is a plausible
             // default and a case that lost its op would then record a real
             // observation for the wrong operation.
