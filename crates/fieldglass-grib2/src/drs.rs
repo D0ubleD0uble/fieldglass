@@ -475,8 +475,9 @@ pub struct SpectralSimplePackingTemplate {
 /// divided by 10⁶) — flattening the steep spectral fall-off before packing.
 /// The decode produces coefficients (see the `spectral` module), so it does not
 /// ride [`decode_values`](crate::ds::decode_values); like GRIB1 spectral
-/// messages, these do not render as a 2-D field until an inverse
-/// spherical-harmonic transform lands.
+/// messages, they reach a 2-D field through the inverse spherical-harmonic
+/// transform instead
+/// ([`Grib2Reader::synthesize_spectral_global`](crate::Grib2Reader::synthesize_spectral_global)).
 ///
 /// [`laplacian_scaling_factor`]: SpectralComplexPackingTemplate::laplacian_scaling_factor
 #[derive(Debug, Clone, Copy, PartialEq)]
