@@ -249,10 +249,16 @@ pub trait PlanarGridProjector {
     /// Whether this projector can place `(lat, lon)` at all, asked before the
     /// forward map runs. Two kinds of answer live here. A projection whose own
     /// constants are degenerate rejects every point; one with a singularity
-    /// within reach rejects the region that would hit it — polar
-    /// stereographic's opposite hemisphere, where the forward `tan` runs to
-    /// ±inf and the origin-relative division would turn that back into a
-    /// plausible-looking index.
+    /// within reach could reject the region that would hit it.
+    ///
+    /// Every implementor is currently the first kind, and each answers with its
+    /// own `is_well_defined` rather than restating the rule — polar
+    /// stereographic joined them in #603. No planar family needs the second: a
+    /// point the forward map cannot reach either goes non-finite, which
+    /// [`Self::inverse`] rejects on its own, or lands so far out that the
+    /// extent check drops it (polar stereographic's opposite hemisphere is the
+    /// case, where the forward `tan` grows to ~1e23 metres without ever
+    /// reaching `inf`).
     ///
     /// The default accepts everything. [`Self::inverse`] already rejects a
     /// non-finite argument and a non-finite forward result, so a projector
@@ -464,9 +470,9 @@ pub trait PlanarGridProjector {
 /// Two conditions, and a message can fail either one on its own.
 ///
 /// `projection_resolves` is the projector's own constants check. It is passed in
-/// rather than read off the trait because it is an inherent method on three of
-/// the four planar projectors and absent on the fourth — the same shape the GRIB
-/// readers' `finite_lonlat` helpers use. `false` means
+/// rather than read off the trait because it is an inherent `is_well_defined` on
+/// each of the four planar projectors rather than a trait method — the same
+/// shape the GRIB readers' `finite_lonlat` helpers use. `false` means
 /// [`PlanarGridProjector::accepts`] rejects every point. The arithmetic does not
 /// necessarily go non-finite there: a Lambert cone on a declared radius of zero
 /// reports every grid point at the south pole, which reads downstream as a
@@ -786,17 +792,19 @@ impl GridGeometry {
             // The planar families answer through one guard, so that a grid
             // whose `inverse` declines every point is declined here too and a
             // point beyond the projection's reach is space rather than `NaN`;
-            // see [`placed_point`]. Polar stereographic passes `true` because
-            // it has no constants check of its own to pass — its scale factor
-            // is `(1 + sin|LaD|)/2`, which no declarable `LaD` drives to zero.
-            // That is a statement about `LaD` only: a declared radius of zero
-            // still collapses its plane, which `inverse` answers rather than
-            // declines, so it is a defect one level down and not this gate's.
+            // see [`placed_point`]. All four pass their own constants check:
+            // polar stereographic used to pass `true` on the grounds that its
+            // scale factor `(1 + sin|LaD|)/2` is one no declarable `LaD` drives
+            // to zero, which is true of `LaD` and silent about the radius that
+            // multiplies it (#603).
             Self::Lambert(p) => {
                 let proj = LambertProjector::new(*p);
                 placed_point(proj.is_well_defined(), &proj, i, j)
             }
-            Self::PolarStereo(p) => placed_point(true, &PolarStereoProjector::new(*p), i, j),
+            Self::PolarStereo(p) => {
+                let proj = PolarStereoProjector::new(*p);
+                placed_point(proj.is_well_defined(), &proj, i, j)
+            }
             Self::TransverseMercator(p) => {
                 let proj = TransverseMercatorProjector::new(*p);
                 placed_point(proj.is_well_defined(), &proj, i, j)
@@ -949,7 +957,8 @@ impl GridGeometry {
             }
             Self::PolarStereo(p) => {
                 let proj = PolarStereoProjector::new(*p);
-                let (lat_min, lat_max, lon_min, lon_max) = placed_bbox(true, &proj)?;
+                let (lat_min, lat_max, lon_min, lon_max) =
+                    placed_bbox(proj.is_well_defined(), &proj)?;
                 if proj.pole_inside_grid() {
                     // Every meridian is present and the enclosing arc has no
                     // empty gap to be the complement of, so the walk's
@@ -1186,7 +1195,10 @@ impl GridGeometry {
                 let proj = LambertProjector::new(*p);
                 placed_affine(proj.is_well_defined(), &proj)
             }
-            Self::PolarStereo(p) => placed_affine(true, &PolarStereoProjector::new(*p)),
+            Self::PolarStereo(p) => {
+                let proj = PolarStereoProjector::new(*p);
+                placed_affine(proj.is_well_defined(), &proj)
+            }
             Self::TransverseMercator(p) => {
                 let proj = TransverseMercatorProjector::new(*p);
                 placed_affine(proj.is_well_defined(), &proj)

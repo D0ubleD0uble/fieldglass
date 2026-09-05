@@ -655,6 +655,31 @@ fn a_projection_that_resolves_nowhere_is_declined_by_every_answer() {
             (40.0, -100.0),
         ),
         (
+            // The polar counterpart of the Lambert case above, and the one that
+            // reads least like a failure: `two_r_k0` is zero, so the forward map
+            // sends the whole Earth to the projected origin and the index
+            // division answers cell (0, 0) for every query — the South Atlantic
+            // included, on a Canadian grid (#603).
+            "a polar stereographic plane on a declared radius of zero",
+            GridGeometry::PolarStereo(PolarStereoParams {
+                earth_radius_m: 0.0,
+                ..cmc_polar()
+            }),
+            (60.0, -90.0),
+        ),
+        (
+            // Negative is the same gate and a different symptom: `rho` comes
+            // back negative, so `forward` reported latitudes past ±90° while
+            // `inverse` already declined — the two disagreeing about the same
+            // grid.
+            "a polar stereographic plane on a negative declared radius",
+            GridGeometry::PolarStereo(PolarStereoParams {
+                earth_radius_m: -DEFAULT_EARTH_RADIUS_M,
+                ..cmc_polar()
+            }),
+            (60.0, -90.0),
+        ),
+        (
             "a Lambert cone with both parallels on the equator",
             GridGeometry::Lambert(LambertParams {
                 latin1: 0.0,
@@ -786,4 +811,58 @@ fn a_space_view_with_no_raster_to_walk_is_not_framed_as_a_hemisphere() {
         ..abi_mesoscale()
     });
     assert_eq!(full_disc.lonlat_bbox(), Some((-90.0, 90.0, -165.0, 15.0)));
+}
+
+/// The planar families hold the same line, revisited in #603 and kept.
+///
+/// `PlanarGridProjector::inverse` refuses a raster of one column (or one row);
+/// `planar_grid_is_placeable` deliberately does not, so `forward` and
+/// `plane_affine` still answer for one. Asked again whether that split should
+/// close, the answer is still no, for the reason the space-view case above
+/// gives: `inverse` interpolates and needs two points per axis to have a cell,
+/// while a real grid point has a position whether or not anything can be
+/// interpolated across it, and the plane the raster sits in is a fact about the
+/// message. Only the space-view side was pinned before; the split is a property
+/// of the shared planar body, so it is pinned here too rather than left to be
+/// rediscovered.
+///
+/// The one answer that differs from the space-view case is the box, and on
+/// purpose: a §3.20 column of 95 points is a meridional transect whose perimeter
+/// walk finds its real extent, whereas `GeostationaryProjector::lonlat_bbox`
+/// declines because its fallback would frame a whole hemisphere on it.
+#[test]
+fn a_planar_raster_too_thin_to_interpolate_still_has_a_position() {
+    let column = GridGeometry::PolarStereo(PolarStereoParams {
+        ni: 1,
+        ..cmc_polar()
+    });
+    assert_eq!(
+        column.inverse(60.0, -90.0),
+        None,
+        "one column has no cell to interpolate across"
+    );
+    let (lat, lon) = column
+        .forward(0, 0)
+        .expect("a real grid point has a position");
+    assert!((lat - cmc_polar().lat_first).abs() < 1e-9, "lat {lat}");
+    assert!((lon - 249.73).abs() < 1e-9, "lon {lon}");
+    assert!(
+        column.plane_affine().is_some(),
+        "the plane the column sits in is stated by the message"
+    );
+    let (lat_min, lat_max, ..) = column.lonlat_bbox().expect("the column's own extent");
+    assert!(
+        lat_max - lat_min > 40.0,
+        "a 95-point transect spans real latitude, got {lat_min}..{lat_max}"
+    );
+
+    // Lambert reaches the same body by the same route, so the rule is the
+    // shared one and not a polar-stereographic accident.
+    let row = GridGeometry::Lambert(LambertParams {
+        nj: 1,
+        ..eta_lambert()
+    });
+    assert_eq!(row.inverse(40.0, -100.0), None);
+    assert!(row.forward(0, 0).is_some());
+    assert!(row.plane_affine().is_some());
 }

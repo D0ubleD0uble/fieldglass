@@ -55,6 +55,31 @@ pub struct PolarStereoConstants {
     sign: f64,
 }
 
+impl PolarStereoConstants {
+    /// Whether these constants describe a usable plane. `sign` is `±1` by
+    /// construction and cannot go wrong, so the whole projection rests on
+    /// `two_r_k0`.
+    ///
+    /// A declared Earth radius of zero (or less) is the case this exists for,
+    /// and it is the same quiet one
+    /// [`LambertConstants::well_defined`](super::LambertConstants) guards on the
+    /// cone. Nothing goes infinite: `two_r_k0` is zero, so `rho` is zero for
+    /// every latitude, the forward map sends the whole Earth to `(0, 0)` — the
+    /// projected origin, since the origin is forward-projected too — and the
+    /// index division answers `(0, 0)` for every point. A render then samples
+    /// one cell for every pixel and paints a flat field of one value, with
+    /// nothing to say it is wrong. A negative radius is louder but no better:
+    /// `rho` comes back negative and the inverse reports latitudes past ±90°.
+    ///
+    /// `LaD` is checked here too, for free. The pole scale factor
+    /// `k₀ = (1 + sin|LaD|)/2` is in `[0.5, 1]` for any finite `LaD` — which is
+    /// why the scale factor alone never needed a gate — but a non-finite one
+    /// poisons the product.
+    fn well_defined(&self) -> bool {
+        self.two_r_k0.is_finite() && self.two_r_k0 > 0.0
+    }
+}
+
 fn polar_stereo_constants(lad: f64, south_pole: bool, earth_radius_m: f64) -> PolarStereoConstants {
     // The pole scale factor depends on the magnitude of the latitude of true
     // scale; the hemisphere is handled separately by `sign`.
@@ -178,6 +203,21 @@ impl PolarStereoProjector {
         };
         x_min <= 0.0 && 0.0 <= x_max && y_min <= 0.0 && 0.0 <= y_max
     }
+
+    /// Whether the plane and the grid's position in it are usable. `false` for
+    /// a declared Earth radius of zero or less (see
+    /// `PolarStereoConstants::well_defined`); such a projector's
+    /// [`inverse`](Self::inverse) returns `None` for every point, so callers can
+    /// surface "not reprojectable" instead of rendering a flat field.
+    ///
+    /// The projected origin is checked the same way
+    /// [`LambertProjector::is_well_defined`](super::LambertProjector::is_well_defined)
+    /// checks its own: the plane can be fine and the grid still state a first
+    /// point the forward map cannot follow, leaving the raster with no position
+    /// in a plane that is otherwise sound.
+    pub fn is_well_defined(&self) -> bool {
+        self.constants.well_defined() && self.origin.0.is_finite() && self.origin.1.is_finite()
+    }
 }
 
 impl PlanarGridProjector for PolarStereoProjector {
@@ -186,6 +226,14 @@ impl PlanarGridProjector for PolarStereoProjector {
     }
     fn forward_xy(&self, lat: f64, lon: f64) -> (f64, f64) {
         self.forward(lat, lon)
+    }
+    fn accepts(&self, _lat: f64, _lon: f64) -> bool {
+        // One predicate, not two, for the reason its three siblings give: a
+        // second copy of the rule here is how a condition gets added in one
+        // place and missed in the other. The plane this rejects is the one a
+        // declared radius of zero collapses, where the arithmetic stays finite
+        // and every point lands on index (0, 0).
+        self.is_well_defined()
     }
     fn grid_dims(&self) -> (u32, u32) {
         (self.params.ni, self.params.nj)
@@ -435,6 +483,66 @@ mod tests {
             "hemispheric grid origin {:?} should bracket the pole",
             projector.origin()
         );
+    }
+
+    /// A declared Earth radius of zero collapses the plane onto its own origin.
+    /// Nothing goes non-finite there, so the pre-fix code answered a real-looking
+    /// index for every point on Earth — including points nowhere near the grid.
+    #[test]
+    fn polar_stereo_rejects_a_declared_radius_that_leaves_no_plane() {
+        let p = cmc_polar_params();
+        for radius in [0.0, -DEFAULT_EARTH_RADIUS_M, f64::NAN, f64::INFINITY] {
+            let proj = PolarStereoProjector::new(PolarStereoParams {
+                earth_radius_m: radius,
+                ..p
+            });
+            assert!(
+                !proj.is_well_defined(),
+                "radius {radius} should leave no usable plane"
+            );
+            // The point that made this a defect rather than a curiosity: the
+            // South Atlantic is not on a Canadian grid, and the pre-fix code
+            // placed it at cell (0, 0) along with everywhere else.
+            assert!(
+                proj.inverse(-20.0, 10.0).is_none(),
+                "radius {radius}: a point off the grid resolved onto it"
+            );
+            assert!(
+                proj.inverse(60.0, -90.0).is_none(),
+                "radius {radius}: a point on the grid resolved on a collapsed plane"
+            );
+        }
+        assert!(
+            PolarStereoProjector::new(p).is_well_defined(),
+            "the real CMC grid is unaffected"
+        );
+    }
+
+    /// The forward map is what makes a zero radius quiet: it stays finite, so
+    /// only the constants check can catch it. Recorded as the arithmetic the
+    /// gate above stands on, not as behaviour a caller should rely on.
+    #[test]
+    fn polar_stereo_zero_radius_forward_is_finite_and_collapsed() {
+        let proj = PolarStereoProjector::new(PolarStereoParams {
+            earth_radius_m: 0.0,
+            ..cmc_polar_params()
+        });
+        for (lat, lon) in [(60.0, -90.0), (-20.0, 10.0), (11.43, -110.27)] {
+            assert_eq!(proj.forward(lat, lon), (0.0, 0.0), "({lat}, {lon})");
+        }
+        assert_eq!(proj.origin(), (0.0, -0.0));
+    }
+
+    /// A grid whose first point the forward map cannot follow has no position
+    /// in a plane that is otherwise fine — the origin half of the predicate.
+    #[test]
+    fn polar_stereo_rejects_a_first_point_the_forward_map_cannot_follow() {
+        let proj = PolarStereoProjector::new(PolarStereoParams {
+            lat_first: f64::NAN,
+            ..cmc_polar_params()
+        });
+        assert!(!proj.is_well_defined());
+        assert!(proj.inverse(60.0, -90.0).is_none());
     }
 
     #[test]

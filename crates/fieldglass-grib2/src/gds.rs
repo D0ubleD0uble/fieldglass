@@ -866,7 +866,10 @@ impl PolarStereographicTemplate {
             dy_metres: dy,
             south_pole: self.south_pole,
         });
-        finite_lonlat(true, projector.last_grid_point_lonlat())
+        finite_lonlat(
+            projector.is_well_defined(),
+            projector.last_grid_point_lonlat(),
+        )
     }
 }
 
@@ -2164,6 +2167,53 @@ mod tests {
             "derived last point ({la2}, {lo2}) should match eccodes' iterator"
         );
         assert_eq!(gds.template_name(), "polar_stereo");
+    }
+
+    /// Shape-of-earth code 1 is a producer-*specified* radius, so a §3.20 grid
+    /// can declare a zero one and every number downstream stays finite: the
+    /// forward map collapses the whole Earth onto the projected origin, the
+    /// derived corner reads as the projection pole, and nothing says the grid
+    /// is broken. `resolve_earth_shape` substitutes the mean sphere only where
+    /// the radius is *unresolvable*, which a stated zero is not (#603).
+    #[test]
+    fn a_polar_stereo_grid_on_a_declared_radius_of_zero_reports_no_corner() {
+        let mut p: Vec<u8> = Vec::new();
+        p.push(1); // shape of earth: spherical, radius specified below
+        p.push(0); // radius scale factor
+        push_be(&mut p, 0, 4); // radius scaled value = 0
+        p.extend_from_slice(&[0xFFu8; 10]); // major/minor axes: missing
+        push_be(&mut p, 512, 4); // Nx
+        push_be(&mut p, 512, 4); // Ny
+        p.extend_from_slice(&signed_lat_bytes(-20_000_000)); // La1 = -20°
+        push_be(&mut p, 225_000_000, 4); // Lo1 = 225°
+        p.push(0x08); // resolution flags
+        p.extend_from_slice(&signed_lat_bytes(-60_000_000)); // LaD = -60°
+        push_be(&mut p, 100_000_000, 4); // LoV = 100°
+        push_be(&mut p, 12_700_000, 4); // Dx = 12700 m
+        push_be(&mut p, 12_700_000, 4); // Dy = 12700 m
+        p.push(0x80); // projection centre: south pole on plane
+        p.push(64); // scanning mode
+        assert_eq!(p.len(), 51);
+
+        let bytes = wrap_gds(20, 512 * 512, &p);
+        let gds = parse_grid_definition(&bytes).expect("parse 3.20");
+        let GridTemplate::PolarStereographic(t) = gds.template else {
+            panic!("expected PolarStereographic");
+        };
+        assert_eq!(
+            t.earth_radius_m, 0.0,
+            "the declared radius reaches us as-is"
+        );
+        assert_eq!(
+            t.last_point(),
+            None,
+            "a collapsed plane cannot place the far corner"
+        );
+        assert_eq!(gds.bounds(), None, "so there is no corner pair to report");
+        // The first point is stated by the message rather than derived, and
+        // survives for the same reason a collapsed cone's does.
+        let (la1, lo1) = gds.first_point().expect("the first point is stated");
+        assert!((la1 - (-20.0)).abs() < 1e-9 && (lo1 - 225.0).abs() < 1e-9);
     }
 
     #[test]
