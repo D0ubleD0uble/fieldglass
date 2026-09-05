@@ -33,7 +33,7 @@
 //! therefore reports [`GridResampling::NearestOnly`], and `warp` honours it
 //! rather than leaving it to callers.
 
-use crate::projection::{GridIndex, GridResampling};
+use crate::projection::{GridIndex, GridResampling, LonLatBox};
 
 /// Nearest-cell lookup over an explicit list of cell centres.
 ///
@@ -273,7 +273,7 @@ impl SpatialIndex {
     /// sliver of the map unpainted at whichever meridian happened to have the
     /// largest one. `meridians_have_a_real_gap` decides which case this is,
     /// and a grid covering every meridian reports the full 360° instead.
-    pub fn lonlat_bbox(&self) -> Option<(f64, f64, f64, f64)> {
+    pub fn lonlat_bbox(&self) -> Option<LonLatBox> {
         let mut lat_min = f64::INFINITY;
         let mut lat_max = f64::NEG_INFINITY;
         let mut lons: Vec<f64> = Vec::with_capacity(self.tree.len());
@@ -287,10 +287,10 @@ impl SpatialIndex {
             return None;
         }
         if !meridians_have_a_real_gap(&mut lons) {
-            return Some((lat_min, lat_max, -180.0, 180.0));
+            return Some(LonLatBox::new(lat_min, lat_max, -180.0, 180.0));
         }
         let (lon_min, lon_max) = crate::projection::enclosing_lon_arc(&mut lons);
-        Some((lat_min, lat_max, lon_min, lon_max))
+        Some(LonLatBox::new(lat_min, lat_max, lon_min, lon_max))
     }
 
     /// The 95th percentile of the distance from a sampled centre to its nearest

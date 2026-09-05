@@ -251,7 +251,7 @@ fn a_pole_centred_grid_reaching_past_the_equator_inverts_every_point() {
         p.pole_inside_grid(),
         "the grid was meant to contain the pole"
     );
-    let (lat_min, _, _, _) = p.lonlat_bbox();
+    let LonLatBox { lat_min, .. } = p.lonlat_bbox();
     assert!(lat_min < 0.0, "the grid was meant to cross the equator");
     let _ = round_trip("pole-centred polar", &p, 1e-11);
 }

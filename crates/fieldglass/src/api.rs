@@ -18,7 +18,7 @@
 //! * **`#[non_exhaustive]`, serde derives, and (under the `schema` feature) a
 //!   JSON Schema**, which is what a host's declarations are generated from.
 
-use fieldglass_core::{GridGeometry, PlaneUnits, eastward_lon_span, lon_grid_is_global};
+use fieldglass_core::{GridGeometry, LonLatBox, PlaneUnits, eastward_lon_span, lon_grid_is_global};
 
 /// Convenience: every API type derives the same set. Each states its own
 /// `rename_all`.
@@ -437,9 +437,7 @@ impl Georef {
             label: geom.label().to_string(),
             ni,
             nj,
-            bounds_lonlat: geom
-                .lonlat_bbox()
-                .map(|(lat_min, lat_max, lon_min, lon_max)| [lat_min, lat_max, lon_min, lon_max]),
+            bounds_lonlat: geom.lonlat_bbox().map(LonLatBox::to_array),
             proj4: geom.proj4(),
             axis_units,
             x0,

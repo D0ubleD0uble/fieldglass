@@ -79,7 +79,11 @@ pub use gds::{GridDescription, ScanningMode, SphericalHarmonicGrid};
 // `StoredRuns` joins them for the same reason: `Grib1Packing::decode` takes the
 // grid's stored run layout, so implementing that trait outside this crate means
 // naming the type (#605).
-pub use fieldglass_core::{FieldglassError, GridGeometry, StoredRuns, expand_reduced_to_regular};
+// `CornerPair` likewise: `GridDescription::bounds` and `raster_bounds` hand one
+// back, so reading a grid's declared corners means naming it (#553).
+pub use fieldglass_core::{
+    CornerPair, FieldglassError, GridGeometry, StoredRuns, expand_reduced_to_regular,
+};
 pub use is::IndicatorSection;
 pub use packing::spherical::SpectralCoefficients;
 pub use pds::ProductDefinition;

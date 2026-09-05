@@ -6,7 +6,7 @@
 //! carries its own inverse and its own corner walk. Points whose line of sight
 //! misses the Earth have no grid index at all.
 
-use super::{DEFAULT_SNAP_EPS, DEG2RAD, GridIndex, enclosing_lon_arc, snap_to_range};
+use super::{DEFAULT_SNAP_EPS, DEG2RAD, GridIndex, LonLatBox, enclosing_lon_arc, snap_to_range};
 
 /// A regular grid in geostationary **scan-angle** space: a satellite parked
 /// over `sub_lon_deg` views the Earth ellipsoid, and each grid point maps to a
@@ -291,10 +291,10 @@ impl GeostationaryProjector {
         Some((lat / DEG2RAD, lon / DEG2RAD))
     }
 
-    /// Axis-aligned lat/lon bounding box of the grid's **on-disk** extent,
-    /// `(lat_min, lat_max, lon_min, lon_max)`, or `None` when the whole grid
-    /// perimeter is off-disk (a full disk whose edges are all limb) and the
-    /// caller should fall back to a generous default box.
+    /// Axis-aligned lat/lon bounding box of the grid's **on-disk** extent, or
+    /// `None` when the whole grid perimeter is off-disk (a full disk whose
+    /// edges are all limb) and the caller should fall back to a generous
+    /// default box.
     ///
     /// Walks the scan-angle perimeter, forward-projects each sample with
     /// [`Self::scan_to_lonlat`], and skips off-disk (limb) samples. The
@@ -308,7 +308,7 @@ impl GeostationaryProjector {
     /// A degenerate grid (fewer than two points on a side, or zero scan-angle
     /// spacing) has no perimeter to walk and also returns `None`, mirroring the
     /// guard in [`Self::inverse`].
-    pub fn lonlat_bbox(&self) -> Option<(f64, f64, f64, f64)> {
+    pub fn lonlat_bbox(&self) -> Option<LonLatBox> {
         // Subdivisions per edge, matching the planar perimeter walk: cheap and
         // fine enough to pin a bowed edge's extremum.
         const PER_EDGE: u32 = 512;
@@ -340,7 +340,7 @@ impl GeostationaryProjector {
             return None;
         }
         let (lon_min, lon_max) = enclosing_lon_arc(&mut lons);
-        Some((lat_min, lat_max, lon_min, lon_max))
+        Some(LonLatBox::new(lat_min, lat_max, lon_min, lon_max))
     }
 }
 
@@ -483,7 +483,12 @@ mod tests {
         p.y0 = 0.02;
         p.dy_rad = 0.06 / 20.0; // y ∈ [0.02, 0.08]
         let proj = GeostationaryProjector::new(p);
-        let (lat_min, lat_max, lon_min, lon_max) = proj.lonlat_bbox().expect("on-disk sector");
+        let LonLatBox {
+            lat_min,
+            lat_max,
+            lon_min,
+            lon_max,
+        } = proj.lonlat_bbox().expect("on-disk sector");
 
         // The box must enclose every grid corner's ground point.
         let x1 = p.x0 + (p.ni as f64 - 1.0) * p.dx_rad;

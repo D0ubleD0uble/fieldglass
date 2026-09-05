@@ -383,7 +383,7 @@ impl PlanarGridProjector for LambertAzimuthalProjector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::projection::{DEFAULT_EARTH_RADIUS_M, metres_apart};
+    use crate::projection::{DEFAULT_EARTH_RADIUS_M, LonLatBox, metres_apart};
 
     /// The §3.140 fixture's grid: ETRS89-LAEA's tangent point (52°N 10°E) on
     /// GRS80, 20 × 16 at 200 km from a first point at 35°N 10°W, scanning
@@ -748,7 +748,12 @@ mod tests {
             dy_metres: 900_000.0,
             ..efas_params()
         });
-        let (lat_min, lat_max, lon_min, lon_max) = projector.lonlat_bbox();
+        let LonLatBox {
+            lat_min,
+            lat_max,
+            lon_min,
+            lon_max,
+        } = projector.lonlat_bbox();
         assert!(
             lat_min.is_finite() && lat_max.is_finite(),
             "latitude bound was ({lat_min}, {lat_max})"

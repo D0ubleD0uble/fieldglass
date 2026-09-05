@@ -5,7 +5,7 @@
 //! lat/lon-space search would go wrong: the antimeridian, the poles, and a fold
 //! where index-adjacent cells are far apart on the ground.
 
-use fieldglass_core::projection::{GridGeometry, GridResampling};
+use fieldglass_core::projection::{GridGeometry, GridResampling, LonLatBox};
 use fieldglass_core::spatial_index::SpatialIndex;
 
 /// Great-circle angle between two `(lat, lon)` pairs, in radians. The metric
@@ -408,7 +408,12 @@ fn a_centre_the_file_left_missing_reports_no_position() {
 fn the_bounding_box_is_the_extent_of_the_centres() {
     let (lats, lons) = lattice(20, 10, (-40.0, 40.0), (100.0, 140.0));
     let ix = SpatialIndex::new(20, 10, &lats, &lons).expect("index builds");
-    let (lat_min, lat_max, lon_min, lon_max) = ix.lonlat_bbox().expect("a box");
+    let LonLatBox {
+        lat_min,
+        lat_max,
+        lon_min,
+        lon_max,
+    } = ix.lonlat_bbox().expect("a box");
     assert!((lat_min + 40.0).abs() < 1e-9, "{lat_min}");
     assert!((lat_max - 40.0).abs() < 1e-9, "{lat_max}");
     assert!((lon_min - 100.0).abs() < 1e-9, "{lon_min}");
@@ -425,7 +430,9 @@ fn the_bounding_box_is_the_extent_of_the_centres() {
 fn a_box_across_the_antimeridian_keeps_its_span() {
     let (lats, lons) = lattice(20, 10, (-10.0, 10.0), (160.0, 200.0));
     let ix = SpatialIndex::new(20, 10, &lats, &lons).expect("index builds");
-    let (_, _, lon_min, lon_max) = ix.lonlat_bbox().expect("a box");
+    let LonLatBox {
+        lon_min, lon_max, ..
+    } = ix.lonlat_bbox().expect("a box");
     assert!(
         (lon_max - lon_min - 40.0).abs() < 1e-6,
         "the span should stay 40°, got {lon_min}..{lon_max}"
@@ -460,7 +467,12 @@ fn a_box_around_a_pole_widens_to_every_meridian() {
         }
     }
     let ix = SpatialIndex::new(ni, nj, &lats, &lons).expect("index builds");
-    let (lat_min, lat_max, lon_min, lon_max) = ix.lonlat_bbox().expect("a box");
+    let LonLatBox {
+        lat_min,
+        lat_max,
+        lon_min,
+        lon_max,
+    } = ix.lonlat_bbox().expect("a box");
     assert!((lat_min - 80.0).abs() < 1e-6, "{lat_min}");
     assert!((lat_max - 90.0).abs() < 1e-6, "{lat_max}");
     assert_eq!((lon_min, lon_max), (-180.0, 180.0), "every meridian");

@@ -357,8 +357,7 @@ pub trait PlanarGridProjector {
         self.grid_corners_lonlat()[3]
     }
 
-    /// Axis-aligned lat/lon bounding box of the grid, returned as
-    /// `(lat_min, lat_max, lon_min, lon_max)`.
+    /// Axis-aligned lat/lon bounding box of the grid.
     ///
     /// The box is taken over a dense sample of the grid **perimeter**, not
     /// just the four corners. A planar grid edge is a straight line in
@@ -389,8 +388,9 @@ pub trait PlanarGridProjector {
     /// box** at null island. Callers that must tell that apart from a real box
     /// there — [`GridGeometry::lonlat_bbox`] does, because the empty box frames
     /// a render on nothing — ask [`Self::placed_lonlat_bbox`] instead.
-    fn lonlat_bbox(&self) -> (f64, f64, f64, f64) {
-        self.placed_lonlat_bbox().unwrap_or((0.0, 0.0, 0.0, 0.0))
+    fn lonlat_bbox(&self) -> LonLatBox {
+        self.placed_lonlat_bbox()
+            .unwrap_or(LonLatBox::new(0.0, 0.0, 0.0, 0.0))
     }
 
     /// [`Self::lonlat_bbox`], but `None` rather than the empty box when the
@@ -402,7 +402,7 @@ pub trait PlanarGridProjector {
     /// indistinguishable from a real degenerate box at null island and which
     /// [`GridGeometry`] used to hand to a warp as its default window — a
     /// zero-extent render at 0°N 0°E instead of "this grid cannot be placed".
-    fn placed_lonlat_bbox(&self) -> Option<(f64, f64, f64, f64)> {
+    fn placed_lonlat_bbox(&self) -> Option<LonLatBox> {
         // Subdivisions per edge. 512 puts samples ~16 km apart on an 8000 km
         // edge — fine enough to pin the closest-to-pole latitude to ~0.03°
         // while staying a trivial ~2k inverse projections regardless of grid
@@ -455,7 +455,7 @@ pub trait PlanarGridProjector {
         // The longitude extent is the minimum enclosing arc of the perimeter
         // samples; see [`enclosing_lon_arc`].
         let (lon_min, lon_max) = enclosing_lon_arc(&mut lons);
-        Some((lat_min, lat_max, lon_min, lon_max))
+        Some(LonLatBox::new(lat_min, lat_max, lon_min, lon_max))
     }
 }
 
@@ -586,10 +586,7 @@ fn placed_point(
 
 /// A planar family's lat/lon box, or `None` when the grid cannot be placed or no
 /// part of its perimeter projects. The [`placed_point`] gate, for the box.
-fn placed_bbox(
-    projection_resolves: bool,
-    proj: &dyn PlanarGridProjector,
-) -> Option<(f64, f64, f64, f64)> {
+fn placed_bbox(projection_resolves: bool, proj: &dyn PlanarGridProjector) -> Option<LonLatBox> {
     planar_grid_is_placeable(projection_resolves, proj)
         .then(|| proj.placed_lonlat_bbox())
         .flatten()
@@ -958,8 +955,8 @@ impl GridGeometry {
         }
     }
 
-    /// The grid's geographic extent as `(lat_min, lat_max, lon_min, lon_max)`
-    /// in degrees, or `None` for a family that cannot be placed.
+    /// The grid's geographic extent in degrees, or `None` for a family that
+    /// cannot be placed.
     ///
     /// The projected families delegate to
     /// [`PlanarGridProjector::placed_lonlat_bbox`] — the `Option`-returning
@@ -972,36 +969,35 @@ impl GridGeometry {
     /// domain surrounds the projection pole and the enclosing longitude arc
     /// therefore degenerates.
     ///
-    /// `lon_min` may fall below -180 (or `lon_max` above 180) to describe a
-    /// window spanning the antimeridian — the existing convention, which the
-    /// warp consumes through periodic trig. Do not normalise it into range
-    /// without collapsing the span.
-    pub fn lonlat_bbox(&self) -> Option<(f64, f64, f64, f64)> {
+    /// The antimeridian convention on [`LonLatBox`] applies: `lon_min` may
+    /// fall below -180 (or `lon_max` above 180) to describe a window spanning
+    /// it, and normalising either into range collapses the span.
+    pub fn lonlat_bbox(&self) -> Option<LonLatBox> {
         match self {
             // The geographic families state their own corners, so the box is
             // the corners — unwrapped through `eastward_lon_span` so a grid
             // published from 180°E keeps its span instead of collapsing to one
             // cell.
-            Self::LatLon(p) => Some(corner_bbox(
+            Self::LatLon(p) => Some(LonLatBox::from_corners(CornerPair::new(
                 p.lat_first,
                 p.lon_first,
                 p.lat_last,
                 p.lon_last,
-            )),
-            Self::Gaussian(p) => Some(corner_bbox(
+            ))),
+            Self::Gaussian(p) => Some(LonLatBox::from_corners(CornerPair::new(
                 p.lat_first,
                 p.lon_first,
                 p.lat_last,
                 p.lon_last,
-            )),
+            ))),
             // Rows crowd toward the equator, but the extreme latitudes are
             // still the two stated corners, so the box is the corners here too.
-            Self::Mercator(p) => Some(corner_bbox(
+            Self::Mercator(p) => Some(LonLatBox::from_corners(CornerPair::new(
                 p.lat_first,
                 p.lon_first,
                 p.lat_last,
                 p.lon_last,
-            )),
+            ))),
             // The corners are rotated-frame degrees, so — unlike every other
             // geographic family — they are not the geographic extent. The
             // projector walks the rotated perimeter and unrotates it.
@@ -1021,20 +1017,19 @@ impl GridGeometry {
             }
             Self::PolarStereo(p) => {
                 let proj = PolarStereoProjector::new(*p);
-                let (lat_min, lat_max, lon_min, lon_max) =
-                    placed_bbox(proj.is_well_defined(), &proj)?;
+                let box_ = placed_bbox(proj.is_well_defined(), &proj)?;
                 if proj.pole_inside_grid() {
                     // Every meridian is present and the enclosing arc has no
                     // empty gap to be the complement of, so the walk's
                     // longitudes mean nothing here.
                     let (lat_min, lat_max) = if p.south_pole {
-                        (-90.0, lat_max)
+                        (-90.0, box_.lat_max)
                     } else {
-                        (lat_min, 90.0)
+                        (box_.lat_min, 90.0)
                     };
-                    Some((lat_min, lat_max, -180.0, 180.0))
+                    Some(LonLatBox::new(lat_min, lat_max, -180.0, 180.0))
                 } else {
-                    Some((lat_min, lat_max, lon_min, lon_max))
+                    Some(box_)
                 }
             }
             // Gated on the spheroid the same way `forward` is: a box walked
@@ -1069,7 +1064,7 @@ impl GridGeometry {
                 // see: a shapeless or unseeable ellipsoid has no hemisphere to
                 // frame either, and `inverse` declines every pixel of it (#610).
                 (proj.raster_is_walkable() && proj.is_well_defined()).then(|| {
-                    proj.lonlat_bbox().unwrap_or((
+                    proj.lonlat_bbox().unwrap_or(LonLatBox::new(
                         -90.0,
                         90.0,
                         p.sub_lon_deg - 90.0,
@@ -1341,28 +1336,138 @@ pub struct PlaneAffine {
     pub units: PlaneUnits,
 }
 
-/// Box of a geographic grid from its two stated corners, in the same
-/// `(lat_min, lat_max, lon_min, lon_max)` order the projected families use.
+/// The two corner grid points a message states: the first scanned point and
+/// the last, in the file's own scan order.
 ///
-/// The longitude runs `lon_first` eastward by [`eastward_lon_span`] rather than
-/// `min`/`max` of the two corners: a grid published from 180°E reports
-/// `lon_last` numerically below `lon_first`, and taking the extremes collapses
-/// the span to a single grid step. `lon_max` may therefore exceed 180, which is
-/// the convention [`GridGeometry::lonlat_bbox`] documents.
-fn corner_bbox(
-    lat_first: f64,
-    lon_first: f64,
-    lat_last: f64,
-    lon_last: f64,
-) -> (f64, f64, f64, f64) {
-    let span = eastward_lon_span(lon_first, lon_last);
-    let lon_min = lon_first;
-    (
-        lat_first.min(lat_last),
-        lat_first.max(lat_last),
-        lon_min,
-        lon_min + span,
-    )
+/// This is *what the message says*, not an axis-aligned box: `lat_first` may be
+/// north or south of `lat_last`, and `lon_last` may be numerically below
+/// `lon_first` on a grid published from 180°E. For the extent the data covers,
+/// convert with [`LonLatBox::from_corners`].
+///
+/// The named fields exist because the corner pair and [`LonLatBox`] were both
+/// bare `(f64, f64, f64, f64)` in *different orders*, so passing one where the
+/// other was wanted compiled silently and drew a plausible-looking wrong map
+/// (#553). Substituting them is now a type error:
+///
+/// ```compile_fail
+/// use fieldglass_core::{CornerPair, LonLatBox};
+/// fn frame(_: LonLatBox) {}
+/// frame(CornerPair::new(60.0, 0.0, -60.0, 350.0));
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CornerPair {
+    /// Latitude of the first scanned grid point.
+    pub lat_first: f64,
+    /// Longitude of the first scanned grid point.
+    pub lon_first: f64,
+    /// Latitude of the last scanned grid point — the corner diagonally
+    /// opposite `lat_first`.
+    pub lat_last: f64,
+    /// Longitude of the last scanned grid point.
+    pub lon_last: f64,
+}
+
+impl CornerPair {
+    /// The pair, in the order a GRIB grid section states it: `La1`, `Lo1`,
+    /// `La2`, `Lo2`.
+    #[must_use]
+    pub const fn new(lat_first: f64, lon_first: f64, lat_last: f64, lon_last: f64) -> Self {
+        Self {
+            lat_first,
+            lon_first,
+            lat_last,
+            lon_last,
+        }
+    }
+}
+
+/// An axis-aligned lat/lon box in degrees: *where a grid's data is*.
+///
+/// `lon_min` may fall below -180 (or `lon_max` above 180) to describe a window
+/// spanning the antimeridian — the workspace-wide convention, which the warp
+/// consumes through periodic trig. Do not normalise either bound into range
+/// without collapsing the span.
+///
+/// This is the min/max form. The corner form a message states is
+/// [`CornerPair`], which orders its four numbers differently; see that type for
+/// why both are named rather than bare tuples.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LonLatBox {
+    /// Southern edge.
+    pub lat_min: f64,
+    /// Northern edge.
+    pub lat_max: f64,
+    /// Western edge.
+    pub lon_min: f64,
+    /// Eastern edge, always `>= lon_min` for a box built here.
+    pub lon_max: f64,
+}
+
+impl LonLatBox {
+    /// The box from its four edges.
+    #[must_use]
+    pub const fn new(lat_min: f64, lat_max: f64, lon_min: f64, lon_max: f64) -> Self {
+        Self {
+            lat_min,
+            lat_max,
+            lon_min,
+            lon_max,
+        }
+    }
+
+    /// Box of a geographic grid from its two stated corners.
+    ///
+    /// The longitude runs `lon_first` eastward by [`eastward_lon_span`] rather
+    /// than `min`/`max` of the two corners: a grid published from 180°E reports
+    /// `lon_last` numerically below `lon_first`, and taking the extremes
+    /// collapses the span to a single grid step. `lon_max` may therefore exceed
+    /// 180, which is the convention [`GridGeometry::lonlat_bbox`] documents.
+    #[must_use]
+    pub fn from_corners(corners: CornerPair) -> Self {
+        let CornerPair {
+            lat_first,
+            lon_first,
+            lat_last,
+            lon_last,
+        } = corners;
+        let span = eastward_lon_span(lon_first, lon_last);
+        Self {
+            lat_min: lat_first.min(lat_last),
+            lat_max: lat_first.max(lat_last),
+            lon_min: lon_first,
+            lon_max: lon_first + span,
+        }
+    }
+
+    /// The same western edge, carried a full turn east — *what window should a
+    /// render frame*, as opposed to where the data is.
+    ///
+    /// A grid whose columns close on themselves owns the gap between its last
+    /// column and its first: the periodic sampler fills it, and a window that
+    /// stops at the last declared column leaves the seam meridian as a stripe
+    /// of background one cell wide. Callers decide *whether* the grid is
+    /// periodic — [`lon_grid_is_global`] for a corner-pinned family, the
+    /// geometry's own answer elsewhere — and this states the widening once.
+    #[must_use]
+    pub fn widened_to_full_turn(self) -> Self {
+        Self {
+            lon_max: self.lon_min + 360.0,
+            ..self
+        }
+    }
+
+    /// The four edges as an array, for a plain-data boundary that carries them
+    /// positionally (`[lat_min, lat_max, lon_min, lon_max]`).
+    #[must_use]
+    pub const fn to_array(self) -> [f64; 4] {
+        [self.lat_min, self.lat_max, self.lon_min, self.lon_max]
+    }
+
+    /// Inverse of [`Self::to_array`].
+    #[must_use]
+    pub const fn from_array(edges: [f64; 4]) -> Self {
+        Self::new(edges[0], edges[1], edges[2], edges[3])
+    }
 }
 
 /// Absolute-tolerance float compare, shared by every family's test module.
@@ -1385,6 +1490,55 @@ fn metres_apart(lat_a: f64, lon_a: f64, lat_b: f64, lon_b: f64) -> f64 {
 mod tests {
     use super::*;
     use rotated_latlon::{rotate_latlon, unrotate_latlon};
+
+    /// The conversion the corner form and the box form differ by, on the two
+    /// cases that motivated naming them (#553): the ordinary north-down grid,
+    /// where the box swaps the latitudes the message states in scan order, and
+    /// the grid published from 180°E, where taking `min`/`max` of the two
+    /// longitudes would collapse a full turn to one cell.
+    #[test]
+    fn a_box_from_corners_orders_latitudes_and_runs_longitude_eastward() {
+        // North-down, west-to-east: only the latitudes are reordered.
+        assert_eq!(
+            LonLatBox::from_corners(CornerPair::new(60.0, -10.0, 20.0, 30.0)),
+            LonLatBox::new(20.0, 60.0, -10.0, 30.0)
+        );
+        // Published from 180°E and running east through the antimeridian.
+        // `lon_min`/`lon_max` of the corners would report 170..180, a 10°
+        // sliver, in place of the 350° the grid actually covers.
+        let crossing = LonLatBox::from_corners(CornerPair::new(90.0, 180.0, -90.0, 170.0));
+        assert_eq!(crossing.lon_min, 180.0);
+        assert!(
+            (crossing.lon_max - 530.0).abs() < 1e-9,
+            "east edge {} should be 180 + 350",
+            crossing.lon_max
+        );
+    }
+
+    /// Widening answers "what window should a render frame", so it moves only
+    /// the eastern edge and leaves where the data is alone. A grid already a
+    /// full turn wide is unchanged by it, which is what makes it safe to apply
+    /// on a periodic grid without asking whether the seam column is duplicated.
+    #[test]
+    fn widening_moves_only_the_eastern_edge() {
+        let data = LonLatBox::new(-90.0, 90.0, 0.0, 357.5);
+        let window = data.widened_to_full_turn();
+        assert_eq!(window, LonLatBox::new(-90.0, 90.0, 0.0, 360.0));
+        assert_eq!(window.widened_to_full_turn(), window, "idempotent");
+        // A window that already spans the turn from a shifted origin keeps its
+        // origin rather than being normalised into [-180, 180].
+        let shifted = LonLatBox::new(0.0, 10.0, 180.0, 400.0).widened_to_full_turn();
+        assert_eq!(shifted, LonLatBox::new(0.0, 10.0, 180.0, 540.0));
+    }
+
+    /// The array form is the plain-data boundary the API DTOs carry, so the
+    /// order it writes and the order it reads must be the same one.
+    #[test]
+    fn the_array_form_round_trips() {
+        let b = LonLatBox::new(-12.0, 34.0, 100.0, 220.0);
+        assert_eq!(b.to_array(), [-12.0, 34.0, 100.0, 220.0]);
+        assert_eq!(LonLatBox::from_array(b.to_array()), b);
+    }
 
     /// The rule itself, at its boundary and on the radii that are not numbers
     /// describing a sphere. The doc claims the two comparisons subsume a
@@ -1927,8 +2081,12 @@ mod tests {
     fn rotated_bbox_covers_corner_latitudes() {
         // The geographic corner latitudes (30 and 60) must lie within the
         // reported box, and the box must not collapse.
-        let (lat_min, lat_max, lon_min, lon_max) =
-            RotatedLatLonProjector::new(rotated_fixture_params()).lonlat_bbox();
+        let LonLatBox {
+            lat_min,
+            lat_max,
+            lon_min,
+            lon_max,
+        } = RotatedLatLonProjector::new(rotated_fixture_params()).lonlat_bbox();
         assert!(
             lat_min <= 30.0 + 1e-6 && lat_max >= 60.0 - 1e-6,
             "lat box too tight"
@@ -1955,7 +2113,12 @@ mod tests {
             south_pole_lon: 245.305142,
             angle_of_rotation: 0.0,
         };
-        let (lat_min, lat_max, lon_min, lon_max) = RotatedLatLonProjector::new(p).lonlat_bbox();
+        let LonLatBox {
+            lat_min,
+            lat_max,
+            lon_min,
+            lon_max,
+        } = RotatedLatLonProjector::new(p).lonlat_bbox();
         // The HRDPS continental domain covers North America — roughly
         // 27°N..71°N, 153°W..41°W, a ~112° longitude window.
         assert!(near(lat_min, 27.28, 0.05), "lat_min = {lat_min}");
@@ -1982,7 +2145,12 @@ mod tests {
             dy_metres: 60_000.0,
             south_pole: false,
         });
-        let (lat_min, lat_max, lon_min, lon_max) = proj.lonlat_bbox();
+        let LonLatBox {
+            lat_min,
+            lat_max,
+            lon_min,
+            lon_max,
+        } = proj.lonlat_bbox();
         assert!(near(lat_min, 19.945, 1e-2), "lat_min {lat_min}");
         // The top edge bows toward the pole and reaches ~80.6°N — far above
         // the highest corner (60.5°N). Perimeter sampling must catch this.
@@ -2016,7 +2184,7 @@ mod tests {
             .iter()
             .map(|c| c.0)
             .fold(f64::NEG_INFINITY, f64::max);
-        let (_, lat_max, ..) = proj.lonlat_bbox();
+        let LonLatBox { lat_max, .. } = proj.lonlat_bbox();
         assert!(
             near(corner_lat_max, 60.476, 1e-2),
             "corner cap {corner_lat_max}"
@@ -2047,7 +2215,12 @@ mod tests {
             latin2: 38.5,
         });
         let corners = proj.grid_corners_lonlat();
-        let (lat_min, lat_max, lon_min, lon_max) = proj.lonlat_bbox();
+        let LonLatBox {
+            lat_min,
+            lat_max,
+            lon_min,
+            lon_max,
+        } = proj.lonlat_bbox();
         for (lat, lon) in corners {
             assert!(
                 lat_min - 1e-6 <= lat && lat <= lat_max + 1e-6,
@@ -2092,7 +2265,12 @@ mod tests {
             }
         }
 
-        let (lat_min, lat_max, lon_min, lon_max) = WideMock.lonlat_bbox();
+        let LonLatBox {
+            lat_min,
+            lat_max,
+            lon_min,
+            lon_max,
+        } = WideMock.lonlat_bbox();
         assert!((lat_min - 12.0).abs() < 1e-9 && (lat_max - 12.0).abs() < 1e-9);
         let span = lon_max - lon_min;
         assert!(

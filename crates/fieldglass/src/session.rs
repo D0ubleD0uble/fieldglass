@@ -396,22 +396,21 @@ fn warp_field(field: &Field, options: &WarpOptions) -> Result<Warped, Error> {
     let bounds = match options.bounds {
         Some(b) => b,
         None => {
-            let (lat_min, lat_max, lon_min, lon_max) =
-                geometry.lonlat_bbox().ok_or_else(|| Error::Unsupported {
-                    detail: format!("a {} grid states no extent to warp onto", geometry.label()),
-                })?;
+            let extent = geometry.lonlat_bbox().ok_or_else(|| Error::Unsupported {
+                detail: format!("a {} grid states no extent to warp onto", geometry.label()),
+            })?;
             // A global grid's default window runs the full turn, not to its
             // last declared column. The gap between the last column and the
             // first belongs to the grid — the periodic sampler fills it — and
             // stopping at `lon_last` leaves the seam meridian as a stripe of
-            // background one cell wide. `lonlat_bbox` reports the corners,
-            // which is the right answer to a different question.
-            let lon_max = if field.georef.periodic_x {
-                lon_min + 360.0
+            // background one cell wide. `lonlat_bbox` reports where the data
+            // is, which is the right answer to a different question; the
+            // widening turns it into a window.
+            if field.georef.periodic_x {
+                extent.widened_to_full_turn().to_array()
             } else {
-                lon_max
-            };
-            [lat_min, lat_max, lon_min, lon_max]
+                extent.to_array()
+            }
         }
     };
     let [lat_min, lat_max, lon_min, lon_max] = bounds;

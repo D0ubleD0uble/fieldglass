@@ -13,6 +13,7 @@
 //! both fixtures rejoined when their value exemptions were dropped; what this
 //! file pins is the *geometry*, which no value oracle can see.
 
+use fieldglass_core::CornerPair;
 use fieldglass_grib2::{Grib2Reader, GridTemplate};
 
 const CLASSIC: &[u8] = include_bytes!("fixtures/reduced_gaussian_pressure_level.grib2");
@@ -161,7 +162,11 @@ fn the_expanded_raster_east_edge_is_derived_not_declared() {
     ] {
         let reader = Grib2Reader::from_bytes(bytes.to_vec()).expect("fixture parses");
         let gds = &reader.messages[0].gds;
-        let (_, lon_first, _, lon_last) = gds.bounds().expect("a reduced grid has bounds");
+        let CornerPair {
+            lon_first,
+            lon_last,
+            ..
+        } = gds.bounds().expect("a reduced grid has bounds");
         assert!(
             (lon_last - declared).abs() < 1e-3,
             "{label}: bounds() stays faithful to the file: {lon_last}"
@@ -170,7 +175,11 @@ fn the_expanded_raster_east_edge_is_derived_not_declared() {
         // `raster_bounds()` is where that derivation lives now (#543): the
         // crate answers it, rather than every consumer recomputing it from
         // `reduced_raster_lon_last` and hoping to agree.
-        let (_, raster_lon_first, _, raster_lon_last) = gds
+        let CornerPair {
+            lon_first: raster_lon_first,
+            lon_last: raster_lon_last,
+            ..
+        } = gds
             .raster_bounds()
             .expect("a reduced grid has a raster extent");
         assert_eq!(raster_lon_first, lon_first, "{label}: only Lo2 is derived");
