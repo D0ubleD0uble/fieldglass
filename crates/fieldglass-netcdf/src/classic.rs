@@ -44,22 +44,33 @@ impl ClassicVersion {
         }
     }
 
-    /// Width in bytes of `NON_NEG` (counts, dim lengths, attribute counts,
-    /// variable element counts, vsize): 4 for CDF-1/2, 8 for CDF-5.
-    fn nonneg_width(self) -> usize {
+    /// Width of `NON_NEG` (counts, dim lengths, attribute counts, variable
+    /// element counts, vsize): 4 for CDF-1/2, 8 for CDF-5.
+    fn nonneg_width(self) -> FieldWidth {
         match self {
-            Self::Cdf1 | Self::Cdf2 => 4,
-            Self::Cdf5 => 8,
+            Self::Cdf1 | Self::Cdf2 => FieldWidth::Four,
+            Self::Cdf5 => FieldWidth::Eight,
         }
     }
 
     /// Width of variable `begin` (file offset): 4 for CDF-1, 8 for CDF-2/5.
-    fn offset_width(self) -> usize {
+    fn offset_width(self) -> FieldWidth {
         match self {
-            Self::Cdf1 => 4,
-            Self::Cdf2 | Self::Cdf5 => 8,
+            Self::Cdf1 => FieldWidth::Four,
+            Self::Cdf2 | Self::Cdf5 => FieldWidth::Eight,
         }
     }
+}
+
+/// The only two widths a classic header's version-dependent integer fields
+/// take. An enum rather than a `usize` so the reader that dispatches on it has
+/// no third arm to explain away.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FieldWidth {
+    /// 32-bit: `NON_NEG` in CDF-1/2, `begin` in CDF-1.
+    Four,
+    /// 64-bit: `NON_NEG` in CDF-5, `begin` in CDF-2/5.
+    Eight,
 }
 
 /// NetCDF external type codes (`nc_type`). See the Unidata classic format
@@ -372,11 +383,10 @@ pub fn decode_variable_values_from<S: ByteSource>(
     source.prefetch(&layout.ranges)?;
 
     let fills = var.missing_sentinels();
-    let elem = var.nc_type.element_size();
     let mut out: Vec<Option<f64>> = Vec::with_capacity(layout.total);
     for range in &layout.ranges {
         let bytes = source.read(*range)?;
-        decode_slab(&bytes, elem, var.nc_type, &fills, &mut out);
+        decode_slab(&bytes, var.nc_type, &fills, &mut out);
     }
 
     // The one silent-truncation path the seam introduces, closed. `decode_slab`
@@ -536,23 +546,25 @@ fn record_size(header: &ClassicHeader) -> Result<usize, FieldglassError> {
     Ok(total)
 }
 
-/// Decode a fetched slab: every whole `elem`-byte element in `bytes`, widened
-/// to `f64`, with any sentinel (`fills`) masked to `None`, appended to `out`.
+/// Decode a fetched slab: every whole element in `bytes`, widened to `f64`,
+/// with any sentinel (`fills`) masked to `None`, appended to `out`.
+///
+/// The element width is `nc_type`'s and nothing else's — there is no second
+/// parameter that could disagree with it and walk a chunk off its end.
 ///
 /// No bounds check, because there is nothing left to check — the range was
 /// bounded when [`ByteSource::read`] served it, and a short read is that
 /// function's error to report, not this one's. A trailing partial element is
 /// dropped rather than read out of bounds; `variable_layout` only ever asks for
 /// whole elements, so it cannot happen from a plan this module built.
-fn decode_slab(
-    bytes: &[u8],
-    elem: usize,
-    nc_type: NcType,
-    fills: &[f64],
-    out: &mut Vec<Option<f64>>,
-) {
-    for chunk in bytes.chunks_exact(elem) {
-        let v = decode_element_f64(chunk, nc_type);
+fn decode_slab(bytes: &[u8], nc_type: NcType, fills: &[f64], out: &mut Vec<Option<f64>>) {
+    for chunk in bytes.chunks_exact(nc_type.element_size()) {
+        // `chunks_exact` yields exactly the element width, so the `None` arm
+        // is unreachable from here; taking it as a skip rather than a panic is
+        // what makes the decode total.
+        let Some(v) = decode_element_f64(chunk, nc_type) else {
+            continue;
+        };
         // Mask on value equality, matching how `libnetcdf` / numpy compare a
         // masked array against `_FillValue` / `missing_value` (so a `NaN`
         // sentinel, like `NaN == NaN`, masks nothing). The compare is in the
@@ -563,24 +575,27 @@ fn decode_slab(
     }
 }
 
-/// Decode a single element of `nc_type` from exactly its `element_size()`
-/// big-endian bytes into `f64`. Integer types widen (`i64`/`u64` may lose
-/// precision beyond 2^53, as elsewhere in the `f64` value pipeline).
-fn decode_element_f64(bytes: &[u8], nc_type: NcType) -> f64 {
-    match nc_type {
-        NcType::Byte => (bytes[0] as i8) as f64,
-        NcType::UByte => bytes[0] as f64,
-        // Defensive: value decode rejects `Char` before reaching here.
-        NcType::Char => bytes[0] as f64,
-        NcType::Short => i16::from_be_bytes([bytes[0], bytes[1]]) as f64,
-        NcType::UShort => u16::from_be_bytes([bytes[0], bytes[1]]) as f64,
-        NcType::Int => i32::from_be_bytes(bytes.try_into().unwrap()) as f64,
-        NcType::UInt => u32::from_be_bytes(bytes.try_into().unwrap()) as f64,
-        NcType::Float => f32::from_be_bytes(bytes.try_into().unwrap()) as f64,
-        NcType::Double => f64::from_be_bytes(bytes.try_into().unwrap()),
-        NcType::Int64 => i64::from_be_bytes(bytes.try_into().unwrap()) as f64,
-        NcType::UInt64 => u64::from_be_bytes(bytes.try_into().unwrap()) as f64,
-    }
+/// Decode the first element of `nc_type` from the big-endian `bytes` into
+/// `f64`, or `None` when `bytes` is shorter than that type's `element_size()`.
+/// Integer types widen (`i64`/`u64` may lose precision beyond 2^53, as
+/// elsewhere in the `f64` value pipeline).
+///
+/// Each arm takes its own width from `first_chunk`, so the read cannot outrun
+/// the slice however the caller sized it.
+fn decode_element_f64(bytes: &[u8], nc_type: NcType) -> Option<f64> {
+    Some(match nc_type {
+        NcType::Byte => (*bytes.first()? as i8) as f64,
+        // `Char` is defensive: value decode rejects it before reaching here.
+        NcType::UByte | NcType::Char => *bytes.first()? as f64,
+        NcType::Short => i16::from_be_bytes(*bytes.first_chunk()?) as f64,
+        NcType::UShort => u16::from_be_bytes(*bytes.first_chunk()?) as f64,
+        NcType::Int => i32::from_be_bytes(*bytes.first_chunk()?) as f64,
+        NcType::UInt => u32::from_be_bytes(*bytes.first_chunk()?) as f64,
+        NcType::Float => f32::from_be_bytes(*bytes.first_chunk()?) as f64,
+        NcType::Double => f64::from_be_bytes(*bytes.first_chunk()?),
+        NcType::Int64 => i64::from_be_bytes(*bytes.first_chunk()?) as f64,
+        NcType::UInt64 => u64::from_be_bytes(*bytes.first_chunk()?) as f64,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -635,37 +650,49 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
+    /// Take the next `N` bytes at the cursor as a fixed-size array, advancing
+    /// past them. The bounds check and the read are one operation, so there is
+    /// no window in which a stale `need` could authorise the wrong width.
+    fn take_array<const N: usize>(&mut self) -> Result<[u8; N], FieldglassError> {
+        self.need(N)?;
+        let (head, _) = self.bytes[self.pos..]
+            .split_first_chunk::<N>()
+            .ok_or_else(|| {
+                FieldglassError::Parse(format!(
+                    "truncated NetCDF header: needed {N} bytes at offset {}, only {} remain",
+                    self.pos,
+                    self.bytes.len().saturating_sub(self.pos)
+                ))
+            })?;
+        self.pos += N;
+        Ok(*head)
+    }
+
     fn read_u32_be(&mut self) -> Result<u32, FieldglassError> {
-        self.need(4)?;
-        let v = u32::from_be_bytes(self.bytes[self.pos..self.pos + 4].try_into().unwrap());
-        self.pos += 4;
-        Ok(v)
+        Ok(u32::from_be_bytes(self.take_array()?))
     }
 
     fn read_u64_be(&mut self) -> Result<u64, FieldglassError> {
-        self.need(8)?;
-        let v = u64::from_be_bytes(self.bytes[self.pos..self.pos + 8].try_into().unwrap());
-        self.pos += 8;
-        Ok(v)
+        Ok(u64::from_be_bytes(self.take_array()?))
+    }
+
+    /// Read one version-dependent integer field, widened to `u64`.
+    fn read_field(&mut self, width: FieldWidth) -> Result<u64, FieldglassError> {
+        match width {
+            FieldWidth::Four => Ok(self.read_u32_be()? as u64),
+            FieldWidth::Eight => self.read_u64_be(),
+        }
     }
 
     /// `NON_NEG`: 4 bytes for CDF-1/2, 8 bytes for CDF-5. Always returned as
     /// `u64` for uniformity.
     fn read_nonneg(&mut self) -> Result<u64, FieldglassError> {
-        match self.version.nonneg_width() {
-            4 => Ok(self.read_u32_be()? as u64),
-            8 => self.read_u64_be(),
-            _ => unreachable!(),
-        }
+        self.read_field(self.version.nonneg_width())
     }
 
     /// Variable `begin` field width depends on the version.
     fn read_offset(&mut self) -> Result<u64, FieldglassError> {
-        match self.version.offset_width() {
-            4 => Ok(self.read_u32_be()? as u64),
-            8 => self.read_u64_be(),
-            _ => unreachable!(),
-        }
+        self.read_field(self.version.offset_width())
     }
 
     /// Read `n` bytes verbatim, then advance past zero padding so `pos`
@@ -807,11 +834,12 @@ impl<'a> Parser<'a> {
         };
 
         // Typed first element, used by value decode to recognise `_FillValue`.
-        // Skipped for `Char` (text, not a number) and for empty values.
+        // Skipped for `Char` (text, not a number); an empty value falls out on
+        // its own, because a slice too short for one element decodes to `None`
+        // rather than being sliced to a width it does not have.
         let first_value = match nc_type {
             NcType::Char => None,
-            _ if nelems_usize == 0 => None,
-            _ => Some(decode_element_f64(&raw[..nc_type.element_size()], nc_type)),
+            _ => decode_element_f64(raw, nc_type),
         };
 
         Ok(Attribute {
@@ -890,25 +918,34 @@ pub(crate) fn render_numeric_values(raw: &[u8], nc_type: NcType) -> String {
     }
     let mut parts: Vec<String> = Vec::with_capacity(raw.len() / elem);
     for chunk in raw.chunks_exact(elem) {
-        let s = match nc_type {
-            NcType::Byte => (chunk[0] as i8).to_string(),
-            NcType::UByte => chunk[0].to_string(),
-            NcType::Char => {
-                // Handled by the caller, but be defensive.
-                (chunk[0] as char).to_string()
-            }
-            NcType::Short => i16::from_be_bytes([chunk[0], chunk[1]]).to_string(),
-            NcType::UShort => u16::from_be_bytes([chunk[0], chunk[1]]).to_string(),
-            NcType::Int => i32::from_be_bytes(chunk.try_into().unwrap()).to_string(),
-            NcType::UInt => u32::from_be_bytes(chunk.try_into().unwrap()).to_string(),
-            NcType::Float => format_float(f32::from_be_bytes(chunk.try_into().unwrap())),
-            NcType::Double => format_float(f64::from_be_bytes(chunk.try_into().unwrap())),
-            NcType::Int64 => i64::from_be_bytes(chunk.try_into().unwrap()).to_string(),
-            NcType::UInt64 => u64::from_be_bytes(chunk.try_into().unwrap()).to_string(),
+        // As in `decode_element_f64`, each arm takes its own width from
+        // `first_chunk`: `chunks_exact` already yields it, so a `None` here is
+        // unreachable, and skipping beats a panic if that ever stops holding.
+        let Some(s) = render_element(chunk, nc_type) else {
+            continue;
         };
         parts.push(s);
     }
     parts.join(", ")
+}
+
+/// Render the first element of `nc_type` from `raw`, or `None` when `raw` is
+/// shorter than that type's `element_size()`.
+fn render_element(raw: &[u8], nc_type: NcType) -> Option<String> {
+    Some(match nc_type {
+        NcType::Byte => (*raw.first()? as i8).to_string(),
+        NcType::UByte => raw.first()?.to_string(),
+        // Handled by the caller, but be defensive.
+        NcType::Char => (*raw.first()? as char).to_string(),
+        NcType::Short => i16::from_be_bytes(*raw.first_chunk()?).to_string(),
+        NcType::UShort => u16::from_be_bytes(*raw.first_chunk()?).to_string(),
+        NcType::Int => i32::from_be_bytes(*raw.first_chunk()?).to_string(),
+        NcType::UInt => u32::from_be_bytes(*raw.first_chunk()?).to_string(),
+        NcType::Float => format_float(f32::from_be_bytes(*raw.first_chunk()?)),
+        NcType::Double => format_float(f64::from_be_bytes(*raw.first_chunk()?)),
+        NcType::Int64 => i64::from_be_bytes(*raw.first_chunk()?).to_string(),
+        NcType::UInt64 => u64::from_be_bytes(*raw.first_chunk()?).to_string(),
+    })
 }
 
 /// Format a float as the shortest decimal string that round-trips at its own
@@ -965,6 +1002,82 @@ mod tests {
             render_numeric_values(&(-0.0_f64).to_be_bytes(), NcType::Double),
             "0"
         );
+    }
+
+    /// Every element decode takes its width from the type, so a slice too
+    /// short for that type is `None` rather than an out-of-bounds read. This
+    /// is what lets `decode_slab` drop its `elem` parameter: there is no second
+    /// width left to disagree with `nc_type`.
+    #[test]
+    fn a_slice_shorter_than_its_type_decodes_to_none() {
+        for nc_type in [
+            NcType::Byte,
+            NcType::UByte,
+            NcType::Char,
+            NcType::Short,
+            NcType::UShort,
+            NcType::Int,
+            NcType::UInt,
+            NcType::Float,
+            NcType::Double,
+            NcType::Int64,
+            NcType::UInt64,
+        ] {
+            let elem = nc_type.element_size();
+            let short = vec![0u8; elem - 1];
+            assert_eq!(
+                decode_element_f64(&short, nc_type),
+                None,
+                "{} accepted {} bytes",
+                nc_type.name(),
+                elem - 1
+            );
+            assert_eq!(render_element(&short, nc_type), None, "{}", nc_type.name());
+            // Exactly its own width still decodes, and extra bytes past the
+            // first element are ignored rather than refused.
+            let whole = vec![0u8; elem];
+            assert_eq!(decode_element_f64(&whole, nc_type), Some(0.0));
+            assert!(decode_element_f64(&[0u8; 9], nc_type).is_some());
+        }
+    }
+
+    /// A trailing partial element is dropped, not read past its end — the
+    /// documented contract of both slab decode and attribute rendering.
+    #[test]
+    fn a_trailing_partial_element_is_dropped() {
+        let mut raw = 1i32.to_be_bytes().to_vec();
+        raw.extend_from_slice(&[0, 0]); // half of a second int
+        assert_eq!(render_numeric_values(&raw, NcType::Int), "1");
+
+        let mut out = Vec::new();
+        decode_slab(&raw, NcType::Int, &[], &mut out);
+        assert_eq!(out, vec![Some(1.0)]);
+    }
+
+    /// A numeric attribute declaring zero elements has no first value: the
+    /// empty byte slice is simply too short for one element.
+    #[test]
+    fn a_zero_element_numeric_attribute_has_no_first_value() {
+        let mut v = Vec::new();
+        v.extend_from_slice(b"CDF\x01");
+        v.extend_from_slice(&0u32.to_be_bytes()); // numrecs
+        v.extend_from_slice(&0u32.to_be_bytes()); // dim_list ABSENT tag
+        v.extend_from_slice(&0u32.to_be_bytes()); // dim_list count 0
+        v.extend_from_slice(&NC_ATTRIBUTE.to_be_bytes()); // gatt_list
+        v.extend_from_slice(&1u32.to_be_bytes()); // one attribute
+        v.extend_from_slice(&4u32.to_be_bytes()); // name length
+        v.extend_from_slice(b"none"); // name, already word-aligned
+        v.extend_from_slice(&4u32.to_be_bytes()); // nc_type = NC_INT
+        v.extend_from_slice(&0u32.to_be_bytes()); // nelems = 0
+        v.extend_from_slice(&0u32.to_be_bytes()); // var_list ABSENT tag
+        v.extend_from_slice(&0u32.to_be_bytes()); // var_list count 0
+
+        let h = parse_header(&v).unwrap();
+        let att = &h.global_attributes[0];
+        assert_eq!(att.name, "none");
+        assert_eq!(att.nelems, 0);
+        assert_eq!(att.value, "");
+        assert_eq!(att.first_value, None);
     }
 
     #[test]

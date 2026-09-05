@@ -207,7 +207,7 @@ fn expansion_fills_the_raster_and_keeps_the_widest_rows_intact() {
     let (width, height) = gds.dimensions().expect("a raster shape");
     let values = reader.decode_message_values(0).expect("decodes");
 
-    let expanded = fieldglass_core::expand_reduced_to_regular(&values, pl, width as usize);
+    let expanded = fieldglass_core::expand_reduced_to_regular(&values, pl);
     assert_eq!(expanded.len(), (width as usize) * (height as usize));
     assert!(expanded.iter().all(|v| v.is_some()), "no holes");
 
@@ -268,7 +268,6 @@ fn decode_message_raster_fills_the_shape_dimensions_promises() {
             fieldglass_core::expand_reduced_to_regular(
                 &stored,
                 gds.points_per_row().expect("a reduced grid"),
-                ni as usize,
             ),
             "{label}"
         );

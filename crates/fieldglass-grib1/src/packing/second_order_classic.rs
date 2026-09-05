@@ -216,7 +216,10 @@ pub fn decode_row_by_row(
     expected_count: usize,
     runs: StoredRuns<'_>,
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
-    let ext = header.complex_extended.ok_or_else(|| {
+    // Presence, not the value: the zig-zag bit is read where it is used, in
+    // `finalize_second_order`. This decoder still refuses a section that has no
+    // extended flags at all.
+    header.complex_extended.ok_or_else(|| {
         FieldglassError::Parse("row_by_row decoder without complex_extended".into())
     })?;
     let ClassicHeader {
@@ -268,15 +271,7 @@ pub fn decode_row_by_row(
         expand_group(&mut x, &mut so, w, cols, ref_raw as i64)?;
     }
 
-    super::finalize_second_order(
-        x,
-        header,
-        decimal_scale,
-        ext.boustrophedonic(),
-        runs,
-        bitmap,
-        expected_count,
-    )
+    super::finalize_second_order(x, header, decimal_scale, runs, bitmap, expected_count)
 }
 
 /// `grid_second_order_constant_width` — an explicit secondary bitmap (P2 bits,
@@ -290,7 +285,10 @@ pub fn decode_constant_width(
     expected_count: usize,
     runs: StoredRuns<'_>,
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
-    let ext = header.complex_extended.ok_or_else(|| {
+    // Presence, not the value: the zig-zag bit is read where it is used, in
+    // `finalize_second_order`. This decoder still refuses a section that has no
+    // extended flags at all.
+    header.complex_extended.ok_or_else(|| {
         FieldglassError::Parse("constant_width decoder without complex_extended".into())
     })?;
     let ClassicHeader {
@@ -350,15 +348,7 @@ pub fn decode_constant_width(
         x.push(val);
     }
 
-    super::finalize_second_order(
-        x,
-        header,
-        decimal_scale,
-        ext.boustrophedonic(),
-        runs,
-        bitmap,
-        expected_count,
-    )
+    super::finalize_second_order(x, header, decimal_scale, runs, bitmap, expected_count)
 }
 
 /// `grid_second_order_general_grib1` — an explicit secondary bitmap whose 1
@@ -375,7 +365,10 @@ pub fn decode_general(
     expected_count: usize,
     runs: StoredRuns<'_>,
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
-    let ext = header.complex_extended.ok_or_else(|| {
+    // Presence, not the value: the zig-zag bit is read where it is used, in
+    // `finalize_second_order`. This decoder still refuses a section that has no
+    // extended flags at all.
+    header.complex_extended.ok_or_else(|| {
         FieldglassError::Parse("general_grib1 decoder without complex_extended".into())
     })?;
     let ClassicHeader {
@@ -431,15 +424,7 @@ pub fn decode_general(
         expand_group(&mut x, &mut so, group_widths[g], len, first_order[g] as i64)?;
     }
 
-    super::finalize_second_order(
-        x,
-        header,
-        decimal_scale,
-        ext.boustrophedonic(),
-        runs,
-        bitmap,
-        expected_count,
-    )
+    super::finalize_second_order(x, header, decimal_scale, runs, bitmap, expected_count)
 }
 
 #[cfg(test)]

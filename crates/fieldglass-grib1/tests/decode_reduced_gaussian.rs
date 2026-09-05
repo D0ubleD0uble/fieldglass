@@ -236,10 +236,7 @@ fn a_reduced_gaussian_field_contours_once_expanded() {
     let raster = reader.decode_message_raster(0).expect("raster decode");
     assert_eq!(raster.len(), (ni * nj) as usize);
     // The entry point is the expansion, not a second implementation of it.
-    assert_eq!(
-        raster,
-        expand_reduced_to_regular(&values, PL.as_slice(), ni as usize)
-    );
+    assert_eq!(raster, expand_reduced_to_regular(&values, PL.as_slice()));
 
     // Global west-to-east grid, so the seam-spanning entry point is the correct
     // one; a bounded march would break every isoline at the antimeridian.
