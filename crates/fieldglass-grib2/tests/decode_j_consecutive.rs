@@ -134,7 +134,10 @@ fn a_row_major_grid_is_left_alone() {
 /// `reduced_gaussian_pressure_level.grib2` and `octahedral_gaussian_o32.grib2`
 /// is byte-identical with and without `0x20` set on their scanning-mode octet.
 /// So the raster this produces must equal the one the unpatched fixture
-/// produces, which is what the reduced arm's precedence in the match delivers.
+/// produces. What it guards is a transpose arm written to fire on any grid with
+/// the bit set — the two arms match on different values of `points_per_row()`,
+/// so this cannot see their order, only a pattern loose enough to catch a
+/// reduced grid.
 #[test]
 fn a_reduced_grid_is_expanded_and_not_transposed() {
     let clean = include_bytes!("fixtures/reduced_gaussian_pressure_level.grib2").to_vec();
@@ -159,35 +162,32 @@ fn a_reduced_grid_is_expanded_and_not_transposed() {
 /// alternate *columns*, because the stored run is a meridian of `Nj` points
 /// rather than a parallel of `Ni`.
 ///
-/// eccodes 2.34.1 is the oracle for that, and it was checked directly: setting
-/// `0x20` on `second_order_boust_regular_latlon.grib2`'s §3 scanning-mode octet
-/// and diffing `grib_get_data` decodes to the committed fixture's field with
-/// its odd 16-runs un-reversed and its odd 31-runs reversed instead — the field
-/// this test derives. The patch is applied here rather than committed because
-/// the file would differ from the existing fixture in one bit, which is how
-/// `decode_alternate_rows.rs` and the GRIB1 half both handle it.
+/// **The expectation is eccodes', not ours.** `j_consecutive_boust_expected.json`
+/// is what the pinned `grib_get_data` prints for
+/// `second_order_boust_regular_latlon.grib2` with `0x20` set on its §3
+/// scanning-mode octet — bit 4 is clear on that message, so the geoiterator
+/// applies no row flip and what it prints is the stored order
+/// `decode_message_values` must return. Deriving the expectation by
+/// re-implementing the undo at the other run length would only have proved the
+/// reader picked `Nj`, not that `Nj` is right; the second assertion below still
+/// makes that comparison, but now as a check that eccodes and the model agree.
+///
+/// The patched message itself is not committed: it differs from the existing
+/// fixture in one bit, which is how `decode_alternate_rows.rs` and the GRIB1
+/// half both handle the same situation.
 #[test]
 fn boustrophedonic_runs_are_meridians_under_j_consecutive() {
-    let base = Grib2Reader::from_bytes(BOUST.to_vec())
-        .expect("parses")
-        .decode_message_values(0)
-        .expect("row-major decode");
-    assert_eq!(base.len(), BOUST_NI * BOUST_NJ);
-
-    // Undo the Ni-run reversal to recover the packed stream's own order, then
-    // re-apply it at the Nj run length the flag asks for.
-    let flip = |values: &[Option<f64>], run: usize| {
-        let mut v = values.to_vec();
-        for row in (1..values.len() / run).step_by(2) {
-            v[row * run..(row + 1) * run].reverse();
-        }
-        v
-    };
-    let expected = flip(&flip(&base, BOUST_NI), BOUST_NJ);
-    assert_ne!(
-        expected, base,
-        "the two run lengths must disagree or this proves nothing"
-    );
+    let oracle: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/j_consecutive_boust_expected.json"))
+            .expect("oracle parses");
+    let tol = oracle["tolerance_absolute"].as_f64().expect("tolerance");
+    let expected: Vec<f64> = oracle["values"]
+        .as_array()
+        .expect("values array")
+        .iter()
+        .map(|v| v.as_f64().expect("oracle entry is a number"))
+        .collect();
+    assert_eq!(expected.len(), BOUST_NI * BOUST_NJ);
 
     let mut bytes = BOUST.to_vec();
     let off = scanning_mode_offset(&bytes, 72);
@@ -198,5 +198,32 @@ fn boustrophedonic_runs_are_meridians_under_j_consecutive() {
     bytes[off] |= 0x20;
 
     let reader = Grib2Reader::from_bytes(bytes).expect("still parses");
-    assert_eq!(reader.decode_message_values(0).expect("decode"), expected);
+    let got = reader.decode_message_values(0).expect("decode");
+    assert_eq!(got.len(), expected.len());
+    for (k, (g, w)) in got.iter().zip(&expected).enumerate() {
+        let g = g.expect("no bitmap, so every point is present");
+        assert!((g - w).abs() <= tol, "point {k}: decoded {g}, eccodes {w}");
+    }
+
+    // eccodes' answer and the run-length model agree: undoing the committed
+    // fixture's Ni-run reversal recovers the packed stream's own order, and
+    // re-applying it at Nj reproduces the oracle. If the pin ever stopped
+    // keying the run off `numberOfColumns`, the two would part here.
+    let base = Grib2Reader::from_bytes(BOUST.to_vec())
+        .expect("parses")
+        .decode_message_values(0)
+        .expect("row-major decode");
+    let flip = |values: &[Option<f64>], run: usize| {
+        let mut v = values.to_vec();
+        for row in (1..values.len() / run).step_by(2) {
+            v[row * run..(row + 1) * run].reverse();
+        }
+        v
+    };
+    let modelled = flip(&flip(&base, BOUST_NI), BOUST_NJ);
+    assert_ne!(
+        modelled, base,
+        "the two run lengths must disagree or this proves nothing"
+    );
+    assert_eq!(modelled, got, "eccodes disagrees with the run-length model");
 }

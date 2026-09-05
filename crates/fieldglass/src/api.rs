@@ -76,6 +76,11 @@ api_type! {
     /// the one thing geometry cannot answer: which way *up* a host should draw
     /// the rows. A `j_positive` grid scans south-to-north, so a north-up canvas
     /// flips it.
+    ///
+    /// [`Self::j_consecutive`] is the odd one out and is **descriptive only**:
+    /// the decoders transpose such a field before it reaches a caller, so the
+    /// raster this describes is row-major whatever that field says. Acting on
+    /// it transposes twice.
     #[serde(rename_all = "camelCase")]
     #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
     pub struct Scan {
@@ -83,7 +88,9 @@ api_type! {
         pub i_negative: bool,
         /// Rows run south→north rather than north→south.
         pub j_positive: bool,
-        /// Adjacent points are consecutive in `j` (column-major).
+        /// The *message* stores adjacent points consecutive in `j`
+        /// (column-major). Descriptive only — the decoded raster has already
+        /// been transposed into rows; see the type docs.
         pub j_consecutive: bool,
     }
 

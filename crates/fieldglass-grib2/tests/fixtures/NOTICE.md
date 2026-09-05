@@ -814,7 +814,11 @@ one-bit edit applied in memory rather than a second committed file, the same way
   run is a meridian of `Nj` rather than a parallel of `Ni`. Setting `0x20` on
   `second_order_boust_regular_latlon.grib2` (16 × 31) and diffing
   `grib_get_data` under the pin leaves its odd 16-runs un-reversed and reverses
-  its odd 31-runs instead, which is what makes eccodes 2.34.1 the oracle for it.
+  its odd 31-runs instead. That answer is committed rather than only described:
+  `j_consecutive_boust_expected.json` holds the 496 values the pin prints for
+  the patched message, written by the same builder. Bit 4 is clear there, so the
+  geoiterator applies no row flip and the sequence is the stored order
+  `decode_message_values` must return.
 - **A reduced grid**, which has no columns to store. `grib_get_data` output for
   `reduced_gaussian_pressure_level.grib2` and `octahedral_gaussian_o32.grib2` is
   byte-identical with and without the bit set, so the pin's reduced geoiterator

@@ -192,8 +192,10 @@ fn assert_message_matches(
             // Flag Table 3.4 bits 3 and 4 — the two the decoder acts on. Bit 3
             // makes the stored run a meridian (#602) and bit 4 reverses
             // alternate rows (#541); the reader refuses their combination, so
-            // both are pinned rather than one. A template that states no
-            // scanning mode (spectral, HEALPix) has nothing to compare.
+            // both are pinned rather than one. The spectral and bi-Fourier
+            // templates state no scanning mode and have nothing to compare;
+            // eccodes ships neither key for them, or for HEALPix, so those
+            // snapshots skip these arms on the `is_null` check above.
             "jPointsAreConsecutive" => match msg.gds.scanning_mode() {
                 Some(sm) => check_bool(key, expected, sm & SCAN_J_CONSECUTIVE != 0),
                 None => true,

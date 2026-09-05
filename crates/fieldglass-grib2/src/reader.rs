@@ -63,9 +63,11 @@ pub struct Grib2Message {
 /// Whether this grid stores meridians rather than parallels — §3 Flag Table
 /// 3.4 bit 3, `jPointsAreConsecutive`.
 ///
-/// A grid template that states no scanning mode at all (spherical harmonics,
-/// HEALPix) is row-major by default, which is also the answer that leaves every
-/// other layout alone. Mirrors `fieldglass_grib1::reader`'s namesake.
+/// A grid template that states no scanning mode at all — spherical harmonics
+/// and bi-Fourier, whose coefficients are not a grid — is row-major by default,
+/// which is also the answer that leaves every other layout alone. (HEALPix does
+/// state one; it is the absent `dimensions()` that keeps its pixel list out of
+/// both callers.) Mirrors `fieldglass_grib1::reader`'s namesake.
 fn j_consecutive(gds: &GridDefinitionSection) -> bool {
     gds.scanning_mode()
         .is_some_and(|sm| sm & SCAN_J_CONSECUTIVE != 0)
@@ -75,21 +77,31 @@ fn j_consecutive(gds: &GridDefinitionSection) -> bool {
 ///
 /// §3 Flag Table 3.4 bit 3 makes the stored run a column, so the reversal bit 4
 /// asks for is not a contiguous slice of the decoded field and the row flips
-/// above — uniform or ragged, both of which assume the run is a row — would
+/// below — uniform or ragged, both of which assume the run is a row — would
 /// silently scramble it. Called only where one of them is about to be applied,
 /// so a grid with no rows to reorder is not caught by it.
 ///
-/// No such message is known in the wild; the alternative (returning the field
-/// with every other row backwards, which is what the napi layer used to do) is
-/// the one outcome a caller cannot detect.
+/// **Refused rather than unrepresentable.** Since #602 the pieces to decode it
+/// exist: eccodes' `pointer_to_data` computes
+/// `out[j][i] = data[(j odd ? nx-1-i : i)·ny + j]`, which is
+/// [`fieldglass_core::transpose_j_consecutive`] followed by
+/// [`undo_alternate_rows`] — the two calls this file already makes, in that
+/// order. Composing them would mean moving the alternate-row undo out of
+/// [`Grib2Reader::decode_message_values`] and into
+/// [`Grib2Reader::decode_message_raster`], which changes what the stored-order
+/// method returns for every alternate-row message in the corpus. No message
+/// setting both bits is known in the wild, and no oracle for one exists here,
+/// so the combination stays refused until one turns up to check against. The
+/// alternative (returning the field with every other row backwards, which is
+/// what the napi layer used to do) is the one outcome a caller cannot detect.
 fn reject_j_consecutive(scanning_mode: u8) -> Result<(), FieldglassError> {
     if scanning_mode & SCAN_J_CONSECUTIVE == 0 {
         return Ok(());
     }
     Err(FieldglassError::UnsupportedSection(format!(
         "scanning mode {scanning_mode} sets both alternate-row scanning (§3 Flag Table 3.4 \
-         bit 4) and j-consecutive point order (bit 3); the row order of that layout is not \
-         something this decoder can regularise"
+         bit 4) and j-consecutive point order (bit 3); this decoder regularises each on its \
+         own but not the two together"
     )))
 }
 
@@ -141,17 +153,23 @@ impl Grib2Reader {
     /// points, `None` for points masked out by the §6 bitmap or substituted
     /// as missing by §5 missing-value management.
     ///
-    /// The values come back **in the layout the message stores them**. For a
-    /// regular grid that is `Ni·Nj` in the order the scanning mode (§3 Flag
-    /// Table 3.4) puts them in — row-major unless bit 3
-    /// (`jPointsAreConsecutive`) is set, in which case the message stores
-    /// columns and `values[i·nj + j]` is the point at `(i, j)`. For a reduced
-    /// grid it is `sum(PL)` values, row by row, which is *not* the `Ni·Nj`
+    /// The values come back **in the layout the message stores them**, with one
+    /// exception named below. For a regular grid that is `Ni·Nj` in row-major
+    /// order, unless §3 Flag Table 3.4 bit 3 (`jPointsAreConsecutive`) is set,
+    /// in which case the message stores columns and `values[i·nj + j]` is the
+    /// point at `(i, j)`. For a reduced grid it is `sum(PL)` values, row by
+    /// row, which is *not* the `Ni·Nj`
     /// [`GridDefinitionSection::dimensions`] reports, and for HEALPix it is
     /// `12·Nside²` pixels with no rows at all. Use
     /// [`Self::decode_message_raster`] for the rectangle; use this when the
     /// stored field itself is what you want (a statistic, a re-encode, a point
     /// count checked against eccodes).
+    ///
+    /// **The exception is Flag Table 3.4 bit 4** (alternate rows), which is
+    /// undone here rather than in the raster method — see the comment at its
+    /// call site for why, and `eccodes_reference.rs` for the storage order the
+    /// value cross-check has to put back before comparing. Bit 3 is *not*
+    /// undone here; it is what [`Self::decode_message_raster`] resolves.
     ///
     /// Currently supports DRS templates 5.0 (simple packing), 5.2 / 5.3
     /// (complex packing, with and without spatial differencing — both

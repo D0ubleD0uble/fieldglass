@@ -28,6 +28,13 @@ The pin's `regular_ll` geoiterator does honour the flag — it walks the message
 column by column — so `grib_get_data` is a valid oracle here, and the builder
 asserts exactly that rather than taking it on trust.
 
+It also writes `j_consecutive_boust_expected.json`, the oracle for the *other*
+half of #602: the run length the second-order boustrophedonic undo reverses.
+That case is a one-bit edit to an existing 16 x 31 fixture, so the file is not
+committed a second time — but the pinned eccodes' answer for it is, or the claim
+that eccodes reverses meridians of `Nj` would live only in a comment and CI
+would never see it.
+
 Usage:  python3 tools/build_grib2_j_consecutive_fixture.py
 Needs:  the `eccodes` PyPI wheel (encoding) and eccodes 2.34.1 on PATH (oracle).
 Then:   python3 tools/regenerate-eccodes-snapshots.py --edition 2
@@ -35,6 +42,7 @@ Then:   python3 tools/regenerate-eccodes-snapshots.py --edition 2
 
 from __future__ import annotations
 
+import json
 import pathlib
 import subprocess
 import sys
@@ -51,6 +59,18 @@ FIXTURES = pathlib.Path(__file__).resolve().parent.parent / (
 # under test.
 SAMPLE = pathlib.Path("/usr/share/eccodes/samples/regular_ll_sfc_grib2.tmpl")
 OUT = FIXTURES / "j_consecutive_latlon.grib2"
+
+# The committed second-order boustrophedonic fixture, and the oracle derived
+# from it by setting §3 bit 3 in memory. 16 x 31, so its two candidate run
+# lengths are different numbers and the answer is unambiguous.
+BOUST = FIXTURES / "second_order_boust_regular_latlon.grib2"
+BOUST_OUT = FIXTURES / "j_consecutive_boust_expected.json"
+BOUST_NI, BOUST_NJ = 16, 31
+
+# §3 octet 72 is the scanning-mode octet of template 3.0, which both messages
+# use. Bit 3 of Flag Table 3.4.
+SCANNING_MODE_OCTET = 72
+SCAN_J_CONSECUTIVE = 0x20
 
 NI, NJ = 8, 5
 
@@ -110,6 +130,80 @@ def geoiterator(path: pathlib.Path) -> list[tuple[float, float, float]]:
         lat, lon, value = line.split()
         rows.append((float(lat), float(lon), float(value)))
     return rows
+
+
+def section3_offset(message: bytes) -> int:
+    """Byte offset of §3 within a single-message GRIB2 file."""
+    off = 16  # past §0
+    while True:
+        if message[off : off + 4] == b"7777":
+            raise SystemExit("message has no §3")
+        length = int.from_bytes(message[off : off + 4], "big")
+        if message[off + 4] == 3:
+            return off
+        off += length
+
+
+def write_boustrophedonic_oracle() -> None:
+    """Record what the pin decodes when §3 bit 3 is set on the second-order
+    boustrophedonic fixture.
+
+    The reversal run is a *stored* run, so under j-consecutive scanning it is a
+    meridian of `Nj` points rather than a parallel of `Ni`. eccodes says so, and
+    this writes down what it said: the value sequence here is the one
+    `decode_message_values` must return for that patched message. The file this
+    is derived from stays committed exactly once — the patch is a single bit,
+    and the Rust test applies it in memory the same way.
+    """
+    original = bytearray(BOUST.read_bytes())
+    at = section3_offset(original) + SCANNING_MODE_OCTET - 1
+    if original[at] != 0:
+        raise SystemExit(f"{BOUST.name}: expected scanning mode 0, found {original[at]}")
+    original[at] |= SCAN_J_CONSECUTIVE
+
+    patched = BOUST.with_name("j_consecutive_boust.patched.grib2")
+    patched.write_bytes(bytes(original))
+    try:
+        for key, want in (("jPointsAreConsecutive", "1"), ("Ni", str(BOUST_NI))):
+            got = oracle(patched, key)
+            if got != want:
+                raise SystemExit(f"patched fixture reads {key}={got!r}, expected {want!r}")
+        rows = geoiterator(patched)
+    finally:
+        patched.unlink()
+
+    if len(rows) != BOUST_NI * BOUST_NJ:
+        raise SystemExit(f"geoiterator yielded {len(rows)} of {BOUST_NI * BOUST_NJ} points")
+    values = [value for _, _, value in rows]
+
+    BOUST_OUT.write_text(
+        json.dumps(
+            {
+                "ni": BOUST_NI,
+                "nj": BOUST_NJ,
+                "scanningMode": SCAN_J_CONSECUTIVE,
+                "tolerance_absolute": 1e-3,
+                "values": values,
+                "source": (
+                    "eccodes 2.34.1 grib_get_data on second_order_boust_regular_latlon.grib2 "
+                    "with §3 octet 72 bit 0x20 set in memory (a pure metadata flip). Oracle "
+                    "for the second-order boustrophedonic run length under j-consecutive "
+                    "scanning: the pin reverses runs of Nj=31, not Ni=16. Bit 4 is clear, so "
+                    "the geoiterator applies no row flip and this sequence is the stored "
+                    "order decode_message_values must return. Built by "
+                    "tools/build_grib2_j_consecutive_fixture.py; provenance in NOTICE.md."
+                ),
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    print(
+        f"{BOUST_OUT.name}: {len(values)} values from the pin "
+        f"({BOUST_NI}x{BOUST_NJ}, bit 3 set in memory)",
+        file=sys.stderr,
+    )
 
 
 def main() -> int:
@@ -176,6 +270,8 @@ def main() -> int:
         f"{OUT.stat().st_size} bytes (verified against the pin)",
         file=sys.stderr,
     )
+
+    write_boustrophedonic_oracle()
     return 0
 
 
