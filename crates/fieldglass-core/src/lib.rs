@@ -3,14 +3,13 @@
 //!
 //! The crate serves two audiences behind one API. The format crates
 //! (`fieldglass-grib1`, `-grib2`, `-netcdf`) consume only the *parsing*
-//! surface: [`error`], [`bits`], [`bytes`], [`detect`],
-//! [`cct_tables`] (both GRIB editions share the WMO sub-centre lookup),
-//! [`projection`] (GRIB1's GDS uses the projectors to recover
-//! grid corners), [`scan`] (the storage orders a decoder regularises), and the
-//! three grids that arrive as something other than a
-//! rectangle of values — [`sht`], [`matrix`], and [`healpix`]. What those
-//! modules have in common is that none of them is behind a feature, which is
-//! what makes a `default-features = false` dependency work. Pre-commit builds
+//! surface: [`error`], [`bits`], [`bytes`], [`detect`], [`cct_tables`] (both
+//! GRIB editions share the WMO sub-centre lookup), [`projection`] (GRIB1's GDS
+//! uses the projectors to recover grid corners), [`scan`] (the storage orders a
+//! decoder regularises), and the three grids that arrive as something other
+//! than a rectangle of values — [`sht`], [`matrix`], and [`healpix`]. What
+//! those modules have in common is that none of them is behind a feature, which
+//! is what makes a `default-features = false` dependency work. Pre-commit builds
 //! the three format crate libraries against a `core` with every feature off,
 //! so reaching for gated code fails there rather than at a consumer.
 //!
