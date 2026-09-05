@@ -41,6 +41,11 @@ use fieldglass_netcdf::{
 use napi_derive::napi;
 use std::sync::Mutex;
 
+// The characterisation golden for render, probe, contours and CSV (#570). Test
+// only: it replays the display path over the committed fixture corpus.
+#[cfg(test)]
+mod characterisation;
+
 /// Bridge a foreign crate's error into a [`napi::Error`] by its `Display` text.
 ///
 /// `impl From<FieldglassError> for napi::Error` is what this would rather be,
@@ -4179,6 +4184,7 @@ fn parse_combine_op(tag: &str) -> napi::Result<CombineOp> {
 /// every-family-at-once shape that predates it — an equality key, not a model
 /// — and the two must not read as the same thing (#560).
 #[derive(PartialEq)]
+#[cfg_attr(test, derive(Debug))]
 struct MetaGeometry<'a> {
     grid_type: &'a Option<String>,
     grid_ni: &'a Option<i32>,

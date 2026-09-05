@@ -10,6 +10,24 @@
 //! A failure here means the painted bytes moved. That is a behaviour change,
 //! not a test to re-baseline — regenerate the table only alongside a deliberate,
 //! documented change to the colours or the scale rule.
+//!
+//! # Why this one is *not* gated on a libm fingerprint
+//!
+//! `planar_inverse_golden.rs` and `fieldglass-napi`'s render characterisation
+//! both assert their bit-exact column only where `support::libm_fingerprint()`
+//! recognises the libm that recorded it, per
+//! `docs/decisions/0009-cross-target-floating-point-agreement.md`. This table
+//! deliberately does not, and the difference is measured rather than assumed.
+//! A conformal inverse stands on `atan2`, `tan` and `powf`, eleven of whose
+//! fourteen fingerprinted forms already disagree between glibc and the `libm`
+//! Rust links on `wasm32`; this file's only transcendental is the `log10` in
+//! `scale_position`, its output is quantised to 8 bits per channel, and
+//! `render` is a default feature, so CI's `cargo test --target wasm32-wasip1
+//! -p fieldglass-core` has been running all sixteen rows against a second libm
+//! and passing. Gating them would trade a check that currently holds on two
+//! libms for protection against a third nobody has seen. If a target ever does
+//! fail here, the fix is to gate it then — the fingerprint is already in
+//! `tests/support/mod.rs`.
 
 // The colour path is `render`-gated, and the format crates build `core` with
 // default features off. Without this the file would fail to compile in that
