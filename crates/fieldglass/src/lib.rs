@@ -33,8 +33,16 @@
 //!   host's TypeScript or Python declarations are generated from the schema
 //!   rather than kept by hand. Off for `fieldglass-wasm`, whose declarations
 //!   come from wasm-bindgen and whose bundle pays for every byte.
+//! - **`conformance`** *(default)* — the suite of cases and recorded
+//!   expectations every host binding is checked against (ADR-0006 decision 3,
+//!   #573). Default because it is this crate's own gate too, and
+//!   `cargo test --workspace` does not enable optional features. Both hosts
+//!   take this crate with `default-features = false`, so neither the addon nor
+//!   the browser bundle carries it.
 
 pub mod api;
+#[cfg(feature = "conformance")]
+pub mod conformance;
 pub mod error;
 pub mod render;
 pub mod session;
