@@ -289,6 +289,12 @@ fn an_out_of_range_message_is_a_named_error() {
 /// A grid whose GDS declares zero spacing places every point at the same spot.
 /// It must decline rather than answer, or a probe anywhere returns cell (0, 0)
 /// and a warp draws a stripe.
+///
+/// The georeference used to report `dx: Some(0.0)` for this file — a spacing
+/// that is not one, handed to a host that would place the whole raster on a
+/// single pixel — while `probe` and `warp` refused the same grid. #576 made the
+/// affine agree with them: a raster with no resolvable position in its plane has
+/// no affine, the way a Gaussian grid's rows have no constant `dy`.
 #[test]
 fn a_degenerate_grid_is_declined() {
     let session = open("../fieldglass-grib2/tests/fixtures/polar_stereographic_surface.grib2");
@@ -296,7 +302,15 @@ fn a_degenerate_grid_is_declined() {
         .decode(0, &DecodeOptions::default())
         .expect("the values are still decodable");
     assert_eq!(field.georef.kind, "polar_stereo");
-    assert_eq!(field.georef.dx, Some(0.0), "the file really does say zero");
+    assert_eq!(
+        field.georef.dx, None,
+        "the file says zero, so there is no spacing to report"
+    );
+    assert_eq!(field.georef.x0, None, "and no origin to measure it from");
+    assert!(
+        field.georef.proj4.is_some(),
+        "the plane is still `+proj=stere`; it is this grid that cannot be put in it",
+    );
     assert!(
         session.probe(&field, 60.0, 0.0).is_none(),
         "a grid with no spacing must place nothing"
@@ -304,7 +318,24 @@ fn a_degenerate_grid_is_declined() {
     let err = session
         .warp(&field, &Default::default())
         .expect_err("and must refuse to warp");
-    assert_eq!(err.code(), "invalid_option");
+    // `unsupported`, not `invalid_option`. The caller passed no options, so
+    // blaming one was never right: it happened because the grid reported the
+    // empty box at null island and the warp then rejected the zero-area window
+    // it derived from it. With no extent reported, the refusal names the grid.
+    assert_eq!(err.code(), "unsupported");
+    assert!(
+        err.to_string().contains("no extent"),
+        "the message should say why: {err}"
+    );
+
+    // The zero-area window check is still the one that answers for a window the
+    // caller asked for by hand, which is the case it is for.
+    let mut flat = fieldglass::WarpOptions::default();
+    flat.bounds = Some([10.0, 10.0, 20.0, 30.0]);
+    let explicit = session
+        .warp(&field, &flat)
+        .expect_err("a flat window encloses no area");
+    assert_eq!(explicit.code(), "invalid_option");
 }
 
 /// A logarithm needs a positive domain. Left to `core`, a non-positive minimum
