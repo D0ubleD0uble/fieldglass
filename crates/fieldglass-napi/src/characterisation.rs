@@ -173,6 +173,14 @@ const PROJECTIONS: [&str; 8] = [
 /// the raster" is a result here rather than an untested path.
 const PROBE_PIXELS: [(u32, u32); 4] = [(0, 0), (7, 3), (359, 180), (719, 719)];
 
+/// Every field-combine operation, in the wire spelling the combined entry
+/// points take.
+///
+/// Written out rather than derived from `CombineOp::ALL` for the reason
+/// [`PROJECTIONS`] is: the recording has to move when the vocabulary does, and a
+/// list derived from the enum would silently grow a case instead.
+const COMBINE_OPS: [&str; 5] = ["a_minus_b", "b_minus_a", "a_plus_b", "mean", "ratio"];
+
 /// A manual render window as `RenderOptions` states one:
 /// `(lat_min, lat_max, lon_min, lon_max)`, in degrees.
 type Window = (f64, f64, f64, f64);
@@ -360,6 +368,70 @@ impl Subject<'_> {
             Self::Grib1(h, i) => h.export_csv(*i, format),
             Self::Grib2(h, i) => h.export_csv(*i, format),
             Self::Netcdf(h, v, y, x, idx) => h.export_csv(*v, *y, *x, idx.clone(), format),
+        }
+    }
+
+    /// This field combined with **itself** under `op`, rendered.
+    ///
+    /// Self-combination rather than a pair, because every GRIB fixture in the
+    /// committed corpus holds exactly one message (measured: no `grib1/` or
+    /// `grib2/` file in the recording reports `fields>1`), so a pair would exist
+    /// for the NetCDF half alone and the GRIB half — which is what #579 moves —
+    /// would be unrecorded. It is not a degenerate case either: each operation
+    /// answers something different about the same field, and each answer is one
+    /// a change to the alignment gate or the arithmetic would move.
+    /// `a_minus_b` is zero everywhere present, `a_plus_b` is `2A`, `mean` is `A`
+    /// itself, `ratio` is `1` except where `A` is zero and the divide drops the
+    /// cell, and `b_minus_a` is the sign mirror of the first. So the used range,
+    /// the mask and the palette differ per op, and a render that ignored `op`
+    /// could not match more than one of them.
+    fn render_combined(&self, o: RenderOptions, op: &str) -> napi::Result<RenderedGrid> {
+        let op = op.to_string();
+        match self {
+            Self::Grib1(h, i) => h.render_grid_combined(*i, *i, op, o),
+            Self::Grib2(h, i) => h.render_grid_combined(*i, *i, op, o),
+            Self::Netcdf(h, v, y, x, idx) => {
+                h.render_slice_combined(*v, *y, *x, idx.clone(), *v, idx.clone(), op, o)
+            }
+        }
+    }
+
+    /// The point probe over the combined field — the #329 seam, which reads the
+    /// combined values rather than field A's.
+    fn probe_combined(
+        &self,
+        o: RenderOptions,
+        op: &str,
+        px: u32,
+        py: u32,
+    ) -> napi::Result<Option<ProbeResult>> {
+        let op = op.to_string();
+        match self {
+            Self::Grib1(h, i) => h.probe_combined(*i, *i, op, o, px, py),
+            Self::Grib2(h, i) => h.probe_combined(*i, *i, op, o, px, py),
+            Self::Netcdf(h, v, y, x, idx) => {
+                h.probe_slice_combined(*v, *y, *x, idx.clone(), *v, idx.clone(), op, o, px, py)
+            }
+        }
+    }
+
+    /// Contours over the combined field — the other half of the #329 seam.
+    fn contours_combined(&self, o: RenderOptions, op: &str) -> napi::Result<ProjectedOverlay> {
+        let op = op.to_string();
+        match self {
+            Self::Grib1(h, i) => h.project_contours_combined(*i, *i, op, o, None),
+            Self::Grib2(h, i) => h.project_contours_combined(*i, *i, op, o, None),
+            Self::Netcdf(h, v, y, x, idx) => h.project_contours_slice_combined(
+                *v,
+                *y,
+                *x,
+                idx.clone(),
+                *v,
+                idx.clone(),
+                op,
+                o,
+                None,
+            ),
         }
     }
 }
@@ -817,7 +889,13 @@ fn meta_row(subject: &Subject<'_>) -> Row {
 /// decision as identical across libms over 323,620 probes; recording it here
 /// is what would catch it ceasing to be.
 fn render_row(subject: &Subject<'_>, o: RenderOptions) -> Row {
-    let rendered = match subject.render(o) {
+    rendered_row(subject.render(o))
+}
+
+/// [`render_row`] over a raster the caller already asked for, so the ordinary
+/// render and the combined one fold identically.
+fn rendered_row(result: napi::Result<RenderedGrid>) -> Row {
+    let rendered = match result {
         Ok(r) => r,
         Err(e) => return error_row(&e),
     };
@@ -857,7 +935,13 @@ fn render_row(subject: &Subject<'_>, o: RenderOptions) -> Row {
 /// *discrete* output the display path has, and a libm that started moving one
 /// is a libm that is about to move a pixel.
 fn probe_row(subject: &Subject<'_>, o: RenderOptions, px: u32, py: u32) -> Row {
-    let probed = match subject.probe(o, px, py) {
+    probed_row(subject.probe(o, px, py))
+}
+
+/// [`probe_row`] over a readout the caller already asked for — see
+/// [`rendered_row`].
+fn probed_row(result: napi::Result<Option<ProbeResult>>) -> Row {
+    let probed = match result {
         Ok(p) => p,
         Err(e) => return error_row(&e),
     };
@@ -896,7 +980,13 @@ fn probe_row(subject: &Subject<'_>, o: RenderOptions, px: u32, py: u32) -> Row {
 
 /// Contours: run and vertex counts in the open, every vertex in the fold.
 fn contour_row(subject: &Subject<'_>, o: RenderOptions) -> Row {
-    let overlay = match subject.contours(o) {
+    contoured_row(subject.contours(o))
+}
+
+/// [`contour_row`] over an overlay the caller already asked for — see
+/// [`rendered_row`].
+fn contoured_row(result: napi::Result<ProjectedOverlay>) -> Row {
+    let overlay = match result {
         Ok(c) => c,
         Err(e) => return error_row(&e),
     };
@@ -948,6 +1038,14 @@ fn cases(id: &str, subject: &Subject<'_>, into: &mut Golden) {
     record(
         "render/equirectangular/nearest".to_string(),
         render_row(subject, options("equirectangular", "nearest")),
+    );
+    // The combined render, for every field rather than for the deep ones alone:
+    // it is the one operation whose input is *two* fields, so the alignment gate
+    // #579 replaces runs once per corpus field here and nowhere else. The
+    // per-op arithmetic and the two other combined seams are below.
+    record(
+        "combine/a_minus_b/render/source/nearest".to_string(),
+        rendered_row(subject.render_combined(options("source", "nearest"), "a_minus_b")),
     );
     if !DEEP_FIELDS.contains(&id) {
         return;
@@ -1001,6 +1099,33 @@ fn cases(id: &str, subject: &Subject<'_>, into: &mut Golden) {
     }
     for format in ["matrix", "long"] {
         record(format!("csv/{format}"), csv_row(subject, format));
+    }
+    // Every op, and both of the seams #329 added: a difference map's probe and
+    // its contours read the *combined* field, not field A, and each of those is
+    // a separate call into the code #579 moves.
+    for op in COMBINE_OPS {
+        record(
+            format!("combine/{op}/render/equirectangular/nearest"),
+            rendered_row(subject.render_combined(options("equirectangular", "nearest"), op)),
+        );
+        if op != "a_minus_b" {
+            record(
+                format!("combine/{op}/render/source/nearest"),
+                rendered_row(subject.render_combined(options("source", "nearest"), op)),
+            );
+        }
+        record(
+            format!("combine/{op}/probe/source/0,0"),
+            probed_row(subject.probe_combined(options("source", "nearest"), op, 0, 0)),
+        );
+        record(
+            format!("combine/{op}/probe/equirectangular/359,180"),
+            probed_row(subject.probe_combined(options("equirectangular", "nearest"), op, 359, 180)),
+        );
+        record(
+            format!("combine/{op}/contours/source/auto"),
+            contoured_row(subject.contours_combined(options("source", "nearest"), op)),
+        );
     }
 }
 
