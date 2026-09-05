@@ -128,9 +128,6 @@ pub fn decode(body: &[u8], probe: &Hdf5Probe) -> Result<DataLayout, FieldglassEr
     let class = *body
         .get(1)
         .ok_or_else(|| FieldglassError::Parse("truncated data layout message".into()))?;
-    let osize = probe.offset_size as usize;
-    let lsize = probe.length_size as usize;
-
     // The chunked layout differs between message versions; compact and
     // contiguous share one encoding across all of them. Version 5 (written by
     // libhdf5 2.0 for a filtered chunked dataset) encodes the chunked class
@@ -138,11 +135,14 @@ pub fn decode(body: &[u8], probe: &Hdf5Probe) -> Result<DataLayout, FieldglassEr
     // route through the same parser.
     if class == CLASS_CHUNKED {
         return if version == 3 {
-            decode_chunked(body, probe, osize)
+            decode_chunked(body, probe)
         } else {
-            decode_chunked_v4(body, probe, osize, lsize)
+            decode_chunked_v4(body, probe)
         };
     }
+
+    let osize = probe.offset_size as usize;
+    let lsize = probe.length_size as usize;
 
     match class {
         CLASS_COMPACT => {
@@ -180,11 +180,12 @@ pub fn decode(body: &[u8], probe: &Hdf5Probe) -> Result<DataLayout, FieldglassEr
 /// Decode the version-3 chunked layout: dimensionality, B-tree address, then the
 /// chunk dimension array (the last entry is the element size, not a real
 /// dimension).
-fn decode_chunked(
-    body: &[u8],
-    probe: &Hdf5Probe,
-    osize: usize,
-) -> Result<DataLayout, FieldglassError> {
+fn decode_chunked(body: &[u8], probe: &Hdf5Probe) -> Result<DataLayout, FieldglassError> {
+    // Both widths come off the probe here rather than being passed alongside
+    // it: the function already reads `probe.offset_size` for the
+    // undefined-address test, so a separate `osize` parameter was a second
+    // spelling of the same field that a caller could get wrong.
+    let osize = probe.offset_size as usize;
     // dimensionality (1) includes the trailing element-size pseudo-dimension.
     let dimensionality = *body
         .get(2)
@@ -238,12 +239,9 @@ const V4_FLAG_SINGLE_INDEX_WITH_FILTER: u8 = 0b10;
 /// then a chunk-index-type byte selecting how the chunks are located. Single
 /// Chunk (type 1), Implicit (type 2), Fixed Array (type 3), Extensible Array
 /// (type 4), and v2 B-tree (type 5) are all decoded.
-fn decode_chunked_v4(
-    body: &[u8],
-    probe: &Hdf5Probe,
-    osize: usize,
-    lsize: usize,
-) -> Result<DataLayout, FieldglassError> {
+fn decode_chunked_v4(body: &[u8], probe: &Hdf5Probe) -> Result<DataLayout, FieldglassError> {
+    let osize = probe.offset_size as usize;
+    let lsize = probe.length_size as usize;
     // version(1) class(1) flags(1) dimensionality(1) dim_encoded_len(1) ...
     let flags = *body
         .get(2)

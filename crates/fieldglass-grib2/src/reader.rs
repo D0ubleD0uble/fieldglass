@@ -423,11 +423,10 @@ impl Grib2Reader {
             return Ok(values);
         };
         match (gds.points_per_row(), gds.dimensions()) {
-            (Some(pl), Some((width, _))) => Ok(fieldglass_core::expand_reduced_to_regular(
-                &values,
-                pl,
-                width as usize,
-            )),
+            // The raster width is `max(PL)`, which is what `dimensions()`
+            // reports for exactly these arms — so the expansion derives it from
+            // `pl` rather than taking a second accessor's word for it.
+            (Some(pl), _) => Ok(fieldglass_core::expand_reduced_to_regular(&values, pl)),
             // A quasi-regular grid has no columns to store, and eccodes 2.34.1
             // ignores the bit on one (its reduced geoiterator walks rows either
             // way, verified by setting `0x20` on

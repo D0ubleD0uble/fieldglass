@@ -231,7 +231,19 @@ fn walk_btree_v2_node(
     // bounds the depth of any `nrec == 0` chain — together ruling out the
     // exponential blow-up a back-edge could otherwise cause. Keep the record
     // push *after* the recursion so this stays true.
-    if nrec > levels.max_nrec[level as usize] || out.len() + nrec > MAX_BTREE_V2_RECORDS {
+    // `levels` was computed for depths `0..=depth`, so a `level` past its end
+    // is a malformed header, not an index to take on trust: `max_nrec[level]`
+    // would panic where every other malformed field here reports.
+    let max_nrec = levels
+        .max_nrec
+        .get(level as usize)
+        .copied()
+        .ok_or_else(|| {
+            FieldglassError::Parse(format!(
+                "B-tree v2 node level {level} exceeds the tree depth"
+            ))
+        })?;
+    if nrec > max_nrec || out.len() + nrec > MAX_BTREE_V2_RECORDS {
         return Err(FieldglassError::Parse(
             "B-tree v2 node record count out of range".into(),
         ));

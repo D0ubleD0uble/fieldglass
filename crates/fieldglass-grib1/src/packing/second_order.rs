@@ -303,15 +303,7 @@ pub fn decode(
 
     // Scale (R + u·2^E) / 10^D, undo boustrophedonic ordering, interleave the
     // bitmap — shared with the classic second-order decoders.
-    super::finalize_second_order(
-        x,
-        header,
-        decimal_scale,
-        ext.boustrophedonic(),
-        runs,
-        bitmap,
-        expected_count,
-    )
+    super::finalize_second_order(x, header, decimal_scale, runs, bitmap, expected_count)
 }
 
 #[cfg(test)]

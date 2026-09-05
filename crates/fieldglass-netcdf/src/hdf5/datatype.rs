@@ -254,22 +254,22 @@ fn unsupported_class(class: u8) -> FieldglassError {
 }
 
 impl Datatype {
-    /// Decode the first element from `bytes` (which must be at least
-    /// [`Self::size`] long) into `f64`, honouring the datatype's byte order.
-    /// Integer types widen (`i64` / `u64` may lose precision past 2^53, as
-    /// elsewhere in the `f64` value pipeline). Returns `None` for the string
-    /// class or when `bytes` is too short — a string holds text, not a number.
+    /// Decode the first element from `bytes` into `f64`, honouring the
+    /// datatype's byte order. Integer types widen (`i64` / `u64` may lose
+    /// precision past 2^53, as elsewhere in the `f64` value pipeline). Returns
+    /// `None` for the string class or when `bytes` is too short — a string
+    /// holds text, not a number.
+    ///
+    /// The width read is `nc_type`'s, and it is `nc_type` that decides how many
+    /// bytes to take: [`Self::size`] is not consulted. `decode` derives
+    /// `nc_type` from `size`, so the two agree for any datatype the parser
+    /// produces — but a length check against `size` would not have bounded a
+    /// read sized by `nc_type` if they ever came apart.
     pub fn read_element_f64(&self, bytes: &[u8]) -> Option<f64> {
-        let size = self.size as usize;
-        if bytes.len() < size || size == 0 {
-            return None;
-        }
         let big_endian = self.byte_order == Some(ByteOrder::BigEndian);
         macro_rules! read {
             ($ty:ty) => {{
-                const N: usize = std::mem::size_of::<$ty>();
-                let mut buf = [0u8; N];
-                buf.copy_from_slice(&bytes[..N]);
+                let buf = *bytes.first_chunk()?;
                 if big_endian {
                     <$ty>::from_be_bytes(buf)
                 } else {
@@ -278,8 +278,8 @@ impl Datatype {
             }};
         }
         Some(match self.nc_type {
-            NcType::Byte => (bytes[0] as i8) as f64,
-            NcType::UByte => bytes[0] as f64,
+            NcType::Byte => (*bytes.first()? as i8) as f64,
+            NcType::UByte => *bytes.first()? as f64,
             NcType::Char => return None,
             NcType::Short => read!(i16) as f64,
             NcType::UShort => read!(u16) as f64,
@@ -401,6 +401,25 @@ mod tests {
         // Strings hold text, not a number.
         let s = decode(&datatype(CLASS_STRING, 0x00, 8)).unwrap();
         assert_eq!(s.read_element_f64(b"degC\0\0\0\0"), None);
+    }
+
+    /// `size` and `nc_type` are two spellings of one width, and `decode`
+    /// derives the second from the first — but the struct's fields are public,
+    /// so nothing in the type system makes them agree. The read is bounded by
+    /// the width it actually uses, so a disagreement is a `None`, not a panic
+    /// on a four-byte read into a two-byte slice.
+    #[test]
+    fn a_size_that_disagrees_with_the_type_yields_none_not_a_panic() {
+        let mismatched = Datatype {
+            class: DatatypeClass::FixedPoint,
+            size: 2,
+            signed: true,
+            byte_order: Some(ByteOrder::LittleEndian),
+            nc_type: NcType::Int, // four bytes wide, unlike `size`
+        };
+        assert_eq!(mismatched.read_element_f64(&[0x2A, 0]), None);
+        // Given the bytes `nc_type` asks for, it reads them.
+        assert_eq!(mismatched.read_element_f64(&[0x2A, 0, 0, 0]), Some(42.0));
     }
 
     /// A class outside the decoded subset is `UnsupportedSection`, not `Parse`

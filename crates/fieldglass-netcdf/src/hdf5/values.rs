@@ -110,13 +110,22 @@ pub fn read_dataset_values(
         probe,
     )?;
 
+    // Walk `raw` by the element width rather than indexing `off..off + elem`:
+    // the stride and the bound are then the same value, so an assembly that
+    // returned fewer bytes than `total * elem` is caught by the length check
+    // below instead of panicking on the slice.
     let mut out = Vec::with_capacity(total);
-    for i in 0..total {
-        let off = i * elem;
+    for chunk in raw.chunks_exact(elem).take(total) {
         let v = datatype
-            .read_element_f64(&raw[off..off + elem])
+            .read_element_f64(chunk)
             .ok_or_else(|| FieldglassError::Parse("dataset element decode failed".into()))?;
         out.push(if fills.contains(&v) { None } else { Some(v) });
+    }
+    if out.len() != total {
+        return Err(FieldglassError::Parse(format!(
+            "dataset assembled {} of {total} elements",
+            out.len()
+        )));
     }
     Ok(out)
 }

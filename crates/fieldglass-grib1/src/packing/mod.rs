@@ -164,11 +164,17 @@ pub(crate) fn finalize_second_order(
     x: Vec<i64>,
     header: &BdsHeader,
     decimal_scale: i16,
-    boustrophedonic: bool,
     runs: StoredRuns<'_>,
     bitmap: Option<&[bool]>,
     expected_count: usize,
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
+    // The zig-zag bit is octet 14's, and `header` carries octet 14 — so it is
+    // read here rather than taken as a flag beside the header it comes from.
+    // A section with no extended flags is not boustrophedonic, which is also
+    // what every caller has already established before reaching here.
+    let boustrophedonic = header
+        .complex_extended
+        .is_some_and(|ext| ext.boustrophedonic());
     let two_pow_e = 2f64.powi(header.binary_scale_factor as i32);
     let d_scale = 10f64.powi(-(decimal_scale as i32));
     let r = header.reference_value;

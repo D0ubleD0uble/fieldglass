@@ -122,8 +122,10 @@ pub fn reduced_raster_lon_last(lon_first: f64, width: u32) -> f64 {
 /// Widen a reduced (quasi-regular) grid's row-packed `values` into a regular
 /// `max(PL) × PL.len()` raster, so the regular-grid render and reproject paths
 /// apply unchanged. `values` is the field in storage order — `PL[j]` points for
-/// row `j`, concatenated — and the result is row-major `width` columns per row,
-/// with `width = max(PL)` ([`reduced_raster_width`]).
+/// row `j`, concatenated — and the result is row-major, with the raster width
+/// taken from `points_per_row` by [`reduced_raster_width`]. The width is not a
+/// parameter: it is `max(PL)` or the raster is misregistered, so there is
+/// nothing for a caller to pass but the same derivation.
 ///
 /// Each reduced row holds `PL[j]` points equispaced around the **full longitude
 /// circle** (`Δλ = 360°/PL[j]`), which is how every standard reduced grid
@@ -139,8 +141,8 @@ pub fn reduced_raster_lon_last(lon_first: f64, width: u32) -> f64 {
 pub fn expand_reduced_to_regular(
     values: &[Option<f64>],
     points_per_row: &[u32],
-    width: usize,
 ) -> Vec<Option<f64>> {
+    let width = reduced_raster_width(points_per_row) as usize;
     let mut out = Vec::with_capacity(width.saturating_mul(points_per_row.len()));
     let mut offset = 0usize;
     for &count in points_per_row {
@@ -554,39 +556,53 @@ mod tests {
     #[test]
     fn widest_rows_map_one_to_one() {
         // A full-width row is copied through unchanged.
-        let out = expand_reduced_to_regular(&vals(&[10.0, 20.0, 30.0, 40.0]), &[4], 4);
+        let out = expand_reduced_to_regular(&vals(&[10.0, 20.0, 30.0, 40.0]), &[4]);
         assert_eq!(out, vals(&[10.0, 20.0, 30.0, 40.0]));
     }
 
     #[test]
     fn narrow_row_maps_by_longitude_and_wraps_at_antimeridian() {
-        // Row of 4 points (a,b,c,d at 0°, 90°, 180°, 270°) widened to 8 columns
-        // (0°, 45°, …, 315°). Each output column takes its nearest-longitude
-        // source point, and the last column (315°) wraps to a (at 360°≡0°) —
-        // not to d, which a proportional-index stretch would wrongly pick.
-        let out = expand_reduced_to_regular(&vals(&[1.0, 2.0, 3.0, 4.0]), &[4], 8);
-        assert_eq!(out, vals(&[1.0, 2.0, 2.0, 3.0, 3.0, 4.0, 4.0, 1.0]));
+        // Row of 4 points (a,b,c,d at 0°, 90°, 180°, 270°) widened to the
+        // raster's 8 columns (0°, 45°, …, 315°) — 8 because a second row is
+        // that wide, which is the only way a raster gets wider than a row.
+        // Each output column takes its nearest-longitude source point, and the
+        // last column (315°) wraps to a (at 360°≡0°) — not to d, which a
+        // proportional-index stretch would wrongly pick.
+        let mut raw = vals(&[1.0, 2.0, 3.0, 4.0]);
+        raw.extend(vals(&[0.0; 8]));
+        let out = expand_reduced_to_regular(&raw, &[4, 8]);
+        assert_eq!(out.len(), 16, "two rows of the raster's 8 columns");
+        assert_eq!(
+            &out[0..8],
+            &vals(&[1.0, 2.0, 2.0, 3.0, 3.0, 4.0, 4.0, 1.0])[..]
+        );
     }
 
     #[test]
     fn two_point_row_wraps() {
         // [a,b] at 0°/180° → 4 columns at 0°/90°/180°/270°: a, b, b, a (the 90°
         // and 270° ties round up / wrap).
-        let out = expand_reduced_to_regular(&vals(&[1.0, 2.0]), &[2], 4);
-        assert_eq!(out, vals(&[1.0, 2.0, 2.0, 1.0]));
+        let mut raw = vals(&[1.0, 2.0]);
+        raw.extend(vals(&[0.0; 4]));
+        let out = expand_reduced_to_regular(&raw, &[2, 4]);
+        assert_eq!(out.len(), 8, "two rows of the raster's 4 columns");
+        assert_eq!(&out[0..4], &vals(&[1.0, 2.0, 2.0, 1.0])[..]);
     }
 
     #[test]
     fn single_point_row_fills_width() {
         // A one-point polar row spreads across the whole width.
-        let out = expand_reduced_to_regular(&vals(&[7.0]), &[1], 3);
-        assert_eq!(out, vals(&[7.0, 7.0, 7.0]));
+        let mut raw = vals(&[7.0]);
+        raw.extend(vals(&[0.0; 3]));
+        let out = expand_reduced_to_regular(&raw, &[1, 3]);
+        assert_eq!(out.len(), 6, "two rows of the raster's 3 columns");
+        assert_eq!(&out[0..3], &vals(&[7.0, 7.0, 7.0])[..]);
     }
 
     #[test]
     fn masked_points_are_preserved() {
         let row = vec![Some(1.0), None, Some(3.0)];
-        let out = expand_reduced_to_regular(&row, &[3], 3);
+        let out = expand_reduced_to_regular(&row, &[3]);
         assert_eq!(out, vec![Some(1.0), None, Some(3.0)]);
     }
 
@@ -594,7 +610,7 @@ mod tests {
     fn multiple_rows_are_widened_independently() {
         // Row 0: 2 points widened to 4; row 1: already 4 wide.
         let raw = vals(&[1.0, 2.0, 10.0, 20.0, 30.0, 40.0]);
-        let out = expand_reduced_to_regular(&raw, &[2, 4], 4);
+        let out = expand_reduced_to_regular(&raw, &[2, 4]);
         assert_eq!(out.len(), 8);
         assert_eq!(&out[0..4], &vals(&[1.0, 2.0, 2.0, 1.0])[..]);
         assert_eq!(&out[4..8], &vals(&[10.0, 20.0, 30.0, 40.0])[..]);
@@ -604,7 +620,7 @@ mod tests {
     fn a_short_values_slice_pads_the_missing_rows() {
         // A truncated field must not index out of bounds: the rows it does not
         // reach come back masked rather than panicking.
-        let out = expand_reduced_to_regular(&vals(&[1.0, 2.0]), &[2, 4], 4);
+        let out = expand_reduced_to_regular(&vals(&[1.0, 2.0]), &[2, 4]);
         assert_eq!(out.len(), 8);
         assert_eq!(&out[4..8], &[None, None, None, None]);
     }
