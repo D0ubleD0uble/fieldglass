@@ -5,11 +5,15 @@ same decoded field (`Vec<Option<f64>>` + grid geometry); `core` projects, warps,
 and renders it; a host binds the result to its language. `fieldglass-core` owns
 the shared traits and geometry and depends on nothing else in the workspace.
 
-There are two hosts and they are shaped differently, which is the one asymmetry
-worth knowing about. `fieldglass-napi` still reaches the format crates directly —
-it predates [ADR-0006](../decisions/0006-hosts-are-bindings-over-a-plain-data-api.md)
-and #464 is what moves it. `fieldglass-wasm` is already a binding of
-`fieldglass`, the host-neutral umbrella, and touches nothing below it.
+Both hosts now bind `fieldglass`, the host-neutral umbrella, but they are
+shaped differently and that is the one asymmetry worth knowing about.
+`fieldglass-wasm` touches nothing below it. `fieldglass-napi` still reaches the
+format crates directly as well: #572 moved the display half — warp, probe,
+contours, overlays and CSV — onto `fieldglass`, and what is left below is
+decode, NetCDF, and the `MessageMeta` DTO the VS Code extension still reads.
+Closing that gap is the rest of
+[#464](https://github.com/D0ubleD0uble/fieldglass/issues/464), under
+[ADR-0006](../decisions/0006-hosts-are-bindings-over-a-plain-data-api.md).
 
 ```mermaid
 flowchart TD
@@ -25,6 +29,7 @@ flowchart TD
     fieldglass --> grib1
     fieldglass --> grib2
     fieldglass --> core
+    napi --> fieldglass
     napi --> grib1
     napi --> grib2
     napi --> netcdf

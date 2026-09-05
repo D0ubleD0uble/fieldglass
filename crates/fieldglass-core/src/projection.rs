@@ -575,7 +575,14 @@ fn declared_plane_carries_the_grid(radius_m: f64, dx_metres: f64, dy_metres: f64
 /// step and refuses both, so these answers must too. What this deliberately does
 /// **not** check is `ni`/`nj` — see [`GridGeometry::forward`], which still names
 /// the point of a raster too thin for `inverse` to interpolate across.
-fn planar_grid_is_placeable(projection_resolves: bool, proj: &dyn PlanarGridProjector) -> bool {
+///
+/// Public because the display path asks it directly: `fieldglass`'s render
+/// module gates a warp on it before building the inverse map, so the grid it
+/// offers to reproject is the same grid [`GridGeometry::forward`],
+/// [`GridGeometry::lonlat_bbox`] and [`GridGeometry::reprojectable`] answer for
+/// (#572). It takes `is_well_defined` as an argument rather than calling it
+/// because that method is each projector's own, not a trait method.
+pub fn planar_grid_is_placeable(projection_resolves: bool, proj: &dyn PlanarGridProjector) -> bool {
     let (ox, oy) = proj.grid_origin();
     let (dx, dy) = proj.grid_spacing();
     projection_resolves
@@ -809,6 +816,15 @@ pub enum GridGeometry {
     },
 }
 
+/// A grid's forward geolocation with the projection's constants built once:
+/// grid index `(i, j)` → `(lat, lon)` in degrees, or `None` for a point the
+/// family cannot place.
+///
+/// What [`GridGeometry::forward_at`] hands back. Named rather than written out
+/// because the boxed closure is the whole of the type and a bare
+/// `Box<dyn Fn(u32, u32) -> Option<(f64, f64)>>` says none of it.
+pub type ForwardAt<'a> = Box<dyn Fn(u32, u32) -> Option<(f64, f64)> + 'a>;
+
 impl GridGeometry {
     /// The family tag, matching the `grid_type` strings the hosts already use
     /// (`"latlon"`, `"gaussian"`, `"lambert"`, `"polar_stereo"`), so #464 can
@@ -906,6 +922,71 @@ impl GridGeometry {
             // comes back normalised to [-180, 180]; see `SpatialIndex::centre`.
             Self::Lookup(ix) => ix.centre(i, j),
             Self::Unsupported { .. } => None,
+        }
+    }
+
+    /// [`forward`](Self::forward) with the projection's constants built once,
+    /// for a caller walking many grid points.
+    ///
+    /// The counterpart of [`inverse_at`](Self::inverse_at), and needed for the
+    /// same reason: `forward` constructs a projector per call, and a Gaussian
+    /// grid's constructor solves for its own latitudes. A CSV export or a
+    /// contour pass walks every cell, so it asks for the closure once.
+    ///
+    /// The two answer identically by construction — every arm below is
+    /// `forward`'s, with the projector hoisted out of the closure — which
+    /// `forward_at_agrees_with_forward` asserts across the families.
+    pub fn forward_at(&self) -> ForwardAt<'_> {
+        let Some((ni, nj)) = self.dims() else {
+            return Box::new(|_, _| None);
+        };
+        // The bounds check `forward` makes, hoisted with the projector so each
+        // closure below is only the placement.
+        macro_rules! bounded {
+            ($place:expr) => {{
+                let place = $place;
+                Box::new(move |i: u32, j: u32| {
+                    if i >= ni || j >= nj {
+                        return None;
+                    }
+                    place(i, j)
+                })
+            }};
+        }
+        match self {
+            Self::LatLon(p) => bounded!(move |i, j| latlon_point(p, i, j)),
+            Self::Mercator(p) => bounded!(move |i, j| mercator_point(p, i, j)),
+            Self::RotatedLatLon(p) => bounded!(move |i, j| rotated_latlon_point(p, i, j)),
+            Self::Gaussian(p) => {
+                let proj = GaussianProjector::new(*p);
+                bounded!(move |i, j| proj.grid_point_lonlat(i, j))
+            }
+            Self::Lambert(p) => {
+                let proj = LambertProjector::new(*p);
+                let resolves = proj.is_well_defined();
+                bounded!(move |i, j| placed_point(resolves, &proj, i, j))
+            }
+            Self::PolarStereo(p) => {
+                let proj = PolarStereoProjector::new(*p);
+                let resolves = proj.is_well_defined();
+                bounded!(move |i, j| placed_point(resolves, &proj, i, j))
+            }
+            Self::TransverseMercator(p) => {
+                let proj = TransverseMercatorProjector::new(*p);
+                let resolves = proj.is_well_defined();
+                bounded!(move |i, j| placed_point(resolves, &proj, i, j))
+            }
+            Self::LambertAzimuthal(p) => {
+                let proj = LambertAzimuthalProjector::new(*p);
+                let resolves = proj.is_well_defined();
+                bounded!(move |i, j| placed_point(resolves, &proj, i, j))
+            }
+            Self::Geostationary(p) => {
+                let proj = GeostationaryProjector::new(*p);
+                bounded!(move |i, j| proj.grid_point_lonlat(i, j))
+            }
+            Self::Lookup(ix) => bounded!(move |i, j| ix.centre(i, j)),
+            Self::Unsupported { .. } => Box::new(|_, _| None),
         }
     }
 

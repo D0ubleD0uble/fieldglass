@@ -139,6 +139,7 @@ dependencies = [
 name = "fieldglass-napi"
 version = "0.5.0"
 dependencies = [
+ "fieldglass",
  "fieldglass-core",
  "fieldglass-grib1",
  "fieldglass-grib2",

@@ -1194,23 +1194,30 @@ fn the_display_path_matches_its_recording() {
 /// its warp setup under every target. A new family arriving with no
 /// representative would otherwise be recorded — and left untested where it
 /// differs. Reads the recording rather than the corpus, so it costs nothing.
-/// `meta_geometry` declines exactly the fields the warp declines.
+/// The two mappings this host keeps agree with each other over the whole
+/// corpus.
 ///
-/// That equivalence is the whole argument that moving the four grid questions
-/// into `core` (#571) preserved behaviour: every one of them is now asked of the
-/// geometry this mapping produces, and `GridGeometry::Unsupported` answers "not
-/// periodic, no seam wrap, not reprojectable". Those are three plausible
-/// answers, none of them a panic, so a family that quietly stopped mapping would
+/// `meta_geometry` is the infallible one, asked only about a grid — is it
+/// periodic, may it be reprojected — and answering `Unsupported` for a meta it
+/// cannot build from. `try_meta_geometry` is the fallible one the display path
+/// takes, which surfaces the missing field by name instead. #572 split them, and
+/// the risk in a split is that the questions start being asked of two different
+/// grids: a family that quietly stopped mapping in one and not the other would
 /// move the golden only where a fixture's *output* moved with it — and for a
 /// grid that was already source-only, nothing would.
 ///
-/// So it is asserted directly, over all 144 fields: the mapping produces a
-/// geometry if and only if `warp_setup_for` produces a setup. One family is
-/// excluded and states why — a lookup grid's geometry *is* its cell-centre
-/// index, which the DTO does not carry and which `meta_geometry` therefore
-/// declines by design while the warp, holding the index, accepts.
+/// So it is asserted directly, over all 144 fields: one produces a geometry
+/// exactly when the other does, and when both do they produce the same family.
+/// One family is excluded and states why — a lookup grid's geometry *is* its
+/// cell-centre index, which the DTO does not carry, so the infallible mapping
+/// declines it by design while the display path is handed the cached geometry.
+///
+/// Before #572 the right-hand side of this was `warp_setup_for`, the nine
+/// per-family setups the display path built for itself. Those are `core`'s now,
+/// reached through the geometry, which is exactly why the equivalence that
+/// mattered then is this one today.
 #[test]
-fn meta_geometry_declines_exactly_what_the_warp_declines() {
+fn the_two_meta_mappings_decline_the_same_fields() {
     let mut checked = 0usize;
     let mut disagreed: Vec<String> = Vec::new();
     for_each_visit(|id, visit| {
@@ -1227,12 +1234,19 @@ fn meta_geometry_declines_exactly_what_the_warp_declines() {
             return;
         };
         checked += 1;
-        let mapped = meta_geometry(&meta).kind() != "unsupported";
-        let warps = warp_setup_for(&meta, ni, nj, None).is_ok();
-        if mapped != warps {
+        let infallible = meta_geometry(&meta);
+        let mapped = infallible.kind() != "unsupported";
+        let resolved = try_meta_geometry(&meta, ni, nj, None);
+        let displays = resolved.as_ref().is_ok_and(|g| g.kind() != "unsupported");
+        let same_family = resolved
+            .as_ref()
+            .is_ok_and(|g| g.kind() == infallible.kind());
+        if mapped != displays || (mapped && !same_family) {
             disagreed.push(format!(
-                "{id}: grid_type {:?}, mapped={mapped}, warp_setup_for ok={warps}",
-                meta.grid_type
+                "{id}: grid_type {:?}, meta_geometry={}, try_meta_geometry={:?}",
+                meta.grid_type,
+                infallible.kind(),
+                resolved.as_ref().map(|g| g.kind().to_string()),
             ));
         }
     });
@@ -1242,9 +1256,9 @@ fn meta_geometry_declines_exactly_what_the_warp_declines() {
     );
     assert!(
         disagreed.is_empty(),
-        "{} of {checked} fields map to a geometry the warp disagrees about, so \
-         the four grid questions are being asked of something the render is not: \
-         {disagreed:#?}",
+        "{} of {checked} fields map to different geometries depending on which \
+         mapping asked, so the grid questions and the render are not looking at \
+         the same grid: {disagreed:#?}",
         disagreed.len()
     );
 }
