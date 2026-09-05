@@ -11,16 +11,16 @@ use fieldglass_core::{
     LambertAzimuthalProjector, LambertParams, LambertProjector, LatLonParams, LonLatBox,
     MercatorParams, Mollweide, Orthographic, PlanarGridProjector, PolarStereoParams,
     PolarStereoProjector, PolarStereographic, ProjectedPolylines, Resampling, Robinson,
-    RotatedLatLonParams, RotatedLatLonProjector, SourceGrid, SourceOverlayTarget, SpatialIndex,
-    TargetRaster, TransverseMercatorParams, TransverseMercatorProjector, WebMercator,
+    RotatedLatLonParams, RotatedLatLonProjector, Scan, SourceGrid, SourceOverlayTarget,
+    SpatialIndex, TargetRaster, TransverseMercatorParams, TransverseMercatorProjector, WebMercator,
     cct_tables::lookup_sub_centre,
     colormap::{Colormap, ScaleMode, min_max_ignoring_mask, paint_grid_rgba},
     combine_fields,
     contour::{contour_segments, contour_segments_global, nice_levels},
     csv::{field_to_csv_long, field_to_csv_matrix},
-    detect_from_bytes, eastward_lon_span, latlon_inverse, latlon_point, lon_grid_is_global,
-    mercator_inverse, mercator_point, normalise_lon, plane_spans_a_grid_cell, project_polylines,
-    projection::GridIndex,
+    detect_from_bytes, latlon_inverse, latlon_point, mercator_inverse, mercator_point,
+    normalise_lon, plane_spans_a_grid_cell, project_polylines,
+    projection::{GridGeometry, GridIndex},
     rotated_latlon_point, signed_grid_increments,
     units::normalize_units,
     warp::{PreparedTarget, TargetProjection, WarpedRaster, warp},
@@ -339,17 +339,18 @@ pub struct MessageMeta {
     /// the section can't be parsed.
     pub packing: Option<String>,
     /// Whether this message's grid can be reprojected (the render panel's
-    /// non-source projection targets). Mirrors what the warp itself accepts:
+    /// non-source projection targets). The grid's own answer, not this crate's:
     /// only lat/lon, rotated lat/lon, Gaussian, Mercator, curvilinear and the
     /// planar families (Lambert, polar stereographic, transverse Mercator,
-    /// Lambert azimuthal, space view) reproject, and a planar grid additionally
-    /// needs a non-zero grid spacing (some sample files carry Dx = Dy = 0)
-    /// *and* a projection that resolves to a usable plane. The second half is
-    /// asked by running the finished meta through the warp's own setup, which
-    /// every builder does, so a collapsed cone or an Earth smaller than one
-    /// cell stays source-only rather than advertising a target the warp then
-    /// refuses (#610). The webview hides the reprojection options when this is
-    /// `false`.
+    /// Lambert azimuthal, space view) reproject; the corner-pinned ones need a
+    /// west-to-east scan, and a planar one needs a non-zero grid spacing (some
+    /// sample files carry Dx = Dy = 0) and a projection that resolves to a
+    /// usable plane, so a collapsed cone or an Earth smaller than one cell stays
+    /// source-only rather than advertising a target the warp then refuses
+    /// (#603, #610). The rule and the reasons behind it are in
+    /// `fieldglass_core::GridGeometry::reprojectable`, which is also what the
+    /// browser host asks. The webview hides the reprojection options when this
+    /// is `false`.
     pub reprojectable: bool,
     /// Whether the grid's rows scan south→north (GRIB `jScansPositively`).
     /// The source projection paints grid row 0 at the top of the canvas, so a
@@ -359,61 +360,21 @@ pub struct MessageMeta {
     pub j_scans_positive: Option<bool>,
 }
 
-/// Whether a grid can feed the warp pipeline's non-source targets. Mirrors the
-/// dispatch in [`warp_setup_for`] — lat/lon, rotated lat/lon, Gaussian, and
-/// Mercator qualify when they scan west-to-east (their inverse maps are pinned
-/// by the corner coordinates — plus the rotated pole — alone, and those maps
-/// read a descending-longitude corner pair as an antimeridian wrap, so the
-/// vanishingly rare −i scan stays in the source projection rather than
-/// mis-rendering); the planar projections also require a non-zero grid spacing,
-/// since a degenerate Dx/Dy collapses every grid point onto one location and the
-/// reprojection would render blank. (The planar grids handle −i themselves: the
-/// scan sign is baked into Dx.)
+/// Answer [`MessageMeta::reprojectable`] for a finished message, from `core`.
 ///
-/// The spacing is only half the planar rule, and this half is all it can ask:
-/// the *other* half is whether the projection places a point at all, which needs
-/// the projector rather than two numbers. Every builder answers that half by
-/// passing its finished `MessageMeta` through [`gate_planar_reprojection`].
-/// The grid types whose reprojection needs projection constants — the families
-/// [`gate_planar_reprojection`] re-asks. The rest are pinned by their corner
-/// coordinates or carry their cell positions, so they have no constants to
-/// collapse and [`grid_is_reprojectable`]'s answer is the whole rule for them.
-const PLANAR_GRID_TYPES: [&str; 5] = [
-    "lambert",
-    "polar_stereo",
-    "transverse_mercator",
-    "lambert_azimuthal",
-    "space_view",
-];
-
-/// The second half of the planar reprojection rule, applied to a finished
-/// `MessageMeta`: does the warp actually accept this grid?
+/// One predicate, and it is the one the render consults:
+/// [`GridGeometry::reprojectable`], asked of the geometry
+/// [`meta_geometry`] maps this message to. It used to be two here — a grid-type
+/// allow-list that saw a family name and two spacings, and a second pass that
+/// re-ran the whole warp setup to catch a projection that places no point
+/// (#603, #610) — which is why a grid could be offered by one and refused by
+/// the other. `core` now owns both halves and states them once for both hosts
+/// (#571).
 ///
-/// [`grid_is_reprojectable`] sees a grid type and two spacings, which is not
-/// enough. A message can state every number a planar family needs, all of them
-/// present and finite, and still describe a projection that places no point: a
-/// Lambert cone whose standard parallels are both on the equator, an Earth
-/// smaller than one cell of the grid drawn on it, a latitude of true scale past
-/// ±90°, a first corner at the pole the cone opens away from, a geostationary
-/// ellipsoid the satellite has no line of sight to. `reprojectable: true` there
-/// is the field promising a host a target the warp then refuses, which is the
-/// failure #610 named and fixed for the GRIB2 §3 paths alone.
-///
-/// Asked *through* [`warp_setup_for`] — the same call the render will make —
-/// rather than by re-deriving the answer from the projector, because
-/// re-deriving is how the two drift. They had already drifted: the offer that
-/// shipped with #610 read each projector's `is_well_defined`, which measures the
-/// family's own plane, while the `*_params` builders measure the *declared*
-/// radius. Those are the same number only for Lambert. A polar stereographic
-/// plane is `2·R·k₀` — 1.87 times the radius at a ±60° latitude of true scale —
-/// so a grid stating a cell between the two was offered and then refused, and a
-/// transverse Mercator scale factor above 1 opens the same gap. One predicate,
-/// and it is the one that decides the render.
-///
-/// Only the planar families are re-asked ([`PLANAR_GRID_TYPES`]). The others
-/// must not be: their rule includes conditions `warp_setup_for` never sees — a
-/// descending scan, a NetCDF slice's descending longitude axis — and a
-/// curvilinear grid's setup needs the spatial index this has no access to.
+/// `scan` is the message's own scanning mode. Only [`Scan::i_negative`] is read,
+/// and only by the corner-pinned families, whose inverse maps assume columns run
+/// west to east; the projected families absorbed their direction bits into their
+/// signed spacings before the geometry was built.
 ///
 /// One host does not consult the answer yet. The VS Code NetCDF render panel
 /// synthesises its own stub meta in `provider.ts` rather than reading the
@@ -422,59 +383,9 @@ const PLANAR_GRID_TYPES: [&str; 5] = [
 /// having stayed source-only. That is noted where the stub is and is #574's to
 /// close; the field is still the answer this API gives, and a wrong one is what
 /// the panel would inherit the day it starts reading it.
-fn gate_planar_reprojection(mut meta: MessageMeta) -> MessageMeta {
-    if !meta.reprojectable
-        || !PLANAR_GRID_TYPES.contains(&meta.grid_type.as_deref().unwrap_or_default())
-    {
-        return meta;
-    }
-    let dims = meta
-        .grid_ni
-        .zip(meta.grid_nj)
-        .and_then(|(ni, nj)| Some((u32::try_from(ni).ok()?, u32::try_from(nj).ok()?)));
-    meta.reprojectable = match dims {
-        // A planar grid with no raster shape has nothing to reproject; the warp
-        // is never reached to say so.
-        None => false,
-        Some((ni, nj)) => warp_setup_for(&meta, ni, nj, None).is_ok(),
-    };
+fn gate_reprojection(mut meta: MessageMeta, scan: Scan) -> MessageMeta {
+    meta.reprojectable = meta_geometry(&meta).reprojectable(scan);
     meta
-}
-
-fn grid_is_reprojectable(
-    grid_type: Option<&str>,
-    planar_dx: Option<f64>,
-    planar_dy: Option<f64>,
-    i_scan_negative: bool,
-) -> bool {
-    match grid_type {
-        // Reduced grids are widened to a regular Ni·Nj raster at decode time, so
-        // they reproject through the same lat/lon and Gaussian inverse maps.
-        Some("latlon")
-        | Some("gaussian")
-        | Some("mercator")
-        | Some("rotated_latlon")
-        | Some("reduced_latlon")
-        | Some("reduced_gaussian") => !i_scan_negative,
-        // A lookup grid's inverse is a nearest-cell search, which has no scan
-        // direction to be wrong about — the cell centres carry their own
-        // positions (#445).
-        Some("curvilinear") => true,
-        // Space view carries its scan-angle increments through the same
-        // planar spacing slots; an orthographic view (no camera altitude)
-        // leaves them `None` and so does not reproject.
-        // Transverse Mercator and Lambert azimuthal equal-area join them: their
-        // scan sign is baked into the spacings the same way, so an i-negative
-        // scan is already accounted for rather than unsupported.
-        Some("lambert")
-        | Some("polar_stereo")
-        | Some("space_view")
-        | Some("transverse_mercator")
-        | Some("lambert_azimuthal") => {
-            matches!((planar_dx, planar_dy), (Some(dx), Some(dy)) if dx != 0.0 && dy != 0.0)
-        }
-        _ => false,
-    }
 }
 
 /// Map an eccodes-style `packingType` (GRIB1) or §5 template name (GRIB2) to a
@@ -618,106 +529,113 @@ fn build_grib1_message_meta(
     // with no raster (spectral, unsupported) or no resolvable GDS at all.
     // (Predefined no-GDS grids have no flag and all scan west-to-east.)
     let scan = msg.gds.as_ref().and_then(|gds| gds.scanning_mode());
-    // Corner-pinned grids assume a west-to-east scan; surface the −i flag so
-    // `grid_is_reprojectable` keeps descending grids in the source projection.
-    let i_scan_negative = scan.is_some_and(|sm| sm.i_negative);
     // South→north row scan, so the source render can orient the raster (#286).
     let j_scans_positive = scan.map(|sm| sm.j_positive);
-    let reprojectable = grid_is_reprojectable(
-        grid_type.as_deref(),
-        polar_stereo_dx_metres.or(lambert_dx_metres),
-        polar_stereo_dy_metres.or(lambert_dy_metres),
-        i_scan_negative,
-    );
-    gate_planar_reprojection(MessageMeta {
-        // Position in the reader's own message vector, so the narrowing to the
-        // JS-facing `i32` cannot wrap for any file that fits in memory.
-        message_index: msg.message_index as i32,
-        offset_bytes: msg.byte_offset as f64,
-        parameter_name: param.name.to_string(),
-        // Same display-seam normalisation the GRIB2 side gets (#432). The GRIB1
-        // tables carry a third notation on top of WMO's: the ECMWF local tables
-        // are generated from eccodes, which writes exponents Fortran-style
-        // (`kg m**-2`), and ON388 chains solidi (`kg/m2/s`). Normalising here
-        // rather than in the tables keeps both generated files reproducible
-        // from their upstream, and makes the units column read the same
-        // whichever edition the file is (#441).
-        parameter_units: normalize_units(param.units).into_owned(),
-        parameter_abbreviation: param.abbreviation.to_string(),
-        level: fieldglass_grib1::level_value_str(&msg.pds),
-        level_type: fieldglass_grib1::level_type_str(&msg.pds),
-        reference_time: fieldglass_grib1::reference_time(&msg.pds),
-        // `None` is a unit with no fixed length in hours (a monthly mean, say).
-        // 0 is the same convention the GRIB2 side uses for that case: there is
-        // no hours value to show, and `forecast_display` carries the truth.
-        forecast_hours: fieldglass_grib1::forecast_hours(&msg.pds).unwrap_or(0),
-        p1_octet: (msg.pds.time_range != 10).then_some(msg.pds.p1 as i32),
-        forecast_display: fieldglass_grib1::forecast_display(&msg.pds),
-        originating_centre: lookup_centre(msg.pds.originating_centre)
-            .map(str::to_string)
-            .unwrap_or_else(|| format!("Centre {}", msg.pds.originating_centre)),
-        sub_centre: lookup_sub_centre(msg.pds.originating_centre.into(), msg.pds.sub_centre.into())
+    // `core`'s scan type, which is what decides reprojection eligibility for the
+    // corner-pinned families: their inverse maps assume columns run west to
+    // east. A message with no GDS states no scan, and the predefined grids all
+    // scan west-to-east, so it reads as the operational default.
+    let scan_flags = scan.map_or_else(Scan::north_down, |sm| {
+        Scan::new(sm.i_negative, sm.j_positive, sm.j_consecutive)
+    });
+    gate_reprojection(
+        MessageMeta {
+            // Position in the reader's own message vector, so the narrowing to the
+            // JS-facing `i32` cannot wrap for any file that fits in memory.
+            message_index: msg.message_index as i32,
+            offset_bytes: msg.byte_offset as f64,
+            parameter_name: param.name.to_string(),
+            // Same display-seam normalisation the GRIB2 side gets (#432). The GRIB1
+            // tables carry a third notation on top of WMO's: the ECMWF local tables
+            // are generated from eccodes, which writes exponents Fortran-style
+            // (`kg m**-2`), and ON388 chains solidi (`kg/m2/s`). Normalising here
+            // rather than in the tables keeps both generated files reproducible
+            // from their upstream, and makes the units column read the same
+            // whichever edition the file is (#441).
+            parameter_units: normalize_units(param.units).into_owned(),
+            parameter_abbreviation: param.abbreviation.to_string(),
+            level: fieldglass_grib1::level_value_str(&msg.pds),
+            level_type: fieldglass_grib1::level_type_str(&msg.pds),
+            reference_time: fieldglass_grib1::reference_time(&msg.pds),
+            // `None` is a unit with no fixed length in hours (a monthly mean, say).
+            // 0 is the same convention the GRIB2 side uses for that case: there is
+            // no hours value to show, and `forecast_display` carries the truth.
+            forecast_hours: fieldglass_grib1::forecast_hours(&msg.pds).unwrap_or(0),
+            p1_octet: (msg.pds.time_range != 10).then_some(msg.pds.p1 as i32),
+            forecast_display: fieldglass_grib1::forecast_display(&msg.pds),
+            originating_centre: lookup_centre(msg.pds.originating_centre)
+                .map(str::to_string)
+                .unwrap_or_else(|| format!("Centre {}", msg.pds.originating_centre)),
+            sub_centre: lookup_sub_centre(
+                msg.pds.originating_centre.into(),
+                msg.pds.sub_centre.into(),
+            )
             .map(str::to_string),
-        grid_type,
-        grid_ni,
-        grid_nj,
-        grid_size_label,
-        lat_first,
-        lon_first,
-        lat_last,
-        lon_last,
-        format: "grib1".to_string(),
-        edition: Some(1),
-        discipline: None,
-        total_length_bytes: Some(msg.is.total_length as f64),
-        production_status: None,
-        data_type: None,
-        earth_radius_metres,
-        lambert_lad,
-        lambert_lov,
-        lambert_dx_metres,
-        lambert_dy_metres,
-        lambert_latin1,
-        lambert_latin2,
-        gaussian_n_parallels,
-        polar_stereo_lov,
-        polar_stereo_lad,
-        polar_stereo_dx_metres,
-        polar_stereo_dy_metres,
-        polar_stereo_south_pole,
-        lambert_azimuthal_semi_major_metres: None,
-        lambert_azimuthal_semi_minor_metres: None,
-        lambert_azimuthal_standard_parallel: None,
-        lambert_azimuthal_central_longitude: None,
-        lambert_azimuthal_dx_metres: None,
-        lambert_azimuthal_dy_metres: None,
-        transverse_mercator_semi_major_metres: None,
-        transverse_mercator_semi_minor_metres: None,
-        transverse_mercator_lat_ref: None,
-        transverse_mercator_lon_ref: None,
-        transverse_mercator_scale_factor: None,
-        transverse_mercator_false_easting_metres: None,
-        transverse_mercator_false_northing_metres: None,
-        transverse_mercator_x1_metres: None,
-        transverse_mercator_y1_metres: None,
-        transverse_mercator_dx_metres: None,
-        transverse_mercator_dy_metres: None,
-        rotated_south_pole_lat,
-        rotated_south_pole_lon,
-        rotated_angle_of_rotation,
-        geos_sub_lon: None,
-        geos_height: None,
-        geos_r_eq: None,
-        geos_r_pol: None,
-        geos_sweep_x: None,
-        geos_x0: None,
-        geos_dx_rad: None,
-        geos_y0: None,
-        geos_dy_rad: None,
-        packing,
-        reprojectable,
-        j_scans_positive,
-    })
+            grid_type,
+            grid_ni,
+            grid_nj,
+            grid_size_label,
+            lat_first,
+            lon_first,
+            lat_last,
+            lon_last,
+            format: "grib1".to_string(),
+            edition: Some(1),
+            discipline: None,
+            total_length_bytes: Some(msg.is.total_length as f64),
+            production_status: None,
+            data_type: None,
+            earth_radius_metres,
+            lambert_lad,
+            lambert_lov,
+            lambert_dx_metres,
+            lambert_dy_metres,
+            lambert_latin1,
+            lambert_latin2,
+            gaussian_n_parallels,
+            polar_stereo_lov,
+            polar_stereo_lad,
+            polar_stereo_dx_metres,
+            polar_stereo_dy_metres,
+            polar_stereo_south_pole,
+            lambert_azimuthal_semi_major_metres: None,
+            lambert_azimuthal_semi_minor_metres: None,
+            lambert_azimuthal_standard_parallel: None,
+            lambert_azimuthal_central_longitude: None,
+            lambert_azimuthal_dx_metres: None,
+            lambert_azimuthal_dy_metres: None,
+            transverse_mercator_semi_major_metres: None,
+            transverse_mercator_semi_minor_metres: None,
+            transverse_mercator_lat_ref: None,
+            transverse_mercator_lon_ref: None,
+            transverse_mercator_scale_factor: None,
+            transverse_mercator_false_easting_metres: None,
+            transverse_mercator_false_northing_metres: None,
+            transverse_mercator_x1_metres: None,
+            transverse_mercator_y1_metres: None,
+            transverse_mercator_dx_metres: None,
+            transverse_mercator_dy_metres: None,
+            rotated_south_pole_lat,
+            rotated_south_pole_lon,
+            rotated_angle_of_rotation,
+            geos_sub_lon: None,
+            geos_height: None,
+            geos_r_eq: None,
+            geos_r_pol: None,
+            geos_sweep_x: None,
+            geos_x0: None,
+            geos_dx_rad: None,
+            geos_y0: None,
+            geos_dy_rad: None,
+            packing,
+            // Answered by `gate_reprojection` below, from the geometry; stated here
+            // because the struct has no default and a `false` that survived would be
+            // a visible bug rather than a compile error.
+            reprojectable: false,
+            j_scans_positive,
+        },
+        scan_flags,
+    )
 }
 
 /// Render the §4 product fields into the flat (`parameter_*`, `level`,
@@ -952,10 +870,6 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
     });
     let lambert_dx_metres = lambert_inc.map(|(dx, _)| dx);
     let lambert_dy_metres = lambert_inc.map(|(_, dy)| dy);
-    // Whether to *offer* a reprojection is a different question from what the
-    // warp reads: spacings alone would advertise a reprojection that resolves no
-    // point (#610). The offer this builds is therefore only the spacing-and-scan
-    // half; `gate_planar_reprojection` asks the warp itself for the other half.
     let lambert_latin1 = lambert.map(|t| t.latin1);
     let lambert_latin2 = lambert.map(|t| t.latin2);
     let gaussian_n_parallels = match &msg.gds.template {
@@ -1001,9 +915,6 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
     };
 
     let grid_type = msg.gds.template_name();
-    // Corner-pinned grids assume a west-to-east scan; surface the −i flag
-    // (scanning-mode bit 0x80) so `grid_is_reprojectable` keeps descending
-    // grids in the source projection.
     // Earth shape, declared per-message in §3 (`shapeOfTheEarth`). Only the
     // planar projections consume it.
     let earth_radius_metres = match &msg.gds.template {
@@ -1011,120 +922,112 @@ fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta
         fieldglass_grib2::GridTemplate::PolarStereographic(t) => Some(t.earth_radius_m),
         _ => None,
     };
-    let i_scan_negative = match &msg.gds.template {
-        fieldglass_grib2::GridTemplate::LatLon(t) => t.scanning_mode & 0x80 != 0,
-        fieldglass_grib2::GridTemplate::RotatedLatLon(t) => t.scanning_mode & 0x80 != 0,
-        fieldglass_grib2::GridTemplate::Mercator(t) => t.scanning_mode & 0x80 != 0,
-        fieldglass_grib2::GridTemplate::Gaussian(t) => t.scanning_mode & 0x80 != 0,
-        _ => false,
-    };
-    let reprojectable = grid_is_reprojectable(
-        Some(grid_type.as_str()),
-        polar_stereo_inc
-            .map(|(dx, _)| dx)
-            .or(lambert_inc.map(|(dx, _)| dx))
-            .or(transverse_mercator_inc.map(|(dx, _)| dx))
-            .or(lambert_azimuthal_inc.map(|(dx, _)| dx))
-            .or(space_view.map(|g| g.dx_rad)),
-        polar_stereo_inc
-            .map(|(_, dy)| dy)
-            .or(lambert_inc.map(|(_, dy)| dy))
-            .or(transverse_mercator_inc.map(|(_, dy)| dy))
-            .or(lambert_azimuthal_inc.map(|(_, dy)| dy))
-            .or(space_view.map(|g| g.dy_rad)),
-        i_scan_negative,
-    );
+    // `core`'s scan type. §3 states the same three flag bits ON388 does, in the
+    // same order; a template with no scanning mode at all (§3.50 spherical
+    // harmonics, §3.51 bi-Fourier) has no raster to scan and reads as the
+    // operational default.
+    let scan_flags = msg.gds.scanning_mode().map_or_else(Scan::north_down, |sm| {
+        Scan::new(sm & 0x80 != 0, sm & 0x40 != 0, sm & 0x20 != 0)
+    });
 
-    gate_planar_reprojection(MessageMeta {
-        // GRIB2 has no P1 octet — the lead time lives in the product template.
-        p1_octet: None,
-        // Same in-memory bound as the GRIB1 side.
-        message_index: msg.message_index as i32,
-        offset_bytes: msg.byte_offset as f64,
-        parameter_name: product.parameter_name,
-        parameter_units: product.parameter_units,
-        parameter_abbreviation: product.parameter_abbreviation,
-        level: product.level,
-        level_type: product.level_type,
-        reference_time: msg.ids.reference_time_iso8601(),
-        forecast_hours: product.forecast_hours,
-        forecast_display: product.forecast_display,
-        originating_centre: centre,
-        sub_centre: lookup_sub_centre(msg.ids.centre, msg.ids.sub_centre).map(str::to_string),
-        grid_type: Some(grid_type),
-        grid_ni: dims.map(|(ni, _)| ni as i32),
-        grid_nj: dims.map(|(_, nj)| nj as i32),
-        grid_size_label: msg.gds.size_label(),
-        // The declared first point comes from `first_point`, not from
-        // `bounds`: a grid whose projection is too degenerate to place its far
-        // corner has no corner *pair* to report, but it still states where it
-        // starts, and dropping that would lose a fact the message spells out
-        // (#472).
-        lat_first: transverse_mercator_corners
-            .map(|c| c.lat_first)
-            .or_else(|| msg.gds.first_point().map(|(la1, _)| la1)),
-        lon_first: transverse_mercator_corners
-            .map(|c| c.lon_first)
-            .or_else(|| msg.gds.first_point().map(|(_, lo1)| lo1)),
-        lat_last: transverse_mercator_corners
-            .map(|c| c.lat_last)
-            .or_else(|| bounds.map(|c| c.lat_last)),
-        lon_last: transverse_mercator_corners
-            .map(|c| c.lon_last)
-            .or_else(|| bounds.map(|c| c.lon_last)),
-        format: "grib2".to_string(),
-        edition: Some(i32::from(msg.is.edition)),
-        discipline: Some(lookup_discipline(msg.is.discipline).to_string()),
-        total_length_bytes: Some(msg.is.total_length as f64),
-        production_status: Some(lookup_production_status(msg.ids.production_status).to_string()),
-        data_type: Some(fieldglass_grib2::lookup_data_type(msg.ids.data_type).to_string()),
-        earth_radius_metres,
-        lambert_lad,
-        lambert_lov,
-        lambert_dx_metres,
-        lambert_dy_metres,
-        lambert_latin1,
-        lambert_latin2,
-        gaussian_n_parallels,
-        polar_stereo_lov: polar_stereo.map(|t| t.lov),
-        polar_stereo_lad: polar_stereo.map(|t| t.lad),
-        polar_stereo_dx_metres: polar_stereo_inc.map(|(dx, _)| dx),
-        polar_stereo_dy_metres: polar_stereo_inc.map(|(_, dy)| dy),
-        polar_stereo_south_pole: polar_stereo.map(|t| t.south_pole),
-        lambert_azimuthal_semi_major_metres: lambert_azimuthal.map(|t| t.earth_major_m),
-        lambert_azimuthal_semi_minor_metres: lambert_azimuthal.map(|t| t.earth_minor_m),
-        lambert_azimuthal_standard_parallel: lambert_azimuthal.map(|t| t.standard_parallel),
-        lambert_azimuthal_central_longitude: lambert_azimuthal.map(|t| t.central_longitude),
-        lambert_azimuthal_dx_metres: lambert_azimuthal_inc.map(|(dx, _)| dx),
-        lambert_azimuthal_dy_metres: lambert_azimuthal_inc.map(|(_, dy)| dy),
-        transverse_mercator_semi_major_metres: transverse_mercator.map(|t| t.earth_major_m),
-        transverse_mercator_semi_minor_metres: transverse_mercator.map(|t| t.earth_minor_m),
-        transverse_mercator_lat_ref: transverse_mercator.map(|t| t.lat_ref),
-        transverse_mercator_lon_ref: transverse_mercator.map(|t| t.lon_ref),
-        transverse_mercator_scale_factor: transverse_mercator.map(|t| t.scale_factor),
-        transverse_mercator_false_easting_metres: transverse_mercator.map(|t| t.false_easting_m),
-        transverse_mercator_false_northing_metres: transverse_mercator.map(|t| t.false_northing_m),
-        transverse_mercator_x1_metres: transverse_mercator.map(|t| t.x1_metres),
-        transverse_mercator_y1_metres: transverse_mercator.map(|t| t.y1_metres),
-        transverse_mercator_dx_metres: transverse_mercator_inc.map(|(dx, _)| dx),
-        transverse_mercator_dy_metres: transverse_mercator_inc.map(|(_, dy)| dy),
-        rotated_south_pole_lat,
-        rotated_south_pole_lon,
-        rotated_angle_of_rotation,
-        geos_sub_lon: space_view.map(|g| g.sub_lon_deg),
-        geos_height: space_view.map(|g| g.h_metres),
-        geos_r_eq: space_view.map(|g| g.r_eq),
-        geos_r_pol: space_view.map(|g| g.r_pol),
-        geos_sweep_x: space_view.map(|g| g.sweep_x),
-        geos_x0: space_view.map(|g| g.x0),
-        geos_dx_rad: space_view.map(|g| g.dx_rad),
-        geos_y0: space_view.map(|g| g.y0),
-        geos_dy_rad: space_view.map(|g| g.dy_rad),
-        packing: Some(friendly_packing(&msg.drs.template_name())),
-        reprojectable,
-        // GRIB2 §3 Flag Table 3.4 bit 2 (0x40): rows scan south→north (#286).
-        j_scans_positive: msg.gds.scanning_mode().map(|sm| sm & 0x40 != 0),
-    })
+    gate_reprojection(
+        MessageMeta {
+            // GRIB2 has no P1 octet — the lead time lives in the product template.
+            p1_octet: None,
+            // Same in-memory bound as the GRIB1 side.
+            message_index: msg.message_index as i32,
+            offset_bytes: msg.byte_offset as f64,
+            parameter_name: product.parameter_name,
+            parameter_units: product.parameter_units,
+            parameter_abbreviation: product.parameter_abbreviation,
+            level: product.level,
+            level_type: product.level_type,
+            reference_time: msg.ids.reference_time_iso8601(),
+            forecast_hours: product.forecast_hours,
+            forecast_display: product.forecast_display,
+            originating_centre: centre,
+            sub_centre: lookup_sub_centre(msg.ids.centre, msg.ids.sub_centre).map(str::to_string),
+            grid_type: Some(grid_type),
+            grid_ni: dims.map(|(ni, _)| ni as i32),
+            grid_nj: dims.map(|(_, nj)| nj as i32),
+            grid_size_label: msg.gds.size_label(),
+            // The declared first point comes from `first_point`, not from
+            // `bounds`: a grid whose projection is too degenerate to place its far
+            // corner has no corner *pair* to report, but it still states where it
+            // starts, and dropping that would lose a fact the message spells out
+            // (#472).
+            lat_first: transverse_mercator_corners
+                .map(|c| c.lat_first)
+                .or_else(|| msg.gds.first_point().map(|(la1, _)| la1)),
+            lon_first: transverse_mercator_corners
+                .map(|c| c.lon_first)
+                .or_else(|| msg.gds.first_point().map(|(_, lo1)| lo1)),
+            lat_last: transverse_mercator_corners
+                .map(|c| c.lat_last)
+                .or_else(|| bounds.map(|c| c.lat_last)),
+            lon_last: transverse_mercator_corners
+                .map(|c| c.lon_last)
+                .or_else(|| bounds.map(|c| c.lon_last)),
+            format: "grib2".to_string(),
+            edition: Some(i32::from(msg.is.edition)),
+            discipline: Some(lookup_discipline(msg.is.discipline).to_string()),
+            total_length_bytes: Some(msg.is.total_length as f64),
+            production_status: Some(
+                lookup_production_status(msg.ids.production_status).to_string(),
+            ),
+            data_type: Some(fieldglass_grib2::lookup_data_type(msg.ids.data_type).to_string()),
+            earth_radius_metres,
+            lambert_lad,
+            lambert_lov,
+            lambert_dx_metres,
+            lambert_dy_metres,
+            lambert_latin1,
+            lambert_latin2,
+            gaussian_n_parallels,
+            polar_stereo_lov: polar_stereo.map(|t| t.lov),
+            polar_stereo_lad: polar_stereo.map(|t| t.lad),
+            polar_stereo_dx_metres: polar_stereo_inc.map(|(dx, _)| dx),
+            polar_stereo_dy_metres: polar_stereo_inc.map(|(_, dy)| dy),
+            polar_stereo_south_pole: polar_stereo.map(|t| t.south_pole),
+            lambert_azimuthal_semi_major_metres: lambert_azimuthal.map(|t| t.earth_major_m),
+            lambert_azimuthal_semi_minor_metres: lambert_azimuthal.map(|t| t.earth_minor_m),
+            lambert_azimuthal_standard_parallel: lambert_azimuthal.map(|t| t.standard_parallel),
+            lambert_azimuthal_central_longitude: lambert_azimuthal.map(|t| t.central_longitude),
+            lambert_azimuthal_dx_metres: lambert_azimuthal_inc.map(|(dx, _)| dx),
+            lambert_azimuthal_dy_metres: lambert_azimuthal_inc.map(|(_, dy)| dy),
+            transverse_mercator_semi_major_metres: transverse_mercator.map(|t| t.earth_major_m),
+            transverse_mercator_semi_minor_metres: transverse_mercator.map(|t| t.earth_minor_m),
+            transverse_mercator_lat_ref: transverse_mercator.map(|t| t.lat_ref),
+            transverse_mercator_lon_ref: transverse_mercator.map(|t| t.lon_ref),
+            transverse_mercator_scale_factor: transverse_mercator.map(|t| t.scale_factor),
+            transverse_mercator_false_easting_metres: transverse_mercator
+                .map(|t| t.false_easting_m),
+            transverse_mercator_false_northing_metres: transverse_mercator
+                .map(|t| t.false_northing_m),
+            transverse_mercator_x1_metres: transverse_mercator.map(|t| t.x1_metres),
+            transverse_mercator_y1_metres: transverse_mercator.map(|t| t.y1_metres),
+            transverse_mercator_dx_metres: transverse_mercator_inc.map(|(dx, _)| dx),
+            transverse_mercator_dy_metres: transverse_mercator_inc.map(|(_, dy)| dy),
+            rotated_south_pole_lat,
+            rotated_south_pole_lon,
+            rotated_angle_of_rotation,
+            geos_sub_lon: space_view.map(|g| g.sub_lon_deg),
+            geos_height: space_view.map(|g| g.h_metres),
+            geos_r_eq: space_view.map(|g| g.r_eq),
+            geos_r_pol: space_view.map(|g| g.r_pol),
+            geos_sweep_x: space_view.map(|g| g.sweep_x),
+            geos_x0: space_view.map(|g| g.x0),
+            geos_dx_rad: space_view.map(|g| g.dx_rad),
+            geos_y0: space_view.map(|g| g.y0),
+            geos_dy_rad: space_view.map(|g| g.dy_rad),
+            packing: Some(friendly_packing(&msg.drs.template_name())),
+            // Answered by `gate_reprojection` below; see the GRIB1 sibling.
+            reprojectable: false,
+            // GRIB2 §3 Flag Table 3.4 bit 2 (0x40): rows scan south→north (#286).
+            j_scans_positive: msg.gds.scanning_mode().map(|sm| sm & 0x40 != 0),
+        },
+        scan_flags,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -3202,7 +3105,14 @@ impl NetcdfHandle {
                 lat_last: Some(lat_min),
                 lon_first: Some(lon_min),
                 lon_last: Some(lon_max),
-                reprojectable: true,
+                // The one geometry `meta_geometry` cannot rebuild from the DTO
+                // — a lookup grid *is* its index — so it is asked here, where
+                // the index is in hand. The handle caches it behind an `Arc`,
+                // so this clones the cells once per slice rather than once per
+                // render call, which is what keeps the index out of
+                // `meta_geometry`.
+                reprojectable: GridGeometry::Lookup((*index).clone())
+                    .reprojectable(Scan::north_down()),
                 // A lookup grid has no latitude axis to read an ordering from,
                 // so the rows are compared directly: mean latitude of the first
                 // row against the last. A mean rather than one column because
@@ -3779,44 +3689,57 @@ fn synth_latlon_meta(
     // storage order because there is no north to face.
     y_is_latitude: bool,
 ) -> MessageMeta {
-    MessageMeta {
-        grid_type: Some("latlon".to_string()),
-        // A NetCDF file carries no scanning mode, so the fact GRIB reads from
-        // flag 0x40 — do rows run south to north — is `SliceGeometry`'s own
-        // `lat_ascending`. Only set where the axis really is a latitude, which
-        // is the one part of the rule this seam still decides (#286).
-        j_scans_positive: geometry.filter(|_| y_is_latitude).map(|g| g.lat_ascending),
-        lat_first: geometry.map(|g| g.lat_first),
-        lon_first: geometry.map(|g| g.lon_first),
-        lat_last: geometry.map(|g| g.lat_last),
-        lon_last: geometry.map(|g| g.lon_last),
-        // A descending (east-to-west) longitude axis would be misread by the
-        // west-to-east inverse map as an antimeridian wrap — mirror the GRIB
-        // scanning-mode gate and offer only the source projection.
-        reprojectable: geometry.is_some_and(|g| !g.lon_descending),
-        ..base_netcdf_meta(name, units, ni, nj)
-    }
+    gate_reprojection(
+        MessageMeta {
+            grid_type: Some("latlon".to_string()),
+            // A NetCDF file carries no scanning mode, so the fact GRIB reads
+            // from flag 0x40 — do rows run south to north — is
+            // `SliceGeometry`'s own `lat_ascending`. Only set where the axis
+            // really is a latitude, which is the one part of the rule this seam
+            // still decides (#286).
+            j_scans_positive: geometry.filter(|_| y_is_latitude).map(|g| g.lat_ascending),
+            lat_first: geometry.map(|g| g.lat_first),
+            lon_first: geometry.map(|g| g.lon_first),
+            lat_last: geometry.map(|g| g.lat_last),
+            lon_last: geometry.map(|g| g.lon_last),
+            // Answered from the geometry by `gate_reprojection`.
+            reprojectable: false,
+            ..base_netcdf_meta(name, units, ni, nj)
+        },
+        // A descending (east-to-west) longitude axis is this file format's
+        // spelling of the GRIB −i scan bit: the west-to-east inverse map would
+        // read it as an antimeridian wrap. Handing it over as one flag is what
+        // lets `core` apply the same rule to both formats. A slice with no
+        // resolved geometry maps to `Unsupported`, which declines regardless.
+        Scan::new(geometry.is_some_and(|g| g.lon_descending), false, false),
+    )
 }
 
 /// Build a `"lambert"` [`MessageMeta`] from a WRF-resolved Lambert grid
 /// (decision 0004). The corner is the grid origin (first scanned point) and the
 /// `lambert_*` fields feed the same projector the GRIB2 §3.30 path uses.
 fn synth_lambert_meta(name: &str, units: &str, g: &WrfLambertGrid) -> MessageMeta {
-    gate_planar_reprojection(MessageMeta {
-        // WRF projects on its own 6 370 000 m sphere, not a WMO default.
-        earth_radius_metres: Some(WRF_EARTH_RADIUS_M),
-        grid_type: Some("lambert".to_string()),
-        lat_first: Some(g.lat_first),
-        lon_first: Some(g.lon_first),
-        lambert_lad: Some(g.lad),
-        lambert_lov: Some(g.lov),
-        lambert_dx_metres: Some(g.dx_metres),
-        lambert_dy_metres: Some(g.dy_metres),
-        lambert_latin1: Some(g.latin1),
-        lambert_latin2: Some(g.latin2),
-        reprojectable: true,
-        ..base_netcdf_meta(name, units, g.ni as i32, g.nj as i32)
-    })
+    gate_reprojection(
+        MessageMeta {
+            // WRF projects on its own 6 370 000 m sphere, not a WMO default.
+            earth_radius_metres: Some(WRF_EARTH_RADIUS_M),
+            grid_type: Some("lambert".to_string()),
+            lat_first: Some(g.lat_first),
+            lon_first: Some(g.lon_first),
+            lambert_lad: Some(g.lad),
+            lambert_lov: Some(g.lov),
+            lambert_dx_metres: Some(g.dx_metres),
+            lambert_dy_metres: Some(g.dy_metres),
+            lambert_latin1: Some(g.latin1),
+            lambert_latin2: Some(g.latin2),
+            // Answered from the geometry by `gate_reprojection`; a projected
+            // family reads no scan flag, having absorbed its direction bits
+            // into the signed spacings above.
+            reprojectable: false,
+            ..base_netcdf_meta(name, units, g.ni as i32, g.nj as i32)
+        },
+        Scan::north_down(),
+    )
 }
 
 /// Build a `"polar_stereo"` [`MessageMeta`] from a WRF-resolved polar
@@ -3824,35 +3747,49 @@ fn synth_lambert_meta(name: &str, units: &str, g: &WrfLambertGrid) -> MessageMet
 /// GRIB paths emit (routing into `polar_stereo_warp_setup`), distinct from the
 /// `"polar_stereographic"` *target*-projection picker option.
 fn synth_polar_stereo_meta(name: &str, units: &str, g: &WrfPolarStereoGrid) -> MessageMeta {
-    gate_planar_reprojection(MessageMeta {
-        // WRF projects on its own 6 370 000 m sphere, not a WMO default.
-        earth_radius_metres: Some(WRF_EARTH_RADIUS_M),
-        grid_type: Some("polar_stereo".to_string()),
-        lat_first: Some(g.lat_first),
-        lon_first: Some(g.lon_first),
-        polar_stereo_lov: Some(g.lov),
-        polar_stereo_lad: Some(g.lad),
-        polar_stereo_dx_metres: Some(g.dx_metres),
-        polar_stereo_dy_metres: Some(g.dy_metres),
-        polar_stereo_south_pole: Some(g.south_pole),
-        reprojectable: true,
-        ..base_netcdf_meta(name, units, g.ni as i32, g.nj as i32)
-    })
+    gate_reprojection(
+        MessageMeta {
+            // WRF projects on its own 6 370 000 m sphere, not a WMO default.
+            earth_radius_metres: Some(WRF_EARTH_RADIUS_M),
+            grid_type: Some("polar_stereo".to_string()),
+            lat_first: Some(g.lat_first),
+            lon_first: Some(g.lon_first),
+            polar_stereo_lov: Some(g.lov),
+            polar_stereo_lad: Some(g.lad),
+            polar_stereo_dx_metres: Some(g.dx_metres),
+            polar_stereo_dy_metres: Some(g.dy_metres),
+            polar_stereo_south_pole: Some(g.south_pole),
+            // Answered from the geometry by `gate_reprojection`; a projected
+            // family reads no scan flag, having absorbed its direction bits
+            // into the signed spacings above.
+            reprojectable: false,
+            ..base_netcdf_meta(name, units, g.ni as i32, g.nj as i32)
+        },
+        Scan::north_down(),
+    )
 }
 
 /// Build a `"mercator"` [`MessageMeta`] from a WRF-resolved Mercator grid
 /// (#220). Like the GRIB Mercator source, the grid is pinned entirely by its
 /// corner coordinates — no spacing or true-scale fields exist to copy.
 fn synth_mercator_meta(name: &str, units: &str, g: &WrfMercatorGrid) -> MessageMeta {
-    MessageMeta {
-        grid_type: Some("mercator".to_string()),
-        lat_first: Some(g.lat_first),
-        lon_first: Some(g.lon_first),
-        lat_last: Some(g.lat_last),
-        lon_last: Some(g.lon_last),
-        reprojectable: true,
-        ..base_netcdf_meta(name, units, g.ni as i32, g.nj as i32)
-    }
+    gate_reprojection(
+        MessageMeta {
+            grid_type: Some("mercator".to_string()),
+            lat_first: Some(g.lat_first),
+            lon_first: Some(g.lon_first),
+            lat_last: Some(g.lat_last),
+            lon_last: Some(g.lon_last),
+            // Answered from the geometry by `gate_reprojection`.
+            reprojectable: false,
+            ..base_netcdf_meta(name, units, g.ni as i32, g.nj as i32)
+        },
+        // WRF scans west-to-east (`+DX`), so the corner longitudes ascend and
+        // the scan is the operational default. A domain straddling the
+        // antimeridian (`lon_last < lon_first`) is an eastward wrap the
+        // corner-pinned inverse map already handles, not a descending axis.
+        Scan::north_down(),
+    )
 }
 
 /// Build a `"latlon"` [`MessageMeta`] from a WRF-resolved unrotated lat-lon grid
@@ -3864,15 +3801,23 @@ fn synth_mercator_meta(name: &str, units: &str, g: &WrfMercatorGrid) -> MessageM
 /// (`lon_last < lon_first`) is an eastward wrap the lat/lon inverse map already
 /// handles — not the descending axis the regular 1-D path guards against.
 fn synth_wrf_latlon_meta(name: &str, units: &str, g: &WrfLatLonGrid) -> MessageMeta {
-    MessageMeta {
-        grid_type: Some("latlon".to_string()),
-        lat_first: Some(g.lat_first),
-        lon_first: Some(g.lon_first),
-        lat_last: Some(g.lat_last),
-        lon_last: Some(g.lon_last),
-        reprojectable: true,
-        ..base_netcdf_meta(name, units, g.ni as i32, g.nj as i32)
-    }
+    gate_reprojection(
+        MessageMeta {
+            grid_type: Some("latlon".to_string()),
+            lat_first: Some(g.lat_first),
+            lon_first: Some(g.lon_first),
+            lat_last: Some(g.lat_last),
+            lon_last: Some(g.lon_last),
+            // Answered from the geometry by `gate_reprojection`.
+            reprojectable: false,
+            ..base_netcdf_meta(name, units, g.ni as i32, g.nj as i32)
+        },
+        // WRF scans west-to-east (`+DX`), so the corner longitudes ascend and
+        // the scan is the operational default. A domain straddling the
+        // antimeridian (`lon_last < lon_first`) is an eastward wrap the
+        // corner-pinned inverse map already handles, not a descending axis.
+        Scan::north_down(),
+    )
 }
 
 /// Build a `"space_view"` (geostationary) [`MessageMeta`] from a CF-resolved
@@ -3883,20 +3828,26 @@ fn synth_geostationary_meta(
     units: &str,
     g: &fieldglass_netcdf::GeostationaryGrid,
 ) -> MessageMeta {
-    gate_planar_reprojection(MessageMeta {
-        grid_type: Some("space_view".to_string()),
-        geos_sub_lon: Some(g.sub_lon_deg),
-        geos_height: Some(g.h_metres),
-        geos_r_eq: Some(g.r_eq),
-        geos_r_pol: Some(g.r_pol),
-        geos_sweep_x: Some(g.sweep_x),
-        geos_x0: Some(g.x0),
-        geos_dx_rad: Some(g.dx_rad),
-        geos_y0: Some(g.y0),
-        geos_dy_rad: Some(g.dy_rad),
-        reprojectable: true,
-        ..base_netcdf_meta(name, units, g.ni as i32, g.nj as i32)
-    })
+    gate_reprojection(
+        MessageMeta {
+            grid_type: Some("space_view".to_string()),
+            geos_sub_lon: Some(g.sub_lon_deg),
+            geos_height: Some(g.h_metres),
+            geos_r_eq: Some(g.r_eq),
+            geos_r_pol: Some(g.r_pol),
+            geos_sweep_x: Some(g.sweep_x),
+            geos_x0: Some(g.x0),
+            geos_dx_rad: Some(g.dx_rad),
+            geos_y0: Some(g.y0),
+            geos_dy_rad: Some(g.dy_rad),
+            // Answered from the geometry by `gate_reprojection`; a projected
+            // family reads no scan flag, having absorbed its direction bits
+            // into the signed spacings above.
+            reprojectable: false,
+            ..base_netcdf_meta(name, units, g.ni as i32, g.nj as i32)
+        },
+        Scan::north_down(),
+    )
 }
 
 fn grib1_dimensions(reader: &Grib1Reader, message_index: usize) -> napi::Result<(u32, u32)> {
@@ -4147,8 +4098,15 @@ fn rows_run_south_to_north(index: &SpatialIndex) -> Option<bool> {
     Some(row_mean(0)? < row_mean(nj - 1)?)
 }
 
+/// Whether the source view has to flip its rows, asked of `core`'s
+/// [`Scan`] rather than of the flag this DTO happens to carry (#571).
+///
+/// `MessageMeta` carries only the one direction bit the display needs, and a
+/// message with no scan flag at all (a predefined GRIB1 grid, a NetCDF variable
+/// whose Y axis is not a latitude) reads as north-down, which is
+/// [`Scan::north_down`].
 fn source_flip_y(meta: &MessageMeta, flip_y: bool) -> bool {
-    flip_y ^ meta.j_scans_positive.unwrap_or(false)
+    Scan::new(false, meta.j_scans_positive.unwrap_or(false), false).flips_source_rows(flip_y)
 }
 
 /// Validate a combine-op wire tag (see [`CombineOp`]) or return a napi error
@@ -4687,7 +4645,7 @@ fn warp_message(
         nj,
         sample: sample_ref,
         inverse_at: inverse_ref,
-        periodic_i: source_grid_is_periodic(meta, ni),
+        periodic_i: source_grid_is_periodic(meta),
         // A lookup grid answers with a cell, not a position inside one, and its
         // index-adjacent cells need not be spatially adjacent — a tripolar grid
         // folds. `warp` downgrades a bilinear request against it rather than
@@ -4705,7 +4663,7 @@ fn warp_message(
         nj,
         bbox_thunk,
         bounds_override,
-        source_grid_is_periodic(meta, ni),
+        source_grid_is_periodic(meta),
         lookup.is_some(),
     )?;
     let warped = built.warp(&source, resampling);
@@ -4838,7 +4796,7 @@ type BuiltWarpTarget = (BuiltTarget, Option<LonLatBox>);
 /// (#514). This is the only place that floor is applied, which is why the
 /// `"source"` target — which never reaches here — keeps its native size.
 /// `lon_periodic` says the *source* closes on itself in longitude
-/// ([`source_grid_is_periodic`]), which is what decides whether a full-turn
+/// ([`GridGeometry::is_periodic_x`]), which is what decides whether a full-turn
 /// window tiles as a circle or as an interval. It cannot be read back off the
 /// window: a grid that declares a duplicated seam column also spans exactly
 /// 360°, and wants the interval treatment.
@@ -5072,6 +5030,66 @@ fn raise_to_min_raster(dims: (u32, u32)) -> (u32, u32) {
 /// and the lazy lat/lon-box extent thunk. Shared by the warp (`warp_message`)
 /// and the overlay projection (`project_overlay`) so both derive identical
 /// target geometry from the same source parameters.
+/// The `core` geometry a finished [`MessageMeta`] describes.
+///
+/// The compatibility mapping this host keeps while the extension still reads
+/// `MessageMeta`'s field names (#464, #572). Everything `core` answers about a
+/// grid — is it periodic, does its contour seam wrap, can it be reprojected —
+/// is asked of a [`GridGeometry`] rather than of these fields, so the rules live
+/// in one crate and both hosts get the same answer (#571). The mapping is the
+/// only place left that dispatches on the grid-type string.
+///
+/// Built through the same `*_params` functions [`warp_setup_for`] uses, so a
+/// message this declines is exactly a message the warp would have refused, and
+/// the questions above answer as they did when the host owned them. A message
+/// that states no usable parameters for its declared family maps to
+/// [`GridGeometry::Unsupported`], carrying the family name so a caller can still
+/// say what was declined.
+///
+/// **`"curvilinear"` maps to `Unsupported`, deliberately.** Its `core` variant
+/// is [`GridGeometry::Lookup`], which owns its cell-centre index; the index is
+/// built once per slice and cached by the handle, and putting a copy in a value
+/// returned per operation would be an allocation over every cell of a swath.
+/// The two questions this seam asks are `false` for a lookup grid either way —
+/// it has no column axis to close — so the mapping is lossless for them. Its
+/// reprojection eligibility is answered where the index is in hand, in
+/// `NetcdfHandle::slice_meta`, and `GridGeometry::reprojectable`'s `Lookup` arm
+/// is the rule it states.
+fn meta_geometry(meta: &MessageMeta) -> GridGeometry {
+    let label = meta.grid_type.clone().unwrap_or_default();
+    let unsupported = || GridGeometry::Unsupported {
+        label: label.clone(),
+    };
+    let Ok(ni) = grid_ni(meta) else {
+        return unsupported();
+    };
+    let Ok(nj) = grid_nj(meta) else {
+        return unsupported();
+    };
+    let built = match label.as_str() {
+        // Reduced grids are widened to a regular Ni x Nj raster at decode time,
+        // so they arrive here as their regular sibling — the same collapse the
+        // two GRIB crates' `From<&…> for GridGeometry` impls make.
+        "latlon" | "reduced_latlon" => latlon_params(meta, ni, nj).map(GridGeometry::LatLon),
+        "gaussian" | "reduced_gaussian" => {
+            gaussian_params(meta, ni, nj).map(GridGeometry::Gaussian)
+        }
+        "mercator" => mercator_params(meta, ni, nj).map(GridGeometry::Mercator),
+        "rotated_latlon" => rotated_latlon_params(meta, ni, nj).map(GridGeometry::RotatedLatLon),
+        "lambert" => lambert_params(meta, ni, nj).map(GridGeometry::Lambert),
+        "polar_stereo" => polar_stereo_params(meta, ni, nj).map(GridGeometry::PolarStereo),
+        "transverse_mercator" => {
+            transverse_mercator_params(meta, ni, nj).map(GridGeometry::TransverseMercator)
+        }
+        "lambert_azimuthal" => {
+            lambert_azimuthal_params(meta, ni, nj).map(GridGeometry::LambertAzimuthal)
+        }
+        "space_view" => geostationary_params(meta, ni, nj).map(GridGeometry::Geostationary),
+        _ => return unsupported(),
+    };
+    built.unwrap_or_else(|_| unsupported())
+}
+
 fn warp_setup_for(
     meta: &MessageMeta,
     ni: u32,
@@ -5151,7 +5169,7 @@ fn project_overlay_impl(
                 nj,
                 bbox_thunk,
                 resolved.bounds,
-                source_grid_is_periodic(meta, ni),
+                source_grid_is_periodic(meta),
                 lookup.is_some(),
             )?;
             Ok(built.project(resolved.flip_y, latlon, ring_lengths))
@@ -5558,41 +5576,10 @@ fn levels_by_interval(min: f64, max: f64, step: f64) -> Vec<f64> {
 /// Whether the contour pass may march the seam cell that wraps column `ni - 1`
 /// round to column `0`.
 ///
-/// Two conditions, and both matter:
-///
-/// 1. The grid is periodic — decided by [`source_grid_is_periodic`], the same
-///    helper the probe uses (#332). That reads the GDS longitudes, which for a
-///    rotated grid are in *rotated* coordinates, the space the index actually
-///    wraps in. Deriving this from the forward map instead would compare
-///    *geographic* longitudes and could disagree with the probe about the very
-///    same grid.
-/// 2. The family's geographic longitude advances uniformly eastward with `i`.
-///    The seam interpolation runs in geographic lon (`forward` is the only
-///    coordinate the contour vertices ever see), so it is valid only where one
-///    step in `i` is one step east. A rotated grid's row is a small circle whose
-///    geographic longitude is neither uniform nor monotonic, so unwrapping its
-///    seam eastward could sweep most of the way round the globe and draw the
-///    rim-to-rim streak instead of closing a one-cell gap.
-///
-/// A rotated grid that is global in rotated longitude therefore keeps the seam
-/// gap for now — the pre-existing behaviour, not a regression. Closing it needs
-/// the seam interpolated in rotated space and rotated back, which is a larger
-/// change than the gap warrants.
-fn contour_seam_wraps(meta: &MessageMeta, ni: u32) -> bool {
-    // A reduced grid's rows are widened to evenly spaced columns before anything
-    // downstream sees them, so the raster is as uniform in longitude as a
-    // regular one — and periodic in the same way, which is what the seam needs
-    // (#503). Leaving them out gave the same grid a seam gap in GRIB1 and none
-    // in GRIB2.
-    let uniform_eastward_lon = matches!(
-        meta.grid_type.as_deref(),
-        Some("latlon")
-            | Some("mercator")
-            | Some("gaussian")
-            | Some("reduced_latlon")
-            | Some("reduced_gaussian")
-    );
-    uniform_eastward_lon && source_grid_is_periodic(meta, ni)
+/// [`GridGeometry::contour_seam_wraps`] owns the rule, and its two conditions;
+/// this is the DTO adapter (#571).
+fn contour_seam_wraps(meta: &MessageMeta) -> bool {
+    meta_geometry(meta).contour_seam_wraps()
 }
 
 /// Extract contour isolines from a decoded field and project them onto the same
@@ -5634,7 +5621,7 @@ fn project_contours_impl(
     // Each contour segment becomes a two-vertex ring in `(lat, lon)` order (what
     // `project_polylines` consumes); a vertex that can't be geolocated drops its
     // segment rather than the whole contour.
-    let periodic_i = contour_seam_wraps(meta, ni);
+    let periodic_i = contour_seam_wraps(meta);
     let contours = if periodic_i {
         contour_segments_global(raw, ni as usize, nj as usize, &levels)
     } else {
@@ -5747,7 +5734,7 @@ fn probe_impl(
                 nj,
                 bbox,
                 resolved.bounds,
-                source_grid_is_periodic(meta, ni),
+                source_grid_is_periodic(meta),
                 lookup.is_some(),
             )?;
             let (w, h) = built.dims();
@@ -5773,7 +5760,7 @@ fn probe_impl(
                     // off the grid and reporting "no data" for a painted pixel
                     // (#332). A bounded grid clamps defensively against float
                     // error at the edge, matching the renderer.
-                    let gi = if source_grid_is_periodic(meta, ni) {
+                    let gi = if source_grid_is_periodic(meta) {
                         idx.i.round().rem_euclid(ni as f64) as i64
                     } else {
                         idx.i.round().clamp(0.0, (ni - 1) as f64) as i64
@@ -5819,62 +5806,52 @@ fn resolve_box_extent(bbox: BboxThunk, bounds_override: Option<LonLatBox>) -> Lo
     bounds_override.unwrap_or_else(bbox)
 }
 
-/// The render window of a corner-pinned west-to-east grid, shared by the
-/// lat/lon, Gaussian, and Mercator setups.
+/// The render window a warp target frames a grid with, from `core`.
 ///
-/// `LonLatBox::from_corners` gives where the data is, unwrapping an
-/// antimeridian-crossing grid so the span is the grid's true one rather than a
-/// collapsed `min..max` sliver; a global grid is then widened through the seam
-/// gap to the full turn so the wrap column at the eastern edge is painted too
-/// (the periodic sampler fills it). `lon_max` may therefore exceed 360°, which
-/// the warp targets accept — query longitudes wrap to the nearest 360°
-/// multiple.
-fn latlon_family_bbox(corners: CornerPair, ni: u32) -> LonLatBox {
-    let extent = LonLatBox::from_corners(corners);
-    if lon_grid_is_global(eastward_lon_span(corners.lon_first, corners.lon_last), ni) {
-        extent.widened_to_full_turn()
-    } else {
-        extent
-    }
+/// [`GridGeometry::render_window`] is the whole rule: the grid's own extent,
+/// carried a full turn east when the grid is periodic so the wrap column at the
+/// eastern edge is painted too (the periodic sampler fills it). `lon_max` may
+/// therefore exceed 360°, which the warp targets accept — query longitudes wrap
+/// to the nearest 360° multiple.
+///
+/// A family with no extent falls back to the whole globe. That is unreachable
+/// for every family routed here: each has already built its parameters, and a
+/// geographic grid always states an extent. It exists so the thunk needs no
+/// panic, the same reason `curvilinear_warp_setup` carries one.
+fn geometry_render_window(geometry: &GridGeometry) -> LonLatBox {
+    geometry
+        .render_window()
+        .unwrap_or(LonLatBox::new(-90.0, 90.0, -180.0, 180.0))
 }
 
-/// Whether the source grid is periodic in its column axis: a corner-pinned
-/// west-to-east grid whose columns cover the full globe, so the warp may wrap
-/// column indices across the seam (see `SourceGrid::periodic_i`). Rotated
-/// lat/lon is judged in its rotated frame, matching its inverse map; planar
-/// grids are never periodic.
-fn source_grid_is_periodic(meta: &MessageMeta, ni: u32) -> bool {
-    match meta.grid_type.as_deref() {
-        Some("latlon")
-        | Some("gaussian")
-        | Some("mercator")
-        | Some("rotated_latlon")
-        | Some("reduced_latlon")
-        | Some("reduced_gaussian") => match (meta.lon_first, meta.lon_last) {
-            (Some(first), Some(last)) => lon_grid_is_global(eastward_lon_span(first, last), ni),
-            _ => false,
-        },
-        _ => false,
-    }
+/// Whether the source grid is periodic in its column axis, so the warp may wrap
+/// column indices across the seam (see `SourceGrid::periodic_i`).
+///
+/// [`GridGeometry::is_periodic_x`] owns the rule; this is the DTO adapter
+/// (#571). It used to be a grid-type allow-list here and a second one in
+/// `fieldglass`, and the two disagreed about rotated lat/lon.
+fn source_grid_is_periodic(meta: &MessageMeta) -> bool {
+    meta_geometry(meta).is_periodic_x()
 }
 
-fn latlon_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
-    let p = LatLonParams {
+/// Regular lat/lon (and a reduced grid already widened to one) parameters,
+/// shared by the warp setup and [`meta_geometry`] — see [`lambert_params`].
+fn latlon_params(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<LatLonParams> {
+    Ok(LatLonParams {
         ni,
         nj,
         lat_first: require_f64(meta.lat_first, "latFirst")?,
         lon_first: require_f64(meta.lon_first, "lonFirst")?,
         lat_last: require_f64(meta.lat_last, "latLast")?,
         lon_last: require_f64(meta.lon_last, "lonLast")?,
-    };
+    })
+}
+
+fn latlon_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
+    let p = latlon_params(meta, ni, nj)?;
     let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
         Box::new(move |lat, lon| latlon_inverse(&p, lat, lon));
-    let bbox: BboxThunk = Box::new(move || {
-        latlon_family_bbox(
-            CornerPair::new(p.lat_first, p.lon_first, p.lat_last, p.lon_last),
-            p.ni,
-        )
-    });
+    let bbox: BboxThunk = Box::new(move || geometry_render_window(&GridGeometry::LatLon(p)));
     Ok((inverse, bbox))
 }
 
@@ -5914,12 +5891,14 @@ fn curvilinear_warp_setup(lookup: Option<&SpatialIndex>) -> napi::Result<WarpSet
     Ok((inverse, bbox))
 }
 
-fn gaussian_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
+/// Gaussian (and reduced-Gaussian, already widened) parameters, shared by the
+/// warp setup and [`meta_geometry`] — see [`lambert_params`].
+fn gaussian_params(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<GaussianParams> {
     let n_parallels = meta
         .gaussian_n_parallels
         .ok_or_else(|| napi::Error::from_reason("missing gaussianNParallels".to_string()))?
         as u32;
-    let p = GaussianParams {
+    Ok(GaussianParams {
         ni,
         nj,
         lat_first: require_f64(meta.lat_first, "latFirst")?,
@@ -5927,47 +5906,53 @@ fn gaussian_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<War
         lat_last: require_f64(meta.lat_last, "latLast")?,
         lon_last: require_f64(meta.lon_last, "lonLast")?,
         n_parallels,
-    };
+    })
+}
+
+fn gaussian_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
+    let p = gaussian_params(meta, ni, nj)?;
     // `GaussianProjector` caches the row-ordered Gauss-Legendre lats
     // once; the inverse closure reuses it for every pixel.
     let projector = GaussianProjector::new(p);
     let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
         Box::new(move |lat, lon| projector.inverse(lat, lon));
-    let bbox: BboxThunk = Box::new(move || {
-        latlon_family_bbox(
-            CornerPair::new(p.lat_first, p.lon_first, p.lat_last, p.lon_last),
-            p.ni,
-        )
-    });
+    let bbox: BboxThunk = Box::new(move || geometry_render_window(&GridGeometry::Gaussian(p)));
     Ok((inverse, bbox))
 }
 
-fn mercator_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
-    let p = MercatorParams {
+/// Mercator parameters, shared by the warp setup and [`meta_geometry`] — see
+/// [`lambert_params`].
+fn mercator_params(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<MercatorParams> {
+    Ok(MercatorParams {
         ni,
         nj,
         lat_first: require_f64(meta.lat_first, "latFirst")?,
         lon_first: require_f64(meta.lon_first, "lonFirst")?,
         lat_last: require_f64(meta.lat_last, "latLast")?,
         lon_last: require_f64(meta.lon_last, "lonLast")?,
-    };
+    })
+}
+
+fn mercator_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
+    let p = mercator_params(meta, ni, nj)?;
     let inverse: Box<dyn Fn(f64, f64) -> Option<GridIndex>> =
         Box::new(move |lat, lon| mercator_inverse(&p, lat, lon));
     // The §3.10 corner coordinates are geographic, so the source extent is the
     // axis-aligned box they span — same as the regular lat/lon source. (The
     // rows are non-uniform in latitude, but the box is still bounded by the
     // corner latitudes.)
-    let bbox: BboxThunk = Box::new(move || {
-        latlon_family_bbox(
-            CornerPair::new(p.lat_first, p.lon_first, p.lat_last, p.lon_last),
-            p.ni,
-        )
-    });
+    let bbox: BboxThunk = Box::new(move || geometry_render_window(&GridGeometry::Mercator(p)));
     Ok((inverse, bbox))
 }
 
-fn rotated_latlon_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
-    let p = RotatedLatLonParams {
+/// Rotated lat/lon parameters, shared by the warp setup and [`meta_geometry`]
+/// — see [`lambert_params`]. The corners stay rotated-frame degrees.
+fn rotated_latlon_params(
+    meta: &MessageMeta,
+    ni: u32,
+    nj: u32,
+) -> napi::Result<RotatedLatLonParams> {
+    Ok(RotatedLatLonParams {
         ni,
         nj,
         lat_first: require_f64(meta.lat_first, "latFirst")?,
@@ -5977,7 +5962,11 @@ fn rotated_latlon_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Resu
         south_pole_lat: require_f64(meta.rotated_south_pole_lat, "rotatedSouthPoleLat")?,
         south_pole_lon: require_f64(meta.rotated_south_pole_lon, "rotatedSouthPoleLon")?,
         angle_of_rotation: require_f64(meta.rotated_angle_of_rotation, "rotatedAngleOfRotation")?,
-    };
+    })
+}
+
+fn rotated_latlon_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
+    let p = rotated_latlon_params(meta, ni, nj)?;
     // `RotatedLatLonProjector` caches the rotated-frame corner grid once; the
     // inverse closure reuses it for every output pixel.
     let projector = RotatedLatLonProjector::new(p);
@@ -5987,7 +5976,7 @@ fn rotated_latlon_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Resu
     // geographic lat/lon source — the geographic extent is a curved region. The
     // projector walks the rotated-grid perimeter and unrotates it to derive a
     // tight lat/lon box.
-    let bbox: BboxThunk = Box::new(move || RotatedLatLonProjector::new(p).lonlat_bbox());
+    let bbox: BboxThunk = Box::new(move || geometry_render_window(&GridGeometry::RotatedLatLon(p)));
     Ok((inverse, bbox))
 }
 
@@ -6279,8 +6268,10 @@ fn transverse_mercator_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi:
     Ok((inverse, bbox))
 }
 
-fn geostationary_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
-    let p = GeostationaryParams {
+/// Geostationary (§3.90 / CF grid mapping) parameters, shared by the warp setup
+/// and [`meta_geometry`] — see [`lambert_params`].
+fn geostationary_params(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<GeostationaryParams> {
+    Ok(GeostationaryParams {
         ni,
         nj,
         h_metres: require_f64(meta.geos_height, "geosHeight")?,
@@ -6294,7 +6285,11 @@ fn geostationary_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Resul
         dx_rad: require_nonzero_spacing(meta.geos_dx_rad, "geosDxRad")?,
         y0: require_f64(meta.geos_y0, "geosY0")?,
         dy_rad: require_nonzero_spacing(meta.geos_dy_rad, "geosDyRad")?,
-    };
+    })
+}
+
+fn geostationary_warp_setup(meta: &MessageMeta, ni: u32, nj: u32) -> napi::Result<WarpSetup> {
+    let p = geostationary_params(meta, ni, nj)?;
 
     let projector = GeostationaryProjector::new(p);
     // The space view's analogue of `require_radius_spans_a_cell`. Its grid is
@@ -7622,136 +7617,15 @@ mod polar_stereo_warp_tests {
     }
 }
 
-#[cfg(test)]
-mod reprojectable_tests {
-    use super::grid_is_reprojectable;
-
-    #[test]
-    fn latlon_gaussian_and_mercator_reproject_when_scanning_west_to_east() {
-        // These three are pinned by their corner coordinates alone, so they
-        // never depend on a metric grid spacing.
-        assert!(grid_is_reprojectable(Some("latlon"), None, None, false));
-        assert!(grid_is_reprojectable(Some("gaussian"), None, None, false));
-        assert!(grid_is_reprojectable(Some("mercator"), None, None, false));
-        // Rotated lat/lon is pinned by its rotated corners + pole position, so
-        // it too needs no metric spacing.
-        assert!(grid_is_reprojectable(
-            Some("rotated_latlon"),
-            None,
-            None,
-            false
-        ));
-    }
-
-    #[test]
-    fn descending_scan_keeps_corner_pinned_grids_in_source_projection() {
-        // A −i (east-to-west) scan would be misread by the west-to-east
-        // inverse maps as an antimeridian wrap, so those grids don't offer
-        // reprojection.
-        assert!(!grid_is_reprojectable(Some("latlon"), None, None, true));
-        assert!(!grid_is_reprojectable(Some("gaussian"), None, None, true));
-        assert!(!grid_is_reprojectable(Some("mercator"), None, None, true));
-        assert!(!grid_is_reprojectable(
-            Some("rotated_latlon"),
-            None,
-            None,
-            true
-        ));
-        // The planar projections bake the scan sign into Dx, so the flag
-        // doesn't gate them.
-        assert!(grid_is_reprojectable(
-            Some("lambert"),
-            Some(-81_271.0),
-            Some(81_271.0),
-            true
-        ));
-    }
-
-    #[test]
-    fn planar_grids_need_nonzero_spacing() {
-        // Real spacing → reprojectable.
-        assert!(grid_is_reprojectable(
-            Some("lambert"),
-            Some(81_271.0),
-            Some(81_271.0),
-            false
-        ));
-        assert!(grid_is_reprojectable(
-            Some("polar_stereo"),
-            Some(60_000.0),
-            Some(60_000.0),
-            false
-        ));
-        // Space view carries its scan-angle increments through the same
-        // spacing slots; a real apparent diameter → reprojectable.
-        assert!(grid_is_reprojectable(
-            Some("space_view"),
-            Some(5.6e-5),
-            Some(5.6e-5),
-            false
-        ));
-        // Degenerate Dx/Dy (eccodes' polar_stereographic sample) → not.
-        assert!(!grid_is_reprojectable(
-            Some("polar_stereo"),
-            Some(0.0),
-            Some(0.0),
-            false
-        ));
-        assert!(!grid_is_reprojectable(Some("lambert"), None, None, false));
-        // Transverse Mercator joins the planar family: usable spacings
-        // reproject, and an i-negative scan is fine because the sign is baked
-        // into them.
-        assert!(grid_is_reprojectable(
-            Some("transverse_mercator"),
-            Some(-48_000.0),
-            Some(-48_000.0),
-            true
-        ));
-        assert!(!grid_is_reprojectable(
-            Some("transverse_mercator"),
-            None,
-            None,
-            false
-        ));
-        // Lambert azimuthal equal-area joins them on the same terms.
-        assert!(grid_is_reprojectable(
-            Some("lambert_azimuthal"),
-            Some(200_000.0),
-            Some(200_000.0),
-            false
-        ));
-        assert!(!grid_is_reprojectable(
-            Some("lambert_azimuthal"),
-            Some(0.0),
-            Some(200_000.0),
-            false
-        ));
-        // Orthographic space view (no camera altitude) leaves the increments
-        // unset, so it does not reproject.
-        assert!(!grid_is_reprojectable(
-            Some("space_view"),
-            None,
-            None,
-            false
-        ));
-    }
-
-    #[test]
-    fn unsupported_grid_types_are_not_reprojectable() {
-        assert!(!grid_is_reprojectable(Some("unknown"), None, None, false));
-        assert!(!grid_is_reprojectable(None, None, None, false));
-    }
-}
-
-/// The other half of the planar rule: a grid whose spacings are fine and whose
-/// projection still places no point must not be offered a reprojection target
-/// the warp will refuse (#610). `grid_is_reprojectable` cannot ask that — it
-/// sees a grid type and two numbers — so every builder routes its finished meta
-/// through `gate_planar_reprojection`, and these are the tests of that gate.
+/// The host seam of the reprojection rule. The rule itself is
+/// `GridGeometry::reprojectable` and is tested per family in `fieldglass-core`;
+/// these are the tests that a finished `MessageMeta` reaches it — including the
+/// case that used to need a second pass of its own, a grid whose spacings are
+/// fine and whose projection still places no point (#603, #610).
 #[cfg(test)]
 mod planar_offer_needs_a_placeable_projection_tests {
     use super::{
-        MessageMeta, build_grib1_message_meta, gate_planar_reprojection, synth_geostationary_meta,
+        MessageMeta, Scan, build_grib1_message_meta, gate_reprojection, synth_geostationary_meta,
         synth_lambert_meta, synth_polar_stereo_meta,
     };
     use fieldglass_netcdf::{GeostationaryGrid, WrfLambertGrid, WrfPolarStereoGrid};
@@ -8049,7 +7923,7 @@ mod planar_offer_needs_a_placeable_projection_tests {
     #[test]
     fn the_gate_is_the_warps_own_answer_for_every_planar_family() {
         let placeable = synth_lambert_meta("t2", "K", &wrf_lambert());
-        assert!(gate_planar_reprojection(placeable).reprojectable);
+        assert!(gate_reprojection(placeable, Scan::north_down()).reprojectable);
 
         // A planar grid with no raster shape has nothing to reproject, and the
         // warp is never reached to say so.
@@ -8058,25 +7932,46 @@ mod planar_offer_needs_a_placeable_projection_tests {
             grid_nj: None,
             ..synth_lambert_meta("t2", "K", &wrf_lambert())
         };
-        assert!(!gate_planar_reprojection(shapeless).reprojectable);
+        assert!(!gate_reprojection(shapeless, Scan::north_down()).reprojectable);
 
-        // A family the gate does not re-ask keeps whatever
-        // `grid_is_reprojectable` decided: its rule includes conditions the warp
-        // setup never sees (a descending scan, a descending longitude axis), and
-        // a curvilinear grid's setup needs a spatial index this has no access to.
-        let curvilinear = MessageMeta {
-            grid_type: Some("curvilinear".to_string()),
+        // The gate *answers* rather than narrows, which is the difference #571
+        // made: whatever the field arrived holding is overwritten by the
+        // geometry's own answer, so a `true` that was never earned cannot
+        // survive and a `false` cannot suppress a grid the warp would take.
+        let stale_true = MessageMeta {
             reprojectable: true,
-            ..synth_lambert_meta("t2", "K", &wrf_lambert())
+            ..synth_polar_stereo_meta(
+                "t2",
+                "K",
+                &WrfPolarStereoGrid {
+                    // Wider than WRF's own 6 370 km sphere: the plane collapses.
+                    dx_metres: 12_000_000.0,
+                    dy_metres: 12_000_000.0,
+                    ..wrf_polar_stereo()
+                },
+            )
         };
-        assert!(gate_planar_reprojection(curvilinear).reprojectable);
-
-        // And a grid `grid_is_reprojectable` already turned away is not revived.
-        let already_refused = MessageMeta {
+        assert!(!gate_reprojection(stale_true, Scan::north_down()).reprojectable);
+        let stale_false = MessageMeta {
             reprojectable: false,
             ..synth_lambert_meta("t2", "K", &wrf_lambert())
         };
-        assert!(!gate_planar_reprojection(already_refused).reprojectable);
+        assert!(gate_reprojection(stale_false, Scan::north_down()).reprojectable);
+
+        // The corner-pinned families are the only ones that read the scan, and
+        // a −i grid stays in its source projection: their inverse maps assume
+        // columns run west to east.
+        let corner_pinned = || MessageMeta {
+            grid_type: Some("latlon".to_string()),
+            lat_last: Some(20.0),
+            lon_last: Some(30.0),
+            ..synth_lambert_meta("t2", "K", &wrf_lambert())
+        };
+        assert!(gate_reprojection(corner_pinned(), Scan::north_down()).reprojectable);
+        assert!(
+            !gate_reprojection(corner_pinned(), Scan::new(true, false, false)).reprojectable,
+            "a −i scan keeps a corner-pinned grid in its source projection"
+        );
     }
 }
 
@@ -8739,7 +8634,7 @@ mod netcdf_slice_tests {
             lat_ascending: false,
         };
         let meta = synth_latlon_meta("sst", "degree_C", 180, 89, Some(global), false);
-        assert!(source_grid_is_periodic(&meta, 180));
+        assert!(source_grid_is_periodic(&meta));
 
         // A 90°-wide regional window is not periodic.
         let regional = fieldglass_netcdf::SliceGeometry {
@@ -8749,12 +8644,12 @@ mod netcdf_slice_tests {
             ..global
         };
         let meta = synth_latlon_meta("t", "K", 10, 89, Some(regional), false);
-        assert!(!source_grid_is_periodic(&meta, 10));
+        assert!(!source_grid_is_periodic(&meta));
 
         // Planar grid types never wrap, whatever their corners say.
         let mut planar = synth_latlon_meta("t", "K", 180, 89, Some(global), false);
         planar.grid_type = Some("lambert".to_string());
-        assert!(!source_grid_is_periodic(&planar, 180));
+        assert!(!source_grid_is_periodic(&planar));
     }
 
     /// End-to-end: open the committed classic ERSST fixture, pick the bottom
@@ -9159,14 +9054,13 @@ mod netcdf_slice_tests {
     fn the_contour_seam_wrap_skips_rotated_grids_even_when_globally_spanning() {
         // Rotated, and global *in rotated longitude* (0..337.5 over 16 columns
         // is a full turn once the 22.5 step is counted).
-        let mut rotated = global_latlon_meta(16, 4);
-        rotated.grid_type = Some("rotated_latlon".to_string());
+        let rotated = as_family(global_latlon_meta(16, 4), "rotated_latlon");
         assert!(
-            source_grid_is_periodic(&rotated, 16),
+            source_grid_is_periodic(&rotated),
             "the grid really is periodic in its own (rotated) longitude",
         );
         assert!(
-            !contour_seam_wraps(&rotated, 16),
+            !contour_seam_wraps(&rotated),
             "but the contour seam must not wrap it: the interpolation runs in \
              geographic lon, which is not uniform along a rotated row",
         );
@@ -9178,18 +9072,16 @@ mod netcdf_slice_tests {
     #[test]
     fn the_contour_seam_wrap_covers_the_uniform_longitude_families() {
         for family in ["latlon", "mercator", "gaussian"] {
-            let mut meta = global_latlon_meta(8, 4);
-            meta.grid_type = Some(family.to_string());
+            let meta = as_family(global_latlon_meta(8, 4), family);
             assert!(
-                contour_seam_wraps(&meta, 8),
+                contour_seam_wraps(&meta),
                 "{family}: a global grid of this family must wrap the seam",
             );
             // Regional grids of the same family must not.
-            let mut regional = global_latlon_meta(8, 4);
-            regional.grid_type = Some(family.to_string());
+            let mut regional = as_family(global_latlon_meta(8, 4), family);
             regional.lon_last = Some(40.0);
             assert!(
-                !contour_seam_wraps(&regional, 8),
+                !contour_seam_wraps(&regional),
                 "{family}: a regional grid must keep the bounded march",
             );
         }
@@ -9203,15 +9095,14 @@ mod netcdf_slice_tests {
     fn contour_and_probe_agree_on_periodicity_for_the_families_contours_wrap() {
         for family in ["latlon", "mercator", "gaussian"] {
             for (lon_last, want) in [(360.0 - 360.0 / 8.0, true), (40.0, false)] {
-                let mut meta = global_latlon_meta(8, 4);
-                meta.grid_type = Some(family.to_string());
+                let mut meta = as_family(global_latlon_meta(8, 4), family);
                 meta.lon_last = Some(lon_last);
                 assert_eq!(
-                    contour_seam_wraps(&meta, 8),
-                    source_grid_is_periodic(&meta, 8),
+                    contour_seam_wraps(&meta),
+                    source_grid_is_periodic(&meta),
                     "{family} lon_last={lon_last}: the two must not disagree",
                 );
-                assert_eq!(contour_seam_wraps(&meta, 8), want);
+                assert_eq!(contour_seam_wraps(&meta), want);
             }
         }
     }
@@ -9223,6 +9114,28 @@ mod netcdf_slice_tests {
         let mut meta = latlon_meta(ni, nj);
         meta.lon_first = Some(0.0);
         meta.lon_last = Some(360.0 - 360.0 / ni as f64);
+        meta
+    }
+
+    /// Re-label a corner-pinned meta as another corner-pinned family, filling in
+    /// the fields that family also states.
+    ///
+    /// Those fields are not decoration: every question about a grid is now asked
+    /// of the `core` geometry a meta maps to (#571), and a meta that names a
+    /// family without stating its parameters maps to no geometry at all. A real
+    /// message always states them — §3.40's `n_parallels`, §3.1's rotated pole —
+    /// so filling them in is what makes these metas the messages they claim to
+    /// be rather than a shape that only survived a string comparison.
+    fn as_family(mut meta: MessageMeta, family: &str) -> MessageMeta {
+        meta.grid_type = Some(family.to_string());
+        if family == "gaussian" {
+            meta.gaussian_n_parallels = meta.grid_nj.map(|nj| nj / 2);
+        }
+        if family == "rotated_latlon" {
+            meta.rotated_south_pole_lat = Some(-30.0);
+            meta.rotated_south_pole_lon = Some(10.0);
+            meta.rotated_angle_of_rotation = Some(0.0);
+        }
         meta
     }
 
@@ -9458,6 +9371,125 @@ mod netcdf_slice_tests {
             }
         }
         assert!(painted > 0, "the global render has painted pixels");
+    }
+
+    /// A rotated grid that closes on itself frames the whole turn, seam wedge
+    /// included — the behaviour the two hosts disagreed about before #571.
+    ///
+    /// `fieldglass::session::warp_field` widened a periodic grid's window; this
+    /// host handed the rotated projector's perimeter walk straight to the warp
+    /// target. That walk bounds the *declared columns*, and on a periodic grid
+    /// they stop one step short of the seam — so the wedge between the last
+    /// column and the first was never framed. On this 16-column grid the walk
+    /// spans 304.4° and the turn is 360°, so 55.6° of the map went missing.
+    ///
+    /// **Equirectangular, not a world projection, and that is a measured
+    /// choice.** #332 / #346 recorded that a seam *gap* is invisible in
+    /// equirectangular, and #571's own notes carried that forward — but that
+    /// constraint is about *sampling* across the seam, where an `ni`-wide raster
+    /// lands its last pixel on the seam meridian and wraps it to column 0 by
+    /// accident. The window is a different question, and only the two box
+    /// targets ever ask it: `build_warp_target` hands `bbox_thunk` to
+    /// `Equirectangular` and `WebMercator` and to nothing else, because
+    /// Mollweide, Robinson, Equal Earth, orthographic and polar stereographic
+    /// frame the whole globe by construction. A world projection cannot see this
+    /// change at all — verified by writing the test that way first and finding
+    /// `used_lon_min` absent. The sampling half is still covered, below.
+    #[test]
+    fn a_periodic_rotated_grid_frames_the_seam_wedge() {
+        // 16 columns from 0° to 337.5° in the *rotated* frame: a full turn once
+        // the 22.5° step is counted, which is what makes it periodic.
+        let mut meta = latlon_meta(16, 8);
+        meta.grid_type = Some("rotated_latlon".to_string());
+        meta.lat_first = Some(40.0);
+        meta.lat_last = Some(-40.0);
+        meta.lon_first = Some(0.0);
+        meta.lon_last = Some(337.5);
+        meta.rotated_south_pole_lat = Some(-30.0);
+        meta.rotated_south_pole_lon = Some(10.0);
+        meta.rotated_angle_of_rotation = Some(0.0);
+        let raw: Vec<Option<f64>> = (0..16 * 8).map(|k| Some((k % 16) as f64)).collect();
+
+        let rendered = render_with_options(&meta, &raw, &opts("equirectangular"), None)
+            .expect("a periodic rotated grid renders onto a box target");
+        let (lon_min, lon_max) = (
+            rendered.used_lon_min.expect("a box target states a window"),
+            rendered.used_lon_max.expect("a box target states a window"),
+        );
+        assert!(
+            (lon_max - lon_min - 360.0).abs() < 1e-9,
+            "the window must run the full turn, got {lon_min}..{lon_max} ({}°)",
+            lon_max - lon_min
+        );
+
+        // A regional rotated grid keeps its walked perimeter: the widening is
+        // the periodic grid's, not every rotated grid's.
+        let mut regional = meta;
+        regional.lon_last = Some(40.0);
+        let framed = render_with_options(&regional, &raw, &opts("equirectangular"), None)
+            .expect("a regional rotated grid renders too");
+        let span = framed.used_lon_max.expect("window") - framed.used_lon_min.expect("window");
+        assert!(
+            span < 359.0,
+            "a regional rotated grid must keep its own extent, got {span}°"
+        );
+    }
+
+    /// The sampling half of the same grid, on a world projection because that is
+    /// the target that oversamples the seam (#332 / #346). Nothing covered a
+    /// periodic *rotated* grid here: `contour_seam_wraps` excludes the family
+    /// while `is_periodic_x` includes it, so the warp wraps its column indices
+    /// and the contour tracer does not, and a pixel landing in the seam cell
+    /// must still resolve to a real column rather than rounding off the grid.
+    #[test]
+    fn a_periodic_rotated_grid_samples_its_seam_cell_on_a_world_projection() {
+        let mut meta = latlon_meta(16, 8);
+        meta.grid_type = Some("rotated_latlon".to_string());
+        meta.lat_first = Some(40.0);
+        meta.lat_last = Some(-40.0);
+        meta.lon_first = Some(0.0);
+        meta.lon_last = Some(337.5);
+        meta.rotated_south_pole_lat = Some(-30.0);
+        meta.rotated_south_pole_lon = Some(10.0);
+        meta.rotated_angle_of_rotation = Some(0.0);
+        let raw: Vec<Option<f64>> = (0..16 * 8).map(|k| Some((k % 16) as f64)).collect();
+
+        let (_, _, rw, rh, _, _) = warp_message(
+            &meta,
+            &raw,
+            WarpTarget::Mollweide { lon0: 0.0 },
+            Resampling::Nearest,
+            None,
+            None,
+        )
+        .expect("mollweide warp");
+        let stride = (rw.max(rh) as usize / 32).max(1);
+        let mut resolved = 0;
+        for py in (0..rh).step_by(stride) {
+            for px in (0..rw).step_by(stride) {
+                let Some(r) =
+                    probe_impl(&meta, &raw, &opts("mollweide"), px, py, None).expect("probe ok")
+                else {
+                    continue;
+                };
+                // A rotated band covers a band, so most on-globe pixels are off
+                // its coverage and report no cell at all. The ones that do
+                // report a cell are what this pins: the periodic wrap sends the
+                // seam cell's index back to column 0 rather than off the end,
+                // which is where `ni` would have gone.
+                let Some(i) = r.grid_i else { continue };
+                resolved += 1;
+                assert!(
+                    (0..16).contains(&i) && r.value.is_some(),
+                    "pixel ({px},{py}) resolved to cell {i}, value {:?}",
+                    r.value
+                );
+            }
+        }
+        assert!(
+            resolved > 0,
+            "the rotated band must resolve somewhere on the globe"
+        );
     }
 
     /// End-to-end on the NetCDF-4 / HDF5 backing (#169): open the dimension-scale
