@@ -55,9 +55,11 @@ pub struct LambertAzimuthalParams {
 /// Authalic-projection constants for one spheroid and tangent point. All of it
 /// depends only on `(a, b, standard_parallel)`, so a warp loop computes it once.
 ///
-/// `pub` so projector helpers can hand them around; the fields are private.
+/// Crate-internal: the projector holds one and the module's helpers pass it
+/// around. A caller reaches the same maths through
+/// [`LambertAzimuthalProjector`].
 #[derive(Debug, Clone, Copy)]
-pub struct LambertAzimuthalConstants {
+pub(crate) struct LambertAzimuthalConstants {
     /// First eccentricity, and its square. Zero for a sphere, which collapses
     /// every correction below.
     e: f64,

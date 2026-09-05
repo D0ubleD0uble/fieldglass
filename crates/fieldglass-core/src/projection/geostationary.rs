@@ -55,9 +55,10 @@ pub struct GeostationaryParams {
 /// Ellipsoid and sub-satellite terms derived once from a
 /// [`GeostationaryParams`], since a warp reuses them for every pixel.
 ///
-/// `pub` so projector helpers can hand them around; the fields are private.
+/// Crate-internal: the projector holds one and the module's helpers pass it
+/// around. A caller reaches the same maths through [`GeostationaryProjector`].
 #[derive(Debug, Clone, Copy)]
-pub struct GeostationaryConstants {
+pub(crate) struct GeostationaryConstants {
     sub_lon_rad: f64,
     /// `(r_pol/r_eq)²` — folds the geodetic→geocentric latitude conversion.
     ratio2: f64,

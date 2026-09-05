@@ -63,9 +63,11 @@ pub struct TransverseMercatorParams {
 /// reference latitude. All of it depends only on `(a, b, lat_ref)`, so a warp
 /// loop computes it once.
 ///
-/// `pub` so projector helpers can hand them around; the fields are private.
+/// Crate-internal: the projector holds one and the module's helpers pass it
+/// around. A caller reaches the same maths through
+/// [`TransverseMercatorProjector`].
 #[derive(Debug, Clone, Copy)]
-pub struct TransverseMercatorConstants {
+pub(crate) struct TransverseMercatorConstants {
     /// Third flattening, `n = f / (2 - f)`. Zero for a sphere, which zeroes
     /// every series coefficient below.
     n: f64,

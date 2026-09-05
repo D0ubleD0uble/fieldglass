@@ -45,9 +45,10 @@ pub struct PolarStereoParams {
 /// Pole-scale terms derived once from a [`PolarStereoParams`], since a warp
 /// reuses them for every pixel.
 ///
-/// `pub` so projector helpers can hand them around; the fields are private.
+/// Crate-internal: the projector holds one and the module's helpers pass it
+/// around. A caller reaches the same maths through [`PolarStereoProjector`].
 #[derive(Debug, Clone, Copy)]
-pub struct PolarStereoConstants {
+pub(crate) struct PolarStereoConstants {
     /// `2 · R · k₀` where `k₀ = (1 + sin|LaD|)/2` is the pole scale factor for
     /// a projection whose latitude of true scale is `LaD` (Snyder PP-1395,
     /// eq. 21-15). The product is what every forward/inverse formula consumes.
