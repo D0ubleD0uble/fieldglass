@@ -41,6 +41,7 @@
 //!   the browser bundle carries it.
 
 pub mod api;
+pub mod combine;
 #[cfg(feature = "conformance")]
 pub mod conformance;
 pub mod error;
@@ -49,9 +50,10 @@ pub mod session;
 pub mod shader;
 
 pub use api::{
-    AxisUnits, Dtype, Field, Georef, Isoline, MessageInfo, Probe, Scan, SourceFormat, Stats,
-    Values, Warped,
+    AxisUnits, CombineOpInfo, Dtype, Field, Georef, Isoline, MessageInfo, Probe, Scan,
+    SourceFormat, Stats, Values, Warped,
 };
+pub use combine::{CombineOp, aligned, combine_ops, combine_values, op_from_wire};
 pub use error::Error;
 pub use render::{
     PixelProbe, Projected, RenderOptions, ResolvedOptions, Source, TargetKind, WarpTarget,

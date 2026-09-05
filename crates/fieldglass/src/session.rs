@@ -20,6 +20,7 @@ use fieldglass_core::{
 use crate::api::{
     Dtype, Field, Georef, Isoline, MessageInfo, Probe, Scan, SourceFormat, Stats, Values, Warped,
 };
+use crate::combine::CombineOp;
 use crate::error::Error;
 
 /// How a decode should be shaped.
@@ -399,6 +400,32 @@ impl Session {
             j: index.j,
             value: present.then(|| field.values.get(flat)).flatten(),
         })
+    }
+
+    /// Combine two aligned fields element by element — the difference map and
+    /// its siblings (#239, #579).
+    ///
+    /// The result is a [`Field`] like any other, on **A's** placement, so
+    /// [`warp`](Self::warp), [`palette`](Self::palette),
+    /// [`render`](Self::render), [`probe`](Self::probe) and
+    /// [`contours`](Self::contours) all apply to it with no special case. Its
+    /// `parameter` and `units` are A's verbatim: the caption `A − B` is the
+    /// host's to compose, and a units algebra here would have to answer what
+    /// `A / B` of two different parameters is measured in.
+    ///
+    /// This is the one operation that takes two fields. It stays on `Session`
+    /// rather than moving to `Field` because ADR-0006 decision 2 makes the API
+    /// types plain data a binding is generated from — a method on one would be
+    /// a smart object every host had to mirror — and because
+    /// [`warp`](Self::warp) and the rest already take a field this session need
+    /// not have produced. Arity is the only difference.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Unsupported`] when the two do not align cell for cell, naming
+    /// the property that differs. See [`crate::combine::aligned`].
+    pub fn combine(&self, a: &Field, b: &Field, op: CombineOp) -> Result<Field, Error> {
+        crate::combine::combine_api_fields(a, b, op)
     }
 
     /// Isolines through a field, in fractional grid coordinates.

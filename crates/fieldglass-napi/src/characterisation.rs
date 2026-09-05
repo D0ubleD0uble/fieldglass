@@ -743,9 +743,15 @@ fn error_row(e: &napi::Error) -> Row {
 /// The resolved geometry: family, raster shape and reprojection offer in the
 /// open, every geometry-defining field in the fold.
 ///
-/// The fold destructures `MetaGeometry` exhaustively with no rest pattern, for
-/// the same reason `MessageMeta::geometry()` does: a field added to the
-/// geometry is a compile error here until someone decides where it goes.
+/// The fold destructures `MessageMeta` exhaustively with no rest pattern: a
+/// field added to it is a compile error here until someone decides whether it
+/// belongs in the recording. That guard used to live on
+/// `MessageMeta::geometry()`, where it also served the combine gate; #579 moved
+/// the gate onto `GridGeometry` in `fieldglass`, and this is the recording that
+/// still wants it. The *set* of fields folded below is unchanged, and
+/// deliberately so — these rows are what the refactor has to leave
+/// byte-identical.
+///
 /// Folding each field by its own bits rather than through `Debug` also keeps
 /// the recording out of reach of two things that are not behaviour — the
 /// toolchain's float formatting, and the field names.
@@ -767,7 +773,7 @@ fn meta_row(subject: &Subject<'_>) -> Row {
     };
     let mut h = hasher();
     mix_str(&mut h, "meta");
-    let MetaGeometry {
+    let MessageMeta {
         grid_type,
         grid_ni,
         grid_nj,
@@ -818,7 +824,35 @@ fn meta_row(subject: &Subject<'_>) -> Row {
         geos_y0,
         geos_dy_rad,
         j_scans_positive,
-    } = meta.geometry();
+        // Not folded: the metadata a difference map holds constant, plus the
+        // three that are derived from the geometry above rather than part of
+        // it. `reprojectable` is a pure function of it; `grid_size_label`
+        // states the *native* size of a grid-less message, which is not the
+        // synthesised raster this row describes; the rest are indices,
+        // parameter, level, time, format and packing.
+        grid_size_label: _,
+        message_index: _,
+        offset_bytes: _,
+        parameter_name: _,
+        parameter_units: _,
+        parameter_abbreviation: _,
+        level: _,
+        level_type: _,
+        reference_time: _,
+        forecast_hours: _,
+        forecast_display: _,
+        p1_octet: _,
+        originating_centre: _,
+        sub_centre: _,
+        format: _,
+        edition: _,
+        discipline: _,
+        total_length_bytes: _,
+        production_status: _,
+        data_type: _,
+        packing: _,
+        reprojectable: _,
+    } = &meta;
     mix_opt_str(&mut h, grid_type.as_deref());
     mix_opt_i32(&mut h, *grid_ni);
     mix_opt_i32(&mut h, *grid_nj);

@@ -305,6 +305,24 @@ api_type! {
         pub value: Option<f64>,
     }
 
+    /// One entry of the field-combine vocabulary: what a host's Compare picker
+    /// shows and what it sends back.
+    ///
+    /// [`crate::combine_ops`] builds the whole list from
+    /// [`CombineOp::ALL`](fieldglass_core::CombineOp::ALL), so both hosts offer
+    /// the same operations in the same order and an op added to the enum
+    /// reaches each picker without either being edited (#342).
+    #[serde(rename_all = "camelCase")]
+    #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
+    pub struct CombineOpInfo {
+        /// The stable wire tag, which is what
+        /// [`Session::combine`](crate::Session::combine)'s host wrappers parse
+        /// back — `"a_minus_b"`, `"ratio"`.
+        pub value: String,
+        /// The menu label, e.g. `"A − B"`.
+        pub label: String,
+    }
+
     /// One level's isoline segments, in grid coordinates.
     #[serde(rename_all = "camelCase")]
     #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]

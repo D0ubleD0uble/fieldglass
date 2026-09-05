@@ -72,6 +72,17 @@ fn from_js<T: serde::de::DeserializeOwned + Default>(value: JsValue) -> Result<T
         .map_err(|e| js_sys::Error::new(&format!("could not read the options object: {e}")).into())
 }
 
+/// Every field-combine operation, in menu order: `[{ value, label }, …]`.
+///
+/// What a Compare picker is built from. The list is
+/// [`fieldglass::combine_ops`]'s, so this host and the VS Code one offer the
+/// same operations under the same tags (#342) — and `value` is exactly what
+/// [`Handle::combine`] takes back.
+#[wasm_bindgen(js_name = combineOps)]
+pub fn combine_ops() -> Result<JsValue, JsValue> {
+    to_js(&fieldglass::combine_ops())
+}
+
 /// An open file. Holds the bytes and the parsed message index, nothing else.
 #[wasm_bindgen]
 #[derive(Debug)]
@@ -198,6 +209,25 @@ impl Handle {
             Some(p) => to_js(&p),
             None => Ok(JsValue::UNDEFINED),
         }
+    }
+
+    /// Combine two aligned fields element by element — the difference map and
+    /// its siblings (#579).
+    ///
+    /// `op` is one of the `value` tags [`combine_ops`] reports. The result is a
+    /// field like any other, on **A's** placement, so `warp`, `palette`,
+    /// `render`, `probe` and `contours` all take it; it is yours, so free it.
+    ///
+    /// Throws `invalid_option` for an op this build does not know, and
+    /// `unsupported` when the two fields do not align cell for cell — the
+    /// message names which property differs.
+    pub fn combine(&self, a: &WasmField, b: &WasmField, op: &str) -> Result<WasmField, JsValue> {
+        let op = fieldglass::op_from_wire(op).map_err(throw)?;
+        let field = self
+            .session
+            .combine(&a.field, &b.field, op)
+            .map_err(throw)?;
+        Ok(WasmField { field })
     }
 
     /// Isolines in fractional grid coordinates. An empty `levels` asks for a

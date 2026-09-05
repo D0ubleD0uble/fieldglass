@@ -34,9 +34,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use fieldglass::{
-    AxisUnits, DecodeOptions, Dtype, Error, Field, Georef, Isoline, MessageInfo, PaletteOptions,
-    PixelProbe, Probe, Projected, Raster, RenderOptions, ResolvedOptions, SourceFormat, Stats,
-    TargetKind, Values, WarpOptions, WarpTarget, Warped,
+    AxisUnits, CombineOpInfo, DecodeOptions, Dtype, Error, Field, Georef, Isoline, MessageInfo,
+    PaletteOptions, PixelProbe, Probe, Projected, Raster, RenderOptions, ResolvedOptions,
+    SourceFormat, Stats, TargetKind, Values, WarpOptions, WarpTarget, Warped,
 };
 
 // ---------------------------------------------------------------------------
@@ -92,6 +92,7 @@ const CLASSIFICATION: &[(&str, Class, &str)] = &[
     ("Stats", Class::Wire, ""),
     ("Field", Class::Wire, ""),
     ("MessageInfo", Class::Wire, ""),
+    ("CombineOpInfo", Class::Wire, ""),
     ("Warped", Class::Wire, ""),
     ("Probe", Class::Wire, ""),
     ("Isoline", Class::Wire, ""),
@@ -183,6 +184,12 @@ const FOREIGN_REEXPORTS: &[(&str, Class, &str)] = &[
         "a static table a host names by string and never receives by value; \
          `colormaps()` hands out `&'static [Colormap]`",
     ),
+    (
+        "CombineOp",
+        Class::Engine,
+        "the closed combine vocabulary; a host names one by the string in \
+         `CombineOpInfo::value` and never receives the enum",
+    ),
 ];
 
 // ---------------------------------------------------------------------------
@@ -231,6 +238,7 @@ fn every_wire_type_is_owned_and_round_trips() {
     is_wire_shaped::<Stats>();
     is_wire_shaped::<Field>();
     is_wire_shaped::<MessageInfo>();
+    is_wire_shaped::<CombineOpInfo>();
     is_wire_shaped::<Warped>();
     is_wire_shaped::<Probe>();
     is_wire_shaped::<Isoline>();
@@ -335,6 +343,7 @@ fn every_wire_type_round_trips_through_json() {
         "MessageInfo",
         &MESSAGE_INFO_JSON.replace("GEOREF", GEOREF_JSON),
     );
+    round_trip::<CombineOpInfo>("CombineOpInfo", r#"{"value":"a_minus_b","label":"A − B"}"#);
     round_trip::<RenderOptions>("RenderOptions", RENDER_OPTIONS_JSON);
 
     assert_covers_every_wire_type("every_wire_type_round_trips_through_json", ROUND_TRIPPED);
@@ -374,6 +383,7 @@ const ROUND_TRIPPED: &[&str] = &[
     "Georef",
     "Field",
     "MessageInfo",
+    "CombineOpInfo",
     "RenderOptions",
 ];
 
@@ -470,6 +480,7 @@ struct Decl {
 /// fail-open gate this whole file exists to avoid.
 const MODULES: &[(&str, &str)] = &[
     ("api.rs", include_str!("../src/api.rs")),
+    ("combine.rs", include_str!("../src/combine.rs")),
     ("error.rs", include_str!("../src/error.rs")),
     ("session.rs", include_str!("../src/session.rs")),
     ("render.rs", include_str!("../src/render.rs")),
@@ -814,6 +825,10 @@ fn every_foreign_reexport_is_classified() {
     const ROOTS: &[(&str, &str)] = &[
         ("lib.rs", include_str!("../src/lib.rs")),
         ("api.rs", include_str!("../src/api.rs")),
+        // `combine.rs` re-exports `CombineOp` and the crate root re-exports it
+        // again from there, so the root line names no foreign crate and this is
+        // the only file the scan can see it in.
+        ("combine.rs", include_str!("../src/combine.rs")),
     ];
     let mut found = BTreeSet::new();
     for (_, source) in ROOTS {
@@ -1129,6 +1144,7 @@ fn no_wire_schema_hides_an_optional_element_array() {
     check_schema::<Georef>("Georef");
     check_schema::<Field>("Field");
     check_schema::<MessageInfo>("MessageInfo");
+    check_schema::<CombineOpInfo>("CombineOpInfo");
     check_schema::<Warped>("Warped");
     check_schema::<Probe>("Probe");
     check_schema::<Isoline>("Isoline");
@@ -1155,6 +1171,7 @@ const SCHEMA_CHECKED: &[&str] = &[
     "Georef",
     "Field",
     "MessageInfo",
+    "CombineOpInfo",
     "Warped",
     "Probe",
     "Isoline",

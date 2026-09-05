@@ -7,13 +7,13 @@
 
 use fieldglass::render::{Projected, ResolvedOptions};
 use fieldglass_core::{
-    CombineOp, CornerPair, Format, GaussianParams, GeostationaryParams, LambertAzimuthalParams,
-    LambertParams, LatLonParams, LonLatBox, MercatorParams, PlanarGridProjector, PolarStereoParams,
+    CornerPair, Format, GaussianParams, GeostationaryParams, LambertAzimuthalParams, LambertParams,
+    LatLonParams, LonLatBox, MercatorParams, PlanarGridProjector, PolarStereoParams,
     ProjectedPolylines, RotatedLatLonParams, Scan, SpatialIndex, TransverseMercatorParams,
     TransverseMercatorProjector,
     cct_tables::lookup_sub_centre,
     colormap::{ScaleMode, min_max_ignoring_mask, paint_grid_rgba},
-    combine_fields, detect_from_bytes, normalise_lon, plane_spans_a_grid_cell,
+    detect_from_bytes, normalise_lon, plane_spans_a_grid_cell,
     projection::GridGeometry,
     signed_grid_increments,
     units::normalize_units,
@@ -1527,16 +1527,18 @@ pub struct CombineOpInfo {
 }
 
 /// Every field-combine operation, in menu order (#239). The panel builds its
-/// Compare dropdown and its op-validation set from this, so `CombineOp` in
-/// `fieldglass-core` stays the single source of truth for the vocabulary and
-/// the copies can't drift.
+/// Compare dropdown and its op-validation set from this.
+///
+/// The list is `fieldglass::combine_ops()`'s, so this picker and the browser
+/// host's are built from one vocabulary and cannot drift (#342, #579). This
+/// function is the DTO conversion and nothing else.
 #[napi]
 pub fn combine_ops() -> Vec<CombineOpInfo> {
-    CombineOp::ALL
-        .iter()
+    fieldglass::combine_ops()
+        .into_iter()
         .map(|op| CombineOpInfo {
-            value: op.as_str().to_string(),
-            label: op.label().to_string(),
+            value: op.value,
+            label: op.label,
         })
         .collect()
 }
@@ -1828,7 +1830,8 @@ impl Grib1Handle {
     }
 
     /// Render `message_index_a` combined element-wise with `message_index_b`
-    /// under `op` (see [`CombineOp`]) — the difference-map workflow. Both
+    /// under `op` (one of the `value` tags `combineOps()` reports) — the
+    /// difference-map workflow. Both
     /// messages must sit on the same grid; the result renders through the
     /// normal pipeline (projection, overlays, palette, scaling, bounds) against
     /// the primary message's geometry.
@@ -1840,7 +1843,6 @@ impl Grib1Handle {
         op: String,
         options: RenderOptions,
     ) -> napi::Result<RenderedGrid> {
-        let op = parse_combine_op(&op)?;
         let (raw_a, meta_a, _, _) = self.resolved(message_index_a)?;
         let (raw_b, meta_b, _, _) = self.resolved(message_index_b)?;
         render_combined(
@@ -1848,8 +1850,9 @@ impl Grib1Handle {
             raw_a.as_ref(),
             &meta_b,
             raw_b.as_ref(),
-            op,
+            &op,
             &options,
+            None,
             None,
         )
     }
@@ -1924,10 +1927,17 @@ impl Grib1Handle {
         px: u32,
         py: u32,
     ) -> napi::Result<Option<ProbeResult>> {
-        let op = parse_combine_op(&op)?;
         let (raw_a, meta_a, _, _) = self.resolved(message_index_a)?;
         let (raw_b, meta_b, _, _) = self.resolved(message_index_b)?;
-        let combined = combined_field(&meta_a, raw_a.as_ref(), &meta_b, raw_b.as_ref(), op)?;
+        let combined = combined_field(
+            &meta_a,
+            raw_a.as_ref(),
+            None,
+            &meta_b,
+            raw_b.as_ref(),
+            None,
+            &op,
+        )?;
         probe_impl(&meta_a, &combined, &options, px, py, None)
     }
 
@@ -1943,10 +1953,17 @@ impl Grib1Handle {
         options: RenderOptions,
         interval: Option<f64>,
     ) -> napi::Result<ProjectedOverlay> {
-        let op = parse_combine_op(&op)?;
         let (raw_a, meta_a, _, _) = self.resolved(message_index_a)?;
         let (raw_b, meta_b, _, _) = self.resolved(message_index_b)?;
-        let combined = combined_field(&meta_a, raw_a.as_ref(), &meta_b, raw_b.as_ref(), op)?;
+        let combined = combined_field(
+            &meta_a,
+            raw_a.as_ref(),
+            None,
+            &meta_b,
+            raw_b.as_ref(),
+            None,
+            &op,
+        )?;
         project_contours_impl(&meta_a, &combined, &options, interval, None)
             .map(ProjectedOverlay::from_polylines)
     }
@@ -2197,7 +2214,8 @@ impl Grib2Handle {
     }
 
     /// Render `message_index_a` combined element-wise with `message_index_b`
-    /// under `op` (see [`CombineOp`]) — the difference-map workflow. Sibling to
+    /// under `op` (one of the `value` tags `combineOps()` reports) — the
+    /// difference-map workflow. Sibling to
     /// [`Grib1Handle::render_grid_combined`]; both messages must sit on the same
     /// grid, and the result renders through the normal pipeline against the
     /// primary message's geometry.
@@ -2209,7 +2227,6 @@ impl Grib2Handle {
         op: String,
         options: RenderOptions,
     ) -> napi::Result<RenderedGrid> {
-        let op = parse_combine_op(&op)?;
         let (raw_a, meta_a, _, _) = self.resolved(message_index_a)?;
         let (raw_b, meta_b, _, _) = self.resolved(message_index_b)?;
         render_combined(
@@ -2217,8 +2234,9 @@ impl Grib2Handle {
             raw_a.as_ref(),
             &meta_b,
             raw_b.as_ref(),
-            op,
+            &op,
             &options,
+            None,
             None,
         )
     }
@@ -2286,10 +2304,17 @@ impl Grib2Handle {
         px: u32,
         py: u32,
     ) -> napi::Result<Option<ProbeResult>> {
-        let op = parse_combine_op(&op)?;
         let (raw_a, meta_a, _, _) = self.resolved(message_index_a)?;
         let (raw_b, meta_b, _, _) = self.resolved(message_index_b)?;
-        let combined = combined_field(&meta_a, raw_a.as_ref(), &meta_b, raw_b.as_ref(), op)?;
+        let combined = combined_field(
+            &meta_a,
+            raw_a.as_ref(),
+            None,
+            &meta_b,
+            raw_b.as_ref(),
+            None,
+            &op,
+        )?;
         probe_impl(&meta_a, &combined, &options, px, py, None)
     }
 
@@ -2305,10 +2330,17 @@ impl Grib2Handle {
         options: RenderOptions,
         interval: Option<f64>,
     ) -> napi::Result<ProjectedOverlay> {
-        let op = parse_combine_op(&op)?;
         let (raw_a, meta_a, _, _) = self.resolved(message_index_a)?;
         let (raw_b, meta_b, _, _) = self.resolved(message_index_b)?;
-        let combined = combined_field(&meta_a, raw_a.as_ref(), &meta_b, raw_b.as_ref(), op)?;
+        let combined = combined_field(
+            &meta_a,
+            raw_a.as_ref(),
+            None,
+            &meta_b,
+            raw_b.as_ref(),
+            None,
+            &op,
+        )?;
         project_contours_impl(&meta_a, &combined, &options, interval, None)
             .map(ProjectedOverlay::from_polylines)
     }
@@ -2744,7 +2776,8 @@ impl NetcdfHandle {
     }
 
     /// Render one slice combined element-wise with a second slice under `op`
-    /// (see [`CombineOp`]) — the difference-map workflow (#239). Field B is a
+    /// (one of the `value` tags `combineOps()` reports) — the difference-map
+    /// workflow (#239). Field B is a
     /// slice of `variableIndexB` at `sliceIndicesB`, sharing the same image axes
     /// (`yDim` / `xDim`) as field A; the common case is two time steps of one
     /// variable (`variableIndexB == variableIndexA`, different indices). Both
@@ -2763,7 +2796,6 @@ impl NetcdfHandle {
         op: String,
         options: RenderOptions,
     ) -> napi::Result<RenderedGrid> {
-        let op = parse_combine_op(&op)?;
         let (y, x) = (y_dim as usize, x_dim as usize);
         let var_a = self.renderable(variable_index_a)?;
         let var_b = self.renderable(variable_index_b)?;
@@ -2771,15 +2803,17 @@ impl NetcdfHandle {
         let plane_b = self.slice_plane(&var_b, y, x, &slice_indices_b)?;
         let meta_a = self.slice_meta(&var_a, y, x)?;
         let meta_b = self.slice_meta(&var_b, y, x)?;
-        let index = self.curvilinear_index(&var_a, y, x)?;
+        let index_a = self.curvilinear_index(&var_a, y, x)?;
+        let index_b = self.curvilinear_index(&var_b, y, x)?;
         render_combined(
             &meta_a,
             &plane_a,
             &meta_b,
             &plane_b,
-            op,
+            &op,
             &options,
-            index.as_deref(),
+            index_a.as_deref(),
+            index_b.as_deref(),
         )
     }
 
@@ -2874,7 +2908,6 @@ impl NetcdfHandle {
         px: u32,
         py: u32,
     ) -> napi::Result<Option<ProbeResult>> {
-        let op = parse_combine_op(&op)?;
         let (y, x) = (y_dim as usize, x_dim as usize);
         let var_a = self.renderable(variable_index_a)?;
         let var_b = self.renderable(variable_index_b)?;
@@ -2882,9 +2915,18 @@ impl NetcdfHandle {
         let plane_b = self.slice_plane(&var_b, y, x, &slice_indices_b)?;
         let meta_a = self.slice_meta(&var_a, y, x)?;
         let meta_b = self.slice_meta(&var_b, y, x)?;
-        let combined = combined_field(&meta_a, &plane_a, &meta_b, &plane_b, op)?;
-        let index = self.curvilinear_index(&var_a, y, x)?;
-        probe_impl(&meta_a, &combined, &options, px, py, index.as_deref())
+        let index_a = self.curvilinear_index(&var_a, y, x)?;
+        let index_b = self.curvilinear_index(&var_b, y, x)?;
+        let combined = combined_field(
+            &meta_a,
+            &plane_a,
+            index_a.as_deref(),
+            &meta_b,
+            &plane_b,
+            index_b.as_deref(),
+            &op,
+        )?;
+        probe_impl(&meta_a, &combined, &options, px, py, index_a.as_deref())
     }
 
     /// Contour a NetCDF difference/sum/… map (#329): the two slices are combined
@@ -2904,7 +2946,6 @@ impl NetcdfHandle {
         options: RenderOptions,
         interval: Option<f64>,
     ) -> napi::Result<ProjectedOverlay> {
-        let op = parse_combine_op(&op)?;
         let (y, x) = (y_dim as usize, x_dim as usize);
         let var_a = self.renderable(variable_index_a)?;
         let var_b = self.renderable(variable_index_b)?;
@@ -2912,9 +2953,18 @@ impl NetcdfHandle {
         let plane_b = self.slice_plane(&var_b, y, x, &slice_indices_b)?;
         let meta_a = self.slice_meta(&var_a, y, x)?;
         let meta_b = self.slice_meta(&var_b, y, x)?;
-        let combined = combined_field(&meta_a, &plane_a, &meta_b, &plane_b, op)?;
-        let index = self.curvilinear_index(&var_a, y, x)?;
-        project_contours_impl(&meta_a, &combined, &options, interval, index.as_deref())
+        let index_a = self.curvilinear_index(&var_a, y, x)?;
+        let index_b = self.curvilinear_index(&var_b, y, x)?;
+        let combined = combined_field(
+            &meta_a,
+            &plane_a,
+            index_a.as_deref(),
+            &meta_b,
+            &plane_b,
+            index_b.as_deref(),
+            &op,
+        )?;
+        project_contours_impl(&meta_a, &combined, &options, interval, index_a.as_deref())
             .map(ProjectedOverlay::from_polylines)
     }
 }
@@ -3972,300 +4022,62 @@ fn source_flip_y(meta: &MessageMeta, flip_y: bool) -> bool {
     Scan::new(false, meta.j_scans_positive.unwrap_or(false), false).flips_source_rows(flip_y)
 }
 
-/// Validate a combine-op wire tag (see [`CombineOp`]) or return a napi error
-/// listing the valid ones, matching the colormap / scale-mode clamps.
-fn parse_combine_op(tag: &str) -> napi::Result<CombineOp> {
-    CombineOp::from_wire(tag).ok_or_else(|| {
-        napi::Error::from_reason(format!(
-            "unknown combine op {tag:?} (expected \"a_minus_b\", \"b_minus_a\", \
-             \"a_plus_b\", \"mean\", or \"ratio\")"
-        ))
-    })
-}
-
-/// The geometry-defining subset of a [`MessageMeta`]: the fields that must be
-/// identical for two decoded fields to align cell-for-cell, so that combining
-/// them (a difference map, a sum, a ratio) is meaningful. Everything else — the
-/// parameter, level, time, and packing metadata — is deliberately excluded,
-/// since two fields differing only in those are exactly what a difference map
-/// compares.
+/// Combine two resolved messages under a wire-tag op — `fieldglass::combine`,
+/// over this host's DTO.
 ///
-/// Each field borrows from a `MessageMeta` rather than owning, so building one
-/// to compare is allocation-free, and `#[derive(PartialEq)]` reproduces the old
-/// hand-written field-by-field `==` chain exactly. [`MessageMeta::geometry`] is
-/// the sole constructor: it destructures the whole struct with no `..` rest
-/// pattern, so adding a field to `MessageMeta` fails to compile until it is
-/// explicitly classified as geometry (a field here) or non-geometry (an
-/// `_`-ignored binding). That makes the old "remember to update `grids_match`"
-/// hazard impossible to get wrong — the compiler enforces completeness.
+/// Everything this used to decide now lives there: the tag vocabulary, the
+/// alignment gate, and the arithmetic. The gate used to be a 49-field borrowed
+/// view of `MessageMeta` (`MetaGeometry`, #560) compared field by field; it is
+/// now `PartialEq` on the `GridGeometry` each meta resolves to, plus the raster
+/// shape and the scan order the `Source` carries beside it, which is the
+/// comparison #464 asked for and the one the browser host makes too (#579).
 ///
-/// Named for the `MessageMeta` it views, not for the grid: `GridGeometry` is
-/// `fieldglass_core`'s public enum, which models a grid family as
-/// the parameters that family actually defines. This is the flat, optional,
-/// every-family-at-once shape that predates it — an equality key, not a model
-/// — and the two must not read as the same thing (#560).
-#[derive(PartialEq)]
-#[cfg_attr(test, derive(Debug))]
-struct MetaGeometry<'a> {
-    grid_type: &'a Option<String>,
-    grid_ni: &'a Option<i32>,
-    grid_nj: &'a Option<i32>,
-    lat_first: &'a Option<f64>,
-    lon_first: &'a Option<f64>,
-    lat_last: &'a Option<f64>,
-    lon_last: &'a Option<f64>,
-    earth_radius_metres: &'a Option<f64>,
-    lambert_lad: &'a Option<f64>,
-    lambert_lov: &'a Option<f64>,
-    lambert_dx_metres: &'a Option<f64>,
-    lambert_dy_metres: &'a Option<f64>,
-    lambert_latin1: &'a Option<f64>,
-    lambert_latin2: &'a Option<f64>,
-    gaussian_n_parallels: &'a Option<i32>,
-    polar_stereo_lov: &'a Option<f64>,
-    polar_stereo_lad: &'a Option<f64>,
-    polar_stereo_dx_metres: &'a Option<f64>,
-    polar_stereo_dy_metres: &'a Option<f64>,
-    polar_stereo_south_pole: &'a Option<bool>,
-    lambert_azimuthal_semi_major_metres: &'a Option<f64>,
-    lambert_azimuthal_semi_minor_metres: &'a Option<f64>,
-    lambert_azimuthal_standard_parallel: &'a Option<f64>,
-    lambert_azimuthal_central_longitude: &'a Option<f64>,
-    lambert_azimuthal_dx_metres: &'a Option<f64>,
-    lambert_azimuthal_dy_metres: &'a Option<f64>,
-    transverse_mercator_semi_major_metres: &'a Option<f64>,
-    transverse_mercator_semi_minor_metres: &'a Option<f64>,
-    transverse_mercator_lat_ref: &'a Option<f64>,
-    transverse_mercator_lon_ref: &'a Option<f64>,
-    transverse_mercator_scale_factor: &'a Option<f64>,
-    transverse_mercator_false_easting_metres: &'a Option<f64>,
-    transverse_mercator_false_northing_metres: &'a Option<f64>,
-    transverse_mercator_x1_metres: &'a Option<f64>,
-    transverse_mercator_y1_metres: &'a Option<f64>,
-    transverse_mercator_dx_metres: &'a Option<f64>,
-    transverse_mercator_dy_metres: &'a Option<f64>,
-    rotated_south_pole_lat: &'a Option<f64>,
-    rotated_south_pole_lon: &'a Option<f64>,
-    rotated_angle_of_rotation: &'a Option<f64>,
-    geos_sub_lon: &'a Option<f64>,
-    geos_height: &'a Option<f64>,
-    geos_r_eq: &'a Option<f64>,
-    geos_r_pol: &'a Option<f64>,
-    geos_sweep_x: &'a Option<bool>,
-    geos_x0: &'a Option<f64>,
-    geos_dx_rad: &'a Option<f64>,
-    geos_y0: &'a Option<f64>,
-    geos_dy_rad: &'a Option<f64>,
-    j_scans_positive: &'a Option<bool>,
-}
-
-impl MessageMeta {
-    /// Borrow the geometry-defining fields as a [`MetaGeometry`]. See that type
-    /// for why the exhaustive destructure below makes grid-match completeness a
-    /// compile-time guarantee.
-    fn geometry(&self) -> MetaGeometry<'_> {
-        // Exhaustive destructure — deliberately no `..` rest pattern. Every
-        // field is either forwarded into the returned `MetaGeometry` (it defines
-        // the grid) or bound to `_` (metadata or a value derived from the
-        // geometry, ignored for alignment). A field added to `MessageMeta`
-        // breaks this line until it is classified, which is the whole point.
-        let MessageMeta {
-            // Geometry — must match for two fields to align cell-for-cell.
-            grid_type,
-            grid_ni,
-            grid_nj,
-            lat_first,
-            lon_first,
-            lat_last,
-            lon_last,
-            earth_radius_metres,
-            lambert_lad,
-            lambert_lov,
-            lambert_dx_metres,
-            lambert_dy_metres,
-            lambert_latin1,
-            lambert_latin2,
-            gaussian_n_parallels,
-            polar_stereo_lov,
-            polar_stereo_lad,
-            polar_stereo_dx_metres,
-            polar_stereo_dy_metres,
-            polar_stereo_south_pole,
-            lambert_azimuthal_semi_major_metres,
-            lambert_azimuthal_semi_minor_metres,
-            lambert_azimuthal_standard_parallel,
-            lambert_azimuthal_central_longitude,
-            lambert_azimuthal_dx_metres,
-            lambert_azimuthal_dy_metres,
-            transverse_mercator_semi_major_metres,
-            transverse_mercator_semi_minor_metres,
-            transverse_mercator_lat_ref,
-            transverse_mercator_lon_ref,
-            transverse_mercator_scale_factor,
-            transverse_mercator_false_easting_metres,
-            transverse_mercator_false_northing_metres,
-            transverse_mercator_x1_metres,
-            transverse_mercator_y1_metres,
-            transverse_mercator_dx_metres,
-            transverse_mercator_dy_metres,
-            rotated_south_pole_lat,
-            rotated_south_pole_lon,
-            rotated_angle_of_rotation,
-            geos_sub_lon,
-            geos_height,
-            geos_r_eq,
-            geos_r_pol,
-            geos_sweep_x,
-            geos_x0,
-            geos_dx_rad,
-            geos_y0,
-            geos_dy_rad,
-            j_scans_positive,
-            // Non-geometry — deliberately ignored for alignment. `reprojectable`
-            // is a pure function of the geometry above (equal geometry ⇒ equal
-            // `reprojectable`); the rest (indices, parameter, level, time,
-            // format, packing) are exactly what a difference map holds constant.
-            //
-            // `grid_size_label` looks like geometry and is not. It states the
-            // *native* size of a grid-less message, but what two such fields
-            // must share to align is the grid they are synthesised onto, and
-            // that is already compared as `grid_ni`/`grid_nj` — `resolved()`
-            // hands `grids_match` the synthesised meta, not the raw one.
-            // Comparing the label instead would be wrong in both directions:
-            // `spectral_render_dims` ignores the truncation, so T63 and T255
-            // land on the same 720x361 grid and genuinely do align, and this
-            // would refuse them; HEALPix at two `Nside` values is already
-            // refused, on the differing synthesised dimensions.
-            grid_size_label: _,
-            message_index: _,
-            offset_bytes: _,
-            parameter_name: _,
-            parameter_units: _,
-            parameter_abbreviation: _,
-            level: _,
-            level_type: _,
-            reference_time: _,
-            forecast_hours: _,
-            forecast_display: _,
-            p1_octet: _,
-            originating_centre: _,
-            sub_centre: _,
-            format: _,
-            edition: _,
-            discipline: _,
-            total_length_bytes: _,
-            production_status: _,
-            data_type: _,
-            packing: _,
-            reprojectable: _,
-        } = self;
-        MetaGeometry {
-            grid_type,
-            grid_ni,
-            grid_nj,
-            lat_first,
-            lon_first,
-            lat_last,
-            lon_last,
-            earth_radius_metres,
-            lambert_lad,
-            lambert_lov,
-            lambert_dx_metres,
-            lambert_dy_metres,
-            lambert_latin1,
-            lambert_latin2,
-            gaussian_n_parallels,
-            polar_stereo_lov,
-            polar_stereo_lad,
-            polar_stereo_dx_metres,
-            polar_stereo_dy_metres,
-            polar_stereo_south_pole,
-            lambert_azimuthal_semi_major_metres,
-            lambert_azimuthal_semi_minor_metres,
-            lambert_azimuthal_standard_parallel,
-            lambert_azimuthal_central_longitude,
-            lambert_azimuthal_dx_metres,
-            lambert_azimuthal_dy_metres,
-            transverse_mercator_semi_major_metres,
-            transverse_mercator_semi_minor_metres,
-            transverse_mercator_lat_ref,
-            transverse_mercator_lon_ref,
-            transverse_mercator_scale_factor,
-            transverse_mercator_false_easting_metres,
-            transverse_mercator_false_northing_metres,
-            transverse_mercator_x1_metres,
-            transverse_mercator_y1_metres,
-            transverse_mercator_dx_metres,
-            transverse_mercator_dy_metres,
-            rotated_south_pole_lat,
-            rotated_south_pole_lon,
-            rotated_angle_of_rotation,
-            geos_sub_lon,
-            geos_height,
-            geos_r_eq,
-            geos_r_pol,
-            geos_sweep_x,
-            geos_x0,
-            geos_dx_rad,
-            geos_y0,
-            geos_dy_rad,
-            j_scans_positive,
-        }
-    }
-}
-
-/// Whether two messages sit on the same grid — identical dimensions and grid
-/// definition — so their decoded fields align cell-for-cell and combining them
-/// is meaningful. Compares every geometry-defining field of [`MessageMeta`] via
-/// [`MetaGeometry`]; parameter, level, time, and packing metadata are
-/// deliberately ignored (two fields differing only in those are exactly what a
-/// difference map compares).
-fn grids_match(a: &MessageMeta, b: &MessageMeta) -> bool {
-    a.geometry() == b.geometry()
-}
-
-/// Decode-domain core of the combined render: require identical grids, combine
-/// the two aligned fields under `op`, then run the result through the ordinary
-/// render pipeline against the **primary** field's geometry (`meta_a`). Because
-/// the combined field is just another `Vec<Option<f64>>`, projection, overlays,
-/// palette, scaling, and manual bounds all apply unchanged. Shared by the GRIB
-/// and NetCDF combined-render entry points.
-/// Combine two aligned fields (`A` `op` `B`) into one `Vec<Option<f64>>` on the
-/// primary field's geometry, requiring identical grids. Shared by every feature
-/// that operates on a difference/sum/… map — render, probe, and contours — so
-/// each of those runs the exact same combined field through its normal path
-/// (#329), and the grid-match check lives in one place.
+/// `lookup_a` / `lookup_b` are the cell-centre indexes of a `"curvilinear"`
+/// grid, one per field. Both are needed: a lookup grid *is* its cell array, so
+/// passing only A's would leave B resolving to `Unsupported` and refuse every
+/// curvilinear difference map.
 fn combined_field(
     meta_a: &MessageMeta,
     raw_a: &[Option<f64>],
+    lookup_a: Option<&GridGeometry>,
     meta_b: &MessageMeta,
     raw_b: &[Option<f64>],
-    op: CombineOp,
+    lookup_b: Option<&GridGeometry>,
+    op: &str,
 ) -> napi::Result<Vec<Option<f64>>> {
-    if !grids_match(meta_a, meta_b) {
-        return Err(napi::Error::from_reason(
-            "the two fields are on different grids; combining needs identical grid \
-             dimensions and definition"
-                .to_string(),
-        ));
-    }
-    Ok(combine_fields(raw_a, raw_b, op))
+    let op = fieldglass::op_from_wire(op).into_napi()?;
+    let source_a = RenderSource::resolve(meta_a, lookup_a)?;
+    let source_b = RenderSource::resolve(meta_b, lookup_b)?;
+    fieldglass::combine_values(
+        &source_a.as_source(),
+        raw_a,
+        &source_b.as_source(),
+        raw_b,
+        op,
+    )
+    .into_napi()
 }
 
+/// [`combined_field`] followed by the ordinary render, against the **primary**
+/// field's geometry. Because the combined field is just another
+/// `Vec<Option<f64>>`, projection, overlays, palette, scaling and manual bounds
+/// all apply unchanged.
+#[allow(clippy::too_many_arguments)]
 fn render_combined(
     meta_a: &MessageMeta,
     raw_a: &[Option<f64>],
     meta_b: &MessageMeta,
     raw_b: &[Option<f64>],
-    op: CombineOp,
+    op: &str,
     options: &RenderOptions,
     // The cell-centre index for a `"curvilinear"` grid; `None` for every
-    // family whose geometry is a formula (#445). Field A's geometry is the
-    // one the combined render uses, so this is field A's.
-    lookup: Option<&GridGeometry>,
+    // family whose geometry is a formula (#445). Field A's is also the one the
+    // combined render uses, since the result sits on A's geometry.
+    lookup_a: Option<&GridGeometry>,
+    lookup_b: Option<&GridGeometry>,
 ) -> napi::Result<RenderedGrid> {
-    let combined = combined_field(meta_a, raw_a, meta_b, raw_b, op)?;
-    render_with_options(meta_a, &combined, options, lookup)
+    let combined = combined_field(meta_a, raw_a, lookup_a, meta_b, raw_b, lookup_b, op)?;
+    render_with_options(meta_a, &combined, options, lookup_a)
 }
 
 fn render_with_options(
@@ -6340,69 +6152,142 @@ mod netcdf_slice_tests {
         assert_eq!(ok.rgba.len(), (ok.width * ok.height * 4) as usize);
     }
 
+    /// The wire vocabulary reaches this host from `fieldglass`, so an op the
+    /// picker offers combines and one it does not is refused by the same
+    /// message the browser host reports (#579). The parse itself is tested in
+    /// `fieldglass::combine`; what is checked here is that this binding really
+    /// routes through it — a handle whose entry point had kept a private
+    /// vocabulary would accept a tag `combineOps()` never offered.
     #[test]
-    fn parse_combine_op_accepts_the_five_ops_and_rejects_others() {
-        for tag in ["a_minus_b", "b_minus_a", "a_plus_b", "mean", "ratio"] {
-            assert!(parse_combine_op(tag).is_ok(), "{tag} should parse");
+    fn the_op_vocabulary_reaches_the_handles_from_the_engine() {
+        let handle = handle(ERSST);
+        let vars = handle.variables();
+        let sst = vars.iter().find(|v| v.name == "sst").expect("sst present");
+        let (y, x) = (
+            sst.detected_y_dim.unwrap() as u32,
+            sst.detected_x_dim.unwrap() as u32,
+        );
+        let indices = vec![0u32; sst.dims.len()];
+        let vi = sst.variable_index as u32;
+
+        let offered: Vec<String> = combine_ops().into_iter().map(|o| o.value).collect();
+        assert_eq!(
+            offered,
+            vec!["a_minus_b", "b_minus_a", "a_plus_b", "mean", "ratio"],
+            "the picker's list is the engine's"
+        );
+        for tag in &offered {
+            assert!(
+                handle
+                    .render_slice_combined(
+                        vi,
+                        y,
+                        x,
+                        indices.clone(),
+                        vi,
+                        indices.clone(),
+                        tag.clone(),
+                        opts("source"),
+                    )
+                    .is_ok(),
+                "{tag} is offered and must combine"
+            );
         }
-        let err = parse_combine_op("product").expect_err("unknown op must error");
+        let err = handle
+            .render_slice_combined(
+                vi,
+                y,
+                x,
+                indices.clone(),
+                vi,
+                indices,
+                "product".to_string(),
+                opts("source"),
+            )
+            .expect_err("an op the picker never offered must be refused");
         assert!(err.to_string().contains("unknown combine op"), "{err}");
     }
 
+    /// The alignment gate lives in `fieldglass` now (#579), and this is what
+    /// says this host reaches it: two slices of one file combine, and each way
+    /// their **geometry** can differ refuses.
+    ///
+    /// It is deliberately shorter than the `grids_match` test it replaces. That
+    /// one asserted, among other things, that setting `lambertDxMetres` on a
+    /// *lat/lon* meta broke the match — true of the old flat key, which
+    /// compared every family's slots at once, and not a statement about the
+    /// grids: a lat/lon grid with a stray Lambert spacing beside it is the same
+    /// lat/lon grid. `GridGeometry` compares what the family actually defines,
+    /// so those cases have no meaning to restate. The per-property refusals are
+    /// in `fieldglass::combine::tests::the_gate_names_the_property_that_differs`,
+    /// over the geometry itself.
     #[test]
-    fn grids_match_requires_identical_geometry_not_identical_parameters() {
-        let a = base_netcdf_meta("sst", "K", 180, 89);
-        // Same grid, different parameter — exactly what a difference map compares.
-        let b = base_netcdf_meta("t2m", "K", 180, 89);
+    fn the_handles_refuse_two_slices_that_do_not_align() {
+        // A *placed* lat/lon slice, not the bare skeleton: `base_netcdf_meta`
+        // alone states no grid type, and a grid nothing can place is compared
+        // by shape and by its refusal, not by the corners below.
+        let placed = |name: &str, ni: i32, nj: i32| {
+            let mut m = base_netcdf_meta(name, "K", ni, nj);
+            m.grid_type = Some("latlon".to_string());
+            m.lat_first = Some(89.0);
+            m.lon_first = Some(0.0);
+            m.lat_last = Some(-89.0);
+            m.lon_last = Some(358.0);
+            m
+        };
+        let a = placed("sst", 180, 89);
+        let values = vec![Some(1.0); 180 * 89];
+
+        // Same grid, different parameter — exactly what a difference map
+        // compares, and it must combine.
+        let b = placed("t2m", 180, 89);
         assert!(
-            grids_match(&a, &b),
-            "same grid, different parameter must match"
+            combined_field(&a, &values, None, &b, &values, None, "a_minus_b").is_ok(),
+            "same grid, different parameter must combine"
         );
 
-        // Each geometry difference must break the match, or misaligned fields
-        // would combine cell-for-cell against the wrong locations.
-        let mut nj = base_netcdf_meta("sst", "K", 180, 90);
-        nj.parameter_name = "sst".into();
-        assert!(!grids_match(&a, &nj), "different Nj must not match");
-
-        let mut corner = base_netcdf_meta("sst", "K", 180, 89);
-        corner.lat_first = Some(88.0);
-        assert!(!grids_match(&a, &corner), "different corner must not match");
-
-        let mut scan = base_netcdf_meta("sst", "K", 180, 89);
-        scan.j_scans_positive = Some(true);
-        assert!(
-            !grids_match(&a, &scan),
-            "different scan direction must not match"
-        );
-
-        let mut proj = base_netcdf_meta("sst", "K", 180, 89);
-        proj.lambert_dx_metres = Some(3000.0);
-        assert!(
-            !grids_match(&a, &proj),
-            "different projection param must not match"
-        );
-
-        // A geometry field buried deep in the struct (geostationary sweep) is
-        // covered too — the `MetaGeometry` view compares it, so it must break
-        // the match. This is the case the old hand-maintained field list was
-        // most at risk of silently dropping.
-        let mut sweep = base_netcdf_meta("sst", "K", 180, 89);
-        sweep.geos_sweep_x = Some(true);
-        assert!(
-            !grids_match(&a, &sweep),
-            "different geostationary sweep axis must not match"
-        );
-
-        // Non-geometry metadata must NOT break the match: two fields differing
-        // only in packing or edition still sit on the same grid and can combine.
-        let mut packing = base_netcdf_meta("sst", "K", 180, 89);
+        // Non-geometry metadata must not break it either.
+        let mut packing = placed("sst", 180, 89);
         packing.packing = Some("Complex packing".into());
         packing.edition = Some(2);
         assert!(
-            grids_match(&a, &packing),
-            "differing packing/edition metadata must still match"
+            combined_field(&a, &values, None, &packing, &values, None, "a_minus_b").is_ok(),
+            "differing packing/edition metadata must still combine"
         );
+
+        // Each way the geometry can differ, named in the refusal.
+        let short = placed("sst", 180, 90);
+        let e = combined_field(&a, &values, None, &short, &values, None, "a_minus_b")
+            .expect_err("different Nj must not combine");
+        assert!(e.to_string().contains("raster shape"), "{e}");
+
+        let mut corner = placed("sst", 180, 89);
+        corner.lat_first = Some(88.0);
+        let e = combined_field(&a, &values, None, &corner, &values, None, "a_minus_b")
+            .expect_err("different corner must not combine");
+        assert!(e.to_string().contains("their grid differs"), "{e}");
+
+        let mut scan = placed("sst", 180, 89);
+        scan.j_scans_positive = Some(true);
+        let e = combined_field(&a, &values, None, &scan, &values, None, "a_minus_b")
+            .expect_err("different scan direction must not combine");
+        assert!(e.to_string().contains("scan order"), "{e}");
+
+        // A different family of the same shape. `base_netcdf_meta` builds a
+        // lat/lon grid; naming it Lambert and giving it the parameters that
+        // family needs is a genuinely different geometry over the same raster.
+        let mut lambert = placed("sst", 180, 89);
+        lambert.grid_type = Some("lambert".to_string());
+        lambert.earth_radius_metres = Some(6_371_229.0);
+        lambert.lambert_lad = Some(25.0);
+        lambert.lambert_lov = Some(-95.0);
+        lambert.lambert_dx_metres = Some(12_000.0);
+        lambert.lambert_dy_metres = Some(12_000.0);
+        lambert.lambert_latin1 = Some(25.0);
+        lambert.lambert_latin2 = Some(25.0);
+        let e = combined_field(&a, &values, None, &lambert, &values, None, "a_minus_b")
+            .expect_err("a different family must not combine");
+        assert!(e.to_string().contains("their grid differs"), "{e}");
     }
 
     #[test]
@@ -6466,7 +6351,8 @@ mod netcdf_slice_tests {
 
         // A − B = 10 everywhere. Probing source pixel (2, 1) must read 10 (the
         // difference), not A's 12 at that cell.
-        let diff = combined_field(&meta, &a, &meta, &b, CombineOp::Difference).expect("same grid");
+        let diff =
+            combined_field(&meta, &a, None, &meta, &b, None, "a_minus_b").expect("same grid");
         let r = probe_impl(&meta, &diff, &opts("source"), 2, 1, None)
             .expect("probe ok")
             .expect("pixel on grid");
@@ -6474,7 +6360,7 @@ mod netcdf_slice_tests {
 
         // Contours of A − B where B is a ramp and A is A+ramp cancel to a
         // constant B... instead trace A + B (a ramp 10..18) so a level crosses.
-        let sum = combined_field(&meta, &a, &meta, &b, CombineOp::Sum).expect("same grid");
+        let sum = combined_field(&meta, &a, None, &meta, &b, None, "a_plus_b").expect("same grid");
         let contours = project_contours_impl(&meta, &sum, &opts("source"), Some(15.0), None)
             .expect("combined contours project");
         assert!(
@@ -6486,7 +6372,7 @@ mod netcdf_slice_tests {
         let mut other = latlon_meta(5, 4);
         other.grid_nj = Some(3);
         assert!(
-            combined_field(&meta, &a, &other, &b, CombineOp::Difference).is_err(),
+            combined_field(&meta, &a, None, &other, &b, None, "a_minus_b").is_err(),
             "combining mismatched grids errors"
         );
     }
@@ -8202,17 +8088,24 @@ mod planar_geolocation_tests {
         );
     }
 
-    /// The blast radius #472 names: `latLast`/`lonLast` are part of the
-    /// geometry key that decides whether two fields may be combined. Real
-    /// corners are a stronger key than substituted parameters — two grids that
-    /// differ only in extent used to compare equal when their `LaD`/`LoV`
-    /// matched — but the change has to keep aligning what did align.
+    /// The blast radius #472 named: whether two Lambert fields may be combined.
+    ///
+    /// #472 added `latLast`/`lonLast` to the flat geometry key because two
+    /// grids differing only in extent compared equal while their `LaD`/`LoV`
+    /// matched. Since #579 the key is `GridGeometry`, and a Lambert grid's
+    /// extent is `ni`, `nj`, the first point, and the two spacings — every one
+    /// of which `LambertParams` carries. So the concern is covered by the
+    /// parameters themselves, and the *derived* far corner is no longer part of
+    /// the key: a message that reports a different `latLast` while declaring
+    /// the same origin, spacing and cone is describing the same grid, and the
+    /// corner it reports disagrees with its own forward map. Both halves are
+    /// asserted below, because the second is the behaviour that changed.
     #[test]
     fn combining_two_lambert_messages_still_aligns() {
         let handle = grib2_handle(ETA_LAMBERT);
         let (values, meta, _, _) = handle.resolved(0).expect("message 0 resolves");
 
-        let combined = combined_field(&meta, &values, &meta, &values, CombineOp::Difference)
+        let combined = combined_field(&meta, &values, None, &meta, &values, None, "a_minus_b")
             .expect("a message aligns with itself");
         assert_eq!(combined.len(), values.len());
         assert!(
@@ -8220,12 +8113,32 @@ mod planar_geolocation_tests {
             "A − A is zero at every present point"
         );
 
-        // And a grid whose far corner really is elsewhere is still refused.
-        let mut elsewhere = grib2_geometry(ETA_LAMBERT).0;
-        elsewhere.lat_last = Some(meta.lat_last.unwrap() + 5.0);
+        // A grid whose extent really is elsewhere — the origin moved — is
+        // refused, and the refusal names the grid rather than the shape.
+        let mut moved = grib2_geometry(ETA_LAMBERT).0;
+        moved.lat_first = Some(meta.lat_first.unwrap() + 5.0);
+        let e = combined_field(&meta, &values, None, &moved, &values, None, "a_minus_b")
+            .expect_err("a different origin must not silently combine");
+        assert!(e.to_string().contains("their grid differs"), "{e}");
+
+        // So is one whose spacing differs, which is the other half of the
+        // extent for a projected family.
+        let mut coarser = grib2_geometry(ETA_LAMBERT).0;
+        coarser.lambert_dx_metres = Some(meta.lambert_dx_metres.unwrap() * 2.0);
         assert!(
-            combined_field(&meta, &values, &elsewhere, &values, CombineOp::Difference).is_err(),
-            "a different extent must not silently combine"
+            combined_field(&meta, &values, None, &coarser, &values, None, "a_minus_b").is_err(),
+            "a different grid spacing must not silently combine"
+        );
+
+        // The derived corner alone does not decide it. Two messages with the
+        // same origin, cone and spacing lay their cells in the same places
+        // whatever `latLast` each happens to report.
+        let mut relabelled = grib2_geometry(ETA_LAMBERT).0;
+        relabelled.lat_last = Some(meta.lat_last.unwrap() + 5.0);
+        assert!(
+            combined_field(&meta, &values, None, &relabelled, &values, None, "a_minus_b").is_ok(),
+            "the far corner of a projected family is derived from the parameters \
+             above, not a parameter of its own"
         );
     }
 
