@@ -17,11 +17,26 @@
 //! * `second_order_boust_regular_latlon.grib2` — the 5.50002 fixture with
 //!   `secondOrderFlags = 0x80` (boustrophedonicOrdering = 1), so eccodes
 //!   reverses the odd rows on decode. Exercises the alternating-row path.
+//! * `second_order_reduced_gaussian.grib2` /
+//!   `second_order_boust_reduced_gaussian.grib2` — the same packing on a
+//!   *reduced* N32 Gaussian grid, forwards and boustrophedonic, repacked from
+//!   `reduced_gaussian_pressure_level.grib2`. The combination the reader used
+//!   to skip: its rows run 20 to 128 points wide, so the reversal has to step
+//!   by `PL[j]` (#605).
 //!
 //! Each ships a sibling `*_expected.json` carrying the **full** eccodes decode
 //! (`grib_get_data`, in scan order) plus the §5 parameters and summary stats.
 //! The test asserts value-for-value agreement with that decode. Provenance in
 //! `tests/fixtures/NOTICE.md`.
+//!
+//! One exception, and it is the whole reason the reduced pair exists: eccodes
+//! cannot decode `second_order_boust_reduced_gaussian.grib2` correctly. Its
+//! `DataApplyBoustrophedonic` reversal walks down from `start + pl[j]` where
+//! the uniform branch uses `start + numberOfColumns - 1`, so every odd row
+//! lands one slot right and its first slot keeps the calloc'd zero. Its
+//! *encoder* is correct, so the oracle for that fixture is the decode of the
+//! forward-stored sibling, which holds the same field — and
+//! [`the_reduced_pair_decodes_to_one_field`] states that relationship directly.
 
 use fieldglass_grib2::Grib2Reader;
 use serde_json::Value;
@@ -154,6 +169,47 @@ fn second_order_50001_no_boustrophedonic_decodes() {
 #[test]
 fn second_order_50002_boustrophedonic_decodes() {
     assert_decode_matches_oracle("second_order_boust_regular_latlon.grib2", 50002);
+}
+
+/// Only the boustrophedonic half of the reduced pair has a `*_expected.json`.
+/// Its forward-stored sibling needs none: eccodes decodes that one correctly,
+/// so `eccodes_reference.rs` already checks it against the snapshot's value
+/// block, and [`the_reduced_pair_decodes_to_one_field`] then pins the two to
+/// each other value-for-value.
+#[test]
+fn second_order_50002_boustrophedonic_on_a_reduced_grid_decodes() {
+    assert_decode_matches_oracle("second_order_boust_reduced_gaussian.grib2", 50002);
+}
+
+/// The reduced pair holds one field in two storage orders, so the decoder must
+/// return the same values for both — the property #605 broke.
+///
+/// Before the fix the boustrophedonic message came back in *stored* order,
+/// because `raster_dims` is `None` for a reduced grid and the undo was skipped
+/// with it: 3054 of the 6114 points were in the wrong place, and every one of
+/// them was a plausible temperature, so nothing downstream could tell.
+#[test]
+fn the_reduced_pair_decodes_to_one_field() {
+    let read = |name: &str| {
+        let reader =
+            Grib2Reader::from_bytes(std::fs::read(Path::new("tests/fixtures").join(name)).unwrap())
+                .unwrap();
+        reader.decode_message_values(0).unwrap()
+    };
+    let forwards = read("second_order_reduced_gaussian.grib2");
+    let boustrophedonic = read("second_order_boust_reduced_gaussian.grib2");
+    assert_eq!(forwards.len(), 6114);
+    assert_eq!(
+        forwards, boustrophedonic,
+        "boustrophedonic ordering is a storage detail; the field is the same"
+    );
+
+    // …and the two really do store it differently, or the assertion above would
+    // hold with the undo missing.
+    let stored = std::fs::read("tests/fixtures/second_order_reduced_gaussian.grib2").unwrap();
+    let stored_boust =
+        std::fs::read("tests/fixtures/second_order_boust_reduced_gaussian.grib2").unwrap();
+    assert_ne!(stored, stored_boust, "the two fixtures are the same octets");
 }
 
 /// The 5.50001 and 5.50002 (non-boustrophedonic) fixtures encode the same

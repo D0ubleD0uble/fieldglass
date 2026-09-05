@@ -408,6 +408,58 @@ message: `grib_set` without `-r` only sets the `secondOrderFlags` byte and
 leaves the §7 stream in place, so eccodes applies `data_apply_boustrophedonic`
 (reverse odd rows) on decode — the exact path Fieldglass must match.
 
+## Second-order packing on a reduced grid (#605)
+
+Second-order packing is ECMWF's, and ECMWF's operational grids are reduced
+Gaussian, so the two go together in the wild — but the three fixtures above are
+all regular lat/lon, which is why both readers could skip the boustrophedonic
+undo whenever the grid had no single column count and nothing noticed. This pair
+is the same packing on a reduced N32 Gaussian grid (64 rows running 20 to 128
+points wide, 6114 points), repacked from `reduced_gaussian_pressure_level.grib2`
+by `tools/build_grib2_second_order_fixtures.py`:
+
+| Fixture | DRS template | `packingType` | Exercises | Issue |
+|---|---|---|---|---|
+| `second_order_reduced_gaussian.grib2` | 5.50002 | `grid_second_order` | reduced grid, `boustrophedonicOrdering = 0` | #605 |
+| `second_order_boust_reduced_gaussian.grib2` | 5.50002 | `grid_second_order` | reduced grid, `boustrophedonicOrdering = 1` (ragged row reversal) | #605 |
+
+```sh
+grib_set -r -s packingType=grid_second_order \
+  reduced_gaussian_pressure_level.grib2 second_order_reduced_gaussian.grib2
+# Setting boustrophedonicOrdering re-encodes the values, so eccodes' own
+# (correct) packer writes every odd row backwards. Both files hold one field.
+grib_set -r -s boustrophedonicOrdering=1 \
+  second_order_reduced_gaussian.grib2 second_order_boust_reduced_gaussian.grib2
+```
+
+### eccodes' *decode* is not the oracle here
+
+`DataApplyBoustrophedonic::unpack` takes a separate branch when the message has
+a `pl` key. That branch walks down from `start + pl[j]` with a post-decrement,
+where the uniform branch uses `start + numberOfColumns - 1` and `+ 1` on the way
+out — the `- 1` is simply missing. Every odd row therefore lands one slot to the
+right, its first slot keeps the `calloc`'d zero, and the last odd row writes one
+element past the end of the value buffer. Measured on this fixture: **3028 of
+6114 points** are misplaced, and eccodes reports a field minimum of `0` where the
+field is `235.01` at its coldest. The same in 2.34.1 and in the 2.48.0 PyPI
+wheel, so this is not the pin — it is upstream, still present at the time of
+writing, and the GRIB1 equivalent (a 64-row grid, whose last row is odd)
+segfaults outright.
+
+`pack_double` has the pre-decrement and is correct, which is what makes the
+fixture buildable: eccodes is asked to **write** the boustrophedonic form, and
+the expected values are taken from the forward-stored sibling, which it decodes
+correctly. Verified independently by encoding a `0..n-1` ramp through
+`codes_set_values` on such a message and reading `codedValues` back: odd rows
+come out reversed within their own row, and undoing that reproduces the ramp
+exactly (max error 0.0).
+
+Consequently `second_order_boust_reduced_gaussian.grib2` is on `NO_VALUE_CHECK`
+in `tests/eccodes_reference.rs` — its metadata snapshot is still compared, only
+the value block is not — and its `_expected.json` holds the sibling's decode.
+`tests/decode_second_order.rs` also asserts the two fixtures decode to one
+field, which is the property #605 broke.
+
 ## Spectral (spherical-harmonic) fixture (#302)
 
 `spectral_simple_t63.grib2` pins the spherical-harmonic decode (§3 template

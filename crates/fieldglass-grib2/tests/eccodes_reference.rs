@@ -664,6 +664,19 @@ const NO_VALUE_CHECK: &[(&str, &str)] = &[
          with eccodes 2.47.3 — see NOTICE.md — and checked in \
          `decode_complex_constant.rs`.",
     ),
+    (
+        "second_order_boust_reduced_gaussian.grib2",
+        "eccodes' boustrophedonic undo is wrong on a reduced grid: the branch it \
+         takes when the message has a `pl` key walks down from `start + pl[j]` \
+         where the uniform branch uses `start + numberOfColumns - 1`, so every \
+         odd row lands one slot right and its first slot keeps the calloc'd 0 \
+         (eccodes reports a minimum of 0 for a field that is 235.01 at its \
+         coldest). 2.34.1 and 2.48.0 alike, and the GRIB1 equivalent segfaults. \
+         eccodes' *encoder* is correct, so the value oracle is \
+         `<fixture>_expected.json` — the decode of the forward-stored sibling \
+         `second_order_reduced_gaussian.grib2`, which holds the same field — \
+         checked in `decode_second_order.rs` (#605).",
+    ),
 ];
 
 /// Every committed GRIB2 fixture decodes to the values eccodes decodes.

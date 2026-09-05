@@ -54,7 +54,7 @@
 //! zero-width group), then `value = (R + X·2^E) / 10^D`.
 
 use fieldglass_core::{
-    FieldglassError,
+    FieldglassError, StoredRuns,
     bits::{BitReader, bits_to_bytes},
 };
 
@@ -214,7 +214,7 @@ pub fn decode_row_by_row(
     decimal_scale: i16,
     bitmap: Option<&[bool]>,
     expected_count: usize,
-    cols: usize,
+    runs: StoredRuns<'_>,
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
     let ext = header.complex_extended.ok_or_else(|| {
         FieldglassError::Parse("row_by_row decoder without complex_extended".into())
@@ -222,11 +222,23 @@ pub fn decode_row_by_row(
     let ClassicHeader {
         num_groups,
         width_of_first,
-        // P2 is unused here: the point count is derived from rows × cols.
+        // P2 is unused here: the point count is derived from rows × columns.
         ..
     } = common_header(bds, header, expected_count)?;
 
-    // One group per row ⇒ numberOfGroups rows of `cols` points each.
+    // One group per row ⇒ numberOfGroups rows of `cols` points each. A reduced
+    // grid has no single width, and eccodes' row-by-row accessor sizes group
+    // `j` by `pl[j]` for one — but nothing here can check that against an
+    // oracle, since eccodes 2.34.1 cannot encode this packing and no committed
+    // fixture pairs it with a reduced grid. Say so and refuse, rather than
+    // guess a layout (#605).
+    let Some(cols) = runs.uniform_width() else {
+        return Err(FieldglassError::UnsupportedSection(
+            "BDS uses `grid_second_order_row_by_row` on a reduced grid, whose rows \
+             differ in width; this decoder sizes its groups by a single column count"
+                .into(),
+        ));
+    };
     if cols == 0 {
         return Err(FieldglassError::Parse(
             "row_by_row needs a non-zero column count".into(),
@@ -261,7 +273,7 @@ pub fn decode_row_by_row(
         header,
         decimal_scale,
         ext.boustrophedonic(),
-        cols,
+        runs,
         bitmap,
         expected_count,
     )
@@ -276,7 +288,7 @@ pub fn decode_constant_width(
     decimal_scale: i16,
     bitmap: Option<&[bool]>,
     expected_count: usize,
-    cols: usize,
+    runs: StoredRuns<'_>,
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
     let ext = header.complex_extended.ok_or_else(|| {
         FieldglassError::Parse("constant_width decoder without complex_extended".into())
@@ -342,7 +354,7 @@ pub fn decode_constant_width(
         header,
         decimal_scale,
         ext.boustrophedonic(),
-        cols,
+        runs,
         bitmap,
         expected_count,
     )
@@ -360,7 +372,7 @@ pub fn decode_general(
     decimal_scale: i16,
     bitmap: Option<&[bool]>,
     expected_count: usize,
-    cols: usize,
+    runs: StoredRuns<'_>,
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
     let ext = header.complex_extended.ok_or_else(|| {
         FieldglassError::Parse("general_grib1 decoder without complex_extended".into())
@@ -423,7 +435,7 @@ pub fn decode_general(
         header,
         decimal_scale,
         ext.boustrophedonic(),
-        cols,
+        runs,
         bitmap,
         expected_count,
     )

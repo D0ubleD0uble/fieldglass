@@ -15,7 +15,7 @@
 //! `Grib1Packing::decode`, and route it from `decoder_for`. No other crates
 //! need to change.
 
-use fieldglass_core::{FieldglassError, bits::BitReader};
+use fieldglass_core::{FieldglassError, StoredRuns, bits::BitReader};
 
 use crate::bds::BdsHeader;
 
@@ -30,11 +30,14 @@ pub mod spherical;
 /// A BDS packing decoder. Implementors take the full Binary Data Section
 /// (starting at its 3-byte length prefix), the parsed header, the PDS
 /// decimal scale factor, an optional per-point bitmap (from BMS), the
-/// total grid-point count from the GDS, and the grid's column count
-/// `cols` (used by complex/second-order decoders to undo boustrophedonic
-/// row scanning — simple-packing impls ignore it). They return one
-/// `Option<f64>` per grid point — `None` for bitmap-masked points,
+/// total grid-point count from the GDS, and the grid's stored runs
+/// [`StoredRuns`] (used by complex/second-order decoders to undo
+/// boustrophedonic row scanning — simple-packing impls ignore it). They return
+/// one `Option<f64>` per grid point — `None` for bitmap-masked points,
 /// `Some(value)` otherwise.
+///
+/// `runs` is a shape rather than a count because a reduced grid has no single
+/// row width, and passing `0` for one is what left its rows un-reversed (#605).
 pub trait Grib1Packing {
     /// Decode the section's values, one `Option<f64>` per grid point. See the
     /// trait docs for what each argument carries.
@@ -45,7 +48,7 @@ pub trait Grib1Packing {
         decimal_scale: i16,
         bitmap: Option<&[bool]>,
         expected_count: usize,
-        cols: usize,
+        runs: StoredRuns<'_>,
     ) -> Result<Vec<Option<f64>>, FieldglassError>;
 }
 
@@ -139,17 +142,30 @@ pub(crate) fn present_count(bitmap: Option<&[bool]>, expected_count: usize) -> u
 
 /// Shared reconstruction tail for every GRIB1 second-order packing. Given the
 /// reconstructed integer grid `x` in storage order, scale it by
-/// `(R + x·2^E) / 10^D`, undo boustrophedonic row ordering (odd rows stored
+/// `(R + x·2^E) / 10^D`, undo boustrophedonic run ordering (odd runs stored
 /// right-to-left) if `boustrophedonic` is set, then interleave `None` at any
-/// bitmap-masked points. Boustrophedonic undo must precede the bitmap
-/// interleave, because the bitmap maps the storage stream. Used by both
-/// [`second_order`] and [`second_order_classic`].
+/// bitmap-masked points. Used by both [`second_order`] and
+/// [`second_order_classic`].
+///
+/// `runs` is [`StoredRuns::Uniform`] for a rectangle and [`StoredRuns::Ragged`]
+/// for a reduced grid, whose rows differ in width and used to be handed a `0`
+/// that skipped the undo entirely (#605). eccodes makes the same split in
+/// `DataApplyBoustrophedonic`: `pl[j]` when the message has a `pl` key,
+/// `numberOfColumns` when it does not.
+///
+/// The undo runs on the scaled stream, *before* the bitmap interleave, which is
+/// sound only because [`complex::ComplexPacking`] refuses second-order packing
+/// together with a masking bit-map: `x` is then the whole grid, so the run
+/// boundaries are the grid's own. (eccodes composes the two the other way round
+/// for GRIB1 — `data_apply_boustrophedonic_bitmap` reverses the *bitmap's* rows
+/// and interleaves, then `data_apply_boustrophedonic` reverses the result — a
+/// distinction with no consequence while every point is present.)
 pub(crate) fn finalize_second_order(
     x: Vec<i64>,
     header: &BdsHeader,
     decimal_scale: i16,
     boustrophedonic: bool,
-    cols: usize,
+    runs: StoredRuns<'_>,
     bitmap: Option<&[bool]>,
     expected_count: usize,
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
@@ -162,13 +178,8 @@ pub(crate) fn finalize_second_order(
         .map(|v| (r + (*v as f64) * two_pow_e) * d_scale)
         .collect();
 
-    if boustrophedonic && cols > 0 {
-        let rows = scaled.len() / cols;
-        for row in (1..rows).step_by(2) {
-            let start = row * cols;
-            let end = start + cols;
-            scaled[start..end].reverse();
-        }
+    if boustrophedonic {
+        fieldglass_core::reverse_alternate_runs(&mut scaled, runs);
     }
 
     match bitmap {

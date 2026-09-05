@@ -6,7 +6,7 @@
 //! implemented; surfaces a precise [`FieldglassError::UnsupportedSection`]
 //! so callers can tell *which* packing is the blocker.
 
-use fieldglass_core::FieldglassError;
+use fieldglass_core::{FieldglassError, StoredRuns};
 
 use crate::bds::BdsHeader;
 
@@ -24,7 +24,7 @@ impl Grib1Packing for ComplexPacking {
         decimal_scale: i16,
         bitmap: Option<&[bool]>,
         expected_count: usize,
-        cols: usize,
+        runs: StoredRuns<'_>,
     ) -> Result<Vec<Option<f64>>, FieldglassError> {
         let ext = header.complex_extended.ok_or_else(|| {
             // Strict-WMO complex packing without the extra-flags octet
@@ -50,7 +50,8 @@ impl Grib1Packing for ComplexPacking {
         }
 
         // The second-order layouts size their group / row / secondary-bitmap
-        // reads against the *full* grid (`numberOfGroups · cols`, `P2`). When a
+        // reads against the *full* grid (`numberOfGroups · run length`, `P2`).
+        // When a
         // BMS bit-map masks any point the BDS stores only the present values,
         // so those counts no longer line up: `row_by_row` would read past the
         // packed stream and misdecode, while `constant_width` / `general` fail
@@ -79,7 +80,7 @@ impl Grib1Packing for ComplexPacking {
                 decimal_scale,
                 bitmap,
                 expected_count,
-                cols,
+                runs,
             ),
             "grid_second_order_row_by_row" => super::second_order_classic::decode_row_by_row(
                 bds,
@@ -87,7 +88,7 @@ impl Grib1Packing for ComplexPacking {
                 decimal_scale,
                 bitmap,
                 expected_count,
-                cols,
+                runs,
             ),
             "grid_second_order_constant_width" => {
                 super::second_order_classic::decode_constant_width(
@@ -96,7 +97,7 @@ impl Grib1Packing for ComplexPacking {
                     decimal_scale,
                     bitmap,
                     expected_count,
-                    cols,
+                    runs,
                 )
             }
             "grid_second_order_general_grib1" => super::second_order_classic::decode_general(
@@ -105,7 +106,7 @@ impl Grib1Packing for ComplexPacking {
                 decimal_scale,
                 bitmap,
                 expected_count,
-                cols,
+                runs,
             ),
             _ => Err(FieldglassError::UnsupportedSection(format!(
                 "BDS uses complex / second-order packing — variant `{label}`. \

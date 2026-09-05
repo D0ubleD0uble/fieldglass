@@ -25,8 +25,8 @@
 //! `DataG1ShSimplePacking::unpack` — the code `grib_get_data` runs — and
 //! validated against its output on a real T63 message.
 
-use fieldglass_core::FieldglassError;
 use fieldglass_core::bits::{BitReader, ibm_float_to_f64};
+use fieldglass_core::{FieldglassError, StoredRuns};
 
 use crate::bds::{
     BdsHeader, SPECTRAL_COMPLEX_DATA_OFFSET, SPECTRAL_SIMPLE_DATA_OFFSET, SphericalExtendedHeader,
@@ -119,7 +119,7 @@ impl Grib1Packing for SphericalPacking {
         _decimal_scale: i16,
         _bitmap: Option<&[bool]>,
         _expected_count: usize,
-        _cols: usize,
+        _runs: StoredRuns<'_>,
     ) -> Result<Vec<Option<f64>>, FieldglassError> {
         Err(FieldglassError::UnsupportedSection(
             "BDS holds spherical-harmonic coefficients, which are not values on \

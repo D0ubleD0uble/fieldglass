@@ -5,7 +5,7 @@ use crate::is::{IndicatorSection, parse_indicator};
 use crate::packing::matrix::{decode_matrix_of_values, is_matrix_of_values};
 use crate::packing::spherical::{SpectralCoefficients, decode_spectral};
 use crate::pds::{ProductDefinition, parse_product_definition};
-use fieldglass_core::FieldglassError;
+use fieldglass_core::{FieldglassError, StoredRuns};
 
 /// One message located in the file, with its sections parsed and its data
 /// section left as a byte range to decode on demand.
@@ -222,22 +222,23 @@ impl Grib1Reader {
                 "grid {ni}×{nj} expands to a raster exceeding the cap of {MAX_GRID_POINTS}"
             )));
         }
-        // `cols` drives the uniform-width boustrophedonic undo in second-order
-        // packing, so it is the length of a *stored run*, not of a parallel. A
-        // reduced grid's rows differ in width, so a single column count is
-        // meaningless; pass 0 to skip it (correct for the simple/IEEE packings
-        // that dominate reduced grids and store rows left-to-right). Under
+        // `runs` drives the boustrophedonic undo in second-order packing, so it
+        // is the length of a *stored run*, not of a parallel. Under
         // j-consecutive scanning the stored run is a meridian of `Nj` points,
         // and eccodes 2.34.1 reverses alternate runs of that length — checked
         // by setting scan bit `0x20` on `ecmwf_spd3_boust_msg0.grib1` and
         // diffing `grib_get_data`, which is what `decode_j_consecutive.rs`
         // pins (#542).
-        let cols = if gds.points_per_row().is_some() {
-            0
-        } else if j_consecutive(gds) {
-            nj as usize
-        } else {
-            ni as usize
+        //
+        // A reduced grid's rows differ in width, so it carries its own `PL`
+        // list rather than a single count. Passing `0` for one — which is what
+        // this did — skipped the undo entirely, leaving every second row of an
+        // ECMWF reduced Gaussian second-order message backwards (#605);
+        // eccodes reverses row `j` over `pl[j]` instead, and so does this now.
+        let runs = match gds.points_per_row() {
+            Some(pl) => StoredRuns::Ragged(pl),
+            None if j_consecutive(gds) => StoredRuns::Uniform(nj as usize),
+            None => StoredRuns::Uniform(ni as usize),
         };
 
         let bitmap = match msg.bms_range {
@@ -252,7 +253,7 @@ impl Grib1Reader {
         Ok(DecodeInputs {
             ni: ni as usize,
             nj: nj as usize,
-            cols,
+            runs,
             expected_count,
             decimal_scale: msg.pds.decimal_scale_factor,
             bitmap,
@@ -286,7 +287,7 @@ impl Grib1Reader {
             inputs.decimal_scale,
             inputs.bitmap_bits(),
             inputs.expected_count,
-            inputs.cols,
+            inputs.runs,
         )
     }
 
@@ -460,10 +461,11 @@ impl Grib1Reader {
 struct DecodeInputs<'a> {
     ni: usize,
     nj: usize,
-    /// Length of one stored run, handed to the packing decoders for the
-    /// boustrophedonic undo. Equals `ni` for regular grids, `nj` for
-    /// j-consecutive ones (whose runs are meridians), `0` for reduced grids.
-    cols: usize,
+    /// The runs the message stored, handed to the packing decoders for the
+    /// boustrophedonic undo: `Uniform(ni)` for regular grids, `Uniform(nj)` for
+    /// j-consecutive ones (whose runs are meridians), `Ragged(PL)` for reduced
+    /// grids, whose rows differ in width.
+    runs: StoredRuns<'a>,
     expected_count: usize,
     decimal_scale: i16,
     bitmap: Option<Bitmap>,

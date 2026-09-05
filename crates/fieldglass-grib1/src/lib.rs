@@ -76,7 +76,10 @@ pub use gds::{GridDescription, ScanningMode, SphericalHarmonicGrid};
 // `expand_reduced_to_regular` predates the rest: it lives in core because
 // GRIB2's reduced-grid decode needs it too (#503), and the path stays here
 // because callers of this crate have it.
-pub use fieldglass_core::{FieldglassError, GridGeometry, expand_reduced_to_regular};
+// `StoredRuns` joins them for the same reason: `Grib1Packing::decode` takes the
+// grid's stored run layout, so implementing that trait outside this crate means
+// naming the type (#605).
+pub use fieldglass_core::{FieldglassError, GridGeometry, StoredRuns, expand_reduced_to_regular};
 pub use is::IndicatorSection;
 pub use packing::spherical::SpectralCoefficients;
 pub use pds::ProductDefinition;

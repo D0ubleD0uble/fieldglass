@@ -1,5 +1,5 @@
-use fieldglass_core::FieldglassError;
 use fieldglass_core::bits::{ibm_float_to_f64, sign_magnitude_i16};
+use fieldglass_core::{FieldglassError, StoredRuns};
 
 /// Header of the Binary Data Section. Does not own the packed data.
 #[derive(Debug)]
@@ -12,7 +12,10 @@ pub struct BdsHeader {
     pub is_complex_packing: bool,
     /// True = integer values; false = floating point.
     pub is_integer_data: bool,
-    /// True if extra flag octets follow (complex packing only).
+    /// Octet 4 bit 4, WMO's "additional flags present". It selects `grid_ieee`
+    /// or `grid_simple_matrix` among the *simple* packings; it does **not**
+    /// gate the complex-packing extended header, which follows every
+    /// non-spherical complex section whatever this says (#605).
     pub has_extra_flags: bool,
     /// Number of unused bits at the end of the packed data stream.
     pub unused_trailing_bits: u8,
@@ -27,14 +30,15 @@ pub struct BdsHeader {
     /// Present when `is_spherical_harmonic`. Holds the spectral follow-on
     /// header (the field mean, or the sub-truncation + Laplacian exponent).
     pub spherical_extended: Option<SphericalExtendedHeader>,
-    /// Present when `is_complex_packing && has_extra_flags`. Holds N1 + the
+    /// Present for every non-spherical complex-packed section. Holds N1 + the
     /// extended flag byte (octets 12-14) so [`crate::packing`] decoders can
     /// branch on the precise variant without re-parsing the section header.
+    /// Not gated on `has_extra_flags` — see [`parse_bds_header`].
     pub complex_extended: Option<ComplexExtendedHeader>,
 }
 
-/// The 3-octet header that follows the standard 11-octet BDS header when
-/// `is_complex_packing && has_extra_flags`. See WMO Manual on Codes Vol I.2,
+/// The 3-octet header that follows the standard 11-octet BDS header on every
+/// non-spherical complex-packed section. See WMO Manual on Codes Vol I.2,
 /// "GRIB1 BDS extended flag" (mirrored in eccodes' `grib1/section.4.def`).
 #[derive(Debug, Clone, Copy)]
 pub struct ComplexExtendedHeader {
@@ -122,6 +126,8 @@ impl BdsHeader {
             };
         }
         if self.is_complex_packing {
+            // `parse_bds_header` fills `complex_extended` for every section it
+            // accepts here, so the fallback is only for a header built by hand.
             return match self.complex_extended {
                 Some(ext) => ext.packing_type_label(),
                 None => "grid_second_order",
@@ -139,6 +145,10 @@ impl BdsHeader {
 
 /// Offset (within the BDS) at which packed data values begin.
 pub const BDS_DATA_OFFSET: usize = 11;
+
+/// Shortest BDS that can hold the complex-packing extended header: the standard
+/// 11 octets plus N1 (12-13) and the extended flag (14).
+pub const COMPLEX_EXTENDED_LEN: usize = 14;
 
 /// Parse the 11-byte BDS header. `bytes` should begin at the start of the BDS.
 pub fn parse_bds_header(bytes: &[u8]) -> Result<BdsHeader, FieldglassError> {
@@ -177,14 +187,26 @@ pub fn parse_bds_header(bytes: &[u8]) -> Result<BdsHeader, FieldglassError> {
         None
     };
 
-    // Octets 12-14 are only present (and meaningful) for complex packing
-    // with the extra-flags bit set. Spherical-harmonic packing sets the same
-    // complex bit but lays its octets out differently (see above), so it is
-    // excluded here.
-    let complex_extended = if is_complex_packing && !is_spherical_harmonic && has_extra_flags {
-        if bytes.len() < 14 {
+    // Octets 12-14 are present (and meaningful) for every non-spherical
+    // complex-packed section. Spherical-harmonic packing sets the same complex
+    // bit but lays its octets out differently (see above), so it is excluded
+    // here.
+    //
+    // Deliberately *not* also gated on `has_extra_flags` (octet 4 bit 4).
+    // eccodes' `grib1/section.4.def` reads this block under
+    // `if (complexPacking && sphericalHarmonics==0)` alone, and none of its
+    // `grid_second_order*` concepts constrain `additionalFlagPresent` — so a
+    // second-order section with the bit clear is an ordinary one to eccodes.
+    // Its own encoder writes exactly that (`grib_set -r -s
+    // packingType=grid_second_order` on a GRIB1 message leaves octet 4 = 0x47,
+    // complex set and bit 4 clear) and then decodes it back, while requiring
+    // the bit here refused the message with "complex packing without
+    // extra-flags octet". Found while building the reduced-grid fixture for
+    // #605, which is such a message.
+    let complex_extended = if is_complex_packing && !is_spherical_harmonic {
+        if bytes.len() < COMPLEX_EXTENDED_LEN {
             return Err(FieldglassError::Parse(format!(
-                "BDS complex extended header requires 14 bytes, got {}",
+                "BDS complex extended header requires {COMPLEX_EXTENDED_LEN} bytes, got {}",
                 bytes.len()
             )));
         }
@@ -293,7 +315,7 @@ fn parse_spherical_extended(
 /// `header` is the parsed header for `bds`; `decimal_scale` is the PDS
 /// `decimal_scale_factor` (D); `bitmap` is the BMS bitmap if one was
 /// present; `expected_count` is the total number of grid points (from the
-/// GDS); `cols` is the GDS column count (used by complex/second-order
+/// GDS); `runs` is the grid's stored run layout (used by complex/second-order
 /// decoders to undo boustrophedonic row-scan — simple packing ignores it).
 ///
 /// Returns one `Option<f64>` per grid point: `None` for points masked out
@@ -306,7 +328,7 @@ pub fn decode_values(
     decimal_scale: i16,
     bitmap: Option<&[bool]>,
     expected_count: usize,
-    cols: usize,
+    runs: StoredRuns<'_>,
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
     crate::packing::decoder_for(header).decode(
         bds,
@@ -314,7 +336,7 @@ pub fn decode_values(
         decimal_scale,
         bitmap,
         expected_count,
-        cols,
+        runs,
     )
 }
 
@@ -350,7 +372,7 @@ mod tests {
 
         // Baseline: with no bit-map this exact BDS decodes the full grid.
         assert!(
-            decode_values(bds, &header, 0, None, expected, ni).is_ok(),
+            decode_values(bds, &header, 0, None, expected, StoredRuns::Uniform(ni)).is_ok(),
             "row_by_row BDS should decode without a bit-map"
         );
 
@@ -360,8 +382,15 @@ mod tests {
         // rejected with a clear error instead.
         let mut bitmap = vec![true; expected];
         *bitmap.last_mut().unwrap() = false;
-        let err = decode_values(bds, &header, 0, Some(&bitmap), expected, ni)
-            .expect_err("second-order packing + masking bit-map must be rejected");
+        let err = decode_values(
+            bds,
+            &header,
+            0,
+            Some(&bitmap),
+            expected,
+            StoredRuns::Uniform(ni),
+        )
+        .expect_err("second-order packing + masking bit-map must be rejected");
         match err {
             FieldglassError::UnsupportedSection(msg) => {
                 assert!(msg.contains("bit-map"), "unexpected message: {msg}");
@@ -387,7 +416,7 @@ mod tests {
             complex_extended: None,
         };
         let bds = vec![0u8; BDS_DATA_OFFSET];
-        let out = decode_values(&bds, &header, 0, None, 4, 0).unwrap();
+        let out = decode_values(&bds, &header, 0, None, 4, StoredRuns::Uniform(0)).unwrap();
         assert_eq!(out, vec![Some(42.0); 4]);
     }
 
@@ -404,7 +433,7 @@ mod tests {
         ]);
         bds[10] = 8; // N
         let header = parse_bds_header(&bds).unwrap();
-        let out = decode_values(&bds, &header, 0, None, 4, 0).unwrap();
+        let out = decode_values(&bds, &header, 0, None, 4, StoredRuns::Uniform(0)).unwrap();
         assert_eq!(out, vec![Some(1.0), Some(2.0), Some(3.0), Some(4.0)]);
     }
 
@@ -421,19 +450,53 @@ mod tests {
         bds[10] = 8;
         let header = parse_bds_header(&bds).unwrap();
         let bitmap = [true, false, true, false];
-        let out = decode_values(&bds, &header, 0, Some(&bitmap), 4, 0).unwrap();
+        let out =
+            decode_values(&bds, &header, 0, Some(&bitmap), 4, StoredRuns::Uniform(0)).unwrap();
         assert_eq!(out, vec![Some(7.0), None, Some(9.0), None]);
     }
 
+    /// A complex-packed section whose extended flags name no known variant is
+    /// refused rather than guessed at. All-zero flags are that case: no
+    /// secondary bitmap, constant second-order width and no general-extended
+    /// bit is a combination eccodes' own `packingType` concept does not list.
     #[test]
     fn rejects_complex_packing() {
-        let mut bds = vec![0u8; BDS_DATA_OFFSET];
-        bds[0..3].copy_from_slice(&[0, 0, BDS_DATA_OFFSET as u8]);
+        let mut bds = vec![0u8; COMPLEX_EXTENDED_LEN];
+        bds[0..3].copy_from_slice(&[0, 0, COMPLEX_EXTENDED_LEN as u8]);
         bds[3] = 0x40; // complex packing flag
         let header = parse_bds_header(&bds).unwrap();
+        assert_eq!(header.packing_type_label(), "grid_second_order_unknown");
         assert!(matches!(
-            decode_values(&bds, &header, 0, None, 1, 0).unwrap_err(),
+            decode_values(&bds, &header, 0, None, 1, StoredRuns::Uniform(0)).unwrap_err(),
             FieldglassError::UnsupportedSection(_)
+        ));
+    }
+
+    /// The extended-flag octet is read for every non-spherical complex section,
+    /// not only when octet 4 bit 4 is set — eccodes' `grib1/section.4.def`
+    /// gates that block on the complex bit alone, and its own encoder leaves
+    /// bit 4 clear when it writes GRIB1 second-order packing (#605). A section
+    /// too short to hold octets 12-14 is then malformed, and says so here
+    /// rather than reporting a packing whose flags it never read.
+    #[test]
+    fn a_complex_section_carries_the_extended_flags_without_the_additional_flag_bit() {
+        let mut bds = vec![0u8; COMPLEX_EXTENDED_LEN];
+        bds[0..3].copy_from_slice(&[0, 0, COMPLEX_EXTENDED_LEN as u8]);
+        bds[3] = 0x40; // complex, and *not* 0x10
+        bds[13] = 0x1A; // the flags eccodes writes for grid_second_order
+        let header = parse_bds_header(&bds).unwrap();
+        assert!(!header.has_extra_flags);
+        let ext = header.complex_extended.expect("extended flags are read");
+        assert!(ext.general_extended_2ordr());
+        assert!(!ext.boustrophedonic());
+        assert_eq!(header.packing_type_label(), "grid_second_order");
+
+        let mut short = vec![0u8; BDS_DATA_OFFSET];
+        short[0..3].copy_from_slice(&[0, 0, BDS_DATA_OFFSET as u8]);
+        short[3] = 0x40;
+        assert!(matches!(
+            parse_bds_header(&short).unwrap_err(),
+            FieldglassError::Parse(_)
         ));
     }
 
@@ -454,7 +517,7 @@ mod tests {
         ));
         assert_eq!(header.packing_type_label(), "spectral_simple");
 
-        let err = decode_values(&bds, &header, 0, None, 1, 0).unwrap_err();
+        let err = decode_values(&bds, &header, 0, None, 1, StoredRuns::Uniform(0)).unwrap_err();
         match err {
             FieldglassError::UnsupportedSection(msg) => {
                 assert!(msg.contains("decode_spectral_message"), "msg = {msg:?}");
