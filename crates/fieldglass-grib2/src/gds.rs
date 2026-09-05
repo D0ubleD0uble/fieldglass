@@ -2201,6 +2201,51 @@ mod tests {
         assert!((la1 - (-20.0)).abs() < 1e-9 && (lo1 - 225.0).abs() < 1e-9);
     }
 
+    /// The same octets one step further along (#610): scale = 6, value = 1 is a
+    /// *positive* radius of 1e-6 m, so the `> 0.0` guard the case above added
+    /// passes and the plane still collapses — every point on Earth lands within
+    /// a micrometre of an origin the message spaces 12.7 km apart. Written from
+    /// the bytes rather than from the projector so the whole path is pinned:
+    /// the shape-of-earth octets, `resolve_earth_shape`, and the corner walk.
+    #[test]
+    fn a_polar_stereo_grid_on_an_earth_smaller_than_its_cell_reports_no_corner() {
+        let mut p: Vec<u8> = Vec::new();
+        p.push(1); // shape of earth: spherical, radius specified below
+        p.push(6); // radius scale factor: 10^-6
+        push_be(&mut p, 1, 4); // radius scaled value = 1 → 1e-6 m
+        p.extend_from_slice(&[0xFFu8; 10]); // major/minor axes: missing
+        push_be(&mut p, 512, 4); // Nx
+        push_be(&mut p, 512, 4); // Ny
+        p.extend_from_slice(&signed_lat_bytes(-20_000_000)); // La1 = -20°
+        push_be(&mut p, 225_000_000, 4); // Lo1 = 225°
+        p.push(0x08); // resolution flags
+        p.extend_from_slice(&signed_lat_bytes(-60_000_000)); // LaD = -60°
+        push_be(&mut p, 100_000_000, 4); // LoV = 100°
+        push_be(&mut p, 12_700_000, 4); // Dx = 12700 m
+        push_be(&mut p, 12_700_000, 4); // Dy = 12700 m
+        p.push(0x80); // projection centre: south pole on plane
+        p.push(64); // scanning mode
+        assert_eq!(p.len(), 51);
+
+        let bytes = wrap_gds(20, 512 * 512, &p);
+        let gds = parse_grid_definition(&bytes).expect("parse 3.20");
+        let GridTemplate::PolarStereographic(t) = gds.template else {
+            panic!("expected PolarStereographic");
+        };
+        assert_eq!(
+            t.earth_radius_m, 1e-6,
+            "the declared radius reaches us as-is"
+        );
+        assert_eq!(
+            t.last_point(),
+            None,
+            "a plane narrower than one cell cannot place the far corner"
+        );
+        assert_eq!(gds.bounds(), None, "so there is no corner pair to report");
+        let (la1, lo1) = gds.first_point().expect("the first point is stated");
+        assert!((la1 - (-20.0)).abs() < 1e-9 && (lo1 - 225.0).abs() < 1e-9);
+    }
+
     #[test]
     fn template_3_90_round_trips_space_view() {
         let mut p: Vec<u8> = Vec::new();
@@ -2271,6 +2316,14 @@ mod tests {
                 "shape {code} with a missing scaled value gave radius {r}"
             );
         }
+        // A producer-specified radius that *is* stated reaches the projections
+        // as stated, however small (#610). Shape 1, scale = 6, value = 1 is a
+        // legal encoding of 1e-6 m, and the substitution above deliberately
+        // does not fire — the value is resolvable, just absurd.
+        let mut micrometre = vec![1u8, 6];
+        micrometre.extend_from_slice(&1u32.to_be_bytes());
+        micrometre.extend_from_slice(&[0xFFu8; 10]);
+        assert_eq!(earth_radius_from_shape(&micrometre), 1e-6);
     }
 
     #[test]

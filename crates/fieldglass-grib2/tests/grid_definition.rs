@@ -663,3 +663,113 @@ fn classic_and_octahedral_differ_only_in_their_row_widths() {
     );
     assert_ne!(a.size_label(), b.size_label());
 }
+
+/// #610, on the four real planar fixtures: an Earth that is positive, finite
+/// and still smaller than one of the grid's own cells geolocates nothing.
+///
+/// GRIB2 §3 code table 3.2 shape 1 is "spherical, radius specified by the data
+/// producer" as a scale factor and a scaled value, so `scale = 6, value = 1`
+/// encodes a legal 1e-6 m sphere. The shape octets are common to all four
+/// templates, so the substitution here is what the parser would hand each
+/// projector had the message carried those bytes — and the point is that all
+/// four families used to accept it, place every point on the planet inside cell
+/// (0, 0), and render a flat wash of one colour with nothing to say why.
+#[test]
+fn an_earth_smaller_than_a_grid_cell_places_no_point_in_any_planar_template() {
+    // Shape of earth 1, scale factor 6, scaled value 1.
+    const TINY: f64 = 1e-6;
+
+    let lambert = Grib2Reader::from_bytes(ETA_LAMBERT.to_vec()).expect("parse");
+    let GridTemplate::Lambert(t) = lambert.messages[0].gds.template else {
+        panic!("expected Lambert");
+    };
+    assert!(
+        t.last_point().is_some(),
+        "the real Eta grid places its corner"
+    );
+    let collapsed = fieldglass_grib2::gds::LambertTemplate {
+        earth_radius_m: TINY,
+        ..t
+    };
+    assert_eq!(
+        collapsed.last_point(),
+        None,
+        "§3.30 placed a corner on a 1e-6 m Earth"
+    );
+
+    // The committed §3.20 fixture states Dx = Dy = 0, so its far corner is its
+    // first point whatever the radius is. Give it the CMC grid's 12.7 km step
+    // so there is a cell for the Earth to be smaller than, and check both
+    // radii against that one grid.
+    let polar = Grib2Reader::from_bytes(POLAR_STEREO.to_vec()).expect("parse");
+    let GridTemplate::PolarStereographic(t) = polar.messages[0].gds.template else {
+        panic!("expected PolarStereographic");
+    };
+    assert_eq!((t.dx_metres, t.dy_metres), (0.0, 0.0));
+    let spaced = fieldglass_grib2::gds::PolarStereographicTemplate {
+        dx_metres: 12_700.0,
+        dy_metres: 12_700.0,
+        ..t
+    };
+    assert!(
+        spaced.last_point().is_some(),
+        "a §3.20 grid on its declared Earth places its corner"
+    );
+    let collapsed = fieldglass_grib2::gds::PolarStereographicTemplate {
+        earth_radius_m: TINY,
+        ..spaced
+    };
+    assert_eq!(
+        collapsed.last_point(),
+        None,
+        "§3.20 placed a corner on a 1e-6 m Earth"
+    );
+
+    let ukv = Grib2Reader::from_bytes(TRANSVERSE_MERCATOR.to_vec()).expect("parse");
+    let GridTemplate::TransverseMercator(t) = ukv.messages[0].gds.template else {
+        panic!("expected TransverseMercator");
+    };
+    assert!(
+        TransverseMercatorProjector::new(t.projection_params()).is_well_defined(),
+        "the real UKV grid is usable"
+    );
+    let collapsed = fieldglass_grib2::gds::TransverseMercatorTemplate {
+        earth_major_m: TINY,
+        earth_minor_m: TINY,
+        ..t
+    };
+    let projector = TransverseMercatorProjector::new(collapsed.projection_params());
+    assert!(
+        !projector.is_well_defined(),
+        "§3.12 accepted a 1e-6 m spheroid"
+    );
+    assert_eq!(
+        projector.inverse(54.0, -2.0),
+        None,
+        "§3.12 resolved an index on a 1e-6 m spheroid"
+    );
+
+    let efas = Grib2Reader::from_bytes(LAMBERT_AZIMUTHAL.to_vec()).expect("parse");
+    let GridTemplate::LambertAzimuthal(t) = efas.messages[0].gds.template else {
+        panic!("expected LambertAzimuthal");
+    };
+    assert!(
+        t.last_point().is_some(),
+        "the real EFAS grid places its corner"
+    );
+    let collapsed = fieldglass_grib2::gds::LambertAzimuthalTemplate {
+        earth_major_m: TINY,
+        earth_minor_m: TINY,
+        ..t
+    };
+    assert_eq!(
+        collapsed.last_point(),
+        None,
+        "§3.140 placed a corner on a 1e-6 m Earth"
+    );
+    assert_eq!(
+        LambertAzimuthalProjector::new(collapsed.projection_params()).inverse(52.0, 10.0),
+        None,
+        "§3.140 resolved an index on a 1e-6 m spheroid"
+    );
+}
