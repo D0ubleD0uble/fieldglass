@@ -3425,8 +3425,8 @@ mod subsample_tests {
             (
                 "latlon",
                 GridGeometry::LatLon(LatLonParams {
-                    ni: 37,
-                    nj: 19,
+                    ni: 36,
+                    nj: 22,
                     lat_first: 90.0,
                     lon_first: 0.0,
                     lat_last: -90.0,
@@ -3448,7 +3448,7 @@ mod subsample_tests {
                 "mercator",
                 GridGeometry::Mercator(MercatorParams {
                     ni: 60,
-                    nj: 41,
+                    nj: 44,
                     lat_first: -60.0,
                     lon_first: 100.0,
                     lat_last: 60.0,
@@ -3459,7 +3459,7 @@ mod subsample_tests {
                 "rotated_latlon",
                 GridGeometry::RotatedLatLon(RotatedLatLonParams {
                     ni: 16,
-                    nj: 31,
+                    nj: 30,
                     lat_first: 60.0,
                     lon_first: 0.0,
                     lat_last: 0.0,
@@ -3613,6 +3613,57 @@ mod subsample_tests {
                     placed > 0,
                     "{label} at reduction {reduction}: nothing placed, so nothing was compared"
                 );
+            }
+        }
+    }
+
+    /// The dimensions in [`families`] are chosen so the far corner is really
+    /// *recomputed* rather than copied, at every reduction the property test
+    /// uses.
+    ///
+    /// This is a test of the test. The three corner-stated families restate
+    /// their far corner as the source grid's point at index
+    /// `(ceil(n / 2^r) - 1) · 2^r`, and that index equals `n - 1` — where
+    /// [`axis_position`] returns the declared corner verbatim — exactly when
+    /// `n ≡ 1 (mod 2^r)`. A table of such dimensions makes the recompute
+    /// indistinguishable from doing nothing: the original Mercator entry was
+    /// `nj = 41`, which is `1 (mod 2)`, `1 (mod 4)` and `1 (mod 8)`, and a
+    /// mutation replacing the Mercator ordinate with a linear interpolation in
+    /// latitude passed every test.
+    #[test]
+    fn the_family_table_exercises_a_recomputed_far_corner() {
+        for (label, grid) in families() {
+            if !matches!(
+                grid,
+                GridGeometry::LatLon(_)
+                    | GridGeometry::Mercator(_)
+                    | GridGeometry::RotatedLatLon(_)
+            ) {
+                continue;
+            }
+            let (ni, nj) = grid.dims().expect("has dimensions");
+            // The one exemption, and it is deliberate: the antimeridian entry
+            // is ECMWF's real 0.25° grid, and 721 rows is `1 (mod 8)`. It is in
+            // the table for the *longitude* wrap, where its 1440 columns do
+            // recompute; the latitude recompute is covered by the other lat/lon
+            // entry. Rounding 721 to make this pass would make the row a grid
+            // no producer ships.
+            let axes: &[(&str, u32)] = if label == "latlon crossing the antimeridian" {
+                &[("ni", ni)]
+            } else {
+                &[("ni", ni), ("nj", nj)]
+            };
+            for reduction in 1u8..=3 {
+                let step = 1u32 << reduction;
+                for &(axis, n) in axes {
+                    let last = (n.div_ceil(step) - 1) * step;
+                    assert_ne!(
+                        last,
+                        n - 1,
+                        "{label}: {axis} = {n} at reduction {reduction} keeps the declared \
+                         corner, so the recompute is untested there"
+                    );
+                }
             }
         }
     }
