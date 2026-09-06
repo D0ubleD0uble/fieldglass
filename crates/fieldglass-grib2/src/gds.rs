@@ -1142,6 +1142,15 @@ impl GridDefinitionSection {
 
     /// Short human-readable name of the template (e.g. `"latlon"`,
     /// `"lambert"`, `"gaussian"`, `"unsupported(N)"`).
+    ///
+    /// This is the string a host puts in its grid-type column, and it names
+    /// what **this build models**: it is derived from [`GridTemplate`], so a
+    /// template the parser declines reads `unsupported(3.N)` however well WMO
+    /// names it. The standard's own name for the code is a different question,
+    /// answered by [`crate::tables::lookup_grid_template`], which names every
+    /// code Code Table 3.1 assigns whether or not the parser models it (#653).
+    /// Keeping the two apart is what lets the column stay honest about support
+    /// without the lookup having to pretend a grid has no name.
     pub fn template_name(&self) -> String {
         match &self.template {
             GridTemplate::LatLon(_) => "latlon".to_string(),
