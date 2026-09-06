@@ -30,6 +30,30 @@
 //! unable to find it (#653). So [`every_code_wmo_assigns_is_named`] holds the
 //! set of unnamed codes equal to [`DELIBERATELY_UNNAMED`], and a code WMO adds
 //! later fails here until someone either names it or records why not.
+//!
+//! Two more blind spots closed in #655, both about what a gate cannot see
+//! rather than what it compares:
+//!
+//! * **A swap.** Exchanging two labels inside one table left every test green:
+//!   the strings all still exist, are still distinct, and WMO's recorded
+//!   wording still matches, so only the rule on *our* side could catch it and
+//!   it looked only for one shared word. [`wording_survives`] now also holds
+//!   our numbers to WMO's and our word order to WMO's, and
+//!   [`a_label_swap_inside_a_table_is_rejected`] exercises the swaps that used
+//!   to pass — including §4.10 codes 4 and 8, a sign inversion in a displayed
+//!   statistic. The rule itself moved to [`wording`], because
+//!   `wmo_parameter_tables.rs` had its own identical copy and would otherwise
+//!   have kept the weakness. What the rule *still* cannot see is counted rather
+//!   than argued: [`every_swap_this_gate_cannot_see_is_recorded`] walks every
+//!   pair of labels in every table and holds the ones that could trade places
+//!   equal to [`UNDETECTED_SWAPS`]. The hand-written version of that claim was
+//!   wrong about which pairs were left, which is why it is computed.
+//! * **A span.** WMO writes unassigned code space as one row (`18-191`), which
+//!   the snapshot generator dropped silently, so a code assigned inside a span
+//!   could never enter the snapshot and never fail the naming check. The
+//!   generator records spans now, and
+//!   [`every_span_wmo_publishes_is_unassigned`] holds each one meaningless —
+//!   and holds the converse, that we name nothing inside a span WMO reserves.
 
 use fieldglass_grib2::{
     lookup_data_type, lookup_discipline, lookup_earth_shape, lookup_ensemble_type,
@@ -38,6 +62,9 @@ use fieldglass_grib2::{
     lookup_time_range_unit,
 };
 use serde_json::Value;
+use wording::{is_a_recognisable_rewrite, keeps_wmos_word_order, normalize};
+
+mod wording;
 
 const SNAPSHOT: &str = include_str!("fixtures/wmo_code_tables.ref.json");
 
@@ -230,6 +257,24 @@ const ACCEPTED: &[(&str, u16, &str)] = &[
     ),
 ];
 
+/// Accepted divergences whose rewrite reorders WMO's own words, and so is
+/// exempt from [`keeps_wmos_word_order`].
+///
+/// The order rule is what catches a swap between two entries that differ only
+/// in operand order, so an exemption is a real hole and each one is written
+/// down with what fills it. English puts the head noun in a different place
+/// from WMO's "Level of X" construction, and a rewrite that reads naturally in
+/// a metadata column is the reason these labels exist at all.
+const REORDERED: &[(&str, u16, &str)] = &[(
+    "4.5",
+    3,
+    "\"Cloud top level\" fronts the noun where WMO's \"Level of cloud tops\" \
+     trails it, and pairs with code 2's \"Cloud base level\". The swap this \
+     would otherwise catch — 2 against 3 — is caught anyway: code 2 matches \
+     WMO exactly, so a label landing on it that is not WMO's own text is not \
+     on ACCEPTED and fails outright.",
+)];
+
 /// Codes WMO assigns that our lookups deliberately do not name, each with the
 /// reason. A code that our lookups answer `Unknown…` for and that is **not**
 /// listed here fails [`every_code_wmo_assigns_is_named`].
@@ -259,10 +304,9 @@ fn lookup_has_no_name(label: &str) -> bool {
 /// In practice that is `Reserved`, and only `Reserved`: `Missing` is a meaning
 /// — every lookup here names it — and a code whose text is anything else is
 /// something WMO has assigned. `Reserved for local use` matches the same
-/// prefix but never reaches the snapshot, because WMO publishes the local
-/// range as a single row (`192-254`) and
-/// `tools/gen_wmo_code_table_snapshot.py` keeps only rows whose code is one
-/// number.
+/// prefix, and reaches this function through the snapshot's `ranges` block:
+/// WMO publishes the local range as one span row (`192-254`), which the
+/// generator used to drop and now records (#655).
 ///
 /// When WMO later assigns one of these, the snapshot's text changes and the
 /// code stops being exempt, which is exactly the notification this gate exists
@@ -271,29 +315,61 @@ fn wmo_assigns_no_meaning(wmo: &str) -> bool {
     wmo.starts_with("Reserved")
 }
 
-fn normalize(s: &str) -> String {
-    s.chars()
-        .filter(|c| c.is_ascii_alphanumeric())
-        .map(|c| c.to_ascii_lowercase())
-        .collect()
+/// Whether `ours` is an acceptable rewrite of WMO's `theirs` for this code.
+///
+/// The word-order half is skipped for an entry on [`REORDERED`], which is why
+/// that list is keyed by code rather than by string: a label swapped *onto* an
+/// exempt code inherits the exemption, and saying so out loud is better than a
+/// rule that quietly depends on which string arrived.
+fn wording_survives(table: &str, code: u16, ours: &str, theirs: &str) -> bool {
+    is_a_recognisable_rewrite(ours, theirs)
+        && (REORDERED.iter().any(|&(t, c, _)| t == table && c == code)
+            || keeps_wmos_word_order(ours, theirs))
 }
 
-/// Whether `ours` still visibly describes the same thing as `theirs`.
+/// Why a label is, or is not, acceptable for a code.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum Verdict {
+    /// It is WMO's own text, or one string contains the other — the rule that
+    /// lets `TIGGE` stand for WMO's spelt-out name, and lets ours add the unit
+    /// WMO leaves to its own column.
+    WmosText,
+    /// It is a recorded divergence the wording rule accepts as a rewrite.
+    Rewrite,
+    /// Neither.
+    No,
+}
+
+/// The whole decision [`every_curated_code_table_entry_agrees_with_wmo`] makes,
+/// in one place, and *why* it made it.
 ///
-/// A recorded divergence pins the *authority's* wording, which catches a
-/// reassigned code — but on its own it says nothing about our side, so a label
-/// swapped for something unrelated would sail through. This is the other half:
-/// some substantial word of ours must still appear in the authority's text.
-/// Deliberately weak, because the accepted labels are heavy rewrites ("Oblate
-/// spheroid (WGS84)" for a 60-character geodetic definition); it only has to
-/// separate a rewrite from an unrelated name, and every defect found in #415
-/// shared no word at all.
-fn shares_a_substantial_word(ours: &str, theirs: &str) -> bool {
-    let haystack = normalize(theirs);
-    ours.split(|c: char| !c.is_ascii_alphanumeric())
-        .map(normalize)
-        .filter(|w| w.len() >= 5)
-        .any(|w| haystack.contains(&w))
+/// Lifted out so [`every_swap_this_gate_cannot_see_is_recorded`] can ask the
+/// same question about a label that is not the one the source carries, without
+/// mutating the source or restating the rule and letting the two drift. The
+/// reason comes back because the two branches have different owners: the
+/// wording rule is what #655 hardened, and containment is an older, broader
+/// weakness this file already records.
+fn verdict(table: &str, code: u16, ours: &str, expected: &str) -> Verdict {
+    let (a, b) = (normalize(ours), normalize(expected));
+    if a == b || a.contains(&b) || b.contains(&a) {
+        return Verdict::WmosText;
+    }
+    // The recorded text is the assertion: WMO must still mean what it meant
+    // when the divergence was reviewed.
+    let recorded = matches!(
+        ACCEPTED.iter().find(|&&(t, c, _)| t == table && c == code),
+        Some(&(_, _, reviewed)) if reviewed == expected
+    );
+    if recorded && wording_survives(table, code, ours, expected) {
+        Verdict::Rewrite
+    } else {
+        Verdict::No
+    }
+}
+
+/// Whether `ours` is an acceptable label for `table`/`code`.
+fn label_is_acceptable(table: &str, code: u16, ours: &str, expected: &str) -> bool {
+    verdict(table, code, ours, expected) != Verdict::No
 }
 
 fn snapshot() -> Value {
@@ -331,8 +407,7 @@ fn every_curated_code_table_entry_agrees_with_wmo() {
                 continue;
             }
             compared += 1;
-            let (a, b) = (normalize(ours), normalize(expected));
-            if a == b || a.contains(&b) || b.contains(&a) {
+            if label_is_acceptable(table.wmo, code, ours, expected) {
                 continue;
             }
             match ACCEPTED
@@ -342,10 +417,12 @@ fn every_curated_code_table_entry_agrees_with_wmo() {
                 // The recorded text is the assertion: WMO must still mean what
                 // it meant when the divergence was reviewed.
                 Some(&(_, _, reviewed)) if reviewed == expected => {
-                    if !shares_a_substantial_word(ours, expected) {
+                    if !wording_survives(table.wmo, code, ours, expected) {
                         wrong.push(format!(
                             "  {}/{code}: accepted as a rewrite of WMO {expected:?}, but \
-                             ours {ours:?} shares no word with it",
+                             ours {ours:?} does not read as one — it shares no word, \
+                             states a number WMO does not, or reorders WMO's words \
+                             without an entry on REORDERED",
                             table.wmo
                         ));
                     }
@@ -622,9 +699,404 @@ fn every_accepted_divergence_is_still_a_divergence() {
             "{wmo}/{code}: ours {ours:?} now matches WMO — drop it from ACCEPTED"
         );
         assert!(
-            shares_a_substantial_word(ours, expected),
-            "{wmo}/{code}: ours {ours:?} shares no word with WMO {expected:?} — that is \
-             not a rewrite, it is a different entry"
+            wording_survives(wmo, code, ours, expected),
+            "{wmo}/{code}: ours {ours:?} is not a recognisable rewrite of WMO \
+             {expected:?} — that is not a rewrite, it is a different entry"
         );
     }
+}
+
+/// Each word-order exemption must still be needed, and must be an accepted
+/// divergence in the first place.
+///
+/// An exemption is a hole in the rule that catches operand-order swaps, so an
+/// entry left behind after its label was reworded is a hole nothing fills. Held
+/// in both directions, like [`DELIBERATELY_UNNAMED`]: an entry whose label now
+/// keeps WMO's order comes off the list.
+#[test]
+fn every_reordering_exemption_is_still_needed() {
+    let doc = snapshot();
+    for &(wmo, code, why) in REORDERED {
+        assert!(
+            ACCEPTED.iter().any(|&(t, c, _)| t == wmo && c == code),
+            "{wmo}/{code} is exempt from the word-order rule but is not an accepted \
+             divergence at all ({why})"
+        );
+        let table = TABLES
+            .iter()
+            .find(|t| t.wmo == wmo)
+            .unwrap_or_else(|| panic!("{wmo} is not a table under test"));
+        let expected = doc["tables"][wmo][code.to_string()]
+            .as_str()
+            .unwrap_or_else(|| panic!("{wmo}/{code} is not in the snapshot"));
+        let ours = (table.lookup)(code);
+        assert!(
+            !keeps_wmos_word_order(ours, expected),
+            "{wmo}/{code}: ours {ours:?} keeps WMO's word order now — drop the \
+             exemption rather than leaving a hole in the swap rule"
+        );
+    }
+}
+
+/// Two labels swapped inside one table, which is the failure the rest of this
+/// file cannot see.
+///
+/// Both strings still exist and are still distinct, so
+/// [`no_two_codes_in_a_table_share_a_label`] passes; both are still recorded
+/// divergences with WMO's exact wording unchanged, so
+/// [`every_accepted_divergence_is_still_a_divergence`] passes on the half that
+/// pins the authority. Only [`wording_survives`] stands between a
+/// swap and a green suite, and until #655 it did not: every pair below was
+/// verified green on `master` at 9ea139c with the two arms exchanged.
+///
+/// A swap changes *both* arms, so catching either direction catches the swap.
+#[test]
+fn a_label_swap_inside_a_table_is_rejected() {
+    let doc = snapshot();
+    let wmo_text = |table: &str, code: u16| -> String {
+        doc["tables"][table][code.to_string()]
+            .as_str()
+            .unwrap_or_else(|| panic!("{table}/{code} is not in the snapshot"))
+            .to_string()
+    };
+    let ours = |table: &str, code: u16| -> &'static str {
+        let t = TABLES
+            .iter()
+            .find(|t| t.wmo == table)
+            .unwrap_or_else(|| panic!("{table} is not a table under test"));
+        (t.lookup)(code)
+    };
+
+    for &(table, a, b, why) in &[
+        // The radius family: `spherical` and `radius` anchor both, and the
+        // metres are the only difference. Caught by the number rule.
+        (
+            "3.2",
+            0u16,
+            6u16,
+            "a 6 367 470 m sphere labelled 6 371 229 m",
+        ),
+        // `IAU`, and `1965` with it, is what makes code 2 the IAU spheroid;
+        // `GRS80` is what makes code 4 the IAG-GRS80 one. Both are identifiers
+        // rather than prose, which is why the rule keeps any token carrying a
+        // digit and not only pure digit runs — 3 <-> 4 and 4 <-> 7 passed
+        // while it kept only the latter, found in review.
+        ("3.2", 2, 3, "the IAU 1965 spheroid labelled custom axes"),
+        ("3.2", 2, 7, "the IAU 1965 spheroid labelled custom axes"),
+        (
+            "3.2",
+            3,
+            4,
+            "the IAG-GRS80 spheroid labelled custom axes, km",
+        ),
+        (
+            "3.2",
+            4,
+            7,
+            "the IAG-GRS80 spheroid labelled custom axes, m",
+        ),
+        // The sharp one: opposite quantities, and a sign inversion in anything
+        // that displays the statistic. Caught by the order rule.
+        (
+            "4.10",
+            4,
+            8,
+            "a difference with its operands the wrong way round",
+        ),
+    ] {
+        let swapped_onto_a = wording_survives(table, a, ours(table, b), &wmo_text(table, a));
+        let swapped_onto_b = wording_survives(table, b, ours(table, a), &wmo_text(table, b));
+        assert!(
+            !(swapped_onto_a && swapped_onto_b),
+            "{table}: swapping codes {a} and {b} passes the wording rule — {why}"
+        );
+    }
+}
+
+/// The swaps the **wording rule** still cannot see, enumerated rather than
+/// argued.
+///
+/// [`a_label_swap_inside_a_table_is_rejected`] proves the rule catches the
+/// swaps #655 named. This is the other half, and the more useful one:
+/// [`every_swap_this_gate_cannot_see_is_recorded`] walks every pair of codes in
+/// every table and reports each pair that could trade labels with the whole
+/// suite green. Held equal to this list, so a change that opens a hole fails,
+/// and one that closes an old hole fails too until the entry comes off.
+///
+/// Written this way because the hand-written version was wrong: it claimed
+/// §3.2/3 ↔ §3.2/7 was the only pair left, and review found three more. A blind
+/// spot argued from the outside is a blind spot about blind spots.
+const UNDETECTED_SWAPS: &[(&str, u16, u16, &str)] = &[
+    (
+        "3.2",
+        3,
+        7,
+        "\"Oblate spheroid (custom axes, km)\" and \"…, m)\" differ by `km` \
+         against `m`, and WMO separates them by `and` against `or` and \
+         `(in km)` against `(in m)`. Nothing there carries a digit, and no \
+         token floor that keeps `km` is defensible — `TIGGE` is a legitimate \
+         five-character label, so the floor cannot drop on words either.",
+    ),
+    (
+        "4.5",
+        3,
+        108,
+        "\"Cloud top level\" and \"Level at specified pressure difference from \
+         ground (Pa)\" share only `level`, which a third of Table 4.5 uses. \
+         Both are heavy rewrites of long WMO text, so one generic word is all \
+         there is to compare; code 3's word-order exemption is not what opens \
+         this, because 108's single matching word cannot be out of order \
+         either way.",
+    ),
+];
+
+/// The recorded blind spots are exactly the real ones.
+///
+/// Two kinds of pair come out of this walk, and they have different owners.
+///
+/// A pair where at least one direction is accepted as a **rewrite** is the
+/// wording rule's business — the rule #655 hardened — and each is named on
+/// [`UNDETECTED_SWAPS`] with what would be needed to close it.
+///
+/// A pair where both directions are accepted because one string **contains**
+/// the other is older and broader: "Latitude/longitude" is a substring of
+/// "Rotated latitude/longitude", so §3.1 codes 0 and 1 can trade places. That
+/// rule is what lets `TIGGE` stand for WMO's spelt-out name and lets ours carry
+/// a unit WMO puts in another column, and tightening it would turn twenty
+/// ordinary labels into recorded divergences — a design decision, not a fix, so
+/// this counts them and holds the count in a band rather than pretending they
+/// are not there.
+///
+/// Scoped to the codes the **snapshot** carries, which is not quite every label
+/// the lookups can return: §4.5 codes 200 and 201 are NCEP's, inside WMO's
+/// local-use range, and WMO publishes no text for them. That is the same scope
+/// [`every_curated_code_table_entry_agrees_with_wmo`] has and for the same
+/// reason — with no authority text there is nothing to swap *against* — but the
+/// test's name promises more than that, so it is written down here.
+#[test]
+fn every_swap_this_gate_cannot_see_is_recorded() {
+    let doc = snapshot();
+    let mut undetected: Vec<(&str, u16, u16)> = Vec::new();
+    let (mut pairs, mut by_containment) = (0usize, 0usize);
+    for table in TABLES {
+        let entries = doc["tables"][table.wmo]
+            .as_object()
+            .unwrap_or_else(|| panic!("table {} missing from the snapshot", table.wmo));
+        // Only codes we actually name can trade labels; an `Unknown…` answer is
+        // the naming gate's business, not this one. Sorted by code, because the
+        // snapshot's keys are strings and `"108"` sorts before `"3"`.
+        let mut named: Vec<(u16, &str, &'static str)> = entries
+            .iter()
+            .filter_map(|(code, wmo)| {
+                let code: u16 = code.parse().expect("numeric code");
+                if table.octet && code > 255 {
+                    return None;
+                }
+                let ours = (table.lookup)(code);
+                (!lookup_has_no_name(ours))
+                    .then(|| (code, wmo.as_str().expect("string meaning"), ours))
+            })
+            .collect();
+        named.sort_unstable_by_key(|&(code, _, _)| code);
+        for (i, &(a, wmo_a, ours_a)) in named.iter().enumerate() {
+            for &(b, wmo_b, ours_b) in &named[i + 1..] {
+                pairs += 1;
+                let onto_a = verdict(table.wmo, a, ours_b, wmo_a);
+                let onto_b = verdict(table.wmo, b, ours_a, wmo_b);
+                if onto_a == Verdict::No || onto_b == Verdict::No {
+                    continue;
+                }
+                if onto_a == Verdict::Rewrite || onto_b == Verdict::Rewrite {
+                    undetected.push((table.wmo, a, b));
+                } else {
+                    by_containment += 1;
+                }
+            }
+        }
+    }
+
+    println!(
+        "{pairs} label pairs tried; {} swap(s) the wording rule cannot see, \
+         {by_containment} the containment rule cannot see",
+        undetected.len()
+    );
+    // A floor on the walk itself, the same one every test in this file carries.
+    // Table 4.5 alone contributes over four thousand pairs.
+    assert!(
+        pairs > 4_000,
+        "only {pairs} label pairs were tried; the walk is not lining up"
+    );
+    let recorded: Vec<(&str, u16, u16)> = UNDETECTED_SWAPS
+        .iter()
+        .map(|&(t, a, b, _)| (t, a, b))
+        .collect();
+    let fresh: Vec<String> = undetected
+        .iter()
+        .filter(|p| !recorded.contains(p))
+        .map(|(t, a, b)| format!("  {t}/{a} and {t}/{b} can trade labels"))
+        .collect();
+    assert!(
+        fresh.is_empty(),
+        "{} swap(s) the wording rule cannot see are not on UNDETECTED_SWAPS — close \
+         the hole, or record it with what would fill it:\n{}",
+        fresh.len(),
+        fresh.join("\n")
+    );
+    let closed: Vec<String> = UNDETECTED_SWAPS
+        .iter()
+        .filter(|&&(t, a, b, _)| !undetected.contains(&(t, a, b)))
+        .map(|(t, a, b, why)| format!("  {t}/{a} and {t}/{b} are caught now ({why})"))
+        .collect();
+    assert!(
+        closed.is_empty(),
+        "{} recorded blind spot(s) no longer exist — drop them rather than leaving a \
+         licence nothing uses:\n{}",
+        closed.len(),
+        closed.join("\n")
+    );
+    // A band, not a ceiling: a jump means a label got broader and started
+    // swallowing its neighbours, and a collapse means the containment rule
+    // changed shape and this count stopped meaning what it means here. 62 at
+    // WMO v37.
+    assert!(
+        (50..=75).contains(&by_containment),
+        "{by_containment} swaps pass because one label contains the other; the \
+         containment rule has moved and this inventory needs re-reading"
+    );
+}
+
+/// Every span WMO publishes is code space it has assigned nothing in.
+///
+/// WMO writes an unassigned run as one row (`18-191`, `192-254`), and the
+/// snapshot generator used to drop those rows with a bare `continue` — silently
+/// and uncounted, so a code WMO later assigned *inside* a span could never
+/// enter the snapshot and could never fail [`every_code_wmo_assigns_is_named`].
+/// That is the structural blindness #653 closed, one level up in the generator
+/// (#655). The generator now records every span; this holds them all
+/// unassigned, so the day one gains a meaning it fails here and someone has to
+/// expand it into codes rather than never hearing about it.
+///
+/// The other direction too: a code inside a span WMO plainly reserves must not
+/// be one we name, or we are inventing a meaning for code space nobody has
+/// defined. `Reserved for local use` is excluded from that half — it is
+/// delegated space, and naming a centre's code in it is the point (Table 4.5
+/// codes 200 and 201 are NCEP's).
+#[test]
+fn every_span_wmo_publishes_is_unassigned() {
+    let doc = snapshot();
+    let ranges = doc["ranges"]
+        .as_object()
+        .expect("snapshot has a ranges section");
+    let mut in_snapshot: Vec<&str> = ranges.keys().map(String::as_str).collect();
+    let mut under_test: Vec<&str> = TABLES.iter().map(|t| t.wmo).collect();
+    in_snapshot.sort_unstable();
+    under_test.sort_unstable();
+    assert_eq!(
+        under_test, in_snapshot,
+        "the tables under test and the tables with spans are not the same set"
+    );
+
+    let (mut spans, mut local, mut out_of_range) = (0usize, 0usize, 0usize);
+    let mut report = Vec::new();
+    let mut wrong = Vec::new();
+    for table in TABLES {
+        let codes = doc["tables"][table.wmo]
+            .as_object()
+            .unwrap_or_else(|| panic!("table {} missing from the snapshot", table.wmo));
+        let entries = ranges[table.wmo]
+            .as_object()
+            .unwrap_or_else(|| panic!("table {} has no spans", table.wmo));
+        assert!(
+            !entries.is_empty(),
+            "table {} records no spans; every WMO code table reserves something, so \
+             the block is not loading",
+            table.wmo
+        );
+        for (span, meaning) in entries {
+            let (lo, hi) = span
+                .split_once('-')
+                .unwrap_or_else(|| panic!("{}: {span:?} is not a span", table.wmo));
+            let (lo, hi): (u32, u32) = (
+                lo.parse().expect("span start"),
+                hi.parse().expect("span end"),
+            );
+            assert!(lo < hi, "{}: {span:?} is not increasing", table.wmo);
+            let meaning = meaning.as_str().expect("string meaning");
+            spans += 1;
+            if !wmo_assigns_no_meaning(meaning) {
+                wrong.push(format!(
+                    "  {}/{span}: WMO assigns {meaning:?} across the whole span — expand \
+                     it into codes in the generator rather than leaving every code in it \
+                     invisible to this gate",
+                    table.wmo
+                ));
+                continue;
+            }
+            let delegated = meaning.contains("local use");
+            local += usize::from(delegated);
+            for code in lo..=hi {
+                // The two blocks partition the table: a code is one or the
+                // other, never both.
+                assert!(
+                    !codes.contains_key(&code.to_string()),
+                    "{}: code {code} is both a span member ({span}) and an entry",
+                    table.wmo
+                );
+                if table.octet && code > 255 {
+                    // Counted, not skipped — the same rule as the sibling
+                    // test's `out_of_range`, and asserted zero below. A span
+                    // reaching above 255 in an octet table means WMO widened
+                    // it, and the codes in it would otherwise drop out of this
+                    // check with nothing to say so.
+                    out_of_range += 1;
+                    continue;
+                }
+                if delegated {
+                    continue;
+                }
+                let ours = (table.lookup)(code as u16);
+                if !lookup_has_no_name(ours) {
+                    wrong.push(format!(
+                        "  {}/{code}: we answer {ours:?}, but WMO {meaning:?} this span \
+                         ({span}) — we are naming code space nobody has defined",
+                        table.wmo
+                    ));
+                }
+            }
+        }
+        report.push(format!("  {:>4}: {} span(s)", table.wmo, entries.len()));
+    }
+
+    println!(
+        "WMO code-table spans ({spans} in all, {out_of_range} member(s) outside a \
+         lookup's width):\n{}",
+        report.join("\n")
+    );
+    // A floor, for the same reason the sibling tests carry one: a walk that
+    // lined nothing up must not be able to report agreement. Eleven tables
+    // reserve 44 spans at v37.
+    assert!(
+        spans > 40,
+        "only {spans} span(s) were checked; the ranges block is not loading"
+    );
+    // Every table delegates 192-254 (or 32768-65534) to centres, so the
+    // `Reserved for local use` half of `wmo_assigns_no_meaning` is reached
+    // here — it was unreachable while the generator dropped span rows.
+    assert!(
+        local >= TABLES.len(),
+        "only {local} local-use span(s) of {} tables; the delegated ranges are missing",
+        TABLES.len()
+    );
+    assert_eq!(
+        out_of_range, 0,
+        "{out_of_range} span member(s) sit above 255 in a table whose `u8` lookup \
+         cannot be asked about them — widen the lookup rather than leaving them \
+         permanently unreachable"
+    );
+    assert!(
+        wrong.is_empty(),
+        "{} span problem(s):\n{}",
+        wrong.len(),
+        wrong.join("\n")
+    );
 }

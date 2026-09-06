@@ -185,6 +185,10 @@ pub fn lookup_generating_process_type(value: u8) -> &'static str {
 }
 
 /// Indicator of unit of time range (WMO Code Table 4.4) — short label.
+///
+/// A hybrid: the curated arms below shadow the generated `tables_wmo` entry for
+/// the same code, and every one of them is held equal to it, or recorded as a
+/// reasoned divergence, by `curated_arms_agree_with_the_generated_table`.
 pub fn lookup_time_range_unit(value: u8) -> &'static str {
     match value {
         0 => "Minute",
@@ -194,7 +198,9 @@ pub fn lookup_time_range_unit(value: u8) -> &'static str {
         4 => "Year",
         5 => "Decade (10 years)",
         6 => "Normal (30 years)",
-        7 => "Century",
+        // 7 is deliberately absent. Its arm said `"Century"` while the two
+        // above it kept WMO's span, so it falls through to the generated
+        // `"Century (100 years)"` now (#655).
         10 => "3 hours",
         11 => "6 hours",
         12 => "12 hours",
@@ -208,12 +214,18 @@ pub fn lookup_time_range_unit(value: u8) -> &'static str {
 /// surface types commonly emitted by NCEP / ECMWF / DWD. Unrecognised codes
 /// fall back to `"Unknown fixed surface"` so callers can render the numeric
 /// type with the same shape as other tables.
+///
+/// A hybrid, like [`lookup_time_range_unit`]: most of these arms shadow a
+/// generated `tables_wmo` entry for the same code, and
+/// `curated_arms_agree_with_the_generated_table` holds each one equal to what
+/// it shadows or records why it differs.
 pub fn lookup_fixed_surface(value: u8) -> &'static str {
     match value {
         1 => "Ground or water surface",
         2 => "Cloud base level",
         3 => "Cloud top level",
-        4 => "Level of 0°C isotherm",
+        // 4 is deliberately absent: its arm wrote `0°C` where WMO writes the
+        // space, so it falls through to `"Level of 0 °C isotherm"` (#655).
         5 => "Level of adiabatic condensation lifted from the surface",
         6 => "Maximum wind level",
         7 => "Tropopause",
@@ -229,8 +241,16 @@ pub fn lookup_fixed_surface(value: u8) -> &'static str {
         106 => "Depth below land surface (m)",
         107 => "Isentropic (theta) level (K)",
         108 => "Level at specified pressure difference from ground (Pa)",
-        109 => "Potential vorticity surface (10⁻⁶ K m² kg⁻¹ s⁻¹)",
-        117 => "Mixed-layer depth",
+        // Not `10⁻⁶`, which this arm claimed until #655: §4 states the level
+        // as a scaled value and a scale factor, and `FixedSurface::value`
+        // applies the factor, so the number printed beside this label is
+        // already in SI. NCEP writes a 2 PVU surface as scaledValue 2 with
+        // scaleFactor 6, and the column reads `0.000002` — a label quoting the
+        // 10⁻⁶ the PVU convention uses would be wrong by six orders.
+        109 => "Potential vorticity surface (K m² kg⁻¹ s⁻¹)",
+        // 117 is deliberately absent: its arm read `"Mixed-layer depth"`,
+        // dropping the `(m)` that 106 and 160 either side of it keep, so it
+        // falls through to `"Mixed layer depth (m)"` (#655).
         160 => "Depth below sea level (m)",
         200 => "Entire atmosphere as a single layer",
         201 => "Entire ocean as a single layer",
@@ -528,6 +548,143 @@ pub fn lookup_data_type(value: u8) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A curated arm that deliberately words a code differently from the
+    /// generated `tables_wmo` entry it shadows, keyed by WMO table and code,
+    /// with the reason.
+    ///
+    /// The generated module is the oracle here, not the code-table snapshot
+    /// `tests/wmo_code_tables.rs` uses: the snapshot carries WMO's name column
+    /// only, so it cannot see a curated arm dropping the *unit* the generated
+    /// entry carries — which is how `117 => "Mixed-layer depth"` sat next to
+    /// `106 => "Depth below land surface (m)"` unremarked (#655).
+    const SHADOWED: &[(&str, u8, &str)] = &[
+        (
+            "4.5",
+            3,
+            "\"Cloud top level\" pairs with code 2's \"Cloud base level\"; WMO \
+             writes \"Level of cloud tops\".",
+        ),
+        (
+            "4.5",
+            103,
+            "WMO's \"Specified height level above ground\" says level twice; \
+             ours drops the second.",
+        ),
+        (
+            "4.5",
+            104,
+            "WMO's unit column for this code is the word \"sigma\" in quotes, \
+             not a unit, and rendering it puts quoted prose in a metadata \
+             column.",
+        ),
+        (
+            "4.5",
+            108,
+            "WMO's \"...from ground to level\" trails a \"to level\" the \
+             opening \"Level at\" already said.",
+        ),
+        (
+            "4.5",
+            109,
+            "Unicode exponents, matching the curated parameter table's style; \
+             WMO's unit column writes \"K m2 kg-1 s-1\".",
+        ),
+    ];
+
+    /// Every curated arm that shadows a generated entry says the same thing it
+    /// does, or is on [`SHADOWED`] with a reason.
+    ///
+    /// Tables 4.4 and 4.5 are hybrids: the arms above curate the common codes
+    /// and everything else falls through to `tables_wmo`, which is generated
+    /// and so cannot drift from WMO. That made most of the curated arms a
+    /// second transcription of a table that cannot drift, with nothing
+    /// asserting the two agreed — 15 of Table 4.5's and 11 of Table 4.4's were
+    /// byte-identical to what they shadowed, and three of the rest were worse
+    /// than it. The code-table gate could not see any of this, because it
+    /// compares against WMO's unit-less name column.
+    ///
+    /// Held in both directions, so an entry whose arm caught up with the
+    /// generated text comes off the list rather than becoming a place a real
+    /// divergence could hide.
+    #[test]
+    fn curated_arms_agree_with_the_generated_table() {
+        type Curated = fn(u8) -> &'static str;
+        type Generated = fn(u8) -> Option<&'static str>;
+        let mut wrong = Vec::new();
+        let mut diverged: Vec<(&str, u8)> = Vec::new();
+        let (mut shadowed, mut identical) = (0usize, 0usize);
+
+        for (table, curated, generated) in [
+            (
+                "4.4",
+                lookup_time_range_unit as Curated,
+                crate::tables_wmo::time_range_unit as Generated,
+            ),
+            (
+                "4.5",
+                lookup_fixed_surface as Curated,
+                crate::tables_wmo::fixed_surface as Generated,
+            ),
+        ] {
+            for code in 0..=u8::MAX {
+                let Some(theirs) = generated(code) else {
+                    continue;
+                };
+                shadowed += 1;
+                let ours = curated(code);
+                if ours == theirs {
+                    identical += 1;
+                    continue;
+                }
+                if SHADOWED.iter().any(|&(t, c, _)| t == table && c == code) {
+                    diverged.push((table, code));
+                } else {
+                    wrong.push(format!(
+                        "  {table}/{code}: ours {ours:?}, generated {theirs:?}"
+                    ));
+                }
+            }
+        }
+
+        // A floor, for the same reason the code-table gate carries one: a walk
+        // that lined nothing up must not be able to report agreement. The two
+        // generated tables carry 99 entries at WMO v37.
+        assert!(
+            shadowed > 90,
+            "only {shadowed} generated entries were compared; the tables are not \
+             lining up"
+        );
+        // Weaker than it looks, and weaker than the floor above: about 68 of
+        // the 99 generated entries are codes with no curated arm at all, where
+        // the lookup literally calls the generated function, so they agree by
+        // construction. What holds the curated arms is `wrong` below; this only
+        // says the generated module answered.
+        assert!(
+            identical > 80,
+            "only {identical} of {shadowed} agree byte for byte; the generated module \
+             is not answering, so agreement proves nothing"
+        );
+        assert!(
+            wrong.is_empty(),
+            "{} curated arm(s) differ from the generated entry they shadow with no \
+             recorded reason — match the generated text, or record why not:\n{}",
+            wrong.len(),
+            wrong.join("\n")
+        );
+        let stale: Vec<String> = SHADOWED
+            .iter()
+            .filter(|(t, c, _)| !diverged.iter().any(|&(dt, dc)| dt == *t && dc == *c))
+            .map(|(t, c, why)| format!("  {t}/{c}: recorded as a divergence ({why})"))
+            .collect();
+        assert!(
+            stale.is_empty(),
+            "{} SHADOWED entr(y/ies) no longer describe a divergence — the arm agrees \
+             with the generated entry now, or is gone:\n{}",
+            stale.len(),
+            stale.join("\n")
+        );
+    }
 
     #[test]
     fn known_disciplines() {
@@ -1042,7 +1199,7 @@ mod tests {
             (4, "Year"),
             (5, "Decade (10 years)"),
             (6, "Normal (30 years)"),
-            (7, "Century"),
+            (7, "Century (100 years)"),
             (10, "3 hours"),
             (11, "6 hours"),
             (12, "12 hours"),
@@ -1058,7 +1215,7 @@ mod tests {
             (1u8, "Ground or water surface"),
             (2, "Cloud base level"),
             (3, "Cloud top level"),
-            (4, "Level of 0°C isotherm"),
+            (4, "Level of 0 °C isotherm"),
             (5, "Level of adiabatic condensation lifted from the surface"),
             (6, "Maximum wind level"),
             (7, "Tropopause"),
@@ -1077,8 +1234,8 @@ mod tests {
                 108,
                 "Level at specified pressure difference from ground (Pa)",
             ),
-            (109, "Potential vorticity surface (10⁻⁶ K m² kg⁻¹ s⁻¹)"),
-            (117, "Mixed-layer depth"),
+            (109, "Potential vorticity surface (K m² kg⁻¹ s⁻¹)"),
+            (117, "Mixed layer depth (m)"),
             (160, "Depth below sea level (m)"),
             (200, "Entire atmosphere as a single layer"),
             (201, "Entire ocean as a single layer"),
