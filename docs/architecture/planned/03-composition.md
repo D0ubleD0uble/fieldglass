@@ -124,15 +124,21 @@ it travels as `Georef::label`, set by `Georef::from_declared` from
 `GridDescription::grid_type_name` / `GridDefinitionSection::template_name`
 rather than re-derived from the collapsed geometry. A `reduced_gg` message is
 now `kind` `gaussian`, `label` `reduced_gaussian` in both hosts, and the
-conformance suite carries a reduced-Gaussian subject so a third host cannot
-answer differently.
+conformance suite carries a reduced-Gaussian subject, which pins the pair for
+the runners that drive `Op::Message`. That is a weaker guarantee than it looks
+for the browser host, which serialises `Georef` verbatim and so cannot diverge
+from the umbrella by construction; the independent check is `fieldglass-napi`'s
+own `declared_grid_family_tests`, which compares the two seams on the same bytes
+over every committed fixture, because this crate's conformance runner drives
+only `Op::Decode` and `Op::Render` and `DecodedGrid` carries no georef.
 
 The three options this document previously listed were each rejected for a
 reason worth keeping:
 
 * **Widen the variant.** A `ReducedGaussian` arm would carry the same
   `GaussianParams` and behave identically in every projection path, so it is a
-  duplicate arm at 32 workspace match sites with nothing to distinguish it —
+  duplicate arm at the 32 places the workspace names `GridGeometry::Gaussian`,
+  with nothing to distinguish it —
   and `GridDescription::scanning_mode` already records what happens next
   ("every consumer that has done so has ended up with an arm list that quietly
   omits a grid family").

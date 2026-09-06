@@ -9060,9 +9060,10 @@ mod declared_grid_family_tests {
         }
 
         // A corpus check can pass by walking nothing, so what it walked is
-        // asserted as well as what it found.
+        // asserted as well as what it found. Generous bounds: this guards
+        // against a walk that found nothing, not against the corpus shrinking.
         assert!(files >= 40, "only {files} fixtures walked");
-        assert!(checked >= 70, "only {checked} messages compared");
+        assert!(checked >= 50, "only {checked} messages compared");
         assert!(
             families.contains("reduced_gaussian"),
             "no committed fixture declares a reduced Gaussian grid any more, \

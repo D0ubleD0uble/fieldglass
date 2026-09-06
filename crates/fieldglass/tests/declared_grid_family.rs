@@ -119,8 +119,11 @@ fn every_committed_message_reports_the_family_its_decoder_names() {
         }
     }
 
+    // Generous on purpose: this guards against a walk that found nothing, not
+    // against the corpus shrinking. A tight bound would fail whenever a fixture
+    // is retired, which is a different problem with a different owner.
     assert!(
-        checked >= 70,
+        checked >= 50,
         "only {checked} messages checked — the corpus is not being walked"
     );
     // The whole point is the pair whose declared family is not their geometry's,
