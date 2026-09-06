@@ -223,7 +223,7 @@ mod tests {
         for (unit, label) in [
             (3u8, "Month"),
             (4, "Year"),
-            (7, "Century"),
+            (7, "Century (100 years)"),
             (255, "Missing"),
         ] {
             assert_eq!(forecast_hours(&common(unit, 5)), None, "unit {unit}");

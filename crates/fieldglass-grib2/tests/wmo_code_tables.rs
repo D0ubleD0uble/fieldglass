@@ -41,7 +41,9 @@
 //!   our numbers to WMO's and our word order to WMO's, and
 //!   [`a_label_swap_inside_a_table_is_rejected`] exercises the swaps that used
 //!   to pass — including §4.10 codes 4 and 8, a sign inversion in a displayed
-//!   statistic.
+//!   statistic. The rule itself moved to [`wording`], because
+//!   `wmo_parameter_tables.rs` had its own identical copy and would otherwise
+//!   have kept the weakness.
 //! * **A span.** WMO writes unassigned code space as one row (`18-191`), which
 //!   the snapshot generator dropped silently, so a code assigned inside a span
 //!   could never enter the snapshot and never fail the naming check. The
@@ -56,6 +58,9 @@ use fieldglass_grib2::{
     lookup_time_range_unit,
 };
 use serde_json::Value;
+use wording::{is_a_recognisable_rewrite, keeps_wmos_word_order, normalize};
+
+mod wording;
 
 const SNAPSHOT: &str = include_str!("fixtures/wmo_code_tables.ref.json");
 
@@ -304,133 +309,6 @@ fn lookup_has_no_name(label: &str) -> bool {
 /// to give.
 fn wmo_assigns_no_meaning(wmo: &str) -> bool {
     wmo.starts_with("Reserved")
-}
-
-fn normalize(s: &str) -> String {
-    s.chars()
-        .filter(|c| c.is_ascii_alphanumeric())
-        .map(|c| c.to_ascii_lowercase())
-        .collect()
-}
-
-/// `s` with the spaces WMO puts *inside* a number removed.
-///
-/// WMO groups digits — `radius = 6 367 470.0 m` — so splitting on
-/// non-alphanumerics leaves `6`, `367`, `470`, three fragments too short for
-/// any word filter to keep. The effect was that no radius, axis or datum
-/// number in Table 3.2 was ever compared, and the numbers are the only thing
-/// separating one earth shape from another (#655). Joined, the radius is a
-/// single seven-character token.
-fn join_digit_groups(s: &str) -> String {
-    let chars: Vec<char> = s.chars().collect();
-    let mut out = String::with_capacity(s.len());
-    let mut i = 0;
-    while i < chars.len() {
-        if !chars[i].is_whitespace() {
-            out.push(chars[i]);
-            i += 1;
-            continue;
-        }
-        let mut end = i;
-        while end < chars.len() && chars[end].is_whitespace() {
-            end += 1;
-        }
-        let between_digits = out.chars().next_back().is_some_and(|c| c.is_ascii_digit())
-            && chars.get(end).is_some_and(|c| c.is_ascii_digit());
-        if !between_digits {
-            out.extend(&chars[i..end]);
-        }
-        i = end;
-    }
-    out
-}
-
-/// The words of `s` long enough to carry meaning, in the order it writes them.
-fn substantial_words(s: &str) -> Vec<String> {
-    join_digit_groups(s)
-        .split(|c: char| !c.is_ascii_alphanumeric())
-        .map(normalize)
-        .filter(|w| w.len() >= 5)
-        .collect()
-}
-
-/// The numbers `s` states, as digit runs of two or more.
-///
-/// Kept below the word floor on purpose. A number is an identifier, not prose:
-/// `1965` is what makes Table 3.2 code 2 the IAU spheroid and nothing else, and
-/// four characters of it are as decisive as forty of wording.
-fn numbers_in(s: &str) -> Vec<String> {
-    join_digit_groups(s)
-        .split(|c: char| !c.is_ascii_alphanumeric())
-        .map(normalize)
-        .filter(|w| w.len() >= 2 && w.bytes().all(|b| b.is_ascii_digit()))
-        .collect()
-}
-
-/// Whether `ours` still visibly describes the same thing as `theirs`.
-///
-/// A recorded divergence pins the *authority's* wording, which catches a
-/// reassigned code — but on its own it says nothing about our side, so a label
-/// swapped for something unrelated would sail through. This is the other half.
-/// Deliberately weak on wording, because the accepted labels are heavy
-/// rewrites ("Oblate spheroid (WGS84)" for a 60-character geodetic
-/// definition); it only has to separate a rewrite from a different entry.
-///
-/// Two rules, the second added because the first alone was blind to a **swap
-/// of two labels inside one table** (#655) — the strings all still appear
-/// somewhere in the table, so [`no_two_codes_in_a_table_share_a_label`] sees
-/// nothing either:
-///
-/// 1. Some substantial word of ours appears in WMO's text. Every defect found
-///    in #415 shared no word at all, and this is what caught them.
-/// 2. Every **number** we state is a number WMO states. Ours may drop one, as
-///    a rewrite does; it may not keep a different one. This is what separates
-///    §3.2 code 0's 6 367 470 m sphere from code 6's 6 371 229 m one, which
-///    otherwise both reduce to "spherical" and "radius".
-///
-/// The third rule, on word order, is [`keeps_wmos_word_order`]: it is separate
-/// because a handful of rewrites legitimately reorder, and those are recorded
-/// rather than folded in here.
-fn is_a_recognisable_rewrite(ours: &str, theirs: &str) -> bool {
-    let haystack = normalize(&join_digit_groups(theirs));
-    let words = substantial_words(ours);
-    words.iter().any(|w| haystack.contains(w.as_str()))
-        && numbers_in(ours)
-            .iter()
-            .all(|n| haystack.contains(n.as_str()))
-}
-
-/// Whether the words of ours that survive into WMO's text appear in WMO's
-/// order.
-///
-/// This is what separates §4.10 code 4, "Difference (end minus start)", from
-/// code 8, "Difference (start minus end)" — opposite quantities, so a swap is a
-/// sign inversion in a displayed statistic, and the sharpest case in the table.
-/// Neither label states a number and `end` is too short to be a word here, so
-/// order is the only signal left: ours puts `minus` before `start`, and WMO
-/// code 8 puts `start` before `minus`.
-///
-/// Words of ours that appear nowhere in WMO's text are skipped rather than
-/// failed, which is what lets this survive a rewrite: "Difference (end minus
-/// start)" holds against "Difference (value at the end of time range minus
-/// value at the beginning)", where `start` is simply absent.
-fn keeps_wmos_word_order(ours: &str, theirs: &str) -> bool {
-    let haystack = normalize(&join_digit_groups(theirs));
-    // `normalize` leaves ASCII alphanumerics only, so byte offsets are char
-    // offsets and slicing at a match cannot split a character.
-    let mut cursor = 0usize;
-    for word in substantial_words(ours) {
-        if !haystack.contains(word.as_str()) {
-            continue;
-        }
-        match haystack[cursor..].find(word.as_str()) {
-            // Advance past the match's first character rather than its whole
-            // length, so two of our words may overlap in WMO's text.
-            Some(at) => cursor += at + 1,
-            None => return false,
-        }
-    }
-    true
 }
 
 /// Whether `ours` is an acceptable rewrite of WMO's `theirs` for this code.
