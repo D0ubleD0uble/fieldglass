@@ -33,6 +33,16 @@ both sides: going to `+proj=longlat +datum=WGS84` from a non-WGS84 ellipsoid
 adds a datum shift that reads exactly like a projection bug (78 m, for Airy
 1830).
 
+When bumping `wmo-im/GRIB2`, expect the code-table snapshot to argue back.
+`tools/gen_wmo_code_table_snapshot.py` classifies every row of every table it
+snapshots — one code, or a span like `192-254` — and refuses to write the file
+on anything else, rather than dropping the row the way it used to. The spans go
+in the snapshot too, and `every_span_wmo_publishes_is_unassigned` holds each one
+meaningless. So a fast-track that gives a span a meaning, or splits a code out
+of one, fails loudly, and that is the notification: WMO announces a new
+assignment by editing the row that used to reserve it, and a generator that
+skipped those rows could never see it happen.
+
 When bumping `wmo-im/CCT`, read the generated diff rather than accepting it:
 `tools/gen_wmo_cct_tables.py` carries sixteen overrides that restore detail WMO
 does not publish, and each is pinned to the upstream text it was written
