@@ -62,14 +62,21 @@ use crate::global_grid::{GlobalGrid, SYNTHESIS_NI, SYNTHESIS_NJ};
 /// Measured on the pinned 720×361 grid ([`spectral_render_grid`]), release
 /// build, one message:
 ///
-/// | `T` | stored values | synthesis | peak transient |
-/// |---:|---:|---:|---:|
-/// | 63 | 4,160 | 9.8 ms | |
-/// | 250 | 63,252 | 47 ms | |
-/// | 500 | 251,502 | 138 ms | |
-/// | 1,000 | 1,003,002 | 517 ms | |
-/// | 2,000 | 4,006,002 | 1.94 s | |
-/// | 8,192 (cap) | 67,133,442 | 27.0 s | 1.03 GB |
+/// | `T` | stored values | synthesis |
+/// |---:|---:|---:|
+/// | 63 | 4,160 | 9.8 ms |
+/// | 250 | 63,252 | 47 ms |
+/// | 500 | 251,502 | 138 ms |
+/// | 1,000 | 1,003,002 | 517 ms |
+/// | 2,000 | 4,006,002 | 1.94 s |
+/// | 8,192 (cap) | 67,133,442 | 27.0 s |
+///
+/// At the cap the transform's own peak resident set is 1.03 GB, measured: the
+/// coefficient array and the recurrence table are 537 MB each and overlap in
+/// time. That is the cost of the largest field that exists, not amplification,
+/// and a browser host will still find it heavy — synthesizing only the
+/// wavenumbers the target grid can carry is the answer to *that*, and is a
+/// different change from this ceiling.
 ///
 /// The previous cap of `10_000` bounded correctness, not cost: it admitted a
 /// 1.6 GB transient and a ~38 s synthesis. It was also the *only* such bound —
@@ -127,9 +134,9 @@ pub fn coefficient_count(truncation: u32) -> Result<usize, FieldglassError> {
 
 /// The inner-loop count [`synthesize_spherical_harmonic`] will run for a
 /// truncation and a target grid, against which [`MAX_SYNTHESIS_WORK`] is the
-/// ceiling: one unit per `(latitude, column)` pair times
-/// the work that column costs — the `n`-reduction over at most `T+1`
-/// coefficients, then the spread over `nlon` longitudes.
+/// ceiling: one unit per `(latitude, column)` pair times the work that column
+/// costs — the `n`-reduction over at most `T+1` coefficients, then the spread
+/// over `nlon` longitudes.
 ///
 /// This models the measured cost; `output points × coefficients` does not.
 /// Across T63 → T2000 on the pinned grid the time per unit of *this* metric
