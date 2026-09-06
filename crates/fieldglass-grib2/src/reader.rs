@@ -698,6 +698,13 @@ impl Grib2Reader {
             return Ok(Some((grid, values.into_iter().map(Some).collect())));
         }
         let GridTemplate::Healpix(t) = msg.gds.template else {
+            // Declining here and answering a grid in `synthesis_grid` would be
+            // a family added to one and not the other, which a host cannot see:
+            // it would size its meta from a grid nothing ever filled.
+            debug_assert!(
+                self.synthesis_grid(message_index).is_none(),
+                "a message with a synthesis grid declined to be synthesised"
+            );
             return Ok(None);
         };
         let pixels = self.decode_message_values(message_index)?;

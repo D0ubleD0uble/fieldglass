@@ -1746,10 +1746,15 @@ impl Grib1Handle {
     /// Decode one message into a `(values, mask)` typed-array pair. NaN
     /// is reserved for masked cells in `values`; callers should consult
     /// `mask[k] == 0` rather than checking for NaN.
+    ///
+    /// Resolved like every other entry point on this handle: a spectral message
+    /// has no raster of its own, so it is synthesized onto a global lat/lon grid
+    /// first and comes back as an ordinary field (#330, #580). Reading the
+    /// coefficients themselves is `Grib1Reader::decode_spectral_message` in
+    /// Rust; this is the renderable field.
     #[napi]
     pub fn decode_grid(&self, message_index: u32) -> napi::Result<DecodedGrid> {
-        let raw = self.cached_decode(message_index)?;
-        let (width, height) = grib1_dimensions(&self.reader, message_index as usize)?;
+        let (raw, _meta, width, height) = self.resolved(message_index)?;
         Ok(decoded_grid_from(&raw, width, height))
     }
 
@@ -2171,17 +2176,16 @@ impl Grib2Handle {
 
     /// Decode one message's values and mask, without painting them. Errors
     /// when the index is out of range or the grid declares no dimensions.
+    ///
+    /// Resolved like every other entry point on this handle: a spectral or
+    /// HEALPix message has no raster of its own, so it is put on a global
+    /// lat/lon grid first and comes back as an ordinary field (#330, #580).
+    /// Reading the coefficients or the pixel list themselves is
+    /// `Grib2Reader::decode_spectral_message` / `decode_message_values` in
+    /// Rust; this is the renderable field.
     #[napi]
     pub fn decode_grid(&self, message_index: u32) -> napi::Result<DecodedGrid> {
-        let raw = self.cached_decode(message_index)?;
-        let msg = self
-            .reader
-            .messages
-            .get(message_index as usize)
-            .ok_or_else(|| napi::Error::from_reason("message index out of range".to_string()))?;
-        let (ni, nj) = msg.gds.dimensions().ok_or_else(|| {
-            napi::Error::from_reason("grid has no declared dimensions".to_string())
-        })?;
+        let (raw, _meta, ni, nj) = self.resolved(message_index)?;
         Ok(decoded_grid_from(&raw, ni, nj))
     }
 
