@@ -181,6 +181,38 @@ non-zero value, and a message with a bitmap refuses it. The point of drawing
 it is that a reduced field carries a **derived** `GridGeometry`, never the
 message's own GDS.
 
+**The decode half of this has landed** (`fieldglass-grib2`,
+`Grib2Reader::decode_message_raster_with`), and three things about it are now
+facts rather than plans:
+
+* The derived geometry is `GridGeometry::subsampled(r)` in `core`, not a
+  `From(gds, r)` in grib2 — it is a question about a grid, and both editions
+  will want it. It declines a Gaussian grid, because every other
+  Gauss–Legendre node is not the half-order quadrature and there is no
+  `GaussianParams` describing the kept rows.
+* The refusals are five, not two: any packing but 5.40, a §6 bitmap, a reduced
+  grid, alternate-row or `j`-consecutive scanning, and a family with no
+  derivable coarse geometry. The two scanning orders are the ones the plan
+  missed — both are undone *after* the packing decodes, and a wavelet low-pass
+  of a scrambled raster has no undo.
+* The "render and warp only" rule is carried by `DisplayRaster`, whose
+  `exact_values()` answers `Some` only at reduction zero. `Option`, not a new
+  error variant, following #633's precedent: the caller's response to "these
+  are not the message's numbers" is to ask again at reduction zero, not to
+  branch on a code.
+
+**The host half is not built, and the sequence below is what it would be.**
+It turns on a decision nobody has made: `Session::render`, `warp` and `palette`
+all take `&Field`, and so do `probe`, `contours` and `combine`. A
+`DisplayField` that the first three accept and the last three reject needs
+either a sealed trait bound on the render methods — which every binding then
+has to monomorphise anyway, since neither wasm-bindgen nor napi crosses a
+generic — or a parallel `render_display` / `warp_display` / `palette_display`
+on the host surface. ADR-0006 decision 2 ("no generics, lifetimes, or trait
+objects") bears on the first and `api_rules.rs` enforces it for types; it says
+nothing about method bounds, which is precisely the gap. Until that is settled
+the capability is reachable from the format crate and from nothing else.
+
 ```mermaid
 sequenceDiagram
     participant H as host

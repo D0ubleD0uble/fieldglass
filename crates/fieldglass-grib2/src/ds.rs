@@ -960,6 +960,109 @@ fn decode_jpeg2000_packing(
     Ok(interleave_with_bitmap(decoded, bitmap, expected_count))
 }
 
+/// Decode JPEG 2000 packing (template 5.40) at level `reduction` of the
+/// codestream's own wavelet pyramid: an `expected_ni × expected_nj` raster of
+/// the field's low-pass, which is `2^reduction` times coarser on each axis than
+/// the message (#463).
+///
+/// Not a resample of [`decode_jpeg2000_packing`]'s output — the coefficients
+/// for the discarded levels are never entropy-decoded, which is where the time
+/// goes. `rust_j2k` refuses a reduction that would consume a component's whole
+/// pyramid, and that refusal is surfaced rather than clamped: a caller asking
+/// for a level the codestream does not carry has asked for a field that does
+/// not exist.
+///
+/// The caller ([`crate::Grib2Reader::decode_message_raster_with`]) owns every
+/// precondition this relies on — no bitmap, a regular raster, plain scan order
+/// — so the only checks here are the ones about the codestream itself. The
+/// expected dimensions come from the §3 grid, not from the codestream, so a
+/// codestream disagreeing with the section is refused rather than reshaped.
+pub(crate) fn decode_jpeg2000_reduced(
+    ds_payload: &[u8],
+    t: &Jpeg2000PackingTemplate,
+    reduction: u8,
+    expected_ni: u32,
+    expected_nj: u32,
+) -> Result<Vec<Option<f64>>, FieldglassError> {
+    // The caller derived these from `ni`/`nj`, both of which it has already
+    // multiplied under `MAX_GRID_POINTS`, so this product is smaller than one
+    // that fits.
+    let expected_count = expected_ni as usize * expected_nj as usize;
+
+    let (r, two_pow_e, d_inv) = red_scale(
+        t.reference_value,
+        t.binary_scale_factor,
+        t.decimal_scale_factor,
+    );
+
+    // A constant field carries no codestream at all, at any resolution: every
+    // point is the reference value, so the coarse raster is too. The value is
+    // `R` verbatim, matching the full-resolution path above and eccodes.
+    if t.bits_per_value == 0 {
+        return Ok(materialise_constant(r, None, expected_count));
+    }
+    if t.bits_per_value > 32 {
+        return Err(FieldglassError::Parse(format!(
+            "JPEG 2000 packing: bits_per_value {} exceeds 32",
+            t.bits_per_value
+        )));
+    }
+
+    let image = rust_j2k::decode_with(
+        ds_payload,
+        rust_j2k::DecodeOptions::default().with_resolution_reduction(reduction),
+    )
+    .map_err(|e| {
+        FieldglassError::UnsupportedSection(format!(
+            "JPEG 2000 packing: decode at resolution reduction {reduction} failed: {e}"
+        ))
+    })?;
+
+    if image.components.len() != 1 {
+        return Err(FieldglassError::UnsupportedSection(format!(
+            "JPEG 2000 packing: codestream holds {} components but grid_jpeg is single-component",
+            image.components.len()
+        )));
+    }
+    let component = image.component(0).expect("length checked to be 1");
+    if component.signed {
+        return Err(FieldglassError::UnsupportedSection(
+            "JPEG 2000 packing: signed component is unsupported".into(),
+        ));
+    }
+
+    // The pyramid level must be the shape the §3 grid says it is. JPEG 2000
+    // sizes a reduced level as `ceil(x1 / 2^r) - ceil(x0 / 2^r)`, which is
+    // `ceil(n / 2^r)` only when the image origin is at zero — true of every
+    // `grid_jpeg` codestream, and checked here rather than assumed, because a
+    // codestream with an offset origin would otherwise hand back a raster one
+    // column narrower with nothing to say so.
+    if component.width != expected_ni || component.height != expected_nj {
+        return Err(FieldglassError::UnsupportedSection(format!(
+            "JPEG 2000 packing: resolution reduction {reduction} gives a {}×{} image, but the \
+             §3 grid reduces to {expected_ni}×{expected_nj}",
+            component.width, component.height
+        )));
+    }
+    if component.samples.len() != expected_count {
+        return Err(FieldglassError::Parse(format!(
+            "JPEG 2000 packing: reduced codestream holds {} samples but {expected_count} values \
+             are required",
+            component.samples.len()
+        )));
+    }
+
+    // The same unsigned-offset transform the full-resolution path applies. The
+    // wavelet low-pass is not an integer sample of the field, so these are
+    // averages the message never stored — which is why the raster they build is
+    // display-only.
+    Ok(component
+        .samples
+        .iter()
+        .map(|&x| Some((r + x as f64 * two_pow_e) * d_inv))
+        .collect())
+}
+
 /// Decode run-length packing (template 5.200). §7 is a stream of
 /// `bits_per_value`-wide MSB-first codes. A code `v <= max_level_value` opens
 /// a run of level `v` (level `0` = missing); any immediately following codes

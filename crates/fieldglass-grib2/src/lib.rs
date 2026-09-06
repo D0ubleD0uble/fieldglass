@@ -35,6 +35,14 @@
 //! [`Grib2Reader::decode_message_raster`] is the entry point that hands back
 //! the rectangle either way, with [`GridDefinitionSection::raster_bounds`] as
 //! its extent. Neither leaves the widening or transpose rule to the caller.
+//!
+//! [`Grib2Reader::decode_message_raster_with`] is the third of that family and
+//! the one that can answer **coarsely**: a JPEG 2000 (5.40) message carries a
+//! wavelet pyramid, so a zoomed-out display can have
+//! `ceil(Ni / 2^r) x ceil(Nj / 2^r)` points for a fraction of the entropy
+//! decode. It hands back a [`DisplayRaster`], whose geometry is derived rather
+//! than the message's own and whose values — wavelet averages that exist in no
+//! GRIB message — are for drawing, never for measuring. See [`reduced`].
 
 #![forbid(unsafe_code)]
 pub mod bms;
@@ -51,6 +59,7 @@ pub mod matrix;
 pub mod pds;
 /// The message scanner and the decode entry points over a whole file.
 pub mod reader;
+pub mod reduced;
 pub mod section;
 pub mod spectral;
 pub mod tables;
@@ -116,6 +125,7 @@ pub use pds::{
     parse_product_definition,
 };
 pub use reader::{Grib2Message, Grib2Reader, MatrixField};
+pub use reduced::{DecodeOptions, DisplayRaster};
 pub use section::{SECTION_HEADER_LEN, SectionHeader, parse_section_header};
 pub use spectral::{SpectralCoefficients, decode_spectral_complex, decode_spectral_simple};
 pub use tables::{

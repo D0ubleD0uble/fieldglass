@@ -878,6 +878,163 @@ impl GridGeometry {
         }
     }
 
+    /// The geometry of the grid formed by keeping every `2^reduction`-th point
+    /// on both axes, starting at the first — or `None` when the family cannot
+    /// state one.
+    ///
+    /// The grid this describes is `ni.div_ceil(2^r) × nj.div_ceil(2^r)` points,
+    /// its first point is the original's first point, and its point `(i, j)` is
+    /// the original's `(i·2^r, j·2^r)` — which is what
+    /// `subsampled_places_the_points_it_keeps` asserts across the families,
+    /// against [`forward`](Self::forward) itself rather than against a formula
+    /// restated in the test.
+    ///
+    /// This exists for the JPEG 2000 wavelet pyramid (#463). Level `r` of the
+    /// pyramid is not a resample: the 5/3 and 9/7 low-pass filters both put
+    /// output sample `k` at input index `2k`, so the coarse field's first
+    /// sample *is* the first grid point and the spacing *is* `2^r` cells. A
+    /// caller pairing those samples with the message's own GDS would place the
+    /// whole field at `1/2^r` of its true size, so the derived geometry is not
+    /// optional bookkeeping — it is what makes the coarse decode usable at all.
+    ///
+    /// `None` for three reasons, all of them "no honest answer exists":
+    ///
+    /// - **Gaussian.** Its rows are Gauss–Legendre nodes, and every other node
+    ///   of an order-`N` quadrature is not the order-`N/2` quadrature. There is
+    ///   no `GaussianParams` describing the kept rows.
+    /// - **[`Lookup`](Self::Lookup) and [`Unsupported`](Self::Unsupported).** A
+    ///   list of cell centres would have to be rebuilt, not derived, and an
+    ///   unmodelled family has nothing to derive from.
+    /// - **A degenerate grid**, or a reduction that shifts past `u32`. The
+    ///   three corner-stated families need two points on an axis to have a
+    ///   spacing at all, which is the same guard [`latlon_point`] applies.
+    #[must_use]
+    pub fn subsampled(&self, reduction: u8) -> Option<Self> {
+        if reduction == 0 {
+            return Some(self.clone());
+        }
+        // `checked_shl` declines a shift of 32 or more, which is every
+        // reduction that could not leave a point standing on any real grid.
+        let step = 1u32.checked_shl(u32::from(reduction))?;
+        let (ni, nj) = self.dims()?;
+        let (kept_ni, kept_nj) = (ni.div_ceil(step), nj.div_ceil(step));
+        // The original indices the kept corners came from. `div_ceil` bounds
+        // both below `ni`/`nj`, so neither multiply can overflow.
+        let (last_i, last_j) = (
+            kept_ni.saturating_sub(1) * step,
+            kept_nj.saturating_sub(1) * step,
+        );
+
+        // The three corner-stated families restate their far corner as the
+        // point the *original* grid puts at that index — computed by the same
+        // expression that family's `forward` uses, so the two cannot drift.
+        // `subsampled_places_the_points_it_keeps` is what would catch it if
+        // they did.
+        let kept_lon_last = |first: f64, last: f64| -> Option<f64> {
+            if ni < 2 || nj < 2 || kept_ni < 2 || kept_nj < 2 {
+                // No spacing to halve on a one-point axis, in either grid.
+                return None;
+            }
+            // Longitude runs eastward from `lon_first`, so the kept span is a
+            // fraction of the original's — never `min`/`max` of two corners,
+            // which is the antimeridian bug `eastward_lon_span` documents.
+            let east_span = eastward_lon_span(first, last);
+            let kept_span = east_span * (f64::from(last_i) / (f64::from(ni) - 1.0));
+            let mut lon_last = first + kept_span;
+            // A span below a full turn keeps its corner in the conventional
+            // range; a grid that spans exactly 360° must not be wrapped, or its
+            // span collapses to zero.
+            if lon_last >= 360.0 && kept_span < 360.0 {
+                lon_last -= 360.0;
+            }
+            Some(lon_last)
+        };
+
+        match self {
+            Self::LatLon(p) => {
+                let lon_last = kept_lon_last(p.lon_first, p.lon_last)?;
+                Some(Self::LatLon(LatLonParams {
+                    ni: kept_ni,
+                    nj: kept_nj,
+                    lat_last: axis_position(p.lat_first, p.lat_last, nj, last_j),
+                    lon_last,
+                    ..*p
+                }))
+            }
+            // §3.1's corners are rotated-frame degrees, so they scale in that
+            // frame; `rotated_latlon_point` unrotates afterwards and would give
+            // the wrong corner back if asked for it here.
+            Self::RotatedLatLon(p) => {
+                let lon_last = kept_lon_last(p.lon_first, p.lon_last)?;
+                Some(Self::RotatedLatLon(RotatedLatLonParams {
+                    ni: kept_ni,
+                    nj: kept_nj,
+                    lat_last: axis_position(p.lat_first, p.lat_last, nj, last_j),
+                    lon_last,
+                    ..*p
+                }))
+            }
+            // Rows are evenly spaced in the Mercator ordinate, not in latitude,
+            // so the kept corner comes back through `mercator_point` rather
+            // than through `axis_position`.
+            Self::Mercator(p) => {
+                let lon_last = kept_lon_last(p.lon_first, p.lon_last)?;
+                let (lat_last, _) = mercator_point(p, 0, last_j)?;
+                Some(Self::Mercator(MercatorParams {
+                    ni: kept_ni,
+                    nj: kept_nj,
+                    lat_last,
+                    lon_last,
+                    ..*p
+                }))
+            }
+            // The planar families place a point from the first point and a
+            // signed spacing, so keeping every `step`-th point is exactly a
+            // `step`-times longer step from the same origin. The sign rides
+            // along, which is what keeps a south-up or east-west grid coarse in
+            // the direction it actually scans.
+            Self::Lambert(p) => Some(Self::Lambert(LambertParams {
+                ni: kept_ni,
+                nj: kept_nj,
+                dx_metres: p.dx_metres * f64::from(step),
+                dy_metres: p.dy_metres * f64::from(step),
+                ..*p
+            })),
+            Self::PolarStereo(p) => Some(Self::PolarStereo(PolarStereoParams {
+                ni: kept_ni,
+                nj: kept_nj,
+                dx_metres: p.dx_metres * f64::from(step),
+                dy_metres: p.dy_metres * f64::from(step),
+                ..*p
+            })),
+            Self::TransverseMercator(p) => {
+                Some(Self::TransverseMercator(TransverseMercatorParams {
+                    ni: kept_ni,
+                    nj: kept_nj,
+                    dx_metres: p.dx_metres * f64::from(step),
+                    dy_metres: p.dy_metres * f64::from(step),
+                    ..*p
+                }))
+            }
+            Self::LambertAzimuthal(p) => Some(Self::LambertAzimuthal(LambertAzimuthalParams {
+                ni: kept_ni,
+                nj: kept_nj,
+                dx_metres: p.dx_metres * f64::from(step),
+                dy_metres: p.dy_metres * f64::from(step),
+                ..*p
+            })),
+            // §3.90 is planar too, in scan angle rather than in metres.
+            Self::Geostationary(p) => Some(Self::Geostationary(GeostationaryParams {
+                ni: kept_ni,
+                nj: kept_nj,
+                dx_rad: p.dx_rad * f64::from(step),
+                dy_rad: p.dy_rad * f64::from(step),
+                ..*p
+            })),
+            Self::Gaussian(_) | Self::Lookup(_) | Self::Unsupported { .. } => None,
+        }
+    }
+
     /// Grid point `(i, j)` → `(lat, lon)` in degrees, or `None` when the index
     /// is off the grid or the family cannot be placed.
     pub fn forward(&self, i: u32, j: u32) -> Option<(f64, f64)> {
@@ -3253,5 +3410,401 @@ mod grid_questions_tests {
                  then refuses"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod subsample_tests {
+    use super::*;
+
+    /// Every family this method answers for, plus the three it declines, as
+    /// `(label, geometry)`. Built once so a family added to [`GridGeometry`]
+    /// shows up here as a missing arm rather than as an untested one.
+    fn families() -> Vec<(&'static str, GridGeometry)> {
+        vec![
+            (
+                "latlon",
+                GridGeometry::LatLon(LatLonParams {
+                    ni: 37,
+                    nj: 19,
+                    lat_first: 90.0,
+                    lon_first: 0.0,
+                    lat_last: -90.0,
+                    lon_last: 350.0,
+                }),
+            ),
+            (
+                "latlon crossing the antimeridian",
+                GridGeometry::LatLon(LatLonParams {
+                    ni: 1440,
+                    nj: 721,
+                    lat_first: 90.0,
+                    lon_first: 180.0,
+                    lat_last: -90.0,
+                    lon_last: 179.75,
+                }),
+            ),
+            (
+                "mercator",
+                GridGeometry::Mercator(MercatorParams {
+                    ni: 60,
+                    nj: 41,
+                    lat_first: -60.0,
+                    lon_first: 100.0,
+                    lat_last: 60.0,
+                    lon_last: 160.0,
+                }),
+            ),
+            (
+                "rotated_latlon",
+                GridGeometry::RotatedLatLon(RotatedLatLonParams {
+                    ni: 16,
+                    nj: 31,
+                    lat_first: 60.0,
+                    lon_first: 0.0,
+                    lat_last: 0.0,
+                    lon_last: 30.0,
+                    south_pole_lat: -30.0,
+                    south_pole_lon: 10.0,
+                    angle_of_rotation: 0.0,
+                }),
+            ),
+            (
+                "lambert",
+                GridGeometry::Lambert(LambertParams {
+                    earth_radius_m: 6_371_229.0,
+                    ni: 451,
+                    nj: 337,
+                    lat_first: 16.281,
+                    lon_first: -126.138,
+                    lad: 25.0,
+                    lov: -95.0,
+                    dx_metres: 13_545.087,
+                    dy_metres: -13_545.087,
+                    latin1: 25.0,
+                    latin2: 25.0,
+                }),
+            ),
+            (
+                "polar_stereo",
+                GridGeometry::PolarStereo(PolarStereoParams {
+                    earth_radius_m: 6_371_229.0,
+                    ni: 100,
+                    nj: 80,
+                    lat_first: 55.0,
+                    lon_first: -120.0,
+                    lov: -100.0,
+                    lad: 60.0,
+                    dx_metres: 15_000.0,
+                    dy_metres: -15_000.0,
+                    south_pole: false,
+                }),
+            ),
+            (
+                "transverse_mercator",
+                GridGeometry::TransverseMercator(TransverseMercatorParams {
+                    semi_major_m: 6_377_563.396,
+                    semi_minor_m: 6_356_256.909,
+                    ni: 70,
+                    nj: 90,
+                    lat_ref: 49.0,
+                    lon_ref: -2.0,
+                    scale_factor: 0.999_601_272,
+                    false_easting_m: 400_000.0,
+                    false_northing_m: -100_000.0,
+                    x1_metres: 0.0,
+                    y1_metres: 0.0,
+                    dx_metres: 10_000.0,
+                    dy_metres: 10_000.0,
+                }),
+            ),
+            (
+                "lambert_azimuthal",
+                GridGeometry::LambertAzimuthal(LambertAzimuthalParams {
+                    semi_major_m: 6_378_137.0,
+                    semi_minor_m: 6_356_752.314_14,
+                    ni: 64,
+                    nj: 48,
+                    lat_first: 30.0,
+                    lon_first: -20.0,
+                    standard_parallel: 52.0,
+                    central_longitude: 10.0,
+                    dx_metres: 25_000.0,
+                    dy_metres: -25_000.0,
+                }),
+            ),
+            (
+                // Wide enough that the corners look past the limb and the
+                // centre does not, so the property below compares both the
+                // "placed" and the "space" answer.
+                "space_view",
+                GridGeometry::Geostationary(GeostationaryParams {
+                    ni: 100,
+                    nj: 100,
+                    h_metres: 42_164_160.0,
+                    r_eq: 6_378_137.0,
+                    r_pol: 6_356_752.314_14,
+                    sub_lon_deg: -75.0,
+                    sweep_x: true,
+                    x0: -0.158_4,
+                    dx_rad: 0.003_2,
+                    y0: 0.158_4,
+                    dy_rad: -0.003_2,
+                }),
+            ),
+        ]
+    }
+
+    /// The whole contract: point `(i, j)` of the coarse grid is point
+    /// `(i·2^r, j·2^r)` of the original. Asserted against
+    /// [`GridGeometry::forward`] itself, so a wrong corner or a wrong spacing
+    /// shows up as a displaced point rather than as a number a test restated.
+    ///
+    /// The tolerance is a hundredth of a micro-degree: these are the *same*
+    /// arithmetic reassociated, not an approximation, and a real mistake — a
+    /// forgotten `2^r`, a corner taken from the wrong index — is a whole grid
+    /// cell out.
+    #[test]
+    fn subsampled_places_the_points_it_keeps() {
+        for (label, grid) in families() {
+            let (ni, nj) = grid.dims().expect("every family here has dimensions");
+            for reduction in 1u8..=3 {
+                let step = 1u32 << reduction;
+                let coarse = grid
+                    .subsampled(reduction)
+                    .unwrap_or_else(|| panic!("{label}: reduction {reduction} is derivable"));
+                assert_eq!(
+                    coarse.dims(),
+                    Some((ni.div_ceil(step), nj.div_ceil(step))),
+                    "{label} at reduction {reduction}: kept-point count"
+                );
+                assert_eq!(coarse.kind(), grid.kind(), "{label}: family is unchanged");
+                let (ci, cj) = coarse.dims().expect("just asserted");
+                let mut placed = 0usize;
+                for j in 0..cj {
+                    for i in 0..ci {
+                        // A geostationary corner looks past the limb, so
+                        // "places nowhere" is a real answer both grids must
+                        // give together — comparing the `Option`s catches a
+                        // coarse grid that invents a point as well as one that
+                        // moves it.
+                        match (grid.forward(i * step, j * step), coarse.forward(i, j)) {
+                            (None, None) => {}
+                            (Some(want), Some(got)) => {
+                                placed += 1;
+                                assert!(
+                                    near(got.0, want.0, 1e-8) && near(got.1, want.1, 1e-8),
+                                    "{label} at reduction {reduction}: coarse ({i}, {j}) placed \
+                                     at {got:?}, source ({}, {}) at {want:?}",
+                                    i * step,
+                                    j * step
+                                );
+                            }
+                            (want, got) => panic!(
+                                "{label} at reduction {reduction}: source ({}, {}) placed at \
+                                 {want:?} but coarse ({i}, {j}) at {got:?}",
+                                i * step,
+                                j * step
+                            ),
+                        }
+                    }
+                }
+                assert!(
+                    placed > 0,
+                    "{label} at reduction {reduction}: nothing placed, so nothing was compared"
+                );
+            }
+        }
+    }
+
+    /// Reduction zero is the identity, which is what lets one code path serve
+    /// both the coarse and the full-resolution decode.
+    #[test]
+    fn no_reduction_is_the_same_grid() {
+        for (label, grid) in families() {
+            assert_eq!(
+                grid.subsampled(0).as_ref(),
+                Some(&grid),
+                "{label}: reduction 0 is the identity"
+            );
+        }
+        // Including for the families that decline every other reduction.
+        let unmodelled = GridGeometry::Unsupported {
+            label: "unsupported(3.99)".to_string(),
+        };
+        assert_eq!(unmodelled.subsampled(0).as_ref(), Some(&unmodelled));
+    }
+
+    /// The three refusals, each for its own reason — see the method's docs.
+    #[test]
+    fn the_families_with_no_derivable_coarse_grid_decline() {
+        let gaussian = GridGeometry::Gaussian(GaussianParams {
+            ni: 320,
+            nj: 160,
+            lat_first: 89.142,
+            lon_first: 0.0,
+            lat_last: -89.142,
+            lon_last: 358.875,
+            n_parallels: 80,
+        });
+        assert_eq!(
+            gaussian.subsampled(1),
+            None,
+            "every other Gauss-Legendre node is not a Gaussian grid"
+        );
+        assert_eq!(
+            GridGeometry::Unsupported {
+                label: "spherical_harmonic".to_string()
+            }
+            .subsampled(1),
+            None
+        );
+        let lookup = GridGeometry::Lookup(
+            crate::spatial_index::SpatialIndex::new(
+                2,
+                2,
+                &[0.0, 0.0, 1.0, 1.0],
+                &[0.0, 1.0, 0.0, 1.0],
+            )
+            .expect("four centres index"),
+        );
+        assert_eq!(
+            lookup.subsampled(1),
+            None,
+            "a list of cell centres would be rebuilt, not derived"
+        );
+    }
+
+    /// A shift that would leave nothing standing is declined rather than
+    /// wrapped: `1u32 << 32` is undefined, and a `u8` reduction can ask for it.
+    #[test]
+    fn a_reduction_past_the_shift_width_declines() {
+        // A planar family, because the corner-stated ones decline a reduction
+        // this deep for the separate degenerate-axis reason below.
+        let grid = families()
+            .into_iter()
+            .find(|(label, _)| *label == "lambert")
+            .expect("lambert is in the table")
+            .1;
+        assert_eq!(
+            grid.subsampled(31).and_then(|g| g.dims()),
+            Some((1, 1)),
+            "31 is still a shift a u32 has"
+        );
+        assert_eq!(grid.subsampled(32), None, "32 is not a shift a u32 has");
+        assert_eq!(grid.subsampled(u8::MAX), None);
+    }
+
+    /// A one-point axis has no spacing to lengthen, in the source or in the
+    /// derived grid, and the corner-stated families say so rather than
+    /// dividing by zero.
+    #[test]
+    fn a_degenerate_axis_declines() {
+        let single_column = GridGeometry::LatLon(LatLonParams {
+            ni: 1,
+            nj: 19,
+            lat_first: 90.0,
+            lon_first: 0.0,
+            lat_last: -90.0,
+            lon_last: 0.0,
+        });
+        assert_eq!(single_column.subsampled(1), None);
+        // Wide enough to have a spacing, but reduced hard enough that the
+        // coarse grid would not.
+        let three_wide = GridGeometry::LatLon(LatLonParams {
+            ni: 3,
+            nj: 3,
+            lat_first: 10.0,
+            lon_first: 0.0,
+            lat_last: -10.0,
+            lon_last: 10.0,
+        });
+        assert_eq!(
+            three_wide.subsampled(1).and_then(|g| g.dims()),
+            Some((2, 2))
+        );
+        assert_eq!(
+            three_wide.subsampled(2),
+            None,
+            "would keep one point per axis"
+        );
+    }
+
+    /// A grid spanning exactly a full turn must not have its eastern corner
+    /// wrapped: `lon_first + 360` is a 360° span and `lon_first` is a zero one.
+    /// The kept span is a full turn exactly when the last kept column is the
+    /// last source column, which `ni = 5` at reduction 1 arranges.
+    #[test]
+    fn a_full_turn_survives_the_corner_wrap() {
+        let global = GridGeometry::LatLon(LatLonParams {
+            ni: 5,
+            nj: 3,
+            lat_first: 90.0,
+            lon_first: 0.0,
+            lat_last: -90.0,
+            lon_last: 360.0,
+        });
+        let coarse = global.subsampled(1).expect("derivable");
+        let GridGeometry::LatLon(p) = &coarse else {
+            panic!("family is unchanged")
+        };
+        assert_eq!((p.ni, p.nj), (3, 2));
+        assert!(
+            near(eastward_lon_span(p.lon_first, p.lon_last), 360.0, 1e-9),
+            "kept span is still a full turn, not zero: lon_last = {}",
+            p.lon_last
+        );
+    }
+
+    /// An antimeridian-crossing grid keeps its eastern corner in the
+    /// conventional range rather than reporting a longitude past 360°.
+    #[test]
+    fn a_wrapped_corner_comes_back_conventional() {
+        let grid = GridGeometry::LatLon(LatLonParams {
+            ni: 1440,
+            nj: 721,
+            lat_first: 90.0,
+            lon_first: 180.0,
+            lat_last: -90.0,
+            lon_last: 179.75,
+        });
+        let coarse = grid.subsampled(1).expect("derivable");
+        let GridGeometry::LatLon(p) = &coarse else {
+            panic!("family is unchanged")
+        };
+        assert!(
+            (-180.0..360.0).contains(&p.lon_last),
+            "lon_last {} is outside the conventional range",
+            p.lon_last
+        );
+        assert!(near(
+            eastward_lon_span(p.lon_first, p.lon_last),
+            359.5,
+            1e-9
+        ));
+    }
+
+    /// The signed spacing a planar grid carries is what makes a south-up or
+    /// east-west scan coarsen in the direction it scans, so the sign has to
+    /// survive the multiply.
+    #[test]
+    fn a_planar_grid_keeps_the_sign_of_its_spacing() {
+        let GridGeometry::Lambert(source) = families()
+            .into_iter()
+            .find(|(label, _)| *label == "lambert")
+            .expect("lambert is in the table")
+            .1
+        else {
+            panic!("lambert arm")
+        };
+        let GridGeometry::Lambert(coarse) = GridGeometry::Lambert(source)
+            .subsampled(2)
+            .expect("derivable")
+        else {
+            panic!("family is unchanged")
+        };
+        assert!(near(coarse.dx_metres, source.dx_metres * 4.0, 1e-6));
+        assert!(near(coarse.dy_metres, source.dy_metres * 4.0, 1e-6));
+        assert!(coarse.dy_metres < 0.0, "a north-down grid stays north-down");
     }
 }

@@ -3,7 +3,8 @@ use crate::drs::{
     DRS_SECTION_NUMBER, DataRepresentationSection, parse_data_representation_with_header,
 };
 use crate::ds::{
-    DS_SECTION_NUMBER, decode_values, parse_data_section_body, undo_second_order_boustrophedonic,
+    DS_SECTION_NUMBER, decode_jpeg2000_reduced, decode_values, parse_data_section_body,
+    undo_second_order_boustrophedonic,
 };
 use crate::gds::{
     GDS_SECTION_NUMBER, GridDefinitionSection, GridTemplate, HealpixTemplate, SCAN_ALTERNATE_ROWS,
@@ -18,12 +19,13 @@ use crate::lus::{LUS_SECTION_NUMBER, parse_local_use_with_header};
 use crate::pds::{
     PDS_SECTION_NUMBER, ProductDefinitionSection, parse_product_definition_with_header,
 };
+use crate::reduced::{DecodeOptions, DisplayRaster};
 use crate::section::parse_section_header;
 use crate::spectral::{
     BiFourierCoefficients, SpectralCoefficients, decode_bifourier, decode_spectral_complex,
     decode_spectral_simple,
 };
-use fieldglass_core::{FieldglassError, GlobalGrid, StoredRuns, SynthesisedField};
+use fieldglass_core::{FieldglassError, GlobalGrid, GridGeometry, StoredRuns, SynthesisedField};
 
 /// Hard cap on `ni · nj` for `decode_message_values`. Real grids top out
 /// around 10⁷ points; this guards against pathological inputs that would
@@ -455,6 +457,171 @@ impl Grib2Reader {
             ),
             _ => Ok(values),
         }
+    }
+
+    /// Decode one message onto a raster to **draw**, at the resolution
+    /// `options` asks for — the coarse half of the pyramid a JPEG 2000 (§5.40)
+    /// message already carries (#463).
+    ///
+    /// At [`DecodeOptions::resolution_reduction`] zero this is
+    /// [`Self::decode_message_raster`] carried beside the message's own
+    /// geometry, and the values are bit-identical to it. Above zero it is
+    /// `ceil(ni / 2^r) × ceil(nj / 2^r)` points of the codestream's wavelet
+    /// low-pass, decoded *without* entropy-decoding the levels it discards —
+    /// 39.9 ms → 10.5 ms → 2.8 ms on the committed RAP fixture at reduction
+    /// 0 / 1 / 2, natively in release (`examples/bench_reduce.rs`).
+    ///
+    /// Those values are averages the message does not contain, so
+    /// [`DisplayRaster`] is a type of its own and
+    /// [`DisplayRaster::exact_values`] declines to hand them to anything that
+    /// measures rather than draws. Its
+    /// [`geometry`](DisplayRaster::geometry) is derived
+    /// ([`GridGeometry::subsampled`]) and is the only geometry these values
+    /// belong to: paired with the message's own GDS they would draw the field
+    /// at `1/2^r` of its size.
+    ///
+    /// # A non-zero reduction is refused rather than approximated
+    ///
+    /// Every refusal below is [`FieldglassError::UnsupportedSection`], so a
+    /// caller that asked for a level this message cannot serve falls back to
+    /// reduction zero rather than being handed a differently-wrong field.
+    ///
+    /// - **Any packing but §5.40.** There is no pyramid to climb: 5.0 is
+    ///   random-access already, and 5.2 / 5.3 / 5.41 / 5.42 are sequential and
+    ///   would have to be decoded in full first, which is the cost this exists
+    ///   to avoid. Refused rather than silently decoded in full, so that a
+    ///   caller measuring a zoom-out never attributes 5.3's time to this.
+    /// - **A §6 bitmap.** The bitmap is one flag per full-resolution point and
+    ///   has no low-pass; there is no defensible mask for the coarse raster,
+    ///   and the codestream carries only the *present* points, so its image is
+    ///   not the grid.
+    /// - **A reduced grid.** Its rows differ in width, so the codestream is not
+    ///   the raster and the widening
+    ///   ([`fieldglass_core::expand_reduced_to_regular`]) maps columns by
+    ///   longitude — an operation that does not commute with a low-pass.
+    /// - **Alternate-row or `j`-consecutive scanning** (§3 Flag Table 3.4 bits
+    ///   3 and 4). Both are storage orders this crate normalises *after* the
+    ///   packing decodes, and a wavelet transform of a scrambled raster has no
+    ///   normalised form: reversing every second coarse row is not the coarse
+    ///   form of reversing every second row.
+    /// - **A family with no derivable coarse geometry** — Gaussian, and any
+    ///   template this build does not place points on. See
+    ///   [`GridGeometry::subsampled`] for why each declines.
+    pub fn decode_message_raster_with(
+        &self,
+        message_index: usize,
+        options: DecodeOptions,
+    ) -> Result<DisplayRaster, FieldglassError> {
+        let msg = self
+            .messages
+            .get(message_index)
+            .ok_or(FieldglassError::OutOfRange)?;
+        let geometry = GridGeometry::from(&msg.gds);
+        let reduction = options.resolution_reduction;
+
+        if reduction == 0 {
+            // The message's own field, so every layout `decode_message_raster`
+            // regularises is served here too — including the ones a non-zero
+            // reduction refuses.
+            let values = self.decode_message_raster(message_index)?;
+            let (ni, nj) = msg.gds.dimensions().ok_or_else(|| {
+                FieldglassError::UnsupportedSection(format!(
+                    "a {} message is not laid out as a raster, so it has none to display — \
+                     decode it with `Grib2Reader::decode_message_values`",
+                    msg.gds.template_name()
+                ))
+            })?;
+            return DisplayRaster::new(values, ni, nj, geometry, 0);
+        }
+
+        let Some(jpeg) = msg.drs.jpeg2000() else {
+            return Err(FieldglassError::UnsupportedSection(format!(
+                "resolution reduction {reduction} was asked of {} packing, and only JPEG 2000 \
+                 (§5.40) carries the resolution pyramid a reduced decode reads",
+                msg.drs.template_name()
+            )));
+        };
+        if msg.gds.points_per_row().is_some() {
+            return Err(FieldglassError::UnsupportedSection(format!(
+                "resolution reduction {reduction} was asked of a reduced grid, whose rows differ \
+                 in width — the codestream is not the raster the rows expand into"
+            )));
+        }
+        if let Some(sm) = msg.gds.scanning_mode() {
+            if sm & SCAN_ALTERNATE_ROWS != 0 {
+                return Err(FieldglassError::UnsupportedSection(format!(
+                    "resolution reduction {reduction} was asked of an alternate-row grid (§3 Flag \
+                     Table 3.4 bit 4), whose rows are undone after the packing decodes — a \
+                     wavelet low-pass of that order has no undo"
+                )));
+            }
+            if sm & SCAN_J_CONSECUTIVE != 0 {
+                return Err(FieldglassError::UnsupportedSection(format!(
+                    "resolution reduction {reduction} was asked of a j-consecutive grid (§3 Flag \
+                     Table 3.4 bit 3), which stores meridians — the codestream is the transpose \
+                     of the raster"
+                )));
+            }
+        }
+        let (ni, nj) = msg.gds.dimensions().ok_or_else(|| {
+            FieldglassError::UnsupportedSection(format!(
+                "a {} message is not laid out as a raster, so it has no coarse one either",
+                msg.gds.template_name()
+            ))
+        })?;
+        // The same two guards `decode_message_values` applies before it sizes
+        // anything, restated because this path does not go through it: the
+        // product must fit and stay under the cap, and §3's own point count
+        // must agree with the shape the template declares. Without the second,
+        // a corrupted `ni`/`nj` names a grid the file has no data for.
+        let full_count = (ni as usize).checked_mul(nj as usize).ok_or_else(|| {
+            FieldglassError::Parse(format!("grid dimensions {ni}×{nj} overflow usize"))
+        })?;
+        if full_count > MAX_GRID_POINTS {
+            return Err(FieldglassError::Parse(format!(
+                "grid dimensions {ni}×{nj} = {full_count} points exceeds cap of {MAX_GRID_POINTS}"
+            )));
+        }
+        if full_count != msg.gds.num_data_points as usize {
+            return Err(FieldglassError::Parse(format!(
+                "grid dimensions {ni}×{nj} = {full_count} points disagree with the \
+                 GDS-declared {} data points",
+                msg.gds.num_data_points
+            )));
+        }
+
+        // The bitmap is read for its presence alone. §6 has to be parsed to
+        // answer that — the indicator is in the section, not in the message
+        // index — and the parse is against the *full* point count because that
+        // is what a bitmap is one flag per.
+        let (bms_start, bms_end) = msg.bms_range;
+        let bms_header = parse_section_header(&self.data[bms_start..bms_end])?;
+        let bms =
+            parse_bit_map_with_header(&self.data[bms_start..bms_end], bms_header, full_count)?;
+        if bms.has_inline_bitmap() {
+            return Err(FieldglassError::UnsupportedSection(format!(
+                "resolution reduction {reduction} was asked of a message with a §6 bitmap, which \
+                 is one flag per full-resolution point and has no low-pass"
+            )));
+        }
+
+        // The geometry decides the coarse shape, and the codestream is then
+        // held to it: one answer, not two that could disagree.
+        let coarse = geometry.subsampled(reduction).ok_or_else(|| {
+            FieldglassError::UnsupportedSection(format!(
+                "resolution reduction {reduction} has no derivable geometry on a {} grid",
+                geometry.label()
+            ))
+        })?;
+        let (coarse_ni, coarse_nj) = coarse
+            .dims()
+            .expect("a geometry `subsampled` answered for has dimensions");
+
+        let (ds_start, ds_end) = msg.ds_range;
+        let ds_header = parse_section_header(&self.data[ds_start..ds_end])?;
+        let ds_payload = parse_data_section_body(&self.data[ds_start..ds_end], ds_header)?;
+        let values = decode_jpeg2000_reduced(ds_payload, jpeg, reduction, coarse_ni, coarse_nj)?;
+        DisplayRaster::new(values, coarse_ni, coarse_nj, coarse, reduction)
     }
 
     /// Decode a `grid_simple_matrix` message (template 5.1) that carries an
