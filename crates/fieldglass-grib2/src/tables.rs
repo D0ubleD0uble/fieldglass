@@ -241,7 +241,13 @@ pub fn lookup_fixed_surface(value: u8) -> &'static str {
         106 => "Depth below land surface (m)",
         107 => "Isentropic (theta) level (K)",
         108 => "Level at specified pressure difference from ground (Pa)",
-        109 => "Potential vorticity surface (10⁻⁶ K m² kg⁻¹ s⁻¹)",
+        // Not `10⁻⁶`, which this arm claimed until #655: §4 states the level
+        // as a scaled value and a scale factor, and `FixedSurface::value`
+        // applies the factor, so the number printed beside this label is
+        // already in SI. NCEP writes a 2 PVU surface as scaledValue 2 with
+        // scaleFactor 6, and the column reads `0.000002` — a label quoting the
+        // 10⁻⁶ the PVU convention uses would be wrong by six orders.
+        109 => "Potential vorticity surface (K m² kg⁻¹ s⁻¹)",
         // 117 is deliberately absent: its arm read `"Mixed-layer depth"`,
         // dropping the `(m)` that 106 and 160 either side of it keep, so it
         // falls through to `"Mixed layer depth (m)"` (#655).
@@ -581,10 +587,8 @@ mod tests {
         (
             "4.5",
             109,
-            "Unicode exponents, matching the curated parameter table's style, \
-             and the 10⁻⁶ scale potential vorticity is conventionally quoted \
-             in; WMO's unit column writes \"K m2 kg-1 s-1\" and states no \
-             scale.",
+            "Unicode exponents, matching the curated parameter table's style; \
+             WMO's unit column writes \"K m2 kg-1 s-1\".",
         ),
     ];
 
@@ -1228,7 +1232,7 @@ mod tests {
                 108,
                 "Level at specified pressure difference from ground (Pa)",
             ),
-            (109, "Potential vorticity surface (10⁻⁶ K m² kg⁻¹ s⁻¹)"),
+            (109, "Potential vorticity surface (K m² kg⁻¹ s⁻¹)"),
             (117, "Mixed layer depth (m)"),
             (160, "Depth below sea level (m)"),
             (200, "Entire atmosphere as a single layer"),
