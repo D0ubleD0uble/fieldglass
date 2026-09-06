@@ -44,7 +44,11 @@ fn distinct_units() -> BTreeSet<String> {
     for centre in [CENTRE_WMO, CENTRE_ECMWF] {
         for version in [1, 2, 3, 128, 129] {
             for id in 0..=255u8 {
-                units.insert(lookup_parameter(id, version, centre).units.to_string());
+                // An unresolved id contributes the empty string, which is what
+                // it contributed when the lookup answered a sentinel entry with
+                // empty units — so the snapshot is unchanged by #633.
+                let units_str = lookup_parameter(id, version, centre).map_or("", |p| p.units);
+                units.insert(units_str.to_string());
             }
         }
     }

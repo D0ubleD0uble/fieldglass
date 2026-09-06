@@ -296,8 +296,8 @@ fn is_local_use(discipline: u8, category: u8, number: u8) -> bool {
 /// silently, because it is a property of the upstream data and not of this
 /// code.
 ///
-/// Unrecognised triples return `None`; callers should render the numeric
-/// triple as a fallback.
+/// Unrecognised triples return `None`; callers render
+/// [`unresolved_parameter`] as the fallback.
 pub fn lookup_parameter(
     originator: Originator,
     discipline: u8,
@@ -311,6 +311,28 @@ pub fn lookup_parameter(
         number,
         crate::tables_local::lookup,
     )
+}
+
+/// The display name for a parameter [`lookup_parameter`] answered `None` for.
+///
+/// The stack-wide contract for an unresolved parameter is the codes that went
+/// unresolved rather than a bare `"Unknown"`, because they are the only thing
+/// that tells a user *which* table is missing — and no host surfaces the raw
+/// triple otherwise: the discipline reaches one as a Code Table 0.0 *name*,
+/// which is itself unresolved for a discipline no table defines. Stated once
+/// on `fieldglass::api::Field::parameter` (#633).
+///
+/// A function rather than a `format!` at each display seam so the umbrella and
+/// the napi binding cannot drift apart again, which is how they came to render
+/// the same message three different ways.
+///
+/// ```
+/// # use fieldglass_grib2::unresolved_parameter;
+/// assert_eq!(unresolved_parameter(209, 10, 0), "Parameter 209/10/0");
+/// ```
+#[must_use]
+pub fn unresolved_parameter(discipline: u8, category: u8, number: u8) -> String {
+    format!("Parameter {discipline}/{category}/{number}")
 }
 
 /// The resolution policy, with the centre-local table injected.

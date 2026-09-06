@@ -306,7 +306,10 @@ impl Session {
         };
         let (parameter, units) = match &self.reader {
             #[cfg(feature = "grib1")]
-            Reader::Grib1(r) => grib1_parameter(&r.messages[i]),
+            Reader::Grib1(r) => {
+                let (_, parameter, units) = grib1_parameter(&r.messages[i]);
+                (parameter, units)
+            }
             #[cfg(feature = "grib2")]
             Reader::Grib2(r) => {
                 let (_, parameter, units) = grib2_parameter(&r.messages[i]);
@@ -714,47 +717,57 @@ fn grib2_scan(msg: &fieldglass_grib2::Grib2Message) -> Scan {
     }
 }
 
-/// `(name, units)` for one GRIB1 message.
+/// `(abbreviation, name, units)` for one GRIB1 message.
 ///
 /// Split out of [`grib1_message`] so [`Session::decode`] does not build a whole
-/// `MessageInfo` for two strings: that would build the `Georef` too, and a
-/// projected family's `lonlat_bbox` walks its perimeter 512 times per edge.
+/// `MessageInfo` for the two strings it needs: that would build the `Georef`
+/// too, and a projected family's `lonlat_bbox` walks its perimeter 512 times
+/// per edge.
 #[cfg(feature = "grib1")]
-fn grib1_parameter(msg: &fieldglass_grib1::Grib1Message) -> (String, String) {
-    let param = fieldglass_grib1::tables::lookup_parameter(
+fn grib1_parameter(msg: &fieldglass_grib1::Grib1Message) -> (String, String, String) {
+    match fieldglass_grib1::tables::lookup_parameter(
         msg.pds.parameter_id,
         msg.pds.table_version,
         msg.pds.originating_centre,
-    );
-    // Normalised at the display seam, the same way the napi host does it: the
-    // ECMWF local tables are generated from eccodes' Fortran-style exponents
-    // and ON388 chains solidi, so the raw strings disagree about the same unit.
-    (
-        param.name.to_string(),
-        normalize_units(param.units).into_owned(),
-    )
+    ) {
+        // Units are normalised at the display seam, the same way the napi host
+        // does it: the ECMWF local tables are generated from eccodes'
+        // Fortran-style exponents and ON388 chains solidi, so the raw strings
+        // disagree about the same unit.
+        Some(param) => (
+            param.abbreviation.to_string(),
+            param.name.to_string(),
+            normalize_units(param.units).into_owned(),
+        ),
+        // The format crate owns the fallback rendering, so this seam and the
+        // napi one cannot disagree about it (#633).
+        None => (
+            String::new(),
+            fieldglass_grib1::tables::unresolved_parameter(
+                msg.pds.originating_centre,
+                msg.pds.table_version,
+                msg.pds.parameter_id,
+            ),
+            String::new(),
+        ),
+    }
 }
 
 #[cfg(feature = "grib1")]
 fn grib1_message(reader: &fieldglass_grib1::Grib1Reader, index: usize) -> MessageInfo {
     let msg = &reader.messages[index];
-    let param = fieldglass_grib1::tables::lookup_parameter(
-        msg.pds.parameter_id,
-        msg.pds.table_version,
-        msg.pds.originating_centre,
-    );
     let grid = msg
         .gds
         .as_ref()
         .map(|gds| Georef::from_geometry(&GridGeometry::from(gds), grib1_scan(msg)));
-    let (parameter, units) = grib1_parameter(msg);
+    let (abbreviation, parameter, units) = grib1_parameter(msg);
     MessageInfo {
         // Round-trips the `u32` handle `Session::message` was given and
         // `check_index` widened, so it cannot be a narrowing in practice.
         index: index as u32,
         offset_bytes: msg.byte_offset as u64,
         parameter,
-        abbreviation: param.abbreviation.to_string(),
+        abbreviation,
         units,
         level: fieldglass_grib1::level_value_str(&msg.pds),
         level_type: fieldglass_grib1::level_type_str(&msg.pds),
@@ -771,20 +784,35 @@ fn grib1_message(reader: &fieldglass_grib1::Grib1Reader, index: usize) -> Messag
 #[cfg(feature = "grib2")]
 fn grib2_parameter(msg: &fieldglass_grib2::Grib2Message) -> (String, String, String) {
     let discipline = msg.is.discipline;
-    match msg.pds.common().and_then(|c| {
-        fieldglass_grib2::lookup_parameter(
-            msg.ids.originator(),
-            discipline,
-            c.parameter_category,
-            c.parameter_number,
-        )
-    }) {
+    // A template with no horizontal product common carries no category and no
+    // number, so there is nothing to name and nothing to report as unresolved
+    // either — every field stays empty. Only a message that *has* the codes and
+    // finds no table for them gets the fallback (#633).
+    let Some(common) = msg.pds.common() else {
+        return (String::new(), String::new(), String::new());
+    };
+    match fieldglass_grib2::lookup_parameter(
+        msg.ids.originator(),
+        discipline,
+        common.parameter_category,
+        common.parameter_number,
+    ) {
         Some((abbr, long, units)) => (
             abbr.to_string(),
             long.to_string(),
             normalize_units(units).into_owned(),
         ),
-        None => (String::new(), String::new(), String::new()),
+        // The format crate owns the fallback rendering, so this seam and the
+        // napi one cannot disagree about it (#633).
+        None => (
+            String::new(),
+            fieldglass_grib2::unresolved_parameter(
+                discipline,
+                common.parameter_category,
+                common.parameter_number,
+            ),
+            String::new(),
+        ),
     }
 }
 

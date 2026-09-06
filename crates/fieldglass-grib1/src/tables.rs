@@ -1,6 +1,12 @@
 /// Parameter entry from a GRIB1 Table 2 (WMO ON388 international table, or a
 /// centre-local table such as ECMWF 128/129).
-#[derive(Debug)]
+///
+/// `Copy` and `Eq` because it is three `&'static str`s out of a static table:
+/// cheap to pass by value, and two entries naming the same parameter with the
+/// same abbreviation and units *are* the same entry. Deriving them is what lets
+/// a caller assert `lookup_parameter(..) == None` rather than reach for a field
+/// (#556's residual shape, for the one type this change needed it on).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ParameterEntry {
     /// The parameter's human-readable name, e.g. `"Temperature"`.
     pub name: &'static str,
@@ -22,17 +28,32 @@ const CENTRE_ECMWF: u8 = 98;
 /// declines to name its table has not named the international one.
 const FIRST_LOCAL_TABLE_VERSION: u8 = 128;
 
-/// What a lookup answers when no table resolved the id.
+/// The display name for a parameter [`lookup_parameter`] answered `None` for.
 ///
-/// The `"Unknown"` name is the stack-wide contract for an unresolved GRIB1
-/// parameter, documented on every type that carries one through to a host
-/// (`fieldglass::api`, the napi and wasm bindings), so it is a shared constant
-/// rather than a literal per return site.
-const UNKNOWN: ParameterEntry = ParameterEntry {
-    name: "Unknown",
-    abbreviation: "",
-    units: "",
-};
+/// The stack-wide contract for an unresolved parameter is the codes that went
+/// unresolved rather than a bare `"Unknown"`, because they are the only thing
+/// that tells a user *which* table is missing. Stated once on
+/// `fieldglass::api::Field::parameter` (#633).
+///
+/// The three codes are the ones a lookup takes, outermost first: the centre
+/// scopes the table version, which scopes the id. The centre is included even
+/// at an international `table_version`, where it does not affect the lookup,
+/// because a fixed three-number shape is what makes the string reportable —
+/// and because the centre is what tells a maintainer whether a *local* table
+/// was expected to cover the id.
+///
+/// A function rather than a `format!` at each display seam so the umbrella and
+/// the napi binding cannot drift apart again, which is how they came to render
+/// the same message three different ways.
+///
+/// ```
+/// # use fieldglass_grib1::tables::unresolved_parameter;
+/// assert_eq!(unresolved_parameter(98, 128, 210), "Parameter 98/128/210");
+/// ```
+#[must_use]
+pub fn unresolved_parameter(centre: u8, table_version: u8, id: u8) -> String {
+    format!("Parameter {centre}/{table_version}/{id}")
+}
 
 /// Resolve an id against the centre-local Table 2 named by `table_version`.
 ///
@@ -58,16 +79,21 @@ fn lookup_local(id: u8, table_version: u8, centre: u8) -> Option<ParameterEntry>
 /// *centre-local* table that redefines the whole id space, and so resolve
 /// against that centre's table exclusively: an id its table leaves undefined,
 /// and every id when this crate ships no table for the centre at all, is
-/// `Unknown`. The WMO table is not a stand-in for a local one — falling back to
-/// it would label a DWD or NCEP field with an unrelated name that the message
-/// never referenced (#547).
+/// unresolved. The WMO table is not a stand-in for a local one — falling back
+/// to it would label a DWD or NCEP field with an unrelated name that the
+/// message never referenced (#547).
 ///
 /// Ids 128-254 of the WMO branch are ON388's own NCEP-local extension, which
 /// the document publishes as part of Table 2; they apply at the international
 /// versions, where the id space is otherwise unassigned above 127.
-pub fn lookup_parameter(id: u8, table_version: u8, centre: u8) -> ParameterEntry {
+///
+/// Unrecognised ids return `None`; callers render [`unresolved_parameter`] as
+/// the fallback. `None` rather than a sentinel entry named `"Unknown"` so that
+/// "no table resolved this" is a state the type system carries, not a name a
+/// display seam has to recognise by its English text (#633).
+pub fn lookup_parameter(id: u8, table_version: u8, centre: u8) -> Option<ParameterEntry> {
     if table_version >= FIRST_LOCAL_TABLE_VERSION {
-        return lookup_local(id, table_version, centre).unwrap_or(UNKNOWN);
+        return lookup_local(id, table_version, centre);
     }
     let (name, abbreviation, units) = match id {
         1 => ("Pressure", "PRES", "Pa"),
@@ -384,13 +410,13 @@ pub fn lookup_parameter(id: u8, table_version: u8, centre: u8) -> ParameterEntry
         252 => ("Drag coefficient", "CD", "non-dim"),
         253 => ("Friction velocity", "FRICV", "m/s"),
         254 => ("Richardson number", "RI", "non-dim"),
-        _ => return UNKNOWN,
+        _ => return None,
     };
-    ParameterEntry {
+    Some(ParameterEntry {
         name,
         abbreviation,
         units,
-    }
+    })
 }
 
 /// Look up a level type name from WMO ON388 Table 3.
@@ -494,7 +520,7 @@ mod tests {
             (166, "10 metre V wind component", "10v", "m s**-1"),
             (151, "Mean sea level pressure", "msl", "Pa"),
         ] {
-            let p = lookup_parameter(id, 128, CENTRE_ECMWF);
+            let p = lookup_parameter(id, 128, CENTRE_ECMWF).expect("id {id} resolves");
             assert_eq!(
                 (p.name, p.abbreviation, p.units),
                 (name, abbr, units),
@@ -505,7 +531,7 @@ mod tests {
 
     #[test]
     fn ecmwf_table_129_resolves_gradient_table() {
-        let p = lookup_parameter(129, 129, CENTRE_ECMWF);
+        let p = lookup_parameter(129, 129, CENTRE_ECMWF).expect("129/129 resolves");
         assert_eq!(
             (p.name, p.abbreviation, p.units),
             ("Geopotential gradient", "zgrd", "m**2 s**-2")
@@ -513,39 +539,39 @@ mod tests {
     }
 
     #[test]
-    fn ecmwf_local_table_unknown_id_is_unknown_not_wmo() {
+    fn ecmwf_local_table_unknown_id_does_not_resolve_to_wmo() {
         // id 61 is undefined in ECMWF table 128 (it's "Total precipitation" in
         // the WMO table). An ECMWF local table must not leak the WMO meaning.
-        let p = lookup_parameter(61, 128, CENTRE_ECMWF);
-        assert_eq!(p.name, "Unknown");
+        assert_eq!(lookup_parameter(61, 128, CENTRE_ECMWF), None);
     }
 
     #[test]
-    fn unshipped_local_table_is_unknown_not_wmo() {
+    fn unshipped_local_table_does_not_resolve_to_wmo() {
         // Centre 7 (NCEP) table 129 is an NCEP-local table this crate does not
         // ship. Answering from the WMO table would label id 11 "Temperature" —
         // a name out of a table the message never referenced (#547).
-        let p = lookup_parameter(11, 129, 7);
-        assert_eq!((p.name, p.abbreviation, p.units), ("Unknown", "", ""));
+        assert_eq!(lookup_parameter(11, 129, 7), None);
     }
 
     #[test]
     fn ecmwf_ids_do_not_leak_to_another_centre() {
         // 167 is ECMWF's 2 metre temperature. A centre-7 message declaring its
         // own table 128 means something else by 167, and we do not know what.
-        assert_eq!(lookup_parameter(167, 128, 7).name, "Unknown");
+        assert_eq!(lookup_parameter(167, 128, 7), None);
         assert_eq!(
-            lookup_parameter(167, 128, CENTRE_ECMWF).name,
+            lookup_parameter(167, 128, CENTRE_ECMWF)
+                .expect("ECMWF resolves its own id")
+                .name,
             "2 metre temperature"
         );
     }
 
     #[test]
-    fn ecmwf_local_version_we_do_not_ship_is_unknown() {
+    fn ecmwf_local_version_we_do_not_ship_does_not_resolve() {
         // ECMWF publishes tables well past 129 (130, 131, 140, 150, …); this
         // crate ships 128/129 only. An unshipped one must not quietly become
         // the WMO table, which would name id 11 "Temperature".
-        assert_eq!(lookup_parameter(11, 130, CENTRE_ECMWF).name, "Unknown");
+        assert_eq!(lookup_parameter(11, 130, CENTRE_ECMWF), None);
     }
 
     #[test]
@@ -554,7 +580,8 @@ mod tests {
         // version is the international table for everyone, ECMWF included.
         for centre in [0u8, 7, 54, 78, 85, CENTRE_ECMWF] {
             for version in [1u8, 2, 3] {
-                let p = lookup_parameter(11, version, centre);
+                let p = lookup_parameter(11, version, centre)
+                    .expect("an international version resolves against WMO");
                 assert_eq!(
                     (p.name, p.abbreviation, p.units),
                     ("Temperature", "TMP", "K"),
@@ -565,17 +592,16 @@ mod tests {
     }
 
     #[test]
-    fn every_id_of_an_unshipped_local_table_is_unknown() {
+    fn every_id_of_an_unshipped_local_table_does_not_resolve() {
         // The whole id space, not just the ids that happen to collide with a
         // WMO entry: a local table redefines all of it, so there is nothing
         // left for the WMO table to answer.
         for centre in [0u8, 7, 54, 78, 85, 255] {
             for version in [FIRST_LOCAL_TABLE_VERSION, 129, 200, 254, 255] {
                 for id in 0..=255u8 {
-                    let p = lookup_parameter(id, version, centre);
                     assert_eq!(
-                        (p.name, p.abbreviation, p.units),
-                        ("Unknown", "", ""),
+                        lookup_parameter(id, version, centre),
+                        None,
                         "centre {centre} version {version} id {id}"
                     );
                 }
@@ -587,7 +613,7 @@ mod tests {
     fn ecmwf_centre_with_international_version_uses_wmo() {
         // Centre 98 but table_version 1 is the international table, not a local
         // one — id 33 is WMO u-component of wind, not the ECMWF id-33 entry.
-        let p = lookup_parameter(33, 1, CENTRE_ECMWF);
+        let p = lookup_parameter(33, 1, CENTRE_ECMWF).expect("WMO id 33 resolves");
         assert_eq!(
             (p.name, p.abbreviation, p.units),
             ("u-component of wind", "UGRD", "m/s")

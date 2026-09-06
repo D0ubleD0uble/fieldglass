@@ -122,7 +122,7 @@ pub use tables::{
     Originator, lookup_data_type, lookup_discipline, lookup_earth_shape, lookup_ensemble_type,
     lookup_fixed_surface, lookup_generating_process_type, lookup_grid_template, lookup_parameter,
     lookup_production_status, lookup_reference_time_significance, lookup_statistical_process,
-    lookup_time_range_unit,
+    lookup_time_range_unit, unresolved_parameter,
 };
 /// Originating centres come from the generated CCT table (#440), not the
 /// hand-written `tables` module.

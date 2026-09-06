@@ -6,7 +6,8 @@
 //! table 128 for the bulk of IFS / ERA5 surface and single-level fields
 //! (2t, 10u, 10v, msl, z, …). Table 129, in eccodes 2.34.1, holds the
 //! gradient counterparts of those fields. Without these, ECMWF GRIB1 fields
-//! all show as "Unknown".
+//! all fall back to the unresolved-parameter rendering
+//! ([`crate::tables::unresolved_parameter`]).
 //!
 //! Data generated from eccodes' `definitions/grib1/2.98.128.table` and
 //! `2.98.129.table` (Apache-2.0; the parameter definitions are factual data
@@ -17,7 +18,7 @@ use crate::tables::ParameterEntry;
 
 /// Look up an ECMWF local-table parameter. Returns `None` when the table
 /// version is not an ECMWF local table we carry, or the id is undefined in
-/// it (so the caller can fall back to "Unknown").
+/// it (so the caller falls back to [`crate::tables::unresolved_parameter`]).
 pub(crate) fn lookup(table_version: u8, id: u8) -> Option<ParameterEntry> {
     match table_version {
         128 => ecmwf_128(id),
