@@ -3,12 +3,15 @@
 //!
 //!     cargo run -p fieldglass-netcdf --example decode
 //!
-//! Runs against two committed fixtures, so it works from a clean checkout with
-//! no network and no `samples/`. The pair is deliberate: one classic (CDF-1)
-//! file and one NetCDF-4 / HDF5 file, opened by exactly the same four calls —
-//! [`NetcdfReader::from_bytes`], [`NetcdfReader::view`],
+//! Runs against three committed fixtures, so it works from a clean checkout
+//! with no network and no `samples/`. The set is deliberate: one classic
+//! (CDF-1) file and two NetCDF-4 / HDF5 files, opened by exactly the same four
+//! calls — [`NetcdfReader::from_bytes`], [`NetcdfReader::view`],
 //! [`DatasetView::renderable_variables`], [`NetcdfReader::decode_plane`] — so
-//! nothing here names which on-disk layout it got.
+//! nothing here names which on-disk layout it got. The third states its grid as
+//! a WRF projection rather than as CF coordinate variables, so its horizontal
+//! axes are not detected and the caller has to pick them; that is the other
+//! branch a consumer has to handle.
 //!
 //! `decode_plane` is the whole chain in the order it has to run: decode the
 //! variable, pick the plane out of it, then apply the CF mask-and-scale from
@@ -26,8 +29,13 @@ const CLASSIC: &[u8] = include_bytes!("../tests/fixtures/cf_packed_data.nc");
 /// deflate-compressed, `sst(time, zlev, lat, lon)` as packed `int16`.
 const NETCDF4: &[u8] = include_bytes!("../tests/fixtures/oisst_avhrr_v2.nc");
 
+/// A WRF file on a Lambert conformal grid: `XLAT` / `XLONG` are 2-D and the
+/// data variables do not name them as `coordinates`, so no CF axis pair is
+/// detected and the skip branch below is taken.
+const WRF: &[u8] = include_bytes!("../tests/fixtures/wrf_lambert.nc");
+
 fn main() -> Result<(), FieldglassError> {
-    for (label, bytes) in [("classic", CLASSIC), ("netcdf-4", NETCDF4)] {
+    for (label, bytes) in [("classic", CLASSIC), ("netcdf-4", NETCDF4), ("wrf", WRF)] {
         let reader = NetcdfReader::from_bytes(bytes.to_vec())?;
         let view = reader.view()?;
         println!(

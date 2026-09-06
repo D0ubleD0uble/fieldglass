@@ -36,7 +36,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     for index in 0..reader.message_count() {
         let msg = &reader.messages[index];
-        let (ni, nj) = msg.gds.dimensions().expect("a raster shape");
+        // `None` for the families that are not a rectangle of values at all:
+        // spherical-harmonic and bi-Fourier coefficients, and HEALPix pixels.
+        // They have their own entry points and would refuse the call below.
+        let Some((ni, nj)) = msg.gds.dimensions() else {
+            continue;
+        };
 
         // Every scalar §5 packing reaches this one call — a caller never
         // branches on `msg.drs.template_number`. `decode_message_raster` hands
