@@ -316,17 +316,30 @@ impl Session {
                 (parameter, units)
             }
         };
-        let (raw, geometry, scan) = match synthesised {
-            Some((grid, values)) => (
-                values,
-                GridGeometry::LatLon(grid.into()),
-                // A synthesised grid runs west-to-east from 0° and north-down
-                // from the pole whatever the message it came from scanned like:
-                // nothing of the source layout survives an inverse transform or
-                // a HEALPix resample. The napi host says the same thing at its
-                // own seam.
-                Scan::north_down(),
-            ),
+        // `declared` is the family name the message states, which survives the
+        // conversion only if it is carried (#645): both decoders widen a
+        // reduced grid onto its regular sibling's raster, so the geometry no
+        // longer knows it was a `reduced_gg`. A **synthesised** grid is the
+        // case where the geometry is the honest answer — the values really are
+        // on the lat/lon raster the transform filled, and nothing of the
+        // declared family survives it — so that arm reads the geometry's own
+        // label rather than the message's.
+        let (raw, geometry, scan, declared) = match synthesised {
+            Some((grid, values)) => {
+                let geometry = GridGeometry::LatLon(grid.into());
+                let declared = geometry.label().to_string();
+                (
+                    values,
+                    geometry,
+                    // A synthesised grid runs west-to-east from 0° and
+                    // north-down from the pole whatever the message it came
+                    // from scanned like: nothing of the source layout survives
+                    // an inverse transform or a HEALPix resample. The napi host
+                    // says the same thing at its own seam.
+                    Scan::north_down(),
+                    declared,
+                )
+            }
             None => match &self.reader {
                 #[cfg(feature = "grib1")]
                 Reader::Grib1(r) => {
@@ -335,13 +348,23 @@ impl Session {
                         detail: "the message carries no grid description".to_string(),
                     })?;
                     let geometry = GridGeometry::from(gds);
-                    (r.decode_message_raster(i)?, geometry, grib1_scan(msg))
+                    (
+                        r.decode_message_raster(i)?,
+                        geometry,
+                        grib1_scan(msg),
+                        gds.grid_type_name().to_string(),
+                    )
                 }
                 #[cfg(feature = "grib2")]
                 Reader::Grib2(r) => {
                     let msg = &r.messages[i];
                     let geometry = GridGeometry::from(&msg.gds);
-                    (r.decode_message_raster(i)?, geometry, grib2_scan(msg))
+                    (
+                        r.decode_message_raster(i)?,
+                        geometry,
+                        grib2_scan(msg),
+                        msg.gds.template_name(),
+                    )
                 }
             },
         };
@@ -393,7 +416,7 @@ impl Session {
             mask,
             ni,
             nj,
-            georef: Georef::from_geometry(&geometry, scan),
+            georef: Georef::from_declared(&geometry, scan, &declared),
             stats,
             parameter,
             units,
@@ -756,10 +779,13 @@ fn grib1_parameter(msg: &fieldglass_grib1::Grib1Message) -> (String, String, Str
 #[cfg(feature = "grib1")]
 fn grib1_message(reader: &fieldglass_grib1::Grib1Reader, index: usize) -> MessageInfo {
     let msg = &reader.messages[index];
-    let grid = msg
-        .gds
-        .as_ref()
-        .map(|gds| Georef::from_geometry(&GridGeometry::from(gds), grib1_scan(msg)));
+    let grid = msg.gds.as_ref().map(|gds| {
+        Georef::from_declared(
+            &GridGeometry::from(gds),
+            grib1_scan(msg),
+            gds.grid_type_name(),
+        )
+    });
     let (abbreviation, parameter, units) = grib1_parameter(msg);
     MessageInfo {
         // Round-trips the `u32` handle `Session::message` was given and
@@ -845,9 +871,10 @@ fn grib2_message(reader: &fieldglass_grib2::Grib2Reader, index: usize) -> Messag
             .map(fieldglass_grib2::forecast_display)
             .unwrap_or_else(|| "—".to_string()),
         packing: msg.drs.template_name(),
-        grid: Some(Georef::from_geometry(
+        grid: Some(Georef::from_declared(
             &GridGeometry::from(&msg.gds),
             grib2_scan(msg),
+            &msg.gds.template_name(),
         )),
         size_label: msg.gds.size_label(),
     }

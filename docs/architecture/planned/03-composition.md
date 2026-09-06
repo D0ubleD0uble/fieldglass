@@ -108,21 +108,52 @@ names) is not recoverable from `ni` and `nj`, so it travels beside them the way
 `Nside` does (#500).
 
 The family tag is the other thing the conversion loses. Both readers report
-`reduced_gaussian` today, which is what eccodes calls `reduced_gg` and what the
+`reduced_gaussian`, which is what eccodes calls `reduced_gg` and what the
 message table shows; `GridGeometry::kind` answers `"gaussian"` for the variant
-that holds it, and `label` falls through to `kind` for a modelled family. So the
-choice is to widen the variant, add the reduced flag beside `ni`, or accept that
-the grid-type column stops distinguishing the two — one to make deliberately
-rather than discover (#503).
+that holds it. So for a while the two hosts disagreed in public: the extension's
+grid-type column said `reduced_gaussian` and the umbrella — and therefore the
+browser host — said `gaussian` (#503, #645).
 
-**#464 closed without making it, and the octahedral half of the same hand-off
-was fixed while this one was not.** `raster_bounds` no longer takes `lo2` at
-face value (`fieldglass-grib1/src/geometry.rs`, `fieldglass-grib2/src/geometry.rs`),
-but `GridGeometry::kind` still answers `"gaussian"`, and `Georef::kind` in
-`fieldglass::api` passes that string straight out. So the two hosts disagree in
-public today: `fieldglass-napi` reports `reduced_gaussian` for a reduced
-Gaussian message and the umbrella — and therefore the browser host — reports
-`gaussian`. Recorded here because it outlived the issue that was carrying it.
+**Settled in #645: the format crate owns the name and both hosts read it, the
+way #543 settled the octahedral half of the same hand-off.** `GridGeometry` is
+unchanged. Its variants describe *how points are placed*, and after the row
+expansion a reduced grid's points are placed exactly as its regular sibling's
+are, so `kind` — which is the serde tag and must stay the variant's own name —
+stays `"gaussian"`. The declared family is not geometry but message metadata, so
+it travels as `Georef::label`, set by `Georef::from_declared` from
+`GridDescription::grid_type_name` / `GridDefinitionSection::template_name`
+rather than re-derived from the collapsed geometry. A `reduced_gg` message is
+now `kind` `gaussian`, `label` `reduced_gaussian` in both hosts, and the
+conformance suite carries a reduced-Gaussian subject so a third host cannot
+answer differently.
+
+The three options this document previously listed were each rejected for a
+reason worth keeping:
+
+* **Widen the variant.** A `ReducedGaussian` arm would carry the same
+  `GaussianParams` and behave identically in every projection path, so it is a
+  duplicate arm at 32 workspace match sites with nothing to distinguish it —
+  and `GridDescription::scanning_mode` already records what happens next
+  ("every consumer that has done so has ended up with an arm list that quietly
+  omits a grid family").
+* **A reduced flag beside `ni`.** `LatLonParams` is built at 74 sites — the
+  global grid, the warp, the overlay, NetCDF, the synthesised rasters — where
+  "reduced" means nothing and the flag would be `false`; it would add
+  `"reduced": false` to the serialised form of every lat/lon and Gaussian grid;
+  and since `kind` must equal the serde tag, the flag alone still would not make
+  the hosts agree.
+* **Let the grid-type column stop distinguishing them.** That reverses #503, a
+  shipped and CHANGELOG-recorded decision that named the two apart on the
+  grounds that they are not the same grid, and it loses information from a
+  column a user reads.
+
+`label` was already the more specific of the two for a family this build does
+not place points on — `spherical_harmonic`, `healpix`, `unsupported(3.99)`, all
+of `kind` `unsupported` — so the reduced pair joins an existing split rather
+than opening a new one. The same change deleted a second copy of the
+family-name list in `fieldglass-grib2/src/geometry.rs`, which had drifted from
+`template_name` and dropped the template number from an unmodelled family's
+label.
 
 ## NetCDF: curvilinear grids
 

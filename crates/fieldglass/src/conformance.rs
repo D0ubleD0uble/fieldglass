@@ -253,8 +253,9 @@ const G1: &str = "fieldglass-grib1/tests/fixtures/";
 /// characterisation golden enumerates it). Between them these cover a
 /// degrees-affine grid and a metres-affine one, a family with no row spacing at
 /// all, a periodic grid whose contour seam nonetheless does not wrap, a grid
-/// stored south-to-north, both synthesised grids, and a grid that cannot be
-/// placed.
+/// stored south-to-north, both synthesised grids, a grid whose declared family
+/// is not the family of the raster it is decoded onto, and a grid that cannot
+/// be placed.
 const SUBJECTS: &[(&str, &str)] = &[
     // Plain lat/lon, simple packing: the ordinary case, and the one every
     // other answer is read against.
@@ -262,6 +263,13 @@ const SUBJECTS: &[(&str, &str)] = &[
     // Gaussian rows are not uniformly spaced, so `dy` is absent. A host that
     // invented one would misplace every row but the middle.
     ("gaussian", "regular_gaussian_f32.grib2"),
+    // The one subject whose `label` is not its `kind`. Its rows are widened
+    // onto a regular raster before anything reads them, so the geometry — and
+    // therefore `kind` — is `gaussian`, while the file calls it `reduced_gg`
+    // and every host's grid-type column says `reduced_gaussian`. A host that
+    // read the family off the geometry instead of off the message would match
+    // every other subject here and fail only this one (#645).
+    ("reduced_gaussian", "reduced_gaussian_pressure_level.grib2"),
     // A projected family: `axisUnits` is metres and the affine is in the
     // projection plane, not in degrees. Also `jScansPositively` — it and
     // `grib1_polar` are the two subjects whose render cases pin the row flip

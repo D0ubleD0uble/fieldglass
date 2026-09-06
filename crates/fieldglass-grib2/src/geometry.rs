@@ -9,6 +9,14 @@
 //! Gaussian grid's raster width comes from the `PL` list, which §3 carries
 //! outside the template, and [`GridDefinitionSection::points_per_row`] is the
 //! one place that decides whether the optional list really is a row count.
+//!
+//! The name an unmodelled family reports is
+//! [`GridDefinitionSection::template_name`], not a second list written out
+//! here. This module used to carry its own copy, and the two had already
+//! drifted: `template_name` answers `"unsupported(3.99)"` where the copy
+//! answered a bare `"unsupported"`, so the same message read one way in the
+//! extension's grid-type column and another in the umbrella's `Georef::label`
+//! (#645).
 
 use fieldglass_core::{
     GaussianParams, GridGeometry, LambertParams, LatLonParams, MercatorParams, PolarStereoParams,
@@ -137,38 +145,13 @@ impl From<&GridDefinitionSection> for GridGeometry {
             GridTemplate::SpaceView(t) => match t.scan_grid() {
                 Some(params) => Self::Geostationary(params),
                 None => Self::Unsupported {
-                    label: template_label(&gds.template).to_string(),
+                    label: gds.template_name(),
                 },
             },
-            other => Self::Unsupported {
-                label: template_label(other).to_string(),
+            _ => Self::Unsupported {
+                label: gds.template_name(),
             },
         }
-    }
-}
-
-/// How an unmodelled template names itself.
-///
-/// Every modelled family still has an arm: `Mercator` and the rest are
-/// unreachable through the conversion above, but a §3.90 whose camera does not
-/// describe a view reaches this table by name, and an exhaustive match is what
-/// makes adding a template a compile error rather than a silent
-/// `"unsupported"`.
-fn template_label(template: &GridTemplate) -> &'static str {
-    match template {
-        GridTemplate::RotatedLatLon(_) => "rotated_latlon",
-        GridTemplate::Mercator(_) => "mercator",
-        GridTemplate::TransverseMercator(_) => "transverse_mercator",
-        GridTemplate::LambertAzimuthal(_) => "lambert_azimuthal",
-        GridTemplate::SpaceView(_) => "space_view",
-        GridTemplate::SphericalHarmonic(_) => "spherical_harmonic",
-        GridTemplate::BiFourier(_) => "bifourier",
-        GridTemplate::Healpix(_) => "healpix",
-        GridTemplate::Unsupported(_) => "unsupported",
-        GridTemplate::LatLon(_) => "latlon",
-        GridTemplate::Gaussian(_) => "gaussian",
-        GridTemplate::Lambert(_) => "lambert",
-        GridTemplate::PolarStereographic(_) => "polar_stereo",
     }
 }
 
@@ -297,10 +280,26 @@ mod tests {
         assert_eq!(geom.label(), "spherical_harmonic");
         assert!(geom.dims().is_none());
         assert!(geom.inverse(45.0, 10.0).is_none());
-        assert_eq!(
-            template_label(&GridTemplate::Unsupported(32_768)),
-            "unsupported"
-        );
+    }
+
+    /// A template number this build never read past still names *which* number
+    /// it was, because the conversion reads
+    /// [`GridDefinitionSection::template_name`] rather than a second list of
+    /// its own.
+    ///
+    /// The second list is what #645 deleted: it answered a bare
+    /// `"unsupported"` here while `template_name` — which is what
+    /// `fieldglass-napi` puts in the extension's grid-type column — answered
+    /// `"unsupported(3.32768)"`, so one message read two ways depending on the
+    /// host.
+    #[test]
+    fn an_unread_template_number_survives_into_the_label() {
+        let mut gds = section_from("tests/fixtures/regular_latlon_surface.grib2", 0);
+        gds.template = GridTemplate::Unsupported(32_768);
+        let geom = GridGeometry::from(&gds);
+        assert_eq!(geom.kind(), "unsupported");
+        assert_eq!(geom.label(), gds.template_name());
+        assert_eq!(geom.label(), "unsupported(3.32768)");
     }
 
     /// §3.1's corners are rotated-frame degrees. Handing them to the geometry
