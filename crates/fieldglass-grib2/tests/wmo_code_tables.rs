@@ -14,6 +14,16 @@
 //! something different from what we thought, and pinning the authority's text
 //! catches exactly that — if WMO reassigns a code, the recorded text stops
 //! matching and this fails, however plausible our own label still looks.
+//!
+//! The other half of the gate is that a code we do **not** name has to be
+//! declared. Comparing only the codes our lookups answer for makes a code WMO
+//! assigns and we never noticed neither a pass nor a failure — it is skipped,
+//! and nothing reports it. That hid 42 assigned codes, one of which
+//! (discipline 191, "Computational parameters") was found by a check on the
+//! fetch planner's reverse index instead, because this file was structurally
+//! unable to find it (#653). So [`every_code_wmo_assigns_is_named`] holds the
+//! set of unnamed codes equal to [`DELIBERATELY_UNNAMED`], and a code WMO adds
+//! later fails here until someone either names it or records why not.
 
 use fieldglass_grib2::{
     lookup_data_type, lookup_discipline, lookup_earth_shape, lookup_ensemble_type,
@@ -187,6 +197,11 @@ const ACCEPTED: &[(&str, u16, &str)] = &[
         9,
         "Earth represented by the Ordnance Survey Great Britain 1936 Datum, using the Airy 1830 Spheroid, the Greenwich meridian as 0 longitude, and the Newlyn datum as mean sea level, 0 height",
     ),
+    (
+        "3.2",
+        11,
+        "Sun assumed spherical with radius = 695 990 000 m (Allen, C.W., Astrophysical Quantities, 3rd ed.; Athlone: London, 1976) and Stonyhurst latitude and longitude system with origin at the intersection of the solar central meridian (as seen from Earth) and the solar equator (Thompson, W., Coordinate systems for solar image data, Astron. Astrophys. 2006, 449, 791-803)",
+    ),
     // Table 4.5 — fixed surface. Same wording, ours carries the unit.
     ("4.5", 3, "Level of cloud tops"),
     ("4.5", 103, "Specified height level above ground"),
@@ -209,10 +224,39 @@ const ACCEPTED: &[(&str, u16, &str)] = &[
     ),
 ];
 
-/// Labels the lookups return for a code they do not carry. These are gaps, not
-/// disagreements, so they are skipped rather than compared.
-fn is_not_carried(label: &str) -> bool {
-    label.starts_with("Unknown") || label == "Reserved for local use" || label == "Missing"
+/// Codes WMO assigns that our lookups deliberately do not name, each with the
+/// reason. A code that our lookups answer `Unknown…` for and that is **not**
+/// listed here fails [`every_code_wmo_assigns_is_named`].
+///
+/// Empty is the intended state, and is what #653 left behind: every code the
+/// eleven tables assign is named. It is not empty because there is nothing to
+/// say — it is empty because each of the 42 that used to sit here silently was
+/// looked at and named. An entry is the escape hatch for a code that genuinely
+/// should stay unnamed; write down which and why, so the next reader sees a
+/// decision rather than an oversight.
+const DELIBERATELY_UNNAMED: &[(&str, u16, &str)] = &[];
+
+/// Whether the lookup answered with no name at all.
+///
+/// The `Unknown…` fallback arms, and only those. `"Missing"` and `"Reserved
+/// for local use"` are *names* — WMO's own, for the missing sentinel and the
+/// local range — so a lookup returning one has carried the code and is
+/// compared like any other. (They were once treated as gaps here, which is
+/// what let eleven `255 => "Missing"` arms go unchecked, and left Tables 3.1
+/// and 3.2 with no missing-sentinel arm at all: #653.)
+fn lookup_has_no_name(label: &str) -> bool {
+    label.starts_with("Unknown")
+}
+
+/// Whether WMO's own text assigns the code no meaning to name.
+///
+/// `Reserved` and `Reserved for local use` are the two, and they are the only
+/// two: `Missing` is a meaning — every lookup here names it — and a code whose
+/// text is anything else is something WMO has assigned. When WMO later assigns
+/// one of these, the snapshot's text changes and it stops being exempt, which
+/// is exactly the notification this gate exists to give.
+fn wmo_assigns_no_meaning(wmo: &str) -> bool {
+    wmo.starts_with("Reserved")
 }
 
 fn normalize(s: &str) -> String {
@@ -263,7 +307,7 @@ fn every_curated_code_table_entry_agrees_with_wmo() {
             }
             let expected = expected.as_str().expect("string meaning");
             let ours = (table.lookup)(code);
-            if is_not_carried(ours) {
+            if lookup_has_no_name(ours) {
                 continue;
             }
             compared += 1;
@@ -299,8 +343,11 @@ fn every_curated_code_table_entry_agrees_with_wmo() {
         }
     }
 
+    // A floor, raised from 120 to the number #653's naming pass left behind
+    // minus a little slack. The point is not the exact count — it is that a
+    // walk which silently lined nothing up cannot report agreement.
     assert!(
-        compared > 120,
+        compared > 240,
         "only {compared} code-table entries were compared; the tables are not \
          lining up, so agreement proves nothing"
     );
@@ -309,6 +356,113 @@ fn every_curated_code_table_entry_agrees_with_wmo() {
         "{} of {compared} curated code-table entries disagree with WMO:\n{}",
         wrong.len(),
         wrong.join("\n")
+    );
+}
+
+/// Every code WMO assigns is named, or is recorded on [`DELIBERATELY_UNNAMED`]
+/// with a reason.
+///
+/// [`every_curated_code_table_entry_agrees_with_wmo`] compares only the codes
+/// our lookups answer for, which is the right rule for *that* question and the
+/// wrong one for this: a code WMO assigns and we never noticed is skipped
+/// there, so it is neither a pass nor a failure and nothing counts it. This is
+/// the counting. The set of unnamed codes is held **equal** to the recorded
+/// set, so it fails in both directions — a new WMO assignment we have not
+/// named, and an entry on the list that has since been named and should come
+/// off it.
+#[test]
+fn every_code_wmo_assigns_is_named() {
+    let doc = snapshot();
+    let mut unnamed: Vec<(&str, u16, &str)> = Vec::new();
+    let mut report = Vec::new();
+    let (mut total_assigned, mut total_unassigned) = (0usize, 0usize);
+
+    for table in TABLES {
+        let entries = doc["tables"][table.wmo]
+            .as_object()
+            .unwrap_or_else(|| panic!("table {} missing from the snapshot", table.wmo));
+        let (mut assigned, mut named, mut unassigned) = (0usize, 0usize, 0usize);
+        let mut out_of_range = 0usize;
+        for (code, expected) in entries {
+            let code: u16 = code.parse().expect("numeric code");
+            // Outside what a `u8` lookup can be asked about, so not a gap.
+            // Counted rather than dropped: it is the one skip left in this
+            // walk, and an unreported skip is the defect this test exists for.
+            if table.octet && code > 255 {
+                out_of_range += 1;
+                continue;
+            }
+            let expected = expected.as_str().expect("string meaning");
+            if wmo_assigns_no_meaning(expected) {
+                unassigned += 1;
+                continue;
+            }
+            assigned += 1;
+            if lookup_has_no_name((table.lookup)(code)) {
+                unnamed.push((table.wmo, code, expected));
+            } else {
+                named += 1;
+            }
+        }
+        // The skips, reported rather than swallowed. Visible with
+        // `cargo test -p fieldglass-grib2 --test wmo_code_tables -- --nocapture`.
+        report.push(format!(
+            "  {:>4}: {named}/{assigned} assigned codes named, {unassigned} reserved, \
+             {out_of_range} outside the lookup's width",
+            table.wmo
+        ));
+        assert!(
+            named > 0,
+            "table {} named none of its {assigned} assigned codes — the lookup is not \
+             wired to the table it is being checked against",
+            table.wmo
+        );
+        total_assigned += assigned;
+        total_unassigned += unassigned;
+    }
+
+    println!(
+        "WMO code-table coverage ({} assigned, {total_unassigned} reserved):\n{}",
+        total_assigned,
+        report.join("\n")
+    );
+    // Same floor, and the same reason, as the sibling test's: a walk that lined
+    // nothing up must not be able to report full coverage.
+    assert!(
+        total_assigned > 240,
+        "only {total_assigned} assigned codes were found in the snapshot; it is not \
+         loading, so coverage proves nothing"
+    );
+
+    let missing: Vec<String> = unnamed
+        .iter()
+        .filter(|(t, c, _)| {
+            !DELIBERATELY_UNNAMED
+                .iter()
+                .any(|&(ut, uc, _)| ut == *t && uc == *c)
+        })
+        .map(|(t, c, wmo)| format!("  {t}/{c}: WMO assigns {wmo:?}, we answer nothing"))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "{} code(s) WMO assigns are neither named nor recorded on \
+         DELIBERATELY_UNNAMED:\n{}",
+        missing.len(),
+        missing.join("\n")
+    );
+
+    let stale: Vec<String> = DELIBERATELY_UNNAMED
+        .iter()
+        .filter(|(t, c, _)| !unnamed.iter().any(|&(ut, uc, _)| ut == *t && uc == *c))
+        .map(|(t, c, why)| format!("  {t}/{c}: recorded as unnamed ({why})"))
+        .collect();
+    assert!(
+        stale.is_empty(),
+        "{} DELIBERATELY_UNNAMED entr(y/ies) no longer describe an unnamed assigned \
+         code — the code is named now, or WMO stopped assigning it, so drop the \
+         entry rather than leaving a licence nothing uses:\n{}",
+        stale.len(),
+        stale.join("\n")
     );
 }
 

@@ -39,6 +39,9 @@ pub fn lookup_reference_time_significance(value: u8) -> &'static str {
         1 => "Start of forecast",
         2 => "Verifying time of forecast",
         3 => "Observation time",
+        4 => "Local time",
+        5 => "Simulation start",
+        6 => "Start of data assimilation",
         255 => "Missing",
         _ => "Unknown",
     }
@@ -61,31 +64,66 @@ pub fn lookup_production_status(value: u8) -> &'static str {
         11 => "Copernicus regional reanalysis test",
         12 => "Destination Earth",
         13 => "Destination Earth test",
+        14 => "LC-GCR",
+        15 => "LC-GCR test",
+        16 => "MLMIP",
+        17 => "MLMIP test",
         255 => "Missing",
         _ => "Unknown",
     }
 }
 
 /// Grid definition template number (WMO Code Table 3.1) — short label.
+///
+/// This names a code; it does not claim the decoder models the template. Codes
+/// 31, 110 and 120 have been named here since before any of them was parsed,
+/// and the two questions are answered in different places: what a build can
+/// actually read is [`crate::gds::GridTemplate`], whose `Unsupported` arm keeps
+/// the number, and the string a host puts in its grid-type column is
+/// [`crate::gds::GridDefinitionSection::template_name`], which is derived from
+/// that enum. So the rule for this table is simply to name every code WMO
+/// assigns — leaving one out reports `Unknown grid template` for a grid whose
+/// name the standard states, which is a worse answer whether or not the
+/// decoder models it, and which for §3.61-63 and §3.150 was wrong outright:
+/// those four *are* parsed (#653).
 pub fn lookup_grid_template(template: u16) -> &'static str {
     match template {
         0 => "Latitude/longitude",
         1 => "Rotated latitude/longitude",
         2 => "Stretched latitude/longitude",
         3 => "Stretched and rotated latitude/longitude",
+        4 => "Variable-resolution latitude/longitude",
+        5 => "Variable-resolution rotated latitude/longitude",
         10 => "Mercator",
         12 => "Transverse Mercator",
+        13 => "Mercator with modelling subdomains",
         20 => "Polar stereographic",
+        23 => "Polar stereographic with modelling subdomains",
         30 => "Lambert conformal",
         31 => "Albers equal area",
+        33 => "Lambert conformal with modelling subdomains",
         40 => "Gaussian latitude/longitude",
         41 => "Rotated Gaussian latitude/longitude",
+        42 => "Stretched Gaussian latitude/longitude",
+        43 => "Stretched and rotated Gaussian latitude/longitude",
         50 => "Spherical harmonic coefficients",
+        51 => "Rotated spherical harmonic coefficients",
+        52 => "Stretched spherical harmonic coefficients",
+        53 => "Stretched and rotated spherical harmonic coefficients",
+        61 => "Spectral Mercator with modelling subdomains",
+        62 => "Spectral polar stereographic with modelling subdomains",
+        63 => "Spectral Lambert conformal with modelling subdomains",
         90 => "Space view perspective",
         100 => "Triangular grid (icosahedral)",
+        101 => "General unstructured grid",
         110 => "Equatorial azimuthal equidistant",
         120 => "Azimuth-range projection",
         140 => "Lambert azimuthal equal area",
+        150 => "HEALPix",
+        1000 => "Cross-section grid",
+        1100 => "Hovmöller diagram grid",
+        1200 => "Time section grid",
+        65535 => "Missing",
         _ => "Unknown grid template",
     }
 }
@@ -103,6 +141,11 @@ pub fn lookup_earth_shape(shape: u8) -> &'static str {
         7 => "Oblate spheroid (custom axes, m)",
         8 => "Spherical (radius 6 371 200.0 m, derived)",
         9 => "Oblate spheroid (OSGB 1936 / Airy)",
+        10 => "WGS84 with corrected geomagnetic coordinates",
+        // Not the Earth at all: §3.2 code 11 is the solar disc, for a space
+        // weather product on a Stonyhurst heliographic frame.
+        11 => "Sun, spherical (radius 695 990 000 m)",
+        255 => "Missing",
         _ => "Unknown earth shape",
     }
 }
@@ -129,6 +172,11 @@ pub fn lookup_generating_process_type(value: u8) -> &'static str {
         16 => "Physical retrieval",
         17 => "Regression analysis",
         18 => "Difference between two forecasts",
+        19 => "First guess",
+        20 => "Analysis increment",
+        21 => "Initialization increment for analysis",
+        22 => "Blended forecast",
+        23 => "Anomaly",
         192..=254 => "Reserved for local use",
         255 => "Missing",
         _ => "Unknown generating process",
@@ -202,6 +250,11 @@ pub fn lookup_ensemble_type(value: u8) -> &'static str {
         2 => "Negatively perturbed forecast",
         3 => "Positively perturbed forecast",
         4 => "Multi-model forecast",
+        5 => "Unperturbed forecast",
+        6 => "Perturbed forecast",
+        7 => "Initial conditions perturbations",
+        8 => "Model physics perturbations",
+        9 => "Initial conditions and model physics perturbations",
         192..=254 => "Reserved for local use",
         255 => "Missing",
         _ => "Unknown ensemble type",
@@ -226,6 +279,9 @@ pub fn lookup_statistical_process(value: u8) -> &'static str {
         11 => "Summation",
         12 => "Return period",
         13 => "Median",
+        100 => "Severity",
+        101 => "Mode",
+        102 => "Index processing",
         192..=254 => "Reserved for local use",
         255 => "Missing",
         _ => "Unknown statistical process",
@@ -460,6 +516,8 @@ pub fn lookup_data_type(value: u8) -> &'static str {
         6 => "Processed satellite observations",
         7 => "Processed radar observations",
         8 => "Event probability",
+        9 => "Experimental data",
+        10 => "ML based forecast",
         192..=254 => "Reserved for local use",
         255 => "Missing",
         _ => "Unknown",
@@ -675,6 +733,9 @@ mod tests {
             (1, "Start of forecast"),
             (2, "Verifying time of forecast"),
             (3, "Observation time"),
+            (4, "Local time"),
+            (5, "Simulation start"),
+            (6, "Start of data assimilation"),
         ] {
             assert_eq!(lookup_reference_time_significance(id), expected);
         }
@@ -697,6 +758,10 @@ mod tests {
             (11, "Copernicus regional reanalysis test"),
             (12, "Destination Earth"),
             (13, "Destination Earth test"),
+            (14, "LC-GCR"),
+            (15, "LC-GCR test"),
+            (16, "MLMIP"),
+            (17, "MLMIP test"),
         ] {
             assert_eq!(lookup_production_status(id), expected, "status {id}");
         }
@@ -714,6 +779,8 @@ mod tests {
             (6, "Processed satellite observations"),
             (7, "Processed radar observations"),
             (8, "Event probability"),
+            (9, "Experimental data"),
+            (10, "ML based forecast"),
         ] {
             assert_eq!(lookup_data_type(id), expected, "data_type {id}");
         }
