@@ -67,7 +67,10 @@ classDiagram
 The synthesised grids (spectral and HEALPix, both shipped) keep their pattern:
 the decode seam resamples onto a regular lat/lon grid and the field carries a
 `GridGeometry::LatLon` for that grid, so probe, contours, CSV, and overlays
-need no special case.
+need no special case. `Session::decode` does this as of #580, through the
+format readers' `synthesis_grid` / `synthesize_message_global`, so which
+families need it and what grid each lands on is stated once rather than per
+host.
 
 That grid is the one thing downstream may *align* on — `spectral_render_dims`
 ignores the truncation, so two spectral fields at different truncations land on
@@ -78,6 +81,13 @@ the data. So the native size survives beside it: a `Healpix` variant carrying
 `Nside` alongside the `Spectral` variant already carrying its truncation, which
 is what `GridDefinition::size_label` reads today and what `Georef` derives from
 after #464 (#416).
+
+Neither variant exists yet, and #580 did not need them: it moved only where the
+*decoded field* sits, and the native size still travels as
+`MessageInfo::size_label` (`T63`, `Nside 4`) with the declared grid arriving as
+`Unsupported { label }`. So the variants stay owed by #464's `Georef`
+derivation, which is where the message view stops being able to read a string —
+not by the decode seam, which is done.
 
 Reduced Gaussian is the same question with the answer the other way round, and
 it constrains the conversion rather than the view: `GaussianParams::ni` is a

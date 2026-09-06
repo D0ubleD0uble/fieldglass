@@ -542,6 +542,7 @@ class TheRepoItselfPasses(unittest.TestCase):
                 "GlobalGrid",
                 "GridGeometry",
                 "StoredRuns",
+                "SynthesisedField",
             },
             "fieldglass-grib2": {
                 "CornerPair",
@@ -551,6 +552,7 @@ class TheRepoItselfPasses(unittest.TestCase):
                 "GridGeometry",
                 "LambertAzimuthalParams",
                 "StoredRuns",
+                "SynthesisedField",
                 "TransverseMercatorParams",
             },
             "fieldglass-netcdf": {"ByteRange", "ByteSource", "FieldglassError"},
