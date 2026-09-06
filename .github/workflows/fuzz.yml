@@ -8,12 +8,16 @@ on:
       - 'crates/fieldglass-grib2/**'
       - 'crates/fieldglass-netcdf/**'
       - '.github/workflows/fuzz.yml'
+      - 'tools/check_nested_lockfiles.py'
+      - 'tools/test_check_nested_lockfiles.py'
   pull_request:
     paths:
       - 'crates/fieldglass-grib1/**'
       - 'crates/fieldglass-grib2/**'
       - 'crates/fieldglass-netcdf/**'
       - '.github/workflows/fuzz.yml'
+      - 'tools/check_nested_lockfiles.py'
+      - 'tools/test_check_nested_lockfiles.py'
 
 permissions:
   contents: read
@@ -27,12 +31,20 @@ jobs:
   # without building and exits non-zero when the lock disagrees with the
   # manifest — so drift fails loudly here instead of being absorbed.
   #
+  # The check itself lives in `tools/check_nested_lockfiles.py`, which is also a
+  # commit-stage pre-commit hook: one implementation, so the gate a contributor
+  # runs and the gate that blocks the merge cannot disagree. It covers every
+  # crate carrying its own lockfile, `crates/fieldglass-verify` included, which
+  # is wider than this workflow's path filter ever brings it here for — the
+  # pre-commit job in `ci.yml` runs it unfiltered on every pull request, so this
+  # job is the fuzz jobs' own precondition rather than the only place it runs.
+  #
   # The fuzz jobs depend on this, which does mean a bumped dependency whose
   # fuzz lock was not refreshed blocks fuzzing until someone runs
   # `cargo update` in that directory. Dependabot now watches these lockfiles
   # (see .github/dependabot.yml), so that should be rare rather than routine.
   lockfiles:
-    name: Fuzz lockfiles in sync
+    name: Nested lockfiles in sync
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -45,15 +57,14 @@ jobs:
         with:
           toolchain: stable
 
-      - name: Each fuzz crate's Cargo.lock matches its manifest
-        run: |
-          set -euo pipefail
-          for manifest in crates/*/fuzz/Cargo.toml; do
-            echo "::group::${manifest}"
-            cargo metadata --locked --format-version 1 \
-              --manifest-path "${manifest}" > /dev/null
-            echo "::endgroup::"
-          done
+      - name: Each nested crate's Cargo.lock matches its manifest
+        run: python3 tools/check_nested_lockfiles.py
+
+      # The checker reports an absence, so its own tests are what stop it
+      # rotting into a green no-op. They are pure bookkeeping over temporary
+      # directories plus one real run against this tree; no fuzz build.
+      - name: Nested-lockfile checker self-test
+        run: python3 tools/test_check_nested_lockfiles.py
 
   grib1-decode:
     name: GRIB1 decode (cargo-fuzz, time-boxed)
