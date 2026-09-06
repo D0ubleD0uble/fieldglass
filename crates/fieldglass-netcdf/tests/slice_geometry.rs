@@ -277,7 +277,7 @@ fn ersst_geometry_matches_the_coordinate_arrays() {
     let decode = |dim: &str| -> Vec<f64> {
         let idx = view.coordinate_index(dim).unwrap();
         reader
-            .decode_variable_values(idx)
+            .decode_variable_raw(idx)
             .unwrap()
             .into_iter()
             .map(|v| v.expect("coordinate values are never masked"))

@@ -113,7 +113,7 @@ fn each_skipped_dataset_is_reported_with_its_class() {
 
 /// Skipping must not renumber the variables that follow. A skipped dataset
 /// keeps its slot in the whole-file dataset list, which is the index space
-/// `decode_variable_values` walks — so `temperature`'s `decode_index` still
+/// `decode_variable_raw` walks — so `temperature`'s `decode_index` still
 /// decodes `temperature`, not its neighbour.
 ///
 /// The fixture is built with both undecodable datasets ahead of `temperature`
@@ -132,7 +132,7 @@ fn a_skipped_dataset_does_not_shift_the_decode_indices_after_it() {
             .find(|v| v.name == name)
             .unwrap_or_else(|| panic!("{name} is listed"));
         let decoded = reader
-            .decode_variable_values(var.decode_index)
+            .decode_variable_raw(var.decode_index)
             .unwrap_or_else(|e| panic!("{name} decodes: {e}"));
         let want: Vec<f64> = oracle["values"][key]
             .as_array()

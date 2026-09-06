@@ -319,7 +319,7 @@ It carries, in this creation order:
 
 The two undecodable datasets are written **first** on purpose, so both take a
 lower whole-file dataset index than `temperature`. That index space is the one
-`decode_variable_values` walks, so skipping a dataset must leave a hole rather
+`decode_variable_raw` walks, so skipping a dataset must leave a hole rather
 than close one; `tests/hdf5_unsupported_datatype.rs` proves it by decoding
 `temperature` through the `decode_index` the resolver reports for it and
 comparing the values against the oracle.

@@ -45,7 +45,7 @@ fn decode_named(reader: &NetcdfReader, view: &DatasetView, name: &str) -> Vec<f6
         .unwrap_or_else(|| panic!("{name} present"))
         .decode_index;
     reader
-        .decode_variable_values(idx)
+        .decode_variable_raw(idx)
         .expect("decode")
         .into_iter()
         .map(|v| v.unwrap_or_else(|| panic!("{name} has a masked cell")))

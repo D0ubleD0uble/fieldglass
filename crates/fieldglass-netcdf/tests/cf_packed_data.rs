@@ -49,7 +49,7 @@ fn temp_decodes_raw_then_unpacks_to_physical_units() {
 
     // Stage 1: decode masks only `_FillValue`; valid_range codes survive.
     let decoded = reader
-        .decode_variable_values(temp.decode_index)
+        .decode_variable_raw(temp.decode_index)
         .expect("decode");
     assert_eq!(decoded, expected_raw, "raw decode (only _FillValue masked)");
 

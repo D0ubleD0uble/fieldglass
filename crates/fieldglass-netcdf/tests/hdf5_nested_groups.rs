@@ -131,7 +131,7 @@ fn variables_across_groups_match_the_oracle() {
 #[test]
 fn nested_variable_decodes_through_the_reader() {
     // The decode index recorded on a nested variable must point at that dataset
-    // through `variable_shape` / `decode_variable_values`, so a grouped variable
+    // through `variable_shape` / `decode_variable_raw`, so a grouped variable
     // renders like a root one.
     let reader = NetcdfReader::from_bytes(GROUPED.to_vec()).expect("recognised NetCDF-4");
     let meta = reader.hdf5_metadata().expect("nested-group resolution");
@@ -148,7 +148,7 @@ fn nested_variable_decodes_through_the_reader() {
         reader.variable_shape(qa.decode_index).unwrap(),
         vec![2, 3, 4]
     );
-    let values = reader.decode_variable_values(qa.decode_index).unwrap();
+    let values = reader.decode_variable_raw(qa.decode_index).unwrap();
     assert_eq!(
         values.iter().map(|v| v.unwrap()).collect::<Vec<_>>(),
         (0..24).map(|i| i as f64).collect::<Vec<_>>()
@@ -158,10 +158,7 @@ fn nested_variable_decodes_through_the_reader() {
     let alt = var("/PRODUCT/SUPPORT_DATA/surface_altitude");
     assert_eq!(reader.variable_shape(alt.decode_index).unwrap(), vec![3, 4]);
     assert_eq!(
-        reader
-            .decode_variable_values(alt.decode_index)
-            .unwrap()
-            .len(),
+        reader.decode_variable_raw(alt.decode_index).unwrap().len(),
         12
     );
 }

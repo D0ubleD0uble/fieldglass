@@ -58,11 +58,11 @@ fn attr_value(display: &str, first_value: Option<f64>) -> String {
 
 /// One variable in the neutral view, carrying just what axis detection and the
 /// slice picker need. `decode_index` is the index
-/// [`crate::NetcdfReader::decode_variable_values`] uses, so a chosen variable
+/// [`crate::NetcdfReader::decode_variable_raw`] uses, so a chosen variable
 /// maps straight back to its data.
 #[derive(Debug, Clone, PartialEq)]
 pub struct VarView {
-    /// Index [`crate::NetcdfReader::decode_variable_values`] takes, so a
+    /// Index [`crate::NetcdfReader::decode_variable_raw`] takes, so a
     /// chosen variable maps straight back to its data.
     pub decode_index: usize,
     /// The variable's name.
@@ -102,7 +102,7 @@ impl VarView {
     /// values already decoded for it — [`crate::unpack_cf_data`] with
     /// [`VarView::attrs`], which is the only correct attribute set for them.
     ///
-    /// The decode ([`crate::NetcdfReader::decode_variable_values`]) returns raw
+    /// The decode ([`crate::NetcdfReader::decode_variable_raw`]) returns raw
     /// on-disk codes with only the fill / missing sentinels masked; this is the
     /// second stage that turns them into physical units. Callers that decode and
     /// unpack in one go want [`crate::NetcdfReader::decode_variable_physical`]
@@ -261,7 +261,7 @@ impl DatasetView {
 
     /// The decode index of a dimension's coordinate variable, if one exists (a
     /// 1-D variable whose name equals the dimension name). The render path reads
-    /// it through [`crate::NetcdfReader::decode_variable_values`] to derive the
+    /// it through [`crate::NetcdfReader::decode_variable_raw`] to derive the
     /// grid corners.
     pub fn coordinate_index(&self, dim_name: &str) -> Option<usize> {
         self.vars
@@ -471,7 +471,7 @@ pub struct CurvilinearCoords {
 /// the user picks them by hand).
 #[derive(Debug, Clone, PartialEq)]
 pub struct RenderableVariable {
-    /// Index [`crate::NetcdfReader::decode_variable_values`] takes.
+    /// Index [`crate::NetcdfReader::decode_variable_raw`] takes.
     pub decode_index: usize,
     /// The variable's name.
     pub name: String,

@@ -38,9 +38,7 @@ fn decode_all(bytes: &[u8]) -> BTreeMap<String, Result<Vec<Option<f64>>, String>
         .iter()
         .enumerate()
         .map(|(index, name)| {
-            let decoded = reader
-                .decode_variable_values(index)
-                .map_err(|e| e.to_string());
+            let decoded = reader.decode_variable_raw(index).map_err(|e| e.to_string());
             (name.clone(), decoded)
         })
         .collect()

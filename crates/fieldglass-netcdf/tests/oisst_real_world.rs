@@ -47,7 +47,7 @@ fn var<'a>(view: &'a DatasetView, name: &str) -> &'a fieldglass_netcdf::VarView 
 
 fn decode_plane(reader: &NetcdfReader, view: &DatasetView, name: &str) -> Vec<Option<f64>> {
     reader
-        .decode_variable_values(var(view, name).decode_index)
+        .decode_variable_raw(var(view, name).decode_index)
         .expect("decode")
 }
 

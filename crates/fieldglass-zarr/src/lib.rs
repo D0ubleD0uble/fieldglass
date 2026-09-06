@@ -22,7 +22,7 @@
 //! let decoder = ChunkDecoder::from_v2_metadata(zarray)?;
 //!
 //! let chunk: Vec<u8> = (0..6u32).flat_map(|i| (i as f32).to_le_bytes()).collect();
-//! assert_eq!(decoder.decode_values(&chunk)?, vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0]);
+//! assert_eq!(decoder.decode_raw_values(&chunk)?, vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0]);
 //! # Ok::<(), fieldglass_zarr::FieldglassError>(())
 //! ```
 //!
@@ -41,6 +41,18 @@
 //! too, as byte ranges. This crate reads the chunk *shape*, because a decode
 //! cannot check its own output length or reverse a transpose without it, and
 //! nothing else about the array's layout.
+//!
+//! **It applies no CF conventions.** [`ChunkDecoder::decode_raw_values`]
+//! returns the values as stored. An array written by xarray carries
+//! `scale_factor`, `add_offset` and `_FillValue` in its `.zattrs`, and a packed
+//! `int16` array reads back here as integer codes rather than physical units —
+//! the split `fieldglass-netcdf` draws between `decode_variable_raw` and
+//! `decode_variable_physical`, for the same reason: CF is a convention over the
+//! container rather than part of it, and the reference implementations
+//! disagree about applying it (libnetcdf never does; netcdf4-python and xarray
+//! do by default). This crate is the libnetcdf analogue. It has no physical
+//! counterpart yet only because it is handed a chunk and never the store, so it
+//! cannot read `.zattrs` at all; #658 is the walker that will be able to.
 //!
 //! **It decodes; it never encodes.** The forward direction of each transform
 //! exists only under `#[cfg(test)]`, where a round trip is the one check that
@@ -268,7 +280,7 @@ impl ChunkDecoder {
     /// Decode one stored chunk to its raw element bytes, in C order.
     ///
     /// The bytes are in the array's stored byte order; [`Self::dtype`] says
-    /// which. Use [`Self::decode_values`] to get numbers.
+    /// which. Use [`Self::decode_raw_values`] to get numbers.
     pub fn decode(&self, stored: &[u8]) -> Result<Vec<u8>, FieldglassError> {
         self.chain.decode(
             stored,
@@ -279,7 +291,21 @@ impl ChunkDecoder {
     }
 
     /// Decode one stored chunk to numbers, in C order.
-    pub fn decode_values(&self, stored: &[u8]) -> Result<Vec<f64>, FieldglassError> {
+    ///
+    /// **These are the raw stored values.** The codec chain is reversed and the
+    /// elements are read out at their declared type; nothing else is applied.
+    /// In particular an array written by xarray carries CF `scale_factor` /
+    /// `add_offset` / `_FillValue` in its `.zattrs`, and a packed `int16` array
+    /// comes back here as integer codes rather than physical units — the same
+    /// split `fieldglass-netcdf` draws between
+    /// `decode_variable_raw` and `decode_variable_physical`, and for the same
+    /// reason: CF is a convention over the container, not part of it.
+    ///
+    /// This crate has no physical-units counterpart yet because it cannot read
+    /// `.zattrs` — it is handed one chunk's bytes and never the store (#658 is
+    /// the walker that will have them). The name says raw now so that the two
+    /// crates cannot land on opposite defaults once it does.
+    pub fn decode_raw_values(&self, stored: &[u8]) -> Result<Vec<f64>, FieldglassError> {
         self.dtype.read_values(&self.decode(stored)?)
     }
 

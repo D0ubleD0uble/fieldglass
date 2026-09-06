@@ -313,7 +313,7 @@ fn netcdf_classic_decodes_through_a_caller_supplied_byte_source() {
         prefetched: Cell::new(0),
         reads: Cell::new(0),
     };
-    let through_source = classic::decode_variable_values_from(&header, &source, var_index)
+    let through_source = classic::decode_variable_raw_from(&header, &source, var_index)
         .expect("decode through the source");
     assert_eq!(source.prefetched.get(), plan.len());
     assert_eq!(source.reads.get(), plan.len());
@@ -326,7 +326,7 @@ fn netcdf_classic_decodes_through_a_caller_supplied_byte_source() {
     // Same answer as the in-memory path, which is the only claim that makes
     // the seam worth having.
     let direct =
-        classic::decode_variable_values(&header, &bytes, var_index).expect("in-memory decode");
+        classic::decode_variable_raw(&header, &bytes, var_index).expect("in-memory decode");
     assert_eq!(direct, through_source);
 
     // The reader's own backing is reachable without naming a core type.
@@ -346,7 +346,9 @@ fn zarr_decodes_a_chunk_through_its_own_re_exports() {
     let decoder = ChunkDecoder::from_v2_metadata(&zarray).expect("the fixture's metadata parses");
 
     let chunk = fixture("crates/fieldglass-zarr/tests/fixtures/raw/0.0");
-    let values = decoder.decode_values(&chunk).expect("the chunk decodes");
+    let values = decoder
+        .decode_raw_values(&chunk)
+        .expect("the chunk decodes");
 
     // 2x3 chunk of the 0.5-step ramp the fixtures are built from.
     assert_eq!(values, vec![0.0, 0.5, 1.0, 3.0, 3.5, 4.0]);
