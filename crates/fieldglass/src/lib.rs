@@ -64,6 +64,17 @@
 //!   `cargo test --workspace` does not enable optional features. Both hosts
 //!   take this crate with `default-features = false`, so neither the addon nor
 //!   the browser bundle carries it.
+//! - **`fetchplan`** *(default)* — reading a cloud-native manifest and
+//!   returning the byte ranges a host should fetch (#461, [ADR-0005] decision
+//!   5), plus the two halves a pure planner cannot have: a `ParameterResolver`
+//!   over the GRIB2 tables, and the semantic half of verifying that the bytes
+//!   that came back are the message the sidecar promised. Default for the
+//!   reason `conformance` is — `cargo test --workspace` enables no optional
+//!   feature, so off-by-default would mean the planner's own gate never runs —
+//!   and carried by neither host, both of which take this crate with
+//!   `default-features = false`.
+//!
+//! [ADR-0005]: https://github.com/D0ubleD0uble/fieldglass/blob/master/docs/decisions/0005-byte-access-and-the-remote-seam.md
 //!
 //! A gated item is named in a code span above rather than an intra-doc link: a
 //! link to an item this build compiled out is a hard error under the
@@ -87,6 +98,8 @@ pub mod combine;
 #[cfg(feature = "conformance")]
 pub mod conformance;
 pub mod error;
+#[cfg(feature = "fetchplan")]
+pub mod fetchplan;
 pub mod render;
 pub mod session;
 #[cfg(feature = "render")]

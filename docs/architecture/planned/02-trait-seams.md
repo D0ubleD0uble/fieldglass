@@ -133,36 +133,66 @@ cloud-native convention is one dialect. The crate is syntax only: matching a
 sidecar's `TMP` / `2 m above ground` to a WMO parameter needs the NCEP table
 in `fieldglass-grib2` (#426), and that dependency would drag the decoder and
 its codecs into a pure planner, so semantic matching is a trait the umbrella
-implements. The GRIB dialects ship first; the Zarr
-dialects land with the codec crate (#246) so both are tested against the same
-fixtures.
+implements.
+
+**The GRIB half has landed**, and the current
+[`02-trait-seams.md`](../02-trait-seams.md) is where it is documented; what
+stays here is the Zarr half, which lands with the codec crate (#246) so both
+are tested against the same fixtures. Four things about the shipped half are
+now facts rather than plans:
+
+* **No `core` edge, and then one.** The crate was drawn depending on `core`;
+  it turned out to need nothing from it *except* the one thing that matters —
+  `ByteRange`, the type `ByteSource::prefetch` takes. So a plan range is
+  `PlanRange` (`Exact` / `OpenEnded` / `Whole`, because a `.idx` states no
+  length) and `PlanRange::close(object_size)` returns `core`'s `ByteRange`.
+  Two spellings of one concept was the alternative, and the diagram drift
+  guard flagged the name collision before it shipped.
+* **`Manifest::messages` is a provided method**, not a per-dialect one:
+  collapsing the records that share a byte range is a property of the plan and
+  not of the grammar it was read from.
+* **`NoResolver` is part of the surface.** Without an implementer that resolves
+  nothing, the syntactic path — matching the sidecar's own words, which is what
+  a user pasting a `.idx` line has — could not be exercised without the
+  umbrella, and the crate would not be testable alone.
+* **Ambiguity needs two knobs, not one.** `Query::qualifiers` can only *add*
+  requirements, and NBM publishes a plain deterministic field beside its
+  probabilistic ones under the same abbreviation and level. `Query::unqualified`
+  is how that record is named; without it, it is the one member of an ambiguous
+  set nothing can ask for.
 
 ```mermaid
 classDiagram
     class Manifest {
-        <<trait, planned #461>>
+        <<trait, shipped #461>>
         +items() Vec~PlanItem~
         +select(query, &dyn ParameterResolver) Vec~PlanItem~
+        +messages() Vec~PlanItem~ (provided)
     }
     class ParameterResolver {
-        <<trait, planned #461>>
+        <<trait, shipped #461>>
         +resolve(abbrev, level_str) Option~ParameterId~
     }
-    class UmbrellaResolver {
-        <<planned #464, crate fieldglass>>
-        grib2 tables (#426) behind the trait
+    class TableResolver {
+        <<shipped, crate fieldglass>>
+        grib2 tables (#426) inverted into an index
     }
-    ParameterResolver <|.. UmbrellaResolver
+    class NoResolver {
+        <<shipped>>
+        resolves nothing; the syntactic path
+    }
+    ParameterResolver <|.. TableResolver
+    ParameterResolver <|.. NoResolver
     class PlanItem {
-        <<planned #461>>
+        <<shipped #461>>
         +String key
-        +Range range
+        +PlanRange range
         +Option~u32~ sub_index
-        +Expect expect (discipline, parameter, level from the sidecar line)
+        +Expect expect (parameter, level, forecast from the sidecar line)
     }
     class Expect {
-        <<planned #461>>
-        the plan is a claim: the decoder checks magic, §0 length, and these
+        <<shipped #461>>
+        the plan is a claim: verify_envelope checks magic and §0 length
     }
     Manifest <|.. Wgrib2Idx
     Manifest <|.. EcmwfIndex

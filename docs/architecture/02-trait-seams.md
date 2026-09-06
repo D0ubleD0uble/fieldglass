@@ -53,7 +53,9 @@ open-ended, while an ECMWF `.index` states both.
 `TMP` / `2 m above ground` to WMO codes — which needs the NCEP table in
 `fieldglass-grib2` (#426) — is the second seam here. `NoResolver` is the
 implementer for a purely syntactic query, and is what keeps the crate testable
-without a table; the `fieldglass` umbrella implements the resolving one.
+without a table. `TableResolver` is the real one, in `fieldglass` under the
+`fetchplan` feature: the parameter tables answer *codes to name*, so it inverts
+them once into an index rather than scanning per record.
 
 The Zarr v2/v3 and kerchunk dialects are the same seam over chunk-grid
 arithmetic and land with the codec crate (#246), so both halves are tested
@@ -71,6 +73,7 @@ classDiagram
     Manifest <|.. Wgrib2Idx
     Manifest <|.. EcmwfIndex
     ParameterResolver <|.. NoResolver
+    ParameterResolver <|.. TableResolver
 ```
 
 ## GRIB1 packing

@@ -175,6 +175,59 @@ pub struct Expect {
 }
 
 impl Expect {
+    /// An expectation that promises nothing, to add to.
+    ///
+    /// These builders exist because [`Expect`] is `#[non_exhaustive]`, which
+    /// stops a consumer outside this crate writing a struct literal — and a
+    /// consumer that has bytes from somewhere other than a manifest still
+    /// wants to state what they should be and check them. Without a way to
+    /// construct one, verification would be reachable only through a parsed
+    /// sidecar.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// State the short name the bytes should carry.
+    #[must_use]
+    pub fn with_abbreviation(mut self, abbreviation: impl Into<String>) -> Self {
+        self.abbreviation = Some(abbreviation.into());
+        self
+    }
+
+    /// State the level, in an NCEP `.idx`'s wording.
+    ///
+    /// Fills [`level_spec`](Self::level_spec) from the same string through
+    /// [`parse_ncep_level`](crate::parse_ncep_level), so the two cannot
+    /// disagree — which they could if a caller set them separately.
+    #[must_use]
+    pub fn with_level(mut self, level: impl Into<String>) -> Self {
+        let level = level.into();
+        self.level_spec = Some(crate::level::parse_ncep_level(&level));
+        self.level = Some(level);
+        self
+    }
+
+    /// State the parameter's WMO codes.
+    #[must_use]
+    pub fn with_parameter(mut self, parameter: ParameterId) -> Self {
+        self.parameter = Some(parameter);
+        self
+    }
+
+    /// State the reference time, as the ten digits a `d=` field carries.
+    #[must_use]
+    pub fn with_reference_time(mut self, reference_time: impl Into<String>) -> Self {
+        self.reference_time = Some(reference_time.into());
+        self
+    }
+
+    /// State the message's total length in bytes.
+    #[must_use]
+    pub fn with_total_length(mut self, total_length: u64) -> Self {
+        self.total_length = Some(total_length);
+        self
+    }
+
     /// Check fetched bytes against the envelope this expectation implies.
     ///
     /// The cheap half of "a plan is a claim", and the half that needs no
