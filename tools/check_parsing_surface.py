@@ -40,6 +40,20 @@ sentence's own justification — that none of these modules is behind a feature,
 which is what makes a `default-features = false` dependency work. The libraries
 are also what a consumer of the format crate actually compiles.
 
+A `#[cfg(test)] mod` inside `src/` is a test target too, compiled with the same
+dev-dependency features, so it is excluded on the same grounds — skipping
+`tests/` and counting an inline test module would apply the rule to half the
+test code. The file form, `#[cfg(test)] mod tests;`, is reported rather than
+followed, so the exclusion cannot be widened by moving a test to its own file.
+
+**Anything this cannot read is reported, never dropped.** Every one of these
+would make the measured surface silently too small, and a surface measured too
+small reads as "the documentation lists too much": a name that is neither a
+module nor a crate-root re-export; a glob import; an `as`-alias of the crate,
+after which no use is spelled `fieldglass_core::` at all; a crate-root re-export
+whose left segment is a *dependency* rather than one of core's own modules; and
+one name re-exported from two modules, which cannot be attributed to either.
+
 Both copies are checked because fixing one would leave the other to drift, and
 two copies of one list with a gate on neither is how this got wrong the first
 time. Each is delimited by `parsing-surface` HTML comments — invisible in
@@ -77,10 +91,30 @@ MIN_REEXPORTS = 20
 MIN_SURFACE = 5
 
 _MODULE = re.compile(r"^pub mod ([a-z_0-9]+);", re.M)
-_GATED = re.compile(r'^#\[cfg\(feature = "([a-z_0-9]+)"\)\]\s*\npub mod ([a-z_0-9]+);', re.M)
-_REEXPORT = re.compile(r"^pub use ([a-z_0-9]+)::(\{.*?\}|[A-Za-z_][A-Za-z_0-9]*)\s*;", re.M | re.S)
+_MOD_LINE = re.compile(r"^pub mod ([a-z_0-9]+);")
+_ATTR_LINE = re.compile(r"^\s*#!?\[")
+_FEATURE_NAME = re.compile(r'feature\s*=\s*"([a-z_0-9-]+)"')
+# A re-export names its module, then any number of further path segments, then
+# either one name or a brace group. The middle segments matter because
+# `pub use projection::grid::GridGeometry;` is a legal refactor of core, and a
+# pattern that could not read it would report the *use site* as unattributable
+# and point the reader at this checker rather than at their change.
+_REEXPORT = re.compile(
+    r"^pub use ([a-z_0-9]+)::(?:[a-z_0-9]+::)*(\{.*?\}|[A-Za-z_][A-Za-z_0-9]*)\s*;",
+    re.M | re.S,
+)
 _LEAF = re.compile(r"[A-Za-z_][A-Za-z_0-9]*")
 _USE = re.compile(r"fieldglass_core\s*::\s*")
+# `use fieldglass_core as fgc;` renames the crate, and every later `fgc::…` is
+# invisible to `_USE`. Reported rather than followed: following an alias means
+# resolving Rust name binding, and the repo has no such alias.
+_ALIAS = re.compile(r"\buse\s+fieldglass_core\s+as\s+([A-Za-z_][A-Za-z_0-9]*)\s*;")
+# `#[cfg(test)] mod tests { … }` inside `src/` compiles with the crate's
+# dev-dependency features on — which for `fieldglass-grib1` means `analysis`.
+# Counting it would admit a gated module to "the parsing surface", the very
+# thing scanning `tests/` was excluded to avoid.
+_CFG_TEST_BLOCK = re.compile(r"#\[cfg\(test\)\]\s*(?:#\[[^\n]*\]\s*)*mod\s+[a-z_0-9]+\s*\{")
+_CFG_TEST_FILE = re.compile(r"#\[cfg\(test\)\]\s*(?:#\[[^\n]*\]\s*)*mod\s+([a-z_0-9]+)\s*;")
 _REGION = re.compile(
     r"<!--\s*parsing-surface\b.*?-->(.*?)<!--\s*/parsing-surface\s*-->", re.S
 )
@@ -91,34 +125,93 @@ def core_modules(lib_rs: str) -> dict[str, str | None]:
     """Every `pub mod` in core's lib.rs, mapped to the feature gating it or None.
 
     The module list comes from the stripped source, so a `pub mod` inside a
-    comment is not one. The *gate* is read from the raw source instead, because
-    the feature name lives in a string literal and the lexer blanks literals —
+    comment is not one. The *gate* is read from the raw source, because the
+    feature name lives in a string literal and the lexer blanks literals —
     reading `#[cfg(feature = "render")]` from the stripped text finds
-    `#[cfg(feature = )]` and reports every gated module as ungated. A gate is
-    only believed for a module the stripped list already has, so a commented-out
-    `pub mod` cannot introduce one.
+    `#[cfg(feature = )]` and reports every gated module as ungated.
+
+    Gates are found by walking back over the attribute lines above each
+    declaration rather than by matching one exact `#[cfg]` spelling. Any
+    attribute mentioning `feature` counts, so `#[cfg(any(feature = "render",
+    feature = "analysis"))]` and a `#[cfg]` with a `#[doc(hidden)]` between it
+    and the `pub mod` are both gates. Reading one of those as ungated would make
+    this checker tell someone to document a feature-gated module as part of a
+    surface whose whole definition is that nothing in it is gated. A `feature`
+    attribute this cannot name is still a gate, reported by its own text.
     """
-    stripped = strip_comments_and_literals(lib_rs)
-    gated = {module: feature for feature, module in _GATED.findall(lib_rs)}
-    return {module: gated.get(module) for module in _MODULE.findall(stripped)}
+    declared = set(_MODULE.findall(strip_comments_and_literals(lib_rs)))
+    gated: dict[str, str] = {}
+    lines = lib_rs.splitlines()
+    for index, line in enumerate(lines):
+        match = _MOD_LINE.match(line)
+        if match is None or match.group(1) not in declared:
+            continue
+        attributes = []
+        back = index - 1
+        while back >= 0 and _ATTR_LINE.match(lines[back]):
+            attributes.append(lines[back])
+            back -= 1
+        for attribute in attributes:
+            if "feature" not in attribute:
+                continue
+            names = _FEATURE_NAME.findall(attribute)
+            gated[match.group(1)] = ", ".join(names) if names else attribute.strip()
+            break
+    return {module: gated.get(module) for module in sorted(declared)}
 
 
-def root_reexports(lib_rs: str) -> dict[str, str]:
+def root_reexports(lib_rs: str) -> tuple[dict[str, str], list[str]]:
     """Names re-exported at core's crate root, mapped to the module they come from.
 
     A format crate writes `fieldglass_core::GlobalGrid`, not
     `fieldglass_core::global_grid::GlobalGrid`, so without this the use is
     unattributable — and an unattributable use is reported as a failure, never
     dropped.
+
+    The second return value is the collisions: one name re-exported from two
+    modules would otherwise resolve to whichever `pub use` line came last, and
+    could move a module in or out of the measured surface with no diagnostic.
+    Core has none today, and this is what keeps that true.
     """
     found: dict[str, str] = {}
+    collisions: list[str] = []
     for module, names in _REEXPORT.findall(strip_comments_and_literals(lib_rs)):
         leaves = names[1:-1].split(",") if names.startswith("{") else [names]
         for leaf in leaves:
             match = _LEAF.match(leaf.strip())
-            if match:
-                found[match.group(0)] = module
-    return found
+            if match is None:
+                continue
+            name = match.group(0)
+            if name in found and found[name] != module:
+                collisions.append(f"`{name}` is re-exported from both `{found[name]}` and `{module}`")
+            found[name] = module
+    return found, collisions
+
+
+def library_source(path: Path) -> tuple[str, list[str]]:
+    """The comment-free source of one library file, minus its `#[cfg(test)]` modules.
+
+    Returns the text and any `#[cfg(test)] mod x;` declarations found, which name
+    a *file* this scan does not follow and so are reported rather than ignored.
+    """
+    text = strip_comments_and_literals(path.read_text(encoding="utf-8"))
+    deferred = _CFG_TEST_FILE.findall(text)
+    out, cursor = [], 0
+    while True:
+        block = _CFG_TEST_BLOCK.search(text, cursor)
+        if block is None:
+            out.append(text[cursor:])
+            break
+        out.append(text[cursor : block.start()])
+        depth, index = 1, block.end()
+        while index < len(text) and depth:
+            if text[index] == "{":
+                depth += 1
+            elif text[index] == "}":
+                depth -= 1
+            index += 1
+        cursor = index
+    return "".join(out), deferred
 
 
 def documented_surface(text: str) -> list[str] | None:
@@ -173,29 +266,66 @@ def _use_leaves(text: str, pos: int) -> list[str]:
 def modules_used(
     library: Path, modules: dict[str, str | None], reexports: dict[str, str]
 ) -> tuple[set[str], list[str]]:
-    """Core modules named by the `.rs` files under `library`, plus unresolved names.
+    """Core modules named by the `.rs` files under `library`, plus what it could not read.
 
-    An unresolved name means the re-export map is incomplete, which would make
-    the module set silently too small — so it is returned to be reported, not
-    swallowed.
+    Anything that would make the measured surface silently too small is returned
+    to be reported rather than swallowed: a name that is neither a module nor a
+    crate-root re-export (the re-export map is incomplete), a glob import (which
+    hides every name it brings in), an `as`-alias of the crate (after which no
+    use is spelled `fieldglass_core::`), a re-export that comes from a
+    *dependency* rather than one of core's own modules, and a `#[cfg(test)]`
+    module living in its own file (which this scan does not follow).
     """
     used: set[str] = set()
-    unresolved: list[str] = []
+    opaque: list[str] = []
     for path in sorted(library.rglob("*.rs")):
-        text = strip_comments_and_literals(path.read_text(encoding="utf-8"))
+        text, deferred = library_source(path)
+        where = f"{library}/{path.relative_to(library)}"
+        opaque.extend(
+            f"{where}: `#[cfg(test)] mod {name};` is a separate file, which this "
+            f"scan does not follow — inline the test module or move it to `tests/`"
+            for name in deferred
+        )
+        opaque.extend(
+            f"{where}: `use fieldglass_core as {alias};` renames the crate, so no "
+            f"later use of it can be attributed — spell the crate out"
+            for alias in _ALIAS.findall(text)
+        )
         for match in _USE.finditer(text):
-            for leaf in _use_leaves(text, match.end()):
+            leaves = _use_leaves(text, match.end())
+            if not leaves:
+                # `use fieldglass_core::*;` brings in every root re-export under
+                # names this scan cannot see.
+                opaque.append(
+                    f"{where}: `fieldglass_core::*` hides which modules are used — "
+                    f"name them"
+                )
+                continue
+            for leaf in leaves:
                 if leaf in modules:
                     used.add(leaf)
                 elif leaf in reexports:
-                    used.add(reexports[leaf])
+                    origin = reexports[leaf]
+                    if origin in modules:
+                        used.add(origin)
+                    else:
+                        # `pub use some_dep::Thing;` at core's root. Not one of
+                        # core's modules, so it is not part of any surface this
+                        # checker describes — and looking it up in `modules`
+                        # would raise rather than report.
+                        opaque.append(
+                            f"{where}: `fieldglass_core::{leaf}` is re-exported from "
+                            f"`{origin}`, which is not a module of core"
+                        )
                 elif leaf not in ("self", "crate", "super"):
                     # Reported relative to the library, not to REPO: `check` takes
                     # the tree to scan as an argument, so a path outside this
                     # checkout is an ordinary call and must not raise here.
-                    where = path.relative_to(library)
-                    unresolved.append(f"{library}/{where}: fieldglass_core::{leaf}")
-    return used, unresolved
+                    opaque.append(
+                        f"{where}: `fieldglass_core::{leaf}` resolves to no core module "
+                        f"— the re-export map in check_parsing_surface.py is incomplete"
+                    )
+    return used, opaque
 
 
 def check(core: Path = CORE, crates: Path = REPO / "crates") -> list[str]:
@@ -205,7 +335,12 @@ def check(core: Path = CORE, crates: Path = REPO / "crates") -> list[str]:
     readme = (core / "README.md").read_text(encoding="utf-8")
 
     modules = core_modules(lib_rs)
-    reexports = root_reexports(lib_rs)
+    reexports, collisions = root_reexports(lib_rs)
+    problems.extend(
+        f"{core}/src/lib.rs: {collision} — one name from two modules cannot be "
+        f"attributed to either"
+        for collision in collisions
+    )
     if len(modules) < MIN_MODULES:
         problems.append(
             f"only {len(modules)} `pub mod` found in {core}/src/lib.rs "
@@ -217,8 +352,8 @@ def check(core: Path = CORE, crates: Path = REPO / "crates") -> list[str]:
             f"(expected at least {MIN_REEXPORTS}) — the parse has stopped working"
         )
     if problems:
-        # Every set below is derived from these two, so an empty parse would make
-        # the comparisons meaningless rather than merely wrong.
+        # Every set below is derived from these two, so an empty or ambiguous
+        # parse would make the comparisons meaningless rather than merely wrong.
         return problems
 
     used: set[str] = set()
@@ -227,12 +362,8 @@ def check(core: Path = CORE, crates: Path = REPO / "crates") -> list[str]:
         if not library.is_dir():
             problems.append(f"{library}: no library to scan — has a format crate moved?")
             continue
-        crate_used, unresolved = modules_used(library, modules, reexports)
-        problems.extend(
-            f"{where} resolves to no core module — "
-            f"the re-export map in check_parsing_surface.py is incomplete"
-            for where in unresolved
-        )
+        crate_used, opaque = modules_used(library, modules, reexports)
+        problems.extend(opaque)
         if not crate_used:
             # A crate that names nothing would shrink the measured surface, and
             # all three of these depend on core.

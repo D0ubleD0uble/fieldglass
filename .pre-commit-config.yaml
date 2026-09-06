@@ -199,8 +199,10 @@ repos:
         #
         # Both READMEs and both source trees are in the pattern, because a
         # module leaves the surface by an edit to a format crate exactly as
-        # often as by an edit to core.
-        files: ^(crates/fieldglass-(core|grib1|grib2|netcdf)/(src/.*\.rs|README\.md)|tools/check_parsing_surface\.py)$
+        # often as by an edit to core. `check_unused_dependencies.py` is there
+        # because this checker imports its Rust lexer: a change to what counts
+        # as a comment or a string literal changes what this gate measures.
+        files: ^(crates/fieldglass-(core|grib1|grib2|netcdf)/(src/.*\.rs|README\.md)|tools/check_(parsing_surface|unused_dependencies)\.py)$
         entry: python3 tools/check_parsing_surface.py
         pass_filenames: false
 

@@ -91,7 +91,9 @@ region that has gone missing is a failure rather than an empty list that matches
 nothing. The measurement is over the format crates' **libraries**, and that is
 forced rather than chosen: their test targets name `contour`, which is behind
 the `analysis` feature, so counting tests would put a gated module into the
-surface and contradict the sentence's own reason for existing.
+surface and contradict the sentence's own reason for existing. A
+`#[cfg(test)] mod` inside `src/` compiles with those same dev-dependency
+features and is excluded for the same reason.
 
 **A manifest is a claim about the crate too, and cargo checks nothing about
 it.** A declared dependency nothing uses resolves, compiles, links and reports

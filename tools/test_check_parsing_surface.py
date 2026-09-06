@@ -51,7 +51,12 @@ MODULES = [
 SURFACE = ["bits", "bytes", "cct_tables", "error", "global_grid", "healpix", "lead_time"]
 
 
-def lib_rs(surface: list[str] | None, *, gated: dict[str, str] | None = None) -> str:
+def lib_rs(
+    surface: list[str] | None,
+    *,
+    gated: dict[str, str] | None = None,
+    extra: str = "",
+) -> str:
     """A synthetic core `lib.rs`. `surface=None` omits the region markers."""
     gated = gated or {"warp": "render", "contour": "analysis"}
     head = ""
@@ -60,6 +65,7 @@ def lib_rs(surface: list[str] | None, *, gated: dict[str, str] | None = None) ->
         head = f"//! <!-- parsing-surface -->\n//! {listed}\n//! <!-- /parsing-surface -->\n"
     mods = "".join(f"pub mod {m};\n" for m in MODULES)
     mods += "".join(f'#[cfg(feature = "{f}")]\npub mod {m};\n' for m, f in gated.items())
+    mods += extra
     # Two-per-module re-exports, enough to clear MIN_REEXPORTS, and the shapes
     # that matter: a brace group, a single name, and a rename.
     uses = "".join(f"pub use {m}::{{Thing{i}, thing{i} as t{i}}};\n" for i, m in enumerate(MODULES))
@@ -194,6 +200,88 @@ class Catches(unittest.TestCase):
         self.assertTrue(any("resolves to no core module" in p for p in problems))
 
 
+    def test_a_gate_the_exact_cfg_pattern_would_miss_is_still_a_gate(self):
+        # `#[cfg(any(feature = ...))]`, and a `#[doc(hidden)]` between the cfg
+        # and the declaration. Reading either as ungated would make this gate
+        # tell someone to document a feature-gated module as part of a surface
+        # defined by nothing in it being gated.
+        extra = (
+            '#[cfg(any(feature = "render", feature = "analysis"))]\npub mod fancy;\n'
+            '#[cfg(feature = "render")]\n#[doc(hidden)]\npub mod fancy2;\n'
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            body = USES_SURFACE + "\nuse fieldglass_core::fancy::A;\nuse fieldglass_core::fancy2::B;"
+            core, crates = tree(root, SURFACE, three(body), extra=extra)
+            problems = chk.check(core, crates)
+        self.assertTrue(any("`render, analysis` feature" in p for p in problems))
+        self.assertTrue(any("`fieldglass_core::fancy2`" in p and "`render` feature" in p for p in problems))
+
+    def test_a_cfg_test_module_inside_src_is_not_library_use(self):
+        # It compiles with the crate's dev-dependency features on, which for
+        # `fieldglass-grib1` means `analysis`. Counting it would admit a gated
+        # module to the surface — the very thing excluding `tests/` avoids.
+        body = USES_SURFACE + (
+            "\n#[cfg(test)]\nmod tests {\n"
+            "    use fieldglass_core::contour::C;\n"
+            "    fn inner() { let _ = fieldglass_core::units::U; }\n"
+            "}\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            core, crates = tree(root, SURFACE, three(body))
+            self.assertEqual(chk.check(core, crates), [])
+
+    def test_a_cfg_test_module_in_its_own_file_is_reported_not_ignored(self):
+        body = USES_SURFACE + "\n#[cfg(test)]\nmod tests;\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            core, crates = tree(root, SURFACE, three(body))
+            problems = chk.check(core, crates)
+        self.assertTrue(any("this scan does not follow" in p for p in problems))
+
+    def test_a_glob_import_is_reported_rather_than_read_as_no_use(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            core, crates = tree(root, SURFACE, three(USES_SURFACE + "\nuse fieldglass_core::*;"))
+            problems = chk.check(core, crates)
+        self.assertTrue(any("hides which modules are used" in p for p in problems))
+
+    def test_an_alias_of_the_crate_is_reported_rather_than_read_as_no_use(self):
+        body = "use fieldglass_core as fgc;\nfn f() { let _ = fgc::units::U; }\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            core, crates = tree(root, SURFACE, three(USES_SURFACE + "\n" + body))
+            problems = chk.check(core, crates)
+        self.assertTrue(any("renames the crate" in p for p in problems))
+
+    def test_a_reexport_of_a_dependency_type_does_not_crash_the_checker(self):
+        # `pub use half::f16;` at core's root: `half` is not a core module, so
+        # looking it up in the module map raised `KeyError` and killed the hook
+        # with a traceback instead of a diagnostic.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            core, crates = tree(
+                root,
+                SURFACE,
+                three(USES_SURFACE + "\nuse fieldglass_core::f16;"),
+                extra="pub use half::f16;\n",
+            )
+            problems = chk.check(core, crates)
+        self.assertTrue(any("is not a module of core" in p for p in problems))
+
+    def test_a_name_reexported_from_two_modules_is_reported(self):
+        # Last-wins would attribute the use to whichever `pub use` came last and
+        # could move a module in or out of the surface with no diagnostic.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            core, crates = tree(
+                root, SURFACE, three(USES_SURFACE), extra="pub use units::Thing0;\n"
+            )
+            problems = chk.check(core, crates)
+        self.assertTrue(any("re-exported from both" in p for p in problems))
+
+
 class LetsThrough(unittest.TestCase):
     def test_a_tree_whose_three_sets_agree(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -238,6 +326,20 @@ class LetsThrough(unittest.TestCase):
             core, crates = tree(root, surface, three(USES_SURFACE))
             self.assertEqual(chk.check(core, crates), [])
 
+
+    def test_a_multi_segment_reexport_resolves_to_its_module(self):
+        # `pub use projection::grid::GridGeometry;` is a legal refactor of core.
+        # A pattern that could not read it would report the *use site* as
+        # unattributable and point the reader at this checker.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            core, crates = tree(
+                root,
+                SURFACE,
+                three(USES_SURFACE + "\nuse fieldglass_core::Nested;"),
+                extra="pub use bits::inner::deeper::Nested;\n",
+            )
+            self.assertEqual(chk.check(core, crates), [])
 
 class TheRepoItselfPasses(unittest.TestCase):
     """The real check, against the real crate."""
