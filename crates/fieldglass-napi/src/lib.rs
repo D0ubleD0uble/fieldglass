@@ -9034,7 +9034,15 @@ mod declared_grid_family_tests {
 
             for path in paths {
                 let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("{path:?}: {e}"));
-                let mine: Vec<Option<String>> = if exts.contains(&"grib2") {
+                // Branch on the *file's* extension, not on the corpus's list:
+                // a `.grib2` fixture landing in the GRIB1 directory would
+                // otherwise feed every `.grib1` beside it to `Grib2Reader` and
+                // die on the parse rather than report a name mismatch.
+                let is_grib2 = path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .is_some_and(|e| e == "grib2");
+                let mine: Vec<Option<String>> = if is_grib2 {
                     Grib2Reader::from_bytes(bytes.clone())
                         .expect("grib2 parse")
                         .messages
