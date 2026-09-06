@@ -5745,21 +5745,21 @@
             0.0,
             180.0
           ],
-          "dx": null,
-          "dy": null,
+          "dx": 2.0,
+          "dy": -2.0,
           "kind": "rotated_latlon",
           "label": "rotated_latlon",
           "ni": 16,
           "nj": 31,
           "periodicX": false,
-          "proj4": null,
+          "proj4": "+proj=ob_tran +o_proj=longlat +o_lat_p=0 +o_lon_p=0 +lon_0=0 +R=6371229 +to_meter=0.017453292519943295 +no_defs",
           "scan": {
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
           },
-          "x0": null,
-          "y0": null
+          "x0": 0.0,
+          "y0": 60.0
         },
         "index": 0,
         "level": "Ground or water surface",
@@ -5803,21 +5803,21 @@
             0.0,
             180.0
           ],
-          "dx": null,
-          "dy": null,
+          "dx": 2.0,
+          "dy": -2.0,
           "kind": "rotated_latlon",
           "label": "rotated_latlon",
           "ni": 16,
           "nj": 31,
           "periodicX": false,
-          "proj4": null,
+          "proj4": "+proj=ob_tran +o_proj=longlat +o_lat_p=0 +o_lon_p=0 +lon_0=0 +R=6371229 +to_meter=0.017453292519943295 +no_defs",
           "scan": {
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
           },
-          "x0": null,
-          "y0": null
+          "x0": 0.0,
+          "y0": 60.0
         },
         "len": 496,
         "maskLen": 496,
@@ -5891,21 +5891,21 @@
             0.0,
             180.0
           ],
-          "dx": null,
-          "dy": null,
+          "dx": 2.0,
+          "dy": -2.0,
           "kind": "rotated_latlon",
           "label": "rotated_latlon",
           "ni": 16,
           "nj": 31,
           "periodicX": false,
-          "proj4": null,
+          "proj4": "+proj=ob_tran +o_proj=longlat +o_lat_p=0 +o_lon_p=0 +lon_0=0 +R=6371229 +to_meter=0.017453292519943295 +no_defs",
           "scan": {
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
           },
-          "x0": null,
-          "y0": null
+          "x0": 0.0,
+          "y0": 60.0
         },
         "len": 496,
         "maskLen": 496,
@@ -5979,21 +5979,21 @@
             0.0,
             180.0
           ],
-          "dx": null,
-          "dy": null,
+          "dx": 2.0,
+          "dy": -2.0,
           "kind": "rotated_latlon",
           "label": "rotated_latlon",
           "ni": 16,
           "nj": 31,
           "periodicX": false,
-          "proj4": null,
+          "proj4": "+proj=ob_tran +o_proj=longlat +o_lat_p=0 +o_lon_p=0 +lon_0=0 +R=6371229 +to_meter=0.017453292519943295 +no_defs",
           "scan": {
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
           },
-          "x0": null,
-          "y0": null
+          "x0": 0.0,
+          "y0": 60.0
         },
         "len": 496,
         "maskLen": 496,
@@ -6675,21 +6675,21 @@
             0.0,
             180.0
           ],
-          "dx": null,
-          "dy": null,
+          "dx": 2.0,
+          "dy": -2.0,
           "kind": "rotated_latlon",
           "label": "rotated_latlon",
           "ni": 16,
           "nj": 31,
           "periodicX": false,
-          "proj4": null,
+          "proj4": "+proj=ob_tran +o_proj=longlat +o_lat_p=0 +o_lon_p=0 +lon_0=0 +R=6371229 +to_meter=0.017453292519943295 +no_defs",
           "scan": {
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
           },
-          "x0": null,
-          "y0": null
+          "x0": 0.0,
+          "y0": 60.0
         },
         "len": 496,
         "maskLen": 496,
@@ -6763,21 +6763,21 @@
             0.0,
             180.0
           ],
-          "dx": null,
-          "dy": null,
+          "dx": 2.0,
+          "dy": -2.0,
           "kind": "rotated_latlon",
           "label": "rotated_latlon",
           "ni": 16,
           "nj": 31,
           "periodicX": false,
-          "proj4": null,
+          "proj4": "+proj=ob_tran +o_proj=longlat +o_lat_p=0 +o_lon_p=0 +lon_0=0 +R=6371229 +to_meter=0.017453292519943295 +no_defs",
           "scan": {
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
           },
-          "x0": null,
-          "y0": null
+          "x0": 0.0,
+          "y0": 60.0
         },
         "len": 496,
         "maskLen": 496,
@@ -6851,21 +6851,21 @@
             0.0,
             180.0
           ],
-          "dx": null,
-          "dy": null,
+          "dx": 2.0,
+          "dy": -2.0,
           "kind": "rotated_latlon",
           "label": "rotated_latlon",
           "ni": 16,
           "nj": 31,
           "periodicX": false,
-          "proj4": null,
+          "proj4": "+proj=ob_tran +o_proj=longlat +o_lat_p=0 +o_lon_p=0 +lon_0=0 +R=6371229 +to_meter=0.017453292519943295 +no_defs",
           "scan": {
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
           },
-          "x0": null,
-          "y0": null
+          "x0": 0.0,
+          "y0": 60.0
         },
         "len": 496,
         "maskLen": 496,
@@ -6939,21 +6939,21 @@
             0.0,
             180.0
           ],
-          "dx": null,
-          "dy": null,
+          "dx": 2.0,
+          "dy": -2.0,
           "kind": "rotated_latlon",
           "label": "rotated_latlon",
           "ni": 16,
           "nj": 31,
           "periodicX": false,
-          "proj4": null,
+          "proj4": "+proj=ob_tran +o_proj=longlat +o_lat_p=0 +o_lon_p=0 +lon_0=0 +R=6371229 +to_meter=0.017453292519943295 +no_defs",
           "scan": {
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
           },
-          "x0": null,
-          "y0": null
+          "x0": 0.0,
+          "y0": 60.0
         },
         "len": 496,
         "maskLen": 496,
@@ -7027,21 +7027,21 @@
             0.0,
             180.0
           ],
-          "dx": null,
-          "dy": null,
+          "dx": 2.0,
+          "dy": -2.0,
           "kind": "rotated_latlon",
           "label": "rotated_latlon",
           "ni": 16,
           "nj": 31,
           "periodicX": false,
-          "proj4": null,
+          "proj4": "+proj=ob_tran +o_proj=longlat +o_lat_p=0 +o_lon_p=0 +lon_0=0 +R=6371229 +to_meter=0.017453292519943295 +no_defs",
           "scan": {
             "iNegative": false,
             "jConsecutive": false,
             "jPositive": false
           },
-          "x0": null,
-          "y0": null
+          "x0": 0.0,
+          "y0": 60.0
         },
         "len": 496,
         "maskLen": 496,

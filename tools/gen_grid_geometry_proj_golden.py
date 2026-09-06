@@ -19,9 +19,10 @@ The affine is PROJ's answer wherever PROJ can give one: for the families whose
 message states a geographic first point, the origin is what PROJ forward-
 projects it to, and for Mercator the steps are PROJ's too, since that family's
 plane spacing is not a field of the message but a consequence of its corners.
-Transverse Mercator states `X1`/`Y1` in the plane already, and a space-view
-grid states scan angles, so those two are mirrored rather than derived — for
-them the point-by-point comparison below is what checks the arithmetic.
+Transverse Mercator states `X1`/`Y1` in the plane already, a space-view grid
+states scan angles, and a rotated grid states its corners in the rotated frame
+that *is* its plane, so those three are mirrored rather than derived — for them
+the point-by-point comparison below is what checks the arithmetic.
 
 The grids are the real ones the round-trip test already uses (see
 `crates/fieldglass-core/tests/grid_round_trip.rs`), not convenient synthetic
@@ -34,6 +35,7 @@ Needs:  PROJ's `proj` and `projinfo` on PATH (9.4.0 pinned in the golden).
 from __future__ import annotations
 
 import json
+import math
 import pathlib
 import subprocess
 import sys
@@ -48,8 +50,14 @@ GOLDEN = (
 STRIDE = 7
 
 # `fieldglass_core::DEFAULT_EARTH_RADIUS_M` — the WMO mean sphere, which is the
-# radius the Mercator CRS states because that family's params carry none.
+# radius the Mercator and rotated lat/lon CRSs state because those families'
+# params carry none.
 EARTH_RADIUS_M = 6371229.0
+
+# `fieldglass_core::projection::DEG2RAD`, the `+to_meter` a rotated grid's plane
+# needs: `ob_tran` with `o_proj=longlat` emits radians, and the affine is
+# quoted in degrees.
+DEG2RAD = math.pi / 180.0
 
 CASES = [
     {
@@ -181,6 +189,81 @@ CASES = [
             "dy_rad": (0.044268 - 0.128212) / (150 - 1),
         },
     },
+    {
+        # COSMO-EU shaped, coarsened: the pole moved to 40S 10E, the grid laid
+        # out around the new equator. Its corners are rotated-frame degrees, so
+        # the region it covers — western and central Europe — is nowhere near
+        # the numbers below, which is the whole point of checking it.
+        "name": "COSMO-EU 40x42 rotated lat/lon",
+        "geometry": {
+            "kind": "rotated_latlon",
+            "ni": 40,
+            "nj": 42,
+            "lat_first": -20.0,
+            "lon_first": -18.0,
+            "lat_last": 21.0,
+            "lon_last": 21.0,
+            "south_pole_lat": -40.0,
+            "south_pole_lon": 10.0,
+            "angle_of_rotation": 0.0,
+        },
+    },
+    {
+        # The same grid with a stated angle of rotation, which is the term
+        # `ob_tran` has no field of its own for: eccodes applies it to the
+        # geographic longitude, so it folds into `lon_0`. PROJ is what says
+        # whether that is true.
+        "name": "rotated lat/lon with a 25 deg angle of rotation",
+        "geometry": {
+            "kind": "rotated_latlon",
+            "ni": 40,
+            "nj": 42,
+            "lat_first": -20.0,
+            "lon_first": -18.0,
+            "lat_last": 21.0,
+            "lon_last": 21.0,
+            "south_pole_lat": -40.0,
+            "south_pole_lon": 10.0,
+            "angle_of_rotation": 25.0,
+        },
+    },
+    {
+        # The committed `rotated_latlon_surface.grib2` fixture's own grid, whose
+        # pole sits on the equator at 0E. Two zeros the Rust and the Python have
+        # to write the same way: `-south_pole_lat` is `-0.0` in Rust and `0` in
+        # Python, so the string comparison catches a divergence there.
+        "name": "rotated lat/lon with its pole on the equator",
+        "geometry": {
+            "kind": "rotated_latlon",
+            "ni": 16,
+            "nj": 31,
+            "lat_first": 60.0,
+            "lon_first": 0.0,
+            "lat_last": 0.0,
+            "lon_last": 30.0,
+            "south_pole_lat": 0.0,
+            "south_pole_lon": 0.0,
+            "angle_of_rotation": 0.0,
+        },
+    },
+    {
+        # ECCC HRDPS shaped: its columns cross the antimeridian of the rotated
+        # frame (345 deg to 42 deg), so the affine's `dx` has to come from the
+        # eastward span rather than from `lon_last - lon_first`.
+        "name": "ECCC HRDPS 30x20 rotated lat/lon across the rotated antimeridian",
+        "geometry": {
+            "kind": "rotated_latlon",
+            "ni": 30,
+            "nj": 20,
+            "lat_first": -8.0,
+            "lon_first": 345.0,
+            "lat_last": 8.0,
+            "lon_last": 42.0,
+            "south_pole_lat": -36.0885,
+            "south_pole_lon": 245.305,
+            "angle_of_rotation": 0.0,
+        },
+    },
 ]
 
 
@@ -225,6 +308,18 @@ def proj4_for(g: dict) -> str:
             f"+lon_0={fmt(g['sub_lon_deg'])} "
             f"+sweep={'x' if g['sweep_x'] else 'y'} "
             f"+a={fmt(g['r_eq'])} +b={fmt(g['r_pol'])} +units=m +no_defs"
+        )
+    if g["kind"] == "rotated_latlon":
+        # `ob_tran` takes the new *north* pole, which with `+o_lon_p=0` it
+        # reads as `(+o_lat_p, +lon_0 + 180)`, and its `longlat` output is
+        # radians. The angle of rotation folds into `lon_0` because eccodes
+        # applies it to the geographic longitude after unrotating — see
+        # `GridGeometry::proj4`, which this mirrors.
+        return (
+            f"+proj=ob_tran +o_proj=longlat +o_lat_p={fmt(-g['south_pole_lat'])} "
+            f"+o_lon_p=0 "
+            f"+lon_0={fmt(g['south_pole_lon'] - g['angle_of_rotation'])} "
+            f"+R={fmt(EARTH_RADIUS_M)} +to_meter={fmt(DEG2RAD)} +no_defs"
         )
     raise ValueError(f"no projected CRS for {g['kind']!r}")
 
@@ -293,15 +388,26 @@ def affine_for(g: dict, crs: str) -> tuple[float, float, float, float]:
     """`(x0, y0, dx, dy)` in the plane `crs` describes — what
     `GridGeometry::plane_affine` must report for the same grid.
 
-    PROJ supplies whatever it can. The two families whose message already
+    PROJ supplies whatever it can. The three families whose message already
     states the plane (transverse Mercator's `X1`/`Y1`, a space view's scan
-    angles) are mirrored instead; nothing is left for PROJ to say about an
-    origin the message spells out, and the per-point comparison still checks
-    that the plane they name is the one PROJ lays out.
+    angles, a rotated grid's rotated-frame corners) are mirrored instead;
+    nothing is left for PROJ to say about an origin the message spells out,
+    and the per-point comparison still checks that the plane they name is the
+    one PROJ lays out.
     """
     kind = g["kind"]
     if kind == "transverse_mercator":
         return g["x1_metres"], g["y1_metres"], g["dx_metres"], g["dy_metres"]
+    if kind == "rotated_latlon":
+        # The plane is the rotated frame itself, and the message states its
+        # corners in it, so there is nothing for PROJ to forward-project. The
+        # point-by-point comparison is what checks the frame.
+        return (
+            g["lon_first"],
+            g["lat_first"],
+            eastward_lon_span(g["lon_first"], g["lon_last"]) / (g["ni"] - 1),
+            (g["lat_last"] - g["lat_first"]) / (g["nj"] - 1),
+        )
     if kind == "space_view":
         # One radian of scan angle is `+h` metres, and `+h` is the height above
         # the ellipsoid rather than the distance from its centre.
@@ -352,9 +458,17 @@ def main() -> int:
                 "name": case["name"],
                 "geometry": g,
                 "proj4": crs,
-                # Every projected family measures its plane in metres; the
-                # geographic ones have no case here.
-                "affine": {"x0": x0, "y0": y0, "dx": dx, "dy": dy, "units": "Metres"},
+                # The projected families measure their plane in metres; a
+                # rotated grid's plane is its own rotated frame, in degrees.
+                "affine": {
+                    "x0": x0,
+                    "y0": y0,
+                    "dx": dx,
+                    "dy": dy,
+                    "units": (
+                        "Degrees" if g["kind"] == "rotated_latlon" else "Metres"
+                    ),
+                },
                 # `lat`/`lon` of `null` is PROJ saying the pixel looks past
                 # the limb; the test asserts the geometry declines it too.
                 "points": [

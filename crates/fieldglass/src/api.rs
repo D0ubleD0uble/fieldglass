@@ -458,8 +458,9 @@ impl Georef {
         let (ni, nj) = geom.dims().unwrap_or((0, 0));
         // One question, asked of `core`: a family that has a plane reports its
         // origin and step in that plane's own units, and one that has none (a
-        // list of cell centres, a rotated frame with no CRS, an unmodelled
-        // grid) reports nothing rather than a plausible-looking zero.
+        // list of cell centres, an unmodelled grid) reports nothing rather
+        // than a plausible-looking zero. A rotated lat/lon grid has a plane —
+        // its own rotated frame, measured in degrees — so it reports one.
         let affine = geom.plane_affine();
         let axis_units = match affine.map(|a| a.units) {
             Some(PlaneUnits::Metres) => AxisUnits::Metres,
@@ -525,7 +526,9 @@ fn scan_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fieldglass_core::{LambertParams, LambertProjector, LatLonParams, PlanarGridProjector};
+    use fieldglass_core::{
+        LambertParams, LambertProjector, LatLonParams, PlanarGridProjector, RotatedLatLonParams,
+    };
 
     /// [`scan_schema`] restates `Scan`'s three properties by hand, because
     /// `core` cannot derive `JsonSchema` — the derive would follow it into every
@@ -672,6 +675,45 @@ mod tests {
             assert!((x - want_x).abs() < 1e-3, "x at ({i},{j}): {x} != {want_x}");
             assert!((y - want_y).abs() < 1e-3, "y at ({i},{j}): {y} != {want_y}");
         }
+    }
+
+    /// A rotated grid's plane is its own rotated frame, so the units a host
+    /// reads are degrees and the origin is the corner the message states —
+    /// *not* a geographic one. A host that read these as geographic would put
+    /// a COSMO domain in the Sahara, which is why the pair is asserted here
+    /// beside the CRS that measures them. `grid_geometry_proj.rs` is where the
+    /// numbers are checked against PROJ.
+    #[test]
+    fn a_rotated_grid_reports_its_rotated_frame_in_degrees() {
+        let p = RotatedLatLonParams {
+            ni: 40,
+            nj: 42,
+            lat_first: -20.0,
+            lon_first: -18.0,
+            lat_last: 21.0,
+            lon_last: 21.0,
+            south_pole_lat: -40.0,
+            south_pole_lon: 10.0,
+            angle_of_rotation: 0.0,
+        };
+        let g = Georef::from_geometry(&GridGeometry::RotatedLatLon(p), scan());
+        assert!(matches!(g.axis_units, AxisUnits::Degrees));
+        assert!(
+            g.proj4
+                .as_deref()
+                .is_some_and(|s| s.starts_with("+proj=ob_tran ")),
+            "{:?}",
+            g.proj4
+        );
+        assert_eq!((g.x0, g.y0), (Some(-18.0), Some(-20.0)));
+        assert_eq!((g.dx, g.dy), (Some(1.0), Some(1.0)));
+        // And it is not the geographic corner: the first point is over the
+        // Atlantic off Morocco, nowhere near (-20, -18).
+        let (lat, lon) = GridGeometry::RotatedLatLon(p)
+            .forward(0, 0)
+            .expect("placed");
+        assert!((lat - 27.695_222_279).abs() < 1e-6, "{lat}");
+        assert!((lon - -9.144_631_530).abs() < 1e-6, "{lon}");
     }
 
     /// Gaussian rows are not uniformly spaced, so the affine must not claim
