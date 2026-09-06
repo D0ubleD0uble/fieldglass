@@ -169,6 +169,9 @@ raster in it, checked against PROJ itself rather than against a golden of our
 own output. Rotated lat/lon is the one whose plane is not metres: its axes are
 degrees in the rotated frame, so its CRS is a PROJ `ob_tran` and its `x0` / `y0`
 are the rotated-frame corners the message states, not longitudes and latitudes.
+It is also the one string proj4js needs edited — it puts that plane in degrees
+where PROJ puts it in radians, so a proj4js consumer drops the `+to_meter` term
+and uses the affine unchanged. `GridGeometry::proj4` documents why.
 
 Filed under
 [#460](https://github.com/D0ubleD0uble/fieldglass/issues/460) so

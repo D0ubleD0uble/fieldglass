@@ -1436,6 +1436,20 @@ impl GridGeometry {
     /// - **The units.** `+o_proj=longlat` emits radians, so the degrees the
     ///   affine is quoted in need `+to_meter=<π/180>` — a modifier none of the
     ///   other eight families carry.
+    ///
+    /// **That last term is the one place a browser host cannot take this
+    /// string at face value.** proj4js (checked at 2.22.0) implements
+    /// `ob_tran` and agrees with PROJ to the last digit on this family's
+    /// points — but its `o_proj=longlat` plane is *already* degrees, so it
+    /// reads `+to_meter` as a second scaling and lands 28.8° away on the
+    /// COSMO-EU shape `grid_geometry_proj.golden.json` checks. A proj4js
+    /// consumer wants this string with `+to_meter` **removed** and the affine
+    /// used unchanged; a PROJ, GDAL or PROJ-in-wasm consumer wants it exactly
+    /// as emitted. There is no single string that serves both, because the two
+    /// libraries disagree about the unit of the plane rather than about where
+    /// the grid is, and PROJ is this crate's oracle (see
+    /// `tests/grid_geometry_proj.rs`). The other eight families are unaffected:
+    /// their planes are metres, and proj4js reproduces them exactly.
     pub fn proj4(&self) -> Option<String> {
         match self {
             // Geographic: the values `forward` returns are already lon/lat.
