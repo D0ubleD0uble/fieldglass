@@ -1,0 +1,15 @@
+# cargo-fuzz build output and run artifacts. The seed corpus under
+# corpus/parse/ is committed; libFuzzer-discovered inputs and crash
+# artifacts are not.
+/target
+/artifacts
+/coverage
+
+# `.gitignore` does not apply to files git already tracks, so ignoring the
+# corpus directory keeps the committed seeds exactly as committed — they stay
+# tracked and diffable — while making every input libFuzzer discovers during a
+# local run invisible to `git add`. Without this the comment above was a
+# statement of intent with no mechanism behind it, and a `git add -A` after a
+# two-minute local run swept 365 discovered inputs into a commit (#635).
+# A deliberate new seed is added with `git add -f`.
+/corpus/parse/*
