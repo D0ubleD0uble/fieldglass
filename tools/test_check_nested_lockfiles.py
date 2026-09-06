@@ -226,18 +226,20 @@ class LetsThrough(unittest.TestCase):
 class TheRepoItselfPasses(unittest.TestCase):
     """The real check, against the real tree, with the real cargo."""
 
-    def test_the_four_nested_workspaces_are_the_ones_found(self):
-        # Pinned by path so that a fifth nested workspace — or a lost one — has
-        # to come past a reviewer here rather than quietly changing what is
+    def test_the_six_nested_workspaces_are_the_ones_found(self):
+        # Pinned by path so that a seventh nested workspace — or a lost one —
+        # has to come past a reviewer here rather than quietly changing what is
         # gated. These are exactly the crates declaring a bare `[workspace]`.
         found = [str(d.relative_to(chk.REPO)) for d in chk.nested_workspaces(chk.REPO)]
         self.assertEqual(
             found,
             [
+                "crates/fieldglass-fetchplan/fuzz",
                 "crates/fieldglass-grib1/fuzz",
                 "crates/fieldglass-grib2/fuzz",
                 "crates/fieldglass-netcdf/fuzz",
                 "crates/fieldglass-verify",
+                "crates/fieldglass-zarr/fuzz",
             ],
         )
 

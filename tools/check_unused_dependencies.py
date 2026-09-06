@@ -72,8 +72,8 @@ DEP_TABLES = ("dependencies", "dev-dependencies", "build-dependencies")
 
 # Fewer packages than this and the walk has gone wrong — a rename, a prune
 # entry that swallowed a tree — and the check would pass by finding nothing to
-# check. The count is 12 today: eight crates, the three `fuzz/` packages nested
-# inside three of them, and `tests/crate-independence`. This is a smoke alarm,
+# check. The count is 16 today: ten crates, the five `fuzz/` packages nested
+# inside five of them, and `tests/crate-independence`. This is a smoke alarm,
 # not the count — `test_the_walk_finds_every_package` pins the set by name, and
 # its hook watches the manifests so it runs when a package comes or goes.
 MIN_PACKAGES = 10

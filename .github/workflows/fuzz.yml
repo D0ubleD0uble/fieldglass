@@ -7,12 +7,16 @@ on:
       - 'crates/fieldglass-grib1/**'
       - 'crates/fieldglass-grib2/**'
       - 'crates/fieldglass-netcdf/**'
+      - 'crates/fieldglass-zarr/**'
+      - 'crates/fieldglass-fetchplan/**'
       - '.github/workflows/fuzz.yml'
   pull_request:
     paths:
       - 'crates/fieldglass-grib1/**'
       - 'crates/fieldglass-grib2/**'
       - 'crates/fieldglass-netcdf/**'
+      - 'crates/fieldglass-zarr/**'
+      - 'crates/fieldglass-fetchplan/**'
       - '.github/workflows/fuzz.yml'
 
 permissions:
@@ -36,7 +40,7 @@ jobs:
   # `pre-commit` job in `ci.yml` has no path filter and runs the checker and its
   # self-test on every pull request, which is what covers `fieldglass-verify`
   # and an edit to the checker itself. Adding those paths here instead would
-  # start three 15-minute fuzz campaigns for a change that cannot reach a fuzz
+  # start five 15-minute fuzz campaigns for a change that cannot reach a fuzz
   # target.
   #
   # The fuzz jobs depend on this, which does mean a bumped dependency whose
@@ -75,10 +79,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # cargo-fuzz needs the nightly libFuzzer sanitizer runtime; this is the
-      # only job in the repo that builds on nightly. The normal gates stay on
-      # stable — the fuzz crate is excluded from the workspace so they never
-      # touch it.
+      # cargo-fuzz needs the nightly libFuzzer sanitizer runtime; the fuzz jobs
+      # are the only ones in the repo that build on nightly. The normal gates
+      # stay on stable — the fuzz crate is excluded from the workspace so they
+      # never touch it.
       - name: Set up Rust nightly
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
         with:
@@ -181,3 +185,82 @@ jobs:
       - name: Fuzz the NetCDF parse path
         run: cargo fuzz run parse --target x86_64-unknown-linux-gnu -- -max_total_time=120 -timeout=10
         working-directory: crates/fieldglass-netcdf/fuzz
+
+  zarr-decode:
+    name: Zarr decode (cargo-fuzz, time-boxed)
+    needs: lockfiles
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # cargo-fuzz needs the nightly libFuzzer sanitizer runtime; the normal
+      # gates stay on stable — the fuzz crate is excluded from the workspace so
+      # they never touch it.
+      - name: Set up Rust nightly
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: nightly
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: crates/fieldglass-zarr/fuzz
+
+      - name: Install cargo-fuzz
+        uses: taiki-e/install-action@742a3317eac7bd62f91cd888b4eead5e784ba833 # v2.87.1
+        with:
+          tool: cargo-fuzz
+
+      # Time-boxed run seeded by the committed corpus (two metadata documents
+      # and three chunk objects from the crate's fixture stores). Not the normal
+      # `cargo test` gate — this is a bounded smoke fuzz that asserts neither
+      # the metadata reader nor the chunk decoders panic or hang.
+      #
+      # `--target` is pinned to the gnu host: left to its default, cargo-fuzz
+      # selects the musl target on the hosted runner, which can't link the
+      # ASan runtime against a static libc.
+      - name: Fuzz the Zarr decode path
+        run: cargo fuzz run decode --target x86_64-unknown-linux-gnu -- -max_total_time=120 -timeout=10
+        working-directory: crates/fieldglass-zarr/fuzz
+
+  fetchplan-parse:
+    name: fetchplan parse (cargo-fuzz, time-boxed)
+    needs: lockfiles
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # cargo-fuzz needs the nightly libFuzzer sanitizer runtime; the normal
+      # gates stay on stable — the fuzz crate is excluded from the workspace so
+      # they never touch it.
+      - name: Set up Rust nightly
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: nightly
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: crates/fieldglass-fetchplan/fuzz
+
+      - name: Install cargo-fuzz
+        uses: taiki-e/install-action@742a3317eac7bd62f91cd888b4eead5e784ba833 # v2.87.1
+        with:
+          tool: cargo-fuzz
+
+      # Time-boxed run seeded by the committed corpus (the crate's own sidecar
+      # fixtures in both dialects, plus a source-catalog document). Not the
+      # normal `cargo test` gate — this is a bounded smoke fuzz that asserts
+      # neither manifest grammar, nor the range arithmetic after it, panics or
+      # hangs.
+      #
+      # `--target` is pinned to the gnu host: left to its default, cargo-fuzz
+      # selects the musl target on the hosted runner, which can't link the
+      # ASan runtime against a static libc.
+      - name: Fuzz the fetchplan parse path
+        run: cargo fuzz run parse --target x86_64-unknown-linux-gnu -- -max_total_time=120 -timeout=10
+        working-directory: crates/fieldglass-fetchplan/fuzz

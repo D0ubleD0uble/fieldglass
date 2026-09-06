@@ -3,8 +3,8 @@
 
     python3 tools/check_nested_lockfiles.py
 
-Four crates in this tree declare a bare `[workspace]` and so form workspaces of
-their own: the three `fuzz/` crates, kept out so the stable gates never try to
+Six crates in this tree declare a bare `[workspace]` and so form workspaces of
+their own: the five `fuzz/` crates, kept out so the stable gates never try to
 compile a nightly-only libFuzzer target, and `crates/fieldglass-verify`, kept out
 so a published crate never carries `vstd`. Each therefore has its own
 `Cargo.lock`, and that is the blind spot: no `--workspace` command resolves them,
@@ -18,9 +18,9 @@ For a fuzz crate the drift is not theoretical. `cargo fuzz run` has no `--locked
 and rewritten mid-run: #398 had the GRIB2 fuzz lock pinning rust-j2k 0.2.0 for a
 whole release cycle while the workspace pinned `=0.3.0`.
 
-`.github/workflows/fuzz.yml` gates the three fuzz jobs on this check, so drift is
+`.github/workflows/fuzz.yml` gates the five fuzz jobs on this check, so drift is
 loud rather than absorbed. But CI is late, and it is also narrow — that workflow
-only runs when a format crate changes, and `crates/fieldglass-verify`'s lock has
+only runs when a fuzzed crate changes, and `crates/fieldglass-verify`'s lock has
 no workflow watching it at all. A fuzz lock goes stale the moment its *format
 crate's* manifest changes, because the fuzz crate path-depends on it and the lock
 records that crate's dependency edges: #640 edited all three format-crate
