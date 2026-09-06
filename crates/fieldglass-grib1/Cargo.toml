@@ -13,8 +13,6 @@ categories  = ["science", "parser-implementations"]
 
 [dependencies]
 fieldglass-core = { path = "../fieldglass-core", version = "=0.5.0", default-features = false }
-serde = { workspace = true }
-thiserror = { workspace = true }
 
 [dev-dependencies]
 # `decode_reduced_gaussian.rs` contours the field it decodes, which is core's

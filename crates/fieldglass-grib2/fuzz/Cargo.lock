@@ -72,7 +72,6 @@ dependencies = [
  "png",
  "rust-aec",
  "rust-j2k",
- "serde",
 ]
 
 [[package]]

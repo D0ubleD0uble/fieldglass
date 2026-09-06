@@ -39,8 +39,6 @@ name = "fieldglass-grib1"
 version = "0.5.0"
 dependencies = [
  "fieldglass-core",
- "serde",
- "thiserror",
 ]
 
 [[package]]
