@@ -501,14 +501,29 @@ fn a_rotated_grid_reports_where_it_really_is_not_where_its_corners_say() {
     );
 }
 
-/// The one modelled family with no CRS. It places its points perfectly well;
-/// what it cannot yet do is name the frame they are laid out in, so it says so
-/// rather than naming an unchecked one. See `GridGeometry::proj4`.
+/// The one family whose CRS is an oblique transformation rather than a plane.
+///
+/// `grid_geometry_proj.rs` is where the string itself is checked against PROJ,
+/// on three real grid shapes; what is pinned here is the shape of the answer —
+/// the axes are the *rotated* frame's degrees, so the affine is the message's
+/// own corners and not a projected origin.
 #[test]
-fn a_rotated_grid_names_no_crs_but_still_places_its_points() {
-    let geom = GridGeometry::RotatedLatLon(cosmo_rotated());
-    assert_eq!(geom.proj4(), None);
-    assert_eq!(geom.plane_affine(), None);
+fn a_rotated_grid_names_its_rotated_frame_as_a_crs() {
+    let p = cosmo_rotated();
+    let geom = GridGeometry::RotatedLatLon(p);
+    assert_eq!(
+        geom.proj4().as_deref(),
+        Some(
+            "+proj=ob_tran +o_proj=longlat +o_lat_p=40 +o_lon_p=0 +lon_0=10 \
+             +R=6371229 +to_meter=0.017453292519943295 +no_defs"
+        ),
+    );
+    let affine = geom.plane_affine().expect("the rotated frame is a plane");
+    assert_eq!(affine.units, PlaneUnits::Degrees);
+    assert_eq!((affine.x0, affine.y0), (p.lon_first, p.lat_first));
+    assert_eq!(affine.dx, Some(1.0));
+    assert_eq!(affine.dy, Some(1.0));
+
     let (lat, lon) = geom
         .forward(3, 4)
         .expect("a rotated grid places its points");
@@ -517,6 +532,31 @@ fn a_rotated_grid_names_no_crs_but_still_places_its_points() {
         (idx.i - 3.0).abs() < 1e-9 && (idx.j - 4.0).abs() < 1e-9,
         "{idx:?}"
     );
+}
+
+/// `angle_of_rotation` has no `ob_tran` term of its own. eccodes — which
+/// `forward` matches for this family — applies it to the *geographic*
+/// longitude after unrotating, which makes the whole map a function of
+/// `lon - (south_pole_lon - angle_of_rotation)`, so it belongs in `+lon_0`.
+/// Putting it in `+o_lon_p` instead would spin the rotated longitudes, which
+/// is a different grid; this pins which of the two the string says.
+#[test]
+fn a_stated_angle_of_rotation_folds_into_the_crs_central_meridian() {
+    let spun = GridGeometry::RotatedLatLon(RotatedLatLonParams {
+        angle_of_rotation: 25.0,
+        ..cosmo_rotated()
+    });
+    let crs = spun.proj4().expect("a rotated grid names a CRS");
+    assert!(crs.contains(" +lon_0=-15 "), "{crs}");
+    assert!(crs.contains(" +o_lon_p=0 "), "{crs}");
+
+    // And it moves the grid: the same raster cell is 25 deg further west.
+    let (lat, lon) = spun.forward(0, 0).expect("placed");
+    let (lat0, lon0) = GridGeometry::RotatedLatLon(cosmo_rotated())
+        .forward(0, 0)
+        .expect("placed");
+    assert!((lat - lat0).abs() < 1e-12, "the angle is a longitude spin");
+    assert!((lon - (lon0 - 25.0)).abs() < 1e-12, "{lon} vs {lon0}");
 }
 
 /// A message can declare a spheroid that is not one — GRIB2 §3 lets it — and

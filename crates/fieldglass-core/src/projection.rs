@@ -1414,12 +1414,42 @@ impl GridGeometry {
     /// measured in the plane they define, so leaving them out of the string
     /// would move the grid by exactly them.
     ///
-    /// [`RotatedLatLon`](Self::RotatedLatLon) answers `None` even though it
-    /// places its points perfectly well. Its raster axes are degrees in the
-    /// *rotated* frame, so the CRS would have to be a PROJ `ob_tran`, whose
-    /// pole convention and output units this crate has no oracle for yet;
-    /// naming a CRS that has not been checked against PROJ is worse than
-    /// naming none, because the caller cannot tell.
+    /// [`RotatedLatLon`](Self::RotatedLatLon) is the one geographic family
+    /// whose CRS is not `+proj=longlat`: its raster axes are degrees in the
+    /// *rotated* frame, so the CRS is a PROJ `ob_tran` and the affine is
+    /// measured in that frame. Three things about the string were settled
+    /// against PROJ rather than guessed (#569), because each of them is a
+    /// convention the two sides could differ on silently:
+    ///
+    /// - **The pole.** A message states the projection's *south* pole;
+    ///   `ob_tran` takes the new *north* one, and with `+o_lon_p=0` it reads
+    ///   that pole as `(+o_lat_p, +lon_0 + 180)`. So `o_lat_p` is
+    ///   `-south_pole_lat` and `lon_0` carries `south_pole_lon`.
+    /// - **The rotation angle.** eccodes' `unrotate` — the routine
+    ///   [`forward`](Self::forward) matches for this family — applies
+    ///   `angle_of_rotation` to the *geographic* longitude it returns, after
+    ///   the rotation, which makes the whole map a function of
+    ///   `lon - (south_pole_lon - angle_of_rotation)`. `ob_tran` expresses it
+    ///   by folding it into `lon_0`, then, and not with a term of its own.
+    ///   `+o_lon_p` stays `0`: it spins the *rotated* longitudes, which is a
+    ///   different rotation from the one a message states.
+    /// - **The units.** `+o_proj=longlat` emits radians, so the degrees the
+    ///   affine is quoted in need `+to_meter=<π/180>` — a modifier none of the
+    ///   other eight families carry.
+    ///
+    /// **That last term is the one place a browser host cannot take this
+    /// string at face value.** proj4js (checked at 2.22.0) implements
+    /// `ob_tran` and agrees with PROJ to the last digit on this family's
+    /// points — but its `o_proj=longlat` plane is *already* degrees, so it
+    /// reads `+to_meter` as a second scaling and lands 28.8° away on the
+    /// COSMO-EU shape `grid_geometry_proj.golden.json` checks. A proj4js
+    /// consumer wants this string with `+to_meter` **removed** and the affine
+    /// used unchanged; a PROJ, GDAL or PROJ-in-wasm consumer wants it exactly
+    /// as emitted. There is no single string that serves both, because the two
+    /// libraries disagree about the unit of the plane rather than about where
+    /// the grid is, and PROJ is this crate's oracle (see
+    /// `tests/grid_geometry_proj.rs`). The other eight families are unaffected:
+    /// their planes are metres, and proj4js reproduces them exactly.
     pub fn proj4(&self) -> Option<String> {
         match self {
             // Geographic: the values `forward` returns are already lon/lat.
@@ -1484,9 +1514,21 @@ impl GridGeometry {
                 p.r_eq,
                 p.r_pol
             )),
-            // See the method's doc: it can place its points, but not yet name
-            // the frame they are laid out in.
-            Self::RotatedLatLon(_) => None,
+            // The rotated frame itself, as an oblique transformation of the
+            // sphere the geographic families state. See the method's doc for
+            // why the angle of rotation lands in `lon_0` and why the plane
+            // needs `+to_meter` to be degrees.
+            Self::RotatedLatLon(p) => Some(format!(
+                "+proj=ob_tran +o_proj=longlat +o_lat_p={} +o_lon_p=0 +lon_0={} \
+                 +R={DEFAULT_EARTH_RADIUS_M} +to_meter={DEG2RAD} +no_defs",
+                // Subtracted from zero rather than negated: a message stating a
+                // south pole on the equator is `-0.0` under unary minus, which
+                // `{}` writes as `-0`. PROJ reads that fine, but the string is
+                // also mirrored by `tools/gen_grid_geometry_proj_golden.py`,
+                // where Python prints the same value as `0`.
+                0.0 - p.south_pole_lat,
+                p.south_pole_lon - p.angle_of_rotation,
+            )),
             Self::Unsupported { .. } => None,
         }
     }
@@ -1501,12 +1543,11 @@ impl GridGeometry {
     /// would be re-deriving the Mercator ordinate, the false easting, and the
     /// scan-angle-to-metre factor that the CRS strings already encode.
     ///
-    /// `None` where there is no such plane: a lookup grid is a list of centres,
-    /// a rotated lat/lon grid has no CRS to be affine in (see `proj4`), and an
-    /// unmodelled family has neither. An axis with no constant step reports
-    /// `dx`/`dy` of `None` while the origin still stands — a Gaussian grid's
-    /// rows are Gauss–Legendre nodes, and a mean spacing would misplace every
-    /// row but the middle one.
+    /// `None` where there is no such plane: a lookup grid is a list of centres
+    /// and an unmodelled family has no projection at all. An axis with no
+    /// constant step reports `dx`/`dy` of `None` while the origin still
+    /// stands — a Gaussian grid's rows are Gauss–Legendre nodes, and a mean
+    /// spacing would misplace every row but the middle one.
     ///
     /// `None` also for a grid whose own projection does not resolve — a
     /// spheroid that is not one, a §3.12 scale factor of zero, a Lambert cone
@@ -1617,7 +1658,19 @@ impl GridGeometry {
                         units: PlaneUnits::Metres,
                     })
             }
-            Self::RotatedLatLon(_) | Self::Lookup(_) | Self::Unsupported { .. } => None,
+            // The lat/lon arm again, read in the rotated frame: the corners a
+            // §3.1 message states are rotated-frame degrees, and that frame is
+            // exactly the plane `proj4` names for this family. So the two are
+            // the same arithmetic on the same numbers, and a host that placed
+            // the raster with them lands where `forward` puts it.
+            Self::RotatedLatLon(p) => Some(PlaneAffine {
+                x0: p.lon_first,
+                y0: p.lat_first,
+                dx: step(eastward_lon_span(p.lon_first, p.lon_last), p.ni),
+                dy: step(p.lat_last - p.lat_first, p.nj),
+                units: PlaneUnits::Degrees,
+            }),
+            Self::Lookup(_) | Self::Unsupported { .. } => None,
         }
     }
 }

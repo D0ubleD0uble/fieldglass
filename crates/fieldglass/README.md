@@ -41,7 +41,9 @@ non-zero, making the quantum a negative power of ten — the ordinals fitting an
 **`Georef` carries both halves of the placement.** A CRS it can name (`proj4`)
 and an affine placing the raster in that CRS (`x0`, `y0`, `dx`, `dy`), in
 degrees for the geographic families and projection-plane metres for the
-projected ones. A family that cannot state something says `None` rather than
+projected ones. `axisUnits` says which, and it is the CRS that says what the
+degrees are degrees *of* — a rotated lat/lon grid reports degrees too, in its
+own rotated frame. A family that cannot state something says `None` rather than
 guessing — a Gaussian grid's rows are Gauss–Legendre nodes, so its `dy` is
 absent, and inventing a mean one would misplace every row but the middle.
 
@@ -162,10 +164,14 @@ still declines — recovering its grid needs an inverse bi-Fourier transform thi
 build does not have — and its message reports `Unsupported` with its own label
 rather than erroring, so it can still say which grid was declined.
 
-Every projected family also names a PROJ CRS and the affine placing its raster
-in it, checked against PROJ itself rather than against a golden of our own
-output. Rotated lat/lon is the exception: it places its points, but its axes
-are degrees in a rotated frame and it does not yet name that frame as a CRS.
+Every one of those families also names a PROJ CRS and the affine placing its
+raster in it, checked against PROJ itself rather than against a golden of our
+own output. Rotated lat/lon is the one whose plane is not metres: its axes are
+degrees in the rotated frame, so its CRS is a PROJ `ob_tran` and its `x0` / `y0`
+are the rotated-frame corners the message states, not longitudes and latitudes.
+It is also the one string proj4js needs edited — it puts that plane in degrees
+where PROJ puts it in radians, so a proj4js consumer drops the `+to_meter` term
+and uses the affine unchanged. `GridGeometry::proj4` documents why.
 
 Filed under
 [#460](https://github.com/D0ubleD0uble/fieldglass/issues/460) so

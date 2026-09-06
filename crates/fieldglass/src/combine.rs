@@ -232,15 +232,24 @@ fn mismatch(property: &str, a: &str, b: &str) -> Error {
 /// dump would have served better. `plane_affine` is a cheap accessor, unlike
 /// `lonlat_bbox`, which walks a projected perimeter 512 times an edge and has
 /// no business on an error path.
+///
+/// A rotated grid's corners are the one pair here that are degrees of
+/// something other than longitude and latitude, so they are labelled for the
+/// frame they are in. Two COSMO grids differing only in their declared pole
+/// then still describe alike — the accepted case above — but the string no
+/// longer reads as a geographic position the field is nowhere near.
 fn describe(g: &GridGeometry) -> String {
     let mut out = g.label().to_string();
     if let Some((ni, nj)) = g.dims() {
         out.push_str(&format!(" {ni}x{nj}"));
     }
     if let Some(a) = g.plane_affine() {
-        let units = match a.units {
-            fieldglass_core::PlaneUnits::Degrees => "deg",
-            fieldglass_core::PlaneUnits::Metres => "m",
+        let units = match (a.units, g) {
+            (fieldglass_core::PlaneUnits::Degrees, GridGeometry::RotatedLatLon(_)) => {
+                "deg (rotated frame)"
+            }
+            (fieldglass_core::PlaneUnits::Degrees, _) => "deg",
+            (fieldglass_core::PlaneUnits::Metres, _) => "m",
         };
         out.push_str(&format!(" from ({}, {}) {units}", a.x0, a.y0));
         match (a.dx, a.dy) {
@@ -653,6 +662,29 @@ mod tests {
             "healpix",
             "a family with no raster and no plane reports the name the decoder \
              gave it, and nothing more"
+        );
+    }
+
+    /// A rotated grid's corners are degrees of something other than longitude
+    /// and latitude, and this string reaches a VS Code error toast. Unlabelled
+    /// it reads as a geographic position the field is nowhere near — a COSMO
+    /// domain over Europe described as sitting at 18W, 20S.
+    #[test]
+    fn a_refusal_says_which_frame_a_rotated_grids_degrees_are_in() {
+        let rotated = GridGeometry::RotatedLatLon(fieldglass_core::RotatedLatLonParams {
+            ni: 40,
+            nj: 42,
+            lat_first: -20.0,
+            lon_first: -18.0,
+            lat_last: 21.0,
+            lon_last: 21.0,
+            south_pole_lat: -40.0,
+            south_pole_lon: 10.0,
+            angle_of_rotation: 0.0,
+        });
+        assert_eq!(
+            describe(&rotated),
+            "rotated_latlon 40x42 from (-18, -20) deg (rotated frame) by (1, 1)"
         );
     }
 

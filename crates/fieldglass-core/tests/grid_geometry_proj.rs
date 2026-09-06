@@ -16,6 +16,13 @@
 //! its say about the new numbers. Together they are the whole claim a map
 //! library consumes: which plane, and where in it the corner pixel goes.
 //!
+//! Rotated lat/lon is the one family whose plane is not metres: its raster
+//! axes are degrees in the rotated frame, so its CRS is a PROJ `ob_tran` with
+//! a `+to_meter` and its affine is the message's own rotated-frame corners.
+//! PROJ is the oracle for the same reason — the pole convention, the units,
+//! and where a stated angle of rotation lands are three conventions the two
+//! sides could differ on without either looking wrong (#569).
+//!
 //! The grids are the real ones from `grid_round_trip.rs`, for the reason
 //! recorded there: #488 hid in a synthetic fixture that never left the northern
 //! hemisphere.
@@ -32,20 +39,23 @@ const GOLDEN: &str = include_str!("grid_geometry_proj.golden.json");
 /// 0.1 mm) fails rather than passes.
 const TOL_DEG: f64 = 1e-9;
 
-/// Metres. The affine is quoted at 1e-9 m, so this is the tightest bound the
-/// golden can express; a real disagreement is a whole cell, not a nanometre.
-const TOL_M: f64 = 1e-6;
+/// The affine is quoted at 1e-9 in its own unit, so this is the tightest bound
+/// the golden can express; a real disagreement is a whole cell, not a
+/// nanometre. Both units it can be in are pinned this tightly: 1e-6 m is a
+/// micron, and 1e-6 deg is 11 cm, either of which is far below one grid cell.
+const TOL_AFFINE: f64 = 1e-6;
 
 /// Every family [`GridGeometry::proj4`] names a CRS for. Named rather than
 /// counted, because the failure this guards is a family quietly dropping out
 /// of the golden: the generator would still write a file, the test would still
 /// check hundreds of points, and nothing would be checking the projection that
 /// was removed.
-const CRS_FAMILIES: [&str; 6] = [
+const CRS_FAMILIES: [&str; 7] = [
     "lambert",
     "lambert_azimuthal",
     "mercator",
     "polar_stereo",
+    "rotated_latlon",
     "space_view",
     "transverse_mercator",
 ];
@@ -96,6 +106,10 @@ fn projected_grids_geolocate_where_proj_says() {
             got.units,
             "{name}: affine units"
         );
+        let unit = match got.units {
+            PlaneUnits::Metres => "m",
+            PlaneUnits::Degrees => "deg",
+        };
         for (label, want, got) in [
             ("x0", want["x0"].as_f64(), Some(got.x0)),
             ("y0", want["y0"].as_f64(), Some(got.y0)),
@@ -104,8 +118,8 @@ fn projected_grids_geolocate_where_proj_says() {
         ] {
             let (want, got) = (want.expect("golden affine"), got.expect("affine component"));
             assert!(
-                (want - got).abs() < TOL_M,
-                "{name}: affine {label} is {got} m, PROJ says {want} m"
+                (want - got).abs() < TOL_AFFINE,
+                "{name}: affine {label} is {got} {unit}, PROJ says {want} {unit}"
             );
         }
 
