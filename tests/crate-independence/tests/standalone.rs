@@ -12,9 +12,9 @@ use std::borrow::Cow;
 use std::cell::Cell;
 use std::path::PathBuf;
 
-// Aliased per crate rather than imported once: all three name the same type,
-// and importing it from one crate would let a re-export dropped from either of
-// the other two still compile.
+// Aliased per crate rather than imported once: they all name the same type,
+// and importing it from one crate would let a re-export dropped from any of
+// the others still compile.
 use fieldglass_grib1::{FieldglassError as Grib1Error, Grib1Reader, GridGeometry as Grib1Geometry};
 use fieldglass_grib2::{
     FieldglassError as Grib2Error, Grib2Reader, GridGeometry as Grib2Geometry, GridTemplate,
@@ -22,6 +22,7 @@ use fieldglass_grib2::{
 use fieldglass_netcdf::{
     ByteRange, ByteSource, FieldglassError as NetcdfError, NetcdfBacking, NetcdfReader, classic,
 };
+use fieldglass_zarr::{ChunkDecoder, FieldglassError as ZarrError};
 
 /// Fixtures live with the crate that owns them; this package borrows them
 /// rather than committing a second copy of a real operational field.
@@ -55,13 +56,15 @@ fn the_manifest_names_no_direct_core_dependency() {
 }
 
 #[test]
-fn the_three_crates_re_export_one_error_type() {
+fn every_format_crate_re_exports_one_error_type() {
     // Assigning across the aliases only compiles if they are the same type —
-    // three separate error enums would be an API split, not a re-export.
+    // separate error enums per crate would be an API split, not a re-export.
     let from_grib2: Grib1Error = Grib2Error::OutOfRange;
     let from_netcdf: Grib1Error = NetcdfError::OutOfRange;
+    let from_zarr: Grib1Error = ZarrError::OutOfRange;
     assert!(matches!(from_grib2, Grib1Error::OutOfRange));
     assert!(matches!(from_netcdf, Grib1Error::OutOfRange));
+    assert!(matches!(from_zarr, Grib1Error::OutOfRange));
 
     let grib2_geometry: Grib1Geometry = Grib2Geometry::Unsupported {
         label: "spherical_harmonics".into(),
@@ -329,4 +332,33 @@ fn netcdf_classic_decodes_through_a_caller_supplied_byte_source() {
     // The reader's own backing is reachable without naming a core type.
     let reader = NetcdfReader::from_bytes(bytes).expect("the fixture parses");
     assert!(matches!(reader.backing, NetcdfBacking::Classic(_)));
+}
+
+// ── Zarr ─────────────────────────────────────────────────────────────────────
+
+#[test]
+fn zarr_decodes_a_chunk_through_its_own_re_exports() {
+    // The metadata document and the chunk both come from the fixture store, so
+    // this is the whole consumer-facing path: metadata in, decoder out, chunk
+    // in, values out — with `fieldglass-zarr` as the only dependency naming it.
+    let zarray = String::from_utf8(fixture("crates/fieldglass-zarr/tests/fixtures/raw/.zarray"))
+        .expect("a .zarray is UTF-8 JSON");
+    let decoder = ChunkDecoder::from_v2_metadata(&zarray).expect("the fixture's metadata parses");
+
+    let chunk = fixture("crates/fieldglass-zarr/tests/fixtures/raw/0.0");
+    let values = decoder.decode_values(&chunk).expect("the chunk decodes");
+
+    // 2x3 chunk of the 0.5-step ramp the fixtures are built from.
+    assert_eq!(values, vec![0.0, 0.5, 1.0, 3.0, 3.5, 4.0]);
+}
+
+#[test]
+fn zarr_errors_are_matchable() {
+    let Err(refused) = ChunkDecoder::from_v2_metadata("{ not json") else {
+        panic!("malformed metadata must not parse");
+    };
+    match refused {
+        ZarrError::Parse(message) => assert!(message.contains("not JSON"), "{message}"),
+        other => panic!("expected a parse error, got {other:?}"),
+    }
 }

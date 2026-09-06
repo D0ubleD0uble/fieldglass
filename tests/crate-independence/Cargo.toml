@@ -26,3 +26,4 @@ workspace = true
 fieldglass-grib1  = { path = "../../crates/fieldglass-grib1" }
 fieldglass-grib2  = { path = "../../crates/fieldglass-grib2" }
 fieldglass-netcdf = { path = "../../crates/fieldglass-netcdf" }
+fieldglass-zarr   = { path = "../../crates/fieldglass-zarr" }

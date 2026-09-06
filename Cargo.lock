@@ -111,6 +111,7 @@ dependencies = [
  "fieldglass-grib1",
  "fieldglass-grib2",
  "fieldglass-netcdf",
+ "fieldglass-zarr",
 ]
 
 [[package]]
@@ -177,6 +178,16 @@ dependencies = [
  "serde",
  "serde-wasm-bindgen",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "fieldglass-zarr"
+version = "0.5.0"
+dependencies = [
+ "fieldglass-core",
+ "miniz_oxide 0.9.1",
+ "ruzstd",
+ "serde_json",
 ]
 
 [[package]]

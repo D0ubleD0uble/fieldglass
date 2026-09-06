@@ -375,6 +375,24 @@ class GatesThatWouldOtherwiseFailOpen(unittest.TestCase):
         self.addCleanup(fx.close)
         self.assertEqual(fx.run(), 1)
 
+    def test_a_doc_comment_naming_cfg_test_does_not_blank_the_next_item(self):
+        # Blanking keys off a line that *is* an attribute, not one that merely
+        # mentions one. Written so the item the prose would blank is the
+        # offending one: if it gets blanked the checker scans nothing and
+        # reports success, which is the gate failing open rather than loudly.
+        # One file, so the only thing that can fail is the item itself —
+        # `Fixture.clean` would keep a `reader.rs` this lib.rs never declares,
+        # and the unreachability error would mask the result either way.
+        fx = Fixture(
+            {
+                "lib.rs": "//! The encoder exists only under `#[cfg(test)]`.\n"
+                "pub fn geometry() -> fieldglass_core::GridGeometry {\n"
+                "    unimplemented!()\n}\n",
+            }
+        )
+        self.addCleanup(fx.close)
+        self.assertEqual(fx.run(), 1)
+
     def test_a_where_clause_does_not_hide_a_public_field(self):
         fx = Fixture.clean(
             **{

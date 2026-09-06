@@ -99,7 +99,12 @@ CRATES_DIR = REPO_ROOT / "crates"
 
 # The three crates the rule is about: they depend on `fieldglass-core` and are
 # meant to be usable as a downstream crate's only Fieldglass dependency.
-FORMAT_CRATES = ("fieldglass-grib1", "fieldglass-grib2", "fieldglass-netcdf")
+FORMAT_CRATES = (
+    "fieldglass-grib1",
+    "fieldglass-grib2",
+    "fieldglass-netcdf",
+    "fieldglass-zarr",
+)
 
 # Core names allowed in a public signature without a re-export, per crate, with
 # the reason. Checked in both directions: a name listed here that no longer
@@ -211,13 +216,19 @@ def masked_lines(text: str) -> list[str]:
     module, so a list with those lines removed would send a reader to a
     completely different part of the file.
 
-    Assumes the attribute sits on its own line, which rustfmt guarantees.
+    Assumes the attribute sits on its own line, which rustfmt guarantees. That
+    assumption is also load-bearing in the other direction: the line has to
+    *be* an attribute, not merely contain one. A doc comment that names
+    ``#[cfg(test)]`` in prose — "the forward direction exists only under
+    ``#[cfg(test)]``" — otherwise blanks whatever item follows the prose, and
+    an item this function blanks is an item the gate never scans. That fails
+    open, which is the one way a checker must not be wrong.
     """
     lines = text.splitlines()
     out = list(lines)
     i, n = 0, len(lines)
     while i < n:
-        if CFG_TEST_RE.search(lines[i]):
+        if lines[i].lstrip().startswith("#[") and CFG_TEST_RE.search(lines[i]):
             # Skip any further attribute lines to reach the item they gate.
             j = i + 1
             while j < n and (lines[j].strip() == "" or lines[j].lstrip().startswith("#[")):

@@ -1,0 +1,50 @@
+[package]
+name = "fieldglass-zarr"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Zarr chunk codecs — v2 filters/compressors and v3 codec chains, including blosc, sharding, and the dtype grammar. Decode only; no I/O."
+keywords = ["zarr", "blosc", "codec", "meteorology", "science"]
+categories = ["science", "parser-implementations"]
+readme = "README.md"
+# Not on crates.io yet, for the reason `fieldglass-fetchplan` is not: the
+# release process (RELEASING.md) is written around the four library crates, and
+# this one has no consumer outside the workspace until a host wires up a store
+# walker.
+publish = false
+
+[dependencies]
+# The error type, so a consumer of this crate needs no direct `fieldglass-core`
+# line in its manifest (#537). `default-features = false` for the reason every
+# format crate does it: `render`, `analysis` and `fs` have no meaning here, and
+# taking the defaults would re-enable them across the whole dependency graph.
+fieldglass-core = { path = "../fieldglass-core", version = "=0.5.0", default-features = false }
+
+# Zarr metadata is JSON in both editions — `.zarray` / `.zattrs` in v2 and
+# `zarr.json` in v3 — and the codec configuration this crate reads is a subtree
+# of it. Hand-rolling a JSON reader to save a dependency is how a parser
+# acquires its own escape bugs. `serde_json::Value` rather than `serde` derives:
+# nearly every field here is a union (`compressor` is an object or null,
+# `fill_value` a number or a string or null, a v3 codec's `configuration` is
+# absent as often as present), so the derives would be `Value` fields with a
+# struct wrapped round them.
+serde_json = { workspace = true }
+
+# DEFLATE for the `zlib` and `gzip` codecs, and for blosc's zlib-compressed
+# blocks. Already in the tree via `png` and `fieldglass-netcdf`.
+miniz_oxide = { workspace = true }
+# zstd for the `zstd` codec and for blosc's zstd-compressed blocks. Already in
+# the tree via `fieldglass-netcdf`'s HDF5 filter 32015.
+ruzstd = { workspace = true }
+
+# **No LZ4 or BloscLZ dependency.** Both are decompressed here, in `lz4.rs` and
+# `blosclz.rs`: they are the two LZ77 dialects blosc carries, each under a
+# hundred lines to reverse, and having them side by side means one set of
+# bounds and overlap-copy tests covers both. A crate for each would also be a
+# crate each for a format that only ever appears *inside* a blosc block.
+
+[lints]
+workspace = true
