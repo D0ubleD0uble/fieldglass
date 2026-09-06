@@ -1,7 +1,7 @@
 use fieldglass_core::FieldglassError;
 
 /// Section 0, the Indicator Section — the eight octets that open a message.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct IndicatorSection {
     /// Total length of the GRIB message in bytes (IS + all sections + ES).
     pub total_length: u32,

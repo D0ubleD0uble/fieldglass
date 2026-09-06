@@ -58,7 +58,7 @@ pub struct LambertAzimuthalParams {
 /// Crate-internal: the projector holds one and the module's helpers pass it
 /// around. A caller reaches the same maths through
 /// [`LambertAzimuthalProjector`].
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct LambertAzimuthalConstants {
     /// First eccentricity, and its square. Zero for a sphere, which collapses
     /// every correction below.
@@ -275,7 +275,7 @@ fn lambert_azimuthal_inverse_xy_with(
 /// Precomputed inverse map for a Lambert azimuthal equal-area grid. Owns the
 /// authalic constants and the forward-projected grid origin, both invariant
 /// across a warp's output pixels.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LambertAzimuthalProjector {
     /// The grid this projector was built for.
     pub params: LambertAzimuthalParams,

@@ -9,7 +9,7 @@ use fieldglass_core::{FieldglassError, GlobalGrid, StoredRuns, SynthesisedField}
 
 /// One message located in the file, with its sections parsed and its data
 /// section left as a byte range to decode on demand.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Grib1Message {
     /// Position of the message in the file — the index the decode entry points
     /// take.
@@ -36,7 +36,7 @@ pub struct Grib1Message {
 /// marks a bitmap-masked cell or grid point. Such a field is not a single
 /// renderable 2-D panel, which is why it has its own decode entry rather than
 /// flowing through [`Grib1Reader::decode_message_values`].
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MatrixField {
     /// Grid columns (points per row).
     pub ni: usize,
@@ -94,6 +94,10 @@ pub enum Grib1MessageKind {
 }
 
 /// A whole GRIB1 file: the bytes, and every message found by scanning them.
+// No `Clone` and no `PartialEq`, deliberately (#556). This owns the whole
+// file buffer, so a derived `Clone` would duplicate it silently at a call
+// site that reads like a cheap copy, and two readers over identical bytes
+// are not a comparison anyone needs to make. It is a handle, not a value.
 #[derive(Debug)]
 pub struct Grib1Reader {
     data: Vec<u8>,

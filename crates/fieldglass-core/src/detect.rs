@@ -4,7 +4,7 @@ use std::fs::File;
 use std::io::Read;
 
 /// What the leading bytes of a file turned out to be.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Format {
     /// WMO FM 92 GRIB edition 1.
     Grib1,

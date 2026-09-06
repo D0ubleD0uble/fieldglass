@@ -44,7 +44,7 @@ pub struct LambertParams {
 
 /// Crate-internal: the projector holds one and the module's helpers pass it
 /// around. A caller reaches the same maths through [`LambertProjector`].
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct LambertConstants {
     n: f64,
     f_const: f64,
@@ -132,7 +132,7 @@ fn lambert_inverse_xy_with(k: &LambertConstants, lov: f64, x: f64, y: f64) -> (f
 /// (`n`, `F`, `ρ₀`) and the forward-projected grid origin — both
 /// invariant across every output pixel of a warp. Build once outside
 /// the per-pixel loop; call [`Self::inverse`] inside it.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LambertProjector {
     /// The grid this projector was built for.
     pub params: LambertParams,

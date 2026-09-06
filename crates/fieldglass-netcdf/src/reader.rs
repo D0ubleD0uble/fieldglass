@@ -34,6 +34,10 @@ impl NetcdfBacking {
 
 /// Top-level reader. Always carries the raw bytes so per-variable decode can
 /// pull data on demand without re-reading the file.
+// No `Clone` and no `PartialEq`, deliberately (#556). This owns the whole
+// file buffer, so a derived `Clone` would duplicate it silently at a call
+// site that reads like a cheap copy, and two readers over identical bytes
+// are not a comparison anyone needs to make. It is a handle, not a value.
 #[derive(Debug)]
 pub struct NetcdfReader {
     /// Which on-disk layout the file turned out to be, with whatever the probe

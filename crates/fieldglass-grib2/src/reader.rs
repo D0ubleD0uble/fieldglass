@@ -145,6 +145,10 @@ pub struct MatrixField {
 
 /// Top-level reader for a GRIB2 file. Owns the underlying bytes and a
 /// per-message metadata vector populated by [`Grib2Reader::from_bytes`].
+// No `Clone` and no `PartialEq`, deliberately (#556). This owns the whole
+// file buffer, so a derived `Clone` would duplicate it silently at a call
+// site that reads like a cheap copy, and two readers over identical bytes
+// are not a comparison anyone needs to make. It is a handle, not a value.
 #[derive(Debug)]
 pub struct Grib2Reader {
     data: Vec<u8>,

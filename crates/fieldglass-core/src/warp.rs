@@ -192,7 +192,7 @@ pub struct TargetRaster {
 /// Output of a warp call. `values` holds the resampled source values
 /// row-major (length `width * height`); `mask` carries the per-pixel
 /// presence flag (1 = present, 0 = absent / off-grid / masked).
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct WarpedRaster {
     /// Resampled values, row-major from the north-west corner.
     pub values: Vec<f64>,

@@ -1,4 +1,7 @@
 /// Everything the parsing and decode surface can fail with.
+// No `Clone` and no `PartialEq` (#556), and the compiler settles it rather
+// than taste: the `Io` variant holds a `std::io::Error`, which implements
+// neither.
 #[derive(Debug, thiserror::Error)]
 pub enum FieldglassError {
     /// Reading the file failed.

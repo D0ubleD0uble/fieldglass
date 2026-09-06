@@ -2,7 +2,7 @@ use fieldglass_core::bits::{ibm_float_to_f64, sign_magnitude_i16};
 use fieldglass_core::{FieldglassError, StoredRuns};
 
 /// Header of the Binary Data Section. Does not own the packed data.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BdsHeader {
     /// Length of the section in bytes, from its own 3-octet length prefix.
     pub section_len: u32,
@@ -40,7 +40,7 @@ pub struct BdsHeader {
 /// The 3-octet header that follows the standard 11-octet BDS header on every
 /// non-spherical complex-packed section. See WMO Manual on Codes Vol I.2,
 /// "GRIB1 BDS extended flag" (mirrored in eccodes' `grib1/section.4.def`).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ComplexExtendedHeader {
     /// Octets 12-13. Byte offset (from start of BDS) to the first-order
     /// packed reference values.

@@ -57,7 +57,7 @@ pub struct GeostationaryParams {
 ///
 /// Crate-internal: the projector holds one and the module's helpers pass it
 /// around. A caller reaches the same maths through [`GeostationaryProjector`].
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct GeostationaryConstants {
     sub_lon_rad: f64,
     /// `(r_pol/r_eq)²` — folds the geodetic→geocentric latitude conversion.
@@ -118,7 +118,7 @@ fn geostationary_scan_angles(
 
 /// Precomputed inverse map for a geostationary grid. Owns the ellipsoid /
 /// sub-satellite constants, invariant across every output pixel of a warp.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GeostationaryProjector {
     /// The grid this projector was built for.
     pub params: GeostationaryParams,
