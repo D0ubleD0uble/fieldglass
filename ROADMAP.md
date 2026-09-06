@@ -129,12 +129,19 @@ The root of the milestone has landed and is on `master`, unreleased: the
 `fieldglass` umbrella crate every host binds (#464), `fieldglass-wasm` over it
 (#460), and a CI job that compiles the format crates for
 `wasm32-unknown-unknown`, gates the bundle size and benchmarks decode against
-native (#462). What is left and startable is below; the rest is in **Next**.
+native (#462). Reduced-resolution decode for JPEG 2000 fields (#463) has landed
+too, in `fieldglass-grib2`: a zoomed-out view can have a half-size raster for a
+quarter of the time. No host asks for one yet, because putting a display-only
+field on the `Session` surface is a decision about that surface rather than a
+piece of plumbing — the choice, and what it costs either way, is under *Decode
+options* in
+[`docs/architecture/planned/02-trait-seams.md`](docs/architecture/planned/02-trait-seams.md).
+
+What is left and startable is below; the rest is in **Next**.
 
 | Item | Track | Why now |
 |---|---|---|
 | `fieldglass-fetchplan`, manifests in, byte ranges out (#461) | Containers | Unblocked (#417 and #426 are closed). Turns a `.idx` sidecar into the byte ranges an operation needs, which is what makes a multi-GB archive openable without downloading it. |
-| Reduced-resolution decode for JPEG 2000 fields (#463) | Containers | Independent of the byte-access seam entirely, so it can run alongside. 5.40 carries its own resolution levels; decoding fewer is free bytes and free time. |
 
 ## Next
 
