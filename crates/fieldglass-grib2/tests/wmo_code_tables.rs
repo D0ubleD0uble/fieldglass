@@ -43,7 +43,11 @@
 //!   to pass — including §4.10 codes 4 and 8, a sign inversion in a displayed
 //!   statistic. The rule itself moved to [`wording`], because
 //!   `wmo_parameter_tables.rs` had its own identical copy and would otherwise
-//!   have kept the weakness.
+//!   have kept the weakness. What the rule *still* cannot see is counted rather
+//!   than argued: [`every_swap_this_gate_cannot_see_is_recorded`] walks every
+//!   pair of labels in every table and holds the ones that could trade places
+//!   equal to [`UNDETECTED_SWAPS`]. The hand-written version of that claim was
+//!   wrong about which pairs were left, which is why it is computed.
 //! * **A span.** WMO writes unassigned code space as one row (`18-191`), which
 //!   the snapshot generator dropped silently, so a code assigned inside a span
 //!   could never enter the snapshot and never fail the naming check. The
@@ -323,6 +327,51 @@ fn wording_survives(table: &str, code: u16, ours: &str, theirs: &str) -> bool {
             || keeps_wmos_word_order(ours, theirs))
 }
 
+/// Why a label is, or is not, acceptable for a code.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum Verdict {
+    /// It is WMO's own text, or one string contains the other — the rule that
+    /// lets `TIGGE` stand for WMO's spelt-out name, and lets ours add the unit
+    /// WMO leaves to its own column.
+    WmosText,
+    /// It is a recorded divergence the wording rule accepts as a rewrite.
+    Rewrite,
+    /// Neither.
+    No,
+}
+
+/// The whole decision [`every_curated_code_table_entry_agrees_with_wmo`] makes,
+/// in one place, and *why* it made it.
+///
+/// Lifted out so [`every_swap_this_gate_cannot_see_is_recorded`] can ask the
+/// same question about a label that is not the one the source carries, without
+/// mutating the source or restating the rule and letting the two drift. The
+/// reason comes back because the two branches have different owners: the
+/// wording rule is what #655 hardened, and containment is an older, broader
+/// weakness this file already records.
+fn verdict(table: &str, code: u16, ours: &str, expected: &str) -> Verdict {
+    let (a, b) = (normalize(ours), normalize(expected));
+    if a == b || a.contains(&b) || b.contains(&a) {
+        return Verdict::WmosText;
+    }
+    // The recorded text is the assertion: WMO must still mean what it meant
+    // when the divergence was reviewed.
+    let recorded = matches!(
+        ACCEPTED.iter().find(|&&(t, c, _)| t == table && c == code),
+        Some(&(_, _, reviewed)) if reviewed == expected
+    );
+    if recorded && wording_survives(table, code, ours, expected) {
+        Verdict::Rewrite
+    } else {
+        Verdict::No
+    }
+}
+
+/// Whether `ours` is an acceptable label for `table`/`code`.
+fn label_is_acceptable(table: &str, code: u16, ours: &str, expected: &str) -> bool {
+    verdict(table, code, ours, expected) != Verdict::No
+}
+
 fn snapshot() -> Value {
     serde_json::from_str(SNAPSHOT).expect("snapshot parses")
 }
@@ -358,8 +407,7 @@ fn every_curated_code_table_entry_agrees_with_wmo() {
                 continue;
             }
             compared += 1;
-            let (a, b) = (normalize(ours), normalize(expected));
-            if a == b || a.contains(&b) || b.contains(&a) {
+            if label_is_acceptable(table.wmo, code, ours, expected) {
                 continue;
             }
             match ACCEPTED
@@ -728,9 +776,25 @@ fn a_label_swap_inside_a_table_is_rejected() {
             6u16,
             "a 6 367 470 m sphere labelled 6 371 229 m",
         ),
-        // `IAU`, and `1965` with it, is what makes code 2 the IAU spheroid.
+        // `IAU`, and `1965` with it, is what makes code 2 the IAU spheroid;
+        // `GRS80` is what makes code 4 the IAG-GRS80 one. Both are identifiers
+        // rather than prose, which is why the rule keeps any token carrying a
+        // digit and not only pure digit runs — 3 <-> 4 and 4 <-> 7 passed
+        // while it kept only the latter, found in review.
         ("3.2", 2, 3, "the IAU 1965 spheroid labelled custom axes"),
         ("3.2", 2, 7, "the IAU 1965 spheroid labelled custom axes"),
+        (
+            "3.2",
+            3,
+            4,
+            "the IAG-GRS80 spheroid labelled custom axes, km",
+        ),
+        (
+            "3.2",
+            4,
+            7,
+            "the IAG-GRS80 spheroid labelled custom axes, m",
+        ),
         // The sharp one: opposite quantities, and a sign inversion in anything
         // that displays the statistic. Caught by the order rule.
         (
@@ -747,18 +811,150 @@ fn a_label_swap_inside_a_table_is_rejected() {
             "{table}: swapping codes {a} and {b} passes the wording rule — {why}"
         );
     }
+}
 
-    // Recorded rather than celebrated. §3.2 codes 3 and 7 read "Oblate spheroid
-    // (custom axes, km)" and "…, m)", and WMO separates them by `and` vs `or`
-    // and `(in km)` vs `(in m)`. Nothing there is a number, and no token floor
-    // that keeps `km` is defensible — `TIGGE` is a legitimate five-character
-    // label, so the floor cannot go lower on words either. The swap leaves both
-    // labels distinct, so a reader still sees two entries; what is missing is
-    // the ability to say which is which. Delete this once a rule catches it.
+/// The swaps the **wording rule** still cannot see, enumerated rather than
+/// argued.
+///
+/// [`a_label_swap_inside_a_table_is_rejected`] proves the rule catches the
+/// swaps #655 named. This is the other half, and the more useful one:
+/// [`every_swap_this_gate_cannot_see_is_recorded`] walks every pair of codes in
+/// every table and reports each pair that could trade labels with the whole
+/// suite green. Held equal to this list, so a change that opens a hole fails,
+/// and one that closes an old hole fails too until the entry comes off.
+///
+/// Written this way because the hand-written version was wrong: it claimed
+/// §3.2/3 ↔ §3.2/7 was the only pair left, and review found three more. A blind
+/// spot argued from the outside is a blind spot about blind spots.
+const UNDETECTED_SWAPS: &[(&str, u16, u16, &str)] = &[
+    (
+        "3.2",
+        3,
+        7,
+        "\"Oblate spheroid (custom axes, km)\" and \"…, m)\" differ by `km` \
+         against `m`, and WMO separates them by `and` against `or` and \
+         `(in km)` against `(in m)`. Nothing there carries a digit, and no \
+         token floor that keeps `km` is defensible — `TIGGE` is a legitimate \
+         five-character label, so the floor cannot drop on words either.",
+    ),
+    (
+        "4.5",
+        3,
+        108,
+        "\"Cloud top level\" and \"Level at specified pressure difference from \
+         ground (Pa)\" share only `level`, which a third of Table 4.5 uses. \
+         Both are heavy rewrites of long WMO text, so one generic word is all \
+         there is to compare; code 3's word-order exemption is not what opens \
+         this, because 108's single matching word cannot be out of order \
+         either way.",
+    ),
+];
+
+/// The recorded blind spots are exactly the real ones.
+///
+/// Two kinds of pair come out of this walk, and they have different owners.
+///
+/// A pair where at least one direction is accepted as a **rewrite** is the
+/// wording rule's business — the rule #655 hardened — and each is named on
+/// [`UNDETECTED_SWAPS`] with what would be needed to close it.
+///
+/// A pair where both directions are accepted because one string **contains**
+/// the other is older and broader: "Latitude/longitude" is a substring of
+/// "Rotated latitude/longitude", so §3.1 codes 0 and 1 can trade places. That
+/// rule is what lets `TIGGE` stand for WMO's spelt-out name and lets ours carry
+/// a unit WMO puts in another column, and tightening it would turn twenty
+/// ordinary labels into recorded divergences — a design decision, not a fix, so
+/// this counts them and holds the count in a band rather than pretending they
+/// are not there.
+#[test]
+fn every_swap_this_gate_cannot_see_is_recorded() {
+    let doc = snapshot();
+    let mut undetected: Vec<(&str, u16, u16)> = Vec::new();
+    let (mut pairs, mut by_containment) = (0usize, 0usize);
+    for table in TABLES {
+        let entries = doc["tables"][table.wmo]
+            .as_object()
+            .unwrap_or_else(|| panic!("table {} missing from the snapshot", table.wmo));
+        // Only codes we actually name can trade labels; an `Unknown…` answer is
+        // the naming gate's business, not this one. Sorted by code, because the
+        // snapshot's keys are strings and `"108"` sorts before `"3"`.
+        let mut named: Vec<(u16, &str, &'static str)> = entries
+            .iter()
+            .filter_map(|(code, wmo)| {
+                let code: u16 = code.parse().expect("numeric code");
+                if table.octet && code > 255 {
+                    return None;
+                }
+                let ours = (table.lookup)(code);
+                (!lookup_has_no_name(ours))
+                    .then(|| (code, wmo.as_str().expect("string meaning"), ours))
+            })
+            .collect();
+        named.sort_unstable_by_key(|&(code, _, _)| code);
+        for (i, &(a, wmo_a, ours_a)) in named.iter().enumerate() {
+            for &(b, wmo_b, ours_b) in &named[i + 1..] {
+                pairs += 1;
+                let onto_a = verdict(table.wmo, a, ours_b, wmo_a);
+                let onto_b = verdict(table.wmo, b, ours_a, wmo_b);
+                if onto_a == Verdict::No || onto_b == Verdict::No {
+                    continue;
+                }
+                if onto_a == Verdict::Rewrite || onto_b == Verdict::Rewrite {
+                    undetected.push((table.wmo, a, b));
+                } else {
+                    by_containment += 1;
+                }
+            }
+        }
+    }
+
+    println!(
+        "{pairs} label pairs tried; {} swap(s) the wording rule cannot see, \
+         {by_containment} the containment rule cannot see",
+        undetected.len()
+    );
+    // A floor on the walk itself, the same one every test in this file carries.
+    // Table 4.5 alone contributes over four thousand pairs.
     assert!(
-        wording_survives("3.2", 7, ours("3.2", 3), &wmo_text("3.2", 7))
-            && wording_survives("3.2", 3, ours("3.2", 7), &wmo_text("3.2", 3)),
-        "3.2/3 and 3.2/7 are no longer swappable — drop this recorded blind spot"
+        pairs > 4_000,
+        "only {pairs} label pairs were tried; the walk is not lining up"
+    );
+    let recorded: Vec<(&str, u16, u16)> = UNDETECTED_SWAPS
+        .iter()
+        .map(|&(t, a, b, _)| (t, a, b))
+        .collect();
+    let fresh: Vec<String> = undetected
+        .iter()
+        .filter(|p| !recorded.contains(p))
+        .map(|(t, a, b)| format!("  {t}/{a} and {t}/{b} can trade labels"))
+        .collect();
+    assert!(
+        fresh.is_empty(),
+        "{} swap(s) the wording rule cannot see are not on UNDETECTED_SWAPS — close \
+         the hole, or record it with what would fill it:\n{}",
+        fresh.len(),
+        fresh.join("\n")
+    );
+    let closed: Vec<String> = UNDETECTED_SWAPS
+        .iter()
+        .filter(|&&(t, a, b, _)| !undetected.contains(&(t, a, b)))
+        .map(|(t, a, b, why)| format!("  {t}/{a} and {t}/{b} are caught now ({why})"))
+        .collect();
+    assert!(
+        closed.is_empty(),
+        "{} recorded blind spot(s) no longer exist — drop them rather than leaving a \
+         licence nothing uses:\n{}",
+        closed.len(),
+        closed.join("\n")
+    );
+    // A band, not a ceiling: a jump means a label got broader and started
+    // swallowing its neighbours, and a collapse means the containment rule
+    // changed shape and this count stopped meaning what it means here. 62 at
+    // WMO v37.
+    assert!(
+        (50..=75).contains(&by_containment),
+        "{by_containment} swaps pass because one label contains the other; the \
+         containment rule has moved and this inventory needs re-reading"
     );
 }
 
@@ -793,7 +989,7 @@ fn every_span_wmo_publishes_is_unassigned() {
         "the tables under test and the tables with spans are not the same set"
     );
 
-    let (mut spans, mut local) = (0usize, 0usize);
+    let (mut spans, mut local, mut out_of_range) = (0usize, 0usize, 0usize);
     let mut report = Vec::new();
     let mut wrong = Vec::new();
     for table in TABLES {
@@ -839,7 +1035,16 @@ fn every_span_wmo_publishes_is_unassigned() {
                     "{}: code {code} is both a span member ({span}) and an entry",
                     table.wmo
                 );
-                if delegated || (table.octet && code > 255) {
+                if table.octet && code > 255 {
+                    // Counted, not skipped — the same rule as the sibling
+                    // test's `out_of_range`, and asserted zero below. A span
+                    // reaching above 255 in an octet table means WMO widened
+                    // it, and the codes in it would otherwise drop out of this
+                    // check with nothing to say so.
+                    out_of_range += 1;
+                    continue;
+                }
+                if delegated {
                     continue;
                 }
                 let ours = (table.lookup)(code as u16);
@@ -855,7 +1060,11 @@ fn every_span_wmo_publishes_is_unassigned() {
         report.push(format!("  {:>4}: {} span(s)", table.wmo, entries.len()));
     }
 
-    println!("WMO code-table spans:\n{}", report.join("\n"));
+    println!(
+        "WMO code-table spans ({spans} in all, {out_of_range} member(s) outside a \
+         lookup's width):\n{}",
+        report.join("\n")
+    );
     // A floor, for the same reason the sibling tests carry one: a walk that
     // lined nothing up must not be able to report agreement. Eleven tables
     // reserve 44 spans at v37.
@@ -870,6 +1079,12 @@ fn every_span_wmo_publishes_is_unassigned() {
         local >= TABLES.len(),
         "only {local} local-use span(s) of {} tables; the delegated ranges are missing",
         TABLES.len()
+    );
+    assert_eq!(
+        out_of_range, 0,
+        "{out_of_range} span member(s) sit above 255 in a table whose `u8` lookup \
+         cannot be asked about them — widen the lookup rather than leaving them \
+         permanently unreachable"
     );
     assert!(
         wrong.is_empty(),

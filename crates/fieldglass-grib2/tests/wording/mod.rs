@@ -89,16 +89,23 @@ fn substantial_words(s: &str) -> Vec<String> {
         .collect()
 }
 
-/// The numbers `s` states, as digit runs of two or more.
+/// The identifiers `s` states: tokens of two characters or more that contain a
+/// digit.
 ///
-/// Kept below the word floor on purpose. A number is an identifier, not prose:
-/// `1965` is what makes Table 3.2 code 2 the IAU spheroid and nothing else, and
-/// four characters of it are as decisive as forty of wording.
+/// Kept below the word floor on purpose. A token with a digit in it is an
+/// identifier, not prose: `1965` is what makes Table 3.2 code 2 the IAU
+/// spheroid and nothing else, and four characters of it are as decisive as
+/// forty of wording.
+///
+/// Not *pure* digit runs, which is what this kept at first. `GRS80` and
+/// `WGS84` are the whole content of two §3.2 labels and neither is all digits,
+/// so relabelling the IAG-GRS80 spheroid "custom axes, km" passed — the
+/// identifier that separated them was invisible. Found in review.
 fn numbers_in(s: &str) -> Vec<String> {
     join_digit_groups(s)
         .split(|c: char| !c.is_ascii_alphanumeric())
         .map(normalize)
-        .filter(|w| w.len() >= 2 && w.bytes().all(|b| b.is_ascii_digit()))
+        .filter(|w| w.len() >= 2 && w.bytes().any(|b| b.is_ascii_digit()))
         .collect()
 }
 

@@ -655,13 +655,15 @@ mod tests {
             "only {shadowed} generated entries were compared; the tables are not \
              lining up"
         );
-        // Most of these are the fall-through, which agrees by construction —
-        // the point is the same one the floor above makes, that a walk which
-        // resolved nothing cannot report agreement.
+        // Weaker than it looks, and weaker than the floor above: about 68 of
+        // the 99 generated entries are codes with no curated arm at all, where
+        // the lookup literally calls the generated function, so they agree by
+        // construction. What holds the curated arms is `wrong` below; this only
+        // says the generated module answered.
         assert!(
             identical > 80,
-            "only {identical} of {shadowed} agree byte for byte; the two tables are not \
-             lining up"
+            "only {identical} of {shadowed} agree byte for byte; the generated module \
+             is not answering, so agreement proves nothing"
         );
         assert!(
             wrong.is_empty(),
