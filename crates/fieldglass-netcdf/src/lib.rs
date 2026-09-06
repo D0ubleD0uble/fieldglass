@@ -57,3 +57,13 @@ pub use projection::{
     resolve_wrf_polar_stereo, unpack_cf_data, wrf_map_proj,
 };
 pub use reader::{NetcdfBacking, NetcdfReader};
+
+/// Compiles and runs the README's usage snippet as a doc test, so the crate's
+/// crates.io front page cannot drift from the API it describes (#539).
+///
+/// `#[cfg(doctest)]` is what keeps this out of every other build: rustdoc sets
+/// it when it collects doc tests and nothing else does, so the type itself is
+/// never compiled into the library.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeSnippet;

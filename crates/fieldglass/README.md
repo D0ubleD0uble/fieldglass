@@ -4,8 +4,10 @@ The host-neutral Fieldglass API: bytes in, plain data out.
 
 This is the crate a Rust consumer reaches for, and the one every host binds.
 The format crates (`fieldglass-grib1`, `-grib2`, `-netcdf`) stay independently
-usable; this one sits above them and below a binding, so a host carries only
-four things — buffer conversion, error mapping, method forwarding, packaging.
+usable; this one sits above the two GRIB editions it carries today (NetCDF
+arrives with its own issue — see "Scope of this first cut") and below a binding,
+so a host carries only four things: buffer conversion, error mapping, method
+forwarding, packaging.
 See [ADR-0006](../../docs/decisions/0006-hosts-are-bindings-over-a-plain-data-api.md).
 
 ```rust
@@ -81,9 +83,10 @@ request straight through.
 
 `Session::combine(a, b, op)` is the difference map and its siblings, and the one
 operation here that takes two fields. Its precondition is that they align cell
-for cell, which is `PartialEq` on the grid geometry plus the raster shape and
-the scan order; a mismatch is `Error::Unsupported` naming which of the three
-differs. The result is a `Field` on **A's** placement, so `warp`, `palette`,
+for cell, which is `PartialEq` on the grid geometry — with a curvilinear lookup
+grid compared by `SpatialIndex::fingerprint` instead, since a `NaN` centre makes
+one unequal to itself — plus the raster shape and the scan order; a mismatch is
+`Error::Unsupported` naming which of the three differs. The result is a `Field` on **A's** placement, so `warp`, `palette`,
 `render`, `probe` and `contours` take it like any other, and it carries A's
 `parameter` and `units` verbatim — the caption `A − B` is the host's to compose.
 `combine_ops()` is the vocabulary a Compare picker is built from, and
