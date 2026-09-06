@@ -6,7 +6,7 @@ use crate::ds::{
     DS_SECTION_NUMBER, decode_values, parse_data_section_body, undo_second_order_boustrophedonic,
 };
 use crate::gds::{
-    GDS_SECTION_NUMBER, GridDefinitionSection, GridTemplate, SCAN_ALTERNATE_ROWS,
+    GDS_SECTION_NUMBER, GridDefinitionSection, GridTemplate, HealpixTemplate, SCAN_ALTERNATE_ROWS,
     SCAN_J_CONSECUTIVE, parse_grid_definition_with_header, undo_alternate_reduced_rows,
     undo_alternate_rows,
 };
@@ -103,6 +103,21 @@ fn reject_j_consecutive(scanning_mode: u8) -> Result<(), FieldglassError> {
          bit 4) and j-consecutive point order (bit 3); this decoder regularises each on its \
          own but not the two together"
     )))
+}
+
+/// Which rasterless family a message is, and what its arm of the resolve seam
+/// needs — see [`Grib2Reader::synthesis_family`].
+///
+/// Private: the *grid* is the public answer ([`Grib2Reader::synthesis_grid`]),
+/// and a host that could match on the family would be holding the rule this
+/// exists to keep in one place.
+#[derive(Debug, Clone, Copy)]
+enum Synthesis {
+    /// §3.50 spherical-harmonic, carrying the truncation its grid comes from.
+    Spectral(u32),
+    /// §3.150 HEALPix, carrying the template the resample reads `Nside` and the
+    /// ordering off.
+    Healpix(HealpixTemplate),
 }
 
 /// A decoded `grid_simple_matrix` field (template 5.1, `matrixBitmapsPresent =
@@ -642,14 +657,33 @@ impl Grib2Reader {
     /// the field will land without paying for the transform or the resample.
     #[must_use]
     pub fn synthesis_grid(&self, message_index: usize) -> Option<GlobalGrid> {
+        Some(match self.synthesis_family(message_index)? {
+            Synthesis::Spectral(truncation) => {
+                fieldglass_core::sht::spectral_render_grid(truncation)
+            }
+            Synthesis::Healpix(t) => fieldglass_core::healpix::healpix_render_grid(t.nside),
+        })
+    }
+
+    /// Which rasterless family a message is, if any, and what each arm needs to
+    /// do its work.
+    ///
+    /// **The family list, written once.** Both public halves of the resolve
+    /// seam read this, so a family added to one and not the other is
+    /// unrepresentable rather than caught by an assertion: `synthesis_grid`
+    /// cannot answer a grid that [`synthesize_message_global`] then declines to
+    /// fill, which is the one failure a host cannot see — it would size its
+    /// render meta from a grid nothing produced. The GRIB1 seam gets the same
+    /// property from having a single arm.
+    ///
+    /// [`synthesize_message_global`]: Self::synthesize_message_global
+    fn synthesis_family(&self, message_index: usize) -> Option<Synthesis> {
         let msg = self.messages.get(message_index)?;
         if let Some(sh) = msg.gds.spherical_harmonic() {
-            return Some(fieldglass_core::sht::spectral_render_grid(sh.j));
+            return Some(Synthesis::Spectral(sh.j));
         }
         match msg.gds.template {
-            GridTemplate::Healpix(t) => {
-                Some(fieldglass_core::healpix::healpix_render_grid(t.nside))
-            }
+            GridTemplate::Healpix(t) => Some(Synthesis::Healpix(t)),
             _ => None,
         }
     }
@@ -673,59 +707,54 @@ impl Grib2Reader {
     /// # Errors
     ///
     /// Where [`synthesize_spectral_global`](Self::synthesize_spectral_global)
-    /// does for a spectral message; where
+    /// does for a spectral message, and where
     /// [`decode_message_values`](Self::decode_message_values) does for a
-    /// HEALPix one, plus [`FieldglassError::Parse`] when the decoded pixel
-    /// count is not the `12·Nside²` §3.150 declares. A message that is not a
-    /// synthesis family cannot fail here at all: it answers `Ok(None)` before
-    /// anything is decoded.
+    /// HEALPix one. A message that is not a synthesis family cannot fail here
+    /// at all: it answers `Ok(None)` before anything is decoded.
+    ///
+    /// The pixel-count mismatch [`fieldglass_core::healpix::resample_to_global`]
+    /// can report is **not** reachable through this call, and is reported
+    /// rather than unwrapped only so the arm is total:
+    /// [`decode_message_values`](Self::decode_message_values) already
+    /// cross-checks `12·Nside²` against §3's own point count, and §3.150 parsing
+    /// refuses `Nside = 0` and a non-power-of-two `Nside` under NESTED.
     ///
     /// [`decode_message_raster`]: Self::decode_message_raster
     pub fn synthesize_message_global(
         &self,
         message_index: usize,
     ) -> Result<Option<SynthesisedField>, FieldglassError> {
-        let Some(msg) = self.messages.get(message_index) else {
+        // The same list `synthesis_grid` reads, so the two cannot name
+        // different families and this has no residual arm to decline in.
+        let Some(family) = self.synthesis_family(message_index) else {
             return Ok(None);
         };
-        if msg.gds.spherical_harmonic().is_some() {
-            let (grid, values) = self.synthesize_spectral_global(message_index)?;
-            debug_assert_eq!(
-                Some(grid),
-                self.synthesis_grid(message_index),
-                "the synthesised grid disagrees with the one read from the GDS"
-            );
-            return Ok(Some((grid, values.into_iter().map(Some).collect())));
-        }
-        let GridTemplate::Healpix(t) = msg.gds.template else {
-            // Declining here and answering a grid in `synthesis_grid` would be
-            // a family added to one and not the other, which a host cannot see:
-            // it would size its meta from a grid nothing ever filled.
-            debug_assert!(
-                self.synthesis_grid(message_index).is_none(),
-                "a message with a synthesis grid declined to be synthesised"
-            );
-            return Ok(None);
+        let (grid, values) = match family {
+            Synthesis::Spectral(_) => {
+                let (grid, values) = self.synthesize_spectral_global(message_index)?;
+                (grid, values.into_iter().map(Some).collect())
+            }
+            Synthesis::Healpix(t) => {
+                let pixels = self.decode_message_values(message_index)?;
+                fieldglass_core::healpix::resample_to_global(t.nside, t.nested, &pixels)
+                    .ok_or_else(|| {
+                        FieldglassError::Parse(format!(
+                            "HEALPix field has {} values, not the 12*{}^2 its geometry declares",
+                            pixels.len(),
+                            t.nside
+                        ))
+                    })?
+            }
         };
-        let pixels = self.decode_message_values(message_index)?;
-        let (grid, values) = fieldglass_core::healpix::resample_to_global(
-            t.nside, t.nested, &pixels,
-        )
-        .ok_or_else(|| {
-            FieldglassError::Parse(format!(
-                "HEALPix field has {} values, not the 12*{}^2 its geometry declares",
-                pixels.len(),
-                t.nside
-            ))
-        })?;
-        // Two derivations of the same grid: this one from the resample,
-        // `synthesis_grid`'s from the GDS a host sizes its meta from without
-        // decoding. Unlike the spectral half this one really can fail —
-        // `healpix_render_dims` reads its argument.
+        // Two derivations of the same grid: this one from the transform or the
+        // resample, `synthesis_grid`'s from the GDS a host sizes its meta from
+        // without decoding. Neither can disagree today — the truncation and
+        // `Nside` are read off the same template both times — so this is here
+        // for the day a grid rule stops being a pure function of the GDS.
         debug_assert_eq!(
             Some(grid),
             self.synthesis_grid(message_index),
-            "the resample grid disagrees with the one read from the GDS"
+            "the synthesised grid disagrees with the one read from the GDS"
         );
         Ok(Some((grid, values)))
     }
