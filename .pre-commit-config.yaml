@@ -168,6 +168,19 @@ repos:
         entry: python3 tools/check_host_types.py
         pass_filenames: false
 
+      - id: unused-dependencies
+        name: no package declares a dependency it never names
+        language: system
+        # Cargo compiles an unused dependency and reports success, so the line
+        # survives clippy, `cargo test`, `cargo deny` and the cross-compile
+        # alike — which is how `serde` sat in all three format crates and
+        # `thiserror` in `fieldglass-grib1` (#538), in manifests published to
+        # crates.io. Manifests *and* sources are in the pattern: deleting the
+        # last `use` of a crate is the other half of the same defect.
+        files: ^(crates/.*\.(rs|toml)|tests/.*\.(rs|toml)|tools/check_unused_dependencies\.py)$
+        entry: python3 tools/check_unused_dependencies.py
+        pass_filenames: false
+
       # ── Pre-push (slower) hooks
       - id: architecture-diagrams-selftest
         name: architecture diagram checker self-test
@@ -218,6 +231,14 @@ repos:
         language: system
         files: ^tools/(check_host_types|test_check_host_types)\.py$
         entry: python3 tools/test_check_host_types.py
+        pass_filenames: false
+
+      - id: unused-dependencies-selftest
+        name: unused-dependency checker self-test
+        stages: [pre-push]
+        language: system
+        files: ^tools/(check_unused_dependencies|test_check_unused_dependencies)\.py$
+        entry: python3 tools/test_check_unused_dependencies.py
         pass_filenames: false
 
       - id: fetch-samples-selftest

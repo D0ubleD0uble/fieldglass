@@ -13,7 +13,6 @@ categories  = ["science", "parser-implementations"]
 
 [dependencies]
 fieldglass-core = { path = "../fieldglass-core", version = "=0.5.0", default-features = false }
-serde = { workspace = true }
 # DEFLATE (zlib) decode for the HDF5 deflate filter on chunked NetCDF-4 datasets.
 miniz_oxide = { workspace = true }
 # zstd decode for the HDF5 zstd filter (id 32015) on chunked NetCDF-4 datasets.

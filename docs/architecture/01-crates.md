@@ -71,6 +71,27 @@ which is how `GridGeometry` enters both GRIB crates — and asking whether every
 `fieldglass_core` name in them can be spelled from the format crate alone. Its
 `ALLOWED_UNEXPORTED` list is where an exception has to be written down.
 
+**A manifest is a claim about the crate too, and cargo checks nothing about
+it.** A declared dependency nothing uses resolves, compiles, links and reports
+success, so it passes `cargo clippy -D warnings`, `cargo test --workspace`,
+`cargo deny check` and the six-target cross-compile alike — which is how
+`serde` sat in all three format crates, and `thiserror` in `fieldglass-grib1`,
+until [#538](https://github.com/D0ubleD0uble/fieldglass/issues/538). For a
+published crate that is a statement about what it needs, made to the reader who
+audits and vendors it, and it widens the advisory and licence surface
+`cargo deny` holds the project to for nothing.
+`tools/check_unused_dependencies.py` (pre-commit) asserts that every dependency
+key of every package — including the three `fuzz/` crates and
+`fieldglass-verify`, which are their own workspaces and which no `--workspace`
+command ever sees — is spelled as an identifier in that package's own `.rs`
+files, with comments and string literals stripped first, because this repo
+names its dependencies in prose far more often than a grep can tell apart from
+a use. Its `SKIPPED` map is where an exception is written down. It deliberately
+does not check which *table* a dependency sits in: a normal dependency used
+only from `tests/` is a real cost, but `tests/crate-independence` is that shape
+on purpose, so the rule would need an exception on the only package it fires
+on.
+
 **The conformance suite is part of the API, not of any host.** ADR-0006
 decision 3 puts the fixtures and expected outputs in `fieldglass`, as data, and
 has each host run its own binding through them; `crates/fieldglass/conformance/suite.json`

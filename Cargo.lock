@@ -117,9 +117,7 @@ name = "fieldglass-grib1"
 version = "0.5.0"
 dependencies = [
  "fieldglass-core",
- "serde",
  "serde_json",
- "thiserror",
 ]
 
 [[package]]
@@ -131,7 +129,6 @@ dependencies = [
  "png",
  "rust-aec",
  "rust-j2k",
- "serde",
  "serde_json",
 ]
 
@@ -157,7 +154,6 @@ dependencies = [
  "fieldglass-core",
  "miniz_oxide 0.9.1",
  "ruzstd",
- "serde",
  "serde_json",
 ]
 

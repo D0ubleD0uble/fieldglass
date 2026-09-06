@@ -13,7 +13,6 @@ categories  = ["science", "parser-implementations"]
 
 [dependencies]
 fieldglass-core = { path = "../fieldglass-core", version = "=0.5.0", default-features = false }
-serde = { workspace = true }
 png = { workspace = true }
 rust-aec = { workspace = true }
 rust-j2k = { workspace = true }
