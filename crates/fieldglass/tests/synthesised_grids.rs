@@ -62,11 +62,15 @@ fn session(path: &str) -> Session {
 
 /// The field lands on the grid the convention states, corner for corner.
 ///
-/// The eastern corner is the assertion that matters: it must be the last
-/// longitude the field was *evaluated* at, so it is read back off
-/// [`GlobalGrid`] rather than respelled here. Declaring `360` for a grid that
-/// stops a step short makes the warp read one column twice, and nothing else in
-/// this file would notice.
+/// The eastern corner is read back off [`GlobalGrid`] rather than respelled
+/// here, so that this file states the convention once. That makes the equality
+/// below a check of the *routing* — that `Session` declares the corner the grid
+/// rule chose — and not of the rule: `lon_last()` moving would move both sides
+/// together. Whether the rule itself is right is pinned in `fieldglass-core`
+/// (`lon_last_is_bit_identical_to_the_final_longitude` and
+/// `the_other_spelling_of_the_corner_really_does_disagree`). The independent
+/// work here is the `< 360.0` assertion that follows, which catches a declared
+/// corner at the seam — the shape that makes a warp read one column twice.
 #[test]
 fn a_synthesised_field_is_an_ordinary_latlon_field_on_the_declared_grid() {
     for &(name, path, (ni, nj)) in SUBJECTS {

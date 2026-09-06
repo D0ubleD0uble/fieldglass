@@ -42,6 +42,32 @@ use crate::global_grid::{GlobalGrid, SYNTHESIS_NI, SYNTHESIS_NJ};
 /// same order as the input coefficient array, which is itself `(T+1)(T+2)`
 /// values — and an `O(T·nlon)` longitude-phase table. The largest operational
 /// spectral truncation (~T3999) is far below this cap.
+///
+/// # The cap is loose, and since #580 a browser host is behind it
+///
+/// Measured on the pinned 720×361 grid ([`spectral_render_grid`]), release
+/// build, one message:
+///
+/// | `T` | coefficients | synthesis |
+/// |---:|---:|---:|
+/// | 63 | 2,080 | 9.7 ms |
+/// | 250 | 31,626 | 51 ms |
+/// | 500 | 125,751 | 139 ms |
+/// | 1,000 | 501,501 | 602 ms |
+///
+/// The cost is `O(T²)` and `T` comes from §3, so the cap admits inputs orders
+/// of magnitude past anything operational: at the cap the coefficient array
+/// alone is ~800 MB and the recurrence table another ~800 MB, from a §7 that
+/// need only be a few megabytes at one bit per value. Until #580 that mattered
+/// only to `fieldglass-napi`, whose `render_grid` has reached the transform
+/// since 0.4.0; `fieldglass::Session::decode` refused spectral messages
+/// outright, so the browser host could not be driven into it. It can now.
+///
+/// This is the same class of amplification the decoders already accept behind a
+/// fixed ceiling (`MAX_GRID_POINTS`), recorded here rather than tightened
+/// because choosing a cost budget — what it is, which error reports it, and
+/// whether it belongs at this transform or at the `Session` seam — is a
+/// decision no caller of this constant can make on its own.
 pub const MAX_TRUNCATION: u32 = 10_000;
 
 /// Choose the global regular lat/lon grid to synthesize a spectral field onto.

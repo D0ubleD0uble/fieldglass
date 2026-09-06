@@ -50,9 +50,14 @@ abstract, and every new grid pays there:
 - Resampling is user-selected and passed through verbatim; there is no
   per-grid override. A grid that must force nearest-neighbour needs a hook and
   a greyed picker.
-- The extension's `messageIsRenderable` is `(gridNi && gridNj) || spectral`
-  and the `Ni × Nj` caption assumes a raster; each non-raster grid needs a
-  special case, as spectral already has.
+- The extension's `messageIsRenderable` is
+  `(gridNi && gridNj) || spectral || healpix` (`extension/src/provider.ts`),
+  and `metaIsReprojectable` in `extension/src/render-panel.ts` spells the same
+  two family names again; the `Ni × Nj` caption assumes a raster. Each
+  non-raster grid needs a special case in both, as spectral and HEALPix already
+  have. Rust answers the same question once now —
+  `Grib2Reader::synthesis_grid` (#580) — so those two lists are the copies left
+  to redirect when #574 deletes `MessageMeta`.
 
 Contours and long-format CSV are gated on the grid-type family, so an
 unsupported family gets the existing "not supported" path rather than wrong

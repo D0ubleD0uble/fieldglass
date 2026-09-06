@@ -50,6 +50,24 @@ fuzz_target!(|data: &[u8]| {
             let _ = reader.decode_message_values(i);
             let _ = reader.decode_matrix_message(i);
             let _ = reader.decode_bifourier_message(i);
+            // The resolve seam's cheap half (#580): reads §3 and decodes
+            // nothing, so it is total by construction and the assertion is that
+            // it stays total on a template whose fields are arbitrary.
+            let _ = reader.synthesis_grid(i);
+            // Its expensive half, on the one family whose cost is bounded by
+            // the grid rather than by the file. A HEALPix resample is capped at
+            // 720x361 by `healpix_render_dims` and its pixel count by
+            // `MAX_GRID_POINTS`; the spherical-harmonic arm is excluded for the
+            // reason `PROBE_LATS` exists, since it would evaluate the full
+            // 720x361 grid and turn a legitimate high-truncation input into a
+            // timeout.
+            if reader
+                .messages
+                .get(i)
+                .is_some_and(|m| m.gds.spherical_harmonic().is_none())
+            {
+                let _ = reader.synthesize_message_global(i);
+            }
             // Only attempt the synthesis when the coefficients themselves
             // decoded, so a failure here is a transform bug rather than a
             // re-run of the decode error above.
