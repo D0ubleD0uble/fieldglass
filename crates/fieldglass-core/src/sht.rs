@@ -625,7 +625,9 @@ mod tests {
         let Err(err) = synthesize_spherical_harmonic(&[0.0; 64 * 65], 63, &lats, &lons) else {
             panic!("a grid past the cost budget must be refused");
         };
-        assert!(err.to_string().contains("over the budget"), "{err}");
+        // `costs`, not just `over the budget`: the allocation budget refuses
+        // this grid too, and the test name says which one is under test.
+        assert!(err.to_string().contains("costs"), "{err}");
     }
 
     /// Two grids that are affordable by *time* and ruinous by *space*, which is
@@ -653,7 +655,10 @@ mod tests {
         let Err(err) = synthesize_spherical_harmonic(&[1.0, 0.0], 0, &lats, &lons) else {
             panic!("a grid past the allocation budget must be refused");
         };
-        assert!(err.to_string().contains("over the budget"), "{err}");
+        // `allocates`, not just `over the budget`: both messages end that way,
+        // and this case must be refused by the allocation budget specifically —
+        // the whole point is that the work budget admits it.
+        assert!(err.to_string().contains("allocates"), "{err}");
     }
 
     /// The control for the tests above: the pinned synthesis grid at the largest
