@@ -466,6 +466,52 @@ fn every_code_wmo_assigns_is_named() {
     );
 }
 
+/// No two codes in one table share a label.
+///
+/// The wording check accepts a label that is a substring of WMO's, which is
+/// what lets `TIGGE` stand for `THORPEX Interactive Grand Global Ensemble
+/// (TIGGE)`. The cost is that an over-broad label also passes: `Mercator` for
+/// §3.13, "Mercator with modelling subdomains definition", is a substring of
+/// WMO's text and would sail through — while colliding with §3.10, which is
+/// plainly *the* Mercator. Two codes reading the same in a metadata column is
+/// the damaging half of that, so it is checked directly. Uniqueness is a
+/// property of our own table, not of WMO's, so it needs no snapshot.
+#[test]
+fn no_two_codes_in_a_table_share_a_label() {
+    let doc = snapshot();
+    for table in TABLES {
+        let entries = doc["tables"][table.wmo]
+            .as_object()
+            .unwrap_or_else(|| panic!("table {} missing from the snapshot", table.wmo));
+        let mut seen: Vec<(u16, &'static str)> = Vec::new();
+        for code in entries.keys() {
+            let code: u16 = code.parse().expect("numeric code");
+            if table.octet && code > 255 {
+                continue;
+            }
+            let ours = (table.lookup)(code);
+            // The three catch-all answers are shared by construction.
+            if lookup_has_no_name(ours) || ours == "Missing" || ours == "Reserved for local use" {
+                continue;
+            }
+            if let Some((first, _)) = seen.iter().find(|(_, label)| *label == ours) {
+                panic!(
+                    "{}/{first} and {}/{code} both read {ours:?} — a reader cannot tell \
+                     them apart",
+                    table.wmo, table.wmo
+                );
+            }
+            seen.push((code, ours));
+        }
+        assert!(
+            seen.len() > 1,
+            "table {} contributed {} label(s), so uniqueness proves nothing",
+            table.wmo,
+            seen.len()
+        );
+    }
+}
+
 /// Each accepted divergence must still be one. An entry whose wording caught up
 /// with WMO would otherwise keep a licence it no longer needs, and the list
 /// would slowly become a place a real disagreement could hide.
