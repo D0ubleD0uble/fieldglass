@@ -133,8 +133,10 @@ impl Handle {
     /// Resample a field onto a geographic box without painting it.
     ///
     /// `options` is `{ bilinear?: boolean, bounds?: [latMin, latMax, lonMin,
-    /// lonMax] }`. Output is the source `ni × nj` until #465 lets a caller size
-    /// it.
+    /// lonMax], width?: number, height?: number }` — a window at a pixel size,
+    /// which is what a map view asks for (#465). Send `width` and `height`
+    /// together or not at all; one alone throws `invalid_option`, as does a
+    /// zero. With neither, the output is the source `ni × nj`, as before.
     pub fn warp(&self, field: &WasmField, options: JsValue) -> Result<JsValue, JsValue> {
         let options: WarpOptions = from_js(options)?;
         let out = self.session.warp(&field.field, &options).map_err(throw)?;

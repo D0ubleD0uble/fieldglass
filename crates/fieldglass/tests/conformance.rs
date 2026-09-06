@@ -154,11 +154,18 @@ fn every_error_code_is_both_listed_and_reachable() {
 /// Exactly these cases record a failure; every other one produced an answer.
 ///
 /// The five `error/…` cases exist to prove each [`fieldglass::Error`] code is
-/// reachable. The two beside them are the `degenerate` subject — a §3.20 grid
+/// reachable. The three beside them are the `degenerate` subject — a §3.20 grid
 /// stating `Dx = Dy = 0`, which decodes fine and has no extent to warp onto,
-/// which is why that fixture is in the suite. `degenerate/warp/window` is not
-/// here: a *manual* window gives the warp a box even when the grid states none,
-/// and that difference is worth having recorded.
+/// which is why that fixture is in the suite. `degenerate/warp/window` and
+/// `degenerate/warp/sized_window` are not here: a *manual* window gives the
+/// warp a box even when the grid states none, and that difference is worth
+/// having recorded.
+///
+/// `degenerate/warp/sized` is here for exactly the same reason as its two
+/// unsized siblings, and says one more thing: a caller-named output raster
+/// (#465) does not conjure a window. A size says how many pixels, never where
+/// they are, so a grid with no extent is still refused — a `size` that had been
+/// allowed to stand in for the missing window would answer here instead.
 ///
 /// `error/unsupported` is that same refusal, on purpose: since #580 no fixture
 /// in the corpus produces `unsupported` at `decode`, because both families that
@@ -168,6 +175,7 @@ fn every_error_code_is_both_listed_and_reachable() {
 const CASES_THAT_RECORD_A_FAILURE: &[&str] = &[
     "degenerate/warp/bilinear",
     "degenerate/warp/nearest",
+    "degenerate/warp/sized",
     "error/decode",
     "error/invalid_option",
     "error/no_such_message",

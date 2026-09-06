@@ -182,8 +182,10 @@ Filed under
 consumer by [#464](https://github.com/D0ubleD0uble/fieldglass/issues/464),
 which moved the render orchestration out of `fieldglass-napi`. Not on crates.io
 yet: the release process is written around the four library crates, and adding
-a fifth is its own piece of work. NetCDF, caller-sized output (#465), and
-reduced-resolution decode (#463) arrive with their own issues.
+a fifth is its own piece of work. NetCDF and reduced-resolution decode (#463)
+arrive with their own issues; caller-sized output landed in #465, so `warp` and
+the two lat/lon-box render targets take a `width`/`height` pair — a window at a
+pixel size.
 
 ## Licence
 

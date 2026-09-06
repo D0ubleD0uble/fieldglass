@@ -1447,6 +1447,24 @@ pub struct RenderOptions {
     /// case). `used_min`/`used_max` are still echoed back in true (unlogged)
     /// data units so the colorbar labels read correctly.
     pub scale_mode: Option<String>,
+    /// Output raster columns for the lat/lon-box targets (#465). `None` keeps
+    /// the size those targets derive for themselves — see `height`.
+    pub width: Option<u32>,
+    /// Output raster rows, the other half of `width`.
+    ///
+    /// Together with the four `bounds_*` fields this is what a map view or an
+    /// export asks for: *this window at W × H pixels*. Read by
+    /// `"equirectangular"` and `"web_mercator"`, and read the same way by the
+    /// render, the overlay projection, the contour projection and the pixel
+    /// probe, so all four stay on one raster and a probe still reports the cell
+    /// the render painted.
+    ///
+    /// Send both or neither: one alone is an error rather than a silent
+    /// fallback, unlike the `bounds_*` box. An explicit size is taken as given
+    /// — it bypasses the 720-pixel display floor a reprojection otherwise gets
+    /// — and it is ignored by the azimuthal and world targets, which keep the
+    /// aspect their projection fixes. Zero on either axis is refused.
+    pub height: Option<u32>,
 }
 
 /// One entry of the colormap registry, as the picker needs it.
@@ -4147,6 +4165,8 @@ fn engine_options(o: &RenderOptions) -> fieldglass::RenderOptions {
     engine.colormap = o.colormap.clone();
     engine.reverse_colormap = o.reverse_colormap;
     engine.scale_mode = o.scale_mode.clone();
+    engine.width = o.width;
+    engine.height = o.height;
     engine
 }
 
@@ -5423,6 +5443,8 @@ mod overlay_projection_tests {
             colormap: None,
             reverse_colormap: None,
             scale_mode: None,
+            width: None,
+            height: None,
         }
     }
 
@@ -5917,6 +5939,8 @@ mod netcdf_slice_tests {
             colormap: None,
             reverse_colormap: None,
             scale_mode: None,
+            width: None,
+            height: None,
         }
     }
 
@@ -7255,6 +7279,8 @@ mod space_view_geos_tests {
             colormap: None,
             reverse_colormap: None,
             scale_mode: None,
+            width: None,
+            height: None,
         };
         for (what, patch) in [
             (
@@ -7364,6 +7390,8 @@ mod planar_geolocation_tests {
             colormap: None,
             reverse_colormap: None,
             scale_mode: None,
+            width: None,
+            height: None,
         }
     }
 
@@ -8073,6 +8101,8 @@ mod reduced_grid_render_tests {
             colormap: None,
             reverse_colormap: None,
             scale_mode: None,
+            width: None,
+            height: None,
         }
     }
 
@@ -8350,6 +8380,8 @@ mod curvilinear_render_tests {
             colormap: None,
             reverse_colormap: None,
             scale_mode: None,
+            width: None,
+            height: None,
         }
     }
 

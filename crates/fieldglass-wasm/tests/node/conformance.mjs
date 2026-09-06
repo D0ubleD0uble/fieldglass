@@ -222,6 +222,11 @@ function withHandle(caseSpec, handle) {
         const out = handle.warp(field, {
           bilinear: args.bilinear ?? true,
           bounds: args.bounds ?? null,
+          // The caller's own output raster (#465). Passed through as `null`
+          // rather than omitted when the case does not name one, so this
+          // adapter states the whole option set the façade takes.
+          width: args.width ?? null,
+          height: args.height ?? null,
         });
         return {
           width: out.width,

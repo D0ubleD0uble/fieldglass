@@ -296,6 +296,8 @@ fn options(projection: &str, resampling: &str) -> RenderOptions {
         colormap: Some("viridis".to_string()),
         reverse_colormap: Some(false),
         scale_mode: Some("linear".to_string()),
+        width: None,
+        height: None,
     }
 }
 

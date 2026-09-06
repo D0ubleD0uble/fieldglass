@@ -71,8 +71,10 @@ Notes that shape the two hosts:
 - **Failure.** The wasm crate builds with `panic = "abort"`, so a decoder
   panic ends the Worker. The app treats the Worker as disposable and restarts
   it; the fuzz targets keep that rare.
-- **Sizing.** Until #465 the warp output is the source `ni × nj`; after it the
-  app asks for a window at a pixel size, which is what a map view needs.
+- **Sizing.** The warp output is the source `ni × nj` unless the caller names
+  a `width` × `height`, which is what a map view needs (#465). The size reaches
+  the overlay and contour projections and the pixel probe as well as the render,
+  so a host that sets it for one must set it for all of them.
 - **Zoom.** For 5.40 (JPEG 2000) fields #463 lets the app decode at a lower
   wavelet level when the view is coarser than the grid; the returned georef is
   derived, not the message's GDS, and the field is display-only: probe, CSV,

@@ -171,6 +171,19 @@ export interface RenderOptions {
   boundsLatMax?: number;
   boundsLonMin?: number;
   boundsLonMax?: number;
+  /** Output raster size in pixels for the warped lat/lon targets —
+   *  "equirectangular" and "web_mercator" (#465). Pass both or neither: one
+   *  alone is an error on the Rust side, unlike the bounds box, which falls
+   *  back. An explicit size is taken as given, so it bypasses the 720-pixel
+   *  display floor a reprojection otherwise gets, and the azimuthal and world
+   *  targets ignore it and keep the aspect their projection fixes.
+   *
+   *  Read by renderMessage, projectOverlay, projectContours and probePixel
+   *  alike, so a caller that sets it for one must set it for all four or the
+   *  overlays and the probe will be reading a different raster than the image.
+   *  The panel does not set it yet (#403). */
+  width?: number;
+  height?: number;
   /** Name of the colormap to paint with — one of the names `colormaps()`
    *  reports. Omitted uses the default ("viridis"). An unknown name is an
    *  error on the Rust side rather than a silent fallback. */
