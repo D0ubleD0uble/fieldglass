@@ -284,14 +284,19 @@ Open any file with a supported extension. VS Code will use Fieldglass as the def
 
 | Path | Purpose |
 |---|---|
-| `crates/fieldglass-core` | Format-agnostic traits and shared metadata types. |
+| `crates/fieldglass-core` | Format-agnostic traits and the shared types the format readers are built on. |
 | `crates/fieldglass-grib1` | GRIB1 parser, organized by section (`is.rs`, `pds.rs`, `gds.rs`, `bds.rs`) and WMO table lookups (`tables.rs`). |
 | `crates/fieldglass-grib2` | GRIB2 reader — full §0–§7 parsing, message enumeration, and value decoding for the §5 packing templates listed in the [GRIB2 packing modes](#grib2-packing-modes) table. Grid templates 3.0 / 3.1 / 3.10 / 3.12 / 3.20 / 3.30 / 3.40 / 3.140 / 3.90 / 3.50 / 3.61–3.63 / 3.150; product templates 4.0 / 4.8 / 4.11. |
 | `crates/fieldglass-netcdf` | NetCDF reader — full classic (CDF-1/2/5) header parser and value decode; HDF5 / NetCDF-4 object-tree traversal and dataset value decode (contiguous / compact / chunked, deflate + shuffle + fletcher32 + zstd). |
+| `crates/fieldglass` | The host-neutral API over the readers: open bytes, decode a field, place it on the Earth, colour it. Every host is a binding of this one ([ADR-0006](docs/decisions/0006-hosts-are-bindings-over-a-plain-data-api.md)). |
 | `crates/fieldglass-napi` | Node.js bindings exposed via napi-rs. The only crate that knows about Node. |
+| `crates/fieldglass-wasm` | wasm-bindgen façade for the browser, meant to run in a Web Worker. |
+| `crates/fieldglass-verify` | Verus proofs of the decode kernel. Outside the cargo workspace; built by `scripts/verify.sh`. |
 | `extension/` | TypeScript VS Code extension. Registers a custom read-only editor and renders a webview. |
 
-The four library crates (`fieldglass-core`, `-grib1`, `-grib2`, `-netcdf`) are published to crates.io on each stable release, so the readers can be used from Rust on their own, without the extension. `fieldglass-napi` is not published: it is a build artefact of the extension rather than a library to depend on.
+The four format crates (`fieldglass-core`, `-grib1`, `-grib2`, `-netcdf`) are published to crates.io on each stable release, so the readers can be used from Rust on their own, without the extension. `fieldglass` is the crate a Rust consumer starts from — it sits above the readers and hands back plain data — but it is not on crates.io yet, and neither is `fieldglass-wasm`. `fieldglass-napi` never will be: it is a build artefact of the extension rather than a library to depend on.
+
+The four format crates, `fieldglass` and `fieldglass-wasm` all compile for `wasm32-unknown-unknown`, and CI checks that on every pull request as well as running the decode suites on `wasm32-wasip1`, so the browser build cannot regress unnoticed. (`fieldglass-napi` does not build for wasm32 at all: it is Node's binding.) `crates/fieldglass-wasm` is that build: `./build.sh web` produces the ES module, and publishing it to npm as `@fieldglass/wasm` is [#466](https://github.com/D0ubleD0uble/fieldglass/issues/466). It carries GRIB1 and GRIB2, not NetCDF. Rendering there is values first: the colour table is decided once in Rust and handed to a GPU shader, with the CPU painter kept as the fallback and as the reference the shader is checked against. Measured bundle size and decode timings are in [`crates/fieldglass-wasm/README.md`](crates/fieldglass-wasm/README.md).
 
 ### Initial setup
 
