@@ -33,6 +33,11 @@ fieldglass-core = { path = "../fieldglass-core", version = "=0.5.0", default-fea
 # paths — and a build that never sees a GRIB1 message should not pay for them.
 fieldglass-grib1 = { path = "../fieldglass-grib1", version = "=0.5.0", optional = true }
 fieldglass-grib2 = { path = "../fieldglass-grib2", version = "=0.5.0", optional = true }
+# Optional for the reason the decoders are: a host that only decodes bytes it
+# already holds never plans a fetch, and the browser bundle is not asked to
+# carry a planner it does not call. `fetchplan` forwards `grib2`, because the
+# resolver this crate adds on top is built out of the GRIB2 parameter tables.
+fieldglass-fetchplan = { path = "../fieldglass-fetchplan", version = "=0.5.0", optional = true }
 serde = { workspace = true }
 schemars = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
@@ -41,7 +46,7 @@ serde_json = { workspace = true, optional = true }
 serde_json = { workspace = true }
 
 [features]
-default = ["grib1", "grib2", "render", "analysis", "schema", "conformance"]
+default = ["grib1", "grib2", "render", "analysis", "schema", "conformance", "fetchplan"]
 
 # --- Formats -----------------------------------------------------------------
 # One feature per decoder, all on by default, so `Session` dispatches over the
@@ -72,6 +77,23 @@ analysis = ["fieldglass-core/analysis"]
 # host's `.d.ts` is generated from. Off for the wasm host, whose bundle pays for
 # every byte and whose declarations come from wasm-bindgen.
 schema = ["dep:schemars"]
+
+# Fetch planning (#461, ADR-0005 decision 5): the manifest dialects, plus the
+# two things a pure planner is not allowed to link — a `ParameterResolver` over
+# the GRIB2 tables (#426) and the semantic half of plan verification.
+#
+# **Default for the reason `conformance` is**, and it is the same trap: `cargo
+# test --workspace` does not enable optional features, so an off-by-default
+# `fetchplan` would leave `TableResolver`, `verify_message` and
+# `tests/fetch_plan_slices_a_message.rs` uncompiled in the one command that is
+# supposed to be the gate — passing while checking nothing. Both hosts take this
+# crate with `default-features = false`, so neither the addon nor the browser
+# bundle carries a planner it does not call; the browser one names it when it
+# starts fetching.
+#
+# Forwards `grib2`, because the resolver is built out of the GRIB2 parameter
+# tables.
+fetchplan = ["dep:fieldglass-fetchplan", "grib2"]
 # The ADR-0006 decision 3 conformance suite: the cases, the recorded
 # expectations, and the comparator, so a host's own test drives its binding
 # through them (#573).

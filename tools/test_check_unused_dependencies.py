@@ -399,7 +399,7 @@ class TheRepoItselfPasses(unittest.TestCase):
         self.assertEqual(chk.main(), 0)
 
     def test_the_walk_finds_every_package(self):
-        # The floor is a smoke alarm, not the count. This is the count: eight
+        # The floor is a smoke alarm, not the count. This is the count: nine
         # crates, three `fuzz/` packages, one test harness. A new package that
         # is not being checked shows up here.
         found = {p.relative_to(chk.ROOT).as_posix() for p in chk.package_dirs(chk.ROOT)}
@@ -408,6 +408,7 @@ class TheRepoItselfPasses(unittest.TestCase):
             {
                 "crates/fieldglass",
                 "crates/fieldglass-core",
+                "crates/fieldglass-fetchplan",
                 "crates/fieldglass-grib1",
                 "crates/fieldglass-grib1/fuzz",
                 "crates/fieldglass-grib2",

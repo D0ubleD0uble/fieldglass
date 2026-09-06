@@ -18,6 +18,15 @@ pub fn lookup_discipline(discipline: u8) -> &'static str {
         4 => "Space weather products",
         10 => "Oceanographic products",
         20 => "Health and socioeconomic impacts",
+        // Not a local-use code, despite sitting above 191 in the other tables:
+        // Code Table 0.0 assigns it, and `tables_wmo.rs` carries six parameters
+        // under it (SPPT, SPP, SKEB, STC, SHUM, STTP — the stochastic
+        // perturbation fields an ensemble system writes). Missing here meant a
+        // message whose parameters resolve reported "Unknown discipline" beside
+        // them, and meant `fieldglass::fetchplan`'s reverse index skipped the
+        // whole discipline, since it scans the disciplines this table names
+        // (#461).
+        191 => "Computational parameters",
         255 => "Missing",
         _ => "Unknown discipline",
     }

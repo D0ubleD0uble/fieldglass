@@ -1,0 +1,42 @@
+[package]
+name = "fieldglass-fetchplan"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Reads cloud-native GRIB manifests (wgrib2 .idx, ECMWF .index) and returns the byte ranges a host should fetch. No I/O, no clock."
+keywords = ["grib", "meteorology", "range-request", "cloud-native"]
+categories = ["science", "parser-implementations"]
+readme = "README.md"
+# Not on crates.io yet, for the same reason `fieldglass` is not: the release
+# process (RELEASING.md) is written around the four library crates and this one
+# has no consumer outside the workspace until the browser host wires it up.
+publish = false
+
+[dependencies]
+# JSON-lines is the ECMWF `.index` dialect's whole grammar, and hand-rolling a
+# JSON reader to avoid one dependency is how a parser acquires its own escape
+# bugs. `float_roundtrip` comes from the workspace pin; nothing here parses a
+# float, so it costs this crate only what it costs `fieldglass`.
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+# The `ByteSource` seam ADR-0005 decision 2 landed in #438. A closed plan range
+# *is* a `fieldglass_core::ByteRange` — the very type `ByteSource::prefetch`
+# takes — so `PlanRange::close` returns one rather than this crate declaring a
+# second spelling of the same concept. `default-features = false` for the reason
+# the umbrella does it: `fs` has no meaning in a browser.
+fieldglass-core = { path = "../fieldglass-core", version = "=0.5.0", default-features = false }
+
+# **No format crate.** Not an omission: this crate is the planner ADR-0005
+# decision 5 describes, and a planner that linked a decoder would drag GRIB2's
+# four codecs into a host that only wanted to know which bytes to ask for.
+# Semantic matching goes through `ParameterResolver`, which `fieldglass`
+# implements over the GRIB2 tables (#426); the §0 envelope check is sixteen
+# bytes of arithmetic and needs no table at all.
+
+[lints]
+workspace = true

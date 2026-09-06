@@ -86,6 +86,7 @@ name = "fieldglass"
 version = "0.5.0"
 dependencies = [
  "fieldglass-core",
+ "fieldglass-fetchplan",
  "fieldglass-grib1",
  "fieldglass-grib2",
  "schemars",
@@ -110,6 +111,16 @@ dependencies = [
  "fieldglass-grib1",
  "fieldglass-grib2",
  "fieldglass-netcdf",
+]
+
+[[package]]
+name = "fieldglass-fetchplan"
+version = "0.5.0"
+dependencies = [
+ "fieldglass-core",
+ "serde",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]

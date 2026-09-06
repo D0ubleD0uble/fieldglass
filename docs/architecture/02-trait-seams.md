@@ -39,6 +39,43 @@ classDiagram
     ByteSource <|.. Vec
 ```
 
+## Fetch planning
+
+`Manifest` reads a cloud-native sidecar and returns the byte ranges a host
+should fetch ([ADR-0005](../decisions/0005-byte-access-and-the-remote-seam.md)
+decision 5, #461). Like `ByteSource` it does not dispatch on a code inside a
+file — it dispatches on which convention the *producer* publishes. The two GRIB
+dialects differ in what they promise rather than in what they are for: a wgrib2
+`.idx` states an offset per message and no length, so its last range is
+open-ended, while an ECMWF `.index` states both.
+
+`fieldglass-fetchplan` depends on no format crate, so resolving a sidecar's
+`TMP` / `2 m above ground` to WMO codes — which needs the NCEP table in
+`fieldglass-grib2` (#426) — is the second seam here. `NoResolver` is the
+implementer for a purely syntactic query, and is what keeps the crate testable
+without a table. `TableResolver` is the real one, in `fieldglass` under the
+`fetchplan` feature: the parameter tables answer *codes to name*, so it inverts
+them once into an index rather than scanning per record.
+
+The Zarr v2/v3 and kerchunk dialects are the same seam over chunk-grid
+arithmetic and land with the codec crate (#246), so both halves are tested
+against the same fixtures.
+
+```mermaid
+classDiagram
+    class Manifest {
+        <<trait>>
+    }
+    class ParameterResolver {
+        <<trait>>
+    }
+
+    Manifest <|.. Wgrib2Idx
+    Manifest <|.. EcmwfIndex
+    ParameterResolver <|.. NoResolver
+    ParameterResolver <|.. TableResolver
+```
+
 ## GRIB1 packing
 
 The BDS flag byte names the packing. `decoder_for` matches it to one
