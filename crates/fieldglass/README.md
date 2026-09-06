@@ -185,7 +185,7 @@ yet: the release process is written around the four library crates, and adding
 a fifth is its own piece of work. NetCDF and reduced-resolution decode (#463)
 arrive with their own issues; caller-sized output landed in #465, so `warp` and
 the two lat/lon-box render targets take a `width`/`height` pair — a window at a
-pixel size.
+pixel size, in place of whatever raster the source grid implies.
 
 ## Licence
 

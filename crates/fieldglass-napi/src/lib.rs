@@ -4014,6 +4014,20 @@ fn render_with_options(
         resolved.reverse_colormap,
         resolved.scale,
     );
+    // `Palette::paint` answers an empty buffer for a raster whose byte count
+    // this target cannot address, so a `RenderedGrid` could otherwise carry
+    // dimensions with no pixels behind them — and `new ImageData(rgba, width,
+    // height)` in the panel would throw on it. `Session::render` makes the same
+    // check for the source view; this is the warped path's, and it matters more
+    // since #465 made those dimensions the caller's rather than the file's.
+    let expected = (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|px| px.checked_mul(4));
+    if Some(rgba.len()) != expected {
+        return Err(napi::Error::from_reason(format!(
+            "a {width}×{height} RGBA raster does not fit this target's address space"
+        )));
+    }
 
     let (used_lat_min, used_lat_max, used_lon_min, used_lon_max) = match used_bounds {
         // `[lat_min, lat_max, lon_min, lon_max]`, the order every window in
@@ -9225,6 +9239,30 @@ mod sized_output_raster_tests {
         let (big, small) = (contours(sized()), contours(conus(Some((256, 192)))));
         assert!(!big.is_empty(), "CONUS should carry isolines");
         assert_eq!(big.len(), small.len(), "the same isolines, projected twice");
+        // The count alone proves nothing: the isolines are traced in grid space,
+        // so it is the same either way. What the size has to move is where they
+        // land, so the *extent* is what is compared — halving the raster halves
+        // it. Not the `inside` shape the overlay uses: contours are traced over
+        // the whole field, so vertices outside the window project outside the
+        // raster on purpose.
+        let extent = |xy: &[f64], axis: usize| {
+            xy.as_chunks::<2>()
+                .0
+                .iter()
+                .map(|p| p[axis].abs())
+                .fold(0.0_f64, f64::max)
+        };
+        for (axis, name) in [(0, "x"), (1, "y")] {
+            let (fine, half) = (extent(&big, axis), extent(&small, axis));
+            assert!(
+                half > 0.0,
+                "the contour {name} extent at half size collapsed"
+            );
+            assert!(
+                (fine / half - 2.0).abs() < 0.02,
+                "halving the raster should halve the contour {name} extent, got {fine} / {half}"
+            );
+        }
 
         // The probe reads the same raster, so a pixel inside the named size is
         // on it and one past the named width is not.

@@ -170,8 +170,11 @@ pub struct RenderOptions {
     ///   a size for any of them is not an error, the same way naming a
     ///   [`projection_preset`](Self::projection_preset) on a box target is not.
     ///
-    /// Zero on either axis, and a `width × height` that does not fit this
-    /// target's `usize`, are refused rather than allocated.
+    /// Zero on either axis, and a raster past this target's allocation ceiling
+    /// (`isize::MAX` bytes — 2 GB on wasm32, where a pixel count well inside
+    /// `u32` can still be too many bytes), are refused rather than allocated. A
+    /// raster that merely will not fit in the memory available is the caller's
+    /// own budget.
     pub height: Option<u32>,
 }
 
@@ -375,18 +378,47 @@ pub(crate) fn resolve_output_size(
             detail: format!("an output raster of {width} × {height} has no pixels"),
         });
     }
-    // `usize` is 32 bits on wasm32, the host this option exists for, so a size
-    // whose pixel count does not fit is a request this target cannot serve —
-    // caught here rather than as a capacity overflow inside the warp.
-    if (width as usize).checked_mul(height as usize).is_none() {
+    if !raster_is_allocatable(width, height, isize::MAX as u64) {
         return Err(Error::InvalidOption {
             detail: format!(
-                "an output raster of {width} × {height} has more pixels than this target can \
-                 address"
+                "an output raster of {width} × {height} is larger than this target can allocate"
             ),
         });
     }
     Ok(Some((width, height)))
+}
+
+/// Bytes the widest buffer a sized raster allocates costs per pixel: the warp's
+/// `Vec<f64>` of values. Its mask is one byte and the painter's RGBA is four, so
+/// a raster this bound admits fits every buffer on either path.
+#[cfg(feature = "render")]
+const WIDEST_RASTER_ELEMENT: u64 = size_of::<f64>() as u64;
+
+/// Whether a `width × height` raster is one Rust can allocate on a target whose
+/// allocation ceiling is `limit` bytes (`isize::MAX`, per the `Vec` contract).
+///
+/// **The pixel count is the wrong bound.** `usize` is 32 bits on wasm32 — the
+/// host this option exists for — so a count that fits `usize` there can still be
+/// eight times too many *bytes*: `16384 × 16385` is 2.7 × 10⁸ pixels, comfortably
+/// inside `u32`, and 2.1 GB of `f64`, which is past `isize::MAX` and panics with
+/// "capacity overflow" inside [`fieldglass_core::warp`]. Under the browser
+/// build's `panic = "abort"` that ends the Worker, from a number a JavaScript
+/// caller supplied.
+///
+/// Only the guaranteed-panic case is refused. A raster that merely will not fit
+/// in the memory available is the caller's own budget and is left to the
+/// allocator, which is the same deal every other buffer on this surface gets.
+///
+/// `limit` is a parameter rather than `isize::MAX` read inside, so a test can
+/// drive the branch that a 64-bit host can never reach.
+#[cfg(feature = "render")]
+fn raster_is_allocatable(width: u32, height: u32, limit: u64) -> bool {
+    // `u64` throughout: two `u32`s multiply without overflow, and the byte count
+    // then saturates rather than wrapping into a value that looks small.
+    u64::from(width)
+        .saturating_mul(u64::from(height))
+        .saturating_mul(WIDEST_RASTER_ELEMENT)
+        <= limit
 }
 
 #[cfg(feature = "render")]
@@ -716,12 +748,13 @@ type BuiltWarpTarget = (BuiltTarget, Option<LonLatBox>);
 /// 720 × 720 is not the raster the caller asked for. The azimuthal and world
 /// targets ignore it and keep the aspect their projection fixes.
 ///
-/// `ni`/`nj` are the *raster's* shape and stay separate from `geometry`, because
-/// they are not always its: a spectral message is synthesised onto a grid whose
-/// size the caller already holds. Everything else about the source — its render
-/// window, whether it closes on itself in longitude, whether its axes carry any
-/// geographic shape at all — is read off `geometry` here, so the warp, the
-/// overlay projection and the pixel probe cannot ask for it differently.
+/// `ni`/`nj` are the shape of the **source** array and stay separate from
+/// `geometry`, because they are not always its: a spectral message is
+/// synthesised onto a grid whose size the caller already holds. Everything else
+/// about the source — its render window, whether it closes on itself in
+/// longitude, whether its axes carry any geographic shape at all — is read off
+/// `geometry` here, so the warp, the overlay projection and the pixel probe
+/// cannot ask for it differently.
 ///
 /// Whether the source closes on itself in longitude
 /// ([`GridGeometry::is_periodic_x`]) is what decides whether a full-turn window
@@ -2187,12 +2220,18 @@ mod resolved_options_tests {
             Some((512, 384))
         );
 
-        for (w, h, missing) in [(Some(512), None, "height"), (None, Some(384), "width")] {
+        // The distinguishing phrase, not the bare word: both refusals mention
+        // both edges, so searching for `"height"` alone would stay green with
+        // the two arms swapped.
+        for (w, h, missing) in [
+            (Some(512), None, "with no height"),
+            (None, Some(384), "with no width"),
+        ] {
             let err = resolve_output_size(w, h).expect_err("one edge alone is not a raster");
             assert_eq!(err.code(), "invalid_option");
             assert!(
                 format!("{err}").contains(missing),
-                "the refusal should name the missing edge, got {err}"
+                "the refusal should say {missing:?}, got {err}"
             );
         }
     }
@@ -2207,24 +2246,55 @@ mod resolved_options_tests {
             assert_eq!(err.code(), "invalid_option");
         }
 
-        // `usize` is 32 bits on wasm32 — the host this option exists for — so
-        // the product is checked rather than left to overflow inside the warp.
-        // On a 64-bit host `u32::MAX²` fits and is a legitimate (if enormous)
-        // ask, so this asserts the branch by its arithmetic rather than by a
-        // size that only fails on one target.
-        let huge = u32::MAX;
-        let fits = (huge as usize).checked_mul(huge as usize).is_some();
-        assert_eq!(
-            resolve_output_size(Some(huge), Some(huge)).is_ok(),
-            fits,
-            "the pixel count is accepted exactly when it fits this target's usize"
+        // The allocation ceiling. Refused on every target, because
+        // `u32::MAX² × 8` is past `isize::MAX` on a 64-bit host too.
+        let err = resolve_output_size(Some(u32::MAX), Some(u32::MAX))
+            .expect_err("a raster of 1.8 × 10¹⁹ pixels is not one anything allocates");
+        assert_eq!(err.code(), "invalid_option");
+        assert!(
+            format!("{err}").contains("larger than this target can allocate"),
+            "got {err}"
         );
     }
 
-    /// A global lat/lon geometry, for the target-building tests below. Its own
-    /// `ni`/`nj` are irrelevant to them — `build_warp_target` takes the
-    /// raster's shape separately — so what matters is the family: not a
-    /// `Lookup`, so the box targets read `ni × nj` rather than the window.
+    /// The bound is on *bytes*, not on the pixel count, and the difference is
+    /// the whole point of it on a 32-bit target (#465).
+    ///
+    /// Driven against an injected ceiling rather than `isize::MAX`, because the
+    /// wasm32 case cannot be reached on the host the suite runs on: a raster of
+    /// 16384 × 16385 is 2.7 × 10⁸ pixels — comfortably inside `u32`, so a
+    /// pixel-count guard admits it — and 2.1 GB of `f64`, which is past
+    /// `isize::MAX` there and panics with "capacity overflow" inside the warp.
+    #[test]
+    fn the_allocation_bound_counts_bytes_not_pixels() {
+        const WASM32_CEILING: u64 = i32::MAX as u64;
+
+        assert!(
+            !raster_is_allocatable(16_384, 16_385, WASM32_CEILING),
+            "268 million pixels of f64 is 2.1 GB and does not fit a 32-bit isize"
+        );
+        // The same raster is fine where the ceiling is 64-bit, so the bound is
+        // the target's and not a blanket cap.
+        assert!(raster_is_allocatable(16_384, 16_385, isize::MAX as u64));
+
+        // Either side of the wasm32 limit, exactly: 8 bytes a pixel.
+        let last_that_fits = WASM32_CEILING / WIDEST_RASTER_ELEMENT;
+        let w = u32::try_from(last_that_fits).expect("the limit is under u32::MAX");
+        assert!(raster_is_allocatable(w, 1, WASM32_CEILING));
+        assert!(!raster_is_allocatable(w + 1, 1, WASM32_CEILING));
+
+        // A raster whose byte count overflows `u64` saturates rather than
+        // wrapping into a value that looks small enough.
+        assert!(!raster_is_allocatable(u32::MAX, u32::MAX, u64::MAX - 1));
+    }
+
+    /// A global lat/lon geometry, for the target-building tests below.
+    ///
+    /// Its own `ni`/`nj` do not set the *output* raster — `build_warp_target`
+    /// takes the source array's shape separately — though they are read, along
+    /// with the corners, by `is_periodic_x` and `render_window`. What the
+    /// dimension assertions below turn on is the family: not a `Lookup`, so the
+    /// box targets read the source shape rather than the window's.
     fn global_latlon() -> GridGeometry {
         GridGeometry::LatLon(fieldglass_core::LatLonParams {
             ni: 1440,

@@ -906,13 +906,17 @@ export function renderImagePanelHtml(
           return state;
         }
 
-        // Only projection / preset / flip-y / bounds move the overlay's pixel
-        // geometry; resampling and range do not.
+        // Only projection / preset / flip-y / bounds / output size move the
+        // overlay's pixel geometry; resampling and range do not. The size (#465)
+        // is in the list even though currentOptions() does not set one yet: this
+        // cache fails *open*, so an option that moves the raster and is missing
+        // here reuses the previous raster's runs over a differently-sized image.
         function overlayKey() {
           const o = currentOptions();
           return JSON.stringify([
             o.projection, o.projectionPreset, o.centerLat, o.centerLon, !!o.flipY,
             o.boundsLatMin, o.boundsLatMax, o.boundsLonMin, o.boundsLonMax,
+            o.width, o.height,
           ]);
         }
 
@@ -929,6 +933,7 @@ export function renderImagePanelHtml(
           return JSON.stringify([
             o.projection, o.projectionPreset, o.centerLat, o.centerLon, !!o.flipY,
             o.boundsLatMin, o.boundsLatMax, o.boundsLonMin, o.boundsLonMax,
+            o.width, o.height,
             lastPayload.usedMin, lastPayload.usedMax,
             Number.isFinite(iv) && iv > 0 ? iv : null,
             sliceFields(),

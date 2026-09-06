@@ -145,6 +145,28 @@ fn a_sized_window_puts_hrrr_and_gfs_on_the_same_raster() {
         None,
         "a pixel past the named width is off the raster"
     );
+
+    // The issue's criterion is square, and a square raster cannot tell a
+    // `width` ↔ `height` transposition from a correct one anywhere in the
+    // plumbing. A non-square one can, and does it three ways: the reported
+    // dimensions, a column past the shorter edge, and a row past it.
+    let oblong = conus(Some((640, 360)));
+    for s in [&gfs, &hrrr] {
+        let out = fieldglass::render::project(&s.source(), &s.cells, &oblong).expect("projects");
+        assert_eq!((out.width, out.height), (640, 360), "not transposed");
+        assert!(
+            fieldglass::render::probe_pixel(&s.source(), &s.cells, &oblong, 639, 0)
+                .expect("probes")
+                .is_some(),
+            "column 639 is on a 640-wide raster"
+        );
+        assert_eq!(
+            fieldglass::render::probe_pixel(&s.source(), &s.cells, &oblong, 0, 360)
+                .expect("probes"),
+            None,
+            "row 360 is off a 360-tall raster"
+        );
+    }
 }
 
 /// The size is not decorative: a different size is a different map, so the test

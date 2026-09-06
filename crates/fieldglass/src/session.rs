@@ -84,8 +84,8 @@ pub struct WarpOptions {
     /// Together with [`bounds`](Self::bounds) this is the whole of what a map
     /// view asks for: *this window at W × H pixels*. Send both or neither; one
     /// alone is an [`Error::InvalidOption`], for the reason
-    /// [`crate::RenderOptions::height`] gives. Zero on either axis, and a pixel
-    /// count that does not fit this target's `usize`, are refused rather than
+    /// [`crate::RenderOptions::height`] gives. Zero on either axis, and a raster
+    /// past this target's allocation ceiling, are refused rather than
     /// allocated.
     #[serde(default)]
     pub height: Option<u32>,
@@ -444,8 +444,9 @@ impl Session {
     /// Resample a field onto a geographic box, without painting it.
     ///
     /// This is the render pipeline split at the paint step: a GPU host wants
-    /// the resampled *values*, so restyling never re-decodes. The output is the
-    /// source `ni × nj` until #465 lets a caller size it.
+    /// the resampled *values*, so restyling never re-decodes. The output raster
+    /// is [`WarpOptions::width`] × [`WarpOptions::height`] when the caller names
+    /// one (#465), and the source `ni × nj` otherwise.
     #[cfg(feature = "render")]
     pub fn warp(&self, field: &Field, options: &WarpOptions) -> Result<Warped, Error> {
         warp_field(field, options)
