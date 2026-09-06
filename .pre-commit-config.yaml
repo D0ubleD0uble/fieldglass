@@ -46,7 +46,7 @@ repos:
         # format crate that reaches into a gated `warp`/`overlay`/`colormap`
         # symbol fails here — a `--workspace` build would hide it, since napi's
         # `render` request unifies the feature back on for everyone.
-        entry: cargo clippy -p fieldglass-grib1 -p fieldglass-grib2 -p fieldglass-netcdf --all-targets -- -D warnings
+        entry: cargo clippy -p fieldglass-grib1 -p fieldglass-grib2 -p fieldglass-netcdf -p fieldglass-zarr --all-targets -- -D warnings
         pass_filenames: false
 
       - id: cargo-clippy-format-crates-parsing-only
@@ -63,7 +63,7 @@ repos:
         # no test target, so no dev-dependency feature is unified in, and the
         # three libraries are held to the parsing surface their crate docs
         # claim (#551).
-        entry: cargo clippy -p fieldglass-grib1 -p fieldglass-grib2 -p fieldglass-netcdf --lib -- -D warnings
+        entry: cargo clippy -p fieldglass-grib1 -p fieldglass-grib2 -p fieldglass-netcdf -p fieldglass-zarr --lib -- -D warnings
         pass_filenames: false
 
       - id: cargo-clippy-umbrella-features
@@ -153,7 +153,7 @@ repos:
         # `tests/crate-independence` catches a re-export that is deleted; this
         # catches one that is never written, which compiles fine and costs a
         # consumer a `fieldglass-core` line in their own manifest.
-        files: ^(crates/fieldglass-(grib1|grib2|netcdf)/src/.*\.rs|tools/check_format_crate_reexports\.py)$
+        files: ^(crates/fieldglass-(grib1|grib2|netcdf|zarr)/src/.*\.rs|tools/check_format_crate_reexports\.py)$
         entry: python3 tools/check_format_crate_reexports.py
         pass_filenames: false
 
@@ -357,7 +357,7 @@ repos:
         # "skipping", and still exit zero. So the output is matched for a line
         # reporting a decoded raster, which only the non-skip branch prints.
         entry: >-
-          bash -c 'set -e; for c in fieldglass-grib1 fieldglass-grib2 fieldglass-netcdf; do
+          bash -c 'set -e; for c in fieldglass-grib1 fieldglass-grib2 fieldglass-netcdf fieldglass-zarr; do
           echo "--- cargo run -p $c --example decode";
           out=$(cargo run -q -p "$c" --example decode); echo "$out";
           echo "$out" | grep -q "in the raster\|value(s)";

@@ -111,6 +111,7 @@ dependencies = [
  "fieldglass-grib1",
  "fieldglass-grib2",
  "fieldglass-netcdf",
+ "fieldglass-zarr",
 ]
 
 [[package]]

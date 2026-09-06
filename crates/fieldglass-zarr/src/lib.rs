@@ -77,7 +77,6 @@ pub mod shard;
 pub mod shuffle;
 pub mod zstd;
 
-use fieldglass_core::FieldglassError as CoreError;
 use serde_json::Value;
 
 pub use codec::{Codec, CodecChain};
@@ -109,19 +108,19 @@ impl ChunkDecoder {
     /// every array the same way whichever order it was written in. It is the
     /// same operation as a v3 `transpose` with the axes reversed, and is
     /// carried as one.
-    pub fn from_v2_metadata(json: &str) -> Result<Self, CoreError> {
+    pub fn from_v2_metadata(json: &str) -> Result<Self, FieldglassError> {
         let meta: Value = serde_json::from_str(json)
-            .map_err(|e| CoreError::Parse(format!("Zarr v2 .zarray is not JSON: {e}")))?;
+            .map_err(|e| FieldglassError::Parse(format!("Zarr v2 .zarray is not JSON: {e}")))?;
         if let Some(format) = meta.get("zarr_format").and_then(Value::as_u64)
             && format != 2
         {
-            return Err(CoreError::Parse(format!(
+            return Err(FieldglassError::Parse(format!(
                 "this document states zarr_format {format}, not 2"
             )));
         }
         let dtype =
             DType::parse_v2(meta.get("dtype").and_then(Value::as_str).ok_or_else(|| {
-                CoreError::Parse("Zarr v2 .zarray states no `dtype`".to_string())
+                FieldglassError::Parse("Zarr v2 .zarray states no `dtype`".to_string())
             })?)?;
         let chunk_shape = shard::read_shape(meta.get("chunks"), "Zarr v2 `chunks`")?;
 
@@ -134,7 +133,7 @@ impl ChunkDecoder {
                 order: (0..chunk_shape.len()).rev().collect(),
             }),
             Some(other) => {
-                return Err(CoreError::Parse(format!(
+                return Err(FieldglassError::Parse(format!(
                     "Zarr v2 .zarray states order {other:?}, which is neither C nor F"
                 )));
             }
@@ -151,39 +150,39 @@ impl ChunkDecoder {
     }
 
     /// Read a Zarr v3 `zarr.json` document for an array.
-    pub fn from_v3_metadata(json: &str) -> Result<Self, CoreError> {
+    pub fn from_v3_metadata(json: &str) -> Result<Self, FieldglassError> {
         let meta: Value = serde_json::from_str(json)
-            .map_err(|e| CoreError::Parse(format!("Zarr v3 zarr.json is not JSON: {e}")))?;
+            .map_err(|e| FieldglassError::Parse(format!("Zarr v3 zarr.json is not JSON: {e}")))?;
         if let Some(format) = meta.get("zarr_format").and_then(Value::as_u64)
             && format != 3
         {
-            return Err(CoreError::Parse(format!(
+            return Err(FieldglassError::Parse(format!(
                 "this document states zarr_format {format}, not 3"
             )));
         }
         if let Some(node) = meta.get("node_type").and_then(Value::as_str)
             && node != "array"
         {
-            return Err(CoreError::WrongLayout(format!(
+            return Err(FieldglassError::WrongLayout(format!(
                 "this zarr.json describes a {node}, not an array"
             )));
         }
         let dtype = DType::parse_v3(meta.get("data_type").and_then(Value::as_str).ok_or_else(
-            || CoreError::Parse("Zarr v3 zarr.json states no `data_type`".to_string()),
+            || FieldglassError::Parse("Zarr v3 zarr.json states no `data_type`".to_string()),
         )?)?;
 
         let grid = meta.get("chunk_grid").ok_or_else(|| {
-            CoreError::Parse("Zarr v3 zarr.json states no `chunk_grid`".to_string())
+            FieldglassError::Parse("Zarr v3 zarr.json states no `chunk_grid`".to_string())
         })?;
         match grid.get("name").and_then(Value::as_str) {
             Some("regular") => {}
             Some(other) => {
-                return Err(CoreError::UnsupportedSection(format!(
+                return Err(FieldglassError::UnsupportedSection(format!(
                     "Zarr v3 chunk grid {other:?} is not decoded (only `regular` is)"
                 )));
             }
             None => {
-                return Err(CoreError::Parse(
+                return Err(FieldglassError::Parse(
                     "Zarr v3 `chunk_grid` states no name".to_string(),
                 ));
             }
@@ -195,7 +194,7 @@ impl ChunkDecoder {
 
         let chain = CodecChain::from_v3(
             meta.get("codecs").ok_or_else(|| {
-                CoreError::Parse("Zarr v3 zarr.json states no `codecs`".to_string())
+                FieldglassError::Parse("Zarr v3 zarr.json states no `codecs`".to_string())
             })?,
             dtype,
         )?;
@@ -205,7 +204,7 @@ impl ChunkDecoder {
         // which is what makes it a bad default.
         let dtype = match (dtype.size > 1, chain.declared_endian()) {
             (true, None) => {
-                return Err(CoreError::Parse(
+                return Err(FieldglassError::Parse(
                     "a Zarr v3 array of a multi-byte type states no `bytes` codec, so \
                      nothing states the byte order its elements were written in"
                         .to_string(),
@@ -254,12 +253,12 @@ impl ChunkDecoder {
     }
 
     /// How many bytes one whole chunk decodes to.
-    fn chunk_bytes(&self) -> Result<usize, CoreError> {
+    fn chunk_bytes(&self) -> Result<usize, FieldglassError> {
         self.chunk_shape
             .iter()
             .try_fold(self.dtype.size, |acc, &n| acc.checked_mul(n))
             .ok_or_else(|| {
-                CoreError::Parse(format!(
+                FieldglassError::Parse(format!(
                     "a chunk of {:?} {}-byte elements overflows an address",
                     self.chunk_shape, self.dtype.size
                 ))
@@ -270,7 +269,7 @@ impl ChunkDecoder {
     ///
     /// The bytes are in the array's stored byte order; [`Self::dtype`] says
     /// which. Use [`Self::decode_values`] to get numbers.
-    pub fn decode(&self, stored: &[u8]) -> Result<Vec<u8>, CoreError> {
+    pub fn decode(&self, stored: &[u8]) -> Result<Vec<u8>, FieldglassError> {
         self.chain.decode(
             stored,
             self.chunk_bytes()?,
@@ -280,7 +279,7 @@ impl ChunkDecoder {
     }
 
     /// Decode one stored chunk to numbers, in C order.
-    pub fn decode_values(&self, stored: &[u8]) -> Result<Vec<f64>, CoreError> {
+    pub fn decode_values(&self, stored: &[u8]) -> Result<Vec<f64>, FieldglassError> {
         self.dtype.read_values(&self.decode(stored)?)
     }
 
@@ -296,9 +295,9 @@ impl ChunkDecoder {
     /// is a chunk and goes through [`Self::decode`]. Each returned chunk is
     /// raw element bytes in C order, or `None` where the shard holds nothing
     /// and [`Self::fill_value`] stands in.
-    pub fn decode_shard(&self, stored: &[u8]) -> Result<Shard, CoreError> {
+    pub fn decode_shard(&self, stored: &[u8]) -> Result<Shard, FieldglassError> {
         let sharding = self.chain.sharding().ok_or_else(|| {
-            CoreError::WrongLayout(
+            FieldglassError::WrongLayout(
                 "this array's chunks are not shards; decode them with `decode`".to_string(),
             )
         })?;
