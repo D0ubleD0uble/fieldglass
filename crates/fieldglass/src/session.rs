@@ -825,7 +825,7 @@ fn grib2_message(reader: &fieldglass_grib2::Grib2Reader, index: usize) -> Messag
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "grib2", feature = "render", feature = "analysis"))]
 mod tests {
     use super::*;
     use fieldglass_core::{LatLonParams, RotatedLatLonParams, projection::GridGeometry};
@@ -992,5 +992,61 @@ mod tests {
             "the bounded march must draw fewer segments than the unwrapped one, \
              or this test cannot tell them apart: {bounded} vs {unwrapped}"
         );
+    }
+}
+
+/// The refusal a build gets for a container it can recognise but not decode.
+///
+/// One module per format feature, each compiled only when that feature is
+/// *off*, so between them they cover every partial build the
+/// `cargo-clippy-umbrella-features` hook constructs — and they run rather than
+/// only compile, because that hook's sibling runs `cargo test --lib` over the
+/// same sets. Under default features neither module exists, which is why the
+/// assertion lives here and not in `tests/`: no integration test can observe a
+/// dispatch arm the build it runs in compiled out (#552).
+#[cfg(all(test, not(feature = "grib1")))]
+mod grib1_compiled_out {
+    use super::*;
+
+    #[test]
+    fn a_grib1_message_is_refused_as_grib1_and_not_as_unknown_bytes() {
+        // A minimal GRIB1 message: "GRIB", a 3-byte total length, edition 1.
+        // Detection reads the magic and the edition byte and nothing else, so
+        // this is enough to reach the dispatch arm under test.
+        let mut bytes = b"GRIB".to_vec();
+        bytes.extend_from_slice(&[0, 0, 8, 1]);
+        match Session::open(bytes) {
+            Err(Error::UnsupportedFormat { detail }) => {
+                assert!(
+                    detail.contains("GRIB1") && detail.contains("grib1"),
+                    "the refusal must name the container and the feature that \
+                     would decode it, not just decline: {detail}"
+                );
+            }
+            other => panic!("expected an UnsupportedFormat naming GRIB1, got {other:?}"),
+        }
+    }
+}
+
+/// The `grib2` half of [`grib1_compiled_out`].
+#[cfg(all(test, not(feature = "grib2")))]
+mod grib2_compiled_out {
+    use super::*;
+
+    #[test]
+    fn a_grib2_message_is_refused_as_grib2_and_not_as_unknown_bytes() {
+        // "GRIB", three reserved bytes, discipline 0, then edition 2.
+        let mut bytes = b"GRIB".to_vec();
+        bytes.extend_from_slice(&[0, 0, 0, 2]);
+        match Session::open(bytes) {
+            Err(Error::UnsupportedFormat { detail }) => {
+                assert!(
+                    detail.contains("GRIB2") && detail.contains("grib2"),
+                    "the refusal must name the container and the feature that \
+                     would decode it, not just decline: {detail}"
+                );
+            }
+            other => panic!("expected an UnsupportedFormat naming GRIB2, got {other:?}"),
+        }
     }
 }

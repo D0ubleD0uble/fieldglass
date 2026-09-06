@@ -67,23 +67,32 @@ repos:
         pass_filenames: false
 
       - id: cargo-clippy-umbrella-features
-        name: cargo clippy (fieldglass, one feature set per host shape)
+        name: cargo clippy + test (fieldglass, one feature set per host shape)
         language: system
         types: [rust]
         # The umbrella's own gated builds (#552). Four sets, each a shape a real
-        # consumer asks for: one decoder and nothing else; the browser's
-        # values-first pair without the painter; the painter without the
-        # values-first operations; and the decode-only build with neither
-        # surface. `--lib` for the reason the hook above gives — the umbrella's
+        # consumer asks for: one decoder and nothing else; a values-first host
+        # without the painter; the painter without the values-first operations;
+        # and the decode-only build with neither surface.
+        #
+        # `--lib` for the reason the hook above gives — the umbrella's
         # integration tests read GRIB fixtures from both editions and call the
         # render and analysis surfaces, so building them would unify every
         # feature back on and check nothing. `--workspace` cannot see any of
         # this either: `fieldglass-napi` asks for all four, so the resolver
         # turns them on for everyone in that invocation.
+        #
+        # `cargo test --lib` and not only clippy, because "it compiles" is the
+        # weaker claim. The refusal a partial build hands back for a container
+        # it cannot decode exists *only* in that build, so no test run under
+        # default features can reach it; `session::grib1_compiled_out` and its
+        # `grib2` twin are compiled by exactly the sets below and are what makes
+        # this hook check behaviour rather than syntax.
         entry: >-
           bash -c 'set -e; for f in grib2 grib1 grib2,analysis grib1,render; do
           echo "--- fieldglass --no-default-features --features $f";
           cargo clippy -p fieldglass --no-default-features --features "$f" --lib -- -D warnings;
+          cargo test -p fieldglass --no-default-features --features "$f" --lib;
           done'
         pass_filenames: false
 

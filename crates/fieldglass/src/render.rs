@@ -1789,7 +1789,7 @@ impl crate::Session {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "render"))]
 mod resolved_options_tests {
     use super::*;
 
@@ -2214,7 +2214,7 @@ mod resolved_options_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "render", feature = "analysis"))]
 mod forward_geolocation_tests {
     use super::*;
     use fieldglass_core::LatLonParams;
@@ -2307,7 +2307,7 @@ mod forward_geolocation_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "render", feature = "analysis"))]
 mod warp_target_tests {
     use super::*;
     use fieldglass_core::{
@@ -3023,7 +3023,13 @@ mod warp_target_tests {
         );
     }
 }
-#[cfg(test)]
+#[cfg(all(
+    test,
+    feature = "grib1",
+    feature = "grib2",
+    feature = "render",
+    feature = "analysis"
+))]
 mod planar_geolocation_tests {
     use super::*;
     use fieldglass_core::{
