@@ -169,6 +169,8 @@ fn render_options(args: &Args) -> RenderOptions {
         colormap: args.colormap.clone(),
         reverse_colormap: args.reversed,
         scale_mode: args.scale.clone(),
+        width: None,
+        height: None,
     }
 }
 

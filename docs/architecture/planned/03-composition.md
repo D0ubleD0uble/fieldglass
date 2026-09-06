@@ -312,8 +312,15 @@ classDiagram
     DisplayField *-- Georef
 ```
 
-`RenderedGrid` / `TargetRaster` gain caller-controlled `width` × `height` for
-the box targets (#465); the default stays the source `ni × nj`.
+`RenderOptions` and `WarpOptions` carry a caller-controlled `width` × `height`
+for the box targets (#465, landed). Unnamed, `warp` stays at the source
+`ni × nj` and the render targets keep the sizing they derive — that shape floored
+to a 720-pixel long edge (#514), or the window's shape for a coordinate-lookup
+grid (#515). The azimuthal and world targets keep the aspect their projection
+fixes and ignore the pair, as does `"source"`. The
+extension does not set it yet — exporting a figure at a chosen size is #403, the
+consumer half, which also has to re-project the overlays and re-extract the
+contours at the export size rather than upscale a bitmap.
 
 Colour exists once. `Palette` is what the CPU painter already builds
 internally (a 256-entry LUT plus the scale rule), extracted as an API type.

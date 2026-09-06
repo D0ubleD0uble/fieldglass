@@ -153,6 +153,11 @@ pub struct Args {
     pub bilinear: Option<bool>,
     /// [`WarpOptions::bounds`], and the render window of nothing else.
     pub bounds: Option<[f64; 4]>,
+    /// [`WarpOptions::width`] — the caller's output raster (#465), read only by
+    /// [`Op::Warp`].
+    pub width: Option<u32>,
+    /// [`WarpOptions::height`], the other half of [`Args::width`].
+    pub height: Option<u32>,
     /// [`PaletteOptions::colormap`].
     pub colormap: Option<String>,
     /// [`PaletteOptions::reversed`].
@@ -385,6 +390,37 @@ pub fn cases() -> Vec<Case> {
             Args {
                 bilinear: Some(true),
                 bounds: Some([-20.0, 40.0, -30.0, 60.0]),
+                ..Args::default()
+            },
+        );
+        // The caller's own raster (#465). Two cases, because the two halves of
+        // "this window at W × H pixels" fail differently: a size alone proves
+        // the raster is the caller's rather than the source's, and a size with
+        // a window proves the two compose — a host that applied one and dropped
+        // the other would still match the case above.
+        //
+        // Non-square, and neither edge a multiple of the source's, so a host
+        // that quietly kept `ni × nj`, or scaled one axis and not the other,
+        // reports different dimensions and different samples rather than the
+        // same ones by luck.
+        push(
+            "warp/sized",
+            Op::Warp,
+            Args {
+                bilinear: Some(true),
+                width: Some(37),
+                height: Some(23),
+                ..Args::default()
+            },
+        );
+        push(
+            "warp/sized_window",
+            Op::Warp,
+            Args {
+                bilinear: Some(true),
+                bounds: Some([-20.0, 40.0, -30.0, 60.0]),
+                width: Some(37),
+                height: Some(23),
                 ..Args::default()
             },
         );
@@ -776,6 +812,8 @@ fn run(bytes: &[u8], case: &Case) -> Result<Value, Error> {
             let options = WarpOptions {
                 bilinear: case.args.bilinear.unwrap_or(true),
                 bounds: case.args.bounds,
+                width: case.args.width,
+                height: case.args.height,
             };
             let warped = session.warp(&field, &options)?;
             let samples: Vec<Value> = sample_indices(warped.values.len())

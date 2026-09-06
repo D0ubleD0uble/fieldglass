@@ -148,7 +148,6 @@ reachable. Nothing below waits on #460 any more; the transports wait on #461 in
 | Item | Track | What it unlocks |
 |---|---|---|
 | Publish `@fieldglass/wasm` to npm on tag (#466) | Hosts | Makes the host installable rather than buildable. Rides the existing tag-triggered release path. |
-| Caller-controlled output raster, window × size (#465) | Interaction | A map view asks for "this window at W × H pixels". Today the output is always the source grid's `ni × nj` and manual bounds is the only zoom, which is why the browser app cannot drive a real map. Absorbed #403, exporting at a chosen size, which needs the same option. |
 | Remote data over HTTP range requests (#247) | Containers | The first transport, and the one every other depends on. Opens a file that lives on a public bucket without downloading it. |
 | S3 dataset access (#252) | Containers | NOAA's Open Data buckets are where the archives actually are — the same objects the fixture builders already fetch anonymously. |
 | Local Zarr v2 stores, a new `fieldglass-zarr` crate (#246) | Containers | The storage convention the climate archives are moving to; chunk-per-object rather than one file, so it needs the range seam rather than a reader. |

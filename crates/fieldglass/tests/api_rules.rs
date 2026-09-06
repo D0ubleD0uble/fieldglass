@@ -328,7 +328,10 @@ fn every_wire_type_round_trips_through_json() {
     round_trip::<Raster>("Raster", r#"{"rgba":[1,2,3,4],"width":1,"height":1}"#);
     round_trip::<Error>("Error", r#"{"code":"no_such_message","index":1,"count":0}"#);
     round_trip::<DecodeOptions>("DecodeOptions", r#"{"dtype":"f64"}"#);
-    round_trip::<WarpOptions>("WarpOptions", r#"{"bilinear":true,"bounds":null}"#);
+    round_trip::<WarpOptions>(
+        "WarpOptions",
+        r#"{"bilinear":true,"bounds":null,"width":512,"height":384}"#,
+    );
     round_trip::<PaletteOptions>(
         "PaletteOptions",
         r#"{"colormap":"viridis","reversed":false,"min":null,"max":null,"scale":null}"#,
@@ -361,8 +364,10 @@ const FIELD_JSON: &str = r#"{"values":{"dtype":"f32","data":[1.0,2.0,3.0,4.0]},"
 /// only in its absent form.
 const MESSAGE_INFO_JSON: &str = r#"{"index":0,"offsetBytes":0,"parameter":"Temperature","abbreviation":"2t","units":"K","level":"2 m above ground","levelType":"heightAboveGround","referenceTime":"2026-01-01T00:00:00Z","forecast":"+6h","packing":"grid_simple","grid":GEOREF,"sizeLabel":"N32"}"#;
 
-/// A `RenderOptions` with every field stated.
-const RENDER_OPTIONS_JSON: &str = r#"{"projection":"equirectangular","projectionPreset":"atlantic","centerLat":0.0,"centerLon":0.0,"resampling":"bilinear","flipY":false,"rangeMin":null,"rangeMax":null,"boundsLatMin":null,"boundsLatMax":null,"boundsLonMin":null,"boundsLonMax":null,"colormap":"viridis","reverseColormap":false,"scaleMode":"linear"}"#;
+/// A `RenderOptions` with every field stated. `width`/`height` carry real
+/// numbers rather than `null`, so the document pins them as JSON *integers*: a
+/// host reading `512.0` where the schema says `u32` is the drift this catches.
+const RENDER_OPTIONS_JSON: &str = r#"{"projection":"equirectangular","projectionPreset":"atlantic","centerLat":0.0,"centerLon":0.0,"resampling":"bilinear","flipY":false,"rangeMin":null,"rangeMax":null,"boundsLatMin":null,"boundsLatMax":null,"boundsLonMin":null,"boundsLonMax":null,"colormap":"viridis","reverseColormap":false,"scaleMode":"linear","width":512,"height":384}"#;
 
 /// The wire types the round-trip test covers, so it can be held to the
 /// classification rather than to whoever last edited the list.

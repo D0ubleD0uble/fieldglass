@@ -1447,6 +1447,25 @@ pub struct RenderOptions {
     /// case). `used_min`/`used_max` are still echoed back in true (unlogged)
     /// data units so the colorbar labels read correctly.
     pub scale_mode: Option<String>,
+    /// Output raster columns for the lat/lon-box targets (#465). `None` keeps
+    /// the size those targets derive for themselves — see `height`.
+    pub width: Option<u32>,
+    /// Output raster rows, the other half of `width`.
+    ///
+    /// Together with the four `bounds_*` fields this is what a map view or an
+    /// export asks for: *this window at W × H pixels*. Read by
+    /// `"equirectangular"` and `"web_mercator"`, and read the same way by the
+    /// render, the overlay projection, the contour projection and the pixel
+    /// probe, so all four stay on one raster and a probe still reports the cell
+    /// the render painted.
+    ///
+    /// Send both or neither: one alone is an error rather than a silent
+    /// fallback, unlike the `bounds_*` box. An explicit size is taken as given
+    /// — it bypasses the 720-pixel display floor a reprojection otherwise gets
+    /// — and every other target ignores it: the azimuthal and world ones keep
+    /// the aspect their projection fixes, and `"source"` paints the array as
+    /// stored at `ni × nj`. Zero on either axis is refused.
+    pub height: Option<u32>,
 }
 
 /// One entry of the colormap registry, as the picker needs it.
@@ -3995,6 +4014,20 @@ fn render_with_options(
         resolved.reverse_colormap,
         resolved.scale,
     );
+    // `Palette::paint` answers an empty buffer for a raster whose byte count
+    // this target cannot address, so a `RenderedGrid` could otherwise carry
+    // dimensions with no pixels behind them — and `new ImageData(rgba, width,
+    // height)` in the panel would throw on it. `Session::render` makes the same
+    // check for the source view; this is the warped path's, and it matters more
+    // since #465 made those dimensions the caller's rather than the file's.
+    let expected = (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|px| px.checked_mul(4));
+    if Some(rgba.len()) != expected {
+        return Err(napi::Error::from_reason(format!(
+            "a {width}×{height} RGBA raster does not fit this target's address space"
+        )));
+    }
 
     let (used_lat_min, used_lat_max, used_lon_min, used_lon_max) = match used_bounds {
         // `[lat_min, lat_max, lon_min, lon_max]`, the order every window in
@@ -4147,6 +4180,8 @@ fn engine_options(o: &RenderOptions) -> fieldglass::RenderOptions {
     engine.colormap = o.colormap.clone();
     engine.reverse_colormap = o.reverse_colormap;
     engine.scale_mode = o.scale_mode.clone();
+    engine.width = o.width;
+    engine.height = o.height;
     engine
 }
 
@@ -5423,6 +5458,8 @@ mod overlay_projection_tests {
             colormap: None,
             reverse_colormap: None,
             scale_mode: None,
+            width: None,
+            height: None,
         }
     }
 
@@ -5917,6 +5954,8 @@ mod netcdf_slice_tests {
             colormap: None,
             reverse_colormap: None,
             scale_mode: None,
+            width: None,
+            height: None,
         }
     }
 
@@ -7255,6 +7294,8 @@ mod space_view_geos_tests {
             colormap: None,
             reverse_colormap: None,
             scale_mode: None,
+            width: None,
+            height: None,
         };
         for (what, patch) in [
             (
@@ -7364,6 +7405,8 @@ mod planar_geolocation_tests {
             colormap: None,
             reverse_colormap: None,
             scale_mode: None,
+            width: None,
+            height: None,
         }
     }
 
@@ -8073,6 +8116,8 @@ mod reduced_grid_render_tests {
             colormap: None,
             reverse_colormap: None,
             scale_mode: None,
+            width: None,
+            height: None,
         }
     }
 
@@ -8350,6 +8395,8 @@ mod curvilinear_render_tests {
             colormap: None,
             reverse_colormap: None,
             scale_mode: None,
+            width: None,
+            height: None,
         }
     }
 
@@ -9078,5 +9125,179 @@ mod declared_grid_family_tests {
              so the case this test exists for is no longer covered; \
              families seen: {families:?}",
         );
+    }
+}
+
+/// The caller-named output raster (#465) crossing *this* binding.
+///
+/// The gap this closes was measured, not assumed: with `engine_options` mutated
+/// to drop `width`/`height` on the way to the engine, the umbrella's own tests,
+/// the conformance suite, the display golden and clippy were all still green.
+/// The suite cannot see it — `fieldglass-napi`'s runner drives `Op::Render`,
+/// whose case list names no size, and the golden records this build's default
+/// options — so the addon's copy of the pair needs a check of its own or it is
+/// checked by nothing.
+///
+/// Driven through the handle methods the extension calls rather than through
+/// `engine_options` directly, because the failure being guarded against is a
+/// field that stops reaching the engine, and only the whole path says whether
+/// it arrived.
+#[cfg(test)]
+mod sized_output_raster_tests {
+    use super::*;
+
+    /// GFS 1° surface temperature, 144 × 73 — a lat/lon grid whose own shape is
+    /// neither of the sizes asked for below.
+    const GFS_C255: &[u8] =
+        include_bytes!("../../fieldglass-grib2/tests/fixtures/gfs_c255_latlon.grib2");
+
+    fn handle() -> Grib2Handle {
+        Grib2Handle {
+            reader: Grib2Reader::from_bytes(GFS_C255.to_vec()).expect("grib2 parse"),
+            decoded: Mutex::new(std::collections::HashMap::new()),
+            synthesized: Mutex::new(std::collections::HashMap::new()),
+        }
+    }
+
+    /// A CONUS window, optionally at a named size.
+    fn conus(size: Option<(u32, u32)>) -> RenderOptions {
+        RenderOptions {
+            projection: "equirectangular".to_string(),
+            projection_preset: None,
+            center_lat: None,
+            center_lon: None,
+            resampling: "bilinear".to_string(),
+            flip_y: false,
+            range_min: None,
+            range_max: None,
+            bounds_lat_min: Some(24.0),
+            bounds_lat_max: Some(50.0),
+            bounds_lon_min: Some(-125.0),
+            bounds_lon_max: Some(-66.0),
+            colormap: None,
+            reverse_colormap: None,
+            scale_mode: None,
+            width: size.map(|(w, _)| w),
+            height: size.map(|(_, h)| h),
+        }
+    }
+
+    /// The pair reaches the engine, and reaches it through every entry point the
+    /// render panel calls — not the render alone, or the overlays would be drawn
+    /// against a raster the image is not.
+    #[test]
+    fn the_named_size_crosses_this_binding_on_every_entry_point() {
+        let h = handle();
+        let sized = || conus(Some((512, 384)));
+
+        let grid = h.render_grid(0, sized()).expect("renders");
+        assert_eq!((grid.width, grid.height), (512, 384));
+        assert_eq!(
+            grid.rgba.len(),
+            512 * 384 * 4,
+            "the raster is fully painted"
+        );
+
+        // Not the source's own shape, floored — which is what this answers when
+        // the pair is dropped.
+        let plain = h.render_grid(0, conus(None)).expect("renders");
+        assert_eq!(
+            (plain.width, plain.height),
+            (720, 365),
+            "an unnamed size still renders as it did before #465"
+        );
+
+        // The overlay and the contours ride the same raster: halving it halves
+        // the pixel coordinates, so a call that ignored the size would place a
+        // coastline off the image.
+        let ring = |o: RenderOptions| {
+            h.project_overlay(
+                0,
+                o,
+                napi::bindgen_prelude::Float64Array::new(vec![40.0, -100.0, 30.0, -90.0]),
+                napi::bindgen_prelude::Uint32Array::new(vec![2]),
+            )
+            .expect("projects")
+            .xy
+            .to_vec()
+        };
+        let (big, small) = (ring(sized()), ring(conus(Some((256, 192)))));
+        assert_eq!(big.len(), small.len(), "the same ring, projected twice");
+        for (a, b) in big.iter().zip(&small) {
+            assert!(
+                (a / b - 2.0).abs() < 0.02,
+                "halving the raster should halve the overlay coordinate: {a} vs {b}"
+            );
+        }
+
+        let contours = |o: RenderOptions| {
+            h.project_contours(0, o, None)
+                .expect("contours project")
+                .xy
+                .to_vec()
+        };
+        let (big, small) = (contours(sized()), contours(conus(Some((256, 192)))));
+        assert!(!big.is_empty(), "CONUS should carry isolines");
+        assert_eq!(big.len(), small.len(), "the same isolines, projected twice");
+        // The count alone proves nothing: the isolines are traced in grid space,
+        // so it is the same either way. What the size has to move is where they
+        // land, so the *extent* is what is compared — halving the raster halves
+        // it. Not the `inside` shape the overlay uses: contours are traced over
+        // the whole field, so vertices outside the window project outside the
+        // raster on purpose.
+        let extent = |xy: &[f64], axis: usize| {
+            xy.as_chunks::<2>()
+                .0
+                .iter()
+                .map(|p| p[axis].abs())
+                .fold(0.0_f64, f64::max)
+        };
+        for (axis, name) in [(0, "x"), (1, "y")] {
+            let (fine, half) = (extent(&big, axis), extent(&small, axis));
+            assert!(
+                half > 0.0,
+                "the contour {name} extent at half size collapsed"
+            );
+            assert!(
+                (fine / half - 2.0).abs() < 0.02,
+                "halving the raster should halve the contour {name} extent, got {fine} / {half}"
+            );
+        }
+
+        // The probe reads the same raster, so a pixel inside the named size is
+        // on it and one past the named width is not.
+        assert!(
+            h.probe(0, sized(), 500, 380).expect("probes").is_some(),
+            "a pixel inside the named raster is on it"
+        );
+        assert_eq!(
+            h.probe(0, sized(), 512, 0).expect("probes").map(|p| p.lat),
+            None,
+            "a pixel past the named width is off the raster"
+        );
+    }
+
+    /// The refusals cross too, with the engine's own wording, so a JavaScript
+    /// caller hears which half of the request was wrong.
+    #[test]
+    fn a_half_stated_or_empty_size_is_refused_through_this_binding() {
+        let h = handle();
+        for (width, height, wanted) in [
+            (Some(512), None, "with no height"),
+            (None, Some(384), "with no width"),
+            (Some(0), Some(384), "has no pixels"),
+        ] {
+            let mut o = conus(None);
+            o.width = width;
+            o.height = height;
+            let err = h
+                .render_grid(0, o)
+                .expect_err("a raster that is not a raster is refused");
+            assert!(
+                err.reason.contains(wanted),
+                "the refusal should say {wanted:?}, got {}",
+                err.reason
+            );
+        }
     }
 }

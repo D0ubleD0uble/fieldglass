@@ -139,6 +139,43 @@ pub struct RenderOptions {
     /// `"linear"` (default) or `"log10"`. `None` is linear; anything else is an
     /// error, matching the colormap field.
     pub scale_mode: Option<String>,
+    /// Output raster columns for the lat/lon-box targets (#465). `None` keeps
+    /// the sizing described on [`height`](Self::height).
+    pub width: Option<u32>,
+    /// Output raster rows — the other half of [`width`](Self::width).
+    ///
+    /// The pair is what a map view asks for: *this window at W × H pixels*. It
+    /// is read by the two lat/lon-box targets (`"equirectangular"` and
+    /// `"web_mercator"`) and, like every option in this struct, it is read the
+    /// same way by the render, the overlay projection, the contour projection
+    /// and the pixel probe — so all four paint into one raster and a probe
+    /// still reads the cell the render painted.
+    ///
+    /// Three rules, each of them deliberate:
+    ///
+    /// * **Both or neither.** One alone is an [`Error::InvalidOption`], not a
+    ///   silent fallback. The four `bounds_*` fields do fall back silently,
+    ///   because three edges cannot make a box and "the grid's own extent" is
+    ///   the natural completion; a width with no height has no such completion
+    ///   that is not invented.
+    /// * **An explicit size is the answer.** It bypasses both
+    ///   [`MIN_REPROJECTED_LONG_EDGE`] and the window-shaped sizing a
+    ///   coordinate-lookup grid gets, so 512 × 512 is 512 × 512. A caller that
+    ///   wants the floor is the caller that leaves these unset.
+    /// * **Ignored by every other target.** The azimuthal and world ones size
+    ///   themselves from the aspect their projection fixes — a square for the
+    ///   discs, the projection's own ratio for Mollweide, Robinson and Equal
+    ///   Earth — and `"source"` paints the array as stored, at `ni × nj`, which
+    ///   is the one view whose whole point is that nothing resampled it. Naming
+    ///   a size for any of them is not an error, the same way naming a
+    ///   [`projection_preset`](Self::projection_preset) on a box target is not.
+    ///
+    /// Zero on either axis, and a raster past this target's allocation ceiling
+    /// (`isize::MAX` bytes — 2 GB on wasm32, where a pixel count well inside
+    /// `u32` can still be too many bytes), are refused rather than allocated. A
+    /// raster that merely will not fit in the memory available is the caller's
+    /// own budget.
+    pub height: Option<u32>,
 }
 
 #[cfg(feature = "render")]
@@ -181,6 +218,8 @@ impl Default for RenderOptions {
             colormap: None,
             reverse_colormap: None,
             scale_mode: None,
+            width: None,
+            height: None,
         }
     }
 }
@@ -259,6 +298,9 @@ pub struct ResolvedOptions {
     pub range_max: Option<f64>,
     /// The manual render window, when all four edges made a box.
     pub bounds: Option<LonLatBox>,
+    /// The caller's output raster, when it named one (#465). Read by the
+    /// lat/lon-box targets only — see [`RenderOptions::height`].
+    pub size: Option<(u32, u32)>,
     /// The colormap the name resolved to.
     pub colormap: &'static Colormap,
     /// Walk the colormap high-to-low.
@@ -294,6 +336,89 @@ fn manual_render_window(o: &RenderOptions) -> Option<LonLatBox> {
         o.bounds_lon_max?,
     );
     (window.lat_max > window.lat_min && window.lon_max > window.lon_min).then_some(window)
+}
+
+/// The caller's output raster, or the reason the pair they sent is not one
+/// (#465).
+///
+/// One rule in one place because two surfaces ask it: [`RenderOptions`], which
+/// carries the whole display request, and [`crate::WarpOptions`], which is the
+/// values-only warp the browser host drives. A second copy would be a second
+/// answer to "is a width with no height a request?", which is exactly the
+/// question a host wants answered identically by both.
+///
+/// Refused rather than clamped, in all three cases: a caller who asked for a
+/// raster this build cannot make should hear which half of the ask was wrong,
+/// not receive a different raster and have to measure it.
+#[cfg(feature = "render")]
+pub(crate) fn resolve_output_size(
+    width: Option<u32>,
+    height: Option<u32>,
+) -> Result<Option<(u32, u32)>, Error> {
+    let (width, height) = match (width, height) {
+        (None, None) => return Ok(None),
+        (Some(width), Some(height)) => (width, height),
+        (Some(_), None) => {
+            return Err(Error::InvalidOption {
+                detail: "an output raster width was given with no height; the two describe one \
+                         raster, so send both or neither"
+                    .to_string(),
+            });
+        }
+        (None, Some(_)) => {
+            return Err(Error::InvalidOption {
+                detail: "an output raster height was given with no width; the two describe one \
+                         raster, so send both or neither"
+                    .to_string(),
+            });
+        }
+    };
+    if width == 0 || height == 0 {
+        return Err(Error::InvalidOption {
+            detail: format!("an output raster of {width} × {height} has no pixels"),
+        });
+    }
+    if !raster_is_allocatable(width, height, isize::MAX as u64) {
+        return Err(Error::InvalidOption {
+            detail: format!(
+                "an output raster of {width} × {height} is larger than this target can allocate"
+            ),
+        });
+    }
+    Ok(Some((width, height)))
+}
+
+/// Bytes the widest buffer a sized raster allocates costs per pixel: the warp's
+/// `Vec<f64>` of values. Its mask is one byte and the painter's RGBA is four, so
+/// a raster this bound admits fits every buffer on either path.
+#[cfg(feature = "render")]
+const WIDEST_RASTER_ELEMENT: u64 = size_of::<f64>() as u64;
+
+/// Whether a `width × height` raster is one Rust can allocate on a target whose
+/// allocation ceiling is `limit` bytes (`isize::MAX`, per the `Vec` contract).
+///
+/// **The pixel count is the wrong bound.** `usize` is 32 bits on wasm32 — the
+/// host this option exists for — so a count that fits `usize` there can still be
+/// eight times too many *bytes*: `16384 × 16385` is 2.7 × 10⁸ pixels, comfortably
+/// inside `u32`, and 2.1 GB of `f64`, which is past `isize::MAX` and panics with
+/// "capacity overflow" inside [`fieldglass_core::warp`]. Under the browser
+/// build's `panic = "abort"` that ends the Worker, from a number a JavaScript
+/// caller supplied.
+///
+/// Only the guaranteed-panic case is refused. A raster that merely will not fit
+/// in the memory available is the caller's own budget and is left to the
+/// allocator, which is the same deal every other buffer on this surface gets.
+///
+/// `limit` is a parameter rather than `isize::MAX` read inside, so a test can
+/// drive the branch that a 64-bit host can never reach.
+#[cfg(feature = "render")]
+fn raster_is_allocatable(width: u32, height: u32, limit: u64) -> bool {
+    // `u64` throughout: two `u32`s multiply without overflow, and the byte count
+    // then saturates rather than wrapping into a value that looks small.
+    u64::from(width)
+        .saturating_mul(u64::from(height))
+        .saturating_mul(WIDEST_RASTER_ELEMENT)
+        <= limit
 }
 
 #[cfg(feature = "render")]
@@ -376,6 +501,7 @@ impl ResolvedOptions {
             range_min: options.range_min,
             range_max: options.range_max,
             bounds: manual_render_window(options),
+            size: resolve_output_size(options.width, options.height)?,
             colormap,
             reverse_colormap: options.reverse_colormap.unwrap_or(false),
             scale,
@@ -616,9 +742,23 @@ type BuiltWarpTarget = (BuiltTarget, Option<LonLatBox>);
 /// (#514). This is the only place that floor is applied, which is why the
 /// `"source"` target — which never reaches here — keeps its native size.
 ///
-/// `lon_periodic` says the *source* closes on itself in longitude
-/// ([`GridGeometry::is_periodic_x`]), which is what decides whether a full-turn
-/// window tiles as a circle or as an interval. It cannot be read back off the
+/// [`ResolvedOptions::size`] is the caller's own raster when they named one
+/// (#465), and it replaces both of those rules for the two box targets: the
+/// derived shape *and* the floor, because a request for 512 × 512 that came back
+/// 720 × 720 is not the raster the caller asked for. The azimuthal and world
+/// targets ignore it and keep the aspect their projection fixes.
+///
+/// `ni`/`nj` are the shape of the **source** array and stay separate from
+/// `geometry`, because they are not always its: a spectral message is
+/// synthesised onto a grid whose size the caller already holds. Everything else
+/// about the source — its render window, whether it closes on itself in
+/// longitude, whether its axes carry any geographic shape at all — is read off
+/// `geometry` here, so the warp, the overlay projection and the pixel probe
+/// cannot ask for it differently.
+///
+/// Whether the source closes on itself in longitude
+/// ([`GridGeometry::is_periodic_x`]) is what decides whether a full-turn window
+/// tiles as a circle or as an interval, and it cannot be read back off the
 /// window: a grid that declares a duplicated seam column also spans exactly
 /// 360°, and wants the interval treatment.
 #[cfg(feature = "render")]
@@ -626,13 +766,39 @@ fn build_warp_target(
     target_kind: WarpTarget,
     ni: u32,
     nj: u32,
-    window_of_source: impl FnOnce() -> LonLatBox,
-    bounds_override: Option<LonLatBox>,
-    lon_periodic: bool,
+    geometry: &GridGeometry,
+    resolved: &ResolvedOptions,
+) -> Result<BuiltWarpTarget, Error> {
+    // Everything below the target kind is read off the source and the request
+    // here rather than at each of the three call sites, which passed the same
+    // five expressions and had to keep agreeing about them: the warp, the
+    // overlay projection and the pixel probe must build *byte-identical*
+    // geometry or a coastline lands off the map it is drawn over.
+    let window_of_source = || geometry_render_window(geometry);
+    let bounds_override = resolved.bounds;
+    let lon_periodic = geometry.is_periodic_x();
     // Whether the source's array axes carry no geographic shape, so the box
     // targets must take theirs from the window instead ([`box_raster_dims`]).
-    shapeless_axes: bool,
-) -> Result<BuiltWarpTarget, Error> {
+    let shapeless_axes = matches!(geometry, GridGeometry::Lookup(_));
+    // The caller's output raster, for the box targets (#465). `None` keeps the
+    // derived shape and the display floor.
+    let size = resolved.size;
+
+    // The two box arms ask the same question, so it is answered once here
+    // rather than twice below.
+    let box_dims = |window: LonLatBox| -> (u32, u32) {
+        match size {
+            Some(dims) => dims,
+            // The window's shape, then floored so the seam, the map body edge
+            // and the overlays that must register against them resolve at
+            // display scale rather than at the data's (#514).
+            None => raise_to_min_raster(if shapeless_axes {
+                box_raster_dims(ni, nj, window)
+            } else {
+                (ni, nj)
+            }),
+        }
+    };
     match target_kind {
         WarpTarget::Equirectangular => {
             let window = bounds_override.unwrap_or_else(window_of_source);
@@ -642,14 +808,7 @@ fn build_warp_target(
                 lon_min,
                 lon_max,
             } = window;
-            // The window's shape, then floored so the seam, the map body edge
-            // and the overlays that must register against them resolve at
-            // display scale rather than at the data's (#514).
-            let (width, height) = raise_to_min_raster(if shapeless_axes {
-                box_raster_dims(ni, nj, window)
-            } else {
-                (ni, nj)
-            });
+            let (width, height) = box_dims(window);
             let target = TargetRaster {
                 width,
                 height,
@@ -669,14 +828,7 @@ fn build_warp_target(
                 lon_min,
                 lon_max,
             } = window;
-            // The window's shape, then floored so the seam, the map body edge
-            // and the overlays that must register against them resolve at
-            // display scale rather than at the data's (#514).
-            let (width, height) = raise_to_min_raster(if shapeless_axes {
-                box_raster_dims(ni, nj, window)
-            } else {
-                (ni, nj)
-            });
+            let (width, height) = box_dims(window);
             let merc = WebMercator::new(
                 width,
                 height,
@@ -1087,15 +1239,7 @@ fn warp_field(
     };
     // Construct the concrete target (shared with the overlay-projection path so
     // both paint into byte-identical geometry), then warp the source into it.
-    let (built, used_bounds) = build_warp_target(
-        target_kind,
-        ni,
-        nj,
-        || geometry_render_window(geometry),
-        resolved.bounds,
-        geometry.is_periodic_x(),
-        matches!(geometry, GridGeometry::Lookup(_)),
-    )?;
+    let (built, used_bounds) = build_warp_target(target_kind, ni, nj, geometry, resolved)?;
     let warped = built.warp(&grid, resolved.resampling);
     // What the warp actually did, not what was asked for: a lookup grid
     // downgrades bilinear, and a summary echoing the request would name a blend
@@ -1165,15 +1309,8 @@ pub fn overlay_polylines(
             ring_lengths,
         )),
         TargetKind::Warp(target_kind) => {
-            let (built, _used_bounds) = build_warp_target(
-                target_kind,
-                ni,
-                nj,
-                || geometry_render_window(geometry),
-                resolved.bounds,
-                geometry.is_periodic_x(),
-                matches!(geometry, GridGeometry::Lookup(_)),
-            )?;
+            let (built, _used_bounds) =
+                build_warp_target(target_kind, ni, nj, geometry, &resolved)?;
             Ok(built.project(resolved.flip_y, latlon, ring_lengths))
         }
     }
@@ -1616,15 +1753,7 @@ pub fn probe_pixel(
         TargetKind::Warp(target) => {
             let geometry = source.placed()?;
             require_reprojectable(geometry, source.family)?;
-            let (built, _) = build_warp_target(
-                target,
-                ni,
-                nj,
-                || geometry_render_window(geometry),
-                resolved.bounds,
-                geometry.is_periodic_x(),
-                matches!(geometry, GridGeometry::Lookup(_)),
-            )?;
+            let (built, _) = build_warp_target(target, ni, nj, geometry, &resolved)?;
             let (w, h) = built.dims();
             if px >= w || py >= h {
                 return Ok(None);
@@ -2074,6 +2203,199 @@ mod resolved_options_tests {
         );
         // A degenerate source stays degenerate rather than wrapping.
         assert_eq!(world_raster_dims(0, 0, Robinson::ASPECT_RATIO), (0, 0));
+    }
+
+    /// A width without a height, or the other way round, is a refusal rather
+    /// than a silent fallback (#465).
+    ///
+    /// Deliberately *unlike* the four `bounds_*` edges beside it, which do fall
+    /// back: three edges cannot make a box and "the grid's own extent" is the
+    /// natural completion, where a width with no height has no completion that
+    /// is not invented.
+    #[test]
+    fn an_output_size_is_both_edges_or_neither() {
+        assert_eq!(resolve_output_size(None, None).unwrap(), None);
+        assert_eq!(
+            resolve_output_size(Some(512), Some(384)).unwrap(),
+            Some((512, 384))
+        );
+
+        // The distinguishing phrase, not the bare word: both refusals mention
+        // both edges, so searching for `"height"` alone would stay green with
+        // the two arms swapped.
+        for (w, h, missing) in [
+            (Some(512), None, "with no height"),
+            (None, Some(384), "with no width"),
+        ] {
+            let err = resolve_output_size(w, h).expect_err("one edge alone is not a raster");
+            assert_eq!(err.code(), "invalid_option");
+            assert!(
+                format!("{err}").contains(missing),
+                "the refusal should say {missing:?}, got {err}"
+            );
+        }
+    }
+
+    /// A raster this build cannot make is refused, not clamped to one it can
+    /// (#465).
+    #[test]
+    fn an_output_size_with_no_pixels_or_too_many_is_refused() {
+        for (w, h) in [(0, 512), (512, 0), (0, 0)] {
+            let err = resolve_output_size(Some(w), Some(h))
+                .expect_err("a zero edge has no pixels to paint");
+            assert_eq!(err.code(), "invalid_option");
+        }
+
+        // The allocation ceiling. Refused on every target, because
+        // `u32::MAX² × 8` is past `isize::MAX` on a 64-bit host too.
+        let err = resolve_output_size(Some(u32::MAX), Some(u32::MAX))
+            .expect_err("a raster of 1.8 × 10¹⁹ pixels is not one anything allocates");
+        assert_eq!(err.code(), "invalid_option");
+        assert!(
+            format!("{err}").contains("larger than this target can allocate"),
+            "got {err}"
+        );
+    }
+
+    /// The bound is on *bytes*, not on the pixel count, and the difference is
+    /// the whole point of it on a 32-bit target (#465).
+    ///
+    /// Driven against an injected ceiling rather than `isize::MAX`, because the
+    /// wasm32 case cannot be reached on the host the suite runs on: a raster of
+    /// 16384 × 16385 is 2.7 × 10⁸ pixels — comfortably inside `u32`, so a
+    /// pixel-count guard admits it — and 2.1 GB of `f64`, which is past
+    /// `isize::MAX` there and panics with "capacity overflow" inside the warp.
+    #[test]
+    fn the_allocation_bound_counts_bytes_not_pixels() {
+        // Both ceilings are named as literals rather than as `isize::MAX`,
+        // because this test also *runs* on `wasm32-wasip1` — where `isize::MAX`
+        // is the 32-bit one, so writing it for the 64-bit case would assert the
+        // opposite of what it says. That the suite runs on a 32-bit target is
+        // exactly why the distinction below is worth pinning.
+        const WASM32_CEILING: u64 = i32::MAX as u64;
+        const HOST64_CEILING: u64 = i64::MAX as u64;
+
+        assert!(
+            !raster_is_allocatable(16_384, 16_385, WASM32_CEILING),
+            "268 million pixels of f64 is 2.1 GB and does not fit a 32-bit isize"
+        );
+        // The same raster is fine where the ceiling is 64-bit, so the bound is
+        // the target's and not a blanket cap.
+        assert!(raster_is_allocatable(16_384, 16_385, HOST64_CEILING));
+
+        // Either side of the wasm32 limit, exactly: 8 bytes a pixel.
+        let last_that_fits = WASM32_CEILING / WIDEST_RASTER_ELEMENT;
+        let w = u32::try_from(last_that_fits).expect("the limit is under u32::MAX");
+        assert!(raster_is_allocatable(w, 1, WASM32_CEILING));
+        assert!(!raster_is_allocatable(w + 1, 1, WASM32_CEILING));
+
+        // A raster whose byte count overflows `u64` saturates rather than
+        // wrapping into a value that looks small enough.
+        assert!(!raster_is_allocatable(u32::MAX, u32::MAX, u64::MAX - 1));
+
+        // And the ceiling the resolver actually applies is this target's, so the
+        // same request is answered differently on wasm32 and on a 64-bit host —
+        // which is the point of the whole guard.
+        assert!(raster_is_allocatable(16_384, 16_385, isize::MAX as u64) == (usize::BITS == 64));
+    }
+
+    /// A global lat/lon geometry, for the target-building tests below.
+    ///
+    /// Its own `ni`/`nj` do not set the *output* raster — `build_warp_target`
+    /// takes the source array's shape separately — though they are read, along
+    /// with the corners, by `is_periodic_x` and `render_window`. What the
+    /// dimension assertions below turn on is the family: not a `Lookup`, so the
+    /// box targets read the source shape rather than the window's.
+    fn global_latlon() -> GridGeometry {
+        GridGeometry::LatLon(fieldglass_core::LatLonParams {
+            ni: 1440,
+            nj: 721,
+            lat_first: 90.0,
+            lon_first: 0.0,
+            lat_last: -90.0,
+            lon_last: 359.75,
+        })
+    }
+
+    /// A parsed request for `projection`, at an optional named size.
+    fn sized_options(projection: &str, size: Option<(u32, u32)>) -> ResolvedOptions {
+        let mut o = opts(projection, "nearest");
+        if let Some((width, height)) = size {
+            o.width = Some(width);
+            o.height = Some(height);
+        }
+        ResolvedOptions::parse(&o).expect("the options parse")
+    }
+
+    /// The caller's raster is the answer for the two box targets: it replaces
+    /// the derived shape *and* the display floor, so 512 × 512 is 512 × 512
+    /// (#465).
+    #[test]
+    fn a_named_output_size_is_the_box_targets_raster() {
+        let geometry = global_latlon();
+        for (name, target) in [
+            ("equirectangular", WarpTarget::Equirectangular),
+            ("web_mercator", WarpTarget::WebMercator),
+        ] {
+            let at = |ni, nj, size| {
+                build_warp_target(target, ni, nj, &geometry, &sized_options(name, size))
+                    .expect("the target builds")
+                    .0
+                    .dims()
+            };
+            assert_eq!(at(1440, 721, Some((512, 384))), (512, 384), "{name}");
+
+            // Below the 720-pixel display floor, and it stays there: a caller
+            // who asked for 64 × 48 and got 720 × 540 did not get the raster
+            // they asked for. A caller who wants the floor leaves the size
+            // unset, which the next assertions cover.
+            assert_eq!(
+                at(1440, 721, Some((64, 48))),
+                (64, 48),
+                "{name} below the floor"
+            );
+
+            // Unset is unchanged: the source's own shape, floored as before.
+            assert_eq!(at(1440, 721, None), (1440, 721), "{name} with no size");
+            assert_eq!(
+                at(26, 14, None),
+                raise_to_min_raster((26, 14)),
+                "{name} keeps the display floor when no size is named"
+            );
+        }
+    }
+
+    /// The azimuthal and world targets keep the aspect their projection fixes,
+    /// so a size named alongside one of them is ignored rather than refused —
+    /// the same way a `projection_preset` on a box target is (#465).
+    #[test]
+    fn the_azimuthal_and_world_targets_ignore_a_named_output_size() {
+        let geometry = global_latlon();
+        for name in [
+            "orthographic",
+            "polar_stereographic",
+            "mollweide",
+            "robinson",
+            "equal_earth",
+        ] {
+            let dims = |size| {
+                let resolved = sized_options(name, size);
+                let TargetKind::Warp(target) = resolved.target else {
+                    panic!("{name} is not a warp target");
+                };
+                build_warp_target(target, 1440, 721, &geometry, &resolved)
+                    .expect("the target builds")
+                    .0
+                    .dims()
+            };
+            let sized = dims(Some((512, 384)));
+            assert_eq!(sized, dims(None), "{name} should not read the size");
+            assert_ne!(
+                sized,
+                (512, 384),
+                "{name} must not have taken the size after all"
+            );
+        }
     }
 
     /// The floor raises a coarse raster to display scale and leaves everything

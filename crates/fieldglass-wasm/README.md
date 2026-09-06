@@ -56,7 +56,10 @@ const palette = handle.palette(field, {});    // { lut, t0, t1, span, scale, mas
 handle.shaderValues(field, {});    // Float32Array: transformed and rebased by t0
 handle.shaderMask(field, {});      // Uint8Array the shader tests
 
-handle.warp(field, {});            // resampled values, no paint
+// A window at a pixel size — what a map view asks for (#465). `width` and
+// `height` go together; one alone throws `invalid_option`. Without them the
+// output is the source `ni × nj`, as before.
+handle.warp(field, { bounds: [24, 50, -125, -66], width: 512, height: 512 });
 handle.render(field, {}, false);   // RGBA, north up — see below
 handle.probe(field, lat, lon);
 handle.contours(field, new Float64Array([280, 290]));
@@ -141,8 +144,8 @@ browser actually downloads.
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
-| baseline | 963,499 | 373,677 |
-| `+simd128` | 960,842 | 373,002 |
+| baseline | 965,228 | 374,343 |
+| `+simd128` | 962,568 | 373,724 |
 
 The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
 build drifts more than 5% from these figures in either direction, so a change
@@ -151,12 +154,12 @@ that moves the bundle has to say so here. Update both cells when it does.
 Two things worth knowing before optimising further:
 
 - `wasm-opt -Oz` is a **raw** win and a **transfer** loss. It takes the module
-  from 1,016,692 to 963,499 bytes (-5.2%) and takes it from 366,707 to 373,677
+  from 1,018,607 to 965,228 bytes (-5.2%) and takes it from 367,335 to 374,343
   gzipped (+1.9%). Its size passes trade repetition for smaller encodings, and
   DEFLATE was already being paid for the repetition. It stays on because parse
   and instantiate cost track the raw module, but a transfer-size-only argument
   for `-Oz` does not survive measurement.
-- `+simd128` buys 2,657 raw bytes and nothing measurable in time (below). The
+- `+simd128` buys 2,660 raw bytes and nothing measurable in time (below). The
   decode kernels are bit-unpacking loops with data-dependent control flow, not
   the float-per-lane arithmetic autovectorisation looks for, and `std` is not
   rebuilt with it without `-Zbuild-std`. Recorded so nobody re-derives it.
@@ -228,9 +231,7 @@ is worse than no parity check.
 Threads (the façade is single-threaded by design — ADR-0005 — and shared memory
 needs COOP/COEP), npm publishing
 ([#466](https://github.com/D0ubleD0uble/fieldglass/issues/466)), NetCDF, Zarr,
-caller-sized output
-([#465](https://github.com/D0ubleD0uble/fieldglass/issues/465)), and
-reduced-resolution decode
+and reduced-resolution decode
 ([#463](https://github.com/D0ubleD0uble/fieldglass/issues/463)).
 
 `+simd128` is measured above and not enabled: it buys nothing here.

@@ -75,6 +75,20 @@ pub struct WarpOptions {
     /// source grid's own extent.
     #[serde(default)]
     pub bounds: Option<[f64; 4]>,
+    /// Output raster columns. `None` keeps the source grid's `ni` (#465).
+    #[serde(default)]
+    pub width: Option<u32>,
+    /// Output raster rows — the other half of [`width`](Self::width). `None`
+    /// keeps the source grid's `nj`.
+    ///
+    /// Together with [`bounds`](Self::bounds) this is the whole of what a map
+    /// view asks for: *this window at W × H pixels*. Send both or neither; one
+    /// alone is an [`Error::InvalidOption`], for the reason
+    /// [`crate::RenderOptions::height`] gives. Zero on either axis, and a raster
+    /// past this target's allocation ceiling, are refused rather than
+    /// allocated.
+    #[serde(default)]
+    pub height: Option<u32>,
 }
 
 #[cfg(feature = "render")]
@@ -88,6 +102,8 @@ impl Default for WarpOptions {
         Self {
             bilinear: true,
             bounds: None,
+            width: None,
+            height: None,
         }
     }
 }
@@ -103,6 +119,8 @@ impl WarpOptions {
         Self {
             bilinear,
             bounds: None,
+            width: None,
+            height: None,
         }
     }
 }
@@ -426,8 +444,9 @@ impl Session {
     /// Resample a field onto a geographic box, without painting it.
     ///
     /// This is the render pipeline split at the paint step: a GPU host wants
-    /// the resampled *values*, so restyling never re-decodes. The output is the
-    /// source `ni × nj` until #465 lets a caller size it.
+    /// the resampled *values*, so restyling never re-decodes. The output raster
+    /// is [`WarpOptions::width`] × [`WarpOptions::height`] when the caller names
+    /// one (#465), and the source `ni × nj` otherwise.
     #[cfg(feature = "render")]
     pub fn warp(&self, field: &Field, options: &WarpOptions) -> Result<Warped, Error> {
         warp_field(field, options)
@@ -598,6 +617,9 @@ fn optional_values(field: &Field) -> Vec<Option<f64>> {
 #[cfg(feature = "render")]
 fn warp_field(field: &Field, options: &WarpOptions) -> Result<Warped, Error> {
     let geometry = &field.georef.geometry;
+    // Refused before the window is resolved, so a bad size is reported as a bad
+    // size rather than being masked by a grid that also states no extent.
+    let size = crate::render::resolve_output_size(options.width, options.height)?;
     let window = match options.bounds {
         // The host hands the window over positionally, which is the one place
         // the order is not the type's statement; read it back through the
@@ -647,9 +669,15 @@ fn warp_field(field: &Field, options: &WarpOptions) -> Result<Warped, Error> {
         periodic_i: field.georef.periodic_x,
         resampling: geometry.resampling(),
     };
+    // The caller's raster when they named one (#465); otherwise the source
+    // grid's own shape, which is what this warp has always produced. There is
+    // no display floor here the way there is for the render targets: this call
+    // returns values, not pixels, and upsampling values a caller did not ask
+    // for would cost linear memory the browser host never gets back.
+    let (width, height) = size.unwrap_or((field.ni, field.nj));
     let target = TargetRaster {
-        width: field.ni,
-        height: field.nj,
+        width,
+        height,
         lat_max,
         lat_min,
         lon_min,
@@ -1006,6 +1034,8 @@ mod tests {
             &WarpOptions {
                 bounds: None,
                 bilinear: false,
+                width: None,
+                height: None,
             },
         )
         .expect("a periodic rotated grid warps");
