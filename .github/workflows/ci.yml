@@ -130,6 +130,16 @@ jobs:
             -p fieldglass-core -p fieldglass-grib1 -p fieldglass-grib2 \
             -p fieldglass-netcdf -p fieldglass-wasm
 
+      # The umbrella with its *own* defaults, which the step above never sees:
+      # there it arrives only as `fieldglass-wasm`'s dependency, taken with
+      # `default-features = false` and four features named. So a wasm32 break
+      # behind `schema` (schemars) or `conformance` would merge green. Its own
+      # invocation rather than another `-p` on the line above, because selecting
+      # both packages at once unifies their features and would stop checking the
+      # façade against the exact set it declares.
+      - name: cargo check --target wasm32-unknown-unknown -p fieldglass
+        run: cargo check --target wasm32-unknown-unknown -p fieldglass
+
       # The decode suites run where `usize` is 32 bits wide. A check proves the
       # crates compile for the browser; only this proves they *decode* the same
       # there, which is what the pointer-width cast audit (#561) turns on: a

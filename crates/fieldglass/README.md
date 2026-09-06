@@ -181,8 +181,8 @@ Filed under
 `fieldglass-wasm` had something to bind, then fixed against a second real
 consumer by [#464](https://github.com/D0ubleD0uble/fieldglass/issues/464),
 which moved the render orchestration out of `fieldglass-napi`. Not on crates.io
-yet: the release process is written around the four format crates, and adding a
-fifth is its own piece of work. NetCDF, caller-sized output (#465), and
+yet: the release process is written around the four library crates, and adding
+a fifth is its own piece of work. NetCDF, caller-sized output (#465), and
 reduced-resolution decode (#463) arrive with their own issues.
 
 ## Licence

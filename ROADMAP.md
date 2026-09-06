@@ -72,7 +72,8 @@ everything" into "decodes everything correctly", and is a parallel effort by
 design.
 
 **Hosts** is new to this list, and it is the reason the wasm build was promoted
-into **Now**. It is not a sixth kind of feature so much as a multiplier on the other
+out of **Later**; that build has since landed, and what remains of the track is
+in **Next**. It is not a sixth kind of feature so much as a multiplier on the other
 five: the format crates are pure byte-in, values-out engines already, so every
 runtime added reaches the same decoders. It earns a track of its own because it
 trades against them for attention rather than composing with them.

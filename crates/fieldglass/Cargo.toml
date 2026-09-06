@@ -14,7 +14,8 @@ readme = "README.md"
 # so `fieldglass-wasm` had something to bind; #464 fixed the `Session` methods
 # and DTO fields against a second real consumer and moved the render
 # orchestration out of `fieldglass-napi`. What is left before publishing is the
-# release process (RELEASING.md), which is written around four crates.
+# release process (RELEASING.md), which is written around the four library
+# crates.
 publish = false
 
 [dependencies]
