@@ -20,6 +20,25 @@ repos:
         entry: cargo fmt --all -- --check
         pass_filenames: false
 
+      - id: cargo-fmt-fuzz
+        name: cargo fmt --check (fuzz crates)
+        language: system
+        # `cargo fmt --all` above is a *workspace* command, and every `fuzz/`
+        # crate declares a bare `[workspace]` to keep the stable gates off a
+        # nightly-only libFuzzer target — so none of them is formatted by any
+        # gate in this repo. The hole was invisible while the four existing
+        # targets happened to be clean; the fifth was committed unformatted and
+        # nothing said so.
+        #
+        # No build: `cargo fmt --check` parses, so this runs on stable and costs
+        # ~200 ms for all five. Clippy is deliberately *not* here — it would
+        # need a per-crate build of five separate workspaces, and
+        # `.github/workflows/fuzz.yml` already compiles every target on each
+        # pull request that can reach one.
+        types: [rust]
+        entry: bash -c 'for d in crates/fieldglass-*/fuzz; do (cd "$d" && cargo fmt --check) || exit 1; done'
+        pass_filenames: false
+
       - id: cargo-clippy
         name: cargo clippy --all-targets -- -D warnings
         language: system
@@ -209,8 +228,8 @@ repos:
       - id: nested-lockfiles
         name: each nested crate's Cargo.lock matches its manifest
         language: system
-        # Four crates declare a bare `[workspace]` and so carry their own
-        # `Cargo.lock`: the three `fuzz/` crates and `fieldglass-verify`. No
+        # Six crates declare a bare `[workspace]` and so carry their own
+        # `Cargo.lock`: the five `fuzz/` crates and `fieldglass-verify`. No
         # `--workspace` command resolves any of them, so nothing in the normal
         # loop — not clippy, not `cargo test`, not `cargo deny --locked` —
         # notices when one drifts. A fuzz lock goes stale from an edit to its
@@ -222,7 +241,7 @@ repos:
         # never looked at.
         #
         # Commit stage rather than pre-push because it is free: `cargo metadata
-        # --locked` resolves without building (~130 ms for all four), and the
+        # --locked` resolves without building (~130 ms for all six), and the
         # common drift — a dependency dropped, or re-pinned to a version already
         # cached — is refused in ~20 ms without touching the network. Adding a
         # dependency cargo has never seen costs one index update first.
@@ -473,17 +492,26 @@ repos:
         exclude: ^extension/tsconfig\.json$   # tsconfig.json allows comments; check-json doesn't
       - id: check-toml
       - id: check-merge-conflict
+      # Two sets of files these hooks must not touch, for one reason: they are
+      # bytes under test, and a hook that edits them is editing the input.
+      #
       # The Zarr fixture stores are committed exactly as zarr-python wrote
       # them: the provenance claim in that directory's NOTICE.md is that the
       # bytes come from the reference implementation, which is what makes them
       # an oracle rather than a second copy of our own arithmetic. Appending a
       # newline to a `.zarray` would also make every regeneration a 61-file
       # diff. NOTICE.md itself is hand-written, so it stays in scope.
+      #
+      # A fuzz seed corpus is the same argument without the provenance: a seed
+      # is an input libFuzzer mutates, and one the hooks have "fixed" is no
+      # longer the input that was chosen. It went unnoticed while every corpus
+      # held only binary — a `.grib2`, a `.nc` — which these hooks skip anyway;
+      # the Zarr and fetchplan seeds include JSON documents, which they do not.
       - id: end-of-file-fixer
-        exclude: ^crates/fieldglass-zarr/tests/fixtures/(?!NOTICE\.md$)
+        exclude: &bytes-under-test ^(crates/fieldglass-zarr/tests/fixtures/(?!NOTICE\.md$)|crates/fieldglass-[a-z0-9]+/fuzz/corpus/)
       - id: trailing-whitespace
         args: [--markdown-linebreak-ext=md]
-        exclude: ^crates/fieldglass-zarr/tests/fixtures/(?!NOTICE\.md$)
+        exclude: *bytes-under-test
       - id: check-added-large-files
         args: [--maxkb=2048]                  # block accidentally-staged big binaries
 
