@@ -106,37 +106,55 @@ impl Wgrib2Idx {
 /// *different* offset. Records sharing an offset are sub-messages of one
 /// message and all get that message's range; the final group has no successor
 /// and is open-ended.
+///
+/// One pass, backwards, carrying the next distinct offset. The obvious forward
+/// version — for each record, search ahead for the first different offset — is
+/// `O(n²)` on a sidecar whose records all share one offset. Real files never do
+/// that (a sub-message group is two or three records), but a sidecar is fetched
+/// from a bucket and its shape is not this crate's to assume: 50,000 identical
+/// offsets is a 2.5-billion-step stall inside a host's request handler, from a
+/// 1 MB download.
 fn to_items(key: &str, records: &[Record]) -> Vec<PlanItem> {
-    records
-        .iter()
-        .enumerate()
-        .map(|(i, record)| {
-            let next = records[i + 1..]
-                .iter()
-                .find(|later| later.offset != record.offset)
-                .map(|later| later.offset);
-            let range = match next {
-                // `saturating_sub` cannot fire: offsets are checked to be
-                // non-descending on the way in, and `next` is by construction
-                // a *different* offset, so it is strictly greater. It is here
-                // so a future edit to that invariant degrades to a zero-length
-                // range rather than to a panic in a host.
-                Some(end) => PlanRange::Exact {
-                    offset: record.offset,
-                    length: end.saturating_sub(record.offset),
-                },
-                None => PlanRange::OpenEnded {
-                    offset: record.offset,
-                },
-            };
-            PlanItem {
-                key: key.to_string(),
-                range,
-                sub_index: record.sub_index,
-                expect: record.expect.clone(),
-            }
-        })
-        .collect()
+    let mut items: Vec<PlanItem> = Vec::with_capacity(records.len());
+    // The next offset strictly greater than the record being placed, and the
+    // offset of the record immediately after it in file order. Two variables
+    // rather than one: when the following record shares this record's offset
+    // they are sub-messages of one message, and the end is whatever the end of
+    // the *group* already was.
+    let mut next_distinct: Option<u64> = None;
+    let mut following: Option<u64> = None;
+
+    for record in records.iter().rev() {
+        if let Some(after) = following
+            && after != record.offset
+        {
+            next_distinct = Some(after);
+        }
+        let range = match next_distinct {
+            // `saturating_sub` cannot fire: offsets are checked to be
+            // non-descending on the way in, and `next_distinct` is by
+            // construction a *different* offset, so it is strictly greater. It
+            // is here so a future edit to that invariant degrades to a
+            // zero-length range rather than to a panic in a host.
+            Some(end) => PlanRange::Exact {
+                offset: record.offset,
+                length: end.saturating_sub(record.offset),
+            },
+            None => PlanRange::OpenEnded {
+                offset: record.offset,
+            },
+        };
+        items.push(PlanItem {
+            key: key.to_string(),
+            range,
+            sub_index: record.sub_index,
+            expect: record.expect.clone(),
+        });
+        following = Some(record.offset);
+    }
+
+    items.reverse();
+    items
 }
 
 /// Parse one line into a record.
@@ -362,6 +380,55 @@ mod tests {
         let items = Wgrib2Idx::parse("o", text).unwrap().items();
         assert_eq!(items[1].range, PlanRange::OpenEnded { offset: 100 });
         assert_eq!(items[2].range, PlanRange::OpenEnded { offset: 100 });
+    }
+
+    /// A sidecar where every record shares one offset is degenerate but
+    /// perfectly parseable, and it is the shape that made the obvious
+    /// forward search quadratic. The answer must still be right: one message,
+    /// every record a sub-message of it, all open-ended because nothing
+    /// follows.
+    ///
+    /// Sized so a quadratic implementation is visibly slow rather than merely
+    /// wrong — 20,000 records is 200 million steps forward and 20,000 backward.
+    #[test]
+    fn a_sidecar_of_one_repeated_offset_is_linear_and_correct() {
+        let text: String = (1..=20_000)
+            .map(|n| format!("1.{n}:4096:d=2026090400:TMP:surface:anl:\n"))
+            .collect();
+        let items = Wgrib2Idx::parse("o", &text).unwrap().items();
+        assert_eq!(items.len(), 20_000);
+        assert!(
+            items
+                .iter()
+                .all(|i| i.range == PlanRange::OpenEnded { offset: 4096 })
+        );
+        assert_eq!(items[0].sub_index, Some(1));
+        assert_eq!(items[19_999].sub_index, Some(20_000));
+        // They are one message, so `messages()` collapses them to one fetch.
+        assert_eq!(Wgrib2Idx::parse("o", &text).unwrap().messages().len(), 1);
+    }
+
+    /// Three groups in a row, so the backward pass has to carry a group's end
+    /// across its members rather than letting a sibling's equal offset become
+    /// the end. The bug that shape catches is a zero-length range on every
+    /// record of a group but its last.
+    #[test]
+    fn consecutive_sub_message_groups_each_end_at_the_next_group() {
+        let text = "\
+1.1:0:d=2026090400:UGRD:10 m above ground:anl:
+1.2:0:d=2026090400:VGRD:10 m above ground:anl:
+2.1:100:d=2026090400:UGRD:surface:anl:
+2.2:100:d=2026090400:VGRD:surface:anl:
+2.3:100:d=2026090400:WGRD:surface:anl:
+3:250:d=2026090400:TMP:surface:anl:
+";
+        let items = Wgrib2Idx::parse("o", text).unwrap().items();
+        let lengths: Vec<Option<u64>> = items.iter().map(|i| i.range.length()).collect();
+        assert_eq!(
+            lengths,
+            vec![Some(100), Some(100), Some(150), Some(150), Some(150), None],
+            "no member of a group may get a zero-length range"
+        );
     }
 
     /// GEFS's member tag and NBM's probability fields are qualifiers, kept in

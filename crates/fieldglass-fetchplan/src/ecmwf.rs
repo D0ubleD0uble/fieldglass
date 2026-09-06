@@ -92,7 +92,10 @@ fn to_item(
     // reference time. `time` is `"0000"`, i.e. HHMM, so only its first two
     // digits are the hour.
     let reference_time = match (string(record, "date"), string(record, "time")) {
-        (Some(d), Some(t)) => Some(format!("{d}{}", &t[..t.len().min(2)])),
+        // `&t[..2]` is the obvious spelling and panics: a sidecar is fetched
+        // text, so `time` need not be ASCII, and byte index 2 can land inside a
+        // character. Taking two *characters* cannot.
+        (Some(d), Some(t)) => Some(format!("{d}{}", t.chars().take(2).collect::<String>())),
         (Some(d), None) => Some(d.to_string()),
         _ => None,
     };
@@ -363,6 +366,19 @@ mod tests {
         assert!(
             matches!(err, FetchPlanError::Json { line: 1, .. }),
             "{err:?}"
+        );
+    }
+
+    /// A sidecar is fetched text and need not be ASCII. Slicing `time` by byte
+    /// index is the natural way to take its hour and panics on a character
+    /// boundary, so the reference time is built from characters.
+    #[test]
+    fn a_non_ascii_time_does_not_split_a_character() {
+        let line = r#"{"param":"2t","date":"20260904","time":"時0000","_offset":0,"_length":10}"#;
+        let items = EcmwfIndex::parse("o", line).expect("parses without panicking");
+        assert_eq!(
+            items.items()[0].expect.reference_time.as_deref(),
+            Some("20260904時0")
         );
     }
 

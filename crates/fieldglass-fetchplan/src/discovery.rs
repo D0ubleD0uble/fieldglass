@@ -114,7 +114,11 @@ pub fn candidates(
     step_hours: u32,
 ) -> Result<Vec<Candidate>, FetchPlanError> {
     source.validate()?;
-    if now_unix_secs.abs() > MAX_UNIX_SECS {
+    // `abs()` and not `unsigned_abs()` would be the natural spelling and is a
+    // panic: `i64::MIN` has no positive counterpart, so it overflows in debug
+    // and wraps to itself in release. A host passing a clock it read from
+    // somewhere untrusted must get the refusal, not the panic.
+    if !(-MAX_UNIX_SECS..=MAX_UNIX_SECS).contains(&now_unix_secs) {
         return Err(FetchPlanError::TimeOutOfRange {
             unix_secs: now_unix_secs,
         });
@@ -501,13 +505,22 @@ mod tests {
     }
 
     /// An absurd instant is refused rather than wrapped into a plausible date.
+    ///
+    /// Both ends, and `i64::MIN` specifically: the obvious range check is
+    /// `now.abs() > MAX`, and `i64::MIN.abs()` overflows — a panic in debug, a
+    /// wrap back to `i64::MIN` in release, which then compares as *less* than
+    /// the bound and sails through into the day arithmetic.
     #[test]
-    fn an_out_of_range_clock_is_refused() {
-        assert_eq!(
-            candidates(&hrrr(), i64::MAX, 0),
-            Err(FetchPlanError::TimeOutOfRange {
-                unix_secs: i64::MAX
-            })
-        );
+    fn an_out_of_range_clock_is_refused_at_both_ends() {
+        for absurd in [i64::MAX, i64::MIN, MAX_UNIX_SECS + 1, -MAX_UNIX_SECS - 1] {
+            assert_eq!(
+                candidates(&hrrr(), absurd, 0),
+                Err(FetchPlanError::TimeOutOfRange { unix_secs: absurd }),
+                "{absurd}"
+            );
+        }
+        // …and the boundary itself is still accepted, so the check is a bound
+        // and not an off-by-one that quietly narrows the range.
+        assert!(candidates(&hrrr(), MAX_UNIX_SECS, 0).is_ok());
     }
 }
