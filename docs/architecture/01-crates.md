@@ -71,6 +71,30 @@ which is how `GridGeometry` enters both GRIB crates — and asking whether every
 `fieldglass_core` name in them can be spelled from the format crate alone. Its
 `ALLOWED_UNEXPORTED` list is where an exception has to be written down.
 
+**The documented surface is a claim as well, and it is narrower than the
+feature gates.** `fieldglass-core`'s crate documentation names the parsing
+surface the format crates consume, module by module, and its README says the
+same thing again for a crates.io reader. The pre-commit hook
+`cargo-clippy-format-crates-parsing-only` proves the three libraries use nothing
+*gated*, which is the weaker property: an **ungated** module missing from the
+list can be used freely with every gate green. Both directions had drifted by
+the time anyone measured — `lead_time` arrived with the shared forecast-lead
+rules ([#545](https://github.com/D0ubleD0uble/fieldglass/issues/545)), is called
+by both GRIB libraries and was on neither list; `detect` was on both lists and
+named by no library at all, `detect_format` having no caller anywhere in the
+workspace ([#558](https://github.com/D0ubleD0uble/fieldglass/issues/558)). So
+`tools/check_parsing_surface.py` (pre-commit) holds the two copies and the code
+to one set, by equality rather than containment: containment is what lets an
+entry go stale, which is the half `detect` was. Each copy is delimited by
+`parsing-surface` HTML comments, invisible in rustdoc and on crates.io, and a
+region that has gone missing is a failure rather than an empty list that matches
+nothing. The measurement is over the format crates' **libraries**, and that is
+forced rather than chosen: their test targets name `contour`, which is behind
+the `analysis` feature, so counting tests would put a gated module into the
+surface and contradict the sentence's own reason for existing. A
+`#[cfg(test)] mod` inside `src/` compiles with those same dev-dependency
+features and is excluded for the same reason.
+
 **A manifest is a claim about the crate too, and cargo checks nothing about
 it.** A declared dependency nothing uses resolves, compiles, links and reports
 success, so it passes `cargo clippy -D warnings`, `cargo test --workspace`,

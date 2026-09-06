@@ -3,16 +3,29 @@
 //!
 //! The crate serves two audiences behind one API. The format crates
 //! (`fieldglass-grib1`, `-grib2`, `-netcdf`) consume only the *parsing*
-//! surface: [`error`], [`bits`], [`bytes`], [`detect`], [`cct_tables`] (both
-//! GRIB editions share the WMO sub-centre lookup), [`projection`] (GRIB1's GDS
-//! uses the projectors to recover grid corners), [`scan`] (the storage orders a
-//! decoder regularises), the three grids that arrive as something other than a
-//! rectangle of values — [`sht`], [`matrix`], and [`healpix`] — and
-//! [`global_grid`], the lat/lon grid the first and last of those are put onto.
+//! surface:
+//!
+//! <!-- parsing-surface: the set of core modules the three format crate
+//!      libraries name, checked by tools/check_parsing_surface.py. The README
+//!      states it again; both regions have to match the code. -->
+//! [`error`], [`bits`], [`bytes`], [`cct_tables`] (both GRIB editions share the
+//! WMO sub-centre lookup), [`projection`] (GRIB1's GDS uses the projectors to
+//! recover grid corners), [`scan`] (the storage orders a decoder regularises),
+//! [`lead_time`] (the forecast-lead rules the two editions share), the three
+//! grids that arrive as something other than a rectangle of values — [`sht`],
+//! [`matrix`], and [`healpix`] — and [`global_grid`], the lat/lon grid the
+//! first and last of those are put onto.
+//! <!-- /parsing-surface -->
+//!
 //! What those modules have in common is that none of them is behind a feature,
 //! which is what makes a `default-features = false` dependency work. Pre-commit
 //! builds the three format crate libraries against a `core` with every feature
-//! off, so reaching for gated code fails there rather than at a consumer.
+//! off, so reaching for gated code fails there rather than at a consumer — and
+//! checks the list above against what those libraries actually name, which is
+//! the stronger claim the sentence is making. `detect`, `spatial_index` and
+//! `units` are ungated too and are deliberately not on it: no format crate
+//! library uses them, and a list that quietly grows says nothing about how
+//! small the surface is.
 //!
 //! # Feature flags
 //!
@@ -27,8 +40,10 @@
 //!   painter, and separate from the parsing surface because a decode-only
 //!   consumer should not compile them at all.
 //! - **`fs`** *(default)* — `detect::detect_format`, which opens a path. The
-//!   only host-filesystem call in the format crates. Depend with
-//!   `default-features = false` on a target without a filesystem;
+//!   only call in this crate that touches a host filesystem; nothing in the
+//!   workspace calls it, and a format crate could not, since all three take
+//!   `core` with `default-features = false`. Depend that way on a target
+//!   without a filesystem;
 //!   `wasm32-unknown-unknown` compiles `std::fs` but fails every call at
 //!   runtime, so the gate is what stops detection from silently falling back to
 //!   guessing from the file extension. Not a `no_std` switch — the crate still
