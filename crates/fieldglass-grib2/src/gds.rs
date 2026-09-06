@@ -1141,7 +1141,7 @@ impl GridDefinitionSection {
     }
 
     /// Short human-readable name of the template (e.g. `"latlon"`,
-    /// `"lambert"`, `"gaussian"`, `"unsupported(N)"`).
+    /// `"lambert"`, `"gaussian"`, `"unsupported(3.N)"`).
     ///
     /// This is the string a host puts in its grid-type column, and it names
     /// what **this build models**: it is derived from [`GridTemplate`], so a

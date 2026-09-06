@@ -2,9 +2,15 @@
 //!
 //! `tables_wmo.rs` is generated, so it cannot drift from the standard. The code
 //! tables — discipline, production status, grid template, earth shape,
-//! statistical process and the rest — are hand-written, because they carry
-//! deliberately short labels that WMO's own verbose wording would not fit in a
-//! metadata column. Hand-written means unverified, and #415 showed what that
+//! statistical process and the rest — are hand-written, because a handful of
+//! them carry deliberately short labels that WMO's own verbose wording would
+//! not fit in a metadata column. Two are hybrids: `lookup_time_range_unit` and
+//! `lookup_fixed_surface` curate the common codes and fall through to the
+//! generated module for the rest, so a good share of Table 4.5's entries come
+//! from the source that cannot drift. Sweeping those anyway costs nothing and
+//! checks the curated arms that shadow it.
+//!
+//! Hand-written means unverified, and #415 showed what that
 //! costs: three parameters naming the wrong quantity, then six more here, in
 //! Tables 1.3 and 4.10, where the codes had been assigned to something else
 //! entirely.
@@ -242,19 +248,25 @@ const DELIBERATELY_UNNAMED: &[(&str, u16, &str)] = &[];
 /// for local use"` are *names* — WMO's own, for the missing sentinel and the
 /// local range — so a lookup returning one has carried the code and is
 /// compared like any other. (They were once treated as gaps here, which is
-/// what let eleven `255 => "Missing"` arms go unchecked, and left Tables 3.1
-/// and 3.2 with no missing-sentinel arm at all: #653.)
+/// what let the nine `255 => "Missing"` arms that existed go unchecked — and
+/// hid that Tables 3.1 and 3.2 had no missing-sentinel arm at all: #653.)
 fn lookup_has_no_name(label: &str) -> bool {
     label.starts_with("Unknown")
 }
 
 /// Whether WMO's own text assigns the code no meaning to name.
 ///
-/// `Reserved` and `Reserved for local use` are the two, and they are the only
-/// two: `Missing` is a meaning — every lookup here names it — and a code whose
-/// text is anything else is something WMO has assigned. When WMO later assigns
-/// one of these, the snapshot's text changes and it stops being exempt, which
-/// is exactly the notification this gate exists to give.
+/// In practice that is `Reserved`, and only `Reserved`: `Missing` is a meaning
+/// — every lookup here names it — and a code whose text is anything else is
+/// something WMO has assigned. `Reserved for local use` matches the same
+/// prefix but never reaches the snapshot, because WMO publishes the local
+/// range as a single row (`192-254`) and
+/// `tools/gen_wmo_code_table_snapshot.py` keeps only rows whose code is one
+/// number.
+///
+/// When WMO later assigns one of these, the snapshot's text changes and the
+/// code stops being exempt, which is exactly the notification this gate exists
+/// to give.
 fn wmo_assigns_no_meaning(wmo: &str) -> bool {
     wmo.starts_with("Reserved")
 }
@@ -373,6 +385,22 @@ fn every_curated_code_table_entry_agrees_with_wmo() {
 #[test]
 fn every_code_wmo_assigns_is_named() {
     let doc = snapshot();
+    // A table the snapshot carries and `TABLES` omits would be skipped whole,
+    // with nothing to report it — the same defect one level up. The per-table
+    // `panic!` below covers only the other direction.
+    let mut in_snapshot: Vec<&str> = doc["tables"]
+        .as_object()
+        .expect("snapshot has a tables section")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    let mut under_test: Vec<&str> = TABLES.iter().map(|t| t.wmo).collect();
+    in_snapshot.sort_unstable();
+    under_test.sort_unstable();
+    assert_eq!(
+        under_test, in_snapshot,
+        "the tables under test and the tables in the snapshot are not the same set"
+    );
     let mut unnamed: Vec<(&str, u16, &str)> = Vec::new();
     let mut report = Vec::new();
     let (mut total_assigned, mut total_unassigned) = (0usize, 0usize);
@@ -385,9 +413,12 @@ fn every_code_wmo_assigns_is_named() {
         let mut out_of_range = 0usize;
         for (code, expected) in entries {
             let code: u16 = code.parse().expect("numeric code");
-            // Outside what a `u8` lookup can be asked about, so not a gap.
-            // Counted rather than dropped: it is the one skip left in this
-            // walk, and an unreported skip is the defect this test exists for.
+            // Outside what a `u8` lookup can be asked about. Counted, and
+            // asserted zero below: it is the one skip left in this walk, and a
+            // skip nothing asserts on is the defect this test exists for. No
+            // table reaches it today — only 3.1 carries codes above 255 and its
+            // lookup takes a `u16` — so a non-zero count means WMO widened a
+            // table and the lookup's argument needs widening with it.
             if table.octet && code > 255 {
                 out_of_range += 1;
                 continue;
@@ -417,6 +448,13 @@ fn every_code_wmo_assigns_is_named() {
              wired to the table it is being checked against",
             table.wmo
         );
+        assert_eq!(
+            out_of_range, 0,
+            "table {} carries {out_of_range} code(s) above 255 that its `u8` lookup \
+             cannot be asked about — widen the lookup rather than leaving them \
+             permanently unreachable",
+            table.wmo
+        );
         total_assigned += assigned;
         total_unassigned += unassigned;
     }
@@ -434,15 +472,7 @@ fn every_code_wmo_assigns_is_named() {
          loading, so coverage proves nothing"
     );
 
-    let missing: Vec<String> = unnamed
-        .iter()
-        .filter(|(t, c, _)| {
-            !DELIBERATELY_UNNAMED
-                .iter()
-                .any(|&(ut, uc, _)| ut == *t && uc == *c)
-        })
-        .map(|(t, c, wmo)| format!("  {t}/{c}: WMO assigns {wmo:?}, we answer nothing"))
-        .collect();
+    let missing = unrecorded(&unnamed, DELIBERATELY_UNNAMED);
     assert!(
         missing.is_empty(),
         "{} code(s) WMO assigns are neither named nor recorded on \
@@ -451,11 +481,7 @@ fn every_code_wmo_assigns_is_named() {
         missing.join("\n")
     );
 
-    let stale: Vec<String> = DELIBERATELY_UNNAMED
-        .iter()
-        .filter(|(t, c, _)| !unnamed.iter().any(|&(ut, uc, _)| ut == *t && uc == *c))
-        .map(|(t, c, why)| format!("  {t}/{c}: recorded as unnamed ({why})"))
-        .collect();
+    let stale = stale_records(&unnamed, DELIBERATELY_UNNAMED);
     assert!(
         stale.is_empty(),
         "{} DELIBERATELY_UNNAMED entr(y/ies) no longer describe an unnamed assigned \
@@ -466,6 +492,53 @@ fn every_code_wmo_assigns_is_named() {
     );
 }
 
+/// Unnamed codes that no entry on `recorded` accounts for.
+///
+/// Factored out of the test, together with its twin below, so both directions
+/// of the equality can be exercised on a synthetic list. `DELIBERATELY_UNNAMED`
+/// is empty in this tree — which is the point of the naming pass — and an empty
+/// list leaves both of these unreached, so the allowlist mechanism would
+/// otherwise ship with no coverage at all.
+fn unrecorded(unnamed: &[(&str, u16, &str)], recorded: &[(&str, u16, &str)]) -> Vec<String> {
+    unnamed
+        .iter()
+        .filter(|(t, c, _)| !recorded.iter().any(|&(rt, rc, _)| rt == *t && rc == *c))
+        .map(|(t, c, wmo)| format!("  {t}/{c}: WMO assigns {wmo:?}, we answer nothing"))
+        .collect()
+}
+
+/// Entries on `recorded` that no longer describe an unnamed code.
+fn stale_records(unnamed: &[(&str, u16, &str)], recorded: &[(&str, u16, &str)]) -> Vec<String> {
+    recorded
+        .iter()
+        .filter(|(t, c, _)| !unnamed.iter().any(|&(ut, uc, _)| ut == *t && uc == *c))
+        .map(|(t, c, why)| format!("  {t}/{c}: recorded as unnamed ({why})"))
+        .collect()
+}
+
+/// The allowlist mechanism itself, on a synthetic list — the coverage an empty
+/// `DELIBERATELY_UNNAMED` cannot give it.
+#[test]
+fn the_unnamed_allowlist_fails_in_both_directions() {
+    let unnamed = [(
+        "4.6",
+        9u16,
+        "Initial conditions and model physics perturbations",
+    )];
+    let recorded = [("4.6", 9u16, "a recorded reason")];
+
+    // The matched pair: neither direction complains.
+    assert!(unrecorded(&unnamed, &recorded).is_empty());
+    assert!(stale_records(&unnamed, &recorded).is_empty());
+    // An unnamed code nothing records.
+    assert_eq!(unrecorded(&unnamed, &[]).len(), 1);
+    // A record naming a code that is not unnamed.
+    assert_eq!(stale_records(&unnamed, &[("4.6", 8, "why")]).len(), 1);
+    // The table is part of the key, not just the code.
+    assert_eq!(unrecorded(&unnamed, &[("4.3", 9, "why")]).len(), 1);
+    assert_eq!(stale_records(&unnamed, &[("4.3", 9, "why")]).len(), 1);
+}
+
 /// No two codes in one table share a label.
 ///
 /// The wording check accepts a label that is a substring of WMO's, which is
@@ -474,21 +547,25 @@ fn every_code_wmo_assigns_is_named() {
 /// §3.13, "Mercator with modelling subdomains definition", is a substring of
 /// WMO's text and would sail through — while colliding with §3.10, which is
 /// plainly *the* Mercator. Two codes reading the same in a metadata column is
-/// the damaging half of that, so it is checked directly. Uniqueness is a
-/// property of our own table, not of WMO's, so it needs no snapshot.
+/// the damaging half of that, so it is checked directly.
+///
+/// Uniqueness is a property of our own table, not of WMO's, so this sweeps the
+/// lookup's whole argument range rather than the snapshot's key set. Not
+/// tidiness: Tables 4.4 and 4.5 answer most codes out of the generated
+/// `tables_wmo` module, whose entries a snapshot walk would never visit, and a
+/// collision between a curated arm and a generated one reads exactly as badly
+/// as any other.
 #[test]
 fn no_two_codes_in_a_table_share_a_label() {
-    let doc = snapshot();
     for table in TABLES {
-        let entries = doc["tables"][table.wmo]
-            .as_object()
-            .unwrap_or_else(|| panic!("table {} missing from the snapshot", table.wmo));
+        let highest: u32 = if table.octet {
+            u8::MAX as u32
+        } else {
+            u16::MAX as u32
+        };
         let mut seen: Vec<(u16, &'static str)> = Vec::new();
-        for code in entries.keys() {
-            let code: u16 = code.parse().expect("numeric code");
-            if table.octet && code > 255 {
-                continue;
-            }
+        for code in 0..=highest {
+            let code = code as u16;
             let ours = (table.lookup)(code);
             // The three catch-all answers are shared by construction.
             if lookup_has_no_name(ours) || ours == "Missing" || ours == "Reserved for local use" {

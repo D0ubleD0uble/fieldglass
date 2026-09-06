@@ -85,7 +85,8 @@ pub fn lookup_production_status(value: u8) -> &'static str {
 /// assigns — leaving one out reports `Unknown grid template` for a grid whose
 /// name the standard states, which is a worse answer whether or not the
 /// decoder models it, and which for §3.61-63 and §3.150 was wrong outright:
-/// those four *are* parsed (#653).
+/// this crate parses all four of those templates — §3.150 renders, and the
+/// bi-Fourier three decode to coefficients — and named none of them (#653).
 pub fn lookup_grid_template(template: u16) -> &'static str {
     match template {
         0 => "Latitude/longitude",
@@ -134,12 +135,12 @@ pub fn lookup_earth_shape(shape: u8) -> &'static str {
         0 => "Spherical (radius 6 367 470.0 m)",
         1 => "Spherical (custom radius)",
         2 => "Oblate spheroid (IAU 1965)",
-        3 => "Oblate spheroid (custom axes)",
+        3 => "Oblate spheroid (custom axes, km)",
         4 => "Oblate spheroid (IAG-GRS80)",
         5 => "Oblate spheroid (WGS84)",
         6 => "Spherical (radius 6 371 229.0 m)",
         7 => "Oblate spheroid (custom axes, m)",
-        8 => "Spherical (radius 6 371 200.0 m, derived)",
+        8 => "Spherical (radius 6 371 200 m, WGS-84 datum)",
         9 => "Oblate spheroid (OSGB 1936 / Airy)",
         10 => "WGS84 with corrected geomagnetic coordinates",
         // Not the Earth at all: §3.2 code 11 is the solar disc, for a space
@@ -721,6 +722,7 @@ mod tests {
             (4, "Space weather products"),
             (10, "Oceanographic products"),
             (20, "Health and socioeconomic impacts"),
+            (191, "Computational parameters"),
         ] {
             assert_eq!(lookup_discipline(id), expected, "discipline {id}");
         }
@@ -1016,6 +1018,11 @@ mod tests {
             (16, "Physical retrieval"),
             (17, "Regression analysis"),
             (18, "Difference between two forecasts"),
+            (19, "First guess"),
+            (20, "Analysis increment"),
+            (21, "Initialization increment for analysis"),
+            (22, "Blended forecast"),
+            (23, "Anomaly"),
         ] {
             assert_eq!(
                 lookup_generating_process_type(id),
@@ -1088,6 +1095,11 @@ mod tests {
             (2, "Negatively perturbed forecast"),
             (3, "Positively perturbed forecast"),
             (4, "Multi-model forecast"),
+            (5, "Unperturbed forecast"),
+            (6, "Perturbed forecast"),
+            (7, "Initial conditions perturbations"),
+            (8, "Model physics perturbations"),
+            (9, "Initial conditions and model physics perturbations"),
         ] {
             assert_eq!(lookup_ensemble_type(id), expected, "ensemble type {id}");
         }
@@ -1110,6 +1122,9 @@ mod tests {
             (11, "Summation"),
             (12, "Return period"),
             (13, "Median"),
+            (100, "Severity"),
+            (101, "Mode"),
+            (102, "Index processing"),
         ] {
             assert_eq!(
                 lookup_statistical_process(id),
