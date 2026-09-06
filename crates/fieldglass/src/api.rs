@@ -101,7 +101,16 @@ api_type! {
     /// Units the [`Georef`] origin and spacing are expressed in.
     #[serde(rename_all = "snake_case")]
     pub enum AxisUnits {
-        /// Geographic families: `x0`/`dx` are longitudes, `y0`/`dy` latitudes.
+        /// Degrees **in the plane [`Georef::proj4`] names**, which for
+        /// `latlon`, `gaussian` and `lookup` is geographic — `x0`/`dx` are
+        /// longitudes, `y0`/`dy` latitudes.
+        ///
+        /// `rotated_latlon` also reports degrees, and they are **not**
+        /// geographic: its CRS is a PROJ `ob_tran` and its corners are
+        /// rotated-frame coordinates, which is the whole reason the frame is
+        /// named. A host that read them as longitude and latitude would put a
+        /// COSMO domain in the Sahara. The unit is not enough on its own; the
+        /// CRS beside it is what says what the degrees measure.
         Degrees,
         /// Projected families: `x0`/`y0` are the grid origin in the projection
         /// plane described by [`Georef::proj4`], with no false easting or
