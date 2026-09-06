@@ -763,8 +763,11 @@ fn p1_to_hours(time_unit: u8, p: i32) -> Option<i32> {
         254 => p,
         _ => return None,
     };
-    let hours = (seconds as f64 / 3_600.0).round();
-    Some(hours.clamp(i32::MIN as f64, i32::MAX as f64) as i32)
+    // `f64 as i64` already saturates, so the two-step narrowing cannot wrap
+    // between them; `saturating_hours` is the rule both editions share.
+    Some(fieldglass_core::lead_time::saturating_hours(
+        (seconds as f64 / 3_600.0).round() as i64,
+    ))
 }
 
 /// Format the PDS time information for display, branching on the time-range
@@ -777,10 +780,11 @@ pub fn forecast_display(pds: &ProductDefinition) -> String {
 
     // A unit with no fixed length in hours keeps its own number and label
     // rather than being printed as hours, which is what turned a 6-month mean
-    // into "+6h". Same rule as the GRIB2 side.
-    let one = |v: i32| match p1_to_hours(pds.time_unit, v) {
-        Some(h) => format!("{h}h"),
-        None => format!("{v} {unit}"),
+    // into "+6h". Literally the same rule as the GRIB2 side since #545: both
+    // editions call `lead_label`, and each decides for itself which leads it
+    // has an hours value for.
+    let one = |v: i32| {
+        fieldglass_core::lead_time::lead_label(p1_to_hours(pds.time_unit, v), i64::from(v), unit)
     };
     let pair = |a: i32, b: i32| match (p1_to_hours(pds.time_unit, a), p1_to_hours(pds.time_unit, b))
     {

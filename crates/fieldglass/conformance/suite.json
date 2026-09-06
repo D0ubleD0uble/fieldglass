@@ -60,7 +60,7 @@
       },
       "expect": {
         "abbreviation": "TMP",
-        "forecast": "+0 Hour",
+        "forecast": "+0h",
         "grid": {
           "axisUnits": "degrees",
           "boundsLonlat": [
@@ -1481,7 +1481,7 @@
       },
       "expect": {
         "abbreviation": "TMP",
-        "forecast": "+0 Hour",
+        "forecast": "+0h",
         "grid": {
           "axisUnits": "degrees",
           "boundsLonlat": [
@@ -2890,7 +2890,7 @@
       },
       "expect": {
         "abbreviation": "MSLET",
-        "forecast": "+24 Hour",
+        "forecast": "+24h",
         "grid": {
           "axisUnits": "metres",
           "boundsLonlat": [
@@ -4317,7 +4317,7 @@
       },
       "expect": {
         "abbreviation": "TMP",
-        "forecast": "+0 Hour",
+        "forecast": "+0h",
         "grid": {
           "axisUnits": "metres",
           "boundsLonlat": [
@@ -5736,7 +5736,7 @@
       },
       "expect": {
         "abbreviation": "TMP",
-        "forecast": "+0 Hour",
+        "forecast": "+0h",
         "grid": {
           "axisUnits": "degrees",
           "boundsLonlat": [
@@ -7133,7 +7133,7 @@
       },
       "expect": {
         "abbreviation": "TMP",
-        "forecast": "+0 Hour",
+        "forecast": "+0h",
         "grid": {
           "axisUnits": "degrees",
           "boundsLonlat": null,
@@ -8419,7 +8419,7 @@
       },
       "expect": {
         "abbreviation": "TMP",
-        "forecast": "+0 Hour",
+        "forecast": "+0h",
         "grid": {
           "axisUnits": "degrees",
           "boundsLonlat": null,
@@ -9853,7 +9853,7 @@
       },
       "expect": {
         "abbreviation": "TMP",
-        "forecast": "+0 Hour",
+        "forecast": "+0h",
         "grid": {
           "axisUnits": "degrees",
           "boundsLonlat": null,

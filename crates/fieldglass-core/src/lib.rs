@@ -54,6 +54,7 @@ pub mod detect;
 pub mod error;
 pub mod global_grid;
 pub mod healpix;
+pub mod lead_time;
 pub mod matrix;
 #[cfg(feature = "render")]
 pub mod overlay;

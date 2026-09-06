@@ -38,6 +38,7 @@
 
 #![forbid(unsafe_code)]
 pub mod bms;
+pub mod display;
 pub mod drs;
 pub mod ds;
 pub mod gds;
@@ -67,6 +68,7 @@ pub use bms::{
     BMS_INDICATOR_NONE, BMS_INDICATOR_PRESENT, BMS_INDICATOR_PREVIOUS, BMS_SECTION_NUMBER,
     BitMapSection, parse_bit_map,
 };
+pub use display::{forecast_display, forecast_hours, level_type_str, level_value_str};
 pub use drs::{
     DRS_SECTION_NUMBER, DataRepresentationSection, DataRepresentationTemplate, IeeePackingTemplate,
     SimplePackingTemplate, SpectralComplexPackingTemplate, SpectralSimplePackingTemplate,
