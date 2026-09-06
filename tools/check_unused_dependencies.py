@@ -72,10 +72,17 @@ MIN_PACKAGES = 10
 # An entry here is a claim a reviewer has to read, which is the point.
 SKIPPED: dict[tuple[str, str], str] = {}
 
-# The start of a Rust string literal, with the `b` / `r` / `br` prefixes and the
-# raw-string hashes. Matched only where an identifier character cannot precede
-# it, so the `r` of `for` is not read as a raw string.
-_STRING_START = re.compile(r'(b?r)(#*)"|b?"')
+# The start of a Rust string literal: every prefix the language has (`b`, `c`,
+# `r`, and the `br` / `cr` combinations) and the raw-string hashes. Matched only
+# where an identifier character cannot precede it, so the `r` of `for` is not
+# read as a raw string. The prefixes have to be complete: an unrecognised one
+# leaves the opening quote unstripped, and the *closing* quote is then read as
+# an opening one, which would swallow real code up to the next quote in the file.
+_STRING_START = re.compile(r'([bc]?r)(#*)"|[bc]?"')
+
+# The characters `_STRING_START` can begin at, so the common case costs one
+# membership test rather than a regex match.
+_STRING_LEAD = '"brc'
 
 
 def strip_comments_and_literals(src: str) -> str:
@@ -127,7 +134,7 @@ def strip_comments_and_literals(src: str) -> str:
             out.append("'")
             i += 1
             continue
-        if src[i] in '"br':
+        if src[i] in _STRING_LEAD:
             preceded_by_ident = i > 0 and (src[i - 1].isalnum() or src[i - 1] == "_")
             m = None if preceded_by_ident else _STRING_START.match(src, i)
             if m:

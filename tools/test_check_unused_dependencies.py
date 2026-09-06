@@ -187,6 +187,20 @@ class NamingIsNotUsing(unittest.TestCase):
         self.addCleanup(fx.close)
         self.assertEqual(fx.run(), 1)
 
+    def test_a_c_string_literal_is_not_a_use(self):
+        # `c"…"` (Rust 1.77). An unhandled prefix is worse than a missed
+        # literal: the opening quote survives, the closing one is then read as
+        # an opening quote, and everything up to the next quote in the file is
+        # swallowed — which can hide a real use rather than invent one.
+        fx = Fixture(**{"src__lib.rs": 'pub const D: &core::ffi::CStr = c"serde.";\n'})
+        self.addCleanup(fx.close)
+        self.assertEqual(fx.run(), 1)
+
+    def test_a_raw_c_string_literal_is_not_a_use(self):
+        fx = Fixture(**{"src__lib.rs": 'pub const D: &core::ffi::CStr = cr#"serde."#;\n'})
+        self.addCleanup(fx.close)
+        self.assertEqual(fx.run(), 1)
+
 
 class StripperDoesNotEatCode(unittest.TestCase):
     """The other direction: stripping must not hide a real use."""
@@ -219,6 +233,12 @@ class StripperDoesNotEatCode(unittest.TestCase):
 
     def test_the_r_of_an_identifier_is_not_a_raw_string(self):
         src = 'pub fn f() { for _ in 0..1 { let _ = "x"; } serde::run(); }\n'
+        fx = Fixture(**{"src__lib.rs": src})
+        self.addCleanup(fx.close)
+        self.assertEqual(fx.run(), 0)
+
+    def test_a_c_string_does_not_swallow_the_code_after_it(self):
+        src = 'pub fn f() { let _ = c"a."; serde::run(); let _ = "b"; }\n'
         fx = Fixture(**{"src__lib.rs": src})
         self.addCleanup(fx.close)
         self.assertEqual(fx.run(), 0)
@@ -284,6 +304,8 @@ class TheRepoItselfPasses(unittest.TestCase):
                 "crates/fieldglass-wasm",
                 "tests/crate-independence",
             },
+            "the set of packages this check walks has changed — add the new one "
+            "here (or remove the deleted one) so the walk stays pinned",
         )
 
 
