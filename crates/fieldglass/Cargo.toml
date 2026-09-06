@@ -23,13 +23,16 @@ publish = false
 # umbrella sits between every host and `core`, so taking core's defaults here
 # would re-enable `fs` for the wasm host by feature unification and drag
 # `detect_format`'s `std::fs` into a target that has no filesystem. The two
-# surfaces this crate does want, `render` and `analysis`, are named here
-# instead; `fs` is not forwarded at all, because ADR-0005 hands every host
-# bytes rather than a path. Turning these into features of this crate, so a
-# host can decline one, is #552 — there is no `render` feature here today.
-fieldglass-core = { path = "../fieldglass-core", version = "=0.5.0", default-features = false, features = ["render", "analysis"] }
-fieldglass-grib1 = { path = "../fieldglass-grib1", version = "=0.5.0" }
-fieldglass-grib2 = { path = "../fieldglass-grib2", version = "=0.5.0" }
+# surfaces this crate does want are forwarded by this crate's own `render` and
+# `analysis` features instead of being pinned on here (#552), so a host can
+# decline one; `fs` is not forwarded at all, because ADR-0005 hands every host
+# bytes rather than a path.
+fieldglass-core = { path = "../fieldglass-core", version = "=0.5.0", default-features = false }
+# Optional so a consumer links only the decoders it opens (#552). Each carries
+# its own codecs — GRIB2 alone pulls PNG, AEC, JPEG 2000 and the complex-packing
+# paths — and a build that never sees a GRIB1 message should not pay for them.
+fieldglass-grib1 = { path = "../fieldglass-grib1", version = "=0.5.0", optional = true }
+fieldglass-grib2 = { path = "../fieldglass-grib2", version = "=0.5.0", optional = true }
 serde = { workspace = true }
 schemars = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
@@ -38,7 +41,33 @@ serde_json = { workspace = true, optional = true }
 serde_json = { workspace = true }
 
 [features]
-default = ["schema", "conformance"]
+default = ["grib1", "grib2", "render", "analysis", "schema", "conformance"]
+
+# --- Formats -----------------------------------------------------------------
+# One feature per decoder, all on by default, so `Session` dispatches over the
+# containers this build actually carries. `detect_from_bytes` stays
+# unconditional: a build that cannot open a GRIB1 message should still be able
+# to say the bytes *are* GRIB1, which is a different answer from "unknown" and
+# the one a host needs to report. At least one of these must be on — see the
+# `compile_error!` in `lib.rs`, which is what a consumer gets instead of a
+# `Session` with nothing to open.
+grib1 = ["dep:fieldglass-grib1"]
+grib2 = ["dep:fieldglass-grib2"]
+
+# --- Surfaces ----------------------------------------------------------------
+# `core`'s two optional surfaces, forwarded rather than pinned on, because a
+# feature does not stop at a crate boundary (planned/01-crates.md): with the
+# umbrella in the middle, a host can only decline `render` if this crate lets it.
+#
+# They are independent of each other on purpose. `analysis` returns values and
+# `render` returns pixels, so a values-first consumer takes `combine`,
+# `contours` and CSV without the painter, and a texture-first one takes the
+# painter without them. The one member of this crate's surface that needs both
+# is `render::contour_polylines`, which traces isolines and then projects them
+# onto the render raster; it is compiled only when both are on.
+render = ["fieldglass-core/render"]
+analysis = ["fieldglass-core/analysis"]
+
 # JSON Schema derives on every API type (ADR-0006 decision 2), which is what a
 # host's `.d.ts` is generated from. Off for the wasm host, whose bundle pays for
 # every byte and whose declarations come from wasm-bindgen.
@@ -54,7 +83,14 @@ schema = ["dep:schemars"]
 # so neither the browser bundle nor the addon carries it; `fieldglass-napi`
 # asks for it back in `[dev-dependencies]`, and the wasm host's runner reads
 # `conformance/suite.json` from Node without linking Rust at all.
-conformance = ["dep:serde_json"]
+#
+# **It turns the whole surface on.** The suite is one recorded expectation per
+# case over every format and both surfaces, so a partial build has no honest
+# subset of it to run — a case whose format is compiled out would have to be
+# skipped, and a suite that silently skips is the gate that fails open. Asking
+# for `conformance` therefore asks for what it drives, and a build that declines
+# a feature declines the suite with it.
+conformance = ["dep:serde_json", "grib1", "grib2", "render", "analysis"]
 
 [lints]
 workspace = true

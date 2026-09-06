@@ -101,12 +101,39 @@ have the dependency.
 between every host and `core`, so taking core's defaults there would re-enable
 them for the browser by feature unification, and the wasm bundle would carry
 `detect_format`'s `std::fs` — dead weight on a target with no filesystem. It
-names the two optional surfaces it does want, `render` and `analysis`, on the
-dependency itself, and does not forward `fs` at all; ADR-0005 hands every host
-bytes rather than a path. Turning those into the umbrella's own features, so a
-host can decline one, is #552. `fieldglass` does not depend
+forwards the two optional surfaces it does want, `render` and `analysis`,
+through features of its own (#552) rather than pinning them on the dependency,
+so a host can decline one; `fs` is not forwarded at all, because ADR-0005 hands
+every host bytes rather than a path.
+
+**The umbrella's features, and what each is for.** `grib1` and `grib2` make the
+decoders optional, since a decoder carries its own codecs — PNG, AEC and
+JPEG 2000 arrive with GRIB2 alone — and a build that never opens that edition
+should not link them: `grib1,render` resolves 12 crates against the default 34.
+`Session` has one `Reader` variant per format feature and `lib.rs` refuses a
+build with neither, so every dispatch stays exhaustive; `detect_from_bytes` is
+never gated, because "this is GRIB1 and I cannot read it" is a different answer
+from "I do not know what this is". `render` and `analysis` are independent of
+each other — a values-first host wants contours without the painter — and
+`render::contour_polylines`, which traces isolines and then projects them, is
+the one member that needs both. `conformance` turns all four on, because the
+suite is one recorded expectation per case over every format and both surfaces
+and a partial build would have to skip cases to run at all. None of this is
+visible to `--workspace`, where `fieldglass-napi`'s request unifies every
+feature back on; the `cargo-clippy-umbrella-features` and
+`cargo-doc-umbrella-features` hooks build the reduced sets instead.
+
+`fs` is still not forwarded, and #552 deliberately did not add it even though
+`planned/01-crates.md` lists it beside the other two: the umbrella does not
+re-export `detect_format`, so an `fs` feature here would turn on a `core`
+surface no consumer of *this* crate can reach. A CLI (#254) or PyO3 consumer
+that starts from a path names `fieldglass-core` itself.
+
+`fieldglass` does not depend
 on `fieldglass-netcdf` yet: NetCDF reaches the browser with its own issue, and
-an unused dependency here would be paid for in bundle size today.
+an unused dependency here would be paid for in bundle size today. That is also
+why the per-format features are two and not the four #552 named — `zarr` has no
+crate (#246) and `netcdf` has no edge to make optional.
 
 See [`planned/01-crates.md`](planned/01-crates.md) for where this is going —
 `fieldglass-fetchplan` (#461), `fieldglass-zarr` (#246), and `napi` moving onto

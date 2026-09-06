@@ -547,3 +547,93 @@ fn render_and_the_pixel_probe_agree_about_which_row_a_pixel_is() {
         );
     }
 }
+
+/// Every `Session` method in `render` forwards to the free function of the same
+/// name, and forwards *every* argument.
+///
+/// The five exist because a host whose handle is not a `Session` calls the free
+/// functions directly while one that does hold a session wants methods, and a
+/// forwarder that dropped or reordered an argument would compile, type-check
+/// and pass every other gate in the tree: nothing else in the workspace calls
+/// them through `Session` at all. Asserting equality against the free function
+/// rather than against a recorded value keeps this a forwarding test — it stays
+/// true when the underlying answer changes, and false the moment the two paths
+/// stop agreeing.
+#[test]
+fn every_session_render_method_forwards_to_its_free_function() {
+    let session = open("../fieldglass-grib2/tests/fixtures/gfs_c255_latlon.grib2");
+    let field = session
+        .decode(0, &DecodeOptions::default())
+        .expect("the lat/lon fixture decodes");
+    let cells: Vec<Option<f64>> = (0..field.mask.len())
+        .map(|k| (field.mask[k] == 1).then(|| field.values.get(k)).flatten())
+        .collect();
+    let source = fieldglass::Source {
+        geometry: Ok(&field.georef.geometry),
+        ni: field.ni,
+        nj: field.nj,
+        scan: field.georef.scan,
+        family: &field.georef.kind,
+    };
+    let options = RenderOptions::new("equirectangular", "nearest");
+
+    let free = fieldglass::render::project(&source, &cells, &options).expect("projects");
+    let method = session
+        .project(&source, &cells, &options)
+        .expect("projects");
+    assert_eq!(
+        (free.width, free.height, free.values, free.mask),
+        (method.width, method.height, method.values, method.mask),
+        "Session::project and render::project disagree"
+    );
+
+    // Deliberately far apart, and neither near the raster's diagonal: a
+    // forwarder that swapped the two would answer for pixel (37, 2) here, and
+    // the assertion has to be able to tell that apart.
+    let (px, py) = (2, 37);
+    let free = fieldglass::render::probe_pixel(&source, &cells, &options, px, py).expect("probes");
+    let method = session
+        .probe_pixel(&source, &cells, &options, px, py)
+        .expect("probes");
+    assert_eq!(
+        free.map(|p| (p.grid_i, p.grid_j, p.value)),
+        method.map(|p| (p.grid_i, p.grid_j, p.value)),
+        "Session::probe_pixel and render::probe_pixel disagree — a swapped or \
+         dropped pixel argument would look exactly like this"
+    );
+
+    let free = fieldglass::render::contour_polylines(&source, &cells, &options, None)
+        .expect("contours project");
+    let method = session
+        .contour_polylines(&source, &cells, &options, None)
+        .expect("contours project");
+    assert_eq!(
+        (free.xy.len(), free.seg_lengths.clone()),
+        (method.xy.len(), method.seg_lengths.clone()),
+        "Session::contour_polylines and render::contour_polylines disagree"
+    );
+
+    // A two-point ring, so `ring_lengths` is not the same value as the
+    // coordinate count and a forwarder that passed one for the other shows up.
+    let latlon = [10.0, 20.0, 30.0, 40.0];
+    let rings = [2u32];
+    let free = fieldglass::render::overlay_polylines(&source, &options, &latlon, &rings)
+        .expect("the overlay projects");
+    let method = session
+        .overlay_polylines(&source, &options, &latlon, &rings)
+        .expect("the overlay projects");
+    assert_eq!(
+        (free.xy, free.seg_lengths),
+        (method.xy, method.seg_lengths),
+        "Session::overlay_polylines and render::overlay_polylines disagree"
+    );
+
+    for format in ["matrix", "long"] {
+        let free = fieldglass::render::field_csv(&source, &cells, format).expect("csv");
+        let method = session.field_csv(&source, &cells, format).expect("csv");
+        assert_eq!(
+            free, method,
+            "Session::field_csv and render::field_csv disagree on {format:?}"
+        );
+    }
+}

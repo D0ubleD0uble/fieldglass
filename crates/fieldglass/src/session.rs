@@ -9,17 +9,26 @@
 //! many fields at once, so a field is handed to the caller and passed back by
 //! reference to every operation that consumes one.
 
+// Split by feature: a braced `use` list takes no `#[cfg]` on its members, so
+// the items behind `core`'s optional surfaces need their own statement (#552).
 use fieldglass_core::{
-    Format as CoreFormat, GridGeometry, LonLatBox, Resampling, SourceGrid, TargetRaster,
+    Format as CoreFormat, GridGeometry, detect_from_bytes, units::normalize_units,
+};
+#[cfg(feature = "render")]
+use fieldglass_core::{
+    LonLatBox, Resampling, SourceGrid, TargetRaster,
     colormap::{Colormap, Palette, ScaleMode, default_colormap},
-    contour_segments, contour_segments_global, detect_from_bytes, nice_levels,
-    units::normalize_units,
     warp,
 };
+#[cfg(feature = "analysis")]
+use fieldglass_core::{contour_segments, contour_segments_global, nice_levels};
 
-use crate::api::{
-    Dtype, Field, Georef, Isoline, MessageInfo, Probe, Scan, SourceFormat, Stats, Values, Warped,
-};
+#[cfg(feature = "analysis")]
+use crate::api::Isoline;
+#[cfg(feature = "render")]
+use crate::api::Warped;
+use crate::api::{Dtype, Field, Georef, MessageInfo, Probe, Scan, SourceFormat, Stats, Values};
+#[cfg(feature = "analysis")]
 use crate::combine::CombineOp;
 use crate::error::Error;
 
@@ -51,6 +60,7 @@ impl DecodeOptions {
 }
 
 /// How a field should be resampled onto a geographic box.
+#[cfg(feature = "render")]
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
@@ -67,10 +77,12 @@ pub struct WarpOptions {
     pub bounds: Option<[f64; 4]>,
 }
 
+#[cfg(feature = "render")]
 fn yes() -> bool {
     true
 }
 
+#[cfg(feature = "render")]
 impl Default for WarpOptions {
     fn default() -> Self {
         Self {
@@ -80,6 +92,7 @@ impl Default for WarpOptions {
     }
 }
 
+#[cfg(feature = "render")]
 impl WarpOptions {
     /// The resampling this warp wants, with the source grid's own extent as the
     /// window. Assign [`bounds`](Self::bounds) afterwards for a manual one.
@@ -95,6 +108,7 @@ impl WarpOptions {
 }
 
 /// Colour, decided once in Rust and exported as data.
+#[cfg(feature = "render")]
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
@@ -120,6 +134,7 @@ pub struct PaletteOptions {
     pub scale: Option<String>,
 }
 
+#[cfg(feature = "render")]
 impl PaletteOptions {
     /// The two fields that pick the ramp and the transform; the display range
     /// and the reversal are assigned afterwards.
@@ -141,6 +156,7 @@ impl PaletteOptions {
 }
 
 /// A painted raster: RGBA bytes plus the dimensions they cover.
+#[cfg(feature = "render")]
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
@@ -162,9 +178,14 @@ pub struct Session {
     reader: Reader,
 }
 
+/// One variant per format feature (#552). `lib.rs` refuses a build with none of
+/// them, so this enum always has at least one variant and every `match` on it
+/// below stays exhaustive with its arms gated the same way.
 #[derive(Debug)]
 enum Reader {
+    #[cfg(feature = "grib1")]
     Grib1(Box<fieldglass_grib1::Grib1Reader>),
+    #[cfg(feature = "grib2")]
     Grib2(Box<fieldglass_grib2::Grib2Reader>),
 }
 
@@ -176,11 +197,27 @@ impl Session {
     /// has no filename to guess from.
     pub fn open(bytes: Vec<u8>) -> Result<Self, Error> {
         let reader = match detect_from_bytes(&bytes) {
+            #[cfg(feature = "grib1")]
             CoreFormat::Grib1 => {
                 Reader::Grib1(Box::new(fieldglass_grib1::Grib1Reader::from_bytes(bytes)?))
             }
+            #[cfg(not(feature = "grib1"))]
+            CoreFormat::Grib1 => {
+                return Err(Error::UnsupportedFormat {
+                    detail: "GRIB1; this build was compiled without the `grib1` feature"
+                        .to_string(),
+                });
+            }
+            #[cfg(feature = "grib2")]
             CoreFormat::Grib2 => {
                 Reader::Grib2(Box::new(fieldglass_grib2::Grib2Reader::from_bytes(bytes)?))
+            }
+            #[cfg(not(feature = "grib2"))]
+            CoreFormat::Grib2 => {
+                return Err(Error::UnsupportedFormat {
+                    detail: "GRIB2; this build was compiled without the `grib2` feature"
+                        .to_string(),
+                });
             }
             CoreFormat::NetCdf => {
                 return Err(Error::UnsupportedFormat {
@@ -200,7 +237,9 @@ impl Session {
     /// [`Session::open`], never re-sniffed.
     pub fn format(&self) -> SourceFormat {
         match self.reader {
+            #[cfg(feature = "grib1")]
             Reader::Grib1(_) => SourceFormat::Grib1,
+            #[cfg(feature = "grib2")]
             Reader::Grib2(_) => SourceFormat::Grib2,
         }
     }
@@ -209,7 +248,9 @@ impl Session {
     /// `0..count()`; anything outside is [`Error::NoSuchMessage`].
     pub fn count(&self) -> u32 {
         let n = match &self.reader {
+            #[cfg(feature = "grib1")]
             Reader::Grib1(r) => r.message_count(),
+            #[cfg(feature = "grib2")]
             Reader::Grib2(r) => r.message_count(),
         };
         // A file with more messages than a `u32` counts does not exist; the
@@ -231,7 +272,9 @@ impl Session {
     pub fn message(&self, index: u32) -> Result<MessageInfo, Error> {
         let i = self.check_index(index)?;
         Ok(match &self.reader {
+            #[cfg(feature = "grib1")]
             Reader::Grib1(r) => grib1_message(r, i),
+            #[cfg(feature = "grib2")]
             Reader::Grib2(r) => grib2_message(r, i),
         })
     }
@@ -256,11 +299,15 @@ impl Session {
         // which families need synthesising, and onto what grid, is the format
         // crate's answer, not one this crate re-derives (#546, #580).
         let synthesised = match &self.reader {
+            #[cfg(feature = "grib1")]
             Reader::Grib1(r) => r.synthesize_message_global(i)?,
+            #[cfg(feature = "grib2")]
             Reader::Grib2(r) => r.synthesize_message_global(i)?,
         };
         let (parameter, units) = match &self.reader {
+            #[cfg(feature = "grib1")]
             Reader::Grib1(r) => grib1_parameter(&r.messages[i]),
+            #[cfg(feature = "grib2")]
             Reader::Grib2(r) => {
                 let (_, parameter, units) = grib2_parameter(&r.messages[i]);
                 (parameter, units)
@@ -278,6 +325,7 @@ impl Session {
                 Scan::north_down(),
             ),
             None => match &self.reader {
+                #[cfg(feature = "grib1")]
                 Reader::Grib1(r) => {
                     let msg = &r.messages[i];
                     let gds = msg.gds.as_ref().ok_or_else(|| Error::Unsupported {
@@ -286,6 +334,7 @@ impl Session {
                     let geometry = GridGeometry::from(gds);
                     (r.decode_message_raster(i)?, geometry, grib1_scan(msg))
                 }
+                #[cfg(feature = "grib2")]
                 Reader::Grib2(r) => {
                     let msg = &r.messages[i];
                     let geometry = GridGeometry::from(&msg.gds);
@@ -353,6 +402,7 @@ impl Session {
     /// This is the render pipeline split at the paint step: a GPU host wants
     /// the resampled *values*, so restyling never re-decodes. The output is the
     /// source `ni × nj` until #465 lets a caller size it.
+    #[cfg(feature = "render")]
     pub fn warp(&self, field: &Field, options: &WarpOptions) -> Result<Warped, Error> {
         warp_field(field, options)
     }
@@ -360,6 +410,7 @@ impl Session {
     /// The colour decision, as data (ADR-0006 decision 3). The CPU painter
     /// reads the same value, so it is the oracle a GPU path is checked against
     /// rather than a second colour implementation.
+    #[cfg(feature = "render")]
     pub fn palette(&self, field: &Field, options: &PaletteOptions) -> Result<Palette, Error> {
         build_palette(field, options)
     }
@@ -377,6 +428,7 @@ impl Session {
     /// asked here so all three agree about which row a pixel is (#573). A host
     /// that composed the flag itself before calling this would flip twice;
     /// hand the user's request straight through instead.
+    #[cfg(feature = "render")]
     pub fn render(
         &self,
         field: &Field,
@@ -435,9 +487,10 @@ impl Session {
     /// its siblings (#239, #579).
     ///
     /// The result is a [`Field`] like any other, on **A's** placement, so
-    /// [`warp`](Self::warp), [`palette`](Self::palette),
-    /// [`render`](Self::render), [`probe`](Self::probe) and
-    /// [`contours`](Self::contours) all apply to it with no special case. Its
+    /// `warp`, `palette`, `render`, [`probe`](Self::probe) and
+    /// [`contours`](Self::contours) all apply to it with no special case (the
+    /// first three are named in code spans because they are behind the `render`
+    /// feature, and a link to a compiled-out item is a rustdoc error). Its
     /// `parameter` and `units` are A's verbatim: the caption `A − B` is the
     /// host's to compose, and a units algebra here would have to answer what
     /// `A / B` of two different parameters is measured in.
@@ -445,14 +498,15 @@ impl Session {
     /// This is the one operation that takes two fields. It stays on `Session`
     /// rather than moving to `Field` because ADR-0006 decision 2 makes the API
     /// types plain data a binding is generated from — a method on one would be
-    /// a smart object every host had to mirror — and because
-    /// [`warp`](Self::warp) and the rest already take a field this session need
-    /// not have produced. Arity is the only difference.
+    /// a smart object every host had to mirror — and because `warp` and the
+    /// rest already take a field this session need not have produced. Arity is
+    /// the only difference.
     ///
     /// # Errors
     ///
     /// [`Error::Unsupported`] when the two do not align cell for cell, naming
     /// the property that differs. See [`crate::combine::aligned`].
+    #[cfg(feature = "analysis")]
     pub fn combine(&self, a: &Field, b: &Field, op: CombineOp) -> Result<Field, Error> {
         crate::combine::combine_api_fields(a, b, op)
     }
@@ -460,6 +514,7 @@ impl Session {
     /// Isolines through a field, in fractional grid coordinates.
     ///
     /// `levels` empty asks for a nice set spanning the field's own range.
+    #[cfg(feature = "analysis")]
     pub fn contours(&self, field: &Field, levels: &[f64]) -> Result<Vec<Isoline>, Error> {
         let chosen: Vec<f64> = if levels.is_empty() {
             match (field.stats.min, field.stats.max) {
@@ -507,12 +562,14 @@ impl Session {
 /// The field as `core`'s own `Option`-per-cell shape, which the contour and
 /// warp kernels consume. One allocation, at the boundary, rather than a branch
 /// per element inside them.
+#[cfg(feature = "analysis")]
 fn optional_values(field: &Field) -> Vec<Option<f64>> {
     (0..field.mask.len())
         .map(|k| (field.mask[k] == 1).then(|| field.values.get(k)).flatten())
         .collect()
 }
 
+#[cfg(feature = "render")]
 fn warp_field(field: &Field, options: &WarpOptions) -> Result<Warped, Error> {
     let geometry = &field.georef.geometry;
     let window = match options.bounds {
@@ -590,6 +647,7 @@ fn warp_field(field: &Field, options: &WarpOptions) -> Result<Warped, Error> {
     })
 }
 
+#[cfg(feature = "render")]
 fn build_palette(field: &Field, options: &PaletteOptions) -> Result<Palette, Error> {
     let colormap = match &options.colormap {
         Some(name) => Colormap::by_name(name).ok_or_else(|| Error::InvalidOption {
@@ -634,6 +692,7 @@ fn build_palette(field: &Field, options: &PaletteOptions) -> Result<Palette, Err
 // Per-format metadata
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "grib1")]
 fn grib1_scan(msg: &fieldglass_grib1::Grib1Message) -> Scan {
     match &msg.gds {
         Some(gds) => scan_of_grib1(gds).unwrap_or_else(Scan::north_down),
@@ -641,11 +700,13 @@ fn grib1_scan(msg: &fieldglass_grib1::Grib1Message) -> Scan {
     }
 }
 
+#[cfg(feature = "grib1")]
 fn scan_of_grib1(gds: &fieldglass_grib1::GridDescription) -> Option<Scan> {
     gds.scanning_mode()
         .map(|m| Scan::new(m.i_negative, m.j_positive, m.j_consecutive))
 }
 
+#[cfg(feature = "grib2")]
 fn grib2_scan(msg: &fieldglass_grib2::Grib2Message) -> Scan {
     match msg.gds.scanning_mode() {
         Some(sm) => Scan::new(sm & 0x80 != 0, sm & 0x40 != 0, sm & 0x20 != 0),
@@ -658,6 +719,7 @@ fn grib2_scan(msg: &fieldglass_grib2::Grib2Message) -> Scan {
 /// Split out of [`grib1_message`] so [`Session::decode`] does not build a whole
 /// `MessageInfo` for two strings: that would build the `Georef` too, and a
 /// projected family's `lonlat_bbox` walks its perimeter 512 times per edge.
+#[cfg(feature = "grib1")]
 fn grib1_parameter(msg: &fieldglass_grib1::Grib1Message) -> (String, String) {
     let param = fieldglass_grib1::tables::lookup_parameter(
         msg.pds.parameter_id,
@@ -673,6 +735,7 @@ fn grib1_parameter(msg: &fieldglass_grib1::Grib1Message) -> (String, String) {
     )
 }
 
+#[cfg(feature = "grib1")]
 fn grib1_message(reader: &fieldglass_grib1::Grib1Reader, index: usize) -> MessageInfo {
     let msg = &reader.messages[index];
     let param = fieldglass_grib1::tables::lookup_parameter(
@@ -705,6 +768,7 @@ fn grib1_message(reader: &fieldglass_grib1::Grib1Reader, index: usize) -> Messag
 
 /// `(abbreviation, name, units)` for one GRIB2 message. Split out for the
 /// reason [`grib1_parameter`] is.
+#[cfg(feature = "grib2")]
 fn grib2_parameter(msg: &fieldglass_grib2::Grib2Message) -> (String, String, String) {
     let discipline = msg.is.discipline;
     match msg.pds.common().and_then(|c| {
@@ -724,6 +788,7 @@ fn grib2_parameter(msg: &fieldglass_grib2::Grib2Message) -> (String, String, Str
     }
 }
 
+#[cfg(feature = "grib2")]
 fn grib2_message(reader: &fieldglass_grib2::Grib2Reader, index: usize) -> MessageInfo {
     let msg = &reader.messages[index];
     let common = msg.pds.common();
@@ -760,7 +825,7 @@ fn grib2_message(reader: &fieldglass_grib2::Grib2Reader, index: usize) -> Messag
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "grib2", feature = "render", feature = "analysis"))]
 mod tests {
     use super::*;
     use fieldglass_core::{LatLonParams, RotatedLatLonParams, projection::GridGeometry};
@@ -927,5 +992,63 @@ mod tests {
             "the bounded march must draw fewer segments than the unwrapped one, \
              or this test cannot tell them apart: {bounded} vs {unwrapped}"
         );
+    }
+}
+
+/// The refusal a build gets for a container it can recognise but not decode.
+///
+/// One module per format feature, each compiled only when that feature is
+/// *off*, so between them they cover every partial build the
+/// `cargo-clippy-umbrella-features` hook constructs — and they run rather than
+/// only compile, because that hook's sibling runs `cargo test --lib` over the
+/// same sets. Under default features neither module exists, which is why the
+/// assertion lives here and not in `tests/`: no integration test can observe a
+/// dispatch arm the build it runs in compiled out (#552).
+#[cfg(all(test, not(feature = "grib1")))]
+mod grib1_compiled_out {
+    use super::*;
+
+    #[test]
+    fn a_grib1_message_is_refused_as_grib1_and_not_as_unknown_bytes() {
+        // A minimal GRIB1 message: "GRIB", a 3-byte total length, edition 1.
+        // Detection reads the magic and the edition byte and nothing else, so
+        // this is enough to reach the dispatch arm under test.
+        let mut bytes = b"GRIB".to_vec();
+        bytes.extend_from_slice(&[0, 0, 8, 1]);
+        match Session::open(bytes) {
+            Err(Error::UnsupportedFormat { detail }) => {
+                assert!(
+                    detail.contains("GRIB1") && detail.contains("grib1"),
+                    "the refusal must name the container and the feature that \
+                     would decode it, not just decline: {detail}"
+                );
+            }
+            other => panic!("expected an UnsupportedFormat naming GRIB1, got {other:?}"),
+        }
+    }
+}
+
+/// The `grib2` half of [`grib1_compiled_out`].
+#[cfg(all(test, not(feature = "grib2")))]
+mod grib2_compiled_out {
+    use super::*;
+
+    #[test]
+    fn a_grib2_message_is_refused_as_grib2_and_not_as_unknown_bytes() {
+        // GRIB2 Section 0: "GRIB", two reserved bytes, discipline at offset
+        // 6, edition at offset 7 — which is the byte `detect_from_bytes`
+        // reads to tell the editions apart.
+        let mut bytes = b"GRIB".to_vec();
+        bytes.extend_from_slice(&[0, 0, 0, 2]);
+        match Session::open(bytes) {
+            Err(Error::UnsupportedFormat { detail }) => {
+                assert!(
+                    detail.contains("GRIB2") && detail.contains("grib2"),
+                    "the refusal must name the container and the feature that \
+                     would decode it, not just decline: {detail}"
+                );
+            }
+            other => panic!("expected an UnsupportedFormat naming GRIB2, got {other:?}"),
+        }
     }
 }

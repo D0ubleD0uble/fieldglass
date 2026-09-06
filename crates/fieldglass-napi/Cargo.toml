@@ -18,7 +18,10 @@ crate-type = ["cdylib"]
 # The host-neutral API this binding is a binding *over* (ADR-0006). `schema` is
 # off: the JSON Schema is what a declaration generator reads (#574), not what
 # the addon needs at runtime, and `schemars` has no business in a `.node`.
-fieldglass         = { path = "../fieldglass",        version = "=0.5.0", default-features = false }
+# The four it does name were unconditional in the umbrella until #552 made them
+# features; the addon opens both GRIB editions and owns the VS Code panel, so it
+# takes every one of them.
+fieldglass         = { path = "../fieldglass",        version = "=0.5.0", default-features = false, features = ["grib1", "grib2", "render", "analysis"] }
 fieldglass-core   = { path = "../fieldglass-core",   version = "=0.5.0", features = ["render", "analysis"] }
 fieldglass-grib1  = { path = "../fieldglass-grib1",  version = "=0.5.0" }
 fieldglass-grib2  = { path = "../fieldglass-grib2",  version = "=0.5.0" }

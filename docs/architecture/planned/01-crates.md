@@ -70,7 +70,10 @@ depends on `core` and on no other format crate; each host depends on
 off for a host that cannot use them only if every crate between the host and
 `core` says so. `fieldglass` must therefore take `core` with
 `default-features = false` and re-export `render`, `analysis` and `fs` as its
-own features. `fieldglass-napi` needs `render` and `analysis`; so does the
+own features. (`render` and `analysis` landed with #552, along with a `grib1`
+and a `grib2` feature this paragraph did not anticipate — a decoder's codecs
+turn out to weigh more than either surface. `fs` was deliberately left out;
+[`../01-crates.md`](../01-crates.md) records why.) `fieldglass-napi` needs `render` and `analysis`; so does the
 browser host today, since `Handle::palette` builds its colour table on the CPU.
 `analysis` is a third feature rather than part of `render` because contours,
 CSV and field arithmetic return values and not pixels: a decode-only consumer

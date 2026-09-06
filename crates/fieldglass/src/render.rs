@@ -16,9 +16,9 @@
 //!   messages naming those fields ("missing `latFirst`") stay with the code that
 //!   knows the names. [`Source::geometry`] carries either the geometry or the
 //!   refusal.
-//! * **Paint and packaging.** [`project`] returns values, a mask and the raster
-//!   shape; painting them into RGBA and handing that across a language boundary
-//!   is the binding's job.
+//! * **Paint and packaging.** `project` (behind the `render` feature) returns
+//!   values, a mask and the raster shape; painting them into RGBA and handing
+//!   that across a language boundary is the binding's job.
 //!
 //! # Why these are free functions
 //!
@@ -28,17 +28,35 @@
 //! must still be able to call them. [`Session`](crate::Session) forwards to each
 //! one so a caller that does hold a session has them as methods.
 
+// Split by feature rather than kept as one group: a braced `use` list takes no
+// `#[cfg]` on its members, so the items behind `core`'s optional surfaces have
+// to be imported by their own statement (#552).
+use fieldglass_core::{Scan, projection::GridGeometry};
+// `require_reprojectable` asks a projector whether a grid is placeable, and the
+// projectors are in `projection`, which has no gate — only the warp targets,
+// the painter and the overlay projector sit behind `render`.
+#[cfg(feature = "render")]
+use fieldglass_core::LonLatBox;
+#[cfg(feature = "analysis")]
+use fieldglass_core::csv::{field_to_csv_long, field_to_csv_matrix};
+#[cfg(feature = "render")]
 use fieldglass_core::{
-    EqualEarth, ForwardAt, GeostationaryProjector, LambertAzimuthalProjector, LambertProjector,
-    LonLatBox, Mollweide, Orthographic, PlanarGridProjector, PolarStereoProjector,
-    PolarStereographic, ProjectedPolylines, Resampling, Robinson, Scan, SourceGrid,
-    SourceOverlayTarget, TargetRaster, TransverseMercatorProjector, WebMercator,
-    colormap::{Colormap, ScaleMode, default_colormap, min_max_ignoring_mask},
-    contour::{contour_segments, contour_segments_global, nice_levels},
-    csv::{field_to_csv_long, field_to_csv_matrix},
-    normalise_lon, project_polylines,
-    projection::{GridGeometry, planar_grid_is_placeable},
+    EqualEarth, Mollweide, Orthographic, PolarStereographic, ProjectedPolylines, Resampling,
+    Robinson, SourceGrid, SourceOverlayTarget, TargetRaster, WebMercator,
+    colormap::{Colormap, ScaleMode, default_colormap},
+    project_polylines,
     warp::{PreparedTarget, TargetProjection, WarpedRaster, warp},
+};
+#[cfg(any(feature = "render", feature = "analysis"))]
+use fieldglass_core::{
+    ForwardAt, GeostationaryProjector, LambertAzimuthalProjector, LambertProjector,
+    PlanarGridProjector, PolarStereoProjector, TransverseMercatorProjector, normalise_lon,
+    projection::planar_grid_is_placeable,
+};
+#[cfg(all(feature = "render", feature = "analysis"))]
+use fieldglass_core::{
+    colormap::min_max_ignoring_mask,
+    contour::{contour_segments, contour_segments_global, nice_levels},
 };
 
 use crate::error::Error;
@@ -57,6 +75,7 @@ use crate::error::Error;
 ///
 /// `#[non_exhaustive]`, like every other option struct here, so start from
 /// [`Default`] and assign the fields the call needs.
+#[cfg(feature = "render")]
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
@@ -122,6 +141,7 @@ pub struct RenderOptions {
     pub scale_mode: Option<String>,
 }
 
+#[cfg(feature = "render")]
 impl RenderOptions {
     /// The two fields that have no sensible default — which target to paint
     /// into and how to resample — with every optional knob unset.
@@ -139,6 +159,7 @@ impl RenderOptions {
     }
 }
 
+#[cfg(feature = "render")]
 impl Default for RenderOptions {
     /// The source projection at nearest resampling: the field as stored,
     /// painted with the default colormap on a linear scale. Every knob a caller
@@ -199,6 +220,7 @@ pub struct Source<'a> {
     pub family: &'a str,
 }
 
+#[cfg(any(feature = "render", feature = "analysis"))]
 impl Source<'_> {
     /// The geometry, or the host's refusal, cloned into this crate's error.
     ///
@@ -221,6 +243,7 @@ impl Source<'_> {
 /// Public because a host paints from the same decision: the colormap, the
 /// reversal, the scale mode and the manual range are read by the binding's own
 /// paint step, and parsing them twice would let the two disagree.
+#[cfg(feature = "render")]
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct ResolvedOptions {
@@ -248,6 +271,7 @@ pub struct ResolvedOptions {
 /// than `TargetProjection` to avoid colliding with `core`'s
 /// [`TargetProjection`] *trait* — this is the dispatch enum, not the per-target
 /// math.
+#[cfg(feature = "render")]
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
 pub enum TargetKind {
@@ -261,6 +285,7 @@ pub enum TargetKind {
 /// fields. Returns `None` unless every edge is present and they form a
 /// non-degenerate box — a partially-filled or inverted box silently falls back
 /// to the computed bounds, mirroring the manual-range behaviour.
+#[cfg(feature = "render")]
 fn manual_render_window(o: &RenderOptions) -> Option<LonLatBox> {
     let window = LonLatBox::new(
         o.bounds_lat_min?,
@@ -271,6 +296,7 @@ fn manual_render_window(o: &RenderOptions) -> Option<LonLatBox> {
     (window.lat_max > window.lat_min && window.lon_max > window.lon_min).then_some(window)
 }
 
+#[cfg(feature = "render")]
 impl ResolvedOptions {
     /// Resolve every string in `options`, or say which one was not recognised.
     pub fn parse(options: &RenderOptions) -> Result<Self, Error> {
@@ -367,6 +393,7 @@ impl ResolvedOptions {
 /// neither the centre is the Atlantic view (0°N 0°E). (#71 shipped presets
 /// only; #113 added the free-form centre, of which the presets are now named
 /// shortcuts.)
+#[cfg(feature = "render")]
 fn orthographic_from_options(o: &RenderOptions, preset: Option<&str>) -> WarpTarget {
     let (preset_lat, preset_lon) = orthographic_preset_centre(preset);
     WarpTarget::Orthographic {
@@ -377,6 +404,7 @@ fn orthographic_from_options(o: &RenderOptions, preset: Option<&str>) -> WarpTar
 
 /// The `(lat0, lon0)` of an orthographic centre preset. Unknown/`None`
 /// defaults to the Atlantic view (0°N 0°E).
+#[cfg(feature = "render")]
 fn orthographic_preset_centre(preset: Option<&str>) -> (f64, f64) {
     match preset {
         Some("indian") => (0.0, 90.0),
@@ -393,6 +421,7 @@ fn orthographic_preset_centre(preset: Option<&str>) -> (f64, f64) {
 /// (`"south"` ⇒ south aspect; otherwise north). `lon0` — the central meridian
 /// oriented toward the bottom edge — is the free-form `center_lon` when given,
 /// else 0°. (#113 added the free-form central meridian; #71 fixed it at 0°.)
+#[cfg(feature = "render")]
 fn polar_stereographic_from_options(o: &RenderOptions, preset: Option<&str>) -> WarpTarget {
     WarpTarget::PolarStereographic {
         south_pole: matches!(preset, Some("south")),
@@ -404,6 +433,7 @@ fn polar_stereographic_from_options(o: &RenderOptions, preset: Option<&str>) -> 
 /// Earth): the free-form `center_lon` when given, else 0° (Greenwich-centred).
 /// These take no preset — they always show the whole globe, and recentring is
 /// the only knob.
+#[cfg(feature = "render")]
 fn world_central_meridian(o: &RenderOptions) -> f64 {
     o.center_lon.unwrap_or(0.0)
 }
@@ -415,6 +445,7 @@ fn world_central_meridian(o: &RenderOptions) -> f64 {
 /// Which lat/lon → pixel target projection the warp paints into. Every one
 /// shares the same source inverse map; they differ in how output pixels are
 /// distributed and whether they have a lat/lon-box extent at all.
+#[cfg(feature = "render")]
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[non_exhaustive]
 pub enum WarpTarget {
@@ -459,6 +490,7 @@ pub enum WarpTarget {
     },
 }
 
+#[cfg(feature = "render")]
 impl WarpTarget {
     /// The name a picker caption prints for this target.
     pub fn label(self) -> &'static str {
@@ -478,6 +510,7 @@ impl WarpTarget {
 /// and the overlay projects polylines onto. Centralising construction here
 /// guarantees the render and the overlay agree on the exact raster (dims,
 /// clamped Mercator band, azimuthal disc side) pixel-for-pixel.
+#[cfg(feature = "render")]
 enum BuiltTarget {
     Equirect(TargetRaster),
     Mercator(WebMercator),
@@ -488,6 +521,7 @@ enum BuiltTarget {
     EqEarth(EqualEarth),
 }
 
+#[cfg(feature = "render")]
 impl BuiltTarget {
     fn dims(&self) -> (u32, u32) {
         match self {
@@ -564,6 +598,7 @@ impl BuiltTarget {
 
 /// `(BuiltTarget, used extent)` — the concrete warp target plus the lat/lon box
 /// it actually rendered (`None` for the azimuthal targets).
+#[cfg(feature = "render")]
 type BuiltWarpTarget = (BuiltTarget, Option<LonLatBox>);
 
 /// Build the concrete [`BuiltTarget`] for a warp, returning the geographic
@@ -586,6 +621,7 @@ type BuiltWarpTarget = (BuiltTarget, Option<LonLatBox>);
 /// window tiles as a circle or as an interval. It cannot be read back off the
 /// window: a grid that declares a duplicated seam column also spans exactly
 /// 360°, and wants the interval treatment.
+#[cfg(feature = "render")]
 fn build_warp_target(
     target_kind: WarpTarget,
     ni: u32,
@@ -723,6 +759,7 @@ fn build_warp_target(
 ///
 /// A degenerate window (no extent on one axis, or non-finite corners) has no
 /// aspect to honour, so the source shape stands.
+#[cfg(feature = "render")]
 fn box_raster_dims(ni: u32, nj: u32, extent: LonLatBox) -> (u32, u32) {
     let geo_w = extent.lon_max - extent.lon_min;
     let geo_h = extent.lat_max - extent.lat_min;
@@ -750,6 +787,7 @@ fn box_raster_dims(ni: u32, nj: u32, extent: LonLatBox) -> (u32, u32) {
 /// The ratio is the whole of this function's job: the caller floors the result
 /// with [`raise_to_min_raster`], which scales both edges together and so leaves
 /// the proportions chosen here intact.
+#[cfg(feature = "render")]
 fn world_raster_dims(ni: u32, nj: u32, aspect: f64) -> (u32, u32) {
     let height = ni.max(nj);
     // A saturating `as u32` cast: `aspect` is a positive constant just under 2,
@@ -789,6 +827,7 @@ fn world_raster_dims(ni: u32, nj: u32, aspect: f64) -> (u32, u32) {
 /// against it. The source projection is deliberately excluded: it never reaches
 /// a warp target at all, and there blocky is the honest view of the
 /// data.
+#[cfg(feature = "render")]
 pub const MIN_REPROJECTED_LONG_EDGE: u32 = 720;
 
 /// Raise `dims` until its long edge reaches [`MIN_REPROJECTED_LONG_EDGE`],
@@ -804,6 +843,7 @@ pub const MIN_REPROJECTED_LONG_EDGE: u32 = 720;
 /// short edge cannot exceed it, so this can never ask for more than 720 × 720
 /// pixels however extreme the aspect. A zero-size raster stays zero-size, as
 /// [`world_raster_dims`] promises.
+#[cfg(feature = "render")]
 fn raise_to_min_raster(dims: (u32, u32)) -> (u32, u32) {
     let (width, height) = dims;
     let long_edge = width.max(height);
@@ -839,6 +879,7 @@ fn raise_to_min_raster(dims: (u32, u32)) -> (u32, u32) {
 /// [`GridGeometry::forward`], [`GridGeometry::lonlat_bbox`] and
 /// [`GridGeometry::reprojectable`] gate on, so a grid this accepts is one all
 /// four answer for.
+#[cfg(any(feature = "render", feature = "analysis"))]
 fn require_reprojectable(geometry: &GridGeometry, family: &str) -> Result<(), Error> {
     let placeable = |ok: bool, proj: &dyn PlanarGridProjector| {
         planar_grid_is_placeable(ok, proj).then_some(()).ok_or({
@@ -913,6 +954,7 @@ fn require_reprojectable(geometry: &GridGeometry, family: &str) -> Result<(), Er
 /// no point on Earth at all, and framing the globe for it is both harmless (its
 /// pixels all invert to `None`) and more useful than framing a degenerate box
 /// at 0°N 0°E. It is also what the lookup and geostationary setups already did.
+#[cfg(feature = "render")]
 fn geometry_render_window(geometry: &GridGeometry) -> LonLatBox {
     geometry
         .render_window()
@@ -925,6 +967,7 @@ fn geometry_render_window(geometry: &GridGeometry) -> LonLatBox {
 
 /// One projection stage's output: the resampled values, where they are, and
 /// what the pipeline did to get them.
+#[cfg(feature = "render")]
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct Projected {
@@ -946,6 +989,7 @@ pub struct Projected {
 }
 
 /// `source: {family} {ni}×{nj}`, the left-hand side of every summary.
+#[cfg(feature = "render")]
 fn source_projection_summary(source: &Source<'_>) -> String {
     format!("source: {} {}×{}", source.family, source.ni, source.nj)
 }
@@ -956,6 +1000,7 @@ fn source_projection_summary(source: &Source<'_>) -> String {
 /// `"source"` target paints the array as stored, everything else inverse-warps
 /// through the geometry. Painting the result is the caller's — the values and
 /// the mask come back so a GPU host never pays for a CPU paint it discards.
+#[cfg(feature = "render")]
 pub fn project(
     source: &Source<'_>,
     values: &[Option<f64>],
@@ -975,6 +1020,7 @@ pub fn project(
 /// The only operation that needs no geometry — it paints grid point `(i, j)` at
 /// pixel `(i, j)` and never asks where that is — which is why a grid whose
 /// projection parameters did not resolve still renders here.
+#[cfg(feature = "render")]
 fn paint_source(source: &Source<'_>, raw: &[Option<f64>]) -> Projected {
     let n = (source.ni as usize).saturating_mul(source.nj as usize);
     let mut values = vec![0.0f64; n];
@@ -1009,6 +1055,7 @@ fn paint_source(source: &Source<'_>, raw: &[Option<f64>]) -> Projected {
 }
 
 /// Inverse-warp a field into one of the geographic targets.
+#[cfg(feature = "render")]
 fn warp_field(
     source: &Source<'_>,
     raw: &[Option<f64>],
@@ -1089,6 +1136,7 @@ fn warp_field(
 /// the warp's own inverse map (lat/lon → fractional grid index) doubles as its
 /// forward pixel map — the overlay projects straight through it
 /// ([`SourceOverlayTarget`]), no separate geographic forward projection needed.
+#[cfg(feature = "render")]
 pub fn overlay_polylines(
     source: &Source<'_>,
     options: &RenderOptions,
@@ -1158,6 +1206,7 @@ pub fn overlay_polylines(
 /// Two families are absent on purpose. Space view (§3.90) has grid points off
 /// the disc entirely, which have no geographic position at all, and a family
 /// this build does not model has none either.
+#[cfg(feature = "analysis")]
 const GEOLOCATABLE_GRIDS: &[(&str, &str)] = &[
     ("latlon", "regular lat/lon"),
     ("mercator", "Mercator"),
@@ -1184,6 +1233,7 @@ const GEOLOCATABLE_GRIDS: &[(&str, &str)] = &[
 
 /// [`GEOLOCATABLE_GRIDS`] as an Oxford-comma list ("a, b, and c") for the
 /// "unsupported grid" messages.
+#[cfg(feature = "analysis")]
 fn geolocatable_families() -> String {
     let names: Vec<&str> = GEOLOCATABLE_GRIDS.iter().map(|(_, name)| *name).collect();
     match names.split_last() {
@@ -1211,6 +1261,7 @@ fn geolocatable_families() -> String {
 /// a global lat/lon grid published from 0° runs its columns to 359°, and pulling
 /// that last column back to -1° would break the monotonic sweep
 /// [`forward_bilinear`] interpolates along.
+#[cfg(any(feature = "render", feature = "analysis"))]
 fn forward_geolocation(geometry: &GridGeometry) -> Option<ForwardAt<'_>> {
     let place = geometry.forward_at();
     match geometry {
@@ -1245,6 +1296,7 @@ fn forward_geolocation(geometry: &GridGeometry) -> Option<ForwardAt<'_>> {
 /// reads "contours not yet supported…" for the contour path and points long-CSV
 /// callers at the Matrix layout, instead of one feature's hard-coded wording
 /// leaking into the others (#337).
+#[cfg(feature = "analysis")]
 fn require_forward_geolocation<'a>(
     source: &'a Source<'_>,
     unsupported: impl Fn(&str) -> String,
@@ -1275,6 +1327,7 @@ fn require_forward_geolocation<'a>(
 /// the corner-pinned families. Where it is not — a rotated or planar grid whose
 /// own ±180° cut runs through the cell — the corners are pulled onto a common
 /// turn first; see [`cell_crosses_lon_cut`].
+#[cfg(all(feature = "render", feature = "analysis"))]
 fn forward_bilinear(
     forward: &dyn Fn(u32, u32) -> Option<(f64, f64)>,
     ni: u32,
@@ -1349,6 +1402,7 @@ fn forward_bilinear(
 /// (The one grid whose cell genuinely reaches that far is a polar one at the
 /// pole itself, where longitude is degenerate anyway and the nearest-turn
 /// unwrap still keeps the vertex beside its corners.)
+#[cfg(all(feature = "render", feature = "analysis"))]
 fn cell_crosses_lon_cut(lons: [f64; 4]) -> bool {
     let (min, max) = lons
         .iter()
@@ -1361,6 +1415,7 @@ fn cell_crosses_lon_cut(lons: [f64; 4]) -> bool {
 /// `lon` moved onto whichever turn sits nearest `from` — i.e. `from + delta`
 /// where `delta ∈ [-180, 180)`. The two-sided counterpart of
 /// [`unwrap_east_of`], for a cut that a cell straddles in either direction.
+#[cfg(all(feature = "render", feature = "analysis"))]
 fn unwrap_near(from: f64, lon: f64) -> f64 {
     from + normalise_lon(lon - from)
 }
@@ -1369,6 +1424,7 @@ fn unwrap_near(from: f64, lon: f64) -> f64 {
 /// where `delta ∈ [0, 360)`. Interpolating from the last column to column 0
 /// across the seam needs the eastern corner to read (say) 360.0 rather than
 /// 0.0, so the sweep is the quarter-degree gap and not 359.75° the wrong way.
+#[cfg(all(feature = "render", feature = "analysis"))]
 fn unwrap_east_of(from: f64, lon: f64) -> f64 {
     from + (lon - from).rem_euclid(360.0)
 }
@@ -1380,6 +1436,7 @@ fn unwrap_east_of(from: f64, lon: f64) -> f64 {
 /// Contour levels at every multiple of `step` strictly inside `(min, max)`. The
 /// manual-interval override; guarded against a tiny step producing an unbounded
 /// list.
+#[cfg(all(feature = "render", feature = "analysis"))]
 fn levels_by_interval(min: f64, max: f64, step: f64) -> Vec<f64> {
     if step <= 0.0 || !step.is_finite() || min >= max {
         return Vec::new();
@@ -1411,6 +1468,7 @@ fn levels_by_interval(min: f64, max: f64, step: f64) -> Vec<f64> {
 /// geolocated through the family's forward map and then run through
 /// [`overlay_polylines`], so they land on every target projection with the same
 /// visibility and seam handling as the coastlines.
+#[cfg(all(feature = "render", feature = "analysis"))]
 pub fn contour_polylines(
     source: &Source<'_>,
     values: &[Option<f64>],
@@ -1473,6 +1531,7 @@ pub fn contour_polylines(
 
 /// The result of probing one output pixel (#172): the geographic point under
 /// the pixel, the source grid cell it fell on, and the decoded value there.
+#[cfg(feature = "render")]
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct PixelProbe {
@@ -1496,6 +1555,7 @@ pub struct PixelProbe {
 /// `(lat, lon)` → source grid index → value — so the readout matches exactly
 /// what the image shows. Returns `None` when the pixel is off the raster or off
 /// the globe (outside an azimuthal disc), so there is nothing to report.
+#[cfg(feature = "render")]
 pub fn probe_pixel(
     source: &Source<'_>,
     values: &[Option<f64>],
@@ -1625,6 +1685,7 @@ pub fn probe_pixel(
 /// unmodelled family are refused, and the message reads out what is left; the
 /// `"matrix"` format needs no coordinates and works for any grid with declared
 /// dimensions.
+#[cfg(feature = "analysis")]
 pub fn field_csv(
     source: &Source<'_>,
     values: &[Option<f64>],
@@ -1660,6 +1721,10 @@ pub fn field_csv(
 // Session forwarding
 // ---------------------------------------------------------------------------
 
+// Three blocks rather than one because the methods do not share a gate: the
+// projection pipeline is `render`, CSV is `analysis`, and `contour_polylines`
+// traces with one and projects with the other (#552).
+#[cfg(feature = "render")]
 impl crate::Session {
     /// Project a decoded field into the target `options` names — see
     /// [`project`].
@@ -1684,17 +1749,6 @@ impl crate::Session {
         probe_pixel(source, values, options, px, py)
     }
 
-    /// Isolines projected onto the render raster — see [`contour_polylines`].
-    pub fn contour_polylines(
-        &self,
-        source: &Source<'_>,
-        values: &[Option<f64>],
-        options: &RenderOptions,
-        interval: Option<f64>,
-    ) -> Result<ProjectedPolylines, Error> {
-        contour_polylines(source, values, options, interval)
-    }
-
     /// Geographic polylines projected onto the render raster — see
     /// [`overlay_polylines`].
     pub fn overlay_polylines(
@@ -1706,7 +1760,24 @@ impl crate::Session {
     ) -> Result<ProjectedPolylines, Error> {
         overlay_polylines(source, options, latlon, ring_lengths)
     }
+}
 
+#[cfg(all(feature = "render", feature = "analysis"))]
+impl crate::Session {
+    /// Isolines projected onto the render raster — see [`contour_polylines`].
+    pub fn contour_polylines(
+        &self,
+        source: &Source<'_>,
+        values: &[Option<f64>],
+        options: &RenderOptions,
+        interval: Option<f64>,
+    ) -> Result<ProjectedPolylines, Error> {
+        contour_polylines(source, values, options, interval)
+    }
+}
+
+#[cfg(feature = "analysis")]
+impl crate::Session {
     /// A decoded field as CSV text — see [`field_csv`].
     pub fn field_csv(
         &self,
@@ -1717,7 +1788,8 @@ impl crate::Session {
         field_csv(source, values, format)
     }
 }
-#[cfg(test)]
+
+#[cfg(all(test, feature = "render"))]
 mod resolved_options_tests {
     use super::*;
 
@@ -2142,7 +2214,7 @@ mod resolved_options_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "render", feature = "analysis"))]
 mod forward_geolocation_tests {
     use super::*;
     use fieldglass_core::LatLonParams;
@@ -2235,7 +2307,7 @@ mod forward_geolocation_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "render", feature = "analysis"))]
 mod warp_target_tests {
     use super::*;
     use fieldglass_core::{
@@ -2951,7 +3023,13 @@ mod warp_target_tests {
         );
     }
 }
-#[cfg(test)]
+#[cfg(all(
+    test,
+    feature = "grib1",
+    feature = "grib2",
+    feature = "render",
+    feature = "analysis"
+))]
 mod planar_geolocation_tests {
     use super::*;
     use fieldglass_core::{
