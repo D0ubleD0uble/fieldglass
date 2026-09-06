@@ -458,3 +458,38 @@ fn with_all_present_bitmap(bytes: &[u8], points: usize) -> Vec<u8> {
     out[8..16].copy_from_slice(&total.to_be_bytes());
     out
 }
+
+/// §3's own point count must agree with the shape its template declares, and
+/// the shape must stay under the raster cap — the two guards
+/// `decode_message_values` applies before it sizes anything, restated on the
+/// coarse path because that path does not go through it.
+///
+/// Both are reached by editing the parsed §3 of a real JPEG 2000 message. The
+/// cap is the one a decode fuzz target found: a corrupted `ni`/`nj` naming a
+/// hundred-million-point grid the file carries no data for, whose constant
+/// field then allocates gigabytes.
+#[test]
+fn a_section_that_disagrees_with_itself_is_refused() {
+    let mut r = reader("jpeg2000_regular_latlon.grib2");
+    r.messages[0].gds.num_data_points += 1;
+    let err = r
+        .decode_message_raster_with(0, DecodeOptions::new(1))
+        .expect_err("the section disagrees with its own template");
+    let text = err.to_string();
+    assert!(
+        text.contains("disagree with the GDS-declared 497 data points"),
+        "{text}"
+    );
+
+    let mut r = reader("jpeg2000_regular_latlon.grib2");
+    let GridTemplate::LatLon(t) = &mut r.messages[0].gds.template else {
+        panic!("the fixture is a regular lat/lon grid")
+    };
+    (t.ni, t.nj) = (20_000, 20_000);
+    // Agreeing with itself, so the cap is what refuses and not the check above.
+    r.messages[0].gds.num_data_points = 400_000_000;
+    let err = r
+        .decode_message_raster_with(0, DecodeOptions::new(1))
+        .expect_err("400 million points is past the cap");
+    assert!(err.to_string().contains("exceeds cap of"), "{}", err);
+}
