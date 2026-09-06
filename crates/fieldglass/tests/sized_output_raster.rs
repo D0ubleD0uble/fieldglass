@@ -290,6 +290,27 @@ fn an_unnamed_size_renders_exactly_as_before() {
     }
 }
 
+/// The `"source"` view is the one target whose whole point is that nothing
+/// resampled it, so it paints the array as stored and ignores a named size —
+/// not an error, the same way the azimuthal and world targets ignore it.
+#[test]
+fn the_source_view_ignores_a_named_size() {
+    let gfs = subject(GFS);
+    for size in [None, Some(SIZE)] {
+        let mut o = RenderOptions::new("source", "nearest");
+        if let Some((width, height)) = size {
+            o.width = Some(width);
+            o.height = Some(height);
+        }
+        let out = fieldglass::render::project(&gfs.source(), &gfs.cells, &o).expect("projects");
+        assert_eq!(
+            (out.width, out.height),
+            (gfs.field.ni, gfs.field.nj),
+            "the source view is the array as stored, whatever size was named"
+        );
+    }
+}
+
 /// `Session::warp` takes the same pair, so the browser host — which has no
 /// painter — can ask for a window at a size too.
 #[test]

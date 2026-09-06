@@ -1462,8 +1462,9 @@ pub struct RenderOptions {
     /// Send both or neither: one alone is an error rather than a silent
     /// fallback, unlike the `bounds_*` box. An explicit size is taken as given
     /// — it bypasses the 720-pixel display floor a reprojection otherwise gets
-    /// — and it is ignored by the azimuthal and world targets, which keep the
-    /// aspect their projection fixes. Zero on either axis is refused.
+    /// — and every other target ignores it: the azimuthal and world ones keep
+    /// the aspect their projection fixes, and `"source"` paints the array as
+    /// stored at `ni × nj`. Zero on either axis is refused.
     pub height: Option<u32>,
 }
 

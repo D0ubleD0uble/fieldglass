@@ -162,10 +162,12 @@ pub struct RenderOptions {
     ///   [`MIN_REPROJECTED_LONG_EDGE`] and the window-shaped sizing a
     ///   coordinate-lookup grid gets, so 512 × 512 is 512 × 512. A caller that
     ///   wants the floor is the caller that leaves these unset.
-    /// * **Ignored by the azimuthal and world targets**, which size themselves
-    ///   from the aspect their projection fixes — a square for the discs, the
-    ///   projection's own ratio for Mollweide, Robinson and Equal Earth. Naming
-    ///   a size there is not an error, the same way naming a
+    /// * **Ignored by every other target.** The azimuthal and world ones size
+    ///   themselves from the aspect their projection fixes — a square for the
+    ///   discs, the projection's own ratio for Mollweide, Robinson and Equal
+    ///   Earth — and `"source"` paints the array as stored, at `ni × nj`, which
+    ///   is the one view whose whole point is that nothing resampled it. Naming
+    ///   a size for any of them is not an error, the same way naming a
     ///   [`projection_preset`](Self::projection_preset) on a box target is not.
     ///
     /// Zero on either axis, and a `width × height` that does not fit this
