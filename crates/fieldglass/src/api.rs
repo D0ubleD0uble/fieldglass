@@ -266,7 +266,22 @@ api_type! {
         /// Which packing the data section uses, named — what decodes it, and
         /// the first thing to look at when a decode is wrong.
         pub packing: String,
-        /// `None` when the message carries no grid at all (a spectral field).
+        /// The grid the message **declares**, not the one its field is decoded
+        /// onto.
+        ///
+        /// The two differ for the families that carry no raster of their own:
+        /// a spectral message declares a `"spherical_harmonic"` grid and a
+        /// HEALPix one a `"healpix"` grid, both of kind `"unsupported"` —
+        /// nothing places a point on either — while
+        /// [`crate::Session::decode`] hands back a field on the synthesised
+        /// `"latlon"` grid (#580). This is the message list's answer, so it
+        /// describes the file; [`Field::georef`] is the field's, so it
+        /// describes where the values are. [`size_label`](Self::size_label)
+        /// names the native shape beside it.
+        ///
+        /// `None` only for a GRIB1 message that carries no §2 at all: its grid
+        /// is whatever `pds.grid_number` predefines, which this call does not
+        /// resolve.
         pub grid: Option<Georef>,
         /// How the file names its own grid where `Ni × Nj` is not how it is
         /// described — `N32`, `O1280`, `T639`.

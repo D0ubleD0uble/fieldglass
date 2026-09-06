@@ -85,9 +85,12 @@ pub use gds::{GridDescription, ScanningMode, SphericalHarmonicGrid};
 // `CornerPair` likewise: `GridDescription::bounds` and `raster_bounds` hand one
 // back, so reading a grid's declared corners means naming it (#553).
 // `GlobalGrid` is the grid `synthesize_spectral_global` hands back beside the
-// synthesised field, so reading either means naming it (#546).
+// synthesised field, so reading either means naming it (#546);
+// `SynthesisedField` is the pair `synthesize_message_global` hands back, for the
+// same reason (#580).
 pub use fieldglass_core::{
-    CornerPair, FieldglassError, GlobalGrid, GridGeometry, StoredRuns, expand_reduced_to_regular,
+    CornerPair, FieldglassError, GlobalGrid, GridGeometry, StoredRuns, SynthesisedField,
+    expand_reduced_to_regular,
 };
 pub use is::IndicatorSection;
 pub use packing::spherical::SpectralCoefficients;

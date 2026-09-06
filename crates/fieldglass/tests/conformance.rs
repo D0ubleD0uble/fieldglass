@@ -159,6 +159,12 @@ fn every_error_code_is_both_listed_and_reachable() {
 /// which is why that fixture is in the suite. `degenerate/warp/window` is not
 /// here: a *manual* window gives the warp a box even when the grid states none,
 /// and that difference is worth having recorded.
+///
+/// `error/unsupported` is that same refusal, on purpose: since #580 no fixture
+/// in the corpus produces `unsupported` at `decode`, because both families that
+/// used to — spectral and HEALPix — are synthesised onto a lat/lon grid now.
+/// It is kept as a named case rather than left to `degenerate/warp/bilinear`
+/// so that the code's reachability is proved by a case whose whole job that is.
 const CASES_THAT_RECORD_A_FAILURE: &[&str] = &[
     "degenerate/warp/bilinear",
     "degenerate/warp/nearest",

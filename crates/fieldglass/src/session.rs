@@ -238,26 +238,60 @@ impl Session {
 
     /// Decode one message into a field: values, mask, geometry, and the range
     /// a palette is built from.
+    ///
+    /// **A family with no raster of its own is synthesised first.** Spectral
+    /// coefficients and HEALPix pixels are not values on a grid, so the reader
+    /// puts them on one — a global lat/lon grid at the
+    /// [`fieldglass_core::global_grid`] convention — and what comes back is an
+    /// ordinary [`crate::Georef`] of kind `"latlon"`. Everything downstream
+    /// (warp, palette, render, probe, contours, combine) therefore needs no
+    /// special case, which is `docs/architecture/planned/03-composition.md`'s
+    /// rule for these families and what the napi host has done since 0.4.0
+    /// (#580). [`Session::message`] keeps reporting the *native* shape —
+    /// `size_label` is `"T63"`, not `720×361` — so the message list still
+    /// describes the file rather than describing Fieldglass.
     pub fn decode(&self, index: u32, options: &DecodeOptions) -> Result<Field, Error> {
         let i = self.check_index(index)?;
-        let (raw, geometry, parameter, units) = match &self.reader {
-            Reader::Grib1(r) => {
-                let msg = &r.messages[i];
-                let gds = msg.gds.as_ref().ok_or_else(|| Error::Unsupported {
-                    detail: "the message carries no grid description".to_string(),
-                })?;
-                let geometry = GridGeometry::from(gds);
-                let raw = r.decode_message_raster(i)?;
-                let (parameter, units) = grib1_parameter(&r.messages[i]);
-                (raw, geometry, parameter, units)
-            }
+        // Asked before anything else, and the same question of both readers:
+        // which families need synthesising, and onto what grid, is the format
+        // crate's answer, not one this crate re-derives (#546, #580).
+        let synthesised = match &self.reader {
+            Reader::Grib1(r) => r.synthesize_message_global(i)?,
+            Reader::Grib2(r) => r.synthesize_message_global(i)?,
+        };
+        let (parameter, units) = match &self.reader {
+            Reader::Grib1(r) => grib1_parameter(&r.messages[i]),
             Reader::Grib2(r) => {
-                let msg = &r.messages[i];
-                let geometry = GridGeometry::from(&msg.gds);
-                let raw = r.decode_message_raster(i)?;
-                let (_, parameter, units) = grib2_parameter(msg);
-                (raw, geometry, parameter, units)
+                let (_, parameter, units) = grib2_parameter(&r.messages[i]);
+                (parameter, units)
             }
+        };
+        let (raw, geometry, scan) = match synthesised {
+            Some((grid, values)) => (
+                values,
+                GridGeometry::LatLon(grid.into()),
+                // A synthesised grid runs west-to-east from 0° and north-down
+                // from the pole whatever the message it came from scanned like:
+                // nothing of the source layout survives an inverse transform or
+                // a HEALPix resample. The napi host says the same thing at its
+                // own seam.
+                Scan::north_down(),
+            ),
+            None => match &self.reader {
+                Reader::Grib1(r) => {
+                    let msg = &r.messages[i];
+                    let gds = msg.gds.as_ref().ok_or_else(|| Error::Unsupported {
+                        detail: "the message carries no grid description".to_string(),
+                    })?;
+                    let geometry = GridGeometry::from(gds);
+                    (r.decode_message_raster(i)?, geometry, grib1_scan(msg))
+                }
+                Reader::Grib2(r) => {
+                    let msg = &r.messages[i];
+                    let geometry = GridGeometry::from(&msg.gds);
+                    (r.decode_message_raster(i)?, geometry, grib2_scan(msg))
+                }
+            },
         };
 
         let (ni, nj) = geometry.dims().ok_or_else(|| Error::Unsupported {
@@ -300,11 +334,6 @@ impl Session {
             min: (valid_count > 0).then_some(min),
             max: (valid_count > 0).then_some(max),
             valid_count,
-        };
-
-        let scan = match &self.reader {
-            Reader::Grib1(r) => grib1_scan(&r.messages[i]),
-            Reader::Grib2(r) => grib2_scan(&r.messages[i]),
         };
 
         Ok(Field {

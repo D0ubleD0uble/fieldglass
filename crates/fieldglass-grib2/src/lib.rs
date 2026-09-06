@@ -90,10 +90,12 @@ pub use ds::{DS_SECTION_NUMBER, decode_values};
 // `raster_bounds` hand one back, so reading a grid's declared corners means
 // naming it (#553).
 // `GlobalGrid` is the grid `synthesize_spectral_global` hands back beside the
-// synthesised field, so reading either means naming it (#546).
+// synthesised field, so reading either means naming it (#546);
+// `SynthesisedField` is the pair `synthesize_message_global` hands back, for the
+// same reason (#580).
 pub use fieldglass_core::{
     CornerPair, FieldglassError, GeostationaryParams, GlobalGrid, GridGeometry,
-    LambertAzimuthalParams, StoredRuns, TransverseMercatorParams,
+    LambertAzimuthalParams, StoredRuns, SynthesisedField, TransverseMercatorParams,
 };
 pub use gds::{
     GDS_SECTION_NUMBER, GaussianTemplate, GridDefinitionSection, GridTemplate, LambertTemplate,

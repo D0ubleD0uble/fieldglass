@@ -5,7 +5,7 @@ use crate::is::{IndicatorSection, parse_indicator};
 use crate::packing::matrix::{decode_matrix_of_values, is_matrix_of_values};
 use crate::packing::spherical::{SpectralCoefficients, decode_spectral};
 use crate::pds::{ProductDefinition, parse_product_definition};
-use fieldglass_core::{FieldglassError, GlobalGrid, StoredRuns};
+use fieldglass_core::{FieldglassError, GlobalGrid, StoredRuns, SynthesisedField};
 
 /// One message located in the file, with its sections parsed and its data
 /// section left as a byte range to decode on demand.
@@ -465,6 +465,67 @@ impl Grib1Reader {
             &lons,
         )?;
         Ok((grid, values))
+    }
+
+    /// The global lat/lon grid a message with no raster of its own would be
+    /// synthesised onto, read from the grid description alone.
+    ///
+    /// `None` for a message that already carries a raster — the ordinary case —
+    /// and for an index this file does not hold. GRIB1's one rasterless family
+    /// is spherical-harmonic (GRIB2 adds HEALPix), so this answers a truncation
+    /// grid or nothing.
+    ///
+    /// Cheap on purpose: it reads §2 and decodes nothing, so a host with a
+    /// geometry-only path (an overlay projection, a message list) can ask where
+    /// the field will land without paying for the inverse transform.
+    #[must_use]
+    pub fn synthesis_grid(&self, message_index: usize) -> Option<GlobalGrid> {
+        match self.messages.get(message_index)?.gds.as_ref()? {
+            GridDescription::SphericalHarmonic(sh) => {
+                Some(fieldglass_core::sht::spectral_render_grid(u32::from(sh.j)))
+            }
+            _ => None,
+        }
+    }
+
+    /// Synthesize a message that carries no raster of its own onto
+    /// [`synthesis_grid`](Self::synthesis_grid)'s grid, or `Ok(None)` when the
+    /// message has a raster and [`decode_message_raster`] is the call to make.
+    ///
+    /// This is the seam every host resolves a message through: asking it first
+    /// and falling through on `None` puts the whole rasterless family — which
+    /// one it is, and what grid each lands on — in this crate rather than in
+    /// each host (#580). The values come back in the same
+    /// `Vec<Option<f64>>` shape [`decode_message_raster`] uses, so the caller
+    /// substitutes one for the other and changes nothing else.
+    ///
+    /// # Errors
+    ///
+    /// Exactly where
+    /// [`synthesize_spectral_global`](Self::synthesize_spectral_global) does. A
+    /// message that is not a synthesis family cannot fail here at all: it
+    /// answers `Ok(None)` before anything is decoded.
+    ///
+    /// [`decode_message_raster`]: Self::decode_message_raster
+    pub fn synthesize_message_global(
+        &self,
+        message_index: usize,
+    ) -> Result<Option<SynthesisedField>, FieldglassError> {
+        if self.synthesis_grid(message_index).is_none() {
+            return Ok(None);
+        }
+        let (grid, values) = self.synthesize_spectral_global(message_index)?;
+        // Two derivations of the same grid: this one from the decoded
+        // coefficients, `synthesis_grid`'s from the GDS a host sizes its meta
+        // from without decoding. They cannot disagree while
+        // `spectral_render_dims` ignores its truncation; the assertion is here
+        // for the day one of them stops.
+        debug_assert_eq!(
+            Some(grid),
+            self.synthesis_grid(message_index),
+            "the synthesised grid disagrees with the one read from the GDS"
+        );
+        Ok(Some((grid, values.into_iter().map(Some).collect())))
     }
 
     /// Decode a `grid_simple_matrix` message that carries an `nr × nc` matrix at

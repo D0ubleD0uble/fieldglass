@@ -8371,6 +8371,2876 @@
       }
     },
     {
+      "id": "spectral/open",
+      "fixture": "fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2",
+      "op": "open",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "count": 1,
+        "format": "grib2"
+      }
+    },
+    {
+      "id": "spectral/message",
+      "fixture": "fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2",
+      "op": "message",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "abbreviation": "TMP",
+        "forecast": "+0 Hour",
+        "grid": {
+          "axisUnits": "degrees",
+          "boundsLonlat": null,
+          "dx": null,
+          "dy": null,
+          "kind": "unsupported",
+          "label": "spherical_harmonic",
+          "ni": 0,
+          "nj": 0,
+          "periodicX": false,
+          "proj4": null,
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": null,
+          "y0": null
+        },
+        "index": 0,
+        "level": "Ground or water surface",
+        "levelType": "Ground or water surface",
+        "offsetBytes": 0,
+        "packing": "spectral_simple",
+        "parameter": "Temperature",
+        "referenceTime": "2007-04-24T12:00:00Z",
+        "sizeLabel": "T63",
+        "units": "K"
+      }
+    },
+    {
+      "id": "spectral/decode/auto",
+      "fixture": "fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2",
+      "op": "decode",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "dtype": "f64",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            -90.0,
+            90.0,
+            0.0,
+            359.5
+          ],
+          "dx": 0.5,
+          "dy": -0.5,
+          "kind": "latlon",
+          "label": "latlon",
+          "ni": 720,
+          "nj": 361,
+          "periodicX": true,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 90.0
+        },
+        "len": 259920,
+        "maskLen": 259920,
+        "maskOnes": 259920,
+        "ni": 720,
+        "nj": 361,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 258.6936232013276
+          },
+          {
+            "i": 64980,
+            "m": 1,
+            "v": 293.56045488394705
+          },
+          {
+            "i": 129960,
+            "m": 1,
+            "v": 300.0303299396154
+          },
+          {
+            "i": 194940,
+            "m": 1,
+            "v": 279.8268302727279
+          },
+          {
+            "i": 259919,
+            "m": 1,
+            "v": 246.45884693752333
+          }
+        ],
+        "stats": {
+          "max": 317.30284704719855,
+          "min": 230.99377270421934,
+          "validCount": 259920
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "spectral/decode/f32",
+      "fixture": "fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2",
+      "op": "decode",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "f32",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            -90.0,
+            90.0,
+            0.0,
+            359.5
+          ],
+          "dx": 0.5,
+          "dy": -0.5,
+          "kind": "latlon",
+          "label": "latlon",
+          "ni": 720,
+          "nj": 361,
+          "periodicX": true,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 90.0
+        },
+        "len": 259920,
+        "maskLen": 259920,
+        "maskOnes": 259920,
+        "ni": 720,
+        "nj": 361,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 258.6936340332031
+          },
+          {
+            "i": 64980,
+            "m": 1,
+            "v": 293.5604553222656
+          },
+          {
+            "i": 129960,
+            "m": 1,
+            "v": 300.03033447265625
+          },
+          {
+            "i": 194940,
+            "m": 1,
+            "v": 279.82684326171875
+          },
+          {
+            "i": 259919,
+            "m": 1,
+            "v": 246.45884704589844
+          }
+        ],
+        "stats": {
+          "max": 317.30284704719855,
+          "min": 230.99377270421934,
+          "validCount": 259920
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "spectral/decode/f64",
+      "fixture": "fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2",
+      "op": "decode",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "f64",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "dtype": "f64",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            -90.0,
+            90.0,
+            0.0,
+            359.5
+          ],
+          "dx": 0.5,
+          "dy": -0.5,
+          "kind": "latlon",
+          "label": "latlon",
+          "ni": 720,
+          "nj": 361,
+          "periodicX": true,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 90.0
+        },
+        "len": 259920,
+        "maskLen": 259920,
+        "maskOnes": 259920,
+        "ni": 720,
+        "nj": 361,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 258.6936232013276
+          },
+          {
+            "i": 64980,
+            "m": 1,
+            "v": 293.56045488394705
+          },
+          {
+            "i": 129960,
+            "m": 1,
+            "v": 300.0303299396154
+          },
+          {
+            "i": 194940,
+            "m": 1,
+            "v": 279.8268302727279
+          },
+          {
+            "i": 259919,
+            "m": 1,
+            "v": 246.45884693752333
+          }
+        ],
+        "stats": {
+          "max": 317.30284704719855,
+          "min": 230.99377270421934,
+          "validCount": 259920
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "spectral/warp/nearest",
+      "fixture": "fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2",
+      "op": "warp",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": false,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "bounds": [
+          -90.0,
+          90.0,
+          0.0,
+          360.0
+        ],
+        "height": 361,
+        "len": 259920,
+        "maskOnes": 259920,
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 258.6936340332031
+          },
+          {
+            "i": 64980,
+            "m": 1,
+            "v": 293.5604553222656
+          },
+          {
+            "i": 129960,
+            "m": 1,
+            "v": 300.03033447265625
+          },
+          {
+            "i": 194940,
+            "m": 1,
+            "v": 279.82684326171875
+          },
+          {
+            "i": 259919,
+            "m": 1,
+            "v": 246.45884704589844
+          }
+        ],
+        "width": 720
+      }
+    },
+    {
+      "id": "spectral/warp/bilinear",
+      "fixture": "fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2",
+      "op": "warp",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": true,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "bounds": [
+          -90.0,
+          90.0,
+          0.0,
+          360.0
+        ],
+        "height": 361,
+        "len": 259920,
+        "maskOnes": 259920,
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 258.6936340332031
+          },
+          {
+            "i": 64980,
+            "m": 1,
+            "v": 293.5604553222656
+          },
+          {
+            "i": 129960,
+            "m": 1,
+            "v": 300.03033447265625
+          },
+          {
+            "i": 194940,
+            "m": 1,
+            "v": 279.82684326171875
+          },
+          {
+            "i": 259919,
+            "m": 1,
+            "v": 246.45884704589844
+          }
+        ],
+        "width": 720
+      }
+    },
+    {
+      "id": "spectral/warp/window",
+      "fixture": "fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2",
+      "op": "warp",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": true,
+        "bounds": [
+          -20.0,
+          40.0,
+          -30.0,
+          60.0
+        ],
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "bounds": [
+          -20.0,
+          40.0,
+          -30.0,
+          60.0
+        ],
+        "height": 361,
+        "len": 259920,
+        "maskOnes": 259920,
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 283.8965148925781
+          },
+          {
+            "i": 64980,
+            "m": 1,
+            "v": 302.9972839355469
+          },
+          {
+            "i": 129960,
+            "m": 1,
+            "v": 311.1960144042969
+          },
+          {
+            "i": 194940,
+            "m": 1,
+            "v": 301.9743347167969
+          },
+          {
+            "i": 259919,
+            "m": 1,
+            "v": 297.8700866699219
+          }
+        ],
+        "width": 720
+      }
+    },
+    {
+      "id": "spectral/palette/viridis",
+      "fixture": "fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2",
+      "op": "palette",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "viridis",
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "lutLen": 1024,
+        "lutSamples": [
+          {
+            "b": 68,
+            "i": 0
+          },
+          {
+            "b": 59,
+            "i": 256
+          },
+          {
+            "b": 33,
+            "i": 512
+          },
+          {
+            "b": 96,
+            "i": 768
+          },
+          {
+            "b": 255,
+            "i": 1023
+          }
+        ],
+        "maskedRgba": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "scale": "linear",
+        "t0": 230.99377270421934,
+        "t1": 317.30284704719855
+      }
+    },
+    {
+      "id": "spectral/palette/log_reversed_ranged",
+      "fixture": "fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2",
+      "op": "palette",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "plasma",
+        "reversed": true,
+        "scale": "log10",
+        "rangeMin": 1.0,
+        "rangeMax": 1000.0,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "lutLen": 1024,
+        "lutSamples": [
+          {
+            "b": 240,
+            "i": 0
+          },
+          {
+            "b": 248,
+            "i": 256
+          },
+          {
+            "b": 203,
+            "i": 512
+          },
+          {
+            "b": 125,
+            "i": 768
+          },
+          {
+            "b": 255,
+            "i": 1023
+          }
+        ],
+        "maskedRgba": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "scale": "log10",
+        "t0": 0.0,
+        "t1": 3.0
+      }
+    },
+    {
+      "id": "spectral/render/flip_false",
+      "fixture": "fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2",
+      "op": "render",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "viridis",
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": false,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "height": 361,
+        "opaque": 259920,
+        "pixels": [
+          {
+            "i": 0,
+            "rgba": [
+              50,
+              100,
+              141,
+              255
+            ]
+          },
+          {
+            "i": 64980,
+            "rgba": [
+              82,
+              196,
+              104,
+              255
+            ]
+          },
+          {
+            "i": 129960,
+            "rgba": [
+              122,
+              209,
+              81,
+              255
+            ]
+          },
+          {
+            "i": 194940,
+            "rgba": [
+              34,
+              160,
+              135,
+              255
+            ]
+          },
+          {
+            "i": 259919,
+            "rgba": [
+              66,
+              61,
+              132,
+              255
+            ]
+          }
+        ],
+        "rgbaLen": 1039680,
+        "width": 720
+      }
+    },
+    {
+      "id": "spectral/render/flip_true",
+      "fixture": "fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2",
+      "op": "render",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "viridis",
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": true,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "height": 361,
+        "opaque": 259920,
+        "pixels": [
+          {
+            "i": 0,
+            "rgba": [
+              66,
+              61,
+              132,
+              255
+            ]
+          },
+          {
+            "i": 64980,
+            "rgba": [
+              34,
+              163,
+              134,
+              255
+            ]
+          },
+          {
+            "i": 129960,
+            "rgba": [
+              122,
+              209,
+              81,
+              255
+            ]
+          },
+          {
+            "i": 194940,
+            "rgba": [
+              34,
+              168,
+              132,
+              255
+            ]
+          },
+          {
+            "i": 259919,
+            "rgba": [
+              50,
+              100,
+              141,
+              255
+            ]
+          }
+        ],
+        "rgbaLen": 1039680,
+        "width": 720
+      }
+    },
+    {
+      "id": "spectral/probe/0_0",
+      "fixture": "fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": 0.0,
+        "lon": 0.0,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "i": 0.0,
+        "j": 180.0,
+        "lat": 0.0,
+        "lon": 0.0,
+        "value": 300.10933451128744
+      }
+    },
+    {
+      "id": "spectral/probe/45_-100",
+      "fixture": "fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": 45.0,
+        "lon": -100.0,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "i": 520.0,
+        "j": 90.0,
+        "lat": 45.0,
+        "lon": -100.0,
+        "value": 285.44415575832375
+      }
+    },
+    {
+      "id": "spectral/probe/89.5_10",
+      "fixture": "fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": 89.5,
+        "lon": 10.0,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "i": 20.0,
+        "j": 1.0,
+        "lat": 89.5,
+        "lon": 10.0,
+        "value": 259.5874211008079
+      }
+    },
+    {
+      "id": "spectral/probe/-89.5_-170",
+      "fixture": "fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": -89.5,
+        "lon": -170.0,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "i": 380.0,
+        "j": 359.0,
+        "lat": -89.5,
+        "lon": -170.0,
+        "value": 247.46557142413562
+      }
+    },
+    {
+      "id": "spectral/contours/auto",
+      "fixture": "fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2",
+      "op": "contours",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": [],
+        "combineOp": null
+      },
+      "expect": {
+        "levelCount": 8,
+        "levels": [
+          240.0,
+          250.0,
+          260.0,
+          270.0,
+          280.0,
+          290.0,
+          300.0,
+          310.0
+        ],
+        "segmentCounts": [
+          156,
+          1122,
+          2500,
+          2062,
+          2844,
+          2842,
+          3724,
+          804
+        ]
+      }
+    },
+    {
+      "id": "spectral/contours/explicit",
+      "fixture": "fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2",
+      "op": "contours",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": [
+          250.0,
+          275.0,
+          300.0
+        ],
+        "combineOp": null
+      },
+      "expect": {
+        "levelCount": 3,
+        "levels": [
+          250.0,
+          275.0,
+          300.0
+        ],
+        "segmentCounts": [
+          1122,
+          2242,
+          3724
+        ]
+      }
+    },
+    {
+      "id": "spectral/combine/a_minus_b",
+      "fixture": "fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "a_minus_b"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            -90.0,
+            90.0,
+            0.0,
+            359.5
+          ],
+          "dx": 0.5,
+          "dy": -0.5,
+          "kind": "latlon",
+          "label": "latlon",
+          "ni": 720,
+          "nj": 361,
+          "periodicX": true,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 90.0
+        },
+        "len": 259920,
+        "maskLen": 259920,
+        "maskOnes": 259920,
+        "ni": 720,
+        "nj": 361,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 64980,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 129960,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 194940,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 259919,
+            "m": 1,
+            "v": 0.0
+          }
+        ],
+        "stats": {
+          "max": 0.0,
+          "min": 0.0,
+          "validCount": 259920
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "spectral/combine/b_minus_a",
+      "fixture": "fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "b_minus_a"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            -90.0,
+            90.0,
+            0.0,
+            359.5
+          ],
+          "dx": 0.5,
+          "dy": -0.5,
+          "kind": "latlon",
+          "label": "latlon",
+          "ni": 720,
+          "nj": 361,
+          "periodicX": true,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 90.0
+        },
+        "len": 259920,
+        "maskLen": 259920,
+        "maskOnes": 259920,
+        "ni": 720,
+        "nj": 361,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 64980,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 129960,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 194940,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 259919,
+            "m": 1,
+            "v": 0.0
+          }
+        ],
+        "stats": {
+          "max": 0.0,
+          "min": 0.0,
+          "validCount": 259920
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "spectral/combine/a_plus_b",
+      "fixture": "fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "a_plus_b"
+      },
+      "expect": {
+        "dtype": "f64",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            -90.0,
+            90.0,
+            0.0,
+            359.5
+          ],
+          "dx": 0.5,
+          "dy": -0.5,
+          "kind": "latlon",
+          "label": "latlon",
+          "ni": 720,
+          "nj": 361,
+          "periodicX": true,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 90.0
+        },
+        "len": 259920,
+        "maskLen": 259920,
+        "maskOnes": 259920,
+        "ni": 720,
+        "nj": 361,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 517.3872464026553
+          },
+          {
+            "i": 64980,
+            "m": 1,
+            "v": 587.1209097678941
+          },
+          {
+            "i": 129960,
+            "m": 1,
+            "v": 600.0606598792308
+          },
+          {
+            "i": 194940,
+            "m": 1,
+            "v": 559.6536605454558
+          },
+          {
+            "i": 259919,
+            "m": 1,
+            "v": 492.91769387504667
+          }
+        ],
+        "stats": {
+          "max": 634.6056940943971,
+          "min": 461.9875454084387,
+          "validCount": 259920
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "spectral/combine/mean",
+      "fixture": "fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "mean"
+      },
+      "expect": {
+        "dtype": "f64",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            -90.0,
+            90.0,
+            0.0,
+            359.5
+          ],
+          "dx": 0.5,
+          "dy": -0.5,
+          "kind": "latlon",
+          "label": "latlon",
+          "ni": 720,
+          "nj": 361,
+          "periodicX": true,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 90.0
+        },
+        "len": 259920,
+        "maskLen": 259920,
+        "maskOnes": 259920,
+        "ni": 720,
+        "nj": 361,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 258.6936232013276
+          },
+          {
+            "i": 64980,
+            "m": 1,
+            "v": 293.56045488394705
+          },
+          {
+            "i": 129960,
+            "m": 1,
+            "v": 300.0303299396154
+          },
+          {
+            "i": 194940,
+            "m": 1,
+            "v": 279.8268302727279
+          },
+          {
+            "i": 259919,
+            "m": 1,
+            "v": 246.45884693752333
+          }
+        ],
+        "stats": {
+          "max": 317.30284704719855,
+          "min": 230.99377270421934,
+          "validCount": 259920
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "spectral/combine/ratio",
+      "fixture": "fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "ratio"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            -90.0,
+            90.0,
+            0.0,
+            359.5
+          ],
+          "dx": 0.5,
+          "dy": -0.5,
+          "kind": "latlon",
+          "label": "latlon",
+          "ni": 720,
+          "nj": 361,
+          "periodicX": true,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 90.0
+        },
+        "len": 259920,
+        "maskLen": 259920,
+        "maskOnes": 259920,
+        "ni": 720,
+        "nj": 361,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 64980,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 129960,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 194940,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 259919,
+            "m": 1,
+            "v": 1.0
+          }
+        ],
+        "stats": {
+          "max": 1.0,
+          "min": 1.0,
+          "validCount": 259920
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "healpix/open",
+      "fixture": "fieldglass-grib2/tests/fixtures/healpix_n4_ring.grib2",
+      "op": "open",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "count": 1,
+        "format": "grib2"
+      }
+    },
+    {
+      "id": "healpix/message",
+      "fixture": "fieldglass-grib2/tests/fixtures/healpix_n4_ring.grib2",
+      "op": "message",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "abbreviation": "TMP",
+        "forecast": "+0 Hour",
+        "grid": {
+          "axisUnits": "degrees",
+          "boundsLonlat": null,
+          "dx": null,
+          "dy": null,
+          "kind": "unsupported",
+          "label": "healpix",
+          "ni": 0,
+          "nj": 0,
+          "periodicX": false,
+          "proj4": null,
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": null,
+          "y0": null
+        },
+        "index": 0,
+        "level": "Ground or water surface",
+        "levelType": "Ground or water surface",
+        "offsetBytes": 0,
+        "packing": "simple",
+        "parameter": "Temperature",
+        "referenceTime": "2007-03-23T12:00:00Z",
+        "sizeLabel": "Nside 4",
+        "units": "K"
+      }
+    },
+    {
+      "id": "healpix/decode/auto",
+      "fixture": "fieldglass-grib2/tests/fixtures/healpix_n4_ring.grib2",
+      "op": "decode",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            -90.0,
+            90.0,
+            0.0,
+            346.15384615384613
+          ],
+          "dx": 13.846153846153845,
+          "dy": -13.846153846153847,
+          "kind": "latlon",
+          "label": "latlon",
+          "ni": 26,
+          "nj": 14,
+          "periodicX": true,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 90.0
+        },
+        "len": 364,
+        "maskLen": 364,
+        "maskOnes": 364,
+        "ni": 26,
+        "nj": 14,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 91,
+            "m": 1,
+            "v": 32.0
+          },
+          {
+            "i": 182,
+            "m": 1,
+            "v": 104.0
+          },
+          {
+            "i": 273,
+            "m": 1,
+            "v": 160.0
+          },
+          {
+            "i": 363,
+            "m": 1,
+            "v": 191.0
+          }
+        ],
+        "stats": {
+          "max": 191.0,
+          "min": 0.0,
+          "validCount": 364
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "healpix/decode/f32",
+      "fixture": "fieldglass-grib2/tests/fixtures/healpix_n4_ring.grib2",
+      "op": "decode",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "f32",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            -90.0,
+            90.0,
+            0.0,
+            346.15384615384613
+          ],
+          "dx": 13.846153846153845,
+          "dy": -13.846153846153847,
+          "kind": "latlon",
+          "label": "latlon",
+          "ni": 26,
+          "nj": 14,
+          "periodicX": true,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 90.0
+        },
+        "len": 364,
+        "maskLen": 364,
+        "maskOnes": 364,
+        "ni": 26,
+        "nj": 14,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 91,
+            "m": 1,
+            "v": 32.0
+          },
+          {
+            "i": 182,
+            "m": 1,
+            "v": 104.0
+          },
+          {
+            "i": 273,
+            "m": 1,
+            "v": 160.0
+          },
+          {
+            "i": 363,
+            "m": 1,
+            "v": 191.0
+          }
+        ],
+        "stats": {
+          "max": 191.0,
+          "min": 0.0,
+          "validCount": 364
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "healpix/decode/f64",
+      "fixture": "fieldglass-grib2/tests/fixtures/healpix_n4_ring.grib2",
+      "op": "decode",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "f64",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "dtype": "f64",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            -90.0,
+            90.0,
+            0.0,
+            346.15384615384613
+          ],
+          "dx": 13.846153846153845,
+          "dy": -13.846153846153847,
+          "kind": "latlon",
+          "label": "latlon",
+          "ni": 26,
+          "nj": 14,
+          "periodicX": true,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 90.0
+        },
+        "len": 364,
+        "maskLen": 364,
+        "maskOnes": 364,
+        "ni": 26,
+        "nj": 14,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 91,
+            "m": 1,
+            "v": 32.0
+          },
+          {
+            "i": 182,
+            "m": 1,
+            "v": 104.0
+          },
+          {
+            "i": 273,
+            "m": 1,
+            "v": 160.0
+          },
+          {
+            "i": 363,
+            "m": 1,
+            "v": 191.0
+          }
+        ],
+        "stats": {
+          "max": 191.0,
+          "min": 0.0,
+          "validCount": 364
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "healpix/warp/nearest",
+      "fixture": "fieldglass-grib2/tests/fixtures/healpix_n4_ring.grib2",
+      "op": "warp",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": false,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "bounds": [
+          -90.0,
+          90.0,
+          0.0,
+          360.0
+        ],
+        "height": 14,
+        "len": 364,
+        "maskOnes": 364,
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 91,
+            "m": 1,
+            "v": 32.0
+          },
+          {
+            "i": 182,
+            "m": 1,
+            "v": 104.0
+          },
+          {
+            "i": 273,
+            "m": 1,
+            "v": 160.0
+          },
+          {
+            "i": 363,
+            "m": 1,
+            "v": 191.0
+          }
+        ],
+        "width": 26
+      }
+    },
+    {
+      "id": "healpix/warp/bilinear",
+      "fixture": "fieldglass-grib2/tests/fixtures/healpix_n4_ring.grib2",
+      "op": "warp",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": true,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "bounds": [
+          -90.0,
+          90.0,
+          0.0,
+          360.0
+        ],
+        "height": 14,
+        "len": 364,
+        "maskOnes": 364,
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 91,
+            "m": 1,
+            "v": 32.0
+          },
+          {
+            "i": 182,
+            "m": 1,
+            "v": 104.0
+          },
+          {
+            "i": 273,
+            "m": 1,
+            "v": 160.0
+          },
+          {
+            "i": 363,
+            "m": 1,
+            "v": 191.0
+          }
+        ],
+        "width": 26
+      }
+    },
+    {
+      "id": "healpix/warp/window",
+      "fixture": "fieldglass-grib2/tests/fixtures/healpix_n4_ring.grib2",
+      "op": "warp",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": true,
+        "bounds": [
+          -20.0,
+          40.0,
+          -30.0,
+          60.0
+        ],
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "bounds": [
+          -20.0,
+          40.0,
+          -30.0,
+          60.0
+        ],
+        "height": 14,
+        "len": 364,
+        "maskOnes": 364,
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 47.25
+          },
+          {
+            "i": 91,
+            "m": 1,
+            "v": 45.09629440307617
+          },
+          {
+            "i": 182,
+            "m": 1,
+            "v": 85.89814758300781
+          },
+          {
+            "i": 273,
+            "m": 1,
+            "v": 91.24740600585938
+          },
+          {
+            "i": 363,
+            "m": 1,
+            "v": 120.85185241699219
+          }
+        ],
+        "width": 26
+      }
+    },
+    {
+      "id": "healpix/palette/viridis",
+      "fixture": "fieldglass-grib2/tests/fixtures/healpix_n4_ring.grib2",
+      "op": "palette",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "viridis",
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "lutLen": 1024,
+        "lutSamples": [
+          {
+            "b": 68,
+            "i": 0
+          },
+          {
+            "b": 59,
+            "i": 256
+          },
+          {
+            "b": 33,
+            "i": 512
+          },
+          {
+            "b": 96,
+            "i": 768
+          },
+          {
+            "b": 255,
+            "i": 1023
+          }
+        ],
+        "maskedRgba": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "scale": "linear",
+        "t0": 0.0,
+        "t1": 191.0
+      }
+    },
+    {
+      "id": "healpix/palette/log_reversed_ranged",
+      "fixture": "fieldglass-grib2/tests/fixtures/healpix_n4_ring.grib2",
+      "op": "palette",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "plasma",
+        "reversed": true,
+        "scale": "log10",
+        "rangeMin": 1.0,
+        "rangeMax": 1000.0,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "lutLen": 1024,
+        "lutSamples": [
+          {
+            "b": 240,
+            "i": 0
+          },
+          {
+            "b": 248,
+            "i": 256
+          },
+          {
+            "b": 203,
+            "i": 512
+          },
+          {
+            "b": 125,
+            "i": 768
+          },
+          {
+            "b": 255,
+            "i": 1023
+          }
+        ],
+        "maskedRgba": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "scale": "log10",
+        "t0": 0.0,
+        "t1": 3.0
+      }
+    },
+    {
+      "id": "healpix/render/flip_false",
+      "fixture": "fieldglass-grib2/tests/fixtures/healpix_n4_ring.grib2",
+      "op": "render",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "viridis",
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": false,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "height": 14,
+        "opaque": 364,
+        "pixels": [
+          {
+            "i": 0,
+            "rgba": [
+              68,
+              1,
+              84,
+              255
+            ]
+          },
+          {
+            "i": 91,
+            "rgba": [
+              67,
+              58,
+              129,
+              255
+            ]
+          },
+          {
+            "i": 182,
+            "rgba": [
+              33,
+              155,
+              137,
+              255
+            ]
+          },
+          {
+            "i": 273,
+            "rgba": [
+              148,
+              215,
+              64,
+              255
+            ]
+          },
+          {
+            "i": 363,
+            "rgba": [
+              253,
+              231,
+              37,
+              255
+            ]
+          }
+        ],
+        "rgbaLen": 1456,
+        "width": 26
+      }
+    },
+    {
+      "id": "healpix/render/flip_true",
+      "fixture": "fieldglass-grib2/tests/fixtures/healpix_n4_ring.grib2",
+      "op": "render",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "viridis",
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": true,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "height": 14,
+        "opaque": 364,
+        "pixels": [
+          {
+            "i": 0,
+            "rgba": [
+              243,
+              230,
+              37,
+              255
+            ]
+          },
+          {
+            "i": 91,
+            "rgba": [
+              148,
+              215,
+              64,
+              255
+            ]
+          },
+          {
+            "i": 182,
+            "rgba": [
+              44,
+              114,
+              142,
+              255
+            ]
+          },
+          {
+            "i": 273,
+            "rgba": [
+              67,
+              58,
+              129,
+              255
+            ]
+          },
+          {
+            "i": 363,
+            "rgba": [
+              69,
+              7,
+              89,
+              255
+            ]
+          }
+        ],
+        "rgbaLen": 1456,
+        "width": 26
+      }
+    },
+    {
+      "id": "healpix/probe/0_0",
+      "fixture": "fieldglass-grib2/tests/fixtures/healpix_n4_ring.grib2",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": 0.0,
+        "lon": 0.0,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "i": 0.0,
+        "j": 6.5,
+        "lat": 0.0,
+        "lon": 0.0,
+        "value": 104.0
+      }
+    },
+    {
+      "id": "healpix/probe/45_-100",
+      "fixture": "fieldglass-grib2/tests/fixtures/healpix_n4_ring.grib2",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": 45.0,
+        "lon": -100.0,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "i": 18.77777777777778,
+        "j": 3.25,
+        "lat": 45.0,
+        "lon": -100.0,
+        "value": 35.0
+      }
+    },
+    {
+      "id": "healpix/probe/89.5_10",
+      "fixture": "fieldglass-grib2/tests/fixtures/healpix_n4_ring.grib2",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": 89.5,
+        "lon": 10.0,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "i": 0.7222222222222223,
+        "j": 0.03611111111111111,
+        "lat": 89.5,
+        "lon": 10.0,
+        "value": 0.0
+      }
+    },
+    {
+      "id": "healpix/probe/-89.5_-170",
+      "fixture": "fieldglass-grib2/tests/fixtures/healpix_n4_ring.grib2",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": -89.5,
+        "lon": -170.0,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "i": 13.722222222222223,
+        "j": 12.963888888888889,
+        "lat": -89.5,
+        "lon": -170.0,
+        "value": 190.0
+      }
+    },
+    {
+      "id": "healpix/contours/auto",
+      "fixture": "fieldglass-grib2/tests/fixtures/healpix_n4_ring.grib2",
+      "op": "contours",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": [],
+        "combineOp": null
+      },
+      "expect": {
+        "levelCount": 9,
+        "levels": [
+          20.0,
+          40.0,
+          60.0,
+          80.0,
+          100.0,
+          120.0,
+          140.0,
+          160.0,
+          180.0
+        ],
+        "segmentCounts": [
+          46,
+          46,
+          30,
+          34,
+          42,
+          26,
+          34,
+          48,
+          42
+        ]
+      }
+    },
+    {
+      "id": "healpix/contours/explicit",
+      "fixture": "fieldglass-grib2/tests/fixtures/healpix_n4_ring.grib2",
+      "op": "contours",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": [
+          250.0,
+          275.0,
+          300.0
+        ],
+        "combineOp": null
+      },
+      "expect": {
+        "levelCount": 3,
+        "levels": [
+          250.0,
+          275.0,
+          300.0
+        ],
+        "segmentCounts": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": "healpix/combine/a_minus_b",
+      "fixture": "fieldglass-grib2/tests/fixtures/healpix_n4_ring.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "a_minus_b"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            -90.0,
+            90.0,
+            0.0,
+            346.15384615384613
+          ],
+          "dx": 13.846153846153845,
+          "dy": -13.846153846153847,
+          "kind": "latlon",
+          "label": "latlon",
+          "ni": 26,
+          "nj": 14,
+          "periodicX": true,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 90.0
+        },
+        "len": 364,
+        "maskLen": 364,
+        "maskOnes": 364,
+        "ni": 26,
+        "nj": 14,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 91,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 182,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 273,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 363,
+            "m": 1,
+            "v": 0.0
+          }
+        ],
+        "stats": {
+          "max": 0.0,
+          "min": 0.0,
+          "validCount": 364
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "healpix/combine/b_minus_a",
+      "fixture": "fieldglass-grib2/tests/fixtures/healpix_n4_ring.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "b_minus_a"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            -90.0,
+            90.0,
+            0.0,
+            346.15384615384613
+          ],
+          "dx": 13.846153846153845,
+          "dy": -13.846153846153847,
+          "kind": "latlon",
+          "label": "latlon",
+          "ni": 26,
+          "nj": 14,
+          "periodicX": true,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 90.0
+        },
+        "len": 364,
+        "maskLen": 364,
+        "maskOnes": 364,
+        "ni": 26,
+        "nj": 14,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 91,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 182,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 273,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 363,
+            "m": 1,
+            "v": 0.0
+          }
+        ],
+        "stats": {
+          "max": 0.0,
+          "min": 0.0,
+          "validCount": 364
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "healpix/combine/a_plus_b",
+      "fixture": "fieldglass-grib2/tests/fixtures/healpix_n4_ring.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "a_plus_b"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            -90.0,
+            90.0,
+            0.0,
+            346.15384615384613
+          ],
+          "dx": 13.846153846153845,
+          "dy": -13.846153846153847,
+          "kind": "latlon",
+          "label": "latlon",
+          "ni": 26,
+          "nj": 14,
+          "periodicX": true,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 90.0
+        },
+        "len": 364,
+        "maskLen": 364,
+        "maskOnes": 364,
+        "ni": 26,
+        "nj": 14,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 91,
+            "m": 1,
+            "v": 64.0
+          },
+          {
+            "i": 182,
+            "m": 1,
+            "v": 208.0
+          },
+          {
+            "i": 273,
+            "m": 1,
+            "v": 320.0
+          },
+          {
+            "i": 363,
+            "m": 1,
+            "v": 382.0
+          }
+        ],
+        "stats": {
+          "max": 382.0,
+          "min": 0.0,
+          "validCount": 364
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "healpix/combine/mean",
+      "fixture": "fieldglass-grib2/tests/fixtures/healpix_n4_ring.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "mean"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            -90.0,
+            90.0,
+            0.0,
+            346.15384615384613
+          ],
+          "dx": 13.846153846153845,
+          "dy": -13.846153846153847,
+          "kind": "latlon",
+          "label": "latlon",
+          "ni": 26,
+          "nj": 14,
+          "periodicX": true,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 90.0
+        },
+        "len": 364,
+        "maskLen": 364,
+        "maskOnes": 364,
+        "ni": 26,
+        "nj": 14,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 91,
+            "m": 1,
+            "v": 32.0
+          },
+          {
+            "i": 182,
+            "m": 1,
+            "v": 104.0
+          },
+          {
+            "i": 273,
+            "m": 1,
+            "v": 160.0
+          },
+          {
+            "i": 363,
+            "m": 1,
+            "v": 191.0
+          }
+        ],
+        "stats": {
+          "max": 191.0,
+          "min": 0.0,
+          "validCount": 364
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "healpix/combine/ratio",
+      "fixture": "fieldglass-grib2/tests/fixtures/healpix_n4_ring.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "ratio"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            -90.0,
+            90.0,
+            0.0,
+            346.15384615384613
+          ],
+          "dx": 13.846153846153845,
+          "dy": -13.846153846153847,
+          "kind": "latlon",
+          "label": "latlon",
+          "ni": 26,
+          "nj": 14,
+          "periodicX": true,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 90.0
+        },
+        "len": 364,
+        "maskLen": 364,
+        "maskOnes": 352,
+        "ni": 26,
+        "nj": 14,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 0,
+            "v": null
+          },
+          {
+            "i": 91,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 182,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 273,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 363,
+            "m": 1,
+            "v": 1.0
+          }
+        ],
+        "stats": {
+          "max": 1.0,
+          "min": 1.0,
+          "validCount": 352
+        },
+        "units": "K"
+      }
+    },
+    {
       "id": "grib1_jcons/open",
       "fixture": "fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1",
       "op": "open",
@@ -11320,13 +14190,13 @@
     },
     {
       "id": "error/unsupported",
-      "fixture": "fieldglass-grib2/tests/fixtures/healpix_n4_ring.grib2",
-      "op": "decode",
+      "fixture": "fieldglass-grib2/tests/fixtures/polar_stereographic_surface.grib2",
+      "op": "warp",
       "args": {
         "index": 0,
         "truncate": null,
         "dtype": "auto",
-        "bilinear": null,
+        "bilinear": true,
         "bounds": null,
         "colormap": null,
         "reversed": null,
