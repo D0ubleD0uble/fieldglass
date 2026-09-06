@@ -184,6 +184,26 @@ repos:
         entry: python3 tools/check_unused_dependencies.py
         pass_filenames: false
 
+      - id: parsing-surface
+        name: the documented parsing surface is the one the format crates use
+        language: system
+        # `fieldglass-core`'s crate doc and its README both name the parsing
+        # surface the three format crates consume, and neither statement was
+        # checked. `cargo-clippy-format-crates-parsing-only` above proves the
+        # libraries use nothing *gated*, which is weaker: an ungated module
+        # missing from the list can be used freely with every gate green. That
+        # is how `lead_time` (#545) came to be used by both GRIB libraries and
+        # listed by neither copy, while `detect` sat on both lists with no
+        # library naming it at all (#558). The invariant is equality, in both
+        # directions, over both copies (#586).
+        #
+        # Both READMEs and both source trees are in the pattern, because a
+        # module leaves the surface by an edit to a format crate exactly as
+        # often as by an edit to core.
+        files: ^(crates/fieldglass-(core|grib1|grib2|netcdf)/(src/.*\.rs|README\.md)|tools/check_parsing_surface\.py)$
+        entry: python3 tools/check_parsing_surface.py
+        pass_filenames: false
+
       - id: nested-lockfiles
         name: each nested crate's Cargo.lock matches its manifest
         language: system
@@ -276,6 +296,18 @@ repos:
         # removes a package rather than on some later edit to the checker.
         files: ^(tools/(check_unused_dependencies|test_check_unused_dependencies)\.py|.*Cargo\.toml)$
         entry: python3 tools/test_check_unused_dependencies.py
+        pass_filenames: false
+
+      - id: parsing-surface-selftest
+        name: parsing-surface checker self-test
+        stages: [pre-push]
+        language: system
+        # `crates/fieldglass-core/src/lib.rs` is in the pattern because two tests
+        # pin the real surface — the eleven modules, and the three ungated ones
+        # deliberately left off — so they have to run on the commit that changes
+        # it rather than on some later edit to the checker.
+        files: ^(tools/(check_parsing_surface|test_check_parsing_surface)\.py|crates/fieldglass-core/src/lib\.rs)$
+        entry: python3 tools/test_check_parsing_surface.py
         pass_filenames: false
 
       - id: nested-lockfiles-selftest

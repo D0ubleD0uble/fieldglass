@@ -4,12 +4,24 @@ Format-agnostic traits and shared types for [Fieldglass](https://github.com/D0ub
 a viewer for meteorological data files (GRIB1, GRIB2, NetCDF).
 
 This crate is what the format readers are built on. It holds the parsing surface
-every format shares — bit reading, byte access, format detection, the WMO centre
-tables, error types, scanning modes, map projections, and the three grids that
-arrive as something other than a rectangle of values (spherical harmonics,
-matrix-of-values, HEALPix) with the global lat/lon grid the first and last of
-those are synthesized onto — plus an optional viewer layer (warp, overlay,
-colormap) used by the rendering front end.
+every format shares:
+
+<!-- parsing-surface: the set of core modules the three format crate libraries
+     name, checked by tools/check_parsing_surface.py. The crate documentation
+     states it again; both regions have to match the code. -->
+`error`, `bits` and `bytes` (bit reading and byte access), `cct_tables` (the WMO
+centre tables), `scan` (storage orders), `projection` (map projections and grid
+geometry), `lead_time` (the forecast-lead rules both GRIB editions share), and
+the three grids that arrive as something other than a rectangle of values —
+`sht`, `matrix` and `healpix` — with `global_grid`, the lat/lon grid the first
+and last of those are synthesized onto.
+<!-- /parsing-surface -->
+
+On top of that sits an optional viewer layer (warp, overlay, colormap) used by
+the rendering front end, and an analysis layer (contours, CSV, field
+arithmetic). Three further modules are ungated but are not part of the parsing
+surface, because no format crate uses them: format detection, the spatial index,
+and unit conversion.
 
 The readers themselves are concrete types in their own crates, not
 implementations of a trait declared here. What is a trait here is a choice made
