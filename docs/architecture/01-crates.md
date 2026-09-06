@@ -25,6 +25,7 @@ flowchart TD
     netcdf["fieldglass-netcdf<br/><i>NetCDF classic + NetCDF-4 / HDF5</i>"]
     core["fieldglass-core<br/><i>traits, GridGeometry, projection, warp, overlay, Palette</i>"]
     fetchplan["fieldglass-fetchplan<br/><i>manifests in, byte ranges out; no I/O, no clock</i>"]
+    zarr["fieldglass-zarr<br/><i>Zarr chunk codecs, decode only, no I/O</i>"]
 
     wasm --> fieldglass
     fieldglass --> grib1
@@ -36,6 +37,7 @@ flowchart TD
     napi --> netcdf
     napi --> core
     fetchplan --> core
+    zarr --> core
     grib1 --> core
     grib2 --> core
     netcdf --> core
@@ -179,9 +181,10 @@ that starts from a path names `fieldglass-core` itself.
 `fieldglass` does not depend
 on `fieldglass-netcdf` yet: NetCDF reaches the browser with its own issue, and
 an unused dependency here would be paid for in bundle size today. That is also
-why the per-format features are two and not the four #552 named — `zarr` has no
-crate (#246) and `netcdf` has no edge to make optional.
+why the per-format features are two and not the four #552 named: `netcdf` has
+no edge to make optional, and `fieldglass-zarr` decodes chunks but nothing yet
+walks a store to find them (#658), so `fieldglass` has no edge to it either.
 
 See [`planned/01-crates.md`](planned/01-crates.md) for where this is going —
-`fieldglass-fetchplan` (#461), `fieldglass-zarr` (#246), and `napi` moving onto
+the Zarr store walker (#658) and its host wiring (#659), and `napi` moving onto
 `fieldglass` (#464).

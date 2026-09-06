@@ -473,9 +473,17 @@ repos:
         exclude: ^extension/tsconfig\.json$   # tsconfig.json allows comments; check-json doesn't
       - id: check-toml
       - id: check-merge-conflict
+      # The Zarr fixture stores are committed exactly as zarr-python wrote
+      # them: the provenance claim in that directory's NOTICE.md is that the
+      # bytes come from the reference implementation, which is what makes them
+      # an oracle rather than a second copy of our own arithmetic. Appending a
+      # newline to a `.zarray` would also make every regeneration a 61-file
+      # diff. NOTICE.md itself is hand-written, so it stays in scope.
       - id: end-of-file-fixer
+        exclude: ^crates/fieldglass-zarr/tests/fixtures/(?!NOTICE\.md$)
       - id: trailing-whitespace
         args: [--markdown-linebreak-ext=md]
+        exclude: ^crates/fieldglass-zarr/tests/fixtures/(?!NOTICE\.md$)
       - id: check-added-large-files
         args: [--maxkb=2048]                  # block accidentally-staged big binaries
 

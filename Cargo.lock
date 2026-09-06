@@ -180,6 +180,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "fieldglass-zarr"
+version = "0.5.0"
+dependencies = [
+ "fieldglass-core",
+ "miniz_oxide 0.9.1",
+ "ruzstd",
+ "serde_json",
+]
+
+[[package]]
 name = "flate2"
 version = "1.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
