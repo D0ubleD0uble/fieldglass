@@ -205,9 +205,11 @@ repos:
         # cached — is refused in ~20 ms without touching the network. Adding a
         # dependency cargo has never seen costs one index update first.
         #
-        # Every `Cargo.toml`, not just the nested ones: the root manifest holds
-        # the workspace dependency versions the format crates inherit, and
-        # `fieldglass-core`'s manifest is in every fuzz crate's closure.
+        # Every `Cargo.toml` and every `Cargo.lock`, not just the nested ones:
+        # the root manifest holds the workspace dependency versions the format
+        # crates inherit and `fieldglass-core`'s manifest is in every fuzz
+        # crate's closure, and a new nested workspace arrives as a manifest that
+        # may have no lock beside it yet, which is itself a finding.
         files: ^(.*Cargo\.(toml|lock)|tools/check_nested_lockfiles\.py)$
         entry: python3 tools/check_nested_lockfiles.py
         pass_filenames: false

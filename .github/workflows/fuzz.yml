@@ -8,16 +8,12 @@ on:
       - 'crates/fieldglass-grib2/**'
       - 'crates/fieldglass-netcdf/**'
       - '.github/workflows/fuzz.yml'
-      - 'tools/check_nested_lockfiles.py'
-      - 'tools/test_check_nested_lockfiles.py'
   pull_request:
     paths:
       - 'crates/fieldglass-grib1/**'
       - 'crates/fieldglass-grib2/**'
       - 'crates/fieldglass-netcdf/**'
       - '.github/workflows/fuzz.yml'
-      - 'tools/check_nested_lockfiles.py'
-      - 'tools/test_check_nested_lockfiles.py'
 
 permissions:
   contents: read
@@ -35,9 +31,13 @@ jobs:
   # commit-stage pre-commit hook: one implementation, so the gate a contributor
   # runs and the gate that blocks the merge cannot disagree. It covers every
   # crate carrying its own lockfile, `crates/fieldglass-verify` included, which
-  # is wider than this workflow's path filter ever brings it here for — the
-  # pre-commit job in `ci.yml` runs it unfiltered on every pull request, so this
-  # job is the fuzz jobs' own precondition rather than the only place it runs.
+  # is wider than this workflow's path filter ever brings it here for. This job
+  # is the fuzz jobs' own precondition, not the only place the check runs: the
+  # `pre-commit` job in `ci.yml` has no path filter and runs the checker and its
+  # self-test on every pull request, which is what covers `fieldglass-verify`
+  # and an edit to the checker itself. Adding those paths here instead would
+  # start three 15-minute fuzz campaigns for a change that cannot reach a fuzz
+  # target.
   #
   # The fuzz jobs depend on this, which does mean a bumped dependency whose
   # fuzz lock was not refreshed blocks fuzzing until someone runs
@@ -61,8 +61,9 @@ jobs:
         run: python3 tools/check_nested_lockfiles.py
 
       # The checker reports an absence, so its own tests are what stop it
-      # rotting into a green no-op. They are pure bookkeeping over temporary
-      # directories plus one real run against this tree; no fuzz build.
+      # rotting into a green no-op. Bookkeeping over temporary directories,
+      # plus two cases that run the real check against this tree; no fuzz
+      # build, so stable is still enough.
       - name: Nested-lockfile checker self-test
         run: python3 tools/test_check_nested_lockfiles.py
 
