@@ -93,9 +93,8 @@ fn disciplines() -> Vec<u8> {
 /// MARS name and not a GRIB2 abbreviation; no table in this repo carries one,
 /// so `2t` resolves to `None` here and an ECMWF source is selected by its own
 /// vocabulary until such a table exists. The planner's
-/// [`ParameterResolver`](fieldglass_fetchplan::ParameterResolver) seam takes
-/// any implementation, so that is a table to add rather than a design to
-/// change.
+/// [`ParameterResolver`] seam takes any implementation, so that is a table to
+/// add rather than a design to change.
 ///
 /// **An ambiguous name.** Where two triples share an abbreviation the first in
 /// scan order wins, which is the lowest triple — deterministic, and the WMO

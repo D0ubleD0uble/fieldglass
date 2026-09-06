@@ -155,8 +155,9 @@ pub struct Expect {
     /// The level exactly as the manifest renders it: `2 m above ground`,
     /// `500 mb`, `sfc`.
     pub level: Option<String>,
-    /// The level parsed into a surface and a value, where the grammar in
-    /// [`crate::level`] recognises it.
+    /// The level parsed into a surface and a value, where
+    /// [`parse_ncep_level`](crate::parse_ncep_level) or
+    /// [`parse_ecmwf_level`](crate::parse_ecmwf_level) recognises it.
     pub level_spec: Option<LevelSpec>,
     /// The forecast field as the manifest renders it: `anl`, `6 hour fcst`,
     /// `0-1 hour acc fcst`, or an ECMWF `step` in hours.
