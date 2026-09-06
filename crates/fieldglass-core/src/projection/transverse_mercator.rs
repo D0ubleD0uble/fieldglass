@@ -66,7 +66,7 @@ pub struct TransverseMercatorParams {
 /// Crate-internal: the projector holds one and the module's helpers pass it
 /// around. A caller reaches the same maths through
 /// [`TransverseMercatorProjector`].
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct TransverseMercatorConstants {
     /// Third flattening, `n = f / (2 - f)`. Zero for a sphere, which zeroes
     /// every series coefficient below.
@@ -240,7 +240,7 @@ fn transverse_mercator_inverse_xy_with(
 /// Precomputed inverse map for a transverse Mercator grid. Owns the Krüger
 /// coefficients and the reference arc, both invariant across a warp's output
 /// pixels. Build once outside the per-pixel loop.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TransverseMercatorProjector {
     /// The grid this projector was built for.
     pub params: TransverseMercatorParams,

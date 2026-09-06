@@ -47,7 +47,7 @@ pub struct PolarStereoParams {
 ///
 /// Crate-internal: the projector holds one and the module's helpers pass it
 /// around. A caller reaches the same maths through [`PolarStereoProjector`].
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct PolarStereoConstants {
     /// `2 · R · k₀` where `k₀ = (1 + sin|LaD|)/2` is the pole scale factor for
     /// a projection whose latitude of true scale is `LaD` (Snyder PP-1395,
@@ -126,7 +126,7 @@ fn polar_stereo_inverse_xy_with(k: &PolarStereoConstants, lov: f64, x: f64, y: f
 /// Precomputed inverse map for a polar stereographic grid. Owns the
 /// pole-scale constant and the forward-projected grid origin — both
 /// invariant across every output pixel of a warp.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PolarStereoProjector {
     /// The grid this projector was built for.
     pub params: PolarStereoParams,

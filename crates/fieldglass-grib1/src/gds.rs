@@ -8,7 +8,7 @@ use fieldglass_core::{
 // ---------------------------------------------------------------------------
 
 /// Resolution and component flags — WMO ON388 Code Table 7 (GDS octet 17).
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ResolutionFlags {
     /// True if Di/Dj increments are given in the GDS.
     pub increments_given: bool,
@@ -95,7 +95,7 @@ impl ScanningMode {
 // ---------------------------------------------------------------------------
 
 /// Grid type 0 — Latitude/Longitude (equidistant cylindrical / Plate Carrée).
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LatLonGrid {
     /// Points along a row (`Ni`).
     pub ni: u32,
@@ -127,7 +127,7 @@ pub struct LatLonGrid {
 /// scanning-mode octet (after four reserved octets). The corner coordinates
 /// (`lat_first`/`lon_first`/`lat_last`/`lon_last`) are in the rotated frame —
 /// converting them to geographic is the reprojector's job, not the parser's.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RotatedLatLonGrid {
     /// Points along a row (`Ni`).
     pub ni: u32,
@@ -163,7 +163,7 @@ pub struct RotatedLatLonGrid {
 /// `0xFFFF`) and instead carries a `PL` list giving the number of points in
 /// each of the `Nj` rows — fewer points toward the poles. The total point
 /// count is `points_per_row.sum()`, not `Ni·Nj`.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ReducedLatLonGrid {
     /// Rows (`Nj`).
     pub nj: u32,
@@ -190,7 +190,7 @@ pub struct ReducedLatLonGrid {
 /// As [`ReducedLatLonGrid`], but the row latitudes are Gauss–Legendre nodes
 /// (`n_gaussians` between pole and equator) rather than equispaced. This is the
 /// common ECMWF "reduced_gg" layout.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ReducedGaussianGrid {
     /// Rows (`Nj`).
     pub nj: u32,
@@ -213,7 +213,7 @@ pub struct ReducedGaussianGrid {
 }
 
 /// Grid type 4 — Gaussian Latitude/Longitude.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GaussianGrid {
     /// Points along a row (`Ni`).
     pub ni: u32,
@@ -238,7 +238,7 @@ pub struct GaussianGrid {
 }
 
 /// Grid type 5 — Polar Stereographic.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PolarStereoGrid {
     /// Points along the projection plane's x axis (`Nx`).
     pub nx: u32,
@@ -326,7 +326,7 @@ impl PolarStereoGrid {
 }
 
 /// Grid type 3 — Lambert Conformal (conic or bi-polar).
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LambertGrid {
     /// Points along the projection plane's x axis (`Nx`).
     pub nx: u32,
@@ -411,7 +411,7 @@ impl LambertGrid {
 ///
 /// [`GridDescription::grid_type_name`] is the stable string the rest of
 /// the workspace keys on; matching on the variant gets the parameters.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum GridDescription {
     /// Grid type 0 — regular latitude/longitude.
     LatLon(LatLonGrid),

@@ -225,7 +225,7 @@ pub(crate) fn gaussian_inverse(p: &GaussianParams, lat: f64, lon: f64) -> Option
 /// touching the global Gauss–Legendre cache or re-reversing the vec.
 ///
 /// Build once outside the warp loop; call `inverse` per output pixel.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct GaussianProjector {
     /// The grid this projector was built for.
     pub params: GaussianParams,

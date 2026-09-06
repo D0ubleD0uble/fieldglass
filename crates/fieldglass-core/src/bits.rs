@@ -175,7 +175,12 @@ pub fn ibm_float_to_f64(raw: u32) -> f64 {
 /// MSB-first bit reader for packed integer streams up to 32 bits per value.
 /// Used by GRIB BDS / DRS decoders and any future format that packs values
 /// at non-byte-aligned widths.
-#[derive(Debug)]
+// `Clone` but deliberately not `Copy` (#556), though both fields are `Copy`
+// and it would compile. A bit cursor that copies implicitly reads from the
+// copy and leaves the original's position behind, at a call site that looks
+// like it advanced it — the reason `std::slice::Iter` is `Clone` and not
+// `Copy` either. Saving a position is then an explicit `.clone()`.
+#[derive(Debug, Clone)]
 pub struct BitReader<'a> {
     bytes: &'a [u8],
     bit_offset: usize,

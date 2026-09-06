@@ -3,7 +3,7 @@ use fieldglass_core::FieldglassError;
 /// Parsed Bit Map Section. The bitmap has one boolean per grid point in
 /// scan order: `true` means the corresponding value is present in the BDS,
 /// `false` means it is missing.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Bitmap {
     /// Length of the section in bytes, from its own 3-octet length prefix.
     pub section_len: u32,

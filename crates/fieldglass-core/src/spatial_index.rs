@@ -415,7 +415,7 @@ fn search_inner(
 /// depend on the build algorithm, and reading them back would let a
 /// hand-written payload claim a tree that does not match its own points. Both
 /// are recomputed on the way in.
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct IndexCoords {
     ni: u32,
     nj: u32,

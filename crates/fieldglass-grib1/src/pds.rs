@@ -1,7 +1,7 @@
 use fieldglass_core::FieldglassError;
 
 /// Section 1, the Product Definition Section — what the field is, and when.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProductDefinition {
     /// Length of the section in bytes, from its own 3-octet length prefix.
     pub section_len: u32,

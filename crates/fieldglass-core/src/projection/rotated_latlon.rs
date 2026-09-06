@@ -116,7 +116,7 @@ pub(crate) fn rotate_latlon(
 /// corner geometry as a plain [`LatLonParams`] so `inverse` rotates the query
 /// into the rotated frame and then reuses [`latlon_inverse`]. Build once
 /// outside the warp loop; call [`Self::inverse`] per output pixel.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RotatedLatLonProjector {
     params: RotatedLatLonParams,
     rotated_grid: LatLonParams,
