@@ -1035,7 +1035,9 @@ mod grib2_compiled_out {
 
     #[test]
     fn a_grib2_message_is_refused_as_grib2_and_not_as_unknown_bytes() {
-        // "GRIB", three reserved bytes, discipline 0, then edition 2.
+        // GRIB2 Section 0: "GRIB", two reserved bytes, discipline at offset
+        // 6, edition at offset 7 — which is the byte `detect_from_bytes`
+        // reads to tell the editions apart.
         let mut bytes = b"GRIB".to_vec();
         bytes.extend_from_slice(&[0, 0, 0, 2]);
         match Session::open(bytes) {

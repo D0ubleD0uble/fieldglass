@@ -129,9 +129,10 @@ asking to pay for less, and names what it wants back.
   with `default-features = false`, so neither the addon nor the browser bundle
   carries it; it is on by default because `cargo test --workspace` does not
   enable optional features, and a suite skipped there would pass while checking
-  nothing. It turns the four features above on with it: the suite is one
-  recorded expectation per case over every format and both surfaces, so a
-  partial build has no honest subset of it to run.
+  nothing. It turns on `grib1`, `grib2`, `render` and `analysis` with it — but
+  not `schema` — because the suite is one recorded expectation per case over
+  every format and both surfaces, and a partial build has no honest subset of
+  it to run.
 
 What the formats cost is most of the weight, because each decoder brings its
 own codecs:
