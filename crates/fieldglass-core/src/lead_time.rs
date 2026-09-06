@@ -48,9 +48,16 @@ pub fn saturating_hours(hours: i64) -> i32 {
 ///
 /// `hours` is the caller's answer to "is this lead expressible in hours, and if
 /// so how many" — not a conversion this function performs. A unit with no fixed
-/// length in hours (month, year, decade, normal, century) has no such answer,
-/// and passing `None` is what keeps a six-month mean from being printed as
-/// `+6h`.
+/// length in hours has no such answer, and passing `None` is what keeps a
+/// six-month mean from being printed as `+6h`. Both editions answer `None` for
+/// the calendar units (month, year, decade, normal, century) and for every code
+/// their table reserves or leaves to local use, which is why the label matters:
+/// a local-use unit renders with whatever name the table gives it.
+///
+/// Deliberately `i64` rather than the `i32` a display column carries: a caller
+/// that has not narrowed its lead yet should not be made to narrow it here,
+/// where the result is a string. [`saturating_hours`] is the narrowing, and it
+/// belongs to whoever fills the numeric column.
 ///
 /// The sign and any surrounding wording belong to the caller: GRIB1 renders
 /// accumulation bounds as `−{a} to −{b} average` around this, and both editions
@@ -62,7 +69,7 @@ pub fn saturating_hours(hours: i64) -> i32 {
 /// assert_eq!(lead_label(None, 6, "Month"), "6 Month");
 /// ```
 #[must_use]
-pub fn lead_label(hours: Option<i32>, value: i64, unit_label: &str) -> String {
+pub fn lead_label(hours: Option<i64>, value: i64, unit_label: &str) -> String {
     match hours {
         Some(h) => format!("{h}h"),
         None => format!("{value} {unit_label}"),
@@ -106,6 +113,13 @@ mod tests {
         assert_eq!(lead_label(Some(48), 2, "Day"), "48h");
         assert_eq!(lead_label(Some(0), 30, "Minute"), "0h");
         assert_eq!(lead_label(Some(-12), -12, "Hour"), "-12h");
+        // Not narrowed on the way through: a lead past the display column is
+        // still printed in full, because narrowing is `saturating_hours`'s job
+        // and a string has no column to overflow.
+        assert_eq!(
+            lead_label(Some(i64::from(i32::MAX) + 1), 0, "Hour"),
+            "2147483648h"
+        );
     }
 
     /// The rule the module exists for: no hours value means the producer's own

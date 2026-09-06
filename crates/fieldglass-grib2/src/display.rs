@@ -1,11 +1,19 @@
-//! Level and forecast-time strings for a §4 product, mirroring the GRIB1
-//! crate's [`level_value_str`], [`level_type_str`], [`forecast_hours`] and
-//! [`forecast_display`].
+//! Level and forecast-time strings for a §4 product.
 //!
-//! [`level_value_str`]: https://docs.rs/fieldglass-grib1/latest/fieldglass_grib1/fn.level_value_str.html
-//! [`level_type_str`]: https://docs.rs/fieldglass-grib1/latest/fieldglass_grib1/fn.level_type_str.html
-//! [`forecast_hours`]: https://docs.rs/fieldglass-grib1/latest/fieldglass_grib1/fn.forecast_hours.html
-//! [`forecast_display`]: https://docs.rs/fieldglass-grib1/latest/fieldglass_grib1/fn.forecast_display.html
+//! `level_value_str`, `level_type_str`, `forecast_hours` and `forecast_display`
+//! are the GRIB1 crate's four counterparts **by name and by column** — they
+//! fill the same four places in a message list. They are not the same function
+//! twice, and two differences are worth knowing before reading one as the
+//! other:
+//!
+//! * GRIB1 prints `"—"` for a fixed-surface type, where GRIB2 prints the
+//!   surface's own name ("Ground or water surface"): GRIB2's Code Table 4.5
+//!   entry *is* the description, and blanking it would lose the only thing the
+//!   column has to say.
+//! * GRIB1 renders a layer as its two bounds. GRIB2 states the bottom of a
+//!   layer in `second_surface`, and these functions never read it, so a layer
+//!   product reports its top surface alone — as it did when this code lived in
+//!   `fieldglass-napi`, and as both hosts still display it.
 //!
 //! These lived in `fieldglass-napi` until #545, which is why the umbrella crate
 //! and the napi host had grown a copy each and had drifted: one rendered a
@@ -29,6 +37,9 @@ use crate::tables::{lookup_fixed_surface, lookup_time_range_unit};
 /// when the surface carries one, and the surface's own name when it does not:
 /// "Ground or water surface" has no height to print. The unit hint is in
 /// [`level_type_str`], which is the column beside it.
+///
+/// Reads `first_surface` only. For a layer product that is the *top* surface;
+/// the bottom is in `second_surface` and no host renders it today.
 #[must_use]
 pub fn level_value_str(common: &HorizontalProductCommon) -> String {
     let surface = &common.first_surface;
@@ -51,8 +62,11 @@ pub fn level_type_str(common: &HorizontalProductCommon) -> String {
     lookup_fixed_surface(common.first_surface.surface_type).to_string()
 }
 
-/// The lead time in whole hours, or `None` for a unit that has no fixed length
-/// in hours (month, year, decade, normal, century, missing).
+/// The lead time in whole hours, or `None` for a unit with no fixed length in
+/// hours: the calendar units (month, year, decade, normal, century), the
+/// missing sentinel, and every code Table 4.4 reserves or leaves to local use.
+/// [`forecast_display`] renders those with whatever label the table gives them,
+/// which for an unmodelled code is "Unknown time-range unit".
 ///
 /// A **coarse** sort key, not the exact lead: a sub-hour unit truncates toward
 /// zero, so a 0/15/30/45-minute nowcast series — MRMS states its lead in
@@ -83,11 +97,18 @@ pub fn forecast_hours(common: &HorizontalProductCommon) -> Option<i32> {
 /// own number and label, so the exact lead survives even where
 /// [`forecast_hours`] rounds it away; that is the display half of the rule
 /// [`fieldglass_core::lead_time::lead_label`] carries.
+///
+/// The `+` is unconditional, so a negative lead — §4 states forecast time in
+/// sign-magnitude, and a message really can say −6 — reads `"+-6h"`. Kept as it
+/// was in `fieldglass-napi`, because both hosts have shown it that way since
+/// GRIB2 products were first listed and the column is a lead time either way.
 #[must_use]
 pub fn forecast_display(common: &HorizontalProductCommon) -> String {
     // Deliberately not `forecast_hours`: a lead stated in days shows as days,
-    // unlike GRIB1, which converts everything convertible.
-    let hours = (common.forecast_time_unit == 1).then(|| saturating_hours(common.forecast_time));
+    // unlike GRIB1, which converts everything convertible. And deliberately
+    // un-narrowed — the string has no column to overflow, so a lead past
+    // `i32` prints in full here even though `forecast_hours` saturates it.
+    let hours = (common.forecast_time_unit == 1).then_some(common.forecast_time);
     format!(
         "+{}",
         lead_label(
@@ -189,6 +210,10 @@ mod tests {
         );
         // Negative (sign-magnitude on the wire) truncates toward zero too.
         assert_eq!(forecast_hours(&common(0, -90)), Some(-1));
+        // And the display's `+` is unconditional, so a negative lead reads
+        // `+-6h`. Pinned because it is inherited rather than chosen: both hosts
+        // have shown it this way since GRIB2 products were first listed.
+        assert_eq!(forecast_display(&common(1, -6)), "+-6h");
     }
 
     /// A unit with no clean hour conversion yields no hours, but must still
@@ -222,10 +247,18 @@ mod tests {
             "+2000000000 Day"
         );
         assert_eq!(forecast_hours(&common(2, -2_000_000_000)), Some(i32::MIN));
-        // The hour unit reaches the same clamp through the display path.
+        // The display path does *not* clamp: it prints the lead the message
+        // stated. Only a struct literal can reach this — §4 encodes the
+        // forecast time in 31 bits of magnitude, so no message can state a lead
+        // outside `i32` — but the two columns disagreeing here on purpose is
+        // the thing to keep, and it is what `fieldglass-napi` did before #545.
         assert_eq!(
             forecast_display(&common(1, i64::from(i32::MAX) + 1)),
-            format!("+{}h", i32::MAX)
+            "+2147483648h"
+        );
+        assert_eq!(
+            forecast_hours(&common(1, i64::from(i32::MAX) + 1)),
+            Some(i32::MAX)
         );
     }
 

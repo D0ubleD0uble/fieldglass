@@ -764,7 +764,9 @@ fn p1_to_hours(time_unit: u8, p: i32) -> Option<i32> {
         _ => return None,
     };
     // `f64 as i64` already saturates, so the two-step narrowing cannot wrap
-    // between them; `saturating_hours` is the rule both editions share.
+    // between them (a NaN would cast to 0, but `seconds` is an `i64` so the
+    // division is always finite); `saturating_hours` is the rule both editions
+    // share.
     Some(fieldglass_core::lead_time::saturating_hours(
         (seconds as f64 / 3_600.0).round() as i64,
     ))
@@ -784,7 +786,11 @@ pub fn forecast_display(pds: &ProductDefinition) -> String {
     // editions call `lead_label`, and each decides for itself which leads it
     // has an hours value for.
     let one = |v: i32| {
-        fieldglass_core::lead_time::lead_label(p1_to_hours(pds.time_unit, v), i64::from(v), unit)
+        fieldglass_core::lead_time::lead_label(
+            p1_to_hours(pds.time_unit, v).map(i64::from),
+            i64::from(v),
+            unit,
+        )
     };
     let pair = |a: i32, b: i32| match (p1_to_hours(pds.time_unit, a), p1_to_hours(pds.time_unit, b))
     {

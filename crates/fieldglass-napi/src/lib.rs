@@ -129,7 +129,8 @@ pub struct MessageMeta {
     /// Forecast lead normalised to whole hours, whatever unit the message
     /// states it in. See `p1_octet` for why the raw octet travels separately.
     pub forecast_hours: i32,
-    /// Forecast lead rendered for display, e.g. `"+6 h"`, `"analysis"`.
+    /// Forecast lead rendered for display, e.g. `"+6h"`, `"+30 Minute"`,
+    /// `"analysis"`.
     pub forecast_display: String,
     /// Raw P1 octet (GRIB1 PDS octet 19), for the dormant in-viewer edit of
     /// that byte. `None` wherever writing one octet would not mean what the
@@ -5731,11 +5732,57 @@ mod netcdf_slice_tests {
         assert_eq!(m.forecast_hours, 204);
         assert_eq!(m.forecast_display, "+204h");
 
+        // A unit with no hours value must reach the column as 0 rather than as
+        // anything the crate's `Option` could be read into. This is the only
+        // cover for the `unwrap_or(0)` at this seam: the corpus has no message
+        // stating a calendar unit, and the crate-side test asserts `None`,
+        // which is the other half of the same wire.
+        let month = fieldglass_grib2::ProductDefinitionSection {
+            section_length: 34,
+            num_coordinate_values: 0,
+            template_number: 0,
+            template: fieldglass_grib2::ProductTemplate::HorizontalAnalysisForecast(
+                fieldglass_grib2::Template40 {
+                    common: fieldglass_grib2::HorizontalProductCommon {
+                        parameter_category: 0,
+                        parameter_number: 0,
+                        generating_process_type: 2,
+                        background_process_id: 0,
+                        forecast_process_id: 0,
+                        obs_cutoff_hours: 0,
+                        obs_cutoff_minutes: 0,
+                        forecast_time_unit: 3, // month
+                        forecast_time: 6,
+                        first_surface: fieldglass_grib2::FixedSurface {
+                            surface_type: 1,
+                            scale_factor: None,
+                            scaled_value: None,
+                        },
+                        second_surface: fieldglass_grib2::FixedSurface {
+                            surface_type: 255,
+                            scale_factor: None,
+                            scaled_value: None,
+                        },
+                    },
+                },
+            ),
+        };
+        let fields = grib2_product_fields(fieldglass_grib2::Originator::new(7, 0, 0), 0, &month);
+        assert_eq!(
+            fields.forecast_hours, 0,
+            "no hours value reaches the column as 0"
+        );
+        assert_eq!(
+            fields.forecast_display, "+6 Month",
+            "and the display string is where the six months survive"
+        );
+
         // A template with no horizontal product common has none of the four to
         // render, and says so rather than inventing a zero-hour analysis.
         let placeholder = Grib2ProductFields::placeholder();
         assert_eq!(placeholder.level, "—");
         assert_eq!(placeholder.level_type, "—");
+        assert_eq!(placeholder.forecast_hours, 0);
         assert_eq!(placeholder.forecast_display, "—");
     }
 
