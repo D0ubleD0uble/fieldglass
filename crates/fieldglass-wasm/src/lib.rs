@@ -343,8 +343,11 @@ impl WasmField {
         to_js(&self.field.stats)
     }
 
-    /// The parameter's human-readable name, e.g. `"Temperature"`. `"Unknown"`
-    /// when no table in the crate resolves the message's parameter id.
+    /// The parameter's name, e.g. `"Temperature"`. When no table in the crate
+    /// resolves the message's parameter codes, this is `Parameter <codes>`
+    /// naming the codes that went unresolved — `Parameter 209/10/0` for GRIB2,
+    /// `Parameter 98/128/210` for GRIB1. See `fieldglass::api::Field` for the
+    /// contract in full (#633).
     pub fn parameter(&self) -> String {
         self.field.parameter.clone()
     }

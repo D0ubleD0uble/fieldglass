@@ -240,8 +240,31 @@ api_type! {
         pub georef: Georef,
         /// Range and count over the present cells.
         pub stats: Stats,
-        /// The parameter's human-readable name, or `"Unknown"` when no table
-        /// in this build resolves the message's parameter id.
+        /// The parameter's name, as the table that resolved it states it.
+        ///
+        /// # The unresolved-parameter contract
+        ///
+        /// When no table in this build resolves the message's parameter codes,
+        /// this is `Parameter <codes>` — the numeric codes that went
+        /// unresolved, slash-separated, outermost first:
+        ///
+        /// | Format | Rendering | Codes |
+        /// |---|---|---|
+        /// | GRIB2 | `Parameter 209/10/0` | discipline / category / number |
+        /// | GRIB1 | `Parameter 98/128/210` | centre / table version / id |
+        ///
+        /// The codes rather than a bare `"Unknown"` because they are the only
+        /// thing that tells a user *which* table is missing, and no other field
+        /// carries them: a host reads the discipline as a Code Table 0.0
+        /// *name*, which is itself unresolved for a discipline no table
+        /// defines. This is the string every host shows — the umbrella, the
+        /// wasm binding and the napi binding all render it from the format
+        /// crate's own `unresolved_parameter` (#633).
+        ///
+        /// Empty only when the message has no parameter codes to name at all,
+        /// which is a GRIB2 product template carrying no horizontal product
+        /// common. [`abbreviation`](MessageInfo::abbreviation) and
+        /// [`units`](Self::units) are empty in both cases.
         pub parameter: String,
         /// The parameter's units as its table states them. Empty when the
         /// parameter did not resolve, or is dimensionless.
@@ -261,7 +284,9 @@ api_type! {
         /// Byte offset of the message's first byte within the container, so a
         /// host can range-fetch this message alone on a later visit.
         pub offset_bytes: u64,
-        /// Human-readable parameter name, or `"Unknown"`.
+        /// The parameter's name, under the same contract as
+        /// [`Field::parameter`]: the table's name, or `Parameter <codes>`
+        /// naming the codes no table in this build resolved.
         pub parameter: String,
         /// The table's short name for the parameter, e.g. `"2t"`. Empty when
         /// the parameter did not resolve.

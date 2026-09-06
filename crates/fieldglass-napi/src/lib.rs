@@ -109,8 +109,14 @@ pub struct MessageMeta {
     /// not a 32-bit integer: GRIB and NetCDF archives run past 2 GiB, and an
     /// `i32` offset goes negative there. Exact up to 2^53 bytes.
     pub offset_bytes: f64,
-    /// Human-readable parameter name, or `"Unknown"` when no table in this
-    /// build resolves the message's parameter id.
+    /// The parameter's name, as the table that resolved it states it.
+    ///
+    /// When no table in this build resolves the message's parameter codes,
+    /// this is `Parameter <codes>` — the codes that went unresolved, slash
+    /// separated, outermost first: `Parameter 209/10/0` for GRIB2
+    /// (discipline/category/number), `Parameter 98/128/210` for GRIB1
+    /// (centre/table version/id). The same string `fieldglass::api::Field`
+    /// documents and every host shows (#633).
     pub parameter_name: String,
     /// Units as the parameter's table states them, typeset for display
     /// (ADR-0007). Empty when the parameter did not resolve.
@@ -454,11 +460,29 @@ fn build_grib1_message_meta(
     msg: &fieldglass_grib1::Grib1Message,
     packing: Option<String>,
 ) -> MessageMeta {
-    let param = lookup_parameter(
+    // `(abbreviation, name, units)`, resolved or under the unresolved-parameter
+    // contract. The format crate owns the fallback rendering, so this seam and
+    // the umbrella's cannot disagree about it (#633).
+    let (param_abbreviation, param_name, param_units) = match lookup_parameter(
         msg.pds.parameter_id,
         msg.pds.table_version,
         msg.pds.originating_centre,
-    );
+    ) {
+        Some(p) => (
+            p.abbreviation.to_string(),
+            p.name.to_string(),
+            normalize_units(p.units).into_owned(),
+        ),
+        None => (
+            String::new(),
+            fieldglass_grib1::tables::unresolved_parameter(
+                msg.pds.originating_centre,
+                msg.pds.table_version,
+                msg.pds.parameter_id,
+            ),
+            String::new(),
+        ),
+    };
     let (grid_type, grid_ni, grid_nj, grid_size_label, lat_first, lon_first, lat_last, lon_last) =
         match &msg.gds {
             Some(gds) => {
@@ -543,7 +567,7 @@ fn build_grib1_message_meta(
             // JS-facing `i32` cannot wrap for any file that fits in memory.
             message_index: msg.message_index as i32,
             offset_bytes: msg.byte_offset as f64,
-            parameter_name: param.name.to_string(),
+            parameter_name: param_name,
             // Same display-seam normalisation the GRIB2 side gets (#432). The GRIB1
             // tables carry a third notation on top of WMO's: the ECMWF local tables
             // are generated from eccodes, which writes exponents Fortran-style
@@ -551,8 +575,8 @@ fn build_grib1_message_meta(
             // rather than in the tables keeps both generated files reproducible
             // from their upstream, and makes the units column read the same
             // whichever edition the file is (#441).
-            parameter_units: normalize_units(param.units).into_owned(),
-            parameter_abbreviation: param.abbreviation.to_string(),
+            parameter_units: param_units,
+            parameter_abbreviation: param_abbreviation,
             level: fieldglass_grib1::level_value_str(&msg.pds),
             level_type: fieldglass_grib1::level_type_str(&msg.pds),
             reference_time: fieldglass_grib1::reference_time(&msg.pds),
@@ -665,11 +689,14 @@ fn grib2_product_fields(
             long.to_string(),
             normalize_units(units).into_owned(),
         ),
+        // The format crate owns the fallback rendering, so this seam and the
+        // umbrella's cannot disagree about it (#633).
         None => (
             String::new(),
-            format!(
-                "Parameter {}/{}/{}",
-                discipline, common.parameter_category, common.parameter_number
+            fieldglass_grib2::unresolved_parameter(
+                discipline,
+                common.parameter_category,
+                common.parameter_number,
             ),
             String::new(),
         ),
@@ -8852,5 +8879,90 @@ mod healpix_render_tests {
                 .is_none(),
             "the source view must stay 26 wide, not be floored to 720"
         );
+    }
+}
+
+/// The unresolved-parameter contract, compared against the umbrella (#633).
+///
+/// This binding and `fieldglass::Session` are separate display seams over the
+/// same format crates, and they used to render an unresolved parameter
+/// differently: this one as `Parameter d/c/n`, the umbrella as the empty
+/// string for GRIB2 and `"Unknown"` for GRIB1. Nothing failed, because the
+/// conformance suite cannot compare the field — `parameter` reaches a host
+/// only through `Op::Message`, which this crate's runner skips (it answers
+/// `MessageMeta`, not `MessageInfo`; #574), and the `Op::Decode` adapter has
+/// no parameter to project because `DecodedGrid` carries none.
+///
+/// So the two hosts are compared here instead, directly: same bytes, both
+/// seams, one assertion that the strings are equal. That is the gate #633 asks
+/// for, and it holds for as long as this crate can depend on the umbrella.
+#[cfg(test)]
+mod unresolved_parameter_tests {
+    use super::*;
+
+    const GRIB2: &[u8] =
+        include_bytes!("../../fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2");
+    const GRIB1: &[u8] =
+        include_bytes!("../../fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1");
+
+    /// GRIB2 §0 octet 7 (discipline) and GRIB1 PDS octet 9 (parameter id), as
+    /// 0-based offsets into the whole message. Documented in full in
+    /// `fieldglass/tests/unresolved_parameter.rs`.
+    const GRIB2_DISCIPLINE: usize = 6;
+    const GRIB1_PARAMETER_ID: usize = 16;
+
+    fn patched(bytes: &[u8], at: usize, to: u8) -> Vec<u8> {
+        let mut out = bytes.to_vec();
+        out[at] = to;
+        out
+    }
+
+    /// What `fieldglass::Session` — and therefore the wasm binding, which
+    /// returns `Field::parameter` verbatim — shows for message 0.
+    fn umbrella_parameter(bytes: Vec<u8>) -> String {
+        fieldglass::Session::open(bytes)
+            .expect("the patched message still parses")
+            .message(0)
+            .expect("message 0")
+            .parameter
+    }
+
+    #[test]
+    fn grib2_agrees_with_the_umbrella() {
+        // Discipline 209: a local NSSL/MRMS assignment no table here defines.
+        let bytes = patched(GRIB2, GRIB2_DISCIPLINE, 209);
+        let reader = Grib2Reader::from_bytes(bytes.clone()).expect("grib2 parse");
+        let meta = build_grib2_message_meta(&reader.messages[0]);
+        assert_eq!(meta.parameter_name, "Parameter 209/0/0");
+        assert_eq!(meta.parameter_name, umbrella_parameter(bytes));
+        assert_eq!(meta.parameter_abbreviation, "");
+        assert_eq!(meta.parameter_units, "");
+    }
+
+    #[test]
+    fn grib1_agrees_with_the_umbrella() {
+        // Id 0 is undefined in ECMWF local table 128, which this file declares.
+        let bytes = patched(GRIB1, GRIB1_PARAMETER_ID, 0);
+        let reader = Grib1Reader::from_bytes(bytes.clone()).expect("grib1 parse");
+        let meta = build_grib1_message_meta(&reader.messages[0], None);
+        assert_eq!(meta.parameter_name, "Parameter 98/128/0");
+        assert_eq!(meta.parameter_name, umbrella_parameter(bytes));
+        assert_eq!(meta.parameter_abbreviation, "");
+        assert_eq!(meta.parameter_units, "");
+    }
+
+    /// The two hosts have to agree about a *resolved* parameter too, or the
+    /// tests above would pass with the fallback firing unconditionally.
+    #[test]
+    fn a_resolved_parameter_agrees_with_the_umbrella() {
+        let g2 = Grib2Reader::from_bytes(GRIB2.to_vec()).expect("grib2 parse");
+        let meta2 = build_grib2_message_meta(&g2.messages[0]);
+        assert_eq!(meta2.parameter_name, "Temperature");
+        assert_eq!(meta2.parameter_name, umbrella_parameter(GRIB2.to_vec()));
+
+        let g1 = Grib1Reader::from_bytes(GRIB1.to_vec()).expect("grib1 parse");
+        let meta1 = build_grib1_message_meta(&g1.messages[0], None);
+        assert_eq!(meta1.parameter_name, "2 metre temperature");
+        assert_eq!(meta1.parameter_name, umbrella_parameter(GRIB1.to_vec()));
     }
 }
