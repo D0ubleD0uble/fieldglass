@@ -2925,3 +2925,98 @@ mod tests {
         assert_eq!(v, before);
     }
 }
+
+#[cfg(test)]
+mod reduced_jpeg2000_tests {
+    use super::*;
+    use crate::section::parse_section_header;
+
+    /// §7's payload and §5's JPEG 2000 template, read straight out of a
+    /// committed fixture by walking its sections.
+    ///
+    /// The reader owns its bytes, so a test reaching the packing decoder
+    /// directly has to find §5 and §7 itself. That is the point: the guard
+    /// below is about the *codestream* disagreeing with the §3 grid, and no
+    /// committed file does, so it is unreachable through
+    /// `Grib2Reader::decode_message_raster_with` and would otherwise go
+    /// untested — a mutation deleting it passed the whole suite.
+    fn sections_of(fixture: &str) -> (Vec<u8>, Jpeg2000PackingTemplate) {
+        let bytes = std::fs::read(std::path::Path::new("tests/fixtures").join(fixture))
+            .unwrap_or_else(|e| panic!("read fixture {fixture}: {e}"));
+        let mut offset = 16usize;
+        let mut template = None;
+        let mut payload = None;
+        while &bytes[offset..offset + 4] != b"7777" {
+            let length =
+                u32::from_be_bytes(bytes[offset..offset + 4].try_into().expect("4 bytes")) as usize;
+            let section = &bytes[offset..offset + length];
+            match bytes[offset + 4] {
+                5 => {
+                    let header = parse_section_header(section).expect("§5 header");
+                    let drs = crate::drs::parse_data_representation_with_header(section, header)
+                        .expect("§5 parses");
+                    template = drs.jpeg2000().cloned();
+                }
+                7 => {
+                    let header = parse_section_header(section).expect("§7 header");
+                    payload = Some(
+                        parse_data_section_body(section, header)
+                            .expect("§7 parses")
+                            .to_vec(),
+                    );
+                }
+                _ => {}
+            }
+            offset += length;
+        }
+        (
+            payload.expect("the fixture has a §7"),
+            template.expect("the fixture carries §5.40"),
+        )
+    }
+
+    /// The §3 grid decides the coarse shape and the codestream is held to it.
+    ///
+    /// JPEG 2000 sizes a reduced level as `ceil(x1 / 2^r) - ceil(x0 / 2^r)`,
+    /// which is `ceil(n / 2^r)` only when the image origin is zero. Every
+    /// `grid_jpeg` codestream puts it there, so the two agree — but a
+    /// codestream that did not would hand back a raster a column narrower with
+    /// nothing to say so, which is what this refuses. Asked with the shape the
+    /// grid really reduces to, the same call succeeds.
+    #[test]
+    fn a_codestream_that_is_not_the_shape_the_grid_reduces_to_is_refused() {
+        let (payload, template) = sections_of("rap_jpeg2000_lambert.grib2");
+        // 451 × 337 at reduction 1.
+        let ok = decode_jpeg2000_reduced(&payload, &template, 1, 226, 169)
+            .expect("the shape the grid reduces to");
+        assert_eq!(ok.len(), 226 * 169);
+
+        for (ni, nj) in [(225u32, 169u32), (226, 168)] {
+            let err = decode_jpeg2000_reduced(&payload, &template, 1, ni, nj)
+                .expect_err("a shape the codestream is not");
+            let text = err.to_string();
+            assert!(
+                text.contains("gives a 226×169 image") && text.contains(&format!("{ni}×{nj}")),
+                "the refusal names both shapes: {text}"
+            );
+        }
+    }
+
+    /// A constant field (`bitsPerValue == 0`) carries no codestream at any
+    /// resolution, so the coarse raster is the reference value repeated — the
+    /// same answer the full-resolution path gives, at the coarse shape.
+    ///
+    /// Reached by zeroing the template's bit width on a real fixture: no
+    /// committed file pairs a constant field with JPEG 2000 packing, and the
+    /// branch exists because eccodes' `grid_jpeg` writes one.
+    #[test]
+    fn a_constant_field_needs_no_codestream_to_be_coarse() {
+        let (payload, mut template) = sections_of("rap_jpeg2000_lambert.grib2");
+        template.bits_per_value = 0;
+        let values = decode_jpeg2000_reduced(&payload, &template, 2, 113, 85)
+            .expect("a constant field reduces");
+        assert_eq!(values.len(), 113 * 85);
+        let reference = f64::from(template.reference_value);
+        assert!(values.iter().all(|v| *v == Some(reference)));
+    }
+}
