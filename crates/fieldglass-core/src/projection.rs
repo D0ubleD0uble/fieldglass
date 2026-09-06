@@ -908,6 +908,18 @@ impl GridGeometry {
     /// - **A degenerate grid**, or a reduction that shifts past `u32`. The
     ///   three corner-stated families need two points on an axis to have a
     ///   spacing at all, which is the same guard [`latlon_point`] applies.
+    /// - **A Mercator grid with a corner at a pole**, where the ordinate
+    ///   diverges. That refusal is [`mercator_point`]'s and is inherited rather
+    ///   than restated: a grid whose rows this build cannot place has no coarse
+    ///   rows either.
+    ///
+    /// The derived eastern corner is `lon_first` plus the kept span, carried
+    /// back one turn if that passes 360° — the same convention
+    /// [`reduced_raster_lon_last`] states a widened grid's corner in, and read
+    /// the same way, through [`eastward_lon_span`]. It is *not* normalised into
+    /// `[-180, 180]`: a grid whose own corners are signed can therefore report a
+    /// derived corner above 180, exactly as the declared corner of a reduced
+    /// grid can. Every consumer reads the span, not the corner.
     #[must_use]
     pub fn subsampled(&self, reduction: u8) -> Option<Self> {
         if reduction == 0 {
@@ -3807,10 +3819,15 @@ mod subsample_tests {
         );
     }
 
-    /// An antimeridian-crossing grid keeps its eastern corner in the
-    /// conventional range rather than reporting a longitude past 360°.
+    /// An antimeridian-crossing grid stated in `[0, 360)` keeps its eastern
+    /// corner in that range rather than reporting a longitude past 360°.
+    ///
+    /// Only that range: a grid whose corners are *signed* can report a derived
+    /// corner above 180, which is the convention `reduced_raster_lon_last`
+    /// already states a widened grid's corner in — see [`GridGeometry::subsampled`].
+    /// What holds either way, and is what a consumer reads, is the span.
     #[test]
-    fn a_wrapped_corner_comes_back_conventional() {
+    fn a_wrapped_corner_stated_in_a_full_turn_stays_in_it() {
         let grid = GridGeometry::LatLon(LatLonParams {
             ni: 1440,
             nj: 721,
@@ -3833,6 +3850,28 @@ mod subsample_tests {
             359.5,
             1e-9
         ));
+    }
+
+    /// A Mercator grid whose corner sits at a pole has no ordinate to step, so
+    /// it has no coarse rows either. Inherited from `mercator_point` rather
+    /// than restated, which is why it is asserted: an arm that computed the
+    /// corner itself would answer where the family cannot.
+    #[test]
+    fn a_mercator_grid_that_reaches_a_pole_declines() {
+        let at_the_pole = GridGeometry::Mercator(MercatorParams {
+            ni: 60,
+            nj: 44,
+            lat_first: -90.0,
+            lon_first: 100.0,
+            lat_last: 60.0,
+            lon_last: 160.0,
+        });
+        assert_eq!(
+            at_the_pole.forward(0, 0),
+            None,
+            "the family declines it too"
+        );
+        assert_eq!(at_the_pole.subsampled(1), None);
     }
 
     /// The signed spacing a planar grid carries is what makes a south-up or

@@ -65,7 +65,12 @@ fn reduction_zero_is_the_message_field() {
         "regular_latlon_surface.grib2",
         "ccsds_regular_latlon.grib2",
         "png_local_40010.grib2",
+        // The three layouts `decode_message_raster` regularises, which is what
+        // the claim above is actually about: rows widened from `PL`, a
+        // transposed `j`-consecutive field, and alternate rows put back.
         "reduced_gaussian_pressure_level.grib2",
+        "j_consecutive_latlon.grib2",
+        "alternate_row_lambert.grib2",
     ] {
         let r = reader(fixture);
         for i in 0..r.message_count() {
@@ -322,6 +327,24 @@ fn a_layout_with_no_raster_is_refused() {
         text.contains("healpix") && text.contains("raster"),
         "the refusal names the family and what it lacks: {text}"
     );
+
+    // And above reduction zero the answer must be the same one. The packing is
+    // also wrong for a coarse decode on both of these, but naming that would
+    // point at the one thing a caller could change instead of at the one it
+    // cannot — so the raster question is asked first.
+    for (fixture, family) in [
+        ("spectral_complex_t63.grib2", "spherical_harmonic"),
+        ("healpix_n4_ring.grib2", "healpix"),
+    ] {
+        let err = reader(fixture)
+            .decode_message_raster_with(0, DecodeOptions::new(1))
+            .expect_err("still no raster");
+        let text = err.to_string();
+        assert!(
+            text.contains(family) && text.contains("no coarse one either"),
+            "{fixture}: {text}"
+        );
+    }
 }
 
 /// The two scanning-mode guards, reached by setting the flag on a parsed
@@ -411,7 +434,7 @@ fn a_bitmap_is_refused() {
     let err = r
         .decode_message_raster_with(0, DecodeOptions::new(1))
         .expect_err("a bitmap has no low-pass");
-    assert!(err.to_string().contains("§6 bitmap"), "{}", err);
+    assert!(err.to_string().contains("§6 declares a bitmap"), "{}", err);
 }
 
 /// Rebuild a GRIB2 message with its §6 replaced by an all-ones inline bitmap
@@ -492,4 +515,113 @@ fn a_section_that_disagrees_with_itself_is_refused() {
         .decode_message_raster_with(0, DecodeOptions::new(1))
         .expect_err("400 million points is past the cap");
     assert!(err.to_string().contains("exceeds cap of"), "{}", err);
+}
+
+/// Which coarse cell each value lands in — which nothing else here pins.
+///
+/// Every other check in this file is about a shape, a geometry or a mean, and a
+/// mean survives any permutation of the raster: a coarse field returned with
+/// its rows reversed, its columns reversed, or shifted a cell passes all of
+/// them. That is a defect a display would show and a test would not.
+///
+/// The oracle is the full-resolution field itself. A wavelet low-pass is not a
+/// block mean — the 5/3 filter has a five-tap support and reads across block
+/// boundaries — so the two do not agree to a tolerance worth writing down: the
+/// worst single point is a third of the field's range, at an edge. What they do
+/// is agree *far better than any other arrangement does*, and that is the
+/// claim. The mean absolute deviation from the aligned block means is within a
+/// twentieth of the field's range (measured 0.98 %–2.26 %), and at least half
+/// again smaller than for the raster flipped in either axis or shifted one
+/// coarse cell in either direction (measured 1.70×–18×).
+///
+/// Reduction 1 only, deliberately. The comparison weakens as the blocks grow:
+/// at reduction 2 a four-by-four block of a smooth field is close to its
+/// neighbour's, and the shift margin falls to 1.2×. A margin that held at every
+/// level would have to be loose enough to hold at the worst one, which is the
+/// level that discriminates least.
+#[test]
+fn the_coarse_values_land_in_the_cells_they_claim() {
+    /// Where a coarse cell's value would come from under one wrong
+    /// arrangement, given the raster's own `(ci, cj)`.
+    type Rearrange = fn(u32, u32, u32, u32) -> (u32, u32);
+
+    /// The arrangements this distinguishes the returned raster from. Each is a
+    /// real defect: the first two are a flipped raster, the last two are the
+    /// displacement an offset codestream origin would produce.
+    const WRONG: &[(&str, Rearrange)] = &[
+        ("rows flipped", |i, j, _, cj| (i, cj - 1 - j)),
+        ("columns flipped", |i, j, ci, _| (ci - 1 - i, j)),
+        ("shifted one coarse column", |i, j, ci, _| {
+            ((i + 1).min(ci - 1), j)
+        }),
+        ("shifted one coarse row", |i, j, _, cj| {
+            (i, (j + 1).min(cj - 1))
+        }),
+    ];
+
+    for fixture in JPEG2000_FIXTURES {
+        let r = reader(fixture);
+        let (ni, nj) = r.messages[0].gds.dimensions().expect("a raster fixture");
+        let full = r.decode_message_raster(0).expect("full decode");
+        let present: Vec<f64> = full.iter().flatten().copied().collect();
+        let range = present.iter().copied().fold(f64::MIN, f64::max)
+            - present.iter().copied().fold(f64::MAX, f64::min);
+
+        let coarse = r
+            .decode_message_raster_with(0, DecodeOptions::new(1))
+            .expect("coarse decode");
+        let (ci, cj) = (coarse.ni(), coarse.nj());
+        let got: Vec<f64> = coarse
+            .display_values()
+            .iter()
+            .map(|v| v.expect("a bitmapless field"))
+            .collect();
+
+        // The aligned 2×2 block means of the full field, in the coarse
+        // raster's own order. A block at the far edge is clipped, which is
+        // what `div_ceil` leaves it.
+        let block_mean = |i: u32, j: u32| {
+            let (mut sum, mut n) = (0.0, 0usize);
+            for dj in 0..2 {
+                for di in 0..2 {
+                    let (x, y) = (i * 2 + di, j * 2 + dj);
+                    if x < ni
+                        && y < nj
+                        && let Some(v) = full[(y * ni + x) as usize]
+                    {
+                        sum += v;
+                        n += 1;
+                    }
+                }
+            }
+            assert!(n > 0, "{fixture}: coarse ({i}, {j}) covers no source point");
+            sum / n as f64
+        };
+
+        let deviation = |place: &dyn Fn(u32, u32) -> (u32, u32)| {
+            let mut sum = 0.0;
+            for j in 0..cj {
+                for i in 0..ci {
+                    let (si, sj) = place(i, j);
+                    sum += (got[(sj * ci + si) as usize] - block_mean(i, j)).abs();
+                }
+            }
+            sum / got.len() as f64
+        };
+
+        let aligned = deviation(&|i, j| (i, j));
+        assert!(
+            aligned <= 0.05 * range,
+            "{fixture}: the coarse raster is {aligned} from the block means of a field whose \
+             range is {range}"
+        );
+        for (label, rearrange) in WRONG {
+            let other = deviation(&|i, j| rearrange(i, j, ci, cj));
+            assert!(
+                other >= 1.5 * aligned,
+                "{fixture}: {label} is {other} from the block means and the raster as returned \
+                 is {aligned}; the two are too close for this to be evidence about placement"
+            );
+        }
+    }
 }

@@ -942,6 +942,17 @@ fn decode_jpeg2000_packing(
     // The codestream must hold exactly one sample per present point; a mismatch
     // means the §7 geometry disagrees with the field, which we reject rather
     // than misread.
+    //
+    // A *count*, deliberately, where the reduced path beneath checks width and
+    // height. Two reasons, and they are the reason the two differ rather than an
+    // oversight: with a §6 bitmap the codestream carries only the present points
+    // and its image is not the grid at all, so there is no `ni × nj` to compare
+    // against; and eccodes' own `grid_jpeg` unpack reads `width · height`
+    // samples in raster order without consulting `Ni`, so a shape check here
+    // would refuse a file eccodes decodes, on a published crate, with no fixture
+    // to say which of us is right. The reduced path can be stricter because it
+    // *derives the raster's geometry* from the shape rather than pouring samples
+    // into one the caller already has.
     if component.samples.len() != present_count {
         return Err(FieldglassError::Parse(format!(
             "JPEG 2000 packing: codestream holds {} samples but {present_count} values are required",
@@ -986,8 +997,16 @@ pub(crate) fn decode_jpeg2000_reduced(
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
     // The caller derived these from `ni`/`nj`, both of which it has already
     // multiplied under `MAX_GRID_POINTS`, so this product is smaller than one
-    // that fits.
-    let expected_count = expected_ni as usize * expected_nj as usize;
+    // that fits — but this is a separate `pub(crate)` entry point and its only
+    // protection would be that sentence, so it checks. `usize` is 32 bits on
+    // `wasm32`.
+    let expected_count = (expected_ni as usize)
+        .checked_mul(expected_nj as usize)
+        .ok_or_else(|| {
+            FieldglassError::Parse(format!(
+                "JPEG 2000 packing: reduced raster {expected_ni}×{expected_nj} overflows usize"
+            ))
+        })?;
 
     let (r, two_pow_e, d_inv) = red_scale(
         t.reference_value,
@@ -1031,12 +1050,20 @@ pub(crate) fn decode_jpeg2000_reduced(
         ));
     }
 
-    // The pyramid level must be the shape the §3 grid says it is. JPEG 2000
-    // sizes a reduced level as `ceil(x1 / 2^r) - ceil(x0 / 2^r)`, which is
-    // `ceil(n / 2^r)` only when the image origin is at zero — true of every
-    // `grid_jpeg` codestream, and checked here rather than assumed, because a
-    // codestream with an offset origin would otherwise hand back a raster one
-    // column narrower with nothing to say so.
+    // The pyramid level must be the shape the §3 grid says it is: this catches
+    // a codestream that is not the raster at all — transposed, or sized to some
+    // other field — before its samples are read row-major into one.
+    //
+    // What it does **not** catch, and cannot: a non-zero image origin. JPEG 2000
+    // sizes a reduced level as `ceil(x1 / 2^r) - ceil(x0 / 2^r)`, which equals
+    // `ceil((x1 - x0) / 2^r)` for many non-zero `x0` — `x0 = 1, x1 = 453` gives
+    // 226 at `r = 1`, the same as a 452-wide grid with the origin at zero, while
+    // the samples retained are the *odd* full-resolution columns. Every
+    // `grid_jpeg` encoder writes a zero origin, and `rust_j2k` 0.3.0's `Image`
+    // exposes only the reduced extents, so there is nothing here to compare
+    // against; the zero origin is an assumption, stated rather than checked.
+    // The full-resolution path makes the same assumption more quietly, by
+    // reading the samples in order.
     if component.width != expected_ni || component.height != expected_nj {
         return Err(FieldglassError::UnsupportedSection(format!(
             "JPEG 2000 packing: resolution reduction {reduction} gives a {}×{} image, but the \
@@ -2998,6 +3025,35 @@ mod reduced_jpeg2000_tests {
             assert!(
                 text.contains("gives a 226×169 image") && text.contains(&format!("{ni}×{nj}")),
                 "the refusal names both shapes: {text}"
+            );
+        }
+    }
+
+    /// The coarse path applies the whole `R`/`E`/`D` transform, decimal scale
+    /// factor included.
+    ///
+    /// Every committed JPEG 2000 fixture states `decimalScaleFactor = 0`,
+    /// where `10^-D` is 1 and dropping the factor changes nothing — a mutation
+    /// deleting it passed the whole suite. So the factor is set on the parsed
+    /// template instead, and the claim is a relation rather than a number: `D`
+    /// scales the whole expression, so raising it by two must divide every
+    /// value by exactly a hundred.
+    #[test]
+    fn the_coarse_transform_applies_the_decimal_scale_factor() {
+        let (payload, mut template) = sections_of("rap_jpeg2000_lambert.grib2");
+        assert_eq!(template.decimal_scale_factor, 0, "the fixture states D = 0");
+        let plain = decode_jpeg2000_reduced(&payload, &template, 2, 113, 85).expect("D = 0");
+
+        template.decimal_scale_factor = 2;
+        let scaled = decode_jpeg2000_reduced(&payload, &template, 2, 113, 85).expect("D = 2");
+
+        assert_eq!(plain.len(), scaled.len());
+        for (i, (p, s)) in plain.iter().zip(&scaled).enumerate() {
+            let (p, s) = (p.expect("no bitmap"), s.expect("no bitmap"));
+            assert!(
+                (s - p / 100.0).abs() < 1e-9,
+                "value {i}: D = 2 gave {s}, a hundredth of {p} is {}",
+                p / 100.0
             );
         }
     }

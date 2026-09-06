@@ -31,6 +31,14 @@ pub const BMS_INDICATOR_PREVIOUS: u8 = 254;
 /// "A bit-map is not present" — every grid point in §7 is real.
 pub const BMS_INDICATOR_NONE: u8 = 255;
 
+/// Byte offset of the indicator within §6 — straight after the 5-byte header.
+///
+/// Public because a caller that only needs to know *whether* a message has a
+/// bitmap should not pay for one: [`parse_bit_map_with_header`] materialises a
+/// `bool` per grid point, which is the right cost when the flags are about to
+/// be used and an eight-fold amplification when they are not (#463).
+pub const BMS_INDICATOR_OFFSET: usize = SECTION_HEADER_LEN;
+
 /// Minimum byte length of a BMS — header (5) + indicator (1).
 const BMS_MIN_LEN: usize = SECTION_HEADER_LEN + 1;
 
@@ -91,7 +99,7 @@ pub fn parse_bit_map_with_header(
         )));
     }
 
-    let indicator = bytes[5];
+    let indicator = bytes[BMS_INDICATOR_OFFSET];
     let bitmap = match indicator {
         BMS_INDICATOR_PRESENT => decode_inline_bitmap(&bytes[6..len], grid_points)?,
         BMS_INDICATOR_NONE => Vec::new(),

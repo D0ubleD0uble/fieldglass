@@ -67,7 +67,9 @@ impl DecodeOptions {
 ///
 /// At [`resolution_reduction`](Self::resolution_reduction) zero this is exactly
 /// what [`Grib2Reader::decode_message_raster`](crate::Grib2Reader::decode_message_raster)
-/// returns, carried beside the message's own geometry. Above zero the values
+/// returns, carried beside the message's own geometry — for every layout that
+/// *has* a raster. A layout with none is refused rather than carried, because
+/// this type promises an `ni × nj` rectangle. Above zero the values
 /// are a wavelet low-pass of the field: right to look at, wrong to measure.
 ///
 /// The type is what enforces that. There is no conversion from a
@@ -84,6 +86,22 @@ impl DecodeOptions {
 ///     .expect("a 5.40 message");
 /// // A `DisplayRaster` is not a decoded field, and this does not compile.
 /// stats(&coarse);
+/// # }
+/// ```
+///
+/// A `compile_fail` block passes when the code fails to compile for *any*
+/// reason, so here is the same setup with the last line drawing instead of
+/// measuring. It compiles, which is what makes the block above evidence about
+/// `stats(&coarse)` rather than about a typo in the two lines over it:
+///
+/// ```
+/// # use fieldglass_grib2::{DecodeOptions, Grib2Reader};
+/// fn stats(values: &[Option<f64>]) -> usize { values.len() }
+/// # fn demo(reader: &Grib2Reader) {
+/// let coarse = reader
+///     .decode_message_raster_with(0, DecodeOptions::new(1))
+///     .expect("a 5.40 message");
+/// stats(coarse.display_values());
 /// # }
 /// ```
 ///

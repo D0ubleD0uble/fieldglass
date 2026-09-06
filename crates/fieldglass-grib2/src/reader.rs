@@ -1,4 +1,6 @@
-use crate::bms::{BMS_SECTION_NUMBER, parse_bit_map_with_header};
+use crate::bms::{
+    BMS_INDICATOR_NONE, BMS_INDICATOR_OFFSET, BMS_SECTION_NUMBER, parse_bit_map_with_header,
+};
 use crate::drs::{
     DRS_SECTION_NUMBER, DataRepresentationSection, parse_data_representation_with_header,
 };
@@ -465,7 +467,11 @@ impl Grib2Reader {
     ///
     /// At [`DecodeOptions::resolution_reduction`] zero this is
     /// [`Self::decode_message_raster`] carried beside the message's own
-    /// geometry, and the values are bit-identical to it. Above zero it is
+    /// geometry, and the values are bit-identical to it — for every layout that
+    /// *has* a raster. The two that do not (spherical-harmonic and bi-Fourier
+    /// coefficients, and HEALPix pixels) are refused here where
+    /// `decode_message_raster` hands the stored field back untouched, because a
+    /// [`DisplayRaster`] promises an `ni × nj` rectangle and those have none. Above zero it is
     /// `ceil(ni / 2^r) × ceil(nj / 2^r)` points of the codestream's wavelet
     /// low-pass, decoded *without* entropy-decoding the levels it discards —
     /// 39.9 ms → 10.5 ms → 2.8 ms on the committed RAP fixture at reduction
@@ -534,6 +540,17 @@ impl Grib2Reader {
             return DisplayRaster::new(values, ni, nj, geometry, 0);
         }
 
+        // The raster question comes first, and it is the reason: a message with
+        // no rectangle at all has no coarse one either, whatever its packing,
+        // and reporting the packing there would name the one thing that could
+        // change rather than the one that cannot.
+        let (ni, nj) = msg.gds.dimensions().ok_or_else(|| {
+            FieldglassError::UnsupportedSection(format!(
+                "a {} message is not laid out as a raster, so it has no coarse one either — \
+                 decode it with `Grib2Reader::decode_message_values`",
+                msg.gds.template_name()
+            ))
+        })?;
         let Some(jpeg) = msg.drs.jpeg2000() else {
             return Err(FieldglassError::UnsupportedSection(format!(
                 "resolution reduction {reduction} was asked of {} packing, and only JPEG 2000 \
@@ -563,12 +580,6 @@ impl Grib2Reader {
                 )));
             }
         }
-        let (ni, nj) = msg.gds.dimensions().ok_or_else(|| {
-            FieldglassError::UnsupportedSection(format!(
-                "a {} message is not laid out as a raster, so it has no coarse one either",
-                msg.gds.template_name()
-            ))
-        })?;
         // The same two guards `decode_message_values` applies before it sizes
         // anything, restated because this path does not go through it: the
         // product must fit and stay under the cap, and §3's own point count
@@ -590,18 +601,37 @@ impl Grib2Reader {
             )));
         }
 
-        // The bitmap is read for its presence alone. §6 has to be parsed to
-        // answer that — the indicator is in the section, not in the message
-        // index — and the parse is against the *full* point count because that
-        // is what a bitmap is one flag per.
+        // §6's indicator byte, and nothing else. `parse_bit_map_with_header`
+        // would answer the same question, but it materialises a `bool` per grid
+        // point on the way — up to `MAX_GRID_POINTS` of them, from a §6 payload
+        // an eighth that size — and this refuses the message on the next line,
+        // so the whole allocation would be an eight-fold amplification on input
+        // guaranteed to be declined.
+        //
+        // Every indicator but "none" is refused, not only the inline one:
+        // 1..=254 name a bitmap held somewhere else (a predefined table, the
+        // previous message), which `decode_message_values` declines outright and
+        // which is no more reducible than an inline one.
         let (bms_start, bms_end) = msg.bms_range;
-        let bms_header = parse_section_header(&self.data[bms_start..bms_end])?;
-        let bms =
-            parse_bit_map_with_header(&self.data[bms_start..bms_end], bms_header, full_count)?;
-        if bms.has_inline_bitmap() {
+        let bms = &self.data[bms_start..bms_end];
+        let bms_header = parse_section_header(bms)?;
+        if bms_header.number != BMS_SECTION_NUMBER {
+            return Err(FieldglassError::Parse(format!(
+                "expected BMS (section {BMS_SECTION_NUMBER}), got section {}",
+                bms_header.number
+            )));
+        }
+        let indicator = *bms.get(BMS_INDICATOR_OFFSET).ok_or_else(|| {
+            FieldglassError::Parse(format!(
+                "BMS is {} bytes, too short to carry its indicator",
+                bms.len()
+            ))
+        })?;
+        if indicator != BMS_INDICATOR_NONE {
             return Err(FieldglassError::UnsupportedSection(format!(
-                "resolution reduction {reduction} was asked of a message with a §6 bitmap, which \
-                 is one flag per full-resolution point and has no low-pass"
+                "resolution reduction {reduction} was asked of a message whose §6 declares a \
+                 bitmap (indicator {indicator}), which is one flag per full-resolution point and \
+                 has no low-pass"
             )));
         }
 

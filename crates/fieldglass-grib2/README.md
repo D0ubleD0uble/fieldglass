@@ -29,7 +29,10 @@ codestream's wavelet pyramid, which is what a zoomed-out map wants:
 raster in about a quarter of the time (39.9 ms to 10.5 ms on the committed
 451x337 RAP fixture, natively in release), with the derived geometry that places
 it. Those values are averages the message does not contain, so the result is a
-`DisplayRaster` — a type nothing that measures the data will accept.
+`DisplayRaster` — a type nothing that measures the data will accept. (The
+`DecodeOptions` here is this crate's, and unrelated to the `fieldglass` umbrella
+crate's type of the same name; a program using both should import one of them
+qualified.)
 
 ## Usage
 
