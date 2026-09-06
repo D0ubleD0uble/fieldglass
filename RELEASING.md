@@ -44,7 +44,8 @@ Bump versions in lockstep:
 | `crates/fieldglass-{grib1,grib2,napi,netcdf}/Cargo.toml` | internal `version = "=X.Y.Z"` pins to match |
 | `extension/package.json` | `version` field |
 | `Cargo.lock` | `cargo check --workspace` to refresh |
-| `crates/fieldglass-{grib1,grib2,netcdf}/fuzz/Cargo.lock` | refresh each — the fuzz crates are excluded from the workspace, so `cargo check --workspace` does **not** touch their locks, yet each lock still records the resolved `fieldglass-*` version. Run `cargo update -w` in each `fuzz/` dir (or `cargo check`) so the committed locks aren't left on the old version. Forgetting now fails the **Fuzz lockfiles in sync** job rather than being silently re-resolved at fuzz time, so CI catches it — but it blocks the fuzz jobs until fixed. |
+| `crates/fieldglass-{grib1,grib2,netcdf}/fuzz/Cargo.lock` | refresh each — the fuzz crates are excluded from the workspace, so `cargo check --workspace` does **not** touch their locks, yet each lock still records the resolved `fieldglass-*` version. Run `cargo update -w` in each `fuzz/` dir (or `cargo check`) so the committed locks aren't left on the old version. Forgetting is caught by the `nested-lockfiles` pre-commit hook, which refuses the bump commit itself; if hooks are bypassed it fails the **Nested lockfiles in sync** job and blocks the fuzz jobs until fixed. |
+| `crates/fieldglass-verify/Cargo.lock` | the same shape and the same hook, but nothing to do at release time: `fieldglass-verify` is its own workspace and depends on `vstd` alone, so no `fieldglass-*` version reaches its lock. Listed because the hook covers it and this table is where a maintainer looks. |
 | `extension/package-lock.json` | `cd extension && npm install --package-lock-only` to refresh |
 
 Two versions in the tree deliberately **do not** move with the release, and

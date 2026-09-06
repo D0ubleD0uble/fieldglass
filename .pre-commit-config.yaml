@@ -184,6 +184,36 @@ repos:
         entry: python3 tools/check_unused_dependencies.py
         pass_filenames: false
 
+      - id: nested-lockfiles
+        name: each nested crate's Cargo.lock matches its manifest
+        language: system
+        # Four crates declare a bare `[workspace]` and so carry their own
+        # `Cargo.lock`: the three `fuzz/` crates and `fieldglass-verify`. No
+        # `--workspace` command resolves any of them, so nothing in the normal
+        # loop — not clippy, not `cargo test`, not `cargo deny --locked` —
+        # notices when one drifts. A fuzz lock goes stale from an edit to its
+        # *format crate's* manifest, since it path-depends on it: #640 edited
+        # all three and heard about it from three red fuzz jobs on the pull
+        # request. Same check as `.github/workflows/fuzz.yml`'s `lockfiles`
+        # job — the workflow runs this very script — but on the commit that
+        # causes it, and over `fieldglass-verify` too, which that workflow
+        # never looked at.
+        #
+        # Commit stage rather than pre-push because it is free: `cargo metadata
+        # --locked` resolves without building (~130 ms for all four), and the
+        # common drift — a dependency dropped, or re-pinned to a version already
+        # cached — is refused in ~20 ms without touching the network. Adding a
+        # dependency cargo has never seen costs one index update first.
+        #
+        # Every `Cargo.toml` and every `Cargo.lock`, not just the nested ones:
+        # the root manifest holds the workspace dependency versions the format
+        # crates inherit and `fieldglass-core`'s manifest is in every fuzz
+        # crate's closure, and a new nested workspace arrives as a manifest that
+        # may have no lock beside it yet, which is itself a finding.
+        files: ^(.*Cargo\.(toml|lock)|tools/check_nested_lockfiles\.py)$
+        entry: python3 tools/check_nested_lockfiles.py
+        pass_filenames: false
+
       # ── Pre-push (slower) hooks
       - id: architecture-diagrams-selftest
         name: architecture diagram checker self-test
@@ -246,6 +276,17 @@ repos:
         # removes a package rather than on some later edit to the checker.
         files: ^(tools/(check_unused_dependencies|test_check_unused_dependencies)\.py|.*Cargo\.toml)$
         entry: python3 tools/test_check_unused_dependencies.py
+        pass_filenames: false
+
+      - id: nested-lockfiles-selftest
+        name: nested-lockfile checker self-test
+        stages: [pre-push]
+        language: system
+        # The lockfiles are in the pattern because one test pins the set of
+        # nested workspaces the walk finds, by path — a fifth one has to be seen
+        # here rather than quietly widening what the gate covers.
+        files: ^(tools/(check_nested_lockfiles|test_check_nested_lockfiles)\.py|.*Cargo\.lock)$
+        entry: python3 tools/test_check_nested_lockfiles.py
         pass_filenames: false
 
       - id: fetch-samples-selftest
