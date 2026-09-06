@@ -314,9 +314,17 @@ fn every_curated_code_table_entry_agrees_with_wmo() {
             .unwrap_or_else(|| panic!("table {} missing from the snapshot", table.wmo));
         for (code, expected) in entries {
             let code: u16 = code.parse().expect("numeric code");
-            if table.octet && code > 255 {
-                continue;
-            }
+            // The last silent skip this file had. `every_code_wmo_assigns_is_named`
+            // proves the branch is unreachable — only 3.1 carries codes above
+            // 255 and its lookup takes a `u16` — so reaching it means WMO
+            // widened a table, and dropping four comparisons quietly is how a
+            // gate stops measuring what it says it measures.
+            assert!(
+                !(table.octet && code > 255),
+                "table {}: code {code} is above what its `u8` lookup can be asked \
+                 about — widen the lookup rather than skipping the code",
+                table.wmo
+            );
             let expected = expected.as_str().expect("string meaning");
             let ours = (table.lookup)(code);
             if lookup_has_no_name(ours) {
