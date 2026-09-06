@@ -20,11 +20,14 @@ use fieldglass_fetchplan::{
 };
 
 /// Read a committed fixture.
+///
+/// A path relative to the crate directory, not an absolute one built from
+/// `CARGO_MANIFEST_DIR`: this suite also runs under `wasmtime --dir=. --dir=..`
+/// for the 32-bit pointer check, and the sandbox cannot open an absolute host
+/// path.
 fn fixture(name: &str) -> String {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures")
-        .join(name);
-    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()))
+    let path = format!("tests/fixtures/{name}");
+    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {path}: {e}"))
 }
 
 /// The five NCEP sidecars, by fixture name.

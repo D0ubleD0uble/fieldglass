@@ -37,9 +37,13 @@ fn object() -> (Vec<u8>, Vec<u64>) {
     let mut offsets = Vec::new();
     for part in PARTS {
         offsets.push(bytes.len() as u64);
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(part);
+        // A path relative to the crate directory, not an absolute one built
+        // from `CARGO_MANIFEST_DIR`: this suite also runs under
+        // `wasmtime --dir=. --dir=..` for the 32-bit pointer check, and the
+        // sandbox cannot open an absolute host path. Same shape as
+        // `decode_and_colour.rs`.
         bytes.extend_from_slice(
-            &std::fs::read(&path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display())),
+            &std::fs::read(part).unwrap_or_else(|e| panic!("reading {part}: {e}")),
         );
     }
     (bytes, offsets)
