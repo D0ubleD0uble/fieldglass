@@ -56,6 +56,12 @@ api_type! {
     /// Named for the source rather than `Format` so it does not collide with
     /// `core`'s detection enum, which also answers NetCDF and "unknown" — this
     /// one enumerates only what a session can actually be.
+    ///
+    /// **Not gated by the format features (#552).** It is the wire vocabulary a
+    /// host compares strings against, and dropping a variant with its decoder
+    /// would change the JSON schema for every consumer of the shipped
+    /// declarations. A build without `grib1` simply never constructs
+    /// [`SourceFormat::Grib1`], because it never opens a session over one.
     #[serde(rename_all = "snake_case")]
     pub enum SourceFormat {
         /// WMO FM 92 GRIB edition 1.
@@ -290,6 +296,7 @@ api_type! {
     }
 
     /// A resampled raster: [`crate::Session::warp`] without the paint step.
+    #[cfg(feature = "render")]
     #[serde(rename_all = "camelCase")]
     #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
     pub struct Warped {
@@ -328,6 +335,7 @@ api_type! {
     /// [`CombineOp::ALL`](fieldglass_core::CombineOp::ALL), so both hosts offer
     /// the same operations in the same order and an op added to the enum
     /// reaches each picker without either being edited (#342).
+    #[cfg(feature = "analysis")]
     #[serde(rename_all = "camelCase")]
     #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
     pub struct CombineOpInfo {
@@ -340,6 +348,7 @@ api_type! {
     }
 
     /// One level's isoline segments, in grid coordinates.
+    #[cfg(feature = "analysis")]
     #[serde(rename_all = "camelCase")]
     #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
     pub struct Isoline {

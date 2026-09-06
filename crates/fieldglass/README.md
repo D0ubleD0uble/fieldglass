@@ -107,6 +107,21 @@ that run fails afterwards on purpose.
 
 ## Feature flags
 
+Every one is on by default. A consumer that says `default-features = false` is
+asking to pay for less, and names what it wants back.
+
+- **`grib1`**, **`grib2`** *(default)* — the decoders `Session::open`
+  dispatches to. At least one is required; a build with neither is a compile
+  error rather than a session that can only refuse. Format *detection* stays
+  unconditional, so a GRIB1 file opened by a GRIB2-only build is refused as
+  "GRIB1, compiled out" and not as "unknown bytes".
+- **`render`** *(default)* — the projection and paint pipeline: `warp`,
+  `palette`, `render`, `project`, `probe_pixel`, `overlay_polylines`, and the
+  GLSL snippet.
+- **`analysis`** *(default)* — operations that take values and return values:
+  `combine`, `contours`, and CSV. Independent of `render`, so a values-first
+  host takes contours without the painter; `contour_polylines`, which projects
+  its isolines onto the render raster, is the one member that needs both.
 - **`schema`** *(default)* — `schemars::JsonSchema` on every API type, which is
   what a host's TypeScript or Python declarations are generated from. Off for
   `fieldglass-wasm`, whose declarations come from wasm-bindgen.
@@ -114,11 +129,24 @@ that run fails afterwards on purpose.
   with `default-features = false`, so neither the addon nor the browser bundle
   carries it; it is on by default because `cargo test --workspace` does not
   enable optional features, and a suite skipped there would pass while checking
-  nothing.
+  nothing. It turns the four features above on with it: the suite is one
+  recorded expectation per case over every format and both surfaces, so a
+  partial build has no honest subset of it to run.
+
+What the formats cost is most of the weight, because each decoder brings its
+own codecs:
+
+| Features | Crates linked |
+| --- | --- |
+| default | 34 |
+| `grib2,render` | 23 |
+| `grib1,render` | 12 |
+
 
 ## Scope of this first cut
 
-GRIB1 and GRIB2, and every grid family the engine can project: lat/lon,
+GRIB1 and GRIB2 — whichever of the two this build compiled in — and every grid
+family the engine can project: lat/lon,
 Gaussian, Mercator, rotated lat/lon, Lambert conformal, polar stereographic,
 transverse Mercator, Lambert azimuthal equal-area, and the geostationary space
 view.

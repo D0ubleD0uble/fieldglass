@@ -66,6 +66,27 @@ repos:
         entry: cargo clippy -p fieldglass-grib1 -p fieldglass-grib2 -p fieldglass-netcdf --lib -- -D warnings
         pass_filenames: false
 
+      - id: cargo-clippy-umbrella-features
+        name: cargo clippy (fieldglass, one feature set per host shape)
+        language: system
+        types: [rust]
+        # The umbrella's own gated builds (#552). Four sets, each a shape a real
+        # consumer asks for: one decoder and nothing else; the browser's
+        # values-first pair without the painter; the painter without the
+        # values-first operations; and the decode-only build with neither
+        # surface. `--lib` for the reason the hook above gives — the umbrella's
+        # integration tests read GRIB fixtures from both editions and call the
+        # render and analysis surfaces, so building them would unify every
+        # feature back on and check nothing. `--workspace` cannot see any of
+        # this either: `fieldglass-napi` asks for all four, so the resolver
+        # turns them on for everyone in that invocation.
+        entry: >-
+          bash -c 'set -e; for f in grib2 grib1 grib2,analysis grib1,render; do
+          echo "--- fieldglass --no-default-features --features $f";
+          cargo clippy -p fieldglass --no-default-features --features "$f" --lib -- -D warnings;
+          done'
+        pass_filenames: false
+
       - id: tsc-extension
         name: tsc --noEmit (extension)
         language: system
@@ -245,6 +266,24 @@ repos:
         # a `render`-gated one resolves under `--all-features` above and breaks
         # only here.
         entry: cargo doc -p fieldglass-core --no-deps --no-default-features
+        pass_filenames: false
+
+      - id: cargo-doc-umbrella-features
+        name: cargo doc -p fieldglass (one feature set per host shape)
+        stages: [pre-push]
+        language: system
+        # The doc-build sibling of `cargo-clippy-umbrella-features`. Rustdoc is
+        # the gate the umbrella's feature split fails first: `rustdoc::all` is
+        # denied workspace-wide, and an intra-doc link from an ungated item to
+        # a `render`- or `analysis`-gated one resolves under the `--all-features`
+        # hook above and is a hard error only here. The `grib1` set is the
+        # narrowest surface the crate has, so it is the one that catches a link
+        # into any gated item at all.
+        entry: >-
+          bash -c 'set -e; for f in grib1 grib2,analysis grib1,render; do
+          echo "--- fieldglass doc --no-default-features --features $f";
+          cargo doc -p fieldglass --no-deps --no-default-features --features "$f";
+          done'
         pass_filenames: false
 
       - id: cargo-deny

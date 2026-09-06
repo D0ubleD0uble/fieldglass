@@ -213,3 +213,14 @@ suite in decision 3.
 - **The C ABI arrives.** `#[repr(C)]` and explicit ownership are stricter
   than serde; if the rules in decision 2 turn out not to be enough, extend
   them before writing the first C header, not after.
+- **A consumer wants render without format dispatch**, or the conformance
+  suite's render half outgrows this crate. Then split `fieldglass-render` out
+  from the umbrella. It was evaluated when the per-format features landed
+  (#552) and rejected for now: no filed consumer wants one without the other,
+  it adds a sixth `=`-pinned crate to a release process written around fewer,
+  and it would split the decision-3 suite across two crates. The seam itself is
+  clean — the render orchestration takes a `GridGeometry` and names no format
+  type — so the split stays a file move for as long as that holds, and the
+  features in the meantime buy a consumer the same saving without the crate.
+  Note it is the *formats* that carry the weight: a `grib1`-only build links 12
+  crates against the default 34, because each decoder brings its own codecs.

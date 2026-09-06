@@ -29,6 +29,26 @@
 //!
 //! # Feature flags
 //!
+//! Every one is on by default, so a consumer that says nothing gets the whole
+//! surface; a consumer that says `default-features = false` is asking to pay
+//! for less and names what it wants back (#552).
+//!
+//! - **`grib1`**, **`grib2`** *(default)* — the decoders [`Session::open`]
+//!   dispatches to. At least one is required. [`Session::open`] answers
+//!   [`Error::UnsupportedFormat`] for a container this build recognises but
+//!   cannot decode, naming the feature, and format detection itself stays
+//!   unconditional: "this is GRIB1 and I cannot read it" is a different answer
+//!   from "I do not know what this is", and a host needs to tell them apart.
+//! - **`render`** *(default)* — the projection and paint pipeline:
+//!   `Session::warp`, `Session::palette`, `Session::render`, `render::project`,
+//!   `render::probe_pixel`, `render::overlay_polylines`, and the `shader`
+//!   module. Forwards `fieldglass-core/render`.
+//! - **`analysis`** *(default)* — operations that take values and return
+//!   values: `Session::combine`, `Session::contours`, `render::field_csv`, and
+//!   the `combine` module. Forwards `fieldglass-core/analysis`. Independent of
+//!   `render` — a values-first host wants contours without the painter —
+//!   except for `render::contour_polylines`, which traces isolines and then
+//!   projects them onto the render raster and so needs both.
 //! - **`schema`** *(default)* — `schemars::JsonSchema` on every API type. A
 //!   host's TypeScript or Python declarations are generated from the schema
 //!   rather than kept by hand. Off for `fieldglass-wasm`, whose declarations
@@ -39,28 +59,54 @@
 //!   `cargo test --workspace` does not enable optional features. Both hosts
 //!   take this crate with `default-features = false`, so neither the addon nor
 //!   the browser bundle carries it.
+//!
+//! A gated item is named in a code span above rather than an intra-doc link: a
+//! link to an item this build compiled out is a hard error under the
+//! workspace's `rustdoc::all = "deny"`, so a doc page that linked them would
+//! build only with every feature on — the one configuration that cannot show
+//! the gating works.
+
+// A `Session` with no decoder behind it can only ever refuse, so the mistake is
+// worth a message at compile time rather than an `UnsupportedFormat` at every
+// call. Stated here and not in the manifest because cargo has no way to say
+// "at least one of these".
+#[cfg(not(any(feature = "grib1", feature = "grib2")))]
+compile_error!(
+    "fieldglass needs at least one format feature: enable `grib1`, `grib2`, or both \
+     (they are on by default; a `default-features = false` consumer names them back)"
+);
 
 pub mod api;
+#[cfg(feature = "analysis")]
 pub mod combine;
 #[cfg(feature = "conformance")]
 pub mod conformance;
 pub mod error;
 pub mod render;
 pub mod session;
+#[cfg(feature = "render")]
 pub mod shader;
 
+#[cfg(feature = "render")]
+pub use api::Warped;
 pub use api::{
-    AxisUnits, CombineOpInfo, Dtype, Field, Georef, Isoline, MessageInfo, Probe, Scan,
-    SourceFormat, Stats, Values, Warped,
+    AxisUnits, Dtype, Field, Georef, MessageInfo, Probe, Scan, SourceFormat, Stats, Values,
 };
+#[cfg(feature = "analysis")]
+pub use api::{CombineOpInfo, Isoline};
+#[cfg(feature = "analysis")]
 pub use combine::{CombineOp, aligned, combine_ops, combine_values, op_from_wire};
 pub use error::Error;
-pub use render::{
-    PixelProbe, Projected, RenderOptions, ResolvedOptions, Source, TargetKind, WarpTarget,
-};
-pub use session::{DecodeOptions, PaletteOptions, Raster, Session, WarpOptions};
+pub use render::Source;
+#[cfg(feature = "render")]
+pub use render::{PixelProbe, Projected, RenderOptions, ResolvedOptions, TargetKind, WarpTarget};
+pub use session::{DecodeOptions, Session};
+#[cfg(feature = "render")]
+pub use session::{PaletteOptions, Raster, WarpOptions};
 
 /// `core`'s colour type, re-exported: a host consumes the painter's own table
 /// rather than implementing a second colour path (ADR-0006 decision 3).
+#[cfg(feature = "render")]
 pub use fieldglass_core::colormap::{Colormap, PALETTE_LUT_LEN, Palette, ScaleMode, colormaps};
+#[cfg(feature = "render")]
 pub use shader::{GLSL, shader_index, shader_mask, shader_values};
