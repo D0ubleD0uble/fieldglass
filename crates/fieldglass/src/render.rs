@@ -2267,7 +2267,13 @@ mod resolved_options_tests {
     /// `isize::MAX` there and panics with "capacity overflow" inside the warp.
     #[test]
     fn the_allocation_bound_counts_bytes_not_pixels() {
+        // Both ceilings are named as literals rather than as `isize::MAX`,
+        // because this test also *runs* on `wasm32-wasip1` — where `isize::MAX`
+        // is the 32-bit one, so writing it for the 64-bit case would assert the
+        // opposite of what it says. That the suite runs on a 32-bit target is
+        // exactly why the distinction below is worth pinning.
         const WASM32_CEILING: u64 = i32::MAX as u64;
+        const HOST64_CEILING: u64 = i64::MAX as u64;
 
         assert!(
             !raster_is_allocatable(16_384, 16_385, WASM32_CEILING),
@@ -2275,7 +2281,7 @@ mod resolved_options_tests {
         );
         // The same raster is fine where the ceiling is 64-bit, so the bound is
         // the target's and not a blanket cap.
-        assert!(raster_is_allocatable(16_384, 16_385, isize::MAX as u64));
+        assert!(raster_is_allocatable(16_384, 16_385, HOST64_CEILING));
 
         // Either side of the wasm32 limit, exactly: 8 bytes a pixel.
         let last_that_fits = WASM32_CEILING / WIDEST_RASTER_ELEMENT;
@@ -2286,6 +2292,11 @@ mod resolved_options_tests {
         // A raster whose byte count overflows `u64` saturates rather than
         // wrapping into a value that looks small enough.
         assert!(!raster_is_allocatable(u32::MAX, u32::MAX, u64::MAX - 1));
+
+        // And the ceiling the resolver actually applies is this target's, so the
+        // same request is answered differently on wasm32 and on a 64-bit host —
+        // which is the point of the whole guard.
+        assert!(raster_is_allocatable(16_384, 16_385, isize::MAX as u64) == (usize::BITS == 64));
     }
 
     /// A global lat/lon geometry, for the target-building tests below.
