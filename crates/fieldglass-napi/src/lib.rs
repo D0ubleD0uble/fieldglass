@@ -20,9 +20,8 @@ use fieldglass_core::{
 };
 use fieldglass_grib1::{Grib1Reader, tables::lookup_parameter, tables_cct::lookup_centre};
 use fieldglass_grib2::{
-    Grib2Reader, HorizontalProductCommon, ProductDefinitionSection,
-    lookup_centre as lookup_grib2_centre, lookup_discipline, lookup_fixed_surface,
-    lookup_parameter as lookup_grib2_parameter, lookup_production_status, lookup_time_range_unit,
+    Grib2Reader, ProductDefinitionSection, lookup_centre as lookup_grib2_centre, lookup_discipline,
+    lookup_parameter as lookup_grib2_parameter, lookup_production_status,
 };
 use fieldglass_netcdf::{
     DatasetView, Hdf5Attribute, Hdf5Metadata, NetcdfBacking, NetcdfReader, RenderableVariable,
@@ -130,7 +129,8 @@ pub struct MessageMeta {
     /// Forecast lead normalised to whole hours, whatever unit the message
     /// states it in. See `p1_octet` for why the raw octet travels separately.
     pub forecast_hours: i32,
-    /// Forecast lead rendered for display, e.g. `"+6 h"`, `"analysis"`.
+    /// Forecast lead rendered for display, e.g. `"+6h"`, `"+30 Minute"`,
+    /// `"analysis"`.
     pub forecast_display: String,
     /// Raw P1 octet (GRIB1 PDS octet 19), for the dormant in-viewer edit of
     /// that byte. `None` wherever writing one octet would not mean what the
@@ -675,19 +675,16 @@ fn grib2_product_fields(
         ),
     };
 
-    let level_type = lookup_fixed_surface(common.first_surface.surface_type).to_string();
-    let level = render_level(common);
-
-    let (forecast_hours, forecast_display) = render_forecast(common);
-
     Grib2ProductFields {
         parameter_name: name,
         parameter_units: units,
         parameter_abbreviation: abbreviation,
-        level,
-        level_type,
-        forecast_hours,
-        forecast_display,
+        level: fieldglass_grib2::level_value_str(common),
+        level_type: fieldglass_grib2::level_type_str(common),
+        // `None` — a unit with no fixed length in hours — keeps 0, since there
+        // is no hours value to show and `forecast_display` carries the truth.
+        forecast_hours: fieldglass_grib2::forecast_hours(common).unwrap_or(0),
+        forecast_display: fieldglass_grib2::forecast_display(common),
     }
 }
 
@@ -713,59 +710,6 @@ impl Grib2ProductFields {
             forecast_display: "—".to_string(),
         }
     }
-}
-
-/// Render the first fixed surface as a human-readable level string. Falls
-/// back to `"—"` when the surface is the WMO "missing" sentinel; otherwise
-/// shows the decoded float with the surface label as a unit hint.
-fn render_level(common: &HorizontalProductCommon) -> String {
-    let surface = &common.first_surface;
-    if surface.is_missing() {
-        return "—".to_string();
-    }
-    match surface.value() {
-        Some(v) => format!("{v}"),
-        None => lookup_fixed_surface(surface.surface_type).to_string(),
-    }
-}
-
-/// Render forecast time as `(hours_as_i32, display_string)`.
-///
-/// Hours are normalised for the units that convert cleanly, so the
-/// `forecast_hours` column is comparable across messages that state their lead
-/// time in different units. It is a **coarse** key, not the exact lead time:
-/// a sub-hour unit truncates toward zero, so a 0/15/30/45-minute nowcast series
-/// — MRMS states its lead in minutes — reports `0` for every step. The exact
-/// value is always in the display string, which keeps the producer's own unit
-/// (`"+30 Minute"`), and that is what the panel shows.
-///
-/// A unit with no clean conversion (month, year, decade, century, missing)
-/// yields no hours; its display still carries the raw value and unit label.
-fn render_forecast(common: &HorizontalProductCommon) -> (i32, String) {
-    let unit_label = lookup_time_range_unit(common.forecast_time_unit);
-    let raw = common.forecast_time;
-    let hours = match common.forecast_time_unit {
-        0 => Some(raw / 60), // minute
-        1 => Some(raw),      // hour
-        2 => Some(raw * 24), // day
-        10 => Some(raw * 3),
-        11 => Some(raw * 6),
-        12 => Some(raw * 12),
-        13 => Some(raw / 3600), // second
-        _ => None,
-    };
-    let display = match (hours, common.forecast_time_unit) {
-        (Some(h), 1) => format!("+{h}h"),
-        (Some(_), _) => format!("+{raw} {unit_label}"),
-        (None, _) => format!("+{raw} {unit_label}"),
-    };
-    // Saturate rather than fall back to 0. A lead time too large for `i32` is
-    // still a *large* lead time; reporting it as 0 would place a nonsense
-    // far-future step alongside the analysis, which is exactly the reading the
-    // column exists to support. `None` (an unconvertible unit) keeps 0, since
-    // there is no hours value to represent — the display string carries it.
-    let hours_i32 = hours.map_or(0, |h| h.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
-    (hours_i32, display)
 }
 
 /// Parse a GRIB2 file from raw bytes and return per-message metadata.
@@ -5750,6 +5694,98 @@ mod netcdf_slice_tests {
         assert_eq!(m.p1_octet, None);
     }
 
+    /// The four GRIB2 display fields, on real messages, as they reach the panel.
+    ///
+    /// The rendering itself is `fieldglass-grib2`'s since #545 and is tested
+    /// there; what this pins is the *wiring* — which of the crate's four
+    /// functions fills which `MessageMeta` field, and that the hours column and
+    /// the display string are read from the same message. Nothing else covers
+    /// it: the display golden elides all four (`characterisation.rs` lists them
+    /// as `_`, since the size column is what a render row is about), and the
+    /// conformance suite's `message` op is skipped by this host's runner
+    /// because napi answers `MessageMeta` where the suite states `MessageInfo`
+    /// (#574). So a `level` and a `level_type` swapped at this seam, or an
+    /// `unwrap_or(0)` reading the wrong side, would have been silent.
+    ///
+    /// The fixtures are chosen so a swap cannot pass: each has a level value
+    /// that differs from its level type, and one carries a long lead.
+    #[test]
+    fn grib2_message_meta_carries_the_crates_level_and_lead() {
+        const ETA_LAMBERT: &[u8] =
+            include_bytes!("../../fieldglass-grib2/tests/fixtures/eta_lambert_msg0.grib2");
+        const GFS_C255: &[u8] =
+            include_bytes!("../../fieldglass-grib2/tests/fixtures/gfs_c255_latlon.grib2");
+
+        // A mean-sea-level field at +24h. The value is a scaled zero, which is
+        // not the same as a surface carrying no value at all.
+        let m = &grib2_handle(ETA_LAMBERT).messages()[0];
+        assert_eq!(m.level, "0");
+        assert_eq!(m.level_type, "Mean sea level");
+        assert_eq!(m.forecast_hours, 24);
+        assert_eq!(m.forecast_display, "+24h");
+
+        // A long lead, so the hours column and the display string agree on a
+        // number neither could have produced from the other's default.
+        let m = &grib2_handle(GFS_C255).messages()[0];
+        assert_eq!(m.level, "0");
+        assert_eq!(m.level_type, "Reserved for local use");
+        assert_eq!(m.forecast_hours, 204);
+        assert_eq!(m.forecast_display, "+204h");
+
+        // A unit with no hours value must reach the column as 0 rather than as
+        // anything the crate's `Option` could be read into. This is the only
+        // cover for the `unwrap_or(0)` at this seam: the corpus has no message
+        // stating a calendar unit, and the crate-side test asserts `None`,
+        // which is the other half of the same wire.
+        let month = fieldglass_grib2::ProductDefinitionSection {
+            section_length: 34,
+            num_coordinate_values: 0,
+            template_number: 0,
+            template: fieldglass_grib2::ProductTemplate::HorizontalAnalysisForecast(
+                fieldglass_grib2::Template40 {
+                    common: fieldglass_grib2::HorizontalProductCommon {
+                        parameter_category: 0,
+                        parameter_number: 0,
+                        generating_process_type: 2,
+                        background_process_id: 0,
+                        forecast_process_id: 0,
+                        obs_cutoff_hours: 0,
+                        obs_cutoff_minutes: 0,
+                        forecast_time_unit: 3, // month
+                        forecast_time: 6,
+                        first_surface: fieldglass_grib2::FixedSurface {
+                            surface_type: 1,
+                            scale_factor: None,
+                            scaled_value: None,
+                        },
+                        second_surface: fieldglass_grib2::FixedSurface {
+                            surface_type: 255,
+                            scale_factor: None,
+                            scaled_value: None,
+                        },
+                    },
+                },
+            ),
+        };
+        let fields = grib2_product_fields(fieldglass_grib2::Originator::new(7, 0, 0), 0, &month);
+        assert_eq!(
+            fields.forecast_hours, 0,
+            "no hours value reaches the column as 0"
+        );
+        assert_eq!(
+            fields.forecast_display, "+6 Month",
+            "and the display string is where the six months survive"
+        );
+
+        // A template with no horizontal product common has none of the four to
+        // render, and says so rather than inventing a zero-hour analysis.
+        let placeholder = Grib2ProductFields::placeholder();
+        assert_eq!(placeholder.level, "—");
+        assert_eq!(placeholder.level_type, "—");
+        assert_eq!(placeholder.forecast_hours, 0);
+        assert_eq!(placeholder.forecast_display, "—");
+    }
+
     #[test]
     fn spectral_message_renders_via_synthesis() {
         // A spherical-harmonic message has no grid; render_grid must synthesize
@@ -6236,30 +6272,6 @@ mod netcdf_slice_tests {
         );
     }
 
-    /// `render_forecast` had no tests at all, despite seven unit branches, a
-    /// sign-magnitude value, and a fallback that silently produced 0.
-    fn forecast_common(unit: u8, time: i64) -> fieldglass_grib2::pds::HorizontalProductCommon {
-        use fieldglass_grib2::pds::{FixedSurface, HorizontalProductCommon};
-        let surface = FixedSurface {
-            surface_type: 1,
-            scale_factor: None,
-            scaled_value: None,
-        };
-        HorizontalProductCommon {
-            parameter_category: 0,
-            parameter_number: 0,
-            generating_process_type: 2,
-            background_process_id: 0,
-            forecast_process_id: 0,
-            obs_cutoff_hours: 0,
-            obs_cutoff_minutes: 0,
-            forecast_time_unit: unit,
-            forecast_time: time,
-            first_surface: surface,
-            second_surface: surface,
-        }
-    }
-
     /// A regular lat/lon meta over a small region, for the contour tests.
     fn latlon_meta(ni: i32, nj: i32) -> MessageMeta {
         let mut meta = base_netcdf_meta("t", "K", ni, nj);
@@ -6269,88 +6281,6 @@ mod netcdf_slice_tests {
         meta.lon_first = Some(0.0);
         meta.lon_last = Some(40.0);
         meta
-    }
-
-    #[test]
-    fn render_forecast_normalises_each_convertible_unit() {
-        // (unit, raw) -> hours. Table 4.4: 0 min, 1 hour, 2 day, 10/11/12 the
-        // 3/6/12-hour units, 13 second.
-        for (unit, raw, want_hours) in [
-            (0u8, 60i64, 1i32),
-            (1, 24, 24),
-            (2, 2, 48),
-            (10, 2, 6),
-            (11, 2, 12),
-            (12, 2, 24),
-            (13, 7200, 2),
-        ] {
-            let (h, _) = render_forecast(&forecast_common(unit, raw));
-            assert_eq!(h, want_hours, "unit {unit} raw {raw}");
-        }
-    }
-
-    /// Only the hour unit renders as `+Nh`; every other unit keeps the
-    /// producer's own wording, so the exact lead time is never lost even when
-    /// the hours column rounds it away.
-    #[test]
-    fn render_forecast_display_keeps_the_producers_unit() {
-        assert_eq!(render_forecast(&forecast_common(1, 24)).1, "+24h");
-        assert_eq!(render_forecast(&forecast_common(0, 30)).1, "+30 Minute");
-        assert_eq!(render_forecast(&forecast_common(13, 90)).1, "+90 Second");
-        // eccc states a one-hour lead in minutes; the display shows what it said.
-        assert_eq!(render_forecast(&forecast_common(0, 60)).1, "+60 Minute");
-    }
-
-    /// The documented coarseness, pinned so it is a choice rather than a
-    /// surprise: a sub-hour nowcast series collapses to one hours value, and
-    /// the display string is the only exact record of the step.
-    #[test]
-    fn render_forecast_truncates_sub_hour_leads_toward_zero() {
-        for raw in [0i64, 15, 30, 45, 59] {
-            assert_eq!(render_forecast(&forecast_common(0, raw)).0, 0, "raw {raw}");
-        }
-        assert_eq!(render_forecast(&forecast_common(0, 60)).0, 1);
-        assert_eq!(render_forecast(&forecast_common(0, 119)).0, 1);
-        // Distinct steps, distinct displays — the exactness lives here.
-        assert_ne!(
-            render_forecast(&forecast_common(0, 15)).1,
-            render_forecast(&forecast_common(0, 45)).1,
-        );
-        // Negative (sign-magnitude on the wire) truncates toward zero too.
-        assert_eq!(render_forecast(&forecast_common(0, -90)).0, -1);
-    }
-
-    /// A unit with no clean hour conversion yields no hours, but must still
-    /// report the raw value and its label rather than inventing a lead time.
-    #[test]
-    fn render_forecast_leaves_unconvertible_units_to_the_display_string() {
-        for (unit, label) in [
-            (3u8, "Month"),
-            (4, "Year"),
-            (7, "Century"),
-            (255, "Missing"),
-        ] {
-            let (h, d) = render_forecast(&forecast_common(unit, 5));
-            assert_eq!(h, 0, "unit {unit} has no hours value");
-            assert_eq!(d, format!("+5 {label}"));
-        }
-    }
-
-    /// A lead time too large for `i32` is still a large lead time. Falling back
-    /// to 0 would file a nonsense far-future step next to the analysis, which is
-    /// the one reading the hours column exists to support.
-    #[test]
-    fn render_forecast_saturates_instead_of_reporting_zero_hours() {
-        // Days: 2e9 days * 24 overflows i32 by a wide margin.
-        let (h, d) = render_forecast(&forecast_common(2, 2_000_000_000));
-        assert_eq!(
-            h,
-            i32::MAX,
-            "an unrepresentable lead saturates, it does not become 0"
-        );
-        assert_eq!(d, "+2000000000 Day");
-        let (hn, _) = render_forecast(&forecast_common(2, -2_000_000_000));
-        assert_eq!(hn, i32::MIN);
     }
 
     /// The seam wrap must be decided the same way the probe decides it, and only

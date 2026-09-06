@@ -728,23 +728,13 @@ fn grib2_message(reader: &fieldglass_grib2::Grib2Reader, index: usize) -> Messag
     let msg = &reader.messages[index];
     let common = msg.pds.common();
     let (abbreviation, parameter, units) = grib2_parameter(msg);
+    // The format crate owns every display rule (#545); a template with no
+    // horizontal product common has none of the three fields to render.
     let (level, level_type) = match common {
-        Some(c) => {
-            let surface = &c.first_surface;
-            let label = fieldglass_grib2::lookup_fixed_surface(surface.surface_type).to_string();
-            // A surface with no scaled value is named rather than numbered —
-            // "Ground or water surface" has no height to print — and the WMO
-            // missing sentinel is neither.
-            let level = if surface.is_missing() {
-                "—".to_string()
-            } else {
-                match surface.value() {
-                    Some(v) => format!("{v}"),
-                    None => label.clone(),
-                }
-            };
-            (level, label)
-        }
+        Some(c) => (
+            fieldglass_grib2::level_value_str(c),
+            fieldglass_grib2::level_type_str(c),
+        ),
         None => ("—".to_string(), "—".to_string()),
     };
     MessageInfo {
@@ -758,17 +748,8 @@ fn grib2_message(reader: &fieldglass_grib2::Grib2Reader, index: usize) -> Messag
         level,
         level_type,
         reference_time: Some(msg.ids.reference_time_iso8601()),
-        // The producer's own unit, not hours: MRMS states its lead time in
-        // minutes, and normalising to hours would report `0` for every step of
-        // a nowcast series. `+30 Minute` is what the napi host shows too.
         forecast: common
-            .map(|c| {
-                format!(
-                    "+{} {}",
-                    c.forecast_time,
-                    fieldglass_grib2::lookup_time_range_unit(c.forecast_time_unit)
-                )
-            })
+            .map(fieldglass_grib2::forecast_display)
             .unwrap_or_else(|| "—".to_string()),
         packing: msg.drs.template_name(),
         grid: Some(Georef::from_geometry(

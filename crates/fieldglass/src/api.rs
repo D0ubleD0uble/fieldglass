@@ -261,7 +261,8 @@ api_type! {
         /// Reference (analysis) time as RFC 3339. `None` when the message
         /// carries no usable date.
         pub reference_time: Option<String>,
-        /// Forecast time relative to `reference_time`, rendered — `"+6 h"`.
+        /// Forecast time relative to `reference_time`, rendered — `"+6h"`, or
+        /// `"+30 Minute"` for a unit the edition does not convert to hours.
         pub forecast: String,
         /// Which packing the data section uses, named — what decodes it, and
         /// the first thing to look at when a decode is wrong.
