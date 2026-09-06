@@ -144,8 +144,8 @@ browser actually downloads.
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
-| baseline | 965,228 | 374,343 |
-| `+simd128` | 962,568 | 373,724 |
+| baseline | 965,242 | 374,381 |
+| `+simd128` | 962,582 | 373,732 |
 
 The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
 build drifts more than 5% from these figures in either direction, so a change
@@ -154,7 +154,7 @@ that moves the bundle has to say so here. Update both cells when it does.
 Two things worth knowing before optimising further:
 
 - `wasm-opt -Oz` is a **raw** win and a **transfer** loss. It takes the module
-  from 1,018,607 to 965,228 bytes (-5.2%) and takes it from 367,335 to 374,343
+  from 1,018,633 to 965,242 bytes (-5.2%) and takes it from 367,350 to 374,381
   gzipped (+1.9%). Its size passes trade repetition for smaller encodings, and
   DEFLATE was already being paid for the repetition. It stays on because parse
   and instantiate cost track the raw module, but a transfer-size-only argument

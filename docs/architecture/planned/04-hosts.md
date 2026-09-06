@@ -81,7 +81,11 @@ Notes that shape the two hosts:
 - **Zoom.** For 5.40 (JPEG 2000) fields #463 lets the app decode at a lower
   wavelet level when the view is coarser than the grid; the returned georef is
   derived, not the message's GDS, and the field is display-only: probe, CSV,
-  contours, and stats always use the full-resolution decode.
+  contours, and stats always use the full-resolution decode. The decode itself
+  exists (`Grib2Reader::decode_message_raster_with`; 39.9 ms → 10.5 ms → 2.8 ms
+  on the committed 451×337 RAP fixture at reduction 0 / 1 / 2), but no host
+  reaches it yet — see the decision recorded under *Decode options* in
+  [`02-trait-seams.md`](02-trait-seams.md).
 - **Precision.** `Field.values` is f64 unless the packing provably fits f32;
   the R32F texture upload is a downcast the app asks for explicitly.
 - **Colour.** Decided once, in Rust: `Palette` feeds both the CPU painter

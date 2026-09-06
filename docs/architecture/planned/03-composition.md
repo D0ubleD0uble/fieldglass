@@ -234,7 +234,7 @@ classDiagram
         +Stats stats
     }
     class DisplayField {
-        <<planned #463>>
+        <<planned #463 — the host half; grib2 has DisplayRaster>>
         reduced-resolution decode: render and warp only
         +Georef grid (derived, not the GDS)
     }

@@ -942,6 +942,17 @@ fn decode_jpeg2000_packing(
     // The codestream must hold exactly one sample per present point; a mismatch
     // means the §7 geometry disagrees with the field, which we reject rather
     // than misread.
+    //
+    // A *count*, deliberately, where the reduced path beneath checks width and
+    // height. Two reasons, and they are the reason the two differ rather than an
+    // oversight: with a §6 bitmap the codestream carries only the present points
+    // and its image is not the grid at all, so there is no `ni × nj` to compare
+    // against; and eccodes' own `grid_jpeg` unpack reads `width · height`
+    // samples in raster order without consulting `Ni`, so a shape check here
+    // would refuse a file eccodes decodes, on a published crate, with no fixture
+    // to say which of us is right. The reduced path can be stricter because it
+    // *derives the raster's geometry* from the shape rather than pouring samples
+    // into one the caller already has.
     if component.samples.len() != present_count {
         return Err(FieldglassError::Parse(format!(
             "JPEG 2000 packing: codestream holds {} samples but {present_count} values are required",
@@ -958,6 +969,125 @@ fn decode_jpeg2000_packing(
     }
 
     Ok(interleave_with_bitmap(decoded, bitmap, expected_count))
+}
+
+/// Decode JPEG 2000 packing (template 5.40) at level `reduction` of the
+/// codestream's own wavelet pyramid: an `expected_ni × expected_nj` raster of
+/// the field's low-pass, which is `2^reduction` times coarser on each axis than
+/// the message (#463).
+///
+/// Not a resample of [`decode_jpeg2000_packing`]'s output — the coefficients
+/// for the discarded levels are never entropy-decoded, which is where the time
+/// goes. `rust_j2k` refuses a reduction that would consume a component's whole
+/// pyramid, and that refusal is surfaced rather than clamped: a caller asking
+/// for a level the codestream does not carry has asked for a field that does
+/// not exist.
+///
+/// The caller ([`crate::Grib2Reader::decode_message_raster_with`]) owns every
+/// precondition this relies on — no bitmap, a regular raster, plain scan order
+/// — so the only checks here are the ones about the codestream itself. The
+/// expected dimensions come from the §3 grid, not from the codestream, so a
+/// codestream disagreeing with the section is refused rather than reshaped.
+pub(crate) fn decode_jpeg2000_reduced(
+    ds_payload: &[u8],
+    t: &Jpeg2000PackingTemplate,
+    reduction: u8,
+    expected_ni: u32,
+    expected_nj: u32,
+) -> Result<Vec<Option<f64>>, FieldglassError> {
+    // The caller derived these from `ni`/`nj`, both of which it has already
+    // multiplied under `MAX_GRID_POINTS`, so this product is smaller than one
+    // that fits — but this is a separate `pub(crate)` entry point and its only
+    // protection would be that sentence, so it checks. `usize` is 32 bits on
+    // `wasm32`.
+    let expected_count = (expected_ni as usize)
+        .checked_mul(expected_nj as usize)
+        .ok_or_else(|| {
+            FieldglassError::Parse(format!(
+                "JPEG 2000 packing: reduced raster {expected_ni}×{expected_nj} overflows usize"
+            ))
+        })?;
+
+    let (r, two_pow_e, d_inv) = red_scale(
+        t.reference_value,
+        t.binary_scale_factor,
+        t.decimal_scale_factor,
+    );
+
+    // A constant field carries no codestream at all, at any resolution: every
+    // point is the reference value, so the coarse raster is too. The value is
+    // `R` verbatim, matching the full-resolution path above and eccodes.
+    if t.bits_per_value == 0 {
+        return Ok(materialise_constant(r, None, expected_count));
+    }
+    if t.bits_per_value > 32 {
+        return Err(FieldglassError::Parse(format!(
+            "JPEG 2000 packing: bits_per_value {} exceeds 32",
+            t.bits_per_value
+        )));
+    }
+
+    let image = rust_j2k::decode_with(
+        ds_payload,
+        rust_j2k::DecodeOptions::default().with_resolution_reduction(reduction),
+    )
+    .map_err(|e| {
+        FieldglassError::UnsupportedSection(format!(
+            "JPEG 2000 packing: decode at resolution reduction {reduction} failed: {e}"
+        ))
+    })?;
+
+    if image.components.len() != 1 {
+        return Err(FieldglassError::UnsupportedSection(format!(
+            "JPEG 2000 packing: codestream holds {} components but grid_jpeg is single-component",
+            image.components.len()
+        )));
+    }
+    let component = image.component(0).expect("length checked to be 1");
+    if component.signed {
+        return Err(FieldglassError::UnsupportedSection(
+            "JPEG 2000 packing: signed component is unsupported".into(),
+        ));
+    }
+
+    // The pyramid level must be the shape the §3 grid says it is: this catches
+    // a codestream that is not the raster at all — transposed, or sized to some
+    // other field — before its samples are read row-major into one.
+    //
+    // What it does **not** catch, and cannot: a non-zero image origin. JPEG 2000
+    // sizes a reduced level as `ceil(x1 / 2^r) - ceil(x0 / 2^r)`, which equals
+    // `ceil((x1 - x0) / 2^r)` for many non-zero `x0` — `x0 = 1, x1 = 453` gives
+    // 226 at `r = 1`, the same as a 452-wide grid with the origin at zero, while
+    // the samples retained are the *odd* full-resolution columns. Every
+    // `grid_jpeg` encoder writes a zero origin, and `rust_j2k` 0.3.0's `Image`
+    // exposes only the reduced extents, so there is nothing here to compare
+    // against; the zero origin is an assumption, stated rather than checked.
+    // The full-resolution path makes the same assumption more quietly, by
+    // reading the samples in order.
+    if component.width != expected_ni || component.height != expected_nj {
+        return Err(FieldglassError::UnsupportedSection(format!(
+            "JPEG 2000 packing: resolution reduction {reduction} gives a {}×{} image, but the \
+             §3 grid reduces to {expected_ni}×{expected_nj}",
+            component.width, component.height
+        )));
+    }
+    if component.samples.len() != expected_count {
+        return Err(FieldglassError::Parse(format!(
+            "JPEG 2000 packing: reduced codestream holds {} samples but {expected_count} values \
+             are required",
+            component.samples.len()
+        )));
+    }
+
+    // The same unsigned-offset transform the full-resolution path applies. The
+    // wavelet low-pass is not an integer sample of the field, so these are
+    // averages the message never stored — which is why the raster they build is
+    // display-only.
+    Ok(component
+        .samples
+        .iter()
+        .map(|&x| Some((r + x as f64 * two_pow_e) * d_inv))
+        .collect())
 }
 
 /// Decode run-length packing (template 5.200). §7 is a stream of
@@ -2820,5 +2950,129 @@ mod tests {
         let before = v.clone();
         undo_second_order_boustrophedonic(&mut v, &template, StoredRuns::Uniform(2));
         assert_eq!(v, before);
+    }
+}
+
+#[cfg(test)]
+mod reduced_jpeg2000_tests {
+    use super::*;
+    use crate::section::parse_section_header;
+
+    /// §7's payload and §5's JPEG 2000 template, read straight out of a
+    /// committed fixture by walking its sections.
+    ///
+    /// The reader owns its bytes, so a test reaching the packing decoder
+    /// directly has to find §5 and §7 itself. That is the point: the guard
+    /// below is about the *codestream* disagreeing with the §3 grid, and no
+    /// committed file does, so it is unreachable through
+    /// `Grib2Reader::decode_message_raster_with` and would otherwise go
+    /// untested — a mutation deleting it passed the whole suite.
+    fn sections_of(fixture: &str) -> (Vec<u8>, Jpeg2000PackingTemplate) {
+        let bytes = std::fs::read(std::path::Path::new("tests/fixtures").join(fixture))
+            .unwrap_or_else(|e| panic!("read fixture {fixture}: {e}"));
+        let mut offset = 16usize;
+        let mut template = None;
+        let mut payload = None;
+        while &bytes[offset..offset + 4] != b"7777" {
+            let length =
+                u32::from_be_bytes(bytes[offset..offset + 4].try_into().expect("4 bytes")) as usize;
+            let section = &bytes[offset..offset + length];
+            match bytes[offset + 4] {
+                5 => {
+                    let header = parse_section_header(section).expect("§5 header");
+                    let drs = crate::drs::parse_data_representation_with_header(section, header)
+                        .expect("§5 parses");
+                    template = drs.jpeg2000().cloned();
+                }
+                7 => {
+                    let header = parse_section_header(section).expect("§7 header");
+                    payload = Some(
+                        parse_data_section_body(section, header)
+                            .expect("§7 parses")
+                            .to_vec(),
+                    );
+                }
+                _ => {}
+            }
+            offset += length;
+        }
+        (
+            payload.expect("the fixture has a §7"),
+            template.expect("the fixture carries §5.40"),
+        )
+    }
+
+    /// The §3 grid decides the coarse shape and the codestream is held to it.
+    ///
+    /// JPEG 2000 sizes a reduced level as `ceil(x1 / 2^r) - ceil(x0 / 2^r)`,
+    /// which is `ceil(n / 2^r)` only when the image origin is zero. Every
+    /// `grid_jpeg` codestream puts it there, so the two agree — but a
+    /// codestream that did not would hand back a raster a column narrower with
+    /// nothing to say so, which is what this refuses. Asked with the shape the
+    /// grid really reduces to, the same call succeeds.
+    #[test]
+    fn a_codestream_that_is_not_the_shape_the_grid_reduces_to_is_refused() {
+        let (payload, template) = sections_of("rap_jpeg2000_lambert.grib2");
+        // 451 × 337 at reduction 1.
+        let ok = decode_jpeg2000_reduced(&payload, &template, 1, 226, 169)
+            .expect("the shape the grid reduces to");
+        assert_eq!(ok.len(), 226 * 169);
+
+        for (ni, nj) in [(225u32, 169u32), (226, 168)] {
+            let err = decode_jpeg2000_reduced(&payload, &template, 1, ni, nj)
+                .expect_err("a shape the codestream is not");
+            let text = err.to_string();
+            assert!(
+                text.contains("gives a 226×169 image") && text.contains(&format!("{ni}×{nj}")),
+                "the refusal names both shapes: {text}"
+            );
+        }
+    }
+
+    /// The coarse path applies the whole `R`/`E`/`D` transform, decimal scale
+    /// factor included.
+    ///
+    /// Every committed JPEG 2000 fixture states `decimalScaleFactor = 0`,
+    /// where `10^-D` is 1 and dropping the factor changes nothing — a mutation
+    /// deleting it passed the whole suite. So the factor is set on the parsed
+    /// template instead, and the claim is a relation rather than a number: `D`
+    /// scales the whole expression, so raising it by two must divide every
+    /// value by exactly a hundred.
+    #[test]
+    fn the_coarse_transform_applies_the_decimal_scale_factor() {
+        let (payload, mut template) = sections_of("rap_jpeg2000_lambert.grib2");
+        assert_eq!(template.decimal_scale_factor, 0, "the fixture states D = 0");
+        let plain = decode_jpeg2000_reduced(&payload, &template, 2, 113, 85).expect("D = 0");
+
+        template.decimal_scale_factor = 2;
+        let scaled = decode_jpeg2000_reduced(&payload, &template, 2, 113, 85).expect("D = 2");
+
+        assert_eq!(plain.len(), scaled.len());
+        for (i, (p, s)) in plain.iter().zip(&scaled).enumerate() {
+            let (p, s) = (p.expect("no bitmap"), s.expect("no bitmap"));
+            assert!(
+                (s - p / 100.0).abs() < 1e-9,
+                "value {i}: D = 2 gave {s}, a hundredth of {p} is {}",
+                p / 100.0
+            );
+        }
+    }
+
+    /// A constant field (`bitsPerValue == 0`) carries no codestream at any
+    /// resolution, so the coarse raster is the reference value repeated — the
+    /// same answer the full-resolution path gives, at the coarse shape.
+    ///
+    /// Reached by zeroing the template's bit width on a real fixture: no
+    /// committed file pairs a constant field with JPEG 2000 packing, and the
+    /// branch exists because eccodes' `grid_jpeg` writes one.
+    #[test]
+    fn a_constant_field_needs_no_codestream_to_be_coarse() {
+        let (payload, mut template) = sections_of("rap_jpeg2000_lambert.grib2");
+        template.bits_per_value = 0;
+        let values = decode_jpeg2000_reduced(&payload, &template, 2, 113, 85)
+            .expect("a constant field reduces");
+        assert_eq!(values.len(), 113 * 85);
+        let reference = f64::from(template.reference_value);
+        assert!(values.iter().all(|v| *v == Some(reference)));
     }
 }

@@ -23,6 +23,17 @@ keeps its dependency-light, cross-compilable build with no C dependencies.
 Grid geometry is returned as the shared types from
 [`fieldglass-core`](https://crates.io/crates/fieldglass-core).
 
+JPEG 2000 (5.40) fields can also be decoded **coarsely**, straight from the
+codestream's wavelet pyramid, which is what a zoomed-out map wants:
+`decode_message_raster_with(index, DecodeOptions::new(1))` returns a half-size
+raster in about a quarter of the time (39.9 ms to 10.5 ms on the committed
+451x337 RAP fixture, natively in release), with the derived geometry that places
+it. Those values are averages the message does not contain, so the result is a
+`DisplayRaster` — a type nothing that measures the data will accept. (The
+`DecodeOptions` here is this crate's, and unrelated to the `fieldglass` umbrella
+crate's type of the same name; a program using both should import one of them
+qualified.)
+
 ## Usage
 
 ```rust
@@ -58,8 +69,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 `cargo run -p fieldglass-grib2 --example decode` runs that against the fixtures
-committed with the crate. The non-scalar packings named above have their own
-entry points, because they do not produce one value per grid point.
+committed with the crate, and
+`cargo run --release -p fieldglass-grib2 --example bench_reduce` prints what
+each pyramid level of a JPEG 2000 field costs. The non-scalar packings named
+above have their own entry points, because they do not produce one value per
+grid point.
 
 ## License
 
