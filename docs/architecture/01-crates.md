@@ -1,6 +1,6 @@
 # Architecture — Level 1: crates
 
-Seven crates, one flow: a format crate parses its container and hands `core` the
+Eight crates, one flow: a format crate parses its container and hands `core` the
 same decoded field (`Vec<Option<f64>>` + grid geometry); `core` projects, warps,
 and renders it; a host binds the result to its language. `fieldglass-core` owns
 the shared traits and geometry and depends on nothing else in the workspace.
@@ -24,6 +24,7 @@ flowchart TD
     grib2["fieldglass-grib2<br/><i>GRIB2 decode</i>"]
     netcdf["fieldglass-netcdf<br/><i>NetCDF classic + NetCDF-4 / HDF5</i>"]
     core["fieldglass-core<br/><i>traits, GridGeometry, projection, warp, overlay, Palette</i>"]
+    fetchplan["fieldglass-fetchplan<br/><i>manifests in, byte ranges out; no I/O, no clock</i>"]
 
     wasm --> fieldglass
     fieldglass --> grib1
@@ -34,6 +35,7 @@ flowchart TD
     napi --> grib2
     napi --> netcdf
     napi --> core
+    fetchplan --> core
     grib1 --> core
     grib2 --> core
     netcdf --> core
