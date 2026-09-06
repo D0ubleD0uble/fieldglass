@@ -866,6 +866,13 @@ const UNDETECTED_SWAPS: &[(&str, u16, u16, &str)] = &[
 /// ordinary labels into recorded divergences — a design decision, not a fix, so
 /// this counts them and holds the count in a band rather than pretending they
 /// are not there.
+///
+/// Scoped to the codes the **snapshot** carries, which is not quite every label
+/// the lookups can return: §4.5 codes 200 and 201 are NCEP's, inside WMO's
+/// local-use range, and WMO publishes no text for them. That is the same scope
+/// [`every_curated_code_table_entry_agrees_with_wmo`] has and for the same
+/// reason — with no authority text there is nothing to swap *against* — but the
+/// test's name promises more than that, so it is written down here.
 #[test]
 fn every_swap_this_gate_cannot_see_is_recorded() {
     let doc = snapshot();
