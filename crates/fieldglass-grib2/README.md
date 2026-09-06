@@ -36,9 +36,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     for index in 0..reader.message_count() {
         let msg = &reader.messages[index];
-        // `None` for the families that are not a rectangle of values at all:
-        // spherical-harmonic and bi-Fourier coefficients, and HEALPix pixels.
-        // They have their own entry points and would refuse the call below.
+        // `None` for the three families that are not a rectangle of values at
+        // all — spherical-harmonic and bi-Fourier coefficients, and HEALPix
+        // pixels, which have their own entry points and would refuse the call
+        // below — and for a §3 template this build does not model.
         let Some((ni, nj)) = msg.gds.dimensions() else {
             continue;
         };

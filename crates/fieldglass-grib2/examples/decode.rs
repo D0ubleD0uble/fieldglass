@@ -38,14 +38,15 @@ fn main() -> Result<(), FieldglassError> {
 
         for index in 0..reader.message_count() {
             let msg = &reader.messages[index];
-            // `None` for the families that are not a rectangle of values at
-            // all — spherical-harmonic and bi-Fourier coefficients, HEALPix
+            // `None` for the three families that are not a rectangle of values
+            // at all — spherical-harmonic and bi-Fourier coefficients, HEALPix
             // pixels — which have their own entry points and would refuse the
-            // scalar decode below. `size_label` is how such a message states
-            // its own size (`T63`, `Nside 4`).
+            // scalar decode below, and also for a §3 template this build does
+            // not model, whose shape is simply unknown. `size_label` is how a
+            // message of the first kind states its own size (`T63`, `Nside 4`).
             let Some((ni, nj)) = msg.gds.dimensions() else {
                 println!(
-                    "  [{index}] {} ({}): not a rectangle of values; skipping",
+                    "  [{index}] {} ({}): no raster shape; skipping",
                     msg.gds.template_name(),
                     msg.gds
                         .size_label()

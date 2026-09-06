@@ -39,10 +39,12 @@ fn main() -> Result<(), FieldglassError> {
         for index in 0..reader.message_count() {
             // Which decode entry point applies is not a property of the packing
             // label alone, so ask rather than guess. `Spectral` and `Matrix`
-            // have their own methods; `Unsupported` has none.
+            // have their own methods; `Unsupported` has none, and covers a grid
+            // this build does not model as well as a malformed one — so this
+            // names the kind rather than asserting what the message is not.
             let kind = reader.message_kind(index);
             if kind != Grib1MessageKind::Grid {
-                println!("  [{index}] {kind:?}, not one value per grid point; skipping");
+                println!("  [{index}] {kind:?}: not the scalar-decode path; skipping");
                 continue;
             }
 
