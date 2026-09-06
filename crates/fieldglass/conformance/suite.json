@@ -2842,6 +2842,1433 @@
       }
     },
     {
+      "id": "reduced_gaussian/open",
+      "fixture": "fieldglass-grib2/tests/fixtures/reduced_gaussian_pressure_level.grib2",
+      "op": "open",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "count": 1,
+        "format": "grib2"
+      }
+    },
+    {
+      "id": "reduced_gaussian/message",
+      "fixture": "fieldglass-grib2/tests/fixtures/reduced_gaussian_pressure_level.grib2",
+      "op": "message",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "abbreviation": "TMP",
+        "forecast": "+0h",
+        "grid": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            -87.863799,
+            87.863799,
+            0.0,
+            357.1875
+          ],
+          "dx": 2.8125,
+          "dy": null,
+          "kind": "gaussian",
+          "label": "reduced_gaussian",
+          "ni": 128,
+          "nj": 64,
+          "periodicX": true,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 87.863799
+        },
+        "index": 0,
+        "level": "100000",
+        "levelType": "Isobaric surface (Pa)",
+        "offsetBytes": 0,
+        "packing": "simple",
+        "parameter": "Temperature",
+        "referenceTime": "2008-02-06T12:00:00Z",
+        "sizeLabel": "N32",
+        "units": "K"
+      }
+    },
+    {
+      "id": "reduced_gaussian/decode/auto",
+      "fixture": "fieldglass-grib2/tests/fixtures/reduced_gaussian_pressure_level.grib2",
+      "op": "decode",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            -87.863799,
+            87.863799,
+            0.0,
+            357.1875
+          ],
+          "dx": 2.8125,
+          "dy": null,
+          "kind": "gaussian",
+          "label": "reduced_gaussian",
+          "ni": 128,
+          "nj": 64,
+          "periodicX": true,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 87.863799
+        },
+        "len": 8192,
+        "maskLen": 8192,
+        "maskOnes": 8192,
+        "ni": 128,
+        "nj": 64,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 247.46484375
+          },
+          {
+            "i": 2048,
+            "m": 1,
+            "v": 285.57421875
+          },
+          {
+            "i": 4096,
+            "m": 1,
+            "v": 299.05859375
+          },
+          {
+            "i": 6144,
+            "m": 1,
+            "v": 278.05859375
+          },
+          {
+            "i": 8191,
+            "m": 1,
+            "v": 256.02734375
+          }
+        ],
+        "stats": {
+          "max": 312.07421875,
+          "min": 235.01171875,
+          "validCount": 8192
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "reduced_gaussian/decode/f32",
+      "fixture": "fieldglass-grib2/tests/fixtures/reduced_gaussian_pressure_level.grib2",
+      "op": "decode",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "f32",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            -87.863799,
+            87.863799,
+            0.0,
+            357.1875
+          ],
+          "dx": 2.8125,
+          "dy": null,
+          "kind": "gaussian",
+          "label": "reduced_gaussian",
+          "ni": 128,
+          "nj": 64,
+          "periodicX": true,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 87.863799
+        },
+        "len": 8192,
+        "maskLen": 8192,
+        "maskOnes": 8192,
+        "ni": 128,
+        "nj": 64,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 247.46484375
+          },
+          {
+            "i": 2048,
+            "m": 1,
+            "v": 285.57421875
+          },
+          {
+            "i": 4096,
+            "m": 1,
+            "v": 299.05859375
+          },
+          {
+            "i": 6144,
+            "m": 1,
+            "v": 278.05859375
+          },
+          {
+            "i": 8191,
+            "m": 1,
+            "v": 256.02734375
+          }
+        ],
+        "stats": {
+          "max": 312.07421875,
+          "min": 235.01171875,
+          "validCount": 8192
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "reduced_gaussian/decode/f64",
+      "fixture": "fieldglass-grib2/tests/fixtures/reduced_gaussian_pressure_level.grib2",
+      "op": "decode",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "f64",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "dtype": "f64",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            -87.863799,
+            87.863799,
+            0.0,
+            357.1875
+          ],
+          "dx": 2.8125,
+          "dy": null,
+          "kind": "gaussian",
+          "label": "reduced_gaussian",
+          "ni": 128,
+          "nj": 64,
+          "periodicX": true,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 87.863799
+        },
+        "len": 8192,
+        "maskLen": 8192,
+        "maskOnes": 8192,
+        "ni": 128,
+        "nj": 64,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 247.46484375
+          },
+          {
+            "i": 2048,
+            "m": 1,
+            "v": 285.57421875
+          },
+          {
+            "i": 4096,
+            "m": 1,
+            "v": 299.05859375
+          },
+          {
+            "i": 6144,
+            "m": 1,
+            "v": 278.05859375
+          },
+          {
+            "i": 8191,
+            "m": 1,
+            "v": 256.02734375
+          }
+        ],
+        "stats": {
+          "max": 312.07421875,
+          "min": 235.01171875,
+          "validCount": 8192
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "reduced_gaussian/warp/nearest",
+      "fixture": "fieldglass-grib2/tests/fixtures/reduced_gaussian_pressure_level.grib2",
+      "op": "warp",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": false,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "bounds": [
+          -87.863799,
+          87.863799,
+          0.0,
+          360.0
+        ],
+        "height": 64,
+        "len": 8192,
+        "maskOnes": 8192,
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 247.46484375
+          },
+          {
+            "i": 2048,
+            "m": 1,
+            "v": 285.57421875
+          },
+          {
+            "i": 4096,
+            "m": 1,
+            "v": 299.05859375
+          },
+          {
+            "i": 6144,
+            "m": 1,
+            "v": 278.05859375
+          },
+          {
+            "i": 8191,
+            "m": 1,
+            "v": 256.02734375
+          }
+        ],
+        "width": 128
+      }
+    },
+    {
+      "id": "reduced_gaussian/warp/bilinear",
+      "fixture": "fieldglass-grib2/tests/fixtures/reduced_gaussian_pressure_level.grib2",
+      "op": "warp",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": true,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "bounds": [
+          -87.863799,
+          87.863799,
+          0.0,
+          360.0
+        ],
+        "height": 64,
+        "len": 8192,
+        "maskOnes": 8192,
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 247.46484375
+          },
+          {
+            "i": 2048,
+            "m": 1,
+            "v": 285.5875244140625
+          },
+          {
+            "i": 4096,
+            "m": 1,
+            "v": 299.05859375
+          },
+          {
+            "i": 6144,
+            "m": 1,
+            "v": 278.0959167480469
+          },
+          {
+            "i": 8191,
+            "m": 1,
+            "v": 256.02734375
+          }
+        ],
+        "width": 128
+      }
+    },
+    {
+      "id": "reduced_gaussian/warp/window",
+      "fixture": "fieldglass-grib2/tests/fixtures/reduced_gaussian_pressure_level.grib2",
+      "op": "warp",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": true,
+        "bounds": [
+          -20.0,
+          40.0,
+          -30.0,
+          60.0
+        ],
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "bounds": [
+          -20.0,
+          40.0,
+          -30.0,
+          60.0
+        ],
+        "height": 64,
+        "len": 8192,
+        "maskOnes": 8192,
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 286.56805419921875
+          },
+          {
+            "i": 2048,
+            "m": 1,
+            "v": 292.0850830078125
+          },
+          {
+            "i": 4096,
+            "m": 1,
+            "v": 296.64569091796875
+          },
+          {
+            "i": 6144,
+            "m": 1,
+            "v": 298.95806884765625
+          },
+          {
+            "i": 8191,
+            "m": 1,
+            "v": 298.92474365234375
+          }
+        ],
+        "width": 128
+      }
+    },
+    {
+      "id": "reduced_gaussian/palette/viridis",
+      "fixture": "fieldglass-grib2/tests/fixtures/reduced_gaussian_pressure_level.grib2",
+      "op": "palette",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "viridis",
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "lutLen": 1024,
+        "lutSamples": [
+          {
+            "b": 68,
+            "i": 0
+          },
+          {
+            "b": 59,
+            "i": 256
+          },
+          {
+            "b": 33,
+            "i": 512
+          },
+          {
+            "b": 96,
+            "i": 768
+          },
+          {
+            "b": 255,
+            "i": 1023
+          }
+        ],
+        "maskedRgba": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "scale": "linear",
+        "t0": 235.01171875,
+        "t1": 312.07421875
+      }
+    },
+    {
+      "id": "reduced_gaussian/palette/log_reversed_ranged",
+      "fixture": "fieldglass-grib2/tests/fixtures/reduced_gaussian_pressure_level.grib2",
+      "op": "palette",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "plasma",
+        "reversed": true,
+        "scale": "log10",
+        "rangeMin": 1.0,
+        "rangeMax": 1000.0,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "lutLen": 1024,
+        "lutSamples": [
+          {
+            "b": 240,
+            "i": 0
+          },
+          {
+            "b": 248,
+            "i": 256
+          },
+          {
+            "b": 203,
+            "i": 512
+          },
+          {
+            "b": 125,
+            "i": 768
+          },
+          {
+            "b": 255,
+            "i": 1023
+          }
+        ],
+        "maskedRgba": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "scale": "log10",
+        "t0": 0.0,
+        "t1": 3.0
+      }
+    },
+    {
+      "id": "reduced_gaussian/render/flip_false",
+      "fixture": "fieldglass-grib2/tests/fixtures/reduced_gaussian_pressure_level.grib2",
+      "op": "render",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "viridis",
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": false,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "height": 64,
+        "opaque": 8192,
+        "pixels": [
+          {
+            "i": 0,
+            "rgba": [
+              68,
+              55,
+              128,
+              255
+            ]
+          },
+          {
+            "i": 2048,
+            "rgba": [
+              53,
+              181,
+              121,
+              255
+            ]
+          },
+          {
+            "i": 4096,
+            "rgba": [
+              143,
+              214,
+              68,
+              255
+            ]
+          },
+          {
+            "i": 6144,
+            "rgba": [
+              34,
+              158,
+              136,
+              255
+            ]
+          },
+          {
+            "i": 8191,
+            "rgba": [
+              56,
+              88,
+              140,
+              255
+            ]
+          }
+        ],
+        "rgbaLen": 32768,
+        "width": 128
+      }
+    },
+    {
+      "id": "reduced_gaussian/render/flip_true",
+      "fixture": "fieldglass-grib2/tests/fixtures/reduced_gaussian_pressure_level.grib2",
+      "op": "render",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": "viridis",
+        "reversed": false,
+        "scale": "linear",
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": true,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "height": 64,
+        "opaque": 8192,
+        "pixels": [
+          {
+            "i": 0,
+            "rgba": [
+              56,
+              88,
+              140,
+              255
+            ]
+          },
+          {
+            "i": 2048,
+            "rgba": [
+              42,
+              173,
+              127,
+              255
+            ]
+          },
+          {
+            "i": 4096,
+            "rgba": [
+              143,
+              214,
+              68,
+              255
+            ]
+          },
+          {
+            "i": 6144,
+            "rgba": [
+              41,
+              172,
+              128,
+              255
+            ]
+          },
+          {
+            "i": 8191,
+            "rgba": [
+              68,
+              55,
+              128,
+              255
+            ]
+          }
+        ],
+        "rgbaLen": 32768,
+        "width": 128
+      }
+    },
+    {
+      "id": "reduced_gaussian/probe/0_0",
+      "fixture": "fieldglass-grib2/tests/fixtures/reduced_gaussian_pressure_level.grib2",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": 0.0,
+        "lon": 0.0,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "i": 0.0,
+        "j": 31.5,
+        "lat": 0.0,
+        "lon": 0.0,
+        "value": 299.05859375
+      }
+    },
+    {
+      "id": "reduced_gaussian/probe/45_-100",
+      "fixture": "fieldglass-grib2/tests/fixtures/reduced_gaussian_pressure_level.grib2",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": 45.0,
+        "lon": -100.0,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": {
+        "i": 92.44444444444444,
+        "j": 15.374382606586847,
+        "lat": 45.0,
+        "lon": -100.0,
+        "value": 268.46484375
+      }
+    },
+    {
+      "id": "reduced_gaussian/probe/89.5_10",
+      "fixture": "fieldglass-grib2/tests/fixtures/reduced_gaussian_pressure_level.grib2",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": 89.5,
+        "lon": 10.0,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": null
+    },
+    {
+      "id": "reduced_gaussian/probe/-89.5_-170",
+      "fixture": "fieldglass-grib2/tests/fixtures/reduced_gaussian_pressure_level.grib2",
+      "op": "probe",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": -89.5,
+        "lon": -170.0,
+        "levels": null,
+        "combineOp": null
+      },
+      "expect": null
+    },
+    {
+      "id": "reduced_gaussian/contours/auto",
+      "fixture": "fieldglass-grib2/tests/fixtures/reduced_gaussian_pressure_level.grib2",
+      "op": "contours",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": [],
+        "combineOp": null
+      },
+      "expect": {
+        "levelCount": 8,
+        "levels": [
+          240.0,
+          250.0,
+          260.0,
+          270.0,
+          280.0,
+          290.0,
+          300.0,
+          310.0
+        ],
+        "segmentCounts": [
+          94,
+          242,
+          412,
+          386,
+          374,
+          404,
+          508,
+          38
+        ]
+      }
+    },
+    {
+      "id": "reduced_gaussian/contours/explicit",
+      "fixture": "fieldglass-grib2/tests/fixtures/reduced_gaussian_pressure_level.grib2",
+      "op": "contours",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": [
+          250.0,
+          275.0,
+          300.0
+        ],
+        "combineOp": null
+      },
+      "expect": {
+        "levelCount": 3,
+        "levels": [
+          250.0,
+          275.0,
+          300.0
+        ],
+        "segmentCounts": [
+          242,
+          410,
+          508
+        ]
+      }
+    },
+    {
+      "id": "reduced_gaussian/combine/a_minus_b",
+      "fixture": "fieldglass-grib2/tests/fixtures/reduced_gaussian_pressure_level.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "a_minus_b"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            -87.863799,
+            87.863799,
+            0.0,
+            357.1875
+          ],
+          "dx": 2.8125,
+          "dy": null,
+          "kind": "gaussian",
+          "label": "reduced_gaussian",
+          "ni": 128,
+          "nj": 64,
+          "periodicX": true,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 87.863799
+        },
+        "len": 8192,
+        "maskLen": 8192,
+        "maskOnes": 8192,
+        "ni": 128,
+        "nj": 64,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 2048,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 4096,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 6144,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 8191,
+            "m": 1,
+            "v": 0.0
+          }
+        ],
+        "stats": {
+          "max": 0.0,
+          "min": 0.0,
+          "validCount": 8192
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "reduced_gaussian/combine/b_minus_a",
+      "fixture": "fieldglass-grib2/tests/fixtures/reduced_gaussian_pressure_level.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "b_minus_a"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            -87.863799,
+            87.863799,
+            0.0,
+            357.1875
+          ],
+          "dx": 2.8125,
+          "dy": null,
+          "kind": "gaussian",
+          "label": "reduced_gaussian",
+          "ni": 128,
+          "nj": 64,
+          "periodicX": true,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 87.863799
+        },
+        "len": 8192,
+        "maskLen": 8192,
+        "maskOnes": 8192,
+        "ni": 128,
+        "nj": 64,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 2048,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 4096,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 6144,
+            "m": 1,
+            "v": 0.0
+          },
+          {
+            "i": 8191,
+            "m": 1,
+            "v": 0.0
+          }
+        ],
+        "stats": {
+          "max": 0.0,
+          "min": 0.0,
+          "validCount": 8192
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "reduced_gaussian/combine/a_plus_b",
+      "fixture": "fieldglass-grib2/tests/fixtures/reduced_gaussian_pressure_level.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "a_plus_b"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            -87.863799,
+            87.863799,
+            0.0,
+            357.1875
+          ],
+          "dx": 2.8125,
+          "dy": null,
+          "kind": "gaussian",
+          "label": "reduced_gaussian",
+          "ni": 128,
+          "nj": 64,
+          "periodicX": true,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 87.863799
+        },
+        "len": 8192,
+        "maskLen": 8192,
+        "maskOnes": 8192,
+        "ni": 128,
+        "nj": 64,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 494.9296875
+          },
+          {
+            "i": 2048,
+            "m": 1,
+            "v": 571.1484375
+          },
+          {
+            "i": 4096,
+            "m": 1,
+            "v": 598.1171875
+          },
+          {
+            "i": 6144,
+            "m": 1,
+            "v": 556.1171875
+          },
+          {
+            "i": 8191,
+            "m": 1,
+            "v": 512.0546875
+          }
+        ],
+        "stats": {
+          "max": 624.1484375,
+          "min": 470.0234375,
+          "validCount": 8192
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "reduced_gaussian/combine/mean",
+      "fixture": "fieldglass-grib2/tests/fixtures/reduced_gaussian_pressure_level.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "mean"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            -87.863799,
+            87.863799,
+            0.0,
+            357.1875
+          ],
+          "dx": 2.8125,
+          "dy": null,
+          "kind": "gaussian",
+          "label": "reduced_gaussian",
+          "ni": 128,
+          "nj": 64,
+          "periodicX": true,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 87.863799
+        },
+        "len": 8192,
+        "maskLen": 8192,
+        "maskOnes": 8192,
+        "ni": 128,
+        "nj": 64,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 247.46484375
+          },
+          {
+            "i": 2048,
+            "m": 1,
+            "v": 285.57421875
+          },
+          {
+            "i": 4096,
+            "m": 1,
+            "v": 299.05859375
+          },
+          {
+            "i": 6144,
+            "m": 1,
+            "v": 278.05859375
+          },
+          {
+            "i": 8191,
+            "m": 1,
+            "v": 256.02734375
+          }
+        ],
+        "stats": {
+          "max": 312.07421875,
+          "min": 235.01171875,
+          "validCount": 8192
+        },
+        "units": "K"
+      }
+    },
+    {
+      "id": "reduced_gaussian/combine/ratio",
+      "fixture": "fieldglass-grib2/tests/fixtures/reduced_gaussian_pressure_level.grib2",
+      "op": "combine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": "ratio"
+      },
+      "expect": {
+        "dtype": "f32",
+        "georef": {
+          "axisUnits": "degrees",
+          "boundsLonlat": [
+            -87.863799,
+            87.863799,
+            0.0,
+            357.1875
+          ],
+          "dx": 2.8125,
+          "dy": null,
+          "kind": "gaussian",
+          "label": "reduced_gaussian",
+          "ni": 128,
+          "nj": 64,
+          "periodicX": true,
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "x0": 0.0,
+          "y0": 87.863799
+        },
+        "len": 8192,
+        "maskLen": 8192,
+        "maskOnes": 8192,
+        "ni": 128,
+        "nj": 64,
+        "parameter": "Temperature",
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 2048,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 4096,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 6144,
+            "m": 1,
+            "v": 1.0
+          },
+          {
+            "i": 8191,
+            "m": 1,
+            "v": 1.0
+          }
+        ],
+        "stats": {
+          "max": 1.0,
+          "min": 1.0,
+          "validCount": 8192
+        },
+        "units": "K"
+      }
+    },
+    {
       "id": "lambert/open",
       "fixture": "fieldglass-grib2/tests/fixtures/eta_lambert_msg0.grib2",
       "op": "open",

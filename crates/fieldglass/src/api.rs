@@ -150,8 +150,22 @@ api_type! {
         /// `rotated_latlon`, `lambert`, `polar_stereo`, `transverse_mercator`,
         /// `lambert_azimuthal`, `space_view`, `lookup`, or `unsupported`.
         pub kind: String,
-        /// The most specific name available — the decoder's own grid-type
-        /// string for a family this build does not model.
+        /// The family name the **file** uses for its own grid — the decoder's
+        /// own grid-type string, and what a grid-type column should show.
+        ///
+        /// Usually [`kind`](Self::kind), and deliberately not always. It is
+        /// more specific for a family this build does not place points on
+        /// (`spherical_harmonic`, `healpix`, `unsupported(3.99)`, all of kind
+        /// `unsupported`) and for the reduced families, whose rows are widened
+        /// onto their regular sibling's raster before anything reads them:
+        /// a `reduced_gg` message is `kind` `gaussian` and `label`
+        /// `reduced_gaussian`, which is what eccodes calls it and what the
+        /// other host shows (#645).
+        ///
+        /// A field's own georef reports the grid its *values* are on, so a
+        /// synthesised raster is `latlon` in both — see
+        /// [`MessageInfo::grid`](crate::api::MessageInfo::grid) for the other
+        /// half of that split.
         pub label: String,
         /// Grid columns (west-to-east point count of one row).
         pub ni: u32,
@@ -488,7 +502,33 @@ impl Georef {
     /// projection plane, which is what [`GridGeometry::proj4`] describes — the
     /// grid origin is applied on top of the CRS, not baked into it, so a host
     /// placing the raster needs both halves and this carries them together.
+    ///
+    /// [`label`](Georef::label) comes from the geometry, which is right for a
+    /// grid that has no declaring message behind it — a synthesised raster, a
+    /// combined field. Where there *is* one, use
+    /// [`from_declared`](Self::from_declared) so the file's own name for its
+    /// grid survives the conversion.
     pub fn from_geometry(geom: &GridGeometry, scan: Scan) -> Self {
+        Self::from_declared(geom, scan, geom.label())
+    }
+
+    /// As [`from_geometry`](Self::from_geometry), but with the family name the
+    /// **message** declares rather than the one the geometry reports.
+    ///
+    /// The two differ for the reduced families. Both decoders widen a reduced
+    /// grid's rows onto a regular raster before anything places a point on it,
+    /// so the geometry that arrives here is the regular sibling and
+    /// [`GridGeometry::kind`] — which is the serde tag, and must stay the
+    /// variant's own name — answers `"gaussian"` for a `reduced_gg`. The file
+    /// still says `reduced_gaussian`, that is what eccodes prints and what the
+    /// extension's grid-type column shows, and losing it here is what made the
+    /// two hosts disagree in public (#645).
+    ///
+    /// So `declared` is the decoder's own string —
+    /// `fieldglass_grib1::gds::GridDescription::grid_type_name`,
+    /// `fieldglass_grib2::gds::GridDefinitionSection::template_name` — read
+    /// rather than re-derived, the way `raster_bounds` is (#543).
+    pub fn from_declared(geom: &GridGeometry, scan: Scan, declared: &str) -> Self {
         let (ni, nj) = geom.dims().unwrap_or((0, 0));
         // One question, asked of `core`: a family that has a plane reports its
         // origin and step in that plane's own units, and one that has none (a
@@ -505,7 +545,7 @@ impl Georef {
         Self {
             geometry: geom.clone(),
             kind: geom.kind().to_string(),
-            label: geom.label().to_string(),
+            label: declared.to_string(),
             ni,
             nj,
             bounds_lonlat: geom.lonlat_bbox().map(LonLatBox::to_array),

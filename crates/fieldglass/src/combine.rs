@@ -360,13 +360,22 @@ pub(crate) fn combine_api_fields(a: &Field, b: &Field, op: CombineOp) -> Result<
 }
 
 /// A [`Source`] borrowed off a field's own georef.
+///
+/// `family` is [`Georef::label`], not `kind`: [`Source::family`] is documented
+/// as the decoder's own name *because* the geometry collapses a reduced grid
+/// onto its regular sibling, and `kind` is exactly that collapsed name. Before
+/// #645 the umbrella had nothing else to offer here — `label` fell through to
+/// `kind` for every modelled family — so this read the only string there was.
+/// Now it does not, and a `Source` built here captions and refuses with the
+/// family the file declared, the way `fieldglass-napi`'s does from
+/// `MessageMeta::grid_type`.
 fn source_of(f: &Field) -> Source<'_> {
     Source {
         geometry: Ok(&f.georef.geometry),
         ni: f.ni,
         nj: f.nj,
         scan: f.georef.scan,
-        family: &f.georef.kind,
+        family: &f.georef.label,
     }
 }
 
@@ -385,6 +394,43 @@ mod tests {
             lat_last: 20.0,
             lon_last: 20.0,
         })
+    }
+
+    /// `source_of` reads the family the **message** declared, not the one the
+    /// geometry collapsed to.
+    ///
+    /// Nothing observes it today — `aligned`, the only caller, compares the
+    /// geometry, the raster shape and the scan and never reads `family` — so
+    /// this is the gate that keeps it right until something does. The day the
+    /// umbrella routes a caption or a reprojection refusal through `source_of`,
+    /// a reduced Gaussian field would otherwise say `gaussian` where
+    /// `fieldglass-napi` says `reduced_gaussian`, which is the divergence #645
+    /// exists to remove.
+    #[test]
+    fn a_source_off_a_field_names_the_family_the_file_declared() {
+        let geometry = latlon(8, 4);
+        let mut georef = Georef::from_declared(&geometry, Scan::north_down(), "reduced_gaussian");
+        assert_eq!(georef.kind, "latlon", "the collapsed family");
+        let field = |georef: Georef| Field {
+            values: crate::api::Values::F64(vec![0.0; 32]),
+            mask: vec![1; 32],
+            ni: 8,
+            nj: 4,
+            georef,
+            stats: crate::api::Stats {
+                min: Some(0.0),
+                max: Some(0.0),
+                valid_count: 32,
+            },
+            parameter: String::new(),
+            units: String::new(),
+        };
+        assert_eq!(source_of(&field(georef.clone())).family, "reduced_gaussian");
+
+        // And it is the label rather than a constant: a field whose declared
+        // family is its geometry's still reports that one.
+        georef.label = "latlon".to_string();
+        assert_eq!(source_of(&field(georef)).family, "latlon");
     }
 
     fn source<'a>(

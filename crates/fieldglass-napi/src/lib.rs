@@ -8966,3 +8966,117 @@ mod unresolved_parameter_tests {
         assert_eq!(meta1.parameter_name, umbrella_parameter(GRIB1.to_vec()));
     }
 }
+
+/// The two hosts name a message's grid family the same way (#645).
+///
+/// This crate never lost the name: `MessageMeta::grid_type` is
+/// `GridDescription::grid_type_name` / `GridDefinitionSection::template_name`
+/// read straight off the decoder. The umbrella re-derived it from the
+/// `GridGeometry` the decoder converts to, and that conversion deliberately
+/// collapses a reduced grid onto its regular sibling's raster — so a
+/// `reduced_gg` message read `reduced_gaussian` in the extension's grid-type
+/// column and `gaussian` in the umbrella, and therefore in the browser host.
+///
+/// The conformance suite cannot catch that from this side: this crate's runner
+/// drives only `Op::Decode` and `Op::Render`, and `DecodedGrid` carries no
+/// georef for the comparator to project. (`crates/fieldglass/conformance`
+/// *does* now gate it for the umbrella and the wasm host, which do run
+/// `Op::Message`.) So the two seams are compared here directly, over the whole
+/// committed corpus rather than a named pair — the defect was a seam quietly
+/// re-deriving a string the decoder owns, so what is worth pinning is that no
+/// message anywhere disagrees.
+///
+/// Delete this with `unresolved_parameter_tests` when #574 lands and this
+/// crate's message view is generated from the umbrella's schema.
+#[cfg(test)]
+mod declared_grid_family_tests {
+    use super::*;
+
+    /// The committed fixture directories, relative to this crate's directory,
+    /// and the extensions each holds.
+    const CORPORA: &[(&str, &[&str])] = &[
+        ("../fieldglass-grib1/tests/fixtures", &["grib1", "grib"]),
+        ("../fieldglass-grib2/tests/fixtures", &["grib2"]),
+    ];
+
+    /// What the umbrella reports for every message of a file: the same list
+    /// this crate's `grid_type` is checked against.
+    fn umbrella_families(bytes: Vec<u8>) -> Vec<Option<String>> {
+        let session = fieldglass::Session::open(bytes).expect("the fixture opens");
+        (0..session.count())
+            .map(|i| {
+                session
+                    .message(i)
+                    .expect("a message the session counted")
+                    .grid
+                    .map(|g| g.label)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn every_committed_message_names_its_grid_the_same_way_in_both_hosts() {
+        let mut files = 0usize;
+        let mut checked = 0usize;
+        let mut families = std::collections::BTreeSet::new();
+
+        for (dir, exts) in CORPORA {
+            let entries = std::fs::read_dir(dir).unwrap_or_else(|e| panic!("{dir}: {e}"));
+            let mut paths: Vec<_> = entries
+                .map(|e| e.expect("a readable directory entry").path())
+                .filter(|p| {
+                    p.extension()
+                        .and_then(|e| e.to_str())
+                        .is_some_and(|e| exts.contains(&e))
+                })
+                .collect();
+            paths.sort();
+
+            for path in paths {
+                let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("{path:?}: {e}"));
+                // Branch on the *file's* extension, not on the corpus's list:
+                // a `.grib2` fixture landing in the GRIB1 directory would
+                // otherwise feed every `.grib1` beside it to `Grib2Reader` and
+                // die on the parse rather than report a name mismatch.
+                let is_grib2 = path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .is_some_and(|e| e == "grib2");
+                let mine: Vec<Option<String>> = if is_grib2 {
+                    Grib2Reader::from_bytes(bytes.clone())
+                        .expect("grib2 parse")
+                        .messages
+                        .iter()
+                        .map(|m| build_grib2_message_meta(m).grid_type)
+                        .collect()
+                } else {
+                    Grib1Reader::from_bytes(bytes.clone())
+                        .expect("grib1 parse")
+                        .messages
+                        .iter()
+                        .map(|m| build_grib1_message_meta(m, None).grid_type)
+                        .collect()
+                };
+                let theirs = umbrella_families(bytes);
+                assert_eq!(theirs, mine, "{path:?}: the two hosts name the grid apart");
+                for name in mine.into_iter().flatten() {
+                    families.insert(name);
+                }
+                checked += theirs.len();
+                files += 1;
+            }
+        }
+
+        // A corpus check can pass by walking nothing, so what it walked is
+        // asserted as well as what it found. Generous bounds: this guards
+        // against a walk that found nothing, not against the corpus shrinking.
+        assert!(files >= 40, "only {files} fixtures walked");
+        assert!(checked >= 50, "only {checked} messages compared");
+        assert!(
+            families.contains("reduced_gaussian"),
+            "no committed fixture declares a reduced Gaussian grid any more, \
+             so the case this test exists for is no longer covered; \
+             families seen: {families:?}",
+        );
+    }
+}
