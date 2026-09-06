@@ -468,6 +468,13 @@ fn build_grib1_message_meta(
         msg.pds.table_version,
         msg.pds.originating_centre,
     ) {
+        // Same display-seam normalisation the GRIB2 side gets (#432). The GRIB1
+        // tables carry a third notation on top of WMO's: the ECMWF local tables
+        // are generated from eccodes, which writes exponents Fortran-style
+        // (`kg m**-2`), and ON388 chains solidi (`kg/m2/s`). Normalising here
+        // rather than in the tables keeps both generated files reproducible
+        // from their upstream, and makes the units column read the same
+        // whichever edition the file is (#441).
         Some(p) => (
             p.abbreviation.to_string(),
             p.name.to_string(),
@@ -568,13 +575,6 @@ fn build_grib1_message_meta(
             message_index: msg.message_index as i32,
             offset_bytes: msg.byte_offset as f64,
             parameter_name: param_name,
-            // Same display-seam normalisation the GRIB2 side gets (#432). The GRIB1
-            // tables carry a third notation on top of WMO's: the ECMWF local tables
-            // are generated from eccodes, which writes exponents Fortran-style
-            // (`kg m**-2`), and ON388 chains solidi (`kg/m2/s`). Normalising here
-            // rather than in the tables keeps both generated files reproducible
-            // from their upstream, and makes the units column read the same
-            // whichever edition the file is (#441).
             parameter_units: param_units,
             parameter_abbreviation: param_abbreviation,
             level: fieldglass_grib1::level_value_str(&msg.pds),

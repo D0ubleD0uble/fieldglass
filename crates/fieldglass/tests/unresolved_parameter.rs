@@ -5,8 +5,9 @@
 //! this, the three display paths rendered the same message three different
 //! ways — `"Unknown"` from GRIB1, the empty string from the umbrella's GRIB2
 //! seam, and `Parameter d/c/n` from the napi binding — and nothing failed,
-//! because **no committed fixture reaches the path**. Measured while taking
-//! #633: all 73 messages across the 109 committed GRIB fixtures resolve.
+//! because **no committed fixture reaches the path**: measured while taking
+//! #633, every one of the 73 messages the committed GRIB1 and GRIB2 fixture
+//! directories decode resolves against a table this build carries.
 //!
 //! So the fixture is made here rather than committed: a single byte of a
 //! committed fixture is changed to a code no table defines, which is both the

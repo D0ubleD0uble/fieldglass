@@ -720,8 +720,9 @@ fn grib2_scan(msg: &fieldglass_grib2::Grib2Message) -> Scan {
 /// `(abbreviation, name, units)` for one GRIB1 message.
 ///
 /// Split out of [`grib1_message`] so [`Session::decode`] does not build a whole
-/// `MessageInfo` for two strings: that would build the `Georef` too, and a
-/// projected family's `lonlat_bbox` walks its perimeter 512 times per edge.
+/// `MessageInfo` for the two strings it needs: that would build the `Georef`
+/// too, and a projected family's `lonlat_bbox` walks its perimeter 512 times
+/// per edge.
 #[cfg(feature = "grib1")]
 fn grib1_parameter(msg: &fieldglass_grib1::Grib1Message) -> (String, String, String) {
     match fieldglass_grib1::tables::lookup_parameter(

@@ -263,8 +263,8 @@ api_type! {
         ///
         /// Empty only when the message has no parameter codes to name at all,
         /// which is a GRIB2 product template carrying no horizontal product
-        /// common. [`abbreviation`](MessageInfo::abbreviation) and
-        /// [`units`](Self::units) are empty in both cases.
+        /// common. [`units`](Self::units) is empty in both cases — an
+        /// unresolved parameter has a name to show but no unit to state.
         pub parameter: String,
         /// The parameter's units as its table states them. Empty when the
         /// parameter did not resolve, or is dimensionless.
