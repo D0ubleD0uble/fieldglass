@@ -124,9 +124,13 @@ rebased in Rust before it reaches the shader.
 
 ## Measured
 
-Both numbers are CI gates on every pull request, so what follows is what a check
-printed rather than an estimate (#462). Machine-dependent, so read the ratio and
-the shape, not the absolute milliseconds.
+Both numbers are what a check printed on every pull request rather than an
+estimate (#462), but only one of them is a gate. The bundle table is: CI's
+`Bundle-size gate` step fails when a build drifts more than 5% from it in either
+direction. The decode timings are printed and never compared — a per-run timing
+gate on a shared runner would be noise, so the number is the deliverable.
+Machine-dependent either way, so read the ratio and the shape, not the absolute
+milliseconds.
 
 ### Bundle
 

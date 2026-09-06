@@ -20,6 +20,41 @@ per grid point (`decode_matrix_message`).
 Decoders are cross-checked against ECMWF eccodes; the spectral transform and the
 matrix reshape — which eccodes cannot perform — against the definitive spec.
 
+## Usage
+
+```rust
+use fieldglass_grib1::{Grib1MessageKind, Grib1Reader};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Any GRIB1 file's bytes. This one is committed with the crate, so the
+    // snippet runs as written from a checkout.
+    let bytes = std::fs::read("tests/fixtures/cmc_wind_300_2010052400_p012.grib")?;
+    let reader = Grib1Reader::from_bytes(bytes)?;
+
+    for index in 0..reader.message_count() {
+        // Which entry point applies is not a property of the packing label
+        // alone, so ask rather than guess.
+        if reader.message_kind(index) != Grib1MessageKind::Grid {
+            continue;
+        }
+        let gds = reader.messages[index].gds.as_ref().expect("a grid description");
+        let (ni, nj) = gds.dimensions().expect("a raster shape");
+
+        // `decode_message_raster` hands back `ni · nj` values in row-major
+        // order whatever the message stored — reduced rows widened, a
+        // `j`-consecutive grid transposed. `decode_message_values` is the field
+        // exactly as stored, when that is what you want.
+        let values: Vec<Option<f64>> = reader.decode_message_raster(index)?;
+        println!("{} {ni}x{nj}: {} values", gds.grid_type_name(), values.len());
+    }
+
+    Ok(())
+}
+```
+
+`cargo run -p fieldglass-grib1 --example decode` runs that against the fixtures
+committed with the crate.
+
 ## License
 
 Licensed under either of MIT or Apache-2.0 at your option.

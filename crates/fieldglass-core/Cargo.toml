@@ -11,6 +11,17 @@ readme      = "README.md"
 keywords    = ["grib", "netcdf", "meteorology", "weather", "geospatial"]
 categories  = ["science", "parser-implementations"]
 
+# docs.rs builds with default features unless told otherwise, and every optional
+# surface here is on by default — so this changes nothing today. It is the guard
+# for the day one comes off the default list: a gated module that docs.rs cannot
+# see is documented nowhere a crates.io reader can reach, and the format crates
+# already depend on this crate with `default-features = false`, so "the default
+# set" is not the set this crate is read in. The only published crate in the
+# workspace with features at all; `fieldglass-grib1`, `-grib2` and `-netcdf`
+# have none, and `fieldglass` / `fieldglass-wasm` are `publish = false`.
+[package.metadata.docs.rs]
+all-features = true
+
 [features]
 # Viewer-domain code (`warp`, `overlay`, `colormap`) consumed only by
 # `fieldglass-napi`. On by default so the workspace and downstream renderers get

@@ -4,9 +4,12 @@ Format-agnostic traits and shared types for [Fieldglass](https://github.com/D0ub
 a viewer for meteorological data files (GRIB1, GRIB2, NetCDF).
 
 This crate is what the format readers are built on. It holds the parsing surface
-every format shares — bit reading, format detection, message metadata, the WMO
-centre tables, error types, and map projections — plus an optional viewer layer
-(warp, overlay, colormap) used by the rendering front end.
+every format shares — bit reading, byte access, format detection, the WMO centre
+tables, error types, scanning modes, map projections, and the three grids that
+arrive as something other than a rectangle of values (spherical harmonics,
+matrix-of-values, HEALPix) with the global lat/lon grid the first and last of
+those are synthesized onto — plus an optional viewer layer (warp, overlay,
+colormap) used by the rendering front end.
 
 The readers themselves are concrete types in their own crates, not
 implementations of a trait declared here. What is a trait here is a choice made

@@ -235,6 +235,32 @@ repos:
         entry: cargo test --workspace
         pass_filenames: false
 
+      - id: cargo-run-format-crate-examples
+        name: cargo run --example decode (each format crate)
+        stages: [pre-push]
+        language: system
+        # `cargo clippy --all-targets` compiles these and `cargo test` does not
+        # run them, so an example that panics at runtime — an `expect` on a
+        # fixture whose shape moved — passes every other gate in this file.
+        # Running is the claim the crate READMEs make ("`cargo run --example
+        # decode` runs that against the fixtures committed with the crate"), so
+        # it is the one checked here (#539). The fixtures are committed and
+        # small; the whole hook is under a second once the workspace is built.
+        #
+        # Exit status alone is too weak a claim. Every example has a skip
+        # branch, so a regression that pushed *every* message down it —
+        # `message_kind` degrading to `Unsupported`, `dimensions()` going
+        # `None`, no CF axis pair detected — would decode nothing, print only
+        # "skipping", and still exit zero. So the output is matched for a line
+        # reporting a decoded raster, which only the non-skip branch prints.
+        entry: >-
+          bash -c 'set -e; for c in fieldglass-grib1 fieldglass-grib2 fieldglass-netcdf; do
+          echo "--- cargo run -p $c --example decode";
+          out=$(cargo run -q -p "$c" --example decode); echo "$out";
+          echo "$out" | grep -q "in the raster\|value(s)";
+          done'
+        pass_filenames: false
+
       - id: cargo-test-core-no-default
         name: cargo test -p fieldglass-core --no-default-features
         stages: [pre-push]

@@ -23,6 +23,44 @@ keeps its dependency-light, cross-compilable build with no C dependencies.
 Grid geometry is returned as the shared types from
 [`fieldglass-core`](https://crates.io/crates/fieldglass-core).
 
+## Usage
+
+```rust
+use fieldglass_grib2::Grib2Reader;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Any GRIB2 file's bytes. This one is committed with the crate, so the
+    // snippet runs as written from a checkout.
+    let bytes = std::fs::read("tests/fixtures/regular_latlon_surface.grib2")?;
+    let reader = Grib2Reader::from_bytes(bytes)?;
+
+    for index in 0..reader.message_count() {
+        let msg = &reader.messages[index];
+        // `None` for the three families that are not a rectangle of values at
+        // all — spherical-harmonic and bi-Fourier coefficients, and HEALPix
+        // pixels, which have their own entry points and would refuse the call
+        // below — and for a §3 template this build does not model.
+        let Some((ni, nj)) = msg.gds.dimensions() else {
+            continue;
+        };
+
+        // Every scalar §5 packing reaches this one call — a caller never
+        // branches on `msg.drs.template_number`. `decode_message_raster` hands
+        // back `ni · nj` values in row-major order whatever the message stored
+        // (reduced rows widened, a `j`-consecutive grid transposed);
+        // `decode_message_values` is the field exactly as stored.
+        let values: Vec<Option<f64>> = reader.decode_message_raster(index)?;
+        println!("§5.{} {ni}x{nj}: {} values", msg.drs.template_number, values.len());
+    }
+
+    Ok(())
+}
+```
+
+`cargo run -p fieldglass-grib2 --example decode` runs that against the fixtures
+committed with the crate. The non-scalar packings named above have their own
+entry points, because they do not produce one value per grid point.
+
 ## License
 
 Licensed under either of MIT or Apache-2.0 at your option.

@@ -100,3 +100,13 @@ pub use reader::{
     Grib1Message, Grib1MessageKind, Grib1Reader, MAX_GRID_POINTS, MatrixField, forecast_display,
     forecast_hours, level_type_str, level_unit, level_value, level_value_str, reference_time,
 };
+
+/// Compiles and runs the README's usage snippet as a doc test, so the crate's
+/// crates.io front page cannot drift from the API it describes (#539).
+///
+/// `#[cfg(doctest)]` is what keeps this out of every other build: rustdoc sets
+/// it when it collects doc tests and nothing else does, so the type itself is
+/// never compiled into the library.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeSnippet;
