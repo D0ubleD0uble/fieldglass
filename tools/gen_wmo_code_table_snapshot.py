@@ -13,6 +13,16 @@ This snapshots those tables from the same pinned release the generator uses, so
 `tests/wmo_code_tables.rs` can check every curated arm against them. Committed,
 so the test suite needs no network.
 
+Every row of every table lands somewhere. A row whose `CodeFlag` is one number
+goes in `tables`; a row whose `CodeFlag` is a span (`192-254`, `18-191`) goes in
+`ranges`, keyed by the span as WMO writes it; anything else is a hard error.
+That is not tidiness. This script used to drop the span rows with a bare
+`continue`, so the test could not tell "WMO reserves 18-191" from "WMO assigns
+something across 18-191 that we never looked at" — the same structural
+blindness #653 fixed one level down, moved up into the generator (#655). The
+test asserts every span is unassigned, so the day WMO gives one a meaning it
+fails here rather than being silently invisible.
+
 Regenerate:
 
     python3 tools/gen_wmo_code_table_snapshot.py
@@ -50,35 +60,55 @@ TABLES = {
 }
 
 
+SPAN = re.compile(r"^\d+-\d+$")
+
+
 def main() -> int:
     csvs = fetch_csvs()
     out: dict[str, dict[str, str]] = {}
+    spans: dict[str, dict[str, str]] = {}
     for table, _fn in TABLES.items():
         major, minor = table.split(".")
         filename = f"GRIB2_CodeFlag_{major}_{minor}_CodeTable_en.csv"
         if filename not in csvs:
             raise SystemExit(f"{filename} not in the {WMO_TAG} release")
         entries: dict[str, str] = {}
+        ranges: dict[str, str] = {}
         for row in rows(csvs[filename]):
             code = clean(row.get("CodeFlag", ""))
-            if not code.isdigit():
-                continue
             name = clean(row.get("MeaningParameterDescription_en", ""))
+            # A row with no meaning would be dropped by whichever branch took
+            # it, so refuse it here instead: an empty description is upstream
+            # changing shape, not a row to skip.
             if not name:
-                continue
-            entries[code] = name
+                raise SystemExit(f"table {table}: row {code!r} has no description")
+            if code.isdigit():
+                entries[code] = name
+            elif SPAN.match(code):
+                ranges[code] = name
+            else:
+                raise SystemExit(
+                    f"table {table}: {code!r} is neither one code nor a span — "
+                    "teach this script the new shape rather than dropping the row"
+                )
         out[table] = dict(sorted(entries.items(), key=lambda kv: int(kv[0])))
+        spans[table] = dict(sorted(ranges.items(), key=lambda kv: int(kv[0].split("-")[0])))
 
     snapshot = {
         "source": f"wmo-im/GRIB2 release {WMO_TAG}",
         "note": "WMO GRIB2 code tables, the oracle for the hand-written lookups "
         "in tables.rs (#415). Regenerate with tools/gen_wmo_code_table_snapshot.py.",
         "tables": out,
+        "ranges": spans,
     }
     OUT.write_text(json.dumps(snapshot, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
     total = sum(len(v) for v in out.values())
-    print(f"wrote {OUT} — {total} entries across {len(out)} code tables from {WMO_TAG}",
-          file=sys.stderr)
+    spanned = sum(len(v) for v in spans.values())
+    print(f"wrote {OUT} — {total} entries and {spanned} span rows across "
+          f"{len(out)} code tables from {WMO_TAG}", file=sys.stderr)
+    for table in TABLES:
+        print(f"  {table:>4}: {len(out[table])} code(s), {len(spans[table])} span(s)",
+              file=sys.stderr)
     return 0
 
 
