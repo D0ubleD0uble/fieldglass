@@ -110,10 +110,19 @@ names) is not recoverable from `ni` and `nj`, so it travels beside them the way
 The family tag is the other thing the conversion loses. Both readers report
 `reduced_gaussian` today, which is what eccodes calls `reduced_gg` and what the
 message table shows; `GridGeometry::kind` answers `"gaussian"` for the variant
-that holds it, and `label` falls through to `kind` for a modelled family. So
-#464 either widens the variant, adds the reduced flag beside `ni`, or accepts
-that the grid-type column stops distinguishing the two — a choice to make
-deliberately rather than discover (#503).
+that holds it, and `label` falls through to `kind` for a modelled family. So the
+choice is to widen the variant, add the reduced flag beside `ni`, or accept that
+the grid-type column stops distinguishing the two — one to make deliberately
+rather than discover (#503).
+
+**#464 closed without making it, and the octahedral half of the same hand-off
+was fixed while this one was not.** `raster_bounds` no longer takes `lo2` at
+face value (`fieldglass-grib1/src/geometry.rs`, `fieldglass-grib2/src/geometry.rs`),
+but `GridGeometry::kind` still answers `"gaussian"`, and `Georef::kind` in
+`fieldglass::api` passes that string straight out. So the two hosts disagree in
+public today: `fieldglass-napi` reports `reduced_gaussian` for a reduced
+Gaussian message and the umbrella — and therefore the browser host — reports
+`gaussian`. Recorded here because it outlived the issue that was carrying it.
 
 ## NetCDF: curvilinear grids
 

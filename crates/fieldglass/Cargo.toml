@@ -10,12 +10,12 @@ description = "Host-neutral API over the Fieldglass decoders: open bytes, decode
 keywords = ["grib", "grib2", "meteorology", "weather", "raster"]
 categories = ["science", "parser-implementations"]
 readme = "README.md"
-# Not on crates.io yet. This is the first cut of the surface ADR-0006 describes,
-# filed under #460 so `fieldglass-wasm` has something to bind; #464 fixes the
-# `Session` methods and DTO fields against a second real consumer and moves the
-# render orchestration out of `fieldglass-napi`. Publishing 0.5.0 would pin a
-# shape that is about to move, and would add a fifth crate to a release process
-# (RELEASING.md) written around four.
+# Not on crates.io yet. This is the surface ADR-0006 describes, filed under #460
+# so `fieldglass-wasm` had something to bind; #464 fixed the `Session` methods
+# and DTO fields against a second real consumer and moved the render
+# orchestration out of `fieldglass-napi`. What is left before publishing is the
+# release process (RELEASING.md), which is written around the four library
+# crates.
 publish = false
 
 [dependencies]

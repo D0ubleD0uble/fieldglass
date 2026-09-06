@@ -2,8 +2,10 @@
 
 *Adopted 2026-07-19. Revised 2026-08-26 during 0.5.0 prep: milestone 10 closed,
 **Now** repopulated from the fieldglass-wasm milestone, and a **Hosts** track
-added. Reviewed after each release and at the twice-yearly WMO fast-track
-checkpoints (June and November).*
+added. Revised 2026-09-06: the umbrella crate, the browser façade and its CI
+gates have landed, so those rows leave **Now** and **Next** (#467). Reviewed
+after each release and at the twice-yearly WMO fast-track checkpoints (June and
+November).*
 
 
 This document says where Fieldglass is going and why. It is intent, not a
@@ -69,8 +71,9 @@ remote transports are not. **Trust** is the track that turns "decodes
 everything" into "decodes everything correctly", and is a parallel effort by
 design.
 
-**Hosts** is new to this list, and it is the reason the wasm build sits in
-**Now**. It is not a sixth kind of feature so much as a multiplier on the other
+**Hosts** is new to this list, and it is the reason the wasm build was promoted
+out of **Later**; that build has since landed, and what remains of the track is
+in **Next**. It is not a sixth kind of feature so much as a multiplier on the other
 five: the format crates are pure byte-in, values-out engines already, so every
 runtime added reaches the same decoders. It earns a track of its own because it
 trades against them for attention rather than composing with them.
@@ -122,12 +125,14 @@ and byte-access work done; this is the promotion of "New host surfaces" out of
 **Later**, now that the seam it was gated on ([ADR-0005](docs/decisions/0005-byte-access-and-the-remote-seam.md),
 `ByteSource`, #438) has landed.
 
-Most of the milestone waits on one issue, so the three below are what is
-genuinely startable. The rest are in **Next**.
+The root of the milestone has landed and is on `master`, unreleased: the
+`fieldglass` umbrella crate every host binds (#464), `fieldglass-wasm` over it
+(#460), and a CI job that compiles the format crates for
+`wasm32-unknown-unknown`, gates the bundle size and benchmarks decode against
+native (#462). What is left and startable is below; the rest is in **Next**.
 
 | Item | Track | Why now |
 |---|---|---|
-| `fieldglass-wasm`, a synchronous browser façade (#460) | Hosts | The root: five other issues in the milestone wait on it. ADR-0005 keeps decode synchronous precisely so this is possible — blocking inside a read cannot work in wasm. |
 | `fieldglass-fetchplan`, manifests in, byte ranges out (#461) | Containers | Unblocked (#417 and #426 are closed). Turns a `.idx` sidecar into the byte ranges an operation needs, which is what makes a multi-GB archive openable without downloading it. |
 | Reduced-resolution decode for JPEG 2000 fields (#463) | Containers | Independent of the byte-access seam entirely, so it can run alongside. 5.40 carries its own resolution levels; decoding fewer is free bytes and free time. |
 
@@ -136,17 +141,14 @@ genuinely startable. The rest are in **Next**.
 Problems we are confident we can solve; shape known, timing not.
 
 The rest of the fieldglass-wasm milestone, plus the remote transports it makes
-reachable. Every wasm row below waits on #460 in **Now**; the transports wait on
-#461 and on nothing else, since ADR-0005's gate — the `ByteSource` trait (#438)
-and one migrated reader — is met.
+reachable. Nothing below waits on #460 any more; the transports wait on #461 in
+**Now** and on nothing else, since ADR-0005's gate — the `ByteSource` trait
+(#438) and one migrated reader — is met.
 
 | Item | Track | What it unlocks |
 |---|---|---|
-| The `fieldglass` umbrella crate, and napi collapsed onto it (#464) | Hosts | ADR-0006's shape: one `Session` over plain serde types, so each host is buffer handoff and error mapping. Carries a hand-off from #445 — a `GridGeometry::Gaussian` built straight from the GDS takes `lo2` at face value and misplaces every octahedral grid, and `kind()` loses the `reduced_gaussian` tag both readers now report. |
-| wasm32 check, bundle-size gate, decode benchmark (#462) | Hosts | Stops the browser build regressing silently. A bundle-size gate is the only thing that keeps a wasm target honest, since nothing else fails when it doubles. |
 | Publish `@fieldglass/wasm` to npm on tag (#466) | Hosts | Makes the host installable rather than buildable. Rides the existing tag-triggered release path. |
-| ROADMAP and README statement for the host surface (#467) | Hosts | Says out loud that the format crates target `wasm32-unknown-unknown`, where the package lives, and what rendering in a browser does and does not do. |
-| Caller-controlled output raster, window × size (#465) | Interaction | A map view asks for "this window at W × H pixels". Today the output is always the source grid's `ni × nj` and manual bounds is the only zoom, which is why the browser app cannot drive a real map. |
+| Caller-controlled output raster, window × size (#465) | Interaction | A map view asks for "this window at W × H pixels". Today the output is always the source grid's `ni × nj` and manual bounds is the only zoom, which is why the browser app cannot drive a real map. Absorbed #403, exporting at a chosen size, which needs the same option. |
 | Remote data over HTTP range requests (#247) | Containers | The first transport, and the one every other depends on. Opens a file that lives on a public bucket without downloading it. |
 | S3 dataset access (#252) | Containers | NOAA's Open Data buckets are where the archives actually are — the same objects the fixture builders already fetch anonymously. |
 | Local Zarr v2 stores, a new `fieldglass-zarr` crate (#246) | Containers | The storage convention the climate archives are moving to; chunk-per-object rather than one file, so it needs the range seam rather than a reader. |
@@ -176,7 +178,7 @@ first.
 - **Verify NetCDF classic length arithmetic (#204)**, closing the
   verification milestone (#205).
 - **Further host surfaces.** PyO3 bindings and a CLI (#254), after the wasm
-  build in **Now**. The format crates are already pure byte-in, values-out
+  build that has now landed. The format crates are already pure byte-in, values-out
   engines, and each host is a binding over one `fieldglass` umbrella crate
   ([ADR-0006](docs/decisions/0006-hosts-are-bindings-over-a-plain-data-api.md)),
   so a new host is buffer handoff and error mapping, not a second engine.
@@ -198,9 +200,8 @@ tracks above.
 
 Zoom and pan (#245) · animate over time (#170) · cross-sections (#171) ·
 zonal average plots (#240) · vector plots from u/v pairs (#241) · line plots
-through the probe point (#172) · GMT CPT colour tables (#236) · export at a
-chosen size (#403) · CSV export for the remaining grid families (#244) ·
-GRIB1 metadata editing (#46).
+through the probe point (#172) · GMT CPT colour tables (#236) · CSV export for
+the remaining grid families (#244) · GRIB1 metadata editing (#46).
 
 ## Done
 
