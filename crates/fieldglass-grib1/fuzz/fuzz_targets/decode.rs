@@ -30,7 +30,20 @@
 
 use libfuzzer_sys::fuzz_target;
 
-use fieldglass_grib1::Grib1Reader;
+use fieldglass_grib1::{Grib1Reader, GridDescription};
+
+/// The declared spherical-harmonic truncation of message `i`, if it has one,
+/// against a bound chosen for fuzzer throughput rather than for correctness.
+///
+/// `(J+1)(J+2)` values at eight bytes each is 2.1 MB at `J = 512` and 537 MB at
+/// `MAX_TRUNCATION`; the decoder's arithmetic is the same either way.
+fn declares_a_large_truncation(reader: &Grib1Reader, i: usize) -> bool {
+    const FUZZ_MAX_TRUNCATION: u16 = 512;
+    matches!(
+        reader.messages.get(i).and_then(|m| m.gds.as_ref()),
+        Some(GridDescription::SphericalHarmonic(sh)) if sh.j > FUZZ_MAX_TRUNCATION
+    )
+}
 
 fuzz_target!(|data: &[u8]| {
     // A malformed buffer must surface a structured error, never panic.
@@ -40,10 +53,18 @@ fuzz_target!(|data: &[u8]| {
             // over-read. Errors on individual messages are expected and fine.
             let _ = reader.decode_message_values(i);
             // The spherical-harmonic decode path, which `decode_message_values`
-            // refuses outright. Bounded by `MAX_TRUNCATION`, so a declared
+            // refuses outright. `MAX_TRUNCATION` bounds it, so a declared
             // truncation can no longer turn a short input into an allocation
-            // the fuzzer reports as an OOM instead of as a finding.
-            let _ = reader.decode_spectral_message(i);
+            // the fuzzer reports as an OOM instead of as a finding — but the
+            // bound is 537 MB, which is inside libFuzzer's default RSS limit
+            // and still half a second of writes per exec. An input that reaches
+            // it would be kept in the corpus and pay that cost forever, so a
+            // large declared truncation is skipped here. Nothing in the bit
+            // unpacking needs one: the traversal, the IBM float decode and the
+            // sub-truncation weave are all exercised at small `J`.
+            if !declares_a_large_truncation(&reader, i) {
+                let _ = reader.decode_spectral_message(i);
+            }
             // Total by construction, so the assertion is that it stays total.
             let _ = reader.synthesis_grid(i);
         }

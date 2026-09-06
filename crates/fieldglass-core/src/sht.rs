@@ -42,9 +42,9 @@ use crate::global_grid::{GlobalGrid, SYNTHESIS_NI, SYNTHESIS_NJ};
 /// `T` is read from attacker-controlled §3 fields and the array it sizes is
 /// `(T+1)(T+2)` `f64`, so it is capped before anything is allocated. The
 /// transform's latitude-invariant tables ride on the same bound: the
-/// Legendre-recurrence table is `T(T−1)/2` `(f64, f64)` pairs — *twice* the
-/// coefficient array in bytes, and the largest single allocation on the path —
-/// and the longitude-phase tables are `O(T·nlon)`.
+/// Legendre-recurrence table is `T(T−1)/2` `(f64, f64)` pairs, which at the cap
+/// is 537 MB — the same size as the coefficient array itself, since `T(T−1)`
+/// approaches `(T+1)(T+2)` — and the longitude-phase tables are `O(T·nlon)`.
 ///
 /// # Why 8192
 ///
@@ -168,6 +168,48 @@ pub const fn synthesis_work(truncation: u32, nlat: usize, nlon: usize) -> u64 {
 /// from [`MAX_TRUNCATION`] and needs no separate justification.
 pub const MAX_SYNTHESIS_WORK: u64 = synthesis_work(MAX_TRUNCATION, SYNTHESIS_NJ, SYNTHESIS_NI);
 
+/// Every `f64`-sized value [`synthesize_spherical_harmonic`] allocates for a
+/// truncation and a target grid, against which [`MAX_SYNTHESIS_CELLS`] is the
+/// ceiling.
+///
+/// Space is a different function of the same two inputs than time is, which is
+/// why [`synthesis_work`] does not bound it. Work charges `nlat` for every
+/// column-longitude pair; the tables are built once and do not, so a grid with
+/// one latitude and a million longitudes is cheap by the work metric and
+/// allocates a phase table of `2(T+1)·nlon`. In the other direction `T = 0`
+/// makes every column term vanish while the output raster `nlat·nlon` remains.
+/// The terms, in the order the function allocates them:
+///
+/// | table | values |
+/// |---|---|
+/// | output raster | `nlat·nlon` |
+/// | longitudes in radians | `nlon` |
+/// | `cos(mλ)` and `sin(mλ)` | `2(T+1)·nlon` |
+/// | Legendre recurrence `(a, b)` | `T(T−1)` |
+///
+/// The coefficient array is the caller's and is bounded separately, by
+/// [`MAX_TRUNCATION`] at each decoder.
+///
+/// Saturating, for the reason [`synthesis_work`] gives.
+#[must_use]
+pub const fn synthesis_cells(truncation: u32, nlat: usize, nlon: usize) -> u64 {
+    let t = truncation as u64;
+    let (nlat, nlon) = (nlat as u64, nlon as u64);
+    let raster = nlat.saturating_mul(nlon);
+    let phases = nlon.saturating_mul(2u64.saturating_mul(t + 1).saturating_add(1));
+    let recurrence = t.saturating_mul(t.saturating_sub(1));
+    raster.saturating_add(phases).saturating_add(recurrence)
+}
+
+/// Ceiling on [`synthesis_cells`] — the transform's own peak allocation.
+///
+/// Defined the same way [`MAX_SYNTHESIS_WORK`] is, from the largest truncation
+/// that exists on the grid every host renders onto: 79,159,232 values, 633 MB.
+/// Holding both to the same worst case means one configuration decides both
+/// budgets, and a grid finer than the pinned one is admitted exactly as far as
+/// it costs no more than the case the project has already accepted.
+pub const MAX_SYNTHESIS_CELLS: u64 = synthesis_cells(MAX_TRUNCATION, SYNTHESIS_NJ, SYNTHESIS_NI);
+
 /// Choose the global regular lat/lon grid to synthesize a spectral field onto.
 ///
 /// `2(T+1)` latitudes is the smallest grid that holds everything a truncation
@@ -210,7 +252,8 @@ pub fn spectral_render_grid(truncation: u32) -> GlobalGrid {
 ///
 /// [`FieldglassError::Parse`] when the truncation is past [`MAX_TRUNCATION`],
 /// when `coefficients` is not `(T+1)(T+2)` long, or when the truncation and the
-/// target grid together would cost more than [`MAX_SYNTHESIS_WORK`].
+/// target grid together exceed [`MAX_SYNTHESIS_WORK`] or
+/// [`MAX_SYNTHESIS_CELLS`].
 pub fn synthesize_spherical_harmonic(
     coefficients: &[f64],
     truncation: u32,
@@ -218,16 +261,22 @@ pub fn synthesize_spherical_harmonic(
     longitudes_deg: &[f64],
 ) -> Result<Vec<f64>, FieldglassError> {
     let expected = coefficient_count(truncation)?;
-    // The cost budget, before the output `Vec` or any table is allocated. The
-    // truncation is bounded above; the target grid is not, and the two
-    // multiply.
-    let work = synthesis_work(truncation, latitudes_deg.len(), longitudes_deg.len());
+    let (nlat, nlon) = (latitudes_deg.len(), longitudes_deg.len());
+    // Both budgets, before the output `Vec` or any table is allocated. The
+    // truncation is bounded above; the target grid is not, and the two multiply
+    // — differently for time than for space, which is why there are two.
+    let work = synthesis_work(truncation, nlat, nlon);
     if work > MAX_SYNTHESIS_WORK {
         return Err(FieldglassError::Parse(format!(
-            "spectral synthesis of T={truncation} onto {} × {} points costs {work} \
-             coefficient evaluations, over the budget of {MAX_SYNTHESIS_WORK}",
-            longitudes_deg.len(),
-            latitudes_deg.len(),
+            "spectral synthesis of T={truncation} onto {nlon} × {nlat} points costs {work} \
+             coefficient evaluations, over the budget of {MAX_SYNTHESIS_WORK}"
+        )));
+    }
+    let cells = synthesis_cells(truncation, nlat, nlon);
+    if cells > MAX_SYNTHESIS_CELLS {
+        return Err(FieldglassError::Parse(format!(
+            "spectral synthesis of T={truncation} onto {nlon} × {nlat} points allocates {cells} \
+             values, over the budget of {MAX_SYNTHESIS_CELLS}"
         )));
     }
     if coefficients.len() != expected {
@@ -238,20 +287,12 @@ pub fn synthesize_spherical_harmonic(
     }
 
     let t = truncation as usize;
-    let nlon = longitudes_deg.len();
-    // The budget bounds the product in `u64`, which is wider than `usize` on a
-    // 32-bit target, so the output length is narrowed rather than multiplied
-    // out. Unreachable in practice — two slices whose product overflows a
-    // 32-bit `usize` do not fit in a 32-bit address space — but the arithmetic
-    // says so rather than relying on it.
-    let out_len = latitudes_deg.len().checked_mul(nlon).ok_or_else(|| {
-        FieldglassError::Parse(format!(
-            "spectral synthesis: a {} × {} output raster overflows this platform's usize",
-            nlon,
-            latitudes_deg.len()
-        ))
-    })?;
-    let mut out = vec![0.0; out_len];
+    // Every length below is a term of `cells`, which is now bounded by
+    // `MAX_SYNTHESIS_CELLS` — 79,159,232 — so each product fits a 32-bit
+    // `usize` and none of these multiplies can overflow. That bound is what
+    // makes them exact, not an assumption about how large a caller's slices
+    // could be.
+    let mut out = vec![0.0; nlat * nlon];
     let lon_rad: Vec<f64> = longitudes_deg.iter().map(|l| l.to_radians()).collect();
 
     // ── Latitude-invariant tables, hoisted out of the latitude loop ──────────
@@ -587,31 +628,81 @@ mod tests {
         assert!(err.to_string().contains("over the budget"), "{err}");
     }
 
-    /// The control for the test above: the pinned synthesis grid at the largest
-    /// truncation the cap admits is exactly the budget, so no real field is
-    /// refused by it. Checked as arithmetic — synthesizing it takes ~27 s.
+    /// Two grids that are affordable by *time* and ruinous by *space*, which is
+    /// why `synthesis_cells` exists beside `synthesis_work`. Both pass the work
+    /// budget: work charges `nlat` for every column-longitude pair, and each of
+    /// these makes one of those two factors one.
     #[test]
-    fn the_budget_is_the_pinned_grid_at_the_largest_truncation_admitted() {
+    fn rejects_a_grid_the_work_budget_admits_but_the_allocation_does_not() {
+        // A degenerate truncation on an enormous raster: every column term
+        // vanishes, and the output alone would be 20 billion values (160 GB).
+        assert!(synthesis_work(0, 100_000, 200_000) <= MAX_SYNTHESIS_WORK);
+        assert!(synthesis_cells(0, 100_000, 200_000) > MAX_SYNTHESIS_CELLS);
+
+        // One latitude and a million longitudes at the largest truncation: the
+        // phase tables are built once, so `nlat = 1` makes the work cheap while
+        // `2(T+1)·nlon` is 16 billion values (131 GB).
+        assert!(synthesis_work(MAX_TRUNCATION, 1, 1_000_000) <= MAX_SYNTHESIS_WORK);
+        assert!(synthesis_cells(MAX_TRUNCATION, 1, 1_000_000) > MAX_SYNTHESIS_CELLS);
+
+        // And the transform refuses it rather than allocating for it. `T = 0`
+        // takes two coefficient values, so this is a well-formed call in every
+        // way except its grid.
+        let lats = vec![0.0; 100_000];
+        let lons = vec![0.0; 200_000];
+        let Err(err) = synthesize_spherical_harmonic(&[1.0, 0.0], 0, &lats, &lons) else {
+            panic!("a grid past the allocation budget must be refused");
+        };
+        assert!(err.to_string().contains("over the budget"), "{err}");
+    }
+
+    /// The control for the tests above: the pinned synthesis grid at the largest
+    /// truncation the cap admits is exactly *both* budgets, so no real field is
+    /// refused by either. Checked as arithmetic — synthesizing it takes ~27 s
+    /// and 633 MB.
+    #[test]
+    fn the_budgets_are_the_pinned_grid_at_the_largest_truncation_admitted() {
         assert_eq!(
             synthesis_work(MAX_TRUNCATION, SYNTHESIS_NJ, SYNTHESIS_NI),
             MAX_SYNTHESIS_WORK
         );
+        assert_eq!(
+            synthesis_cells(MAX_TRUNCATION, SYNTHESIS_NJ, SYNTHESIS_NI),
+            MAX_SYNTHESIS_CELLS
+        );
         assert!(
             synthesis_work(MAX_TRUNCATION - 1, SYNTHESIS_NJ, SYNTHESIS_NI) < MAX_SYNTHESIS_WORK
         );
+        assert!(
+            synthesis_cells(MAX_TRUNCATION - 1, SYNTHESIS_NJ, SYNTHESIS_NI) < MAX_SYNTHESIS_CELLS
+        );
         // A caller-supplied grid finer than the pinned one is the case the
-        // budget is really guarding, and T63 at four times the linear
-        // resolution is still affordable.
+        // budgets are really guarding, and T63 at four times the linear
+        // resolution is still affordable under both.
         assert!(synthesis_work(63, SYNTHESIS_NJ * 4, SYNTHESIS_NI * 4) < MAX_SYNTHESIS_WORK);
+        assert!(synthesis_cells(63, SYNTHESIS_NJ * 4, SYNTHESIS_NI * 4) < MAX_SYNTHESIS_CELLS);
     }
 
     /// A product too large for `u64` must read as "over budget", not wrap to a
-    /// small number and let the transform through.
+    /// small number and let the transform through. Both metrics: either one
+    /// wrapping would admit the case the other exists to refuse.
     #[test]
-    fn the_work_metric_saturates_rather_than_wrapping() {
+    fn the_metrics_saturate_rather_than_wrapping() {
         assert_eq!(
             synthesis_work(MAX_TRUNCATION, usize::MAX, usize::MAX),
             u64::MAX
         );
+        assert_eq!(
+            synthesis_cells(MAX_TRUNCATION, usize::MAX, usize::MAX),
+            u64::MAX
+        );
+    }
+
+    /// `MAX_SYNTHESIS_CELLS` bounds every length the transform multiplies out,
+    /// which is what makes those `usize` multiplies exact on a 32-bit target.
+    /// That claim is the comment beside them; this is it as arithmetic.
+    #[test]
+    fn the_allocation_budget_keeps_every_length_inside_a_32_bit_usize() {
+        assert!(MAX_SYNTHESIS_CELLS < u64::from(u32::MAX));
     }
 }
