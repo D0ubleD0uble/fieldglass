@@ -260,6 +260,9 @@ export interface CombineOpInfo {
 
 export interface Grib1Handle {
   messages(): MessageMeta[];
+  /** One message's field, resolved: a spectral message has no raster of its
+   *  own and comes back synthesized onto a global lat/lon grid (#580), the
+   *  same grid `renderGrid` paints. */
   decodeGrid(messageIndex: number): DecodedGrid;
   /** Serialize one message's decoded field as CSV, returned as its UTF-8 bytes
    *  (a `Buffer` written straight to disk — see #341). `format` is `"matrix"`
@@ -324,6 +327,8 @@ export interface Grib1Handle {
 
 export interface Grib2Handle {
   messages(): MessageMeta[];
+  /** Sibling to {@link Grib1Handle.decodeGrid}; HEALPix resolves the same way
+   *  a spectral message does. */
   decodeGrid(messageIndex: number): DecodedGrid;
   /** Sibling to {@link Grib1Handle.exportCsv}. */
   exportCsv(messageIndex: number, format: string): Buffer;

@@ -77,7 +77,7 @@ pub use detect::Format;
 pub use detect::detect_format;
 pub use detect::detect_from_bytes;
 pub use error::FieldglassError;
-pub use global_grid::GlobalGrid;
+pub use global_grid::{GlobalGrid, SynthesisedField};
 #[cfg(feature = "render")]
 pub use overlay::{ProjectedPolylines, SourceOverlayTarget, project_polylines};
 // The projector types, plus the free functions a format crate or a host calls.

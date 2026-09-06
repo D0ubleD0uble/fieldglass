@@ -19,6 +19,12 @@
 //! |---|---|---|
 //! | `open` | `Grib1Handle::from_bytes` / `Grib2Handle::from_bytes`, `messages()` | which format accepted the bytes, and the message count |
 //! | `decode` | `decode_grid(i)` | raster shape, value count, mask sum, the sampled cells |
+//!
+//! The `decode` row is the one that has caught a real host divergence:
+//! `decode_grid` used to take the raw path while every other call on the
+//! handles resolved, so a spectral or HEALPix message failed here and answered
+//! everywhere else. It resolves now (#580), and those cases are the first in
+//! the suite to pin the synthesised grid across two bindings.
 //! | `render` | `render_grid(i, …)` with `projection: "source"` | raster shape, RGBA length, opaque count, the sampled pixels |
 //! | the error cases | the same calls | that the call fails, and on the same input |
 //!

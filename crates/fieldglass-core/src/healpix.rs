@@ -21,7 +21,7 @@
 
 use std::f64::consts::PI;
 
-use crate::global_grid::{GlobalGrid, SYNTHESIS_NI, SYNTHESIS_STEP_DEG};
+use crate::global_grid::{GlobalGrid, SYNTHESIS_NI, SYNTHESIS_STEP_DEG, SynthesisedField};
 
 /// Face-to-ring offsets from the HEALPix reference implementation: for each of
 /// the twelve base faces, the ring row and the phi column its corner sits on.
@@ -350,7 +350,7 @@ pub fn resample_to_global(
     nside: u32,
     nested: bool,
     values: &[Option<f64>],
-) -> Option<(GlobalGrid, Vec<Option<f64>>)> {
+) -> Option<SynthesisedField> {
     let grid = healpix_render_grid(nside);
     let (lats, lons) = grid.axes();
     let out = resample_to_latlon(nside, nested, values, &lats, &lons)?;

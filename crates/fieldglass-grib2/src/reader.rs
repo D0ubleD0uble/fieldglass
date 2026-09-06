@@ -23,7 +23,7 @@ use crate::spectral::{
     BiFourierCoefficients, SpectralCoefficients, decode_bifourier, decode_spectral_complex,
     decode_spectral_simple,
 };
-use fieldglass_core::{FieldglassError, GlobalGrid, StoredRuns};
+use fieldglass_core::{FieldglassError, GlobalGrid, StoredRuns, SynthesisedField};
 
 /// Hard cap on `ni · nj` for `decode_message_values`. Real grids top out
 /// around 10⁷ points; this guards against pathological inputs that would
@@ -624,6 +624,110 @@ impl Grib2Reader {
             &lons,
         )?;
         Ok((grid, values))
+    }
+
+    /// The global lat/lon grid a message with no raster of its own would be
+    /// synthesised onto, read from the grid definition alone.
+    ///
+    /// `None` for a message that already carries a raster — the ordinary case —
+    /// and for an index this file does not hold. Two families answer: §3.50
+    /// spherical-harmonic, whose grid comes from its truncation, and §3.150
+    /// HEALPix, whose grid comes from its `Nside`. §3.61/62/63 bi-Fourier is
+    /// rasterless too and is deliberately **not** here: recovering its grid
+    /// needs an inverse bi-Fourier transform this build does not have, so it
+    /// stays a refusal rather than becoming a wrong picture.
+    ///
+    /// Cheap on purpose: it reads §3 and decodes nothing, so a host with a
+    /// geometry-only path (an overlay projection, a message list) can ask where
+    /// the field will land without paying for the transform or the resample.
+    #[must_use]
+    pub fn synthesis_grid(&self, message_index: usize) -> Option<GlobalGrid> {
+        let msg = self.messages.get(message_index)?;
+        if let Some(sh) = msg.gds.spherical_harmonic() {
+            return Some(fieldglass_core::sht::spectral_render_grid(sh.j));
+        }
+        match msg.gds.template {
+            GridTemplate::Healpix(t) => {
+                Some(fieldglass_core::healpix::healpix_render_grid(t.nside))
+            }
+            _ => None,
+        }
+    }
+
+    /// Synthesize a message that carries no raster of its own onto
+    /// [`synthesis_grid`](Self::synthesis_grid)'s grid, or `Ok(None)` when the
+    /// message has a raster and [`decode_message_raster`] is the call to make.
+    ///
+    /// This is the seam every host resolves a message through: asking it first
+    /// and falling through on `None` puts the whole rasterless family — which
+    /// ones they are, and what grid each lands on — in this crate rather than
+    /// in each host (#580). The values come back in the same
+    /// `Vec<Option<f64>>` shape [`decode_message_raster`] uses, so the caller
+    /// substitutes one for the other and changes nothing else.
+    ///
+    /// The two families reach their grid by different routes and mean different
+    /// things by it: a spectral field is band-limited, so the grid *evaluates*
+    /// it exactly, while HEALPix is sampled, so this is a genuine resample (see
+    /// [`fieldglass_core::global_grid`]).
+    ///
+    /// # Errors
+    ///
+    /// Where [`synthesize_spectral_global`](Self::synthesize_spectral_global)
+    /// does for a spectral message; where
+    /// [`decode_message_values`](Self::decode_message_values) does for a
+    /// HEALPix one, plus [`FieldglassError::Parse`] when the decoded pixel
+    /// count is not the `12·Nside²` §3.150 declares. A message that is not a
+    /// synthesis family cannot fail here at all: it answers `Ok(None)` before
+    /// anything is decoded.
+    ///
+    /// [`decode_message_raster`]: Self::decode_message_raster
+    pub fn synthesize_message_global(
+        &self,
+        message_index: usize,
+    ) -> Result<Option<SynthesisedField>, FieldglassError> {
+        let Some(msg) = self.messages.get(message_index) else {
+            return Ok(None);
+        };
+        if msg.gds.spherical_harmonic().is_some() {
+            let (grid, values) = self.synthesize_spectral_global(message_index)?;
+            debug_assert_eq!(
+                Some(grid),
+                self.synthesis_grid(message_index),
+                "the synthesised grid disagrees with the one read from the GDS"
+            );
+            return Ok(Some((grid, values.into_iter().map(Some).collect())));
+        }
+        let GridTemplate::Healpix(t) = msg.gds.template else {
+            // Declining here and answering a grid in `synthesis_grid` would be
+            // a family added to one and not the other, which a host cannot see:
+            // it would size its meta from a grid nothing ever filled.
+            debug_assert!(
+                self.synthesis_grid(message_index).is_none(),
+                "a message with a synthesis grid declined to be synthesised"
+            );
+            return Ok(None);
+        };
+        let pixels = self.decode_message_values(message_index)?;
+        let (grid, values) = fieldglass_core::healpix::resample_to_global(
+            t.nside, t.nested, &pixels,
+        )
+        .ok_or_else(|| {
+            FieldglassError::Parse(format!(
+                "HEALPix field has {} values, not the 12*{}^2 its geometry declares",
+                pixels.len(),
+                t.nside
+            ))
+        })?;
+        // Two derivations of the same grid: this one from the resample,
+        // `synthesis_grid`'s from the GDS a host sizes its meta from without
+        // decoding. Unlike the spectral half this one really can fail —
+        // `healpix_render_dims` reads its argument.
+        debug_assert_eq!(
+            Some(grid),
+            self.synthesis_grid(message_index),
+            "the resample grid disagrees with the one read from the GDS"
+        );
+        Ok(Some((grid, values)))
     }
 
     /// Decode a bi-Fourier message (§3.61/62/63 + §5.53) into its spectral

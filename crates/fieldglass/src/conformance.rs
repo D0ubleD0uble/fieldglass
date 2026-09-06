@@ -253,7 +253,8 @@ const G1: &str = "fieldglass-grib1/tests/fixtures/";
 /// characterisation golden enumerates it). Between them these cover a
 /// degrees-affine grid and a metres-affine one, a family with no row spacing at
 /// all, a periodic grid whose contour seam nonetheless does not wrap, a grid
-/// stored south-to-north, a synthesised grid, and a grid that cannot be placed.
+/// stored south-to-north, both synthesised grids, and a grid that cannot be
+/// placed.
 const SUBJECTS: &[(&str, &str)] = &[
     // Plain lat/lon, simple packing: the ordinary case, and the one every
     // other answer is read against.
@@ -275,6 +276,19 @@ const SUBJECTS: &[(&str, &str)] = &[
     // Dx = Dy = 0: the geometry places no point, so this is the refusal shape.
     // Decode still succeeds; it is warp and probe that have nothing to say.
     ("degenerate", "polar_stereographic_surface.grib2"),
+    // The first of the two synthesised families (#580). Spectral coefficients
+    // are not values on a grid, so `decode` evaluates them onto the global
+    // 720×361 grid `fieldglass_core::global_grid` pins and hands back an
+    // ordinary `"latlon"` georef — which is the contract worth pinning across
+    // hosts, because getting the wrap column wrong doubles the field at the
+    // antimeridian and nothing else in the suite would notice.
+    ("spectral", "spectral_simple_t63.grib2"),
+    // The second, and it reaches its grid by a different rule: HEALPix is
+    // *sampled*, so the grid comes from `Nside` (26 × 14 here) rather than
+    // being pinned, and a host that used the spectral rule for both would be
+    // red on this subject alone. RING ordering; the NESTED fixtures differ only
+    // in a permutation the reader undoes.
+    ("healpix", "healpix_n4_ring.grib2"),
 ];
 
 /// GRIB1 subjects, kept separate because the fixture directory differs.
@@ -518,17 +532,24 @@ pub fn cases() -> Vec<Case> {
         },
     });
     out.push(Case {
-        // HEALPix is a real grid this build decodes, but not one it can lay a
-        // raster over: it has to be resampled onto a synthesised lat/lon grid
-        // first, which `Session` does not do yet (#580). That is what
-        // `unsupported` means — the operation is defined and this family
-        // declines it — and it is the only fixture here that says so at
-        // `decode`, so it doubles as this suite's HEALPix coverage.
+        // A §3.20 grid stating `Dx = Dy = 0` decodes fine and places no point,
+        // so it has no extent to warp onto. That is what `unsupported` means —
+        // the operation is defined and this message's family declines it.
+        //
+        // This case used to be `healpix_n4_ring.grib2` at `decode`, refusing
+        // because `Session` could not lay a raster over a HEALPix field. #580
+        // made it resample instead, so **no fixture in the corpus produces
+        // `unsupported` at `decode` any more** (measured over every committed
+        // GRIB fixture). Held here at the operation that still refuses, rather
+        // than left to the `degenerate` subject's own warp cases: those exist
+        // to record what that family answers, and the reachability of a code
+        // should be a case whose whole job that is.
         id: "error/unsupported".to_string(),
-        fixture: format!("{G2}healpix_n4_ring.grib2"),
-        op: Op::Decode,
+        fixture: format!("{G2}polar_stereographic_surface.grib2"),
+        op: Op::Warp,
         args: Args {
             dtype: Some(Dtype::Auto),
+            bilinear: Some(true),
             ..Args::default()
         },
     });

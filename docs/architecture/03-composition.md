@@ -136,9 +136,13 @@ classDiagram
 
 Each handle wraps a format reader and a memoized decode cache, and hands
 JavaScript plain metadata structs. Decoding a field caches it, so a second
-request for the same field is free. `Grib2Handle` keeps a second cache for
-spectral messages, whose coefficients are synthesized onto a fixed lat/lon grid
-before rendering.
+request for the same field is free. Both GRIB handles keep a second cache for
+the messages that carry no raster of their own and have to be put on one first:
+spectral coefficients, which are evaluated onto a fixed lat/lon grid, and (in
+`Grib2Handle`) HEALPix pixels, which are resampled onto one. Which families
+those are, and what grid each lands on, is the format reader's
+`synthesis_grid` / `synthesize_message_global` answer rather than the handle's,
+so `fieldglass::Session::decode` resolves through the same seam.
 
 ```mermaid
 classDiagram

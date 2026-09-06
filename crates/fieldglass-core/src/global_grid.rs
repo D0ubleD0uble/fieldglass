@@ -46,6 +46,21 @@ pub const SYNTHESIS_NI: usize = 720;
 /// both poles are grid points.
 pub const SYNTHESIS_NJ: usize = 361;
 
+/// A field put on a [`GlobalGrid`]: the grid, and one cell per point of it in
+/// row-major order from the north-west corner.
+///
+/// The pairing is the point. Choosing the grid and evaluating the field on it
+/// are separate steps, and every call that does both hands them back together
+/// so a host cannot declare one shape in its render geometry and evaluate at
+/// another — see [`crate::healpix::resample_to_global`] and the GRIB readers'
+/// `synthesize_message_global`.
+///
+/// `Option` per cell, matching what a raster decode returns, so a caller
+/// substitutes one for the other. The spectral path fills every cell (its
+/// coefficients evaluate everywhere); the HEALPix path can leave one absent,
+/// because a masked pixel stays masked through the resample.
+pub type SynthesisedField = (GlobalGrid, Vec<Option<f64>>);
+
 /// A global regular lat/lon grid of `ni × nj` points, in the convention this
 /// module's docs state.
 ///

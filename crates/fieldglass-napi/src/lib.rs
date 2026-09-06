@@ -13,11 +13,8 @@ use fieldglass_core::{
     TransverseMercatorProjector,
     cct_tables::lookup_sub_centre,
     colormap::{ScaleMode, min_max_ignoring_mask, paint_grid_rgba},
-    detect_from_bytes,
-    healpix::healpix_render_grid,
-    normalise_lon, plane_spans_a_grid_cell,
+    detect_from_bytes, normalise_lon, plane_spans_a_grid_cell,
     projection::GridGeometry,
-    sht::spectral_render_grid,
     signed_grid_increments,
     units::normalize_units,
 };
@@ -1749,10 +1746,15 @@ impl Grib1Handle {
     /// Decode one message into a `(values, mask)` typed-array pair. NaN
     /// is reserved for masked cells in `values`; callers should consult
     /// `mask[k] == 0` rather than checking for NaN.
+    ///
+    /// Resolved like every other entry point on this handle: a spectral message
+    /// has no raster of its own, so it is synthesized onto a global lat/lon grid
+    /// first and comes back as an ordinary field (#330, #580). Reading the
+    /// coefficients themselves is `Grib1Reader::decode_spectral_message` in
+    /// Rust; this is the renderable field.
     #[napi]
     pub fn decode_grid(&self, message_index: u32) -> napi::Result<DecodedGrid> {
-        let raw = self.cached_decode(message_index)?;
-        let (width, height) = grib1_dimensions(&self.reader, message_index as usize)?;
+        let (raw, _meta, width, height) = self.resolved(message_index)?;
         Ok(decoded_grid_from(&raw, width, height))
     }
 
@@ -1998,33 +2000,21 @@ impl Grib1Handle {
             })
     }
 
-    /// Render a GRIB1 spherical-harmonic message by synthesizing it onto a
-    /// global regular lat/lon grid (via the shared inverse transform) and
-    /// painting that grid through the normal pipeline. Mirrors the GRIB2 path.
-    /// Truncation `T` for a spherical-harmonic (spectral) message, else `None`.
-    fn spectral_truncation(&self, message_index: u32) -> Option<u32> {
-        match self
-            .reader
-            .messages
-            .get(message_index as usize)
-            .map(|m| &m.gds)
-        {
-            Some(Some(fieldglass_grib1::GridDescription::SphericalHarmonic(sh))) => {
-                Some(sh.j as u32)
-            }
-            _ => None,
-        }
-    }
-
     /// Resolve a message to a renderable field with its geometry (#330). A
     /// spectral message is synthesized onto a global lat/lon grid (cached) and
     /// gets that grid's meta; everything else is decoded on its declared grid.
     /// Returns `(field, meta, ni, nj)` so render, combine, probe, contours,
     /// overlay, and CSV all run the same resolved field with no per-feature
     /// spectral branch.
+    ///
+    /// Which families have no raster of their own, and what grid each lands on,
+    /// is [`Grib1Reader::synthesis_grid`]'s answer rather than one this crate
+    /// re-derives — the same seam `fieldglass::Session::decode` resolves
+    /// through (#580).
+    ///
+    /// [`Grib1Reader::synthesis_grid`]: fieldglass_grib1::Grib1Reader::synthesis_grid
     fn resolved(&self, message_index: u32) -> napi::Result<ResolvedField> {
-        if let Some(truncation) = self.spectral_truncation(message_index) {
-            let grid = spectral_render_grid(truncation);
+        if let Some(grid) = self.reader.synthesis_grid(message_index as usize) {
             let raw = self.cached_synthesize(message_index)?;
             let meta = spectral_render_meta_from(self.message_meta(message_index)?, grid);
             // Synthesis-grid dimensions, bounded well inside `u32`.
@@ -2054,8 +2044,7 @@ impl Grib1Handle {
     /// grid's meta for a spectral message, the declared meta otherwise — without
     /// decoding or synthesizing any values. For the geometry-only overlay path.
     fn resolved_meta(&self, message_index: u32) -> napi::Result<MessageMeta> {
-        if let Some(truncation) = self.spectral_truncation(message_index) {
-            let grid = spectral_render_grid(truncation);
+        if let Some(grid) = self.reader.synthesis_grid(message_index as usize) {
             Ok(spectral_render_meta_from(
                 self.message_meta(message_index)?,
                 grid,
@@ -2069,10 +2058,15 @@ impl Grib1Handle {
         }
     }
 
-    /// Get-or-build the synthesized spectral field for `message_index` — the
-    /// inverse spherical-harmonic transform is the expensive step, so caching
-    /// its output turns a knob change from seconds of stall into a cache read.
+    /// Get-or-build the synthesized field for `message_index` — the inverse
+    /// spherical-harmonic transform is the expensive step, so caching its
+    /// output turns a knob change from seconds of stall into a cache read.
     /// Same drop-invalidation as [`cached_decode`](Self::cached_decode).
+    ///
+    /// Only called behind a `synthesis_grid` hit, so the reader's `Ok(None)` —
+    /// "this message has a raster of its own" — is a caller bug rather than a
+    /// user-facing condition. It is still reported rather than unwrapped: a
+    /// panic here aborts the Node process.
     fn cached_synthesize(
         &self,
         message_index: u32,
@@ -2086,23 +2080,18 @@ impl Grib1Handle {
             return Ok(std::sync::Arc::clone(hit));
         }
         // The grid comes back with the field rather than being chosen here, so
-        // there is one construction of it rather than two (#546).
-        let (grid, values) = self
+        // there is one construction of it rather than two (#546); the reader
+        // holds it against the one `resolved` sizes the meta from (#580).
+        let (_grid, values) = self
             .reader
-            .synthesize_spectral_global(message_index as usize)
-            .into_napi()?;
-        // `resolved` still has to size the meta without decoding, from the
-        // truncation it reads off the GDS, while the reader sizes the grid from
-        // the coefficients it did decode — so two derivations survive and this
-        // holds them together. It cannot fail while `spectral_render_dims`
-        // ignores its truncation; it is here for when one of them stops.
-        debug_assert_eq!(
-            Some(grid),
-            self.spectral_truncation(message_index)
-                .map(spectral_render_grid),
-            "the synthesised grid disagrees with the one the render meta declares"
-        );
-        let arc = std::sync::Arc::new(values.into_iter().map(Some).collect::<Vec<_>>());
+            .synthesize_message_global(message_index as usize)
+            .into_napi()?
+            .ok_or_else(|| {
+                napi::Error::from_reason(format!(
+                    "message {message_index} carries a raster of its own and is not synthesised"
+                ))
+            })?;
+        let arc = std::sync::Arc::new(values);
         self.synthesized
             .lock()
             .expect("synthesis cache mutex poisoned")
@@ -2187,17 +2176,16 @@ impl Grib2Handle {
 
     /// Decode one message's values and mask, without painting them. Errors
     /// when the index is out of range or the grid declares no dimensions.
+    ///
+    /// Resolved like every other entry point on this handle: a spectral or
+    /// HEALPix message has no raster of its own, so it is put on a global
+    /// lat/lon grid first and comes back as an ordinary field (#330, #580).
+    /// Reading the coefficients or the pixel list themselves is
+    /// `Grib2Reader::decode_spectral_message` / `decode_message_values` in
+    /// Rust; this is the renderable field.
     #[napi]
     pub fn decode_grid(&self, message_index: u32) -> napi::Result<DecodedGrid> {
-        let raw = self.cached_decode(message_index)?;
-        let msg = self
-            .reader
-            .messages
-            .get(message_index as usize)
-            .ok_or_else(|| napi::Error::from_reason("message index out of range".to_string()))?;
-        let (ni, nj) = msg.gds.dimensions().ok_or_else(|| {
-            napi::Error::from_reason("grid has no declared dimensions".to_string())
-        })?;
+        let (raw, _meta, ni, nj) = self.resolved(message_index)?;
         Ok(decoded_grid_from(&raw, ni, nj))
     }
 
@@ -2388,95 +2376,25 @@ impl Grib2Handle {
             })
     }
 
-    /// Render a spherical-harmonic message by synthesizing it onto a global
-    /// regular lat/lon grid (via the inverse transform) and painting that grid
-    /// through the normal pipeline. The synthesis resolution scales with the
-    /// truncation `T` but is capped for large `T`.
-    /// Truncation `T` for a spherical-harmonic (spectral) message, else `None`.
-    fn spectral_truncation(&self, message_index: u32) -> Option<u32> {
-        self.reader
-            .messages
-            .get(message_index as usize)
-            .and_then(|m| m.gds.spherical_harmonic())
-            .map(|sh| sh.j)
-    }
-
-    /// `(Nside, nested)` for a HEALPix (§3.150) message, else `None`.
-    fn healpix_geometry(&self, message_index: u32) -> Option<(u32, bool)> {
-        match self
-            .reader
-            .messages
-            .get(message_index as usize)
-            .map(|m| m.gds.template)
-        {
-            Some(fieldglass_grib2::GridTemplate::Healpix(t)) => Some((t.nside, t.nested)),
-            _ => None,
-        }
-    }
-
-    /// Get-or-build the HEALPix field resampled onto a lat/lon grid. Shares the
-    /// spectral synthesis cache: both answer "the renderable field for this
-    /// message", and a message is one or the other, never both.
-    fn cached_healpix_resample(
-        &self,
-        message_index: u32,
-        nside: u32,
-        nested: bool,
-    ) -> napi::Result<std::sync::Arc<Vec<Option<f64>>>> {
-        if let Some(hit) = self
-            .synthesized
-            .lock()
-            .expect("synthesis cache mutex poisoned")
-            .get(&message_index)
-        {
-            return Ok(std::sync::Arc::clone(hit));
-        }
-        let pixels = self.cached_decode(message_index)?;
-        // The grid comes back with the field rather than being chosen here, so
-        // there is one construction of it rather than two (#546).
-        let (grid, values) = fieldglass_core::healpix::resample_to_global(nside, nested, &pixels)
-            .ok_or_else(|| {
-            napi::Error::from_reason(format!(
-                "HEALPix field has {} values, not the 12*{nside}^2 its geometry declares",
-                pixels.len()
-            ))
-        })?;
-        // `resolved` sizes the meta from `Nside` alone, without resampling, so
-        // the same two derivations survive here as on the spectral side and the
-        // same assertion holds them together. Unlike that one this can fail:
-        // `healpix_render_dims` really does read its argument.
-        debug_assert_eq!(
-            grid,
-            healpix_render_grid(nside),
-            "the resample grid disagrees with the one the render meta declares"
-        );
-        let arc = std::sync::Arc::new(values);
-        self.synthesized
-            .lock()
-            .expect("synthesis cache mutex poisoned")
-            .insert(message_index, std::sync::Arc::clone(&arc));
-        Ok(arc)
-    }
-
     /// Resolve a message to a renderable field + geometry (#330) — sibling to
     /// [`Grib1Handle::resolved`]. Spectral messages are synthesized onto a
     /// global lat/lon grid (cached) and get that grid's meta; a HEALPix message
     /// is resampled onto one the same way, for the same reason — neither has a
     /// raster shape of its own, so everything downstream would need a special
     /// case otherwise.
+    ///
+    /// Which families those are, and what grid each lands on, is
+    /// [`Grib2Reader::synthesis_grid`]'s answer rather than one this crate
+    /// re-derives — the same seam `fieldglass::Session::decode` resolves
+    /// through (#580).
+    ///
+    /// [`Grib2Reader::synthesis_grid`]: fieldglass_grib2::Grib2Reader::synthesis_grid
     fn resolved(&self, message_index: u32) -> napi::Result<ResolvedField> {
-        if let Some(truncation) = self.spectral_truncation(message_index) {
-            let grid = spectral_render_grid(truncation);
+        if let Some(grid) = self.reader.synthesis_grid(message_index as usize) {
             let raw = self.cached_synthesize(message_index)?;
             let meta = spectral_render_meta_from(self.message_meta(message_index)?, grid);
-            // Synthesis-grid dimensions, bounded well inside `u32`.
-            Ok((raw, meta, grid.ni as u32, grid.nj as u32))
-        } else if let Some((nside, nested)) = self.healpix_geometry(message_index) {
-            let grid = healpix_render_grid(nside);
-            let raw = self.cached_healpix_resample(message_index, nside, nested)?;
-            let meta = spectral_render_meta_from(self.message_meta(message_index)?, grid);
-            // `healpix_render_grid` sizes the resample grid from `Nside`; the
-            // widest it reaches is a few thousand points a side.
+            // Synthesis-grid dimensions, bounded well inside `u32`: the
+            // spectral rule pins 720×361 and the HEALPix one caps there too.
             Ok((raw, meta, grid.ni as u32, grid.nj as u32))
         } else {
             let raw = self.cached_decode(message_index)?;
@@ -2504,25 +2422,26 @@ impl Grib2Handle {
     /// Resolved geometry only (#330), no decode/synthesis — sibling to
     /// [`Grib1Handle::resolved_meta`]. For the geometry-only overlay path.
     fn resolved_meta(&self, message_index: u32) -> napi::Result<MessageMeta> {
-        if let Some(truncation) = self.spectral_truncation(message_index) {
-            let grid = spectral_render_grid(truncation);
+        if let Some(grid) = self.reader.synthesis_grid(message_index as usize) {
             Ok(spectral_render_meta_from(
                 self.message_meta(message_index)?,
                 grid,
-            ))
-        } else if let Some((nside, _)) = self.healpix_geometry(message_index) {
-            Ok(spectral_render_meta_from(
-                self.message_meta(message_index)?,
-                healpix_render_grid(nside),
             ))
         } else {
             Ok(self.grid_meta(message_index)?.0)
         }
     }
 
-    /// Get-or-build the synthesized spectral field for `message_index` (see
+    /// Get-or-build the synthesized field for `message_index` (see
     /// [`Grib1Handle::cached_synthesize`]) — caches the inverse spherical-
-    /// harmonic transform so a repaint doesn't re-run it (#334).
+    /// harmonic transform, or the HEALPix resample, so a repaint doesn't re-run
+    /// it (#334). One cache for both: each answers "the renderable field for
+    /// this message", and a message is one family or the other, never both.
+    ///
+    /// Only called behind a `synthesis_grid` hit, so the reader's `Ok(None)` —
+    /// "this message has a raster of its own" — is a caller bug rather than a
+    /// user-facing condition. It is still reported rather than unwrapped: a
+    /// panic here aborts the Node process.
     fn cached_synthesize(
         &self,
         message_index: u32,
@@ -2536,23 +2455,18 @@ impl Grib2Handle {
             return Ok(std::sync::Arc::clone(hit));
         }
         // The grid comes back with the field rather than being chosen here, so
-        // there is one construction of it rather than two (#546).
-        let (grid, values) = self
+        // there is one construction of it rather than two (#546); the reader
+        // holds it against the one `resolved` sizes the meta from (#580).
+        let (_grid, values) = self
             .reader
-            .synthesize_spectral_global(message_index as usize)
-            .into_napi()?;
-        // `resolved` still has to size the meta without decoding, from the
-        // truncation it reads off the GDS, while the reader sizes the grid from
-        // the coefficients it did decode — so two derivations survive and this
-        // holds them together. It cannot fail while `spectral_render_dims`
-        // ignores its truncation; it is here for when one of them stops.
-        debug_assert_eq!(
-            Some(grid),
-            self.spectral_truncation(message_index)
-                .map(spectral_render_grid),
-            "the synthesised grid disagrees with the one the render meta declares"
-        );
-        let arc = std::sync::Arc::new(values.into_iter().map(Some).collect::<Vec<_>>());
+            .synthesize_message_global(message_index as usize)
+            .into_napi()?
+            .ok_or_else(|| {
+                napi::Error::from_reason(format!(
+                    "message {message_index} carries a raster of its own and is not synthesised"
+                ))
+            })?;
+        let arc = std::sync::Arc::new(values);
         self.synthesized
             .lock()
             .expect("synthesis cache mutex poisoned")
@@ -8853,6 +8767,10 @@ mod curvilinear_render_tests {
 #[cfg(test)]
 mod healpix_render_tests {
     use super::*;
+    // Named here rather than at the crate root: the resolve seam reads the
+    // grid off the reader now (#580), so these rules are only spelled out by
+    // the tests that pin them.
+    use fieldglass_core::healpix::healpix_render_grid;
 
     /// The rule: sample at the HEALPix pixel scale so no pixel is skipped,
     /// never finer than the 0.5° the spectral path pins.

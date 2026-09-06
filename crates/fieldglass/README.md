@@ -121,9 +121,17 @@ that run fails afterwards on purpose.
 GRIB1 and GRIB2, and every grid family the engine can project: lat/lon,
 Gaussian, Mercator, rotated lat/lon, Lambert conformal, polar stereographic,
 transverse Mercator, Lambert azimuthal equal-area, and the geostationary space
-view. A grid that is not a raster at all — spherical harmonics, bi-Fourier —
-reports `Unsupported` with its own label rather than erroring, so a message can
-still say which grid was declined.
+view.
+
+Two families are not rasters at all and are put on one at decode: a spherical
+harmonic message is evaluated onto a global 0.5° lat/lon grid, and a HEALPix
+message is resampled onto one sized from its `Nside`. Both come back as
+ordinary `latlon` fields, so warp, palette, render, probe, contours and combine
+need no special case; `message()` keeps reporting the grid the file declares
+and `sizeLabel` its native shape (`T63`, `Nside 4`). Bi-Fourier is the one that
+still declines — recovering its grid needs an inverse bi-Fourier transform this
+build does not have — and its message reports `Unsupported` with its own label
+rather than erroring, so it can still say which grid was declined.
 
 Every projected family also names a PROJ CRS and the affine placing its raster
 in it, checked against PROJ itself rather than against a golden of our own
