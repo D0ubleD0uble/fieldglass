@@ -47,7 +47,6 @@ dependencies = [
  "fieldglass-core",
  "miniz_oxide",
  "ruzstd",
- "serde",
 ]
 
 [[package]]

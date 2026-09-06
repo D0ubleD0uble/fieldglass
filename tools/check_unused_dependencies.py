@@ -34,13 +34,23 @@ is the manifest, and the assertions live in `tests/standalone.rs`), so the rule
 would need an exception on the one package it would fire on. Not worth a gate
 that starts with an allow-list as long as its findings.
 
-**Comments and string literals do not count as use.** This repo comments
-heavily and names crates in prose — the manifests explain every dependency, and
-so do the modules that use them — so a check that grepped the raw text would
-call `serde` used in `fieldglass-grib2` on the strength of a doc comment in a
-test. The sources are stripped of comments and literals first; `SKIPPED` below
-is where a dependency that genuinely has no identifier to find is written down
+**Comments and string literals do not count as use.** Two different mechanisms
+are at work here and it is worth keeping them apart. What actually defeated a
+naive check on the four lines #538 removed is the identifier tokenisation
+below: all three format crates are full of `serde_json`, and a substring grep
+for `serde` would have called every one of them clean. The comment and literal
+stripping is prophylactic — measured on the tree at the time, not one of the
+four dependencies was named in a comment either — but this repo comments
+heavily and names its dependencies in prose, the manifests and the modules
+explaining every one of them, so a doc comment saying a module "will parse this
+with serde one day" is a use waiting to be mistaken for one. `SKIPPED` below is
+where a dependency that genuinely has no identifier to find is written down
 with its reason.
+
+The stripper is the one part of this that can produce a *false failure*: a bug
+that swallows real code hides a genuine `use` and fails a correct commit, which
+is worse than leaking a comment. `tools/test_check_unused_dependencies.py` asserts
+on its output directly for that reason, rather than only on the exit code.
 """
 
 from __future__ import annotations
@@ -62,9 +72,10 @@ DEP_TABLES = ("dependencies", "dev-dependencies", "build-dependencies")
 
 # Fewer packages than this and the walk has gone wrong — a rename, a prune
 # entry that swallowed a tree — and the check would pass by finding nothing to
-# check. The count is 12 today (eight under `crates/`, three `fuzz/`, and
-# `tests/crate-independence`); the floor is the number below which the answer
-# is certainly the walk's fault and not the tree's.
+# check. The count is 12 today: eight crates, the three `fuzz/` packages nested
+# inside three of them, and `tests/crate-independence`. This is a smoke alarm,
+# not the count — `test_the_walk_finds_every_package` pins the set by name, and
+# its hook watches the manifests so it runs when a package comes or goes.
 MIN_PACKAGES = 10
 
 # (package name, dependency key) -> why it is declared without being named.
@@ -73,11 +84,12 @@ MIN_PACKAGES = 10
 SKIPPED: dict[tuple[str, str], str] = {}
 
 # The start of a Rust string literal: every prefix the language has (`b`, `c`,
-# `r`, and the `br` / `cr` combinations) and the raw-string hashes. Matched only
-# where an identifier character cannot precede it, so the `r` of `for` is not
-# read as a raw string. The prefixes have to be complete: an unrecognised one
-# leaves the opening quote unstripped, and the *closing* quote is then read as
-# an opening one, which would swallow real code up to the next quote in the file.
+# `r`, and the `br` / `cr` combinations) and the raw-string hashes. The prefix
+# list has to be complete, which is the reason to enumerate it rather than skip
+# the leading letters: an unrecognised prefix leaves the *opening* quote
+# unstripped, the closing quote is then read as an opening one, and everything
+# up to the next quote in the file is swallowed. That is the direction that
+# hides a real `use` and fails a correct commit.
 _STRING_START = re.compile(r'([bc]?r)(#*)"|[bc]?"')
 
 # The characters `_STRING_START` can begin at, so the common case costs one
@@ -121,7 +133,12 @@ def strip_comments_and_literals(src: str) -> str:
             # A char literal, or a lifetime. `'a` is a lifetime; `'a'` is a
             # char; `'\n'` is a char whose body contains an escape.
             if src[i : i + 2] == "'\\":
-                j = i + 2
+                # Scan from the backslash, not past it: starting at `i + 2`
+                # re-reads the escaped character as an escape of its own, so
+                # `'\\'` skipped its own closing quote and blanked everything up
+                # to the next `'` in the file — a false failure, since the code
+                # it swallowed may hold the only use of a dependency.
+                j = i + 1
                 while j < n and src[j] != "'":
                     j += 2 if src[j] == "\\" else 1
                 i = j + 1
@@ -135,6 +152,10 @@ def strip_comments_and_literals(src: str) -> str:
             i += 1
             continue
         if src[i] in _STRING_LEAD:
+            # Defensive, and known to be: the reserved-prefix rule makes a
+            # string literal directly after an identifier character (`ab"x"`)
+            # an error, so no valid Rust reaches this. It costs one comparison
+            # and it forecloses the code-swallowing failure above, so it stays.
             preceded_by_ident = i > 0 and (src[i - 1].isalnum() or src[i - 1] == "_")
             m = None if preceded_by_ident else _STRING_START.match(src, i)
             if m:
@@ -233,6 +254,10 @@ def main() -> int:
         if not declared:
             continue
 
+        # Marked before the guard below, so a package that trips it does not
+        # also report every one of its `SKIPPED` entries as stale.
+        seen.update((name, key) for key in declared if (name, key) in SKIPPED)
+
         idents, files = source_identifiers(pkg)
         if files == 0:
             problems.append(
@@ -243,10 +268,17 @@ def main() -> int:
             continue
 
         for key, table in sorted(declared.items()):
+            named = key.replace("-", "_") in idents
             if (name, key) in SKIPPED:
-                seen.add((name, key))
+                if named:
+                    problems.append(
+                        f"{rel}/Cargo.toml: [{table}] `{key}` is excused by SKIPPED "
+                        f"in tools/check_unused_dependencies.py, but it *is* named "
+                        f"in {rel}'s own `.rs` files now — delete the entry, or it "
+                        f"goes on silencing this dependency for good"
+                    )
                 continue
-            if key.replace("-", "_") not in idents:
+            if not named:
                 problems.append(
                     f"{rel}/Cargo.toml: [{table}] `{key}` is not named anywhere in "
                     f"{rel}'s own `.rs` files — cargo compiles it regardless and "

@@ -176,8 +176,11 @@ repos:
         # alike — which is how `serde` sat in all three format crates and
         # `thiserror` in `fieldglass-grib1` (#538), in manifests published to
         # crates.io. Manifests *and* sources are in the pattern: deleting the
-        # last `use` of a crate is the other half of the same defect.
-        files: ^(crates/.*\.(rs|toml)|tests/.*\.(rs|toml)|tools/check_unused_dependencies\.py)$
+        # last `use` of a crate is the other half of the same defect. Every
+        # `Cargo.toml` anywhere, not just under `crates/`, because the checker
+        # walks packages by manifest rather than by workspace membership and
+        # the next new one (#461, #254) need not land under `crates/`.
+        files: ^(.*Cargo\.toml|.*\.rs|tools/check_unused_dependencies\.py)$
         entry: python3 tools/check_unused_dependencies.py
         pass_filenames: false
 
@@ -237,7 +240,11 @@ repos:
         name: unused-dependency checker self-test
         stages: [pre-push]
         language: system
-        files: ^tools/(check_unused_dependencies|test_check_unused_dependencies)\.py$
+        # The manifests are in the pattern for the reason the wasm hook above
+        # takes its README: one of these tests pins the set of packages the
+        # walk finds, by name, so it has to run on the commit that adds or
+        # removes a package rather than on some later edit to the checker.
+        files: ^(tools/(check_unused_dependencies|test_check_unused_dependencies)\.py|.*Cargo\.toml)$
         entry: python3 tools/test_check_unused_dependencies.py
         pass_filenames: false
 
