@@ -330,3 +330,82 @@ fn splice_reduced_gds(message: &[u8], widths: &[u32], num_data_points: u32) -> V
     out[8..16].copy_from_slice(&total.to_be_bytes());
     out
 }
+
+const SPECTRAL: &[u8] = include_bytes!("fixtures/spectral_simple_t63.grib2");
+
+/// Rebuild the T63 spectral fixture with a declared truncation of `t` and a
+/// zero bit-width, with §7 cut down to nothing.
+///
+/// Zero is the legal constant-field bit width, and it is the one case where the
+/// bit budget §7 imposes on a declared truncation is vacuous — no bits are
+/// needed, so `J` alone sizes the coefficient array (#631).
+fn hostile_spectral(t: u32) -> Vec<u8> {
+    let mut out = SPECTRAL[..16].to_vec();
+    let mut cursor = 16;
+    while cursor + 4 <= SPECTRAL.len() {
+        if &SPECTRAL[cursor..cursor + 4] == b"7777" {
+            break;
+        }
+        let len = u32::from_be_bytes(SPECTRAL[cursor..cursor + 4].try_into().unwrap()) as usize;
+        let section = &SPECTRAL[cursor..cursor + len];
+        match section[4] {
+            // §3 template 3.50: J, K and M are octets 15-18, 19-22, 23-26.
+            3 => {
+                let mut body = section.to_vec();
+                for at in [14, 18, 22] {
+                    body[at..at + 4].copy_from_slice(&t.to_be_bytes());
+                }
+                out.extend_from_slice(&body);
+            }
+            // §5 template 5.50: `bitsPerValue` is octet 20.
+            5 => {
+                let mut body = section.to_vec();
+                body[19] = 0;
+                out.extend_from_slice(&body);
+            }
+            // §7 keeps only its own header.
+            7 => {
+                out.extend_from_slice(&5u32.to_be_bytes());
+                out.push(7);
+            }
+            _ => out.extend_from_slice(section),
+        }
+        cursor += len;
+    }
+    out.extend_from_slice(b"7777");
+    let total = out.len() as u64;
+    out[8..16].copy_from_slice(&total.to_be_bytes());
+    out
+}
+
+#[test]
+fn a_spectral_truncation_past_the_cap_is_refused_rather_than_allocated() {
+    // Inside this crate's old 200 M-value envelope (1.6 GB), outside the
+    // ceiling every spectral path now shares.
+    let bytes = hostile_spectral(10_000);
+    assert!(
+        bytes.len() < 200,
+        "the hostile message is {} bytes",
+        bytes.len()
+    );
+
+    let reader = Grib2Reader::from_bytes(bytes).expect("the message still scans");
+    let Err(err) = reader.decode_spectral_message(0) else {
+        panic!("a truncation past the cap must be refused");
+    };
+    assert!(
+        matches!(&err, FieldglassError::Parse(m) if m.contains("exceeds the cap")),
+        "{err}"
+    );
+}
+
+#[test]
+fn a_spectral_truncation_inside_the_cap_still_decodes_at_zero_bit_width() {
+    // The control for the test above: the refusal must come from the ceiling,
+    // not from the surgery.
+    let reader = Grib2Reader::from_bytes(hostile_spectral(63)).expect("scans");
+    let coeffs = reader
+        .decode_spectral_message(0)
+        .expect("a constant-field spectral message decodes");
+    assert_eq!(coeffs.coefficients.len(), 64 * 65);
+}

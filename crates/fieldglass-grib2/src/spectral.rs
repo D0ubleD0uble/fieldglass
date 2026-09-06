@@ -57,30 +57,17 @@ impl SpectralCoefficients {
     }
 }
 
-/// Upper bound on the coefficient count `(J + 1)·(J + 2)` the decoder will
-/// allocate for. `J` is a bare `u32` from §3.50, so a hostile message can
-/// declare an enormous truncation; this caps the allocation the same way the
-/// scalar reader caps grid-point counts (the largest operational spectral
-/// truncation, ~T3999, is four orders of magnitude below this). 200 M `f64`
-/// is ~1.6 GB — the same envelope a constant gridded field already accepts.
-const MAX_SPECTRAL_VALUES: u64 = 200_000_000;
-
 /// Stored value count (real *and* imaginary parts) of a triangular truncation
-/// `t`: `(t + 1)·(t + 2)`, computed with overflow checking and bounded by
-/// [`MAX_SPECTRAL_VALUES`] so a corrupt `J` cannot overflow the multiply or
-/// size an allocation past the cap.
+/// `t`: `(t + 1)·(t + 2)`, bounded by the ceiling every spectral path in the
+/// stack shares ([`fieldglass_core::sht::coefficient_count`]).
+///
+/// `J` is a bare `u32` from §3.50, so a hostile message can declare an enormous
+/// truncation. This crate had its own 200 M-value (~1.6 GB) envelope for that;
+/// it now takes core's, which is `(T+1)(T+2)` at `MAX_TRUNCATION` — 67,133,442
+/// values, 537 MB — so both GRIB editions and the transform itself refuse the
+/// same truncations (#631).
 fn triangular_value_count(t: u32) -> Result<usize, FieldglassError> {
-    let t = t as u64;
-    (t + 1)
-        .checked_mul(t + 2)
-        .filter(|&n| n <= MAX_SPECTRAL_VALUES)
-        // The cap is 2×10^8, so the count fits `usize` on a 32-bit target too.
-        .map(|n| n as usize)
-        .ok_or_else(|| {
-            FieldglassError::Parse(format!(
-                "spectral truncation T={t} declares more than {MAX_SPECTRAL_VALUES} coefficients"
-            ))
-        })
+    fieldglass_core::sht::coefficient_count(t)
 }
 
 /// Decode a `spectral_simple` (template 5.50) data section into coefficients.
@@ -403,20 +390,22 @@ impl BiFourierCoefficients {
 /// dominates the ellipse and diamond shapes. `bif_i`/`bif_j` are bare `u32` from
 /// §3, so a hostile message can declare an enormous truncation; this caps the
 /// coefficient count (and therefore each factor, so the geometry arrays too)
-/// with the same [`MAX_SPECTRAL_VALUES`] envelope the spherical-harmonic path
-/// uses, computed with overflow checking BEFORE any allocation.
+/// with the same [`fieldglass_core::sht::MAX_COEFFICIENTS`] envelope the
+/// spherical-harmonic path uses, computed with overflow checking BEFORE any
+/// allocation.
 fn bifourier_max_count(bif_i: u32, bif_j: u32) -> Result<usize, FieldglassError> {
     let a = bif_i as u64 + 1;
     let b = bif_j as u64 + 1;
     a.checked_mul(b)
         .and_then(|p| p.checked_mul(4))
-        .filter(|&n| n <= MAX_SPECTRAL_VALUES)
-        // Same cap, same reasoning as `triangular_value_count`.
+        .filter(|&n| n <= fieldglass_core::sht::MAX_COEFFICIENTS as u64)
+        // The envelope fits `usize` on a 32-bit target, so the cast cannot
+        // truncate. Same cap, same reasoning as `triangular_value_count`.
         .map(|n| n as usize)
         .ok_or_else(|| {
             FieldglassError::Parse(format!(
-                "bi-Fourier truncation N={bif_i} M={bif_j} declares more than \
-                 {MAX_SPECTRAL_VALUES} coefficients"
+                "bi-Fourier truncation N={bif_i} M={bif_j} declares more than {} coefficients",
+                fieldglass_core::sht::MAX_COEFFICIENTS
             ))
         })
 }
