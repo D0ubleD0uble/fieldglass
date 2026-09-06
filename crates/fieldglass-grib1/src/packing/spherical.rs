@@ -79,9 +79,16 @@ impl SpectralCoefficients {
 }
 
 /// Stored value count (real *and* imaginary parts) of a triangular truncation
-/// `t`: `(t + 1)·(t + 2)`.
-fn triangular_value_count(t: u16) -> usize {
-    (usize::from(t) + 1) * (usize::from(t) + 2)
+/// `t`: `(t + 1)·(t + 2)`, capped by the ceiling every spectral path in the
+/// stack shares ([`fieldglass_core::sht::coefficient_count`]).
+///
+/// This used to be an unchecked multiply, which made `check_declared_size` the
+/// only bound on the allocation — and that check is vacuous on the
+/// zero-bit-width (constant-field) path, where the declared layout needs no §7
+/// bits at all. A 112-byte message declaring `J = K = M = 10000` therefore
+/// sized a `Vec` at 763 MB, and `J = 65535` at 34 GB (#631).
+fn triangular_value_count(t: u16) -> Result<usize, FieldglassError> {
+    fieldglass_core::sht::coefficient_count(u32::from(t))
 }
 
 /// Reject a truncation the section cannot possibly hold, before anything is
@@ -91,7 +98,9 @@ fn triangular_value_count(t: u16) -> usize {
 /// `J = 65535` — 4.3 billion values, which sizes a `Vec` at tens of gigabytes and
 /// aborts the process long before the short data section is found to be short.
 /// Counting the bits the declared layout would need and comparing them against
-/// the bits actually present bounds every later allocation by the file itself.
+/// the bits actually present bounds every later allocation by the file itself —
+/// but only where the declared layout needs bits. A zero bit-width needs none,
+/// so [`triangular_value_count`]'s ceiling is what bounds that path.
 fn check_declared_size(
     available_bits: usize,
     required_bits: usize,
@@ -186,7 +195,7 @@ fn decode_simple(
     let data = bds
         .get(SPECTRAL_SIMPLE_DATA_OFFSET..)
         .ok_or_else(|| FieldglassError::Parse("spectral_simple BDS is truncated".to_string()))?;
-    let n_values = triangular_value_count(t);
+    let n_values = triangular_value_count(t)?;
     // values[0] comes from the header; the other (n_values - 1) are packed.
     check_declared_size(
         data.len().saturating_mul(8),
@@ -246,8 +255,8 @@ fn decode_complex(
     // re-alignment. eccodes derives this offset the same way rather than read the
     // section's own `N` pointer, which it writes relative to the *message* — its
     // own source calls that out as wrong. Don't trust `N`.
-    let n_values = triangular_value_count(t);
-    let unpacked_values = triangular_value_count(ks);
+    let n_values = triangular_value_count(t)?;
+    let unpacked_values = triangular_value_count(ks)?;
     let unpacked_bytes = unpacked_values * (UNPACKED_BITS as usize / 8);
     // The declared truncation must fit the bytes actually present, or a hostile
     // J would size the output before the short section is ever noticed.

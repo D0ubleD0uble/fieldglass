@@ -8,6 +8,14 @@
 //! offset-driven bit reading in the second-order packing decoders is the main
 //! thing this exercises.
 //!
+//! `decode_spectral_message` joins it because it is a second decode path with
+//! its own bit unpacking, reached only by a spherical-harmonic BDS and so never
+//! touched by `decode_message_values`. Leaving it out is what let an unbounded
+//! coefficient allocation live there: `J` is a bare `u16` from the GDS, and at
+//! a zero bit width no §7 budget constrains it, so a 112-byte message sized a
+//! `Vec` at up to 34 GB (#631). The GRIB2 target has always driven its
+//! equivalent, and had a cap; this one did not, and did not.
+//!
 //! `synthesis_grid` joins it because it is a public entry point that reads §2
 //! and answers a grid size derived from attacker-controlled fields (#580). Its
 //! partner `synthesize_message_global` is deliberately **not** called: the only
@@ -31,6 +39,11 @@ fuzz_target!(|data: &[u8]| {
             // Ignore the result: we only care that decoding cannot panic or
             // over-read. Errors on individual messages are expected and fine.
             let _ = reader.decode_message_values(i);
+            // The spherical-harmonic decode path, which `decode_message_values`
+            // refuses outright. Bounded by `MAX_TRUNCATION`, so a declared
+            // truncation can no longer turn a short input into an allocation
+            // the fuzzer reports as an OOM instead of as a finding.
+            let _ = reader.decode_spectral_message(i);
             // Total by construction, so the assertion is that it stays total.
             let _ = reader.synthesis_grid(i);
         }

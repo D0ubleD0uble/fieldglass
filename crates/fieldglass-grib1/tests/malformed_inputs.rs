@@ -308,3 +308,78 @@ fn splice_reduced_gds(message: &[u8], widths: &[u16]) -> Vec<u8> {
     out[4..7].copy_from_slice(&u24(total));
     out
 }
+
+const SPECTRAL: &[u8] = include_bytes!("fixtures/spectral_simple_t63.grib1");
+
+/// Rebuild the T63 spectral fixture with a declared truncation of `t` and a
+/// zero bit-width, with the BDS cut down to its own headers.
+///
+/// The zero bit-width is the point. `spectral_simple` reads every coefficient
+/// but `(0, 0)` out of the BDS, so a declared truncation is normally bounded by
+/// the bits actually present — except at width zero, which is the legal
+/// constant-field encoding and needs no bits at all. The declared `J` is then
+/// the only thing sizing the output array (#631).
+fn hostile_spectral(t: u16) -> Vec<u8> {
+    let u24 = |v: usize| [(v >> 16) as u8, (v >> 8) as u8, v as u8];
+    let len_at = |b: &[u8], at: usize| {
+        ((b[at] as usize) << 16) | ((b[at + 1] as usize) << 8) | b[at + 2] as usize
+    };
+
+    // §0 "GRIB" + total length (3) + edition (1); §1 PDS, then the GDS (this
+    // fixture sets the section-2 flag and carries no bitmap), then the BDS.
+    let pds_start = 8;
+    let gds_start = pds_start + len_at(SPECTRAL, pds_start);
+    let bds_start = gds_start + len_at(SPECTRAL, gds_start);
+
+    // BDS octets 1-11 plus the 4-byte IBM float holding the real part of
+    // (0, 0), and one pad octet to keep the section length even.
+    let bds_len = 16;
+    let mut out = SPECTRAL[..bds_start].to_vec();
+    let mut bds = SPECTRAL[bds_start..bds_start + bds_len].to_vec();
+    bds[0..3].copy_from_slice(&u24(bds_len));
+    bds[10] = 0; // bitsPerValue = 0 — the constant-field path
+    out.extend_from_slice(&bds);
+    out.extend_from_slice(b"7777");
+
+    // GDS octets 7-8, 9-10, 11-12 are J, K and M for representation type 50.
+    for at in [gds_start + 6, gds_start + 8, gds_start + 10] {
+        out[at..at + 2].copy_from_slice(&t.to_be_bytes());
+    }
+    let total = out.len();
+    out[4..7].copy_from_slice(&u24(total));
+    out
+}
+
+#[test]
+fn a_spectral_truncation_past_the_cap_is_refused_rather_than_allocated() {
+    // 10000 was inside the old ceiling. At eight bytes a value this sized a
+    // 763 MB `Vec` from a 112-byte message — a 7,145,000× amplification, and
+    // at `J = 65535` it was 34 GB, which aborts a 32-bit host outright.
+    let bytes = hostile_spectral(10_000);
+    assert!(
+        bytes.len() < 200,
+        "the hostile message is {} bytes",
+        bytes.len()
+    );
+
+    let reader = Grib1Reader::from_bytes(bytes).expect("the message still scans");
+    let Err(err) = reader.decode_spectral_message(0) else {
+        panic!("a truncation past the cap must be refused");
+    };
+    assert!(
+        matches!(&err, FieldglassError::Parse(m) if m.contains("exceeds the cap")),
+        "{err}"
+    );
+}
+
+#[test]
+fn a_spectral_truncation_inside_the_cap_still_decodes_at_zero_bit_width() {
+    // The control for the test above: the refusal must come from the ceiling,
+    // not from the surgery. A constant-field spectral message is legal, and
+    // T63 is what the fixture declares.
+    let reader = Grib1Reader::from_bytes(hostile_spectral(63)).expect("scans");
+    let coeffs = reader
+        .decode_spectral_message(0)
+        .expect("a constant-field spectral message decodes");
+    assert_eq!(coeffs.coefficients.len(), 64 * 65);
+}

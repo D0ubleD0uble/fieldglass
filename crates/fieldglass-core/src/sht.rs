@@ -35,40 +35,131 @@
 use crate::error::FieldglassError;
 use crate::global_grid::{GlobalGrid, SYNTHESIS_NI, SYNTHESIS_NJ};
 
-/// Upper bound on the truncation `T` this transform will accept. `T` is derived
-/// from attacker-controlled §3 fields, so it is capped up front to bound both
-/// the `O(T²)` per-latitude synthesis cost and the latitude-invariant tables the
-/// synthesis precomputes: an `O(T²)` Legendre-recurrence coefficient table — the
-/// same order as the input coefficient array, which is itself `(T+1)(T+2)`
-/// values — and an `O(T·nlon)` longitude-phase table. The largest operational
-/// spectral truncation (~T3999) is far below this cap.
+/// Upper bound on the truncation `T` any spectral decode or synthesis will
+/// accept — the ceiling on the coefficient array, which is what a declared
+/// truncation turns into (#631).
 ///
-/// # The cap is loose, and since #580 a browser host is behind it
+/// `T` is read from attacker-controlled §3 fields and the array it sizes is
+/// `(T+1)(T+2)` `f64`, so it is capped before anything is allocated. The
+/// transform's latitude-invariant tables ride on the same bound: the
+/// Legendre-recurrence table is `T(T−1)/2` `(f64, f64)` pairs — *twice* the
+/// coefficient array in bytes, and the largest single allocation on the path —
+/// and the longitude-phase tables are `O(T·nlon)`.
+///
+/// # Why 8192
+///
+/// The cap refuses what does not exist rather than rationing what does.
+/// `T7999` is the highest spectral truncation any model has produced — ECMWF's
+/// 2.5 km IFS forecasts, made feasible by the fast Legendre transform of Wedi
+/// et al. (2013) — so 8192 is the smallest power of two above the real
+/// ceiling. (An earlier revision of this comment said `~T3999`, which is the
+/// 5 km configuration, not the highest one.) Below the cap the cost is the
+/// data's own; above it, no encoder has ever written a message, so the
+/// declaration is corruption or attack.
+///
+/// # What the cap is worth
 ///
 /// Measured on the pinned 720×361 grid ([`spectral_render_grid`]), release
 /// build, one message:
 ///
-/// | `T` | coefficients | synthesis |
-/// |---:|---:|---:|
-/// | 63 | 2,080 | 9.7 ms |
-/// | 250 | 31,626 | 51 ms |
-/// | 500 | 125,751 | 139 ms |
-/// | 1,000 | 501,501 | 602 ms |
+/// | `T` | stored values | synthesis | peak transient |
+/// |---:|---:|---:|---:|
+/// | 63 | 4,160 | 9.8 ms | |
+/// | 250 | 63,252 | 47 ms | |
+/// | 500 | 251,502 | 138 ms | |
+/// | 1,000 | 1,003,002 | 517 ms | |
+/// | 2,000 | 4,006,002 | 1.94 s | |
+/// | 8,192 (cap) | 67,133,442 | 27.0 s | 1.03 GB |
 ///
-/// The cost is `O(T²)` and `T` comes from §3, so the cap admits inputs orders
-/// of magnitude past anything operational: at the cap the coefficient array
-/// alone is ~800 MB and the recurrence table another ~800 MB, from a §7 that
-/// need only be a few megabytes at one bit per value. Until #580 that mattered
-/// only to `fieldglass-napi`, whose `render_grid` has reached the transform
-/// since 0.4.0; `fieldglass::Session::decode` refused spectral messages
-/// outright, so the browser host could not be driven into it. It can now.
+/// The previous cap of `10_000` bounded correctness, not cost: it admitted a
+/// 1.6 GB transient and a ~38 s synthesis. It was also the *only* such bound —
+/// `fieldglass-grib1`'s spectral decode had none at all, and its `J` is a bare
+/// `u16`, so a 112-byte message declaring `J = K = M = 65535` sized a `Vec` at
+/// 34 GB before the short data section was ever noticed. Measured on the
+/// zero-bit-width (constant-field) path, where no §7 bit budget constrains the
+/// count: `T = 10000` turned 112 bytes into 763 MB, an amplification of
+/// 7,145,000×. `fieldglass-grib2` capped the same shape at 200 M values
+/// (1.6 GB). Both now share this ceiling, via [`coefficient_count`].
 ///
-/// This is the same class of amplification the decoders already accept behind a
-/// fixed ceiling (`MAX_GRID_POINTS`), recorded here rather than tightened
-/// because choosing a cost budget — what it is, which error reports it, and
-/// whether it belongs at this transform or at the `Session` seam — is a
-/// decision no caller of this constant can make on its own.
-pub const MAX_TRUNCATION: u32 = 10_000;
+/// The check has to be here and at each decoder rather than at the
+/// `fieldglass::Session` seam: the decoder allocates the coefficient array
+/// strictly before the transform or the session sees a value, and
+/// `fieldglass-napi` calls `Grib{1,2}Reader::synthesize_message_global`
+/// directly, as may any consumer of the published format crates.
+pub const MAX_TRUNCATION: u32 = 8_192;
+
+/// The largest coefficient array any spectral family may declare — the value
+/// count at [`MAX_TRUNCATION`], `(T+1)(T+2)` = 67,133,442 `f64` (537 MB).
+///
+/// Named separately because the spherical-harmonic families reach it through a
+/// triangular truncation ([`coefficient_count`]) while GRIB2's bi-Fourier
+/// packing counts `4·NI·NJ` over a rectangle, ellipse or diamond. One envelope
+/// for all of them keeps a single number to reason about rather than one per
+/// packing template.
+pub const MAX_COEFFICIENTS: usize = (MAX_TRUNCATION as usize + 1) * (MAX_TRUNCATION as usize + 2);
+
+/// Stored value count (real *and* imaginary parts) of a triangular truncation
+/// `t`: `(t + 1)·(t + 2)`, bounded by [`MAX_TRUNCATION`].
+///
+/// The one place a declared truncation becomes an allocation size. Both GRIB
+/// editions' spectral decoders and [`synthesize_spherical_harmonic`] itself
+/// call it, so a truncation that would size a `Vec` past the ceiling is refused
+/// once, in one place, with one message — rather than by a per-crate constant
+/// that one crate can be missing entirely (which is what happened: see
+/// [`MAX_TRUNCATION`]).
+///
+/// # Errors
+///
+/// [`FieldglassError::Parse`] when `t` exceeds [`MAX_TRUNCATION`], which is the
+/// same error every other size ceiling in the stack reports through, so a host
+/// sees one `code` for "this file declares more than this build will allocate".
+pub fn coefficient_count(truncation: u32) -> Result<usize, FieldglassError> {
+    if truncation > MAX_TRUNCATION {
+        return Err(FieldglassError::Parse(format!(
+            "spectral truncation T={truncation} exceeds the cap of {MAX_TRUNCATION}"
+        )));
+    }
+    let t = truncation as usize;
+    // `MAX_TRUNCATION` bounds the product at 67,133,442, so it fits `usize` on
+    // a 32-bit target and the multiply cannot overflow.
+    Ok((t + 1) * (t + 2))
+}
+
+/// The inner-loop count [`synthesize_spherical_harmonic`] will run for a
+/// truncation and a target grid, against which [`MAX_SYNTHESIS_WORK`] is the
+/// ceiling: one unit per `(latitude, column)` pair times
+/// the work that column costs — the `n`-reduction over at most `T+1`
+/// coefficients, then the spread over `nlon` longitudes.
+///
+/// This models the measured cost; `output points × coefficients` does not.
+/// Across T63 → T2000 on the pinned grid the time per unit of *this* metric
+/// moves 0.54 → 0.99 ns (1.8×, the recurrence table falling out of cache),
+/// while the time per unit of `output points × coefficients` moves 9.1 → 1.9 ps
+/// (4.9×, and in the direction that under-charges the expensive end).
+///
+/// Saturating rather than wrapping: the slice lengths are caller-supplied and
+/// only ever compared against a ceiling, so a product too large to represent
+/// must read as "over budget", not wrap to a small number.
+#[must_use]
+pub const fn synthesis_work(truncation: u32, nlat: usize, nlon: usize) -> u64 {
+    let columns = truncation as u64 + 1;
+    (nlat as u64).saturating_mul(columns.saturating_mul(columns.saturating_add(nlon as u64)))
+}
+
+/// Ceiling on [`synthesis_work`] — the transform's running cost, across both
+/// the axes it has.
+///
+/// [`MAX_TRUNCATION`] bounds the truncation but says nothing about the target
+/// grid, and `latitudes_deg` / `longitudes_deg` are caller-supplied slices that
+/// nothing else bounds: the output `Vec` alone is `nlat · nlon`. The two
+/// multiply, so capping them separately would still admit a legitimate
+/// truncation on an enormous grid.
+///
+/// Defined as the cost of the largest truncation that exists, synthesized onto
+/// the grid every host renders onto ([`spectral_render_grid`]) — 26,361,739,449
+/// units, ~27 s measured — rather than as a magic number, so it cannot drift
+/// from [`MAX_TRUNCATION`] and needs no separate justification.
+pub const MAX_SYNTHESIS_WORK: u64 = synthesis_work(MAX_TRUNCATION, SYNTHESIS_NJ, SYNTHESIS_NI);
 
 /// Choose the global regular lat/lon grid to synthesize a spectral field onto.
 ///
@@ -100,13 +191,6 @@ pub fn spectral_render_grid(truncation: u32) -> GlobalGrid {
     GlobalGrid::from(spectral_render_dims(truncation))
 }
 
-/// Number of stored real values (real *and* imaginary parts) for a triangular
-/// truncation `t`: `(t + 1)·(t + 2)`.
-fn stored_len(t: u32) -> usize {
-    let t = t as usize;
-    (t + 1) * (t + 2)
-}
-
 /// Synthesize grid-point values from triangular spherical-harmonic coefficients.
 ///
 /// `coefficients` is the flat `(real, imaginary)` `m`-major sequence (as decoded
@@ -114,18 +198,31 @@ fn stored_len(t: u32) -> usize {
 /// `latitudes_deg` / `longitudes_deg` give the target regular grid in degrees.
 /// Returns `latitudes_deg.len() · longitudes_deg.len()` values, latitude-major
 /// (outer) then longitude (inner) — the usual scan order.
+///
+/// # Errors
+///
+/// [`FieldglassError::Parse`] when the truncation is past [`MAX_TRUNCATION`],
+/// when `coefficients` is not `(T+1)(T+2)` long, or when the truncation and the
+/// target grid together would cost more than [`MAX_SYNTHESIS_WORK`].
 pub fn synthesize_spherical_harmonic(
     coefficients: &[f64],
     truncation: u32,
     latitudes_deg: &[f64],
     longitudes_deg: &[f64],
 ) -> Result<Vec<f64>, FieldglassError> {
-    if truncation > MAX_TRUNCATION {
+    let expected = coefficient_count(truncation)?;
+    // The cost budget, before the output `Vec` or any table is allocated. The
+    // truncation is bounded above; the target grid is not, and the two
+    // multiply.
+    let work = synthesis_work(truncation, latitudes_deg.len(), longitudes_deg.len());
+    if work > MAX_SYNTHESIS_WORK {
         return Err(FieldglassError::Parse(format!(
-            "spectral truncation T={truncation} exceeds the synthesis cap of {MAX_TRUNCATION}"
+            "spectral synthesis of T={truncation} onto {} × {} points costs {work} \
+             coefficient evaluations, over the budget of {MAX_SYNTHESIS_WORK}",
+            longitudes_deg.len(),
+            latitudes_deg.len(),
         )));
     }
-    let expected = stored_len(truncation);
     if coefficients.len() != expected {
         return Err(FieldglassError::Parse(format!(
             "spectral synthesis: got {} coefficient values, expected (T+1)(T+2) = {expected} for T={truncation}",
@@ -135,7 +232,19 @@ pub fn synthesize_spherical_harmonic(
 
     let t = truncation as usize;
     let nlon = longitudes_deg.len();
-    let mut out = vec![0.0; latitudes_deg.len() * nlon];
+    // The budget bounds the product in `u64`, which is wider than `usize` on a
+    // 32-bit target, so the output length is narrowed rather than multiplied
+    // out. Unreachable in practice — two slices whose product overflows a
+    // 32-bit `usize` do not fit in a 32-bit address space — but the arithmetic
+    // says so rather than relying on it.
+    let out_len = latitudes_deg.len().checked_mul(nlon).ok_or_else(|| {
+        FieldglassError::Parse(format!(
+            "spectral synthesis: a {} × {} output raster overflows this platform's usize",
+            nlon,
+            latitudes_deg.len()
+        ))
+    })?;
+    let mut out = vec![0.0; out_len];
     let lon_rad: Vec<f64> = longitudes_deg.iter().map(|l| l.to_radians()).collect();
 
     // ── Latitude-invariant tables, hoisted out of the latitude loop ──────────
@@ -276,7 +385,7 @@ mod tests {
     /// Build a `(T+1)(T+2)`-length coefficient array with a single complex
     /// coefficient `(n, m)` set to `(re, im)`, in ECMWF m-major order.
     fn single(t: u32, target_n: u32, target_m: u32, re: f64, im: f64) -> Vec<f64> {
-        let mut out = Vec::with_capacity(stored_len(t));
+        let mut out = Vec::with_capacity(coefficient_count(t).expect("test truncation"));
         for m in 0..=t {
             for n in m..=t {
                 if n == target_n && m == target_m {
@@ -438,5 +547,64 @@ mod tests {
     #[test]
     fn rejects_truncation_over_cap() {
         assert!(synthesize_spherical_harmonic(&[], MAX_TRUNCATION + 1, &LATS, &LONS).is_err());
+    }
+
+    /// The allocation ceiling: exact at the cap, refused one past it. The count
+    /// at the cap is what [`MAX_COEFFICIENTS`] documents, and both GRIB
+    /// editions' decoders size their coefficient arrays from this function.
+    #[test]
+    fn the_coefficient_count_is_exact_up_to_the_cap_and_refused_past_it() {
+        assert_eq!(coefficient_count(0).expect("T0"), 2);
+        assert_eq!(coefficient_count(63).expect("T63"), 64 * 65);
+        assert_eq!(
+            coefficient_count(MAX_TRUNCATION).expect("at the cap"),
+            MAX_COEFFICIENTS
+        );
+        assert!(coefficient_count(MAX_TRUNCATION + 1).is_err());
+        assert!(coefficient_count(u32::MAX).is_err());
+    }
+
+    /// The cost budget's own axis: a truncation well inside the cap on a target
+    /// grid large enough to blow the budget is refused, and nothing is
+    /// allocated for it. Nothing else bounds the caller's slices — the output
+    /// `Vec` alone is `nlat · nlon`.
+    #[test]
+    fn rejects_a_small_truncation_on_an_unaffordable_grid() {
+        // 200_000 × 200_000 output points at T=63 is 4·10^10 units, past the
+        // budget, and would have allocated 320 GB for the output alone.
+        let lats = vec![0.0; 200_000];
+        let lons = vec![0.0; 200_000];
+        let Err(err) = synthesize_spherical_harmonic(&[0.0; 64 * 65], 63, &lats, &lons) else {
+            panic!("a grid past the cost budget must be refused");
+        };
+        assert!(err.to_string().contains("over the budget"), "{err}");
+    }
+
+    /// The control for the test above: the pinned synthesis grid at the largest
+    /// truncation the cap admits is exactly the budget, so no real field is
+    /// refused by it. Checked as arithmetic — synthesizing it takes ~27 s.
+    #[test]
+    fn the_budget_is_the_pinned_grid_at_the_largest_truncation_admitted() {
+        assert_eq!(
+            synthesis_work(MAX_TRUNCATION, SYNTHESIS_NJ, SYNTHESIS_NI),
+            MAX_SYNTHESIS_WORK
+        );
+        assert!(
+            synthesis_work(MAX_TRUNCATION - 1, SYNTHESIS_NJ, SYNTHESIS_NI) < MAX_SYNTHESIS_WORK
+        );
+        // A caller-supplied grid finer than the pinned one is the case the
+        // budget is really guarding, and T63 at four times the linear
+        // resolution is still affordable.
+        assert!(synthesis_work(63, SYNTHESIS_NJ * 4, SYNTHESIS_NI * 4) < MAX_SYNTHESIS_WORK);
+    }
+
+    /// A product too large for `u64` must read as "over budget", not wrap to a
+    /// small number and let the transform through.
+    #[test]
+    fn the_work_metric_saturates_rather_than_wrapping() {
+        assert_eq!(
+            synthesis_work(MAX_TRUNCATION, usize::MAX, usize::MAX),
+            u64::MAX
+        );
     }
 }
