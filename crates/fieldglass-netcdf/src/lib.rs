@@ -4,7 +4,7 @@
 //! See the per-module docs for the per-layout detail.
 //!
 //! **Decoding is two stages, and the reader offers both composed.**
-//! [`NetcdfReader::decode_variable_values`] returns the raw on-disk codes with
+//! [`NetcdfReader::decode_variable_raw`] returns the raw on-disk codes with
 //! only the fill / missing sentinels masked; the CF `scale_factor` /
 //! `add_offset` / `valid_range` mask-and-scale is applied on top of them, from
 //! the variable's own attributes. A caller that wants physical units — which is
@@ -32,7 +32,7 @@ pub use classic::{Attribute, ClassicHeader, ClassicVersion, Dimension, NcType, V
 // accidentally take one without `default-features = false`, which would
 // re-enable `render` and `fs` across the whole dependency graph.
 // `ByteRange` and `ByteSource` are here because `classic::variable_plan` hands
-// ranges out and `classic::decode_variable_values_from` takes a source back:
+// ranges out and `classic::decode_variable_raw_from` takes a source back:
 // the seam is unusable from outside if its two types cannot be named.
 pub use fieldglass_core::{ByteRange, ByteSource, FieldglassError};
 pub use geometry::{

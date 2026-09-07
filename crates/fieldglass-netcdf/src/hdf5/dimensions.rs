@@ -86,7 +86,7 @@ pub struct VariableInfo {
     pub attributes: Vec<Hdf5Attribute>,
     /// `true` when the variable is also a dimension scale (a coordinate variable).
     pub is_coordinate: bool,
-    /// Index into [`crate::NetcdfReader::decode_variable_values`] — the variable's
+    /// Index into [`crate::NetcdfReader::decode_variable_raw`] — the variable's
     /// position in the whole-file depth-first dataset list, *pure dimensions
     /// included*. This is a different index space from this variable's position in
     /// [`Hdf5Metadata::variables`] (which excludes pure dimensions), so the render
@@ -121,7 +121,7 @@ pub struct UnsupportedVariable {
 ///
 /// `variables` is sorted by name and **excludes** pure dimensions (placeholder
 /// scales with no coordinate values). This is a different index space from
-/// [`crate::NetcdfReader::decode_variable_values`], which indexes *all* datasets
+/// [`crate::NetcdfReader::decode_variable_raw`], which indexes *all* datasets
 /// across the file, pure dimensions included; each [`VariableInfo`] therefore
 /// carries its own [`VariableInfo::decode_index`], and the render path must use
 /// that rather than the variable's position in this list.
@@ -175,7 +175,7 @@ struct DatasetInfo {
 /// variable-length, opaque, array) is **skipped and recorded** in
 /// [`Hdf5Metadata::unsupported`] rather than failing the file (#550) — and it
 /// keeps its slot in the dataset list, because
-/// [`crate::NetcdfReader::decode_variable_values`] indexes that same list and
+/// [`crate::NetcdfReader::decode_variable_raw`] indexes that same list and
 /// closing the gap would silently renumber every variable after it. Any other
 /// failure still propagates: a file that does not parse is a different thing
 /// from a file carrying a type this build does not implement.
@@ -228,7 +228,7 @@ pub fn resolve(bytes: &[u8], probe: &Hdf5Probe) -> Result<Hdf5Metadata, Fieldgla
     let dimensions = build_dimensions(&datasets, &phony);
 
     // Pass 3: classify each dataset. `datasets` is
-    // in the same whole-file depth-first order `decode_variable_values` indexes
+    // in the same whole-file depth-first order `decode_variable_raw` indexes
     // (`hdf5_dataset_address` walks the identical `list_all_children` filter), so
     // the enumerate position is the variable's decode index — recorded now because
     // it survives the by-name sort below, where the vector position no longer does.

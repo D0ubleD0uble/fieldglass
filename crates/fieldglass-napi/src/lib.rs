@@ -1318,8 +1318,15 @@ pub struct DecodedVariable {
 /// and NetCDF-4 / HDF5 backings; for HDF5 a "variable" is a root-group dataset
 /// in name-sorted order. Errors for `char` / string variables (text, not
 /// numbers), datasets stored with a layout not yet decoded (e.g. a version-4
-/// chunk index), and out-of-range indices. Mirrors the GRIB `decode_grid`
-/// surface.
+/// chunk index), and out-of-range indices.
+///
+/// **These are the raw on-disk codes**, sentinels masked into `mask` and
+/// nothing else applied — this calls `decode_variable_raw`. It does *not*
+/// mirror the GRIB `decode_grid` surface, which its doc claimed until #664:
+/// `decode_grid` returns a renderable field in the parameter's own units, and a
+/// packed CF variable comes back here as integer codes. The CF mask-and-scale
+/// is applied at the render seam instead (`unpack_cf_data`, #184/#186), which
+/// is what `NetcdfHandle`'s entry points go through.
 #[napi]
 pub fn decode_netcdf_variable(
     bytes: napi::bindgen_prelude::Buffer,
@@ -1327,7 +1334,7 @@ pub fn decode_netcdf_variable(
 ) -> napi::Result<DecodedVariable> {
     let reader = NetcdfReader::from_bytes(bytes.to_vec()).into_napi()?;
     let raw = reader
-        .decode_variable_values(variable_index as usize)
+        .decode_variable_raw(variable_index as usize)
         .into_napi()?;
     let shape = reader
         .variable_shape(variable_index as usize)
@@ -2946,7 +2953,7 @@ impl NetcdfHandle {
         {
             return Ok(std::sync::Arc::clone(hit));
         }
-        let raw = self.reader.decode_variable_values(index).into_napi()?;
+        let raw = self.reader.decode_variable_raw(index).into_napi()?;
         let arc = std::sync::Arc::new(raw);
         self.decoded
             .lock()

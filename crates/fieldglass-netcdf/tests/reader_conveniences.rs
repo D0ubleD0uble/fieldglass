@@ -70,7 +70,7 @@ fn physical_decode_equals_decode_then_unpack_for_every_variable() {
         );
         for var in numeric {
             let raw = reader
-                .decode_variable_values(var.decode_index)
+                .decode_variable_raw(var.decode_index)
                 .unwrap_or_else(|e| panic!("{label}: {} decodes: {e}", var.name));
             assert_eq!(
                 reader
@@ -100,7 +100,7 @@ fn decode_plane_equals_the_three_steps_run_by_hand() {
     assert_eq!(sst.dim_names.len(), 4, "sst is 4-D");
     let shape = reader.variable_shape(sst.decode_index).expect("shape");
     let raw = reader
-        .decode_variable_values(sst.decode_index)
+        .decode_variable_raw(sst.decode_index)
         .expect("decode");
 
     let by_hand = unpack_cf_data(
@@ -142,7 +142,7 @@ fn physical_decode_refuses_an_index_with_no_variable() {
     let reader = NetcdfReader::from_bytes(PHONY.to_vec()).expect("parses");
     let view = reader.view().expect("view");
     let mut orphans = (0..)
-        .take_while(|&i| reader.decode_variable_values(i).is_ok())
+        .take_while(|&i| reader.decode_variable_raw(i).is_ok())
         .filter(|&i| view.var(i).is_none())
         .peekable();
     assert!(

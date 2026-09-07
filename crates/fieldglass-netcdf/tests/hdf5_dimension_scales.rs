@@ -165,7 +165,7 @@ fn pure_dimension_placeholder_resolves_in_the_dummy() {
 }
 
 /// The decode index recorded on each variable must point at the matching dataset
-/// through `decode_variable_values` / `variable_shape`, even though pure
+/// through `decode_variable_raw` / `variable_shape`, even though pure
 /// dimensions shift it away from the variable's position in the name-sorted
 /// `variables` list. In `netcdf4_dimscale.nc` the full dataset order is
 /// `lat, lat_bnds, lon, nv(pure dim), temperature, time`, so `temperature` sits
@@ -192,7 +192,7 @@ fn decode_index_round_trips_through_the_reader() {
     );
     assert_eq!(
         reader
-            .decode_variable_values(temperature.decode_index)
+            .decode_variable_raw(temperature.decode_index)
             .unwrap()
             .len(),
         24

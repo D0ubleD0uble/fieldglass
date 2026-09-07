@@ -4,7 +4,7 @@
 //!
 //! [`parse_header`] walks the dim_list, gatt_list, and var_list at the start of
 //! the file and exposes their contents as Rust structs;
-//! [`decode_variable_values`] reads a variable's data array from its `begin`
+//! [`decode_variable_raw`] reads a variable's data array from its `begin`
 //! offset (fixed-size and interleaved record variables, with `_FillValue`
 //! masking).
 //!
@@ -186,7 +186,7 @@ pub struct Attribute {
 
 /// A NetCDF variable. Attribute decoding is shared with global attributes.
 /// `begin` and `vsize` come straight from the on-disk record; they locate the
-/// variable's data for [`decode_variable_values`].
+/// variable's data for [`decode_variable_raw`].
 #[derive(Debug, Clone)]
 pub struct Variable {
     /// The variable's name as the header declares it.
@@ -259,7 +259,7 @@ const NC_ATTRIBUTE: u32 = 0x0C;
 /// at a few dozen dims; anything beyond this is treated as corrupt.
 pub const MAX_VAR_DIMS: u64 = 4096;
 
-/// Hard cap on the number of elements `decode_variable_values` will allocate
+/// Hard cap on the number of elements `decode_variable_raw` will allocate
 /// for one variable's *values*, guarding against a corrupt header that declares
 /// a huge shape. Matches the GRIB2 decode cap (200M points ≈ 1.6 GiB of `f64`).
 /// This bounds value decode only — header metadata (names, dims, attributes) is
@@ -333,12 +333,12 @@ pub fn variable_shape(
 /// `data` must be the whole file `header` was parsed from. `char` variables
 /// hold text (decoded into the attribute/header path), not numbers, and are
 /// rejected here.
-pub fn decode_variable_values(
+pub fn decode_variable_raw(
     header: &ClassicHeader,
     data: &[u8],
     var_index: usize,
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
-    decode_variable_values_from(header, &data, var_index)
+    decode_variable_raw_from(header, &data, var_index)
 }
 
 /// The byte ranges a decode of `var_index` will read, derived from the header
@@ -351,7 +351,7 @@ pub fn decode_variable_values(
 /// apart, because classic interleaves each record variable's per-record slab.
 ///
 /// This is the function a remote transport calls to know what to fetch, and
-/// `decode_variable_values_from` reads exactly these ranges and no others —
+/// `decode_variable_raw_from` reads exactly these ranges and no others —
 /// which is asserted rather than assumed, in `classic_byte_source.rs`.
 pub fn variable_plan(
     header: &ClassicHeader,
@@ -368,7 +368,7 @@ pub fn variable_plan(
 /// the shape ADR-0005 fixes. For an in-memory source the prefetch is a no-op
 /// and each read is a slice, so the local path costs exactly what it did before
 /// the seam existed.
-pub fn decode_variable_values_from<S: ByteSource>(
+pub fn decode_variable_raw_from<S: ByteSource>(
     header: &ClassicHeader,
     source: &S,
     var_index: usize,
@@ -1190,7 +1190,7 @@ mod tests {
         let mut data = vec![0u8; 4];
         data.extend_from_slice(&7.5f32.to_be_bytes());
         data.extend_from_slice(&(-1.0f32).to_be_bytes());
-        let out = decode_variable_values(&header, &data, 0).unwrap();
+        let out = decode_variable_raw(&header, &data, 0).unwrap();
         assert_eq!(out, vec![Some(7.5), None]);
     }
 
@@ -1211,7 +1211,7 @@ mod tests {
         for v in [1.5f64, -2.0, 4.25] {
             data.extend_from_slice(&v.to_be_bytes());
         }
-        let out = decode_variable_values(&header, &data, 0).unwrap();
+        let out = decode_variable_raw(&header, &data, 0).unwrap();
         assert_eq!(out, vec![Some(1.5), Some(-2.0), Some(4.25)]);
     }
 
@@ -1233,7 +1233,7 @@ mod tests {
         let mut data = vec![0u8; 4];
         data.extend_from_slice(&12.5f32.to_be_bytes());
         data.extend_from_slice(&(-999.0f32).to_be_bytes());
-        let out = decode_variable_values(&header, &data, 0).unwrap();
+        let out = decode_variable_raw(&header, &data, 0).unwrap();
         assert_eq!(out, vec![Some(12.5), None]);
     }
 
@@ -1277,11 +1277,11 @@ mod tests {
             data[base + 16..base + 24].copy_from_slice(&((r as f64) * 10.0 + 2.0).to_be_bytes());
         }
 
-        let a = decode_variable_values(&header, &data, 0).unwrap();
+        let a = decode_variable_raw(&header, &data, 0).unwrap();
         assert_eq!(a, vec![Some(0.0), Some(10.0), Some(20.0)]);
         assert_eq!(variable_shape(&header, 0).unwrap(), vec![3]);
 
-        let b = decode_variable_values(&header, &data, 1).unwrap();
+        let b = decode_variable_raw(&header, &data, 1).unwrap();
         assert_eq!(
             b,
             vec![
@@ -1315,7 +1315,7 @@ mod tests {
         for s in [7i16, -8, 9] {
             data.extend_from_slice(&s.to_be_bytes());
         }
-        let out = decode_variable_values(&header, &data, 0).unwrap();
+        let out = decode_variable_raw(&header, &data, 0).unwrap();
         assert_eq!(out, vec![Some(7.0), Some(-8.0), Some(9.0)]);
     }
 
@@ -1332,7 +1332,7 @@ mod tests {
             global_attributes: Vec::new(),
             variables: vec![var("a", vec![0], NcType::Double, 8, 8)],
         };
-        let out = decode_variable_values(&header, &[0u8; 8], 0).unwrap();
+        let out = decode_variable_raw(&header, &[0u8; 8], 0).unwrap();
         assert!(out.is_empty());
     }
 
@@ -1349,7 +1349,7 @@ mod tests {
             global_attributes: Vec::new(),
             variables: vec![var("label", vec![0], NcType::Char, 4, 8)],
         };
-        let err = decode_variable_values(&header, &[0u8; 12], 0).unwrap_err();
+        let err = decode_variable_raw(&header, &[0u8; 12], 0).unwrap_err();
         assert!(matches!(err, FieldglassError::UnsupportedSection(_)));
     }
 
@@ -1363,7 +1363,7 @@ mod tests {
             variables: Vec::new(),
         };
         assert!(matches!(
-            decode_variable_values(&header, &[], 0).unwrap_err(),
+            decode_variable_raw(&header, &[], 0).unwrap_err(),
             FieldglassError::OutOfRange
         ));
     }
@@ -1382,7 +1382,7 @@ mod tests {
             variables: vec![var("z", vec![0], NcType::Double, 32, 8)],
         };
         // Declares 4 doubles at offset 8 but the buffer is far too short.
-        let err = decode_variable_values(&header, &[0u8; 16], 0).unwrap_err();
+        let err = decode_variable_raw(&header, &[0u8; 16], 0).unwrap_err();
         assert!(matches!(err, FieldglassError::Parse(_)));
     }
 }

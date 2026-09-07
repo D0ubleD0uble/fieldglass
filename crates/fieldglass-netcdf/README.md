@@ -12,7 +12,7 @@ Covers both on-disk layouts end to end:
 
 Reads dimensions, variables, and attributes, resolves dimension scales, and
 decodes a variable's values into a `Vec<Option<f64>>`. Decoding is two stages
-and the reader offers both composed: `decode_variable_values` returns the raw
+and the reader offers both composed: `decode_variable_raw` returns the raw
 on-disk codes with only the fill / missing sentinels masked, and
 `decode_variable_physical` (or `decode_plane`, for one 2-D plane of an N-D
 variable) applies the CF `scale_factor` / `add_offset` / `valid_range`

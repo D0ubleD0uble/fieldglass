@@ -23,7 +23,7 @@ let zarray = r#"{
 let decoder = ChunkDecoder::from_v2_metadata(zarray)?;
 
 let chunk: Vec<u8> = (0..6u32).flat_map(|i| (i as f32).to_le_bytes()).collect();
-assert_eq!(decoder.decode_values(&chunk)?, vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0]);
+assert_eq!(decoder.decode_raw_values(&chunk)?, vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0]);
 # Ok::<(), fieldglass_zarr::FieldglassError>(())
 ```
 
@@ -42,6 +42,15 @@ encoding, or an entry in a kerchunk reference document — is
 byte ranges. This crate reads the chunk *shape*, because a decode cannot check
 its own output length or reverse a transpose without it, and nothing else about
 the array's layout.
+
+**It applies no CF conventions.** `decode_raw_values` returns the values as
+stored. An array written by xarray carries `scale_factor`, `add_offset` and
+`_FillValue` in its `.zattrs`, and a packed `int16` array reads back as integer
+codes rather than physical units — the split `fieldglass-netcdf` draws between
+`decode_variable_raw` and `decode_variable_physical`, for the same reason: CF is
+a convention over the container rather than part of it. This crate has no
+physical counterpart yet only because it is handed a chunk and never the store,
+so it cannot read `.zattrs`.
 
 **It decodes; it never encodes.** The forward direction of each transform exists
 only under `#[cfg(test)]`, where a round trip is the one check that does not

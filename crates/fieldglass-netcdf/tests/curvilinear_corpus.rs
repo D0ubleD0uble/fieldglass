@@ -541,7 +541,7 @@ fn sampled_cells_match_the_coordinates_the_source_file_holds() {
 /// so index arithmetic stays simple. The coordinate arrays carry no fill.
 fn plane(reader: &NetcdfReader, view_: &DatasetView, name: &str) -> Vec<f64> {
     reader
-        .decode_variable_values(var(view_, name).decode_index)
+        .decode_variable_raw(var(view_, name).decode_index)
         .unwrap_or_else(|e| panic!("{name} decodes: {e}"))
         .into_iter()
         .map(|v| v.unwrap_or(f64::NAN))

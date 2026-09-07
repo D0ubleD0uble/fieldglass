@@ -8,7 +8,7 @@
 //! inner compressors and three shuffle modes), and one v3 store, which states
 //! its codecs as an ordered chain rather than as a filter/compressor pair.
 //! All three go through the same two calls — a `from_*_metadata` constructor
-//! and [`ChunkDecoder::decode_values`] — because which edition wrote the store
+//! and [`ChunkDecoder::decode_raw_values`] — because which edition wrote the store
 //! is the metadata's problem, not the caller's.
 //!
 //! **This crate does not read stores.** A chunk arrives as bytes the caller
@@ -53,7 +53,7 @@ fn main() -> Result<(), FieldglassError> {
     ];
 
     for (label, decoder, chunk) in stores {
-        let values = decoder.decode_values(chunk)?;
+        let values = decoder.decode_raw_values(chunk)?;
 
         // The fixtures are a ramp on purpose: a transposition or a byte-order
         // slip breaks the progression instead of hiding in plausible noise.

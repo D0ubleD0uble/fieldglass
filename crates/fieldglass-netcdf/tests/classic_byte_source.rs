@@ -12,7 +12,7 @@
 
 use fieldglass_core::{ByteRange, ByteSource, FieldglassError};
 use fieldglass_netcdf::classic::{
-    decode_variable_values, decode_variable_values_from, parse_header, variable_plan,
+    decode_variable_raw, decode_variable_raw_from, parse_header, variable_plan,
 };
 use std::borrow::Cow;
 use std::cell::RefCell;
@@ -95,7 +95,7 @@ fn the_plan_is_exactly_what_the_decode_reads() {
                 return; // char/text variables have no numeric plan
             };
             let source = Recording::new(bytes);
-            if decode_variable_values_from(header, &source, index).is_err() {
+            if decode_variable_raw_from(header, &source, index).is_err() {
                 return;
             }
             assert_eq!(
@@ -125,7 +125,7 @@ fn the_whole_plan_is_prefetched_once_before_any_read() {
         .expect("T2 is a record variable in this fixture");
 
     let source = Recording::new(WRF);
-    decode_variable_values_from(&header, &source, index).expect("decode");
+    decode_variable_raw_from(&header, &source, index).expect("decode");
 
     let prefetches = source.prefetches();
     assert_eq!(
@@ -153,9 +153,9 @@ fn a_repeated_decode_re_traverses_nothing() {
         .expect("T2");
 
     let first = Recording::new(WRF);
-    let a = decode_variable_values_from(&header, &first, index).expect("decode");
+    let a = decode_variable_raw_from(&header, &first, index).expect("decode");
     let second = Recording::new(WRF);
-    let b = decode_variable_values_from(&header, &second, index).expect("decode");
+    let b = decode_variable_raw_from(&header, &second, index).expect("decode");
 
     assert_eq!(
         first.reads(),
@@ -229,8 +229,8 @@ fn a_fixed_variable_plans_one_contiguous_range() {
 fn the_slice_and_byte_source_paths_agree() {
     for bytes in [WRF, ERSST] {
         each_variable(bytes, |header, index| {
-            let via_slice = decode_variable_values(header, bytes, index);
-            let via_source = decode_variable_values_from(header, &bytes.to_vec(), index);
+            let via_slice = decode_variable_raw(header, bytes, index);
+            let via_source = decode_variable_raw_from(header, &bytes.to_vec(), index);
             match (via_slice, via_source) {
                 (Ok(a), Ok(b)) => assert_eq!(a, b, "variable {index} decoded differently"),
                 (Err(_), Err(_)) => {}
@@ -257,7 +257,7 @@ fn a_source_that_cannot_serve_a_range_fails_the_decode() {
     // The file, one byte short of what the plan asks for.
     let plan = variable_plan(&header, index).expect("plan");
     let truncated = &ERSST[..(plan[0].end().expect("end") as usize - 1)];
-    let err = decode_variable_values_from(&header, &truncated.to_vec(), index)
+    let err = decode_variable_raw_from(&header, &truncated.to_vec(), index)
         .expect_err("a short source must not decode");
     assert!(
         format!("{err}").contains("exceeds source size"),
@@ -332,9 +332,9 @@ impl ByteSource for Fetching<'_> {
 fn a_cache_backed_source_that_never_borrows_decodes_identically() {
     for bytes in [WRF, ERSST] {
         each_variable(bytes, |header, index| {
-            let expected = decode_variable_values(header, bytes, index);
+            let expected = decode_variable_raw(header, bytes, index);
             let source = Fetching::new(bytes);
-            let got = decode_variable_values_from(header, &source, index);
+            let got = decode_variable_raw_from(header, &source, index);
             match (expected, got) {
                 (Ok(a), Ok(b)) => {
                     assert_eq!(a, b, "variable {index} decoded differently through a cache");
@@ -408,13 +408,13 @@ fn a_short_serving_source_is_an_error_not_a_short_variable() {
         .iter()
         .position(|v| v.name == "lat")
         .expect("lat");
-    let full = decode_variable_values(&header, ERSST, index).expect("decode");
+    let full = decode_variable_raw(&header, ERSST, index).expect("decode");
     assert!(
         !full.is_empty(),
         "the fixture variable is empty, so this proves nothing"
     );
 
-    let err = decode_variable_values_from(&header, &Short(ERSST), index)
+    let err = decode_variable_raw_from(&header, &Short(ERSST), index)
         .expect_err("a short-serving source must not produce a variable at all");
     assert!(
         format!("{err}").contains("served short"),
@@ -429,7 +429,7 @@ fn the_plan_refuses_exactly_what_the_decode_refuses() {
     for bytes in [WRF, ERSST] {
         each_variable(bytes, |header, index| {
             let plan = variable_plan(header, index);
-            let decoded = decode_variable_values(header, bytes, index);
+            let decoded = decode_variable_raw(header, bytes, index);
             assert_eq!(
                 plan.is_ok(),
                 decoded.is_ok(),

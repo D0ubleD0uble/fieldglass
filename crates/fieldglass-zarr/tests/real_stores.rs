@@ -123,7 +123,7 @@ fn every_committed_store_decodes_to_the_values_it_was_written_from() {
                 checked_chunks += shard.len();
             } else {
                 let got = decoder
-                    .decode_values(&stored)
+                    .decode_raw_values(&stored)
                     .unwrap_or_else(|e| panic!("{case}/{key}: decoding: {e}"));
                 assert_eq!(
                     got,
@@ -198,8 +198,10 @@ fn the_two_byte_orders_decode_to_the_same_numbers_from_different_bytes() {
             "{little} and {big} store identical bytes, so the pair tests nothing"
         );
         assert_eq!(
-            decoder_for(little, le).decode_values(&le_bytes).unwrap(),
-            decoder_for(big, be).decode_values(&be_bytes).unwrap(),
+            decoder_for(little, le)
+                .decode_raw_values(&le_bytes)
+                .unwrap(),
+            decoder_for(big, be).decode_raw_values(&be_bytes).unwrap(),
         );
     }
 }
@@ -250,7 +252,7 @@ fn a_truncated_chunk_is_refused_rather_than_decoded_short() {
         // suite; the interesting truncations are all near the framing.
         let step = stored.len().div_ceil(64).max(1);
         for cut in (0..stored.len()).step_by(step) {
-            match decoder.decode_values(&stored[..cut]) {
+            match decoder.decode_raw_values(&stored[..cut]) {
                 Err(_) => {}
                 Ok(values) => panic!(
                     "{case}: a chunk truncated to {cut} of {} bytes decoded to {} values",

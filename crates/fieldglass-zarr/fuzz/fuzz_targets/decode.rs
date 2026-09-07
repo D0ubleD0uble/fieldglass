@@ -37,7 +37,7 @@ use fieldglass_zarr::ChunkDecoder;
 /// * **blosc** is the container, so the fuzzer owning the chunk's header bytes
 ///   reaches all five inner compressors (blosclz, lz4, lz4hc, zlib, zstd) and
 ///   both shuffle modes through this one decoder.
-/// * **raw** has no codec at all, so `decode_values`' element-width and length
+/// * **raw** has no codec at all, so `decode_raw_values`' element-width and length
 ///   arithmetic is reached without a decompressor refusing the buffer first.
 /// * **sharded** is the only way into the shard index.
 ///
@@ -118,7 +118,7 @@ fuzz_target!(|data: &[u8]| {
 /// outcome and says nothing either way.
 fn drive(decoder: &ChunkDecoder, chunk: &[u8]) {
     let _ = decoder.decode(chunk);
-    let _ = decoder.decode_values(chunk);
+    let _ = decoder.decode_raw_values(chunk);
     // Answers for any decoder, and gates nothing — `decode_shard` is driven
     // unconditionally so a chain that wrongly reports itself unsharded cannot
     // hide the shard-index walk from the fuzzer.

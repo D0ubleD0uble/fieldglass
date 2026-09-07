@@ -82,9 +82,7 @@ fn probe_of(reader: &NetcdfReader) -> &Hdf5Probe {
 /// How many datasets the file holds, in decode-index order.
 fn dataset_count(reader: &NetcdfReader) -> usize {
     (0..)
-        .take_while(|&i| {
-            reader.variable_shape(i).is_ok() || reader.decode_variable_values(i).is_ok()
-        })
+        .take_while(|&i| reader.variable_shape(i).is_ok() || reader.decode_variable_raw(i).is_ok())
         .count()
 }
 
@@ -92,7 +90,7 @@ fn dataset_count(reader: &NetcdfReader) -> usize {
 /// variable, and whether the two runs disagreed on the value or on the error.
 fn decode_all(reader: &NetcdfReader, count: usize) -> Vec<String> {
     (0..count)
-        .map(|i| match reader.decode_variable_values(i) {
+        .map(|i| match reader.decode_variable_raw(i) {
             Ok(values) => format!("ok:{values:?}"),
             Err(e) => format!("err:{e}"),
         })
@@ -124,14 +122,14 @@ fn a_warm_reader_walks_nothing() {
         );
 
         // First decode: pays for the whole-file object-header walk.
-        let _ = reader.decode_variable_values(0);
+        let _ = reader.decode_variable_raw(0);
         let first = probe.traversals();
         assert!(
             first > 0,
             "{name}: the first decode must actually walk the file, else this test proves nothing"
         );
 
-        let _ = reader.decode_variable_values(0);
+        let _ = reader.decode_variable_raw(0);
         assert_eq!(
             probe.traversals(),
             first,
@@ -143,7 +141,7 @@ fn a_warm_reader_walks_nothing() {
 
         let sweep = |_pass: u8| {
             for i in 0..count {
-                let _ = reader.decode_variable_values(i);
+                let _ = reader.decode_variable_raw(i);
                 let _ = reader.variable_shape(i);
             }
             let _ = reader.hdf5_metadata();
@@ -177,9 +175,9 @@ fn re_decoding_a_chunked_dataset_does_not_recollect_its_chunk_index() {
         let reader = reader(bytes);
         let probe = probe_of(&reader);
 
-        let first = reader.decode_variable_values(0);
+        let first = reader.decode_variable_raw(0);
         let warm = probe.traversals();
-        let second = reader.decode_variable_values(0);
+        let second = reader.decode_variable_raw(0);
 
         assert_eq!(
             probe.traversals(),
@@ -214,7 +212,7 @@ fn a_warm_reader_decodes_what_a_cold_one_does() {
         let _ = warm.hdf5_metadata();
         for i in (0..count).rev() {
             let _ = warm.variable_shape(i);
-            let _ = warm.decode_variable_values(i);
+            let _ = warm.decode_variable_raw(i);
         }
 
         assert_eq!(decode_all(&warm, count), expected, "{name}: decoded values");
@@ -239,7 +237,7 @@ fn the_memo_is_not_part_of_the_probes_identity() {
     let (_, bytes) = FIXTURES[0];
     let reader = reader(bytes);
     let probe = probe_of(&reader);
-    let _ = reader.decode_variable_values(0);
+    let _ = reader.decode_variable_raw(0);
     assert!(probe.traversals() > 0);
 
     let cloned = probe.clone();
@@ -274,7 +272,7 @@ fn a_probe_does_not_answer_for_another_file() {
     let (first_name, first) = FIXTURES[0];
     let own = reader(first);
     let probe = probe_of(&own);
-    let _ = own.decode_variable_values(0);
+    let _ = own.decode_variable_raw(0);
     let warm = probe.traversals();
     assert!(warm > 0, "{first_name}: memo did not warm");
 
@@ -314,7 +312,7 @@ fn a_probe_does_not_answer_for_another_file() {
     // What must not have happened is any disturbance to the memo belonging to
     // this probe's own file: decoding it again is still free.
     let before = probe.traversals();
-    let _ = own.decode_variable_values(0);
+    let _ = own.decode_variable_raw(0);
     assert_eq!(
         probe.traversals(),
         before,

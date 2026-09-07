@@ -67,7 +67,6 @@ impl NetcdfReader {
     /// Decode one variable's values into row-major (C / on-disk order)
     /// `Vec<Option<f64>>` — `Some(v)` for present points, `None` where the
     /// element equals the variable's `_FillValue` or CF `missing_value`.
-    /// Mirrors the GRIB `decode_message_values` surface.
     ///
     /// **These are the raw on-disk codes.** Masking the sentinels is the only
     /// thing done to them: the CF `scale_factor` / `add_offset` / `valid_range`
@@ -82,13 +81,13 @@ impl NetcdfReader {
     /// order [`Self::variable_shape`] uses. Datasets
     /// stored with a Data Layout the reader doesn't decode yet (e.g. a
     /// version-4 chunk index) return [`FieldglassError::UnsupportedSection`].
-    pub fn decode_variable_values(
+    pub fn decode_variable_raw(
         &self,
         var_index: usize,
     ) -> Result<Vec<Option<f64>>, FieldglassError> {
         match &self.backing {
             NetcdfBacking::Classic(header) => {
-                classic::decode_variable_values(header, &self.data, var_index)
+                classic::decode_variable_raw(header, &self.data, var_index)
             }
             NetcdfBacking::Hdf5(probe) => {
                 let addr = hdf5_dataset_address(&self.data, probe, var_index)?;
@@ -153,7 +152,7 @@ impl NetcdfReader {
     }
 
     /// Decode one variable into CF **physical** units:
-    /// [`Self::decode_variable_values`] followed by the mask-and-scale its own
+    /// [`Self::decode_variable_raw`] followed by the mask-and-scale its own
     /// attributes call for ([`VarView::unpack`]). This is what a caller reading
     /// a packed field almost always wants; the raw method is the stage below it.
     ///
@@ -161,7 +160,7 @@ impl NetcdfReader {
     /// backing walks every dataset. A caller decoding many variables should
     /// hold one view and take [`Self::decode_plane`] per variable; a caller
     /// re-slicing *one* variable wants neither, since both decode it again —
-    /// cache [`Self::decode_variable_values`] yourself and apply
+    /// cache [`Self::decode_variable_raw`] yourself and apply
     /// [`VarView::unpack`] to each plane, which is what the render host does.
     ///
     /// Errors for a decodable index the view has no variable for — a NetCDF-4
@@ -178,7 +177,7 @@ impl NetcdfReader {
                 "no variable at decode index {var_index}, so no CF attributes to unpack with"
             ))
         })?;
-        Ok(var.unpack(&self.decode_variable_values(var_index)?))
+        Ok(var.unpack(&self.decode_variable_raw(var_index)?))
     }
 
     /// Decode one 2-D plane of a variable in CF physical units — the whole chain
@@ -203,7 +202,7 @@ impl NetcdfReader {
         x_dim: usize,
         fixed: &[usize],
     ) -> Result<Vec<Option<f64>>, FieldglassError> {
-        let raw = self.decode_variable_values(var.decode_index)?;
+        let raw = self.decode_variable_raw(var.decode_index)?;
         let shape = self.variable_shape(var.decode_index)?;
         let plane = extract_plane(&raw, &shape, y_dim, x_dim, fixed)?;
         Ok(var.unpack(&plane))

@@ -21,7 +21,7 @@ fn decode_temp(bytes: &[u8]) -> Vec<Option<f64>> {
         .find(|v| v.name == "temp")
         .expect("temp present")
         .decode_index;
-    reader.decode_variable_values(idx).expect("decode")
+    reader.decode_variable_raw(idx).expect("decode")
 }
 
 fn expected() -> Vec<Option<f64>> {

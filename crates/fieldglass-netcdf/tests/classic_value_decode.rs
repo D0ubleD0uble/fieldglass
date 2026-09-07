@@ -74,7 +74,7 @@ fn classic_variables_match_value_oracles() {
             if spec.get("text").is_some() {
                 let idx = var_index(header, name);
                 assert!(
-                    reader.decode_variable_values(idx).is_err(),
+                    reader.decode_variable_raw(idx).is_err(),
                     "{name}: char variable value decode should be rejected"
                 );
                 continue;
@@ -82,7 +82,7 @@ fn classic_variables_match_value_oracles() {
 
             let idx = var_index(header, name);
             let decoded = reader
-                .decode_variable_values(idx)
+                .decode_variable_raw(idx)
                 .unwrap_or_else(|e| panic!("{name}: decode failed: {e}"));
 
             // Element count.
