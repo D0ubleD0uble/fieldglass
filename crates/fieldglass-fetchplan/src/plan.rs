@@ -313,18 +313,11 @@ impl Expect {
 /// A stale offset lands in packed data, so the "found" half of a magic mismatch
 /// is arbitrary binary; printing it raw would put control characters into a
 /// host's log or a test's assertion output.
-fn printable(bytes: &[u8]) -> String {
-    bytes
-        .iter()
-        .map(|&b| {
-            if b.is_ascii_graphic() || b == b' ' {
-                (b as char).to_string()
-            } else {
-                format!("\\x{b:02x}")
-            }
-        })
-        .collect()
-}
+///
+/// `fieldglass-core` reports the same mismatch about a decoded message and had
+/// its own copy of this. One implementation now (#554), so the two cannot
+/// render the same bytes two ways.
+use fieldglass_core::printable_bytes as printable;
 
 /// A WMO parameter's identity, as GRIB2 numbers it.
 ///

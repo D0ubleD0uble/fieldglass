@@ -59,7 +59,7 @@ impl NetcdfReader {
             let probe = hdf5::probe(&data)?;
             NetcdfBacking::Hdf5(probe)
         } else {
-            return Err(FieldglassError::InvalidMagic);
+            return Err(FieldglassError::invalid_magic("CDF or \\x89HDF", &data));
         };
         Ok(Self { backing, data })
     }
@@ -219,12 +219,17 @@ fn hdf5_dataset_address(
     probe: &hdf5::Hdf5Probe,
     var_index: usize,
 ) -> Result<u64, FieldglassError> {
-    hdf5::group::all_children(bytes, probe)?
+    let children = hdf5::group::all_children(bytes, probe)?;
+    let datasets = children
         .iter()
-        .filter(|c| c.kind == hdf5::group::ChildKind::Dataset)
-        .nth(var_index)
-        .map(|c| c.object_header_address)
-        .ok_or(FieldglassError::OutOfRange)
+        .filter(|c| c.kind == hdf5::group::ChildKind::Dataset);
+    // The bound is the dataset count rather than the child count, because that
+    // is the list `var_index` addresses; walking the filter twice is cheaper
+    // than the traversal that produced it.
+    match datasets.clone().nth(var_index) {
+        Some(c) => Ok(c.object_header_address),
+        None => Err(FieldglassError::out_of_range(var_index, datasets.count())),
+    }
 }
 
 #[cfg(test)]
@@ -234,6 +239,6 @@ mod tests {
     #[test]
     fn rejects_unknown_magic() {
         let err = NetcdfReader::from_bytes(b"NOTANCDF".to_vec()).unwrap_err();
-        assert!(matches!(err, FieldglassError::InvalidMagic));
+        assert!(matches!(err, FieldglassError::InvalidMagic { .. }));
     }
 }

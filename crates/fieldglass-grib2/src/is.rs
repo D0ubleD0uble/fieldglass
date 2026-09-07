@@ -42,7 +42,7 @@ pub fn parse_indicator(bytes: &[u8]) -> Result<IndicatorSection, FieldglassError
         )));
     }
     if &bytes[0..4] != b"GRIB" {
-        return Err(FieldglassError::InvalidMagic);
+        return Err(FieldglassError::invalid_magic("GRIB", bytes));
     }
     let discipline = bytes[6];
     let edition = bytes[7];
@@ -88,7 +88,7 @@ mod tests {
         let mut bytes = make_is(0, 2, 16);
         bytes[0] = b'X';
         match parse_indicator(&bytes) {
-            Err(FieldglassError::InvalidMagic) => {}
+            Err(FieldglassError::InvalidMagic { .. }) => {}
             other => panic!("expected InvalidMagic, got {other:?}"),
         }
     }

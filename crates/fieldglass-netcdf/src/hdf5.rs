@@ -158,7 +158,8 @@ pub fn find_signature(bytes: &[u8]) -> Option<usize> {
 /// version-independent (signature + version byte + sizes), so this is safe
 /// against newer superblock layouts.
 pub fn probe(bytes: &[u8]) -> Result<Hdf5Probe, FieldglassError> {
-    let off = find_signature(bytes).ok_or(FieldglassError::InvalidMagic)?;
+    let off = find_signature(bytes)
+        .ok_or_else(|| FieldglassError::invalid_magic("\\x89HDF\\r\\n\\x1a\\n", bytes))?;
 
     // Superblock fields after the 8-byte signature, common to all versions:
     //   off + 8  : superblock version (1 byte)
@@ -210,7 +211,8 @@ pub fn root_group_address(bytes: &[u8], probe: &Hdf5Probe) -> Result<u64, Fieldg
 }
 
 fn read_root_group_address(bytes: &[u8], probe: &Hdf5Probe) -> Result<u64, FieldglassError> {
-    let base = find_signature(bytes).ok_or(FieldglassError::InvalidMagic)?;
+    let base = find_signature(bytes)
+        .ok_or_else(|| FieldglassError::invalid_magic("\\x89HDF\\r\\n\\x1a\\n", bytes))?;
     let o = probe.offset_size as usize;
     if o == 0 || o > 8 {
         return Err(FieldglassError::Parse(format!(
@@ -295,7 +297,7 @@ mod tests {
     fn missing_signature_errors() {
         let bytes = vec![0u8; 32];
         let err = probe(&bytes).unwrap_err();
-        assert!(matches!(err, FieldglassError::InvalidMagic));
+        assert!(matches!(err, FieldglassError::InvalidMagic { .. }));
     }
 
     #[test]

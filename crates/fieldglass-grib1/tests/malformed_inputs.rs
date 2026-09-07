@@ -216,9 +216,17 @@ fn decode_grid_for_out_of_range_index_returns_error() {
     let err = reader
         .decode_message_values(99)
         .expect_err("out-of-range index must error");
-    assert!(
-        matches!(err, FieldglassError::OutOfRange),
-        "expected FieldglassError::OutOfRange, got {err:?}"
+    // The context, not just the variant (#554): a host reporting "message 99
+    // of 1" needs both numbers, and reading them out of the Display string was
+    // the thing this variant exists to stop.
+    let FieldglassError::OutOfRange { index, bound } = err else {
+        panic!("expected FieldglassError::OutOfRange, got {err:?}");
+    };
+    assert_eq!(index, 99, "the index the caller asked for");
+    assert_eq!(
+        bound,
+        reader.messages.len(),
+        "the bound is what the file actually holds"
     );
 }
 
