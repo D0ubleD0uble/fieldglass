@@ -36,6 +36,19 @@ pub enum Error {
         /// Which operation, and what about this message refuses it.
         detail: String,
     },
+    /// The call belongs to the other addressing mode: a message index asked of
+    /// a variable dataset, or a slice asked of a message stream.
+    ///
+    /// Distinct from [`Self::NoSuchMessage`] on purpose. A NetCDF file holds no
+    /// messages *at all*, so answering "index 0 is outside the 0 available"
+    /// would tell a caller its index was wrong when its whole question was.
+    /// [`crate::Session::addressing`] is what to ask first.
+    WrongAddressing {
+        /// The mode this session is in, named as the wire value.
+        expected: String,
+        /// Which call was made, and what to call instead.
+        detail: String,
+    },
     /// A caller-supplied option is out of range or self-contradictory.
     InvalidOption {
         /// Which option, and what it would have had to be.
@@ -52,6 +65,7 @@ impl Error {
             Self::Decode { .. } => "decode",
             Self::NoSuchMessage { .. } => "no_such_message",
             Self::Unsupported { .. } => "unsupported",
+            Self::WrongAddressing { .. } => "wrong_addressing",
             Self::InvalidOption { .. } => "invalid_option",
         }
     }
@@ -67,6 +81,9 @@ impl Error {
                 format!("message {index} is out of range; the file holds {count}")
             }
             Self::Unsupported { detail } => detail.clone(),
+            Self::WrongAddressing { expected, detail } => {
+                format!("this session is addressed by {expected}: {detail}")
+            }
             Self::InvalidOption { detail } => detail.clone(),
         }
     }

@@ -86,10 +86,11 @@
 // worth a message at compile time rather than an `UnsupportedFormat` at every
 // call. Stated here and not in the manifest because cargo has no way to say
 // "at least one of these".
-#[cfg(not(any(feature = "grib1", feature = "grib2")))]
+#[cfg(not(any(feature = "grib1", feature = "grib2", feature = "netcdf")))]
 compile_error!(
-    "fieldglass needs at least one format feature: enable `grib1`, `grib2`, or both \
-     (they are on by default; a `default-features = false` consumer names them back)"
+    "fieldglass needs at least one format feature: enable `grib1`, `grib2`, `netcdf`, \
+     or any combination (all three are on by default; a `default-features = false` \
+     consumer names back the ones it opens)"
 );
 
 pub mod api;
@@ -108,7 +109,8 @@ pub mod shader;
 #[cfg(feature = "render")]
 pub use api::Warped;
 pub use api::{
-    AxisUnits, Dtype, Field, Georef, MessageInfo, Probe, Scan, SourceFormat, Stats, Values,
+    Addressing, AxisUnits, DimensionInfo, Dtype, Field, Georef, MessageInfo, Probe, Scan,
+    SourceFormat, Stats, Values, VariableInfo,
 };
 #[cfg(feature = "analysis")]
 pub use api::{CombineOpInfo, Isoline};

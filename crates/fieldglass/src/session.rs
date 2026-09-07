@@ -11,9 +11,9 @@
 
 // Split by feature: a braced `use` list takes no `#[cfg]` on its members, so
 // the items behind `core`'s optional surfaces need their own statement (#552).
-use fieldglass_core::{
-    Format as CoreFormat, GridGeometry, detect_from_bytes, units::normalize_units,
-};
+#[cfg(any(feature = "grib1", feature = "grib2"))]
+use fieldglass_core::units::normalize_units;
+use fieldglass_core::{Format as CoreFormat, GridGeometry, detect_from_bytes};
 #[cfg(feature = "render")]
 use fieldglass_core::{
     LonLatBox, Resampling, SourceGrid, TargetRaster,
@@ -27,7 +27,10 @@ use fieldglass_core::{contour_segments, contour_segments_global, nice_levels};
 use crate::api::Isoline;
 #[cfg(feature = "render")]
 use crate::api::Warped;
-use crate::api::{Dtype, Field, Georef, MessageInfo, Probe, Scan, SourceFormat, Stats, Values};
+use crate::api::{
+    Addressing, DimensionInfo, Dtype, Field, Georef, MessageInfo, Probe, Scan, SourceFormat, Stats,
+    Values, VariableInfo,
+};
 #[cfg(feature = "analysis")]
 use crate::combine::CombineOp;
 use crate::error::Error;
@@ -205,6 +208,87 @@ enum Reader {
     Grib1(Box<fieldglass_grib1::Grib1Reader>),
     #[cfg(feature = "grib2")]
     Grib2(Box<fieldglass_grib2::Grib2Reader>),
+    /// An array dataset. The `DatasetView` is resolved once on open rather than
+    /// per call: for a NetCDF-4 backing it walks the whole object model, and
+    /// every variable and slice question is asked of it afterwards.
+    #[cfg(feature = "netcdf")]
+    Netcdf(
+        Box<(
+            fieldglass_netcdf::NetcdfReader,
+            fieldglass_netcdf::DatasetView,
+        )>,
+    ),
+}
+
+/// The half of a decode that is the same whichever way the container was
+/// addressed: mask the absent cells, range the present ones, and pack.
+///
+/// Shared by [`Session::decode`] and [`Session::decode_slice`] rather than
+/// written twice (#662). A second copy would be a second place for "what counts
+/// as a value" to be decided, and the two would drift the first time one of
+/// them learned something.
+#[allow(clippy::too_many_arguments)]
+fn build_field(
+    raw: &[Option<f64>],
+    ni: u32,
+    nj: u32,
+    geometry: &GridGeometry,
+    scan: Scan,
+    declared: &str,
+    parameter: String,
+    units: String,
+    options: &DecodeOptions,
+) -> Field {
+    let mut values = Vec::with_capacity(raw.len());
+    let mut mask = Vec::with_capacity(raw.len());
+    let mut min = f64::INFINITY;
+    let mut max = f64::NEG_INFINITY;
+    let mut valid_count = 0u32;
+    for cell in raw {
+        match cell {
+            // A non-finite decoded value is not a value: it cannot be ranged,
+            // coloured, or interpolated, so it joins the masked cells rather
+            // than poisoning the field's min / max.
+            Some(v) if v.is_finite() => {
+                values.push(*v);
+                mask.push(1);
+                min = min.min(*v);
+                max = max.max(*v);
+                valid_count += 1;
+            }
+            _ => {
+                values.push(0.0);
+                mask.push(0);
+            }
+        }
+    }
+    let stats = Stats {
+        min: (valid_count > 0).then_some(min),
+        max: (valid_count > 0).then_some(max),
+        valid_count,
+    };
+    Field {
+        values: Values::build(values, &mask, options.dtype.clone()),
+        mask,
+        ni,
+        nj,
+        georef: Georef::from_declared(geometry, scan, declared),
+        stats,
+        parameter,
+        units,
+    }
+}
+
+/// The refusal a message call gets from a variable dataset, and vice versa.
+///
+/// One place so the two halves cannot word it differently, and so the `detail`
+/// always names the call to make instead — an error that only says "no" costs
+/// the caller a trip to the docs.
+fn wrong_addressing(called: &str, instead: &str) -> Error {
+    Error::WrongAddressing {
+        expected: "variables".to_string(),
+        detail: format!("`{called}` addresses messages; call `{instead}` instead"),
+    }
 }
 
 impl Session {
@@ -237,9 +321,19 @@ impl Session {
                         .to_string(),
                 });
             }
+            #[cfg(feature = "netcdf")]
+            CoreFormat::NetCdf => {
+                let reader = fieldglass_netcdf::NetcdfReader::from_bytes(bytes)?;
+                // Resolved here so a variable list costs one walk per file
+                // rather than one per question.
+                let view = reader.view()?;
+                Reader::Netcdf(Box::new((reader, view)))
+            }
+            #[cfg(not(feature = "netcdf"))]
             CoreFormat::NetCdf => {
                 return Err(Error::UnsupportedFormat {
-                    detail: "NetCDF; this build carries the GRIB decoders only".to_string(),
+                    detail: "NetCDF; this build was compiled without the `netcdf` feature"
+                        .to_string(),
                 });
             }
             CoreFormat::Unknown => {
@@ -259,6 +353,23 @@ impl Session {
             Reader::Grib1(_) => SourceFormat::Grib1,
             #[cfg(feature = "grib2")]
             Reader::Grib2(_) => SourceFormat::Grib2,
+            #[cfg(feature = "netcdf")]
+            Reader::Netcdf(_) => SourceFormat::NetCdf,
+        }
+    }
+
+    /// How this container is addressed — messages, or variables and slices.
+    ///
+    /// Asked once on open. It says which half of this type applies, and a host
+    /// that ignores it meets [`Error::WrongAddressing`] from the first call.
+    pub fn addressing(&self) -> Addressing {
+        match self.reader {
+            #[cfg(feature = "grib1")]
+            Reader::Grib1(_) => Addressing::Messages,
+            #[cfg(feature = "grib2")]
+            Reader::Grib2(_) => Addressing::Messages,
+            #[cfg(feature = "netcdf")]
+            Reader::Netcdf(_) => Addressing::Variables,
         }
     }
 
@@ -270,6 +381,11 @@ impl Session {
             Reader::Grib1(r) => r.message_count(),
             #[cfg(feature = "grib2")]
             Reader::Grib2(r) => r.message_count(),
+            // Not an error and not a lie: an array dataset holds no messages.
+            // `message` and `decode` say so properly; this is the count of the
+            // thing being counted.
+            #[cfg(feature = "netcdf")]
+            Reader::Netcdf(_) => 0,
         };
         // A file with more messages than a `u32` counts does not exist; the
         // saturating cast is here so the index type and the count type agree
@@ -277,6 +393,9 @@ impl Session {
         u32::try_from(n).unwrap_or(u32::MAX)
     }
 
+    // Only a message container range-checks an index; a build with no GRIB
+    // decoder never reaches one.
+    #[cfg(any(feature = "grib1", feature = "grib2"))]
     fn check_index(&self, index: u32) -> Result<usize, Error> {
         let count = self.count();
         if index >= count {
@@ -288,13 +407,35 @@ impl Session {
     /// One message's metadata. Built on demand — a thousand-message file costs
     /// nothing to open.
     pub fn message(&self, index: u32) -> Result<MessageInfo, Error> {
-        let i = self.check_index(index)?;
-        Ok(match &self.reader {
-            #[cfg(feature = "grib1")]
-            Reader::Grib1(r) => grib1_message(r, i),
-            #[cfg(feature = "grib2")]
-            Reader::Grib2(r) => grib2_message(r, i),
-        })
+        // Asked before the index is range-checked: against a variable dataset
+        // `count()` is zero, so the range check would answer "index 0 is
+        // outside the 0 available" — which tells a caller its index was wrong
+        // when its whole question was.
+        #[cfg(feature = "netcdf")]
+        if matches!(self.reader, Reader::Netcdf(_)) {
+            return Err(wrong_addressing("message", "variables"));
+        }
+        #[cfg(any(feature = "grib1", feature = "grib2"))]
+        {
+            let i = self.check_index(index)?;
+            Ok(match &self.reader {
+                #[cfg(feature = "grib1")]
+                Reader::Grib1(r) => grib1_message(r, i),
+                #[cfg(feature = "grib2")]
+                Reader::Grib2(r) => grib2_message(r, i),
+                #[cfg(feature = "netcdf")]
+                Reader::Netcdf(_) => return Err(wrong_addressing("message", "variables")),
+            })
+        }
+        // A build with no GRIB decoder has no message path at all. Answering
+        // rather than panicking: the guard above already returned for the only
+        // reader such a build can hold, so this is unreachable in fact and
+        // total in type.
+        #[cfg(not(any(feature = "grib1", feature = "grib2")))]
+        {
+            let _ = index;
+            Err(wrong_addressing("message", "variables"))
+        }
     }
 
     /// Decode one message into a field: values, mask, geometry, and the range
@@ -312,133 +453,301 @@ impl Session {
     /// `size_label` is `"T63"`, not `720×361` — so the message list still
     /// describes the file rather than describing Fieldglass.
     pub fn decode(&self, index: u32, options: &DecodeOptions) -> Result<Field, Error> {
-        let i = self.check_index(index)?;
-        // Asked before anything else, and the same question of both readers:
-        // which families need synthesising, and onto what grid, is the format
-        // crate's answer, not one this crate re-derives (#546, #580).
-        let synthesised = match &self.reader {
-            #[cfg(feature = "grib1")]
-            Reader::Grib1(r) => r.synthesize_message_global(i)?,
-            #[cfg(feature = "grib2")]
-            Reader::Grib2(r) => r.synthesize_message_global(i)?,
-        };
-        let (parameter, units) = match &self.reader {
-            #[cfg(feature = "grib1")]
-            Reader::Grib1(r) => {
-                let (_, parameter, units) = grib1_parameter(&r.messages[i]);
-                (parameter, units)
-            }
-            #[cfg(feature = "grib2")]
-            Reader::Grib2(r) => {
-                let (_, parameter, units) = grib2_parameter(&r.messages[i]);
-                (parameter, units)
-            }
-        };
-        // `declared` is the family name the message states, which survives the
-        // conversion only if it is carried (#645): both decoders widen a
-        // reduced grid onto its regular sibling's raster, so the geometry no
-        // longer knows it was a `reduced_gg`. A **synthesised** grid is the
-        // case where the geometry is the honest answer — the values really are
-        // on the lat/lon raster the transform filled, and nothing of the
-        // declared family survives it — so that arm reads the geometry's own
-        // label rather than the message's.
-        let (raw, geometry, scan, declared) = match synthesised {
-            Some((grid, values)) => {
-                let geometry = GridGeometry::LatLon(grid.into());
-                let declared = geometry.label().to_string();
-                (
-                    values,
-                    geometry,
-                    // A synthesised grid runs west-to-east from 0° and
-                    // north-down from the pole whatever the message it came
-                    // from scanned like: nothing of the source layout survives
-                    // an inverse transform or a HEALPix resample. The napi host
-                    // says the same thing at its own seam.
-                    Scan::north_down(),
-                    declared,
-                )
-            }
-            None => match &self.reader {
+        // Before the range check, for the reason `message` explains.
+        #[cfg(feature = "netcdf")]
+        if matches!(self.reader, Reader::Netcdf(_)) {
+            return Err(wrong_addressing("decode", "decode_slice"));
+        }
+        #[cfg(any(feature = "grib1", feature = "grib2"))]
+        {
+            let i = self.check_index(index)?;
+            // Asked before anything else, and the same question of both readers:
+            // which families need synthesising, and onto what grid, is the format
+            // crate's answer, not one this crate re-derives (#546, #580).
+            let synthesised = match &self.reader {
+                #[cfg(feature = "grib1")]
+                Reader::Grib1(r) => r.synthesize_message_global(i)?,
+                #[cfg(feature = "grib2")]
+                Reader::Grib2(r) => r.synthesize_message_global(i)?,
+                #[cfg(feature = "netcdf")]
+                Reader::Netcdf(_) => return Err(wrong_addressing("decode", "decode_slice")),
+            };
+            let (parameter, units) = match &self.reader {
                 #[cfg(feature = "grib1")]
                 Reader::Grib1(r) => {
-                    let msg = &r.messages[i];
-                    let gds = msg.gds.as_ref().ok_or_else(|| Error::Unsupported {
-                        detail: "the message carries no grid description".to_string(),
-                    })?;
-                    let geometry = GridGeometry::from(gds);
-                    (
-                        r.decode_message_raster(i)?,
-                        geometry,
-                        grib1_scan(msg),
-                        gds.grid_type_name().to_string(),
-                    )
+                    let (_, parameter, units) = grib1_parameter(&r.messages[i]);
+                    (parameter, units)
                 }
                 #[cfg(feature = "grib2")]
                 Reader::Grib2(r) => {
-                    let msg = &r.messages[i];
-                    let geometry = GridGeometry::from(&msg.gds);
+                    let (_, parameter, units) = grib2_parameter(&r.messages[i]);
+                    (parameter, units)
+                }
+                #[cfg(feature = "netcdf")]
+                Reader::Netcdf(_) => return Err(wrong_addressing("decode", "decode_slice")),
+            };
+            // `declared` is the family name the message states, which survives the
+            // conversion only if it is carried (#645): both decoders widen a
+            // reduced grid onto its regular sibling's raster, so the geometry no
+            // longer knows it was a `reduced_gg`. A **synthesised** grid is the
+            // case where the geometry is the honest answer — the values really are
+            // on the lat/lon raster the transform filled, and nothing of the
+            // declared family survives it — so that arm reads the geometry's own
+            // label rather than the message's.
+            let (raw, geometry, scan, declared) = match synthesised {
+                Some((grid, values)) => {
+                    let geometry = GridGeometry::LatLon(grid.into());
+                    let declared = geometry.label().to_string();
                     (
-                        r.decode_message_raster(i)?,
+                        values,
                         geometry,
-                        grib2_scan(msg),
-                        msg.gds.template_name(),
+                        // A synthesised grid runs west-to-east from 0° and
+                        // north-down from the pole whatever the message it came
+                        // from scanned like: nothing of the source layout survives
+                        // an inverse transform or a HEALPix resample. The napi host
+                        // says the same thing at its own seam.
+                        Scan::north_down(),
+                        declared,
                     )
                 }
-            },
-        };
+                None => match &self.reader {
+                    #[cfg(feature = "grib1")]
+                    Reader::Grib1(r) => {
+                        let msg = &r.messages[i];
+                        let gds = msg.gds.as_ref().ok_or_else(|| Error::Unsupported {
+                            detail: "the message carries no grid description".to_string(),
+                        })?;
+                        let geometry = GridGeometry::from(gds);
+                        (
+                            r.decode_message_raster(i)?,
+                            geometry,
+                            grib1_scan(msg),
+                            gds.grid_type_name().to_string(),
+                        )
+                    }
+                    #[cfg(feature = "grib2")]
+                    Reader::Grib2(r) => {
+                        let msg = &r.messages[i];
+                        let geometry = GridGeometry::from(&msg.gds);
+                        (
+                            r.decode_message_raster(i)?,
+                            geometry,
+                            grib2_scan(msg),
+                            msg.gds.template_name(),
+                        )
+                    }
+                    #[cfg(feature = "netcdf")]
+                    Reader::Netcdf(_) => return Err(wrong_addressing("decode", "decode_slice")),
+                },
+            };
 
-        let (ni, nj) = geometry.dims().ok_or_else(|| Error::Unsupported {
-            detail: format!("a {} field has no raster to decode onto", geometry.label()),
-        })?;
-        let expected = (ni as usize).saturating_mul(nj as usize);
-        if raw.len() != expected {
-            return Err(Error::Decode {
-                detail: format!(
-                    "decoded {} values for a {ni}×{nj} grid, which needs {expected}",
-                    raw.len()
-                ),
-            });
+            let (ni, nj) = geometry.dims().ok_or_else(|| Error::Unsupported {
+                detail: format!("a {} field has no raster to decode onto", geometry.label()),
+            })?;
+            let expected = (ni as usize).saturating_mul(nj as usize);
+            if raw.len() != expected {
+                return Err(Error::Decode {
+                    detail: format!(
+                        "decoded {} values for a {ni}×{nj} grid, which needs {expected}",
+                        raw.len()
+                    ),
+                });
+            }
+            Ok(build_field(
+                &raw, ni, nj, &geometry, scan, &declared, parameter, units, options,
+            ))
         }
+        // As in `message`: with no GRIB decoder compiled there is no
+        // message path, and the guard above has already answered.
+        #[cfg(not(any(feature = "grib1", feature = "grib2")))]
+        {
+            let _ = (index, options);
+            Err(wrong_addressing("decode", "decode_slice"))
+        }
+    }
 
-        let mut values = Vec::with_capacity(raw.len());
-        let mut mask = Vec::with_capacity(raw.len());
-        let mut min = f64::INFINITY;
-        let mut max = f64::NEG_INFINITY;
-        let mut valid_count = 0u32;
-        for cell in &raw {
-            match cell {
-                // A non-finite decoded value is not a value: it cannot be
-                // ranged, coloured, or interpolated, so it joins the masked
-                // cells rather than poisoning the field's min / max.
-                Some(v) if v.is_finite() => {
-                    values.push(*v);
-                    mask.push(1);
-                    min = min.min(*v);
-                    max = max.max(*v);
-                    valid_count += 1;
-                }
-                _ => {
-                    values.push(0.0);
-                    mask.push(0);
-                }
+    /// The dataset's shared dimensions, in the order the file declares them.
+    ///
+    /// Shared is the point: two variables naming the same dimension are on the
+    /// same axis, so a host offers one time slider for a file rather than one
+    /// per variable.
+    ///
+    /// Empty for a message container — see [`Self::addressing`].
+    pub fn dimensions(&self) -> Vec<DimensionInfo> {
+        match &self.reader {
+            #[cfg(feature = "grib1")]
+            Reader::Grib1(_) => Vec::new(),
+            #[cfg(feature = "grib2")]
+            Reader::Grib2(_) => Vec::new(),
+            #[cfg(feature = "netcdf")]
+            Reader::Netcdf(b) => {
+                b.1.dims
+                    .iter()
+                    .map(|d| DimensionInfo {
+                        name: d.name.clone(),
+                        length: d.length,
+                    })
+                    .collect()
             }
         }
-        let stats = Stats {
-            min: (valid_count > 0).then_some(min),
-            max: (valid_count > 0).then_some(max),
-            valid_count,
-        };
+    }
 
-        Ok(Field {
-            values: Values::build(values, &mask, options.dtype.clone()),
-            mask,
-            ni,
-            nj,
-            georef: Georef::from_declared(&geometry, scan, &declared),
-            stats,
-            parameter,
-            units,
-        })
+    /// The variables a caller can decode a slice of.
+    ///
+    /// Renderable ones only — a variable of fewer than two dimensions has no
+    /// raster to put on a map, and a coordinate variable is an axis rather than
+    /// a field. `index` is the handle [`Self::decode_slice`] takes.
+    ///
+    /// Empty for a message container — see [`Self::addressing`].
+    pub fn variables(&self) -> Vec<VariableInfo> {
+        match &self.reader {
+            #[cfg(feature = "grib1")]
+            Reader::Grib1(_) => Vec::new(),
+            #[cfg(feature = "grib2")]
+            Reader::Grib2(_) => Vec::new(),
+            #[cfg(feature = "netcdf")]
+            Reader::Netcdf(b) => {
+                b.1.renderable_variables()
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, v)| VariableInfo {
+                        // Position in *this* list, not the decode index the crate
+                        // uses: a host should never have to know that the reader
+                        // numbers every dataset in the file while this offers only
+                        // the renderable ones.
+                        index: u32::try_from(i).unwrap_or(u32::MAX),
+                        name: v.name.clone(),
+                        dims: v
+                            .dims
+                            .iter()
+                            .map(|d| DimensionInfo {
+                                name: d.name.clone(),
+                                length: d.length,
+                            })
+                            .collect(),
+                        dtype: format!("{:?}", v.nc_type).to_lowercase(),
+                        units: b
+                            .1
+                            .vars
+                            .iter()
+                            .find(|s| s.decode_index == v.decode_index)
+                            .and_then(|s| {
+                                s.attrs
+                                    .iter()
+                                    .find(|(n, _)| n == "units")
+                                    .map(|(_, val)| val.clone())
+                            })
+                            .unwrap_or_default(),
+                        detected_y_dim: v.detected_y_dim.and_then(|d| u32::try_from(d).ok()),
+                        detected_x_dim: v.detected_x_dim.and_then(|d| u32::try_from(d).ok()),
+                    })
+                    .collect()
+            }
+        }
+    }
+
+    /// Decode one 2-D slice of a variable into the same [`Field`]
+    /// [`Self::decode`] returns.
+    ///
+    /// `y_dim` and `x_dim` index into the variable's own `dims`, and
+    /// `slice_indices` holds **one entry per dimension** in that same declared
+    /// order — so `slice_indices[d]` is always the position on `dims[d]`, and
+    /// the two horizontal entries are ignored rather than absent. A caller
+    /// never has to map a reduced list back onto the file's own axis numbering,
+    /// which is why the length is the rank and not the rank minus two.
+    ///
+    /// A wrong length is [`Error::InvalidOption`] rather than a guess: silently
+    /// defaulting the unstated axes to zero is how a host renders the first
+    /// time step and labels it the last.
+    ///
+    /// The returned field is not special: `render`, `probe`, `contours`,
+    /// `combine`, `warp` and `palette` take it exactly as they take a decoded
+    /// message. That is the whole reason the addressing split stops here.
+    // Every parameter is read by the `netcdf` arm alone, so a GRIB-only build
+    // sees a signature it cannot use. Kept in the signature regardless: the API
+    // a host compiles against must not change shape with the feature set, or a
+    // build without NetCDF would not be the same crate.
+    #[cfg_attr(not(feature = "netcdf"), allow(unused_variables))]
+    pub fn decode_slice(
+        &self,
+        variable: u32,
+        y_dim: u32,
+        x_dim: u32,
+        slice_indices: &[u32],
+        options: &DecodeOptions,
+    ) -> Result<Field, Error> {
+        match &self.reader {
+            #[cfg(feature = "grib1")]
+            Reader::Grib1(_) => Err(wrong_addressing("decode_slice", "decode")),
+            #[cfg(feature = "grib2")]
+            Reader::Grib2(_) => Err(wrong_addressing("decode_slice", "decode")),
+            #[cfg(feature = "netcdf")]
+            Reader::Netcdf(b) => {
+                let (reader, view) = (&b.0, &b.1);
+                let vars = view.renderable_variables();
+                let var = vars.get(variable as usize).ok_or(Error::NoSuchMessage {
+                    index: variable,
+                    count: u32::try_from(vars.len()).unwrap_or(u32::MAX),
+                })?;
+                let (y, x) = (y_dim as usize, x_dim as usize);
+                let fixed: Vec<usize> = slice_indices.iter().map(|&i| i as usize).collect();
+                if fixed.len() != var.dims.len() {
+                    return Err(Error::InvalidOption {
+                        detail: format!(
+                            "`{}` has {} dimensions, so `slice_indices` needs {} entries \
+                             (the two horizontal ones are ignored); {} were given",
+                            var.name,
+                            var.dims.len(),
+                            var.dims.len(),
+                            fixed.len()
+                        ),
+                    });
+                }
+                if y == x || y >= var.dims.len() || x >= var.dims.len() {
+                    return Err(Error::InvalidOption {
+                        detail: format!(
+                            "`{}` has {} dimensions; y_dim {y} and x_dim {x} must be \
+                             different and within them",
+                            var.name,
+                            var.dims.len()
+                        ),
+                    });
+                }
+                let source = view
+                    .vars
+                    .iter()
+                    .find(|s| s.decode_index == var.decode_index)
+                    .ok_or_else(|| Error::Decode {
+                        detail: format!("`{}` is not in the dataset view", var.name),
+                    })?;
+                // The CF mask-and-scale is applied here, so a packed `int16`
+                // variable reaches a host in physical units the way a GRIB
+                // field does — the asymmetry #664 named, resolved at the seam
+                // that can see the attributes.
+                let raw = source.unpack(&reader.decode_plane(source, y, x, &fixed)?);
+                let placement = reader.slice_placement(view, var, y, x)?;
+                let ni = u32::try_from(var.dims[x].length).unwrap_or(u32::MAX);
+                let nj = u32::try_from(var.dims[y].length).unwrap_or(u32::MAX);
+                let units = source
+                    .attrs
+                    .iter()
+                    .find(|(n, _)| n == "units")
+                    .map(|(_, v)| v.clone())
+                    .unwrap_or_default();
+                let declared = placement.geometry.label().to_string();
+                Ok(build_field(
+                    &raw,
+                    ni,
+                    nj,
+                    &placement.geometry,
+                    placement.scan.unwrap_or_else(Scan::north_down),
+                    &declared,
+                    var.name.clone(),
+                    units,
+                    options,
+                ))
+            }
+        }
     }
 
     /// Resample a field onto a geographic box, without painting it.
