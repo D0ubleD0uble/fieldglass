@@ -68,6 +68,69 @@ api_type! {
         Grib1,
         /// WMO FM 92 GRIB edition 2.
         Grib2,
+        /// NetCDF, either classic (CDF-1/2/5) or NetCDF-4 over HDF5.
+        NetCdf,
+    }
+
+    /// How a container is addressed: what a caller asks for to get a field.
+    ///
+    /// The two shapes are not a detail of the format, they are what the format
+    /// *is*. GRIB is a stream of self-describing messages, so a message index
+    /// is the whole address. NetCDF and Zarr hold named variables of two or
+    /// more dimensions, so a field is a variable plus which axes are the
+    /// horizontal pair plus where the caller is standing on the others — four
+    /// things, and no ordering of them is more natural than another.
+    ///
+    /// A host asks this once, on open, and then knows which half of
+    /// [`crate::Session`] applies. Everything downstream of a decode —
+    /// `render`, `probe`, `contours`, `combine`, `warp`, `palette` — takes a
+    /// [`Field`] and is the same for both.
+    #[serde(rename_all = "snake_case")]
+    pub enum Addressing {
+        /// A flat list of messages: [`crate::Session::count`],
+        /// [`crate::Session::message`], [`crate::Session::decode`].
+        Messages,
+        /// Named variables over shared dimensions:
+        /// [`crate::Session::variables`], [`crate::Session::dimensions`],
+        /// [`crate::Session::decode_slice`].
+        Variables,
+    }
+
+    /// One dimension of an array dataset, as the file names it.
+    ///
+    /// Shared: two variables that name the same dimension are on the same axis,
+    /// which is what lets a host offer one time slider for a whole file rather
+    /// than one per variable.
+    #[serde(rename_all = "camelCase")]
+    pub struct DimensionInfo {
+        /// The dimension's name, path-qualified for a nested group.
+        pub name: String,
+        /// How many points it has.
+        pub length: u64,
+    }
+
+    /// One renderable variable of an array dataset.
+    #[serde(rename_all = "camelCase")]
+    pub struct VariableInfo {
+        /// Position in [`crate::Session::variables`], and the handle
+        /// [`crate::Session::decode_slice`] takes.
+        pub index: u32,
+        /// The variable's name, path-qualified for a nested group.
+        pub name: String,
+        /// Its axes in declared (C) order — the order `y_dim` and `x_dim`
+        /// index into, and the order `slice_indices` is given in.
+        pub dims: Vec<DimensionInfo>,
+        /// The element type as the file declares it, named.
+        pub dtype: String,
+        /// Units from the variable's own attributes, empty when it states none.
+        pub units: String,
+        /// Which axis the file's own conventions say is latitude, when they say
+        /// so. `None` for a WRF or satellite file, whose horizontal axes are
+        /// projected and carry no CF axis attribute — the caller picks, which is
+        /// why this is a hint rather than the answer.
+        pub detected_y_dim: Option<u32>,
+        /// The longitude half of [`Self::detected_y_dim`], under the same rule.
+        pub detected_x_dim: Option<u32>,
     }
 
     /// Which element type a caller wants back from a decode.

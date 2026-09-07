@@ -30,6 +30,7 @@ flowchart TD
     wasm --> fieldglass
     fieldglass --> grib1
     fieldglass --> grib2
+    fieldglass --> netcdf
     fieldglass --> core
     napi --> fieldglass
     napi --> grib1
@@ -155,12 +156,13 @@ through features of its own (#552) rather than pinning them on the dependency,
 so a host can decline one; `fs` is not forwarded at all, because ADR-0005 hands
 every host bytes rather than a path.
 
-**The umbrella's features, and what each is for.** `grib1` and `grib2` make the
-decoders optional, since a decoder carries its own codecs — PNG, AEC and
-JPEG 2000 arrive with GRIB2 alone — and a build that never opens that edition
+**The umbrella's features, and what each is for.** `grib1`, `grib2` and
+`netcdf` make the decoders optional, since a decoder carries its own codecs —
+PNG, AEC and JPEG 2000 arrive with GRIB2 alone, and the HDF5 object model and
+its filter pipeline with NetCDF — and a build that never opens that container
 should not link them: `grib1,render` resolves 12 crates against the default 34.
 `Session` has one `Reader` variant per format feature and `lib.rs` refuses a
-build with neither, so every dispatch stays exhaustive; `detect_from_bytes` is
+build with none of the three, so every dispatch stays exhaustive; `detect_from_bytes` is
 never gated, because "this is GRIB1 and I cannot read it" is a different answer
 from "I do not know what this is". `render` and `analysis` are independent of
 each other — a values-first host wants contours without the painter — and

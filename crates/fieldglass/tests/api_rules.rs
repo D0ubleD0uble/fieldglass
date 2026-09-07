@@ -34,9 +34,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use fieldglass::{
-    AxisUnits, CombineOpInfo, DecodeOptions, Dtype, Error, Field, Georef, Isoline, MessageInfo,
-    PaletteOptions, PixelProbe, Probe, Projected, Raster, RenderOptions, ResolvedOptions,
-    SourceFormat, Stats, TargetKind, Values, WarpOptions, WarpTarget, Warped,
+    Addressing, AxisUnits, CombineOpInfo, DecodeOptions, DimensionInfo, Dtype, Error, Field,
+    Georef, Isoline, MessageInfo, PaletteOptions, PixelProbe, Probe, Projected, Raster,
+    RenderOptions, ResolvedOptions, SourceFormat, Stats, TargetKind, Values, VariableInfo,
+    WarpOptions, WarpTarget, Warped,
 };
 
 // ---------------------------------------------------------------------------
@@ -92,6 +93,11 @@ const CLASSIFICATION: &[(&str, Class, &str)] = &[
     ("Stats", Class::Wire, ""),
     ("Field", Class::Wire, ""),
     ("MessageInfo", Class::Wire, ""),
+    // The second addressing mode (#662): how a container is addressed, and the
+    // variables and dimensions that addressing names.
+    ("Addressing", Class::Wire, ""),
+    ("DimensionInfo", Class::Wire, ""),
+    ("VariableInfo", Class::Wire, ""),
     ("CombineOpInfo", Class::Wire, ""),
     ("Warped", Class::Wire, ""),
     ("Probe", Class::Wire, ""),
@@ -347,6 +353,12 @@ fn every_wire_type_round_trips_through_json() {
         &MESSAGE_INFO_JSON.replace("GEOREF", GEOREF_JSON),
     );
     round_trip::<CombineOpInfo>("CombineOpInfo", r#"{"value":"a_minus_b","label":"A − B"}"#);
+    round_trip::<Addressing>("Addressing", r#""variables""#);
+    round_trip::<DimensionInfo>("DimensionInfo", r#"{"name":"time","length":12}"#);
+    round_trip::<VariableInfo>(
+        "VariableInfo",
+        r#"{"index":0,"name":"/g/sst","dims":[{"name":"lat","length":2}],"dtype":"float","units":"K","detectedYDim":0,"detectedXDim":1}"#,
+    );
     round_trip::<RenderOptions>("RenderOptions", RENDER_OPTIONS_JSON);
 
     assert_covers_every_wire_type("every_wire_type_round_trips_through_json", ROUND_TRIPPED);
@@ -390,6 +402,9 @@ const ROUND_TRIPPED: &[&str] = &[
     "MessageInfo",
     "CombineOpInfo",
     "RenderOptions",
+    "Addressing",
+    "DimensionInfo",
+    "VariableInfo",
 ];
 
 /// Fail unless `covered` is exactly the `Class::Wire` half of
@@ -1164,6 +1179,9 @@ fn no_wire_schema_hides_an_optional_element_array() {
     check_schema::<SourceFormat>("SourceFormat");
     check_schema::<Dtype>("Dtype");
     check_schema::<AxisUnits>("AxisUnits");
+    check_schema::<Addressing>("Addressing");
+    check_schema::<DimensionInfo>("DimensionInfo");
+    check_schema::<VariableInfo>("VariableInfo");
 
     assert_covers_every_wire_type(
         "no_wire_schema_hides_an_optional_element_array",
@@ -1191,6 +1209,9 @@ const SCHEMA_CHECKED: &[&str] = &[
     "SourceFormat",
     "Dtype",
     "AxisUnits",
+    "Addressing",
+    "DimensionInfo",
+    "VariableInfo",
 ];
 
 /// A type that carries the engine's own `Vec<Option<f64>>` across the seam.

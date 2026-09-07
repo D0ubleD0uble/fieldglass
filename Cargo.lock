@@ -89,6 +89,7 @@ dependencies = [
  "fieldglass-fetchplan",
  "fieldglass-grib1",
  "fieldglass-grib2",
+ "fieldglass-netcdf",
  "schemars",
  "serde",
  "serde_json",
