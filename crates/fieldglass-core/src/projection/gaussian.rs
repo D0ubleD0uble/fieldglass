@@ -16,7 +16,8 @@ use super::{GridIndex, RAD2DEG};
 /// A Gaussian latitude/longitude grid: longitude is evenly spaced, but the
 /// rows sit on the `2 · n_parallels` Gauss–Legendre quadrature nodes, which
 /// crowd toward the equator. GRIB1 `grid_type` 4, GRIB2 template 3.40.
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct GaussianParams {
     /// Points along a row (`Ni`).
     pub ni: u32,

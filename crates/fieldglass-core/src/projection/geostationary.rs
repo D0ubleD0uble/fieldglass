@@ -23,7 +23,8 @@ use super::{DEFAULT_SNAP_EPS, DEG2RAD, GridIndex, LonLatBox, enclosing_lon_arc, 
 /// which is the analytic inverse of the CGMS LRIT/HRIT forward that GRIB2 §3.90
 /// encodes. Off-disk points (no Earth intersection) invert to `None` so the
 /// limb renders transparent.
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct GeostationaryParams {
     /// Points along a row (`Ni`).
     pub ni: u32,

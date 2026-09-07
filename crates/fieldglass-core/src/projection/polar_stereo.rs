@@ -12,7 +12,8 @@ use super::{DEG2RAD, GridIndex, PlanarGridProjector, RAD2DEG};
 
 /// A polar stereographic grid — GRIB1 `grid_type` 5, GRIB2 template 3.20.
 /// The plane touches one pole and is metres.
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct PolarStereoParams {
     /// Radius of the spherical Earth the grid is projected on, in metres. See
     /// [`super::LambertParams::earth_radius_m`].

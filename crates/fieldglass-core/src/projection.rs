@@ -154,7 +154,8 @@ pub fn signed_grid_increments(
 /// applied on the render side, by `warp::Resampling::from_grid`. Both are
 /// named in prose rather than linked for that reason: an intra-doc link from
 /// here into `warp` does not resolve in the build this type exists to serve.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum GridResampling {
     /// A raster grid: the fractional part of a [`GridIndex`] is a position
     /// inside the cell and `(i + 1, j)` is the neighbour to its east, so
@@ -764,52 +765,53 @@ fn axis_position(first: f64, last: f64, n: u32, k: u32) -> f64 {
 /// enough to name. The variants are ordered as the families are listed
 /// throughout the docs: the two geographic ones, the two that are geographic
 /// with a twist, then the four planar projections and the view from orbit.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[non_exhaustive]
-#[serde(tag = "kind")]
+#[cfg_attr(feature = "serde", serde(tag = "kind"))]
 pub enum GridGeometry {
     /// Evenly spaced in degrees on both axes.
-    #[serde(rename = "latlon")]
+    #[cfg_attr(feature = "serde", serde(rename = "latlon"))]
     LatLon(LatLonParams),
     /// Evenly spaced in longitude, with rows on the Gauss–Legendre nodes.
-    #[serde(rename = "gaussian")]
+    #[cfg_attr(feature = "serde", serde(rename = "gaussian"))]
     Gaussian(GaussianParams),
     /// Evenly spaced in longitude and in the Mercator ordinate, so its rows
     /// crowd toward the equator; the corners still state it geographically.
-    #[serde(rename = "mercator")]
+    #[cfg_attr(feature = "serde", serde(rename = "mercator"))]
     Mercator(MercatorParams),
     /// A lat/lon grid on a sphere whose pole has been moved. Its corners are
     /// **rotated-frame** degrees, which is why it is a family of its own rather
     /// than a [`LatLon`](Self::LatLon) with extra fields.
-    #[serde(rename = "rotated_latlon")]
+    #[cfg_attr(feature = "serde", serde(rename = "rotated_latlon"))]
     RotatedLatLon(RotatedLatLonParams),
     /// Lambert conformal conic, on a sphere the message declares.
-    #[serde(rename = "lambert")]
+    #[cfg_attr(feature = "serde", serde(rename = "lambert"))]
     Lambert(LambertParams),
     /// Polar stereographic, on a sphere the message declares.
-    #[serde(rename = "polar_stereo")]
+    #[cfg_attr(feature = "serde", serde(rename = "polar_stereo"))]
     PolarStereo(PolarStereoParams),
     /// Transverse Mercator (GRIB2 §3.12), on the spheroid the message declares
     /// rather than a mean sphere — see [`TransverseMercatorParams`].
-    #[serde(rename = "transverse_mercator")]
+    #[cfg_attr(feature = "serde", serde(rename = "transverse_mercator"))]
     TransverseMercator(TransverseMercatorParams),
     /// Lambert azimuthal equal-area (GRIB2 §3.140), likewise on the spheroid.
-    #[serde(rename = "lambert_azimuthal")]
+    #[cfg_attr(feature = "serde", serde(rename = "lambert_azimuthal"))]
     LambertAzimuthal(LambertAzimuthalParams),
     /// The view from geostationary orbit (GRIB2 §3.90). Tagged `space_view`
     /// rather than `geostationary` because that is the template name both
     /// readers and the hosts already print; the variant is named for the
     /// projection, the tag for the grid the message declares.
-    #[serde(rename = "space_view")]
+    #[cfg_attr(feature = "serde", serde(rename = "space_view"))]
     Geostationary(GeostationaryParams),
     /// A grid that is a list of cell centres rather than a formula — NetCDF
     /// 2-D coordinates, GRIB2 §3.204, ICON §3.101. Answers with a cell, never
     /// a position inside one; see [`GridResampling::NearestOnly`].
-    #[serde(rename = "lookup")]
+    #[cfg_attr(feature = "serde", serde(rename = "lookup"))]
     Lookup(crate::spatial_index::SpatialIndex),
     /// A family this type does not model yet. `label` is the grid type as the
     /// decoder named it, so the message can say what was declined.
-    #[serde(rename = "unsupported")]
+    #[cfg_attr(feature = "serde", serde(rename = "unsupported"))]
     Unsupported {
         /// The grid type as the decoder named it.
         label: String,
@@ -1846,7 +1848,8 @@ impl GridGeometry {
 
 /// The units a [`PlaneAffine`] is measured in — the axes of the CRS
 /// [`GridGeometry::proj4`] names for the same grid.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum PlaneUnits {
     /// `x` is a longitude and `y` a latitude, both in degrees.
     Degrees,
@@ -2055,8 +2058,9 @@ impl LonLatBox {
 /// `#[non_exhaustive]`, because it surfaces on the `fieldglass` API as
 /// `Georef::scan` and ADR-0006 requires it of every type there. Build one with
 /// [`Self::new`] or [`Self::north_down`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
 #[non_exhaustive]
 pub struct Scan {
     /// Points run east→west rather than west→east (GRIB1 GDS octet 28 bit 1,

@@ -13,7 +13,8 @@ use super::{DEG2RAD, GridIndex, RAD2DEG};
 /// A Mercator grid — GRIB2 template 3.10. Longitude is linear and the rows
 /// are evenly spaced in the Mercator ordinate, so the two stated corners
 /// describe it: `dx`/`dy` in metres never enter the geolocation.
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct MercatorParams {
     /// Points along a row (`Ni`).
     pub ni: u32,

@@ -27,8 +27,19 @@ all-features = true
 # `fieldglass-napi`. On by default so the workspace and downstream renderers get
 # it transitively; the format crates opt out with `default-features = false` to
 # keep their public API to the parsing surface. See the crate-level docs.
-default = ["render", "fs", "analysis"]
+default = ["render", "fs", "analysis", "serde"]
 render = []
+# The `Serialize` / `Deserialize` derives on the geometry, colour and spatial
+# types (#641). **On by default**, so nothing downstream changes by upgrading;
+# the win is for the crates that already take this one with
+# `default-features = false` — the four format crates and the umbrella — which
+# stop resolving `serde`, `serde_core` and `serde_derive` for derives their
+# parsing surface never serialises.
+#
+# It is a feature rather than an unconditional dependency because a decode-only
+# build has nothing to serialise: the wire types a host sends belong to
+# `fieldglass`, and what lives here is the geometry those are built from.
+serde = ["dep:serde"]
 # Analysis over a decoded field: `contour`, `csv`, `combine`. Host operations
 # rather than viewer ones — they take values and return values, and none of
 # them needs the RGBA painter — so they are their own feature and not part of
@@ -45,7 +56,7 @@ analysis = []
 fs = []
 
 [dependencies]
-serde = { workspace = true }
+serde = { workspace = true, optional = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]

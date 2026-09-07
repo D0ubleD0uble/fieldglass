@@ -11,7 +11,8 @@ use super::{GridIndex, axis_position};
 /// A regular latitude/longitude grid — GRIB1 `grid_type` 0, GRIB2 template
 /// 3.0. Both axes are evenly spaced in degrees, so the two stated corners
 /// and the point counts describe it completely.
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct LatLonParams {
     /// Points along a row (`Ni`).
     pub ni: u32,

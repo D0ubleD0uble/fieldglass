@@ -27,7 +27,7 @@ publish = false
 # `analysis` features instead of being pinned on here (#552), so a host can
 # decline one; `fs` is not forwarded at all, because ADR-0005 hands every host
 # bytes rather than a path.
-fieldglass-core = { path = "../fieldglass-core", version = "=0.5.0", default-features = false }
+fieldglass-core = { path = "../fieldglass-core", version = "=0.5.0", default-features = false, features = ["serde"] }
 # Optional so a consumer links only the decoders it opens (#552). Each carries
 # its own codecs — GRIB2 alone pulls PNG, AEC, JPEG 2000 and the complex-packing
 # paths — and a build that never sees a GRIB1 message should not pay for them.

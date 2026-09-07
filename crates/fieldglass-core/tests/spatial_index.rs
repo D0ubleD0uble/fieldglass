@@ -233,6 +233,9 @@ fn a_malformed_grid_is_refused_rather_than_half_built() {
     );
 }
 
+// The one case here that touches the wire (#641); the geometry cases
+// beside it are the same with the derives off.
+#[cfg(feature = "serde")]
 #[test]
 fn the_index_survives_a_json_round_trip() {
     // ADR-0006 wants every API type serde-derivable. Only the centres cross the

@@ -64,6 +64,16 @@ Versioning is plain [Semantic Versioning](https://semver.org/spec/v2.0.0.html), 
 
 ### Changed
 
+- **A decode-only build of a format crate no longer links serde.** `fieldglass-core` depended on it unconditionally for the `Serialize` / `Deserialize` derives on its geometry, colour and spatial types, so every crate that took core took serde too — including the three format crates, which take it with `default-features = false` precisely to keep their surface to parsing, and which serialise none of it. The derives are behind a `serde` feature now. It is **on by default**, so nothing changes by upgrading; what changes is what the opted-out crates resolve:
+
+  | crate | before | after |
+  | --- | --- | --- |
+  | `fieldglass-grib1` | 10 | **7** |
+  | `fieldglass-grib2` | 21 | **18** |
+  | `fieldglass-netcdf` | 14 | **11** |
+
+  Three fewer each — `serde`, `serde_core` and `serde_derive` — which for a published crate is three fewer entries a downstream reader audits, vendors and licence-scans for derives it cannot reach. `fieldglass` names the feature explicitly and unconditionally, because its wire types embed core's geometry and the umbrella is the layer that actually has something to serialise. One hand-written serde module needed gating by hand rather than by attribute: the colormap lookup table is 1,024 bytes, past the 32-element ceiling serde derives array impls up to, so it carries its own `serialize`/`deserialize` pair. Closes #641.
+
 - **A NetCDF file is placed on the Earth the same way whether the extension asks or a program does.** `fieldglass-netcdf` shipped a resolver for every family it reads — 2-D coordinate arrays, WRF's `MAP_PROJ` domains, a CF `geostationary` mapping, plain 1-D lat/lon axes — and nothing that chose between them. That choice, and the guards that make it safe, were 155 lines inside the VS Code extension's native addon. A program using the crate on its own and reaching for the obvious entry point got the lat/lon path for a Lambert file, which reads projected metres as degrees and puts a domain over North America in the Gulf of Guinea — a plausible-looking picture in the wrong hemisphere.
 
   The precedence now lives in the crate, and the addon maps its answer onto the fields the editor reads. Four guards moved with it, each now with a test that fails if the guard is removed rather than one that merely runs it: an unrecognised projected `grid_mapping` refuses instead of falling through to coordinate arrays holding metres; 2-D coordinates beat every formula below them; a masked WRF corner is an error rather than a silent shift to the next present cell; and a fill value in a 1-D axis is an error while one in a 2-D coordinate field is not, because an axis is a run of positions and a coordinate field may legitimately be masked outside a swath.

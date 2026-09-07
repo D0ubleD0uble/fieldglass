@@ -452,6 +452,9 @@ fn the_closure_and_the_one_shot_inverse_agree() {
     assert!((none.inverse_at())(45.0, 0.0).is_none());
 }
 
+// The one case here that touches the wire (#641); the geometry cases
+// beside it are the same with the derives off.
+#[cfg(feature = "serde")]
 #[test]
 fn the_enum_survives_a_json_round_trip() {
     // ADR-0006 requires serde on every API type; a host derives its own DTO
