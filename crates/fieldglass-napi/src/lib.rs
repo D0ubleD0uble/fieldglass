@@ -25,10 +25,7 @@ use fieldglass_grib2::{
 };
 use fieldglass_netcdf::{
     DatasetView, Hdf5Attribute, Hdf5Metadata, NetcdfBacking, NetcdfReader, RenderableVariable,
-    WRF_EARTH_RADIUS_M, WrfLambertGrid, WrfLatLonGrid, WrfMapProj, WrfMercatorGrid,
-    WrfPolarStereoGrid, apply_scale_offset, cf_scale_offset, extract_plane,
-    resolve_cf_geostationary, resolve_wrf_lambert, resolve_wrf_latlon, resolve_wrf_mercator,
-    resolve_wrf_polar_stereo, synthesize_geometry, wrf_map_proj,
+    extract_plane,
 };
 use napi_derive::napi;
 use std::sync::Mutex;
@@ -3034,6 +3031,7 @@ impl NetcdfHandle {
         else {
             return Ok(None);
         };
+        // Only to derive the cache key, which is metadata and costs no decode.
         let Some(coords) = self
             .view
             .curvilinear_coords(source, &y_axis.name, &x_axis.name)
@@ -3051,10 +3049,15 @@ impl NetcdfHandle {
             return Ok(hit.clone());
         }
 
-        let lats = self.coordinate_plane(coords.lat_index)?;
-        let lons = self.coordinate_plane(coords.lon_index)?;
-        let built = SpatialIndex::new(x_axis.length as u32, y_axis.length as u32, &lats, &lons)
-            .map(|index| std::sync::Arc::new(GridGeometry::Lookup(index)));
+        // The build moved to `fieldglass-netcdf` with the rest of the
+        // precedence (#549); the *cache* stays here, because it is keyed on the
+        // coordinate pair and holding it is a host's decision about memory, not
+        // a decoder's. See the field's own docs for what that key is worth.
+        let built = self
+            .reader
+            .curvilinear_index(&self.view, var, y_dim, x_dim)
+            .into_napi()?
+            .map(std::sync::Arc::new);
         self.curvilinear
             .lock()
             .expect("curvilinear cache mutex poisoned")
@@ -3140,57 +3143,23 @@ impl NetcdfHandle {
             });
         }
 
-        // A projected grid (WRF / GOES geostationary, decision 0004) takes
-        // precedence over the regular lat/lon path: its `x`/`y` coordinate
-        // variables are scan angles or projected metres, not degrees, so the
-        // lat/lon synthesis would mis-georeference them.
-        if let Some(meta) =
-            self.try_wrf_projected(&var.name, &units, &y_axis.name, &x_axis.name, ni, nj)?
-        {
-            return Ok(meta);
-        }
+        // Everything below the curvilinear cache is `fieldglass-netcdf`'s
+        // (#549): the precedence, the projected-`grid_mapping` guard, the WRF
+        // corner reads and the 1-D coordinate synthesis all live in the crate
+        // now, so a consumer using it standalone gets the same answer this
+        // addon does. What is left here is the mapping into `MessageMeta`,
+        // which is a napi DTO, plus the one rule this seam still owns.
+        let placement = self
+            .reader
+            .slice_placement(&self.view, var, y_dim, x_dim)
+            .into_napi()?;
 
-        // CF `grid_mapping`: a data variable in a projected CRS names a
-        // grid_mapping variable. We resolve `geostationary`; a plain
-        // `latitude_longitude` mapping falls through to the lat/lon path. Any
-        // other (projected) mapping we don't handle yet must fall back to
-        // **source projection only** — never let the lat/lon synthesis treat its
-        // projected `x`/`y` as degrees and mis-georeference (decision 0004
-        // guardrail).
-        let source_only =
-            || synth_latlon_meta(&var.name, &units, ni as i32, nj as i32, None, false);
-        if let Some(gm_attrs) = self.data_grid_mapping_attrs(var) {
-            let mapping_name = gm_attrs
-                .iter()
-                .find(|(n, _)| n == "grid_mapping_name")
-                .map(|(_, v)| v.trim());
-            match classify_cf_mapping(mapping_name) {
-                CfMapping::Geostationary => {
-                    let x = self.coordinate_values_for_dim(&x_axis.name)?;
-                    let y = self.coordinate_values_for_dim(&y_axis.name)?;
-                    return Ok(match (x, y) {
-                        (Some(x), Some(y)) => resolve_cf_geostationary(&gm_attrs, &x, &y)
-                            .map(|g| synth_geostationary_meta(&var.name, &units, &g))
-                            .unwrap_or_else(source_only),
-                        _ => source_only(),
-                    });
-                }
-                CfMapping::LatLon => {} // fall through to the lat/lon path
-                CfMapping::Unsupported => return Ok(source_only()),
-            }
-        }
-
-        // Regular 1-D lat/lon grid (decision 0002): corners from the coordinate
-        // arrays, or an assumed source-only grid when they are absent. We reach
-        // here only when no projection resolved — either no `grid_mapping` (CF
-        // mandates one for a projected CRS, so its absence implies geographic
-        // coordinates) or an explicit `latitude_longitude` mapping.
-        let lat_idx = self.view.coordinate_index(&y_axis.name);
-        let lon_idx = self.view.coordinate_index(&x_axis.name);
         // Whether the chosen Y axis really is a latitude, as opposed to a level
         // or a time the user picked for a cross-section. Only then does "which
         // way is north" mean anything, and only then is the raster flipped to
-        // face north-up (#286's convention, applied to NetCDF).
+        // face north-up (#286's convention, applied to NetCDF). This stays here
+        // because it is a question about the *user's axis choice*, not about
+        // the file.
         let y_is_latitude = self
             .view
             .vars
@@ -3198,257 +3167,15 @@ impl NetcdfHandle {
             .find(|v| v.name == y_axis.name)
             .and_then(fieldglass_netcdf::detect_axis)
             == Some(fieldglass_netcdf::AxisKind::Latitude);
-        let geometry = match (lat_idx, lon_idx) {
-            (Some(lat_i), Some(lon_i)) => {
-                let lat = self.coordinate_values(lat_i)?;
-                let lon = self.coordinate_values(lon_i)?;
-                Some(synthesize_geometry(&lat, &lon).into_napi()?)
-            }
-            _ => None,
-        };
-        Ok(synth_latlon_meta(
+
+        Ok(meta_from_placement(
             &var.name,
             &units,
-            ni as i32,
-            nj as i32,
-            geometry,
+            ni,
+            nj,
+            &placement,
             y_is_latitude,
         ))
-    }
-
-    /// Resolve a WRF projected grid (decision 0004, #220) when the file carries
-    /// WRF's `MAP_PROJ` global attributes and the 2-D `XLAT`/`XLONG` arrays
-    /// whose `(0, 0)` corner fixes the grid origin: Lambert (`MAP_PROJ = 1`),
-    /// polar stereographic (`2`), Mercator (`3`), or unrotated lat-lon (`6`,
-    /// `POLE_LAT = 90`). `None` for any non-WRF file (no `XLAT`/`XLONG`) or an
-    /// unresolved projection (e.g. a *rotated* `MAP_PROJ = 6` domain, whose
-    /// WRF → GRIB2 §3.1 pole mapping is not cleanly documented, so it stays
-    /// source-only).
-    ///
-    /// `XLAT`/`XLONG` must span the selected horizontal axes (their trailing two
-    /// dimensions = `y_name`, `x_name`), so a file that merely *names* variables
-    /// `XLAT`/`XLONG`, or a WRF field rendered on an unexpected axis pick, doesn't
-    /// resolve a grid whose `(ni, nj)` mismatch the coordinate arrays.
-    fn try_wrf_projected(
-        &self,
-        name: &str,
-        units: &str,
-        y_name: &str,
-        x_name: &str,
-        ni: u32,
-        nj: u32,
-    ) -> napi::Result<Option<MessageMeta>> {
-        let (Some(xlat), Some(xlong)) = (self.var_named("XLAT"), self.var_named("XLONG")) else {
-            return Ok(None);
-        };
-        if !dims_end_with(&xlat.dim_names, y_name, x_name)
-            || !dims_end_with(&xlong.dim_names, y_name, x_name)
-        {
-            return Ok(None);
-        }
-        // Match MAP_PROJ before touching XLAT/XLONG values: a file whose
-        // projection we don't resolve keeps its source-only fallback even when
-        // a corner cell is masked, and pays no coordinate decode. A masked
-        // corner on a projection we *do* resolve stays a hard error rather
-        // than silently mis-georeferencing (decision 0004 guardrail).
-        let global = &self.view.global_attrs;
-        let Some(map_proj) = wrf_map_proj(global) else {
-            return Ok(None);
-        };
-        let lat_first = self.grid_corner_value(xlat.decode_index, "XLAT", 0, 0, ni)?;
-        let lon_first = self.grid_corner_value(xlong.decode_index, "XLONG", 0, 0, ni)?;
-        Ok(match map_proj {
-            WrfMapProj::Lambert => resolve_wrf_lambert(global, lat_first, lon_first, ni, nj)
-                .map(|g| synth_lambert_meta(name, units, &g)),
-            WrfMapProj::PolarStereo => {
-                resolve_wrf_polar_stereo(global, lat_first, lon_first, ni, nj)
-                    .map(|g| synth_polar_stereo_meta(name, units, &g))
-            }
-            // Mercator and (unrotated) lat-lon are corner-pinned, so they alone
-            // also need the far corner.
-            WrfMapProj::Mercator => {
-                let (lat_last, lon_last) = self.grid_far_corner(xlat, xlong, ni, nj)?;
-                resolve_wrf_mercator(global, lat_first, lon_first, lat_last, lon_last, ni, nj)
-                    .map(|g| synth_mercator_meta(name, units, &g))
-            }
-            WrfMapProj::LatLon => {
-                let (lat_last, lon_last) = self.grid_far_corner(xlat, xlong, ni, nj)?;
-                resolve_wrf_latlon(global, lat_first, lon_first, lat_last, lon_last, ni, nj)
-                    .map(|g| synth_wrf_latlon_meta(name, units, &g))
-            }
-        })
-    }
-
-    /// The attributes of the `grid_mapping` variable a data variable points at,
-    /// or `None` when the data variable declares no `grid_mapping` (or it names a
-    /// variable that isn't present).
-    fn data_grid_mapping_attrs(&self, var: &RenderableVariable) -> Option<Vec<(String, String)>> {
-        let gm_name = self.var_attr(var.decode_index, "grid_mapping")?;
-        self.view
-            .vars
-            .iter()
-            .find(|v| v.name == gm_name)
-            .map(|gm| gm.attrs.clone())
-    }
-
-    /// The CF-scaled coordinate values of a dimension's coordinate variable, or
-    /// `None` when the dimension has no coordinate variable.
-    fn coordinate_values_for_dim(&self, dim_name: &str) -> napi::Result<Option<Vec<f64>>> {
-        match self.view.coordinate_index(dim_name) {
-            Some(i) => Ok(Some(self.coordinate_values(i)?)),
-            None => Ok(None),
-        }
-    }
-
-    /// A variable looked up by name (any variable, including the 2-D
-    /// `XLAT`/`XLONG` and the scalar `grid_mapping` carriers — not just
-    /// renderable ones).
-    fn var_named(&self, name: &str) -> Option<&fieldglass_netcdf::VarView> {
-        self.view.vars.iter().find(|v| v.name == name)
-    }
-
-    /// A variable's attribute value by name, looked up by decode index.
-    fn var_attr(&self, decode_index: usize, attr: &str) -> Option<String> {
-        self.view
-            .vars
-            .iter()
-            .find(|v| v.decode_index == decode_index)?
-            .attrs
-            .iter()
-            .find(|(n, _)| n == attr)
-            .map(|(_, v)| v.clone())
-    }
-
-    /// The geographic `(lat, lon)` of the far grid corner (`XLAT`/`XLONG` at the
-    /// last scanned point, `[nj-1, ni-1]`) — the second corner the corner-pinned
-    /// WRF grids (Mercator, unrotated lat-lon) need beyond the origin.
-    fn grid_far_corner(
-        &self,
-        xlat: &fieldglass_netcdf::VarView,
-        xlong: &fieldglass_netcdf::VarView,
-        ni: u32,
-        nj: u32,
-    ) -> napi::Result<(f64, f64)> {
-        let (j, i) = (nj.saturating_sub(1), ni.saturating_sub(1));
-        let lat_last = self.grid_corner_value(xlat.decode_index, "XLAT", j, i, ni)?;
-        let lon_last = self.grid_corner_value(xlong.decode_index, "XLONG", j, i, ni)?;
-        Ok((lat_last, lon_last))
-    }
-
-    /// The value of a 2-D coordinate field at `[j, i]` of the first time step
-    /// (flat index `j·ni + i` in C order; the caller has already checked the
-    /// variable's trailing two dimensions are the horizontal axes), with the
-    /// variable's CF `scale_factor` / `add_offset` applied — a packed
-    /// coordinate decodes like the 1-D GOES axes do. A masked corner is a hard
-    /// error rather than silently shifting the corner to the next present cell
-    /// and mis-georeferencing the whole grid.
-    fn grid_corner_value(
-        &self,
-        index: usize,
-        name: &str,
-        j: u32,
-        i: u32,
-        ni: u32,
-    ) -> napi::Result<f64> {
-        let raw = self
-            .cached_decode(index)?
-            .get(j as usize * ni as usize + i as usize)
-            .copied()
-            .flatten()
-            .ok_or_else(|| {
-                napi::Error::from_reason(format!("{name}[{j},{i}] is missing or masked"))
-            })?;
-        let (scale, offset) = self
-            .view
-            .vars
-            .iter()
-            .find(|v| v.decode_index == index)
-            .map(|v| cf_scale_offset(&v.attrs))
-            .unwrap_or((1.0, 0.0));
-        Ok(raw * scale + offset)
-    }
-
-    /// Decode a **2-D** auxiliary coordinate variable, applying CF
-    /// `scale_factor` / `add_offset` and carrying a masked cell through as
-    /// `NaN` (#445).
-    ///
-    /// The sibling [`Self::coordinate_values`] treats a fill value in a
-    /// coordinate as a hard error, which is right for a 1-D axis: an axis with
-    /// a hole is a broken file. A 2-D coordinate is not an axis — a swath
-    /// granule legitimately marks the fields of view that saw no Earth — so a
-    /// hole here is data, not corruption. `SpatialIndex` keeps such a cell in
-    /// place so indices stay aligned and never returns it from a search.
-    fn coordinate_plane(&self, index: usize) -> napi::Result<Vec<f64>> {
-        let raw: Vec<f64> = self
-            .cached_decode(index)?
-            .iter()
-            .map(|v| v.unwrap_or(f64::NAN))
-            .collect();
-        let attrs = self
-            .view
-            .vars
-            .iter()
-            .find(|v| v.decode_index == index)
-            .map(|v| v.attrs.clone())
-            .unwrap_or_default();
-        Ok(apply_scale_offset(&raw, &attrs))
-    }
-
-    /// Decode a coordinate variable to a dense `Vec<f64>`, applying CF
-    /// `scale_factor` / `add_offset` (GOES stores `x`/`y` as scaled `int16`).
-    /// Coordinate axes are never masked, so a fill value there is a hard error.
-    fn coordinate_values(&self, index: usize) -> napi::Result<Vec<f64>> {
-        let raw: Vec<f64> = self
-            .cached_decode(index)?
-            .iter()
-            .map(|v| {
-                v.ok_or_else(|| {
-                    napi::Error::from_reason(
-                        "coordinate variable contains a fill value".to_string(),
-                    )
-                })
-            })
-            .collect::<napi::Result<_>>()?;
-        let attrs = self
-            .view
-            .vars
-            .iter()
-            .find(|v| v.decode_index == index)
-            .map(|v| v.attrs.clone())
-            .unwrap_or_default();
-        Ok(apply_scale_offset(&raw, &attrs))
-    }
-}
-
-/// Whether a variable's ordered dimension names end with `y` then `x` — i.e. its
-/// trailing two axes are the selected horizontal ones (the WRF `XLAT`/`XLONG`
-/// arrays span `(…, south_north, west_east)`).
-fn dims_end_with(dims: &[String], y: &str, x: &str) -> bool {
-    matches!(dims, [.., dy, dx] if dy == y && dx == x)
-}
-
-/// How a data variable's CF `grid_mapping_name` routes through slice synthesis.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CfMapping {
-    /// `geostationary` — resolve through the geostationary projector.
-    Geostationary,
-    /// `latitude_longitude` — a plain lat/lon CRS; use the coordinate-array path.
-    LatLon,
-    /// Any other (projected) mapping we don't handle yet. Falls back to source
-    /// projection only; the projected `x`/`y` must never be read as degrees
-    /// (decision 0004 guardrail).
-    Unsupported,
-}
-
-/// Classify a CF `grid_mapping_name`. A missing name (`None`) is treated as
-/// `latitude_longitude`: a data variable can carry a `grid_mapping` attribute
-/// pointing at a variable that omits the name, and the safe default for an
-/// unprojected file is the lat/lon path.
-fn classify_cf_mapping(name: Option<&str>) -> CfMapping {
-    match name {
-        Some("geostationary") => CfMapping::Geostationary,
-        Some("latitude_longitude") | None => CfMapping::LatLon,
-        Some(_) => CfMapping::Unsupported,
     }
 }
 
@@ -3615,6 +3342,112 @@ fn raster_render_meta(base: MessageMeta, bounds: Option<CornerPair>) -> MessageM
 /// Build a synthesised `"latlon"` [`MessageMeta`] for a NetCDF slice. Only the
 /// geometry the warp reads (`grid_type`, corner coordinates) is populated. When
 /// `geometry` is `None` (no coordinate variables) the corners are absent and the
+/// Map a resolved slice onto the `MessageMeta` the extension reads.
+///
+/// One function where there were six `synth_*_meta` builders (#549). They
+/// differed only in which fields they filled, and every one of them ended in
+/// the same `gate_reprojection` call — so the difference was the geometry, and
+/// the geometry is now a type rather than five shapes.
+///
+/// `y_is_latitude` is the one input that is not in the placement: it asks
+/// whether the axis the *user* chose for Y is a latitude at all, which is a
+/// question about the slice request rather than about the file.
+fn meta_from_placement(
+    name: &str,
+    units: &str,
+    ni: u32,
+    nj: u32,
+    placement: &fieldglass_netcdf::resolve::SlicePlacement,
+    y_is_latitude: bool,
+) -> MessageMeta {
+    let (ni, nj) = (ni as i32, nj as i32);
+    let base = base_netcdf_meta(name, units, ni, nj);
+    // A NetCDF file carries no scanning mode, so what GRIB reads from flag 0x40
+    // is the coordinate order the resolver read off the axis — and only where
+    // the axis really is a latitude, which is the part of the rule this seam
+    // still decides (#286). A family that states no order says nothing here
+    // rather than guessing north-down, which is why the placement's scan is an
+    // `Option`.
+    let j_scans_positive = placement
+        .scan
+        .filter(|_| y_is_latitude)
+        .map(|scan| scan.j_positive);
+    let meta = match &placement.geometry {
+        GridGeometry::LatLon(g) => MessageMeta {
+            grid_type: Some("latlon".to_string()),
+            j_scans_positive,
+            lat_first: Some(g.lat_first),
+            lon_first: Some(g.lon_first),
+            lat_last: Some(g.lat_last),
+            lon_last: Some(g.lon_last),
+            reprojectable: false,
+            ..base
+        },
+        GridGeometry::Lambert(g) => MessageMeta {
+            // WRF projects on its own 6 370 000 m sphere, not a WMO default.
+            earth_radius_metres: Some(g.earth_radius_m),
+            grid_type: Some("lambert".to_string()),
+            lat_first: Some(g.lat_first),
+            lon_first: Some(g.lon_first),
+            lambert_lad: Some(g.lad),
+            lambert_lov: Some(g.lov),
+            lambert_dx_metres: Some(g.dx_metres),
+            lambert_dy_metres: Some(g.dy_metres),
+            lambert_latin1: Some(g.latin1),
+            lambert_latin2: Some(g.latin2),
+            reprojectable: false,
+            ..base
+        },
+        GridGeometry::PolarStereo(g) => MessageMeta {
+            earth_radius_metres: Some(g.earth_radius_m),
+            grid_type: Some("polar_stereo".to_string()),
+            lat_first: Some(g.lat_first),
+            lon_first: Some(g.lon_first),
+            polar_stereo_lov: Some(g.lov),
+            polar_stereo_lad: Some(g.lad),
+            polar_stereo_dx_metres: Some(g.dx_metres),
+            polar_stereo_dy_metres: Some(g.dy_metres),
+            polar_stereo_south_pole: Some(g.south_pole),
+            reprojectable: false,
+            ..base
+        },
+        GridGeometry::Mercator(g) => MessageMeta {
+            grid_type: Some("mercator".to_string()),
+            lat_first: Some(g.lat_first),
+            lon_first: Some(g.lon_first),
+            lat_last: Some(g.lat_last),
+            lon_last: Some(g.lon_last),
+            reprojectable: false,
+            ..base
+        },
+        GridGeometry::Geostationary(g) => MessageMeta {
+            grid_type: Some("space_view".to_string()),
+            geos_sub_lon: Some(g.sub_lon_deg),
+            geos_height: Some(g.h_metres),
+            geos_r_eq: Some(g.r_eq),
+            geos_r_pol: Some(g.r_pol),
+            geos_sweep_x: Some(g.sweep_x),
+            geos_x0: Some(g.x0),
+            geos_dx_rad: Some(g.dx_rad),
+            geos_y0: Some(g.y0),
+            geos_dy_rad: Some(g.dy_rad),
+            reprojectable: false,
+            ..base
+        },
+        // Source-only: the grid is renderable in its own projection and placed
+        // nowhere. `Lookup` never reaches here — a curvilinear slice returns
+        // from the cache above, which is also where its bounding box is read.
+        _ => MessageMeta {
+            grid_type: Some("latlon".to_string()),
+            reprojectable: false,
+            ..base
+        },
+    };
+    // A family that states no order is gated north-down, the same default the
+    // five `synth_*` builders passed explicitly.
+    gate_reprojection(meta, placement.scan.unwrap_or_else(Scan::north_down))
+}
+
 /// grid is not reprojectable, so only the source projection is offered.
 fn synth_latlon_meta(
     name: &str,
@@ -3656,141 +3489,6 @@ fn synth_latlon_meta(
             geometry.is_some_and(|g| g.lat_ascending),
             false,
         ),
-    )
-}
-
-/// Build a `"lambert"` [`MessageMeta`] from a WRF-resolved Lambert grid
-/// (decision 0004). The corner is the grid origin (first scanned point) and the
-/// `lambert_*` fields feed the same projector the GRIB2 §3.30 path uses.
-fn synth_lambert_meta(name: &str, units: &str, g: &WrfLambertGrid) -> MessageMeta {
-    gate_reprojection(
-        MessageMeta {
-            // WRF projects on its own 6 370 000 m sphere, not a WMO default.
-            earth_radius_metres: Some(WRF_EARTH_RADIUS_M),
-            grid_type: Some("lambert".to_string()),
-            lat_first: Some(g.lat_first),
-            lon_first: Some(g.lon_first),
-            lambert_lad: Some(g.lad),
-            lambert_lov: Some(g.lov),
-            lambert_dx_metres: Some(g.dx_metres),
-            lambert_dy_metres: Some(g.dy_metres),
-            lambert_latin1: Some(g.latin1),
-            lambert_latin2: Some(g.latin2),
-            // Answered from the geometry by `gate_reprojection`; a projected
-            // family reads no scan flag, having absorbed its direction bits
-            // into the signed spacings above.
-            reprojectable: false,
-            ..base_netcdf_meta(name, units, g.ni as i32, g.nj as i32)
-        },
-        Scan::north_down(),
-    )
-}
-
-/// Build a `"polar_stereo"` [`MessageMeta`] from a WRF-resolved polar
-/// stereographic grid (#220). `"polar_stereo"` is the *source-grid* string the
-/// GRIB paths emit (routing into `polar_stereo_warp_setup`), distinct from the
-/// `"polar_stereographic"` *target*-projection picker option.
-fn synth_polar_stereo_meta(name: &str, units: &str, g: &WrfPolarStereoGrid) -> MessageMeta {
-    gate_reprojection(
-        MessageMeta {
-            // WRF projects on its own 6 370 000 m sphere, not a WMO default.
-            earth_radius_metres: Some(WRF_EARTH_RADIUS_M),
-            grid_type: Some("polar_stereo".to_string()),
-            lat_first: Some(g.lat_first),
-            lon_first: Some(g.lon_first),
-            polar_stereo_lov: Some(g.lov),
-            polar_stereo_lad: Some(g.lad),
-            polar_stereo_dx_metres: Some(g.dx_metres),
-            polar_stereo_dy_metres: Some(g.dy_metres),
-            polar_stereo_south_pole: Some(g.south_pole),
-            // Answered from the geometry by `gate_reprojection`; a projected
-            // family reads no scan flag, having absorbed its direction bits
-            // into the signed spacings above.
-            reprojectable: false,
-            ..base_netcdf_meta(name, units, g.ni as i32, g.nj as i32)
-        },
-        Scan::north_down(),
-    )
-}
-
-/// Build a `"mercator"` [`MessageMeta`] from a WRF-resolved Mercator grid
-/// (#220). Like the GRIB Mercator source, the grid is pinned entirely by its
-/// corner coordinates — no spacing or true-scale fields exist to copy.
-fn synth_mercator_meta(name: &str, units: &str, g: &WrfMercatorGrid) -> MessageMeta {
-    gate_reprojection(
-        MessageMeta {
-            grid_type: Some("mercator".to_string()),
-            lat_first: Some(g.lat_first),
-            lon_first: Some(g.lon_first),
-            lat_last: Some(g.lat_last),
-            lon_last: Some(g.lon_last),
-            // Answered from the geometry by `gate_reprojection`.
-            reprojectable: false,
-            ..base_netcdf_meta(name, units, g.ni as i32, g.nj as i32)
-        },
-        // WRF scans west-to-east (`+DX`), so the corner longitudes ascend and
-        // the scan is the operational default. A domain straddling the
-        // antimeridian (`lon_last < lon_first`) is an eastward wrap the
-        // corner-pinned inverse map already handles, not a descending axis.
-        Scan::north_down(),
-    )
-}
-
-/// Build a `"latlon"` [`MessageMeta`] from a WRF-resolved unrotated lat-lon grid
-/// (#226). An unrotated WRF lat-lon domain is a plain regular geographic grid,
-/// so — like the corner-pinned Mercator — its four corners feed the same lat/lon
-/// projector the regular 1-D coordinate path uses. It is always reprojectable,
-/// as the Mercator sibling is: WRF scans west-to-east (`+DX`), so the corner
-/// longitudes ascend, and a domain straddling the antimeridian
-/// (`lon_last < lon_first`) is an eastward wrap the lat/lon inverse map already
-/// handles — not the descending axis the regular 1-D path guards against.
-fn synth_wrf_latlon_meta(name: &str, units: &str, g: &WrfLatLonGrid) -> MessageMeta {
-    gate_reprojection(
-        MessageMeta {
-            grid_type: Some("latlon".to_string()),
-            lat_first: Some(g.lat_first),
-            lon_first: Some(g.lon_first),
-            lat_last: Some(g.lat_last),
-            lon_last: Some(g.lon_last),
-            // Answered from the geometry by `gate_reprojection`.
-            reprojectable: false,
-            ..base_netcdf_meta(name, units, g.ni as i32, g.nj as i32)
-        },
-        // WRF scans west-to-east (`+DX`), so the corner longitudes ascend and
-        // the scan is the operational default. A domain straddling the
-        // antimeridian (`lon_last < lon_first`) is an eastward wrap the
-        // corner-pinned inverse map already handles, not a descending axis.
-        Scan::north_down(),
-    )
-}
-
-/// Build a `"space_view"` (geostationary) [`MessageMeta`] from a CF-resolved
-/// grid mapping (decision 0004), feeding the same geostationary projector the
-/// GRIB2 §3.90 path uses. Off-disk pixels invert to `None` (transparent limb).
-fn synth_geostationary_meta(
-    name: &str,
-    units: &str,
-    g: &fieldglass_netcdf::GeostationaryGrid,
-) -> MessageMeta {
-    gate_reprojection(
-        MessageMeta {
-            grid_type: Some("space_view".to_string()),
-            geos_sub_lon: Some(g.sub_lon_deg),
-            geos_height: Some(g.h_metres),
-            geos_r_eq: Some(g.r_eq),
-            geos_r_pol: Some(g.r_pol),
-            geos_sweep_x: Some(g.sweep_x),
-            geos_x0: Some(g.x0),
-            geos_dx_rad: Some(g.dx_rad),
-            geos_y0: Some(g.y0),
-            geos_dy_rad: Some(g.dy_rad),
-            // Answered from the geometry by `gate_reprojection`; a projected
-            // family reads no scan flag, having absorbed its direction bits
-            // into the signed spacings above.
-            reprojectable: false,
-            ..base_netcdf_meta(name, units, g.ni as i32, g.nj as i32)
-        },
-        Scan::north_down(),
     )
 }
 
@@ -4925,10 +4623,41 @@ mod meta_geometry_tests {
 #[cfg(test)]
 mod planar_offer_needs_a_placeable_projection_tests {
     use super::{
-        MessageMeta, Scan, build_grib1_message_meta, gate_reprojection, synth_geostationary_meta,
-        synth_lambert_meta, synth_polar_stereo_meta,
+        GridGeometry, MessageMeta, Scan, build_grib1_message_meta, gate_reprojection,
+        meta_from_placement,
     };
+    use fieldglass_netcdf::resolve::SlicePlacement;
     use fieldglass_netcdf::{GeostationaryGrid, WrfLambertGrid, WrfPolarStereoGrid};
+
+    /// The meta a resolved grid of this family produces, which is what these
+    /// cases are really about: `gate_reprojection`'s verdict per family. Since
+    /// #549 that runs through one mapping rather than a builder per family, so
+    /// the grid becomes a `GridGeometry` first.
+    fn meta_of(geometry: GridGeometry, ni: u32, nj: u32) -> MessageMeta {
+        meta_from_placement(
+            "t2",
+            "K",
+            ni,
+            nj,
+            &SlicePlacement {
+                geometry,
+                scan: None,
+            },
+            false,
+        )
+    }
+
+    fn lambert_meta(g: &WrfLambertGrid) -> MessageMeta {
+        meta_of(GridGeometry::from(g), g.ni, g.nj)
+    }
+
+    fn polar_meta(g: &WrfPolarStereoGrid) -> MessageMeta {
+        meta_of(GridGeometry::from(g), g.ni, g.nj)
+    }
+
+    fn geos_meta(g: &GeostationaryGrid) -> MessageMeta {
+        meta_of(GridGeometry::from(g), g.ni, g.nj)
+    }
 
     /// A healthy WRF Lambert domain, as the CONUS 4 km configuration states it.
     fn wrf_lambert() -> WrfLambertGrid {
@@ -4980,7 +4709,7 @@ mod planar_offer_needs_a_placeable_projection_tests {
     #[test]
     fn wrf_lambert_offers_reprojection_only_when_the_cone_resolves() {
         assert!(
-            synth_lambert_meta("t2", "K", &wrf_lambert()).reprojectable,
+            lambert_meta(&wrf_lambert()).reprojectable,
             "a real WRF Lambert domain reprojects"
         );
 
@@ -4994,7 +4723,7 @@ mod planar_offer_needs_a_placeable_projection_tests {
             ..wrf_lambert()
         };
         assert!(
-            !synth_lambert_meta("t2", "K", &flat_cone).reprojectable,
+            !lambert_meta(&flat_cone).reprojectable,
             "a collapsed cone must stay source-only"
         );
 
@@ -5006,7 +4735,7 @@ mod planar_offer_needs_a_placeable_projection_tests {
             ..wrf_lambert()
         };
         assert!(
-            !synth_lambert_meta("t2", "K", &giant_cell).reprojectable,
+            !lambert_meta(&giant_cell).reprojectable,
             "a cell wider than the plane must stay source-only"
         );
     }
@@ -5014,7 +4743,7 @@ mod planar_offer_needs_a_placeable_projection_tests {
     #[test]
     fn wrf_polar_stereo_offers_reprojection_only_when_the_plane_resolves() {
         assert!(
-            synth_polar_stereo_meta("t2", "K", &wrf_polar_stereo()).reprojectable,
+            polar_meta(&wrf_polar_stereo()).reprojectable,
             "a real WRF polar stereographic domain reprojects"
         );
 
@@ -5027,7 +4756,7 @@ mod planar_offer_needs_a_placeable_projection_tests {
             ..wrf_polar_stereo()
         };
         assert!(
-            !synth_polar_stereo_meta("t2", "K", &giant_cell).reprojectable,
+            !polar_meta(&giant_cell).reprojectable,
             "a cell wider than the declared Earth must stay source-only"
         );
 
@@ -5042,7 +4771,7 @@ mod planar_offer_needs_a_placeable_projection_tests {
             ..wrf_polar_stereo()
         };
         assert!(
-            !synth_polar_stereo_meta("t2", "K", &between_the_two_radii).reprojectable,
+            !polar_meta(&between_the_two_radii).reprojectable,
             "the offer must answer what the warp answers, not what the projector does"
         );
     }
@@ -5050,7 +4779,7 @@ mod planar_offer_needs_a_placeable_projection_tests {
     #[test]
     fn cf_geostationary_offers_reprojection_only_when_the_disc_resolves() {
         assert!(
-            synth_geostationary_meta("cmi", "K", &cf_geostationary()).reprojectable,
+            geos_meta(&cf_geostationary()).reprojectable,
             "a real GOES full disc reprojects"
         );
 
@@ -5062,7 +4791,7 @@ mod planar_offer_needs_a_placeable_projection_tests {
             ..cf_geostationary()
         };
         assert!(
-            !synth_geostationary_meta("cmi", "K", &shapeless).reprojectable,
+            !geos_meta(&shapeless).reprojectable,
             "a shapeless ellipsoid must stay source-only"
         );
 
@@ -5074,7 +4803,7 @@ mod planar_offer_needs_a_placeable_projection_tests {
             ..cf_geostationary()
         };
         assert!(
-            !synth_geostationary_meta("cmi", "K", &inside_the_earth).reprojectable,
+            !geos_meta(&inside_the_earth).reprojectable,
             "a satellite below the surface must stay source-only"
         );
     }
@@ -5222,7 +4951,7 @@ mod planar_offer_needs_a_placeable_projection_tests {
     /// directly — no fixture, and every planar family in one place.
     #[test]
     fn the_gate_is_the_warps_own_answer_for_every_planar_family() {
-        let placeable = synth_lambert_meta("t2", "K", &wrf_lambert());
+        let placeable = lambert_meta(&wrf_lambert());
         assert!(gate_reprojection(placeable, Scan::north_down()).reprojectable);
 
         // A planar grid with no raster shape has nothing to reproject, and the
@@ -5230,7 +4959,7 @@ mod planar_offer_needs_a_placeable_projection_tests {
         let shapeless = MessageMeta {
             grid_ni: None,
             grid_nj: None,
-            ..synth_lambert_meta("t2", "K", &wrf_lambert())
+            ..lambert_meta(&wrf_lambert())
         };
         assert!(!gate_reprojection(shapeless, Scan::north_down()).reprojectable);
 
@@ -5240,21 +4969,17 @@ mod planar_offer_needs_a_placeable_projection_tests {
         // survive and a `false` cannot suppress a grid the warp would take.
         let stale_true = MessageMeta {
             reprojectable: true,
-            ..synth_polar_stereo_meta(
-                "t2",
-                "K",
-                &WrfPolarStereoGrid {
-                    // Wider than WRF's own 6 370 km sphere: the plane collapses.
-                    dx_metres: 12_000_000.0,
-                    dy_metres: 12_000_000.0,
-                    ..wrf_polar_stereo()
-                },
-            )
+            ..polar_meta(&WrfPolarStereoGrid {
+                // Wider than WRF's own 6 370 km sphere: the plane collapses.
+                dx_metres: 12_000_000.0,
+                dy_metres: 12_000_000.0,
+                ..wrf_polar_stereo()
+            })
         };
         assert!(!gate_reprojection(stale_true, Scan::north_down()).reprojectable);
         let stale_false = MessageMeta {
             reprojectable: false,
-            ..synth_lambert_meta("t2", "K", &wrf_lambert())
+            ..lambert_meta(&wrf_lambert())
         };
         assert!(gate_reprojection(stale_false, Scan::north_down()).reprojectable);
 
@@ -5265,7 +4990,7 @@ mod planar_offer_needs_a_placeable_projection_tests {
             grid_type: Some("latlon".to_string()),
             lat_last: Some(20.0),
             lon_last: Some(30.0),
-            ..synth_lambert_meta("t2", "K", &wrf_lambert())
+            ..lambert_meta(&wrf_lambert())
         };
         assert!(gate_reprojection(corner_pinned(), Scan::north_down()).reprojectable);
         assert!(
@@ -6852,30 +6577,6 @@ mod netcdf_slice_tests {
     /// 1-D `x`/`y` scan-angle coordinate variables stored as scaled `int16`.
     const GOES: &[u8] =
         include_bytes!("../../fieldglass-netcdf/tests/fixtures/goes_geostationary.nc");
-
-    /// The CF mapping guardrail (decision 0004): only `geostationary` and
-    /// `latitude_longitude` are routed to a grid; every other projected mapping
-    /// (and a malformed/missing one) is classified so it cannot mis-georeference.
-    #[test]
-    fn cf_mapping_classification_guards_unsupported_projections() {
-        assert_eq!(
-            classify_cf_mapping(Some("geostationary")),
-            CfMapping::Geostationary
-        );
-        assert_eq!(
-            classify_cf_mapping(Some("latitude_longitude")),
-            CfMapping::LatLon
-        );
-        assert_eq!(classify_cf_mapping(None), CfMapping::LatLon);
-        // Projected mappings we don't read yet must NOT fall through to lat/lon.
-        for unsupported in ["lambert_conformal_conic", "polar_stereographic", "mercator"] {
-            assert_eq!(
-                classify_cf_mapping(Some(unsupported)),
-                CfMapping::Unsupported,
-                "{unsupported} must fall back to source-only, not mis-georeference",
-            );
-        }
-    }
 
     /// Shared walkthrough for the WRF `wrfout` fixtures: resolve `T2`'s slice
     /// meta on the projected axes, assert it is reprojectable with the expected
@@ -8538,10 +8239,12 @@ mod curvilinear_render_tests {
                 .curvilinear_coords(source, &var.dims[y].name, &var.dims[x].name)
                 .expect("a 2-D pair");
             let lats = handle
-                .coordinate_plane(coords.lat_index)
+                .reader
+                .coordinate_plane(&handle.view, coords.lat_index)
                 .expect("lat plane");
             let lons = handle
-                .coordinate_plane(coords.lon_index)
+                .reader
+                .coordinate_plane(&handle.view, coords.lon_index)
                 .expect("lon plane");
 
             // Every cell, not a sample: this is the check that a transposition

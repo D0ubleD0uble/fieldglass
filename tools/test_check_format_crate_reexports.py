@@ -573,7 +573,13 @@ class TheRepoItselfPasses(unittest.TestCase):
                 "SynthesisedField",
                 "TransverseMercatorParams",
             },
-            "fieldglass-netcdf": {"ByteRange", "ByteSource", "FieldglassError", "GridGeometry"},
+            "fieldglass-netcdf": {
+                "ByteRange",
+                "ByteSource",
+                "FieldglassError",
+                "GridGeometry",
+                "Scan",
+            },
         }
         for crate, names in expected.items():
             with self.subTest(crate=crate):
