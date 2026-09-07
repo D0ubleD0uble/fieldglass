@@ -13,7 +13,8 @@ use super::{DEG2RAD, GridIndex, PlanarGridProjector, RAD2DEG};
 /// A Lambert Conformal Conic grid — GRIB1 `grid_type` 3, GRIB2 template
 /// 3.30. Two standard parallels, with a tangent-cone branch when they are
 /// equal; the plane is metres.
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct LambertParams {
     /// Radius of the spherical Earth the grid is projected on, in metres. The
     /// message declares it (GRIB1's earth-shape flag, GRIB2's

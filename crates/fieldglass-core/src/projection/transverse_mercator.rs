@@ -26,7 +26,8 @@ use super::{DEG2RAD, GridIndex, PlanarGridProjector, RAD2DEG};
 /// spherical formulae on its own** when `a == b`: every α, β and δ coefficient
 /// is a power series in `n = f / (2 - f)`, and `n` is zero for a sphere. There
 /// is no separate spherical path to keep in step, and no accuracy to trade.
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct TransverseMercatorParams {
     /// Semi-major and semi-minor axes in metres, as the message declares them.
     pub semi_major_m: f64,

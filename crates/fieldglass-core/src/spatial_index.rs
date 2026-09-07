@@ -45,8 +45,12 @@ use crate::projection::{GridIndex, GridResampling, LonLatBox};
 /// `Clone` and `PartialEq` are both `O(n)` and, at a million cells, both move
 /// or read about 28 MB. Neither belongs on a per-repaint path: borrow the index
 /// and key a cache on [`fingerprint`](Self::fingerprint).
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(try_from = "IndexCoords", into = "IndexCoords")]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    serde(try_from = "IndexCoords", into = "IndexCoords")
+)]
 pub struct SpatialIndex {
     ni: u32,
     nj: u32,
@@ -415,7 +419,8 @@ fn search_inner(
 /// depend on the build algorithm, and reading them back would let a
 /// hand-written payload claim a tree that does not match its own points. Both
 /// are recomputed on the way in.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct IndexCoords {
     ni: u32,
     nj: u32,

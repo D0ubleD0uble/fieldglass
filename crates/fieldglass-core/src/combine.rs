@@ -18,25 +18,24 @@
 /// a `rename_all`: `snake_case` would turn `Difference` into `"difference"` and
 /// the two spellings would drift apart the first time a host read one and wrote
 /// the other. `the_serde_tag_is_the_wire_tag` holds them in step.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, PartialOrd, Ord, Hash,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[non_exhaustive]
 pub enum CombineOp {
     /// `A − B` — the difference / anomaly map.
-    #[serde(rename = "a_minus_b")]
+    #[cfg_attr(feature = "serde", serde(rename = "a_minus_b"))]
     Difference,
     /// `B − A`.
-    #[serde(rename = "b_minus_a")]
+    #[cfg_attr(feature = "serde", serde(rename = "b_minus_a"))]
     ReverseDifference,
     /// `A + B`.
-    #[serde(rename = "a_plus_b")]
+    #[cfg_attr(feature = "serde", serde(rename = "a_plus_b"))]
     Sum,
     /// `(A + B) / 2`.
-    #[serde(rename = "mean")]
+    #[cfg_attr(feature = "serde", serde(rename = "mean"))]
     Mean,
     /// `A / B`.
-    #[serde(rename = "ratio")]
+    #[cfg_attr(feature = "serde", serde(rename = "ratio"))]
     Ratio,
 }
 

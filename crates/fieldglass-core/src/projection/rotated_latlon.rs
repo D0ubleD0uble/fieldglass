@@ -22,7 +22,8 @@ use super::{
 /// by `lon_first..lon_last`), so the corner fields are rotated-frame degrees,
 /// not geographic. Locating a geographic point means rotating it into that
 /// frame first, then indexing exactly like [`latlon_inverse`].
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RotatedLatLonParams {
     /// Points along a row (`Ni`).
     pub ni: u32,

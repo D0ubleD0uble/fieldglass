@@ -26,7 +26,8 @@ use super::{DEG2RAD, GridIndex, PlanarGridProjector, RAD2DEG, SnapEps};
 /// The series degenerates on its own when `a == b`: the authalic corrections
 /// are a power series in the eccentricity, `qsfn` collapses to `2 sin φ`, and
 /// what is left is the spherical formula eccodes' own `init_sphere` uses.
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct LambertAzimuthalParams {
     /// Semi-major and semi-minor axes in metres, as the message declares them.
     pub semi_major_m: f64,

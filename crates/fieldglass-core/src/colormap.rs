@@ -22,7 +22,6 @@
 //! = 0) so the editor background shows through.
 
 use crate::colormap_tables::COLORMAPS;
-use serde::{Deserialize, Serialize};
 
 /// How a colormap is meant to be read: a sequential ramp runs low → high, a
 /// diverging one runs from one hue through a neutral midpoint to another and
@@ -50,8 +49,9 @@ impl ColormapKind {
 /// orders of magnitude (precipitation, AOD, chlorophyll) get resolvable colour
 /// across their whole range. Under `Log10` a non-positive value has no
 /// logarithm and paints as missing (see [`scale_position`]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "lowercase"))]
 pub enum ScaleMode {
     /// Colour position is the value's position in the range.
     #[default]
@@ -300,13 +300,14 @@ pub const PALETTE_LUT_LEN: usize = 256 * 4;
 /// reads [`t0`](Self::t0)/[`t1`](Self::t1) back up to one ULP away. This
 /// workspace enables it; a downstream crate that serialises a `Palette` should
 /// too.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[non_exhaustive]
 pub struct Palette {
     /// 256 RGBA entries, low → high, already mirrored when the caller asked for
     /// a reversed ramp. Every entry is opaque; transparency is
     /// [`masked_rgba`](Self::masked_rgba)'s job, not the table's.
-    #[serde(with = "lut_bytes")]
+    #[cfg_attr(feature = "serde", serde(with = "lut_bytes"))]
     pub lut: [u8; PALETTE_LUT_LEN],
     /// Low end of the transformed domain.
     pub t0: f64,
@@ -482,6 +483,10 @@ impl Palette {
 /// `[u8; 1024]` is past the 32-element ceiling serde derives array impls up to,
 /// so the table serialises as a byte string (or a number sequence, in a
 /// self-describing format like JSON) and reads back from either.
+///
+/// Hand-written rather than derived, so unlike the rest of this crate's serde
+/// surface it needs gating by hand too (#641).
+#[cfg(feature = "serde")]
 mod lut_bytes {
     use super::PALETTE_LUT_LEN;
     use serde::de::{Error as DeError, SeqAccess, Visitor};

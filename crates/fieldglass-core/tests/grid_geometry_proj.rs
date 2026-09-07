@@ -27,6 +27,12 @@
 //! recorded there: #488 hid in a synthetic fixture that never left the northern
 //! hemisphere.
 
+// The oracle here is a committed JSON document read back into a `GridGeometry`,
+// so the whole file needs the derives (#641). Nothing is lost when they are off:
+// `serde` is a default feature, so the standard gate runs this, and the only
+// build that skips it is the `--no-default-features` compile check.
+#![cfg(feature = "serde")]
+
 use fieldglass_core::projection::{GridGeometry, PlaneUnits, normalise_lon};
 
 const GOLDEN: &str = include_str!("grid_geometry_proj.golden.json");
