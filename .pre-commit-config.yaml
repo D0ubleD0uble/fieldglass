@@ -52,7 +52,19 @@ repos:
         types: [rust]
         # Guards the gated build: `render` off must still compile clean so the
         # parsing-only surface the format crates consume can't rot.
-        entry: cargo clippy -p fieldglass-core --no-default-features --all-targets -- -D warnings
+        # Three sets, not one. The empty set is the parsing surface a format
+        # crate takes; `render` and `analysis` *without* `serde` are the ones
+        # that stopped being free when #641 made the derives optional, and
+        # `render` alone is what caught `colormap`'s hand-written serde module —
+        # gated by `#[cfg]` rather than by attribute, so nothing else would
+        # have. A feature that is on by default is only ever checked off by a
+        # set that names its siblings without it.
+        entry: >-
+          bash -c 'set -e; for f in "" render analysis; do
+          echo "--- fieldglass-core --no-default-features --features [$f]";
+          cargo clippy -p fieldglass-core --no-default-features
+          ${f:+--features "$f"} --all-targets -- -D warnings;
+          done'
         pass_filenames: false
 
       - id: cargo-clippy-format-crates-render-off
@@ -94,10 +106,17 @@ repos:
         # `.rs` file at all, and a hook filtered to Rust would not run on the
         # one commit that most needs it.
         types_or: [rust, toml]
-        # The umbrella's own gated builds (#552). Four sets, each a shape a real
+        # The umbrella's own gated builds (#552). Six sets, each a shape a real
         # consumer asks for: one decoder and nothing else; a values-first host
         # without the painter; the painter without the values-first operations;
         # and the decode-only build with neither surface.
+        #
+        # The last two name `netcdf`, which #662 added and which no set covered
+        # for a day: the array-dataset half of `Session` is `#[cfg]`-partitioned
+        # against the message half, so a build with one and not the other is
+        # exactly where those two halves stop agreeing. `netcdf` alone is also
+        # the only set that exercises the "no GRIB decoder at all" arms, which
+        # are reachable in type and never in fact.
         #
         # `--lib` for the reason the hook above gives — the umbrella's
         # integration tests read GRIB fixtures from both editions and call the
@@ -106,7 +125,7 @@ repos:
         # this either: `fieldglass-napi` asks for all four, so the resolver
         # turns them on for everyone in that invocation.
         entry: >-
-          bash -c 'set -e; for f in grib2 grib1 grib2,analysis grib1,render; do
+          bash -c 'set -e; for f in grib2 grib1 grib2,analysis grib1,render netcdf grib2,netcdf,render; do
           echo "--- fieldglass --no-default-features --features $f";
           cargo clippy -p fieldglass --no-default-features --features "$f" --lib -- -D warnings;
           done'
@@ -402,7 +421,7 @@ repos:
         # twin are compiled by exactly the sets below, and are what makes this
         # pair of hooks check behaviour rather than syntax.
         entry: >-
-          bash -c 'set -e; for f in grib2 grib1 grib2,analysis grib1,render; do
+          bash -c 'set -e; for f in grib2 grib1 grib2,analysis grib1,render netcdf grib2,netcdf,render; do
           echo "--- fieldglass test --no-default-features --features $f";
           cargo test -p fieldglass --no-default-features --features "$f" --lib;
           done'
