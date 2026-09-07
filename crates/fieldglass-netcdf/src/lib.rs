@@ -25,8 +25,12 @@ pub mod geometry;
 pub mod hdf5;
 pub mod projection;
 pub mod reader;
+pub mod resolve;
 
 pub use classic::{Attribute, ClassicHeader, ClassicVersion, Dimension, NcType, Variable};
+// The geometry every host and the umbrella consume, so a consumer of this
+// crate's `slice_geometry` needs no `fieldglass-core` line of its own (#537).
+pub use fieldglass_core::GridGeometry;
 // The `fieldglass_core` types this crate's own signatures name (#537), so a
 // consumer needs no direct dependency on `fieldglass-core` — and cannot
 // accidentally take one without `default-features = false`, which would
