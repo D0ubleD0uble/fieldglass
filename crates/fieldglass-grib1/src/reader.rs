@@ -182,7 +182,7 @@ impl Grib1Reader {
         let msg = self
             .messages
             .get(message_index)
-            .ok_or(FieldglassError::OutOfRange)?;
+            .ok_or_else(|| FieldglassError::out_of_range(message_index, self.messages.len()))?;
 
         let gds = msg.gds.as_ref().ok_or_else(|| {
             FieldglassError::Parse(
@@ -379,7 +379,7 @@ impl Grib1Reader {
         let msg = self
             .messages
             .get(message_index)
-            .ok_or(FieldglassError::OutOfRange)?;
+            .ok_or_else(|| FieldglassError::out_of_range(message_index, self.messages.len()))?;
         let gds = msg
             .gds
             .as_ref()

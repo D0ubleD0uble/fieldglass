@@ -308,7 +308,7 @@ pub fn variable_shape(
     let var = header
         .variables
         .get(var_index)
-        .ok_or(FieldglassError::OutOfRange)?;
+        .ok_or_else(|| FieldglassError::out_of_range(var_index, header.variables.len()))?;
     let numrecs = header.numrecs.unwrap_or(0);
     var.dim_ids
         .iter()
@@ -423,7 +423,7 @@ fn variable_layout(
     let var = header
         .variables
         .get(var_index)
-        .ok_or(FieldglassError::OutOfRange)?;
+        .ok_or_else(|| FieldglassError::out_of_range(var_index, header.variables.len()))?;
 
     if matches!(var.nc_type, NcType::Char) {
         return Err(FieldglassError::UnsupportedSection(format!(
@@ -616,7 +616,7 @@ impl<'a> Parser<'a> {
             ));
         }
         if &bytes[0..3] != b"CDF" {
-            return Err(FieldglassError::InvalidMagic);
+            return Err(FieldglassError::invalid_magic("CDF", bytes));
         }
         let version = ClassicVersion::from_byte(bytes[3]).ok_or_else(|| {
             FieldglassError::Parse(format!(
@@ -1108,7 +1108,7 @@ mod tests {
     fn bogus_magic_errors() {
         let bytes = b"NOPE\x00\x00\x00\x00";
         let err = parse_header(bytes).unwrap_err();
-        assert!(matches!(err, FieldglassError::InvalidMagic));
+        assert!(matches!(err, FieldglassError::InvalidMagic { .. }));
     }
 
     #[test]
@@ -1362,10 +1362,14 @@ mod tests {
             global_attributes: Vec::new(),
             variables: Vec::new(),
         };
-        assert!(matches!(
-            decode_variable_raw(&header, &[], 0).unwrap_err(),
-            FieldglassError::OutOfRange
-        ));
+        // The header declares no variables, so index 0 is already past the
+        // end — and the error now says so rather than only that something was
+        // out of range.
+        let err = decode_variable_raw(&header, &[], 0).unwrap_err();
+        assert!(
+            matches!(err, FieldglassError::OutOfRange { index: 0, bound: 0 }),
+            "expected OutOfRange {{ index: 0, bound: 0 }}, got {err:?}"
+        );
     }
 
     #[test]

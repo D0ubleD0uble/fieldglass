@@ -59,12 +59,12 @@ fn the_manifest_names_no_direct_core_dependency() {
 fn every_format_crate_re_exports_one_error_type() {
     // Assigning across the aliases only compiles if they are the same type —
     // separate error enums per crate would be an API split, not a re-export.
-    let from_grib2: Grib1Error = Grib2Error::OutOfRange;
-    let from_netcdf: Grib1Error = NetcdfError::OutOfRange;
-    let from_zarr: Grib1Error = ZarrError::OutOfRange;
-    assert!(matches!(from_grib2, Grib1Error::OutOfRange));
-    assert!(matches!(from_netcdf, Grib1Error::OutOfRange));
-    assert!(matches!(from_zarr, Grib1Error::OutOfRange));
+    let from_grib2: Grib1Error = Grib2Error::out_of_range(1, 0);
+    let from_netcdf: Grib1Error = NetcdfError::out_of_range(1, 0);
+    let from_zarr: Grib1Error = ZarrError::out_of_range(1, 0);
+    assert!(matches!(from_grib2, Grib1Error::OutOfRange { .. }));
+    assert!(matches!(from_netcdf, Grib1Error::OutOfRange { .. }));
+    assert!(matches!(from_zarr, Grib1Error::OutOfRange { .. }));
 
     let grib2_geometry: Grib1Geometry = Grib2Geometry::Unsupported {
         label: "spherical_harmonics".into(),
@@ -91,7 +91,7 @@ fn grib1_errors_are_matchable() {
 
     let reader = Grib1Reader::from_bytes(whole).expect("the whole fixture parses");
     match reader.decode_message_values(reader.message_count()) {
-        Err(Grib1Error::OutOfRange) => {}
+        Err(Grib1Error::OutOfRange { .. }) => {}
         Err(other) => panic!("expected an out-of-range error, got {other:?}"),
         Ok(_) => panic!("decoding past the last message must not succeed"),
     }
@@ -149,7 +149,7 @@ fn grib2_errors_are_matchable() {
 
     let reader = Grib2Reader::from_bytes(whole).expect("the whole fixture parses");
     match reader.decode_message_values(reader.message_count()) {
-        Err(Grib2Error::OutOfRange) => {}
+        Err(Grib2Error::OutOfRange { .. }) => {}
         Err(other) => panic!("expected an out-of-range error, got {other:?}"),
         Ok(_) => panic!("decoding past the last message must not succeed"),
     }
@@ -255,7 +255,7 @@ fn netcdf_errors_are_matchable() {
         panic!("garbage must not parse as NetCDF");
     };
     match err {
-        NetcdfError::InvalidMagic => {}
+        NetcdfError::InvalidMagic { .. } => {}
         other => panic!("expected an invalid-magic error, got {other:?}"),
     }
 }
@@ -285,8 +285,9 @@ impl ByteSource for CountingSource {
             .end()
             .and_then(|e| usize::try_from(e).ok())
             .filter(|&e| e <= self.bytes.len())
-            .ok_or(NetcdfError::OutOfRange)?;
-        let start = usize::try_from(range.start).map_err(|_| NetcdfError::OutOfRange)?;
+            .ok_or_else(|| NetcdfError::out_of_range(0, self.bytes.len()))?;
+        let start = usize::try_from(range.start)
+            .map_err(|_| NetcdfError::out_of_range(0, self.bytes.len()))?;
         Ok(Cow::Owned(self.bytes[start..end].to_vec()))
     }
 }

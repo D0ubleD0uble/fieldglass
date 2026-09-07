@@ -208,7 +208,7 @@ impl Grib2Reader {
         let msg = self
             .messages
             .get(message_index)
-            .ok_or(FieldglassError::OutOfRange)?;
+            .ok_or_else(|| FieldglassError::out_of_range(message_index, self.messages.len()))?;
 
         // Spherical-harmonic messages carry coefficients, not a grid, so they
         // have no dimensions and decode through `decode_spectral_message`.
@@ -525,7 +525,7 @@ impl Grib2Reader {
         let msg = self
             .messages
             .get(message_index)
-            .ok_or(FieldglassError::OutOfRange)?;
+            .ok_or_else(|| FieldglassError::out_of_range(message_index, self.messages.len()))?;
         let geometry = GridGeometry::from(&msg.gds);
         let reduction = options.resolution_reduction;
 
@@ -675,7 +675,7 @@ impl Grib2Reader {
         let msg = self
             .messages
             .get(message_index)
-            .ok_or(FieldglassError::OutOfRange)?;
+            .ok_or_else(|| FieldglassError::out_of_range(message_index, self.messages.len()))?;
         let t = msg.drs.matrix_simple().ok_or_else(|| {
             FieldglassError::UnsupportedSection(format!(
                 "message {message_index} uses §5 packing {}, not grid_simple_matrix (5.1)",
@@ -753,7 +753,7 @@ impl Grib2Reader {
         let msg = self
             .messages
             .get(message_index)
-            .ok_or(FieldglassError::OutOfRange)?;
+            .ok_or_else(|| FieldglassError::out_of_range(message_index, self.messages.len()))?;
 
         let sh = msg.gds.spherical_harmonic().ok_or_else(|| {
             FieldglassError::UnsupportedSection(format!(
@@ -978,7 +978,7 @@ impl Grib2Reader {
         let msg = self
             .messages
             .get(message_index)
-            .ok_or(FieldglassError::OutOfRange)?;
+            .ok_or_else(|| FieldglassError::out_of_range(message_index, self.messages.len()))?;
 
         let bf = msg.gds.bifourier().ok_or_else(|| {
             FieldglassError::UnsupportedSection(format!(

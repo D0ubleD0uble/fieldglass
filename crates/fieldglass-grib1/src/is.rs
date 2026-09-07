@@ -18,7 +18,7 @@ pub fn parse_indicator(bytes: &[u8]) -> Result<IndicatorSection, FieldglassError
         )));
     }
     if &bytes[0..4] != b"GRIB" {
-        return Err(FieldglassError::InvalidMagic);
+        return Err(FieldglassError::invalid_magic("GRIB", bytes));
     }
     let total_length = u32::from_be_bytes([0, bytes[4], bytes[5], bytes[6]]);
     let edition = bytes[7];

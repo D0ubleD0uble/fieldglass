@@ -92,7 +92,7 @@ pub use detect::Format;
 #[cfg(feature = "fs")]
 pub use detect::detect_format;
 pub use detect::detect_from_bytes;
-pub use error::FieldglassError;
+pub use error::{FieldglassError, printable_bytes};
 pub use global_grid::{GlobalGrid, SynthesisedField};
 #[cfg(feature = "render")]
 pub use overlay::{ProjectedPolylines, SourceOverlayTarget, project_polylines};
