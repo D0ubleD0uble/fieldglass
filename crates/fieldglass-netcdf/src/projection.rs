@@ -506,6 +506,94 @@ pub fn unpack_cf_data(plane: &[Option<f64>], attrs: &[(String, String)]) -> Vec<
         .collect()
 }
 
+// ── Into `core`'s one geometry type ──────────────────────────────────────────
+//
+// Each resolver above returns the grid *as this crate reads it from the file*;
+// these hand it to the type every host and the umbrella already consume
+// (#549). Field-for-field, deliberately: a conversion that computed anything
+// would be a second place for the georeferencing to be wrong, and the
+// arithmetic that matters already happened in the resolver.
+//
+// The earth radius is the one field the file does not state. WRF's own
+// projection code runs on a 6,370 km sphere and its `DX`/`DY` are metres on
+// that sphere, so reading them against any other radius scales the whole
+// domain — which is why it is a named constant rather than the core default.
+
+use fieldglass_core::projection::{
+    GeostationaryParams, GridGeometry, LambertParams, MercatorParams, PolarStereoParams,
+};
+
+impl From<&WrfLambertGrid> for GridGeometry {
+    fn from(g: &WrfLambertGrid) -> Self {
+        Self::Lambert(LambertParams {
+            earth_radius_m: WRF_EARTH_RADIUS_M,
+            ni: g.ni,
+            nj: g.nj,
+            lat_first: g.lat_first,
+            lon_first: g.lon_first,
+            lad: g.lad,
+            lov: g.lov,
+            dx_metres: g.dx_metres,
+            dy_metres: g.dy_metres,
+            latin1: g.latin1,
+            latin2: g.latin2,
+        })
+    }
+}
+
+impl From<&WrfPolarStereoGrid> for GridGeometry {
+    fn from(g: &WrfPolarStereoGrid) -> Self {
+        Self::PolarStereo(PolarStereoParams {
+            earth_radius_m: WRF_EARTH_RADIUS_M,
+            ni: g.ni,
+            nj: g.nj,
+            lat_first: g.lat_first,
+            lon_first: g.lon_first,
+            lov: g.lov,
+            lad: g.lad,
+            dx_metres: g.dx_metres,
+            dy_metres: g.dy_metres,
+            south_pole: g.south_pole,
+        })
+    }
+}
+
+impl From<&WrfMercatorGrid> for GridGeometry {
+    fn from(g: &WrfMercatorGrid) -> Self {
+        // No earth radius: a Mercator grid is stated by its two geographic
+        // corners, so the sphere never enters the placement.
+        Self::Mercator(MercatorParams {
+            ni: g.ni,
+            nj: g.nj,
+            lat_first: g.lat_first,
+            lon_first: g.lon_first,
+            lat_last: g.lat_last,
+            lon_last: g.lon_last,
+        })
+    }
+}
+
+impl From<&GeostationaryGrid> for GridGeometry {
+    fn from(g: &GeostationaryGrid) -> Self {
+        // Field-identical: CF states the same nine numbers the projector takes,
+        // and both radii come from the file rather than a constant, because a
+        // geostationary CRS names its own ellipsoid.
+        Self::Geostationary(GeostationaryParams {
+            ni: g.ni,
+            nj: g.nj,
+            h_metres: g.h_metres,
+            r_eq: g.r_eq,
+            r_pol: g.r_pol,
+            sub_lon_deg: g.sub_lon_deg,
+            sweep_x: g.sweep_x,
+            x0: g.x0,
+            dx_rad: g.dx_rad,
+            y0: g.y0,
+            dy_rad: g.dy_rad,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

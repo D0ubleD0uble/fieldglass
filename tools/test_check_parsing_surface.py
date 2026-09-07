@@ -347,7 +347,7 @@ class TheRepoItselfPasses(unittest.TestCase):
     def test_the_documented_surface_is_the_one_in_use(self):
         self.assertEqual(chk.check(), [])
 
-    def test_the_surface_is_the_eleven_modules_measured(self):
+    def test_the_surface_is_the_twelve_modules_measured(self):
         # Pinned so that widening the surface comes past a reviewer here as well
         # as in the two doc regions.
         lib = (chk.CORE / "src" / "lib.rs").read_text(encoding="utf-8")
@@ -367,18 +367,20 @@ class TheRepoItselfPasses(unittest.TestCase):
                 "projection",
                 "scan",
                 "sht",
+                "spatial_index",
             ],
         )
 
-    def test_the_three_ungated_modules_left_out_are_left_out_on_purpose(self):
-        # `detect`, `spatial_index` and `units` are ungated and unused by any
-        # format crate library. If one of them starts being used, the gate above
-        # fires; this asserts the reason the doc gives for excluding them.
+    def test_the_two_ungated_modules_left_out_are_left_out_on_purpose(self):
+        # `detect` and `units` are ungated and unused by any format crate
+        # library. If one of them starts being used, the gate above fires; this
+        # asserts the reason the doc gives for excluding them. `spatial_index`
+        # was the third until #549 gave `fieldglass-netcdf` a swath to index.
         lib = (chk.CORE / "src" / "lib.rs").read_text(encoding="utf-8")
         modules = chk.core_modules(lib)
         ungated = {m for m, feature in modules.items() if feature is None}
         listed = {n for n in chk.documented_surface(lib) if n in modules}
-        self.assertEqual(sorted(ungated - listed), ["detect", "spatial_index", "units"])
+        self.assertEqual(sorted(ungated - listed), ["detect", "units"])
 
 
 if __name__ == "__main__":

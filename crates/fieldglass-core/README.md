@@ -14,7 +14,9 @@ centre tables), `scan` (storage orders), `projection` (map projections and grid
 geometry), `lead_time` (the forecast-lead rules both GRIB editions share), and
 the three grids that arrive as something other than a rectangle of values —
 `sht`, `matrix` and `healpix` — with `global_grid`, the lat/lon grid the first
-and last of those are synthesized onto.
+and last of those are synthesized onto, and `spatial_index`, which
+`fieldglass-netcdf` builds over a swath's 2-D coordinate arrays so a grid that
+is a list of cell centres can be placed like any other.
 <!-- /parsing-surface -->
 
 On top of that sits an optional viewer layer (warp, overlay, colormap) used by

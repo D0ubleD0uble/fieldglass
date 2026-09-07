@@ -13,8 +13,10 @@
 //! recover grid corners), [`scan`] (the storage orders a decoder regularises),
 //! [`lead_time`] (the forecast-lead rules the two editions share), the three
 //! grids that arrive as something other than a rectangle of values — [`sht`],
-//! [`matrix`], and [`healpix`] — and [`global_grid`], the lat/lon grid the
-//! first and last of those are put onto.
+//! [`matrix`], and [`healpix`] — [`global_grid`], the lat/lon grid the
+//! first and last of those are put onto, and [`spatial_index`], which
+//! `fieldglass-netcdf` builds over a swath's 2-D coordinate arrays so a grid
+//! that is a list of cell centres can be placed like any other (#549).
 //! <!-- /parsing-surface -->
 //!
 //! What those modules have in common is that none of them is behind a feature,
