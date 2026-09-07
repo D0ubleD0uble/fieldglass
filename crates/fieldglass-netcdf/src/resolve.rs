@@ -34,7 +34,7 @@
 //! is what [`CfMapping::Unsupported`] exists to express.
 
 use fieldglass_core::FieldglassError;
-use fieldglass_core::projection::{GridGeometry, LatLonParams};
+use fieldglass_core::projection::{GridGeometry, LatLonParams, Scan};
 use fieldglass_core::spatial_index::SpatialIndex;
 
 use crate::geometry::{DatasetView, RenderableVariable, VarView, synthesize_geometry};
@@ -76,12 +76,49 @@ pub fn classify_grid_mapping(attrs: &[(String, String)]) -> CfMapping {
     }
 }
 
+/// A resolved slice: where its cells are, and the order they are stored in.
+///
+/// Two things rather than one because they answer different questions and only
+/// one of them is a geometry. The scan is *not* derivable from the geometry it
+/// travels with: a longitude axis counts as descending only when **every** step
+/// runs east to west, and a grid whose corners happen to decrease across a
+/// non-monotonic axis is not the same thing. Deriving the flag from the corners
+/// would quietly reproject those files the wrong way round.
+///
+/// NetCDF states no scanning mode of its own — this is the file's coordinate
+/// order read as the flags GRIB carries explicitly, which is what lets `core`
+/// apply one rule to both formats.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SlicePlacement {
+    /// Where the cells are.
+    pub geometry: GridGeometry,
+    /// The storage order the coordinates imply, or `None` when the file states
+    /// none.
+    ///
+    /// Only the 1-D lat/lon path reads an order out of a file at all. A WRF or
+    /// CF projected domain has absorbed its direction into signed spacings and
+    /// corner pinning, and a cell list has no axis to read an order from — for
+    /// those this is `None`, which is a different answer from "north-down" and
+    /// the reason it is an `Option`. A host reporting the row order should say
+    /// nothing rather than guess, even though both spellings drive the same
+    /// north-down default downstream.
+    pub scan: Option<Scan>,
+}
+
 /// The label [`GridGeometry::Unsupported`] carries when nothing placed the grid.
 ///
 /// Named rather than inlined at each of the several returns: a host prints it,
 /// and three spellings of "we could not place this" would read as three
 /// different outcomes.
 pub const SOURCE_ONLY: &str = "source";
+
+/// A placement for a family that reads no order out of the file.
+fn unordered(geometry: GridGeometry) -> SlicePlacement {
+    SlicePlacement {
+        geometry,
+        scan: None,
+    }
+}
 
 fn source_only() -> GridGeometry {
     GridGeometry::Unsupported {
@@ -107,6 +144,22 @@ impl NetcdfReader {
         y_dim: usize,
         x_dim: usize,
     ) -> Result<GridGeometry, FieldglassError> {
+        Ok(self.slice_placement(view, var, y_dim, x_dim)?.geometry)
+    }
+
+    /// [`Self::slice_geometry`] and the storage order beside it.
+    ///
+    /// What a host that renders wants: placing the cells and knowing which way
+    /// the rows and columns run are the same question asked of the same
+    /// coordinate arrays, and reading them twice to answer it separately would
+    /// be both slower and a chance for the two answers to disagree.
+    pub fn slice_placement(
+        &self,
+        view: &DatasetView,
+        var: &RenderableVariable,
+        y_dim: usize,
+        x_dim: usize,
+    ) -> Result<SlicePlacement, FieldglassError> {
         if y_dim == x_dim {
             return Err(FieldglassError::WrongLayout(
                 "the X and Y axes must be different dimensions".to_string(),
@@ -123,12 +176,12 @@ impl NetcdfReader {
 
         // (1) 2-D coordinates.
         if let Some(lookup) = self.curvilinear_index(view, var, y_dim, x_dim)? {
-            return Ok(lookup);
+            return Ok(unordered(lookup));
         }
 
         // (2) WRF `MAP_PROJ`.
         if let Some(geometry) = self.wrf_geometry(view, &y_axis.name, &x_axis.name, ni, nj)? {
-            return Ok(geometry);
+            return Ok(unordered(geometry));
         }
 
         // (3) CF `grid_mapping`.
@@ -137,17 +190,17 @@ impl NetcdfReader {
                 CfMapping::Geostationary => {
                     let x = self.coordinate_values_for_dim(view, &x_axis.name)?;
                     let y = self.coordinate_values_for_dim(view, &y_axis.name)?;
-                    return Ok(match (x, y) {
+                    return Ok(unordered(match (x, y) {
                         (Some(x), Some(y)) => resolve_cf_geostationary(&gm_attrs, &x, &y)
                             .as_ref()
                             .map_or_else(source_only, GridGeometry::from),
                         _ => source_only(),
-                    });
+                    }));
                 }
                 // Fall through to the coordinate arrays.
                 CfMapping::LatLon => {}
                 // **The guard.** Projected until proven otherwise.
-                CfMapping::Unsupported => return Ok(source_only()),
+                CfMapping::Unsupported => return Ok(unordered(source_only())),
             }
         }
 
@@ -156,19 +209,25 @@ impl NetcdfReader {
             view.coordinate_index(&y_axis.name),
             view.coordinate_index(&x_axis.name),
         ) else {
-            return Ok(source_only());
+            return Ok(unordered(source_only()));
         };
         let lat = self.coordinate_values(view, lat_i)?;
         let lon = self.coordinate_values(view, lon_i)?;
         let g = synthesize_geometry(&lat, &lon)?;
-        Ok(GridGeometry::LatLon(LatLonParams {
-            ni: g.ni,
-            nj: g.nj,
-            lat_first: g.lat_first,
-            lon_first: g.lon_first,
-            lat_last: g.lat_last,
-            lon_last: g.lon_last,
-        }))
+        Ok(SlicePlacement {
+            geometry: GridGeometry::LatLon(LatLonParams {
+                ni: g.ni,
+                nj: g.nj,
+                lat_first: g.lat_first,
+                lon_first: g.lon_first,
+                lat_last: g.lat_last,
+                lon_last: g.lon_last,
+            }),
+            // The only file-derived scan there is. `lon_descending` is the whole
+            // axis running east to west, not merely its corners decreasing —
+            // see [`SlicePlacement`].
+            scan: Some(Scan::new(g.lon_descending, g.lat_ascending, false)),
+        })
     }
 
     /// The spatial index over a variable's 2-D coordinate arrays, or `None`
@@ -365,8 +424,12 @@ impl NetcdfReader {
     }
 
     /// A 2-D auxiliary coordinate array, CF-scaled, with a masked cell carried
-    /// through as `NaN` rather than refused — see [`Self::coordinate_values`].
-    fn coordinate_plane(
+    /// through as `NaN` rather than refused — see `coordinate_values`.
+    ///
+    /// Public as the sibling of [`Self::curvilinear_index`]: a host checking
+    /// where a swath's cells actually landed reads the same array the index was
+    /// built from, and reading it a second way would not be a check.
+    pub fn coordinate_plane(
         &self,
         view: &DatasetView,
         index: usize,

@@ -179,3 +179,34 @@ fn the_same_axis_twice_is_refused() {
 fn the_source_only_label_is_the_named_constant() {
     assert_eq!(SOURCE_ONLY, "source");
 }
+
+/// The scan travels beside the geometry because it cannot be recovered from it.
+///
+/// `lon_descending` means **every** step of the longitude axis runs east to
+/// west. A grid whose corners merely decrease across a non-monotonic axis is a
+/// different thing, and deriving the flag from `lon_first`/`lon_last` would
+/// reproject those files the wrong way round. This pins the distinction so a
+/// later simplification cannot quietly make the flag corner-derived.
+#[test]
+fn the_scan_is_read_from_the_axis_not_inferred_from_the_corners() {
+    use fieldglass_netcdf::SliceGeometry;
+    use fieldglass_netcdf::synthesize_geometry;
+
+    // Strictly descending: the flag is set, and the corners agree with it.
+    let down: SliceGeometry = synthesize_geometry(&[0.0, 1.0], &[10.0, 5.0]).expect("resolves");
+    assert!(down.lon_descending);
+    assert!(down.lon_last < down.lon_first, "corners agree here");
+
+    // Corners decrease, but the axis is not monotonic — so the flag is *not*
+    // set, and a corner-derived one would have been.
+    let ragged: SliceGeometry =
+        synthesize_geometry(&[0.0, 1.0], &[10.0, 20.0, 5.0]).expect("resolves");
+    assert!(
+        ragged.lon_last < ragged.lon_first,
+        "the corners decrease, which is what makes this the interesting case"
+    );
+    assert!(
+        !ragged.lon_descending,
+        "a non-monotonic axis is not an east-to-west scan"
+    );
+}
