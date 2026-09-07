@@ -41,6 +41,17 @@
 //!   Separate from `render` because a host can want isolines without the
 //!   painter, and separate from the parsing surface because a decode-only
 //!   consumer should not compile them at all.
+//! - **`serde`** *(default)* — the `Serialize` / `Deserialize` derives on the
+//!   geometry, colour and spatial types (#641). On by default so nothing
+//!   downstream changes by upgrading; the saving is for the crates that already
+//!   take this one with `default-features = false` — the four format crates —
+//!   which stop resolving `serde`, `serde_core` and `serde_derive` for derives
+//!   their parsing surface never reaches. `fieldglass` names it back
+//!   unconditionally, because its wire types embed this crate's geometry and it
+//!   is the layer with something to serialise. One member is gated by hand
+//!   rather than by attribute: `colormap`'s lookup table is past the
+//!   32-element ceiling serde derives array impls up to, so it carries its own
+//!   `serialize` / `deserialize` pair.
 //! - **`fs`** *(default)* — `detect::detect_format`, which opens a path. The
 //!   only call in this crate that touches a host filesystem; nothing in the
 //!   workspace calls it, and a format crate could not, since all three take

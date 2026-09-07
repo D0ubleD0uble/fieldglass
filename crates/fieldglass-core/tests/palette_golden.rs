@@ -37,9 +37,7 @@
 // rest reads to `missing_docs` as a crate carrying none.
 #![cfg(feature = "render")]
 
-use fieldglass_core::colormap::{
-    PALETTE_LUT_LEN, Palette, ScaleMode, colormaps, paint_grid_rgba, scale_position,
-};
+use fieldglass_core::colormap::{Palette, ScaleMode, colormaps, paint_grid_rgba, scale_position};
 
 const W: u32 = 37;
 const H: u32 = 23;
@@ -267,6 +265,9 @@ fn normalise_takes_the_logarithm_once_and_still_agrees_with_scale_position() {
     }
 }
 
+// The wire half of the palette contract (#641); the eight colour cases
+// beside it hold with the derives off.
+#[cfg(feature = "serde")]
 #[test]
 fn a_palette_survives_a_json_round_trip() {
     let pal = Palette::build(&colormaps()[3], true, 0.5, 1250.0, ScaleMode::Log10);
@@ -278,6 +279,12 @@ fn a_palette_survives_a_json_round_trip() {
     assert!(json.contains("\"scale\":\"log10\""));
 }
 
+// The wire half of the palette contract (#641); the eight colour cases
+// beside it hold with the derives off.
+#[cfg(feature = "serde")]
+use fieldglass_core::colormap::PALETTE_LUT_LEN;
+
+#[cfg(feature = "serde")]
 #[test]
 fn a_wrong_length_lookup_table_is_rejected() {
     let pal = Palette::build(&colormaps()[0], false, 0.0, 1.0, ScaleMode::Linear);
