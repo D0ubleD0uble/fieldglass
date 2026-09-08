@@ -124,11 +124,20 @@ jobs:
       # The build status the milestone is actually asking for: the format crates
       # and the façade compile for the browser. A `--workspace` check cannot say
       # this, because fieldglass-napi does not build for wasm32 at all.
+      #
+      # `fieldglass-zarr` and `fieldglass-fetchplan` are on this line for the
+      # same reason the others are, and they were missing from it until the
+      # claim was checked: both exist *because* of the browser — a chunk a page
+      # fetched, and the plan that said which bytes to fetch — and neither is
+      # reachable from `fieldglass-wasm` yet, so nothing else here compiles them
+      # for wasm32. They do build for it today; without this line the first
+      # commit that broke one would merge green.
       - name: cargo check --target wasm32-unknown-unknown
         run: |
           cargo check --target wasm32-unknown-unknown \
             -p fieldglass-core -p fieldglass-grib1 -p fieldglass-grib2 \
-            -p fieldglass-netcdf -p fieldglass-wasm
+            -p fieldglass-netcdf -p fieldglass-zarr -p fieldglass-fetchplan \
+            -p fieldglass-wasm
 
       # The umbrella with its *own* defaults, which the step above never sees:
       # there it arrives only as `fieldglass-wasm`'s dependency, taken with
