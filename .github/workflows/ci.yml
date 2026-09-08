@@ -220,6 +220,18 @@ jobs:
           node crates/fieldglass-wasm/tests/node/conformance.mjs \
             --pkg crates/fieldglass-wasm/pkg/nodejs-simd
 
+      # The browser host opens a NetCDF file (#662). Separate from the
+      # conformance run above because the suite has no NetCDF subject: every
+      # one of its 280 cases is GRIB, since until #671 there was no `Session`
+      # path to a variable to record observations from. Giving the suite one
+      # means teaching all three runners the variable ops, which is its own
+      # change; this is the narrower claim, gated in the meantime.
+      - name: NetCDF through the browser host
+        run: |
+          node crates/fieldglass-wasm/tests/node/netcdf.mjs
+          node crates/fieldglass-wasm/tests/node/netcdf.mjs \
+            --pkg crates/fieldglass-wasm/pkg/nodejs-simd
+
       - name: Native decode baseline
         run: |
           cargo run --release -q -p fieldglass --example bench_decode \

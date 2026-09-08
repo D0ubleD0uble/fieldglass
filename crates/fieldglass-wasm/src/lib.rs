@@ -102,14 +102,79 @@ pub fn open(bytes: &[u8]) -> Result<Handle, JsValue> {
 
 #[wasm_bindgen]
 impl Handle {
-    /// `"grib1"` or `"grib2"`.
+    /// `"grib1"`, `"grib2"` or `"netcdf"`.
     pub fn format(&self) -> Result<JsValue, JsValue> {
         to_js(&self.session.format())
     }
 
-    /// How many messages the file holds.
+    /// Which of the two ways this container is addressed: `"messages"` or
+    /// `"variables"`.
+    ///
+    /// **Ask this first.** GRIB is a stream of self-describing messages, so an
+    /// index is the whole address and [`Handle::count`], [`Handle::message`]
+    /// and [`Handle::decode`] are the calls. NetCDF holds named variables over
+    /// shared dimensions, so a field is a variable, two of its axes, and where
+    /// you are standing on the rest — [`Handle::variables`],
+    /// [`Handle::dimensions`] and [`decodeSlice`](Handle::decode_slice). Asking one mode's
+    /// question of the other throws `wrong_addressing` naming the call to make
+    /// instead, rather than an index error that would blame the number when the
+    /// question was wrong.
+    pub fn addressing(&self) -> Result<JsValue, JsValue> {
+        to_js(&self.session.addressing())
+    }
+
+    /// How many messages the file holds. Zero for a variable container.
     pub fn count(&self) -> u32 {
         self.session.count()
+    }
+
+    /// The dataset's shared dimensions, in the order the file declares them.
+    ///
+    /// Shared is the point: two variables naming the same dimension are on the
+    /// same axis, so a page offers one time slider for a file rather than one
+    /// per variable. Empty for a message container.
+    pub fn dimensions(&self) -> Result<JsValue, JsValue> {
+        to_js(&self.session.dimensions())
+    }
+
+    /// The variables a caller can decode a slice of.
+    ///
+    /// Renderable ones only — a variable of fewer than two dimensions has no
+    /// raster to put on a map. Each carries the `index` [`decodeSlice`](Handle::decode_slice)
+    /// takes. Empty for a message container.
+    pub fn variables(&self) -> Result<JsValue, JsValue> {
+        to_js(&self.session.variables())
+    }
+
+    /// Decode one 2-D slice of a variable into the same field
+    /// [`Handle::decode`] returns.
+    ///
+    /// `yDim` and `xDim` index into that variable's own `dims`, and
+    /// `sliceIndices` holds **one entry per dimension** in the same declared
+    /// order — so `sliceIndices[d]` is always the position on `dims[d]`, and
+    /// the two horizontal entries are ignored rather than absent. A wrong
+    /// length throws `invalid_option` rather than being guessed: silently
+    /// defaulting the unstated axes to zero is how a viewer shows the first
+    /// time step and labels it the last.
+    ///
+    /// The field that comes back is not special. `render`, `probe`, `contours`,
+    /// `combine`, `warp` and `palette` take it exactly as they take a decoded
+    /// message, which is why the addressing split stops here.
+    #[wasm_bindgen(js_name = decodeSlice)]
+    pub fn decode_slice(
+        &self,
+        variable: u32,
+        y_dim: u32,
+        x_dim: u32,
+        slice_indices: &[u32],
+        options: JsValue,
+    ) -> Result<WasmField, JsValue> {
+        let options: DecodeOptions = from_js(options)?;
+        let field = self
+            .session
+            .decode_slice(variable, y_dim, x_dim, slice_indices, &options)
+            .map_err(throw)?;
+        Ok(WasmField { field })
     }
 
     /// One message's metadata, built on demand.
