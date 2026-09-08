@@ -57,9 +57,12 @@ without a table. `TableResolver` is the real one, in `fieldglass` under the
 `fetchplan` feature: the parameter tables answer *codes to name*, so it inverts
 them once into an index rather than scanning per record.
 
-The Zarr v2/v3 and kerchunk dialects are the same seam over chunk-grid
-arithmetic and land with the codec crate (#246), so both halves are tested
-against the same fixtures.
+The kerchunk dialect landed with #660 in this crate, beside the chunk-grid
+arithmetic it spells keys with. `KerchunkRefs` is deliberately *not* a
+`Manifest`: the trait promises one object key per manifest and a parameter
+query, and a reference document has neither. #685 reshapes the trait so it
+can be ([ADR-0010](../decisions/0010-a-common-array-model-and-containers-as-drivers.md)
+decision 4), and #677 moves the arithmetic to `core`.
 
 ```mermaid
 classDiagram

@@ -42,6 +42,13 @@
 //! cannot check its own output length or reverse a transpose without it, and
 //! nothing else about the array's layout.
 //!
+//! That split is moving (ADR-0010). #677 puts the chunk grid and the key
+//! encoding in `fieldglass-core`, where both this crate and the planner can
+//! reach them; #686 makes this crate the one parser of an array's metadata
+//! document, with the codecs behind a feature; and #658 puts the store walker
+//! here, reading through the `ObjectSource` seam of #680. Walking a store is
+//! reading a container; what stays the host's job is handing over the objects.
+//!
 //! **It applies no CF conventions.** [`ChunkDecoder::decode_raw_values`]
 //! returns the values as stored. An array written by xarray carries
 //! `scale_factor`, `add_offset` and `_FillValue` in its `.zattrs`, and a packed

@@ -19,14 +19,14 @@ flowchart LR
         nb --> canvas["RGBA → canvas<br/>overlays, probe, contours"]
     end
     subgraph browser["fieldglass-app (planned, milestone 11)"]
-        cat["sources.json<br/>(catalog is data)"] --> plan["fetchplan #461, inside the wasm module<br/>.idx → ranges + expect"]
+        cat["sources.json<br/>(catalog is data)"] --> plan["fetchplan, inside the wasm module<br/>.idx → ranges + expect"]
         plan --> fetch["fetch() with Range<br/>public bucket, CORS"]
-        fetch --> wb["wasm handle #460<br/>no cache"]
+        fetch --> wb["wasm handle<br/>no cache"]
         wb --> gpu["values + mask textures<br/>+ Palette LUT texture<br/>shipped shader snippet"]
         wb -. CPU fallback .-> canvas2["RGBA → canvas"]
     end
     classDef planned stroke-dasharray: 6 4
-    class cat,plan,fetch,wb,gpu,canvas2 planned
+    class cat,fetch,gpu,canvas2 planned
 ```
 
 ## One field, from a bucket to a texture

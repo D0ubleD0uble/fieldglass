@@ -1,6 +1,6 @@
 # Architecture — Level 1: crates
 
-Eight crates, one flow: a format crate parses its container and hands `core` the
+Nine crates in the workspace, one flow: a format crate parses its container and hands `core` the
 same decoded field (`Vec<Option<f64>>` + grid geometry); `core` projects, warps,
 and renders it; a host binds the result to its language. `fieldglass-core` owns
 the shared traits and geometry and depends on nothing else in the workspace.
@@ -32,6 +32,7 @@ flowchart TD
     fieldglass --> grib2
     fieldglass --> netcdf
     fieldglass --> core
+    fieldglass --> fetchplan
     napi --> fieldglass
     napi --> grib1
     napi --> grib2
@@ -180,13 +181,15 @@ re-export `detect_format`, so an `fs` feature here would turn on a `core`
 surface no consumer of *this* crate can reach. A CLI (#254) or PyO3 consumer
 that starts from a path names `fieldglass-core` itself.
 
-`fieldglass` does not depend
-on `fieldglass-netcdf` yet: NetCDF reaches the browser with its own issue, and
-an unused dependency here would be paid for in bundle size today. That is also
-why the per-format features are two and not the four #552 named: `netcdf` has
-no edge to make optional, and `fieldglass-zarr` decodes chunks but nothing yet
-walks a store to find them (#658), so `fieldglass` has no edge to it either.
+`fieldglass` depends on `fieldglass-netcdf` since #662, behind a `netcdf`
+feature like the two GRIB ones. It does not depend on `fieldglass-zarr` yet:
+the crate decodes chunks but nothing yet walks a store to find them (#658),
+so there is no edge to draw and an unused dependency would be paid for in
+bundle size today.
 
-See [`planned/01-crates.md`](planned/01-crates.md) for where this is going —
-the Zarr store walker (#658) and its host wiring (#659), and `napi` moving onto
-`fieldglass` (#464).
+See [`planned/01-crates.md`](planned/01-crates.md) for where this is going:
+the workspace described as layers under
+[ADR-0010](../decisions/0010-a-common-array-model-and-containers-as-drivers.md)
+— a common array model in `core` (#677, #678), `ObjectSource` beside
+`ByteSource` (#680), the Zarr store walker (#658) and its host wiring (#659),
+and `fetchplan` reshaped to manifests in, chunk plan out (#685).

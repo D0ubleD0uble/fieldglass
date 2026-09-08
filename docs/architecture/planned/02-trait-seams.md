@@ -104,11 +104,77 @@ The consumers of the lookup, in the order they are filed:
 | GRIB2 §3.204 NCEP curvilinear | #418 | lat/lon carried as two extra fields |
 | ICON §3.101 unstructured | #420, #419 | out-of-band grid file, ADR pending |
 
-## Byte access grows its planned implementers
+## The array model
+
+`fieldglass-core` models grids and nothing above them today. #677 and #678 add
+the layer every container that holds named arrays reads into
+([ADR-0010](../../decisions/0010-a-common-array-model-and-containers-as-drivers.md)
+decision 1): a regular chunk grid with the encoding that spells a chunk's key,
+and the dimension, attribute, array-description and group types the NetCDF
+view (#684) and the Zarr walker (#658) both produce. It is Zarr v3's array
+model, written from the specification and named in Fieldglass's terms, because
+that is the model the cloud tools already project every other container onto
+(decision 2). None of it is a trait: the readers construct it and `Session`
+reads it, the way `GridGeometry` is built by the readers and consumed by
+`warp`.
+
+```mermaid
+classDiagram
+    class ChunkGrid {
+        <<planned #677, crate fieldglass-core>>
+        +shape() [u64]
+        +chunk_shape() [u64]
+        +grid_shape() Vec~u64~
+        +chunk_containing(point) Vec~u64~
+        +chunks_covering(region) Vec~Vec~u64~~
+        +chunk_extent(index) the ragged edge, trimmed
+    }
+    class ChunkKeyEncoding {
+        <<planned #677, moves from fetchplan>>
+        Default (c/0/1) | V2 (0.1); an array-model extension point in the v3 spec
+    }
+    class ArrayDescription {
+        <<planned #678>>
+        +name, dtype, dimension names, attributes
+        +Option~ChunkGrid~ chunks
+    }
+    class Dimension {
+        <<planned #678>>
+        +name, length, is_unlimited
+    }
+    class Attribute {
+        <<planned #678>>
+        +name, value: text | numbers | display fallback
+        cf_unpack(raw) stated once here
+    }
+    class Group {
+        <<planned #678>>
+        path-qualified names, as the NetCDF reader resolves them today
+    }
+    ChunkGrid ..> ChunkKeyEncoding : spells
+    ArrayDescription *-- ChunkGrid
+    ArrayDescription *-- Attribute
+    Group *-- ArrayDescription
+    Group *-- Dimension
+    class DatasetView {
+        <<shipped, crate fieldglass-netcdf; rebuilt on the model in #684>>
+    }
+    DatasetView ..> Group
+```
+
+## Byte access grows a keyed sibling
 
 `ByteSource` exists (#438, NetCDF classic migrated). The remote transports are
 **not** Rust implementers: ADR-0005 puts fetching in the host. What Rust gains
-is a source over ranges the host already fetched.
+is a source over ranges the host already fetched, and — with #680 — a source
+over *objects* the host already fetched, which is what a Zarr store, a
+directory listing and a kerchunk document all are. `ObjectSource` follows the
+same rules: a read works whether or not it was prefetched, and everything is
+synchronous. The napi host may implement it over `std::fs`, because napi is
+the host; a bucket is the browser filling the in-memory one. #681 adds the
+identity ADR-0005 decision 2 asked for, so the HDF5 memo stops keying on
+length, and #682 moves the HDF5 reader onto `ByteSource` the way classic
+already is.
 
 ```mermaid
 classDiagram
@@ -117,30 +183,48 @@ classDiagram
         +prefetch(ranges)
         +read(range) Cow
         +size() u64
+        +identity() planned #681
+    }
+    class ObjectSource {
+        <<trait, planned #680>>
+        +prefetch(keys)
+        +get(key) Option~Cow~
+        +list(prefix) Vec~String~
     }
     class PrefetchedRanges {
         <<planned #247 #252 #114>>
         sparse map of fetched ranges; read() outside them is an error
     }
+    class PrefetchedObjects {
+        <<planned #680>>
+        map of key to bytes the host filled
+    }
     ByteSource <|.. Vec
     ByteSource <|.. PrefetchedRanges
+    ObjectSource <|.. PrefetchedObjects
 ```
 
-## Fetch planning is a seam of its own
+## Fetch planning is manifests in, chunk plan out
 
-`fieldglass-fetchplan` (#461) reads a manifest and returns ranges. Every
-cloud-native convention is one dialect. The crate is syntax only: matching a
-sidecar's `TMP` / `2 m above ground` to a WMO parameter needs the NCEP table
-in `fieldglass-grib2` (#426), and that dependency would drag the decoder and
-its codecs into a pure planner, so semantic matching is a trait the umbrella
-implements.
+`fieldglass-fetchplan` reads a manifest and says where each chunk or message
+is. Every cloud-native convention is one dialect. The crate is syntax only:
+matching a sidecar's `TMP` / `2 m above ground` to a WMO parameter needs the
+NCEP table in `fieldglass-grib2` (#426), and that dependency would drag the
+decoder and its codecs into a pure planner, so semantic matching is a trait
+the umbrella implements.
 
-**Both halves have landed** — the GRIB dialects in #461 and chunk addressing in
-#660 — and the current [`02-trait-seams.md`](../02-trait-seams.md) is where the
-shipped surface is documented. Nothing about this crate is planned any more;
-what follows is kept because it records the decisions, and because one of them
-came out the opposite way to the drawing below. Five things about it are now
-facts rather than plans:
+The GRIB half landed with #461 and the kerchunk half with #660; the current
+[`02-trait-seams.md`](../02-trait-seams.md) documents both. What stays here is
+the reshape of #685 (ADR-0010 decision 4). The shipped `Manifest` promises one
+object key per manifest and a parameter query, and both promises are GRIB's:
+a reference document addresses many objects and has nothing to query, which
+is why `KerchunkRefs` could not implement it. After #685 a `PlanItem` carries
+its own address — a message index with an optional sub-index, or a chunk index
+— `Manifest` keeps `items()` and the provided `messages()`, the query moves to
+a `MessageManifest` extension trait, and all three dialects share the base
+trait. The chunk-grid arithmetic the kerchunk half leans on moves to `core`
+(#677); kerchunk itself stays, because a reference document is a manifest.
+Four things about the shipped GRIB half are facts rather than plans:
 
 * **No `core` edge, and then one.** The crate was drawn depending on `core`;
   it turned out to need nothing from it *except* the one thing that matters —
@@ -161,24 +245,17 @@ facts rather than plans:
   probabilistic ones under the same abbreviation and level. `Query::unqualified`
   is how that record is named; without it, it is the one member of an ambiguous
   set nothing can ask for.
-* **Chunk addressing is not a `Manifest`, and the diagram below was wrong to
-  draw it as one.** The trait promises **one object key per manifest** and
-  answers a `Query` written in parameters, levels and forecast steps. A kerchunk
-  reference document has neither: it addresses as many objects as it likes —
-  that is what `templates` is for — and the only thing it can be asked is which
-  chunk of which array, in indices. Implementing the trait would have meant
-  `key()` picking one URL out of many and a parameter query that never matched,
-  so `KerchunkRefs` and `ZarrArrayMeta` are their own types. It is the same
-  split `Session` draws between a message index and a variable, for the same
-  reason: the two shapes are what the containers *are*, not a detail of them.
 
 ```mermaid
 classDiagram
     class Manifest {
-        <<trait, shipped #461>>
+        <<trait, reshaped #685>>
         +items() Vec~PlanItem~
-        +select(query, &dyn ParameterResolver) Vec~PlanItem~
         +messages() Vec~PlanItem~ (provided)
+    }
+    class MessageManifest {
+        <<trait, planned #685>>
+        +select(query, &dyn ParameterResolver) Vec~PlanItem~
     }
     class ParameterResolver {
         <<trait, shipped #461>>
@@ -195,33 +272,25 @@ classDiagram
     ParameterResolver <|.. TableResolver
     ParameterResolver <|.. NoResolver
     class PlanItem {
-        <<shipped #461>>
+        <<shipped #461; address planned #685>>
         +String key
         +PlanRange range
-        +Option~u32~ sub_index
+        +Address address (message + sub_index | chunk index)
         +Expect expect (parameter, level, forecast from the sidecar line)
     }
     class Expect {
         <<shipped #461>>
         the plan is a claim: verify_envelope checks magic and §0 length
     }
+    Manifest <|-- MessageManifest
     Manifest <|.. Wgrib2Idx
     Manifest <|.. EcmwfIndex
+    Manifest <|.. KerchunkRefs
+    MessageManifest <|.. Wgrib2Idx
+    MessageManifest <|.. EcmwfIndex
+    KerchunkRefs ..> ChunkGrid : spells keys with (#677)
     Manifest ..> PlanItem : produces
     PlanItem *-- Expect
-    class KerchunkRefs {
-        <<shipped #660, not a Manifest>>
-        +range_of(key) Option~PlanItem~
-        +chunk_at(array, meta, index) Option~PlanItem~
-    }
-    class ZarrArrayMeta {
-        <<shipped #660>>
-        shape, chunk shape, chunk key encoding
-        +chunk_key(index) String
-        +chunks_covering(region) Vec~Vec~u64~~
-    }
-    KerchunkRefs ..> PlanItem : produces
-    KerchunkRefs ..> ZarrArrayMeta : spells keys with
 ```
 
 ## Decode options

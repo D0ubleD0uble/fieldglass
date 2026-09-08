@@ -24,8 +24,8 @@
 //! ECMWF publish, and the operations a browser map needs: decode, warp,
 //! palette, render, probe, contours. #464 moves the rest of the render
 //! orchestration out of `fieldglass-napi` and collapses that host onto this
-//! crate; NetCDF and reduced-resolution decode (#463) arrive with their own
-//! issues. Caller-sized output landed in #465: `WarpOptions` and the two
+//! crate; NetCDF landed in #662, addressed by variable, and reduced-resolution
+//! decode (#463) arrives with its own issue. Caller-sized output landed in #465: `WarpOptions` and the two
 //! lat/lon-box targets of `RenderOptions` take a `width`/`height` pair, so a
 //! map view asks for a window at a pixel size rather than taking whatever
 //! raster the source grid implies. (Named in prose rather than linked: both

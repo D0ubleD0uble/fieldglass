@@ -227,26 +227,13 @@ def composition_type_nodes(text: str) -> set[str]:
     return {n for n in nodes if n not in NON_TYPE_TOKENS}
 
 
-# Every first-party crate, by the base name the diagram uses as a node id: the
-# directory name with the ``fieldglass-`` prefix stripped, so ``crates/fieldglass``
-# itself is ``fieldglass``. Listed rather than globbed so a new crate that nobody
-# drew fails the guard instead of quietly not being checked.
-FIRST_PARTY_CRATES = (
-    "fieldglass",
-    "core",
-    "grib1",
-    "grib2",
-    "netcdf",
-    "napi",
-    "wasm",
-)
-
 # ``fieldglass-core = `` → ``core``; a bare ``fieldglass = `` → ``fieldglass``.
-# The optional suffix group is ordered longest-first only for readability; the
-# alternation is anchored by ``\s*=`` either way.
-CRATE_DEP_RE = re.compile(
-    r"fieldglass(?:-(core|grib1|grib2|netcdf|napi|wasm))?\s*="
-)
+# The suffix is any crate name, not a fixed list: the edges are computed from
+# what each ``Cargo.toml`` actually names, and ``actual_crate_edges`` globs the
+# workspace, so a new crate with a first-party dependency produces an edge the
+# diagram has to draw. A fixed alternation here once hid ``fieldglass-fetchplan``
+# and ``fieldglass-zarr`` from the check entirely (#683).
+CRATE_DEP_RE = re.compile(r"fieldglass(?:-([a-z0-9-]+))?\s*=")
 
 
 def crate_deps_from_toml(text: str) -> set[str]:
