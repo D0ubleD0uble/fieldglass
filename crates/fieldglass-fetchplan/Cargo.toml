@@ -38,5 +38,18 @@ fieldglass-core = { path = "../fieldglass-core", version = "=0.5.0", default-fea
 # implements over the GRIB2 tables (#426); the §0 envelope check is sixteen
 # bytes of arithmetic and needs no table at all.
 
+[dev-dependencies]
+# The one place a format crate appears, and only here: `tests/kerchunk_seam.rs`
+# checks that a range this crate planned holds a chunk `fieldglass-zarr` can
+# decode. That seam is the whole point of the pair — addressing here, codecs
+# there — and it is the one property neither crate's own suite can state.
+#
+# A dev-dependency and not a dependency, deliberately: it is compiled to run
+# this crate's tests and reaches no consumer, so the rule above still holds for
+# anything that links this crate. Nothing in `src/` names it, and the
+# `unused-dependencies` hook checks that the name is used somewhere in the
+# package, which `tests/` satisfies.
+fieldglass-zarr = { path = "../fieldglass-zarr", version = "=0.5.0" }
+
 [lints]
 workspace = true

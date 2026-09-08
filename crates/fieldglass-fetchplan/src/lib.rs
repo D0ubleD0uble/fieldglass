@@ -3,8 +3,9 @@
 //! A browser fetches weather fields by HTTP range. Every cloud-native
 //! convention publishes a manifest saying where the bytes are — a wgrib2
 //! `.idx` (an offset per message), an ECMWF `.index` (offset *and* length),
-//! Zarr metadata, kerchunk references. They are dialects of one job. This crate
-//! reads them and hands the host a list of ranges.
+//! Zarr metadata (a chunk grid), kerchunk references (a chunk key to a url,
+//! offset and length). They are dialects of one job. This crate reads them and
+//! hands the host a list of ranges.
 //!
 //! ```
 //! use fieldglass_fetchplan::{Manifest, NoResolver, Query, Wgrib2Idx};
@@ -66,27 +67,50 @@
 //!
 //! # Dialects
 //!
-//! | Dialect | Type | States a length? | Sub-messages |
+//! | Dialect | Type | Addressed by | States a length? |
 //! |---|---|---|---|
-//! | wgrib2 `.idx` | [`Wgrib2Idx`] | no — the last range is open-ended | `n.m`, sharing one offset |
-//! | ECMWF `.index` | [`EcmwfIndex`] | yes — every range is exact | none |
+//! | wgrib2 `.idx` | [`Wgrib2Idx`] | a query over parameters and levels | no — the last range is open-ended |
+//! | ECMWF `.index` | [`EcmwfIndex`] | a query over parameters and levels | yes — every range is exact |
+//! | kerchunk references | [`KerchunkRefs`] | a chunk of an array, by index | yes — every range is exact |
+//! | Zarr v2 / v3 metadata | [`ZarrArrayMeta`] | — it *is* the addressing | — it states no ranges |
 //!
-//! Zarr v2/v3 and kerchunk are the same seam over chunk-grid arithmetic and
-//! land with the codec crate (#246), so both halves are tested against the same
-//! fixtures.
+//! # Two ways to address a container, not one
+//!
+//! The first two rows are a GRIB stream: a list of self-describing messages, so
+//! a request is "which field do I want" and the answer is a
+//! [`Query`] over parameters, levels and forecast steps. Both implement
+//! [`Manifest`], which is what that shape is called here.
+//!
+//! The last two are an array store, where a request is "which chunk of which
+//! variable", answered in indices. There is no parameter to match and no single
+//! object to name — a reference document addresses as many objects as it likes
+//! — so [`KerchunkRefs`] is deliberately **not** a [`Manifest`]: implementing it
+//! would mean a `key()` picking one URL out of many and a query that never
+//! matches. The split is the same one `Session` draws between a message index
+//! and a variable, for the same reason.
+//!
+//! [`ZarrArrayMeta`] is the arithmetic under the last row: shape and chunk
+//! shape in, the key of the chunk holding a region out. It reads a metadata
+//! document for that and nothing else — the codecs, the data type and the fill
+//! value are `fieldglass-zarr`'s, so a host that only wants to know which object
+//! to fetch does not link a decompressor to find out.
 
 mod discovery;
 mod ecmwf;
 mod error;
+mod kerchunk;
 mod level;
 mod manifest;
 mod plan;
 mod wgrib2;
+mod zarr;
 
 pub use discovery::{Candidate, SourceSpec, candidates};
 pub use ecmwf::EcmwfIndex;
 pub use error::{Dialect, FetchPlanError, Mismatch};
+pub use kerchunk::KerchunkRefs;
 pub use level::{LevelSpec, Surface, parse_ecmwf_level, parse_ncep_level};
 pub use manifest::{Manifest, NoResolver, ParameterResolver, Query};
 pub use plan::{Expect, ParameterId, PlanItem, PlanRange};
 pub use wgrib2::Wgrib2Idx;
+pub use zarr::{ChunkKeyEncoding, ZarrArrayMeta};
