@@ -27,16 +27,48 @@ transport can be swapped underneath without any decoder learning it exists.
 
 The implementers today are the byte buffers the readers already hold, which is
 what makes the migration incremental: passing a `Vec<u8>` where a `ByteSource`
-is wanted already works. HTTP range (#247), object stores (#252) and Zarr (#246)
-each add one more.
+is wanted already works. HTTP range (#247) and object stores (#252) each add one
+more.
+
+`ObjectSource` is its sibling, added by #680 under
+[ADR-0010](../decisions/0010-a-common-array-model-and-containers-as-drivers.md).
+`ByteSource` models **one object addressed by byte range** — a GRIB file, a
+NetCDF file, an archive somebody range-fetches into. A great deal of data is not
+shaped that way: a Zarr store is a key per chunk and per metadata document, a
+directory is a key per file, a kerchunk document is a key per chunk pointing
+into somebody else's object. They are siblings rather than one wrapping the
+other, because a key-addressed store has no offsets to layer ranges over.
+
+Two rules carry across, and they are what make a walker portable. `prefetch` is
+**advisory** — a `get` works whether or not its key was prefetched, so the same
+walker runs against a map, a directory and a bucket — and everything is
+**synchronous**, because fetching is the host's (ADR-0005 decision 1). One rule
+is new: an absent key answers `None` rather than erroring, because a sparse
+array's missing chunk is its fill value and absence there is ordinary.
+`require` is the other half, for a document whose absence really is a fault.
+
+`MemoryObjects` is the in-memory implementation, and it records what was asked
+of it: `tests/object_source.rs` asserts that a walk lists, prefetches **once**,
+and then reads — which is the property a test that only checked the values
+would miss, and the one an implementation loses first.
 
 ```mermaid
 classDiagram
     class ByteSource {
         <<trait>>
+        one object, addressed by range
+    }
+    class ObjectSource {
+        <<trait, #680>>
+        keys to objects
+        +get(key) Option~Cow~
+        +list(prefix) Vec~String~
+        +prefetch(keys) (advisory)
+        +require(key) Cow (provided)
     }
 
     ByteSource <|.. Vec
+    ObjectSource <|.. MemoryObjects
 ```
 
 ## Fetch planning
