@@ -15,7 +15,22 @@ upstream ([ADR-0006](../../docs/decisions/0006-hosts-are-bindings-over-a-plain-d
 ./build.sh nodejs   # CommonJS for Node        → pkg/nodejs
 ./build.sh web --simd    # the +simd128 variant → pkg/web-simd
 ./build.sh web --no-opt  # skip wasm-opt
+
+./pack.sh           # the npm package, from a web build → pkg/npm + a .tgz
 ```
+
+`pack.sh` assembles what `release.yml` publishes as
+[`@fieldglass/wasm`](https://www.npmjs.com/package/@fieldglass/wasm) on a `v*`
+tag (#466). The version comes from the workspace `Cargo.toml`, never from an
+argument, so the package cannot drift from the crates and the extension; the
+committed `npm/package.json` carries a `0.0.0` placeholder that `pack.sh`
+refuses to ship.
+
+`tests/node/package.mjs` installs the resulting tarball into a throwaway project
+and decodes through the installed tree. That is a different question from the
+other Node tests, which load `pkg/nodejs/fieldglass_wasm.js` by path and so
+would pass with a `package.json` that shipped none of it. Both run on every pull
+request.
 
 `pkg/` is a build product and is gitignored. Two tools have to be there:
 

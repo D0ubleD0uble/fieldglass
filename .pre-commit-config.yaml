@@ -244,6 +244,18 @@ repos:
         entry: python3 tools/check_parsing_surface.py
         pass_filenames: false
 
+      - id: binaryen-pin
+        name: both workflows pin the same binaryen
+        language: system
+        # `wasm-opt` decides the bytes of the shipped module. `ci.yml` runs it to
+        # produce the bundle the size gate measures against the README;
+        # `release.yml` runs it to produce the module inside the npm package
+        # (#466). Drift between them would ship a module the gate never saw,
+        # with every check still green.
+        files: ^(\.github/workflows/(ci|release)\.yml|tools/check_binaryen_pin\.py)$
+        entry: python3 tools/check_binaryen_pin.py
+        pass_filenames: false
+
       - id: nested-lockfiles
         name: each nested crate's Cargo.lock matches its manifest
         language: system
@@ -348,6 +360,14 @@ repos:
         # it rather than on some later edit to the checker.
         files: ^(tools/(check_parsing_surface|test_check_parsing_surface)\.py|crates/fieldglass-core/src/lib\.rs)$
         entry: python3 tools/test_check_parsing_surface.py
+        pass_filenames: false
+
+      - id: binaryen-pin-selftest
+        name: binaryen-pin checker self-test
+        stages: [pre-push]
+        language: system
+        files: ^tools/(check_binaryen_pin|test_check_binaryen_pin)\.py$
+        entry: python3 tools/test_check_binaryen_pin.py
         pass_filenames: false
 
       - id: nested-lockfiles-selftest

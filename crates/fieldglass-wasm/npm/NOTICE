@@ -1,0 +1,55 @@
+@fieldglass/wasm
+Copyright the Fieldglass contributors.
+
+Licensed under either of
+
+  * Apache License, Version 2.0
+    <https://www.apache.org/licenses/LICENSE-2.0>
+  * MIT license
+    <https://opensource.org/licenses/MIT>
+
+at your option.
+
+--------------------------------------------------------------------------------
+Bundled third-party code
+--------------------------------------------------------------------------------
+
+`fieldglass_wasm_bg.wasm` is a statically linked WebAssembly module. Every
+decoder in it is pure Rust — there is no C library, no emscripten runtime and no
+system dependency — which is what lets one module run in a browser with nothing
+installed. The crates linked into it are listed below with the licence each is
+published under. Where a crate offers a choice, the choice is the user's.
+
+Codecs, and what reads them:
+
+  png              0.18.1   MIT OR Apache-2.0    GRIB2 §5.41 PNG packing
+  rust-j2k         0.3.0    MIT OR Apache-2.0    GRIB2 §5.40 JPEG 2000 packing
+  rust-aec         0.1.1    MIT                  GRIB2 §5.42 CCSDS / AEC packing
+  ruzstd           0.9.0    MIT                  NetCDF-4 zstd filter (32015)
+  flate2           1.1.9    MIT OR Apache-2.0    NetCDF-4 deflate filter, and
+                                                 the zlib streams inside PNG
+  miniz_oxide      0.8.9    MIT OR Zlib OR Apache-2.0   flate2's pure-Rust backend
+  miniz_oxide      0.9.1    MIT OR Zlib OR Apache-2.0
+  fdeflate         0.3.7    MIT OR Apache-2.0    png's fast deflate path
+  adler2           2.0.1    0BSD OR MIT OR Apache-2.0   Adler-32, for zlib framing
+  simd-adler32     0.3.9    MIT                  the same, vectorised
+  crc32fast        1.5.0    MIT OR Apache-2.0    CRC-32, for PNG chunk integrity
+
+Bindings and support:
+
+  wasm-bindgen     0.2.127  MIT OR Apache-2.0    the JavaScript boundary
+  js-sys           0.3.104  MIT OR Apache-2.0
+  serde-wasm-bindgen  0.6.5 MIT                  values across that boundary
+  serde            1.0.229  MIT OR Apache-2.0
+  bitflags         2.11.0   MIT OR Apache-2.0
+  once_cell        1.21.4   MIT OR Apache-2.0
+
+The Fieldglass crates themselves — `fieldglass`, `fieldglass-core`,
+`fieldglass-grib1`, `fieldglass-grib2`, `fieldglass-netcdf` — are part of this
+project and carry the same MIT OR Apache-2.0 terms as the package.
+
+This list is generated from the module's own dependency graph
+(`cargo tree -p fieldglass-wasm --target wasm32-unknown-unknown -e normal`) and
+is regenerated when that graph changes. `cargo deny check` holds the whole
+workspace to an allowed-licence set on every pull request, so a crate whose
+terms this project cannot ship never reaches a release.
