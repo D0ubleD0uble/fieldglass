@@ -100,7 +100,7 @@ pub mod units;
 pub mod warp;
 
 pub use array::{ArrayError, ChunkGrid, ChunkKeyEncoding};
-pub use bytes::{ByteRange, ByteSource};
+pub use bytes::{ByteRange, ByteSource, MemoryObjects, ObjectSource};
 #[cfg(feature = "analysis")]
 pub use combine::{CombineOp, combine_cell, combine_fields};
 #[cfg(feature = "analysis")]

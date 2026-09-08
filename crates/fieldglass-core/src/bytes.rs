@@ -54,6 +54,8 @@
 
 use crate::error::FieldglassError;
 use std::borrow::Cow;
+use std::cell::RefCell;
+use std::collections::BTreeMap;
 
 /// A half-open byte range `[start, start + len)` in a source.
 ///
@@ -120,6 +122,194 @@ pub trait ByteSource {
     /// every range here derives from a file's own header, so out of bounds
     /// means the file said something untrue about itself.
     fn read(&self, range: ByteRange) -> Result<Cow<'_, [u8]>, FieldglassError>;
+}
+
+/// Somewhere *keyed* objects come from.
+///
+/// [`ByteSource`] models one object addressed by byte range: a GRIB file, a
+/// NetCDF file, an archive somebody range-fetches into. A great deal of
+/// meteorological data is not shaped like that. A Zarr store is a key for every
+/// chunk and every metadata document; a directory is a key per file; a kerchunk
+/// reference document is a key per chunk pointing into somebody else's object.
+/// Reaching those needs a different seam, and this is it.
+///
+/// The two are siblings rather than one wrapping the other. A caller that has
+/// an object and wants part of it uses `ByteSource`; a caller that has a name
+/// and wants the object uses this. Nothing here is layered on ranges, because a
+/// key-addressed store has no offsets to speak of.
+///
+/// # The rules are `ByteSource`'s
+///
+/// **Synchronous**, because fetching is the host's and ADR-0005 decision 1
+/// keeps the library out of it: an implementation that reaches the network does
+/// its waiting behind [`prefetch`](Self::prefetch), and every read after that is
+/// a lookup.
+///
+/// **[`prefetch`](Self::prefetch) is advisory.** [`get`](Self::get) works
+/// whether or not a key was prefetched; skipping the call costs latency and
+/// nothing else. That is what lets a walker be written once and run against an
+/// in-memory store, a directory and a bucket.
+///
+/// # An absent key is not an error
+///
+/// [`get`](Self::get) answers `Ok(None)` for a key the store does not hold,
+/// because for the thing this seam exists to read, absence is ordinary and
+/// frequent: a sparse Zarr array stores no object for a chunk that is entirely
+/// fill value, and the missing chunks are the point rather than a fault. A
+/// signature that made absence an error would push every caller into matching
+/// on an error kind to recover the normal case.
+///
+/// [`require`](Self::require) is the other half, for the keys that must be
+/// there — an array's own metadata document — and it is a provided method so
+/// the two cannot disagree about what absence means.
+///
+/// ```
+/// use fieldglass_core::bytes::{MemoryObjects, ObjectSource};
+///
+/// let store = MemoryObjects::from_iter([
+///     ("temp/.zarray", b"{}".to_vec()),
+///     ("temp/0.0", b"chunk".to_vec()),
+/// ]);
+///
+/// // One batch before any read, which is where a remote store does its work.
+/// store.prefetch(&["temp/.zarray", "temp/0.0"])?;
+///
+/// assert_eq!(store.get("temp/0.0")?.as_deref(), Some(&b"chunk"[..]));
+/// // Absent, not broken: this chunk is the fill value.
+/// assert!(store.get("temp/0.1")?.is_none());
+/// assert_eq!(store.list("temp/")?, ["temp/.zarray", "temp/0.0"]);
+/// # Ok::<(), fieldglass_core::FieldglassError>(())
+/// ```
+pub trait ObjectSource {
+    /// The object stored under `key`, or `None` if the store does not hold one.
+    ///
+    /// Borrowed when the store already has the bytes, so an in-memory read is a
+    /// slice and not a copy — the same reason [`ByteSource::read`] borrows.
+    fn get(&self, key: &str) -> Result<Option<Cow<'_, [u8]>>, FieldglassError>;
+
+    /// Every key the store holds that begins with `prefix`, in sorted order.
+    ///
+    /// Sorted so a walk is reproducible: two hosts listing the same store hand
+    /// their reader the same sequence, and a test can assert on it. A prefix
+    /// that matches nothing is an empty list, not an error — an empty group is
+    /// a group.
+    fn list(&self, prefix: &str) -> Result<Vec<String>, FieldglassError>;
+
+    /// Resolve a batch of keys before they are read.
+    ///
+    /// Where a remote store does its work: one request per key, or one batched
+    /// request, with the result held for the [`get`](Self::get) calls that
+    /// follow. An in-memory store has nothing to do, which is why the default
+    /// is a no-op and why a reader that calls it costs nothing locally.
+    ///
+    /// Advisory, as [`ByteSource::prefetch`] is: a key that was not prefetched
+    /// still reads.
+    fn prefetch(&self, keys: &[&str]) -> Result<(), FieldglassError> {
+        let _ = keys;
+        Ok(())
+    }
+
+    /// The object stored under `key`, erroring when the store does not hold it.
+    ///
+    /// For the keys whose absence really is a fault — an array's metadata
+    /// document, a group's — so that a caller does not write the same
+    /// `ok_or_else` at each of them, and so every reader words it identically.
+    fn require(&self, key: &str) -> Result<Cow<'_, [u8]>, FieldglassError> {
+        self.get(key)?.ok_or_else(|| {
+            FieldglassError::Parse(format!("this store holds no object under {key:?}"))
+        })
+    }
+}
+
+/// An [`ObjectSource`] over a map, which also records what was asked of it.
+///
+/// Two jobs in one type on purpose. The in-memory store is what a test, a
+/// fixture and an already-downloaded store all want; the recording is what lets
+/// a test say a walker *prefetched before it read* rather than merely that it
+/// succeeded, which is the property the seam exists for and the one an
+/// implementation silently loses first.
+#[derive(Debug, Default)]
+pub struct MemoryObjects {
+    objects: BTreeMap<String, Vec<u8>>,
+    reads: RefCell<Vec<String>>,
+    prefetches: RefCell<Vec<Vec<String>>>,
+}
+
+impl MemoryObjects {
+    /// An empty store.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Add one object, replacing anything under that key.
+    pub fn insert(&mut self, key: impl Into<String>, bytes: Vec<u8>) {
+        self.objects.insert(key.into(), bytes);
+    }
+
+    /// How many objects the store holds.
+    pub fn len(&self) -> usize {
+        self.objects.len()
+    }
+
+    /// Whether the store holds nothing.
+    pub fn is_empty(&self) -> bool {
+        self.objects.is_empty()
+    }
+
+    /// Every key [`ObjectSource::get`] was called with, in order, including the
+    /// ones that were absent.
+    pub fn reads(&self) -> Vec<String> {
+        self.reads.borrow().clone()
+    }
+
+    /// Every [`ObjectSource::prefetch`] batch, in order.
+    ///
+    /// A `Vec` per call rather than one flat list, because "one batch" is
+    /// usually the property under test: a walker that prefetched each key
+    /// separately would make a remote store issue one request per chunk.
+    pub fn prefetches(&self) -> Vec<Vec<String>> {
+        self.prefetches.borrow().clone()
+    }
+
+    /// Forget what has been asked of it, keeping the objects.
+    pub fn clear_log(&self) {
+        self.reads.borrow_mut().clear();
+        self.prefetches.borrow_mut().clear();
+    }
+}
+
+impl<K: Into<String>> FromIterator<(K, Vec<u8>)> for MemoryObjects {
+    fn from_iter<I: IntoIterator<Item = (K, Vec<u8>)>>(iter: I) -> Self {
+        Self {
+            objects: iter.into_iter().map(|(k, v)| (k.into(), v)).collect(),
+            ..Self::default()
+        }
+    }
+}
+
+impl ObjectSource for MemoryObjects {
+    fn get(&self, key: &str) -> Result<Option<Cow<'_, [u8]>>, FieldglassError> {
+        self.reads.borrow_mut().push(key.to_string());
+        Ok(self.objects.get(key).map(|bytes| Cow::Borrowed(&bytes[..])))
+    }
+
+    fn list(&self, prefix: &str) -> Result<Vec<String>, FieldglassError> {
+        // `BTreeMap` is already in key order, so the sorted contract costs a
+        // filter rather than a sort.
+        Ok(self
+            .objects
+            .keys()
+            .filter(|key| key.starts_with(prefix))
+            .cloned()
+            .collect())
+    }
+
+    fn prefetch(&self, keys: &[&str]) -> Result<(), FieldglassError> {
+        self.prefetches
+            .borrow_mut()
+            .push(keys.iter().map(|k| (*k).to_string()).collect());
+        Ok(())
+    }
 }
 
 /// Narrow a length, count or offset that came out of a file to `usize`.
