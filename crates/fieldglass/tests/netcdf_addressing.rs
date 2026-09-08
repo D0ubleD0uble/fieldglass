@@ -9,7 +9,7 @@
 
 #![cfg(all(feature = "netcdf", feature = "grib2", feature = "render"))]
 
-use fieldglass::api::{Addressing, SourceFormat};
+use fieldglass::api::{Addressing, SourceFormat, Values};
 use fieldglass::{CombineOp, DecodeOptions, PaletteOptions, Session};
 
 const NETCDF: &[u8] =
@@ -161,4 +161,98 @@ fn a_variable_index_outside_the_list_is_refused() {
         .decode_slice(count, 0, 1, &[0, 0], &DecodeOptions::default())
         .expect_err("past the end");
     assert_eq!(err.code(), "no_such_message");
+}
+
+/// A packed variable arrives in physical units — **once**.
+///
+/// The other tests in this file assert shapes, addressing and error codes, and
+/// every one of them passed while `decode_slice` applied the CF mask-and-scale
+/// twice: `decode_plane` is the whole chain already, and the caller unpacked
+/// its output again. `(raw·s + o)·s + o` is finite and plausible for every
+/// input, so nothing but a value oracle can see it. On this fixture it turned
+/// 250 K into 265.625 K; on a GOES or ERA5 archive, whose `scale_factor` is
+/// around 0.01, it is wrong by about two orders of magnitude.
+///
+/// `cf_packed_data.nc` is 640 bytes and deliberately awkward: `temp` is `int16`
+/// with `scale_factor` 0.0625, `add_offset` 250, `_FillValue` -9999 and a
+/// `valid_range` of `[0, 10000]`, so three of its twelve elements are masked
+/// for two different reasons. The expected values come from **netCDF4-python**
+/// reading the same file with `set_auto_maskandscale(True)`, not from this
+/// project's decoder.
+#[test]
+fn a_packed_variable_is_unpacked_exactly_once() {
+    const PACKED: &[u8] =
+        include_bytes!("../../fieldglass-netcdf/tests/fixtures/cf_packed_data.nc");
+
+    // netCDF4-python, flattened row-major; `None` where it masks an element.
+    // Raw `int16` behind these: -50, 0, 2500, 10000, 15000, -9999, 5000, 9999,
+    // 1, 7500, 250, 10000 — so -50 and 15000 fall outside `valid_range` and
+    // -9999 is the fill value.
+    const ORACLE: [Option<f64>; 12] = [
+        None,
+        Some(250.0),
+        Some(406.25),
+        Some(875.0),
+        None,
+        None,
+        Some(562.5),
+        Some(874.9375),
+        Some(250.0625),
+        Some(718.75),
+        Some(265.625),
+        Some(875.0),
+    ];
+
+    let session = Session::open(PACKED.to_vec()).expect("the fixture opens");
+    let vars = session.variables();
+    // `lat` and `lon` have one dimension each: axes, not fields.
+    assert_eq!(vars.len(), 1, "only `temp` is renderable");
+    assert_eq!(vars[0].name, "temp");
+
+    let field = session
+        .decode_slice(vars[0].index, 0, 1, &[0, 0], &DecodeOptions::default())
+        .expect("the slice decodes");
+
+    assert_eq!((field.ni, field.nj), (4, 3));
+
+    // The values and the presence plane are separate: an absent cell still
+    // occupies its slot, so the mask is what has to agree there and the number
+    // beside it is not meaningful.
+    let values: Vec<f64> = match &field.values {
+        Values::F32(v) => v.iter().map(|x| f64::from(*x)).collect(),
+        Values::F64(v) => v.clone(),
+        // `Values` is `#[non_exhaustive]`: a width added later should fail this
+        // test loudly rather than be silently skipped by a `_ => vec![]`.
+        other => panic!("unhandled value width: {other:?}"),
+    };
+    assert_eq!(values.len(), 12);
+    assert_eq!(field.mask.len(), 12);
+
+    for (i, want) in ORACLE.iter().enumerate() {
+        match want {
+            None => assert_eq!(field.mask[i], 0, "element {i} should be masked"),
+            Some(want) => {
+                assert_eq!(field.mask[i], 1, "element {i} should be present");
+                assert!(
+                    (values[i] - want).abs() <= 1e-9,
+                    "element {i}: decoded {}, netCDF4-python reads {want}",
+                    values[i]
+                );
+            }
+        }
+    }
+
+    // Stated separately from the comparison above, because it is the property
+    // that fails first and most legibly when the unpacking runs twice: the
+    // stored codes span -9999..15000 and the physical values 250..875.
+    let present: Vec<f64> = values
+        .iter()
+        .zip(&field.mask)
+        .filter(|(_, m)| **m == 1)
+        .map(|(v, _)| *v)
+        .collect();
+    assert!(
+        present.iter().all(|v| (250.0..=875.0).contains(v)),
+        "values are outside the physical range the attributes imply: {present:?}"
+    );
 }
