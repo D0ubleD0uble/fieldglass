@@ -21,10 +21,16 @@
 //! little-endian float32, and a seam test over those would pass against a
 //! reader that never called the codec crate at all.
 //!
+//! Since #686 this crate takes `fieldglass-zarr` for the metadata parser with
+//! `default-features = false`, so the codecs the decode half needs are **not**
+//! in the library's dependency tree — only in this test's, through
+//! `dev-dependencies`. That is the split working: the planner reads a document
+//! without linking a decompressor, and the seam test links one on purpose.
+//!
 //! See [`fixtures/NOTICE.md`](fixtures/NOTICE.md) for how the fixtures are
 //! generated.
 
-use fieldglass_fetchplan::{FetchPlanError, KerchunkRefs, PlanRange, ZarrArrayMeta};
+use fieldglass_fetchplan::{ArrayMetadata, FetchPlanError, KerchunkRefs, PlanRange};
 use fieldglass_zarr::ChunkDecoder;
 
 /// Read a committed fixture, by a path `wasmtime --dir=.` can open. See
@@ -69,7 +75,7 @@ fn fetch(url: &str, range: &PlanRange) -> Vec<u8> {
 }
 
 /// One chunk, end to end: index in, values out.
-fn decode_chunk(refs: &KerchunkRefs, meta: &ZarrArrayMeta, index: &[u64]) -> Vec<f64> {
+fn decode_chunk(refs: &KerchunkRefs, meta: &ArrayMetadata, index: &[u64]) -> Vec<f64> {
     let item = refs
         .chunk_at("temp", meta, index)
         .expect("the index is on the grid")
@@ -92,9 +98,9 @@ fn every_planned_range_decodes_to_the_values_the_store_holds() {
     let refs = KerchunkRefs::parse(&fixture("kerchunk_refs.json")).expect("the document parses");
     let meta = refs.array("temp").expect("the array's metadata is inline");
 
-    assert_eq!(meta.shape(), &[4, 6]);
-    assert_eq!(meta.chunk_shape(), &[2, 3]);
-    assert_eq!(meta.chunk_grid(), vec![2, 2]);
+    assert_eq!(meta.grid().shape(), &[4, 6]);
+    assert_eq!(meta.grid().chunk_shape(), &[2, 3]);
+    assert_eq!(meta.grid().grid_shape(), vec![2, 2]);
     assert_eq!(refs.arrays(), vec!["temp".to_string()]);
 
     for chunk_row in 0..2 {
@@ -208,14 +214,14 @@ fn a_gen_document_is_refused_rather_than_half_read() {
 /// that lets one addressing path serve both editions.
 #[test]
 fn the_committed_metadata_documents_describe_the_same_grid() {
-    let v2 = ZarrArrayMeta::from_metadata(&fixture("v2_zarray.json")).expect("the v2 document");
-    let v3 = ZarrArrayMeta::from_metadata(&fixture("v3_zarr.json")).expect("the v3 document");
+    let v2 = ArrayMetadata::parse(&fixture("v2_zarray.json")).expect("the v2 document");
+    let v3 = ArrayMetadata::parse(&fixture("v3_zarr.json")).expect("the v3 document");
 
     assert_eq!(v2.zarr_format(), 2);
     assert_eq!(v3.zarr_format(), 3);
-    assert_eq!(v2.shape(), v3.shape());
-    assert_eq!(v2.chunk_shape(), v3.chunk_shape());
-    assert_eq!(v2.chunk_grid(), v3.chunk_grid());
+    assert_eq!(v2.grid().shape(), v3.grid().shape());
+    assert_eq!(v2.grid().chunk_shape(), v3.grid().chunk_shape());
+    assert_eq!(v2.grid().grid_shape(), v3.grid().grid_shape());
 
     // They spell the same chunk differently, and both spellings are what the
     // committed stores actually use as file names.

@@ -85,25 +85,44 @@
 
 #![forbid(unsafe_code)]
 
+// The decode half. Behind `codecs` (on by default) so a consumer that only
+// reads an array's metadata links no decompressor — see the feature's own
+// comment in Cargo.toml. `dtype` and `metadata` stay ungated: reading a
+// document is not decoding one.
+#[cfg(feature = "codecs")]
 pub mod blosc;
+#[cfg(feature = "codecs")]
 pub mod blosclz;
+#[cfg(feature = "codecs")]
 pub mod codec;
+#[cfg(feature = "codecs")]
 pub mod crc32c;
+#[cfg(feature = "codecs")]
 pub mod deflate;
 pub mod dtype;
+#[cfg(feature = "codecs")]
 pub mod lz4;
+pub mod metadata;
+#[cfg(feature = "codecs")]
 pub mod shard;
+#[cfg(feature = "codecs")]
 pub mod shuffle;
+#[cfg(feature = "codecs")]
 pub mod zstd;
 
-use serde_json::Value;
-
+#[cfg(feature = "codecs")]
 pub use codec::{Codec, CodecChain};
 pub use dtype::{DType, Endian, ScalarKind};
+pub use metadata::{ArrayMetadata, CodecSource, ElementOrder};
+// Re-exported for the reason `FieldglassError` is: a consumer reading an
+// array's metadata gets the shared model's types without a `fieldglass-core`
+// line of its own, and so cannot take one without `default-features = false`.
+pub use fieldglass_core::array::{ArrayError, ChunkGrid, ChunkKeyEncoding};
 // Re-exported so a consumer needs no direct `fieldglass-core` line in its
 // manifest, and so cannot take one without `default-features = false` — which
 // would re-enable `render` and `fs` across the whole dependency graph (#537).
 pub use fieldglass_core::FieldglassError;
+#[cfg(feature = "codecs")]
 pub use shard::{IndexLocation, Shard, Sharding};
 
 /// The decode side of one Zarr array: its element type, its chunk shape, and
@@ -112,6 +131,7 @@ pub use shard::{IndexLocation, Shard, Sharding};
 /// Built from an array's metadata document — a v2 `.zarray` or a v3
 /// `zarr.json` — and then applied to as many chunks as the caller has. Nothing
 /// about it is per-chunk, so a host builds one per array and reuses it.
+#[cfg(feature = "codecs")]
 #[derive(Debug, Clone, PartialEq)]
 pub struct ChunkDecoder {
     dtype: DType,
@@ -120,125 +140,92 @@ pub struct ChunkDecoder {
     fill_value: Option<f64>,
 }
 
+#[cfg(feature = "codecs")]
 impl ChunkDecoder {
-    /// Read a Zarr v2 `.zarray` document.
+    /// Build the decode side from an already-read metadata document.
     ///
-    /// `order: "F"` is honoured by decoding into C order, so a caller indexes
-    /// every array the same way whichever order it was written in. It is the
-    /// same operation as a v3 `transpose` with the axes reversed, and is
-    /// carried as one.
-    pub fn from_v2_metadata(json: &str) -> Result<Self, FieldglassError> {
-        let meta: Value = serde_json::from_str(json)
-            .map_err(|e| FieldglassError::Parse(format!("Zarr v2 .zarray is not JSON: {e}")))?;
-        if let Some(format) = meta.get("zarr_format").and_then(Value::as_u64)
-            && format != 2
-        {
-            return Err(FieldglassError::Parse(format!(
-                "this document states zarr_format {format}, not 2"
-            )));
-        }
-        let dtype =
-            DType::parse_v2(meta.get("dtype").and_then(Value::as_str).ok_or_else(|| {
-                FieldglassError::Parse("Zarr v2 .zarray states no `dtype`".to_string())
-            })?)?;
-        let chunk_shape = shard::read_shape(meta.get("chunks"), "Zarr v2 `chunks`")?;
+    /// The reading is [`ArrayMetadata`]'s, in either edition, so nothing about
+    /// which fields a document has or what they are called is decided twice.
+    /// What happens here is what only the decode side needs: turning the codec
+    /// configuration into a chain, and settling the byte order.
+    pub fn from_metadata(meta: &ArrayMetadata) -> Result<Self, FieldglassError> {
+        // The grid is `u64` because an array's declared shape is a file's
+        // number and a browser's pointer is 32 bits wide (#561); a chunk shape
+        // that does not fit one is a chunk nothing could hold in memory anyway,
+        // so it is refused here rather than narrowed silently.
+        let chunk_shape = meta
+            .grid()
+            .chunk_shape()
+            .iter()
+            .map(|extent| {
+                usize::try_from(*extent).map_err(|_| {
+                    FieldglassError::Parse(format!(
+                        "a chunk extent of {extent} does not fit this target's pointer width"
+                    ))
+                })
+            })
+            .collect::<Result<Vec<usize>, _>>()?;
 
-        let mut steps = Vec::new();
-        // Fortran order is the innermost stage: the elements were laid out that
-        // way before any filter saw them.
-        match meta.get("order").and_then(Value::as_str) {
-            None | Some("C") => {}
-            Some("F") => steps.push(Codec::Transpose {
-                order: (0..chunk_shape.len()).rev().collect(),
-            }),
-            Some(other) => {
-                return Err(FieldglassError::Parse(format!(
-                    "Zarr v2 .zarray states order {other:?}, which is neither C nor F"
-                )));
+        let dtype = meta.dtype();
+        let chain = match meta.codecs() {
+            CodecSource::V2 {
+                order,
+                compressor,
+                filters,
+            } => {
+                let mut steps = Vec::new();
+                // Fortran order is the innermost stage: the elements were laid
+                // out that way before any filter saw them. It is the same
+                // operation as a v3 `transpose` with the axes reversed, and is
+                // carried as one.
+                if *order == ElementOrder::Fortran {
+                    steps.push(Codec::Transpose {
+                        order: (0..chunk_shape.len()).rev().collect(),
+                    });
+                }
+                let rest = CodecChain::from_v2(compressor.as_ref(), filters.as_ref(), dtype.size)?;
+                steps.extend(rest.steps().iter().cloned());
+                CodecChain::new(steps)
             }
-        }
-        let rest = CodecChain::from_v2(meta.get("compressor"), meta.get("filters"), dtype.size)?;
-        steps.extend(rest.steps().iter().cloned());
+            CodecSource::V3 { codecs } => CodecChain::from_v3(codecs, dtype)?,
+        };
 
-        Ok(Self {
-            dtype,
-            chunk_shape,
-            chain: CodecChain::new(steps),
-            fill_value: meta.get("fill_value").and_then(Value::as_f64),
-        })
-    }
-
-    /// Read a Zarr v3 `zarr.json` document for an array.
-    pub fn from_v3_metadata(json: &str) -> Result<Self, FieldglassError> {
-        let meta: Value = serde_json::from_str(json)
-            .map_err(|e| FieldglassError::Parse(format!("Zarr v3 zarr.json is not JSON: {e}")))?;
-        if let Some(format) = meta.get("zarr_format").and_then(Value::as_u64)
-            && format != 3
-        {
-            return Err(FieldglassError::Parse(format!(
-                "this document states zarr_format {format}, not 3"
-            )));
-        }
-        if let Some(node) = meta.get("node_type").and_then(Value::as_str)
-            && node != "array"
-        {
-            return Err(FieldglassError::WrongLayout(format!(
-                "this zarr.json describes a {node}, not an array"
-            )));
-        }
-        let dtype = DType::parse_v3(meta.get("data_type").and_then(Value::as_str).ok_or_else(
-            || FieldglassError::Parse("Zarr v3 zarr.json states no `data_type`".to_string()),
-        )?)?;
-
-        let grid = meta.get("chunk_grid").ok_or_else(|| {
-            FieldglassError::Parse("Zarr v3 zarr.json states no `chunk_grid`".to_string())
-        })?;
-        match grid.get("name").and_then(Value::as_str) {
-            Some("regular") => {}
-            Some(other) => {
-                return Err(FieldglassError::UnsupportedSection(format!(
-                    "Zarr v3 chunk grid {other:?} is not decoded (only `regular` is)"
-                )));
-            }
-            None => {
-                return Err(FieldglassError::Parse(
-                    "Zarr v3 `chunk_grid` states no name".to_string(),
-                ));
-            }
-        }
-        let chunk_shape = shard::read_shape(
-            grid.get("configuration").and_then(|c| c.get("chunk_shape")),
-            "Zarr v3 `chunk_shape`",
-        )?;
-
-        let chain = CodecChain::from_v3(
-            meta.get("codecs").ok_or_else(|| {
-                FieldglassError::Parse("Zarr v3 zarr.json states no `codecs`".to_string())
-            })?,
-            dtype,
-        )?;
         // A multi-byte element type has no order until the `bytes` codec gives
         // it one, and a chain without that codec cannot say which order its
         // bytes are in. Defaulting to little would be right nearly always,
-        // which is what makes it a bad default.
-        let dtype = match (dtype.size > 1, chain.declared_endian()) {
-            (true, None) => {
+        // which is what makes it a bad default. v2 states the order in the
+        // dtype itself, so this only ever bites v3.
+        let dtype = match (meta.zarr_format(), dtype.size > 1, chain.declared_endian()) {
+            (3, true, None) => {
                 return Err(FieldglassError::Parse(
                     "a Zarr v3 array of a multi-byte type states no `bytes` codec, so \
                      nothing states the byte order its elements were written in"
                         .to_string(),
                 ));
             }
-            (_, Some(endian)) => dtype.with_endian(endian),
-            (false, None) => dtype,
+            (_, _, Some(endian)) => dtype.with_endian(endian),
+            _ => dtype,
         };
 
         Ok(Self {
             dtype,
             chunk_shape,
             chain,
-            fill_value: meta.get("fill_value").and_then(Value::as_f64),
+            fill_value: meta.fill_value(),
         })
+    }
+
+    /// Read a Zarr v2 `.zarray` document.
+    ///
+    /// `order: "F"` is honoured by decoding into C order, so a caller indexes
+    /// every array the same way whichever order it was written in.
+    pub fn from_v2_metadata(json: &str) -> Result<Self, FieldglassError> {
+        Self::from_metadata(&ArrayMetadata::from_v2(json)?)
+    }
+
+    /// Read a Zarr v3 `zarr.json` document for an array.
+    pub fn from_v3_metadata(json: &str) -> Result<Self, FieldglassError> {
+        Self::from_metadata(&ArrayMetadata::from_v3(json)?)
     }
 
     /// The array's element type, with the byte order its chunks were written

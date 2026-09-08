@@ -38,7 +38,7 @@ use serde_json::{Map, Value};
 
 use crate::error::{Dialect, FetchPlanError};
 use crate::plan::{Expect, PlanItem, PlanRange};
-use crate::zarr::ZarrArrayMeta;
+use fieldglass_zarr::ArrayMetadata;
 
 /// The metadata document names a Zarr v2 array is stored under.
 const V2_ARRAY_METADATA: &str = ".zarray";
@@ -76,7 +76,7 @@ enum Entry {
 ///   "version": 1,
 ///   "templates": {"u": "s3://bucket/archive.nc"},
 ///   "refs": {
-///     "temp/.zarray": "{\"zarr_format\":2,\"shape\":[4,6],\"chunks\":[2,3]}",
+///     "temp/.zarray": "{\"zarr_format\":2,\"shape\":[4,6],\"chunks\":[2,3],\"dtype\":\"<f4\"}",
 ///     "temp/1.1": ["{{u}}", 4096, 24]
 ///   }
 /// }"#;
@@ -235,7 +235,7 @@ impl KerchunkRefs {
     ///
     /// Both editions are looked for under `name`, so a caller need not know
     /// which one wrote the store.
-    pub fn array(&self, name: &str) -> Result<ZarrArrayMeta, FetchPlanError> {
+    pub fn array(&self, name: &str) -> Result<ArrayMetadata, FetchPlanError> {
         for document in [V2_ARRAY_METADATA, V3_METADATA] {
             let key = join(name, document);
             if let Some(bytes) = self.inline(&key) {
@@ -243,7 +243,10 @@ impl KerchunkRefs {
                     dialect: Dialect::ZarrMetadata,
                     detail: format!("{key}: {e}"),
                 })?;
-                return ZarrArrayMeta::from_metadata(text);
+                return ArrayMetadata::parse(text).map_err(|e| FetchPlanError::Metadata {
+                    key: key.clone(),
+                    detail: e.to_string(),
+                });
             }
         }
         Err(FetchPlanError::NoSuchArray {
@@ -263,10 +266,13 @@ impl KerchunkRefs {
     pub fn chunk_at(
         &self,
         array: &str,
-        meta: &ZarrArrayMeta,
+        meta: &ArrayMetadata,
         index: &[u64],
     ) -> Result<Option<PlanItem>, FetchPlanError> {
-        Ok(self.range_of(&join(array, &meta.chunk_key(index)?)))
+        let key = meta
+            .grid()
+            .chunk_key(index, meta.key_encoding(), meta.separator())?;
+        Ok(self.range_of(&join(array, &key)))
     }
 
     /// The fetches for every chunk a region of an array touches, in row-major
@@ -274,11 +280,11 @@ impl KerchunkRefs {
     pub fn chunks_covering(
         &self,
         array: &str,
-        meta: &ZarrArrayMeta,
+        meta: &ArrayMetadata,
         region: &[std::ops::Range<u64>],
     ) -> Result<Vec<PlanItem>, FetchPlanError> {
         let mut out = Vec::new();
-        for index in meta.chunks_covering(region)? {
+        for index in meta.grid().chunks_covering(region)? {
             if let Some(item) = self.chunk_at(array, meta, &index)? {
                 out.push(item);
             }

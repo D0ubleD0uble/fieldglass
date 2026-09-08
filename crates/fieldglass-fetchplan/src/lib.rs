@@ -72,7 +72,7 @@
 //! | wgrib2 `.idx` | [`Wgrib2Idx`] | a query over parameters and levels | no — the last range is open-ended |
 //! | ECMWF `.index` | [`EcmwfIndex`] | a query over parameters and levels | yes — every range is exact |
 //! | kerchunk references | [`KerchunkRefs`] | a chunk of an array, by index | yes — every range is exact |
-//! | Zarr v2 / v3 metadata | [`ZarrArrayMeta`] | — it *is* the addressing | — it states no ranges |
+//! | Zarr v2 / v3 metadata | [`ArrayMetadata`] | — it *is* the addressing | — it states no ranges |
 //!
 //! # Two ways to address a container, not one
 //!
@@ -93,17 +93,19 @@
 //! carry its own address — a message index or a chunk index — `Manifest` will
 //! keep `items()` and `messages()` and lose `key()`, the query will move to a
 //! `MessageManifest` extension trait, and `KerchunkRefs` will implement the base
-//! trait. The chunk-grid arithmetic under [`ZarrArrayMeta`] moves to
+//! trait. The chunk-grid arithmetic under [`ArrayMetadata`] lives in
 //! `fieldglass-core` in #677.
 //!
-//! [`ZarrArrayMeta`] reads a metadata document into the shared array model.
-//! The arithmetic itself — shape and chunk shape in, the key of the chunk
-//! holding a region out — is [`fieldglass_core::array`], because a store
+//! [`ArrayMetadata`] reads a metadata document into the shared array model. It
+//! is `fieldglass-zarr`'s, taken here with `default-features = false` (#686),
+//! so this crate reads a `.zarray` without linking anything that could
+//! decompress a chunk — `cargo tree` for it carries no decompressor. Before
+//! that there were two readers of one document, with two `zarr_format` checks
+//! and two vocabularies for refusing the same things.
+//!
+//! The arithmetic underneath is [`fieldglass_core::array`], because a store
 //! walker and a kerchunk planner ask the same questions of the same shape and
-//! only differ in where they read it from (ADR-0010 decision 1). What stays
-//! here is the reading. The codecs, the data type and the fill value are
-//! `fieldglass-zarr`'s, so a host that only wants to know which object to
-//! fetch does not link a decompressor to find out.
+//! differ only in where they read it from (ADR-0010 decision 1).
 
 mod discovery;
 mod ecmwf;
@@ -113,7 +115,6 @@ mod level;
 mod manifest;
 mod plan;
 mod wgrib2;
-mod zarr;
 
 pub use discovery::{Candidate, SourceSpec, candidates};
 pub use ecmwf::EcmwfIndex;
@@ -127,4 +128,7 @@ pub use wgrib2::Wgrib2Idx;
 // array-model vocabulary, and a caller holding one from a store walker must be
 // able to hand it to this crate (ADR-0010 decision 2).
 pub use fieldglass_core::array::{ArrayError, ChunkGrid, ChunkKeyEncoding};
-pub use zarr::ZarrArrayMeta;
+// The one reader of an array's metadata document lives in `fieldglass-zarr`
+// (#686), taken here without its codecs. Re-exported so a caller planning a
+// fetch needs no second manifest line to name what it planned against.
+pub use fieldglass_zarr::ArrayMetadata;

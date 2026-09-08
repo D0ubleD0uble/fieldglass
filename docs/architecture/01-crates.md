@@ -25,7 +25,7 @@ flowchart TD
     netcdf["fieldglass-netcdf<br/><i>NetCDF classic + NetCDF-4 / HDF5</i>"]
     core["fieldglass-core<br/><i>traits, GridGeometry, projection, warp, overlay, Palette</i>"]
     fetchplan["fieldglass-fetchplan<br/><i>manifests in, byte ranges out; no I/O, no clock</i>"]
-    zarr["fieldglass-zarr<br/><i>Zarr chunk codecs, decode only, no I/O</i>"]
+    zarr["fieldglass-zarr<br/><i>array metadata + chunk codecs, decode only, no I/O</i>"]
 
     wasm --> fieldglass
     fieldglass --> grib1
@@ -39,6 +39,7 @@ flowchart TD
     napi --> netcdf
     napi --> core
     fetchplan --> core
+    fetchplan --> zarr
     zarr --> core
     grib1 --> core
     grib2 --> core
@@ -186,6 +187,18 @@ feature like the two GRIB ones. It does not depend on `fieldglass-zarr` yet:
 the crate decodes chunks but nothing yet walks a store to find them (#658),
 so there is no edge to draw and an unused dependency would be paid for in
 bundle size today.
+
+**`fetchplan --> zarr` is the one edge that looks like a rule being broken and
+is not.** `fieldglass-fetchplan` says it depends on no format crate, and it now
+depends on one. The rule was about *weight* — a planner that linked a decoder
+would drag that decoder's codecs into a host that only wanted to know which
+bytes to ask for — and since #686 the weight is behind `fieldglass-zarr`'s
+`codecs` feature, which the planner declines. What it takes is the one reader of
+an array's metadata document, which it was otherwise writing a second time with
+a second vocabulary for refusing the same things. The check is the tree:
+`cargo tree -p fieldglass-fetchplan` carries neither `miniz_oxide` nor `ruzstd`.
+The codecs reach that crate only through `dev-dependencies`, where the seam test
+needs them.
 
 See [`planned/01-crates.md`](planned/01-crates.md) for where this is going:
 the workspace described as layers under
