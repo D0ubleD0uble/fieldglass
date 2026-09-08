@@ -1,0 +1,44 @@
+{
+  "name": "@fieldglass/wasm",
+  "version": "0.0.0",
+  "description": "Read GRIB1, GRIB2 and NetCDF in the browser. Pure Rust decoders compiled to WebAssembly, meant to run in a Web Worker.",
+  "keywords": [
+    "grib",
+    "grib2",
+    "netcdf",
+    "meteorology",
+    "weather",
+    "wasm",
+    "webassembly"
+  ],
+  "homepage": "https://github.com/D0ubleD0uble/fieldglass/tree/master/crates/fieldglass-wasm#readme",
+  "bugs": "https://github.com/D0ubleD0uble/fieldglass/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/D0ubleD0uble/fieldglass.git",
+    "directory": "crates/fieldglass-wasm"
+  },
+  "license": "MIT OR Apache-2.0",
+  "type": "module",
+  "types": "./fieldglass_wasm.d.ts",
+  "main": "./fieldglass_wasm.js",
+  "exports": {
+    ".": {
+      "types": "./fieldglass_wasm.d.ts",
+      "default": "./fieldglass_wasm.js"
+    },
+    "./fieldglass_wasm_bg.wasm": "./fieldglass_wasm_bg.wasm",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "fieldglass_wasm.js",
+    "fieldglass_wasm.d.ts",
+    "fieldglass_wasm_bg.wasm",
+    "fieldglass_wasm_bg.wasm.d.ts",
+    "NOTICE",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -291,3 +291,118 @@ jobs:
             echo "Publishing ${crate} ${version}"
             cargo publish -p "$crate"
           done
+
+  publish-wasm-npm:
+    name: Publish @fieldglass/wasm to npm
+    needs: [package]
+    runs-on: ubuntu-latest
+    env:
+      # Must match ci.yml's pin, which is what the bundle-size gate measures
+      # against: a release built with a different optimiser is not the module
+      # whose size the README records. `tools/check_binaryen_pin.py` keeps the
+      # two files in step.
+      BINARYEN_VERSION: version_132
+      BINARYEN_SHA256: 195ddc94f9bc89f45abdabb0b9eea86023d727ba90eac8b35b80f2544fc30572
+    permissions:
+      contents: read
+      # Trusted Publishing exchanges this OIDC token for a short-lived npm
+      # token, the same pattern `publish-crates` uses for crates.io, so no
+      # long-lived npm secret is stored in the repo. npm generates the
+      # provenance attestation automatically from it; `--provenance` is not
+      # passed and is not needed.
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
+      # Trusted Publishing needs npm 11.5.1 or later, and Node 22 ships an
+      # older npm than that. Upgrading explicitly rather than relying on
+      # whatever the runner image happens to carry, because the failure without
+      # it is an authentication error at the last step of a release.
+      - name: Install an npm that can publish with OIDC
+        run: |
+          set -euo pipefail
+          npm install -g npm@^11.5.1
+          npm --version
+
+      - name: Read the resolved wasm-bindgen version
+        id: wasm-bindgen-version
+        run: |
+          set -euo pipefail
+          version="$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock \
+                     | sed -n 's/^version = "\(.*\)"$/\1/p' | head -n1)"
+          test -n "$version" || { echo "no wasm-bindgen in Cargo.lock"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install wasm-bindgen CLI
+        uses: taiki-e/install-action@742a3317eac7bd62f91cd888b4eead5e784ba833 # v2.87.1
+        with:
+          tool: wasm-bindgen@${{ steps.wasm-bindgen-version.outputs.version }}
+
+      - name: Install binaryen (wasm-opt)
+        run: |
+          set -euo pipefail
+          tarball="binaryen-${BINARYEN_VERSION}-x86_64-linux.tar.gz"
+          curl -fsSLO "https://github.com/WebAssembly/binaryen/releases/download/${BINARYEN_VERSION}/${tarball}"
+          echo "${BINARYEN_SHA256}  ${tarball}" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/binaryen"
+          tar xzf "$tarball" -C "$RUNNER_TEMP/binaryen" --strip-components=1
+          echo "$RUNNER_TEMP/binaryen/bin" >> "$GITHUB_PATH"
+
+      # Runs on a workflow_dispatch too, which is what makes the dry run useful:
+      # it produces the exact tarball a tag would publish, and the step after it
+      # proves that tarball installs and decodes. Only the publish itself is
+      # gated on the tag.
+      - name: Build the package
+        run: crates/fieldglass-wasm/pack.sh
+
+      - name: Check it installs and decodes
+        run: node crates/fieldglass-wasm/tests/node/package.mjs
+
+      - name: Check the tag matches the packaged version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          tag_version="${GITHUB_REF_NAME#v}"
+          packed="$(node -p 'require("./crates/fieldglass-wasm/pkg/npm/package.json").version')"
+          if [ "$tag_version" != "$packed" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match the packaged version ${packed}" >&2
+            exit 1
+          fi
+          echo "Publishing @fieldglass/wasm ${packed}"
+
+      - name: Upload the tarball
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: fieldglass-wasm-npm
+          path: crates/fieldglass-wasm/pkg/npm/*.tgz
+          if-no-files-found: error
+
+      # Only on a tag, so a workflow_dispatch run keeps its no-side-effects
+      # property — the same rule `publish-crates` follows.
+      #
+      # Re-running a release after a partial failure must not fail here on a
+      # version that already went out, so an existing version is skipped rather
+      # than published again. npm, unlike crates.io, answers this without
+      # authentication.
+      - name: Publish to npm
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          if npm view "@fieldglass/wasm@${version}" version >/dev/null 2>&1; then
+            echo "@fieldglass/wasm ${version} is already on npm — skipping"
+            exit 0
+          fi
+          cd crates/fieldglass-wasm/pkg/npm
+          npm publish

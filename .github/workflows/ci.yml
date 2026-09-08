@@ -250,6 +250,22 @@ jobs:
             --native "$RUNNER_TEMP/native.json" \
             --pkg crates/fieldglass-wasm/pkg/nodejs-simd --label '+simd128'
 
+      # The npm package `release.yml` publishes on a tag, built and proved on
+      # every pull request rather than only when a tag makes it too late (#466).
+      # `pack.sh` reuses the `pkg/web` build above, so this costs an npm install
+      # into a temp directory and nothing else.
+      #
+      # The other Node tests load `pkg/nodejs/fieldglass_wasm.js` by path, so
+      # they would all pass with a `package.json` that shipped none of it. This
+      # installs the tarball and decodes through the installed tree, which is
+      # the only thing that can catch a missing `files` entry, an `exports` map
+      # without the `.wasm` subpath, or a version that drifted from the
+      # workspace.
+      - name: npm package builds and works when installed
+        run: |
+          crates/fieldglass-wasm/pack.sh
+          node crates/fieldglass-wasm/tests/node/package.mjs
+
   build-extension:
     name: Build extension
     runs-on: ubuntu-latest
