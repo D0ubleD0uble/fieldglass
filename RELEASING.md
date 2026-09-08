@@ -155,6 +155,7 @@ The tag push triggers `release.yml`'s publish path:
 - publishes to the VS Code Marketplace
 - publishes the four library crates to crates.io, on a **stable tag only** (see
   below)
+- publishes `@fieldglass/wasm` to npm, also tag-only (see below)
 - creates the GitHub Release with the `.vsix` files attached and the release
   notes taken from this version's `## [X.Y.Z]` section of CHANGELOG.md (the
   workflow's *Extract release notes* step pulls that section by heading — not
@@ -207,6 +208,57 @@ Until that bootstrap happens, a stable tag's `publish-crates` job will fail on
 the first `cargo publish` — nothing else in the release is affected, since the
 Marketplace publish and the GitHub Release are separate jobs.
 
+### npm
+
+`@fieldglass/wasm` is the browser build, published from the `publish-wasm-npm`
+job. It is one package, built with `wasm-bindgen --target web` and `wasm-opt
+-Oz`; `crates/fieldglass-wasm/pack.sh` assembles it and `npm pack`s it. The
+Node addon (`fieldglass-napi`) has nothing to do with it and takes no wasm
+dependency.
+
+**The version is never typed.** `pack.sh` reads it from the workspace
+`Cargo.toml`, and the job then checks it against the tag. The committed
+`crates/fieldglass-wasm/npm/package.json` carries a `0.0.0` placeholder, which
+`pack.sh` refuses to publish — so there is no second place to bump at release
+time. It is not in the version table in §1 for that reason.
+
+**Every tag publishes; a `workflow_dispatch` dry run builds the tarball and does
+not publish it.** The dry run still runs the full package check — it installs
+the tarball into a throwaway project and decodes a GRIB2 and a NetCDF fixture
+through it — and uploads the `.tgz` as a run artefact. Every pull request runs
+that same check in `ci.yml`, so a broken package fails long before a tag.
+
+**Auth is Trusted Publishing** (OIDC), the same pattern as crates.io: the job
+holds `id-token: write`, npm exchanges the identity token for a short-lived one,
+and no npm secret is stored in the repo. npm generates the provenance
+attestation automatically from that token — `--provenance` is neither passed nor
+needed. This requires **npm 11.5.1 or later**, which is newer than the npm that
+ships with Node 22, so the job upgrades npm explicitly before publishing.
+
+**Re-running a failed release is safe.** The job asks `npm view` whether the
+version is already published and skips if it is.
+
+#### First publish: a one-time manual setup
+
+Unlike crates.io, npm lets you configure a trusted publisher for a package name
+that does not exist yet, so no manual `npm publish` bootstrap is needed. On
+npmjs.com, under the `@fieldglass` scope, add a trusted publisher for
+`@fieldglass/wasm`: repository `D0ubleD0uble/fieldglass`, workflow
+`release.yml`. The scope itself has to exist and be public first.
+
+**Check the publishing mode while you are there.** Trusted-publisher
+configurations created after 2026-09-03 allow `npm stage publish` by default,
+and direct `npm publish` is a separate permission. The job runs `npm publish`,
+so either allow it, or expect the version to land staged and need approval from
+the Versions tab before it is public. Neither is wrong — staged is the safer
+default — but the job's success does not mean the package is installable, so
+decide which you want before the first release rather than during it.
+
+Until that configuration exists, a stable tag's `publish-wasm-npm` job fails at
+the last step with an authentication error. Everything before it — the build,
+the package check, the uploaded tarball — still runs, and no other job is
+affected.
+
 Watch the run:
 
 ```sh
@@ -219,6 +271,7 @@ gh run watch
 - [ ] **GitHub Release created** at `https://github.com/D0ubleD0uble/fieldglass/releases/tag/vX.Y.Z` with six `.vsix` attachments.
 - [ ] **CHANGELOG link refs resolve** — `[X.Y.Z]: …/compare/v{prev}...vX.Y.Z` should be live now that the tag exists.
 - [ ] **crates.io shows the new version** for all four library crates — `cargo info fieldglass-core` should report `X.Y.Z`, and likewise for `-grib1`, `-grib2`, `-netcdf`.
+- [ ] **npm shows the new version** — `npm view @fieldglass/wasm version` should report `X.Y.Z`. If the trusted publisher is configured for staged publishing, the version sits unapproved until a maintainer approves it from the Versions tab, and `npm view` will not report it until then.
 - [ ] **Marketplace listing updated** at `https://marketplace.visualstudio.com/items?itemName=fieldglass.fieldglass` — the new version number, screenshot, and README all reflect what shipped.
 - [ ] **Install from Marketplace and round-trip** a real file from each format in a clean VS Code install. The full chain — Marketplace → `.vsix` selection by platform → activation → file open → render — is something only a real install can validate.
 - [ ] **Reset the manual test plan** — [RELEASE-TEST-PLAN.md](RELEASE-TEST-PLAN.md)
@@ -233,6 +286,8 @@ gh run watch
 - **Dry-run native build fails on one target** — usually a toolchain drift (windows-arm64 has been the recurring culprit). Fix in a normal feature PR to `master`, re-prep so the fix is in the tagged commit, rerun the dry-run; do not tag until it's green.
 - **Tag pushed but publish fails partway** — the GitHub Release will be missing assets. Re-run the failed job from the Actions UI; the workflow is idempotent for the platform builds.
 - **crates.io publish fails partway** — say core went out and `-grib1` failed. Re-run the job: it checks the index and skips what is already published, so it picks up where it stopped. A version that went out *wrongly* cannot be replaced, only yanked (`cargo yank -p <crate> --version X.Y.Z`), and yanking does not free the version number — the fix ships as the next patch.
+- **npm publish fails with an authentication error** — the trusted publisher for `@fieldglass/wasm` is not configured, or is configured for a different workflow file. The tarball is still attached to the run as an artefact, so a maintainer can publish it by hand if the release cannot wait.
+- **npm publish succeeds but `npm i @fieldglass/wasm` cannot find the version** — the trusted publisher is set to staged publishing, which is the default for configurations created after 2026-09-03. Approve the version from the package's Versions tab on npmjs.com.
 - **crates.io publish fails on the very first stable release** — most likely the Trusted Publishing bootstrap above hasn't been done. The rest of the release (Marketplace, GitHub Release) is unaffected; do the manual bootstrap and re-run the job.
 - **A regression slips past CI** — if it's caught after publish but before users adopt, the cleanest fix is a hotfix release (`vX.Y.Z+1`): land the fix on `master` like any other PR, run a fresh prep PR, and tag the new merge commit. Don't retag.
 - **Wanting a soak build before a stable one** — there is no pre-release channel any more, so this is a manual step: publish one version with `vsce publish --pre-release` (the flag is per-publish, not a property of the version), let it soak, then publish the *next* version without it. A version number can only be published once, so the promoted build needs its own number. For a one-off, handing out the `.vsix` from the release workflow's artifacts is usually simpler.
