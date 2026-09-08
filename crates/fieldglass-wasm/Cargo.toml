@@ -26,8 +26,8 @@ crate-type = ["cdylib", "rlib"]
 #
 # `netcdf` is the fifth, added by #662, and it is the one that costs something:
 # it opts this host into a whole container format and the HDF5 object model and
-# filter pipeline behind it, which measured +19.6% on the module and +20.7%
-# gzipped — +189,785 and +77,602 bytes, against binaryen 132 as CI pins it. That
+# filter pipeline behind it, which measured +30.2% on the module and +33.5%
+# gzipped — +293,001 and +125,927 bytes, against binaryen 132 as CI pins it. That
 # is deliberate rather than incidental. The issue's complaint was that the same
 # file rendered in the VS Code editor and was refused in a browser, and a host
 # that cannot open one of the three shipped formats is the divergence, not the
