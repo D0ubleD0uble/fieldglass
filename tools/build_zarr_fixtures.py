@@ -9,9 +9,10 @@ Writes two things, from one source array so both crates see the same data:
     chunk bytes were produced by the reference implementation, not by a second
     copy of this repository's arithmetic.
   * ``crates/fieldglass-fetchplan/tests/fixtures/zarr/`` — the *metadata*
-    documents of the same stores, plus a kerchunk reference document over them.
-    Addressing is that crate's question, decoding is the other's, and neither
-    should have to reach into the other's fixture directory to be tested.
+    documents of the same stores, one object holding their chunks laid end to
+    end, and three kerchunk reference documents addressing it. Addressing is
+    that crate's question, decoding is the other's, and neither should have to
+    reach into the other's fixture directory to be tested.
 
 The stores are deliberately tiny — a 4x6 float32 array in 2x3 chunks — because
 what is under test is the framing, not the volume. Two exceptions are big
@@ -23,12 +24,19 @@ un-shuffled.
 
 Run from the repo root. Needs ``zarr`` and ``numcodecs``:
 
-    python3 tools/build_zarr_fixtures.py
+    python3 tools/build_zarr_fixtures.py                # the whole corpus
+    python3 tools/build_zarr_fixtures.py --plan-only    # the planner's half
+
+``--plan-only`` rebuilds the ``fieldglass-fetchplan`` fixtures from the
+committed stores without rewriting the corpus, which matters because gzip
+stamps a timestamp into each chunk it writes: a full run diffs every gzip case
+even when nothing changed.
 """
 from __future__ import annotations
 
 import json
 import shutil
+import sys
 from pathlib import Path
 
 import numcodecs
@@ -54,10 +62,26 @@ BASE = (np.arange(24, dtype="<f4") * 0.5).reshape(4, 6)
 CHUNKS = (2, 3)
 
 
+# Files under a fixture directory that this script does not write and must not
+# delete. `NOTICE.md` records where every fixture came from, which is a
+# committed document about the corpus rather than part of it — and a `rmtree`
+# that took it out left the corpus undocumented until someone noticed the
+# deletion in `git status`.
+KEEP = {"NOTICE.md"}
+
+
 def clean(path: Path) -> None:
-    if path.exists():
-        shutil.rmtree(path)
-    path.mkdir(parents=True)
+    """Empty a fixture directory of everything this script writes."""
+    if not path.exists():
+        path.mkdir(parents=True)
+        return
+    for entry in path.iterdir():
+        if entry.name in KEEP:
+            continue
+        if entry.is_dir():
+            shutil.rmtree(entry)
+        else:
+            entry.unlink()
 
 
 def write_v2(root: Path, name: str, *, data, chunks, compressor, filters=None, order="C", dtype=None):
@@ -213,6 +237,16 @@ def collect(
 
 
 def main() -> None:
+    # The planner's fixtures derive from the committed stores, so refreshing
+    # them needs no rewrite of the corpus — and rewriting the corpus is not
+    # free: gzip stamps a timestamp into every chunk it writes, so a full run
+    # produces a diff in every gzip case whether or not anything changed.
+    if "--plan-only" in sys.argv:
+        clean(PLAN_FIXTURES)
+        write_plan_fixtures()
+        print(f"wrote the planner's addressing fixtures to {PLAN_FIXTURES}")
+        return
+
     clean(ZARR_FIXTURES)
     clean(PLAN_FIXTURES)
     oracle: dict[str, dict] = {}
@@ -371,36 +405,140 @@ def main() -> None:
         json.dumps(oracle, indent=1, sort_keys=True) + "\n", encoding="utf-8"
     )
 
-    # ── The planner's half: metadata documents and a kerchunk index over them.
-    for name, edition in (("v2", 2), ("v3", 3)):
-        source = ZARR_FIXTURES / ("raw" if edition == 2 else "v3_bytes")
-        meta_name = "zarr.json" if edition == 3 else ".zarray"
-        meta = next(iter(sorted(source.rglob(meta_name))))
-        (PLAN_FIXTURES / f"{name}_{meta_name.lstrip('.')}.json").write_text(
-            meta.read_text(encoding="utf-8"), encoding="utf-8"
-        )
+    write_plan_fixtures()
 
-    # A kerchunk reference document over the v2 store: the two shapes a `refs`
-    # value takes — an inline string for the metadata, and a
-    # `[url, offset, length]` triple for each chunk.
-    raw_store = ZARR_FIXTURES / "raw"
-    zarray = (raw_store / ".zarray").read_text(encoding="utf-8")
-    refs = {
+    print(f"wrote {len(oracle)} store fixtures to {ZARR_FIXTURES}")
+    print(f"wrote the planner's addressing fixtures to {PLAN_FIXTURES}")
+
+
+# The object the kerchunk fixtures address. Chunks are laid end to end with a
+# gap between them, because a real reference document points into a file that
+# was never a Zarr store — a NetCDF4 or GRIB archive, whose chunks are
+# separated by headers this crate never sees. A uniform stride would let a
+# planner that multiplied the chunk index by a length pass anyway; a gap makes
+# the stated offset the only way to be right.
+CHUNK_GAP = 7
+
+# Fills the gaps. Not zero: a run of zeroes is what an off-by-one range lands
+# in and decodes as plausible-looking data, whereas this is not valid zstd and
+# fails loudly.
+GAP_BYTE = 0xA5
+
+# The URL the reference documents name. Opaque to the planner — it hands the
+# string back for the host to fetch — so what it points at only has to be
+# realistic, not reachable. The seam test resolves it to ``temp.bin`` beside it.
+OBJECT_URL = "s3://example-bucket/temp.bin"
+
+
+def concatenate_chunks(store: Path, keys: list[str]) -> tuple[bytes, dict[str, tuple[int, int]]]:
+    """Lay a store's chunk objects end to end, with a gap between them.
+
+    Returns the object's bytes and, per key, the ``(offset, length)`` a
+    reference document has to state to address that chunk inside it.
+    """
+    blob = bytearray()
+    placement: dict[str, tuple[int, int]] = {}
+    for key in keys:
+        chunk = (store / key).read_bytes()
+        placement[key] = (len(blob), len(chunk))
+        blob += chunk
+        blob += bytes([GAP_BYTE]) * CHUNK_GAP
+    return bytes(blob), placement
+
+
+def write_plan_fixtures() -> None:
+    """The planner's half: metadata documents and kerchunk reference documents.
+
+    Addressing is ``fieldglass-fetchplan``'s question and decoding is
+    ``fieldglass-zarr``'s, and neither should have to reach into the other's
+    fixture directory to be tested. So the metadata documents are copied here,
+    and the chunks are concatenated into one object the reference documents
+    address by byte range.
+    """
+    for name, source_name, meta_name in (
+        ("v2_zarray.json", "raw", ".zarray"),
+        ("v3_zarr.json", "v3_bytes", "zarr.json"),
+    ):
+        meta = next(iter(sorted((ZARR_FIXTURES / source_name).rglob(meta_name))))
+        # `zarr-python` writes these without a trailing newline, and the repo's
+        # end-of-file hook adds one. Written with it here so the hook and this
+        # script agree; a trailing newline is not part of the JSON.
+        text = meta.read_text(encoding="utf-8").rstrip("\n") + "\n"
+        (PLAN_FIXTURES / name).write_text(text, encoding="utf-8")
+
+    # Over the **zstd** store rather than the raw one on purpose. The seam this
+    # fixture exists to test is "the range fetchplan planned holds a chunk the
+    # zarr crate can decode", and raw chunks are little-endian float32 — a test
+    # over those would pass against a reader that never called the codec crate
+    # at all.
+    store = ZARR_FIXTURES / "zstd"
+    keys = [f"{j}.{i}" for j in range(2) for i in range(2)]
+    blob, placement = concatenate_chunks(store, keys)
+    (PLAN_FIXTURES / "temp.bin").write_bytes(blob)
+
+    metadata = {
         ".zgroup": json.dumps({"zarr_format": 2}),
-        "temp/.zarray": zarray,
+        "temp/.zarray": (store / ".zarray").read_text(encoding="utf-8"),
         "temp/.zattrs": json.dumps({"_ARRAY_DIMENSIONS": ["y", "x"]}),
     }
-    offset = 0
-    for j in range(2):
-        for i in range(2):
-            size = CHUNKS[0] * CHUNKS[1] * 4
-            refs[f"temp/{j}.{i}"] = ["s3://example-bucket/temp.bin", offset, size]
-            offset += size
+    chunks = {
+        f"temp/{key}": [OBJECT_URL, offset, length]
+        for key, (offset, length) in placement.items()
+    }
+
+    # The plain form: every URL written out in full.
     (PLAN_FIXTURES / "kerchunk_refs.json").write_text(
-        json.dumps({"version": 1, "refs": refs}, indent=1) + "\n", encoding="utf-8"
+        json.dumps({"version": 1, "refs": {**metadata, **chunks}}, indent=1) + "\n",
+        encoding="utf-8",
     )
-    print(f"wrote {len(oracle)} store fixtures to {ZARR_FIXTURES}")
-    print(f"wrote the planner's metadata fixtures to {PLAN_FIXTURES}")
+
+    # The templated form, which is what kerchunk actually emits over a single
+    # archive: the URL is written once under `templates` and every chunk names
+    # it as `{{u}}`. Same ranges, so the two documents must plan identically.
+    (PLAN_FIXTURES / "kerchunk_templates.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "templates": {"u": OBJECT_URL},
+                "refs": {
+                    **metadata,
+                    **{
+                        key: ["{{u}}", offset, length]
+                        for key, (_url, offset, length) in chunks.items()
+                    },
+                },
+            },
+            indent=1,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    # A `gen` block: references generated from a jinja2 expression over a
+    # dimension rather than written out. The planner refuses this by name — it
+    # is a template language, not a manifest grammar — and this fixture is what
+    # holds it to refusing rather than silently planning the `refs` it can see.
+    (PLAN_FIXTURES / "kerchunk_gen.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "templates": {"u": OBJECT_URL},
+                "gen": [
+                    {
+                        "key": "temp/{{i}}.0",
+                        "url": "{{u}}",
+                        "offset": "{{i * 31}}",
+                        "length": "24",
+                        "dimensions": {"i": {"stop": 2}},
+                    }
+                ],
+                "refs": metadata,
+            },
+            indent=1,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
 
 if __name__ == "__main__":

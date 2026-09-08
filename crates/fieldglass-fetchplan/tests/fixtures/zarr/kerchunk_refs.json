@@ -1,0 +1,28 @@
+{
+ "version": 1,
+ "refs": {
+  ".zgroup": "{\"zarr_format\": 2}",
+  "temp/.zarray": "{\n  \"shape\": [\n    4,\n    6\n  ],\n  \"chunks\": [\n    2,\n    3\n  ],\n  \"dtype\": \"<f4\",\n  \"fill_value\": 0.0,\n  \"order\": \"C\",\n  \"filters\": null,\n  \"dimension_separator\": \".\",\n  \"compressor\": {\n    \"id\": \"zstd\",\n    \"level\": 3\n  },\n  \"zarr_format\": 2\n}",
+  "temp/.zattrs": "{\"_ARRAY_DIMENSIONS\": [\"y\", \"x\"]}",
+  "temp/0.0": [
+   "s3://example-bucket/temp.bin",
+   0,
+   33
+  ],
+  "temp/0.1": [
+   "s3://example-bucket/temp.bin",
+   40,
+   33
+  ],
+  "temp/1.0": [
+   "s3://example-bucket/temp.bin",
+   80,
+   33
+  ],
+  "temp/1.1": [
+   "s3://example-bucket/temp.bin",
+   120,
+   33
+  ]
+ }
+}

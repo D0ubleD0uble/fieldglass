@@ -1,16 +1,21 @@
 # Test fixture provenance
 
-Every file here is a **real, unmodified manifest sidecar** fetched from a public
-endpoint on 2026-09-06, for the 2026-09-04 00Z cycle. They are text, a few
-kilobytes each, and they are committed verbatim — not trimmed, not
-regenerated — because the whole point of the corpus is that the parser is held
-to what the producers actually emit rather than to what this repo believes they
-emit. Three of the shapes the parser handles (`n.m` sub-messages, the numeric
-`var discipline=…` fallback name, probability qualifiers) were discovered by
-reading these files, not by reading a specification.
+Two kinds of fixture live here, with different provenance.
+
+**The GRIB sidecars in this directory** are **real, unmodified manifest
+sidecars** fetched from a public endpoint on 2026-09-06, for the 2026-09-04 00Z
+cycle. They are text, a few kilobytes each, and they are committed verbatim —
+not trimmed, not regenerated — because the whole point of the corpus is that the
+parser is held to what the producers actually emit rather than to what this repo
+believes they emit. Three of the shapes the parser handles (`n.m` sub-messages,
+the numeric `var discipline=…` fallback name, probability qualifiers) were
+discovered by reading these files, not by reading a specification.
 
 No credentials are needed for any of these endpoints. Nothing here is a GRIB
 message; a sidecar carries offsets and labels, not data.
+
+**The chunk-addressing fixtures in [`zarr/`](zarr/)** are generated, and the
+section at the end of this file says by what and from where.
 
 ## NOAA / NCEP sidecars (public domain)
 
@@ -76,3 +81,60 @@ the MARS key vocabulary (`class`, `stream`, `type`, `expver`, `domain`,
 ECMWF open data is published under the Creative Commons Attribution 4.0
 International licence (CC BY 4.0); see
 <https://www.ecmwf.int/en/forecasts/datasets/open-data>. Attribution: ECMWF.
+
+## Zarr and kerchunk fixtures (`zarr/`, generated)
+
+Written by `tools/build_zarr_fixtures.py --plan-only`, from the committed
+stores under `crates/fieldglass-zarr/tests/fixtures/`, which that same script
+writes with `zarr-python` 3.3.0 and `numcodecs` 0.16.5. Regenerate them with
+the script rather than editing them by hand.
+
+There is no public reference document to fetch here, and that is the honest
+position rather than a shortcut: a real kerchunk index points into a specific
+multi-gigabyte object, so committing one would mean committing either the
+archive it addresses or an index whose ranges nothing can check. These are
+generated so that the ranges are checkable — the object they address is
+committed beside them, 160 bytes of it.
+
+Nothing in this directory is third-party material. The array behind every one
+of them is `numpy.arange(24) * 0.5`.
+
+### `v2_zarray.json`, `v3_zarr.json`
+
+The metadata documents of the `raw` and `v3_bytes` stores, copied byte for byte
+apart from a trailing newline the repo's end-of-file hook wants, so the two
+editions' chunk-grid and chunk-key fields are read from what `zarr-python`
+actually writes rather than from prose about the spec.
+
+### `temp.bin`
+
+The four chunk objects of the `zstd` store laid end to end, with seven bytes of
+`0xa5` between them. Two deliberate choices:
+
+* **The gaps.** A real reference document points into a file that was never a
+  Zarr store — a NetCDF4 or GRIB archive, whose chunks are separated by headers
+  the planner never sees. Laid out contiguously, a planner that multiplied a
+  chunk index by a length would pass the test; with gaps, the offset the
+  document states is the only way to be right. The filler is not zero, so an
+  off-by-one range fails to decode rather than yielding plausible numbers.
+* **zstd rather than raw.** A raw chunk is little-endian float32, so a seam
+  test over one would pass against a reader that never called the codec crate.
+
+### `kerchunk_refs.json`, `kerchunk_templates.json`
+
+Version 1 reference documents over `temp.bin`, carrying the two shapes a `refs`
+value takes — an inline string for each metadata document, and a
+`[url, offset, length]` triple for each chunk. The second writes the URL once
+under `templates` and refers to it as `{{u}}` from every chunk, which is what
+kerchunk emits over a single archive; the two must plan identically.
+
+The URL they name (`s3://example-bucket/temp.bin`) does not resolve and is not
+meant to. It is opaque to the planner, which hands the string back for a host to
+fetch, and the seam test's stand-in host maps it to `temp.bin` beside it.
+
+### `kerchunk_gen.json`
+
+A document with a `gen` block: references generated from jinja2 expressions over
+a dimension rather than stated. The planner refuses this by name, and this
+fixture is what holds it to refusing rather than quietly planning the `refs` it
+can see and omitting everything `gen` would have produced.
