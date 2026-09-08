@@ -135,11 +135,12 @@ in `fieldglass-grib2` (#426), and that dependency would drag the decoder and
 its codecs into a pure planner, so semantic matching is a trait the umbrella
 implements.
 
-**The GRIB half has landed**, and the current
-[`02-trait-seams.md`](../02-trait-seams.md) is where it is documented; what
-stays here is the Zarr half, which lands with the codec crate (#246) so both
-are tested against the same fixtures. Four things about the shipped half are
-now facts rather than plans:
+**Both halves have landed** — the GRIB dialects in #461 and chunk addressing in
+#660 — and the current [`02-trait-seams.md`](../02-trait-seams.md) is where the
+shipped surface is documented. Nothing about this crate is planned any more;
+what follows is kept because it records the decisions, and because one of them
+came out the opposite way to the drawing below. Five things about it are now
+facts rather than plans:
 
 * **No `core` edge, and then one.** The crate was drawn depending on `core`;
   it turned out to need nothing from it *except* the one thing that matters —
@@ -160,6 +161,16 @@ now facts rather than plans:
   probabilistic ones under the same abbreviation and level. `Query::unqualified`
   is how that record is named; without it, it is the one member of an ambiguous
   set nothing can ask for.
+* **Chunk addressing is not a `Manifest`, and the diagram below was wrong to
+  draw it as one.** The trait promises **one object key per manifest** and
+  answers a `Query` written in parameters, levels and forecast steps. A kerchunk
+  reference document has neither: it addresses as many objects as it likes —
+  that is what `templates` is for — and the only thing it can be asked is which
+  chunk of which array, in indices. Implementing the trait would have meant
+  `key()` picking one URL out of many and a parameter query that never matched,
+  so `KerchunkRefs` and `ZarrArrayMeta` are their own types. It is the same
+  split `Session` draws between a message index and a variable, for the same
+  reason: the two shapes are what the containers *are*, not a detail of them.
 
 ```mermaid
 classDiagram
@@ -196,11 +207,21 @@ classDiagram
     }
     Manifest <|.. Wgrib2Idx
     Manifest <|.. EcmwfIndex
-    Manifest <|.. ZarrV3
-    Manifest <|.. ZarrV2
-    Manifest <|.. KerchunkRefs
     Manifest ..> PlanItem : produces
     PlanItem *-- Expect
+    class KerchunkRefs {
+        <<shipped #660, not a Manifest>>
+        +range_of(key) Option~PlanItem~
+        +chunk_at(array, meta, index) Option~PlanItem~
+    }
+    class ZarrArrayMeta {
+        <<shipped #660>>
+        shape, chunk shape, chunk key encoding
+        +chunk_key(index) String
+        +chunks_covering(region) Vec~Vec~u64~~
+    }
+    KerchunkRefs ..> PlanItem : produces
+    KerchunkRefs ..> ZarrArrayMeta : spells keys with
 ```
 
 ## Decode options
