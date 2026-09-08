@@ -293,61 +293,6 @@ pub enum FetchPlanError {
         node_type: String,
     },
 
-    /// A chunk key separator that is not one of the two the conventions use.
-    #[error("Zarr metadata: {found:?} is not a chunk key separator; expected \".\" or \"/\"")]
-    BadSeparator {
-        /// What the document said.
-        found: String,
-    },
-
-    /// The array's shape and its chunk shape have different numbers of axes.
-    #[error("Zarr metadata: the shape has {shape} axes and the chunk shape has {chunks}")]
-    RankMismatch {
-        /// How many axes the shape states.
-        shape: usize,
-        /// How many the chunk shape states.
-        chunks: usize,
-    },
-
-    /// A chunk extent of zero, which no array has and which the grid
-    /// arithmetic would divide by.
-    #[error("Zarr metadata: the chunk shape is zero on axis {axis}")]
-    ZeroChunkExtent {
-        /// Which axis, counted from zero.
-        axis: usize,
-    },
-
-    /// An index, point or region with the wrong number of axes for the array.
-    #[error("this array has {expected} axes, but {found} were given")]
-    WrongRank {
-        /// How many the array has.
-        expected: usize,
-        /// How many the caller supplied.
-        found: usize,
-    },
-
-    /// A chunk index past the end of the chunk grid.
-    #[error("chunk index {index} is past the end of axis {axis}, which has {extent} chunks")]
-    ChunkIndexOutOfRange {
-        /// Which axis, counted from zero.
-        axis: usize,
-        /// The index asked for.
-        index: u64,
-        /// How many chunks that axis has.
-        extent: u64,
-    },
-
-    /// An element index past the end of the array.
-    #[error("index {index} is past the end of axis {axis}, which has {extent} elements")]
-    PointOutOfRange {
-        /// Which axis, counted from zero.
-        axis: usize,
-        /// The index asked for.
-        index: u64,
-        /// How many elements that axis has.
-        extent: u64,
-    },
-
     /// One entry of a reference document was not a reference.
     ///
     /// Carries the key because a document holds thousands of them and the
@@ -378,22 +323,20 @@ pub enum FetchPlanError {
         name: String,
     },
 
+    /// The shared chunk-grid arithmetic refused something.
+    ///
+    /// One variant rather than the seven this enum used to spell out itself:
+    /// the model moved to `fieldglass-core` (#677) and took its refusals with
+    /// it, so a rank mismatch reads the same here, in the store walker, and in
+    /// any other reader of an array's metadata.
+    #[error("{0}")]
+    Array(#[from] fieldglass_core::array::ArrayError),
+
     /// A reference document carries no metadata for the array asked about.
     #[error("kerchunk references: no array named {name:?} in this document")]
     NoSuchArray {
         /// The name that was asked for.
         name: String,
-    },
-
-    /// A region touches more chunks than this crate will build a list of.
-    ///
-    /// The bound exists because the array's shape is read out of a document
-    /// fetched over the network: `[1000000000000]` in chunks of one is sixty
-    /// bytes of JSON and a list of a trillion indices.
-    #[error("this region touches more than {limit} chunks, which is more than a plan will hold")]
-    RegionTooLarge {
-        /// The most chunks a region may touch.
-        limit: u64,
     },
 }
 

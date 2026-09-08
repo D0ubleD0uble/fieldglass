@@ -50,6 +50,15 @@ pub enum FieldglassError {
         /// How many there are, so the valid range is `0..bound`.
         bound: usize,
     },
+    /// The chunk-grid arithmetic refused something.
+    ///
+    /// Carried rather than flattened into a string so a reader that returns
+    /// this type still hands back the axis and the extent that failed.
+    /// [`ArrayError`](crate::array::ArrayError) is its own type because
+    /// callers keep it in enums deriving `Clone` and `PartialEq`, which this
+    /// one cannot.
+    #[error("{0}")]
+    Array(#[from] crate::array::ArrayError),
 }
 
 impl FieldglassError {

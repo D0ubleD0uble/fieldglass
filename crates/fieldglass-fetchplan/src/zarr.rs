@@ -26,43 +26,13 @@
 //!
 //! [`fieldglass-zarr`]: https://docs.rs/fieldglass-zarr
 
-use std::fmt::Write as _;
 use std::ops::Range;
 
-/// The most chunk indices [`ZarrArrayMeta::chunks_covering`] will build a list
-/// of.
-///
-/// Without a bound, a metadata document is an allocation instruction: `shape`
-/// of `[1000000000000]` in chunks of one is sixty bytes of JSON and a list of a
-/// trillion indices, which is thirty-two terabytes before anything is fetched.
-/// The document is fetched over the network, so its numbers are as untrusted as
-/// a sidecar's offsets — the same reasoning that put checked arithmetic behind
-/// the other two dialects (#652).
-///
-/// A million is far past any real plan. A host issuing a million range requests
-/// has a different problem than this cap, and a viewer asking for a region that
-/// touches a million chunks has asked for the whole archive.
-const MAX_PLANNED_CHUNKS: u64 = 1 << 20;
+use fieldglass_core::array::{ChunkGrid, ChunkKeyEncoding};
 
 use serde_json::Value;
 
 use crate::error::{Dialect, FetchPlanError};
-
-/// How a chunk grid index is spelled as a key in the store.
-///
-/// The names are Zarr v3's, and v2 has only the one convention, which v3 also
-/// offers so that a v2 store can be migrated without rewriting every object's
-/// name.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum ChunkKeyEncoding {
-    /// v3's `default`: a `c` prefix, then the index, all joined by the
-    /// separator — `c/1/0`. A zero-dimensional array's chunk is `c`.
-    Default,
-    /// v2's, and v3's `v2`: the index joined by the separator, with no prefix —
-    /// `1.0`. A zero-dimensional array's chunk is `0`, not the empty string.
-    V2,
-}
 
 /// A Zarr array's metadata, read for addressing alone.
 ///
@@ -89,8 +59,7 @@ pub enum ChunkKeyEncoding {
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ZarrArrayMeta {
-    shape: Vec<u64>,
-    chunk_shape: Vec<u64>,
+    grid: ChunkGrid,
     encoding: ChunkKeyEncoding,
     separator: char,
     zarr_format: u8,
@@ -185,12 +154,11 @@ impl ZarrArrayMeta {
                     }
                 };
                 // Each form has its own default separator, so an absent
-                // `configuration` is not one missing value but two.
+                // `configuration` is not one missing value but two. The
+                // per-encoding default is the model's to state, not this
+                // reader's — see `ChunkKeyEncoding::default_separator`.
                 let separator = match value.get("configuration").and_then(|c| c.get("separator")) {
-                    None | Some(Value::Null) => match encoding {
-                        ChunkKeyEncoding::Default => '/',
-                        ChunkKeyEncoding::V2 => '.',
-                    },
+                    None | Some(Value::Null) => encoding.default_separator(),
                     Some(separator) => separator_of(separator)?,
                 };
                 (encoding, separator)
@@ -207,21 +175,11 @@ impl ZarrArrayMeta {
         separator: char,
         zarr_format: u8,
     ) -> Result<Self, FetchPlanError> {
-        if shape.len() != chunk_shape.len() {
-            return Err(FetchPlanError::RankMismatch {
-                shape: shape.len(),
-                chunks: chunk_shape.len(),
-            });
-        }
-        // Every chunk extent divides a shape extent to give the grid, so a zero
-        // is a division by zero rather than an empty array — and an array with
-        // a zero *shape* extent is legal and has no chunks along it.
-        if let Some(axis) = chunk_shape.iter().position(|extent| *extent == 0) {
-            return Err(FetchPlanError::ZeroChunkExtent { axis });
-        }
+        // The rank check and the zero-extent refusal are the shared model's
+        // (#677): a document read here and a store walked elsewhere describe
+        // the same thing and must refuse the same shapes.
         Ok(Self {
-            shape,
-            chunk_shape,
+            grid: ChunkGrid::new(shape, chunk_shape)?,
             encoding,
             separator,
             zarr_format,
@@ -230,19 +188,19 @@ impl ZarrArrayMeta {
 
     /// The array's shape, in elements.
     pub fn shape(&self) -> &[u64] {
-        &self.shape
+        self.grid.shape()
     }
 
     /// One chunk's shape, in elements. Every chunk has this shape, including
     /// the ones at a ragged edge, which are stored full-size and trimmed on
     /// read — by the decoder, not here.
     pub fn chunk_shape(&self) -> &[u64] {
-        &self.chunk_shape
+        self.grid.chunk_shape()
     }
 
     /// How many dimensions the array has.
     pub fn rank(&self) -> usize {
-        self.shape.len()
+        self.grid.rank()
     }
 
     /// Which edition's metadata this was read from: 2 or 3.
@@ -265,11 +223,7 @@ impl ZarrArrayMeta {
     /// The ceiling of the shape over the chunk shape: an axis of 7 in chunks of
     /// 3 has three chunks, the last holding two values and two of padding.
     pub fn chunk_grid(&self) -> Vec<u64> {
-        self.shape
-            .iter()
-            .zip(&self.chunk_shape)
-            .map(|(extent, chunk)| extent.div_ceil(*chunk))
-            .collect()
+        self.grid.grid_shape()
     }
 
     /// The store key one chunk of the grid is written under.
@@ -278,54 +232,12 @@ impl ZarrArrayMeta {
     /// array at `temp` in a group holds this chunk at `temp/` + this key. The
     /// prefix is the caller's because this crate never invents a key.
     pub fn chunk_key(&self, index: &[u64]) -> Result<String, FetchPlanError> {
-        self.check_index(index)?;
-
-        let mut key = String::new();
-        if self.encoding == ChunkKeyEncoding::Default {
-            key.push('c');
-        }
-        // A zero-dimensional array has one chunk and no index to write, and the
-        // two encodings disagree about what to call it: `c` under `default`,
-        // and `0` — not the empty string — under `v2`.
-        if index.is_empty() {
-            if self.encoding == ChunkKeyEncoding::V2 {
-                key.push('0');
-            }
-            return Ok(key);
-        }
-        for (axis, position) in index.iter().enumerate() {
-            if axis > 0 || self.encoding == ChunkKeyEncoding::Default {
-                key.push(self.separator);
-            }
-            write!(key, "{position}").expect("writing to a String cannot fail");
-        }
-        Ok(key)
+        Ok(self.grid.chunk_key(index, self.encoding, self.separator)?)
     }
 
     /// Which chunk holds one element of the array.
     pub fn chunk_containing(&self, point: &[u64]) -> Result<Vec<u64>, FetchPlanError> {
-        if point.len() != self.rank() {
-            return Err(FetchPlanError::WrongRank {
-                expected: self.rank(),
-                found: point.len(),
-            });
-        }
-        point
-            .iter()
-            .zip(&self.shape)
-            .zip(&self.chunk_shape)
-            .enumerate()
-            .map(|(axis, ((position, extent), chunk))| {
-                if position >= extent {
-                    return Err(FetchPlanError::PointOutOfRange {
-                        axis,
-                        index: *position,
-                        extent: *extent,
-                    });
-                }
-                Ok(position / chunk)
-            })
-            .collect()
+        Ok(self.grid.chunk_containing(point)?)
     }
 
     /// Every chunk a region of the array touches, in row-major order.
@@ -340,86 +252,10 @@ impl ZarrArrayMeta {
     /// built, because the metadata document that sets the array's shape arrives
     /// over the network and a plan is not a place to trust it. The bound comes
     /// back on
-    /// [`FetchPlanError::RegionTooLarge`](crate::FetchPlanError::RegionTooLarge),
+    /// [`ArrayError::RegionTooLarge`](fieldglass_core::array::ArrayError::RegionTooLarge),
     /// so a caller reports it rather than restating it.
     pub fn chunks_covering(&self, region: &[Range<u64>]) -> Result<Vec<Vec<u64>>, FetchPlanError> {
-        if region.len() != self.rank() {
-            return Err(FetchPlanError::WrongRank {
-                expected: self.rank(),
-                found: region.len(),
-            });
-        }
-
-        let mut spans = Vec::with_capacity(self.rank());
-        for (axis, (range, (extent, chunk))) in region
-            .iter()
-            .zip(self.shape.iter().zip(&self.chunk_shape))
-            .enumerate()
-        {
-            if range.end > *extent {
-                return Err(FetchPlanError::PointOutOfRange {
-                    axis,
-                    index: range.end,
-                    extent: *extent,
-                });
-            }
-            if range.start >= range.end {
-                return Ok(Vec::new());
-            }
-            // Inclusive of the chunk holding the last element, exclusive of the
-            // one after it: `end` is one past the region, so the last element
-            // is `end - 1` and a region ending exactly on a chunk boundary must
-            // not pull in the chunk beyond it.
-            spans.push(range.start / chunk..(range.end - 1) / chunk + 1);
-        }
-
-        // Counted before anything is allocated, and with `checked_mul`, because
-        // the product of the spans is exactly what the walk below would try to
-        // hold and a rank-6 array overflows a `u64` long before it runs out of
-        // memory.
-        let mut planned: u64 = 1;
-        for span in &spans {
-            planned = planned
-                .checked_mul(span.end - span.start)
-                .filter(|count| *count <= MAX_PLANNED_CHUNKS)
-                .ok_or(FetchPlanError::RegionTooLarge {
-                    limit: MAX_PLANNED_CHUNKS,
-                })?;
-        }
-
-        let mut out = vec![Vec::with_capacity(self.rank())];
-        for span in spans {
-            let width = usize::try_from(span.end - span.start).unwrap_or(usize::MAX);
-            let mut next = Vec::with_capacity(out.len().saturating_mul(width));
-            for prefix in &out {
-                for position in span.clone() {
-                    let mut index = prefix.clone();
-                    index.push(position);
-                    next.push(index);
-                }
-            }
-            out = next;
-        }
-        Ok(out)
-    }
-
-    fn check_index(&self, index: &[u64]) -> Result<(), FetchPlanError> {
-        if index.len() != self.rank() {
-            return Err(FetchPlanError::WrongRank {
-                expected: self.rank(),
-                found: index.len(),
-            });
-        }
-        for (axis, (position, extent)) in index.iter().zip(self.chunk_grid()).enumerate() {
-            if *position >= extent {
-                return Err(FetchPlanError::ChunkIndexOutOfRange {
-                    axis,
-                    index: *position,
-                    extent,
-                });
-            }
-        }
-        Ok(())
+        Ok(self.grid.chunks_covering(region)?)
     }
 }
 
@@ -457,24 +293,18 @@ fn extents(doc: &Value, key: &'static str) -> Result<Vec<u64>, FetchPlanError> {
         .collect()
 }
 
-/// A separator is one character, and only the two the conventions use.
-///
-/// Refused rather than passed through: a key built with an arbitrary string
-/// fetches nothing, and this crate's whole output is keys.
+/// One `dimension_separator` / `separator` field, validated by the shared
+/// array model so every reader of an array's metadata refuses the same set.
 fn separator_of(value: &Value) -> Result<char, FetchPlanError> {
-    let text = value.as_str().unwrap_or_default();
-    match text {
-        "." => Ok('.'),
-        "/" => Ok('/'),
-        other => Err(FetchPlanError::BadSeparator {
-            found: other.to_string(),
-        }),
-    }
+    Ok(ChunkKeyEncoding::separator_from_str(
+        value.as_str().unwrap_or_default(),
+    )?)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use fieldglass_core::array::ArrayError;
 
     const V2: &str = r#"{
         "zarr_format": 2, "shape": [4, 6], "chunks": [2, 3],
@@ -542,47 +372,6 @@ mod tests {
         assert_eq!(v3.chunk_key(&[]).unwrap(), "c");
     }
 
-    /// A ragged edge rounds up: the grid has to cover the array, and the last
-    /// chunk is stored full-size regardless.
-    #[test]
-    fn the_grid_covers_a_shape_that_is_not_a_multiple_of_the_chunk() {
-        let meta = ZarrArrayMeta::from_metadata(
-            r#"{"zarr_format": 2, "shape": [7, 10], "chunks": [3, 4], "dtype": "<f4"}"#,
-        )
-        .unwrap();
-        assert_eq!(meta.chunk_grid(), vec![3, 3]);
-        // The last element is in the last chunk, and there is no chunk past it.
-        assert_eq!(meta.chunk_containing(&[6, 9]).unwrap(), vec![2, 2]);
-        assert!(meta.chunk_key(&[3, 0]).is_err());
-    }
-
-    /// A region ending exactly on a chunk boundary must not pull in the chunk
-    /// after it — the off-by-one that fetches twice the bytes it needs.
-    #[test]
-    fn a_region_covers_the_chunks_it_touches_and_no_more() {
-        let meta = ZarrArrayMeta::from_metadata(V2).unwrap();
-
-        // Exactly the first chunk: rows 0..2, columns 0..3.
-        assert_eq!(
-            meta.chunks_covering(&[0..2, 0..3]).unwrap(),
-            vec![vec![0, 0]]
-        );
-        // One column further and the neighbour is needed too.
-        assert_eq!(
-            meta.chunks_covering(&[0..2, 0..4]).unwrap(),
-            vec![vec![0, 0], vec![0, 1]]
-        );
-        // The whole array is every chunk, in row-major order.
-        assert_eq!(
-            meta.chunks_covering(&[0..4, 0..6]).unwrap(),
-            vec![vec![0, 0], vec![0, 1], vec![1, 0], vec![1, 1]]
-        );
-        // An empty range selects nothing.
-        assert!(meta.chunks_covering(&[0..0, 0..6]).unwrap().is_empty());
-        // Past the end is refused rather than clamped.
-        assert!(meta.chunks_covering(&[0..5, 0..6]).is_err());
-    }
-
     /// A chunk extent of zero is a division by zero, and arrives from a
     /// document rather than from a caller.
     #[test]
@@ -591,7 +380,10 @@ mod tests {
             r#"{"zarr_format": 2, "shape": [4, 6], "chunks": [2, 0], "dtype": "<f4"}"#,
         )
         .unwrap_err();
-        assert!(matches!(err, FetchPlanError::ZeroChunkExtent { axis: 1 }));
+        assert!(matches!(
+            err,
+            FetchPlanError::Array(ArrayError::ZeroChunkExtent { axis: 1 })
+        ));
     }
 
     /// Everything the crate cannot address is refused by name, so a host
@@ -621,16 +413,16 @@ mod tests {
             "dimension_separator": "-"}"#;
         assert!(matches!(
             ZarrArrayMeta::from_metadata(separator).unwrap_err(),
-            FetchPlanError::BadSeparator { found } if found == "-"
+            FetchPlanError::Array(ArrayError::BadSeparator { found }) if found == "-"
         ));
 
         let ranks = r#"{"zarr_format": 2, "shape": [4, 6], "chunks": [2]}"#;
         assert!(matches!(
             ZarrArrayMeta::from_metadata(ranks).unwrap_err(),
-            FetchPlanError::RankMismatch {
+            FetchPlanError::Array(ArrayError::RankMismatch {
                 shape: 2,
                 chunks: 1
-            }
+            })
         ));
     }
 
@@ -649,58 +441,5 @@ mod tests {
                 "{shape} should not parse as a shape"
             );
         }
-    }
-
-    /// A region is counted before it is built. The shape comes out of a fetched
-    /// document, so "how many chunks is that" is an untrusted number, and the
-    /// list this would otherwise allocate is thirty-two terabytes.
-    #[test]
-    fn an_enormous_region_is_refused_rather_than_allocated() {
-        let meta = ZarrArrayMeta::from_metadata(
-            r#"{"zarr_format": 2, "shape": [1000000, 1000000], "chunks": [1, 1]}"#,
-        )
-        .unwrap();
-        assert_eq!(meta.chunk_grid(), vec![1_000_000, 1_000_000]);
-
-        let err = meta
-            .chunks_covering(&[0..1_000_000, 0..1_000_000])
-            .unwrap_err();
-        assert!(
-            matches!(err, FetchPlanError::RegionTooLarge { .. }),
-            "{err:?}"
-        );
-        // Neither axis alone is over the cap, so a check that looked at one
-        // span at a time would have let this through.
-        assert!(meta.chunks_covering(&[0..1_000_000, 0..1]).is_ok());
-
-        // The overflow path too: the product of the spans wraps a `u64` long
-        // before it exhausts memory, so the count is checked and not merely
-        // compared.
-        let wide = ZarrArrayMeta::from_metadata(
-            r#"{"zarr_format": 2,
-                "shape": [18446744073709551615, 18446744073709551615, 18446744073709551615],
-                "chunks": [1, 1, 1]}"#,
-        )
-        .unwrap();
-        assert!(matches!(
-            wide.chunks_covering(&[
-                0..18_446_744_073_709_551_615,
-                0..18_446_744_073_709_551_615,
-                0..18_446_744_073_709_551_615
-            ])
-            .unwrap_err(),
-            FetchPlanError::RegionTooLarge { .. }
-        ));
-
-        // A region inside the cap is still planned, so the bound refuses the
-        // pathological case and nothing else.
-        let ordinary = ZarrArrayMeta::from_metadata(
-            r#"{"zarr_format": 2, "shape": [64, 64], "chunks": [1, 1]}"#,
-        )
-        .unwrap();
-        assert_eq!(
-            ordinary.chunks_covering(&[0..64, 0..64]).unwrap().len(),
-            4096
-        );
     }
 }
