@@ -96,11 +96,14 @@
 //! trait. The chunk-grid arithmetic under [`ZarrArrayMeta`] moves to
 //! `fieldglass-core` in #677.
 //!
-//! [`ZarrArrayMeta`] is the arithmetic under the last row: shape and chunk
-//! shape in, the key of the chunk holding a region out. It reads a metadata
-//! document for that and nothing else — the codecs, the data type and the fill
-//! value are `fieldglass-zarr`'s, so a host that only wants to know which object
-//! to fetch does not link a decompressor to find out.
+//! [`ZarrArrayMeta`] reads a metadata document into the shared array model.
+//! The arithmetic itself — shape and chunk shape in, the key of the chunk
+//! holding a region out — is [`fieldglass_core::array`], because a store
+//! walker and a kerchunk planner ask the same questions of the same shape and
+//! only differ in where they read it from (ADR-0010 decision 1). What stays
+//! here is the reading. The codecs, the data type and the fill value are
+//! `fieldglass-zarr`'s, so a host that only wants to know which object to
+//! fetch does not link a decompressor to find out.
 
 mod discovery;
 mod ecmwf;
@@ -120,4 +123,8 @@ pub use level::{LevelSpec, Surface, parse_ecmwf_level, parse_ncep_level};
 pub use manifest::{Manifest, NoResolver, ParameterResolver, Query};
 pub use plan::{Expect, ParameterId, PlanItem, PlanRange};
 pub use wgrib2::Wgrib2Idx;
-pub use zarr::{ChunkKeyEncoding, ZarrArrayMeta};
+// Re-exported from `core` rather than redefined: the chunk key encoding is
+// array-model vocabulary, and a caller holding one from a store walker must be
+// able to hand it to this crate (ADR-0010 decision 2).
+pub use fieldglass_core::array::{ArrayError, ChunkGrid, ChunkKeyEncoding};
+pub use zarr::ZarrArrayMeta;

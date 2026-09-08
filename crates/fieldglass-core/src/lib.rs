@@ -62,6 +62,11 @@
 //!   guessing from the file extension. Not a `no_std` switch — the crate still
 //!   links `std` for float math.
 
+// The shape model of a chunked array: which chunk holds a value, and what the
+// object holding it is called (ADR-0010 decision 1). Ungated and dependency
+// free — pure integer arithmetic — so a consumer that takes one format crate
+// links nothing new because of it.
+pub mod array;
 pub mod bits;
 pub mod bytes;
 pub mod cct_tables;
@@ -94,6 +99,7 @@ pub mod units;
 #[cfg(feature = "render")]
 pub mod warp;
 
+pub use array::{ArrayError, ChunkGrid, ChunkKeyEncoding};
 pub use bytes::{ByteRange, ByteSource};
 #[cfg(feature = "analysis")]
 pub use combine::{CombineOp, combine_cell, combine_fields};
