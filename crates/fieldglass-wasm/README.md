@@ -140,12 +140,21 @@ milliseconds.
 `build.sh web` — wasm-bindgen, then `wasm-opt -Oz` — gzipped, which is what a
 browser actually downloads.
 
+These figures carry **all three** decoders. NetCDF joined the browser build in
+#662, and it is the expensive one: opting in cost +189,785 raw bytes (+19.6%)
+and +77,602 gzipped (+20.7%), because it brings a whole container format and
+the HDF5 object model and filter pipeline behind it. That was the point rather
+than an accident — the same file rendering in the VS Code editor and being
+refused in a browser was the divergence the issue was about — but it is the
+first thing to reconsider if a consumer ever needs a GRIB-only bundle, which
+the umbrella's per-format features already make buildable.
+
 <!-- checked by tools/check_wasm_bundle_size.py -->
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
-| baseline | 965,242 | 374,381 |
-| `+simd128` | 962,582 | 373,732 |
+| baseline | 1,159,263 | 453,353 |
+| `+simd128` | 1,153,219 | 451,581 |
 
 The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
 build drifts more than 5% from these figures in either direction, so a change
@@ -154,12 +163,13 @@ that moves the bundle has to say so here. Update both cells when it does.
 Two things worth knowing before optimising further:
 
 - `wasm-opt -Oz` is a **raw** win and a **transfer** loss. It takes the module
-  from 1,018,633 to 965,242 bytes (-5.2%) and takes it from 367,350 to 374,381
-  gzipped (+1.9%). Its size passes trade repetition for smaller encodings, and
+  from 1,233,172 to 1,159,263 bytes (-6.0%) and takes it from 442,042 to 453,353
+  gzipped (+2.6%). Its size passes trade repetition for smaller encodings, and
   DEFLATE was already being paid for the repetition. It stays on because parse
   and instantiate cost track the raw module, but a transfer-size-only argument
-  for `-Oz` does not survive measurement.
-- `+simd128` buys 2,660 raw bytes and nothing measurable in time (below). The
+  for `-Oz` does not survive measurement. The trade held its shape when NetCDF
+  was added (#662): it was -5.2% / +1.9% on the GRIB-only bundle.
+- `+simd128` buys 6,044 raw bytes and nothing measurable in time (below). The
   decode kernels are bit-unpacking loops with data-dependent control flow, not
   the float-per-lane arithmetic autovectorisation looks for, and `std` is not
   rebuilt with it without `-Zbuild-std`. Recorded so nobody re-derives it.
