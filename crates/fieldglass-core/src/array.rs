@@ -428,6 +428,368 @@ impl ChunkGrid {
     }
 }
 
+// ── The dataset structure a container of named arrays has ───────────────────
+//
+// `fieldglass-netcdf` carries `DimView`, `VarView` and `DatasetView` as its
+// private neutral view, the umbrella carries `DimensionInfo` and `VariableInfo`
+// as wire types, and a Zarr store walker needs a third copy. These are the one
+// set (#678, ADR-0010 decision 1): plain structs, no dependency, on the parsing
+// surface where `GridGeometry` already is.
+
+/// One named axis, and how long it is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Dimension {
+    /// The axis's name, path-qualified for a nested group.
+    pub name: String,
+    /// How many points it has. A container with a growable axis reports the
+    /// count it actually holds, not the zero it stores to mean "unlimited".
+    pub length: u64,
+}
+
+/// What an attribute holds.
+///
+/// **Numbers stay numbers.** The view this replaces kept every attribute as its
+/// display string and read the numeric ones back out with `parse`, which meant
+/// a `scale_factor` had to survive a round trip through `format!` to stay
+/// faithful — a real hazard, since a GOES scale factor near 6.7e-7 prints as
+/// `0.000001` under any rounding format. Holding an `f64` removes the round
+/// trip rather than documenting it.
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub enum AttributeValue {
+    /// Text, as the container stores it.
+    Text(String),
+    /// One or more numbers. A scalar is a single element, so a reader of
+    /// `valid_range` and a reader of `scale_factor` take the same path.
+    Numbers(Vec<f64>),
+    /// Something neither this model nor its readers interpret, kept as the
+    /// container's own rendering so a host can still show it.
+    ///
+    /// A fallback rather than a failure: an attribute Fieldglass does not
+    /// understand is not a reason to refuse a file, and a user reading a
+    /// variable's metadata is often looking for exactly the odd one.
+    Opaque(String),
+}
+
+impl AttributeValue {
+    /// The first number, when this holds any. What a scalar-valued CF
+    /// attribute is read with.
+    pub fn number(&self) -> Option<f64> {
+        match self {
+            Self::Numbers(values) => values.first().copied(),
+            _ => None,
+        }
+    }
+
+    /// Every number, or an empty slice.
+    pub fn numbers(&self) -> &[f64] {
+        match self {
+            Self::Numbers(values) => values,
+            _ => &[],
+        }
+    }
+
+    /// The text, when this holds text.
+    pub fn text(&self) -> Option<&str> {
+        match self {
+            Self::Text(text) | Self::Opaque(text) => Some(text),
+            Self::Numbers(_) => None,
+        }
+    }
+}
+
+/// One attribute: a name and what it holds.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Attribute {
+    /// The attribute's name, as the container spells it.
+    pub name: String,
+    /// Its value.
+    pub value: AttributeValue,
+}
+
+impl Attribute {
+    /// An attribute holding text.
+    pub fn text(name: impl Into<String>, value: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            value: AttributeValue::Text(value.into()),
+        }
+    }
+
+    /// An attribute holding one number.
+    pub fn number(name: impl Into<String>, value: f64) -> Self {
+        Self {
+            name: name.into(),
+            value: AttributeValue::Numbers(vec![value]),
+        }
+    }
+
+    /// An attribute holding several numbers.
+    pub fn numbers(name: impl Into<String>, values: Vec<f64>) -> Self {
+        Self {
+            name: name.into(),
+            value: AttributeValue::Numbers(values),
+        }
+    }
+}
+
+/// Find one attribute by name in a list.
+///
+/// A free function over a slice rather than a method on a collection type,
+/// because every reader here already holds a `Vec<Attribute>` and wrapping it
+/// would buy nothing.
+pub fn attribute<'a>(attributes: &'a [Attribute], name: &str) -> Option<&'a AttributeValue> {
+    attributes.iter().find(|a| a.name == name).map(|a| &a.value)
+}
+
+/// An array's element type, in terms every container this project reads can be
+/// mapped onto.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ElementType {
+    /// Signed integers, by width in bits.
+    Int(u8),
+    /// Unsigned integers, by width in bits.
+    Uint(u8),
+    /// IEEE floating point, by width in bits.
+    Float(u8),
+    /// Text or bytes, which no grid is made of but every container stores.
+    Text,
+    /// A type this model does not name, kept as the container's own spelling.
+    ///
+    /// The same reason [`AttributeValue::Opaque`] exists: an array of a type
+    /// Fieldglass cannot decode should still appear in a listing, saying what
+    /// it is, rather than making the whole container unreadable.
+    Other(String),
+}
+
+/// One array in a container, described rather than decoded.
+///
+/// What a listing shows and a slice picker offers: enough to say what the array
+/// is and which axes it has, and none of its values.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ArrayDescription {
+    /// The array's name, path-qualified for a nested group.
+    pub name: String,
+    /// Its element type.
+    pub element_type: ElementType,
+    /// Its axes, by dimension name, in the container's declared order.
+    pub dimensions: Vec<String>,
+    /// Its own attributes.
+    pub attributes: Vec<Attribute>,
+    /// How it is chunked, when the container chunks it. `None` for a container
+    /// that stores an array contiguously.
+    pub chunk_grid: Option<ChunkGrid>,
+}
+
+/// A tree of groups, each holding arrays and more groups.
+///
+/// NetCDF-4 has groups, Zarr has groups, and a classic NetCDF file is one
+/// unnamed group — so a reader of any of them produces this and a host walks
+/// one shape.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Group {
+    /// This group's own name, empty for the root.
+    pub name: String,
+    /// Its attributes. The root group's are what a container calls global.
+    pub attributes: Vec<Attribute>,
+    /// Its dimensions. An axis is shared by every array in the group that names
+    /// it, which is what lets a host offer one time slider for a file rather
+    /// than one per array.
+    pub dimensions: Vec<Dimension>,
+    /// The arrays directly in it.
+    pub arrays: Vec<ArrayDescription>,
+    /// The groups directly in it.
+    pub groups: Vec<Group>,
+}
+
+impl Group {
+    /// Every array in the tree, with its path-qualified name, depth first.
+    ///
+    /// The qualification is `outer/inner/array`, with the root contributing no
+    /// segment — the spelling `fieldglass-netcdf` already uses for a nested
+    /// group, so a host that walks a NetCDF-4 file and one that walks a Zarr
+    /// store see names of the same shape.
+    pub fn arrays_qualified(&self) -> Vec<(String, &ArrayDescription)> {
+        let mut out = Vec::new();
+        self.walk(&mut String::new(), &mut out);
+        out
+    }
+
+    fn walk<'a>(&'a self, prefix: &mut String, out: &mut Vec<(String, &'a ArrayDescription)>) {
+        for array in &self.arrays {
+            out.push((qualify(prefix, &array.name), array));
+        }
+        for group in &self.groups {
+            let mark = prefix.len();
+            if !group.name.is_empty() {
+                if !prefix.is_empty() {
+                    prefix.push('/');
+                }
+                prefix.push_str(&group.name);
+            }
+            group.walk(prefix, out);
+            prefix.truncate(mark);
+        }
+    }
+
+    /// Every dimension in the tree, path-qualified the same way.
+    pub fn dimensions_qualified(&self) -> Vec<(String, &Dimension)> {
+        let mut out = Vec::new();
+        self.walk_dimensions(&mut String::new(), &mut out);
+        out
+    }
+
+    fn walk_dimensions<'a>(&'a self, prefix: &mut String, out: &mut Vec<(String, &'a Dimension)>) {
+        for dimension in &self.dimensions {
+            out.push((qualify(prefix, &dimension.name), dimension));
+        }
+        for group in &self.groups {
+            let mark = prefix.len();
+            if !group.name.is_empty() {
+                if !prefix.is_empty() {
+                    prefix.push('/');
+                }
+                prefix.push_str(&group.name);
+            }
+            group.walk_dimensions(prefix, out);
+            prefix.truncate(mark);
+        }
+    }
+}
+
+fn qualify(prefix: &str, name: &str) -> String {
+    if prefix.is_empty() {
+        name.to_string()
+    } else {
+        format!("{prefix}/{name}")
+    }
+}
+
+/// The CF mask-and-scale an array's attributes call for, read once.
+///
+/// # The rule, stated in one place
+///
+/// The CF conventions store a physical quantity as integers plus a linear
+/// transform, and mark the cells that mean nothing. Reading that is three
+/// steps, and the **order matters**:
+///
+/// 1. cells equal to a fill sentinel (`_FillValue`, `missing_value`) are
+///    absent;
+/// 2. cells outside the valid bounds (`valid_range`, or `valid_min` /
+///    `valid_max`) are absent — compared in **packed** units, inclusive, since
+///    the bounds describe what is stored;
+/// 3. what survives becomes `value * scale_factor + add_offset`.
+///
+/// Applying the transform before the bounds test compares a physical value
+/// against a packed threshold and throws away good data. Both readers that need
+/// this now read it from here, so the order cannot differ between them.
+///
+/// A `NaN` survives the bounds test — both comparisons are false for `NaN` —
+/// and stays `NaN`, which is what the reference implementations do: they mask
+/// only the declared sentinels.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CfUnpacking {
+    scale: f64,
+    offset: f64,
+    low: Option<f64>,
+    high: Option<f64>,
+    fill: Vec<f64>,
+}
+
+impl CfUnpacking {
+    /// Read the rule out of an array's attributes.
+    pub fn from_attributes(attributes: &[Attribute]) -> Self {
+        let scale = attribute(attributes, "scale_factor")
+            .and_then(AttributeValue::number)
+            .unwrap_or(1.0);
+        let offset = attribute(attributes, "add_offset")
+            .and_then(AttributeValue::number)
+            .unwrap_or(0.0);
+
+        // `valid_range` is a pair and wins over the separate bounds, which is
+        // what the conventions say and what the reference readers do. Its two
+        // values are ordered rather than assumed, because a file may state them
+        // either way round.
+        let (low, high) = match attribute(attributes, "valid_range").map(AttributeValue::numbers) {
+            Some([a, b, ..]) => (Some(a.min(*b)), Some(a.max(*b))),
+            _ => (
+                attribute(attributes, "valid_min").and_then(AttributeValue::number),
+                attribute(attributes, "valid_max").and_then(AttributeValue::number),
+            ),
+        };
+
+        // **Every** value of a multi-valued sentinel, not just the first. A
+        // container may declare several, and honouring one of them leaves the
+        // others in the field as ordinary numbers.
+        let mut fill = Vec::new();
+        for name in ["_FillValue", "missing_value"] {
+            if let Some(value) = attribute(attributes, name) {
+                fill.extend_from_slice(value.numbers());
+            }
+        }
+
+        Self {
+            scale,
+            offset,
+            low,
+            high,
+            fill,
+        }
+    }
+
+    /// Whether this does nothing, so a caller can skip it.
+    pub fn is_identity(&self) -> bool {
+        self.scale == 1.0
+            && self.offset == 0.0
+            && self.low.is_none()
+            && self.high.is_none()
+            && self.fill.is_empty()
+    }
+
+    /// `scale_factor`, defaulting to 1.
+    pub fn scale(&self) -> f64 {
+        self.scale
+    }
+
+    /// `add_offset`, defaulting to 0.
+    pub fn offset(&self) -> f64 {
+        self.offset
+    }
+
+    /// The declared fill sentinels, in packed units.
+    pub fn fill_values(&self) -> &[f64] {
+        &self.fill
+    }
+
+    /// Whether one packed value is a declared sentinel.
+    ///
+    /// Exact equality, because a sentinel is a stored bit pattern rather than a
+    /// measurement: `-9999` means absent and `-9998.9` is data.
+    pub fn is_fill(&self, packed: f64) -> bool {
+        self.fill.contains(&packed)
+    }
+
+    /// Apply the rule to one packed value. `None` when the cell means nothing.
+    pub fn value(&self, packed: f64) -> Option<f64> {
+        if self.is_fill(packed) {
+            return None;
+        }
+        if self.low.is_some_and(|low| packed < low) || self.high.is_some_and(|high| packed > high) {
+            return None;
+        }
+        Some(packed * self.scale + self.offset)
+    }
+
+    /// Apply the rule to a plane. Cells already absent stay absent.
+    pub fn apply(&self, packed: &[Option<f64>]) -> Vec<Option<f64>> {
+        if self.is_identity() {
+            return packed.to_vec();
+        }
+        packed.iter().map(|cell| self.value((*cell)?)).collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -636,5 +998,205 @@ mod tests {
         // The encoding on its own still spells anything, which is what a
         // writer naming a chunk it is creating needs.
         assert_eq!(ChunkKeyEncoding::V2.key(&[2, 0], '.'), "2.0");
+    }
+
+    // ── The dataset structure types (#678) ──────────────────────────────────
+
+    fn packed_attributes() -> Vec<Attribute> {
+        vec![
+            Attribute::number("scale_factor", 0.0625),
+            Attribute::number("add_offset", 250.0),
+            Attribute::number("_FillValue", -9999.0),
+            Attribute::numbers("valid_range", vec![0.0, 10000.0]),
+            Attribute::text("units", "kelvin"),
+        ]
+    }
+
+    /// The three steps in the order that matters. Testing the order is the
+    /// point: applying the transform first compares a physical value against a
+    /// packed threshold and throws away good data, and every number below is
+    /// still finite either way, so only the order distinguishes them.
+    #[test]
+    fn cf_masks_then_bounds_then_scales() {
+        let cf = CfUnpacking::from_attributes(&packed_attributes());
+
+        // In range: 250 * 0.0625 + 250.
+        assert_eq!(cf.value(250.0), Some(265.625));
+        // The bounds are inclusive and in packed units.
+        assert_eq!(cf.value(0.0), Some(250.0));
+        assert_eq!(cf.value(10000.0), Some(875.0));
+        // Outside them, either side.
+        assert_eq!(cf.value(-50.0), None);
+        assert_eq!(cf.value(15000.0), None);
+        // The sentinel, which is itself outside the range — masked either way,
+        // but by the first rule.
+        assert_eq!(cf.value(-9999.0), None);
+        assert!(cf.is_fill(-9999.0));
+
+        // Had the transform run first, 15000 would have become 1187.5 and been
+        // compared against a packed 10000 — and survived.
+        assert!(
+            15000.0 * cf.scale() + cf.offset() < 10000.0,
+            "this fixture only tests the ordering if the scaled value is inside \
+             the packed bound"
+        );
+    }
+
+    /// A plane keeps its absent cells absent, and the no-op case is untouched.
+    #[test]
+    fn cf_over_a_plane_preserves_absence() {
+        let cf = CfUnpacking::from_attributes(&packed_attributes());
+        let packed = [Some(0.0), None, Some(250.0), Some(-9999.0), Some(15000.0)];
+        assert_eq!(
+            cf.apply(&packed),
+            [Some(250.0), None, Some(265.625), None, None]
+        );
+
+        let identity = CfUnpacking::from_attributes(&[Attribute::text("units", "K")]);
+        assert!(identity.is_identity());
+        assert_eq!(identity.apply(&packed), packed);
+    }
+
+    /// Every value of a multi-valued sentinel is honoured, not just the first.
+    /// Honouring one leaves the others in the field as ordinary numbers.
+    #[test]
+    fn every_declared_sentinel_masks() {
+        let cf = CfUnpacking::from_attributes(&[
+            Attribute::numbers("missing_value", vec![-999.0, -888.0]),
+            Attribute::number("_FillValue", -9999.0),
+        ]);
+        assert_eq!(cf.fill_values(), [-9999.0, -999.0, -888.0]);
+        for sentinel in [-9999.0, -999.0, -888.0] {
+            assert_eq!(cf.value(sentinel), None, "{sentinel} should be absent");
+        }
+        assert_eq!(cf.value(-9998.0), Some(-9998.0));
+    }
+
+    /// `valid_range` wins over the separate bounds, and its pair is ordered
+    /// rather than assumed — a file may state them either way round.
+    #[test]
+    fn valid_range_wins_and_is_ordered() {
+        let both = CfUnpacking::from_attributes(&[
+            Attribute::numbers("valid_range", vec![10.0, 20.0]),
+            Attribute::number("valid_min", 0.0),
+            Attribute::number("valid_max", 100.0),
+        ]);
+        assert_eq!(both.value(5.0), None);
+        assert_eq!(both.value(15.0), Some(15.0));
+
+        let backwards =
+            CfUnpacking::from_attributes(&[Attribute::numbers("valid_range", vec![20.0, 10.0])]);
+        assert_eq!(backwards.value(15.0), Some(15.0));
+        assert_eq!(backwards.value(25.0), None);
+
+        let separate = CfUnpacking::from_attributes(&[
+            Attribute::number("valid_min", 10.0),
+            Attribute::number("valid_max", 20.0),
+        ]);
+        assert_eq!(separate.value(5.0), None);
+        assert_eq!(separate.value(15.0), Some(15.0));
+    }
+
+    /// A `NaN` survives the bounds test and stays `NaN`, which is what the
+    /// reference readers do: they mask the declared sentinels and nothing else.
+    #[test]
+    fn a_nan_is_not_masked_by_the_bounds() {
+        let cf = CfUnpacking::from_attributes(&packed_attributes());
+        assert!(cf.value(f64::NAN).is_some_and(f64::is_nan));
+    }
+
+    /// Numbers stay numbers. The view this replaces round-tripped them through
+    /// a display string, where a GOES scale factor near 6.7e-7 could round to
+    /// `0.000001` and mis-scale a whole grid.
+    #[test]
+    fn a_numeric_attribute_keeps_its_precision() {
+        let tiny = 6.7e-7_f64;
+        let cf = CfUnpacking::from_attributes(&[Attribute::number("scale_factor", tiny)]);
+        assert_eq!(cf.scale(), tiny, "the f64 must survive exactly");
+        assert_eq!(cf.value(2.0), Some(2.0 * tiny));
+    }
+
+    /// A group tree resolves to path-qualified names, with the root
+    /// contributing no segment.
+    #[test]
+    fn a_group_tree_qualifies_its_names() {
+        let tree = Group {
+            name: String::new(),
+            dimensions: vec![Dimension {
+                name: "time".into(),
+                length: 3,
+            }],
+            arrays: vec![ArrayDescription {
+                name: "surface".into(),
+                element_type: ElementType::Float(32),
+                dimensions: vec!["time".into()],
+                attributes: Vec::new(),
+                chunk_grid: None,
+            }],
+            groups: vec![Group {
+                name: "forecast".into(),
+                dimensions: vec![Dimension {
+                    name: "level".into(),
+                    length: 5,
+                }],
+                arrays: vec![ArrayDescription {
+                    name: "temp".into(),
+                    element_type: ElementType::Int(16),
+                    dimensions: vec!["level".into()],
+                    attributes: Vec::new(),
+                    chunk_grid: Some(ChunkGrid::new(vec![5], vec![2]).unwrap()),
+                }],
+                groups: vec![Group {
+                    name: "inner".into(),
+                    arrays: vec![ArrayDescription {
+                        name: "wind".into(),
+                        element_type: ElementType::Float(64),
+                        dimensions: Vec::new(),
+                        attributes: Vec::new(),
+                        chunk_grid: None,
+                    }],
+                    ..Group::default()
+                }],
+                ..Group::default()
+            }],
+            ..Group::default()
+        };
+
+        let names: Vec<String> = tree
+            .arrays_qualified()
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect();
+        assert_eq!(names, ["surface", "forecast/temp", "forecast/inner/wind"]);
+
+        let dims: Vec<String> = tree
+            .dimensions_qualified()
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect();
+        assert_eq!(dims, ["time", "forecast/level"]);
+    }
+
+    /// An attribute this model does not interpret is kept, not dropped: a user
+    /// reading a variable's metadata is often looking for the odd one.
+    #[test]
+    fn an_uninterpreted_attribute_survives() {
+        let attrs = vec![
+            Attribute {
+                name: "history".into(),
+                value: AttributeValue::Opaque("{nested: json}".into()),
+            },
+            Attribute::text("units", "K"),
+        ];
+        assert_eq!(
+            attribute(&attrs, "history").and_then(AttributeValue::text),
+            Some("{nested: json}")
+        );
+        assert!(
+            attribute(&attrs, "units")
+                .and_then(AttributeValue::number)
+                .is_none()
+        );
+        assert!(attribute(&attrs, "absent").is_none());
     }
 }
