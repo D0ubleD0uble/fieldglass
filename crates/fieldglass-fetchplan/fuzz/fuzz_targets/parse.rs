@@ -36,8 +36,8 @@
 use libfuzzer_sys::fuzz_target;
 
 use fieldglass_fetchplan::{
-    candidates, EcmwfIndex, KerchunkRefs, Manifest, NoResolver, PlanItem, Query, SourceSpec,
-    Wgrib2Idx, ZarrArrayMeta,
+    candidates, ArrayMetadata, EcmwfIndex, KerchunkRefs, Manifest, NoResolver, PlanItem, Query,
+    SourceSpec, Wgrib2Idx,
 };
 
 /// Object sizes a closed range is tried against.
@@ -106,57 +106,62 @@ fn references(text: &str) {
                 ranges(&item, text.as_bytes());
             }
         }
-        let region: Vec<std::ops::Range<u64>> =
-            meta.shape().iter().map(|extent| 0..*extent).collect();
+        let region: Vec<std::ops::Range<u64>> = meta
+            .grid()
+            .shape()
+            .iter()
+            .map(|extent| 0..*extent)
+            .collect();
         let _ = refs.chunks_covering(&name, &meta, &region);
     }
 }
 
 /// The Zarr-metadata arm, reached without a reference document wrapped round it.
 fn grid(text: &str) {
-    if let Ok(meta) = ZarrArrayMeta::from_metadata(text) {
+    if let Ok(meta) = ArrayMetadata::parse(text) {
         walk_grid(&meta);
     }
     // The two editions are also reachable directly, and a document that sniffs
     // as one edition is still handed to the other's reader by a caller that
     // knows which file it opened.
-    if let Ok(meta) = ZarrArrayMeta::from_v2_metadata(text) {
+    if let Ok(meta) = ArrayMetadata::from_v2(text) {
         walk_grid(&meta);
     }
-    if let Ok(meta) = ZarrArrayMeta::from_v3_metadata(text) {
+    if let Ok(meta) = ArrayMetadata::from_v3(text) {
         walk_grid(&meta);
     }
 }
 
 /// The chunk-grid arithmetic, over the indices most likely to be off the end.
-fn walk_grid(meta: &ZarrArrayMeta) {
-    let _ = meta.chunk_grid();
-    let _ = meta.rank();
+fn walk_grid(meta: &ArrayMetadata) {
+    let _ = meta.grid().grid_shape();
+    let _ = meta.grid().rank();
     for index in candidate_indices(meta) {
         let _ = meta.chunk_key(&index);
-        let _ = meta.chunk_containing(&index);
+        let _ = meta.grid().chunk_containing(&index);
     }
     // A region spanning the whole array, and one that runs past its end.
-    let whole: Vec<std::ops::Range<u64>> = meta.shape().iter().map(|e| 0..*e).collect();
-    let _ = meta.chunks_covering(&whole);
+    let whole: Vec<std::ops::Range<u64>> = meta.grid().shape().iter().map(|e| 0..*e).collect();
+    let _ = meta.grid().chunks_covering(&whole);
     let over: Vec<std::ops::Range<u64>> = meta
+        .grid()
         .shape()
         .iter()
         .map(|e| 0..e.saturating_add(1))
         .collect();
-    let _ = meta.chunks_covering(&over);
+    let _ = meta.grid().chunks_covering(&over);
     // A rank the array does not have, which every entry point has to refuse
     // before it indexes anything.
     let _ = meta.chunk_key(&[0]);
-    let _ = meta.chunk_containing(&[0, 0, 0]);
+    let _ = meta.grid().chunk_containing(&[0, 0, 0]);
 }
 
 /// Indices worth trying against an array: the origin, the last chunk, and one
 /// past it.
-fn candidate_indices(meta: &ZarrArrayMeta) -> Vec<Vec<u64>> {
-    let grid = meta.chunk_grid();
+fn candidate_indices(meta: &ArrayMetadata) -> Vec<Vec<u64>> {
+    let grid = meta.grid().grid_shape();
     vec![
-        vec![0; meta.rank()],
+        vec![0; meta.grid().rank()],
         grid.iter().map(|n| n.saturating_sub(1)).collect(),
         grid.clone(),
         grid.iter().map(|_| u64::MAX).collect(),

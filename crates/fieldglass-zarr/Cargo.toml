@@ -35,16 +35,37 @@ serde_json = { workspace = true }
 
 # DEFLATE for the `zlib` and `gzip` codecs, and for blosc's zlib-compressed
 # blocks. Already in the tree via `png` and `fieldglass-netcdf`.
-miniz_oxide = { workspace = true }
+miniz_oxide = { workspace = true, optional = true }
 # zstd for the `zstd` codec and for blosc's zstd-compressed blocks. Already in
 # the tree via `fieldglass-netcdf`'s HDF5 filter 32015.
-ruzstd = { workspace = true }
+ruzstd = { workspace = true, optional = true }
 
 # **No LZ4 or BloscLZ dependency.** Both are decompressed here, in `lz4.rs` and
 # `blosclz.rs`: they are the two LZ77 dialects blosc carries, each under a
 # hundred lines to reverse, and having them side by side means one set of
 # bounds and overlap-copy tests covers both. A crate for each would also be a
 # crate each for a format that only ever appears *inside* a blosc block.
+
+[features]
+default = ["codecs"]
+
+# Turning stored chunk bytes into numbers. **On by default**, so nothing
+# downstream changes by upgrading; the win is for a consumer that wants to know
+# what an array *is* without linking anything that can decompress one.
+#
+# `fieldglass-fetchplan` is that consumer (#686): it reads an array's metadata
+# to work out which bytes a chunk occupies and hands the answer to a host, and
+# it has no business carrying two LZ77 decoders and a zstd implementation to do
+# it. With this off, `cargo tree` for that crate shows neither `miniz_oxide` nor
+# `ruzstd`.
+#
+# What stays ungated is `metadata` and the `dtype` grammar it needs: reading a
+# document is not decoding one, and the split is the point (ADR-0010 decision
+# 6).
+codecs = ["dep:miniz_oxide", "dep:ruzstd"]
+
+[dev-dependencies]
+serde_json = { workspace = true }
 
 [lints]
 workspace = true

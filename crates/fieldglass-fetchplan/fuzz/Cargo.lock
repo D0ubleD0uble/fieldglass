@@ -38,6 +38,7 @@ name = "fieldglass-fetchplan"
 version = "0.5.0"
 dependencies = [
  "fieldglass-core",
+ "fieldglass-zarr",
  "serde",
  "serde_json",
  "thiserror",
@@ -49,6 +50,14 @@ version = "0.0.0"
 dependencies = [
  "fieldglass-fetchplan",
  "libfuzzer-sys",
+ "serde_json",
+]
+
+[[package]]
+name = "fieldglass-zarr"
+version = "0.5.0"
+dependencies = [
+ "fieldglass-core",
  "serde_json",
 ]
 

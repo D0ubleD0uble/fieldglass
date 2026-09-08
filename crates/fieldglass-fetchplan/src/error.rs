@@ -332,6 +332,20 @@ pub enum FetchPlanError {
     #[error("{0}")]
     Array(#[from] fieldglass_core::array::ArrayError),
 
+    /// An array's metadata document would not read.
+    ///
+    /// Carries the reader's message rather than its error: that type holds a
+    /// `std::io::Error` and so derives neither `Clone` nor `PartialEq`, which
+    /// this enum does. The key is here because a reference document holds
+    /// thousands and the message alone does not say which one.
+    #[error("kerchunk references: the metadata at {key:?} would not read: {detail}")]
+    Metadata {
+        /// The store key the document was under.
+        key: String,
+        /// What the reader said.
+        detail: String,
+    },
+
     /// A reference document carries no metadata for the array asked about.
     #[error("kerchunk references: no array named {name:?} in this document")]
     NoSuchArray {

@@ -31,24 +31,33 @@ thiserror = { workspace = true }
 # the umbrella does it: `fs` has no meaning in a browser.
 fieldglass-core = { path = "../fieldglass-core", version = "=0.5.0", default-features = false }
 
-# **No format crate.** Not an omission: this crate is the planner ADR-0005
-# decision 5 describes, and a planner that linked a decoder would drag GRIB2's
-# four codecs into a host that only wanted to know which bytes to ask for.
-# Semantic matching goes through `ParameterResolver`, which `fieldglass`
-# implements over the GRIB2 tables (#426); the §0 envelope check is sixteen
-# bytes of arithmetic and needs no table at all.
+# The one reader of an array's metadata document (#686). `default-features =
+# false` declines the `codecs` feature, so this crate takes the parser and links
+# no decompressor: `cargo tree -p fieldglass-fetchplan` carries neither
+# `miniz_oxide` nor `ruzstd`.
+#
+# This is the "no format crate" rule met rather than broken. That rule was about
+# *weight* — "a planner that linked a decoder would drag GRIB2's four codecs
+# into a host that only wanted to know which bytes to ask for" — and the weight
+# is now behind a feature the planner declines. What is taken is a JSON reader
+# for a document this crate was parsing itself, twice over, with a second
+# vocabulary for refusing the same things.
+#
+# No GRIB decoder is taken, and none is wanted: semantic matching goes through
+# `ParameterResolver`, which `fieldglass` implements over the GRIB2 tables
+# (#426), and the §0 envelope check is sixteen bytes of arithmetic that needs no
+# table at all.
+fieldglass-zarr = { path = "../fieldglass-zarr", version = "=0.5.0", default-features = false }
+
 
 [dev-dependencies]
-# The one place a format crate appears, and only here: `tests/kerchunk_seam.rs`
-# checks that a range this crate planned holds a chunk `fieldglass-zarr` can
-# decode. That seam is the whole point of the pair — addressing here, codecs
-# there — and it is the one property neither crate's own suite can state.
-#
-# A dev-dependency and not a dependency, deliberately: it is compiled to run
-# this crate's tests and reaches no consumer, so the rule above still holds for
-# anything that links this crate. Nothing in `src/` names it, and the
-# `unused-dependencies` hook checks that the name is used somewhere in the
-# package, which `tests/` satisfies.
+# The same crate again, with the codecs this crate's library declines.
+# `tests/kerchunk_seam.rs` checks that a range this crate planned holds a chunk
+# the decode half can turn into numbers, which needs a decompressor — and a
+# dev-dependency reaches the tests and nothing that links the library, so the
+# `cargo tree` above stays free of one. Cargo unifies features per build, so
+# this is why that check is `cargo tree -p fieldglass-fetchplan` and not a
+# `--all-targets` build.
 fieldglass-zarr = { path = "../fieldglass-zarr", version = "=0.5.0" }
 
 [lints]
