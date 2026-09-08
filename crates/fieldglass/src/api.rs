@@ -69,6 +69,16 @@ api_type! {
         /// WMO FM 92 GRIB edition 2.
         Grib2,
         /// NetCDF, either classic (CDF-1/2/5) or NetCDF-4 over HDF5.
+        ///
+        /// Spelled `netcdf` on the wire, not the `snake_case` derive's
+        /// `net_cdf`: the other two variants are `grib1` and `grib2`, and a
+        /// host comparing strings should not have to remember that one of the
+        /// three grew an underscore from how the Rust identifier is
+        /// capitalised. Pinned rather than left to the rename rule because this
+        /// is the vocabulary the JSON schema publishes; #662 added the variant
+        /// and it has not shipped in a release, so this is the last moment
+        /// changing it is free.
+        #[serde(rename = "netcdf")]
         NetCdf,
     }
 

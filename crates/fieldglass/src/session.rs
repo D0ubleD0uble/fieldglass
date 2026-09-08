@@ -720,11 +720,16 @@ impl Session {
                     .ok_or_else(|| Error::Decode {
                         detail: format!("`{}` is not in the dataset view", var.name),
                     })?;
-                // The CF mask-and-scale is applied here, so a packed `int16`
-                // variable reaches a host in physical units the way a GRIB
-                // field does — the asymmetry #664 named, resolved at the seam
-                // that can see the attributes.
-                let raw = source.unpack(&reader.decode_plane(source, y, x, &fixed)?);
+                // `decode_plane` is the whole chain — decode, extract the
+                // plane, then the CF mask-and-scale — so a packed `int16`
+                // variable arrives here already in physical units, the way a
+                // GRIB field does. It must **not** be unpacked again: a second
+                // `scale_factor` / `add_offset` pass computes
+                // `(raw·s + o)·s + o`, which for the committed CF fixture turns
+                // 250 K into 265.625 K and for a GOES or ERA5 archive is wrong
+                // by about two orders of magnitude. Every number is finite and
+                // plausible, so nothing downstream can tell.
+                let values = reader.decode_plane(source, y, x, &fixed)?;
                 let placement = reader.slice_placement(view, var, y, x)?;
                 let ni = u32::try_from(var.dims[x].length).unwrap_or(u32::MAX);
                 let nj = u32::try_from(var.dims[y].length).unwrap_or(u32::MAX);
@@ -736,7 +741,7 @@ impl Session {
                     .unwrap_or_default();
                 let declared = placement.geometry.label().to_string();
                 Ok(build_field(
-                    &raw,
+                    &values,
                     ni,
                     nj,
                     &placement.geometry,

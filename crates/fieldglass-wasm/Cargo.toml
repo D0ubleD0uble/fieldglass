@@ -23,7 +23,16 @@ crate-type = ["cdylib", "rlib"]
 # change: #462's size gate is a ratchet, and a bundle that shrinks for a reason
 # unrelated to the measurement it is recorded against is a worse baseline than
 # one that did not move.
-fieldglass = { path = "../fieldglass", version = "=0.5.0", default-features = false, features = ["grib1", "grib2", "render", "analysis"] }
+#
+# `netcdf` is the fifth, added by #662, and it is the one that costs something:
+# it opts this host into a whole container format and the HDF5 object model and
+# filter pipeline behind it, which measured +30.2% on the module and +33.5%
+# gzipped — +293,001 and +125,927 bytes, against binaryen 132 as CI pins it. That
+# is deliberate rather than incidental. The issue's complaint was that the same
+# file rendered in the VS Code editor and was refused in a browser, and a host
+# that cannot open one of the three shipped formats is the divergence, not the
+# saving. The measured figures are re-recorded in README.md, which is the gate.
+fieldglass = { path = "../fieldglass", version = "=0.5.0", default-features = false, features = ["grib1", "grib2", "netcdf", "render", "analysis"] }
 js-sys = "0.3"
 serde = { workspace = true }
 serde-wasm-bindgen = "0.6"
