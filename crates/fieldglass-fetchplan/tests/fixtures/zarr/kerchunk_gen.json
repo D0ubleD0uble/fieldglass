@@ -1,0 +1,24 @@
+{
+ "version": 1,
+ "templates": {
+  "u": "s3://example-bucket/temp.bin"
+ },
+ "gen": [
+  {
+   "key": "temp/{{i}}.0",
+   "url": "{{u}}",
+   "offset": "{{i * 31}}",
+   "length": "24",
+   "dimensions": {
+    "i": {
+     "stop": 2
+    }
+   }
+  }
+ ],
+ "refs": {
+  ".zgroup": "{\"zarr_format\": 2}",
+  "temp/.zarray": "{\n  \"shape\": [\n    4,\n    6\n  ],\n  \"chunks\": [\n    2,\n    3\n  ],\n  \"dtype\": \"<f4\",\n  \"fill_value\": 0.0,\n  \"order\": \"C\",\n  \"filters\": null,\n  \"dimension_separator\": \".\",\n  \"compressor\": {\n    \"id\": \"zstd\",\n    \"level\": 3\n  },\n  \"zarr_format\": 2\n}",
+  "temp/.zattrs": "{\"_ARRAY_DIMENSIONS\": [\"y\", \"x\"]}"
+ }
+}

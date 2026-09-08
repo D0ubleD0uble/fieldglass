@@ -7,7 +7,7 @@
 //! in it, which is evidence the surface has them rather than evidence it is now
 //! clean.
 //!
-//! Three arms run on every input:
+//! Five arms run on every input:
 //!
 //! 1. **wgrib2 `.idx`** — a colon-delimited line grammar with an offset per
 //!    record and a length that is only ever implied by the *next* record.
@@ -15,18 +15,29 @@
 //! 3. **Run discovery** — a `SourceSpec` deserialized from the same buffer,
 //!    with a clock and a forecast step read off its tail, driving the key
 //!    template scanner and the cycle arithmetic.
+//! 4. **Kerchunk references** — one JSON document mapping store keys to inline
+//!    data or to `[url, offset, length]`. Its hostile surface is wider than the
+//!    two sidecars': a hand-rolled base64 decoder, a `{{name}}` scanner walking
+//!    byte offsets through a string it does not control, and reference arrays
+//!    whose numbers become a range.
+//! 5. **Zarr metadata** — a `.zarray` or `zarr.json` read for the chunk grid.
+//!    Every extent it states is divided by (`div_ceil` on a zero chunk extent
+//!    is a division by zero) or multiplied out into a chunk key.
 //!
 //! A parse that succeeds is walked the way a host walks it: every record, the
 //! collapsed one-per-message list, a query, and then the range arithmetic —
 //! `close` against an object size, the HTTP `Range` header, and the §0 envelope
-//! check against the input read back as message bytes.
+//! check against the input read back as message bytes. A reference document
+//! that parses is walked the same way, through every key it declares and
+//! through the chunk-grid arithmetic of every array it carries metadata for.
 
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
 
 use fieldglass_fetchplan::{
-    candidates, EcmwfIndex, Manifest, NoResolver, PlanItem, Query, SourceSpec, Wgrib2Idx,
+    candidates, EcmwfIndex, KerchunkRefs, Manifest, NoResolver, PlanItem, Query, SourceSpec,
+    Wgrib2Idx, ZarrArrayMeta,
 };
 
 /// Object sizes a closed range is tried against.
@@ -57,7 +68,100 @@ fuzz_target!(|data: &[u8]| {
     }
 
     discovery(data);
+    references(&text);
+    grid(&text);
 });
+
+/// The kerchunk arm: a reference document, and everything a host asks of one.
+///
+/// A document that parses is walked in full rather than sampled. Every key is
+/// asked for both ways — as inline data and as a range — because which of the
+/// two an entry is decides which branch runs, and the fuzzer is the only thing
+/// that will produce an entry of the wrong shape under a metadata key.
+fn references(text: &str) {
+    let Ok(refs) = KerchunkRefs::parse(text) else {
+        return;
+    };
+
+    let keys: Vec<String> = refs.keys().map(str::to_string).collect();
+    for key in &keys {
+        let _ = refs.inline(key);
+        if let Some(item) = refs.range_of(key) {
+            ranges(&item, text.as_bytes());
+        }
+    }
+
+    // `arrays` parses each metadata document to decide what to list, and
+    // `array` parses it again for the caller; both reach the grid arithmetic
+    // through whatever a fuzzer put under a `.zarray` key.
+    for name in refs.arrays() {
+        let Ok(meta) = refs.array(&name) else {
+            continue;
+        };
+        walk_grid(&meta);
+        // The indices a caller is most likely to hand over: the first chunk,
+        // the last, and one past the end.
+        for index in candidate_indices(&meta) {
+            if let Ok(Some(item)) = refs.chunk_at(&name, &meta, &index) {
+                ranges(&item, text.as_bytes());
+            }
+        }
+        let region: Vec<std::ops::Range<u64>> =
+            meta.shape().iter().map(|extent| 0..*extent).collect();
+        let _ = refs.chunks_covering(&name, &meta, &region);
+    }
+}
+
+/// The Zarr-metadata arm, reached without a reference document wrapped round it.
+fn grid(text: &str) {
+    if let Ok(meta) = ZarrArrayMeta::from_metadata(text) {
+        walk_grid(&meta);
+    }
+    // The two editions are also reachable directly, and a document that sniffs
+    // as one edition is still handed to the other's reader by a caller that
+    // knows which file it opened.
+    if let Ok(meta) = ZarrArrayMeta::from_v2_metadata(text) {
+        walk_grid(&meta);
+    }
+    if let Ok(meta) = ZarrArrayMeta::from_v3_metadata(text) {
+        walk_grid(&meta);
+    }
+}
+
+/// The chunk-grid arithmetic, over the indices most likely to be off the end.
+fn walk_grid(meta: &ZarrArrayMeta) {
+    let _ = meta.chunk_grid();
+    let _ = meta.rank();
+    for index in candidate_indices(meta) {
+        let _ = meta.chunk_key(&index);
+        let _ = meta.chunk_containing(&index);
+    }
+    // A region spanning the whole array, and one that runs past its end.
+    let whole: Vec<std::ops::Range<u64>> = meta.shape().iter().map(|e| 0..*e).collect();
+    let _ = meta.chunks_covering(&whole);
+    let over: Vec<std::ops::Range<u64>> = meta
+        .shape()
+        .iter()
+        .map(|e| 0..e.saturating_add(1))
+        .collect();
+    let _ = meta.chunks_covering(&over);
+    // A rank the array does not have, which every entry point has to refuse
+    // before it indexes anything.
+    let _ = meta.chunk_key(&[0]);
+    let _ = meta.chunk_containing(&[0, 0, 0]);
+}
+
+/// Indices worth trying against an array: the origin, the last chunk, and one
+/// past it.
+fn candidate_indices(meta: &ZarrArrayMeta) -> Vec<Vec<u64>> {
+    let grid = meta.chunk_grid();
+    vec![
+        vec![0; meta.rank()],
+        grid.iter().map(|n| n.saturating_sub(1)).collect(),
+        grid.clone(),
+        grid.iter().map(|_| u64::MAX).collect(),
+    ]
+}
 
 /// Everything a host does with a manifest once it has parsed.
 ///

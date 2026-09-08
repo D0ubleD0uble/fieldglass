@@ -120,6 +120,7 @@ name = "fieldglass-fetchplan"
 version = "0.5.0"
 dependencies = [
  "fieldglass-core",
+ "fieldglass-zarr",
  "serde",
  "serde_json",
  "thiserror",

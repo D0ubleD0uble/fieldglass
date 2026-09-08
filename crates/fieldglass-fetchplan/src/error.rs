@@ -14,6 +14,12 @@ pub enum Dialect {
     Wgrib2Idx,
     /// The ECMWF `.index` sidecar: JSON lines, one object per record.
     EcmwfIndex,
+    /// A kerchunk reference document: one JSON object mapping a store key to
+    /// data or to a byte range of some object.
+    Kerchunk,
+    /// A Zarr array metadata document — a v2 `.zarray` or a v3 `zarr.json` —
+    /// read for the chunk grid and the key spelling, and for nothing else.
+    ZarrMetadata,
 }
 
 impl std::fmt::Display for Dialect {
@@ -21,6 +27,8 @@ impl std::fmt::Display for Dialect {
         f.write_str(match self {
             Self::Wgrib2Idx => "wgrib2 .idx",
             Self::EcmwfIndex => "ECMWF .index",
+            Self::Kerchunk => "kerchunk references",
+            Self::ZarrMetadata => "Zarr metadata",
         })
     }
 }
@@ -189,6 +197,203 @@ pub enum FetchPlanError {
         offset: u64,
         /// The object size the host supplied.
         object_size: u64,
+    },
+
+    // ── The chunk-addressing dialects ───────────────────────────────────────
+    //
+    // These carry no line number, and that is the difference rather than an
+    // omission: a `.idx` and a `.index` are line grammars, while a kerchunk
+    // reference document and a Zarr metadata document are each one JSON value.
+    // What locates a failure in them is the key it was under, so that is what
+    // these carry.
+    /// A whole document did not parse as JSON.
+    #[error("{dialect}: {detail}")]
+    Document {
+        /// Which document was being read.
+        dialect: Dialect,
+        /// `serde_json`'s own message, which names the line and column.
+        detail: String,
+    },
+
+    /// A key the document's grammar requires was absent.
+    #[error("{dialect}: required field {key:?} is missing")]
+    MissingField {
+        /// Which document was being read.
+        dialect: Dialect,
+        /// The absent field, dotted where it is nested.
+        key: &'static str,
+    },
+
+    /// A field was present and was not the kind of value it has to be.
+    #[error("{dialect}: {key:?} must be {expected}")]
+    BadFieldType {
+        /// Which document was being read.
+        dialect: Dialect,
+        /// The field's name in the document's own vocabulary.
+        key: &'static str,
+        /// What the grammar requires, in words.
+        expected: &'static str,
+    },
+
+    /// The document uses something this crate deliberately does not read.
+    ///
+    /// Refused rather than skipped: a document read past the part that was not
+    /// understood returns a plan that is short by however much that part
+    /// addressed, with nothing to say so.
+    #[error("{dialect}: unsupported — {feature}")]
+    UnsupportedFeature {
+        /// Which document was being read.
+        dialect: Dialect,
+        /// What was there, named so a host can report it.
+        feature: &'static str,
+    },
+
+    /// A kerchunk document declared a version this crate does not read.
+    #[error("kerchunk references: version {found} is not read; only version 1 is")]
+    UnsupportedKerchunkVersion {
+        /// The value of the document's `version`, as written.
+        found: String,
+    },
+
+    /// A Zarr metadata document declared an edition this crate does not read.
+    #[error("Zarr metadata: zarr_format {found} is not read; only 2 and 3 are")]
+    UnsupportedZarrFormat {
+        /// The value of the document's `zarr_format`, as written.
+        found: String,
+    },
+
+    /// The array's chunks are not laid out on a regular grid.
+    ///
+    /// Only `regular` divides an array into equal chunks, which is the whole of
+    /// the arithmetic here; a rectilinear grid states each chunk's extent
+    /// separately and needs a different one.
+    #[error("Zarr metadata: chunk grid {name:?} is not read; only \"regular\" is")]
+    UnsupportedChunkGrid {
+        /// The grid's name, as the document spells it.
+        name: String,
+    },
+
+    /// The array spells its chunk keys with a convention this crate does not
+    /// know, so no key it built would find an object.
+    #[error(
+        "Zarr metadata: chunk key encoding {name:?} is not read; only \"default\" and \"v2\" are"
+    )]
+    UnsupportedChunkKeyEncoding {
+        /// The encoding's name, as the document spells it.
+        name: String,
+    },
+
+    /// A v3 `zarr.json` describes something other than an array.
+    ///
+    /// A group's metadata has the same file name and none of the fields, so
+    /// this says which node it is rather than reporting a missing `shape`.
+    #[error("Zarr metadata: this document describes a {node_type}, not an array")]
+    NotAnArray {
+        /// The document's own `node_type`.
+        node_type: String,
+    },
+
+    /// A chunk key separator that is not one of the two the conventions use.
+    #[error("Zarr metadata: {found:?} is not a chunk key separator; expected \".\" or \"/\"")]
+    BadSeparator {
+        /// What the document said.
+        found: String,
+    },
+
+    /// The array's shape and its chunk shape have different numbers of axes.
+    #[error("Zarr metadata: the shape has {shape} axes and the chunk shape has {chunks}")]
+    RankMismatch {
+        /// How many axes the shape states.
+        shape: usize,
+        /// How many the chunk shape states.
+        chunks: usize,
+    },
+
+    /// A chunk extent of zero, which no array has and which the grid
+    /// arithmetic would divide by.
+    #[error("Zarr metadata: the chunk shape is zero on axis {axis}")]
+    ZeroChunkExtent {
+        /// Which axis, counted from zero.
+        axis: usize,
+    },
+
+    /// An index, point or region with the wrong number of axes for the array.
+    #[error("this array has {expected} axes, but {found} were given")]
+    WrongRank {
+        /// How many the array has.
+        expected: usize,
+        /// How many the caller supplied.
+        found: usize,
+    },
+
+    /// A chunk index past the end of the chunk grid.
+    #[error("chunk index {index} is past the end of axis {axis}, which has {extent} chunks")]
+    ChunkIndexOutOfRange {
+        /// Which axis, counted from zero.
+        axis: usize,
+        /// The index asked for.
+        index: u64,
+        /// How many chunks that axis has.
+        extent: u64,
+    },
+
+    /// An element index past the end of the array.
+    #[error("index {index} is past the end of axis {axis}, which has {extent} elements")]
+    PointOutOfRange {
+        /// Which axis, counted from zero.
+        axis: usize,
+        /// The index asked for.
+        index: u64,
+        /// How many elements that axis has.
+        extent: u64,
+    },
+
+    /// One entry of a reference document was not a reference.
+    ///
+    /// Carries the key because a document holds thousands of them and the
+    /// detail alone does not say which one is wrong.
+    #[error("kerchunk references: {key:?} is not a valid reference: {detail}")]
+    BadReference {
+        /// The store key the entry was under.
+        key: String,
+        /// What was wrong with it.
+        detail: String,
+    },
+
+    /// A `{{…}}` holding something other than a template's name.
+    ///
+    /// The spec's templates are jinja2, so a value may be an expression or a
+    /// call. Approximating one builds a URL that fetches the wrong object and
+    /// reports success, so it is refused instead.
+    #[error("kerchunk references: {expression:?} is a jinja2 expression, not a template name")]
+    UnsupportedTemplate {
+        /// What was between the braces.
+        expression: String,
+    },
+
+    /// A `{{name}}` naming a template the document does not declare.
+    #[error("kerchunk references: no template named {name:?}")]
+    UnknownTemplate {
+        /// The name that was asked for.
+        name: String,
+    },
+
+    /// A reference document carries no metadata for the array asked about.
+    #[error("kerchunk references: no array named {name:?} in this document")]
+    NoSuchArray {
+        /// The name that was asked for.
+        name: String,
+    },
+
+    /// A region touches more chunks than this crate will build a list of.
+    ///
+    /// The bound exists because the array's shape is read out of a document
+    /// fetched over the network: `[1000000000000]` in chunks of one is sixty
+    /// bytes of JSON and a list of a trillion indices.
+    #[error("this region touches more than {limit} chunks, which is more than a plan will hold")]
+    RegionTooLarge {
+        /// The most chunks a region may touch.
+        limit: u64,
     },
 }
 
