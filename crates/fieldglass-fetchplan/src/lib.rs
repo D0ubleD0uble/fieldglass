@@ -89,6 +89,13 @@
 //! matches. The split is the same one `Session` draws between a message index
 //! and a variable, for the same reason.
 //!
+//! The trait shape is changing (ADR-0010 decision 4, #685): a plan item will
+//! carry its own address — a message index or a chunk index — `Manifest` will
+//! keep `items()` and `messages()` and lose `key()`, the query will move to a
+//! `MessageManifest` extension trait, and `KerchunkRefs` will implement the base
+//! trait. The chunk-grid arithmetic under [`ZarrArrayMeta`] moves to
+//! `fieldglass-core` in #677.
+//!
 //! [`ZarrArrayMeta`] is the arithmetic under the last row: shape and chunk
 //! shape in, the key of the chunk holding a region out. It reads a metadata
 //! document for that and nothing else — the codecs, the data type and the fill

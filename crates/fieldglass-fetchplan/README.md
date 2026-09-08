@@ -86,6 +86,13 @@ object to name — a reference document addresses as many objects as it likes �
 `KerchunkRefs` is deliberately **not** a `Manifest`: implementing it would mean a
 `key()` picking one URL out of many and a query that never matches.
 
+The trait shape is changing (ADR-0010 decision 4, #685): a plan item will
+carry its own address — a message index or a chunk index — `Manifest` will
+keep `items()` and `messages()` and lose `key()`, the query will move to a
+`MessageManifest` extension trait, and `KerchunkRefs` will implement the base
+trait. The chunk-grid arithmetic under `ZarrArrayMeta` moves to
+`fieldglass-core` in #677.
+
 `ZarrArrayMeta` is the arithmetic under the last row. It reads a `.zarray` or a
 `zarr.json` for the chunk grid and the key spelling and for nothing else — the
 codecs, the data type and the fill value are `fieldglass-zarr`'s, so a host that

@@ -6,13 +6,14 @@ describe the workspace **as it will be** once the open milestones close. They
 are the same three altitudes (crates, trait seams, composition) plus one new
 one (hosts), so a reader can put each pair side by side.
 
-Snapshot date: 2026-08-24. Milestones covered:
+Snapshot date: 2026-09-07. Milestones covered:
 
 | Milestone | Title | What it adds to the picture |
 | --- | --- | --- |
 | [7](https://github.com/D0ubleD0uble/fieldglass/milestone/7) | Formal verification of the decode kernel (Verus) | `fieldglass-verify` proofs over the decode arithmetic, outside the workspace. |
 | [10](https://github.com/D0ubleD0uble/fieldglass/milestone/10) | Grid geometry, local tables, and the byte-access seam | The spatial-index seam behind `SourceGrid`; HEALPix (§3.150) and 2-D coordinate curvilinear grids as its first consumers. |
-| [11](https://github.com/D0ubleD0uble/fieldglass/milestone/11) | fieldglass-wasm: browser host surface | A second host (`fieldglass-wasm`), the `fieldglass` umbrella crate both hosts bind (ADR-0006) with its `Session`, `Error`, and conformance suite, the `GridGeometry` type in core, `Palette` as the one colour path (#485), `fieldglass-fetchplan`, and Zarr re-scoped to codecs. |
+| [11](https://github.com/D0ubleD0uble/fieldglass/milestone/11) | fieldglass-wasm: browser host surface | A second host (`fieldglass-wasm`), the `fieldglass` umbrella crate both hosts bind (ADR-0006) with its `Session`, `Error`, and conformance suite, the `GridGeometry` type in core, `Palette` as the one colour path (#485), `fieldglass-fetchplan`, and the Zarr store walker (#658) and its host command (#659). |
+| [12](https://github.com/D0ubleD0uble/fieldglass/milestone/12) | Cleanliness and refactor | The layered workspace of [ADR-0010](../../decisions/0010-a-common-array-model-and-containers-as-drivers.md): a common array model in `core` (#677, #678), `ObjectSource` beside `ByteSource` (#680, #681), the NetCDF view and HDF5 reader on those seams (#684, #682), one Zarr metadata parser (#686), `fetchplan` reshaped to manifests in and chunk plan out (#685, #687), and the Variables addressing mode under conformance (#679). |
 
 ## Rules
 
@@ -33,7 +34,7 @@ Snapshot date: 2026-08-24. Milestones covered:
 
 | File | Scope | Compare with |
 | --- | --- | --- |
-| [`01-crates.md`](01-crates.md) | Workspace after milestones 7, 10, 11 | [`../01-crates.md`](../01-crates.md) |
+| [`01-crates.md`](01-crates.md) | Workspace after milestones 7, 11, 12, described as layers | [`../01-crates.md`](../01-crates.md) |
 | [`02-trait-seams.md`](02-trait-seams.md) | New and widened dispatch points | [`../02-trait-seams.md`](../02-trait-seams.md) |
 | [`03-composition.md`](03-composition.md) | New message parts and the host boundary after #464 | [`../03-composition.md`](../03-composition.md) |
 | [`04-hosts.md`](04-hosts.md) | The two hosts and how a browser gets a field from a bucket | (new altitude) |

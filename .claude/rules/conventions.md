@@ -125,6 +125,18 @@ which has already absorbed the edge cases (poles inside the domain, points off
 a projection disc, antimeridian arcs) that a fresh one rediscovers one bug at
 a time.
 
+## A format crate stays lightweight
+
+Someone can take *just* `fieldglass-grib2`, or *just* `fieldglass-netcdf`, and
+get a professional-grade reader that links nothing the other formats need
+(ADR-0010 decision 6). So a shared layer — the array model, the storage seam,
+anything else that lands in `core` because two readers ask for it — adds **no
+dependency** to `core` and no gated surface a reader did not ask for. JSON
+parsing, decompressors and the like live in the crate whose container needs
+them, behind a feature if another crate wants only part of it. The check is
+`cargo tree -p <format crate>` before and after: a new crate in that tree is a
+defect, and the issue should name the command.
+
 ## Decode is decoupled from rendering
 - A new decode path (a GRIB1 packing, a GRIB2 §5 template, a NetCDF variable)
   needs **no** changes to projection, overlays, or manual bounds. Those run on

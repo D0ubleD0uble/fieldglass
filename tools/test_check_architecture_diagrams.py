@@ -166,16 +166,19 @@ class CrateDeps(unittest.TestCase):
         )
         self.assertEqual(chk.crate_deps_from_toml(toml), {"fieldglass", "core"})
 
-    def test_every_first_party_crate_is_recognised(self):
-        # A new crate that the dependency regex does not know about produces no
+    def test_every_workspace_crate_is_recognised(self):
+        # A crate that the dependency regex does not know about produces no
         # edges at all, so the diagram would pass while describing nothing.
-        for name in chk.FIRST_PARTY_CRATES:
-            dep = "fieldglass" if name == "fieldglass" else f"fieldglass-{name}"
+        # The list is the workspace itself, so a new crate is covered the day
+        # it is added rather than the day someone remembers this test.
+        crates = sorted(p.name for p in chk.CRATES_DIR.glob("fieldglass*") if p.is_dir())
+        self.assertGreaterEqual(len(crates), 7)
+        for dep in crates:
+            name = dep.removeprefix("fieldglass-") if dep != "fieldglass" else "fieldglass"
             toml = f'[dependencies]\n{dep} = {{ path = "../{dep}" }}\n'
             self.assertEqual(
                 chk.crate_deps_from_toml(toml), {name}, f"{dep} is not recognised"
             )
-
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

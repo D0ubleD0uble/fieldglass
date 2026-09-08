@@ -4,8 +4,8 @@ The host-neutral Fieldglass API: bytes in, plain data out.
 
 This is the crate a Rust consumer reaches for, and the one every host binds.
 The format crates (`fieldglass-grib1`, `-grib2`, `-netcdf`) stay independently
-usable; this one sits above the two GRIB editions it carries today (NetCDF
-arrives with its own issue — see "Scope of this first cut") and below a binding,
+usable; this one sits above all three (NetCDF joined with #662, addressed by
+variable rather than by message) and below a binding,
 so a host carries only four things: buffer conversion, error mapping, method
 forwarding, packaging.
 See [ADR-0006](../../docs/decisions/0006-hosts-are-bindings-over-a-plain-data-api.md).
@@ -151,8 +151,8 @@ own codecs:
 
 ## Scope of this first cut
 
-GRIB1 and GRIB2 — whichever of the two this build compiled in — and every grid
-family the engine can project: lat/lon,
+GRIB1, GRIB2 and NetCDF — whichever of the three this build compiled in — and
+every grid family the engine can project: lat/lon,
 Gaussian, Mercator, rotated lat/lon, Lambert conformal, polar stereographic,
 transverse Mercator, Lambert azimuthal equal-area, and the geostationary space
 view.
@@ -182,8 +182,8 @@ Filed under
 consumer by [#464](https://github.com/D0ubleD0uble/fieldglass/issues/464),
 which moved the render orchestration out of `fieldglass-napi`. Not on crates.io
 yet: the release process is written around the four library crates, and adding
-a fifth is its own piece of work. NetCDF and reduced-resolution decode (#463)
-arrive with their own issues; caller-sized output landed in #465, so `warp` and
+a fifth is its own piece of work. NetCDF landed in #662 and reduced-resolution
+decode (#463) arrives with its own issue; caller-sized output landed in #465, so `warp` and
 the two lat/lon-box render targets take a `width`/`height` pair — a window at a
 pixel size, in place of whatever raster the source grid implies.
 

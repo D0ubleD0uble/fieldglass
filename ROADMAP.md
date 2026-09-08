@@ -3,7 +3,10 @@
 *Adopted 2026-07-19. Revised 2026-08-26 during 0.5.0 prep: milestone 10 closed,
 **Now** repopulated from the fieldglass-wasm milestone, and a **Hosts** track
 added. Revised 2026-09-06: the umbrella crate, the browser façade and its CI
-gates have landed, so those rows leave **Now** and **Next** (#467). Reviewed
+gates have landed, so those rows leave **Now** and **Next** (#467). Revised
+2026-09-07: the workspace is described as layers under
+[ADR-0010](docs/decisions/0010-a-common-array-model-and-containers-as-drivers.md),
+and the milestone 12 sweep that builds them (#677–#687) is in **Now**. Reviewed
 after each release and at the twice-yearly WMO fast-track checkpoints (June and
 November).*
 
@@ -141,23 +144,28 @@ What is left and startable is below; the rest is in **Next**.
 
 | Item | Track | Why now |
 |---|---|---|
-| `fieldglass-fetchplan`, manifests in, byte ranges out (#461) | Containers | Unblocked (#417 and #426 are closed). Turns a `.idx` sidecar into the byte ranges an operation needs, which is what makes a multi-GB archive openable without downloading it. |
+| A common array model in `core` (#677, #678) | Containers | The layer every container that holds named arrays reads into ([ADR-0010](docs/decisions/0010-a-common-array-model-and-containers-as-drivers.md)). #677 unblocks the Zarr store walker; nothing else in the sweep waits on anything outside it. |
+| `ObjectSource`, a keyed source beside `ByteSource` (#680, #681) | Containers | A Zarr store, a directory and a kerchunk document are keys to objects; this is the seam the walker reads through and the host fills. |
+| The Zarr store walker (#658) and its host command (#659) | Containers | The half of Zarr that turns the codec crate into a format you can open. Sits on #677 and #680. |
+| `fetchplan` reshaped to manifests in, chunk plan out (#685, #687) | Containers | A plan item says which chunk or message it is, and kerchunk implements the same trait the GRIB sidecars do. |
+| The NetCDF view and HDF5 reader on the shared seams (#684, #682, #686, #679) | Containers | Three copies of the dimension and variable types become one; HDF5 reads through `ByteSource` like classic; one Zarr metadata parser; the Variables addressing mode under conformance. |
 
 ## Next
 
 Problems we are confident we can solve; shape known, timing not.
 
 The rest of the fieldglass-wasm milestone, plus the remote transports it makes
-reachable. Nothing below waits on #460 any more; the transports wait on #461 in
-**Now** and on nothing else, since ADR-0005's gate — the `ByteSource` trait
-(#438) and one migrated reader — is met.
+reachable. Nothing below waits on #460 or #461 any more, both having landed;
+the transports wait on `ObjectSource` (#680) in **Now** and on nothing else,
+since ADR-0005's gate — the `ByteSource` trait (#438) and one migrated reader
+— is met.
 
 | Item | Track | What it unlocks |
 |---|---|---|
 | Publish `@fieldglass/wasm` to npm on tag (#466) | Hosts | Makes the host installable rather than buildable. Rides the existing tag-triggered release path. |
 | Remote data over HTTP range requests (#247) | Containers | The first transport, and the one every other depends on. Opens a file that lives on a public bucket without downloading it. |
 | S3 dataset access (#252) | Containers | NOAA's Open Data buckets are where the archives actually are — the same objects the fixture builders already fetch anonymously. |
-| Local Zarr v2 stores, a new `fieldglass-zarr` crate (#246) | Containers | The storage convention the climate archives are moving to; chunk-per-object rather than one file, so it needs the range seam rather than a reader. |
+| Zarr stores, v2 and v3 (#246) | Containers | The storage convention the climate archives are moving to. The codecs (#657) and chunk addressing (#660) shipped; what is left is the walker and the command in **Now** (#658, #659), and then the remote store, which is the host filling an `ObjectSource` from a bucket. |
 | Streaming / lazy reads for multi-GB archives (#114) | Containers | The extension reads whole files into memory to keep remote and virtual workspaces working, which rules out multi-GB GRIB archives. The same prefetch-then-decode seam is what makes a partial read possible at all. |
 
 **Verification (#199-#203) is deliberately not listed here.** It is a parallel
