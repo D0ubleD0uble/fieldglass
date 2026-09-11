@@ -86,7 +86,8 @@ achievable:
    - Every key is a **file offset**, so the memo is only meaningful for the
      slice it was filled from. It binds to that slice's length on first use and
      steps aside for any other; equal-length files still alias. A `ByteSource`
-     would need a stronger identity than length.
+     would need a stronger identity than length. *(Resolved in #681:
+     `ByteSource::identity` is that identity, and the memo binds to it.)*
    - Chunk records are keyed by `(index address, rank)`. A record's `offset` is
      rank-length, so address alone is not a safe key for a malformed file.
    - Object-header bodies are retained for the reader's life under a 64 MiB
