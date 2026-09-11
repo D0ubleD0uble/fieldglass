@@ -71,10 +71,13 @@ impl Grib1Message {
     }
 }
 
-/// Hard cap on `ni * nj` for `decode_message_values`. Real grids top out
-/// around 25M points; the cap bounds the worst-case `Vec<Option<f64>>`
-/// allocation at ~1 GB (16 bytes/element).
-pub const MAX_GRID_POINTS: usize = 64 * 1024 * 1024;
+/// Hard cap on `ni * nj` for `decode_message_values`.
+///
+/// An alias of [`fieldglass_core::MAX_FIELD_POINTS`], which is where the number
+/// and the reasoning for it live: every reader that materialises one field is
+/// held to the same bar, and three crates used to state it separately with two
+/// of them disagreeing (#707). The name stays because it is public API.
+pub const MAX_GRID_POINTS: usize = fieldglass_core::MAX_FIELD_POINTS;
 
 /// Which decode entry point a message routes to.
 ///

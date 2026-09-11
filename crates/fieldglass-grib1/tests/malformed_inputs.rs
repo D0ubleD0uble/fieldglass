@@ -230,6 +230,55 @@ fn decode_grid_for_out_of_range_index_returns_error() {
     );
 }
 
+/// The grid cap is core's field cap, to the point.
+///
+/// This reader's 64 Mi was the *right* number and GRIB2's `200_000_000` claimed
+/// in a doc comment to match it, so a field between 67 M and 200 M points was
+/// accepted by one edition and refused by the other (#707). Both now name
+/// `fieldglass_core::MAX_FIELD_POINTS`, and what is checked is both the constant
+/// and the number the refusal prints, since a caller reads the message.
+///
+/// **A field of exactly the cap is not refused, and that is argued rather than
+/// run.** The guard is `expected_count > CAP`, so naming `CAP` as the bound
+/// exceeded proves `CAP` itself passes it. Executing that half is not an option:
+/// this fixture's BDS is a *constant* field, so a message declaring 67,108,864
+/// points decodes successfully into 67,108,864 `Option<f64>` — a gigabyte —
+/// which is what the cap exists to stop happening at 200 M and not something to
+/// do once per format in the test suite. Every format has that path.
+///
+/// A reduced grid of uniform rows is what puts the fixture exactly one point
+/// over: `sum(PL)` is the count the cap measures, from a 4 KB `PL` list.
+#[test]
+fn the_grid_cap_is_the_core_field_cap_to_the_point() {
+    const CAP: usize = fieldglass_core::MAX_FIELD_POINTS;
+    assert_eq!(
+        fieldglass_grib1::MAX_GRID_POINTS,
+        CAP,
+        "this crate's public cap must be core's, not a second copy of the number"
+    );
+    // 32768 × 2048 = 67,108,864 = the cap exactly; one more point is one over.
+    const WIDTH: u16 = 32_768;
+    const ROWS: usize = 2_048;
+    assert_eq!(
+        WIDTH as usize * ROWS,
+        CAP,
+        "the fixture must sit on the cap"
+    );
+
+    let mut widths = vec![WIDTH; ROWS - 1];
+    widths.push(WIDTH + 1);
+    let reader = Grib1Reader::from_bytes(splice_reduced_gds(REDUCED_GG, &widths))
+        .expect("the framing is well-formed");
+    let err = reader
+        .decode_message_values(0)
+        .expect_err("one point past the cap must be refused, not allocated");
+    let msg = err.to_string();
+    assert!(
+        msg.contains(&(CAP + 1).to_string()) && msg.contains(&CAP.to_string()),
+        "the refusal must name the count and the cap: {msg}"
+    );
+}
+
 /// A reduced grid's stored field and the raster it expands into are two
 /// different sizes, and it is the raster a consumer allocates (#503).
 ///

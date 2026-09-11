@@ -33,10 +33,14 @@ use fieldglass_core::bytes::{
 use fieldglass_core::{FieldglassError, GlobalGrid, GridGeometry, StoredRuns, SynthesisedField};
 use std::borrow::Cow;
 
-/// Hard cap on `ni · nj` for `decode_message_values`. Real grids top out
-/// around 10⁷ points; this guards against pathological inputs that would
-/// otherwise allocate gigabytes. Matches the GRIB1 reader's cap.
-const MAX_GRID_POINTS: usize = 200_000_000;
+/// Hard cap on `ni · nj` for `decode_message_values`.
+///
+/// [`fieldglass_core::MAX_FIELD_POINTS`], which every reader that materialises
+/// one field refers to. This used to be `200_000_000` under a doc comment
+/// saying it matched the GRIB1 reader's cap, which it did not: a field between
+/// 67 M and 200 M points was accepted by this edition and refused by the other
+/// (#707). Now it cannot disagree.
+const MAX_GRID_POINTS: usize = fieldglass_core::MAX_FIELD_POINTS;
 
 /// Parsed metadata for a single GRIB2 message. Surfaces §0–§5 inline (the
 /// fixed-size fields); §6 (BMS) and §7 (DS) live behind byte ranges so the

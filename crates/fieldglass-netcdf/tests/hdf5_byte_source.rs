@@ -18,8 +18,8 @@
 //! * the traversal reads what the structure needs rather than the whole file,
 //!   which is what makes the walk affordable over a transport.
 
-use fieldglass_core::ByteSource;
 use fieldglass_core::testing::{Copying, Recording, Short};
+use fieldglass_core::{ByteSource, FieldglassError};
 use fieldglass_netcdf::{ChildKind, NetcdfBacking, NetcdfReader, list_root_children};
 
 /// A version-1 B-tree chunk index, the legacy `libver=earliest` form.
@@ -278,7 +278,17 @@ fn a_source_that_serves_short_is_an_error_not_a_short_variable() {
             &probe,
         );
         match got {
-            Err(_) => caught += 1,
+            // The variant, not merely "an error": a truncated transfer is
+            // worth retrying and a corrupt file is not, and a host can only
+            // tell them apart if the shape says which this is (#707).
+            Err(err) => {
+                assert!(
+                    matches!(err, FieldglassError::ShortRead { .. }),
+                    "{}: a short-serving source must report a short read: {err}",
+                    child.name
+                );
+                caught += 1;
+            }
             Ok(values) => assert_eq!(
                 values, full,
                 "{}: a short source produced a different variable without erroring",

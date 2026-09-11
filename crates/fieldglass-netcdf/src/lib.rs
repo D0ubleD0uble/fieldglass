@@ -31,6 +31,10 @@ pub mod resolve;
 pub use classic::{Attribute, ClassicHeader, ClassicVersion, Dimension, NcType, Variable};
 // The geometry every host and the umbrella consume, so a consumer of this
 // crate's `slice_geometry` needs no `fieldglass-core` line of its own (#537).
+/// The shared allocation cap this crate's own cap is built from (#707), so a
+/// consumer of this crate alone can name the bar every reader is held to
+/// without a `fieldglass-core` line of its own.
+pub use fieldglass_core::MAX_VARIABLE_ELEMENTS;
 pub use fieldglass_core::{GridGeometry, Scan};
 // The `fieldglass_core` types this crate's own signatures name (#537), so a
 // consumer needs no direct dependency on `fieldglass-core` — and cannot
