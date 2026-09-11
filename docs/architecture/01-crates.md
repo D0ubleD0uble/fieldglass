@@ -183,10 +183,11 @@ surface no consumer of *this* crate can reach. A CLI (#254) or PyO3 consumer
 that starts from a path names `fieldglass-core` itself.
 
 `fieldglass` depends on `fieldglass-netcdf` since #662, behind a `netcdf`
-feature like the two GRIB ones. It does not depend on `fieldglass-zarr` yet:
-the crate decodes chunks but nothing yet walks a store to find them (#658),
-so there is no edge to draw and an unused dependency would be paid for in
-bundle size today.
+feature like the two GRIB ones. It does not depend on `fieldglass-zarr` yet.
+Since #658 the crate walks a store and presents it as an `ArraySource`, but
+nothing in `Session` reads one until #704 gives the Variables arm one
+`Reader::Arrays` for every container of named arrays; until then the edge would
+be an unused dependency paid for in bundle size.
 
 **`fetchplan --> zarr` is the one edge that looks like a rule being broken and
 is not.** `fieldglass-fetchplan` says it depends on no format crate, and it now

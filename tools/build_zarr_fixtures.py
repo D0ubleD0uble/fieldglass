@@ -34,8 +34,11 @@ even when nothing changed.
 """
 from __future__ import annotations
 
+import base64
 import json
+import math
 import shutil
+import struct
 import sys
 from pathlib import Path
 
@@ -246,6 +249,12 @@ def main() -> None:
         write_plan_fixtures()
         print(f"wrote the planner's addressing fixtures to {PLAN_FIXTURES}")
         return
+    # The store corpus (#658) is its own flag for the reason `--plan-only` is:
+    # rewriting the codec corpus churns every gzip chunk, and the stores do not
+    # depend on it.
+    if "--stores-only" in sys.argv:
+        write_store_fixtures()
+        return
 
     clean(ZARR_FIXTURES)
     clean(PLAN_FIXTURES)
@@ -406,9 +415,256 @@ def main() -> None:
     )
 
     write_plan_fixtures()
+    write_store_fixtures()
 
     print(f"wrote {len(oracle)} store fixtures to {ZARR_FIXTURES}")
     print(f"wrote the planner's addressing fixtures to {PLAN_FIXTURES}")
+
+
+# --- Whole stores (#658) -----------------------------------------------------
+#
+# The codec corpus above is one root array per store, because what it tests is
+# a chunk. These are whole stores — groups, nested groups, shared dimensions,
+# absent chunks, ragged edges, shards, consolidated metadata and not, and
+# xarray's CF encoding — because what they test is the walk and the region
+# read. Everything expected is recorded from zarr-python and xarray, never from
+# the crate under test.
+
+STORES = ZARR_FIXTURES / "stores"
+
+
+def json_number(value):
+    """A float the committed JSON can hold: NaN and the infinities as the
+    strings Zarr itself spells them with."""
+    value = float(value)
+    if math.isnan(value):
+        return "NaN"
+    if math.isinf(value):
+        return "Infinity" if value > 0 else "-Infinity"
+    return value
+
+
+def attribute_entry(value) -> dict:
+    """One attribute as the walker's model should hold it: numbers kept as
+    numbers, text as text, anything else as its JSON."""
+    if isinstance(value, bool) or value is None:
+        return {"opaque": json.dumps(value)}
+    if isinstance(value, (int, float)):
+        return {"numbers": [json_number(value)]}
+    if isinstance(value, str):
+        return {"text": value}
+    if isinstance(value, list) and value and all(
+        isinstance(v, (int, float)) and not isinstance(v, bool) for v in value
+    ):
+        return {"numbers": [json_number(v) for v in value]}
+    return {"opaque": json.dumps(value, separators=(",", ":"), sort_keys=True)}
+
+
+def presented_attributes(attrs: dict, edition: int, fill, kind: str) -> dict:
+    """The attributes the walker should present, with the two things xarray
+    does to `_FillValue` undone — written out here independently of the Rust:
+
+    * v2 keeps `_FillValue` as the array's `fill_value`, so a numeric one is
+      presented as the attribute when the store states none;
+    * v3 writes a float `_FillValue` as base64 of its little-endian bytes.
+    """
+    out = {name: attribute_entry(value) for name, value in attrs.items()}
+    if edition == 2 and "_FillValue" not in attrs and fill is not None:
+        out["_FillValue"] = {"numbers": [json_number(fill)]}
+    if edition == 3 and kind == "f" and isinstance(attrs.get("_FillValue"), str):
+        raw = base64.b64decode(attrs["_FillValue"])
+        fmt = {8: "<d", 4: "<f"}.get(len(raw))
+        if fmt is not None:
+            out["_FillValue"] = {"numbers": [json_number(struct.unpack(fmt, raw)[0])]}
+    return out
+
+
+def element(dtype) -> dict:
+    kind = {"f": "float", "i": "int", "u": "uint", "b": "bool"}[dtype.kind]
+    return {"kind": kind, "bits": dtype.itemsize * 8}
+
+
+def describe_store(root: Path, edition: int, *, left_out=(), unreadable=(), physical=False) -> dict:
+    """What zarr-python sees in a store: its groups, and each array's layout,
+    attributes and values, plus a region that crosses chunk boundaries."""
+    group = zarr.open_group(str(root), mode="r", zarr_format=edition, use_consolidated=False)
+    groups = {"": {k: attribute_entry(v) for k, v in dict(group.attrs).items()}}
+    arrays = {}
+    for path, node in sorted(group.members(max_depth=None), key=lambda item: item[0]):
+        if isinstance(node, zarr.Group):
+            groups[path] = {k: attribute_entry(v) for k, v in dict(node.attrs).items()}
+            continue
+        if path in left_out:
+            continue
+        attrs = dict(node.attrs)
+        if edition == 3:
+            names = node.metadata.dimension_names
+            dimensions = list(names) if names is not None else None
+        else:
+            dimensions = attrs.get("_ARRAY_DIMENSIONS")
+        fill = node.fill_value
+        fill = None if fill is None else float(fill)
+        values = node[...]
+        region = tuple(slice(1 if n > 2 else 0, n) for n in node.shape)
+        arrays[path] = {
+            "shape": list(node.shape),
+            "chunks": list(node.shards or node.chunks),
+            "element": element(node.dtype),
+            "dimensions": dimensions,
+            "attributes": presented_attributes(attrs, edition, fill, node.dtype.kind),
+            "values": [json_number(v) for v in values.ravel()],
+            "region": {
+                "ranges": [[r.start, r.stop] for r in region],
+                "values": [json_number(v) for v in values[region].ravel()],
+            },
+        }
+    if physical:
+        import xarray as xr
+
+        dataset = xr.open_zarr(str(root), zarr_format=edition, consolidated=True)
+        for name in list(dataset.data_vars) + list(dataset.coords):
+            decoded = dataset[name].values.astype("f8").ravel()
+            arrays[name]["physical"] = [None if math.isnan(v) else float(v) for v in decoded]
+    return {
+        "edition": edition,
+        "groups": groups,
+        "arrays": arrays,
+        "left_out": sorted(left_out),
+        "unreadable": sorted(unreadable),
+    }
+
+
+def write_store_fixtures() -> None:
+    import xarray as xr
+
+    if STORES.exists():
+        shutil.rmtree(STORES)
+    STORES.mkdir(parents=True)
+    oracle: dict[str, dict] = {}
+
+    # The same nested layout in three spellings: v2 with `.` keys and
+    # consolidated, v2 with `/` keys and not, and v3 consolidated. `temp` is
+    # 5x7 in 2x3 chunks — ragged on both axes — and only its top-left 4x5 is
+    # written, so whole chunks are absent and one is only partly written.
+    temp = (np.arange(35, dtype="<f4") * 0.5).reshape(5, 7)
+    for edition, name, consolidated, separator in (
+        (2, "v2_nested", True, "."),
+        (2, "v2_slash", False, "/"),
+        (3, "v3_nested", True, None),
+    ):
+        root = STORES / name
+        group = zarr.open_group(str(root), mode="w", zarr_format=edition)
+        group.attrs["title"] = name
+        extra = {}
+        if edition == 3:
+            extra["dimension_names"] = ["y", "x"]
+        if separator is not None:
+            extra["chunk_key_encoding"] = {"name": "v2", "separator": separator}
+        array = group.create_array(
+            "temp", shape=(5, 7), chunks=(2, 3), dtype="<f4", fill_value=-1.0, **extra
+        )
+        if edition == 2:
+            array.attrs["_ARRAY_DIMENSIONS"] = ["y", "x"]
+        array.attrs["units"] = "K"
+        array[:4, :5] = temp[:4, :5]
+        sub = group.create_group("sub")
+        sub.attrs["level"] = 850
+        inner_extra = {"dimension_names": ["z"]} if edition == 3 else {}
+        if separator is not None:
+            inner_extra["chunk_key_encoding"] = {"name": "v2", "separator": separator}
+        inner = sub.create_array(
+            "inner", shape=(4,), chunks=(2,), dtype="<i2", fill_value=0, **inner_extra
+        )
+        if edition == 2:
+            inner.attrs["_ARRAY_DIMENSIONS"] = ["z"]
+        inner[...] = np.arange(4, dtype="<i2") - 2
+        if consolidated:
+            zarr.consolidate_metadata(str(root))
+        oracle[name] = describe_store(root, edition)
+
+    # v3 with v2-style keys, unconsolidated, a NaN fill and no dimension
+    # names: the absent half reads NaN, and the axes get the walker's own names.
+    root = STORES / "v3_v2keys"
+    group = zarr.open_group(str(root), mode="w", zarr_format=3)
+    keyed = group.create_array(
+        "k",
+        shape=(4, 6),
+        chunks=(2, 3),
+        dtype="<f4",
+        fill_value=float("nan"),
+        chunk_key_encoding={"name": "v2", "separator": "."},
+    )
+    keyed[:2, :] = BASE[:2, :]
+    oracle["v3_v2keys"] = describe_store(root, 3)
+
+    # Sharded, ragged, and sparse at both levels: shards of 4x4 holding 2x2
+    # inner chunks over a 5x7 array, with one corner written in the first shard
+    # and one cell in the last.
+    root = STORES / "v3_sharded"
+    group = zarr.open_group(str(root), mode="w", zarr_format=3)
+    sharded = group.create_array(
+        "s",
+        shape=(5, 7),
+        chunks=(2, 2),
+        shards=(4, 4),
+        dtype="<f4",
+        fill_value=-1.0,
+        dimension_names=["y", "x"],
+    )
+    sharded[:2, :3] = temp[:2, :3]
+    sharded[4, 6] = 9.0
+    zarr.consolidate_metadata(str(root))
+    oracle["v3_sharded"] = describe_store(root, 3)
+
+    # What fails, and how far: a codec this crate refuses (bz2), a type it does
+    # not read (`<U4`), and two arrays giving dimension `x` different lengths.
+    # The first is listed and fails on read; the other two are left out; `ok`
+    # beside them is unaffected.
+    root = STORES / "v2_problems"
+    group = zarr.open_group(str(root), mode="w", zarr_format=2)
+    ok = group.create_array("ok", shape=(4,), chunks=(2,), dtype="<f4", fill_value=0.0)
+    ok[...] = BASE[0, :4]
+    bz = group.create_array(
+        "bz", shape=(4,), chunks=(2,), dtype="<f4", compressors=[numcodecs.BZ2(level=5)]
+    )
+    bz[...] = BASE[1, :4]
+    names = group.create_array("names", shape=(2,), chunks=(2,), dtype="<U4")
+    names[...] = np.array(["ab", "cd"])
+    for label, length in (("x1", 3), ("x2", 5)):
+        clash = group.create_array(label, shape=(length,), chunks=(length,), dtype="<i2")
+        clash.attrs["_ARRAY_DIMENSIONS"] = ["x"]
+        clash[...] = length
+    zarr.consolidate_metadata(str(root))
+    oracle["v2_problems"] = describe_store(
+        root, 2, left_out={"names", "x2"}, unreadable={"bz"}
+    )
+
+    # xarray's CF encoding, in both editions: a packed int16 with a scale,
+    # an offset, a `_FillValue` and a masked cell, and a float with a -9999
+    # sentinel. The physical values are xarray's own decode of the same store.
+    lat = np.array([10.0, 20.0, 30.0])
+    lon = np.array([0.0, 1.0, 2.0, 3.0])
+    t = np.array(
+        [[250.0, 251.5, np.nan, 253.0], [260.25, 270.0, 280.0, 290.5], [240.0, 241.0, 242.0, 243.0]]
+    )
+    a = np.array([[1.0, np.nan, 3.0, 4.0], [5.0, 6.0, np.nan, 8.0], [9.0, 10.0, 11.0, 12.0]], "f4")
+    dataset = xr.Dataset(
+        {"t": (("lat", "lon"), t), "a": (("lat", "lon"), a)},
+        coords={"lat": lat, "lon": lon},
+    )
+    encoding = {
+        "t": {"dtype": "int16", "scale_factor": 0.25, "add_offset": 200.0, "_FillValue": -32767, "chunks": (2, 2)},
+        "a": {"_FillValue": -9999.0, "chunks": (2, 2)},
+    }
+    for edition in (2, 3):
+        root = STORES / f"cf_v{edition}"
+        dataset.to_zarr(str(root), zarr_format=edition, consolidated=True, encoding=encoding, mode="w")
+        oracle[f"cf_v{edition}"] = describe_store(root, edition, physical=True)
+
+    (ZARR_FIXTURES / "stores_oracle.json").write_text(
+        json.dumps(oracle, indent=1, sort_keys=True, allow_nan=False) + "\n", encoding="utf-8"
+    )
+    print(f"wrote {len(oracle)} whole-store fixtures to {STORES}")
 
 
 # The object the kerchunk fixtures address. Chunks are laid end to end with a

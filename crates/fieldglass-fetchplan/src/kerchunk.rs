@@ -425,12 +425,12 @@ fn entry(
 ) -> Result<Entry, FetchPlanError> {
     match value {
         Value::String(text) => match text.strip_prefix("base64:") {
-            Some(encoded) => decode_base64(encoded).map(Entry::Inline).ok_or_else(|| {
-                FetchPlanError::BadReference {
+            Some(encoded) => fieldglass_zarr::base64::decode(encoded)
+                .map(Entry::Inline)
+                .ok_or_else(|| FetchPlanError::BadReference {
                     key: key.to_string(),
                     detail: "the `base64:` value is not valid standard base64".to_string(),
-                }
-            }),
+                }),
             // Not UTF-8 validated on the way in: an inline value is data, and
             // the metadata documents that arrive this way are checked when they
             // are read as JSON. A caller getting bytes back is the honest shape.
@@ -533,59 +533,6 @@ fn resolve(
     }
     out.push_str(rest);
     Ok(out)
-}
-
-/// Decode standard base64, strictly.
-///
-/// Hand-rolled rather than taken as a dependency: this crate declares three,
-/// each explained in its manifest, and the alternative to forty lines of
-/// well-specified arithmetic is a fourth entry in every downstream consumer's
-/// licence scan. Strict on purpose — no whitespace, no alternative alphabet, no
-/// missing padding — because a lenient decoder turns a corrupt document into
-/// plausible bytes, and the fuzz target drives this.
-fn decode_base64(text: &str) -> Option<Vec<u8>> {
-    fn sextet(byte: u8) -> Option<u32> {
-        Some(match byte {
-            b'A'..=b'Z' => u32::from(byte - b'A'),
-            b'a'..=b'z' => u32::from(byte - b'a') + 26,
-            b'0'..=b'9' => u32::from(byte - b'0') + 52,
-            b'+' => 62,
-            b'/' => 63,
-            _ => return None,
-        })
-    }
-
-    let bytes = text.as_bytes();
-    if !bytes.len().is_multiple_of(4) {
-        return None;
-    }
-    let mut out = Vec::with_capacity(bytes.len() / 4 * 3);
-    for (block, quad) in bytes.as_chunks::<4>().0.iter().enumerate() {
-        let last = block == bytes.len() / 4 - 1;
-        // Padding is only ever the last one or two characters of the last
-        // quad: `=` anywhere else is a corrupt document, not a short one.
-        let padding = if last {
-            quad.iter().filter(|b| **b == b'=').count()
-        } else {
-            0
-        };
-        if padding > 2 || quad[..4 - padding].contains(&b'=') {
-            return None;
-        }
-        let mut packed = 0u32;
-        for byte in &quad[..4 - padding] {
-            packed = (packed << 6) | sextet(*byte)?;
-        }
-        // The bits a padded quad does not carry must be zero, or two distinct
-        // encodings would decode to the same bytes.
-        packed <<= 6 * padding;
-        let decoded = packed.to_be_bytes();
-        if padding > 0 && decoded[4 - padding..].iter().any(|b| *b != 0) {
-            return None;
-        }
-        out.extend_from_slice(&decoded[1..4 - padding]);
-    }
-    Some(out)
 }
 
 #[cfg(test)]
@@ -873,18 +820,8 @@ mod tests {
     /// than truncated into plausible data.
     #[test]
     fn base64_values_decode_strictly() {
-        assert_eq!(decode_base64("aGVsbG8=").unwrap(), b"hello");
-        assert_eq!(decode_base64("aGVsbG8h").unwrap(), b"hello!");
-        assert_eq!(decode_base64("").unwrap(), b"");
-        assert_eq!(decode_base64("TQ==").unwrap(), b"M");
-
-        // Unpadded, mispadded, out of alphabet, and non-zero trailing bits.
-        assert!(decode_base64("aGVsbG8").is_none());
-        assert!(decode_base64("a=VsbG8=").is_none());
-        assert!(decode_base64("aGVs bG8=").is_none());
-        assert!(decode_base64("aGVsbG8*").is_none());
-        assert!(decode_base64("TR==").is_none());
-
+        // The decoder's own edge cases are `fieldglass_zarr::base64`'s tests;
+        // what is checked here is that a reference document goes through it.
         let refs = KerchunkRefs::parse(&document(r#""temp/0.0": "base64:aGVsbG8=""#)).unwrap();
         assert_eq!(refs.inline("temp/0.0").unwrap(), b"hello");
 

@@ -103,6 +103,25 @@ The `planned/01-crates.md` sentence that directory walking is the napi host's
 concern is superseded: walking a store is reading a container, and the host's
 job is to hand over the objects (decision 5).
 
+**Amended by #658 (2026-09-11): what a driver presents.** The decision above
+says what a driver reads *into*. It left open what it hands *up*, and a
+reader's own methods would have made every consumer of the model — CF
+placement, a host's variable list — learn each container separately. A driver
+of a container with named arrays presents `fieldglass_core::array::ArraySource`:
+its `Group` tree and a raw region read, with CF applied once above it from the
+array's attributes (`read_region_physical`). The model types stay plain
+structs; this is a trait because it is IO, one rung above `ByteSource` and
+`ObjectSource`, and every IO seam here is one.
+
+It also settles where Zarr sits. A Zarr store is not a third file format beside
+GRIB and NetCDF: it is a layout of chunks under keys plus the codecs they were
+written through, so `ZarrStore` reads through `ObjectSource` and implements
+`ArraySource`, as the NetCDF readers will over `ByteSource`. Two consequences
+follow from putting it there rather than beside them. A kerchunk reference
+document plus the ranges a host fetched is itself an `ObjectSource`, so a NetCDF
+or GRIB archive described by one reads through `ZarrStore` unchanged; and
+`Session` needs one arm for every container of arrays, not one per container.
+
 ### 4. `fieldglass-fetchplan` is manifests in, chunk plan out
 
 The crate keeps every parser it has. What changes is the shape of its answer:

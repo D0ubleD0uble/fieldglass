@@ -1,0 +1,8 @@
+{
+  "add_offset": 200.0,
+  "scale_factor": 0.25,
+  "_ARRAY_DIMENSIONS": [
+    "lat",
+    "lon"
+  ]
+}

@@ -28,26 +28,30 @@
 //!
 //! # What this crate is not
 //!
-//! **It performs no I/O.** A chunk arrives as bytes the caller already has, the
-//! same way every other Fieldglass decoder works (ADR-0005 decision 1). Walking
-//! a directory or a bucket to find the chunks is the host's job, and it is the
-//! only part of reading a Zarr store that differs between a filesystem, an
-//! object store and a browser.
+//! # Reading a whole store
 //!
-//! **It does not address chunks.** Which key holds which region of the array —
-//! `temp/0.1` under v2's dimension separator, `temp/c/0/1` under v3's chunk key
-//! encoding, or an entry in a kerchunk reference document — is
-//! `fieldglass-fetchplan`'s question, and it answers it for the remote case
-//! too, as byte ranges. This crate reads the chunk *shape*, because a decode
-//! cannot check its own output length or reverse a transpose without it, and
-//! nothing else about the array's layout.
+//! [`ZarrStore`] walks a store — groups, arrays, shared dimensions, either
+//! edition, consolidated or not — into `fieldglass-core`'s array model, and
+//! reads any region of an array by fetching exactly the chunks it covers
+//! (#658). It reads through the [`ObjectSource`] seam, so a directory, a bucket
+//! and a browser's map of fetched objects are the same store to it, and it
+//! implements [`ArraySource`], the array-level IO seam every container of
+//! named arrays presents: Zarr is a layout of chunks under keys, not a file
+//! format, and it sits where the NetCDF readers do.
 //!
-//! That split is moving (ADR-0010). #677 puts the chunk grid and the key
-//! encoding in `fieldglass-core`, where both this crate and the planner can
-//! reach them; #686 makes this crate the one parser of an array's metadata
-//! document, with the codecs behind a feature; and #658 puts the store walker
-//! here, reading through the `ObjectSource` seam of #680. Walking a store is
-//! reading a container; what stays the host's job is handing over the objects.
+//! # What this crate is not
+//!
+//! **It fetches nothing.** The objects arrive in an [`ObjectSource`] the host
+//! filled, the same way every other Fieldglass reader is handed its bytes
+//! (ADR-0005 decision 1). Which store it is — a directory, a bucket, a map —
+//! is the only part of reading one that differs between a filesystem, an
+//! object store and a browser, and it is the host's.
+//!
+//! **It plans no remote fetches.** Turning a chunk into a byte range in some
+//! other object — a kerchunk reference document — is `fieldglass-fetchplan`'s
+//! question. The chunk grid and the key encoding both crates spell keys with
+//! are `fieldglass-core`'s (#677), and this crate is the one parser of an
+//! array's metadata document (#686).
 //!
 //! **It applies no CF conventions.** [`ChunkDecoder::decode_raw_values`]
 //! returns the values as stored. An array written by xarray carries
@@ -57,9 +61,9 @@
 //! `decode_variable_physical`, for the same reason: CF is a convention over the
 //! container rather than part of it, and the reference implementations
 //! disagree about applying it (libnetcdf never does; netcdf4-python and xarray
-//! do by default). This crate is the libnetcdf analogue. It has no physical
-//! counterpart yet only because it is handed a chunk and never the store, so it
-//! cannot read `.zattrs` at all; #658 is the walker that will be able to.
+//! do by default). This crate is the libnetcdf analogue for a chunk. A whole
+//! array's physical values are [`ArraySource::read_region_physical`], which
+//! applies core's one CF rule from the attributes [`ZarrStore`] reads.
 //!
 //! **It decodes; it never encodes.** The forward direction of each transform
 //! exists only under `#[cfg(test)]`, where a round trip is the one check that
@@ -85,6 +89,8 @@
 
 #![forbid(unsafe_code)]
 
+pub mod base64;
+
 // The decode half. Behind `codecs` (on by default) so a consumer that only
 // reads an array's metadata links no decompressor — see the feature's own
 // comment in Cargo.toml. `dtype` and `metadata` stay ungated: reading a
@@ -107,6 +113,10 @@ pub mod metadata;
 pub mod shard;
 #[cfg(feature = "codecs")]
 pub mod shuffle;
+// The store walker. Not behind `codecs`: listing what a store holds reads
+// documents only, and a region read without the feature says so rather than
+// failing to compile.
+pub mod store;
 #[cfg(feature = "codecs")]
 pub mod zstd;
 
@@ -118,6 +128,12 @@ pub use metadata::{ArrayMetadata, CodecSource, ElementOrder};
 // array's metadata gets the shared model's types without a `fieldglass-core`
 // line of its own, and so cannot take one without `default-features = false`.
 pub use fieldglass_core::array::{ArrayError, ChunkGrid, ChunkKeyEncoding};
+// What `ZarrStore` is read through and what it reads into, so a consumer holding
+// a store can name the trait, the tree and the seam without a `fieldglass-core`
+// line of its own (#658).
+pub use fieldglass_core::array::{ArrayDescription, ArraySource, Group};
+pub use fieldglass_core::bytes::ObjectSource;
+pub use store::ZarrStore;
 // Re-exported so a consumer needs no direct `fieldglass-core` line in its
 // manifest, and so cannot take one without `default-features = false` — which
 // would re-enable `render` and `fs` across the whole dependency graph (#537).
@@ -249,9 +265,10 @@ impl ChunkDecoder {
 
     /// The array's fill value, when it states a numeric one.
     ///
-    /// `None` covers both "no fill value" and one this crate does not read as a
-    /// number — v2 spells a NaN as the string `"NaN"`, and a structured dtype's
-    /// fill value is a base64 blob. Neither is a number, and neither is
+    /// The string spellings both editions use for what JSON cannot hold —
+    /// `"NaN"`, `"Infinity"`, `"-Infinity"`, and v3's hex bit patterns — are
+    /// read as the numbers they name. `None` covers "no fill value" and one no
+    /// number expresses, such as a structured dtype's base64 blob, which is not
     /// invented here.
     #[must_use]
     pub fn fill_value(&self) -> Option<f64> {

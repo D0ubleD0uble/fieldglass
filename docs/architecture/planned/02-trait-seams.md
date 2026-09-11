@@ -114,9 +114,17 @@ and the dimension, attribute, array-description and group types the NetCDF
 view (#684) and the Zarr walker (#658) both produce. It is Zarr v3's array
 model, written from the specification and named in Fieldglass's terms, because
 that is the model the cloud tools already project every other container onto
-(decision 2). None of it is a trait: the readers construct it and `Session`
-reads it, the way `GridGeometry` is built by the readers and consumed by
-`warp`.
+(decision 2). None of the model is a trait: the readers construct it and
+`Session` reads it, the way `GridGeometry` is built by the readers and consumed
+by `warp`.
+
+What a reader *presents* is one (#658, ADR-0010's amendment to decision 3).
+`ArraySource` is the array-level IO seam, one rung above `ByteSource` and
+`ObjectSource`: the `Group` tree and a raw region read, with CF applied once
+above it from the array's attributes. `ZarrStore` implements it over an
+`ObjectSource`; the NetCDF readers implement it over a `ByteSource` in the
+follow-up that moves CF placement into core (#704) and collapses `Session`'s Variables
+arm to one `Reader::Arrays`, which is where Zarr reaches `Session`.
 
 ```mermaid
 classDiagram
@@ -160,6 +168,21 @@ classDiagram
         <<shipped, crate fieldglass-netcdf; built on the model since #684>>
     }
     DatasetView ..> Group
+    class ArraySource {
+        <<trait, shipped #658, crate fieldglass-core>>
+        +group() Group
+        +read_region(array, region) raw values
+        +read_region_physical(array, region) CF applied once
+    }
+    class ZarrStore {
+        <<shipped #658, crate fieldglass-zarr; reads ObjectSource>>
+    }
+    class NetcdfArrays {
+        <<planned #704, crate fieldglass-netcdf; reads ByteSource>>
+    }
+    ArraySource ..> Group
+    ArraySource <|.. ZarrStore
+    ArraySource <|.. NetcdfArrays
 ```
 
 ## Byte access grows a keyed sibling

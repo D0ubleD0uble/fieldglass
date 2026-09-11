@@ -709,6 +709,82 @@ fn qualify(prefix: &str, name: &str) -> String {
     }
 }
 
+/// Where a container's arrays are read from: the array-level IO seam (#658).
+///
+/// One rung above [`ByteSource`](crate::bytes::ByteSource) and
+/// [`ObjectSource`](crate::bytes::ObjectSource). Those answer "give me these
+/// bytes"; this answers "give me this array's values", and each implementation
+/// decides what that costs — a Zarr store spells chunk keys and reads them from
+/// an `ObjectSource`, a NetCDF file walks its own header or chunk index over a
+/// `ByteSource`. What sits above — CF conventions, placing a slice on the
+/// Earth, a host's variable list — is written once against this and never
+/// learns which container it has.
+///
+/// The model types stay plain structs, as ADR-0010 decision 1 has them: this is
+/// a trait because it is IO, the way the two byte seams are, and it is
+/// object-safe so a caller can hold any container as `&dyn ArraySource`.
+///
+/// # Raw, and where CF happens
+///
+/// [`read_region`](Self::read_region) returns what the container **stores**:
+/// the element values, with no `scale_factor`, `add_offset` or `_FillValue`
+/// applied. `None` marks only a cell the container itself can give no number
+/// for. The CF mask-and-scale is [`read_region_physical`](Self::read_region_physical),
+/// which reads the rule out of the array's own attributes through
+/// [`CfUnpacking`] — so there is one CF path, whatever the container, and a
+/// container whose convention keeps a CF attribute somewhere else (Zarr v2
+/// keeps `_FillValue` as the array's `fill_value`) presents it as an attribute
+/// rather than growing a second rule.
+pub trait ArraySource {
+    /// The container's structure: its groups, their dimensions and
+    /// attributes, and the arrays in them, described rather than decoded.
+    fn group(&self) -> &Group;
+
+    /// One array's stored values over a region, in C order.
+    ///
+    /// `array` is path-qualified the way [`Group::arrays_qualified`] spells
+    /// it. `region` holds one half-open element range per axis, in the
+    /// array's declared axis order; the result has the product of their
+    /// lengths, last axis fastest.
+    ///
+    /// # Errors
+    ///
+    /// An array this container does not hold, a region of the wrong rank or
+    /// past the array's shape, and any failure reading or decoding the
+    /// storage behind it. A failure is the one array's: the rest of the
+    /// container stays readable.
+    fn read_region(
+        &self,
+        array: &str,
+        region: &[Range<u64>],
+    ) -> Result<Vec<Option<f64>>, crate::FieldglassError>;
+
+    /// One array's description, by its path-qualified name.
+    fn array(&self, name: &str) -> Option<&ArrayDescription> {
+        self.group()
+            .arrays_qualified()
+            .into_iter()
+            .find_map(|(qualified, array)| (qualified == name).then_some(array))
+    }
+
+    /// [`read_region`](Self::read_region) with the array's CF mask-and-scale
+    /// applied — see [`CfUnpacking`] for the rule and the order it runs in.
+    fn read_region_physical(
+        &self,
+        array: &str,
+        region: &[Range<u64>],
+    ) -> Result<Vec<Option<f64>>, crate::FieldglassError> {
+        let raw = self.read_region(array, region)?;
+        let rule = self
+            .array(array)
+            .map(|description| CfUnpacking::from_attributes(&description.attributes))
+            .ok_or_else(|| {
+                crate::FieldglassError::Parse(format!("this container holds no array {array:?}"))
+            })?;
+        Ok(rule.apply(&raw))
+    }
+}
+
 /// The CF mask-and-scale an array's attributes call for, read once.
 ///
 /// # The rule, stated in one place
