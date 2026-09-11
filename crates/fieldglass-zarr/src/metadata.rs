@@ -111,7 +111,11 @@ impl ArrayMetadata {
         Self::from_value(&document(json)?, 3)
     }
 
-    fn from_value(doc: &Value, edition: u8) -> Result<Self, FieldglassError> {
+    /// Read an already-parsed document of a known edition. What the store
+    /// walker uses: a consolidated store hands it every document at once, as
+    /// JSON values, and serialising each back to text to reparse it would be
+    /// work for nothing.
+    pub(crate) fn from_value(doc: &Value, edition: u8) -> Result<Self, FieldglassError> {
         // Checked once, whichever entry point was used, so a document handed to
         // the wrong reader says so instead of failing on a field it does not
         // have.
@@ -159,7 +163,7 @@ impl ArrayMetadata {
             key_encoding: ChunkKeyEncoding::V2,
             separator,
             dtype,
-            fill_value: doc.get("fill_value").and_then(Value::as_f64),
+            fill_value: fill_number(doc.get("fill_value"), dtype),
             codecs: CodecSource::V2 {
                 order,
                 compressor: doc.get("compressor").cloned(),
@@ -252,7 +256,7 @@ impl ArrayMetadata {
             key_encoding,
             separator,
             dtype,
-            fill_value: doc.get("fill_value").and_then(Value::as_f64),
+            fill_value: fill_number(doc.get("fill_value"), dtype),
             codecs: CodecSource::V3 { codecs },
         })
     }
@@ -300,6 +304,34 @@ impl ArrayMetadata {
     /// The codec configuration, as the document stated it.
     pub fn codecs(&self) -> &CodecSource {
         &self.codecs
+    }
+}
+
+/// A `fill_value` as a number, in any of the spellings the two editions allow.
+///
+/// JSON has no NaN or infinity, so both editions spell them as the strings
+/// `"NaN"`, `"Infinity"` and `"-Infinity"`, and v3 also allows a float's exact
+/// bit pattern as a hex string (`"0x7fc00000"`). Reading only JSON numbers
+/// turned every NaN-filled array's absent chunks into holes rather than NaN,
+/// which is not what zarr-python reads there (#658). `None` is left for `null`
+/// and for what no numeric type can express — a structured dtype's base64 blob.
+fn fill_number(value: Option<&Value>, dtype: DType) -> Option<f64> {
+    match value? {
+        Value::Number(n) => n.as_f64(),
+        Value::String(s) => match s.as_str() {
+            "NaN" => Some(f64::NAN),
+            "Infinity" => Some(f64::INFINITY),
+            "-Infinity" => Some(f64::NEG_INFINITY),
+            hex => {
+                let bits = u64::from_str_radix(hex.strip_prefix("0x")?, 16).ok()?;
+                match dtype.size {
+                    4 => Some(f64::from(f32::from_bits(u32::try_from(bits).ok()?))),
+                    8 => Some(f64::from_bits(bits)),
+                    _ => None,
+                }
+            }
+        },
+        _ => None,
     }
 }
 

@@ -416,6 +416,23 @@ impl<K: Into<String>> FromIterator<(K, Vec<u8>)> for MemoryObjects {
     }
 }
 
+/// So a caller holding `&O` can pass it where an `ObjectSource` is wanted —
+/// the same forwarding [`ByteSource`] has, which lets a reader borrow its store
+/// rather than own it and a test keep the store to inspect afterwards.
+impl<O: ObjectSource + ?Sized> ObjectSource for &O {
+    fn get(&self, key: &str) -> Result<Option<Cow<'_, [u8]>>, FieldglassError> {
+        (**self).get(key)
+    }
+
+    fn list(&self, prefix: &str) -> Result<Vec<String>, FieldglassError> {
+        (**self).list(prefix)
+    }
+
+    fn prefetch(&self, keys: &[&str]) -> Result<(), FieldglassError> {
+        (**self).prefetch(keys)
+    }
+}
+
 impl ObjectSource for MemoryObjects {
     fn get(&self, key: &str) -> Result<Option<Cow<'_, [u8]>>, FieldglassError> {
         self.reads.borrow_mut().push(key.to_string());

@@ -1,0 +1,1344 @@
+{
+ "cf_v2": {
+  "arrays": {
+   "a": {
+    "attributes": {
+     "_ARRAY_DIMENSIONS": {
+      "opaque": "[\"lat\",\"lon\"]"
+     },
+     "_FillValue": {
+      "numbers": [
+       -9999.0
+      ]
+     }
+    },
+    "chunks": [
+     2,
+     2
+    ],
+    "dimensions": [
+     "lat",
+     "lon"
+    ],
+    "element": {
+     "bits": 32,
+     "kind": "float"
+    },
+    "physical": [
+     1.0,
+     null,
+     3.0,
+     4.0,
+     5.0,
+     6.0,
+     null,
+     8.0,
+     9.0,
+     10.0,
+     11.0,
+     12.0
+    ],
+    "region": {
+     "ranges": [
+      [
+       1,
+       3
+      ],
+      [
+       1,
+       4
+      ]
+     ],
+     "values": [
+      6.0,
+      -9999.0,
+      8.0,
+      10.0,
+      11.0,
+      12.0
+     ]
+    },
+    "shape": [
+     3,
+     4
+    ],
+    "values": [
+     1.0,
+     -9999.0,
+     3.0,
+     4.0,
+     5.0,
+     6.0,
+     -9999.0,
+     8.0,
+     9.0,
+     10.0,
+     11.0,
+     12.0
+    ]
+   },
+   "lat": {
+    "attributes": {
+     "_ARRAY_DIMENSIONS": {
+      "opaque": "[\"lat\"]"
+     },
+     "_FillValue": {
+      "numbers": [
+       "NaN"
+      ]
+     }
+    },
+    "chunks": [
+     3
+    ],
+    "dimensions": [
+     "lat"
+    ],
+    "element": {
+     "bits": 64,
+     "kind": "float"
+    },
+    "physical": [
+     10.0,
+     20.0,
+     30.0
+    ],
+    "region": {
+     "ranges": [
+      [
+       1,
+       3
+      ]
+     ],
+     "values": [
+      20.0,
+      30.0
+     ]
+    },
+    "shape": [
+     3
+    ],
+    "values": [
+     10.0,
+     20.0,
+     30.0
+    ]
+   },
+   "lon": {
+    "attributes": {
+     "_ARRAY_DIMENSIONS": {
+      "opaque": "[\"lon\"]"
+     },
+     "_FillValue": {
+      "numbers": [
+       "NaN"
+      ]
+     }
+    },
+    "chunks": [
+     4
+    ],
+    "dimensions": [
+     "lon"
+    ],
+    "element": {
+     "bits": 64,
+     "kind": "float"
+    },
+    "physical": [
+     0.0,
+     1.0,
+     2.0,
+     3.0
+    ],
+    "region": {
+     "ranges": [
+      [
+       1,
+       4
+      ]
+     ],
+     "values": [
+      1.0,
+      2.0,
+      3.0
+     ]
+    },
+    "shape": [
+     4
+    ],
+    "values": [
+     0.0,
+     1.0,
+     2.0,
+     3.0
+    ]
+   },
+   "t": {
+    "attributes": {
+     "_ARRAY_DIMENSIONS": {
+      "opaque": "[\"lat\",\"lon\"]"
+     },
+     "_FillValue": {
+      "numbers": [
+       -32767.0
+      ]
+     },
+     "add_offset": {
+      "numbers": [
+       200.0
+      ]
+     },
+     "scale_factor": {
+      "numbers": [
+       0.25
+      ]
+     }
+    },
+    "chunks": [
+     2,
+     2
+    ],
+    "dimensions": [
+     "lat",
+     "lon"
+    ],
+    "element": {
+     "bits": 16,
+     "kind": "int"
+    },
+    "physical": [
+     250.0,
+     251.5,
+     null,
+     253.0,
+     260.25,
+     270.0,
+     280.0,
+     290.5,
+     240.0,
+     241.0,
+     242.0,
+     243.0
+    ],
+    "region": {
+     "ranges": [
+      [
+       1,
+       3
+      ],
+      [
+       1,
+       4
+      ]
+     ],
+     "values": [
+      280.0,
+      320.0,
+      362.0,
+      164.0,
+      168.0,
+      172.0
+     ]
+    },
+    "shape": [
+     3,
+     4
+    ],
+    "values": [
+     200.0,
+     206.0,
+     -32767.0,
+     212.0,
+     241.0,
+     280.0,
+     320.0,
+     362.0,
+     160.0,
+     164.0,
+     168.0,
+     172.0
+    ]
+   }
+  },
+  "edition": 2,
+  "groups": {
+   "": {}
+  },
+  "left_out": [],
+  "unreadable": []
+ },
+ "cf_v3": {
+  "arrays": {
+   "a": {
+    "attributes": {
+     "_FillValue": {
+      "numbers": [
+       -9999.0
+      ]
+     }
+    },
+    "chunks": [
+     2,
+     2
+    ],
+    "dimensions": [
+     "lat",
+     "lon"
+    ],
+    "element": {
+     "bits": 32,
+     "kind": "float"
+    },
+    "physical": [
+     1.0,
+     null,
+     3.0,
+     4.0,
+     5.0,
+     6.0,
+     null,
+     8.0,
+     9.0,
+     10.0,
+     11.0,
+     12.0
+    ],
+    "region": {
+     "ranges": [
+      [
+       1,
+       3
+      ],
+      [
+       1,
+       4
+      ]
+     ],
+     "values": [
+      6.0,
+      -9999.0,
+      8.0,
+      10.0,
+      11.0,
+      12.0
+     ]
+    },
+    "shape": [
+     3,
+     4
+    ],
+    "values": [
+     1.0,
+     -9999.0,
+     3.0,
+     4.0,
+     5.0,
+     6.0,
+     -9999.0,
+     8.0,
+     9.0,
+     10.0,
+     11.0,
+     12.0
+    ]
+   },
+   "lat": {
+    "attributes": {
+     "_FillValue": {
+      "numbers": [
+       "NaN"
+      ]
+     }
+    },
+    "chunks": [
+     3
+    ],
+    "dimensions": [
+     "lat"
+    ],
+    "element": {
+     "bits": 64,
+     "kind": "float"
+    },
+    "physical": [
+     10.0,
+     20.0,
+     30.0
+    ],
+    "region": {
+     "ranges": [
+      [
+       1,
+       3
+      ]
+     ],
+     "values": [
+      20.0,
+      30.0
+     ]
+    },
+    "shape": [
+     3
+    ],
+    "values": [
+     10.0,
+     20.0,
+     30.0
+    ]
+   },
+   "lon": {
+    "attributes": {
+     "_FillValue": {
+      "numbers": [
+       "NaN"
+      ]
+     }
+    },
+    "chunks": [
+     4
+    ],
+    "dimensions": [
+     "lon"
+    ],
+    "element": {
+     "bits": 64,
+     "kind": "float"
+    },
+    "physical": [
+     0.0,
+     1.0,
+     2.0,
+     3.0
+    ],
+    "region": {
+     "ranges": [
+      [
+       1,
+       4
+      ]
+     ],
+     "values": [
+      1.0,
+      2.0,
+      3.0
+     ]
+    },
+    "shape": [
+     4
+    ],
+    "values": [
+     0.0,
+     1.0,
+     2.0,
+     3.0
+    ]
+   },
+   "t": {
+    "attributes": {
+     "_FillValue": {
+      "numbers": [
+       -32767.0
+      ]
+     },
+     "add_offset": {
+      "numbers": [
+       200.0
+      ]
+     },
+     "scale_factor": {
+      "numbers": [
+       0.25
+      ]
+     }
+    },
+    "chunks": [
+     2,
+     2
+    ],
+    "dimensions": [
+     "lat",
+     "lon"
+    ],
+    "element": {
+     "bits": 16,
+     "kind": "int"
+    },
+    "physical": [
+     250.0,
+     251.5,
+     null,
+     253.0,
+     260.25,
+     270.0,
+     280.0,
+     290.5,
+     240.0,
+     241.0,
+     242.0,
+     243.0
+    ],
+    "region": {
+     "ranges": [
+      [
+       1,
+       3
+      ],
+      [
+       1,
+       4
+      ]
+     ],
+     "values": [
+      280.0,
+      320.0,
+      362.0,
+      164.0,
+      168.0,
+      172.0
+     ]
+    },
+    "shape": [
+     3,
+     4
+    ],
+    "values": [
+     200.0,
+     206.0,
+     -32767.0,
+     212.0,
+     241.0,
+     280.0,
+     320.0,
+     362.0,
+     160.0,
+     164.0,
+     168.0,
+     172.0
+    ]
+   }
+  },
+  "edition": 3,
+  "groups": {
+   "": {}
+  },
+  "left_out": [],
+  "unreadable": []
+ },
+ "v2_nested": {
+  "arrays": {
+   "sub/inner": {
+    "attributes": {
+     "_ARRAY_DIMENSIONS": {
+      "opaque": "[\"z\"]"
+     },
+     "_FillValue": {
+      "numbers": [
+       0.0
+      ]
+     }
+    },
+    "chunks": [
+     2
+    ],
+    "dimensions": [
+     "z"
+    ],
+    "element": {
+     "bits": 16,
+     "kind": "int"
+    },
+    "region": {
+     "ranges": [
+      [
+       1,
+       4
+      ]
+     ],
+     "values": [
+      -1.0,
+      0.0,
+      1.0
+     ]
+    },
+    "shape": [
+     4
+    ],
+    "values": [
+     -2.0,
+     -1.0,
+     0.0,
+     1.0
+    ]
+   },
+   "temp": {
+    "attributes": {
+     "_ARRAY_DIMENSIONS": {
+      "opaque": "[\"y\",\"x\"]"
+     },
+     "_FillValue": {
+      "numbers": [
+       -1.0
+      ]
+     },
+     "units": {
+      "text": "K"
+     }
+    },
+    "chunks": [
+     2,
+     3
+    ],
+    "dimensions": [
+     "y",
+     "x"
+    ],
+    "element": {
+     "bits": 32,
+     "kind": "float"
+    },
+    "region": {
+     "ranges": [
+      [
+       1,
+       5
+      ],
+      [
+       1,
+       7
+      ]
+     ],
+     "values": [
+      4.0,
+      4.5,
+      5.0,
+      5.5,
+      -1.0,
+      -1.0,
+      7.5,
+      8.0,
+      8.5,
+      9.0,
+      -1.0,
+      -1.0,
+      11.0,
+      11.5,
+      12.0,
+      12.5,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0
+     ]
+    },
+    "shape": [
+     5,
+     7
+    ],
+    "values": [
+     0.0,
+     0.5,
+     1.0,
+     1.5,
+     2.0,
+     -1.0,
+     -1.0,
+     3.5,
+     4.0,
+     4.5,
+     5.0,
+     5.5,
+     -1.0,
+     -1.0,
+     7.0,
+     7.5,
+     8.0,
+     8.5,
+     9.0,
+     -1.0,
+     -1.0,
+     10.5,
+     11.0,
+     11.5,
+     12.0,
+     12.5,
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0
+    ]
+   }
+  },
+  "edition": 2,
+  "groups": {
+   "": {
+    "title": {
+     "text": "v2_nested"
+    }
+   },
+   "sub": {
+    "level": {
+     "numbers": [
+      850.0
+     ]
+    }
+   }
+  },
+  "left_out": [],
+  "unreadable": []
+ },
+ "v2_problems": {
+  "arrays": {
+   "bz": {
+    "attributes": {
+     "_FillValue": {
+      "numbers": [
+       0.0
+      ]
+     }
+    },
+    "chunks": [
+     2
+    ],
+    "dimensions": null,
+    "element": {
+     "bits": 32,
+     "kind": "float"
+    },
+    "region": {
+     "ranges": [
+      [
+       1,
+       4
+      ]
+     ],
+     "values": [
+      3.5,
+      4.0,
+      4.5
+     ]
+    },
+    "shape": [
+     4
+    ],
+    "values": [
+     3.0,
+     3.5,
+     4.0,
+     4.5
+    ]
+   },
+   "ok": {
+    "attributes": {
+     "_FillValue": {
+      "numbers": [
+       0.0
+      ]
+     }
+    },
+    "chunks": [
+     2
+    ],
+    "dimensions": null,
+    "element": {
+     "bits": 32,
+     "kind": "float"
+    },
+    "region": {
+     "ranges": [
+      [
+       1,
+       4
+      ]
+     ],
+     "values": [
+      0.5,
+      1.0,
+      1.5
+     ]
+    },
+    "shape": [
+     4
+    ],
+    "values": [
+     0.0,
+     0.5,
+     1.0,
+     1.5
+    ]
+   },
+   "x1": {
+    "attributes": {
+     "_ARRAY_DIMENSIONS": {
+      "opaque": "[\"x\"]"
+     },
+     "_FillValue": {
+      "numbers": [
+       0.0
+      ]
+     }
+    },
+    "chunks": [
+     3
+    ],
+    "dimensions": [
+     "x"
+    ],
+    "element": {
+     "bits": 16,
+     "kind": "int"
+    },
+    "region": {
+     "ranges": [
+      [
+       1,
+       3
+      ]
+     ],
+     "values": [
+      3.0,
+      3.0
+     ]
+    },
+    "shape": [
+     3
+    ],
+    "values": [
+     3.0,
+     3.0,
+     3.0
+    ]
+   }
+  },
+  "edition": 2,
+  "groups": {
+   "": {}
+  },
+  "left_out": [
+   "names",
+   "x2"
+  ],
+  "unreadable": [
+   "bz"
+  ]
+ },
+ "v2_slash": {
+  "arrays": {
+   "sub/inner": {
+    "attributes": {
+     "_ARRAY_DIMENSIONS": {
+      "opaque": "[\"z\"]"
+     },
+     "_FillValue": {
+      "numbers": [
+       0.0
+      ]
+     }
+    },
+    "chunks": [
+     2
+    ],
+    "dimensions": [
+     "z"
+    ],
+    "element": {
+     "bits": 16,
+     "kind": "int"
+    },
+    "region": {
+     "ranges": [
+      [
+       1,
+       4
+      ]
+     ],
+     "values": [
+      -1.0,
+      0.0,
+      1.0
+     ]
+    },
+    "shape": [
+     4
+    ],
+    "values": [
+     -2.0,
+     -1.0,
+     0.0,
+     1.0
+    ]
+   },
+   "temp": {
+    "attributes": {
+     "_ARRAY_DIMENSIONS": {
+      "opaque": "[\"y\",\"x\"]"
+     },
+     "_FillValue": {
+      "numbers": [
+       -1.0
+      ]
+     },
+     "units": {
+      "text": "K"
+     }
+    },
+    "chunks": [
+     2,
+     3
+    ],
+    "dimensions": [
+     "y",
+     "x"
+    ],
+    "element": {
+     "bits": 32,
+     "kind": "float"
+    },
+    "region": {
+     "ranges": [
+      [
+       1,
+       5
+      ],
+      [
+       1,
+       7
+      ]
+     ],
+     "values": [
+      4.0,
+      4.5,
+      5.0,
+      5.5,
+      -1.0,
+      -1.0,
+      7.5,
+      8.0,
+      8.5,
+      9.0,
+      -1.0,
+      -1.0,
+      11.0,
+      11.5,
+      12.0,
+      12.5,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0
+     ]
+    },
+    "shape": [
+     5,
+     7
+    ],
+    "values": [
+     0.0,
+     0.5,
+     1.0,
+     1.5,
+     2.0,
+     -1.0,
+     -1.0,
+     3.5,
+     4.0,
+     4.5,
+     5.0,
+     5.5,
+     -1.0,
+     -1.0,
+     7.0,
+     7.5,
+     8.0,
+     8.5,
+     9.0,
+     -1.0,
+     -1.0,
+     10.5,
+     11.0,
+     11.5,
+     12.0,
+     12.5,
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0
+    ]
+   }
+  },
+  "edition": 2,
+  "groups": {
+   "": {
+    "title": {
+     "text": "v2_slash"
+    }
+   },
+   "sub": {
+    "level": {
+     "numbers": [
+      850.0
+     ]
+    }
+   }
+  },
+  "left_out": [],
+  "unreadable": []
+ },
+ "v3_nested": {
+  "arrays": {
+   "sub/inner": {
+    "attributes": {},
+    "chunks": [
+     2
+    ],
+    "dimensions": [
+     "z"
+    ],
+    "element": {
+     "bits": 16,
+     "kind": "int"
+    },
+    "region": {
+     "ranges": [
+      [
+       1,
+       4
+      ]
+     ],
+     "values": [
+      -1.0,
+      0.0,
+      1.0
+     ]
+    },
+    "shape": [
+     4
+    ],
+    "values": [
+     -2.0,
+     -1.0,
+     0.0,
+     1.0
+    ]
+   },
+   "temp": {
+    "attributes": {
+     "units": {
+      "text": "K"
+     }
+    },
+    "chunks": [
+     2,
+     3
+    ],
+    "dimensions": [
+     "y",
+     "x"
+    ],
+    "element": {
+     "bits": 32,
+     "kind": "float"
+    },
+    "region": {
+     "ranges": [
+      [
+       1,
+       5
+      ],
+      [
+       1,
+       7
+      ]
+     ],
+     "values": [
+      4.0,
+      4.5,
+      5.0,
+      5.5,
+      -1.0,
+      -1.0,
+      7.5,
+      8.0,
+      8.5,
+      9.0,
+      -1.0,
+      -1.0,
+      11.0,
+      11.5,
+      12.0,
+      12.5,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0
+     ]
+    },
+    "shape": [
+     5,
+     7
+    ],
+    "values": [
+     0.0,
+     0.5,
+     1.0,
+     1.5,
+     2.0,
+     -1.0,
+     -1.0,
+     3.5,
+     4.0,
+     4.5,
+     5.0,
+     5.5,
+     -1.0,
+     -1.0,
+     7.0,
+     7.5,
+     8.0,
+     8.5,
+     9.0,
+     -1.0,
+     -1.0,
+     10.5,
+     11.0,
+     11.5,
+     12.0,
+     12.5,
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0
+    ]
+   }
+  },
+  "edition": 3,
+  "groups": {
+   "": {
+    "title": {
+     "text": "v3_nested"
+    }
+   },
+   "sub": {
+    "level": {
+     "numbers": [
+      850.0
+     ]
+    }
+   }
+  },
+  "left_out": [],
+  "unreadable": []
+ },
+ "v3_sharded": {
+  "arrays": {
+   "s": {
+    "attributes": {},
+    "chunks": [
+     4,
+     4
+    ],
+    "dimensions": [
+     "y",
+     "x"
+    ],
+    "element": {
+     "bits": 32,
+     "kind": "float"
+    },
+    "region": {
+     "ranges": [
+      [
+       1,
+       5
+      ],
+      [
+       1,
+       7
+      ]
+     ],
+     "values": [
+      4.0,
+      4.5,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0,
+      9.0
+     ]
+    },
+    "shape": [
+     5,
+     7
+    ],
+    "values": [
+     0.0,
+     0.5,
+     1.0,
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0,
+     3.5,
+     4.0,
+     4.5,
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0,
+     9.0
+    ]
+   }
+  },
+  "edition": 3,
+  "groups": {
+   "": {}
+  },
+  "left_out": [],
+  "unreadable": []
+ },
+ "v3_v2keys": {
+  "arrays": {
+   "k": {
+    "attributes": {},
+    "chunks": [
+     2,
+     3
+    ],
+    "dimensions": null,
+    "element": {
+     "bits": 32,
+     "kind": "float"
+    },
+    "region": {
+     "ranges": [
+      [
+       1,
+       4
+      ],
+      [
+       1,
+       6
+      ]
+     ],
+     "values": [
+      3.5,
+      4.0,
+      4.5,
+      5.0,
+      5.5,
+      "NaN",
+      "NaN",
+      "NaN",
+      "NaN",
+      "NaN",
+      "NaN",
+      "NaN",
+      "NaN",
+      "NaN",
+      "NaN"
+     ]
+    },
+    "shape": [
+     4,
+     6
+    ],
+    "values": [
+     0.0,
+     0.5,
+     1.0,
+     1.5,
+     2.0,
+     2.5,
+     3.0,
+     3.5,
+     4.0,
+     4.5,
+     5.0,
+     5.5,
+     "NaN",
+     "NaN",
+     "NaN",
+     "NaN",
+     "NaN",
+     "NaN",
+     "NaN",
+     "NaN",
+     "NaN",
+     "NaN",
+     "NaN",
+     "NaN"
+    ]
+   }
+  },
+  "edition": 3,
+  "groups": {
+   "": {}
+  },
+  "left_out": [],
+  "unreadable": []
+ }
+}

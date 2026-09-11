@@ -8,6 +8,12 @@ Versioning is plain [Semantic Versioning](https://semver.org/spec/v2.0.0.html), 
 
 ### Added
 
+- **A Zarr store can be opened and read, not only its chunks decoded.** The Zarr crate could turn one chunk into numbers but could not find the chunks: nothing walked a store. `ZarrStore` now does, for both editions, with or without consolidated metadata. It lists the groups, arrays, shared dimensions and attributes, and reads any region of an array by fetching exactly the chunks it covers. Absent chunks read as the fill value, a chunk at the edge of an array is trimmed, and sharded arrays read their inner chunks out of the shard.
+
+  **Zarr sits beside the NetCDF readers, not beside GRIB.** A Zarr store is a layout of chunks under keys rather than a file format, so it reads through the same keyed-object seam a host fills, and it presents a new `ArraySource` trait in `fieldglass-core`: a container's structure plus a raw region read. The CF scale, offset and fill are applied once above that trait from each array's attributes, so a packed `int16` reads in physical units with no Zarr-specific rule. Where xarray keeps the fill value somewhere else (as the array's own `fill_value` in v2, base64-encoded in v3), the store presents it as an attribute, so the one rule sees it.
+
+  Everything is checked against the reference tools. Eight committed stores are listed and read the same as zarr-python lists and reads them, and their CF arrays decode to xarray's values. A test also checks the reads a store makes to get there: one batch to open a consolidated store, and exactly the covered chunk keys for a region. An array with a codec this crate does not decode is still listed, and only reading it fails. Wiring stores into `Session` and the editor comes next. Part of #246; closes #658.
+
 - **The GRIB readers get their bytes through the same seam as NetCDF.** The GRIB1 and GRIB2 readers indexed a buffer that had to be the whole file. They now read through `ByteSource`, as both NetCDF readers do, so the same code runs over a buffer, over ranges a host has already fetched, or over a transport added later.
 
   **A decode asks for its bytes once.** A message's header already records where its bitmap and data sit, so each decode requests those ranges in one batch and then reads exactly them. A test checks this for every message in every bundled fixture.

@@ -94,6 +94,18 @@ of it: `tests/object_source.rs` asserts that a walk lists, prefetches **once**,
 and then reads — which is the property a test that only checked the values
 would miss, and the one an implementation loses first.
 
+`ArraySource` is the rung above both (#658, ADR-0010's amendment to decision
+3). The byte seams answer "give me these bytes"; this answers "give me this
+array's values": a container's `Group` tree and a raw region read, with the CF
+mask-and-scale applied once above it, from the array's own attributes, as
+`read_region_physical`. It is a trait because it is IO — the model types it
+returns stay plain structs. `ZarrStore` implements it over an `ObjectSource`,
+which is where Zarr belongs: a store is a layout of chunks under keys rather
+than a file format, so it sits beside the NetCDF readers rather than beside
+GRIB. A region read spells the chunk keys it covers from core, prefetches them
+in one batch and then reads them, and `tests/stores.rs` holds it to exactly
+that with `MemoryObjects`.
+
 ```mermaid
 classDiagram
     class ByteSource {
@@ -113,8 +125,18 @@ classDiagram
         +require(key) Cow (provided)
     }
 
+    class ArraySource {
+        <<trait, #658>>
+        named arrays, read by region
+        +group() Group
+        +read_region(array, region) raw
+        +read_region_physical(array, region) (provided)
+    }
+
     ByteSource <|.. Vec
     ObjectSource <|.. MemoryObjects
+    ArraySource <|.. ZarrStore
+    ZarrStore ..> ObjectSource : reads through
 ```
 
 ## Fetch planning
