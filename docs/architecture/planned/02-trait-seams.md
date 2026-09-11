@@ -215,18 +215,19 @@ NCEP table in `fieldglass-grib2` (#426), and that dependency would drag the
 decoder and its codecs into a pure planner, so semantic matching is a trait
 the umbrella implements.
 
-The GRIB half landed with #461 and the kerchunk half with #660; the current
-[`02-trait-seams.md`](../02-trait-seams.md) documents both. What stays here is
-the reshape of #685 (ADR-0010 decision 4). The shipped `Manifest` promises one
-object key per manifest and a parameter query, and both promises are GRIB's:
-a reference document addresses many objects and has nothing to query, which
-is why `KerchunkRefs` could not implement it. After #685 a `PlanItem` carries
-its own address — a message index with an optional sub-index, or a chunk index
-— `Manifest` keeps `items()` and the provided `messages()`, the query moves to
-a `MessageManifest` extension trait, and all three dialects share the base
-trait. The chunk-grid arithmetic the kerchunk half leans on moves to `core`
-(#677); kerchunk itself stays, because a reference document is a manifest.
-Four things about the shipped GRIB half are facts rather than plans:
+The GRIB half landed with #461, the kerchunk half with #660, and the reshape
+with #685 (ADR-0010 decision 4); the current
+[`02-trait-seams.md`](../02-trait-seams.md) documents all three. The
+`Manifest` that shipped first promised one object key per manifest and a
+parameter query, and both promises were GRIB's: a reference document addresses
+many objects and has nothing to query, which is why `KerchunkRefs` could not
+implement it. Now a `PlanItem` carries its own address — a message index with
+an optional sub-index, or a chunk index — `Manifest` keeps `items()` and the
+provided `messages()`, the query is on a `MessageManifest` extension trait,
+and all three dialects share the base trait. The chunk-grid arithmetic the
+kerchunk half leans on is `core`'s (#677); kerchunk itself stays, because a
+reference document is a manifest. Four things about the GRIB half are facts
+rather than plans:
 
 * **No `core` edge, and then one.** The crate was drawn depending on `core`;
   it turned out to need nothing from it *except* the one thing that matters —
@@ -236,8 +237,9 @@ Four things about the shipped GRIB half are facts rather than plans:
   Two spellings of one concept was the alternative, and the diagram drift
   guard flagged the name collision before it shipped.
 * **`Manifest::messages` is a provided method**, not a per-dialect one:
-  collapsing the records that share a byte range is a property of the plan and
-  not of the grammar it was read from.
+  collapsing a message's fields onto one fetch is a property of the plan and
+  not of the grammar it was read from. It recognises them by address rather
+  than by range, so two chunks at the same bytes stay two.
 * **`NoResolver` is part of the surface.** Without an implementer that resolves
   nothing, the syntactic path — matching the sidecar's own words, which is what
   a user pasting a `.idx` line has — could not be exercised without the
@@ -251,12 +253,12 @@ Four things about the shipped GRIB half are facts rather than plans:
 ```mermaid
 classDiagram
     class Manifest {
-        <<trait, reshaped #685>>
+        <<trait, reshaped by #685>>
         +items() Vec~PlanItem~
         +messages() Vec~PlanItem~ (provided)
     }
     class MessageManifest {
-        <<trait, planned #685>>
+        <<trait, shipped #685>>
         +select(query, &dyn ParameterResolver) Vec~PlanItem~
     }
     class ParameterResolver {
@@ -274,10 +276,10 @@ classDiagram
     ParameterResolver <|.. TableResolver
     ParameterResolver <|.. NoResolver
     class PlanItem {
-        <<shipped #461; address planned #685>>
+        <<shipped #461; address #685>>
         +String key
         +PlanRange range
-        +Address address (message + sub_index | chunk index)
+        +Address address (message + sub_index | chunk index | store key)
         +Expect expect (parameter, level, forecast from the sidecar line)
     }
     class Expect {
