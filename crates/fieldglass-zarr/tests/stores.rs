@@ -23,7 +23,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 use std::path::Path;
 
-use fieldglass_core::array::{ArraySource, AttributeValue, ElementType, Group};
+use fieldglass_core::array::{ArraySource, AttributeValue, ElementType, Group, PhonyDimensions};
 use fieldglass_core::bytes::MemoryObjects;
 use fieldglass_zarr::ZarrStore;
 use serde_json::{Value, json};
@@ -213,6 +213,11 @@ fn every_store_lists_what_zarr_python_lists() {
             want_arrays.keys().cloned().collect::<BTreeSet<_>>(),
             "{name}: arrays"
         );
+        // The walker names an unnamed axis by netCDF-C's phony rule, one
+        // allocator per group, in listing order — replayed here with core's
+        // allocator, so the expectation is the rule and not the walker's copy
+        // of it.
+        let mut phony: BTreeMap<String, PhonyDimensions> = BTreeMap::new();
         for (path, array) in &listed {
             let expected = &want_arrays[path];
             let grid = array.chunk_grid.as_ref().expect("a Zarr array is chunked");
@@ -231,15 +236,29 @@ fn every_store_lists_what_zarr_python_lists() {
                 expected["element"],
                 "{name}/{path}: element type"
             );
-            // An axis the store leaves unnamed gets the array's own name for
-            // it, so it is never shared by accident.
-            let want_dims: Vec<String> = (0..grid.rank())
+            let stated: Vec<Option<String>> = (0..grid.rank())
                 .map(|axis| {
                     expected["dimensions"]
                         .get(axis)
                         .and_then(Value::as_str)
-                        .map_or_else(|| format!("{}_dim{axis}", array.name), str::to_string)
+                        .map(str::to_string)
                 })
+                .collect();
+            let unnamed: Vec<u64> = stated
+                .iter()
+                .zip(grid.shape())
+                .filter(|(name, _)| name.is_none())
+                .map(|(_, length)| *length)
+                .collect();
+            let group = path.rsplit_once('/').map_or("", |(g, _)| g).to_string();
+            let mut invented = phony
+                .entry(group)
+                .or_default()
+                .axes_for(&unnamed, &[])
+                .into_iter();
+            let want_dims: Vec<String> = stated
+                .into_iter()
+                .map(|name| name.or_else(|| invented.next()).unwrap_or_default())
                 .collect();
             assert_eq!(array.dimensions, want_dims, "{name}/{path}: dimensions");
             let got: serde_json::Map<String, Value> = array

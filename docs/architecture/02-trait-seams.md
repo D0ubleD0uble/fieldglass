@@ -100,7 +100,8 @@ array's values": a container's `Group` tree and a raw region read, with the CF
 mask-and-scale applied once above it, from the array's own attributes, as
 `read_region_physical`. It is a trait because it is IO — the model types it
 returns stay plain structs. `ZarrStore` implements it over an `ObjectSource`,
-which is where Zarr belongs: a store is a layout of chunks under keys rather
+and `NetcdfArrays` over the NetCDF reader's `ByteSource` (#704), which is where
+Zarr belongs: a store is a layout of chunks under keys rather
 than a file format, so it sits beside the NetCDF readers rather than beside
 GRIB. A region read spells the chunk keys it covers from core, prefetches them
 in one batch and then reads them, and `tests/stores.rs` holds it to exactly
@@ -136,6 +137,7 @@ classDiagram
     ByteSource <|.. Vec
     ObjectSource <|.. MemoryObjects
     ArraySource <|.. ZarrStore
+    ArraySource <|.. NetcdfArrays
     ZarrStore ..> ObjectSource : reads through
 ```
 

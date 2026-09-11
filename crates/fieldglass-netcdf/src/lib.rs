@@ -20,6 +20,7 @@
 //! Fieldglass dependency in a consumer's manifest.
 
 #![forbid(unsafe_code)]
+pub mod arrays;
 pub mod classic;
 pub mod geometry;
 pub mod hdf5;
@@ -53,9 +54,10 @@ pub use geometry::{
 /// type a view hands back.
 pub mod array {
     pub use fieldglass_core::array::{
-        ArrayDescription, Attribute, AttributeValue, Dimension, ElementType, Group,
+        ArrayDescription, ArraySource, Attribute, AttributeValue, Dimension, ElementType, Group,
     };
 }
+pub use arrays::NetcdfArrays;
 pub use hdf5::attribute::{Hdf5Attribute, RawAttribute, list_attributes, raw_attribute};
 pub use hdf5::dataset::{DatasetShape, describe as describe_dataset};
 pub use hdf5::dataspace::Dataspace;

@@ -11,6 +11,8 @@
 
 // Split by feature: a braced `use` list takes no `#[cfg]` on its members, so
 // the items behind `core`'s optional surfaces need their own statement (#552).
+#[cfg(feature = "zarr")]
+use fieldglass_core::bytes::ObjectSource;
 #[cfg(any(feature = "grib1", feature = "grib2"))]
 use fieldglass_core::units::normalize_units;
 use fieldglass_core::{Format as CoreFormat, GridGeometry, detect_from_bytes};
@@ -19,6 +21,11 @@ use fieldglass_core::{
     LonLatBox, Resampling, SourceGrid, TargetRaster,
     colormap::{Colormap, Palette, ScaleMode, default_colormap},
     warp,
+};
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+use fieldglass_core::{
+    array::{ArraySource, AttributeValue, CfUnpacking, ElementType, attribute},
+    cf::{renderable_arrays, slice_placement},
 };
 #[cfg(feature = "analysis")]
 use fieldglass_core::{contour_segments, contour_segments_global, nice_levels};
@@ -208,16 +215,35 @@ enum Reader {
     Grib1(Box<fieldglass_grib1::Grib1Reader>),
     #[cfg(feature = "grib2")]
     Grib2(Box<fieldglass_grib2::Grib2Reader>),
-    /// An array dataset. The `DatasetView` is resolved once on open rather than
-    /// per call: for a NetCDF-4 backing it walks the whole object model, and
-    /// every variable and slice question is asked of it afterwards.
-    #[cfg(feature = "netcdf")]
-    Netcdf(
-        Box<(
-            fieldglass_netcdf::NetcdfReader,
-            fieldglass_netcdf::DatasetView,
-        )>,
-    ),
+    /// A container of named arrays — a NetCDF file or a Zarr store — held as
+    /// the [`ArraySource`] its reader presents (#704). One arm for every such
+    /// container: the variable list, the slice and its placement are core's CF
+    /// rules over that seam, so a second container needs no second copy of them.
+    #[cfg(any(feature = "netcdf", feature = "zarr"))]
+    Arrays(Box<Arrays>),
+}
+
+/// A container of named arrays, and which one it is.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+struct Arrays {
+    /// The container's structure and values. For NetCDF the dataset view is
+    /// resolved once, on open: for a NetCDF-4 backing it walks the whole object
+    /// model, and every variable and slice question is asked of it afterwards.
+    source: Box<dyn ArraySource>,
+    /// What [`Session::format`] reports.
+    format: SourceFormat,
+}
+
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+impl std::fmt::Debug for Arrays {
+    // The source is a trait object with no `Debug` of its own to lean on, and
+    // printing a whole dataset would not help anyone reading a session.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Arrays")
+            .field("format", &self.format)
+            .field("arrays", &self.source.group().arrays_qualified().len())
+            .finish()
+    }
 }
 
 /// The half of a decode that is the same whichever way the container was
@@ -301,6 +327,94 @@ fn wrong_addressing(mode: Addressing, called: &str, instead: &str) -> Error {
     }
 }
 
+/// The element type's name on the wire.
+///
+/// NetCDF's own type names (`short`, `float`, `double`, `ubyte`, …), which is
+/// what a NetCDF variable reported before #704 and so what a host already shows.
+/// A Zarr array of the same type reports the same name; a width NetCDF has no
+/// name for (a Zarr `float16`) is spelled from its kind and width.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+fn dtype_name(element_type: &ElementType) -> String {
+    match element_type {
+        ElementType::Int(8) => "byte".to_string(),
+        ElementType::Int(16) => "short".to_string(),
+        ElementType::Int(32) => "int".to_string(),
+        ElementType::Int(64) => "int64".to_string(),
+        ElementType::Uint(8) => "ubyte".to_string(),
+        ElementType::Uint(16) => "ushort".to_string(),
+        ElementType::Uint(32) => "uint".to_string(),
+        ElementType::Uint(64) => "uint64".to_string(),
+        ElementType::Float(32) => "float".to_string(),
+        ElementType::Float(64) => "double".to_string(),
+        ElementType::Int(bits) => format!("int{bits}"),
+        ElementType::Uint(bits) => format!("uint{bits}"),
+        ElementType::Float(bits) => format!("float{bits}"),
+        ElementType::Text => "char".to_string(),
+        ElementType::Other(name) => name.clone(),
+        other => format!("{other:?}").to_lowercase(),
+    }
+}
+
+/// An array's `units`, as the container spells them, or empty.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+fn array_units(source: &dyn ArraySource, array: &str) -> String {
+    source
+        .array(array)
+        .and_then(|d| attribute(&d.attributes, "units"))
+        .and_then(AttributeValue::text)
+        .map(str::to_string)
+        .unwrap_or_default()
+}
+
+/// One 2-D plane of an array, raw, as `nj` rows (along `y`) of `ni` values
+/// (along `x`).
+///
+/// Read as one region — the full extent of the two horizontal axes, one index
+/// of every other — so a container that fetches by chunk fetches only the
+/// chunks the plane covers. The region comes back in the array's declared axis
+/// order, so an array whose `x` axis precedes its `y` is transposed into rows.
+/// A held index past its axis is refused in the words the NetCDF plane
+/// extraction always used.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+fn read_plane(
+    source: &dyn ArraySource,
+    var: &fieldglass_core::cf::RenderableArray,
+    y: usize,
+    x: usize,
+    fixed: &[usize],
+) -> Result<Vec<Option<f64>>, Error> {
+    let mut region = Vec::with_capacity(var.dims.len());
+    for (d, dim) in var.dims.iter().enumerate() {
+        if d == y || d == x {
+            region.push(0..dim.length);
+            continue;
+        }
+        let at = fixed[d] as u64;
+        if at >= dim.length {
+            return Err(fieldglass_core::FieldglassError::Parse(format!(
+                "slice index {} out of range for dimension {d} (length {})",
+                fixed[d], dim.length
+            ))
+            .into());
+        }
+        region.push(at..at + 1);
+    }
+    let raw = source.read_region(&var.name, &region)?;
+    if y < x {
+        return Ok(raw);
+    }
+    // Stored with `x` outer and `y` inner: `raw[i·nj + j]` is the cell at row
+    // `j`, column `i`.
+    let (ni, nj) = (var.dims[x].length as usize, var.dims[y].length as usize);
+    let mut rows = Vec::with_capacity(raw.len());
+    for j in 0..nj {
+        for i in 0..ni {
+            rows.push(raw.get(i * nj + j).copied().flatten());
+        }
+    }
+    Ok(rows)
+}
+
 impl Session {
     /// Open a container from its bytes.
     ///
@@ -334,10 +448,12 @@ impl Session {
             #[cfg(feature = "netcdf")]
             CoreFormat::NetCdf => {
                 let reader = fieldglass_netcdf::NetcdfReader::from_bytes(bytes)?;
-                // Resolved here so a variable list costs one walk per file
-                // rather than one per question.
-                let view = reader.view()?;
-                Reader::Netcdf(Box::new((reader, view)))
+                // The view is resolved here, so a variable list costs one walk
+                // per file rather than one per question.
+                Reader::Arrays(Box::new(Arrays {
+                    source: Box::new(fieldglass_netcdf::NetcdfArrays::open(reader)?),
+                    format: SourceFormat::NetCdf,
+                }))
             }
             #[cfg(not(feature = "netcdf"))]
             CoreFormat::NetCdf => {
@@ -355,16 +471,41 @@ impl Session {
         Ok(Self { reader })
     }
 
+    /// Open a Zarr store from the objects a host holds for it (#704).
+    ///
+    /// A store is many objects rather than one run of bytes, so it cannot come
+    /// through [`Session::open`]: the host fills an [`ObjectSource`] — a map of
+    /// the files it read from a directory, or the objects it fetched from a
+    /// bucket — and hands that over, which is ADR-0005's split for a keyed
+    /// store. Both editions, consolidated or not. The session is addressed by
+    /// variables, like NetCDF's, and answers through the same rules.
+    ///
+    /// # Errors
+    ///
+    /// When the objects are not a Zarr store or a root document does not parse.
+    /// An array that fails on its own is left out of [`Session::variables`]
+    /// rather than failing the store.
+    #[cfg(feature = "zarr")]
+    pub fn open_store<O: ObjectSource + 'static>(objects: O) -> Result<Self, Error> {
+        let store = fieldglass_zarr::ZarrStore::open(objects)?;
+        Ok(Self {
+            reader: Reader::Arrays(Box::new(Arrays {
+                source: Box::new(store),
+                format: SourceFormat::Zarr,
+            })),
+        })
+    }
+
     /// Which container the bytes turned out to be. Detected at
     /// [`Session::open`], never re-sniffed.
     pub fn format(&self) -> SourceFormat {
-        match self.reader {
+        match &self.reader {
             #[cfg(feature = "grib1")]
             Reader::Grib1(_) => SourceFormat::Grib1,
             #[cfg(feature = "grib2")]
             Reader::Grib2(_) => SourceFormat::Grib2,
-            #[cfg(feature = "netcdf")]
-            Reader::Netcdf(_) => SourceFormat::NetCdf,
+            #[cfg(any(feature = "netcdf", feature = "zarr"))]
+            Reader::Arrays(a) => a.format.clone(),
         }
     }
 
@@ -378,8 +519,8 @@ impl Session {
             Reader::Grib1(_) => Addressing::Messages,
             #[cfg(feature = "grib2")]
             Reader::Grib2(_) => Addressing::Messages,
-            #[cfg(feature = "netcdf")]
-            Reader::Netcdf(_) => Addressing::Variables,
+            #[cfg(any(feature = "netcdf", feature = "zarr"))]
+            Reader::Arrays(_) => Addressing::Variables,
         }
     }
 
@@ -394,8 +535,8 @@ impl Session {
             // Not an error and not a lie: an array dataset holds no messages.
             // `message` and `decode` say so properly; this is the count of the
             // thing being counted.
-            #[cfg(feature = "netcdf")]
-            Reader::Netcdf(_) => 0,
+            #[cfg(any(feature = "netcdf", feature = "zarr"))]
+            Reader::Arrays(_) => 0,
         };
         // A file with more messages than a `u32` counts does not exist; the
         // saturating cast is here so the index type and the count type agree
@@ -421,8 +562,8 @@ impl Session {
         // `count()` is zero, so the range check would answer "index 0 is
         // outside the 0 available" — which tells a caller its index was wrong
         // when its whole question was.
-        #[cfg(feature = "netcdf")]
-        if matches!(self.reader, Reader::Netcdf(_)) {
+        #[cfg(any(feature = "netcdf", feature = "zarr"))]
+        if matches!(self.reader, Reader::Arrays(_)) {
             return Err(wrong_addressing(
                 Addressing::Variables,
                 "message",
@@ -437,8 +578,8 @@ impl Session {
                 Reader::Grib1(r) => grib1_message(r, i),
                 #[cfg(feature = "grib2")]
                 Reader::Grib2(r) => grib2_message(r, i),
-                #[cfg(feature = "netcdf")]
-                Reader::Netcdf(_) => {
+                #[cfg(any(feature = "netcdf", feature = "zarr"))]
+                Reader::Arrays(_) => {
                     return Err(wrong_addressing(
                         Addressing::Variables,
                         "message",
@@ -478,8 +619,8 @@ impl Session {
     /// describes the file rather than describing Fieldglass.
     pub fn decode(&self, index: u32, options: &DecodeOptions) -> Result<Field, Error> {
         // Before the range check, for the reason `message` explains.
-        #[cfg(feature = "netcdf")]
-        if matches!(self.reader, Reader::Netcdf(_)) {
+        #[cfg(any(feature = "netcdf", feature = "zarr"))]
+        if matches!(self.reader, Reader::Arrays(_)) {
             return Err(wrong_addressing(
                 Addressing::Variables,
                 "decode",
@@ -497,8 +638,8 @@ impl Session {
                 Reader::Grib1(r) => r.synthesize_message_global(i)?,
                 #[cfg(feature = "grib2")]
                 Reader::Grib2(r) => r.synthesize_message_global(i)?,
-                #[cfg(feature = "netcdf")]
-                Reader::Netcdf(_) => {
+                #[cfg(any(feature = "netcdf", feature = "zarr"))]
+                Reader::Arrays(_) => {
                     return Err(wrong_addressing(
                         Addressing::Variables,
                         "decode",
@@ -517,8 +658,8 @@ impl Session {
                     let (_, parameter, units) = grib2_parameter(&r.messages[i]);
                     (parameter, units)
                 }
-                #[cfg(feature = "netcdf")]
-                Reader::Netcdf(_) => {
+                #[cfg(any(feature = "netcdf", feature = "zarr"))]
+                Reader::Arrays(_) => {
                     return Err(wrong_addressing(
                         Addressing::Variables,
                         "decode",
@@ -576,8 +717,8 @@ impl Session {
                             msg.gds.template_name(),
                         )
                     }
-                    #[cfg(feature = "netcdf")]
-                    Reader::Netcdf(_) => {
+                    #[cfg(any(feature = "netcdf", feature = "zarr"))]
+                    Reader::Arrays(_) => {
                         return Err(wrong_addressing(
                             Addressing::Variables,
                             "decode",
@@ -629,16 +770,17 @@ impl Session {
             Reader::Grib1(_) => Vec::new(),
             #[cfg(feature = "grib2")]
             Reader::Grib2(_) => Vec::new(),
-            #[cfg(feature = "netcdf")]
-            Reader::Netcdf(b) => {
-                b.1.dims
-                    .iter()
-                    .map(|d| DimensionInfo {
-                        name: d.name.clone(),
-                        length: d.length,
-                    })
-                    .collect()
-            }
+            #[cfg(any(feature = "netcdf", feature = "zarr"))]
+            Reader::Arrays(a) => a
+                .source
+                .group()
+                .dimensions_qualified()
+                .into_iter()
+                .map(|(name, d)| DimensionInfo {
+                    name,
+                    length: d.length,
+                })
+                .collect(),
         }
     }
 
@@ -655,38 +797,30 @@ impl Session {
             Reader::Grib1(_) => Vec::new(),
             #[cfg(feature = "grib2")]
             Reader::Grib2(_) => Vec::new(),
-            #[cfg(feature = "netcdf")]
-            Reader::Netcdf(b) => {
-                b.1.renderable_variables()
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, v)| VariableInfo {
-                        // Position in *this* list, not the decode index the crate
-                        // uses: a host should never have to know that the reader
-                        // numbers every dataset in the file while this offers only
-                        // the renderable ones.
-                        index: u32::try_from(i).unwrap_or(u32::MAX),
-                        name: v.name.clone(),
-                        dims: v
-                            .dims
-                            .iter()
-                            .map(|d| DimensionInfo {
-                                name: d.name.clone(),
-                                length: d.length,
-                            })
-                            .collect(),
-                        dtype: format!("{:?}", v.nc_type).to_lowercase(),
-                        units: b
-                            .1
-                            .var(v.decode_index)
-                            .and_then(|s| s.units())
-                            .map(str::to_string)
-                            .unwrap_or_default(),
-                        detected_y_dim: v.detected_y_dim.and_then(|d| u32::try_from(d).ok()),
-                        detected_x_dim: v.detected_x_dim.and_then(|d| u32::try_from(d).ok()),
-                    })
-                    .collect()
-            }
+            #[cfg(any(feature = "netcdf", feature = "zarr"))]
+            Reader::Arrays(a) => renderable_arrays(a.source.group())
+                .into_iter()
+                .enumerate()
+                .map(|(i, v)| VariableInfo {
+                    // Position in *this* list, not anything the reader numbers
+                    // by: a host should never have to know that a reader counts
+                    // every array while this offers only the renderable ones.
+                    index: u32::try_from(i).unwrap_or(u32::MAX),
+                    dims: v
+                        .dims
+                        .iter()
+                        .map(|d| DimensionInfo {
+                            name: d.name.clone(),
+                            length: d.length,
+                        })
+                        .collect(),
+                    dtype: dtype_name(&v.element_type),
+                    units: array_units(a.source.as_ref(), &v.name),
+                    detected_y_dim: v.detected_y_dim.and_then(|d| u32::try_from(d).ok()),
+                    detected_x_dim: v.detected_x_dim.and_then(|d| u32::try_from(d).ok()),
+                    name: v.name,
+                })
+                .collect(),
         }
     }
 
@@ -707,11 +841,14 @@ impl Session {
     /// The returned field is not special: `render`, `probe`, `contours`,
     /// `combine`, `warp` and `palette` take it exactly as they take a decoded
     /// message. That is the whole reason the addressing split stops here.
-    // Every parameter is read by the `netcdf` arm alone, so a GRIB-only build
+    // Every parameter is read by the arrays arm alone, so a GRIB-only build
     // sees a signature it cannot use. Kept in the signature regardless: the API
     // a host compiles against must not change shape with the feature set, or a
     // build without NetCDF would not be the same crate.
-    #[cfg_attr(not(feature = "netcdf"), allow(unused_variables))]
+    #[cfg_attr(
+        not(any(feature = "netcdf", feature = "zarr")),
+        allow(unused_variables)
+    )]
     pub fn decode_slice(
         &self,
         variable: u32,
@@ -733,10 +870,10 @@ impl Session {
                 "decode_slice",
                 "decode",
             )),
-            #[cfg(feature = "netcdf")]
-            Reader::Netcdf(b) => {
-                let (reader, view) = (&b.0, &b.1);
-                let vars = view.renderable_variables();
+            #[cfg(any(feature = "netcdf", feature = "zarr"))]
+            Reader::Arrays(a) => {
+                let source = a.source.as_ref();
+                let vars = renderable_arrays(source.group());
                 let var = vars.get(variable as usize).ok_or(Error::NoSuchMessage {
                     index: variable,
                     count: u32::try_from(vars.len()).unwrap_or(u32::MAX),
@@ -765,27 +902,22 @@ impl Session {
                         ),
                     });
                 }
-                let source = view
-                    .vars
-                    .iter()
-                    .find(|s| s.decode_index == var.decode_index)
-                    .ok_or_else(|| Error::Decode {
-                        detail: format!("`{}` is not in the dataset view", var.name),
-                    })?;
-                // `decode_plane` is the whole chain — decode, extract the
-                // plane, then the CF mask-and-scale — so a packed `int16`
-                // variable arrives here already in physical units, the way a
-                // GRIB field does. It must **not** be unpacked again: a second
-                // `scale_factor` / `add_offset` pass computes
-                // `(raw·s + o)·s + o`, which for the committed CF fixture turns
-                // 250 K into 265.625 K and for a GOES or ERA5 archive is wrong
-                // by about two orders of magnitude. Every number is finite and
+                let plane = read_plane(source, var, y, x, &fixed)?;
+                // The CF mask-and-scale, from the array's own attributes, so a
+                // packed `int16` arrives in physical units the way a GRIB field
+                // does. Once: a second `scale_factor` / `add_offset` pass
+                // computes `(raw·s + o)·s + o`, which for the committed CF
+                // fixture turns 250 K into 265.625 K. Every number is finite and
                 // plausible, so nothing downstream can tell.
-                let values = reader.decode_plane(source, y, x, &fixed)?;
-                let placement = reader.slice_placement(view, var, y, x)?;
+                let attributes = source
+                    .array(&var.name)
+                    .map(|d| d.attributes.as_slice())
+                    .unwrap_or_default();
+                let values = CfUnpacking::from_attributes(attributes).apply(&plane);
+                let placement = slice_placement(source, &var.name, y, x)?;
                 let ni = u32::try_from(var.dims[x].length).unwrap_or(u32::MAX);
                 let nj = u32::try_from(var.dims[y].length).unwrap_or(u32::MAX);
-                let units = source.units().map(str::to_string).unwrap_or_default();
+                let units = array_units(source, &var.name);
                 let declared = placement.geometry.label().to_string();
                 Ok(build_field(
                     &values,

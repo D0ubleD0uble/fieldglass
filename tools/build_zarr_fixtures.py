@@ -255,6 +255,11 @@ def main() -> None:
     if "--stores-only" in sys.argv:
         write_store_fixtures()
         return
+    # The NetCDF twin of the CF stores (#704), on its own flag for the same
+    # reason: writing it should not churn the stores beside it.
+    if "--twin-only" in sys.argv:
+        write_cf_twin()
+        return
 
     clean(ZARR_FIXTURES)
     clean(PLAN_FIXTURES)
@@ -534,6 +539,47 @@ def describe_store(root: Path, edition: int, *, left_out=(), unreadable=(), phys
     }
 
 
+def cf_dataset():
+    """The dataset the two CF stores and their NetCDF twin are written from,
+    and the CF encoding they share: a packed int16 with a scale, an offset, a
+    `_FillValue` and a masked cell, and a float with a -9999 sentinel."""
+    import xarray as xr
+
+    lat = np.array([10.0, 20.0, 30.0])
+    lon = np.array([0.0, 1.0, 2.0, 3.0])
+    t = np.array(
+        [[250.0, 251.5, np.nan, 253.0], [260.25, 270.0, 280.0, 290.5], [240.0, 241.0, 242.0, 243.0]]
+    )
+    a = np.array([[1.0, np.nan, 3.0, 4.0], [5.0, 6.0, np.nan, 8.0], [9.0, 10.0, 11.0, 12.0]], "f4")
+    dataset = xr.Dataset(
+        {"t": (("lat", "lon"), t), "a": (("lat", "lon"), a)},
+        coords={"lat": lat, "lon": lon},
+    )
+    encoding = {
+        "t": {"dtype": "int16", "scale_factor": 0.25, "add_offset": 200.0, "_FillValue": -32767, "chunks": (2, 2)},
+        "a": {"_FillValue": -9999.0, "chunks": (2, 2)},
+    }
+    return dataset, encoding
+
+
+def write_cf_twin() -> None:
+    """The CF stores' dataset again, as NetCDF-4 (#704).
+
+    One xarray dataset written as a Zarr store and as a NetCDF file is the one
+    input that shows the two containers place a slice by the same rules: the
+    same variables, the same axes detected, the same geometry, the same values.
+    Zarr's `chunks` encoding key is NetCDF's `chunksizes`.
+    """
+    dataset, encoding = cf_dataset()
+    netcdf_encoding = {
+        name: {("chunksizes" if k == "chunks" else k): v for k, v in enc.items()}
+        for name, enc in encoding.items()
+    }
+    path = ZARR_FIXTURES / "cf_twin.nc"
+    dataset.to_netcdf(str(path), engine="netcdf4", encoding=netcdf_encoding)
+    print(f"wrote the CF stores' NetCDF twin to {path}")
+
+
 def write_store_fixtures() -> None:
     import xarray as xr
 
@@ -642,20 +688,7 @@ def write_store_fixtures() -> None:
     # xarray's CF encoding, in both editions: a packed int16 with a scale,
     # an offset, a `_FillValue` and a masked cell, and a float with a -9999
     # sentinel. The physical values are xarray's own decode of the same store.
-    lat = np.array([10.0, 20.0, 30.0])
-    lon = np.array([0.0, 1.0, 2.0, 3.0])
-    t = np.array(
-        [[250.0, 251.5, np.nan, 253.0], [260.25, 270.0, 280.0, 290.5], [240.0, 241.0, 242.0, 243.0]]
-    )
-    a = np.array([[1.0, np.nan, 3.0, 4.0], [5.0, 6.0, np.nan, 8.0], [9.0, 10.0, 11.0, 12.0]], "f4")
-    dataset = xr.Dataset(
-        {"t": (("lat", "lon"), t), "a": (("lat", "lon"), a)},
-        coords={"lat": lat, "lon": lon},
-    )
-    encoding = {
-        "t": {"dtype": "int16", "scale_factor": 0.25, "add_offset": 200.0, "_FillValue": -32767, "chunks": (2, 2)},
-        "a": {"_FillValue": -9999.0, "chunks": (2, 2)},
-    }
+    dataset, encoding = cf_dataset()
     for edition in (2, 3):
         root = STORES / f"cf_v{edition}"
         dataset.to_zarr(str(root), zarr_format=edition, consolidated=True, encoding=encoding, mode="w")

@@ -80,6 +80,9 @@ api_type! {
         /// changing it is free.
         #[serde(rename = "netcdf")]
         NetCdf,
+        /// A Zarr store, v2 or v3, opened from its objects with
+        /// `Session::open_store` (#704, behind the `zarr` feature).
+        Zarr,
     }
 
     /// How a container is addressed: what a caller asks for to get a field.

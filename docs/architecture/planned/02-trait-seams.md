@@ -122,8 +122,8 @@ What a reader *presents* is one (#658, ADR-0010's amendment to decision 3).
 `ArraySource` is the array-level IO seam, one rung above `ByteSource` and
 `ObjectSource`: the `Group` tree and a raw region read, with CF applied once
 above it from the array's attributes. `ZarrStore` implements it over an
-`ObjectSource`; the NetCDF readers implement it over a `ByteSource` in the
-follow-up that moves CF placement into core (#704) and collapses `Session`'s Variables
+`ObjectSource`, and `NetcdfArrays` over a `ByteSource` (#704). #704 also
+moved CF placement into core (`core::cf`) and collapsed `Session`'s Variables
 arm to one `Reader::Arrays`, which is where Zarr reaches `Session`.
 
 ```mermaid
@@ -178,7 +178,7 @@ classDiagram
         <<shipped #658, crate fieldglass-zarr; reads ObjectSource>>
     }
     class NetcdfArrays {
-        <<planned #704, crate fieldglass-netcdf; reads ByteSource>>
+        <<shipped #704, crate fieldglass-netcdf; reads ByteSource>>
     }
     ArraySource ..> Group
     ArraySource <|.. ZarrStore
