@@ -30,6 +30,26 @@ what makes the migration incremental: passing a `Vec<u8>` where a `ByteSource`
 is wanted already works. HTTP range (#247) and object stores (#252) each add one
 more.
 
+**Both NetCDF readers are on it** — classic with #438, HDF5 with #682 — and the
+two show the seam's range. Classic satisfies ADR-0005's *strong* form: every
+offset is in the header, so `variable_plan` states a complete list of ranges
+before a data byte is touched. HDF5 satisfies only the weak one, and the
+architecture follows from that rather than from preference. Its traversal is a
+chain of dependent reads — superblock, object header, group B-tree, fractal
+heap, chunk index, each address inside the structure before it — so nothing can
+be resolved up front and the walk prefetches nothing. The one place a real plan
+exists is *after* the chunk index has been walked, and that is the one place
+`prefetch` is called: a variable's stored bytes are one batch and then reads.
+
+Two consequences are worth naming because they are properties of the seam and
+not of HDF5. A traversal reads fields, not structures, so a `read` per field
+would be a round trip per integer; the HDF5 reader pulls a **growing window**
+instead, which bounds both the round trips on a long structure and the
+over-read on a short one. And a source may serve fewer bytes than it was asked
+for — a buffer cannot, a truncated response can — so the length is checked at
+the single point every read passes through, rather than at each caller that
+would go on to index the result.
+
 `identity()` is what a reader's memo keys on (ADR-0005 decision 2, #681). A
 buffer identifies itself by where it begins and how far it runs; a source that
 is not one contiguous buffer — a sparse map of prefetched ranges — gives the

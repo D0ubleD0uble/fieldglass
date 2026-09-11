@@ -173,8 +173,10 @@ same rules: a read works whether or not it was prefetched, and everything is
 synchronous. The napi host may implement it over `std::fs`, because napi is
 the host; a bucket is the browser filling the in-memory one. #681 added the
 identity ADR-0005 decision 2 asked for, so the HDF5 memo no longer keys on
-length, and #682 moves the HDF5 reader onto `ByteSource` the way classic
-already is.
+length, and #682 moved the HDF5 reader onto `ByteSource` the way classic
+already was. Both are shipped; what that migration settled about windowing and
+short reads is recorded in the current
+[`02-trait-seams.md`](../02-trait-seams.md).
 
 ```mermaid
 classDiagram

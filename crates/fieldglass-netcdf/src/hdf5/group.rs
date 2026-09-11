@@ -23,9 +23,11 @@
 //! <https://docs.hdfgroup.org/hdf5/develop/_f_m_t3.html>.
 
 use super::Hdf5Probe;
-use super::heap::{self, Cursor, FractalHeap};
+use super::heap::{self, FractalHeap};
 use super::object_header::{self, read_uint_le};
+use super::source::{Cursor, Fields, FileCursor, read_up_to};
 use fieldglass_core::FieldglassError;
+use fieldglass_core::bytes::ByteSource;
 use std::collections::HashSet;
 
 // Object-header message types consulted here.
@@ -47,6 +49,16 @@ const LINK_RECORD_HEAP_ID_OFFSET: usize = 4;
 const MAX_CHILDREN: usize = 1 << 20;
 /// Upper bound on B-tree v1 nodes visited — guards cyclic sibling/child links.
 const MAX_BTREE_NODES: usize = 4096;
+
+/// Ceiling on a link name read out of a local heap.
+///
+/// A heap name is null-terminated and its length is stated nowhere, so the
+/// reader has to look for the terminator. Before the byte-access seam that
+/// search ran to the end of the file image, which was free; through a
+/// transport it would fetch the whole object to fail. netCDF caps a name at
+/// `NC_MAX_NAME` (256 bytes) and HDF5 link names are of the same order, so this
+/// is several hundred times any real name and still a bounded read.
+const MAX_LINK_NAME_BYTES: usize = 64 << 10;
 
 /// What an object header turned out to be.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -73,25 +85,25 @@ pub struct GroupChild {
 }
 
 /// Enumerate the root group's immediate children, sorted by name.
-pub fn list_root_children(
-    bytes: &[u8],
+pub fn list_root_children<S: ByteSource + ?Sized>(
+    source: &S,
     probe: &Hdf5Probe,
 ) -> Result<Vec<GroupChild>, FieldglassError> {
-    let root = super::root_group_address(bytes, probe)?;
-    list_group_children(bytes, root, probe)
+    let root = super::root_group_address(source, probe)?;
+    list_group_children(source, root, probe)
 }
 
 /// Enumerate one group's immediate children (by object-header address), sorted
 /// by name. The building block for both the root listing and the recursive
 /// descendant walk ([`list_all_children`]).
-pub fn list_group_children(
-    bytes: &[u8],
+pub fn list_group_children<S: ByteSource + ?Sized>(
+    source: &S,
     group_addr: u64,
     probe: &Hdf5Probe,
 ) -> Result<Vec<GroupChild>, FieldglassError> {
     let osize = probe.offset_size;
     let lsize = probe.length_size;
-    let header = probe.header(bytes, group_addr)?;
+    let header = probe.header(source, group_addr)?;
 
     // A group uses exactly one of the two link layouts. Symbol Table wins if
     // present (legacy files); otherwise Link Info drives the modern path.
@@ -100,9 +112,9 @@ pub fn list_group_children(
         .iter()
         .find(|m| m.msg_type == MSG_SYMBOL_TABLE)
     {
-        symbol_table_links(bytes, &msg.body, osize, lsize)?
+        symbol_table_links(source, &msg.body, osize, lsize)?
     } else if let Some(msg) = header.messages.iter().find(|m| m.msg_type == MSG_LINK_INFO) {
-        link_info_links(bytes, &header, &msg.body, osize, lsize)?
+        link_info_links(source, &header, &msg.body, osize, lsize)?
     } else {
         Vec::new()
     };
@@ -111,7 +123,7 @@ pub fn list_group_children(
     links
         .into_iter()
         .map(|(name, addr)| {
-            let kind = classify(bytes, addr, probe)?;
+            let kind = classify(source, addr, probe)?;
             Ok(GroupChild {
                 name,
                 object_header_address: addr,
@@ -142,11 +154,11 @@ pub fn list_group_children(
 /// disk) would otherwise overflow the call stack. Each frame holds one group's
 /// name-sorted children, a cursor into them, and that group's path prefix;
 /// `visited` bounds the total number of groups the stack can hold.
-pub fn list_all_children(
-    bytes: &[u8],
+pub fn list_all_children<S: ByteSource + ?Sized>(
+    source: &S,
     probe: &Hdf5Probe,
 ) -> Result<Vec<GroupChild>, FieldglassError> {
-    all_children(bytes, probe).map(|c| (*c).clone())
+    all_children(source, probe).map(|c| (*c).clone())
 }
 
 /// [`list_all_children`] without the copy, memoised on the probe (#414).
@@ -155,16 +167,19 @@ pub fn list_all_children(
 /// starts from it, so it is done once per file. Callers inside the crate take
 /// the shared `Arc`; the public function above hands out an owned clone to keep
 /// its signature.
-pub(crate) fn all_children(
-    bytes: &[u8],
+pub(crate) fn all_children<S: ByteSource + ?Sized>(
+    source: &S,
     probe: &Hdf5Probe,
 ) -> Result<std::sync::Arc<Vec<GroupChild>>, FieldglassError> {
     probe
         .cache()
-        .children(bytes, || walk_all_children(bytes, probe))
+        .children(source, || walk_all_children(source, probe))
 }
 
-fn walk_all_children(bytes: &[u8], probe: &Hdf5Probe) -> Result<Vec<GroupChild>, FieldglassError> {
+fn walk_all_children<S: ByteSource + ?Sized>(
+    source: &S,
+    probe: &Hdf5Probe,
+) -> Result<Vec<GroupChild>, FieldglassError> {
     /// One group's in-progress traversal: its children, the next to visit, and
     /// the path prefix (`""` for the root, `/G` for a nested group `G`).
     struct Frame {
@@ -173,12 +188,12 @@ fn walk_all_children(bytes: &[u8], probe: &Hdf5Probe) -> Result<Vec<GroupChild>,
         prefix: String,
     }
 
-    let root = super::root_group_address(bytes, probe)?;
+    let root = super::root_group_address(source, probe)?;
     let mut out = Vec::new();
     let mut visited = HashSet::new();
     visited.insert(root);
     let mut stack = vec![Frame {
-        children: list_group_children(bytes, root, probe)?,
+        children: list_group_children(source, root, probe)?,
         next: 0,
         prefix: String::new(),
     }];
@@ -206,7 +221,7 @@ fn walk_all_children(bytes: &[u8], probe: &Hdf5Probe) -> Result<Vec<GroupChild>,
                 // otherwise loop forever / double-count; skip an already-seen
                 // group object. `path` (e.g. `/G`) becomes the child prefix.
                 if visited.insert(child.object_header_address) {
-                    let children = list_group_children(bytes, child.object_header_address, probe)?;
+                    let children = list_group_children(source, child.object_header_address, probe)?;
                     stack.push(Frame {
                         children,
                         next: 0,
@@ -228,8 +243,12 @@ fn walk_all_children(bytes: &[u8], probe: &Hdf5Probe) -> Result<Vec<GroupChild>,
 }
 
 /// Classify a child by walking its object header and inspecting message types.
-fn classify(bytes: &[u8], addr: u64, probe: &Hdf5Probe) -> Result<ChildKind, FieldglassError> {
-    let header = probe.header(bytes, addr)?;
+fn classify<S: ByteSource + ?Sized>(
+    source: &S,
+    addr: u64,
+    probe: &Hdf5Probe,
+) -> Result<ChildKind, FieldglassError> {
+    let header = probe.header(source, addr)?;
     let has = |t: u16| header.messages.iter().any(|m| m.msg_type == t);
     // Groups carry link structures; datasets carry a dataspace; a committed
     // datatype is a bare datatype with no dataspace.
@@ -251,8 +270,8 @@ fn classify(bytes: &[u8], addr: u64, probe: &Hdf5Probe) -> Result<ChildKind, Fie
 
 /// Resolve links from a Symbol Table message body: B-tree v1 address + local
 /// heap address.
-fn symbol_table_links(
-    bytes: &[u8],
+fn symbol_table_links<S: ByteSource + ?Sized>(
+    source: &S,
     body: &[u8],
     osize: u8,
     lsize: u8,
@@ -265,26 +284,26 @@ fn symbol_table_links(
     }
     let btree_addr = read_uint_le(body, 0, o)?;
     let heap_addr = read_uint_le(body, o, o)?;
-    let heap_data = local_heap_data_segment(bytes, heap_addr, osize, lsize)?;
+    let heap_data = local_heap_data_segment(source, heap_addr, osize, lsize)?;
 
     let mut snods = Vec::new();
-    collect_snods(bytes, btree_addr, osize, &mut snods)?;
+    collect_snods(source, btree_addr, osize, &mut snods)?;
 
     let mut links = Vec::new();
     for snod in snods {
-        read_snod(bytes, snod, heap_data, osize, &mut links)?;
+        read_snod(source, snod, heap_data, osize, &mut links)?;
     }
     Ok(links)
 }
 
 /// Read a local heap and return the file offset of its data segment.
-fn local_heap_data_segment(
-    bytes: &[u8],
+fn local_heap_data_segment<S: ByteSource + ?Sized>(
+    source: &S,
     addr: u64,
     osize: u8,
     lsize: u8,
 ) -> Result<u64, FieldglassError> {
-    let mut cur = Cursor::at(bytes, addr)?;
+    let mut cur = FileCursor::at(source, addr)?;
     cur.tag(SIG_LOCAL_HEAP)?;
     cur.skip(4)?; // version (1) + reserved (3)
     cur.uint(lsize as usize)?; // data segment size
@@ -296,8 +315,8 @@ fn local_heap_data_segment(
 /// `SNOD` nodes. Traversal is iterative with an explicit work-list (not native
 /// recursion) and bounded by [`MAX_BTREE_NODES`], so a malformed or cyclic tree
 /// terminates with an error rather than overflowing the stack.
-fn collect_snods(
-    bytes: &[u8],
+fn collect_snods<S: ByteSource + ?Sized>(
+    source: &S,
     addr: u64,
     osize: u8,
     out: &mut Vec<u64>,
@@ -312,7 +331,7 @@ fn collect_snods(
                 "B-tree v1 too large or cyclic".into(),
             ));
         }
-        let mut cur = Cursor::at(bytes, node_addr)?;
+        let mut cur = FileCursor::at(source, node_addr)?;
         cur.tag(SIG_BTREE_V1)?;
         let node_type = cur.byte()?;
         if node_type != 0 {
@@ -346,15 +365,15 @@ fn collect_snods(
 
 /// Read a symbol-table node's entries, resolving names from the heap data
 /// segment.
-fn read_snod(
-    bytes: &[u8],
+fn read_snod<S: ByteSource + ?Sized>(
+    source: &S,
     addr: u64,
     heap_data: u64,
     osize: u8,
     out: &mut Vec<(String, u64)>,
 ) -> Result<(), FieldglassError> {
     let o = osize as usize;
-    let mut cur = Cursor::at(bytes, addr)?;
+    let mut cur = FileCursor::at(source, addr)?;
     cur.tag(SIG_SNOD)?;
     cur.skip(2)?; // version (1) + reserved (1)
     let count = cur.u16()? as usize;
@@ -362,25 +381,31 @@ fn read_snod(
         let name_offset = cur.uint(o)?;
         let oh_addr = cur.uint(o)?;
         cur.skip(4 + 4 + 16)?; // cache type + reserved + scratch-pad
-        let name = read_heap_name(bytes, heap_data, name_offset)?;
+        let name = read_heap_name(source, heap_data, name_offset)?;
         push_link(out, name, oh_addr)?;
     }
     Ok(())
 }
 
 /// Read a null-terminated link name from the local heap data segment.
-fn read_heap_name(bytes: &[u8], heap_data: u64, offset: u64) -> Result<String, FieldglassError> {
+///
+/// The name's length is not stated anywhere, so this reads a window and looks
+/// for the terminator in it. [`MAX_LINK_NAME_BYTES`] is what bounds that: a
+/// name with no terminator inside it is refused rather than scanned to the end
+/// of the file, which over a transport would be the whole object.
+fn read_heap_name<S: ByteSource + ?Sized>(
+    source: &S,
+    heap_data: u64,
+    offset: u64,
+) -> Result<String, FieldglassError> {
     let start = heap::checked_add(heap_data, offset)?;
-    let start = usize::try_from(start)
-        .map_err(|_| FieldglassError::Parse("heap name offset too large".into()))?;
-    let tail = bytes
-        .get(start..)
-        .ok_or_else(|| FieldglassError::Parse("heap name offset past end of file".into()))?;
-    let end = tail
+    let window = read_up_to(source, start, MAX_LINK_NAME_BYTES)
+        .map_err(|_| FieldglassError::Parse("heap name offset past end of file".into()))?;
+    let end = window
         .iter()
         .position(|&b| b == 0)
         .ok_or_else(|| FieldglassError::Parse("unterminated heap name".into()))?;
-    decode_name(&tail[..end])
+    decode_name(&window[..end])
 }
 
 // ---------------------------------------------------------------------------
@@ -389,8 +414,8 @@ fn read_heap_name(bytes: &[u8], heap_data: u64, offset: u64) -> Result<String, F
 
 /// Resolve links from a Link Info message: either compact Link messages in the
 /// header, or a fractal heap indexed by a version-2 B-tree.
-fn link_info_links(
-    bytes: &[u8],
+fn link_info_links<S: ByteSource + ?Sized>(
+    source: &S,
     header: &object_header::ObjectHeader,
     body: &[u8],
     osize: u8,
@@ -420,8 +445,8 @@ fn link_info_links(
     }
 
     let btree_addr = read_uint_le(body, pos + o, o)?;
-    let heap = FractalHeap::parse(bytes, heap_addr, osize, lsize)?;
-    let (btree_type, records) = heap::btree_v2_records(bytes, btree_addr, osize, lsize)?;
+    let heap = FractalHeap::parse(source, heap_addr, osize, lsize)?;
+    let (btree_type, records) = heap::btree_v2_records(source, btree_addr, osize, lsize)?;
     if btree_type != 5 && btree_type != 6 {
         return Err(FieldglassError::Parse(format!(
             "unsupported B-tree v2 type {btree_type} for links"
@@ -433,7 +458,7 @@ fn link_info_links(
         let id = record
             .get(LINK_RECORD_HEAP_ID_OFFSET..LINK_RECORD_HEAP_ID_OFFSET + heap.heap_id_len)
             .ok_or_else(|| FieldglassError::Parse("link record too small for a heap ID".into()))?;
-        let object = heap.managed_object(bytes, id)?;
+        let object = heap.managed_object(source, id)?;
         if let Some(link) = parse_link_message(&object, osize)? {
             push_link(&mut links, link.0, link.1)?;
         }
@@ -580,7 +605,7 @@ mod tests {
     #[test]
     fn address_past_eof_errors_without_panic() {
         let buf = vec![0u8; 16];
-        assert!(Cursor::at(&buf, 4096).is_err());
+        assert!(FileCursor::at(&buf, 4096).is_err());
         let mut body = Vec::new();
         body.extend_from_slice(&4096u64.to_le_bytes());
         body.extend_from_slice(&4096u64.to_le_bytes());

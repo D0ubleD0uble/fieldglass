@@ -21,9 +21,11 @@
 use super::datatype::DatatypeClass;
 use super::layout::{ChunkIndex, ChunkedLayout, DataLayout};
 use super::object_header::{self, read_usize_le};
+use super::source::{Cursor, Fields, FileCursor, read_at};
 use super::{Hdf5Probe, attribute, dataspace, filter::FilterPipeline, layout};
 use crate::classic::{MAX_VAR_ELEMENTS, NcType};
 use fieldglass_core::FieldglassError;
+use fieldglass_core::bytes::{ByteRange, ByteSource};
 
 const MSG_DATASPACE: u16 = 0x0001;
 const MSG_DATATYPE: u16 = 0x0003;
@@ -40,12 +42,12 @@ const MAX_BTREE_NODES: usize = 1 << 20;
 /// Decode the dataset whose object header is at `object_header_address` into
 /// row-major `Vec<Option<f64>>`. Numeric types widen to `f64`; string / `char`
 /// datasets hold text, not numbers, and are rejected.
-pub fn read_dataset_values(
-    bytes: &[u8],
+pub fn read_dataset_values<S: ByteSource + ?Sized>(
+    source: &S,
     object_header_address: u64,
     probe: &Hdf5Probe,
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
-    let header = probe.header(bytes, object_header_address)?;
+    let header = probe.header(source, object_header_address)?;
     let body = |msg_type: u16| {
         header
             .messages
@@ -85,7 +87,7 @@ pub fn read_dataset_values(
 
     // `_FillValue` and CF `missing_value` *attributes* drive masking, matching
     // classic / libnetcdf.
-    let fills = missing_sentinels(bytes, object_header_address, probe)?;
+    let fills = missing_sentinels(source, object_header_address, probe)?;
 
     let shape: Vec<u64> = dataspace.dims.clone();
     let total = checked_total(&shape)?;
@@ -101,7 +103,7 @@ pub fn read_dataset_values(
 
     // Assemble the dataset's raw element bytes, then decode them uniformly.
     let raw = assemble_raw(
-        bytes,
+        source,
         &data_layout,
         &shape,
         elem,
@@ -149,8 +151,8 @@ fn checked_total(shape: &[u64]) -> Result<usize, FieldglassError> {
 
 /// Produce the dataset's raw element bytes (`total * elem` long) for any layout
 /// class. Regions with no stored data read as the fill default (or zero).
-fn assemble_raw(
-    bytes: &[u8],
+fn assemble_raw<S: ByteSource + ?Sized>(
+    source: &S,
     data_layout: &DataLayout,
     shape: &[u64],
     elem: usize,
@@ -173,23 +175,23 @@ fn assemble_raw(
         DataLayout::Contiguous { address, .. } => {
             let mut raw = fill_buffer(span, elem, fill_default);
             if let Some(addr) = address {
-                let start = usize::try_from(*addr)
-                    .map_err(|_| FieldglassError::Parse("data address exceeds usize".into()))?;
-                let end = start
-                    .checked_add(span)
-                    .filter(|&e| e <= bytes.len())
-                    .ok_or_else(|| {
-                        FieldglassError::Parse(format!(
-                            "contiguous data [{start}, +{span}) exceeds file size {}",
-                            bytes.len()
-                        ))
-                    })?;
-                raw.copy_from_slice(&bytes[start..end]);
+                // One contiguous run, so the plan is one range — resolved in a
+                // batch before it is read, as ADR-0005 asks, even though the
+                // batch holds a single entry.
+                let plan = [ByteRange::new(*addr, span as u64)];
+                source.prefetch(&plan)?;
+                let data = read_at(source, *addr, span).map_err(|_| {
+                    FieldglassError::Parse(format!(
+                        "contiguous data [{addr}, +{span}) exceeds file size {}",
+                        source.size()
+                    ))
+                })?;
+                raw.copy_from_slice(&data);
             }
             Ok(raw)
         }
         DataLayout::Chunked(chunked) => {
-            assemble_chunked(bytes, chunked, shape, elem, pipeline, fill_default, probe)
+            assemble_chunked(source, chunked, shape, elem, pipeline, fill_default, probe)
         }
     }
 }
@@ -221,8 +223,8 @@ fn fill_buffer(span: usize, elem: usize, fill_default: Option<&[u8]>) -> Vec<u8>
 /// Assemble a chunked dataset: gather its chunk records from whichever chunk
 /// index the layout uses, reverse each chunk's filters, and scatter it into the
 /// row-major output. Unstored regions keep the fill default.
-fn assemble_chunked(
-    bytes: &[u8],
+fn assemble_chunked<S: ByteSource + ?Sized>(
+    source: &S,
     chunked: &ChunkedLayout,
     shape: &[u64],
     elem: usize,
@@ -278,8 +280,8 @@ fn assemble_chunked(
         | ChunkIndex::ExtensibleArray(None)
         | ChunkIndex::V2Btree(None) => return Ok(raw),
         ChunkIndex::BTreeV1(Some(addr)) => {
-            probe.cache().chunk_records(bytes, *addr, rank, || {
-                collect_chunks(bytes, *addr, rank, osize)
+            probe.cache().chunk_records(source, *addr, rank, || {
+                collect_chunks(source, *addr, rank, osize)
             })?
         }
         ChunkIndex::SingleChunk(Some(single)) => {
@@ -312,9 +314,9 @@ fn assemble_chunked(
             )?)
         }
         ChunkIndex::FixedArray(Some(addr)) => {
-            probe.cache().chunk_records(bytes, *addr, rank, || {
+            probe.cache().chunk_records(source, *addr, rank, || {
                 collect_fixed_array_chunks(
-                    bytes,
+                    source,
                     *addr,
                     shape,
                     &chunked.chunk_dims,
@@ -325,9 +327,9 @@ fn assemble_chunked(
             })?
         }
         ChunkIndex::ExtensibleArray(Some(addr)) => {
-            probe.cache().chunk_records(bytes, *addr, rank, || {
+            probe.cache().chunk_records(source, *addr, rank, || {
                 collect_extensible_array_chunks(
-                    bytes,
+                    source,
                     *addr,
                     shape,
                     &chunked.chunk_dims,
@@ -338,9 +340,9 @@ fn assemble_chunked(
             })?
         }
         ChunkIndex::V2Btree(Some(addr)) => {
-            probe.cache().chunk_records(bytes, *addr, rank, || {
+            probe.cache().chunk_records(source, *addr, rank, || {
                 collect_v2_btree_chunks(
-                    bytes,
+                    source,
                     *addr,
                     &chunked.chunk_dims,
                     chunk_bytes,
@@ -350,12 +352,23 @@ fn assemble_chunked(
             })?
         }
     };
+    // The one place in the HDF5 reader where ADR-0005's *strong* form holds:
+    // once the chunk index has been walked, every chunk's address and size is
+    // known, so the whole variable is one batch resolve followed by reads. The
+    // walk that produced the records could not be planned — that is the weak
+    // form, and why the traversal above issues none.
+    let plan: Vec<ByteRange> = chunks
+        .iter()
+        .map(|c| ByteRange::new(c.address, u64::from(c.size)))
+        .collect();
+    source.prefetch(&plan)?;
+
     for chunk in chunks.iter() {
+        let stored = read_at(source, chunk.address, chunk.size as usize)?;
         let expanded = if pipeline.filters.is_empty() {
-            read_at(bytes, chunk.address, chunk.size as usize)?.to_vec()
+            stored.into_owned()
         } else {
-            let raw_chunk = read_at(bytes, chunk.address, chunk.size as usize)?.to_vec();
-            pipeline.reverse(raw_chunk, chunk.filter_mask, elem)?
+            pipeline.reverse(stored.into_owned(), chunk.filter_mask, elem)?
         };
         if expanded.len() < chunk_bytes {
             return Err(FieldglassError::Parse(format!(
@@ -389,8 +402,8 @@ pub(crate) struct ChunkRecord {
 /// Walk the version-1 B-tree at `addr` (node type 1) and collect every leaf
 /// chunk record. Iterative with an explicit work-list and bounded by
 /// [`MAX_BTREE_NODES`], so a malformed or cyclic tree errors out.
-fn collect_chunks(
-    bytes: &[u8],
+fn collect_chunks<S: ByteSource + ?Sized>(
+    source: &S,
     addr: u64,
     rank: usize,
     osize: u8,
@@ -408,7 +421,7 @@ fn collect_chunks(
                 "chunk B-tree too large or cyclic".into(),
             ));
         }
-        let mut cur = super::heap::Cursor::at(bytes, node_addr)?;
+        let mut cur = FileCursor::at(source, node_addr)?;
         cur.tag(SIG_BTREE_V1)?;
         let node_type = cur.byte()?;
         if node_type != 1 {
@@ -508,8 +521,8 @@ const SIG_FIXED_ARRAY_DBLOCK: &[u8; 4] = b"FADB";
 /// one element per chunk in row-major chunk order; an element is a chunk address
 /// (unfiltered) or address + on-disk size + filter mask (filtered). Each chunk's
 /// element-space offset is computed from its linear position in the chunk grid.
-fn collect_fixed_array_chunks(
-    bytes: &[u8],
+fn collect_fixed_array_chunks<S: ByteSource + ?Sized>(
+    source: &S,
     header_addr: u64,
     shape: &[u64],
     chunk_dims: &[u32],
@@ -522,7 +535,7 @@ fn collect_fixed_array_chunks(
 
     // Fixed Array Header: signature, version, client id, entry size, page bits,
     // max num entries (length_size), data block address (offset_size), checksum.
-    let mut h = super::heap::Cursor::at(bytes, header_addr)?;
+    let mut h = FileCursor::at(source, header_addr)?;
     h.tag(SIG_FIXED_ARRAY_HEADER)?;
     let version = h.byte()?;
     if version != 0 {
@@ -569,7 +582,7 @@ fn collect_fixed_array_chunks(
 
     // Data Block: signature, version, client id, header back-pointer, then the
     // elements (non-paged), then a checksum.
-    let mut d = super::heap::Cursor::at(bytes, dblock_addr)?;
+    let mut d = FileCursor::at(source, dblock_addr)?;
     d.tag(SIG_FIXED_ARRAY_DBLOCK)?;
     let dversion = d.byte()?;
     if dversion != 0 {
@@ -617,8 +630,8 @@ const SIG_EXT_ARRAY_SECONDARY: &[u8; 4] = b"EASB";
 /// Both unfiltered (client id 0, address-only elements) and filtered (client id
 /// 1, address + on-disk size + filter mask elements) arrays decode. Paged data
 /// blocks (only reached by very large datasets) return a clear error.
-fn collect_extensible_array_chunks(
-    bytes: &[u8],
+fn collect_extensible_array_chunks<S: ByteSource + ?Sized>(
+    source: &S,
     header_addr: u64,
     shape: &[u64],
     chunk_dims: &[u32],
@@ -631,7 +644,7 @@ fn collect_extensible_array_chunks(
 
     // Extensible Array Header: a 6-byte fixed run of parameters, then six
     // length_size statistics, then the index block address, then a checksum.
-    let mut h = super::heap::Cursor::at(bytes, header_addr)?;
+    let mut h = FileCursor::at(source, header_addr)?;
     h.tag(SIG_EXT_ARRAY_HEADER)?;
     let version = h.byte()?;
     if version != 0 {
@@ -697,7 +710,7 @@ fn collect_extensible_array_chunks(
 
     // Index Block: prefix, the first `idx_blk_elmts` elements, then the direct
     // data-block addresses, then the secondary-block addresses.
-    let mut ib = super::heap::Cursor::at(bytes, index_block_addr)?;
+    let mut ib = FileCursor::at(source, index_block_addr)?;
     ib.tag(SIG_EXT_ARRAY_INDEX)?;
     ib.skip(2)?; // version + client id
     ib.skip(o)?; // header back-pointer
@@ -787,7 +800,7 @@ fn collect_extensible_array_chunks(
                 s += 1;
                 continue;
             }
-            read_ea_secondary_dblk_addrs(bytes, sblk_addr, ndblks_s, o, arr_off_size)?
+            read_ea_secondary_dblk_addrs(source, sblk_addr, ndblks_s, o, arr_off_size)?
         };
 
         for &dblk_addr in &dblk_addrs {
@@ -800,7 +813,7 @@ fn collect_extensible_array_chunks(
             }
             // Data Block: prefix, header back-pointer, block offset, then the
             // elements (chunk addresses).
-            let mut db = super::heap::Cursor::at(bytes, dblk_addr)?;
+            let mut db = FileCursor::at(source, dblk_addr)?;
             db.tag(SIG_EXT_ARRAY_DATA)?;
             db.skip(2 + o + arr_off_size)?; // version + client + header addr + block offset
             for _ in 0..dblk_nelmts_s {
@@ -833,8 +846,8 @@ const BTREE_V2_TYPE_CHUNK_FILTERED: u8 = 11;
 /// match the Fixed / Extensible Array element prefix — type 10 = address only,
 /// type 11 = address + on-disk size + filter mask — followed by one 8-byte scaled
 /// offset per dataset dimension.
-fn collect_v2_btree_chunks(
-    bytes: &[u8],
+fn collect_v2_btree_chunks<S: ByteSource + ?Sized>(
+    source: &S,
     header_addr: u64,
     chunk_dims: &[u32],
     chunk_bytes: usize,
@@ -843,7 +856,7 @@ fn collect_v2_btree_chunks(
 ) -> Result<Vec<ChunkRecord>, FieldglassError> {
     let o = osize as usize;
     let rank = chunk_dims.len();
-    let (btree_type, records) = super::heap::btree_v2_records(bytes, header_addr, osize, lsize)?;
+    let (btree_type, records) = super::heap::btree_v2_records(source, header_addr, osize, lsize)?;
     let filtered = match btree_type {
         BTREE_V2_TYPE_CHUNK_UNFILTERED => false,
         BTREE_V2_TYPE_CHUNK_FILTERED => true,
@@ -888,7 +901,7 @@ fn collect_v2_btree_chunks(
             0
         };
 
-        let mut cur = super::heap::Cursor::over(record);
+        let mut cur = Cursor::over(record);
         let elem = read_chunk_element(&mut cur, o, filtered, size_width, chunk_bytes)?;
         // A v2 B-tree only ever records written chunks, but skip a stray
         // undefined address rather than fabricate a chunk at the sentinel.
@@ -958,7 +971,7 @@ struct ChunkElement {
 /// just a chunk address (its size is the full chunk byte size); a filtered
 /// element is address + on-disk size (`size_width` bytes) + 4-byte filter mask.
 fn read_chunk_element(
-    cur: &mut super::heap::Cursor,
+    cur: &mut impl Fields,
     o: usize,
     filtered: bool,
     size_width: usize,
@@ -1003,14 +1016,14 @@ fn push_chunk_record(
 
 /// Read the `ndblks` data-block addresses from an Extensible Array secondary
 /// block (unpaged: no per-data-block page bitmap precedes the addresses).
-fn read_ea_secondary_dblk_addrs(
-    bytes: &[u8],
+fn read_ea_secondary_dblk_addrs<S: ByteSource + ?Sized>(
+    source: &S,
     addr: u64,
     ndblks: usize,
     o: usize,
     arr_off_size: usize,
 ) -> Result<Vec<u64>, FieldglassError> {
-    let mut c = super::heap::Cursor::at(bytes, addr)?;
+    let mut c = FileCursor::at(source, addr)?;
     c.tag(SIG_EXT_ARRAY_SECONDARY)?;
     c.skip(2 + o + arr_off_size)?; // version + client + header addr + block offset
     let mut out = Vec::with_capacity(ndblks);
@@ -1088,22 +1101,6 @@ fn scatter_chunk(
     }
 }
 
-/// Read exactly `len` bytes at file offset `addr`, bounds-checked.
-fn read_at(bytes: &[u8], addr: u64, len: usize) -> Result<&[u8], FieldglassError> {
-    let start = usize::try_from(addr)
-        .map_err(|_| FieldglassError::Parse("chunk address exceeds usize".into()))?;
-    let end = start
-        .checked_add(len)
-        .filter(|&e| e <= bytes.len())
-        .ok_or_else(|| {
-            FieldglassError::Parse(format!(
-                "chunk data [{start}, +{len}) exceeds file size {}",
-                bytes.len()
-            ))
-        })?;
-    Ok(&bytes[start..end])
-}
-
 /// Decode the Fill Value message (`0x0005`) into the raw fill-element bytes, if
 /// the message both defines and stores a fill value. Versions 1–3 are handled.
 fn fill_value_default(body: &[u8]) -> Result<Option<Vec<u8>>, FieldglassError> {
@@ -1155,12 +1152,12 @@ fn fill_value_default(body: &[u8]) -> Result<Option<Vec<u8>>, FieldglassError> {
 /// mask (the HDF5 storage fill default does not), `libnetcdf` masks a point
 /// equal to either, and a multi-valued `missing_value` contributes only its
 /// first element.
-fn missing_sentinels(
-    bytes: &[u8],
+fn missing_sentinels<S: ByteSource + ?Sized>(
+    source: &S,
     object_header_address: u64,
     probe: &Hdf5Probe,
 ) -> Result<Vec<f64>, FieldglassError> {
-    let attrs = attribute::list_attributes(bytes, object_header_address, probe)?;
+    let attrs = attribute::list_attributes(source, object_header_address, probe)?;
     // Use the typed first element, not the rendered display string: the display
     // text is rounded to a few decimals, so reparsing it would not bit-match the
     // decoded value and float sentinels would silently fail to mask.

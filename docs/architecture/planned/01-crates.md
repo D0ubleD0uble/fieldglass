@@ -72,7 +72,7 @@ arrangement as `fieldglass` → `core`.
 | Model | `fieldglass-core` | #678 | Dimension, attribute, array description and group types; the CF unpacking rule stated once. |
 | Storage seam | `fieldglass-core` | #680, #681 | `ObjectSource` (get by key, list by prefix, prefetch) beside `ByteSource`; `ByteSource` gains `identity()`. Both shipped. |
 | Container reader | `fieldglass-zarr` | #686, #658 | One parser of `.zarray` / `zarr.json` producing the model plus the codec chain; codecs behind a default-on `codecs` feature; the store walker over `ObjectSource`, producing `Addressing::Variables` through `Session`. |
-| Container reader | `fieldglass-netcdf` | #684, #682 | `DatasetView` built on the model; the HDF5 reader reads through `ByteSource` like classic does. |
+| Container reader | `fieldglass-netcdf` | #684, #682 | `DatasetView` built on the model. The HDF5 reader reads through `ByteSource` like classic does: shipped. |
 | Manifests | `fieldglass-fetchplan` | #685, #687 | A `PlanItem` says which chunk or message it is; `Manifest` loses `key()`, the GRIB query moves to `MessageManifest`, `KerchunkRefs` implements `Manifest`; the umbrella re-exports the kerchunk and chunk-grid surface. |
 | Umbrella | `fieldglass` | #679 | The Variables addressing mode is under conformance. |
 | Hosts | `fieldglass-napi` | #659 | Opens a Zarr store by filling an `ObjectSource` from a directory and handing it to the walker. |

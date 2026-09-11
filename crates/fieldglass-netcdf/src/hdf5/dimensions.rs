@@ -40,7 +40,7 @@ use super::object_header::read_uint_le;
 use super::{Hdf5Probe, root_group_address};
 use crate::classic::NcType;
 use fieldglass_core::FieldglassError;
-use fieldglass_core::bytes::checked_usize;
+use fieldglass_core::bytes::{ByteSource, checked_usize};
 
 /// The `NAME` prefix netCDF-4 writes on a dimension scale that has **no**
 /// coordinate variable. The real attribute appends padding and the dimension
@@ -179,12 +179,15 @@ struct DatasetInfo {
 /// closing the gap would silently renumber every variable after it. Any other
 /// failure still propagates: a file that does not parse is a different thing
 /// from a file carrying a type this build does not implement.
-pub fn resolve(bytes: &[u8], probe: &Hdf5Probe) -> Result<Hdf5Metadata, FieldglassError> {
+pub fn resolve<S: ByteSource + ?Sized>(
+    source: &S,
+    probe: &Hdf5Probe,
+) -> Result<Hdf5Metadata, FieldglassError> {
     let mut unsupported = Vec::new();
-    let datasets: Vec<Option<DatasetInfo>> = group::all_children(bytes, probe)?
+    let datasets: Vec<Option<DatasetInfo>> = group::all_children(source, probe)?
         .iter()
         .filter(|c| c.kind == ChildKind::Dataset)
-        .map(|child| match describe(bytes, probe, child.clone()) {
+        .map(|child| match describe(source, probe, child.clone()) {
             Ok(info) => Ok(Some(info)),
             Err(e @ FieldglassError::UnsupportedSection(_)) => {
                 unsupported.push(UnsupportedVariable {
@@ -222,7 +225,7 @@ pub fn resolve(bytes: &[u8], probe: &Hdf5Probe) -> Result<Hdf5Metadata, Fieldgla
     let mut dimension_names: Vec<Vec<String>> = vec![Vec::new(); datasets.len()];
     for (index, d) in by_name {
         dimension_names[index] =
-            resolve_variable_dimensions(bytes, probe, d, &name_by_address, &mut phony)?;
+            resolve_variable_dimensions(source, probe, d, &name_by_address, &mut phony)?;
     }
 
     let dimensions = build_dimensions(&datasets, &phony);
@@ -253,8 +256,8 @@ pub fn resolve(bytes: &[u8], probe: &Hdf5Probe) -> Result<Hdf5Metadata, Fieldgla
     variables.sort_by(|a, b| a.name.cmp(&b.name));
 
     let global_attributes = visible_attributes(&attribute::list_attributes(
-        bytes,
-        root_group_address(bytes, probe)?,
+        source,
+        root_group_address(source, probe)?,
         probe,
     )?);
 
@@ -268,13 +271,13 @@ pub fn resolve(bytes: &[u8], probe: &Hdf5Probe) -> Result<Hdf5Metadata, Fieldgla
 
 /// Gather one dataset's name, element type, rank, attributes, and — if it is a
 /// dimension scale — its scale entry, from a single header walk.
-fn describe(
-    bytes: &[u8],
+fn describe<S: ByteSource + ?Sized>(
+    source: &S,
     probe: &Hdf5Probe,
     child: group::GroupChild,
 ) -> Result<DatasetInfo, FieldglassError> {
-    let shape = dataset::describe(bytes, child.object_header_address, probe)?;
-    let attributes = attribute::list_attributes(bytes, child.object_header_address, probe)?;
+    let shape = dataset::describe(source, child.object_header_address, probe)?;
+    let attributes = attribute::list_attributes(source, child.object_header_address, probe)?;
     let attr = |name: &str| attributes.iter().find(|a| a.name == name);
 
     let is_scale = attr("CLASS").is_some_and(|a| a.value == "DIMENSION_SCALE");
@@ -421,8 +424,8 @@ fn build_dimensions(
 /// anonymous `phony_dim_N` axes sized from its dataspace by [`PhonyDimensions`],
 /// which is what lets such a file be rendered at all: an axis whose name is not
 /// in the dimension table resolves to length 0.
-fn resolve_variable_dimensions(
-    bytes: &[u8],
+fn resolve_variable_dimensions<S: ByteSource + ?Sized>(
+    source: &S,
     probe: &Hdf5Probe,
     d: &DatasetInfo,
     name_by_address: &HashMap<u64, String>,
@@ -433,8 +436,8 @@ fn resolve_variable_dimensions(
         // dimension.
         return Ok(vec![d.name.clone()]);
     }
-    match attribute::raw_attribute(bytes, d.address, probe, "DIMENSION_LIST")? {
-        Some(raw) => decode_dimension_list(bytes, probe, &raw, d.extents.len(), name_by_address),
+    match attribute::raw_attribute(source, d.address, probe, "DIMENSION_LIST")? {
+        Some(raw) => decode_dimension_list(source, probe, &raw, d.extents.len(), name_by_address),
         None => Ok(phony.axes_for(&d.extents, &d.unlimited_axes)),
     }
 }
@@ -442,8 +445,8 @@ fn resolve_variable_dimensions(
 /// Decode a `DIMENSION_LIST` attribute (a vlen of object references) into the
 /// ordered names of the dimensions each axis is attached to. `rank` is the
 /// variable's own rank; the attribute must carry one axis per dimension.
-fn decode_dimension_list(
-    bytes: &[u8],
+fn decode_dimension_list<S: ByteSource + ?Sized>(
+    source: &S,
     probe: &Hdf5Probe,
     raw: &attribute::RawAttribute,
     rank: usize,
@@ -491,7 +494,7 @@ fn decode_dimension_list(
                 FieldglassError::Parse("DIMENSION_LIST global-heap object index exceeds u16".into())
             })?;
         let object =
-            global_heap::read_object(bytes, collection_addr, object_index, probe.length_size)?;
+            global_heap::read_object(source, collection_addr, object_index, probe.length_size)?;
         // netCDF-4 attaches exactly one scale per axis; take the first reference.
         let referenced = read_uint_le(&object, 0, o)?;
         let name = name_by_address.get(&referenced).ok_or_else(|| {
