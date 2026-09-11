@@ -117,14 +117,37 @@ fn the_wrong_addressing_mode_says_which_call_to_make() {
         .expect_err("decode is the other mode");
     assert_eq!(err.code(), "wrong_addressing");
     assert!(err.message().contains("decode_slice"));
+    assert_eq!(expected_mode(&err), "variables");
+    assert!(
+        err.message().contains("`decode` addresses messages"),
+        "the refusal says which mode the call belonged to, got {err}"
+    );
 
-    // And the mirror: a slice asked of a message container.
+    // And the mirror: a slice asked of a message container. Checked for the
+    // mode by name as well as for the call to make: until #679 this direction
+    // reported a GRIB session as addressed by variables and said
+    // `decode_slice` addressed messages, and a check for "decode" alone passed
+    // over it.
     let grib = Session::open(GRIB2.to_vec()).expect("GRIB2 opens");
     let err = grib
         .decode_slice(0, 0, 1, &[0, 0], &DecodeOptions::default())
         .expect_err("slices are the other mode");
     assert_eq!(err.code(), "wrong_addressing");
     assert!(err.message().contains("decode"));
+    assert_eq!(expected_mode(&err), "messages");
+    assert!(
+        err.message().contains("`decode_slice` addresses variables"),
+        "the refusal says which mode the call belonged to, got {err}"
+    );
+}
+
+/// The mode a `wrong_addressing` refusal says the session is in: the wire
+/// value a host reads out of the error's JSON form.
+fn expected_mode(err: &fieldglass::Error) -> &str {
+    match err {
+        fieldglass::Error::WrongAddressing { expected, .. } => expected,
+        other => panic!("expected a wrong_addressing refusal, got {other:?}"),
+    }
 }
 
 /// The unstated axes are never guessed.

@@ -445,6 +445,10 @@ fn the_error_codes_are_the_ones_the_suite_pins() {
         Error::Unsupported {
             detail: String::new(),
         },
+        Error::WrongAddressing {
+            expected: String::new(),
+            detail: String::new(),
+        },
         Error::InvalidOption {
             detail: String::new(),
         },
@@ -459,9 +463,12 @@ fn the_error_codes_are_the_ones_the_suite_pins() {
     );
 
     // The count is the half a list cannot check: a *new* variant would still
-    // let the list above match, because nothing forces it into the array.
-    // `Error` is `#[non_exhaustive]`, so the match below is written with a
-    // wildcard arm that fails rather than passing.
+    // let the list above match, because nothing forces it into the array —
+    // which is how `WrongAddressing` (#662) went unpinned until #679. `Error`
+    // is `#[non_exhaustive]`, so from outside the crate the match below can
+    // only be written with a wildcard arm that fails rather than passes. The
+    // exhaustive version lives in `error.rs`'s own tests, where the compiler
+    // refuses a variant nobody listed.
     for e in &every_variant {
         let named = matches!(
             e,
@@ -469,6 +476,7 @@ fn the_error_codes_are_the_ones_the_suite_pins() {
                 | Error::Decode { .. }
                 | Error::NoSuchMessage { .. }
                 | Error::Unsupported { .. }
+                | Error::WrongAddressing { .. }
                 | Error::InvalidOption { .. }
         );
         assert!(named, "an Error variant this test does not name: {e:?}");
