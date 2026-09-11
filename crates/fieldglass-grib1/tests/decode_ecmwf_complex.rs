@@ -20,7 +20,8 @@ fn parses_with_complex_extended_header_populated() {
     assert_eq!(reader.message_count(), 1);
 
     let msg = &reader.messages[0];
-    let (bds_start, bds_end) = msg.bds_range;
+    let range = msg.bds_range;
+    let (bds_start, bds_end) = (range.start as usize, (range.start + range.len) as usize);
     let bds = parse_bds_header(&FIXTURE[bds_start..bds_end]).expect("BDS header parses");
 
     assert!(bds.is_complex_packing, "complex packing flag");
@@ -195,7 +196,8 @@ const SPD3_FIXTURE: &[u8] = include_bytes!("fixtures/ecmwf_spd3_msg0.grib1");
 fn spd3_header_reports_order_three() {
     let reader = Grib1Reader::from_bytes(SPD3_FIXTURE.to_vec()).expect("fixture parses");
     let msg = &reader.messages[0];
-    let (bds_start, bds_end) = msg.bds_range;
+    let range = msg.bds_range;
+    let (bds_start, bds_end) = (range.start as usize, (range.start + range.len) as usize);
     let bds = parse_bds_header(&SPD3_FIXTURE[bds_start..bds_end]).expect("BDS header parses");
 
     let ext = bds
@@ -289,7 +291,8 @@ const SPD3_BOUST_FIXTURE: &[u8] = include_bytes!("fixtures/ecmwf_spd3_boust_msg0
 fn spd3_boustrophedonic_header_reports_order_three_and_zigzag() {
     let reader = Grib1Reader::from_bytes(SPD3_BOUST_FIXTURE.to_vec()).expect("fixture parses");
     let msg = &reader.messages[0];
-    let (bds_start, bds_end) = msg.bds_range;
+    let range = msg.bds_range;
+    let (bds_start, bds_end) = (range.start as usize, (range.start + range.len) as usize);
     let bds = parse_bds_header(&SPD3_BOUST_FIXTURE[bds_start..bds_end]).expect("BDS header parses");
 
     let ext = bds
@@ -377,7 +380,8 @@ const NO_SPD_FIXTURE: &[u8] = include_bytes!("fixtures/hand_second_order_no_SPD.
 fn no_spd_header_reports_order_zero() {
     let reader = Grib1Reader::from_bytes(NO_SPD_FIXTURE.to_vec()).expect("fixture parses");
     let msg = &reader.messages[0];
-    let (bds_start, bds_end) = msg.bds_range;
+    let range = msg.bds_range;
+    let (bds_start, bds_end) = (range.start as usize, (range.start + range.len) as usize);
     let bds = parse_bds_header(&NO_SPD_FIXTURE[bds_start..bds_end]).expect("BDS header parses");
     let ext = bds
         .complex_extended
@@ -427,7 +431,8 @@ const SPD1_FIXTURE: &[u8] = include_bytes!("fixtures/hand_second_order_SPD1.grib
 fn spd1_header_reports_order_one() {
     let reader = Grib1Reader::from_bytes(SPD1_FIXTURE.to_vec()).expect("fixture parses");
     let msg = &reader.messages[0];
-    let (bds_start, bds_end) = msg.bds_range;
+    let range = msg.bds_range;
+    let (bds_start, bds_end) = (range.start as usize, (range.start + range.len) as usize);
     let bds = parse_bds_header(&SPD1_FIXTURE[bds_start..bds_end]).expect("BDS header parses");
     let ext = bds
         .complex_extended

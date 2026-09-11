@@ -41,6 +41,20 @@ be resolved up front and the walk prefetches nothing. The one place a real plan
 exists is *after* the chunk index has been walked, and that is the one place
 `prefetch` is called: a variable's stored bytes are one batch and then reads.
 
+**So are both GRIB readers** (#697), and they sit between the two. Decode is
+the strong form: a message's header records where its bitmap and data sit, so
+each decode prefetches those sections in one batch and reads exactly them.
+Finding the messages is the weak form: offset *N + 1* comes from message *N*'s
+length field, and anything that is not the start of a message is stepped over
+a byte at a time. The scan reads that search in growing windows
+(`find_forward`) and each message's headers through one cursor bounded to the
+message, so skipping padding, or a message of the other edition, costs a
+handful of reads rather than one per byte. The cursor is the HDF5 reader's,
+moved into `core` when the GRIB scan came to need the same thing. The readers
+are generic over their source with `Vec<u8>` as the default, so `from_bytes`
+callers do not change. `from_message_at` reads one message at a known offset
+without scanning, which is the path a sidecar index's range takes.
+
 Two consequences are worth naming because they are properties of the seam and
 not of HDF5. A traversal reads fields, not structures, so a `read` per field
 would be a round trip per integer; the HDF5 reader pulls a **growing window**

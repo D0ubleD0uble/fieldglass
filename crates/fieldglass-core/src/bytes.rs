@@ -465,6 +465,332 @@ pub fn checked_usize(value: u64, what: &str) -> Result<usize, FieldglassError> {
     })
 }
 
+/// A [`FileCursor`]'s first window.
+///
+/// Small on purpose. Most structures a traversal walks are a few dozen bytes —
+/// an HDF5 B-tree node prefix, a GRIB section header — and a generous first
+/// window would read a hundred times what they need.
+pub const FIRST_WINDOW_BYTES: usize = 64;
+
+/// The largest window a [`FileCursor`] or [`find_forward`] will grow to.
+///
+/// Each refill doubles, so a cursor that keeps going reaches a structure of `N`
+/// bytes in `log2(N/64)` reads having fetched under `2N`, rather than one read
+/// per field (a round trip per integer over a transport) or one fixed large
+/// window per structure (a hundredfold over-read on the small ones). Both axes
+/// matter and this is the shape that bounds both.
+pub const MAX_WINDOW_BYTES: usize = 64 << 10;
+
+/// Read exactly the bytes `range` names.
+///
+/// "Exactly" is the whole point. [`ByteSource::read`] bounds-checks the range
+/// against the source's own size, which an in-memory buffer can always honour;
+/// a transport with a truncated response cannot, and every caller goes on to
+/// index the result at offsets the file told it about. So the length is checked
+/// once, here, rather than at each call site that would otherwise have to.
+///
+/// A range longer than this target can address is refused rather than
+/// narrowed — see [`checked_usize`].
+pub fn read_exact<S: ByteSource + ?Sized>(
+    source: &S,
+    range: ByteRange,
+) -> Result<Cow<'_, [u8]>, FieldglassError> {
+    let len = checked_usize(range.len, "byte range length")?;
+    let got = source.read(range)?;
+    if got.len() != len {
+        return Err(FieldglassError::Parse(format!(
+            "the source served {} of {len} bytes at {}",
+            got.len(),
+            range.start
+        )));
+    }
+    Ok(got)
+}
+
+/// [`read_exact`] for a length already in hand as a `usize`.
+pub fn read_at<S: ByteSource + ?Sized>(
+    source: &S,
+    addr: u64,
+    len: usize,
+) -> Result<Cow<'_, [u8]>, FieldglassError> {
+    read_exact(source, ByteRange::new(addr, len as u64))
+}
+
+/// Read up to `len` bytes at `addr`, stopping at the end of the source.
+///
+/// For the reads whose length is not yet known — a superblock prefix, an object
+/// header whose size field is inside the bytes being read — where running short
+/// is ordinary and the parse that follows does its own bounds checking. An
+/// `addr` past the end is still an error: that is a bad address, not a short
+/// read.
+pub fn read_up_to<S: ByteSource + ?Sized>(
+    source: &S,
+    addr: u64,
+    len: usize,
+) -> Result<Cow<'_, [u8]>, FieldglassError> {
+    let size = source.size();
+    if addr > size {
+        return Err(FieldglassError::Parse(format!(
+            "address {addr} past end of file ({size} bytes)"
+        )));
+    }
+    let available = size - addr;
+    source.read(ByteRange::new(addr, (len as u64).min(available)))
+}
+
+/// The window sizes a scan for a terminator steps through, up to `ceiling`.
+///
+/// Same argument as [`FileCursor`]'s: a name is usually a dozen bytes, so
+/// asking for the ceiling every time would fetch it over a transport to read
+/// ten bytes out of it.
+pub fn scan_windows(ceiling: usize) -> impl Iterator<Item = usize> {
+    std::iter::successors(Some(FIRST_WINDOW_BYTES.min(ceiling)), move |&w| {
+        (w < ceiling).then(|| w.saturating_mul(4).min(ceiling))
+    })
+}
+
+/// The first offset at or after `from` where `span` bytes satisfy `hit`.
+///
+/// The answer a byte-at-a-time search gives, over a source that charges for
+/// every read: `hit` is asked about every position `p` with `p + span` inside
+/// the source, in order, and the first `p` it accepts is returned. `None` when
+/// no position qualifies, including when fewer than `span` bytes remain.
+///
+/// The bytes come in growing windows, overlapping by `span - 1` so a match
+/// straddling two of them is still seen. Skipping `G` bytes of garbage costs
+/// `O(log G)` reads up to [`MAX_WINDOW_BYTES`] and one read per window after
+/// that, where a naive search over a transport would cost one per byte.
+///
+/// A `span` of zero is refused: every position would trivially match nothing
+/// at all, which is a caller bug rather than an answer.
+pub fn find_forward<S: ByteSource + ?Sized>(
+    source: &S,
+    from: u64,
+    span: usize,
+    mut hit: impl FnMut(&[u8]) -> bool,
+) -> Result<Option<u64>, FieldglassError> {
+    if span == 0 {
+        return Err(FieldglassError::Parse(
+            "a forward search needs a non-empty span".to_string(),
+        ));
+    }
+    let size = source.size();
+    let mut at = from;
+    let mut window = FIRST_WINDOW_BYTES.max(span);
+    loop {
+        let available = size.saturating_sub(at);
+        if available < span as u64 {
+            return Ok(None);
+        }
+        // `available >= span`, so `want >= span` and the subtraction below
+        // cannot underflow.
+        let want = (window as u64).min(available) as usize;
+        let bytes = read_at(source, at, want)?;
+        if let Some(i) = bytes.windows(span).position(&mut hit) {
+            return Ok(Some(at + i as u64));
+        }
+        at += (want - span + 1) as u64;
+        window = window.saturating_mul(2).min(MAX_WINDOW_BYTES.max(span));
+    }
+}
+
+/// A forward cursor over a [`ByteSource`], at an absolute address, that reads
+/// in windows rather than fields.
+///
+/// A structure walk asks for two bytes here and eight there. One
+/// [`ByteSource::read`] per field would be free over a buffer and a round trip
+/// per integer over a network, which is the cost ADR-0005 exists to keep
+/// visible rather than to hide. So a cursor refills in **windows**, and a
+/// B-tree node or a run of section headers costs a handful of reads rather than
+/// forty.
+///
+/// The window **grows** rather than starting large, because both mistakes are
+/// real. One read per field is a round trip per integer; one fixed 4 KiB window
+/// per structure read six times the whole file on a 31 KB HDF5 fixture, because
+/// most structures are a few dozen bytes. Starting at [`FIRST_WINDOW_BYTES`] and
+/// doubling to [`MAX_WINDOW_BYTES`] bounds the round trips on a long structure
+/// and the over-read on a short one at once.
+///
+/// A window is clamped at the cursor's end — the end of the source, or of the
+/// one structure [`within`](Self::within) bounds it to — so the last structure
+/// never asks for bytes that are not there, and a read larger than the window is
+/// still served in one call.
+///
+/// Written for the HDF5 traversal (#682) and hoisted here when the GRIB scan
+/// needed the same thing (#697).
+pub struct FileCursor<'a, S: ?Sized> {
+    source: &'a S,
+    /// Where the cursor stops: the source's size, or the end of the structure it
+    /// was bounded to. Cached so every bounds check is local.
+    end: u64,
+    /// Address of byte zero of `window`.
+    base: u64,
+    window: Cow<'a, [u8]>,
+    /// Position within `window`.
+    pos: usize,
+    /// How much the next refill asks for — see [`MAX_WINDOW_BYTES`].
+    next_window: usize,
+}
+
+/// The cursor's place, not its bytes: a window can be 64 KiB, and a source need
+/// not be `Debug` at all.
+impl<S: ?Sized> std::fmt::Debug for FileCursor<'_, S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FileCursor")
+            .field("position", &self.base.saturating_add(self.pos as u64))
+            .field("end", &self.end)
+            .field("window", &self.window.len())
+            .finish()
+    }
+}
+
+impl<'a, S: ByteSource + ?Sized> FileCursor<'a, S> {
+    /// A cursor positioned at address `addr`, running to the end of the source.
+    ///
+    /// Nothing is read yet — the first field read fills the window. The address
+    /// itself is checked here, so a structure pointer past the end of the file
+    /// is refused at the seek rather than at whatever it would have read.
+    pub fn at(source: &'a S, addr: u64) -> Result<Self, FieldglassError> {
+        Self::within(source, addr, source.size())
+    }
+
+    /// A cursor positioned at `addr` that treats `end` as the end of the file.
+    ///
+    /// For a walk over one structure whose extent is already known — a GRIB
+    /// message, whose total length its indicator states — so no window runs
+    /// into the next one, and the clamped reads below stop where the structure
+    /// does rather than where the source does.
+    pub fn within(source: &'a S, addr: u64, end: u64) -> Result<Self, FieldglassError> {
+        if end > source.size() || addr > end {
+            return Err(FieldglassError::Parse("address past end of file".into()));
+        }
+        Ok(Self {
+            source,
+            end,
+            base: addr,
+            window: Cow::Borrowed(&[]),
+            pos: 0,
+            next_window: FIRST_WINDOW_BYTES,
+        })
+    }
+
+    /// The address the cursor is about to read from.
+    ///
+    /// Saturating rather than bare: this cannot overflow under the cursor's own
+    /// invariant (`base <= end`, and the window never runs past it), but that
+    /// last step rests on a [`ByteSource`] returning no *more* than it was asked
+    /// for, which is a contract and not a type.
+    pub fn position(&self) -> u64 {
+        self.base.saturating_add(self.pos as u64)
+    }
+
+    /// How many bytes lie between the cursor and its end.
+    pub fn remaining(&self) -> u64 {
+        self.end.saturating_sub(self.position())
+    }
+
+    /// Make at least `n` bytes available from the current position.
+    ///
+    /// Refills when they are not already in the window, growing what it asks
+    /// for as a structure turns out to be long — see [`MAX_WINDOW_BYTES`].
+    fn need(&mut self, n: usize) -> Result<(), FieldglassError> {
+        if self
+            .pos
+            .checked_add(n)
+            .is_some_and(|e| e <= self.window.len())
+        {
+            return Ok(());
+        }
+        let addr = self.position();
+        let available = self.remaining();
+        if (n as u64) > available {
+            return Err(FieldglassError::Parse("read past end of file".into()));
+        }
+        let want = (n.max(self.next_window) as u64).min(available);
+        self.next_window = self.next_window.saturating_mul(2).min(MAX_WINDOW_BYTES);
+        // `base`/`pos` move with the window rather than after it, so the three
+        // never disagree — including on the error return below. A cursor whose
+        // position pointed into a window it no longer held would be a trap for
+        // the first caller that kept it past an error.
+        self.window = self.source.read(ByteRange::new(addr, want))?;
+        self.base = addr;
+        self.pos = 0;
+        // A source that served short would leave the window smaller than the
+        // parse is about to index. Catching it here is what keeps every reader
+        // above from having to.
+        if self.window.len() < n {
+            return Err(FieldglassError::Parse(format!(
+                "the source served {} of {n} bytes at {addr}",
+                self.window.len()
+            )));
+        }
+        Ok(())
+    }
+
+    /// Take `n` bytes, borrowed from the window the cursor is holding.
+    ///
+    /// Tied to the cursor rather than to the file, because a source that is not
+    /// one contiguous buffer has nothing file-lived to lend. Callers that keep
+    /// the bytes copy them out.
+    pub fn take(&mut self, n: usize) -> Result<&[u8], FieldglassError> {
+        self.need(n)?;
+        let out = &self.window[self.pos..self.pos + n];
+        self.pos += n;
+        Ok(out)
+    }
+
+    /// Look at up to `n` bytes without consuming them, stopping at the
+    /// cursor's end.
+    ///
+    /// For a parser that takes "the rest of the structure" and checks a length
+    /// field inside it: handing it `min(n, remaining)` bytes reproduces exactly
+    /// what slicing a whole-file buffer to the structure's end would have, so
+    /// a length that overruns is reported with the same count it always was.
+    pub fn peek_up_to(&mut self, n: usize) -> Result<&[u8], FieldglassError> {
+        let n = (n as u64).min(self.remaining()) as usize;
+        self.need(n)?;
+        Ok(&self.window[self.pos..self.pos + n])
+    }
+
+    /// Advance `n` bytes without reading them.
+    ///
+    /// Skipping does not fetch: a field or a whole section the reader does not
+    /// want costs nothing over a transport. Skipping past the end is still an
+    /// error, because the structure said it had bytes there.
+    pub fn skip(&mut self, n: usize) -> Result<(), FieldglassError> {
+        if self
+            .pos
+            .checked_add(n)
+            .is_some_and(|e| e <= self.window.len())
+        {
+            self.pos += n;
+            return Ok(());
+        }
+        let addr = self
+            .position()
+            .checked_add(n as u64)
+            .filter(|&a| a <= self.end)
+            .ok_or_else(|| FieldglassError::Parse("skip past end of file".into()))?;
+        self.base = addr;
+        self.pos = 0;
+        self.window = Cow::Borrowed(&[]);
+        Ok(())
+    }
+
+    /// Take four bytes and require them to be `signature`.
+    pub fn tag(&mut self, signature: &[u8; 4]) -> Result<(), FieldglassError> {
+        let got = self.take(4)?;
+        if got != signature {
+            return Err(FieldglassError::Parse(format!(
+                "expected signature {:?}, got {:?}",
+                std::str::from_utf8(signature).unwrap_or("?"),
+                String::from_utf8_lossy(got)
+            )));
+        }
+        Ok(())
+    }
+}
+
 /// Shared bounds check, so every in-memory implementation reports a range past
 /// the end the same way.
 fn slice_of(bytes: &[u8], range: ByteRange) -> Result<Cow<'_, [u8]>, FieldglassError> {
@@ -723,5 +1049,244 @@ mod tests {
         // Identity forwards too, or a reader that borrows its source would be
         // a different source from the one its caller holds.
         assert_eq!(by_ref.identity(), data.identity());
+    }
+}
+
+#[cfg(test)]
+mod cursor_tests {
+    use super::*;
+
+    /// Records the length of every read, so a test can say how a walk paid for
+    /// its bytes rather than only that it got them.
+    #[derive(Default)]
+    struct Counting {
+        bytes: Vec<u8>,
+        reads: RefCell<Vec<ByteRange>>,
+    }
+
+    impl ByteSource for Counting {
+        fn size(&self) -> u64 {
+            self.bytes.len() as u64
+        }
+        fn read(&self, range: ByteRange) -> Result<Cow<'_, [u8]>, FieldglassError> {
+            self.reads.borrow_mut().push(range);
+            self.bytes.read(range)
+        }
+    }
+
+    /// Serves one byte fewer than asked, the way a truncated response would.
+    struct Short(Vec<u8>);
+
+    impl ByteSource for Short {
+        fn size(&self) -> u64 {
+            self.0.len() as u64
+        }
+        fn read(&self, range: ByteRange) -> Result<Cow<'_, [u8]>, FieldglassError> {
+            let got = self.0.read(range)?;
+            Ok(Cow::Owned(got[..got.len().saturating_sub(1)].to_vec()))
+        }
+    }
+
+    fn word(cur: &mut FileCursor<'_, Vec<u8>>) -> u32 {
+        let b = cur.take(4).expect("word in range");
+        u32::from_le_bytes([b[0], b[1], b[2], b[3]])
+    }
+
+    #[test]
+    fn a_cursor_cannot_be_placed_past_the_end_of_the_file() {
+        let bytes: Vec<u8> = vec![0u8; 64];
+        assert!(FileCursor::at(&bytes, 4096).is_err());
+        // The end of the file is a legal position — it is where a zero-length
+        // structure sits — and only reading from it fails.
+        let mut at_end = FileCursor::at(&bytes, 64).expect("end is a position");
+        assert!(at_end.take(1).is_err());
+    }
+
+    /// Reads that cross the window boundary have to see the same bytes a single
+    /// window would, or every structure larger than a window is decoded from
+    /// the wrong offsets.
+    #[test]
+    fn refilling_does_not_move_the_file_position() {
+        // Each 4-byte little-endian word holds its own index, so a value read
+        // at any offset names where it came from.
+        let mut bytes = Vec::new();
+        for i in 0..4096u32 {
+            bytes.extend_from_slice(&i.to_le_bytes());
+        }
+        let mut cur = FileCursor::at(&bytes, 0).expect("in range");
+        for i in 0..4096u32 {
+            assert_eq!(word(&mut cur), i);
+        }
+        assert!(cur.take(1).is_err(), "the file ends here");
+
+        // Skipping across windows lands in the same place as reading across
+        // them.
+        let mut cur = FileCursor::at(&bytes, 0).expect("in range");
+        cur.skip(4 * 3000).expect("in range");
+        assert_eq!(word(&mut cur), 3000);
+        assert_eq!(cur.position(), 4 * 3001);
+    }
+
+    /// A read wider than the window is served whole rather than clipped to it.
+    #[test]
+    fn a_read_larger_than_the_window_is_one_read() {
+        let bytes: Vec<u8> = (0..u8::MAX).cycle().take(MAX_WINDOW_BYTES * 3).collect();
+        let mut cur = FileCursor::at(&bytes, 0).expect("in range");
+        let got = cur.take(MAX_WINDOW_BYTES * 2).expect("in range");
+        assert_eq!(got.len(), MAX_WINDOW_BYTES * 2);
+        assert_eq!(got, &bytes[..MAX_WINDOW_BYTES * 2]);
+    }
+
+    /// The window grows, so a long run is a handful of reads rather than one
+    /// per field — and a short one does not pay for a run it never makes.
+    #[test]
+    fn the_window_doubles_rather_than_starting_large() {
+        let source = Counting {
+            bytes: vec![0u8; 1 << 20],
+            ..Default::default()
+        };
+
+        // A short structure: one small read, not one large one.
+        let mut cur = FileCursor::at(&source, 0).expect("in range");
+        for _ in 0..8 {
+            cur.take(4).expect("in range");
+        }
+        let lens: Vec<u64> = source.reads.borrow().iter().map(|r| r.len).collect();
+        assert_eq!(
+            lens,
+            [FIRST_WINDOW_BYTES as u64],
+            "32 bytes of fields should cost one 64-byte read"
+        );
+
+        // A long one: a few doubling reads, not 4096 one-field ones.
+        source.reads.borrow_mut().clear();
+        let mut cur = FileCursor::at(&source, 0).expect("in range");
+        for _ in 0..4096 {
+            cur.take(4).expect("in range");
+        }
+        let reads = source.reads.borrow().clone();
+        assert!(
+            reads.len() <= 10,
+            "16 KiB of fields took {} reads: {reads:?}",
+            reads.len()
+        );
+        let fetched: u64 = reads.iter().map(|r| r.len).sum();
+        assert!(
+            fetched < 4 * 4096 * 2,
+            "fetched {fetched} bytes for 16384 bytes of fields"
+        );
+    }
+
+    /// `read_up_to` is for the reads whose length is not known yet, so a short
+    /// file shortens the read rather than failing it — but a bad address still
+    /// fails.
+    #[test]
+    fn read_up_to_shortens_at_the_end_of_the_file() {
+        let bytes: Vec<u8> = vec![7u8; 10];
+        assert_eq!(read_up_to(&bytes, 6, 16).expect("short read").len(), 4);
+        assert_eq!(read_up_to(&bytes, 10, 16).expect("empty read").len(), 0);
+        assert!(read_up_to(&bytes, 11, 1).is_err());
+        assert!(read_at(&bytes, 6, 16).is_err());
+    }
+
+    /// The length check `read_exact` exists for: a source that serves short is
+    /// an error, not a short slice the caller then indexes past.
+    #[test]
+    fn a_source_that_serves_short_is_an_error_not_a_short_slice() {
+        let source = Short(vec![1u8; 32]);
+        let err = read_exact(&source, ByteRange::new(4, 8)).expect_err("served 7 of 8");
+        assert!(
+            err.to_string().contains("served 7 of 8 bytes at 4"),
+            "unexpected message: {err}"
+        );
+        // The cursor holds the same line on its refill. A short window that
+        // still covers the read is fine; one that does not cover it is not.
+        let mut cur = FileCursor::at(&source, 0).expect("in range");
+        assert!(cur.take(4).is_ok(), "31 of 64 bytes still covers four");
+        let mut cur = FileCursor::at(&source, 0).expect("in range");
+        assert!(cur.take(32).is_err(), "31 of 32 bytes does not cover 32");
+    }
+
+    /// A cursor bounded to one structure never reads past it, however much
+    /// file follows, and its clamped peek stops there too.
+    #[test]
+    fn a_bounded_cursor_stops_at_its_end_not_the_sources() {
+        let source = Counting {
+            bytes: (0..=255u8).collect(),
+            ..Default::default()
+        };
+        let mut cur = FileCursor::within(&source, 10, 20).expect("in range");
+        assert_eq!(cur.remaining(), 10);
+        let peeked = cur.peek_up_to(100).expect("clamped").to_vec();
+        assert_eq!(peeked, (10..20u8).collect::<Vec<_>>());
+        // Peeking does not consume.
+        assert_eq!(cur.position(), 10);
+        assert_eq!(cur.take(3).expect("in range"), &[10, 11, 12]);
+        assert!(cur.take(8).is_err(), "only seven bytes are left");
+        assert!(cur.skip(8).is_err());
+        cur.skip(7).expect("to the end exactly");
+        assert_eq!(cur.peek_up_to(5).expect("empty at the end"), &[] as &[u8]);
+        for r in source.reads.borrow().iter() {
+            assert!(
+                r.start >= 10 && r.end().is_some_and(|e| e <= 20),
+                "read {r:?} left the structure"
+            );
+        }
+
+        assert!(
+            FileCursor::within(&source, 0, 257).is_err(),
+            "end past the source"
+        );
+        assert!(
+            FileCursor::within(&source, 21, 20).is_err(),
+            "start past the end"
+        );
+    }
+
+    /// The contract `find_forward` is written to: the answer a byte-at-a-time
+    /// search gives. Checked against one, from every start, over data with the
+    /// pattern planted on and across the first few window boundaries.
+    #[test]
+    fn a_forward_search_agrees_with_a_byte_at_a_time_one() {
+        let mut bytes = vec![0u8; 1000];
+        for at in [0usize, 61, 62, 63, 64, 125, 190, 191, 500, 996] {
+            bytes[at..at + 4].copy_from_slice(b"GRIB");
+        }
+        let hit = |w: &[u8]| &w[..4] == b"GRIB";
+        for span in [4usize, 8, 16, 100] {
+            for from in 0..bytes.len() as u64 + 2 {
+                let naive = (from as usize..)
+                    .take_while(|p| p + span <= bytes.len())
+                    .find(|&p| hit(&bytes[p..p + span]))
+                    .map(|p| p as u64);
+                let got = find_forward(&bytes, from, span, hit).expect("in memory");
+                assert_eq!(got, naive, "span {span}, from {from}");
+            }
+        }
+        assert!(find_forward(&bytes, 0, 0, |_| true).is_err());
+    }
+
+    /// Garbage costs windows, not bytes: a megabyte before the match is a
+    /// couple of dozen reads, where a naive search over a transport would be a
+    /// million.
+    #[test]
+    fn a_forward_search_over_garbage_reads_in_growing_windows() {
+        let mut bytes = vec![0u8; 1 << 20];
+        let at = bytes.len() - 10;
+        bytes[at..at + 4].copy_from_slice(b"GRIB");
+        let source = Counting {
+            bytes,
+            ..Default::default()
+        };
+        let got = find_forward(&source, 0, 8, |w| &w[..4] == b"GRIB").expect("in memory");
+        assert_eq!(got, Some(at as u64));
+        let reads = source.reads.borrow();
+        // Ten doublings from 64 B to 64 KiB, then sixteen full windows.
+        assert!(
+            reads.len() <= 30,
+            "{} reads for 1 MiB of garbage",
+            reads.len()
+        );
+        assert!(reads.iter().all(|r| r.len <= MAX_WINDOW_BYTES as u64));
     }
 }

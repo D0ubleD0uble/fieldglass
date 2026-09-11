@@ -5,17 +5,26 @@ use crate::is::{IndicatorSection, parse_indicator};
 use crate::packing::matrix::{decode_matrix_of_values, is_matrix_of_values};
 use crate::packing::spherical::{SpectralCoefficients, decode_spectral};
 use crate::pds::{ProductDefinition, parse_product_definition};
+use fieldglass_core::bytes::{
+    ByteRange, ByteSource, FileCursor, find_forward, read_at, read_exact, read_up_to,
+};
 use fieldglass_core::{FieldglassError, GlobalGrid, StoredRuns, SynthesisedField};
+use std::borrow::Cow;
 
 /// One message located in the file, with its sections parsed and its data
 /// section left as a byte range to decode on demand.
+///
+/// The offsets are `u64` because they address a file, not a buffer: a
+/// [`Grib1Reader`] over a [`ByteSource`] may be reading one far larger than a
+/// 32-bit `usize` can index (#697).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Grib1Message {
-    /// Position of the message in the file — the index the decode entry points
-    /// take.
+    /// Position of the message in the reader — the index the decode entry
+    /// points take. The position in the file for a scanned reader; `0` for one
+    /// built by [`Grib1Reader::from_message_at`], which holds only that message.
     pub message_index: usize,
     /// Byte offset of the message's `GRIB` magic within the file.
-    pub byte_offset: usize,
+    pub byte_offset: u64,
     /// Section 0, parsed.
     pub is: IndicatorSection,
     /// Section 1, parsed.
@@ -24,9 +33,9 @@ pub struct Grib1Message {
     /// grid is then whatever `pds.grid_number` predefines.
     pub gds: Option<GridDescription>,
     /// Byte range of the Bit Map Section within the file, if one is present.
-    pub bms_range: Option<(usize, usize)>,
+    pub bms_range: Option<ByteRange>,
     /// Byte range of the Binary Data Section within the file.
-    pub bds_range: (usize, usize),
+    pub bds_range: ByteRange,
 }
 
 /// A decoded matrix-of-values field (`grid_simple_matrix` with
@@ -57,8 +66,8 @@ pub const PDS_P1_OFFSET_FROM_MESSAGE_START: usize = 8 + 18;
 
 impl Grib1Message {
     /// Absolute file-byte offset of the PDS `p1` octet for this message.
-    pub fn pds_p1_offset(&self) -> usize {
-        self.byte_offset + PDS_P1_OFFSET_FROM_MESSAGE_START
+    pub fn pds_p1_offset(&self) -> u64 {
+        self.byte_offset + PDS_P1_OFFSET_FROM_MESSAGE_START as u64
     }
 }
 
@@ -93,23 +102,92 @@ pub enum Grib1MessageKind {
     Unsupported,
 }
 
-/// A whole GRIB1 file: the bytes, and every message found by scanning them.
-// No `Clone` and no `PartialEq`, deliberately (#556). This owns the whole
-// file buffer, so a derived `Clone` would duplicate it silently at a call
-// site that reads like a cheap copy, and two readers over identical bytes
+/// A GRIB1 file: where its bytes come from, and every message found in them.
+///
+/// The bytes are read through a [`ByteSource`] ([ADR-0005], #697), so the same
+/// reader runs over a buffer, over ranges a host has already fetched, or over
+/// a transport. `S` defaults to `Vec<u8>`, which is what
+/// [`from_bytes`](Self::from_bytes) builds and what every caller that holds the
+/// whole file already has.
+///
+/// Every decode entry point resolves the sections it reads — the BDS, and the
+/// BMS when there is one — prefetches them in one batch, and reads exactly
+/// those. The scan that finds the messages reads in growing windows rather than
+/// a byte at a time; see [`from_source`](Self::from_source).
+///
+/// [ADR-0005]: https://github.com/D0ubleD0uble/fieldglass/blob/master/docs/decisions/0005-byte-access-and-the-remote-seam.md
+// No `Clone` and no `PartialEq`, deliberately (#556). By default this owns
+// the whole file buffer, so a derived `Clone` would duplicate it silently at a
+// call site that reads like a cheap copy, and two readers over identical bytes
 // are not a comparison anyone needs to make. It is a handle, not a value.
 #[derive(Debug)]
-pub struct Grib1Reader {
-    data: Vec<u8>,
+pub struct Grib1Reader<S = Vec<u8>> {
+    source: S,
     /// Every message in the file, in the order they appear in it.
     pub messages: Vec<Grib1Message>,
 }
 
-impl Grib1Reader {
+impl Grib1Reader<Vec<u8>> {
     /// Parse a GRIB1 file from raw bytes, scanning for all messages.
     pub fn from_bytes(data: Vec<u8>) -> Result<Self, FieldglassError> {
-        let messages = scan_messages(&data)?;
-        Ok(Self { data, messages })
+        Self::from_source(data)
+    }
+
+    /// The file's raw bytes, which the reader already owns.
+    ///
+    /// Exposed so a caller that needs the original octets — patching a PDS
+    /// field, say — can borrow them instead of keeping a second copy of the
+    /// whole file alongside the reader (#411). Only a reader over an in-memory
+    /// buffer has a whole file to lend; one over any other [`ByteSource`]
+    /// reads [`source`](Self::source) by range instead.
+    pub fn bytes(&self) -> &[u8] {
+        &self.source
+    }
+}
+
+impl<S: ByteSource> Grib1Reader<S> {
+    /// Scan `source` for every GRIB1 message in it.
+    ///
+    /// Anything that is not the start of an edition-1 message — leading
+    /// garbage, a GRIB2 message, the letters `GRIB` inside a payload — is
+    /// stepped over one byte at a time, exactly as a buffer scan would. The
+    /// bytes behind that search come in growing windows (see
+    /// [`fieldglass_core::bytes::find_forward`]), so skipping costs a handful
+    /// of reads rather than one per byte. Each message found then costs a few
+    /// more: its indicator, its trailing `7777`, and a window over its
+    /// PDS/GDS/BMS headers. Its data is not read.
+    ///
+    /// Discovery is still a chain — message `N + 1` starts where message `N`'s
+    /// length says — which is ADR-0005's reason GRIB answers "which bytes?"
+    /// with a sidecar index rather than a scan. For that case see
+    /// [`from_message_at`](Self::from_message_at).
+    pub fn from_source(source: S) -> Result<Self, FieldglassError> {
+        let messages = scan_messages(&source)?;
+        Ok(Self { source, messages })
+    }
+
+    /// Read the one message whose `GRIB` magic sits at `offset`, without
+    /// scanning anything else.
+    ///
+    /// What a sidecar index makes possible: an `.idx` line says where a message
+    /// begins, so a host fetches that range and decodes it here, and the source
+    /// need hold nothing but the message's own bytes. The result is a reader of
+    /// exactly one message, at index `0`, whose byte offsets are still the
+    /// file's — so they match the ranges the index gave.
+    ///
+    /// Errors, rather than searching, when `offset` is not the start of an
+    /// edition-1 message.
+    pub fn from_message_at(source: S, offset: u64) -> Result<Self, FieldglassError> {
+        let message = read_message_at(&source, offset, 0)?;
+        Ok(Self {
+            source,
+            messages: vec![message],
+        })
+    }
+
+    /// Where the reader's bytes come from.
+    pub fn source(&self) -> &S {
+        &self.source
     }
 
     /// How many messages the scan found. Message indices run `0..this`.
@@ -117,13 +195,14 @@ impl Grib1Reader {
         self.messages.len()
     }
 
-    /// The file's raw bytes, which the reader already owns.
+    /// Prefetch `ranges` as one batch, then read the first of them back.
     ///
-    /// Exposed so a caller that needs the original octets — patching a PDS
-    /// field, say — can borrow them instead of keeping a second copy of the
-    /// whole file alongside the reader (#411).
-    pub fn bytes(&self) -> &[u8] {
-        &self.data
+    /// The shape every entry point below takes, so a remote source is asked once
+    /// per decode rather than once per section: the rest of the batch is read by
+    /// the caller with [`read_exact`] after this returns.
+    fn prefetch_then_read(&self, ranges: &[ByteRange]) -> Result<Cow<'_, [u8]>, FieldglassError> {
+        self.source.prefetch(ranges)?;
+        read_exact(&self.source, ranges[0])
     }
 
     /// eccodes-style `packingType` label for one message's BDS, or `None` if
@@ -131,9 +210,9 @@ impl Grib1Reader {
     /// metadata only — it parses the 11-byte BDS header and never decodes
     /// values, so it stays cheap to call for every message in a file.
     pub fn packing_label(&self, message_index: usize) -> Option<&'static str> {
-        let (start, end) = self.messages.get(message_index)?.bds_range;
-        let bytes = self.data.get(start..end)?;
-        parse_bds_header(bytes)
+        let range = self.messages.get(message_index)?.bds_range;
+        let bytes = self.prefetch_then_read(&[range]).ok()?;
+        parse_bds_header(&bytes)
             .ok()
             .map(|header| header.packing_type_label())
     }
@@ -159,12 +238,11 @@ impl Grib1Reader {
             None | Some(GridDescription::Unsupported { .. }) => Grib1MessageKind::Unsupported,
             Some(GridDescription::SphericalHarmonic(_)) => Grib1MessageKind::Spectral,
             Some(_) => {
-                let (start, end) = msg.bds_range;
-                let Some(bds) = self.data.get(start..end) else {
+                let Ok(bds) = self.prefetch_then_read(&[msg.bds_range]) else {
                     return Grib1MessageKind::Unsupported;
                 };
-                match parse_bds_header(bds) {
-                    Ok(header) if is_matrix_of_values(bds, &header) => Grib1MessageKind::Matrix,
+                match parse_bds_header(&bds) {
+                    Ok(header) if is_matrix_of_values(&bds, &header) => Grib1MessageKind::Matrix,
                     Ok(_) => Grib1MessageKind::Grid,
                     Err(_) => Grib1MessageKind::Unsupported,
                 }
@@ -248,14 +326,17 @@ impl Grib1Reader {
             None => StoredRuns::Uniform(ni as usize),
         };
 
-        let bitmap = match msg.bms_range {
-            Some((start, end)) => Some(parse_bitmap(&self.data[start..end], expected_count)?),
-            None => None,
+        // Both sections in one batch, BMS first when there is one, so a remote
+        // source is asked once for the message rather than once per section.
+        let (bitmap, bds_bytes) = match msg.bms_range {
+            Some(bms) => {
+                let bms_bytes = self.prefetch_then_read(&[bms, msg.bds_range])?;
+                let bitmap = parse_bitmap(&bms_bytes, expected_count)?;
+                (Some(bitmap), read_exact(&self.source, msg.bds_range)?)
+            }
+            None => (None, self.prefetch_then_read(&[msg.bds_range])?),
         };
-
-        let (bds_start, bds_end) = msg.bds_range;
-        let bds_bytes = &self.data[bds_start..bds_end];
-        let header = parse_bds_header(bds_bytes)?;
+        let header = parse_bds_header(&bds_bytes)?;
 
         Ok(DecodeInputs {
             ni: ni as usize,
@@ -289,7 +370,7 @@ impl Grib1Reader {
     ) -> Result<Vec<Option<f64>>, FieldglassError> {
         let inputs = self.decode_inputs(message_index)?;
         decode_values(
-            inputs.bds_bytes,
+            &inputs.bds_bytes,
             &inputs.header,
             inputs.decimal_scale,
             inputs.bitmap_bits(),
@@ -390,16 +471,15 @@ impl Grib1Reader {
                 gds.grid_type_name()
             )));
         };
-        let (bds_start, bds_end) = msg.bds_range;
-        let bds_bytes = &self.data[bds_start..bds_end];
-        let header = parse_bds_header(bds_bytes)?;
+        let bds_bytes = self.prefetch_then_read(&[msg.bds_range])?;
+        let header = parse_bds_header(&bds_bytes)?;
         if !header.is_spherical_harmonic {
             return Err(FieldglassError::Parse(
                 "GDS declares spherical-harmonic coefficients but the BDS does not".to_string(),
             ));
         }
         decode_spectral(
-            bds_bytes,
+            &bds_bytes,
             &header,
             msg.pds.decimal_scale_factor,
             sh.j,
@@ -543,7 +623,7 @@ impl Grib1Reader {
     ) -> Result<MatrixField, FieldglassError> {
         let inputs = self.decode_inputs(message_index)?;
         let matrix = decode_matrix_of_values(
-            inputs.bds_bytes,
+            &inputs.bds_bytes,
             &inputs.header,
             inputs.decimal_scale,
             inputs.bitmap_bits(),
@@ -560,8 +640,8 @@ impl Grib1Reader {
 }
 
 /// Inputs resolved by [`Grib1Reader::decode_inputs`] and shared by both decode
-/// entry points. Borrows the BDS bytes from the reader; owns the parsed bitmap
-/// and BDS header.
+/// entry points. Holds the BDS bytes as the source served them — borrowed from
+/// a buffer, owned from anything else; owns the parsed bitmap and BDS header.
 struct DecodeInputs<'a> {
     ni: usize,
     nj: usize,
@@ -573,7 +653,7 @@ struct DecodeInputs<'a> {
     expected_count: usize,
     decimal_scale: i16,
     bitmap: Option<Bitmap>,
-    bds_bytes: &'a [u8],
+    bds_bytes: Cow<'a, [u8]>,
     header: BdsHeader,
 }
 
@@ -594,127 +674,181 @@ fn j_consecutive(gds: &GridDescription) -> bool {
     gds.scanning_mode().is_some_and(|s| s.j_consecutive)
 }
 
-/// Scan `data` for GRIB messages. Each message starts with the `GRIB` magic
+/// Length of the Indicator Section, and so the least a source must still hold
+/// for the scan to recognise a message starting in it.
+const INDICATOR_LEN: usize = 8;
+
+/// Whether an 8-byte window is the Indicator Section of an edition-1 message.
+///
+/// The edition is part of the match, not a check after it: a GRIB2 message
+/// shares the magic, and the scan steps past it one byte at a time exactly as
+/// it steps past garbage.
+fn is_edition_1_indicator(window: &[u8]) -> bool {
+    &window[..4] == b"GRIB" && window[7] == 1
+}
+
+/// Scan `source` for GRIB messages. Each message starts with the `GRIB` magic
 /// bytes; the IS provides the total length so we can jump to the next message.
-fn scan_messages(data: &[u8]) -> Result<Vec<Grib1Message>, FieldglassError> {
+fn scan_messages<S: ByteSource + ?Sized>(source: &S) -> Result<Vec<Grib1Message>, FieldglassError> {
     let mut messages = Vec::new();
-    let mut offset = 0usize;
+    let mut from = 0u64;
+    while let Some(offset) = find_forward(source, from, INDICATOR_LEN, is_edition_1_indicator)? {
+        let message = read_message_at(source, offset, messages.len())?;
+        // `read_message_at` has checked that the message ends inside the
+        // source, so this cannot overflow.
+        from = offset + u64::from(message.is.total_length);
+        messages.push(message);
+    }
+    Ok(messages)
+}
 
-    while offset + 8 <= data.len() {
-        // Search forward for the next GRIB marker.
-        if &data[offset..offset + 4] != b"GRIB" {
-            offset += 1;
-            continue;
-        }
+/// The bytes a section parser is handed: from the cursor to the end of the
+/// section its 3-byte length field declares, never less than `min`, and never
+/// past the message.
+///
+/// Each parser checks its own header length and then its declared length
+/// against what it was given, and reports the count it got when the second
+/// fails. Handing it this is what keeps those reports the same as when it was
+/// handed the rest of a whole-file buffer: the count is the message's
+/// remaining bytes whenever the declared length overruns them. `min` is the
+/// header the parser reads before it knows the declared length.
+fn section_prefix<'c, S: ByteSource + ?Sized>(
+    cursor: &'c mut FileCursor<'_, S>,
+    min: usize,
+) -> Result<&'c [u8], FieldglassError> {
+    let declared = match *cursor.peek_up_to(3)? {
+        [a, b, c] => u32::from_be_bytes([0, a, b, c]) as usize,
+        _ => 0,
+    };
+    cursor.peek_up_to(declared.max(min))
+}
 
-        let is = parse_indicator(&data[offset..])?;
+/// A GRIB1 3-byte section length at the cursor, or `None` when fewer than three
+/// bytes of the message remain.
+fn section_length<S: ByteSource + ?Sized>(
+    cursor: &mut FileCursor<'_, S>,
+) -> Result<Option<u32>, FieldglassError> {
+    Ok(match *cursor.peek_up_to(3)? {
+        [a, b, c] => Some(u32::from_be_bytes([0, a, b, c])),
+        _ => None,
+    })
+}
 
-        // Only handle GRIB edition 1 in this crate.
-        if is.edition != 1 {
-            offset += 1;
-            continue;
-        }
+/// Parse the one message whose `GRIB` magic is at `offset`, reading its
+/// indicator, its trailing `7777` and its section headers, and none of its
+/// data.
+fn read_message_at<S: ByteSource + ?Sized>(
+    source: &S,
+    offset: u64,
+    message_index: usize,
+) -> Result<Grib1Message, FieldglassError> {
+    let size = source.size();
+    let is = parse_indicator(&read_up_to(source, offset, INDICATOR_LEN)?)?;
 
-        // The declared length must cover at least the 8-byte Indicator
-        // Section. A shorter value makes the trailing-`7777` slice
-        // (`msg_end - 4`) and the PDS start (`offset + 8`) run past or before
-        // the message, so reject it rather than indexing out of bounds.
-        if (is.total_length as usize) < 8 {
-            return Err(FieldglassError::Parse(format!(
-                "Message at offset {offset} declares implausible total length {}",
-                is.total_length
-            )));
-        }
+    // The scan only stops on an edition-1 indicator; a reader handed an offset
+    // directly has not been through it.
+    if is.edition != 1 {
+        return Err(FieldglassError::Parse(format!(
+            "Message at offset {offset} is GRIB edition {}, not 1",
+            is.edition
+        )));
+    }
 
-        let msg_end = offset + is.total_length as usize;
-        if msg_end > data.len() {
+    // The declared length must cover at least the 8-byte Indicator
+    // Section. A shorter value makes the trailing-`7777` read
+    // (`msg_end - 4`) and the PDS start (`offset + 8`) run past or before
+    // the message, so reject it rather than reading out of bounds.
+    if (is.total_length as usize) < INDICATOR_LEN {
+        return Err(FieldglassError::Parse(format!(
+            "Message at offset {offset} declares implausible total length {}",
+            is.total_length
+        )));
+    }
+
+    let msg_end = match offset.checked_add(u64::from(is.total_length)) {
+        Some(end) if end <= size => end,
+        _ => {
             return Err(FieldglassError::Parse(format!(
                 "Message at offset {offset} claims length {} but only {} bytes remain",
                 is.total_length,
-                data.len() - offset
+                size.saturating_sub(offset)
             )));
         }
+    };
 
-        // Trailing 4-byte End Section "7777".
-        if &data[msg_end - 4..msg_end] != b"7777" {
-            return Err(FieldglassError::Parse(format!(
-                "Message at offset {offset} is missing trailing 7777 marker"
-            )));
-        }
-
-        // PDS starts immediately after the 8-byte IS.
-        let pds_start = offset + 8;
-        let pds = parse_product_definition(&data[pds_start..msg_end])?;
-
-        // GDS immediately follows the PDS when the has_gds flag is set.
-        let mut cursor = pds_start + pds.section_len as usize;
-        let gds = if pds.has_gds {
-            // The GDS opens with a 3-byte section-length field; require all
-            // three bytes before reading them below.
-            if cursor + 3 > msg_end {
-                return Err(FieldglassError::Parse(
-                    "PDS claims a GDS follows but not enough bytes remain".to_string(),
-                ));
-            }
-            let gds = parse_grid_description(&data[cursor..msg_end])?;
-            // Advance the cursor by the GDS length.
-            let gds_len =
-                u32::from_be_bytes([0, data[cursor], data[cursor + 1], data[cursor + 2]]) as usize;
-            cursor += gds_len;
-            Some(gds)
-        } else {
-            // No GDS section: the grid may be identified by a predefined
-            // catalogue number (WMO ON388 Table B). Resolve it so geometry,
-            // bounds, and reprojection still work; unknown numbers stay None.
-            crate::predefined::predefined_grid(pds.grid_number)
-        };
-
-        // BMS, if present, immediately follows the GDS.
-        let bms_range = if pds.has_bms {
-            // Likewise, the BMS opens with a 3-byte section-length field.
-            if cursor + 3 > msg_end {
-                return Err(FieldglassError::Parse(
-                    "PDS claims a BMS follows but not enough bytes remain".to_string(),
-                ));
-            }
-            let bms_len =
-                u32::from_be_bytes([0, data[cursor], data[cursor + 1], data[cursor + 2]]) as usize;
-            let bms_end = cursor + bms_len;
-            if bms_end > msg_end {
-                return Err(FieldglassError::Parse(
-                    "BMS extends past end of message".to_string(),
-                ));
-            }
-            let range = (cursor, bms_end);
-            cursor = bms_end;
-            Some(range)
-        } else {
-            None
-        };
-
-        // BDS occupies everything from `cursor` up to the End Section.
-        let bds_end = msg_end - 4;
-        if cursor >= bds_end {
-            return Err(FieldglassError::Parse(format!(
-                "No BDS bytes between section cursor {cursor} and ES at {bds_end}"
-            )));
-        }
-        let bds_range = (cursor, bds_end);
-
-        messages.push(Grib1Message {
-            message_index: messages.len(),
-            byte_offset: offset,
-            is,
-            pds,
-            gds,
-            bms_range,
-            bds_range,
-        });
-
-        offset = msg_end; // advance to the next message
+    // Trailing 4-byte End Section "7777".
+    if &*read_at(source, msg_end - 4, 4)? != b"7777" {
+        return Err(FieldglassError::Parse(format!(
+            "Message at offset {offset} is missing trailing 7777 marker"
+        )));
     }
 
-    Ok(messages)
+    // PDS starts immediately after the 8-byte IS. One cursor walks the
+    // headers from here, bounded to this message, and skips the sections it
+    // only records — so the BMS and BDS cost nothing to find.
+    let mut cursor = FileCursor::within(source, offset + INDICATOR_LEN as u64, msg_end)?;
+    let pds = parse_product_definition(section_prefix(&mut cursor, 28)?)?;
+    cursor.skip(pds.section_len as usize)?;
+
+    // GDS immediately follows the PDS when the has_gds flag is set.
+    let gds = if pds.has_gds {
+        // The GDS opens with a 3-byte section-length field; require all
+        // three bytes before reading them below.
+        let Some(gds_len) = section_length(&mut cursor)? else {
+            return Err(FieldglassError::Parse(
+                "PDS claims a GDS follows but not enough bytes remain".to_string(),
+            ));
+        };
+        let gds = parse_grid_description(section_prefix(&mut cursor, 6)?)?;
+        // The parse has held the declared length to the bytes remaining, so
+        // this stays inside the message.
+        cursor.skip(gds_len as usize)?;
+        Some(gds)
+    } else {
+        // No GDS section: the grid may be identified by a predefined
+        // catalogue number (WMO ON388 Table B). Resolve it so geometry,
+        // bounds, and reprojection still work; unknown numbers stay None.
+        crate::predefined::predefined_grid(pds.grid_number)
+    };
+
+    // BMS, if present, immediately follows the GDS.
+    let bms_range = if pds.has_bms {
+        // Likewise, the BMS opens with a 3-byte section-length field.
+        let Some(bms_len) = section_length(&mut cursor)? else {
+            return Err(FieldglassError::Parse(
+                "PDS claims a BMS follows but not enough bytes remain".to_string(),
+            ));
+        };
+        if u64::from(bms_len) > cursor.remaining() {
+            return Err(FieldglassError::Parse(
+                "BMS extends past end of message".to_string(),
+            ));
+        }
+        let range = ByteRange::new(cursor.position(), u64::from(bms_len));
+        cursor.skip(bms_len as usize)?;
+        Some(range)
+    } else {
+        None
+    };
+
+    // BDS occupies everything from the cursor up to the End Section.
+    let bds_start = cursor.position();
+    let bds_end = msg_end - 4;
+    if bds_start >= bds_end {
+        return Err(FieldglassError::Parse(format!(
+            "No BDS bytes between section cursor {bds_start} and ES at {bds_end}"
+        )));
+    }
+
+    Ok(Grib1Message {
+        message_index,
+        byte_offset: offset,
+        is,
+        pds,
+        gds,
+        bms_range,
+        bds_range: ByteRange::new(bds_start, bds_end - bds_start),
+    })
 }
 
 /// Convert the PDS time unit + P1 to a number of forecast hours.

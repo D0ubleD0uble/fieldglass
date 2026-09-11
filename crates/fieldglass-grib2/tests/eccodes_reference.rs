@@ -286,7 +286,8 @@ fn assert_message_matches(
 
             // §6 Bit-Map
             "bitMapIndicator" => {
-                let (start, end) = msg.bms_range;
+                let range = msg.bms_range;
+                let (start, end) = (range.start as usize, (range.start + range.len) as usize);
                 // grid_points argument is only used by the inline-bitmap
                 // branch, and that path needs an accurate count; use the
                 // GDS-declared num_data_points so this works for every

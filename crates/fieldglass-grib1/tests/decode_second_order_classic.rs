@@ -37,7 +37,8 @@ fn expected_row_by_row(r: usize, c: usize) -> f64 {
 fn row_by_row_header_reports_variant() {
     let reader = Grib1Reader::from_bytes(ROW_BY_ROW_FIXTURE.to_vec()).expect("fixture parses");
     let msg = &reader.messages[0];
-    let (s, e) = msg.bds_range;
+    let range = msg.bds_range;
+    let (s, e) = (range.start as usize, (range.start + range.len) as usize);
     let bds = parse_bds_header(&ROW_BY_ROW_FIXTURE[s..e]).expect("BDS header parses");
     let ext = bds
         .complex_extended
@@ -92,7 +93,8 @@ const CONSTANT_WIDTH_FIXTURE: &[u8] =
 fn constant_width_header_reports_variant() {
     let reader = Grib1Reader::from_bytes(CONSTANT_WIDTH_FIXTURE.to_vec()).expect("fixture parses");
     let msg = &reader.messages[0];
-    let (s, e) = msg.bds_range;
+    let range = msg.bds_range;
+    let (s, e) = (range.start as usize, (range.start + range.len) as usize);
     let bds = parse_bds_header(&CONSTANT_WIDTH_FIXTURE[s..e]).expect("BDS header parses");
     let ext = bds
         .complex_extended
@@ -158,7 +160,8 @@ fn expected_general(n: usize) -> f64 {
 fn general_grib1_header_reports_variant() {
     let reader = Grib1Reader::from_bytes(GENERAL_FIXTURE.to_vec()).expect("fixture parses");
     let msg = &reader.messages[0];
-    let (s, e) = msg.bds_range;
+    let range = msg.bds_range;
+    let (s, e) = (range.start as usize, (range.start + range.len) as usize);
     let bds = parse_bds_header(&GENERAL_FIXTURE[s..e]).expect("BDS header parses");
     let ext = bds
         .complex_extended

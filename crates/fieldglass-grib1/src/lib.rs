@@ -87,10 +87,12 @@ pub use gds::{GridDescription, ScanningMode, SphericalHarmonicGrid};
 // `GlobalGrid` is the grid `synthesize_spectral_global` hands back beside the
 // synthesised field, so reading either means naming it (#546);
 // `SynthesisedField` is the pair `synthesize_message_global` hands back, for the
-// same reason (#580).
+// same reason (#580). `ByteSource` is what `Grib1Reader` reads through and
+// `ByteRange` is how a message records its sections, so a caller bringing its
+// own source, or reading a message's ranges, names both (#697).
 pub use fieldglass_core::{
-    CornerPair, FieldglassError, GlobalGrid, GridGeometry, StoredRuns, SynthesisedField,
-    expand_reduced_to_regular,
+    ByteRange, ByteSource, CornerPair, FieldglassError, GlobalGrid, GridGeometry, StoredRuns,
+    SynthesisedField, expand_reduced_to_regular,
 };
 pub use is::IndicatorSection;
 pub use packing::spherical::SpectralCoefficients;

@@ -34,7 +34,8 @@ fn ieee_header_reports_raw_packing_flags() {
     // grid_ieee: complexPacking=0, integerPointValues=1, additionalFlagPresent=1.
     for fixture in [IEEE32_FIXTURE, IEEE64_FIXTURE] {
         let reader = Grib1Reader::from_bytes(fixture.to_vec()).expect("fixture parses");
-        let (s, e) = reader.messages[0].bds_range;
+        let range = reader.messages[0].bds_range;
+        let (s, e) = (range.start as usize, (range.start + range.len) as usize);
         let bds = parse_bds_header(&fixture[s..e]).expect("BDS header parses");
         assert!(!bds.is_spherical_harmonic);
         assert!(!bds.is_complex_packing);
@@ -87,7 +88,7 @@ fn decode_ieee64_matches_eccodes_oracle() {
 fn ieee_precision_128bit_is_rejected() {
     let mut bytes = IEEE64_FIXTURE.to_vec();
     let reader = Grib1Reader::from_bytes(bytes.clone()).expect("fixture parses");
-    let (s, _) = reader.messages[0].bds_range;
+    let s = reader.messages[0].bds_range.start as usize;
     // BDS octet 12 (precision) is at byte offset 11 within the section.
     assert_eq!(bytes[s + 11], 2, "fixture is 64-bit before patch");
     bytes[s + 11] = 3;

@@ -120,12 +120,21 @@ FORMAT_CRATES = (
 # `TransverseMercatorParams`, `GeostationaryParams`) are re-exported for exactly
 # that reason.
 #
-# Empty, and the default answer to a new finding is a re-export rather than an
-# entry here. Its only occupants so far were the four names grib2's `FormatReader`
-# / `DataMessage` stub impls dragged into its public API, and #540 deleted the
-# stubs instead of excusing them. Add `"Name": "why",` only when the name is one
-# the crate does not hand back on its own account.
-ALLOWED_UNEXPORTED: dict[str, dict[str, str]] = {}
+# The default answer to a new finding is a re-export rather than an entry here.
+# The first occupants were the four names grib2's `FormatReader` / `DataMessage`
+# stub impls dragged into its public API, and #540 deleted the stubs instead of
+# excusing them. Add `"Name": "why",` only when the name is one the crate does
+# not hand back on its own account.
+#
+# `FileCursor` is that case. netcdf implements its crate-private `Fields` trait
+# for core's cursor (#697), and this check counts every `impl … for …` header as
+# public because it cannot see the trait's visibility from the header. Nothing
+# outside the crate can name `Fields`, so the impl hands a consumer nothing.
+ALLOWED_UNEXPORTED: dict[str, dict[str, str]] = {
+    "fieldglass-netcdf": {
+        "FileCursor": "only named by `impl Fields for FileCursor`, and `Fields` is pub(crate)",
+    },
+}
 
 # A `#[cfg(...)]` attribute whose predicate mentions `test` (covers
 # `#[cfg(test)]` and `#[cfg(all(test, feature = "x"))]`).

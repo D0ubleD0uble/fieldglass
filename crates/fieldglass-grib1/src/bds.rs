@@ -372,8 +372,8 @@ mod tests {
     fn second_order_packing_with_masking_bitmap_is_rejected() {
         use crate::reader::Grib1Reader;
         let reader = Grib1Reader::from_bytes(ROW_BY_ROW.to_vec()).expect("fixture parses");
-        let (s, e) = reader.messages[0].bds_range;
-        let bds = &ROW_BY_ROW[s..e];
+        let range = reader.messages[0].bds_range;
+        let bds = &ROW_BY_ROW[range.start as usize..(range.start + range.len) as usize];
         let header = parse_bds_header(bds).expect("BDS header parses");
         let (ni, nj) = (240usize, 121usize);
         let expected = ni * nj;

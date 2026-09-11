@@ -70,7 +70,8 @@ fn fixture_includes_local_use_section() {
     // The ECMWF reduced-Gaussian fixture has a §2 LUS following the IDS.
     let reader = Grib2Reader::from_bytes(FIXTURE.to_vec()).expect("read fixture");
     let msg = &reader.messages[0];
-    let (start, end) = msg.lus_range.expect("fixture has LUS");
+    let range = msg.lus_range.expect("fixture has LUS");
+    let (start, end) = (range.start as usize, (range.start + range.len) as usize);
     // §2 starts immediately after IS (16) + IDS (21) = byte offset 37.
     assert_eq!(start, 37);
     // Section header places `length` in octets 1..=4 → bytes 37..=40 of the file.
