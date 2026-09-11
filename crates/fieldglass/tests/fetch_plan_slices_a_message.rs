@@ -15,8 +15,8 @@
 //! fixture directory are what hold the *grammar* to reality.
 
 use fieldglass::fetchplan::{
-    Expect, Manifest, Mismatch, NoResolver, ParameterResolver, PlanRange, Query, TableResolver,
-    Wgrib2Idx, verify_message,
+    Expect, Manifest, MessageManifest, Mismatch, NoResolver, ParameterResolver, PlanRange, Query,
+    TableResolver, Wgrib2Idx, verify_message,
 };
 use fieldglass::{Session, api::MessageInfo};
 

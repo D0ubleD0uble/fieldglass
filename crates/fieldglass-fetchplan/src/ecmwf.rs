@@ -60,7 +60,8 @@ impl EcmwfIndex {
                     line: line_no,
                     detail: e.to_string(),
                 })?;
-            items.push(to_item(&key, line_no, &record)?);
+            let index = u32::try_from(items.len()).unwrap_or(u32::MAX);
+            items.push(to_item(&key, line_no, index, &record)?);
         }
 
         Ok(Self { items, key })
@@ -68,9 +69,14 @@ impl EcmwfIndex {
 }
 
 /// Read one JSON object into a plan item.
+///
+/// `index` is the record's place among those already read. The dialect writes
+/// each message once and has no sub-message form, so a record's place is its
+/// message's place.
 fn to_item(
     key: &str,
     line_no: usize,
+    index: u32,
     record: &serde_json::Map<String, serde_json::Value>,
 ) -> Result<PlanItem, FetchPlanError> {
     let offset = integer(line_no, record, "_offset")?;
@@ -120,7 +126,10 @@ fn to_item(
         range: PlanRange::Exact { offset, length },
         // The dialect has no sub-message form: each record is one message, and
         // `_offset` is unique per record.
-        sub_index: None,
+        address: crate::plan::Address::Message {
+            index,
+            sub_index: None,
+        },
         expect: Expect {
             abbreviation: string(record, "param").map(str::to_string),
             // ECMWF's short names are its own; resolving them to WMO codes is
@@ -183,15 +192,23 @@ fn string<'a>(
     record.get(key).and_then(serde_json::Value::as_str)
 }
 
-impl Manifest for EcmwfIndex {
-    fn key(&self) -> &str {
+impl EcmwfIndex {
+    /// The object key these records address, exactly as the caller supplied it.
+    ///
+    /// An index describes the one object it sits beside, so this is the
+    /// manifest's key rather than a record's; each item carries it as well.
+    pub fn key(&self) -> &str {
         &self.key
     }
+}
 
+impl Manifest for EcmwfIndex {
     fn items(&self) -> Vec<PlanItem> {
         self.items.clone()
     }
+}
 
+impl crate::manifest::MessageManifest for EcmwfIndex {
     fn select(&self, query: &Query, resolver: &dyn ParameterResolver) -> Vec<PlanItem> {
         self.items
             .iter()
@@ -211,7 +228,7 @@ impl Manifest for EcmwfIndex {
 mod tests {
     use super::*;
     use crate::level::{LevelSpec, Surface};
-    use crate::manifest::NoResolver;
+    use crate::manifest::{MessageManifest, NoResolver};
 
     const TWO: &str = r#"{"domain": "g", "date": "20260904", "time": "0000", "expver": "0001", "class": "od", "type": "fc", "stream": "oper", "levtype": "sfc", "step": "0", "param": "2t", "_offset": 0, "_length": 224}
 {"domain": "g", "date": "20260904", "time": "0000", "expver": "0001", "class": "od", "type": "fc", "stream": "oper", "levtype": "pl", "levelist": "500", "step": "6", "param": "t", "_offset": 224, "_length": 896851}

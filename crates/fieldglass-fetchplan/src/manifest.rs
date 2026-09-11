@@ -1,7 +1,7 @@
 //! The seam every dialect implements, and the query it answers.
 
 use crate::level::LevelSpec;
-use crate::plan::{Expect, ParameterId, PlanItem};
+use crate::plan::{Address, Expect, ParameterId, PlanItem};
 
 /// Resolve a sidecar's own parameter vocabulary to WMO codes.
 ///
@@ -200,52 +200,72 @@ impl Query {
     }
 }
 
-/// One cloud-native manifest, read.
+/// One cloud-native manifest, read: where each chunk or message it addresses
+/// is, and which chunk or message that is.
 ///
-/// The dialects differ in grammar and in what they promise, not in what they
-/// are for: each says where the bytes of each field are, in one object, and
-/// each can be asked which of those fields a request wants.
+/// Manifests in, chunk plan out. The dialects differ in grammar and in what
+/// they promise, not in what they are for. A GRIB sidecar names the messages of
+/// the one object it sits beside; a kerchunk reference document names the
+/// chunks of arrays spread over as many objects as it likes. Either way each
+/// [`PlanItem`] says which bytes to fetch and, through its
+/// [`Address`](crate::Address), what they are, so a host can fetch a plan
+/// without knowing which dialect wrote it (ADR-0010 decision 4).
 pub trait Manifest {
-    /// The object key these records address, exactly as the caller supplied it.
-    fn key(&self) -> &str;
-
-    /// Every record, in the order the manifest wrote them.
+    /// Every record, in the manifest's order.
     ///
-    /// One item per **record**, so a message holding several fields appears once
-    /// per field, each with its own
+    /// One item per **record**, so a GRIB message holding several fields
+    /// appears once per field, each with its own
     /// [`sub_index`](crate::PlanItem::sub_index) and the same range. Use
-    /// [`messages`](Self::messages) for one item per distinct byte range.
+    /// [`messages`](Self::messages) for one item per message.
     fn items(&self) -> Vec<PlanItem>;
 
+    /// One item per message, dropping the sub-message siblings; every item of
+    /// a manifest that addresses chunks.
+    ///
+    /// The list a host fetches when it wants whole messages: for a GRIB
+    /// sidecar, strictly ascending and non-overlapping, which
+    /// [`items`](Self::items) is not, because two fields of one message carry
+    /// the identical range. Siblings are recognised by their address and not
+    /// by their range, so two chunks a reference document happens to point at
+    /// the same bytes stay two chunks.
+    ///
+    /// A provided method rather than a per-dialect one: "collapse a message's
+    /// fields" is a property of the plan, not of the grammar it was read from,
+    /// and a dialect that implemented it itself would be a place for the two
+    /// to disagree.
+    fn messages(&self) -> Vec<PlanItem> {
+        let mut out: Vec<PlanItem> = Vec::new();
+        for mut item in self.items() {
+            if let Address::Message { index, sub_index } = &mut item.address {
+                let index = *index;
+                if out.last().is_some_and(
+                    |prev| matches!(prev.address, Address::Message { index: i, .. } if i == index),
+                ) {
+                    continue;
+                }
+                // The kept representative addresses the whole message, so it
+                // must not claim to be field 1 of it.
+                *sub_index = None;
+            }
+            out.push(item);
+        }
+        out
+    }
+}
+
+/// A manifest over a stream of self-describing messages, which can also be
+/// asked for fields by what they are.
+///
+/// The query is GRIB's promise rather than a manifest's: a message states its
+/// parameter, level and forecast step, and a chunk of an array states none of
+/// them. So it lives on this extension trait, which the two GRIB dialects
+/// implement and a chunk manifest does not (#685).
+pub trait MessageManifest: Manifest {
     /// The records a query selects, in manifest order.
     ///
     /// Every match is returned. See [`Query`] on why an ambiguous request is
     /// not narrowed here.
     fn select(&self, query: &Query, resolver: &dyn ParameterResolver) -> Vec<PlanItem>;
-
-    /// One item per distinct byte range, dropping the sub-message siblings.
-    ///
-    /// The list a host fetches when it wants whole messages: strictly ascending
-    /// and non-overlapping, which [`items`](Self::items) is not, because two
-    /// sub-messages of one message carry the identical range.
-    ///
-    /// A provided method rather than a per-dialect one: "collapse the records
-    /// that share a range" is a property of the plan, not of the grammar it was
-    /// read from, and a dialect that implemented it itself would be a place for
-    /// the two to disagree.
-    fn messages(&self) -> Vec<PlanItem> {
-        let mut out: Vec<PlanItem> = Vec::new();
-        for mut item in self.items() {
-            if out.last().is_some_and(|prev| prev.range == item.range) {
-                continue;
-            }
-            // The kept representative addresses the whole message, so it must
-            // not claim to be field 1 of it.
-            item.sub_index = None;
-            out.push(item);
-        }
-        out
-    }
 }
 
 #[cfg(test)]
@@ -393,37 +413,32 @@ mod tests {
 
     struct Two;
     impl Manifest for Two {
-        fn key(&self) -> &str {
-            "obj"
-        }
         fn items(&self) -> Vec<PlanItem> {
             let range = PlanRange::Exact {
                 offset: 10,
                 length: 5,
             };
+            let message = |index, sub_index| Address::Message { index, sub_index };
             vec![
                 PlanItem {
                     key: "obj".into(),
                     range,
-                    sub_index: Some(1),
+                    address: message(0, Some(1)),
                     expect: expect("UGRD", "10 m above ground", "anl", &[]),
                 },
                 PlanItem {
                     key: "obj".into(),
                     range,
-                    sub_index: Some(2),
+                    address: message(0, Some(2)),
                     expect: expect("VGRD", "10 m above ground", "anl", &[]),
                 },
                 PlanItem {
                     key: "obj".into(),
                     range: PlanRange::OpenEnded { offset: 15 },
-                    sub_index: None,
+                    address: message(1, None),
                     expect: expect("TMP", "surface", "anl", &[]),
                 },
             ]
-        }
-        fn select(&self, _q: &Query, _r: &dyn ParameterResolver) -> Vec<PlanItem> {
-            unimplemented!("not exercised by this test")
         }
     }
 
@@ -442,7 +457,42 @@ mod tests {
                 length: 5
             }
         );
-        assert_eq!(items[0].sub_index, None);
+        assert_eq!(
+            items[0].address,
+            Address::Message {
+                index: 0,
+                sub_index: None
+            }
+        );
+        assert_eq!(items[0].sub_index(), None);
         assert_eq!(items[1].range, PlanRange::OpenEnded { offset: 15 });
+    }
+
+    struct TwoChunksOneRange;
+    impl Manifest for TwoChunksOneRange {
+        fn items(&self) -> Vec<PlanItem> {
+            (0..2)
+                .map(|i| PlanItem {
+                    key: "s3://b/o".into(),
+                    range: PlanRange::Exact {
+                        offset: 0,
+                        length: 24,
+                    },
+                    address: Address::Chunk {
+                        array: "temp".into(),
+                        index: vec![i],
+                    },
+                    expect: Expect::default(),
+                })
+                .collect()
+        }
+    }
+
+    /// A reference document may point two chunks at the same bytes — two
+    /// all-fill chunks written once, say. They are two chunks, and collapsing
+    /// them by range, as `messages()` used to, would lose one of them.
+    #[test]
+    fn two_chunks_at_the_same_bytes_stay_two_chunks() {
+        assert_eq!(TwoChunksOneRange.messages(), TwoChunksOneRange.items());
     }
 }

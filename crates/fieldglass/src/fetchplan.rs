@@ -18,7 +18,7 @@
 //!   a host can run it before it has a decoder in hand at all.
 //!
 //! ```no_run
-//! use fieldglass::fetchplan::{Manifest, Query, TableResolver, Wgrib2Idx};
+//! use fieldglass::fetchplan::{MessageManifest, Query, TableResolver, Wgrib2Idx};
 //!
 //! # fn fetch(_key: &str, _header: Option<String>) -> Vec<u8> { unimplemented!() }
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -39,9 +39,9 @@ use std::collections::HashMap;
 use std::sync::OnceLock;
 
 pub use fieldglass_fetchplan::{
-    Candidate, Dialect, EcmwfIndex, Expect, FetchPlanError, LevelSpec, Manifest, Mismatch,
-    NoResolver, ParameterId, ParameterResolver, PlanItem, PlanRange, Query, SourceSpec, Surface,
-    Wgrib2Idx, candidates, parse_ecmwf_level, parse_ncep_level,
+    Address, Candidate, Dialect, EcmwfIndex, Expect, FetchPlanError, LevelSpec, Manifest,
+    MessageManifest, Mismatch, NoResolver, ParameterId, ParameterResolver, PlanItem, PlanRange,
+    Query, SourceSpec, Surface, Wgrib2Idx, candidates, parse_ecmwf_level, parse_ncep_level,
 };
 
 use crate::api::MessageInfo;

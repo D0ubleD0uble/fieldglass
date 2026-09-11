@@ -335,7 +335,58 @@ pub struct ParameterId {
     pub number: u8,
 }
 
-/// One thing to fetch: which object, which bytes, and what they should be.
+/// Which chunk or message a [`PlanItem`] is: what the fetched bytes are, as
+/// against where they are.
+///
+/// A range alone does not say. Two fields of one GRIB message carry the
+/// identical range, and a chunk of an array is known by its place in the grid
+/// rather than by its offset into whichever object holds it (#685).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    tag = "kind"
+)]
+#[non_exhaustive]
+pub enum Address {
+    /// A message of a GRIB stream.
+    Message {
+        /// The message's place in the manifest's own list of messages — the
+        /// list [`Manifest::messages`](crate::Manifest::messages) returns —
+        /// counting from zero. The manifest's order rather than a number the
+        /// producer wrote: an ECMWF `.index` writes none, and a wgrib2 `.idx`
+        /// trimmed by hand keeps the numbers of the object it came from.
+        index: u32,
+        /// Which field *within* the message, when the message holds more than
+        /// one.
+        ///
+        /// wgrib2 numbers those records `n.m`, and every one of them shares
+        /// message `n`'s offset — so two items can carry the identical range
+        /// and differ only here. 1-based, matching the `m` wgrib2 writes;
+        /// `None` when the message holds a single field.
+        sub_index: Option<u32>,
+    },
+    /// A chunk of an array in a keyed store.
+    Chunk {
+        /// The array's name as the manifest spells it, path-qualified for a
+        /// nested group, and empty for a store's unnamed root array.
+        array: String,
+        /// The chunk's place in the array's chunk grid, one entry per axis.
+        index: Vec<u64>,
+    },
+    /// A store key that names no chunk of an array the manifest describes.
+    ///
+    /// What [`KerchunkRefs::range_of`](crate::KerchunkRefs::range_of) hands
+    /// back, since a lookup by key knows no array, and what a reference
+    /// document's ranged entries are when they sit outside every array.
+    Key {
+        /// The key, as the manifest spells it.
+        key: String,
+    },
+}
+
+/// One thing to fetch: which object, which bytes, which chunk or message they
+/// are, and what they should be.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
@@ -345,15 +396,22 @@ pub struct PlanItem {
     pub key: String,
     /// The bytes to fetch.
     pub range: PlanRange,
-    /// Which field *within* the message, when the message holds more than one.
-    ///
-    /// wgrib2 numbers those records `n.m`, and every one of them shares message
-    /// `n`'s offset — so two items can carry the identical range and differ
-    /// only here. 1-based, matching the `m` wgrib2 writes; `None` when the
-    /// message holds a single field.
-    pub sub_index: Option<u32>,
+    /// Which chunk or message the bytes are.
+    pub address: Address,
     /// What the manifest line promised about these bytes.
     pub expect: Expect,
+}
+
+impl PlanItem {
+    /// Which field within a GRIB message this is, when the message holds more
+    /// than one — see [`Address::Message`]. `None` for a single-field message
+    /// and for anything that is not a message.
+    pub fn sub_index(&self) -> Option<u32> {
+        match &self.address {
+            Address::Message { sub_index, .. } => *sub_index,
+            _ => None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -555,6 +613,32 @@ mod tests {
                 declared: 32,
                 fetched: 40
             })
+        );
+    }
+
+    /// The wire shape a host reads a plan in, pinned: an address crosses as
+    /// JSON tagged by `kind`, with camel-case fields, whichever dialect wrote
+    /// it.
+    #[test]
+    fn an_address_crosses_the_wire_tagged_by_kind() {
+        let wire = |address: Address| serde_json::to_value(address).expect("serialises");
+        assert_eq!(
+            wire(Address::Message {
+                index: 3,
+                sub_index: Some(2)
+            }),
+            serde_json::json!({"kind": "message", "index": 3, "subIndex": 2})
+        );
+        assert_eq!(
+            wire(Address::Chunk {
+                array: "temp".into(),
+                index: vec![1, 0]
+            }),
+            serde_json::json!({"kind": "chunk", "array": "temp", "index": [1, 0]})
+        );
+        assert_eq!(
+            wire(Address::Key { key: "a/b".into() }),
+            serde_json::json!({"kind": "key", "key": "a/b"})
         );
     }
 

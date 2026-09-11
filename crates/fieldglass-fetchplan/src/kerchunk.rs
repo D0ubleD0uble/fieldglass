@@ -13,15 +13,17 @@
 //!
 //! [`KerchunkRefs`] carries a worked example.
 //!
-//! # Why this is not a [`Manifest`](crate::Manifest)
+//! # How it is a [`Manifest`](crate::Manifest)
 //!
-//! The trait the two GRIB dialects implement promises one object key per
-//! manifest and answers a [`Query`](crate::Query) written in parameters, levels
-//! and forecast steps. A reference document has neither: it addresses as many
-//! objects as it likes — that is the point of `templates` — and the only thing
-//! it can be asked is which chunk of which array you want, in indices. Making
-//! it implement the trait would mean `key()` returning one of the URLs and a
-//! parameter query that never matches, so the two stay separate types.
+//! Every chunk the document addresses is an item of the plan, and its
+//! [`Address`](crate::Address) says which chunk of which array it is. The query
+//! half of the GRIB dialects is not implemented: a reference document states no
+//! parameter or level to match — it addresses as many objects as it likes,
+//! which is the point of `templates`, and the only thing it can be asked is
+//! which chunk of which array, in indices. So it is a
+//! [`Manifest`](crate::Manifest) and not a
+//! [`MessageManifest`](crate::MessageManifest), and
+//! [`KerchunkRefs::chunk_at`] is how a request is asked (#685).
 //!
 //! # What is read, and what is refused by name
 //!
@@ -37,7 +39,8 @@ use std::collections::BTreeMap;
 use serde_json::{Map, Value};
 
 use crate::error::{Dialect, FetchPlanError};
-use crate::plan::{Expect, PlanItem, PlanRange};
+use crate::manifest::Manifest;
+use crate::plan::{Address, Expect, PlanItem, PlanRange};
 use fieldglass_zarr::ArrayMetadata;
 
 /// The metadata document names a Zarr v2 array is stored under.
@@ -185,7 +188,21 @@ impl KerchunkRefs {
     /// `None` covers both "no such key" and "that key is inline": neither is a
     /// fetch, and a caller reaching for bytes should ask
     /// [`inline`](Self::inline) first.
+    ///
+    /// Addressed by the key itself, [`Address::Key`]: a lookup by key knows no
+    /// array. [`chunk_at`](Self::chunk_at) and the plan
+    /// [`items`](Manifest::items) returns say which chunk an entry is.
     pub fn range_of(&self, key: &str) -> Option<PlanItem> {
+        self.fetch(
+            key,
+            Address::Key {
+                key: key.to_string(),
+            },
+        )
+    }
+
+    /// The fetch for one entry, addressed as the caller already knows it to be.
+    fn fetch(&self, key: &str, address: Address) -> Option<PlanItem> {
         let (url, range) = match self.entries.get(key)? {
             Entry::Inline(_) => return None,
             Entry::Range {
@@ -204,7 +221,7 @@ impl KerchunkRefs {
         Some(PlanItem {
             key: url.clone(),
             range,
-            sub_index: None,
+            address,
             // A reference document promises nothing about the bytes beyond
             // where they are: no parameter, no level, and no GRIB envelope to
             // check, because what is in the range is a Zarr chunk.
@@ -272,7 +289,13 @@ impl KerchunkRefs {
         let key = meta
             .grid()
             .chunk_key(index, meta.key_encoding(), meta.separator())?;
-        Ok(self.range_of(&join(array, &key)))
+        Ok(self.fetch(
+            &join(array, &key),
+            Address::Chunk {
+                array: array.to_string(),
+                index: index.to_vec(),
+            },
+        ))
     }
 
     /// The fetches for every chunk a region of an array touches, in row-major
@@ -290,6 +313,83 @@ impl KerchunkRefs {
             }
         }
         Ok(out)
+    }
+}
+
+impl Manifest for KerchunkRefs {
+    /// Every entry the document addresses as a range, each named by what it
+    /// is: array by array in name order, each array's chunks in row-major
+    /// order, and then, by key, any ranged entry that is no chunk of an array
+    /// the document describes.
+    ///
+    /// Row-major rather than the document's own key order, which sorts `1.10`
+    /// before `1.2`. An entry counts as a chunk only when its array's own key
+    /// encoding spells exactly that key for an index on the grid, so an object
+    /// stored beside the chunks is never read as one of them.
+    fn items(&self) -> Vec<PlanItem> {
+        // Each array's metadata is read once here rather than once per entry.
+        let arrays: Vec<(String, ArrayMetadata)> = self
+            .arrays()
+            .into_iter()
+            .filter_map(|name| self.array(&name).ok().map(|meta| (name, meta)))
+            .collect();
+        let mut chunks = Vec::new();
+        let mut others = Vec::new();
+        for (key, entry) in &self.entries {
+            if matches!(entry, Entry::Inline(_)) {
+                continue;
+            }
+            let address =
+                chunk_address(&arrays, key).unwrap_or_else(|| Address::Key { key: key.clone() });
+            let Some(item) = self.fetch(key, address) else {
+                continue;
+            };
+            if matches!(item.address, Address::Chunk { .. }) {
+                chunks.push(item);
+            } else {
+                others.push(item);
+            }
+        }
+        chunks.sort_by(|a, b| chunk_order(&a.address).cmp(&chunk_order(&b.address)));
+        chunks.extend(others);
+        chunks
+    }
+}
+
+/// Which chunk of which array `key` is, when it is one.
+///
+/// The owning array is the longest described name the key sits under, so a
+/// chunk of a nested `group/temp` is not mistaken for part of `group`, and the
+/// unnamed root owns only what no named array does. The rest of the key is
+/// read with that array's own encoding and accepted only if the grid spells it
+/// back exactly — which also refuses an index off the grid.
+fn chunk_address(arrays: &[(String, ArrayMetadata)], key: &str) -> Option<Address> {
+    let (name, meta, rest) = arrays
+        .iter()
+        .filter_map(|(name, meta)| {
+            let rest = if name.is_empty() {
+                Some(key)
+            } else {
+                key.strip_prefix(name.as_str())
+                    .and_then(|rest| rest.strip_prefix('/'))
+            };
+            rest.map(|rest| (name, meta, rest))
+        })
+        .max_by_key(|(name, _, _)| name.len())?;
+    let (encoding, separator) = (meta.key_encoding(), meta.separator());
+    let index = encoding.index_of(rest, separator, meta.grid().rank())?;
+    let spelled = meta.grid().chunk_key(&index, encoding, separator).ok()?;
+    (spelled == rest).then(|| Address::Chunk {
+        array: name.clone(),
+        index,
+    })
+}
+
+/// The order chunks are planned in: by array name, then row-major.
+fn chunk_order(address: &Address) -> (&str, &[u64]) {
+    match address {
+        Address::Chunk { array, index } => (array, index),
+        _ => ("", &[]),
     }
 }
 
@@ -512,6 +612,13 @@ mod tests {
 
         let ranged = refs.range_of("temp/0.0").unwrap();
         assert_eq!(ranged.key, "s3://b/o.bin");
+        // A lookup by key knows no array, and says so rather than guessing.
+        assert_eq!(
+            ranged.address,
+            Address::Key {
+                key: "temp/0.0".into()
+            }
+        );
         assert_eq!(
             ranged.range,
             PlanRange::Exact {
@@ -643,6 +750,13 @@ mod tests {
                 length: 24
             }
         );
+        assert_eq!(
+            item.address,
+            Address::Chunk {
+                array: "temp".into(),
+                index: vec![1, 0]
+            }
+        );
 
         // The region walk goes through the same spelling, and asks for exactly
         // the chunks the region touches.
@@ -657,6 +771,102 @@ mod tests {
 
         // An index off the grid is a caller error and is refused.
         assert!(refs.chunk_at("temp", &meta, &[2, 0]).is_err());
+    }
+
+    /// As a manifest, every ranged entry is in the plan and named by the chunk
+    /// it is, in row-major order: the document's key order would put `0.10`
+    /// and `0.11` before `0.2`. A ranged entry that is no chunk of the array
+    /// is kept, by key, after the chunks.
+    #[test]
+    fn as_a_manifest_every_chunk_is_named_in_row_major_order() {
+        let zarray = r#"{\"zarr_format\":2,\"shape\":[1,12],\"chunks\":[1,1],\"dtype\":\"<f4\"}"#;
+        let chunks: String = (0..12)
+            .map(|i| format!(r#", "t/0.{i}": ["s3://b/o", {}, 4]"#, i * 4))
+            .collect();
+        let doc = format!(
+            r#"{{"version": 1, "refs": {{"t/.zarray": "{zarray}"{chunks},
+                "t/.zattrs": ["s3://b/attrs", 0, 9]}}}}"#
+        );
+        let refs = KerchunkRefs::parse(&doc).unwrap();
+        let items = refs.items();
+        assert_eq!(items.len(), 13);
+        for (i, item) in items[..12].iter().enumerate() {
+            assert_eq!(
+                item.address,
+                Address::Chunk {
+                    array: "t".into(),
+                    index: vec![0, i as u64]
+                }
+            );
+            assert_eq!(item.range.offset(), i as u64 * 4);
+        }
+        assert_eq!(
+            items[12].address,
+            Address::Key {
+                key: "t/.zattrs".into()
+            }
+        );
+        // Chunks are not messages, so there are no siblings to collapse.
+        assert_eq!(refs.messages(), items);
+    }
+
+    /// A chunk of a nested array belongs to that array and not to the group
+    /// above it, which is itself an array here; and the unnamed root owns only
+    /// what no named array does.
+    #[test]
+    fn a_chunk_belongs_to_the_longest_array_name_it_sits_under() {
+        let one = r#"{\"zarr_format\":2,\"shape\":[2],\"chunks\":[1],\"dtype\":\"<f4\"}"#;
+        let doc = format!(
+            r#"{{"version": 1, "refs": {{
+                ".zarray": "{one}", "g/.zarray": "{one}", "g/t/.zarray": "{one}",
+                "0": ["s3://b/o", 0, 4], "g/1": ["s3://b/o", 4, 4], "g/t/0": ["s3://b/o", 8, 4]
+            }}}}"#
+        );
+        let addresses: Vec<Address> = KerchunkRefs::parse(&doc)
+            .unwrap()
+            .items()
+            .into_iter()
+            .map(|item| item.address)
+            .collect();
+        let chunk = |array: &str, i: u64| Address::Chunk {
+            array: array.into(),
+            index: vec![i],
+        };
+        assert_eq!(
+            addresses,
+            vec![chunk("", 0), chunk("g", 1), chunk("g/t", 0)]
+        );
+    }
+
+    /// A v3 array spells its chunks `c/1/0` with the default encoding, and the
+    /// plan reads those back to indices too. A key spelled like a chunk but off
+    /// the grid is not one, and stays a key.
+    #[test]
+    fn a_v3_arrays_chunk_keys_read_back_to_indices() {
+        let zarr_json = r#"{\"zarr_format\":3,\"node_type\":\"array\",\"shape\":[4,6],\"data_type\":\"float32\",\"chunk_grid\":{\"name\":\"regular\",\"configuration\":{\"chunk_shape\":[2,3]}},\"chunk_key_encoding\":{\"name\":\"default\",\"configuration\":{\"separator\":\"/\"}},\"fill_value\":0.0,\"codecs\":[{\"name\":\"bytes\",\"configuration\":{\"endian\":\"little\"}}]}"#;
+        let doc = format!(
+            r#"{{"version": 1, "refs": {{"v/zarr.json": "{zarr_json}",
+                "v/c/1/0": ["s3://b/o", 24, 24], "v/c/0/1": ["s3://b/o", 0, 24],
+                "v/c/9/9": ["s3://b/o", 48, 24]}}}}"#
+        );
+        let refs = KerchunkRefs::parse(&doc).unwrap();
+        let addresses: Vec<Address> = refs.items().into_iter().map(|i| i.address).collect();
+        assert_eq!(
+            addresses,
+            vec![
+                Address::Chunk {
+                    array: "v".into(),
+                    index: vec![0, 1]
+                },
+                Address::Chunk {
+                    array: "v".into(),
+                    index: vec![1, 0]
+                },
+                Address::Key {
+                    key: "v/c/9/9".into()
+                },
+            ]
+        );
     }
 
     /// A base64 value decodes to bytes, and a corrupt one is refused rather

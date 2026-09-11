@@ -24,7 +24,7 @@ flowchart TD
     grib2["fieldglass-grib2<br/><i>GRIB2 decode</i>"]
     netcdf["fieldglass-netcdf<br/><i>NetCDF classic + NetCDF-4 / HDF5</i>"]
     core["fieldglass-core<br/><i>traits, GridGeometry, projection, warp, overlay, Palette</i>"]
-    fetchplan["fieldglass-fetchplan<br/><i>manifests in, byte ranges out; no I/O, no clock</i>"]
+    fetchplan["fieldglass-fetchplan<br/><i>manifests in, chunk plan out; no I/O, no clock</i>"]
     zarr["fieldglass-zarr<br/><i>array metadata + chunk codecs, decode only, no I/O</i>"]
 
     wasm --> fieldglass

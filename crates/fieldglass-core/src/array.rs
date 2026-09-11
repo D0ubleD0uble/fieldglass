@@ -202,6 +202,46 @@ impl ChunkKeyEncoding {
         key
     }
 
+    /// The index a key names: the inverse of [`Self::key`] for an array of
+    /// `rank` dimensions, or `None` when `key` is not one this encoding spells.
+    ///
+    /// The rank is needed, not merely checked: `V2` spells a zero-dimensional
+    /// array's one chunk `0`, which is also the first chunk of a
+    /// one-dimensional array. Strict the way the spelling is — decimal digits,
+    /// no sign, no leading zero on a non-zero position — so every key it
+    /// accepts is one [`Self::key`] would write, and an object stored beside
+    /// the chunks is not read as one of them.
+    pub fn index_of(self, key: &str, separator: char, rank: usize) -> Option<Vec<u64>> {
+        let body = match self {
+            Self::Default => {
+                let rest = key.strip_prefix('c')?;
+                if rank == 0 {
+                    return rest.is_empty().then(Vec::new);
+                }
+                rest.strip_prefix(separator)?
+            }
+            Self::V2 => {
+                if rank == 0 {
+                    return (key == "0").then(Vec::new);
+                }
+                key
+            }
+        };
+        let index: Vec<u64> = body
+            .split(separator)
+            .map(Self::position)
+            .collect::<Option<_>>()?;
+        (index.len() == rank).then_some(index)
+    }
+
+    /// One position, as [`Self::key`] writes it.
+    fn position(text: &str) -> Option<u64> {
+        let canonical = !text.is_empty()
+            && text.bytes().all(|b| b.is_ascii_digit())
+            && (text == "0" || !text.starts_with('0'));
+        if canonical { text.parse().ok() } else { None }
+    }
+
     /// Read a separator a document states, refusing anything the conventions
     /// do not use.
     ///
@@ -796,6 +836,42 @@ impl CfUnpacking {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `index_of` reads back exactly what `key` writes, for both encodings,
+    /// both separators and every rank — and nothing that `key` would not.
+    #[test]
+    fn a_key_reads_back_to_the_index_it_spells() {
+        for encoding in [ChunkKeyEncoding::Default, ChunkKeyEncoding::V2] {
+            for separator in ['.', '/'] {
+                for index in [vec![], vec![0], vec![7], vec![1, 0], vec![12, 3, 400]] {
+                    let key = encoding.key(&index, separator);
+                    assert_eq!(
+                        encoding.index_of(&key, separator, index.len()),
+                        Some(index.clone()),
+                        "{encoding:?} {separator:?} {key}"
+                    );
+                }
+            }
+        }
+        // V2's zero-dimensional chunk and a one-dimensional array's first chunk
+        // are the same text, and only the rank tells them apart.
+        assert_eq!(ChunkKeyEncoding::V2.index_of("0", '.', 0), Some(vec![]));
+        assert_eq!(ChunkKeyEncoding::V2.index_of("0", '.', 1), Some(vec![0]));
+
+        // Not chunk keys: the wrong rank, no prefix, a leading zero, a sign, an
+        // empty position, a metadata document, the other encoding's prefix,
+        // and a position past `u64`.
+        let d = ChunkKeyEncoding::Default;
+        assert_eq!(d.index_of("c/1/0", '/', 3), None);
+        assert_eq!(d.index_of("1/0", '/', 2), None);
+        assert_eq!(d.index_of("c/01/0", '/', 2), None);
+        assert_eq!(d.index_of("c/+1/0", '/', 2), None);
+        assert_eq!(d.index_of("c//0", '/', 2), None);
+        let v2 = ChunkKeyEncoding::V2;
+        assert_eq!(v2.index_of(".zarray", '.', 1), None);
+        assert_eq!(v2.index_of("c.1.0", '.', 2), None);
+        assert_eq!(v2.index_of("18446744073709551616", '.', 1), None);
+    }
 
     /// The two encodings spell one grid two ways. Pinned against the values
     /// the reference implementation emits, read off its own encoders rather

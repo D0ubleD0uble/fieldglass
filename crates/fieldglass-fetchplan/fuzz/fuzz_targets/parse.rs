@@ -28,16 +28,18 @@
 //! collapsed one-per-message list, a query, and then the range arithmetic —
 //! `close` against an object size, the HTTP `Range` header, and the §0 envelope
 //! check against the input read back as message bytes. A reference document
-//! that parses is walked the same way, through every key it declares and
-//! through the chunk-grid arithmetic of every array it carries metadata for.
+//! that parses is walked the same way: through every key it declares, through
+//! the chunk-grid arithmetic of every array it carries metadata for, and, as a
+//! `Manifest`, through the plan it states, which reads every chunk key back
+//! into an index.
 
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
 
 use fieldglass_fetchplan::{
-    candidates, ArrayMetadata, EcmwfIndex, KerchunkRefs, Manifest, NoResolver, PlanItem, Query,
-    SourceSpec, Wgrib2Idx,
+    candidates, ArrayMetadata, EcmwfIndex, KerchunkRefs, Manifest, MessageManifest, NoResolver,
+    PlanItem, Query, SourceSpec, Wgrib2Idx,
 };
 
 /// Object sizes a closed range is tried against.
@@ -114,6 +116,15 @@ fn references(text: &str) {
             .collect();
         let _ = refs.chunks_covering(&name, &meta, &region);
     }
+
+    // The document as a manifest: the plan it states, every ranged entry
+    // classified against the arrays it describes. That classification reads
+    // each key back through the array's own encoding, which is parsing a string
+    // a fuzzer controls against a grid a fuzzer also controls.
+    for item in refs.items() {
+        ranges(&item, text.as_bytes());
+    }
+    let _ = refs.messages();
 }
 
 /// The Zarr-metadata arm, reached without a reference document wrapped round it.
@@ -174,8 +185,7 @@ fn candidate_indices(meta: &ArrayMetadata) -> Vec<Vec<u64>> {
 /// from the next distinct offset (the O(n²) walk #652 replaced), `messages`
 /// collapses the sub-message siblings, and the range arithmetic turns a stated
 /// offset into a fetch.
-fn walk(manifest: &dyn Manifest, bytes: &[u8]) {
-    let _ = manifest.key();
+fn walk<M: MessageManifest>(manifest: &M, bytes: &[u8]) {
     let items = manifest.items();
     let _ = manifest.messages();
     // The empty query selects every record, so this is the widest path through
@@ -188,6 +198,7 @@ fn walk(manifest: &dyn Manifest, bytes: &[u8]) {
 
 /// The arithmetic between a manifest's claim and a fetch.
 fn ranges(item: &PlanItem, bytes: &[u8]) {
+    let _ = item.sub_index();
     let _ = item.range.http_range_header();
     let _ = item.range.offset();
     let _ = item.range.end_exclusive();
