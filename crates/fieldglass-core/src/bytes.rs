@@ -54,7 +54,6 @@
 
 use crate::error::FieldglassError;
 use std::borrow::Cow;
-use std::cell::RefCell;
 use std::collections::BTreeMap;
 
 /// A half-open byte range `[start, start + len)` in a source.
@@ -324,6 +323,57 @@ pub trait ObjectSource {
     /// a group.
     fn list(&self, prefix: &str) -> Result<Vec<String>, FieldglassError>;
 
+    /// The *immediate* children under `prefix`, in sorted order.
+    ///
+    /// Objects directly under it by their whole key, and child "directories"
+    /// as the prefix they are — `temp/`, ending in a slash. A caller tells the
+    /// two apart with [`str::ends_with`].
+    ///
+    /// This is the listing a walker wants, and [`list`](Self::list) is not it.
+    /// `list` returns every key beneath the prefix, so walking a store with it
+    /// enumerates every chunk of every array to find a handful of metadata
+    /// documents. That is nothing on a directory and millions of keys on a
+    /// bucket.
+    ///
+    /// The default filters `list`, so no implementation has to change and an
+    /// in-memory store pays a pass over its keys. A bucket-backed one
+    /// overrides it with a delimiter listing, which is the same answer for one
+    /// request instead of a paged walk of the whole store.
+    ///
+    /// ```
+    /// use fieldglass_core::bytes::{MemoryObjects, ObjectSource};
+    ///
+    /// let store = MemoryObjects::from_iter([
+    ///     (".zgroup", b"{}".to_vec()),
+    ///     ("temp/.zarray", b"{}".to_vec()),
+    ///     ("temp/0/0", b"chunk".to_vec()),
+    ///     ("temp/1/0", b"chunk".to_vec()),
+    /// ]);
+    ///
+    /// assert_eq!(store.list_children("")?, [".zgroup", "temp/"]);
+    /// // The array's own documents, and its chunk rows as directories — the
+    /// // chunks themselves are never named.
+    /// assert_eq!(store.list_children("temp/")?, ["temp/.zarray", "temp/0/", "temp/1/"]);
+    /// # Ok::<(), fieldglass_core::FieldglassError>(())
+    /// ```
+    fn list_children(&self, prefix: &str) -> Result<Vec<String>, FieldglassError> {
+        let mut children: Vec<String> = Vec::new();
+        for key in self.list(prefix)? {
+            // `list` promises sorted keys, and every key sharing a first
+            // segment after the prefix shares a literal prefix — so they are
+            // contiguous and comparing against the last one is the whole
+            // deduplication.
+            let child = match key.get(prefix.len()..).and_then(|r| r.split_once('/')) {
+                Some((segment, _)) => format!("{prefix}{segment}/"),
+                None => key,
+            };
+            if children.last() != Some(&child) {
+                children.push(child);
+            }
+        }
+        Ok(children)
+    }
+
     /// Resolve a batch of keys before they are read.
     ///
     /// Where a remote store does its work: one request per key, or one batched
@@ -350,18 +400,19 @@ pub trait ObjectSource {
     }
 }
 
-/// An [`ObjectSource`] over a map, which also records what was asked of it.
+/// An [`ObjectSource`] over a map.
 ///
-/// Two jobs in one type on purpose. The in-memory store is what a test, a
-/// fixture and an already-downloaded store all want; the recording is what lets
-/// a test say a walker *prefetched before it read* rather than merely that it
-/// succeeded, which is the property the seam exists for and the one an
-/// implementation silently loses first.
+/// What a test, a fixture and an already-downloaded store all want: the objects
+/// and nothing else. It used to record what was asked of it as well, which made
+/// it a store that grew a string per read forever — fine for a test that reads a
+/// dozen keys, and a leak for the host that uses it as its *real* store for an
+/// opened directory (#659). Recording is `fieldglass_core::testing::Recording`
+/// now — named rather than linked, because that module is behind the `testing`
+/// feature and this item is not — and it records for any source rather than
+/// only for this one.
 #[derive(Debug, Default)]
 pub struct MemoryObjects {
     objects: BTreeMap<String, Vec<u8>>,
-    reads: RefCell<Vec<String>>,
-    prefetches: RefCell<Vec<Vec<String>>>,
 }
 
 impl MemoryObjects {
@@ -384,34 +435,12 @@ impl MemoryObjects {
     pub fn is_empty(&self) -> bool {
         self.objects.is_empty()
     }
-
-    /// Every key [`ObjectSource::get`] was called with, in order, including the
-    /// ones that were absent.
-    pub fn reads(&self) -> Vec<String> {
-        self.reads.borrow().clone()
-    }
-
-    /// Every [`ObjectSource::prefetch`] batch, in order.
-    ///
-    /// A `Vec` per call rather than one flat list, because "one batch" is
-    /// usually the property under test: a walker that prefetched each key
-    /// separately would make a remote store issue one request per chunk.
-    pub fn prefetches(&self) -> Vec<Vec<String>> {
-        self.prefetches.borrow().clone()
-    }
-
-    /// Forget what has been asked of it, keeping the objects.
-    pub fn clear_log(&self) {
-        self.reads.borrow_mut().clear();
-        self.prefetches.borrow_mut().clear();
-    }
 }
 
 impl<K: Into<String>> FromIterator<(K, Vec<u8>)> for MemoryObjects {
     fn from_iter<I: IntoIterator<Item = (K, Vec<u8>)>>(iter: I) -> Self {
         Self {
             objects: iter.into_iter().map(|(k, v)| (k.into(), v)).collect(),
-            ..Self::default()
         }
     }
 }
@@ -428,6 +457,10 @@ impl<O: ObjectSource + ?Sized> ObjectSource for &O {
         (**self).list(prefix)
     }
 
+    fn list_children(&self, prefix: &str) -> Result<Vec<String>, FieldglassError> {
+        (**self).list_children(prefix)
+    }
+
     fn prefetch(&self, keys: &[&str]) -> Result<(), FieldglassError> {
         (**self).prefetch(keys)
     }
@@ -435,7 +468,6 @@ impl<O: ObjectSource + ?Sized> ObjectSource for &O {
 
 impl ObjectSource for MemoryObjects {
     fn get(&self, key: &str) -> Result<Option<Cow<'_, [u8]>>, FieldglassError> {
-        self.reads.borrow_mut().push(key.to_string());
         Ok(self.objects.get(key).map(|bytes| Cow::Borrowed(&bytes[..])))
     }
 
@@ -448,13 +480,6 @@ impl ObjectSource for MemoryObjects {
             .filter(|key| key.starts_with(prefix))
             .cloned()
             .collect())
-    }
-
-    fn prefetch(&self, keys: &[&str]) -> Result<(), FieldglassError> {
-        self.prefetches
-            .borrow_mut()
-            .push(keys.iter().map(|k| (*k).to_string()).collect());
-        Ok(())
     }
 }
 
@@ -1072,39 +1097,9 @@ mod tests {
 #[cfg(test)]
 mod cursor_tests {
     use super::*;
+    use crate::testing::{Recording, Short};
 
-    /// Records the length of every read, so a test can say how a walk paid for
-    /// its bytes rather than only that it got them.
-    #[derive(Default)]
-    struct Counting {
-        bytes: Vec<u8>,
-        reads: RefCell<Vec<ByteRange>>,
-    }
-
-    impl ByteSource for Counting {
-        fn size(&self) -> u64 {
-            self.bytes.len() as u64
-        }
-        fn read(&self, range: ByteRange) -> Result<Cow<'_, [u8]>, FieldglassError> {
-            self.reads.borrow_mut().push(range);
-            self.bytes.read(range)
-        }
-    }
-
-    /// Serves one byte fewer than asked, the way a truncated response would.
-    struct Short(Vec<u8>);
-
-    impl ByteSource for Short {
-        fn size(&self) -> u64 {
-            self.0.len() as u64
-        }
-        fn read(&self, range: ByteRange) -> Result<Cow<'_, [u8]>, FieldglassError> {
-            let got = self.0.read(range)?;
-            Ok(Cow::Owned(got[..got.len().saturating_sub(1)].to_vec()))
-        }
-    }
-
-    fn word(cur: &mut FileCursor<'_, Vec<u8>>) -> u32 {
+    fn word<S: ByteSource>(cur: &mut FileCursor<'_, S>) -> u32 {
         let b = cur.take(4).expect("word in range");
         u32::from_le_bytes([b[0], b[1], b[2], b[3]])
     }
@@ -1158,17 +1153,14 @@ mod cursor_tests {
     /// per field — and a short one does not pay for a run it never makes.
     #[test]
     fn the_window_doubles_rather_than_starting_large() {
-        let source = Counting {
-            bytes: vec![0u8; 1 << 20],
-            ..Default::default()
-        };
+        let source = Recording::new(vec![0u8; 1 << 20]);
 
         // A short structure: one small read, not one large one.
         let mut cur = FileCursor::at(&source, 0).expect("in range");
         for _ in 0..8 {
             cur.take(4).expect("in range");
         }
-        let lens: Vec<u64> = source.reads.borrow().iter().map(|r| r.len).collect();
+        let lens: Vec<u64> = source.reads().iter().map(|r| r.len).collect();
         assert_eq!(
             lens,
             [FIRST_WINDOW_BYTES as u64],
@@ -1176,12 +1168,12 @@ mod cursor_tests {
         );
 
         // A long one: a few doubling reads, not 4096 one-field ones.
-        source.reads.borrow_mut().clear();
+        source.clear();
         let mut cur = FileCursor::at(&source, 0).expect("in range");
         for _ in 0..4096 {
             cur.take(4).expect("in range");
         }
-        let reads = source.reads.borrow().clone();
+        let reads = source.reads();
         assert!(
             reads.len() <= 10,
             "16 KiB of fields took {} reads: {reads:?}",
@@ -1210,7 +1202,7 @@ mod cursor_tests {
     /// an error, not a short slice the caller then indexes past.
     #[test]
     fn a_source_that_serves_short_is_an_error_not_a_short_slice() {
-        let source = Short(vec![1u8; 32]);
+        let source = Short::new(vec![1u8; 32], 0, 1);
         let err = read_exact(&source, ByteRange::new(4, 8)).expect_err("served 7 of 8");
         assert!(
             err.to_string().contains("served 7 of 8 bytes at 4"),
@@ -1228,10 +1220,7 @@ mod cursor_tests {
     /// file follows, and its clamped peek stops there too.
     #[test]
     fn a_bounded_cursor_stops_at_its_end_not_the_sources() {
-        let source = Counting {
-            bytes: (0..=255u8).collect(),
-            ..Default::default()
-        };
+        let source = Recording::new((0..=255u8).collect::<Vec<u8>>());
         let mut cur = FileCursor::within(&source, 10, 20).expect("in range");
         assert_eq!(cur.remaining(), 10);
         let peeked = cur.peek_up_to(100).expect("clamped").to_vec();
@@ -1243,7 +1232,7 @@ mod cursor_tests {
         assert!(cur.skip(8).is_err());
         cur.skip(7).expect("to the end exactly");
         assert_eq!(cur.peek_up_to(5).expect("empty at the end"), &[] as &[u8]);
-        for r in source.reads.borrow().iter() {
+        for r in source.reads().iter() {
             assert!(
                 r.start >= 10 && r.end().is_some_and(|e| e <= 20),
                 "read {r:?} left the structure"
@@ -1291,13 +1280,10 @@ mod cursor_tests {
         let mut bytes = vec![0u8; 1 << 20];
         let at = bytes.len() - 10;
         bytes[at..at + 4].copy_from_slice(b"GRIB");
-        let source = Counting {
-            bytes,
-            ..Default::default()
-        };
+        let source = Recording::new(bytes);
         let got = find_forward(&source, 0, 8, |w| &w[..4] == b"GRIB").expect("in memory");
         assert_eq!(got, Some(at as u64));
-        let reads = source.reads.borrow();
+        let reads = source.reads();
         // Ten doublings from 64 B to 64 KiB, then sixteen full windows.
         assert!(
             reads.len() <= 30,

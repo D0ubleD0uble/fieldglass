@@ -19,6 +19,10 @@ miniz_oxide = { workspace = true }
 ruzstd = { workspace = true }
 
 [dev-dependencies]
+# The transport-shaped sources every seam test needs, from one place rather
+# than a copy per crate (#708). A dev-dependency feature, so the library is
+# still compiled against a core without it.
+fieldglass-core = { path = "../fieldglass-core", version = "=0.5.0", default-features = false, features = ["testing"] }
 serde_json = { workspace = true }
 
 [lints]

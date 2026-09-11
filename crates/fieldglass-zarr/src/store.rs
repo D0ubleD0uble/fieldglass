@@ -53,7 +53,7 @@
 //! in [`ZarrStore::problems`] — one bad array is not a reason to refuse the
 //! store, which is the failure #550 fixed for HDF5.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 
 use fieldglass_core::FieldglassError;
@@ -79,6 +79,20 @@ pub const MAX_REGION_ELEMENTS: u64 = 64 * 1024 * 1024;
 /// first is read, so finding out which edition and layout a store has costs one
 /// round trip rather than one per guess.
 const ROOT_KEYS: [&str; 5] = ["zarr.json", ".zmetadata", ".zgroup", ".zarray", ".zattrs"];
+
+/// The v2 metadata documents one directory may hold, in the order
+/// [`v2_gather`] wants them.
+const V2_DOCS: [&str; 3] = [".zgroup", ".zarray", ".zattrs"];
+
+/// How many directories an unconsolidated walk will list before giving up.
+///
+/// The walk descends into a directory only when it is not an array, so a
+/// well-formed store costs one listing per *group* — a handful. A store whose
+/// arrays are missing their `.zarray`, or that nests groups without end, would
+/// otherwise cost one listing per directory it holds, and a listing is a
+/// request. The number is a store's groups, not its arrays or its chunks, and
+/// a hierarchy anywhere near it should be carrying consolidated metadata.
+const MAX_LISTED_DIRECTORIES: usize = 4096;
 
 /// A Zarr store, opened.
 ///
@@ -244,7 +258,7 @@ fn v3_node(document: Value) -> Node {
 }
 
 /// Every node of a v3 store: from the root's `consolidated_metadata` when it
-/// has one, and by listing the store when it does not.
+/// has one, and by descending the store when it does not.
 fn v3_nodes<O: ObjectSource>(
     objects: &O,
     root: Value,
@@ -264,20 +278,104 @@ fn v3_nodes<O: ObjectSource>(
         return Ok(nodes);
     }
 
-    let keys: Vec<String> = objects
-        .list("")?
-        .into_iter()
-        .filter(|key| key.ends_with("/zarr.json"))
-        .collect();
-    let refs: Vec<&str> = keys.iter().map(String::as_str).collect();
-    objects.prefetch(&refs)?;
-    for key in &keys {
-        let path = key.trim_end_matches("/zarr.json").to_string();
-        if let Some(document) = document(objects, key)? {
-            nodes.insert(path, v3_node(document));
+    // Unconsolidated: descend, rather than listing the store. See `Walk`.
+    let mut arrays = BTreeSet::new();
+    if matches!(nodes.get(""), Some(Node::Array { .. })) {
+        arrays.insert(String::new());
+    }
+    let mut walk = Walk::new();
+    while let Some(dirs) = walk.next_level(objects, &arrays)? {
+        let keys: Vec<String> = dirs.iter().map(|dir| format!("{dir}zarr.json")).collect();
+        prefetch_keys(objects, &keys)?;
+        for (dir, key) in dirs.iter().zip(&keys) {
+            let Some(document) = document(objects, key)? else {
+                continue;
+            };
+            let path = dir.trim_end_matches('/').to_string();
+            let node = v3_node(document);
+            if matches!(node, Node::Array { .. }) {
+                arrays.insert(path.clone());
+            }
+            nodes.insert(path, node);
         }
     }
     Ok(nodes)
+}
+
+/// One level of an unconsolidated walk at a time.
+///
+/// The shape both editions share: start at the root, and descend into a
+/// directory only when what was found there is *not* an array. That is what
+/// keeps a chunk key out of every listing — an array's directory is never
+/// listed at all, so neither its chunks nor its chunk rows are ever named — and
+/// it is why the walk gets each level's documents in one batch rather than one
+/// request per directory.
+///
+/// A directory the store holds no document for is descended into anyway. v3 has
+/// no implicit groups, but zarr-python will happily write an array under a
+/// directory that has none, and the listing walk this replaced found it; a
+/// directory with no metadata document also holds no chunks to enumerate.
+struct Walk {
+    frontier: Vec<String>,
+    listed: usize,
+    started: bool,
+}
+
+impl Walk {
+    fn new() -> Self {
+        Self {
+            frontier: Vec::new(),
+            listed: 0,
+            started: false,
+        }
+    }
+
+    /// The directories of the next level, or `None` when the walk is done.
+    ///
+    /// `arrays` holds the paths the levels so far turned out to be arrays,
+    /// which is how the walk knows which directories not to descend into.
+    fn next_level<O: ObjectSource>(
+        &mut self,
+        objects: &O,
+        arrays: &BTreeSet<String>,
+    ) -> Result<Option<Vec<String>>, FieldglassError> {
+        let parents = if self.started {
+            std::mem::take(&mut self.frontier)
+        } else {
+            self.started = true;
+            vec![String::new()]
+        };
+        let mut next = Vec::new();
+        for parent in parents {
+            if arrays.contains(parent.trim_end_matches('/')) {
+                continue;
+            }
+            self.listed += 1;
+            if self.listed > MAX_LISTED_DIRECTORIES {
+                return Err(FieldglassError::WrongLayout(format!(
+                    "this store's hierarchy has more than {MAX_LISTED_DIRECTORIES} \
+                     directories that are not arrays, so it is not being walked further"
+                )));
+            }
+            next.extend(
+                objects
+                    .list_children(&parent)?
+                    .into_iter()
+                    .filter(|key| key.ends_with('/')),
+            );
+        }
+        if next.is_empty() {
+            return Ok(None);
+        }
+        self.frontier.clone_from(&next);
+        Ok(Some(next))
+    }
+}
+
+/// Prefetch owned keys, which is every batch this walk makes.
+fn prefetch_keys<O: ObjectSource>(objects: &O, keys: &[String]) -> Result<(), FieldglassError> {
+    let refs: Vec<&str> = keys.iter().map(String::as_str).collect();
+    objects.prefetch(&refs)
 }
 
 /// A v2 node from the documents its directory holds.
@@ -333,24 +431,56 @@ fn v2_consolidated_nodes(zmetadata: &Value) -> Result<BTreeMap<String, Node>, Fi
     Ok(v2_gather(entries.clone()))
 }
 
-/// Every node of an unconsolidated v2 store, found by listing it.
+/// Every node of an unconsolidated v2 store, found by descending it.
+///
+/// One level at a time through [`Walk`], so a directory that turned out to be
+/// an array is never listed and its chunk keys are never enumerated. The three
+/// documents a directory may hold are asked for rather than looked for: an
+/// absent key is `Ok(None)` on this seam, so three speculative gets in one
+/// batch cost a remote store less than a listing would.
 fn v2_listed_nodes<O: ObjectSource>(
     objects: &O,
 ) -> Result<BTreeMap<String, Node>, FieldglassError> {
-    let keys: Vec<String> = objects
-        .list("")?
-        .into_iter()
-        .filter(|key| v2_split(key).is_some())
-        .collect();
-    let refs: Vec<&str> = keys.iter().map(String::as_str).collect();
-    objects.prefetch(&refs)?;
-    let mut documents = Vec::with_capacity(keys.len());
-    for key in keys {
-        if let Some(value) = document(objects, &key)? {
-            documents.push((key, value));
-        }
+    let mut documents = Vec::new();
+    let mut arrays = BTreeSet::new();
+    // The root's own documents are already in the `ROOT_KEYS` batch `open`
+    // made, so this level costs a remote store nothing.
+    read_v2_level(objects, &[String::new()], &mut documents, &mut arrays)?;
+    let mut walk = Walk::new();
+    while let Some(dirs) = walk.next_level(objects, &arrays)? {
+        read_v2_level(objects, &dirs, &mut documents, &mut arrays)?;
     }
     Ok(v2_gather(documents))
+}
+
+/// The metadata documents of every directory in one level, in one batch.
+///
+/// `arrays` gains the directories that hold a `.zarray`, so [`Walk`] knows
+/// which of them not to descend into; the tree itself is built from
+/// `documents` by [`v2_gather`], which is the one place that reads them.
+fn read_v2_level<O: ObjectSource>(
+    objects: &O,
+    dirs: &[String],
+    documents: &mut Vec<(String, Value)>,
+    arrays: &mut BTreeSet<String>,
+) -> Result<(), FieldglassError> {
+    let keys: Vec<String> = dirs
+        .iter()
+        .flat_map(|dir| V2_DOCS.iter().map(move |doc| format!("{dir}{doc}")))
+        .collect();
+    prefetch_keys(objects, &keys)?;
+    for (dir, chunk) in dirs.iter().zip(keys.chunks(V2_DOCS.len())) {
+        for key in chunk {
+            let Some(value) = document(objects, key)? else {
+                continue;
+            };
+            if key.ends_with(".zarray") {
+                arrays.insert(dir.trim_end_matches('/').to_string());
+            }
+            documents.push((key.clone(), value));
+        }
+    }
+    Ok(())
 }
 
 /// The group a node sits in: `a/b` for `a/b/c`, the root for `a`.

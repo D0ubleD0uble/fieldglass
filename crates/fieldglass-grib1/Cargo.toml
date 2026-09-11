@@ -20,7 +20,7 @@ fieldglass-core = { path = "../fieldglass-core", version = "=0.5.0", default-fea
 # Cargo's v2 resolver keeps a dev-dependency's features out of a build that
 # does not build test targets, so the library is still compiled against a core
 # with `analysis` off; the pre-commit `--lib` clippy run is what asserts it.
-fieldglass-core = { path = "../fieldglass-core", version = "=0.5.0", default-features = false, features = ["analysis"] }
+fieldglass-core = { path = "../fieldglass-core", version = "=0.5.0", default-features = false, features = ["analysis", "testing"] }
 # The eccodes snapshots are JSON; the cross-check test parses them.
 serde_json = { workspace = true }
 

@@ -54,12 +54,27 @@ analysis = []
 # so leaving it in would silently degrade detection to extension-guessing. Not
 # a `no_std` switch: the crate still links `std` for float math.
 fs = []
+# `testing`: sources that behave the way a transport does, for the tests of
+# every reader on the `bytes` seams (#708). Never on for a build a consumer
+# links — the only entries that ask for it are `[dev-dependencies]`, including
+# this crate's own below, and cargo's v2 resolver keeps those out of a build
+# that does not build test targets.
+testing = []
 
 [dependencies]
 serde = { workspace = true, optional = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+# This crate on itself, which is how its *own* integration tests reach the
+# `testing` module while nothing a consumer builds does. A dev-dependency cycle
+# is allowed and does not reach the dependency graph of the library.
+# `default-features = false` is load-bearing: without it this entry would turn
+# `render`, `analysis`, `fs` and `serde` back on for the pre-push
+# `cargo test -p fieldglass-core --no-default-features` run, and that gate would
+# stop measuring anything. No `version`, so cargo strips the line on publish
+# rather than putting a self-referential requirement on crates.io.
+fieldglass-core = { path = ".", default-features = false, features = ["testing"] }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
 

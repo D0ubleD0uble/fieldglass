@@ -50,6 +50,20 @@ DIAGRAMS_DIR = REPO_ROOT / "docs" / "architecture"
 # from the source-of-truth scan.
 UNDIAGRAMMED_TRAITS: set[str] = set()
 
+# Source files that are test support rather than architecture. Their types are
+# not seams a reader of the diagrams is looking for — they exist so a test can
+# say what a reader asked its source for — and diagramming them would put seven
+# fixtures beside `ByteSource` in `02-trait-seams.md`.
+#
+# An inline `#[cfg(test)] mod` is already skipped by `production_lines`; this is
+# for the same thing in a file of its own, which a `#[cfg]` on the `mod`
+# declaration in `lib.rs` cannot reach. Paths are relative to `crates/`.
+TEST_SUPPORT_FILES: set[str] = {
+    # `fieldglass_core::testing` (#708), behind the `testing` feature, which is
+    # enabled only from `[dev-dependencies]` entries.
+    "fieldglass-core/src/testing.rs",
+}
+
 # Mermaid keywords that could appear where a type node is expected. The current
 # regexes structurally can't capture these (keywords and quoted cardinality fall
 # outside the capture groups), so this is belt-and-suspenders against a future
@@ -259,7 +273,11 @@ def crate_deps_from_toml(text: str) -> set[str]:
 
 
 def rust_sources() -> list[Path]:
-    return sorted(CRATES_DIR.glob("**/src/**/*.rs"))
+    return [
+        p
+        for p in sorted(CRATES_DIR.glob("**/src/**/*.rs"))
+        if p.relative_to(CRATES_DIR).as_posix() not in TEST_SUPPORT_FILES
+    ]
 
 
 def _read(path: Path) -> str:

@@ -7,116 +7,9 @@
 //! a source that serves short fails the parse rather than panicking or
 //! answering with a field that looks complete.
 
-use fieldglass_core::{ByteRange, ByteSource, FieldglassError};
+use fieldglass_core::ByteRange;
+use fieldglass_core::testing::{CutOff, OneRange, Recording, Starved};
 use fieldglass_grib1::{Grib1Message, Grib1MessageKind, Grib1Reader};
-use std::borrow::Cow;
-use std::cell::{Cell, RefCell};
-
-/// Records every range read and every prefetch batch, so a test can say what
-/// an operation touched rather than that it succeeded.
-struct Recording<'a> {
-    bytes: &'a [u8],
-    reads: RefCell<Vec<ByteRange>>,
-    prefetches: RefCell<Vec<Vec<ByteRange>>>,
-}
-
-impl<'a> Recording<'a> {
-    fn new(bytes: &'a [u8]) -> Self {
-        Self {
-            bytes,
-            reads: RefCell::new(Vec::new()),
-            prefetches: RefCell::new(Vec::new()),
-        }
-    }
-
-    fn clear(&self) {
-        self.reads.borrow_mut().clear();
-        self.prefetches.borrow_mut().clear();
-    }
-}
-
-impl ByteSource for Recording<'_> {
-    fn size(&self) -> u64 {
-        self.bytes.len() as u64
-    }
-
-    fn prefetch(&self, ranges: &[ByteRange]) -> Result<(), FieldglassError> {
-        self.prefetches.borrow_mut().push(ranges.to_vec());
-        Ok(())
-    }
-
-    fn read(&self, range: ByteRange) -> Result<Cow<'_, [u8]>, FieldglassError> {
-        self.reads.borrow_mut().push(range);
-        self.bytes.read(range)
-    }
-}
-
-/// A file of which only one range was fetched — what a host holds after
-/// fetching the range a sidecar index gave for one message. It knows the whole
-/// file's size, and refuses any read outside what it holds.
-struct OneRange<'a> {
-    bytes: &'a [u8],
-    held: ByteRange,
-}
-
-impl ByteSource for OneRange<'_> {
-    fn size(&self) -> u64 {
-        self.bytes.len() as u64
-    }
-
-    fn read(&self, range: ByteRange) -> Result<Cow<'_, [u8]>, FieldglassError> {
-        let inside = range.start >= self.held.start
-            && range
-                .end()
-                .is_some_and(|e| e <= self.held.start + self.held.len);
-        if !inside {
-            return Err(FieldglassError::Parse(format!(
-                "{range:?} was never fetched; only {:?} was",
-                self.held
-            )));
-        }
-        self.bytes.read(range)
-    }
-}
-
-/// A response cut off at `cut`: a read running past it comes back short, the
-/// way a truncated transfer would, while the size still claims the whole file.
-struct CutOff<'a> {
-    bytes: &'a [u8],
-    cut: u64,
-}
-
-impl ByteSource for CutOff<'_> {
-    fn size(&self) -> u64 {
-        self.bytes.len() as u64
-    }
-
-    fn read(&self, range: ByteRange) -> Result<Cow<'_, [u8]>, FieldglassError> {
-        let served = range.len.min(self.cut.saturating_sub(range.start));
-        self.bytes.read(ByteRange::new(range.start, served))
-    }
-}
-
-/// Serves every read in full until armed, then half of every read: a source
-/// whose later transfers came back truncated.
-struct Starved<'a> {
-    bytes: &'a [u8],
-    armed: Cell<bool>,
-}
-
-impl ByteSource for Starved<'_> {
-    fn size(&self) -> u64 {
-        self.bytes.len() as u64
-    }
-
-    fn read(&self, range: ByteRange) -> Result<Cow<'_, [u8]>, FieldglassError> {
-        let got = self.bytes.read(range)?;
-        if self.armed.get() {
-            return Ok(Cow::Owned(got[..got.len() / 2].to_vec()));
-        }
-        Ok(got)
-    }
-}
 
 fn fixture(path: &str) -> Vec<u8> {
     // Relative, like every other fixture read here: the wasm32-wasip1 run in
@@ -187,7 +80,7 @@ fn the_scan_reads_a_few_windows_per_message_and_never_the_data() {
     let reader = Grib1Reader::from_source(&recording).expect("scan");
     let n = reader.message_count();
 
-    let reads = recording.reads.borrow();
+    let reads = recording.reads();
     // Per message: the search window that finds it, the indicator, the
     // trailing `7777`, and a few growing windows over the PDS, GDS and BMS
     // headers. Plus a handful of windows over the garbage, the false starts and
@@ -204,7 +97,7 @@ fn the_scan_reads_a_few_windows_per_message_and_never_the_data() {
         file.len()
     );
     assert!(
-        recording.prefetches.borrow().is_empty(),
+        recording.prefetches().is_empty(),
         "a scan has no plan to state"
     );
 }
@@ -219,7 +112,7 @@ fn leading_garbage_costs_windows_not_bytes() {
     let reader = Grib1Reader::from_source(&recording).expect("scan");
     assert_eq!(reader.message_count(), 1);
     assert_eq!(reader.messages[0].byte_offset, 1 << 20);
-    let reads = recording.reads.borrow().len();
+    let reads = recording.reads().len();
     assert!(reads <= 40, "{reads} reads to step over 1 MiB of garbage");
 }
 
@@ -244,8 +137,8 @@ fn a_decode_prefetches_its_sections_once_then_reads_exactly_them() {
             recording.clear();
             let kind = reader.message_kind(i);
             if matches!(kind, Grib1MessageKind::Grid | Grib1MessageKind::Matrix) {
-                assert_eq!(*recording.prefetches.borrow(), vec![vec![m.bds_range]]);
-                assert_eq!(*recording.reads.borrow(), vec![m.bds_range]);
+                assert_eq!(recording.prefetches(), vec![vec![m.bds_range]]);
+                assert_eq!(recording.reads(), vec![m.bds_range]);
             }
 
             recording.clear();
@@ -265,12 +158,12 @@ fn a_decode_prefetches_its_sections_once_then_reads_exactly_them() {
                 with_bitmap += 1;
             }
             assert_eq!(
-                *recording.prefetches.borrow(),
+                recording.prefetches(),
                 vec![expected.clone()],
                 "{name} message {i}: one batch, naming the sections"
             );
             assert_eq!(
-                *recording.reads.borrow(),
+                recording.reads(),
                 expected,
                 "{name} message {i}: reads exactly the batch"
             );
@@ -291,7 +184,7 @@ fn one_message_decodes_from_a_source_holding_only_its_range() {
     let whole = Grib1Reader::from_bytes(file.clone()).expect("scan");
     for (i, m) in whole.messages.iter().enumerate() {
         let held = ByteRange::new(m.byte_offset, u64::from(m.is.total_length));
-        let source = OneRange { bytes: &file, held };
+        let source = OneRange::new(&file, held);
         let one = Grib1Reader::from_message_at(&source, m.byte_offset)
             .unwrap_or_else(|e| panic!("message {i} alone: {e}"));
         assert_eq!(one.message_count(), 1);
@@ -316,10 +209,10 @@ fn one_message_decodes_from_a_source_holding_only_its_range() {
     // And that source really holds only the one range: the scan, which reads
     // from the start of the file, cannot run over it.
     let m = &whole.messages[1];
-    let source = OneRange {
-        bytes: &file,
-        held: ByteRange::new(m.byte_offset, u64::from(m.is.total_length)),
-    };
+    let source = OneRange::new(
+        &file,
+        ByteRange::new(m.byte_offset, u64::from(m.is.total_length)),
+    );
     assert!(Grib1Reader::from_source(&source).is_err());
 }
 
@@ -351,17 +244,14 @@ fn an_offset_that_is_not_a_grib1_message_is_refused_not_searched_from() {
 fn a_source_cut_off_anywhere_fails_the_scan_cleanly() {
     let bytes = fixture("tests/fixtures/ieee32_cmc_wind.grib1");
     for cut in 0..bytes.len() as u64 {
-        let source = CutOff { bytes: &bytes, cut };
+        let source = CutOff::new(&bytes, cut);
         assert!(
             Grib1Reader::from_source(&source).is_err(),
             "a cut at {cut} of {} scanned",
             bytes.len()
         );
     }
-    let whole = CutOff {
-        bytes: &bytes,
-        cut: bytes.len() as u64,
-    };
+    let whole = CutOff::new(&bytes, bytes.len() as u64);
     assert_eq!(
         Grib1Reader::from_source(&whole)
             .expect("uncut")
@@ -376,13 +266,10 @@ fn a_source_cut_off_anywhere_fails_the_scan_cleanly() {
 #[test]
 fn a_decode_whose_sections_come_back_short_fails_cleanly() {
     let bytes = fixture("tests/fixtures/ieee32_cmc_wind.grib1");
-    let source = Starved {
-        bytes: &bytes,
-        armed: Cell::new(false),
-    };
+    let source = Starved::new(&bytes);
     let reader = Grib1Reader::from_source(&source).expect("scan");
     assert_eq!(reader.message_kind(0), Grib1MessageKind::Grid);
-    source.armed.set(true);
+    source.arm();
     let err = reader.decode_message_values(0).expect_err("short BDS");
     assert!(err.to_string().contains("served"), "{err}");
     assert!(reader.decode_message_raster(0).is_err());

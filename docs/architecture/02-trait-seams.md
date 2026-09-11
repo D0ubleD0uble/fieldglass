@@ -89,10 +89,34 @@ is new: an absent key answers `None` rather than erroring, because a sparse
 array's missing chunk is its fill value and absence there is ordinary.
 `require` is the other half, for a document whose absence really is a fault.
 
-`MemoryObjects` is the in-memory implementation, and it records what was asked
-of it: `tests/object_source.rs` asserts that a walk lists, prefetches **once**,
-and then reads — which is the property a test that only checked the values
-would miss, and the one an implementation loses first.
+`list` and `list_children` are two different questions, and only the second one
+scales (#708). `list(prefix)` returns every key beneath the prefix, so walking a
+store with it enumerates every chunk of every array to find a handful of
+metadata documents — nothing on a directory, millions of keys on a bucket.
+`list_children(prefix)` returns the **immediate** children: objects by their key,
+and child directories as the prefix they are, ending in a slash. It is provided,
+filtering `list`, so no implementation has to change; a bucket-backed one
+overrides it with a delimiter listing.
+
+`ZarrStore`'s unconsolidated walk descends through it, one level at a time, and
+descends into a directory only when what was found there is not an array. That
+is what keeps a chunk key out of every listing: an array's directory is never
+listed, so neither its chunks nor its chunk rows are ever named. The three
+documents a v2 directory may hold are *asked for* rather than looked for, one
+batch per level — an absent key is `Ok(None)` here, so three speculative gets
+cost a remote store less than a listing.
+
+`MemoryObjects` is the in-memory implementation, and it holds the map and
+nothing else. It used to record what was asked of it too, which made it a store
+that grew a string per `get` and never emptied — fine for a test and a leak for
+the host that opens a directory through it (#659). Recording is
+`fieldglass_core::testing::Recording` now: one wrapper over either seam, behind
+a `testing` feature enabled only from `[dev-dependencies]`. That is also where
+the transport-shaped sources live — short-serving, cut off, starved,
+single-range, copy-only, cache-backed — which every reader on these seams had
+written out for itself. `tests/object_source.rs` asserts through it that a walk
+lists, prefetches **once**, and then reads, which is the property a test that
+only checked the values would miss and the one an implementation loses first.
 
 `ArraySource` is the rung above both (#658, ADR-0010's amendment to decision
 3). The byte seams answer "give me these bytes"; this answers "give me this
@@ -105,7 +129,7 @@ Zarr belongs: a store is a layout of chunks under keys rather
 than a file format, so it sits beside the NetCDF readers rather than beside
 GRIB. A region read spells the chunk keys it covers from core, prefetches them
 in one batch and then reads them, and `tests/stores.rs` holds it to exactly
-that with `MemoryObjects`.
+that through a recorded `MemoryObjects`.
 
 ```mermaid
 classDiagram
@@ -124,6 +148,7 @@ classDiagram
         +list(prefix) Vec~String~
         +prefetch(keys) (advisory)
         +require(key) Cow (provided)
+        +list_children(prefix) (provided, #708)
     }
 
     class ArraySource {
