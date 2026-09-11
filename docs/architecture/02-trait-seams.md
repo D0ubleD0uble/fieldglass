@@ -30,6 +30,14 @@ what makes the migration incremental: passing a `Vec<u8>` where a `ByteSource`
 is wanted already works. HTTP range (#247) and object stores (#252) each add one
 more.
 
+`identity()` is what a reader's memo keys on (ADR-0005 decision 2, #681). A
+buffer identifies itself by where it begins and how far it runs; a source that
+is not one contiguous buffer — a sparse map of prefetched ranges — gives the
+name the host vouches for instead. A source that will not say answers `None`,
+which is never reused for anything. It has to be stronger than length, because
+length is not an identity: the HDF5 traversal memo keyed on it and served one
+file's structure for another of the same size.
+
 `ObjectSource` is its sibling, added by #680 under
 [ADR-0010](../decisions/0010-a-common-array-model-and-containers-as-drivers.md).
 `ByteSource` models **one object addressed by byte range** — a GRIB file, a
@@ -57,6 +65,10 @@ classDiagram
     class ByteSource {
         <<trait>>
         one object, addressed by range
+        +size() u64
+        +prefetch(ranges) (advisory)
+        +read(range) Cow
+        +identity() Option~SourceIdentity~
     }
     class ObjectSource {
         <<trait, #680>>

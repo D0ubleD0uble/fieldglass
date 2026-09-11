@@ -18,9 +18,14 @@
 //! for the byte slice the probe was built from — the pre-existing contract for a
 //! probe, now load-bearing (see [`Hdf5Cache::header`]).
 //!
+//! Which slice that is comes from [`ByteSource::identity`] (#681). It used to be
+//! the slice's *length*, which is not an identity: two files of equal size
+//! passed the guard, and the second was served the first's root address, child
+//! list, object headers and chunk records — a wrong answer rather than an error.
+//!
 //! Everything here is a pure memo: a cache hit and a cache miss must produce the
-//! same value, so a full miss (a budget-refused entry, or one the slice-length
-//! guard declines to serve) is only ever slower, never wrong.
+//! same value, so a full miss (a budget-refused entry, or one the identity guard
+//! declines to serve) is only ever slower, never wrong.
 //!
 //! Failures are deliberately not remembered. A malformed header reached from D
 //! places is re-parsed and re-fails D times, which is what the code did before
@@ -28,13 +33,14 @@
 //! rather than pinning an error to an address forever.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use super::group::GroupChild;
 use super::object_header::{self, ObjectHeader};
 use super::values::ChunkRecord;
 use fieldglass_core::FieldglassError;
+use fieldglass_core::bytes::{ByteSource, SourceIdentity};
 
 /// Ceiling on the message bytes retained by the object-header memo, across all
 /// headers of one file.
@@ -51,14 +57,6 @@ const HEADER_BYTE_BUDGET: usize = 64 << 20;
 /// Chunk-index address paired with the dataset's rank — see
 /// [`Hdf5Cache::chunks`] for why the rank is part of the key.
 type ChunkIndexKey = (u64, usize);
-
-/// `bound_len` before any lookup has bound it.
-///
-/// Zero, not `usize::MAX`, so that `#[derive(Default)]` on the cache produces an
-/// unbound memo rather than one bound to a zero-length slice. Nothing is lost:
-/// an HDF5 file is at least a superblock, so a real lookup never arrives with a
-/// length of zero, and one that did could not be served from a memo anyway.
-const UNBOUND: usize = 0;
 
 /// The object-header memo and the bytes it is holding, behind one lock so the
 /// two cannot disagree — two threads that miss on the same offset would
@@ -85,9 +83,9 @@ pub(crate) struct Hdf5Cache {
     children: Mutex<Option<Arc<Vec<GroupChild>>>>,
     /// Parsed object headers by file offset, with their retained size.
     headers: Mutex<HeaderStore>,
-    /// Length of the byte slice this memo was populated against, or
-    /// [`UNBOUND`] before the first use. See [`Hdf5Cache::usable`].
-    bound_len: AtomicUsize,
+    /// Which bytes this memo was populated against, empty before the first
+    /// use. See [`Hdf5Cache::usable`].
+    bound: OnceLock<SourceIdentity>,
     /// Chunk records by `(chunk-index address, dataset rank)`. Rank is part of
     /// the key because a record's `offset` vector is rank-length: a malformed
     /// file that pointed two datasets of different rank at one index address
@@ -100,39 +98,33 @@ pub(crate) struct Hdf5Cache {
 }
 
 impl Hdf5Cache {
-    /// Whether the memo may answer for a slice of `bytes_len` bytes.
+    /// Whether the memo may answer for `bytes`.
     ///
     /// Every entry here is keyed by *file offset*, which only means anything
     /// relative to the slice it was read from. A probe was always tied to its
     /// own file — it carries that file's superblock offset sizes — but before
     /// the memo, pairing one with another file's bytes merely parsed the wrong
-    /// layout and usually failed. Now it could silently return the *first*
-    /// file's structure for the second, which is a worse failure: a wrong
-    /// answer instead of an error.
+    /// layout and usually failed. Unguarded, a memo would instead hand back the
+    /// *first* file's structure for the second, which is a worse failure: a
+    /// wrong answer instead of an error. This is that guard.
     ///
-    /// The first lookup binds the memo to its slice length; a later lookup at a
-    /// different length is served without the memo — correct, just uncached.
-    /// Length is a cheap discriminator, not a proof: two files of exactly equal
-    /// length still alias, and the doc on [`Hdf5Probe`](super::Hdf5Probe) says
-    /// so. It costs one atomic and rules out the mistake anyone would actually
-    /// make.
-    fn usable(&self, bytes_len: usize) -> bool {
-        // The common case by far is an already-bound memo being asked about its
-        // own file, so check with a plain load and keep the read-modify-write
-        // for the one call that actually binds.
-        match self.bound_len.load(Ordering::Relaxed) {
-            UNBOUND => match self.bound_len.compare_exchange(
-                UNBOUND,
-                bytes_len,
-                Ordering::SeqCst,
-                Ordering::SeqCst,
-            ) {
-                Ok(_) => true,
-                // Lost the race to bind; whoever won decides.
-                Err(bound) => bound == bytes_len,
-            },
-            bound => bound == bytes_len,
-        }
+    /// The first lookup binds the memo to its source's
+    /// [identity](ByteSource::identity); a later lookup against any other is
+    /// served without the memo — correct, just uncached. Identity is what makes
+    /// that a real discriminator: length alone let two files of exactly equal
+    /// size alias (#681), which is the one mistake a reader holding several
+    /// files would actually make.
+    ///
+    /// A source that will not identify itself is never served from the memo,
+    /// because there is no answer that is safe: two anonymous sources may be
+    /// the same bytes or may not, and guessing wrong is the wrong answer again.
+    fn usable(&self, bytes: &[u8]) -> bool {
+        let Some(identity) = bytes.identity() else {
+            return false;
+        };
+        // `get_or_init` is the bind: the first caller stores its identity, and
+        // one that lost the race reads the winner's and compares against it.
+        *self.bound.get_or_init(|| identity.clone()) == identity
     }
 
     /// The object header at `offset`, parsing it only on the first request.
@@ -148,7 +140,7 @@ impl Hdf5Cache {
         offset_size: u8,
         length_size: u8,
     ) -> Result<Arc<ObjectHeader>, FieldglassError> {
-        if !self.usable(bytes.len()) {
+        if !self.usable(bytes) {
             self.traversals.fetch_add(1, Ordering::Relaxed);
             return Ok(Arc::new(object_header::walk(
                 bytes,
@@ -195,13 +187,13 @@ impl Hdf5Cache {
     /// The whole-file depth-first child list, walked only once.
     pub(crate) fn children<F>(
         &self,
-        bytes_len: usize,
+        bytes: &[u8],
         build: F,
     ) -> Result<Arc<Vec<GroupChild>>, FieldglassError>
     where
         F: FnOnce() -> Result<Vec<GroupChild>, FieldglassError>,
     {
-        if !self.usable(bytes_len) {
+        if !self.usable(bytes) {
             return Ok(Arc::new(build()?));
         }
         if let Some(hit) = self
@@ -218,11 +210,11 @@ impl Hdf5Cache {
     }
 
     /// The root-group object-header address, read from the superblock once.
-    pub(crate) fn root<F>(&self, bytes_len: usize, build: F) -> Result<u64, FieldglassError>
+    pub(crate) fn root<F>(&self, bytes: &[u8], build: F) -> Result<u64, FieldglassError>
     where
         F: FnOnce() -> Result<u64, FieldglassError>,
     {
-        if !self.usable(bytes_len) {
+        if !self.usable(bytes) {
             return build();
         }
         if let Some(hit) = *self.root.lock().expect("hdf5 root cache poisoned") {
@@ -236,7 +228,7 @@ impl Hdf5Cache {
     /// The chunk records behind one dataset's chunk index, collected once.
     pub(crate) fn chunk_records<F>(
         &self,
-        bytes_len: usize,
+        bytes: &[u8],
         index_address: u64,
         rank: usize,
         build: F,
@@ -244,7 +236,7 @@ impl Hdf5Cache {
     where
         F: FnOnce() -> Result<Vec<ChunkRecord>, FieldglassError>,
     {
-        if !self.usable(bytes_len) {
+        if !self.usable(bytes) {
             self.traversals.fetch_add(1, Ordering::Relaxed);
             return Ok(Arc::new(build()?));
         }

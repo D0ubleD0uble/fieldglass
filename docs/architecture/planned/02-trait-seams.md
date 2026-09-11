@@ -171,8 +171,8 @@ over *objects* the host already fetched, which is what a Zarr store, a
 directory listing and a kerchunk document all are. `ObjectSource` follows the
 same rules: a read works whether or not it was prefetched, and everything is
 synchronous. The napi host may implement it over `std::fs`, because napi is
-the host; a bucket is the browser filling the in-memory one. #681 adds the
-identity ADR-0005 decision 2 asked for, so the HDF5 memo stops keying on
+the host; a bucket is the browser filling the in-memory one. #681 added the
+identity ADR-0005 decision 2 asked for, so the HDF5 memo no longer keys on
 length, and #682 moves the HDF5 reader onto `ByteSource` the way classic
 already is.
 
@@ -183,7 +183,7 @@ classDiagram
         +prefetch(ranges)
         +read(range) Cow
         +size() u64
-        +identity() planned #681
+        +identity() Option~SourceIdentity~
     }
     class ObjectSource {
         <<trait, planned #680>>

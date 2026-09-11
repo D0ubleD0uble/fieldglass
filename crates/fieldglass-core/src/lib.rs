@@ -103,7 +103,7 @@ pub use array::{
     ArrayDescription, ArrayError, Attribute, AttributeValue, CfUnpacking, ChunkGrid,
     ChunkKeyEncoding, Dimension, ElementType, Group,
 };
-pub use bytes::{ByteRange, ByteSource, MemoryObjects, ObjectSource};
+pub use bytes::{ByteRange, ByteSource, MemoryObjects, ObjectSource, SourceIdentity};
 #[cfg(feature = "analysis")]
 pub use combine::{CombineOp, combine_cell, combine_fields};
 #[cfg(feature = "analysis")]
