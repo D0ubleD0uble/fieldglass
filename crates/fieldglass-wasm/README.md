@@ -170,12 +170,19 @@ written here for #662 were 100 KB light because they were taken before the
 façade grew `variables`, `dimensions` and `decodeSlice`, and the gate — running
 on CI against the finished tree — is what caught it.
 
+Moving the HDF5 reader onto `ByteSource` (#682) added ~31,000 raw bytes, about
+2.4%: its traversal is generic over the source now, so the browser build carries
+one instantiation of a tree that used to be a single concrete one. That is
+within the gate's tolerance, and the figures above are re-recorded anyway — a
+documented size that is merely *close* measures the next change against a
+generous number instead of the real one.
+
 <!-- checked by tools/check_wasm_bundle_size.py -->
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
-| baseline | 1,262,479 | 501,678 |
-| `+simd128` | 1,255,282 | 499,712 |
+| baseline | 1,298,728 | 515,251 |
+| `+simd128` | 1,287,002 | 512,157 |
 
 The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
 build drifts more than 5% from these figures in either direction, so a change

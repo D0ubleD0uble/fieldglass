@@ -14,10 +14,12 @@
 use super::Hdf5Probe;
 use super::dataspace::{self, Dataspace};
 use super::datatype::{self, ByteOrder, Datatype, DatatypeClass};
-use super::heap::{self, Cursor, FractalHeap};
+use super::heap::{self, FractalHeap};
 use super::object_header::{self, read_uint_le};
+use super::source::{Cursor, Fields};
 use crate::classic;
 use fieldglass_core::FieldglassError;
+use fieldglass_core::bytes::ByteSource;
 
 const MSG_ATTRIBUTE: u16 = 0x000C;
 const MSG_ATTRIBUTE_INFO: u16 = 0x0015;
@@ -68,8 +70,8 @@ pub struct RawAttribute {
 
 /// List the attributes attached to the object header at `object_header_address`,
 /// sorted by name. Works for the root group (global attributes) and datasets.
-pub fn list_attributes(
-    bytes: &[u8],
+pub fn list_attributes<S: ByteSource + ?Sized>(
+    source: &S,
     object_header_address: u64,
     probe: &Hdf5Probe,
 ) -> Result<Vec<Hdf5Attribute>, FieldglassError> {
@@ -78,7 +80,7 @@ pub fn list_attributes(
     // (e.g. a NetCDF-4 `DIMENSION_LIST`, which is variable-length), but a
     // malformed one too — is skipped rather than failing the whole list, so the
     // rest of an object's attributes, and its value decode, still come through.
-    for body in attribute_message_bodies(bytes, object_header_address, probe)? {
+    for body in attribute_message_bodies(source, object_header_address, probe)? {
         if let Ok(attr) = parse_attribute_message(&body, probe.length_size) {
             push_attribute(&mut attrs, attr)?;
         }
@@ -91,13 +93,13 @@ pub fn list_attributes(
 /// named `name` on the object header at `object_header_address`, or `None` if no
 /// such attribute exists. Unlike [`list_attributes`], this does not decode the
 /// datatype, so it serves the structural NetCDF-4 attributes.
-pub fn raw_attribute(
-    bytes: &[u8],
+pub fn raw_attribute<S: ByteSource + ?Sized>(
+    source: &S,
     object_header_address: u64,
     probe: &Hdf5Probe,
     name: &str,
 ) -> Result<Option<RawAttribute>, FieldglassError> {
-    for body in attribute_message_bodies(bytes, object_header_address, probe)? {
+    for body in attribute_message_bodies(source, object_header_address, probe)? {
         let Ok(split) = split_attribute_message(&body) else {
             continue;
         };
@@ -119,12 +121,12 @@ pub fn raw_attribute(
 /// inline (messages in the header) and dense (Attribute Info → fractal heap +
 /// B-tree v2). The single source of attribute messages for both the human and
 /// raw decode paths.
-fn attribute_message_bodies(
-    bytes: &[u8],
+fn attribute_message_bodies<S: ByteSource + ?Sized>(
+    source: &S,
     object_header_address: u64,
     probe: &Hdf5Probe,
 ) -> Result<Vec<Vec<u8>>, FieldglassError> {
-    let header = probe.header(bytes, object_header_address)?;
+    let header = probe.header(source, object_header_address)?;
 
     let mut bodies: Vec<Vec<u8>> = header
         .messages
@@ -137,14 +139,14 @@ fn attribute_message_bodies(
         .iter()
         .find(|m| m.msg_type == MSG_ATTRIBUTE_INFO)
     {
-        read_dense_attribute_bodies(bytes, &msg.body, probe, &mut bodies)?;
+        read_dense_attribute_bodies(source, &msg.body, probe, &mut bodies)?;
     }
     Ok(bodies)
 }
 
 /// Append the dense attribute message bodies from an Attribute Info message.
-fn read_dense_attribute_bodies(
-    bytes: &[u8],
+fn read_dense_attribute_bodies<S: ByteSource + ?Sized>(
+    source: &S,
     body: &[u8],
     probe: &Hdf5Probe,
     out: &mut Vec<Vec<u8>>,
@@ -168,9 +170,9 @@ fn read_dense_attribute_bodies(
     }
     let btree_addr = read_uint_le(body, pos + o, o)?;
 
-    let heap = FractalHeap::parse(bytes, heap_addr, probe.offset_size, probe.length_size)?;
+    let heap = FractalHeap::parse(source, heap_addr, probe.offset_size, probe.length_size)?;
     let (btree_type, records) =
-        heap::btree_v2_records(bytes, btree_addr, probe.offset_size, probe.length_size)?;
+        heap::btree_v2_records(source, btree_addr, probe.offset_size, probe.length_size)?;
     if btree_type != 8 && btree_type != 9 {
         return Err(FieldglassError::Parse(format!(
             "unsupported B-tree v2 type {btree_type} for attributes"
@@ -183,7 +185,7 @@ fn read_dense_attribute_bodies(
             .ok_or_else(|| {
                 FieldglassError::Parse("attribute record too small for a heap ID".into())
             })?;
-        let message = heap.managed_object(bytes, id)?;
+        let message = heap.managed_object(source, id)?;
         out.push(message);
     }
     Ok(())

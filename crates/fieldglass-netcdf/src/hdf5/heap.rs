@@ -21,8 +21,9 @@
 
 use super::filter::FilterPipeline;
 use super::object_header::{is_undefined_address, read_uint_le, read_usize_le};
+use super::source::{Fields, FileCursor, read_at};
 use fieldglass_core::FieldglassError;
-use fieldglass_core::bytes::checked_usize;
+use fieldglass_core::bytes::ByteSource;
 
 const SIG_BTREE_V2_HDR: &[u8; 4] = b"BTHD";
 const SIG_BTREE_V2_INTERNAL: &[u8; 4] = b"BTIN";
@@ -78,13 +79,13 @@ const BTREE_V2_NODE_OVERHEAD: usize = 6 + 4;
 /// records in key order. Callers slice the fractal-heap ID out of each record at
 /// the offset their record type dictates (link-name records put it after a
 /// 4-byte hash; attribute-name records put it first).
-pub(crate) fn btree_v2_records(
-    bytes: &[u8],
+pub(crate) fn btree_v2_records<S: ByteSource + ?Sized>(
+    source: &S,
     addr: u64,
     osize: u8,
     lsize: u8,
 ) -> Result<(u8, Vec<Vec<u8>>), FieldglassError> {
-    let mut hdr = Cursor::at(bytes, addr)?;
+    let mut hdr = FileCursor::at(source, addr)?;
     hdr.tag(SIG_BTREE_V2_HDR)?;
     hdr.skip(1)?; // version
     let btree_type = hdr.byte()?;
@@ -121,7 +122,7 @@ pub(crate) fn btree_v2_records(
 
     let mut records = Vec::new();
     walk_btree_v2_node(
-        bytes,
+        source,
         root_addr,
         depth,
         root_nrec,
@@ -213,8 +214,8 @@ fn count_field_bytes(max: u64) -> usize {
 /// nodes store all `nrec` records first, then `nrec + 1` node pointers; the
 /// records interleave between the subtrees in key order.
 #[allow(clippy::too_many_arguments)]
-fn walk_btree_v2_node(
-    bytes: &[u8],
+fn walk_btree_v2_node<S: ByteSource + ?Sized>(
+    source: &S,
     addr: u64,
     level: u16,
     nrec: usize,
@@ -248,7 +249,7 @@ fn walk_btree_v2_node(
             "B-tree v2 node record count out of range".into(),
         ));
     }
-    let mut cur = Cursor::at(bytes, addr)?;
+    let mut cur = FileCursor::at(source, addr)?;
 
     if level == 0 {
         cur.tag(SIG_BTREE_V2_LEAF)?;
@@ -287,7 +288,7 @@ fn walk_btree_v2_node(
 
     for (i, &(child_addr, child_nrec)) in children.iter().enumerate() {
         walk_btree_v2_node(
-            bytes,
+            source,
             child_addr,
             child,
             child_nrec,
@@ -353,15 +354,15 @@ pub(crate) struct FractalHeap {
 }
 
 impl FractalHeap {
-    pub(crate) fn parse(
-        bytes: &[u8],
+    pub(crate) fn parse<S: ByteSource + ?Sized>(
+        source: &S,
         addr: u64,
         osize: u8,
         lsize: u8,
     ) -> Result<Self, FieldglassError> {
         let o = osize as usize;
         let l = lsize as usize;
-        let mut cur = Cursor::at(bytes, addr)?;
+        let mut cur = FileCursor::at(source, addr)?;
         cur.tag(SIG_FRACTAL_HEAP)?;
         cur.skip(1)?; // version
         let heap_id_len = cur.u16()? as usize;
@@ -414,11 +415,11 @@ impl FractalHeap {
             // A single root direct block of the starting size.
             let content = match &filter {
                 None => {
-                    validate_direct_block(bytes, root_block_addr, addr, o)?;
+                    validate_direct_block(source, root_block_addr, addr, o)?;
                     BlockContent::InFile(root_block_addr)
                 }
                 Some(hf) => BlockContent::Decoded(decode_filtered_direct_block(
-                    bytes,
+                    source,
                     root_block_addr,
                     hf.root_filtered_size,
                     hf.root_filter_mask,
@@ -446,7 +447,7 @@ impl FractalHeap {
             let mut blocks = Vec::new();
             let mut entries_read = 0usize;
             walk_indirect(
-                bytes,
+                source,
                 &dtable,
                 addr,
                 root_block_addr,
@@ -475,9 +476,9 @@ impl FractalHeap {
 
     /// Dereference a managed heap ID to its object bytes. The heap ID is
     /// `flags(1) + offset(offset_bytes) + length(length_bytes)`.
-    pub(crate) fn managed_object(
+    pub(crate) fn managed_object<S: ByteSource + ?Sized>(
         &self,
-        bytes: &[u8],
+        source: &S,
         id: &[u8],
     ) -> Result<Vec<u8>, FieldglassError> {
         if id.len() < self.heap_id_len {
@@ -500,15 +501,11 @@ impl FractalHeap {
         match &block.content {
             BlockContent::InFile(file_addr) => {
                 let obj_addr = checked_add(*file_addr, within)?;
-                let start = usize::try_from(obj_addr)
-                    .map_err(|_| FieldglassError::Parse("heap object address too large".into()))?;
-                let end = start
-                    .checked_add(length)
-                    .filter(|&e| e <= bytes.len())
-                    .ok_or_else(|| {
+                Ok(read_at(source, obj_addr, length)
+                    .map_err(|_| {
                         FieldglassError::Parse("heap object runs past end of file".into())
-                    })?;
-                Ok(bytes[start..end].to_vec())
+                    })?
+                    .into_owned())
             }
             BlockContent::Decoded(image) => {
                 // `within < size == image.len()`, so the start is in range —
@@ -531,13 +528,13 @@ impl FractalHeap {
 /// Confirm a direct block: the address lands on an `FHDB` signature whose
 /// back-pointer is the owning heap header. A cheap guard against mis-parsing the
 /// variable-width header.
-fn validate_direct_block(
-    bytes: &[u8],
+fn validate_direct_block<S: ByteSource + ?Sized>(
+    source: &S,
     block_addr: u64,
     heap_addr: u64,
     osize: usize,
 ) -> Result<(), FieldglassError> {
-    let mut block = Cursor::at(bytes, block_addr)?;
+    let mut block = FileCursor::at(source, block_addr)?;
     block.tag(SIG_FRACTAL_DIRECT)?;
     block.skip(1)?; // version
     if block.uint(osize)? != heap_addr {
@@ -555,8 +552,8 @@ fn validate_direct_block(
 /// back-pointer to the owning heap header — both checked here so a mis-decode
 /// surfaces as a clean error rather than feeding bad object bytes downstream.
 #[allow(clippy::too_many_arguments)]
-fn decode_filtered_direct_block(
-    bytes: &[u8],
+fn decode_filtered_direct_block<S: ByteSource + ?Sized>(
+    source: &S,
     block_addr: u64,
     filtered_size: usize,
     filter_mask: u32,
@@ -570,15 +567,10 @@ fn decode_filtered_direct_block(
             "implausible filtered direct block size".into(),
         ));
     }
-    let start = usize::try_from(block_addr)
-        .map_err(|_| FieldglassError::Parse("filtered direct block address too large".into()))?;
-    let end = start
-        .checked_add(filtered_size)
-        .filter(|&e| e <= bytes.len())
-        .ok_or_else(|| {
-            FieldglassError::Parse("filtered direct block runs past end of file".into())
-        })?;
-    let image = pipeline.reverse(bytes[start..end].to_vec(), filter_mask, 1)?;
+    let stored = read_at(source, block_addr, filtered_size).map_err(|_| {
+        FieldglassError::Parse("filtered direct block runs past end of file".into())
+    })?;
+    let image = pipeline.reverse(stored.into_owned(), filter_mask, 1)?;
     if image.len() as u64 != logical_size {
         return Err(FieldglassError::Parse(
             "filtered direct block decoded to the wrong size".into(),
@@ -688,8 +680,8 @@ impl DoublingTable {
 /// (for every slot, allocated or not), and the block bytes are decompressed
 /// before use. Child-indirect entries are unfiltered and carry no such prefix.
 #[allow(clippy::too_many_arguments)]
-fn walk_indirect(
-    bytes: &[u8],
+fn walk_indirect<S: ByteSource + ?Sized>(
+    source: &S,
     dtable: &DoublingTable,
     heap_addr: u64,
     indirect_addr: u64,
@@ -712,7 +704,7 @@ fn walk_indirect(
     }
 
     let osize = dtable.osize;
-    let mut cur = Cursor::at(bytes, indirect_addr)?;
+    let mut cur = FileCursor::at(source, indirect_addr)?;
     cur.tag(SIG_FRACTAL_INDIRECT)?;
     cur.skip(1)?; // version
     if cur.uint(osize)? != heap_addr {
@@ -758,11 +750,11 @@ fn walk_indirect(
                 if is_direct {
                     let content = match filter {
                         None => {
-                            validate_direct_block(bytes, entry_addr, heap_addr, osize)?;
+                            validate_direct_block(source, entry_addr, heap_addr, osize)?;
                             BlockContent::InFile(entry_addr)
                         }
                         Some(hf) => BlockContent::Decoded(decode_filtered_direct_block(
-                            bytes,
+                            source,
                             entry_addr,
                             filtered_size,
                             filter_mask,
@@ -782,7 +774,7 @@ fn walk_indirect(
                     // size of the heap address space, starting at `logical`.
                     let child_rows = dtable.indirect_block_rows(size)?;
                     walk_indirect(
-                        bytes,
+                        source,
                         dtable,
                         heap_addr,
                         entry_addr,
@@ -806,121 +798,9 @@ pub(crate) fn checked_add(a: u64, b: u64) -> Result<u64, FieldglassError> {
         .ok_or_else(|| FieldglassError::Parse("address arithmetic overflow".into()))
 }
 
-/// A tiny forward cursor over a byte slice, reading little-endian fields with
-/// bounds checks. `at`/`over` choose between an absolute file offset and a
-/// borrowed message body.
-pub(crate) struct Cursor<'a> {
-    bytes: &'a [u8],
-    pos: usize,
-}
-
-impl<'a> Cursor<'a> {
-    pub(crate) fn at(bytes: &'a [u8], addr: u64) -> Result<Self, FieldglassError> {
-        let pos = usize::try_from(addr)
-            .map_err(|_| FieldglassError::Parse("address too large for this platform".into()))?;
-        if pos > bytes.len() {
-            return Err(FieldglassError::Parse("address past end of file".into()));
-        }
-        Ok(Self { bytes, pos })
-    }
-
-    pub(crate) fn over(bytes: &'a [u8]) -> Self {
-        Self { bytes, pos: 0 }
-    }
-
-    pub(crate) fn uint(&mut self, width: usize) -> Result<u64, FieldglassError> {
-        let value = read_uint_le(self.bytes, self.pos, width)?;
-        self.pos += width;
-        Ok(value)
-    }
-
-    /// Read a little-endian unsigned integer of `width` bytes and narrow it to
-    /// `usize`, so a length or offset that a 32-bit target cannot address fails
-    /// the parse instead of wrapping into one it can. See
-    /// [`fieldglass_core::bytes::checked_usize`]; only the 8-byte-wide HDF5
-    /// length and offset fields can actually exceed a 32-bit `usize`.
-    pub(crate) fn usize(&mut self, width: usize) -> Result<usize, FieldglassError> {
-        checked_usize(self.uint(width)?, "HDF5 length or offset")
-    }
-
-    pub(crate) fn u16(&mut self) -> Result<u16, FieldglassError> {
-        Ok(self.uint(2)? as u16)
-    }
-
-    pub(crate) fn byte(&mut self) -> Result<u8, FieldglassError> {
-        Ok(self.uint(1)? as u8)
-    }
-
-    pub(crate) fn skip(&mut self, n: usize) -> Result<(), FieldglassError> {
-        let end = self
-            .pos
-            .checked_add(n)
-            .filter(|&e| e <= self.bytes.len())
-            .ok_or_else(|| FieldglassError::Parse("skip past end of buffer".into()))?;
-        self.pos = end;
-        Ok(())
-    }
-
-    /// The bytes from the current position to the end of the buffer.
-    pub(crate) fn remaining(&self) -> &'a [u8] {
-        &self.bytes[self.pos.min(self.bytes.len())..]
-    }
-
-    pub(crate) fn take(&mut self, n: usize) -> Result<&'a [u8], FieldglassError> {
-        let end = self
-            .pos
-            .checked_add(n)
-            .filter(|&e| e <= self.bytes.len())
-            .ok_or_else(|| FieldglassError::Parse("read past end of buffer".into()))?;
-        let out = &self.bytes[self.pos..end];
-        self.pos = end;
-        Ok(out)
-    }
-
-    pub(crate) fn tag(&mut self, signature: &[u8; 4]) -> Result<(), FieldglassError> {
-        let got = self.take(4)?;
-        if got != signature {
-            return Err(FieldglassError::Parse(format!(
-                "expected signature {:?}, got {:?}",
-                std::str::from_utf8(signature).unwrap_or("?"),
-                String::from_utf8_lossy(got)
-            )));
-        }
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_length_a_32_bit_target_cannot_address_is_an_error_not_a_wrap() {
-        // An 8-byte HDF5 length field holding 0x1_0000_0001. Narrowed with a
-        // bare `as usize` this reads as 1 where `usize` is 32 bits wide — in
-        // range, past every bounds check that follows, and the reader goes on
-        // to take one byte where the file said four gigabytes. The assertion
-        // has to hold on both widths: a 64-bit target must pass the value
-        // through unchanged, a 32-bit one must refuse it. Neither may wrap.
-        let bytes = [0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00];
-        let mut cur = Cursor::over(&bytes);
-        match cur.usize(8) {
-            Ok(n) => {
-                assert_eq!(usize::BITS, 64, "only a 64-bit target can hold this");
-                assert_eq!(n as u64, 0x1_0000_0001);
-            }
-            Err(err) => {
-                assert_eq!(usize::BITS, 32);
-                assert!(
-                    err.to_string().contains("does not fit"),
-                    "unexpected message: {err}"
-                );
-            }
-        }
-        // Four bytes or fewer always fit, on either width.
-        let mut cur = Cursor::over(&bytes);
-        assert_eq!(cur.usize(4).unwrap(), 1);
-    }
 
     fn put(buf: &mut Vec<u8>, at: usize, data: &[u8]) {
         if buf.len() < at + data.len() {

@@ -98,7 +98,7 @@ pub(crate) struct Hdf5Cache {
 }
 
 impl Hdf5Cache {
-    /// Whether the memo may answer for `bytes`.
+    /// Whether the memo may answer for `source`.
     ///
     /// Every entry here is keyed by *file offset*, which only means anything
     /// relative to the slice it was read from. A probe was always tied to its
@@ -118,8 +118,8 @@ impl Hdf5Cache {
     /// A source that will not identify itself is never served from the memo,
     /// because there is no answer that is safe: two anonymous sources may be
     /// the same bytes or may not, and guessing wrong is the wrong answer again.
-    fn usable(&self, bytes: &[u8]) -> bool {
-        let Some(identity) = bytes.identity() else {
+    fn usable<S: ByteSource + ?Sized>(&self, source: &S) -> bool {
+        let Some(identity) = source.identity() else {
             return false;
         };
         // `get_or_init` is the bind: the first caller stores its identity, and
@@ -129,21 +129,21 @@ impl Hdf5Cache {
 
     /// The object header at `offset`, parsing it only on the first request.
     ///
-    /// `bytes` must be the slice the probe was built from. That was already the
+    /// `source` must be the file the probe was built from. That was already the
     /// contract — a probe carries another file's offset sizes otherwise — but a
     /// memo makes a mismatch return *stale* data rather than a parse error, so
     /// it is worth stating.
-    pub(crate) fn header(
+    pub(crate) fn header<S: ByteSource + ?Sized>(
         &self,
-        bytes: &[u8],
+        source: &S,
         offset: u64,
         offset_size: u8,
         length_size: u8,
     ) -> Result<Arc<ObjectHeader>, FieldglassError> {
-        if !self.usable(bytes) {
+        if !self.usable(source) {
             self.traversals.fetch_add(1, Ordering::Relaxed);
             return Ok(Arc::new(object_header::walk(
-                bytes,
+                source,
                 offset,
                 offset_size,
                 length_size,
@@ -166,7 +166,7 @@ impl Hdf5Cache {
         // still share one header rather than two.
         self.traversals.fetch_add(1, Ordering::Relaxed);
         let header = Arc::new(object_header::walk(
-            bytes,
+            source,
             offset,
             offset_size,
             length_size,
@@ -185,15 +185,15 @@ impl Hdf5Cache {
     }
 
     /// The whole-file depth-first child list, walked only once.
-    pub(crate) fn children<F>(
+    pub(crate) fn children<S: ByteSource + ?Sized, F>(
         &self,
-        bytes: &[u8],
+        source: &S,
         build: F,
     ) -> Result<Arc<Vec<GroupChild>>, FieldglassError>
     where
         F: FnOnce() -> Result<Vec<GroupChild>, FieldglassError>,
     {
-        if !self.usable(bytes) {
+        if !self.usable(source) {
             return Ok(Arc::new(build()?));
         }
         if let Some(hit) = self
@@ -210,11 +210,15 @@ impl Hdf5Cache {
     }
 
     /// The root-group object-header address, read from the superblock once.
-    pub(crate) fn root<F>(&self, bytes: &[u8], build: F) -> Result<u64, FieldglassError>
+    pub(crate) fn root<S: ByteSource + ?Sized, F>(
+        &self,
+        source: &S,
+        build: F,
+    ) -> Result<u64, FieldglassError>
     where
         F: FnOnce() -> Result<u64, FieldglassError>,
     {
-        if !self.usable(bytes) {
+        if !self.usable(source) {
             return build();
         }
         if let Some(hit) = *self.root.lock().expect("hdf5 root cache poisoned") {
@@ -226,9 +230,9 @@ impl Hdf5Cache {
     }
 
     /// The chunk records behind one dataset's chunk index, collected once.
-    pub(crate) fn chunk_records<F>(
+    pub(crate) fn chunk_records<S: ByteSource + ?Sized, F>(
         &self,
-        bytes: &[u8],
+        source: &S,
         index_address: u64,
         rank: usize,
         build: F,
@@ -236,7 +240,7 @@ impl Hdf5Cache {
     where
         F: FnOnce() -> Result<Vec<ChunkRecord>, FieldglassError>,
     {
-        if !self.usable(bytes) {
+        if !self.usable(source) {
             self.traversals.fetch_add(1, Ordering::Relaxed);
             return Ok(Arc::new(build()?));
         }

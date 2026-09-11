@@ -14,8 +14,9 @@
 //!
 //! Reference: HDF5 file format specification version 3, "Global Heap".
 
-use super::heap::Cursor;
+use super::source::{Fields, FileCursor};
 use fieldglass_core::FieldglassError;
+use fieldglass_core::bytes::{ByteSource, checked_usize};
 
 const SIG_GLOBAL_HEAP: &[u8; 4] = b"GCOL";
 
@@ -29,8 +30,8 @@ const OBJECT_HEADER_FIXED: usize = 8;
 /// Read the bytes of the object with `object_index` from the global-heap
 /// collection at `collection_addr`. `length_size` is the superblock's size of
 /// lengths (the width of the collection-size and object-size fields).
-pub fn read_object(
-    bytes: &[u8],
+pub fn read_object<S: ByteSource + ?Sized>(
+    source: &S,
     collection_addr: u64,
     object_index: u16,
     length_size: u8,
@@ -41,15 +42,20 @@ pub fn read_object(
         ));
     }
     let l = length_size as usize;
-    let start = usize::try_from(collection_addr)
-        .map_err(|_| FieldglassError::Parse("global-heap address too large".into()))?;
-    let mut cur = Cursor::at(bytes, collection_addr)?;
+    let mut cur = FileCursor::at(source, collection_addr)?;
     cur.tag(SIG_GLOBAL_HEAP)?;
     cur.skip(4)?; // version (1) + reserved (3)
     // The declared collection size counts the whole collection (header + objects).
     // Clamp it to the bytes actually on disk so a corrupt size can't make the
     // budget arithmetic below overflow or run past the file.
-    let available = bytes.len() - start;
+    // `saturating_sub` rather than a bare one: the cursor above already refused
+    // an address past the end of the file, so this cannot go negative — but a
+    // subtraction that is only correct because of a check several lines away is
+    // the kind that survives a reordering and underflows.
+    let available = checked_usize(
+        source.size().saturating_sub(collection_addr),
+        "global-heap collection tail",
+    )?;
     let collection_size = cur.usize(l)?.min(available);
     // The collection size counts the 8-byte signature/version/reserved block plus
     // the length field, so the object run is whatever remains after the header.

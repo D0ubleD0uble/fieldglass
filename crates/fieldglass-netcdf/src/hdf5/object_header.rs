@@ -22,8 +22,9 @@
 //! Reference: HDF5 file format specification version 3, "Disk Format: Level 2A
 //! — Data Object Headers" <https://docs.hdfgroup.org/hdf5/develop/_f_m_t3.html>.
 
+use super::source::{read_at, read_up_to};
 use fieldglass_core::FieldglassError;
-use fieldglass_core::bytes::checked_usize;
+use fieldglass_core::bytes::{ByteSource, checked_usize};
 use std::collections::VecDeque;
 
 /// Object-header continuation message (points at the next chunk of messages).
@@ -62,21 +63,37 @@ pub struct HeaderMessage {
     pub body: Vec<u8>,
 }
 
+/// How much of a header is read before its version is known.
+///
+/// A version-1 prefix is 16 bytes and a version-2 one at most 34 (signature,
+/// version, flags, the optional time and phase-change fields, and an 8-byte
+/// chunk-0 size), so this covers either with room to spare — and it is one read
+/// rather than one per field, which is what a transport charges for.
+const HEADER_PROBE_BYTES: usize = 64;
+
 /// Walk the object header at `offset`, returning its messages.
 ///
 /// `offset_size` / `length_size` are the superblock's "size of offsets" and
 /// "size of lengths" — needed to read continuation-message addresses/lengths.
-pub fn walk(
-    bytes: &[u8],
+///
+/// Reads through [`ByteSource`] (#682): the header prefix, then one read per
+/// header chunk. A header is a chain of dependent reads by construction — the
+/// address of chunk *N+1* lives inside chunk *N* — so there is no plan to
+/// prefetch here, which is what [ADR-0005] records about HDF5 and why the
+/// per-file traversal memo exists (#414).
+///
+/// [ADR-0005]: https://github.com/D0ubleD0uble/fieldglass/blob/master/docs/decisions/0005-byte-access-and-the-remote-seam.md
+pub fn walk<S: ByteSource + ?Sized>(
+    source: &S,
     offset: u64,
     offset_size: u8,
     length_size: u8,
 ) -> Result<ObjectHeader, FieldglassError> {
-    let start = usize_at(offset)?;
-    if matches!(bytes.get(start..), Some(rest) if rest.starts_with(OHDR_SIGNATURE)) {
-        parse_v2(bytes, start, offset_size, length_size)
-    } else if bytes.get(start) == Some(&1) {
-        parse_v1(bytes, start, offset_size, length_size)
+    let prefix = read_up_to(source, offset, HEADER_PROBE_BYTES)?;
+    if prefix.starts_with(OHDR_SIGNATURE) {
+        parse_v2(source, offset, &prefix, offset_size, length_size)
+    } else if prefix.first() == Some(&1) {
+        parse_v1(source, offset, &prefix, offset_size, length_size)
     } else {
         Err(FieldglassError::Parse(format!(
             "no recognizable object header at offset {offset} (expected v1 prefix or OHDR)"
@@ -86,21 +103,22 @@ pub fn walk(
 
 /// Version-1 object header: 12-byte prefix, 4 bytes of padding, then the
 /// chunk-0 messages, with continuation messages pointing at bare message runs.
-fn parse_v1(
-    bytes: &[u8],
-    start: usize,
+fn parse_v1<S: ByteSource + ?Sized>(
+    source: &S,
+    start: u64,
+    prefix: &[u8],
     offset_size: u8,
     length_size: u8,
 ) -> Result<ObjectHeader, FieldglassError> {
     // Prefix: version(1) reserved(1) num_messages(2) ref_count(4) size(4) = 12,
     // then 4 bytes of padding so messages begin on an 8-byte boundary.
-    let header_size = read_usize_le(bytes, start + 8, 4)?;
+    let header_size = read_usize_le(prefix, 8, 4)?;
     let messages_start = start
         .checked_add(16)
         .ok_or_else(|| FieldglassError::Parse("v1 object header offset overflow".into()))?;
 
     let mut messages = Vec::new();
-    let mut queue: VecDeque<(usize, usize)> = VecDeque::new();
+    let mut queue: VecDeque<(u64, usize)> = VecDeque::new();
     queue.push_back((messages_start, header_size));
 
     let mut chunks = 0usize;
@@ -111,12 +129,13 @@ fn parse_v1(
                 "too many object-header continuation chunks".into(),
             ));
         }
-        let run = slice(bytes, run_start, run_len)?;
+        // One read for the whole run, then a purely local parse of it.
+        let run = read_at(source, run_start, run_len)?;
         let mut pos = 0usize;
         // Each message header is 8 bytes; stop when a header no longer fits.
         while pos + 8 <= run_len {
-            let msg_type = read_uint_le(run, pos, 2)? as u16;
-            let data_size = read_usize_le(run, pos + 2, 2)?;
+            let msg_type = read_uint_le(&run, pos, 2)? as u16;
+            let data_size = read_usize_le(&run, pos + 2, 2)?;
             let flags = run[pos + 4];
             let body_start = pos + 8;
             let body_end = body_start
@@ -149,26 +168,29 @@ fn parse_v1(
 /// Version-2 object header: `OHDR` signature, flag-driven field widths, then
 /// chunk-0 messages followed by a lookup3 checksum. Continuation messages point
 /// at `OCHK` chunks that carry their own signature and checksum.
-fn parse_v2(
-    bytes: &[u8],
-    start: usize,
+fn parse_v2<S: ByteSource + ?Sized>(
+    source: &S,
+    start: u64,
+    prefix: &[u8],
     offset_size: u8,
     length_size: u8,
 ) -> Result<ObjectHeader, FieldglassError> {
     // OHDR(4) version(1) flags(1), then optional time/phase-change fields.
     // The signature was matched by the caller; only version 2 is defined.
-    let version = *bytes
-        .get(start + 4)
+    let version = *prefix
+        .get(4)
         .ok_or_else(|| FieldglassError::Parse("truncated v2 object header".into()))?;
     if version != 2 {
         return Err(FieldglassError::Parse(format!(
             "unsupported v2 object-header version {version}"
         )));
     }
-    let flags = *bytes
-        .get(start + 5)
+    let flags = *prefix
+        .get(5)
         .ok_or_else(|| FieldglassError::Parse("truncated v2 object header".into()))?;
-    let mut pos = start + 6;
+    // Every position here is relative to the start of the header, so the whole
+    // of chunk 0 can be taken in one read below and indexed locally.
+    let mut pos = 6usize;
     if flags & 0x20 != 0 {
         pos += 16; // access/modification/change/birth times
     }
@@ -177,23 +199,26 @@ fn parse_v2(
     }
     // Bits 0-1 select the width of the "size of chunk 0" field: 1, 2, 4, or 8.
     let size_width = 1usize << (flags & 0x03);
-    let chunk0_size = read_usize_le(bytes, pos, size_width)?;
+    let chunk0_size = read_usize_le(prefix, pos, size_width)?;
     pos += size_width;
 
     let track_creation_order = flags & 0x04 != 0;
 
     let mut messages = Vec::new();
-    let mut queue: VecDeque<(usize, usize)> = VecDeque::new();
+    let mut queue: VecDeque<(u64, usize)> = VecDeque::new();
 
-    // Chunk 0 ends with a 4-byte checksum over [start .. checksum_pos).
-    let checksum_pos = pos
+    // Chunk 0 is the prefix, the messages, and a 4-byte checksum over
+    // everything before it. One read covers all three.
+    let checksum_at = pos
         .checked_add(chunk0_size)
         .ok_or_else(|| FieldglassError::Parse("v2 chunk-0 size overflow".into()))?;
-    verify_checksum(bytes, start, checksum_pos)?;
+    let image_len = checksum_at
+        .checked_add(4)
+        .ok_or_else(|| FieldglassError::Parse("v2 chunk-0 size overflow".into()))?;
+    let image = read_at(source, start, image_len)?;
+    verify_checksum(&image, checksum_at)?;
     parse_v2_run(
-        bytes,
-        pos,
-        chunk0_size,
+        &image[pos..checksum_at],
         track_creation_order,
         offset_size,
         length_size,
@@ -215,20 +240,17 @@ fn parse_v2(
                 "v2 continuation chunk too small for OCHK framing".into(),
             ));
         }
-        // Bounds-check the whole chunk up front so the address arithmetic below
-        // can't overflow on a malformed continuation pointer.
-        let chunk = slice(bytes, chunk_start, chunk_len)?;
+        // One read for the whole chunk, which is also what bounds the address
+        // arithmetic below: a malformed continuation pointer fails here.
+        let chunk = read_at(source, chunk_start, chunk_len)?;
         if !chunk.starts_with(OCHK_SIGNATURE) {
             return Err(FieldglassError::Parse(
                 "v2 continuation chunk missing OCHK signature".into(),
             ));
         }
-        let checksum_pos = chunk_start + chunk_len - 4;
-        verify_checksum(bytes, chunk_start, checksum_pos)?;
+        verify_checksum(&chunk, chunk_len - 4)?;
         parse_v2_run(
-            bytes,
-            chunk_start + 4,
-            chunk_len - 8,
+            &chunk[4..chunk_len - 4],
             track_creation_order,
             offset_size,
             length_size,
@@ -243,19 +265,16 @@ fn parse_v2(
     })
 }
 
-/// Parse a run of version-2 messages from `[run_start, run_start + run_len)`.
-#[allow(clippy::too_many_arguments)]
+/// Parse a run of version-2 messages out of a chunk image already read.
 fn parse_v2_run(
-    bytes: &[u8],
-    run_start: usize,
-    run_len: usize,
+    run: &[u8],
     track_creation_order: bool,
     offset_size: u8,
     length_size: u8,
     messages: &mut Vec<HeaderMessage>,
-    queue: &mut VecDeque<(usize, usize)>,
+    queue: &mut VecDeque<(u64, usize)>,
 ) -> Result<(), FieldglassError> {
-    let run = slice(bytes, run_start, run_len)?;
+    let run_len = run.len();
     // Header is type(1) size(2) flags(1), plus a 2-byte creation order when the
     // header tracks it.
     let header_len = if track_creation_order { 6 } else { 4 };
@@ -289,7 +308,7 @@ fn enqueue_continuation(
     body: &[u8],
     offset_size: u8,
     length_size: u8,
-    queue: &mut VecDeque<(usize, usize)>,
+    queue: &mut VecDeque<(u64, usize)>,
 ) -> Result<(), FieldglassError> {
     let osize = offset_size as usize;
     let lsize = length_size as usize;
@@ -300,7 +319,10 @@ fn enqueue_continuation(
     }
     let address = read_uint_le(body, 0, osize)?;
     let length = read_uint_le(body, osize, lsize)?;
-    queue.push_back((usize_at(address)?, usize_at(length)?));
+    if address == u64::MAX {
+        return Err(FieldglassError::Parse("undefined HDF5 address".into()));
+    }
+    queue.push_back((address, checked_usize(length, "HDF5 length or offset")?));
     Ok(())
 }
 
@@ -324,16 +346,15 @@ fn push_message(
     Ok(())
 }
 
-/// Verify the 4-byte little-endian lookup3 checksum stored at `checksum_pos`
-/// against the bytes `[start, checksum_pos)`.
-fn verify_checksum(bytes: &[u8], start: usize, checksum_pos: usize) -> Result<(), FieldglassError> {
-    if checksum_pos < start {
-        return Err(FieldglassError::Parse(
-            "checksum precedes chunk start".into(),
-        ));
-    }
-    let region = slice(bytes, start, checksum_pos - start)?;
-    let stored = read_uint_le(bytes, checksum_pos, 4)? as u32;
+/// Verify the 4-byte little-endian lookup3 checksum a chunk stores at
+/// `checksum_at`, against everything in the chunk before it.
+///
+/// Takes the chunk image rather than the file: the read that fetched the chunk
+/// covered the checksum too, so re-reading it would be a second round trip for
+/// bytes already in hand.
+fn verify_checksum(image: &[u8], checksum_at: usize) -> Result<(), FieldglassError> {
+    let region = slice(image, 0, checksum_at)?;
+    let stored = read_uint_le(image, checksum_at, 4)? as u32;
     let computed = checksum_lookup3(region);
     if stored != computed {
         return Err(FieldglassError::Parse(format!(
@@ -495,20 +516,9 @@ fn slice(bytes: &[u8], at: usize, len: usize) -> Result<&[u8], FieldglassError> 
         .ok_or_else(|| FieldglassError::Parse("offset + length overflow".into()))?;
     bytes.get(at..end).ok_or_else(|| {
         FieldglassError::Parse(format!(
-            "read of {len} bytes at {at} runs past end of file ({} bytes)",
+            "read of {len} bytes at {at} runs past end of the {} bytes in hand",
             bytes.len()
         ))
-    })
-}
-
-/// Convert a file address to a `usize` index, rejecting the HDF5 "undefined
-/// address" sentinel (all `0xFF`) and anything too large for the platform.
-fn usize_at(address: u64) -> Result<usize, FieldglassError> {
-    if address == u64::MAX {
-        return Err(FieldglassError::Parse("undefined HDF5 address".into()));
-    }
-    usize::try_from(address).map_err(|_| {
-        FieldglassError::Parse(format!("address {address} too large for this platform"))
     })
 }
 
@@ -661,7 +671,7 @@ mod tests {
 
     #[test]
     fn unrecognized_header_errors() {
-        let err = walk(&[0xFFu8; 32], 0, 8, 8).unwrap_err();
+        let err = walk(&[0xFFu8; 32][..], 0, 8, 8).unwrap_err();
         assert!(matches!(err, FieldglassError::Parse(_)));
     }
 
