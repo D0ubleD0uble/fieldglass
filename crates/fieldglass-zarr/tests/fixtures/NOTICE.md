@@ -99,6 +99,12 @@ test the walk and the region read.
 | `v2_problems` | A `bz2` array (listed; reading it fails), a `<U4` array and a dimension-length clash (both left out), beside an array that reads. |
 | `cf_v2`, `cf_v3` | One xarray dataset written in each edition: a packed `int16` with `scale_factor`, `add_offset` and `_FillValue`, and a float with a `-9999` sentinel. Their physical values are xarray's own decode. |
 
+`cf_twin.nc` is the CF stores' dataset again, as NetCDF-4, written by the same
+script with `--twin-only` (xarray 2026.7.0 through netCDF4-python). It is the
+input that shows a Zarr store and a NetCDF file place a slice by the same rules
+(#704): `crates/fieldglass/tests/zarr_netcdf_twins.rs` reads all three through
+`Session` and requires the same answers.
+
 The expected attributes apply the two things xarray does to `_FillValue` — v2
 keeps it as the array's `fill_value`, and v3 writes a float one as base64 of its
 bytes — computed in the script independently of the Rust that undoes them.

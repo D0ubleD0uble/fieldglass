@@ -59,6 +59,7 @@ use std::ops::Range;
 use fieldglass_core::FieldglassError;
 use fieldglass_core::array::{
     ArrayDescription, ArraySource, Attribute, AttributeValue, Dimension, ElementType, Group,
+    PhonyDimensions,
 };
 use fieldglass_core::bytes::ObjectSource;
 use serde_json::{Map, Value};
@@ -390,6 +391,9 @@ fn build(
     let mut groups: BTreeMap<String, GroupParts> = BTreeMap::new();
     let mut arrays = BTreeMap::new();
     let mut problems = Vec::new();
+    // One allocator per group, so an unnamed axis is shared only with arrays
+    // beside it — the scope a named dimension has here too.
+    let mut phony: BTreeMap<String, PhonyDimensions> = BTreeMap::new();
     ensure_groups(&mut groups, "");
 
     for (path, node) in &nodes {
@@ -412,7 +416,9 @@ fn build(
         };
         let home = parent(&path).to_string();
         ensure_groups(&mut groups, &home);
-        let (description, meta) = match describe(&path, &document, &attributes, edition) {
+        let allocator = phony.entry(home.clone()).or_default();
+        let (description, meta) = match describe(&path, &document, &attributes, edition, allocator)
+        {
             Ok(described) => described,
             Err(why) => {
                 problems.push((path, why.to_string()));
@@ -492,28 +498,39 @@ fn describe(
     document: &Value,
     attributes: &Map<String, Value>,
     edition: u8,
+    phony: &mut PhonyDimensions,
 ) -> Result<(ArrayDescription, ArrayMetadata), FieldglassError> {
     let meta = ArrayMetadata::from_value(document, edition)?;
     let name = leaf(path).to_string();
     let rank = meta.grid().rank();
 
     // v3 states the names in the array document; v2 has none, and xarray's
-    // convention is an `_ARRAY_DIMENSIONS` attribute. Either way a list of
-    // the wrong length, or an axis left unnamed, falls back to a name that is
-    // the array's own, so it is never shared by accident with another array
-    // whose axis merely has the same position.
-    let stated = match edition {
-        3 => document.get("dimension_names"),
-        _ => attributes.get("_ARRAY_DIMENSIONS"),
-    }
-    .and_then(Value::as_array)
-    .filter(|names| names.len() == rank);
-    let dimensions = (0..rank)
-        .map(|axis| {
-            stated
-                .and_then(|names| names[axis].as_str())
-                .map_or_else(|| unnamed_axis(&name, axis), str::to_string)
-        })
+    // convention is an `_ARRAY_DIMENSIONS` attribute. An axis left unnamed —
+    // or every axis, when the list is the wrong length — is named the way
+    // netCDF-C names an HDF5 dataset's anonymous axes (`phony_dim_N`, shared
+    // by extent within the group), so a NetCDF file and a Zarr store of the
+    // same shape present the same axes (#704).
+    let stated: Vec<Option<String>> = {
+        let names = match edition {
+            3 => document.get("dimension_names"),
+            _ => attributes.get("_ARRAY_DIMENSIONS"),
+        }
+        .and_then(Value::as_array)
+        .filter(|names| names.len() == rank);
+        (0..rank)
+            .map(|axis| names.and_then(|n| n[axis].as_str()).map(str::to_string))
+            .collect()
+    };
+    let unnamed: Vec<u64> = stated
+        .iter()
+        .zip(meta.grid().shape())
+        .filter(|(name, _)| name.is_none())
+        .map(|(_, length)| *length)
+        .collect();
+    let mut invented = phony.axes_for(&unnamed, &[]).into_iter();
+    let dimensions = stated
+        .into_iter()
+        .map(|name| name.or_else(|| invented.next()).unwrap_or_default())
         .collect();
 
     let mut attributes = attributes_of(attributes);
@@ -529,16 +546,6 @@ fn describe(
         },
         meta,
     ))
-}
-
-/// The name an axis the store leaves unnamed gets: `temp_dim1` for the second
-/// axis of `temp`, `dim0` for the first axis of an array at the store root.
-fn unnamed_axis(array: &str, axis: usize) -> String {
-    if array.is_empty() {
-        format!("dim{axis}")
-    } else {
-        format!("{array}_dim{axis}")
-    }
 }
 
 /// The two ways xarray keeps `_FillValue` somewhere core's CF rule would not
@@ -622,72 +629,6 @@ fn element_count(extents: &[u64]) -> Result<usize, FieldglassError> {
 }
 
 #[cfg(feature = "codecs")]
-/// Row-major strides for a box of `extents`.
-fn strides(extents: &[u64]) -> Vec<u64> {
-    let mut out = vec![1u64; extents.len()];
-    for axis in (0..extents.len().saturating_sub(1)).rev() {
-        out[axis] = out[axis + 1] * extents[axis + 1];
-    }
-    out
-}
-
-#[cfg(feature = "codecs")]
-/// Copy the part of one decoded block that falls inside `region` into `out`.
-///
-/// The block is `block_shape` elements with its first at `origin`; `out` is
-/// the region, `lens` long on each axis. A block at a ragged edge is stored
-/// full-size, and because the region never reaches past the array, the part
-/// beyond the edge is never inside it — the intersection is the trim.
-fn copy_block(
-    block: &[Option<f64>],
-    block_shape: &[u64],
-    origin: &[u64],
-    region: &[Range<u64>],
-    lens: &[u64],
-    out: &mut [Option<f64>],
-) {
-    let rank = region.len();
-    if rank == 0 {
-        if let (Some(slot), Some(value)) = (out.first_mut(), block.first()) {
-            *slot = *value;
-        }
-        return;
-    }
-    let lo: Vec<u64> = (0..rank).map(|d| origin[d].max(region[d].start)).collect();
-    let hi: Vec<u64> = (0..rank)
-        .map(|d| (origin[d] + block_shape[d]).min(region[d].end))
-        .collect();
-    if (0..rank).any(|d| lo[d] >= hi[d]) {
-        return;
-    }
-    let (from, to) = (strides(block_shape), strides(lens));
-    let last = rank - 1;
-    // `hi - lo` along the last axis is within one block, so it fits.
-    let run = (hi[last] - lo[last]) as usize;
-    let mut at = lo.clone();
-    loop {
-        let src: u64 = (0..rank).map(|d| (at[d] - origin[d]) * from[d]).sum();
-        let dst: u64 = (0..rank).map(|d| (at[d] - region[d].start) * to[d]).sum();
-        // Both are offsets into buffers whose lengths were checked against
-        // `MAX_REGION_ELEMENTS`, so they fit a `usize`.
-        let (src, dst) = (src as usize, dst as usize);
-        out[dst..dst + run].copy_from_slice(&block[src..src + run]);
-        let mut axis = last;
-        loop {
-            if axis == 0 {
-                return;
-            }
-            axis -= 1;
-            at[axis] += 1;
-            if at[axis] < hi[axis] {
-                break;
-            }
-            at[axis] = lo[axis];
-        }
-    }
-}
-
-#[cfg(feature = "codecs")]
 fn read<O: ObjectSource>(
     objects: &O,
     array: &StoredArray,
@@ -745,7 +686,7 @@ fn read<O: ObjectSource>(
             )));
         }
         let origin: Vec<u64> = index.iter().zip(chunk_shape).map(|(i, c)| i * c).collect();
-        copy_block(&block, chunk_shape, &origin, region, &lens, &mut out);
+        fieldglass_core::array::copy_block(&block, chunk_shape, &origin, region, &mut out);
     }
     Ok(out)
 }
@@ -787,7 +728,7 @@ fn shard_block(
             origin[axis] = (rest % per_shard[axis]) * inner[axis];
             rest /= per_shard[axis];
         }
-        copy_block(&values, &inner, &origin, &whole, shard_shape, &mut out);
+        fieldglass_core::array::copy_block(&values, &inner, &origin, &whole, &mut out);
     }
     Ok(out)
 }
@@ -808,6 +749,7 @@ fn read<O: ObjectSource>(
 #[cfg(all(test, feature = "codecs"))]
 mod tests {
     use super::*;
+    use fieldglass_core::array::copy_block;
 
     /// Copying a block into a region takes exactly the intersection, in the
     /// right places, for a block that straddles the region's corner.
@@ -817,9 +759,8 @@ mod tests {
         // columns 4..7 of some larger array.
         let block: Vec<Option<f64>> = (0..6).map(|v| Some(f64::from(v))).collect();
         let region = [1..3, 4..7];
-        let lens = [2, 3];
         let mut out = vec![None; 6];
-        copy_block(&block, &[2, 3], &[2, 3], &region, &lens, &mut out);
+        copy_block(&block, &[2, 3], &[2, 3], &region, &mut out);
         // Only row 2 of the array (the block's first row) is in the region,
         // and within it columns 4 and 5 (block columns 1 and 2).
         assert_eq!(out, vec![None, None, None, Some(1.0), Some(2.0), None]);
@@ -829,7 +770,7 @@ mod tests {
     #[test]
     fn a_zero_dimensional_block_is_its_one_value() {
         let mut out = vec![None];
-        copy_block(&[Some(7.0)], &[], &[], &[], &[], &mut out);
+        copy_block(&[Some(7.0)], &[], &[], &[], &mut out);
         assert_eq!(out, vec![Some(7.0)]);
     }
 

@@ -14,11 +14,10 @@
 //! [`lead_time`] (the forecast-lead rules the two editions share), the three
 //! grids that arrive as something other than a rectangle of values — [`sht`],
 //! [`matrix`], and [`healpix`] — [`global_grid`], the lat/lon grid the
-//! first and last of those are put onto, and [`spatial_index`], which
-//! `fieldglass-netcdf` builds over a swath's 2-D coordinate arrays so a grid
-//! that is a list of cell centres can be placed like any other (#549), and
-//! [`array`](mod@array), the dataset structure — dimensions, attributes, array
-//! descriptions — `fieldglass-netcdf` describes a file in (#684).
+//! first and last of those are put onto, [`array`](mod@array), the dataset
+//! structure — dimensions, attributes, array descriptions — `fieldglass-netcdf`
+//! describes a file in (#684), and [`cf`], the CF conventions read over that
+//! structure: which arrays render, and where a slice of one is placed (#704).
 //! <!-- /parsing-surface -->
 //!
 //! What those modules have in common is that none of them is behind a feature,
@@ -26,7 +25,8 @@
 //! builds the three format crate libraries against a `core` with every feature
 //! off, so reaching for gated code fails there rather than at a consumer — and
 //! checks the list above against what those libraries actually name, which is
-//! the stronger claim the sentence is making. `detect` and `units` are ungated
+//! the stronger claim the sentence is making. `detect`, `units` and
+//! `spatial_index` (which `cf` builds over a swath's coordinates) are ungated
 //! too and are deliberately not on it: no format crate library uses them, and
 //! a list that quietly grows says nothing about how small the surface is.
 //!
@@ -71,6 +71,7 @@ pub mod array;
 pub mod bits;
 pub mod bytes;
 pub mod cct_tables;
+pub mod cf;
 #[cfg(feature = "render")]
 pub mod colormap;
 /// Generated colormap anchor tables (`tools/gen_colormaps.py`).

@@ -785,6 +785,165 @@ pub trait ArraySource {
     }
 }
 
+/// Row-major strides for a box of `extents`.
+fn strides(extents: &[u64]) -> Vec<u64> {
+    let mut out = vec![1u64; extents.len()];
+    for axis in (0..extents.len().saturating_sub(1)).rev() {
+        out[axis] = out[axis + 1] * extents[axis + 1];
+    }
+    out
+}
+
+/// Copy the part of one block of an array that falls inside `region` into
+/// `out`, which holds the region in C order.
+///
+/// The block is `block_shape` elements with its first at `origin`. A Zarr
+/// chunk at a ragged edge is stored full-size, and because a region never
+/// reaches past the array, the part beyond the edge is never inside it — the
+/// intersection is the trim. A container that decodes a whole array at once
+/// (a NetCDF variable) is one block at the origin, and this is the region cut
+/// out of it. `out` must be the product of the region's lengths long; a block
+/// shorter than its shape leaves the cells it lacks untouched.
+///
+/// Written once for both (#704): the Zarr walker assembles chunks with it, the
+/// NetCDF array source cuts a region out of a decoded variable with it.
+pub fn copy_block(
+    block: &[Option<f64>],
+    block_shape: &[u64],
+    origin: &[u64],
+    region: &[Range<u64>],
+    out: &mut [Option<f64>],
+) {
+    let rank = region.len();
+    if rank == 0 {
+        if let (Some(slot), Some(value)) = (out.first_mut(), block.first()) {
+            *slot = *value;
+        }
+        return;
+    }
+    let lens: Vec<u64> = region
+        .iter()
+        .map(|r| r.end.saturating_sub(r.start))
+        .collect();
+    let lo: Vec<u64> = (0..rank).map(|d| origin[d].max(region[d].start)).collect();
+    let hi: Vec<u64> = (0..rank)
+        .map(|d| (origin[d] + block_shape[d]).min(region[d].end))
+        .collect();
+    if (0..rank).any(|d| lo[d] >= hi[d]) {
+        return;
+    }
+    let (from, to) = (strides(block_shape), strides(&lens));
+    let last = rank - 1;
+    // `hi - lo` along the last axis is within one block, so it fits.
+    let run = (hi[last] - lo[last]) as usize;
+    let mut at = lo.clone();
+    loop {
+        let src: u64 = (0..rank).map(|d| (at[d] - origin[d]) * from[d]).sum();
+        let dst: u64 = (0..rank).map(|d| (at[d] - region[d].start) * to[d]).sum();
+        // Offsets into buffers the caller sized, so they fit a `usize`.
+        let (src, dst) = (src as usize, dst as usize);
+        if let (Some(target), Some(source)) =
+            (out.get_mut(dst..dst + run), block.get(src..src + run))
+        {
+            target.copy_from_slice(source);
+        }
+        let mut axis = last;
+        loop {
+            if axis == 0 {
+                return;
+            }
+            axis -= 1;
+            at[axis] += 1;
+            if at[axis] < hi[axis] {
+                break;
+            }
+            at[axis] = lo[axis];
+        }
+    }
+}
+
+/// One anonymous axis [`PhonyDimensions`] invented.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PhonyDimension {
+    /// `phony_dim_N`.
+    pub name: String,
+    /// How many points it has.
+    pub length: u64,
+    /// Whether any array using it says it can grow.
+    pub unlimited: bool,
+}
+
+/// Names the axes of arrays that name none, by netCDF-C's rule, so that
+/// `ncdump -h`, the NetCDF-4 reader and the Zarr walker all call the same axis
+/// the same thing (moved from `fieldglass-netcdf` for #704, so the Zarr walker
+/// uses it rather than a second rule).
+///
+/// Measured against netCDF-C (through netCDF4-python) on a file whose datasets
+/// deliberately repeat, differ and transpose their shapes:
+///
+/// ```text
+/// a_8x8 → (phony_dim_0=8, phony_dim_1=8)    b_8x8 → (phony_dim_0, phony_dim_1)
+/// c_4x6 → (phony_dim_2=4, phony_dim_3=6)    d_6x4 → (phony_dim_3, phony_dim_2)
+/// e_1d7 → (phony_dim_4=7)
+/// ```
+///
+/// So the rule is per *axis*, not per shape: reuse the lowest-numbered existing
+/// anonymous axis of that extent which this array is not already using, and
+/// otherwise allocate the next number. `a_8x8` is the case that rules out
+/// deduplicating by length alone — both its axes are 8 long and it still gets
+/// two — and `d_6x4` is the case that rules out matching whole shapes, since it
+/// reuses `c_4x6`'s pair transposed.
+#[derive(Debug, Default)]
+pub struct PhonyDimensions {
+    /// The length of `phony_dim_N`, indexed by `N`.
+    lengths: Vec<u64>,
+    /// Whether `phony_dim_N` is extensible. netCDF-C carries `H5S_UNLIMITED`
+    /// through to the dimension it invents — `hdf5_ea_chunk_index.h5` reads back
+    /// as `phony_dim_0 = 600 (unlimited)` — so this does too.
+    unlimited: Vec<bool>,
+}
+
+impl PhonyDimensions {
+    /// The ordered axis names for an array of these extents, allocating as it
+    /// goes. `unlimited_axes` may be shorter than `extents`; a missing entry is
+    /// a fixed axis.
+    pub fn axes_for(&mut self, extents: &[u64], unlimited_axes: &[bool]) -> Vec<String> {
+        let mut taken: Vec<usize> = Vec::with_capacity(extents.len());
+        for (axis, &length) in extents.iter().enumerate() {
+            let extensible = unlimited_axes.get(axis).copied().unwrap_or(false);
+            let existing =
+                (0..self.lengths.len()).find(|i| self.lengths[*i] == length && !taken.contains(i));
+            let index = match existing {
+                Some(i) => i,
+                None => {
+                    self.lengths.push(length);
+                    self.unlimited.push(false);
+                    self.lengths.len() - 1
+                }
+            };
+            // Shared by extent, so two arrays can disagree about whether the
+            // axis grows. One writer saying it does is enough: the dimension
+            // describes what the container permits, not what any one array uses.
+            self.unlimited[index] |= extensible;
+            taken.push(index);
+        }
+        taken.iter().map(|i| format!("phony_dim_{i}")).collect()
+    }
+
+    /// Everything allocated so far, in allocation order.
+    pub fn dimensions(&self) -> Vec<PhonyDimension> {
+        self.lengths
+            .iter()
+            .enumerate()
+            .map(|(index, &length)| PhonyDimension {
+                name: format!("phony_dim_{index}"),
+                length,
+                unlimited: self.unlimited[index],
+            })
+            .collect()
+    }
+}
+
 /// The CF mask-and-scale an array's attributes call for, read once.
 ///
 /// # The rule, stated in one place
@@ -1353,5 +1512,99 @@ mod tests {
                 .is_none()
         );
         assert!(attribute(&attrs, "absent").is_none());
+    }
+}
+
+/// The anonymous-axis rule, pinned against netCDF-C (moved with
+/// [`PhonyDimensions`] from `fieldglass-netcdf` for #704).
+///
+/// These are the exact names netCDF-C gives a scale-less file whose datasets
+/// repeat, differ and transpose their shapes — read back through netCDF4-python
+/// and reproduced here so the rule cannot drift silently. `fieldglass-netcdf`'s
+/// `hdf5_phony_dims.rs` checks the same expectations end to end on the
+/// fixture `build_hdf5_fixtures.py` writes.
+#[cfg(test)]
+mod phony_tests {
+    use super::*;
+
+    fn lengths(phony: &PhonyDimensions) -> Vec<u64> {
+        phony.dimensions().iter().map(|d| d.length).collect()
+    }
+
+    #[test]
+    fn anonymous_dimensions_are_numbered_the_way_netcdf_c_numbers_them() {
+        let mut phony = PhonyDimensions::default();
+
+        // Two axes of the same length still get two dimensions: an anonymous
+        // dimension is per axis, not per distinct length.
+        assert_eq!(phony.axes_for(&[8, 8], &[]), ["phony_dim_0", "phony_dim_1"]);
+        // An identical shape reuses them rather than allocating more.
+        assert_eq!(phony.axes_for(&[8, 8], &[]), ["phony_dim_0", "phony_dim_1"]);
+        // New extents allocate.
+        assert_eq!(phony.axes_for(&[4, 6], &[]), ["phony_dim_2", "phony_dim_3"]);
+        // A transposed shape reuses the same pair the other way round, which is
+        // what rules out matching whole shapes instead of individual extents.
+        assert_eq!(phony.axes_for(&[6, 4], &[]), ["phony_dim_3", "phony_dim_2"]);
+        assert_eq!(phony.axes_for(&[7], &[]), ["phony_dim_4"]);
+
+        assert_eq!(
+            phony
+                .dimensions()
+                .iter()
+                .map(|d| (d.name.as_str(), d.length, d.unlimited))
+                .collect::<Vec<_>>(),
+            [
+                ("phony_dim_0", 8, false),
+                ("phony_dim_1", 8, false),
+                ("phony_dim_2", 4, false),
+                ("phony_dim_3", 6, false),
+                ("phony_dim_4", 7, false),
+            ]
+        );
+    }
+
+    /// Three axes of one length need three dimensions, not two — the `taken`
+    /// check has to exclude everything this array already holds, not just the
+    /// one it matched last.
+    #[test]
+    fn an_array_never_reuses_a_dimension_within_itself() {
+        let mut phony = PhonyDimensions::default();
+        assert_eq!(
+            phony.axes_for(&[5, 5, 5], &[]),
+            ["phony_dim_0", "phony_dim_1", "phony_dim_2"]
+        );
+        assert_eq!(lengths(&phony), [5, 5, 5]);
+    }
+
+    /// A dimension is shared by extent, so two arrays can disagree about
+    /// whether that axis grows. One writer saying it does is enough — the
+    /// dimension describes what the container permits.
+    #[test]
+    fn a_shared_dimension_is_unlimited_if_any_user_says_so() {
+        let mut phony = PhonyDimensions::default();
+        // Bounded first, then the same extent declared extensible.
+        assert_eq!(phony.axes_for(&[4], &[false]), ["phony_dim_0"]);
+        assert_eq!(phony.axes_for(&[4], &[true]), ["phony_dim_0"]);
+        assert!(phony.dimensions()[0].unlimited);
+
+        // And it does not leak the other way: an untouched dimension stays bounded.
+        let mut bounded = PhonyDimensions::default();
+        bounded.axes_for(&[4, 9], &[true, false]);
+        assert_eq!(
+            bounded
+                .dimensions()
+                .iter()
+                .map(|d| d.unlimited)
+                .collect::<Vec<_>>(),
+            [true, false]
+        );
+    }
+
+    /// A scalar array has no axes, and must not invent one.
+    #[test]
+    fn a_scalar_array_allocates_nothing() {
+        let mut phony = PhonyDimensions::default();
+        assert!(phony.axes_for(&[], &[]).is_empty());
+        assert!(phony.dimensions().is_empty());
     }
 }

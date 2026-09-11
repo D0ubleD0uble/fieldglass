@@ -360,6 +360,7 @@ class TheRepoItselfPasses(unittest.TestCase):
                 "bits",
                 "bytes",
                 "cct_tables",
+                "cf",
                 "error",
                 "global_grid",
                 "healpix",
@@ -368,7 +369,6 @@ class TheRepoItselfPasses(unittest.TestCase):
                 "projection",
                 "scan",
                 "sht",
-                "spatial_index",
             ],
         )
 
@@ -378,12 +378,14 @@ class TheRepoItselfPasses(unittest.TestCase):
         # asserts the reason the doc gives for excluding them. `spatial_index`
         # was on this list until #549 gave `fieldglass-netcdf` a swath to
         # index, and `array`, the shared array model (#677, #678, ADR-0010),
-        # until #684 built that crate's dataset view on it.
+        # until #684 built that crate's dataset view on it. #704 moved the swath
+        # placement into core's `cf`, so `spatial_index` is back: `cf` uses it,
+        # no format crate library names it.
         lib = (chk.CORE / "src" / "lib.rs").read_text(encoding="utf-8")
         modules = chk.core_modules(lib)
         ungated = {m for m, feature in modules.items() if feature is None}
         listed = {n for n in chk.documented_surface(lib) if n in modules}
-        self.assertEqual(sorted(ungated - listed), ["detect", "units"])
+        self.assertEqual(sorted(ungated - listed), ["detect", "spatial_index", "units"])
 
 
 if __name__ == "__main__":

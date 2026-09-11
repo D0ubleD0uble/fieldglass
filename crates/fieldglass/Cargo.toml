@@ -37,6 +37,10 @@ fieldglass-grib2 = { path = "../fieldglass-grib2", version = "=0.5.0", optional 
 # for the reason the GRIB pair is: a build that never opens a NetCDF file should
 # not carry the HDF5 object model and its filter pipeline.
 fieldglass-netcdf = { path = "../fieldglass-netcdf", version = "=0.5.0", optional = true }
+# Zarr stores, the second container of named arrays (#704). Optional for the
+# reason the other decoders are, and with its default `codecs`: a session reads
+# values, so it needs the decompressors a store's chunks were written through.
+fieldglass-zarr = { path = "../fieldglass-zarr", version = "=0.5.0", optional = true }
 # Optional for the reason the decoders are: a host that only decodes bytes it
 # already holds never plans a fetch, and the browser bundle is not asked to
 # carry a planner it does not call. `fetchplan` forwards `grib2`, because the
@@ -50,7 +54,7 @@ serde_json = { workspace = true, optional = true }
 serde_json = { workspace = true }
 
 [features]
-default = ["grib1", "grib2", "netcdf", "render", "analysis", "schema", "conformance", "fetchplan"]
+default = ["grib1", "grib2", "netcdf", "zarr", "render", "analysis", "schema", "conformance", "fetchplan"]
 
 # --- Formats -----------------------------------------------------------------
 # One feature per decoder, all on by default, so `Session` dispatches over the
@@ -65,6 +69,11 @@ grib2 = ["dep:fieldglass-grib2"]
 # NetCDF and, behind it, every array dataset: the second addressing mode
 # `Session` grows for containers that hold variables rather than messages.
 netcdf = ["dep:fieldglass-netcdf"]
+# Zarr stores, opened from their objects with `Session::open_store` and
+# addressed by variables through the same arm as NetCDF (#704). Neither host
+# asks for it yet — both take this crate with `default-features = false` — so
+# no bundle carries it until one opens a store (#659).
+zarr = ["dep:fieldglass-zarr"]
 
 # --- Surfaces ----------------------------------------------------------------
 # `core`'s two optional surfaces, forwarded rather than pinned on, because a

@@ -31,6 +31,7 @@ flowchart TD
     fieldglass --> grib1
     fieldglass --> grib2
     fieldglass --> netcdf
+    fieldglass --> zarr
     fieldglass --> core
     fieldglass --> fetchplan
     napi --> fieldglass
@@ -183,11 +184,13 @@ surface no consumer of *this* crate can reach. A CLI (#254) or PyO3 consumer
 that starts from a path names `fieldglass-core` itself.
 
 `fieldglass` depends on `fieldglass-netcdf` since #662, behind a `netcdf`
-feature like the two GRIB ones. It does not depend on `fieldglass-zarr` yet.
-Since #658 the crate walks a store and presents it as an `ArraySource`, but
-nothing in `Session` reads one until #704 gives the Variables arm one
-`Reader::Arrays` for every container of named arrays; until then the edge would
-be an unused dependency paid for in bundle size.
+feature like the two GRIB ones, and on `fieldglass-zarr` since #704, behind a
+`zarr` feature. Both are containers of named arrays, and `Session` holds either
+as the `ArraySource` its reader presents, through one Variables arm; the CF
+rules that list the variables and place a slice are `fieldglass-core`'s
+(`core::cf`). Neither host takes `zarr` yet — both use
+`default-features = false` — so the edge costs no bundle until one opens a
+store (#659).
 
 **`fetchplan --> zarr` is the one edge that looks like a rule being broken and
 is not.** `fieldglass-fetchplan` says it depends on no format crate, and it now

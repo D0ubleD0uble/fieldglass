@@ -186,12 +186,17 @@ and 2,403 gzipped (0.5%): the windowed scan and the exact-length reads that
 replace indexing a buffer. The readers are generic over their source, but the
 browser build only ever instantiates `Vec<u8>`, so there is one copy of each.
 
+Moving the CF placement rules into core (#704) left the raw size 240 bytes
+smaller and the gzipped size 419 bytes larger (under 0.1% either way). The
+browser build reads GRIB only, so the new code it carries is the array helpers
+core now shares with the NetCDF and Zarr readers.
+
 <!-- checked by tools/check_wasm_bundle_size.py -->
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
-| baseline | 1,289,951 | 502,939 |
-| `+simd128` | 1,277,728 | 499,783 |
+| baseline | 1,289,711 | 503,358 |
+| `+simd128` | 1,277,468 | 499,933 |
 
 The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
 build drifts more than 5% from these figures in either direction, so a change

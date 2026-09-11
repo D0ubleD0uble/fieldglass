@@ -44,6 +44,11 @@
 //!   cannot decode, naming the feature, and format detection itself stays
 //!   unconditional: "this is GRIB1 and I cannot read it" is a different answer
 //!   from "I do not know what this is", and a host needs to tell them apart.
+//! - **`netcdf`**, **`zarr`** *(default)* — the containers of named arrays:
+//!   a NetCDF file through [`Session::open`], a Zarr store from its objects
+//!   through `Session::open_store`. Both are addressed by variables and answer
+//!   through one arm, over the `ArraySource` each reader presents, with core's
+//!   CF rules for the variable list and the slice placement (#704).
 //! - **`render`** *(default)* — the projection and paint pipeline:
 //!   `Session::warp`, `Session::palette`, `Session::render`, `render::project`,
 //!   `render::probe_pixel`, `render::overlay_polylines`, and the `shader`
@@ -89,7 +94,12 @@
 // worth a message at compile time rather than an `UnsupportedFormat` at every
 // call. Stated here and not in the manifest because cargo has no way to say
 // "at least one of these".
-#[cfg(not(any(feature = "grib1", feature = "grib2", feature = "netcdf")))]
+#[cfg(not(any(
+    feature = "grib1",
+    feature = "grib2",
+    feature = "netcdf",
+    feature = "zarr"
+)))]
 compile_error!(
     "fieldglass needs at least one format feature: enable `grib1`, `grib2`, `netcdf`, \
      or any combination (all three are on by default; a `default-features = false` \

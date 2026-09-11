@@ -584,8 +584,13 @@ class TheRepoItselfPasses(unittest.TestCase):
                 # as `fieldglass_netcdf::array` because the classic header's
                 # own `Attribute` and `Dimension` hold those names at the root.
                 "ArrayDescription",
+                # The file as an array source, and the CF placement rules it is
+                # read by, which moved to core (#704). `Scan` left this set
+                # then: it was a field of the crate's own placement types.
+                "ArraySource",
                 "Attribute",
                 "AttributeValue",
+                "AxisKind",
                 "ByteRange",
                 "ByteSource",
                 "Dimension",
@@ -596,7 +601,7 @@ class TheRepoItselfPasses(unittest.TestCase):
                 "FileCursor",
                 "GridGeometry",
                 "Group",
-                "Scan",
+                "SlicePlacement",
             },
         }
         for crate, names in expected.items():

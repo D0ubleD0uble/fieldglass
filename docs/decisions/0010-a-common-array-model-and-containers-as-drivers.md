@@ -116,7 +116,7 @@ structs; this is a trait because it is IO, one rung above `ByteSource` and
 It also settles where Zarr sits. A Zarr store is not a third file format beside
 GRIB and NetCDF: it is a layout of chunks under keys plus the codecs they were
 written through, so `ZarrStore` reads through `ObjectSource` and implements
-`ArraySource`, as the NetCDF readers will over `ByteSource`. Two consequences
+`ArraySource`, as the NetCDF readers do over `ByteSource` since #704. Two consequences
 follow from putting it there rather than beside them. A kerchunk reference
 document plus the ranges a host fetched is itself an `ObjectSource`, so a NetCDF
 or GRIB archive described by one reads through `ZarrStore` unchanged; and
