@@ -360,6 +360,7 @@ fn two_files_of_equal_length_are_still_two_files() {
         truth_a, truth_b,
         "the two fixtures must disagree, or nothing here is being tested"
     );
+    assert_same_superblock(&a, &b);
 
     // One probe, two equal-length files, read in sequence — which is exactly
     // what the public traversal API lets a caller do.
@@ -408,4 +409,57 @@ fn names_via(bytes: &[u8], probe: &Hdf5Probe) -> Vec<String> {
         .iter()
         .map(|v| v.name.clone())
         .collect()
+}
+
+/// The buffer a probe was warmed on, refilled in place with a different file.
+///
+/// The harder half of #681, and the one no amount of allocator luck is needed
+/// to reach: `copy_from_slice` moves neither the address nor the length, so an
+/// identity built from those two alone would go on answering for the file that
+/// is no longer there. Recycling one buffer across files is an ordinary thing
+/// for a reader to do.
+#[test]
+fn refilling_the_buffer_under_a_probe_does_not_serve_the_old_file() {
+    const A: &[u8] = include_bytes!("fixtures/hdf5_v4_chunk_index.h5");
+    const B: &[u8] = include_bytes!("fixtures/hdf5_implicit_index.h5");
+
+    let n = A.len().max(B.len());
+    let (filled_a, filled_b) = (padded_to(A, n), padded_to(B, n));
+    let (truth_a, truth_b) = (variable_names(&filled_a), variable_names(&filled_b));
+    assert_ne!(truth_a, truth_b);
+    assert_same_superblock(&filled_a, &filled_b);
+
+    let mut buf = filled_a.clone();
+    let shared = fieldglass_netcdf::hdf5::probe(&buf).expect("A is HDF5");
+    assert_eq!(
+        names_via(&buf, &shared),
+        truth_a,
+        "the file it was built from"
+    );
+
+    // Same allocation, same length, different file.
+    buf.copy_from_slice(&filled_b);
+    assert_eq!(
+        names_via(&buf, &shared),
+        truth_b,
+        "a probe served the structure of the file its buffer used to hold"
+    );
+}
+
+/// Both files must report the same superblock offset and length sizes.
+///
+/// A shared probe carries the *first* file's sizes, so without this a
+/// disagreement between the two could be explained by those fields rather than
+/// by the memo, and swapping a fixture later would break these tests for a
+/// reason that has nothing to do with #681.
+fn assert_same_superblock(a: &[u8], b: &[u8]) {
+    let (pa, pb) = (
+        fieldglass_netcdf::hdf5::probe(a).expect("A is HDF5"),
+        fieldglass_netcdf::hdf5::probe(b).expect("B is HDF5"),
+    );
+    assert_eq!(
+        (pa.superblock_version, pa.offset_size, pa.length_size),
+        (pb.superblock_version, pb.offset_size, pb.length_size),
+        "the pair has to share superblock sizes for a shared probe to be a fair test"
+    );
 }

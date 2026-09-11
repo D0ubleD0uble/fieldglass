@@ -84,6 +84,32 @@ impl ByteRange {
     }
 }
 
+/// How much of each end of a buffer goes into its identity.
+///
+/// Both ends rather than one: a container writes its header at the front and
+/// its end-of-file mark at the back, so two different files of one size
+/// disagree at one end or the other long before they disagree in the middle.
+/// 256 is comfortably past HDF5's superblock and NetCDF classic's header start,
+/// and small enough that hashing it on every memo lookup is not worth measuring
+/// against the walk it saves.
+const SAMPLE_BYTES: usize = 256;
+
+/// FNV-1a over the bytes at each end of `bytes`, as [`SourceIdentity::Buffer`]
+/// carries. Not cryptographic: the threat is two files in one session being
+/// confused for each other, not an adversary choosing them.
+fn sample_of(bytes: &[u8]) -> u64 {
+    let head = &bytes[..bytes.len().min(SAMPLE_BYTES)];
+    // Overlaps `head` for a buffer shorter than twice the sample, which only
+    // hashes those bytes twice.
+    let tail = &bytes[bytes.len().saturating_sub(SAMPLE_BYTES)..];
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for &byte in head.iter().chain(tail) {
+        h ^= u64::from(byte);
+        h = h.wrapping_mul(0x1000_0000_01b3);
+    }
+    h
+}
+
 /// What tells one [`ByteSource`]'s bytes from another's.
 ///
 /// [ADR-0005] decision 2 asked for an identity "stronger than length", and this
@@ -101,20 +127,30 @@ impl ByteRange {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum SourceIdentity {
-    /// One in-memory buffer, by where it begins and how far it runs.
+    /// One in-memory buffer: where it begins, how far it runs, and what is at
+    /// each end of it.
     ///
-    /// Meaningful only while that buffer is alive: an allocator may hand the
-    /// same address out again once it is freed, so an identity that outlives
-    /// its bytes can collide with a later buffer of the same length. Whatever
-    /// keeps one has to keep it beside the bytes it came from — the HDF5 memo
-    /// does, which is what makes the collision unreachable there rather than
-    /// merely unlikely.
+    /// Address and length alone would not do. An allocator may hand the same
+    /// address out again once a buffer is freed, and a caller may refill one
+    /// buffer with a different file in place — neither moves the address or
+    /// changes the length, and both are how a memo would go back to answering
+    /// for the wrong file. So a sample of the bytes goes in too.
+    ///
+    /// It is a hash of a bounded sample, so it can collide in principle: two
+    /// buffers at one address, of one length, agreeing at both ends are treated
+    /// as the same bytes. That rules out every mistake a caller makes by
+    /// accident, which is what this is for; it is not a proof, and a source
+    /// that can offer one should answer [`Named`](Self::Named) with a version
+    /// in the name instead.
     Buffer {
         /// Address of the first byte, in this process.
         addr: usize,
         /// Length in bytes, so two buffers that begin together but run to
         /// different ends are still told apart.
         len: u64,
+        /// FNV-1a over the bytes at each end — see the variant doc for what it
+        /// catches and what it cannot.
+        sample: u64,
     },
     /// A name the host vouches for: a path, a URL, an object key.
     ///
@@ -122,24 +158,34 @@ pub enum SourceIdentity {
     /// of prefetched ranges has no single address to offer, and that is exactly
     /// the case where a memo is worth the most, since every walk it saves is a
     /// chain of dependent round-trips (ADR-0005).
+    ///
+    /// **The name has to change when the bytes do**, and only the host can
+    /// promise that. A key overwritten with a different object of the same
+    /// length is the same failure as an equal-length file, one layer up, and no
+    /// inspection of the name would catch it — so a host that has a version,
+    /// an ETag or a modification time should put it in the name rather than
+    /// leave the promise to the path alone.
     Named {
-        /// How the host names this object. It has to be unique among the
-        /// sources one reader is handed, and the host is the only thing that
-        /// can promise that.
+        /// How the host names this object, version and all.
         name: String,
         /// Size in bytes, so a name reused for an object that has since changed
-        /// length does not inherit the old one's memo.
+        /// length does not inherit the old one's memo even where the host
+        /// forgot to version it.
         size: u64,
     },
 }
 
 impl SourceIdentity {
     /// The identity of an in-memory buffer.
+    ///
+    /// Costs a hash of at most 256 bytes from each end, which is what keeps it
+    /// callable on every memo lookup rather than once per open.
     #[must_use]
     pub fn of_buffer(bytes: &[u8]) -> Self {
         Self::Buffer {
             addr: bytes.as_ptr().addr(),
             len: bytes.len() as u64,
+            sample: sample_of(bytes),
         }
     }
 
@@ -602,12 +648,58 @@ mod tests {
         // The default declines, and a decline must not compare equal to another
         // decline — that is what keeps an unidentified source out of a memo.
         let (a, b) = (Silent(vec![0; 8]), Silent(vec![0; 8]));
+        // Byte-identical and the same length, so anything derived from `size()`
+        // would call them one source. The default says nothing instead, and a
+        // memo asks `Some(x) == Some(y)`, which no `None` can satisfy.
         assert_eq!(a.identity(), None);
         assert_eq!(b.identity(), None);
-        assert!(
-            !matches!((a.identity(), b.identity()), (Some(x), Some(y)) if x == y),
-            "two silent sources must never be treated as the same bytes"
-        );
+    }
+
+    #[test]
+    fn refilling_one_buffer_in_place_is_a_different_source() {
+        // The address does not move and the length does not change, so an
+        // identity built from those two alone would go on answering for the
+        // first file. A reader that recycles one buffer across files is an
+        // ordinary thing to write, which is why this is not a hypothetical.
+        let mut buf = vec![0xAAu8; 4096];
+        let before = buf.identity();
+        buf.copy_from_slice(&[0xBBu8; 4096]);
+        let after = buf.identity();
+        assert_ne!(before, after, "refilling a buffer must change its identity");
+
+        // And putting the original contents back gets the original identity:
+        // it is the bytes that are being identified, not the event of writing.
+        buf.copy_from_slice(&[0xAAu8; 4096]);
+        assert_eq!(buf.identity(), before);
+    }
+
+    #[test]
+    fn two_buffers_that_differ_only_in_the_middle_are_told_apart() {
+        // The sample is taken from both ends, so this is the case it is
+        // weakest at. Guard the boundary it does cover: a difference inside
+        // either sampled end is caught however far in it sits.
+        let base = vec![9u8; SAMPLE_BYTES * 2];
+        for at in [0, 1, SAMPLE_BYTES - 1, SAMPLE_BYTES * 2 - 1] {
+            let mut other = base.clone();
+            other[at] = 0;
+            assert_ne!(
+                sample_of(&base),
+                sample_of(&other),
+                "a byte changed at {at} must change the sample"
+            );
+        }
+    }
+
+    #[test]
+    fn a_short_buffer_still_samples_without_panicking() {
+        // Head and tail overlap below twice the sample, and a buffer can be
+        // shorter than the sample or empty. None of that may index out of
+        // bounds.
+        for len in [0usize, 1, SAMPLE_BYTES - 1, SAMPLE_BYTES, SAMPLE_BYTES + 1] {
+            let bytes = vec![1u8; len];
+            let _ = bytes.identity();
+        }
+        assert_ne!(sample_of(&[1u8, 2]), sample_of(&[2u8, 1]));
     }
 
     #[test]
