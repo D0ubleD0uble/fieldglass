@@ -105,13 +105,23 @@ classDiagram
 
 ## Fetch planning
 
-`Manifest` reads a cloud-native sidecar and returns the byte ranges a host
-should fetch ([ADR-0005](../decisions/0005-byte-access-and-the-remote-seam.md)
-decision 5, #461). Like `ByteSource` it does not dispatch on a code inside a
-file — it dispatches on which convention the *producer* publishes. The two GRIB
-dialects differ in what they promise rather than in what they are for: a wgrib2
-`.idx` states an offset per message and no length, so its last range is
-open-ended, while an ECMWF `.index` states both.
+`Manifest` reads a cloud-native manifest and returns a chunk plan: which bytes
+a host should fetch, and which chunk or message each range is
+([ADR-0005](../decisions/0005-byte-access-and-the-remote-seam.md) decision 5,
+#461; [ADR-0010](../decisions/0010-a-common-array-model-and-containers-as-drivers.md)
+decision 4, #685). Like `ByteSource` it does not dispatch on a code inside a
+file — it dispatches on which convention the *producer* publishes. `items()` is
+the plan, and each `PlanItem` carries an `Address` beside its range: a message
+and the field within it, or a chunk of an array by its grid index. `messages()`
+is a provided method that collapses a message's fields onto one fetch, and it
+recognises them by address rather than by range, so two chunks a reference
+document points at the same bytes stay two chunks.
+
+The two GRIB dialects differ in what they promise rather than in what they are
+for: a wgrib2 `.idx` states an offset per message and no length, so its last
+range is open-ended, while an ECMWF `.index` states both. Both are also
+`MessageManifest`, the extension trait that answers a `Query` over parameters
+and levels — which is GRIB's promise, not a manifest's.
 
 `fieldglass-fetchplan` depends on no format crate, so resolving a sidecar's
 `TMP` / `2 m above ground` to WMO codes — which needs the NCEP table in
@@ -121,24 +131,34 @@ without a table. `TableResolver` is the real one, in `fieldglass` under the
 `fetchplan` feature: the parameter tables answer *codes to name*, so it inverts
 them once into an index rather than scanning per record.
 
-The kerchunk dialect landed with #660 in this crate, beside the chunk-grid
-arithmetic it spells keys with. `KerchunkRefs` is deliberately *not* a
-`Manifest`: the trait promises one object key per manifest and a parameter
-query, and a reference document has neither. #685 reshapes the trait so it
-can be ([ADR-0010](../decisions/0010-a-common-array-model-and-containers-as-drivers.md)
-decision 4), and #677 moves the arithmetic to `core`.
+The kerchunk dialect landed with #660, and since #685 `KerchunkRefs` is a
+`Manifest` and nothing more. A reference document names chunks of arrays
+spread over as many objects as it likes and has no parameter to match, so a
+request there is an index (`chunk_at`), and its plan names each ranged entry by
+reading the key back through the array's own encoding
+(`ChunkKeyEncoding::index_of`, in `core` beside the spelling it inverts). The
+trait no longer carries the two promises that kept it out: `key()` is a method
+on the two sidecar types, each of which describes one object, and the query is
+`MessageManifest`'s.
 
 ```mermaid
 classDiagram
     class Manifest {
         <<trait>>
     }
+    class MessageManifest {
+        <<trait>>
+    }
     class ParameterResolver {
         <<trait>>
     }
 
+    Manifest <|-- MessageManifest
     Manifest <|.. Wgrib2Idx
     Manifest <|.. EcmwfIndex
+    Manifest <|.. KerchunkRefs
+    MessageManifest <|.. Wgrib2Idx
+    MessageManifest <|.. EcmwfIndex
     ParameterResolver <|.. NoResolver
     ParameterResolver <|.. TableResolver
 ```

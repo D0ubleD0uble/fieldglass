@@ -15,8 +15,8 @@
 //!   one.
 
 use fieldglass_fetchplan::{
-    EcmwfIndex, LevelSpec, Manifest, NoResolver, ParameterId, ParameterResolver, PlanItem,
-    PlanRange, Query, Surface, Wgrib2Idx,
+    Address, EcmwfIndex, LevelSpec, Manifest, MessageManifest, NoResolver, ParameterId,
+    ParameterResolver, PlanItem, PlanRange, Query, Surface, Wgrib2Idx,
 };
 
 /// Read a committed fixture.
@@ -62,6 +62,46 @@ fn every_line_of_every_sidecar_becomes_one_record() {
     assert_eq!(lines, 187);
 }
 
+/// A message's address is its place in the manifest's list of messages, so a
+/// host can name one without trusting a producer's numbering — and an ECMWF
+/// index writes none to trust. Checked as the invariant it is on every real
+/// sidecar: `messages()[i]` is message `i`, and every field `items()` lists
+/// names a message whose range it shares.
+#[test]
+fn a_message_is_addressed_by_its_place_in_the_list() {
+    let check = |items: Vec<PlanItem>, messages: Vec<PlanItem>, name: &str| {
+        assert!(
+            messages.len() > 1,
+            "{name}: too few messages to be a real check"
+        );
+        for (i, message) in messages.iter().enumerate() {
+            assert_eq!(
+                message.address,
+                Address::Message {
+                    index: u32::try_from(i).unwrap(),
+                    sub_index: None
+                },
+                "{name}"
+            );
+        }
+        for item in &items {
+            let Address::Message { index, .. } = &item.address else {
+                panic!("{name}: {item:?} is not a message");
+            };
+            assert_eq!(
+                messages[*index as usize].range, item.range,
+                "{name}: {item:?}"
+            );
+        }
+    };
+    for name in NCEP {
+        let idx = Wgrib2Idx::parse(*name, &fixture(name)).expect(name);
+        check(idx.items(), idx.messages(), name);
+    }
+    let idx = EcmwfIndex::parse("ifs.grib2", &fixture("ecmwf_ifs_0p25_oper.index")).unwrap();
+    check(idx.items(), idx.messages(), "ecmwf");
+}
+
 /// Whole-message ranges must be strictly ascending and must not overlap — the
 /// invariant a host schedules fetches against, and the one the sub-message
 /// records deliberately break.
@@ -94,7 +134,7 @@ fn assert_ascending_disjoint(items: &[PlanItem], name: &str) {
         }
         // A collapsed representative addresses a whole message, so it must
         // never claim to be one field of it.
-        assert_eq!(a.sub_index, None, "{name}");
+        assert_eq!(a.sub_index(), None, "{name}");
     }
     // Only the final record of a wgrib2 sidecar may be open-ended; every other
     // one is bounded by its successor.
@@ -127,10 +167,10 @@ fn only_sub_messages_share_a_range_and_they_are_numbered_apart() {
         if a.range == b.range {
             shared += 1;
             assert!(
-                a.sub_index.is_some() && b.sub_index.is_some(),
+                a.sub_index().is_some() && b.sub_index().is_some(),
                 "{a:?} {b:?}"
             );
-            assert_ne!(a.sub_index, b.sub_index, "{a:?} {b:?}");
+            assert_ne!(a.sub_index(), b.sub_index(), "{a:?} {b:?}");
         }
     }
     // NAM pairs UGRD/VGRD and USTM/VSTM: ten pairs, twenty records.
@@ -151,14 +191,14 @@ fn a_nam_wind_pair_is_one_fetch_and_two_fields() {
         &NoResolver,
     );
     assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0].sub_index, Some(2));
+    assert_eq!(hits[0].sub_index(), Some(2));
 
     let u = idx.select(
         &Query::abbreviation("UGRD").at_level_text("10 m above ground"),
         &NoResolver,
     );
     assert_eq!(u.len(), 1);
-    assert_eq!(u[0].sub_index, Some(1));
+    assert_eq!(u[0].sub_index(), Some(1));
     // Same bytes; the host fetches once and decodes the field it wants.
     assert_eq!(u[0].range, hits[0].range);
     assert!(matches!(u[0].range, PlanRange::Exact { .. }));

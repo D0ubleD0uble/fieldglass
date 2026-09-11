@@ -30,8 +30,8 @@
 
 use crate::error::{Dialect, FetchPlanError};
 use crate::level::parse_ncep_level;
-use crate::manifest::{Manifest, ParameterResolver, Query};
-use crate::plan::{Expect, ParameterId, PlanItem, PlanRange};
+use crate::manifest::{Manifest, MessageManifest, ParameterResolver, Query};
+use crate::plan::{Address, Expect, ParameterId, PlanItem, PlanRange};
 
 /// The dialect tag every error from this module carries.
 const DIALECT: Dialect = Dialect::Wgrib2Idx;
@@ -115,6 +115,19 @@ impl Wgrib2Idx {
 /// offsets is a 2.5-billion-step stall inside a host's request handler, from a
 /// 1 MB download.
 fn to_items(key: &str, records: &[Record]) -> Vec<PlanItem> {
+    // Each record's message, counting from zero in file order: a record that
+    // shares the previous record's offset is another field of the same message,
+    // and anything else starts the next one. Saturating rather than checked,
+    // because four billion lines is not a sidecar anything could have fetched.
+    let mut messages: Vec<u32> = Vec::with_capacity(records.len());
+    let mut message: u32 = 0;
+    for (n, record) in records.iter().enumerate() {
+        if n > 0 && record.offset != records[n - 1].offset {
+            message = message.saturating_add(1);
+        }
+        messages.push(message);
+    }
+
     let mut items: Vec<PlanItem> = Vec::with_capacity(records.len());
     // The next offset strictly greater than the record being placed, and the
     // offset of the record immediately after it in file order. Two variables
@@ -124,7 +137,7 @@ fn to_items(key: &str, records: &[Record]) -> Vec<PlanItem> {
     let mut next_distinct: Option<u64> = None;
     let mut following: Option<u64> = None;
 
-    for record in records.iter().rev() {
+    for (record, &message) in records.iter().zip(&messages).rev() {
         if let Some(after) = following
             && after != record.offset
         {
@@ -147,7 +160,10 @@ fn to_items(key: &str, records: &[Record]) -> Vec<PlanItem> {
         items.push(PlanItem {
             key: key.to_string(),
             range,
-            sub_index: record.sub_index,
+            address: Address::Message {
+                index: message,
+                sub_index: record.sub_index,
+            },
             expect: record.expect.clone(),
         });
         following = Some(record.offset);
@@ -268,15 +284,23 @@ fn parse_numeric_parameter(name: &str) -> Option<ParameterId> {
     })
 }
 
-impl Manifest for Wgrib2Idx {
-    fn key(&self) -> &str {
+impl Wgrib2Idx {
+    /// The object key these records address, exactly as the caller supplied it.
+    ///
+    /// A sidecar describes the one object it sits beside, so this is the
+    /// manifest's key rather than a record's; each item carries it as well.
+    pub fn key(&self) -> &str {
         &self.key
     }
+}
 
+impl Manifest for Wgrib2Idx {
     fn items(&self) -> Vec<PlanItem> {
         self.items.clone()
     }
+}
 
+impl MessageManifest for Wgrib2Idx {
     fn select(&self, query: &Query, resolver: &dyn ParameterResolver) -> Vec<PlanItem> {
         self.items
             .iter()
@@ -353,9 +377,9 @@ mod tests {
         };
         assert_eq!(items[1].range, expected);
         assert_eq!(items[2].range, expected);
-        assert_eq!(items[1].sub_index, Some(1));
-        assert_eq!(items[2].sub_index, Some(2));
-        assert_eq!(items[0].sub_index, None);
+        assert_eq!(items[1].sub_index(), Some(1));
+        assert_eq!(items[2].sub_index(), Some(2));
+        assert_eq!(items[0].sub_index(), None);
 
         // …and the first message's range ends where the *pair* begins, not
         // where the second sub-record does.
@@ -402,8 +426,8 @@ mod tests {
                 .iter()
                 .all(|i| i.range == PlanRange::OpenEnded { offset: 4096 })
         );
-        assert_eq!(items[0].sub_index, Some(1));
-        assert_eq!(items[19_999].sub_index, Some(20_000));
+        assert_eq!(items[0].sub_index(), Some(1));
+        assert_eq!(items[19_999].sub_index(), Some(20_000));
         // They are one message, so `messages()` collapses them to one fetch.
         assert_eq!(Wgrib2Idx::parse("o", &text).unwrap().messages().len(), 1);
     }
@@ -428,6 +452,40 @@ mod tests {
             lengths,
             vec![Some(100), Some(100), Some(150), Some(150), Some(150), None],
             "no member of a group may get a zero-length range"
+        );
+    }
+
+    /// The same three groups, addressed: every record of a group names the
+    /// same message, the message numbers count the groups from zero, and the
+    /// field within a message is wgrib2's own `m`. The backward pass is where
+    /// a group's index could come out shifted by one, as its end once did.
+    #[test]
+    fn a_record_names_its_message_by_group_and_its_field_by_m() {
+        let text = "\
+1.1:0:d=2026090400:UGRD:10 m above ground:anl:
+1.2:0:d=2026090400:VGRD:10 m above ground:anl:
+2.1:100:d=2026090400:UGRD:surface:anl:
+2.2:100:d=2026090400:VGRD:surface:anl:
+2.3:100:d=2026090400:WGRD:surface:anl:
+3:250:d=2026090400:TMP:surface:anl:
+";
+        let addresses: Vec<Address> = Wgrib2Idx::parse("o", text)
+            .unwrap()
+            .items()
+            .into_iter()
+            .map(|item| item.address)
+            .collect();
+        let at = |index, sub_index| Address::Message { index, sub_index };
+        assert_eq!(
+            addresses,
+            vec![
+                at(0, Some(1)),
+                at(0, Some(2)),
+                at(1, Some(1)),
+                at(1, Some(2)),
+                at(1, Some(3)),
+                at(2, None),
+            ]
         );
     }
 
