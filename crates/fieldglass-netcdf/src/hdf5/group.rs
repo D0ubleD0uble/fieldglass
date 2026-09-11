@@ -25,7 +25,7 @@
 use super::Hdf5Probe;
 use super::heap::{self, FractalHeap};
 use super::object_header::{self, read_uint_le};
-use super::source::{Cursor, Fields, FileCursor, read_up_to};
+use super::source::{Cursor, Fields, FileCursor, read_up_to, scan_windows};
 use fieldglass_core::FieldglassError;
 use fieldglass_core::bytes::ByteSource;
 use std::collections::HashSet;
@@ -390,22 +390,32 @@ fn read_snod<S: ByteSource + ?Sized>(
 /// Read a null-terminated link name from the local heap data segment.
 ///
 /// The name's length is not stated anywhere, so this reads a window and looks
-/// for the terminator in it. [`MAX_LINK_NAME_BYTES`] is what bounds that: a
-/// name with no terminator inside it is refused rather than scanned to the end
-/// of the file, which over a transport would be the whole object.
+/// for the terminator in it, widening the window only when it is not there.
+/// Two bounds, for two different hazards. [`MAX_LINK_NAME_BYTES`] stops a name
+/// with no terminator from being scanned to the end of the file, which over a
+/// transport would fetch the whole object to fail. Starting small stops the
+/// *ordinary* case — a group with many links, each named a dozen bytes — from
+/// fetching the ceiling once per link, which is the fixed-large-window mistake
+/// [`source`](super::source) exists to avoid.
 fn read_heap_name<S: ByteSource + ?Sized>(
     source: &S,
     heap_data: u64,
     offset: u64,
 ) -> Result<String, FieldglassError> {
     let start = heap::checked_add(heap_data, offset)?;
-    let window = read_up_to(source, start, MAX_LINK_NAME_BYTES)
-        .map_err(|_| FieldglassError::Parse("heap name offset past end of file".into()))?;
-    let end = window
-        .iter()
-        .position(|&b| b == 0)
-        .ok_or_else(|| FieldglassError::Parse("unterminated heap name".into()))?;
-    decode_name(&window[..end])
+    for want in scan_windows(MAX_LINK_NAME_BYTES) {
+        let window = read_up_to(source, start, want)
+            .map_err(|_| FieldglassError::Parse("heap name offset past end of file".into()))?;
+        if let Some(end) = window.iter().position(|&b| b == 0) {
+            return decode_name(&window[..end]);
+        }
+        // No terminator, and the file had no more to give: the name runs off
+        // the end rather than being longer than the window.
+        if window.len() < want {
+            break;
+        }
+    }
+    Err(FieldglassError::Parse("unterminated heap name".into()))
 }
 
 // ---------------------------------------------------------------------------

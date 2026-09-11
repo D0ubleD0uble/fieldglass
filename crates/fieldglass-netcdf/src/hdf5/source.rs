@@ -22,13 +22,21 @@
 //! A structure walk asks for two bytes here and eight there. One
 //! [`ByteSource::read`] per field would be free over a buffer and a round trip
 //! per integer over a network — which is the cost ADR-0005 exists to keep
-//! visible rather than to hide. So a `FileCursor` refills in windows of at
-//! least [`WINDOW_BYTES`], and a B-tree node or a heap block is then one read
-//! rather than forty.
+//! visible rather than to hide. So a `FileCursor` refills in **windows**, and a
+//! B-tree node or a heap block costs a handful of reads rather than forty.
 //!
-//! The window is a ceiling on waste, not a promise: a read larger than it is
-//! served in one call, and a window is clamped at the end of the file, so the
-//! last structure never asks for bytes that are not there.
+//! The window **grows** rather than starting large, because both mistakes are
+//! real. One read per field is a round trip per integer; one fixed 4 KiB window
+//! per structure read six times the whole file on a 31 KB fixture, because most
+//! structures are a few dozen bytes. Starting at [`FIRST_WINDOW_BYTES`] and
+//! doubling to [`MAX_WINDOW_BYTES`] bounds the round trips on a long structure
+//! and the over-read on a short one at once. [`scan_windows`] applies the same
+//! rule to the one read whose length is not known in advance at all — a
+//! null-terminated name.
+//!
+//! A window is clamped at the end of the file, so the last structure never asks
+//! for bytes that are not there, and a read larger than the window is still
+//! served in one call.
 //!
 //! # What this module deliberately does not do
 //!
@@ -88,6 +96,17 @@ pub(crate) fn read_at<S: ByteSource + ?Sized>(
         )));
     }
     Ok(got)
+}
+
+/// The window sizes a scan for a terminator steps through.
+///
+/// Same argument as [`FileCursor`]'s: a name is usually a dozen bytes, so
+/// asking for the ceiling every time would fetch it over a transport to read
+/// ten bytes out of it.
+pub(crate) fn scan_windows(ceiling: usize) -> impl Iterator<Item = usize> {
+    std::iter::successors(Some(FIRST_WINDOW_BYTES.min(ceiling)), move |&w| {
+        (w < ceiling).then(|| w.saturating_mul(4).min(ceiling))
+    })
 }
 
 /// Read up to `len` bytes at `addr`, stopping at the end of the file.
@@ -239,8 +258,13 @@ impl<'a, S: ByteSource + ?Sized> FileCursor<'a, S> {
     }
 
     /// The address the cursor is about to read from.
+    ///
+    /// Saturating rather than bare: this cannot overflow under the cursor's own
+    /// invariant (`base <= size`, and the window never runs past the end), but
+    /// that last step rests on a [`ByteSource`] returning no *more* than it was
+    /// asked for, which is a contract and not a type.
     fn address(&self) -> u64 {
-        self.base + self.pos as u64
+        self.base.saturating_add(self.pos as u64)
     }
 
     /// Make at least `n` bytes available from the current position.

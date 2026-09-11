@@ -154,21 +154,34 @@ impl ByteSource for Short<'_> {
     }
 }
 
-/// Every root dataset of a fixture, decoded through whichever source is given.
+/// Every root dataset of a fixture, decoded **through the given source**.
+///
+/// `read_dataset_values` rather than `NetcdfReader::decode_variable_raw`, which
+/// would read the reader's own buffer and not the source at all — comparing two
+/// such runs would compare a value against itself and pass however the decode
+/// behaved.
 fn decode_all<S: ByteSource>(bytes: &[u8], source: &S) -> Vec<Result<Vec<Option<f64>>, String>> {
     let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("recognised NetCDF");
     assert!(
         matches!(reader.backing, NetcdfBacking::Hdf5(_)),
         "fixture is not HDF5, so this proves nothing"
     );
-    let count = list_root_children(source, probe(&reader))
+    let addresses: Vec<u64> = list_root_children(source, probe(&reader))
         .expect("list children")
-        .iter()
+        .into_iter()
         .filter(|c| c.kind == ChildKind::Dataset)
-        .count();
-    assert!(count > 0, "fixture has no datasets, so this proves nothing");
-    (0..count)
-        .map(|i| reader.decode_variable_raw(i).map_err(|e| e.to_string()))
+        .map(|c| c.object_header_address)
+        .collect();
+    assert!(
+        !addresses.is_empty(),
+        "fixture has no datasets, so this proves nothing"
+    );
+    addresses
+        .into_iter()
+        .map(|addr| {
+            fieldglass_netcdf::hdf5::values::read_dataset_values(source, addr, probe(&reader))
+                .map_err(|e| e.to_string())
+        })
         .collect()
 }
 
@@ -198,6 +211,17 @@ fn a_source_that_cannot_lend_decodes_identically() {
         assert_eq!(
             direct, copied,
             "{label}: decode differs through a copying source"
+        );
+        // Two empty lists are equal too. The comparison is only worth making
+        // if something actually decoded to values.
+        let decoded: usize = direct
+            .iter()
+            .filter_map(|r| r.as_ref().ok())
+            .filter(|v| !v.is_empty())
+            .count();
+        assert!(
+            decoded > 0,
+            "{label}: nothing decoded to any values, so the comparison is vacuous"
         );
     }
 }
@@ -304,6 +328,10 @@ fn the_walk_reads_what_it_needs_and_not_much_more() {
             "netcdf4 dimension scales",
             &include_bytes!("fixtures/netcdf4_dimscale.nc")[..],
         ),
+        // The legacy symbol-table path, which the other two do not take. It is
+        // the one that reads link names out of a local heap, and the only thing
+        // that would catch that read growing a fixed large window.
+        ("v1 symbol table", V1_SYMBOLTABLE),
     ] {
         let source = Recording::new(bytes);
         let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("recognised NetCDF");
