@@ -10,8 +10,8 @@
 //! transport fetch bytes nobody wants, and not a subset, which would make it
 //! miss some and fall back to a per-slab round trip.
 
-use fieldglass_core::ByteSource;
 use fieldglass_core::testing::{Fetching, Recording, Short};
+use fieldglass_core::{ByteSource, FieldglassError};
 use fieldglass_netcdf::classic::{
     decode_variable_raw, decode_variable_raw_from, parse_header, variable_plan,
 };
@@ -317,8 +317,8 @@ fn a_short_serving_source_is_an_error_not_a_short_variable() {
     let err = decode_variable_raw_from(&header, &Short::new(ERSST, 0, 4), index)
         .expect_err("a short-serving source must not produce a variable at all");
     assert!(
-        format!("{err}").contains("served short"),
-        "unexpected error: {err}"
+        matches!(err, FieldglassError::ShortRead { .. }),
+        "a truncated transfer is its own error, not a malformed file: {err}"
     );
 }
 

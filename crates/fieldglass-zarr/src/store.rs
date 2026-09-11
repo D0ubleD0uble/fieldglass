@@ -69,11 +69,12 @@ use crate::metadata::ArrayMetadata;
 
 /// The most elements one region read — or one chunk it decodes — will hold.
 ///
-/// An array's shape and chunk shape are numbers out of a document somebody
-/// else wrote, so they are allocation instructions an attacker controls. 64 M
-/// elements is a gigabyte of `Option<f64>`, past any slice a viewer asks for
-/// and the cap `fieldglass-grib1` puts on a grid for the same reason.
-pub const MAX_REGION_ELEMENTS: u64 = 64 * 1024 * 1024;
+/// An alias of [`fieldglass_core::MAX_FIELD_POINTS`], which is where the number
+/// and the reasoning live: an array's shape and chunk shape are numbers out of a
+/// document somebody else wrote, so they are allocation instructions an attacker
+/// controls, and one field of them is what a reader materialises. The name stays
+/// because it is public API. `u64` because the products compared against it are.
+pub const MAX_REGION_ELEMENTS: u64 = fieldglass_core::MAX_FIELD_POINTS as u64;
 
 /// The documents a store's root may hold, prefetched as one batch before the
 /// first is read, so finding out which edition and layout a store has costs one

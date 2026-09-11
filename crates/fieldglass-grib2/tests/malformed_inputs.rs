@@ -228,6 +228,16 @@ const FUZZ_OOM_GRID_NP_MISMATCH: &[u8] = &[
     255, 0, 0, 0, 5, 7, 55, 55, 55, 55,
 ];
 
+/// The artifact itself: refused before it can allocate, which is the property
+/// the fuzzer found missing.
+///
+/// **Which check refuses it moved with #707.** Its 134-million-point grid sat
+/// under the old 200 M cap, so the mismatch check below was what caught it; the
+/// cap is now `fieldglass_core::MAX_FIELD_POINTS` (64 Mi, the number the GRIB1
+/// reader always used) and refuses it one step earlier. Either answer prevents
+/// the OOM, so this asserts that rather than which — and
+/// `dimensions_disagreeing_with_num_data_points_are_refused_under_the_cap` keeps
+/// the mismatch check itself under test, on a grid the cap lets through.
 #[test]
 fn grid_dimensions_disagreeing_with_num_data_points_rejected_before_allocation() {
     let reader =
@@ -235,6 +245,104 @@ fn grid_dimensions_disagreeing_with_num_data_points_rejected_before_allocation()
     let err = reader
         .decode_message_values(0)
         .expect_err("dimensions/num_data_points mismatch must error, not OOM");
+    let FieldglassError::Parse(msg) = err else {
+        panic!("expected Parse error, got {err:?}");
+    };
+    assert!(
+        msg.contains("exceeds cap") || (msg.contains("disagree") && msg.contains("data points")),
+        "error should refuse the grid before allocating it, got: {msg}"
+    );
+}
+
+/// The grid cap is core's field cap, to the point — and it is no longer 200 M.
+///
+/// This is the defect #707 opens with. This reader capped a field at
+/// `200_000_000` under a doc comment saying it matched the GRIB1 reader's
+/// `64 * 1024 * 1024`, which it did not, so a field between 67 M and 200 M points
+/// was accepted here and refused there. Both now name
+/// `fieldglass_core::MAX_FIELD_POINTS`, and this checks the number the refusal
+/// prints, since a caller reads the message and not the constant.
+///
+/// **A field of exactly the cap is not refused, and that is argued rather than
+/// run**, for the reason the GRIB1 twin of this test gives: the guard is
+/// `expected_count > CAP`, so naming `CAP` as the bound exceeded proves `CAP`
+/// passes it — and executing that half would let the constant-field path
+/// (`bits_per_value == 0`, which is what this very artifact exercises) allocate
+/// a gigabyte.
+///
+/// `5 × 13,421,773 = 67,108,865` is one point over, and both factors fit the
+/// `u32` a §3 extent is. The GDS's own data-point count is spliced to agree, or
+/// the mismatch check would refuse it first and prove nothing about the cap.
+#[test]
+fn the_grid_cap_is_the_core_field_cap_to_the_point() {
+    const CAP: usize = fieldglass_core::MAX_FIELD_POINTS;
+    const NI: u32 = 5;
+    const NJ: u32 = 13_421_773;
+    assert_eq!(NI as usize * NJ as usize, CAP + 1, "one point over the cap");
+
+    let mut bytes = FUZZ_OOM_GRID_NP_MISMATCH.to_vec();
+    let ni_nj = bytes
+        .windows(8)
+        .position(|w| w == [0, 0, 0, 16, 0, 128, 0, 31])
+        .expect("the artifact's Ni/Nj pair");
+    bytes[ni_nj..ni_nj + 4].copy_from_slice(&NI.to_be_bytes());
+    bytes[ni_nj + 4..ni_nj + 8].copy_from_slice(&NJ.to_be_bytes());
+
+    // §3's own "number of data points" is octets 7–10 of the section, which
+    // begins at the `0,0,0,84, 3` prefix. Located by value so a change to the
+    // artifact cannot silently splice the wrong field.
+    let s3 = bytes
+        .windows(5)
+        .position(|w| w == [0, 0, 0, 84, 3])
+        .expect("the artifact's §3");
+    bytes[s3 + 6..s3 + 10].copy_from_slice(&(NI * NJ).to_be_bytes());
+
+    let reader = Grib2Reader::from_bytes(bytes).expect("scan succeeds");
+    let err = reader
+        .decode_message_values(0)
+        .expect_err("one point past the cap must be refused, not allocated");
+    let FieldglassError::Parse(msg) = err else {
+        panic!("expected Parse error, got {err:?}");
+    };
+    assert!(
+        msg.contains("exceeds cap") && msg.contains(&CAP.to_string()),
+        "the refusal must name the cap it enforces, not 200000000: {msg}"
+    );
+    assert!(
+        msg.contains(&(CAP + 1).to_string()),
+        "and the count it refused: {msg}"
+    );
+}
+
+/// The mismatch check, on a grid small enough that the cap does not reach it.
+///
+/// The artifact above used to be this test's subject and stopped being it when
+/// #707 tightened the GRIB2 cap to the GRIB1 number. Same bytes, with `Nj`
+/// spliced from 8,388,639 down to 4,000,000: `16 × 4,000,000 = 64,000,000`
+/// points, under the 67,108,864 cap, while the GDS's own "number of data points"
+/// still says 496. Without the mismatch check the constant-field path would
+/// allocate 64 million elements — a gigabyte — for a file carrying no such data.
+#[test]
+fn dimensions_disagreeing_with_num_data_points_are_refused_under_the_cap() {
+    let mut bytes = FUZZ_OOM_GRID_NP_MISMATCH.to_vec();
+    // `Ni` is the big-endian `0, 0, 0, 16` in §3, and `Nj` the four octets
+    // after it. Found by value rather than by offset so a change to the
+    // artifact cannot silently splice the wrong field.
+    let ni_nj = bytes
+        .windows(8)
+        .position(|w| w == [0, 0, 0, 16, 0, 128, 0, 31])
+        .expect("the artifact's Ni/Nj pair");
+    const NJ: u32 = 4_000_000;
+    bytes[ni_nj + 4..ni_nj + 8].copy_from_slice(&NJ.to_be_bytes());
+    assert!(
+        16 * u64::from(NJ) < fieldglass_core::MAX_FIELD_POINTS as u64,
+        "the spliced grid must pass the cap, or this proves nothing"
+    );
+
+    let reader = Grib2Reader::from_bytes(bytes).expect("scan succeeds");
+    let err = reader
+        .decode_message_values(0)
+        .expect_err("dimensions/num_data_points mismatch must error, not allocate");
     let FieldglassError::Parse(msg) = err else {
         panic!("expected Parse error, got {err:?}");
     };

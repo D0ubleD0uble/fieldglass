@@ -15,7 +15,7 @@
 //! padded to 4-byte boundaries — including odd-length strings, attribute
 //! values, and the implicit "fill to next word" after each variable record.
 
-use fieldglass_core::bytes::checked_usize;
+use fieldglass_core::bytes::{checked_usize, read_exact};
 use fieldglass_core::{ByteRange, ByteSource, FieldglassError};
 
 /// Three on-disk variants of NetCDF classic. They differ in the width of size
@@ -314,10 +314,16 @@ pub const MAX_VAR_DIMS: u64 = 4096;
 
 /// Hard cap on the number of elements `decode_variable_raw` will allocate
 /// for one variable's *values*, guarding against a corrupt header that declares
-/// a huge shape. Matches the GRIB2 decode cap (200M points ≈ 1.6 GiB of `f64`).
-/// This bounds value decode only — header metadata (names, dims, attributes) is
-/// capped separately (see [`MAX_NAME_LEN`], [`MAX_VAR_DIMS`]).
-pub const MAX_VAR_ELEMENTS: usize = 200_000_000;
+/// a huge shape. This bounds value decode only — header metadata (names, dims,
+/// attributes) is capped separately (see [`MAX_NAME_LEN`], [`MAX_VAR_DIMS`]).
+///
+/// An alias of [`fieldglass_core::MAX_VARIABLE_ELEMENTS`] and deliberately
+/// **not** of `MAX_FIELD_POINTS`: this is a whole variable, every record and
+/// dimension of it, which is routinely an order of magnitude larger than any one
+/// slice a viewer draws. It used to say it matched the GRIB2 decode cap, and it
+/// did — but that cap was a *grid* cap that had drifted to this number, so the
+/// two agreed by accident rather than by concept (#707).
+pub const MAX_VAR_ELEMENTS: usize = fieldglass_core::MAX_VARIABLE_ELEMENTS;
 
 /// Hard cap on the byte length of a single `name` field (variable, dimension,
 /// or attribute). NetCDF identifiers are short; a header claiming a multi-megabyte
@@ -438,18 +444,26 @@ pub fn decode_variable_raw_from<S: ByteSource>(
     let fills = var.missing_sentinels();
     let mut out: Vec<Option<f64>> = Vec::with_capacity(layout.total);
     for range in &layout.ranges {
-        let bytes = source.read(*range)?;
+        // `read_exact` rather than `read`: the one silent-truncation path the
+        // seam introduces, closed where the shortfall is still measured in
+        // bytes at a known offset. `decode_slab` does not bounds-check — the
+        // range was bounded when the source served it — so a source that
+        // returns fewer bytes than it was asked for would otherwise yield a
+        // short variable that looks like a complete one. An in-memory source
+        // cannot do that; a transport with a truncated response can, and it
+        // gets `FieldglassError::ShortRead` so a host can retry rather than
+        // report a corrupt file (#707).
+        let bytes = read_exact(source, *range)?;
         decode_slab(&bytes, var.nc_type, &fills, &mut out);
     }
 
-    // The one silent-truncation path the seam introduces, closed. `decode_slab`
-    // does not bounds-check — the range was bounded when the source served it —
-    // so a source that returns fewer bytes than it was asked for would yield a
-    // short variable that looks like a complete one. An in-memory source cannot
-    // do that; a transport with a truncated response can.
+    // Every range came back whole, so a short total is no longer a short read:
+    // it means a range this module planned was not a whole number of elements,
+    // which `variable_layout` does not do. Kept as the assertion that says so.
     if out.len() != layout.total {
         return Err(FieldglassError::Parse(format!(
-            "variable {:?} decoded {} of {} elements: the source served short",
+            "variable {:?} decoded {} of {} elements from ranges that were all \
+             served in full, so the plan did not name whole elements",
             var.name,
             out.len(),
             layout.total
@@ -1028,6 +1042,30 @@ fn format_float<T: std::fmt::Display>(v: T) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// This crate's element cap is core's, and it is the **whole-variable** one.
+    ///
+    /// The distinction is the whole reason #707 put two constants in core rather
+    /// than one. Every other reader's cap bounds one *field* — a GRIB message's
+    /// grid, a Zarr region — which is what a viewer draws, and 64 Mi of
+    /// `Option<f64>` is a gigabyte of it. This one bounds an entire variable,
+    /// every record and dimension, which for a reanalysis file is routinely an
+    /// order of magnitude larger than any one slice of it. It used to say it
+    /// matched the GRIB2 decode cap, and it did — but that was a *grid* cap that
+    /// had drifted to this number, so they agreed by accident. Aliasing
+    /// `MAX_FIELD_POINTS` instead would refuse files that read today.
+    #[test]
+    fn the_element_cap_is_cores_whole_variable_cap_not_its_field_cap() {
+        assert_eq!(MAX_VAR_ELEMENTS, fieldglass_core::MAX_VARIABLE_ELEMENTS);
+        // A `const` block, so the ordering is a compile-time claim: swapping
+        // this alias to `MAX_FIELD_POINTS` would not build rather than not pass.
+        const {
+            assert!(
+                MAX_VAR_ELEMENTS > fieldglass_core::MAX_FIELD_POINTS,
+                "a whole variable is a bigger question than one field of it"
+            );
+        }
+    }
 
     /// Build the smallest plausible CDF-1 file: magic, numrecs=0, no dims, no
     /// global atts, no vars.

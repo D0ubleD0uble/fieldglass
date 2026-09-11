@@ -57,6 +57,32 @@ use std::ops::Range;
 /// touches a million chunks has asked for the whole archive.
 pub const MAX_PLANNED_CHUNKS: u64 = 1 << 20;
 
+/// The most points one decoded **field** holds: a GRIB message's grid, a Zarr
+/// region or chunk, a GRIB2 flattened matrix.
+///
+/// Every one of those is `ni · nj` — or a product of extents — out of a header
+/// somebody else wrote, so it is an allocation instruction an attacker
+/// controls. The output is one `Option<f64>` per point, sixteen bytes, so this
+/// bounds a single decode at a gigabyte. Real grids top out around 25 M points,
+/// and no viewer asks for a slice past this.
+///
+/// **This is not [`MAX_VARIABLE_ELEMENTS`].** That one bounds a whole variable
+/// across every record; this bounds one field of it, which is what a reader
+/// materialises for a single call and what a viewer draws. Three caps in three
+/// crates used to state this number, two of them disagreeing while their doc
+/// comments claimed to match (#707).
+pub const MAX_FIELD_POINTS: usize = 64 * 1024 * 1024;
+
+/// The most elements one **whole-variable** read holds: a NetCDF classic
+/// variable or an HDF5 dataset, every record and every dimension of it.
+///
+/// Larger than [`MAX_FIELD_POINTS`] because it is a larger question. A
+/// reanalysis variable is routinely an order of magnitude bigger than any one
+/// slice of it, and this path hands back typed values — eight bytes an element,
+/// so 1.6 GiB — rather than the `Option<f64>` per point a field decode builds.
+/// A shape out of a corrupt header is still the thing being bounded.
+pub const MAX_VARIABLE_ELEMENTS: usize = 200_000_000;
+
 /// What the arithmetic here refuses.
 ///
 /// Its own type rather than [`FieldglassError`](crate::FieldglassError)

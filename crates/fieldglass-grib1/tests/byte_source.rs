@@ -7,8 +7,8 @@
 //! a source that serves short fails the parse rather than panicking or
 //! answering with a field that looks complete.
 
-use fieldglass_core::ByteRange;
 use fieldglass_core::testing::{CutOff, OneRange, Recording, Starved};
+use fieldglass_core::{ByteRange, FieldglassError};
 use fieldglass_grib1::{Grib1Message, Grib1MessageKind, Grib1Reader};
 
 fn fixture(path: &str) -> Vec<u8> {
@@ -271,7 +271,10 @@ fn a_decode_whose_sections_come_back_short_fails_cleanly() {
     assert_eq!(reader.message_kind(0), Grib1MessageKind::Grid);
     source.arm();
     let err = reader.decode_message_values(0).expect_err("short BDS");
-    assert!(err.to_string().contains("served"), "{err}");
+    assert!(
+        matches!(err, FieldglassError::ShortRead { .. }),
+        "a truncated transfer is its own error, not a malformed file: {err}"
+    );
     assert!(reader.decode_message_raster(0).is_err());
     assert_eq!(reader.packing_label(0), None);
     assert_eq!(reader.message_kind(0), Grib1MessageKind::Unsupported);

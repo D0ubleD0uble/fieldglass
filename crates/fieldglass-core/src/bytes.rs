@@ -540,11 +540,11 @@ pub fn read_exact<S: ByteSource + ?Sized>(
     let len = checked_usize(range.len, "byte range length")?;
     let got = source.read(range)?;
     if got.len() != len {
-        return Err(FieldglassError::Parse(format!(
-            "the source served {} of {len} bytes at {}",
-            got.len(),
-            range.start
-        )));
+        return Err(FieldglassError::ShortRead {
+            at: range.start,
+            got: got.len() as u64,
+            wanted: range.len,
+        });
     }
     Ok(got)
 }
@@ -761,10 +761,11 @@ impl<'a, S: ByteSource + ?Sized> FileCursor<'a, S> {
         // parse is about to index. Catching it here is what keeps every reader
         // above from having to.
         if self.window.len() < n {
-            return Err(FieldglassError::Parse(format!(
-                "the source served {} of {n} bytes at {addr}",
-                self.window.len()
-            )));
+            return Err(FieldglassError::ShortRead {
+                at: addr,
+                got: self.window.len() as u64,
+                wanted: n as u64,
+            });
         }
         Ok(())
     }
@@ -1204,16 +1205,37 @@ mod cursor_tests {
     fn a_source_that_serves_short_is_an_error_not_a_short_slice() {
         let source = Short::new(vec![1u8; 32], 0, 1);
         let err = read_exact(&source, ByteRange::new(4, 8)).expect_err("served 7 of 8");
+        // The variant, not the prose: a host branches on the shape to decide
+        // whether to retry a truncated transfer or report a corrupt file, and a
+        // substring match would keep passing if this became `Parse` again.
         assert!(
-            err.to_string().contains("served 7 of 8 bytes at 4"),
-            "unexpected message: {err}"
+            matches!(
+                err,
+                FieldglassError::ShortRead {
+                    at: 4,
+                    got: 7,
+                    wanted: 8
+                }
+            ),
+            "unexpected error: {err}"
         );
         // The cursor holds the same line on its refill. A short window that
         // still covers the read is fine; one that does not cover it is not.
         let mut cur = FileCursor::at(&source, 0).expect("in range");
         assert!(cur.take(4).is_ok(), "31 of 64 bytes still covers four");
         let mut cur = FileCursor::at(&source, 0).expect("in range");
-        assert!(cur.take(32).is_err(), "31 of 32 bytes does not cover 32");
+        let err = cur.take(32).expect_err("31 of 32 bytes does not cover 32");
+        assert!(
+            matches!(
+                err,
+                FieldglassError::ShortRead {
+                    at: 0,
+                    got: 31,
+                    wanted: 32
+                }
+            ),
+            "the cursor refill must raise the same variant: {err}"
+        );
     }
 
     /// A cursor bounded to one structure never reads past it, however much

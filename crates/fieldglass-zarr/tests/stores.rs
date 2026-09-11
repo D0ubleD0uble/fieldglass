@@ -359,6 +359,57 @@ fn physical_reads_match_xarray() {
     assert_eq!(compared, 8, "physical arrays compared");
 }
 
+/// The region cap is core's field cap, and it is one element wide.
+///
+/// Three crates used to state this number and two of them disagreed while their
+/// doc comments claimed to match, so a field between 67 M and 200 M points was
+/// accepted by one reader and refused by another (#707). What is checked here is
+/// that this reader's threshold *is* `fieldglass_core::MAX_FIELD_POINTS` — both
+/// as a constant and in the number the refusal names, since a caller reads the
+/// message and not the constant.
+///
+/// A region of exactly the cap is not refused, and that follows from the
+/// comparison rather than from a second fixture: the guard is `count <= CAP`, so
+/// naming `CAP` as the bound it exceeded proves `CAP` itself passes. Running it
+/// would mean letting the decode allocate a gigabyte.
+#[test]
+fn the_region_cap_is_the_core_field_cap() {
+    const CAP: u64 = fieldglass_core::MAX_FIELD_POINTS as u64;
+    assert_eq!(
+        fieldglass_zarr::store::MAX_REGION_ELEMENTS,
+        CAP,
+        "this crate's cap must be core's, not a second copy of the number"
+    );
+
+    let over = CAP + 1;
+    // One chunk spanning the whole array, so the chunk-count cap cannot be what
+    // refuses this and the element count is what is under test.
+    let zarray = format!(
+        r#"{{"zarr_format": 2, "shape": [{over}], "chunks": [{over}],
+            "dtype": "<f8", "fill_value": 0, "compressor": null, "filters": null,
+            "order": "C"}}"#
+    );
+    let objects = MemoryObjects::from_iter([
+        (".zgroup".to_string(), br#"{"zarr_format": 2}"#.to_vec()),
+        ("wide/.zarray".to_string(), zarray.into_bytes()),
+    ]);
+    let store = ZarrStore::open(&objects).expect("describing it costs nothing");
+    let source: &dyn ArraySource = &store;
+
+    let err = source
+        .read_region("wide", &[0..over])
+        .expect_err("one element past the cap");
+    let msg = err.to_string();
+    assert!(
+        msg.contains(&CAP.to_string()),
+        "the refusal must name the cap it enforces: {msg}"
+    );
+    assert!(
+        msg.contains(&over.to_string()) || msg.contains("elements"),
+        "and what was asked for: {msg}"
+    );
+}
+
 /// An array whose codec the crate does not decode is listed and fails only
 /// when read, naming the codec; the array beside it reads.
 #[test]

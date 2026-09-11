@@ -50,6 +50,25 @@ pub enum FieldglassError {
         /// How many there are, so the valid range is `0..bound`.
         bound: usize,
     },
+    /// A source served fewer bytes than it was asked for.
+    ///
+    /// Its own variant, not [`Self::Parse`], because it is not a statement
+    /// about the file: the bytes that arrived are fine as far as they go, and
+    /// there are simply fewer of them than were requested. An in-memory buffer
+    /// cannot produce this — [`ByteSource::read`](crate::bytes::ByteSource::read)
+    /// bounds-checks against its own size — so it means a transport, and the
+    /// right answer to a truncated transfer is to retry it. A corrupt file is
+    /// to be reported. A host that saw both as `Parse` could not tell which it
+    /// had (#707).
+    #[error("the source served {got} of {wanted} bytes at {at}")]
+    ShortRead {
+        /// Offset in the source the read began at.
+        at: u64,
+        /// How many bytes came back.
+        got: u64,
+        /// How many were asked for.
+        wanted: u64,
+    },
     /// The chunk-grid arithmetic refused something.
     ///
     /// Carried rather than flattened into a string so a reader that returns

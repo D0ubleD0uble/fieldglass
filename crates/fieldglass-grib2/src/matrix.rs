@@ -20,10 +20,13 @@ use fieldglass_core::{FieldglassError, bits::BitReader};
 /// Upper bound on the total matrix-cell count (`Ni·Nj·NR·NC`) the decoder will
 /// allocate. `NR`/`NC` are attacker-controlled `u16`s, and a §6 bitmap can drop
 /// most grid points while leaving a huge `datum = NR·NC`, so the flattened
-/// output (which still holds a `None` per masked cell) is capped here — matching
-/// the grid-point envelope the scalar reader accepts. Real wave-spectra matrices
-/// are orders of magnitude below this.
-const MAX_MATRIX_CELLS: usize = 200_000_000;
+/// output (which still holds a `None` per masked cell) is capped here. Real
+/// wave-spectra matrices are orders of magnitude below this.
+///
+/// [`fieldglass_core::MAX_FIELD_POINTS`], which is the grid-point envelope the
+/// scalar reader accepts — the thing this comment used to claim to match while
+/// both said `200_000_000` and the scalar cap was meant to be 64 Mi (#707).
+const MAX_MATRIX_CELLS: usize = fieldglass_core::MAX_FIELD_POINTS;
 
 /// Decode the §7 payload of a template-5.1 `matrixBitmapsPresent = 1` message
 /// into the flattened `expected_count · (NR·NC)` matrix field. `bitmap` is the
