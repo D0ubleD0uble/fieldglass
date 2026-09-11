@@ -284,10 +284,20 @@ fn build_field(
 /// One place so the two halves cannot word it differently, and so the `detail`
 /// always names the call to make instead — an error that only says "no" costs
 /// the caller a trip to the docs.
-fn wrong_addressing(called: &str, instead: &str) -> Error {
+///
+/// `mode` is how *this* session is addressed, which is the wire value
+/// `expected` carries; `called` belongs to the other mode. Both are derived
+/// from it rather than written at the call site, because until #679 the
+/// message-stream direction reported a GRIB session as addressed by variables
+/// and said `decode_slice` addressed messages.
+fn wrong_addressing(mode: Addressing, called: &str, instead: &str) -> Error {
+    let (this, other) = match mode {
+        Addressing::Messages => ("messages", "variables"),
+        Addressing::Variables => ("variables", "messages"),
+    };
     Error::WrongAddressing {
-        expected: "variables".to_string(),
-        detail: format!("`{called}` addresses messages; call `{instead}` instead"),
+        expected: this.to_string(),
+        detail: format!("`{called}` addresses {other}; call `{instead}` instead"),
     }
 }
 
@@ -413,7 +423,11 @@ impl Session {
         // when its whole question was.
         #[cfg(feature = "netcdf")]
         if matches!(self.reader, Reader::Netcdf(_)) {
-            return Err(wrong_addressing("message", "variables"));
+            return Err(wrong_addressing(
+                Addressing::Variables,
+                "message",
+                "variables",
+            ));
         }
         #[cfg(any(feature = "grib1", feature = "grib2"))]
         {
@@ -424,7 +438,13 @@ impl Session {
                 #[cfg(feature = "grib2")]
                 Reader::Grib2(r) => grib2_message(r, i),
                 #[cfg(feature = "netcdf")]
-                Reader::Netcdf(_) => return Err(wrong_addressing("message", "variables")),
+                Reader::Netcdf(_) => {
+                    return Err(wrong_addressing(
+                        Addressing::Variables,
+                        "message",
+                        "variables",
+                    ));
+                }
             })
         }
         // A build with no GRIB decoder has no message path at all. Answering
@@ -434,7 +454,11 @@ impl Session {
         #[cfg(not(any(feature = "grib1", feature = "grib2")))]
         {
             let _ = index;
-            Err(wrong_addressing("message", "variables"))
+            Err(wrong_addressing(
+                Addressing::Variables,
+                "message",
+                "variables",
+            ))
         }
     }
 
@@ -456,7 +480,11 @@ impl Session {
         // Before the range check, for the reason `message` explains.
         #[cfg(feature = "netcdf")]
         if matches!(self.reader, Reader::Netcdf(_)) {
-            return Err(wrong_addressing("decode", "decode_slice"));
+            return Err(wrong_addressing(
+                Addressing::Variables,
+                "decode",
+                "decode_slice",
+            ));
         }
         #[cfg(any(feature = "grib1", feature = "grib2"))]
         {
@@ -470,7 +498,13 @@ impl Session {
                 #[cfg(feature = "grib2")]
                 Reader::Grib2(r) => r.synthesize_message_global(i)?,
                 #[cfg(feature = "netcdf")]
-                Reader::Netcdf(_) => return Err(wrong_addressing("decode", "decode_slice")),
+                Reader::Netcdf(_) => {
+                    return Err(wrong_addressing(
+                        Addressing::Variables,
+                        "decode",
+                        "decode_slice",
+                    ));
+                }
             };
             let (parameter, units) = match &self.reader {
                 #[cfg(feature = "grib1")]
@@ -484,7 +518,13 @@ impl Session {
                     (parameter, units)
                 }
                 #[cfg(feature = "netcdf")]
-                Reader::Netcdf(_) => return Err(wrong_addressing("decode", "decode_slice")),
+                Reader::Netcdf(_) => {
+                    return Err(wrong_addressing(
+                        Addressing::Variables,
+                        "decode",
+                        "decode_slice",
+                    ));
+                }
             };
             // `declared` is the family name the message states, which survives the
             // conversion only if it is carried (#645): both decoders widen a
@@ -537,7 +577,13 @@ impl Session {
                         )
                     }
                     #[cfg(feature = "netcdf")]
-                    Reader::Netcdf(_) => return Err(wrong_addressing("decode", "decode_slice")),
+                    Reader::Netcdf(_) => {
+                        return Err(wrong_addressing(
+                            Addressing::Variables,
+                            "decode",
+                            "decode_slice",
+                        ));
+                    }
                 },
             };
 
@@ -562,7 +608,11 @@ impl Session {
         #[cfg(not(any(feature = "grib1", feature = "grib2")))]
         {
             let _ = (index, options);
-            Err(wrong_addressing("decode", "decode_slice"))
+            Err(wrong_addressing(
+                Addressing::Variables,
+                "decode",
+                "decode_slice",
+            ))
         }
     }
 
@@ -672,9 +722,17 @@ impl Session {
     ) -> Result<Field, Error> {
         match &self.reader {
             #[cfg(feature = "grib1")]
-            Reader::Grib1(_) => Err(wrong_addressing("decode_slice", "decode")),
+            Reader::Grib1(_) => Err(wrong_addressing(
+                Addressing::Messages,
+                "decode_slice",
+                "decode",
+            )),
             #[cfg(feature = "grib2")]
-            Reader::Grib2(_) => Err(wrong_addressing("decode_slice", "decode")),
+            Reader::Grib2(_) => Err(wrong_addressing(
+                Addressing::Messages,
+                "decode_slice",
+                "decode",
+            )),
             #[cfg(feature = "netcdf")]
             Reader::Netcdf(b) => {
                 let (reader, view) = (&b.0, &b.1);
