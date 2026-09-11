@@ -119,13 +119,14 @@ impl ByteSource for Starved<'_> {
 }
 
 fn fixture(path: &str) -> Vec<u8> {
-    std::fs::read(format!("{}/{path}", env!("CARGO_MANIFEST_DIR"))).expect("fixture")
+    // Relative, like every other fixture read here: the wasm32-wasip1 run in
+    // CI preopens only the crate directory and its parent.
+    std::fs::read(path).expect("fixture")
 }
 
 /// Every GRIB1 fixture, by name.
 fn corpus() -> Vec<(String, Vec<u8>)> {
-    let dir = format!("{}/tests/fixtures", env!("CARGO_MANIFEST_DIR"));
-    let mut paths: Vec<_> = std::fs::read_dir(dir)
+    let mut paths: Vec<_> = std::fs::read_dir("tests/fixtures")
         .expect("fixture dir")
         .map(|e| e.expect("entry").path())
         .filter(|p| p.extension().is_some_and(|e| e == "grib1" || e == "grib"))
