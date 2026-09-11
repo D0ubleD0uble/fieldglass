@@ -48,8 +48,12 @@ pub fn read_object<S: ByteSource + ?Sized>(
     // The declared collection size counts the whole collection (header + objects).
     // Clamp it to the bytes actually on disk so a corrupt size can't make the
     // budget arithmetic below overflow or run past the file.
+    // `saturating_sub` rather than a bare one: the cursor above already refused
+    // an address past the end of the file, so this cannot go negative — but a
+    // subtraction that is only correct because of a check several lines away is
+    // the kind that survives a reordering and underflows.
     let available = checked_usize(
-        source.size() - collection_addr,
+        source.size().saturating_sub(collection_addr),
         "global-heap collection tail",
     )?;
     let collection_size = cur.usize(l)?.min(available);

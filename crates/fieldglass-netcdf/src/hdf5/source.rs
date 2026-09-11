@@ -245,9 +245,9 @@ impl<'a, S: ByteSource + ?Sized> FileCursor<'a, S> {
 
     /// Make at least `n` bytes available from the current position.
     ///
-    /// Refills from the file when they are not already in the window, taking a
-    /// whole [`WINDOW_BYTES`] window where the file has one — a bigger read
-    /// costs a buffer nothing and saves a transport a round trip.
+    /// Refills from the file when they are not already in the window, growing
+    /// what it asks for as a structure turns out to be long — see
+    /// [`MAX_WINDOW_BYTES`].
     fn need(&mut self, n: usize) -> Result<(), FieldglassError> {
         if self
             .pos
@@ -263,7 +263,14 @@ impl<'a, S: ByteSource + ?Sized> FileCursor<'a, S> {
         }
         let want = (n.max(self.next_window) as u64).min(available);
         self.next_window = self.next_window.saturating_mul(2).min(MAX_WINDOW_BYTES);
+        // `base`/`pos` move with the window rather than after it, so the three
+        // never disagree — including on the error return below. Every caller
+        // propagates that error today and drops the cursor, but a cursor whose
+        // position pointed into a window it no longer held would be a trap for
+        // the first one that did not.
         self.window = self.source.read(ByteRange::new(addr, want))?;
+        self.base = addr;
+        self.pos = 0;
         // A source that served short would leave the window smaller than the
         // parse is about to index. Catching it here is what keeps every reader
         // below from having to.
@@ -273,8 +280,6 @@ impl<'a, S: ByteSource + ?Sized> FileCursor<'a, S> {
                 self.window.len()
             )));
         }
-        self.base = addr;
-        self.pos = 0;
         Ok(())
     }
 
