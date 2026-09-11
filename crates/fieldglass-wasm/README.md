@@ -181,12 +181,17 @@ Building the NetCDF view from core's array model (#684) took about 17,600 raw
 bytes out (1.4%, and 2.9% gzipped), measured against a build of the commit
 before it on the same machine.
 
+Moving both GRIB readers onto `ByteSource` (#697) added 8,527 raw bytes (0.7%)
+and 2,403 gzipped (0.5%): the windowed scan and the exact-length reads that
+replace indexing a buffer. The readers are generic over their source, but the
+browser build only ever instantiates `Vec<u8>`, so there is one copy of each.
+
 <!-- checked by tools/check_wasm_bundle_size.py -->
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
-| baseline | 1,281,424 | 500,536 |
-| `+simd128` | 1,269,668 | 497,518 |
+| baseline | 1,289,951 | 502,939 |
+| `+simd128` | 1,277,728 | 499,783 |
 
 The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
 build drifts more than 5% from these figures in either direction, so a change

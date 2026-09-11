@@ -1807,8 +1807,11 @@ impl Grib1Handle {
                     self.reader.messages.len()
                 ))
             })?;
+        // A file offset, so `u64`; this reader's bytes are a buffer it already
+        // indexed, so it fits.
+        let off = fieldglass_core::bytes::checked_usize(msg.pds_p1_offset(), "PDS P1 offset")
+            .into_napi()?;
         let mut out = self.reader.bytes().to_vec();
-        let off = msg.pds_p1_offset();
         out[off] = value as u8;
         Ok(out)
     }
@@ -5373,7 +5376,7 @@ mod netcdf_slice_tests {
         let differing: Vec<usize> = (0..original.len())
             .filter(|&i| patched[i] != original[i])
             .collect();
-        let offset = handle.reader.messages[0].pds_p1_offset();
+        let offset = handle.reader.messages[0].pds_p1_offset() as usize;
         assert_eq!(
             differing,
             vec![offset],

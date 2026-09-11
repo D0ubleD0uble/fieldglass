@@ -176,7 +176,7 @@ fn with_section_length(base: &[u8], section_start: usize, new_len: u32) -> Vec<u
 #[test]
 fn oversized_bms_section_length_returns_parse_error() {
     let reader = Grib2Reader::from_bytes(FIXTURE.to_vec()).expect("fixture parses");
-    let (bms_start, _) = reader.messages[0].bms_range;
+    let bms_start = reader.messages[0].bms_range.start as usize;
 
     let buf = with_section_length(FIXTURE, bms_start, u32::MAX);
     let Err(err) = Grib2Reader::from_bytes(buf) else {
@@ -195,7 +195,7 @@ fn oversized_bms_section_length_returns_parse_error() {
 #[test]
 fn oversized_ds_section_length_returns_parse_error() {
     let reader = Grib2Reader::from_bytes(FIXTURE.to_vec()).expect("fixture parses");
-    let (ds_start, _) = reader.messages[0].ds_range;
+    let ds_start = reader.messages[0].ds_range.start as usize;
 
     let buf = with_section_length(FIXTURE, ds_start, u32::MAX);
     let Err(err) = Grib2Reader::from_bytes(buf) else {

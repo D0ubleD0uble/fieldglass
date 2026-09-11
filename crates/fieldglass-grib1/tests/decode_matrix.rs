@@ -33,7 +33,8 @@ fn matrix_header_reports_simple_matrix_flags() {
     // grid_simple_matrix: complexPacking=0, integerPointValues=0,
     // additionalFlagPresent=1 — distinct from grid_ieee (integer=1).
     let reader = Grib1Reader::from_bytes(MATRIX_FIXTURE.to_vec()).expect("fixture parses");
-    let (s, e) = reader.messages[0].bds_range;
+    let range = reader.messages[0].bds_range;
+    let (s, e) = (range.start as usize, (range.start + range.len) as usize);
     let bds = parse_bds_header(&MATRIX_FIXTURE[s..e]).expect("BDS header parses");
     assert!(!bds.is_spherical_harmonic);
     assert!(!bds.is_complex_packing);
@@ -92,7 +93,8 @@ const MV_NC: usize = 2;
 fn matrix_of_values_header_reports_matrix_bit() {
     let reader =
         Grib1Reader::from_bytes(MATRIX_OF_VALUES_FIXTURE.to_vec()).expect("fixture parses");
-    let (s, e) = reader.messages[0].bds_range;
+    let range = reader.messages[0].bds_range;
+    let (s, e) = (range.start as usize, (range.start + range.len) as usize);
     let bds = parse_bds_header(&MATRIX_OF_VALUES_FIXTURE[s..e]).expect("BDS header parses");
     assert!(!bds.is_complex_packing);
     assert!(!bds.is_integer_data);

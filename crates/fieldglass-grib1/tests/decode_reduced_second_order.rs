@@ -142,7 +142,8 @@ fn only_the_second_fixture_sets_boustrophedonic_ordering() {
     for (name, want) in [(FORWARDS, false), (BOUSTROPHEDONIC, true)] {
         let bytes = read_fixture(name);
         let reader = Grib1Reader::from_bytes(bytes.clone()).expect("parses");
-        let (start, end) = reader.messages[0].bds_range;
+        let range = reader.messages[0].bds_range;
+        let (start, end) = (range.start as usize, (range.start + range.len) as usize);
         let bds = parse_bds_header(&bytes[start..end]).expect("BDS header parses");
         let ext = bds
             .complex_extended
@@ -167,7 +168,8 @@ fn only_the_second_fixture_sets_boustrophedonic_ordering() {
 fn a_second_order_section_decodes_without_the_additional_flag_bit() {
     let bytes = read_fixture(FORWARDS);
     let reader = Grib1Reader::from_bytes(bytes.clone()).expect("parses");
-    let (start, end) = reader.messages[0].bds_range;
+    let range = reader.messages[0].bds_range;
+    let (start, end) = (range.start as usize, (range.start + range.len) as usize);
     let bds = parse_bds_header(&bytes[start..end]).expect("BDS header parses");
     assert!(bds.is_complex_packing, "complex packing flag");
     assert!(

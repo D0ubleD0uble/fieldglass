@@ -16,7 +16,7 @@ fn scans_two_concatenated_messages() {
     let reader = Grib1Reader::from_bytes(buf).expect("two-message buffer parses");
     assert_eq!(reader.message_count(), 2);
     assert_eq!(reader.messages[0].byte_offset, 0);
-    assert_eq!(reader.messages[1].byte_offset, FIXTURE.len());
+    assert_eq!(reader.messages[1].byte_offset, FIXTURE.len() as u64);
 
     // Both messages decode to the same field.
     let a = reader.decode_message_values(0).expect("decode first");
@@ -32,7 +32,7 @@ fn skips_leading_non_grib_bytes() {
 
     let reader = Grib1Reader::from_bytes(buf).expect("parses past leading junk");
     assert_eq!(reader.message_count(), 1);
-    assert_eq!(reader.messages[0].byte_offset, prefix_len);
+    assert_eq!(reader.messages[0].byte_offset, prefix_len as u64);
 }
 
 #[test]
@@ -58,7 +58,7 @@ fn pds_p1_offset_round_trips_through_byte_buffer() {
     // — and patching that byte should be visible after re-parsing.
     let reader = Grib1Reader::from_bytes(FIXTURE.to_vec()).expect("fixture parses");
     let msg = &reader.messages[0];
-    let off = msg.pds_p1_offset();
+    let off = msg.pds_p1_offset() as usize;
     let original_p1 = msg.pds.p1;
     assert_eq!(
         FIXTURE[off], original_p1,

@@ -44,7 +44,7 @@ fn reader_enumerates_concatenated_blob() {
     assert_eq!(reader.messages[0].byte_offset, 0);
     assert_eq!(reader.messages[0].message_index, 0);
 
-    assert_eq!(reader.messages[1].byte_offset, FIXTURE.len());
+    assert_eq!(reader.messages[1].byte_offset, FIXTURE.len() as u64);
     assert_eq!(reader.messages[1].message_index, 1);
 
     for msg in &reader.messages {

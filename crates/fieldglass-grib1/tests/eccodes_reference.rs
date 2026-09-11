@@ -103,7 +103,8 @@ fn assert_message_matches(
     // The BDS header is 11 octets plus the complex-packing extension; parsing
     // it here (rather than decoding values) is what the §4 keys compare
     // against.
-    let (bds_start, bds_end) = msg.bds_range;
+    let range = msg.bds_range;
+    let (bds_start, bds_end) = (range.start as usize, (range.start + range.len) as usize);
     let bds = parse_bds_header(&reader.bytes()[bds_start..bds_end])
         .unwrap_or_else(|e| panic!("{fixture}: BDS header parse failed: {e}"));
     let ext = bds.complex_extended;

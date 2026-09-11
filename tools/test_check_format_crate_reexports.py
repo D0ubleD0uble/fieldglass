@@ -555,6 +555,10 @@ class TheRepoItselfPasses(unittest.TestCase):
         """
         expected = {
             "fieldglass-grib1": {
+                # What the reader reads through and how a message records its
+                # sections (#697).
+                "ByteRange",
+                "ByteSource",
                 "CornerPair",
                 "FieldglassError",
                 "GlobalGrid",
@@ -563,6 +567,8 @@ class TheRepoItselfPasses(unittest.TestCase):
                 "SynthesisedField",
             },
             "fieldglass-grib2": {
+                "ByteRange",
+                "ByteSource",
                 "CornerPair",
                 "FieldglassError",
                 "GeostationaryParams",
@@ -585,6 +591,9 @@ class TheRepoItselfPasses(unittest.TestCase):
                 "Dimension",
                 "ElementType",
                 "FieldglassError",
+                # Named by an impl of the crate-private `Fields` trait, and
+                # excused in `ALLOWED_UNEXPORTED` for that reason (#697).
+                "FileCursor",
                 "GridGeometry",
                 "Group",
                 "Scan",
