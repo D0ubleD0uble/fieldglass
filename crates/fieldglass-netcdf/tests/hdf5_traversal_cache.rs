@@ -264,9 +264,13 @@ fn the_memo_is_not_part_of_the_probes_identity() {
 /// Served from a memo keyed by file offset it would instead return the first
 /// file's structure for the second: a wrong answer wearing the right shape.
 ///
-/// The memo binds to its slice length and steps aside for any other, so the
-/// second file is walked properly. Asserted against a fresh probe's answer,
+/// The memo binds to its source's identity and steps aside for any other, so
+/// the second file is walked properly. Asserted against a fresh probe's answer,
 /// which is the ground truth.
+///
+/// This covers the pairs that differ in length. The equal-length pair — which
+/// this test used to skip, because length was the whole guard — is
+/// [`two_files_of_equal_length_are_still_two_files`].
 #[test]
 fn a_probe_does_not_answer_for_another_file() {
     let (first_name, first) = FIXTURES[0];
@@ -277,10 +281,6 @@ fn a_probe_does_not_answer_for_another_file() {
     assert!(warm > 0, "{first_name}: memo did not warm");
 
     for (name, other) in FIXTURES.iter().skip(1) {
-        if other.len() == first.len() {
-            // Equal-length files alias by construction; the doc says so.
-            continue;
-        }
         // Ground truth is what this probe would answer with a cold memo — the
         // same superblock fields, no remembered offsets. That is exactly the
         // behaviour before the memo existed, and it is usually an error, since
@@ -322,4 +322,90 @@ fn a_probe_does_not_answer_for_another_file() {
         before > warm,
         "{first_name}: the foreign walks should have been counted as real work"
     );
+}
+
+/// Two files of exactly equal length are still two files (#681).
+///
+/// The memo used to bind to its slice *length*, which is not an identity: a
+/// probe warmed on one file passed the guard for any other of the same size and
+/// served it the first file's root address, child list, object headers and
+/// chunk records. A wrong answer wearing the right shape, and the test above
+/// could not see it — it skipped equal-length pairs, because under a length
+/// guard there was nothing else it could do.
+///
+/// No two committed fixtures happen to be the same size, so the pair is built:
+/// two fixtures whose structures differ, each padded with trailing zeros to a
+/// common length. HDF5 addresses every object from the start of the file and
+/// nothing reads past what the superblock points at, so the padding is inert —
+/// asserted below, because the fixture proves nothing if it is not.
+#[test]
+fn two_files_of_equal_length_are_still_two_files() {
+    const A: &[u8] = include_bytes!("fixtures/hdf5_v4_chunk_index.h5");
+    const B: &[u8] = include_bytes!("fixtures/hdf5_implicit_index.h5");
+
+    let n = A.len().max(B.len());
+    let (a, b) = (padded_to(A, n), padded_to(B, n));
+    assert_eq!(
+        a.len(),
+        b.len(),
+        "the pair has to be equal-length, or it does not reproduce #681"
+    );
+
+    // The padding changes nothing about what either file says.
+    assert_eq!(variable_names(A), variable_names(&a), "padding moved A");
+    assert_eq!(variable_names(B), variable_names(&b), "padding moved B");
+
+    let (truth_a, truth_b) = (variable_names(&a), variable_names(&b));
+    assert_ne!(
+        truth_a, truth_b,
+        "the two fixtures must disagree, or nothing here is being tested"
+    );
+
+    // One probe, two equal-length files, read in sequence — which is exactly
+    // what the public traversal API lets a caller do.
+    let shared = fieldglass_netcdf::hdf5::probe(&a).expect("A is HDF5");
+    assert_eq!(
+        names_via(&a, &shared),
+        truth_a,
+        "the file the probe was built from"
+    );
+    assert_eq!(
+        names_via(&b, &shared),
+        truth_b,
+        "a warm probe served the first file's metadata for an equal-length second one"
+    );
+
+    // Stepping aside for B must not have cost A its memo, or the fix would be
+    // "turn the cache off" rather than "key it on the right thing".
+    let before = shared.traversals();
+    assert_eq!(names_via(&a, &shared), truth_a);
+    assert_eq!(
+        shared.traversals(),
+        before,
+        "re-reading the probe's own file walked the structure again"
+    );
+}
+
+/// `bytes` with trailing zeros out to `n`.
+fn padded_to(bytes: &[u8], n: usize) -> Vec<u8> {
+    let mut padded = bytes.to_vec();
+    padded.resize(n, 0);
+    padded
+}
+
+/// Every variable name the file reports, resolved through a probe of its own —
+/// the ground truth an aliased answer has to be compared against.
+fn variable_names(bytes: &[u8]) -> Vec<String> {
+    let own = fieldglass_netcdf::hdf5::probe(bytes).expect("fixture is HDF5");
+    names_via(bytes, &own)
+}
+
+/// Every variable name `bytes` reports when read through `probe`.
+fn names_via(bytes: &[u8], probe: &Hdf5Probe) -> Vec<String> {
+    fieldglass_netcdf::hdf5::dimensions::resolve(bytes, probe)
+        .expect("metadata resolves")
+        .variables
+        .iter()
+        .map(|v| v.name.clone())
+        .collect()
 }

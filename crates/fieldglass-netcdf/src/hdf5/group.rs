@@ -161,7 +161,7 @@ pub(crate) fn all_children(
 ) -> Result<std::sync::Arc<Vec<GroupChild>>, FieldglassError> {
     probe
         .cache()
-        .children(bytes.len(), || walk_all_children(bytes, probe))
+        .children(bytes, || walk_all_children(bytes, probe))
 }
 
 fn walk_all_children(bytes: &[u8], probe: &Hdf5Probe) -> Result<Vec<GroupChild>, FieldglassError> {

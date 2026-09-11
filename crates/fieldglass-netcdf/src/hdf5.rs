@@ -42,10 +42,12 @@ pub const HDF5_SIGNATURE: [u8; 8] = [0x89, b'H', b'D', b'F', b'\r', b'\n', 0x1a,
 ///
 /// A probe is only valid against the byte slice [`probe`] was called on — it
 /// carries that file's offset sizes, and the memo is keyed by that file's
-/// offsets. Pairing one with a different file is guarded to the extent it
-/// cheaply can be: the memo binds to its slice length on first use and steps
-/// aside for any other length, so a mismatch is slow rather than wrong. Two
-/// files of exactly equal length are indistinguishable that way and will alias.
+/// offsets. Pairing one with a different file is guarded: the memo binds to its
+/// source's [identity](fieldglass_core::bytes::ByteSource::identity) on first
+/// use and steps aside for any other, so a mismatch is slow rather than wrong.
+/// That guard used to be the slice's *length*, which two files of equal size
+/// pass — they aliased, and the second was answered with the first's structure
+/// (#681).
 #[derive(Default)]
 pub struct Hdf5Probe {
     /// Superblock version byte. Versions 0 and 1 share a layout; versions 2
@@ -207,7 +209,7 @@ pub fn root_group_address(bytes: &[u8], probe: &Hdf5Probe) -> Result<u64, Fieldg
     // path of every metadata and decode call (#414).
     probe
         .cache()
-        .root(bytes.len(), || read_root_group_address(bytes, probe))
+        .root(bytes, || read_root_group_address(bytes, probe))
 }
 
 fn read_root_group_address(bytes: &[u8], probe: &Hdf5Probe) -> Result<u64, FieldglassError> {
