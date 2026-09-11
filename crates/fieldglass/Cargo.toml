@@ -85,9 +85,11 @@ analysis = ["fieldglass-core/analysis"]
 # every byte and whose declarations come from wasm-bindgen.
 schema = ["dep:schemars"]
 
-# Fetch planning (#461, ADR-0005 decision 5): the manifest dialects, plus the
-# two things a pure planner is not allowed to link — a `ParameterResolver` over
-# the GRIB2 tables (#426) and the semantic half of plan verification.
+# Fetch planning (#461, ADR-0005 decision 5): the manifest dialects in both
+# addressing shapes — a query over the messages of a GRIB sidecar, and a chunk
+# index over an array in a kerchunk reference document (#687) — plus the two
+# things a pure planner is not allowed to link: a `ParameterResolver` over the
+# GRIB2 tables (#426) and the semantic half of plan verification.
 #
 # **Default for the reason `conformance` is**, and it is the same trap: `cargo
 # test --workspace` does not enable optional features, so an off-by-default

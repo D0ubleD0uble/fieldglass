@@ -64,11 +64,14 @@
 //!   `cargo test --workspace` does not enable optional features. Both hosts
 //!   take this crate with `default-features = false`, so neither the addon nor
 //!   the browser bundle carries it.
-//! - **`fetchplan`** *(default)* — reading a cloud-native manifest and
-//!   returning the byte ranges a host should fetch (#461, [ADR-0005] decision
-//!   5), plus the two halves a pure planner cannot have: a `ParameterResolver`
-//!   over the GRIB2 tables, and the semantic half of verifying that the bytes
-//!   that came back are the message the sidecar promised. Default for the
+//! - **`fetchplan`** *(default)* — reading a cloud-native manifest into a
+//!   chunk plan, the bytes a host should fetch and which chunk or message each
+//!   range is (#461, #685, [ADR-0005] decision 5). It answers in both
+//!   addressing shapes: a query over the messages of a GRIB sidecar, and a
+//!   chunk index over an array in a kerchunk reference document (#687). Plus
+//!   the two halves a pure planner cannot have: a `ParameterResolver` over the
+//!   GRIB2 tables, and the semantic half of verifying that the bytes that came
+//!   back are the message the sidecar promised. Default for the
 //!   reason `conformance` is — `cargo test --workspace` enables no optional
 //!   feature, so off-by-default would mean the planner's own gate never runs —
 //!   and carried by neither host, both of which take this crate with
