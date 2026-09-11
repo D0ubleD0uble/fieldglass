@@ -97,6 +97,12 @@ pub mod projection;
 pub mod scan;
 pub mod sht;
 pub mod spatial_index;
+// Deliberately **not** part of the parsing surface, and gated so it is linked
+// by nothing a consumer builds: sources that behave the way a transport does,
+// for the tests of every reader on the `bytes` seams (#708). `test` as well as
+// the feature, so this crate's own unit tests reach it without a second copy.
+#[cfg(any(feature = "testing", test))]
+pub mod testing;
 pub mod units;
 #[cfg(feature = "render")]
 pub mod warp;

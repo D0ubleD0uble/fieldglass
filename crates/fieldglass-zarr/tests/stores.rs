@@ -24,13 +24,17 @@ use std::ops::Range;
 use std::path::Path;
 
 use fieldglass_core::array::{ArraySource, AttributeValue, ElementType, Group, PhonyDimensions};
-use fieldglass_core::bytes::MemoryObjects;
+use fieldglass_core::bytes::{MemoryObjects, ObjectSource};
+use fieldglass_core::testing::Recording;
 use fieldglass_zarr::ZarrStore;
 use serde_json::{Value, json};
 
 /// A fixture directory as the objects a host would hand over: every file,
 /// keyed by its path under the store root with `/` separators.
-fn load(dir: &str) -> MemoryObjects {
+///
+/// Wrapped in a recorder, because what several of these tests say is what the
+/// walk *asked the store for* and not only what it returned.
+fn load(dir: &str) -> Recording<MemoryObjects> {
     fn walk(root: &Path, dir: &Path, out: &mut Vec<(String, Vec<u8>)>) {
         for entry in std::fs::read_dir(dir).unwrap_or_else(|e| panic!("{dir:?}: {e}")) {
             let path = entry.expect("entry").path();
@@ -51,7 +55,7 @@ fn load(dir: &str) -> MemoryObjects {
     let root = Path::new(dir);
     let mut entries = Vec::new();
     walk(root, root, &mut entries);
-    MemoryObjects::from_iter(entries)
+    Recording::new(MemoryObjects::from_iter(entries))
 }
 
 fn oracle(name: &str) -> Value {
@@ -160,7 +164,7 @@ fn whole(shape: &Value) -> Vec<Range<u64>> {
 }
 
 /// Each committed store, opened, with its oracle entry.
-fn stores() -> Vec<(String, MemoryObjects, Value)> {
+fn stores() -> Vec<(String, Recording<MemoryObjects>, Value)> {
     let oracle = oracle("stores_oracle.json");
     oracle
         .as_object()
@@ -396,10 +400,10 @@ fn reads_are_what_they_should_be() {
 
     let v3 = load("tests/fixtures/stores/v3_nested");
     let store = ZarrStore::open(&v3).expect("opens");
-    assert_eq!(v3.prefetches(), vec![root_batch.clone()]);
-    assert_eq!(v3.reads(), vec!["zarr.json".to_string()]);
+    assert_eq!(v3.key_prefetches(), vec![root_batch.clone()]);
+    assert_eq!(v3.gets(), vec!["zarr.json".to_string()]);
 
-    v3.clear_log();
+    v3.clear();
     let source: &dyn ArraySource = &store;
     // Rows 1..3 and columns 2..5 of a 2x3-chunked 5x7 array touch chunks
     // (0,0), (0,1), (1,0) and (1,1).
@@ -408,32 +412,92 @@ fn reads_are_what_they_should_be() {
         .iter()
         .map(|k| format!("temp/{k}"))
         .collect();
-    assert_eq!(v3.prefetches(), vec![keys.clone()]);
-    assert_eq!(v3.reads(), keys);
+    assert_eq!(v3.key_prefetches(), vec![keys.clone()]);
+    assert_eq!(v3.gets(), keys);
 
     let v2 = load("tests/fixtures/stores/v2_nested");
     ZarrStore::open(&v2).expect("opens");
-    assert_eq!(v2.prefetches(), vec![root_batch]);
+    assert_eq!(v2.key_prefetches(), vec![root_batch]);
     assert_eq!(
-        v2.reads(),
+        v2.gets(),
         vec!["zarr.json".to_string(), ".zmetadata".to_string()]
     );
 
-    // Without consolidated metadata the store is listed and its documents
-    // are fetched in one batch — not one request per document.
+    // Without consolidated metadata the store is descended, one batch of
+    // metadata documents per level — not one request per document, and not a
+    // listing of the whole store.
     let listed = load("tests/fixtures/stores/v2_slash");
     ZarrStore::open(&listed).expect("opens");
-    let batches = listed.prefetches();
+    let batches = listed.key_prefetches();
     assert_eq!(
         batches.len(),
-        2,
-        "the root batch, then the metadata batch: {batches:?}"
+        4,
+        "the root batch, then one per level of the hierarchy: {batches:?}"
     );
     assert!(
-        batches[1]
+        batches[1..]
             .iter()
-            .all(|k| k.ends_with(".zarray") || k.ends_with(".zattrs") || k.ends_with(".zgroup"))
+            .flatten()
+            .all(|k| V2_DOCS.iter().any(|doc| k.ends_with(doc))),
+        "every batch after the root holds only metadata documents: {batches:?}"
     );
+}
+
+/// The v2 metadata documents, which is all an unconsolidated walk ever fetches.
+const V2_DOCS: [&str; 3] = [".zgroup", ".zarray", ".zattrs"];
+
+/// An unconsolidated walk never lists a chunk key.
+///
+/// The property that decides whether opening a store on a bucket is a handful
+/// of requests or a paged walk of every chunk in it. `list("")` — what this
+/// walk used to do — names every chunk of every array; descending through
+/// `list_children` names a directory once and never looks inside one that
+/// turned out to be an array.
+///
+/// `v2_slash` is the fixture for it because it has both shapes of chunk key:
+/// `temp/` uses `/` as its dimension separator, so its chunks are two levels
+/// down, and `sub/inner/` stores its chunks directly beside its own documents.
+/// A walk that listed either directory would name them.
+#[test]
+fn an_unconsolidated_walk_lists_no_chunk_key() {
+    let listed = load("tests/fixtures/stores/v2_slash");
+    let store = ZarrStore::open(&listed).expect("opens");
+    // The fixture really does hold chunks, or this proves nothing.
+    let chunks: Vec<String> = listed
+        .inner()
+        .list("")
+        .expect("list")
+        .into_iter()
+        .filter(|k| !V2_DOCS.iter().any(|doc| k.ends_with(doc)))
+        .collect();
+    assert_eq!(chunks.len(), 6, "{chunks:?}");
+
+    for key in listed.listed_keys() {
+        assert!(
+            key.ends_with('/') || V2_DOCS.iter().any(|doc| key.ends_with(doc)),
+            "the walk listed {key:?}, which is neither a directory nor a metadata document"
+        );
+    }
+    // It descended: the root, and the one group under it. Not the two arrays.
+    assert_eq!(
+        listed
+            .listings()
+            .iter()
+            .map(|(prefix, _)| prefix.clone())
+            .collect::<Vec<_>>(),
+        ["", "sub/"]
+    );
+
+    // And it found the whole hierarchy anyway.
+    let source: &dyn ArraySource = &store;
+    let mut names: Vec<String> = source
+        .group()
+        .arrays_qualified()
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect();
+    names.sort();
+    assert_eq!(names, ["sub/inner", "temp"]);
 }
 
 /// Every non-sharded store of the codec corpus (#657) — one root array per

@@ -10,61 +10,17 @@
 //! transport fetch bytes nobody wants, and not a subset, which would make it
 //! miss some and fall back to a per-slab round trip.
 
-use fieldglass_core::{ByteRange, ByteSource, FieldglassError};
+use fieldglass_core::ByteSource;
+use fieldglass_core::testing::{Fetching, Recording, Short};
 use fieldglass_netcdf::classic::{
     decode_variable_raw, decode_variable_raw_from, parse_header, variable_plan,
 };
-use std::borrow::Cow;
-use std::cell::RefCell;
-use std::collections::HashMap;
 
 /// A classic file with a record (unlimited) variable, so the multi-range plan is
 /// exercised and not just the contiguous one.
 const WRF: &[u8] = include_bytes!("fixtures/wrf_lambert.nc");
 /// A classic file with only fixed variables.
 const ERSST: &[u8] = include_bytes!("fixtures/ersst_v5_187001_cdf1.nc");
-
-/// Records every range asked for, and every prefetch batch, so a test can say
-/// what a decode actually touched rather than that it succeeded.
-struct Recording<'a> {
-    bytes: &'a [u8],
-    reads: RefCell<Vec<ByteRange>>,
-    prefetches: RefCell<Vec<Vec<ByteRange>>>,
-}
-
-impl<'a> Recording<'a> {
-    fn new(bytes: &'a [u8]) -> Self {
-        Self {
-            bytes,
-            reads: RefCell::new(Vec::new()),
-            prefetches: RefCell::new(Vec::new()),
-        }
-    }
-
-    fn reads(&self) -> Vec<ByteRange> {
-        self.reads.borrow().clone()
-    }
-
-    fn prefetches(&self) -> Vec<Vec<ByteRange>> {
-        self.prefetches.borrow().clone()
-    }
-}
-
-impl ByteSource for Recording<'_> {
-    fn size(&self) -> u64 {
-        self.bytes.len() as u64
-    }
-
-    fn prefetch(&self, ranges: &[ByteRange]) -> Result<(), FieldglassError> {
-        self.prefetches.borrow_mut().push(ranges.to_vec());
-        Ok(())
-    }
-
-    fn read(&self, range: ByteRange) -> Result<Cow<'_, [u8]>, FieldglassError> {
-        self.reads.borrow_mut().push(range);
-        self.bytes.read(range)
-    }
-}
 
 /// Every variable of both fixtures, so a plan bug in one shape cannot hide
 /// behind the other.
@@ -279,50 +235,6 @@ fn a_source_that_cannot_serve_a_range_fails_the_decode() {
 ///
 /// The cost that fixes in place: a remote source copies once per slab. Against
 /// a network fetch that is nothing, and it buys the local path a plain slice.
-struct Fetching<'a> {
-    origin: &'a [u8],
-    cache: RefCell<HashMap<(u64, u64), Vec<u8>>>,
-    fetches: RefCell<usize>,
-}
-
-impl<'a> Fetching<'a> {
-    fn new(origin: &'a [u8]) -> Self {
-        Self {
-            origin,
-            cache: RefCell::new(HashMap::new()),
-            fetches: RefCell::new(0),
-        }
-    }
-}
-
-impl ByteSource for Fetching<'_> {
-    fn size(&self) -> u64 {
-        self.origin.len() as u64
-    }
-
-    fn prefetch(&self, ranges: &[ByteRange]) -> Result<(), FieldglassError> {
-        // One "request" per batch, which is the whole point of the batch.
-        *self.fetches.borrow_mut() += 1;
-        let mut cache = self.cache.borrow_mut();
-        for range in ranges {
-            let bytes = self.origin.read(*range)?.into_owned();
-            cache.insert((range.start, range.len), bytes);
-        }
-        Ok(())
-    }
-
-    fn read(&self, range: ByteRange) -> Result<Cow<'_, [u8]>, FieldglassError> {
-        if let Some(hit) = self.cache.borrow().get(&(range.start, range.len)) {
-            return Ok(Cow::Owned(hit.clone()));
-        }
-        // `read` must work whether or not a range was prefetched — skipping the
-        // batch costs latency, not correctness. A remote source would issue a
-        // single-range request here.
-        *self.fetches.borrow_mut() += 1;
-        Ok(Cow::Owned(self.origin.read(range)?.into_owned()))
-    }
-}
-
 /// The trait is implementable by something that owns nothing until asked, and
 /// the decode is identical through it.
 ///
@@ -341,7 +253,7 @@ fn a_cache_backed_source_that_never_borrows_decodes_identically() {
                     // One batch for the whole variable, and nothing fetched
                     // singly afterwards: every read was a cache hit.
                     assert_eq!(
-                        *source.fetches.borrow(),
+                        source.fetches(),
                         1,
                         "variable {index} went back to the origin after prefetching"
                     );
@@ -375,7 +287,7 @@ fn reads_work_without_a_prefetch() {
         );
     }
     assert_eq!(
-        *source.fetches.borrow(),
+        source.fetches(),
         plan.len(),
         "each read should have gone to the origin"
     );
@@ -390,18 +302,6 @@ fn reads_work_without_a_prefetch() {
 /// which is exactly the case that has no test until there is a transport.
 #[test]
 fn a_short_serving_source_is_an_error_not_a_short_variable() {
-    struct Short<'a>(&'a [u8]);
-    impl ByteSource for Short<'_> {
-        fn size(&self) -> u64 {
-            self.0.len() as u64
-        }
-        fn read(&self, range: ByteRange) -> Result<Cow<'_, [u8]>, FieldglassError> {
-            // Serve one element short of what was asked for.
-            let shrunk = ByteRange::new(range.start, range.len.saturating_sub(4));
-            self.0.read(shrunk)
-        }
-    }
-
     let header = parse_header(ERSST).expect("classic header");
     let index = header
         .variables
@@ -414,7 +314,7 @@ fn a_short_serving_source_is_an_error_not_a_short_variable() {
         "the fixture variable is empty, so this proves nothing"
     );
 
-    let err = decode_variable_raw_from(&header, &Short(ERSST), index)
+    let err = decode_variable_raw_from(&header, &Short::new(ERSST, 0, 4), index)
         .expect_err("a short-serving source must not produce a variable at all");
     assert!(
         format!("{err}").contains("served short"),

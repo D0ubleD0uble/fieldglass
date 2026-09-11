@@ -180,5 +180,25 @@ class CrateDeps(unittest.TestCase):
                 chk.crate_deps_from_toml(toml), {name}, f"{dep} is not recognised"
             )
 
+class TestSupportExclusion(unittest.TestCase):
+    """The list of source files the scan skips, pinned by name."""
+
+    def test_the_excluded_files_are_the_ones_named(self):
+        # Pinned so that excluding a file from the source-of-truth scan comes
+        # past a reviewer here as well as in the constant. Every entry is a
+        # file whose types are test support rather than architecture.
+        self.assertEqual(
+            sorted(chk.TEST_SUPPORT_FILES), ["fieldglass-core/src/testing.rs"]
+        )
+
+    def test_every_excluded_file_exists_and_is_left_out_of_the_scan(self):
+        # An entry that has been renamed away silently stops excluding
+        # anything, and the check would start demanding diagram edges for
+        # whatever took its place.
+        scanned = {p.relative_to(chk.CRATES_DIR).as_posix() for p in chk.rust_sources()}
+        for rel in chk.TEST_SUPPORT_FILES:
+            self.assertTrue((chk.CRATES_DIR / rel).is_file(), f"{rel} does not exist")
+            self.assertNotIn(rel, scanned)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
