@@ -172,6 +172,11 @@ fn every_error_code_is_both_listed_and_reachable() {
 /// used to — spectral and HEALPix — are synthesised onto a lat/lon grid now.
 /// It is kept as a named case rather than left to `degenerate/warp/bilinear`
 /// so that the code's reachability is proved by a case whose whole job that is.
+///
+/// The last four are the variable addressing mode's refusals (#679):
+/// `error/wrong_addressing` asks a NetCDF file the message question and
+/// `latlon/decode_slice` asks a GRIB file the variable one, and the two `ersst`
+/// slices are a short `slice_indices` and a variable past the end of the list.
 const CASES_THAT_RECORD_A_FAILURE: &[&str] = &[
     "degenerate/warp/bilinear",
     "degenerate/warp/nearest",
@@ -181,6 +186,10 @@ const CASES_THAT_RECORD_A_FAILURE: &[&str] = &[
     "error/no_such_message",
     "error/unsupported",
     "error/unsupported_format",
+    "error/wrong_addressing",
+    "ersst/decode_slice/no_such_variable",
+    "ersst/decode_slice/short_slice_indices",
+    "latlon/decode_slice",
 ];
 
 /// A case that stopped exercising its operation records a failure instead, and

@@ -10,14 +10,15 @@
 // surface** — the only place the binding's own work (serde-wasm-bindgen
 // conversion, the typed arrays, the error mapping) is under test.
 //
-// # Why this is its own file rather than a conformance case
+// # Why this is its own file as well as a conformance subject
 //
-// The ADR-0006 suite is 280 cases and every one of them is GRIB, because until
-// #671 there was no `Session` path to a NetCDF variable to record observations
-// from. Giving the suite a NetCDF subject means teaching all three runners the
-// `variables` / `dimensions` / `decodeSlice` ops and regenerating the JSON,
-// which is its own change; this file is the narrower claim — that the browser
-// host can open one at all — and it is a CI gate in the meantime.
+// Since #679 the ADR-0006 suite has NetCDF subjects, and `conformance.mjs`
+// replays their `variables`, `dimensions` and `decodeSlice` cases through this
+// same bundle. Those expectations are what this project's own `Session`
+// answered when the suite was recorded, so they catch a host that disagrees
+// with the API and cannot catch the API being wrong. This file's expectations
+// come from netCDF4-python, outside the project, which is the one thing the
+// suite does not give.
 //
 // # The oracle
 //

@@ -110,7 +110,7 @@ impl Default for Tolerance {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Op {
-    /// [`Session::open`] plus `format` and `count`.
+    /// [`Session::open`] plus `format`, `count` and `addressing`.
     Open,
     /// [`Session::message`].
     Message,
@@ -128,6 +128,14 @@ pub enum Op {
     Contours,
     /// [`Session::combine`].
     Combine,
+    /// [`Session::variables`]: what a variable-addressed container offers to
+    /// slice, each with its axes and the image axes detected on it (#679).
+    Variables,
+    /// [`Session::dimensions`].
+    Dimensions,
+    /// [`Session::decode_slice`], with [`Args::variable`], [`Args::y_dim`],
+    /// [`Args::x_dim`] and [`Args::slice_indices`].
+    DecodeSlice,
 }
 
 /// Everything a runner needs to reproduce one call.
@@ -186,6 +194,18 @@ pub struct Args {
     /// checks. It comes back the day a fixture has a second message to point
     /// it at.
     pub combine_op: Option<crate::combine::CombineOp>,
+    /// Which variable [`Op::DecodeSlice`] decodes: the `index` a
+    /// [`Session::variables`] entry carries, which is a position in that list
+    /// and not anything the file numbers.
+    pub variable: Option<u32>,
+    /// The variable's own dimension that runs down the rows of the slice.
+    pub y_dim: Option<u32>,
+    /// The variable's own dimension that runs across the columns.
+    pub x_dim: Option<u32>,
+    /// One position per dimension of the variable, in its declared order, the
+    /// two horizontal entries ignored. Never shortened to the held axes alone:
+    /// a short list is a case of its own, because it is refused.
+    pub slice_indices: Option<Vec<u32>>,
 }
 
 /// One case: an operation on a fixture, and what it produced.
@@ -315,6 +335,45 @@ const SUBJECTS_G1: &[(&str, &str)] = &[
     // second `jScansPositively` subject (see `lambert` above).
     ("grib1_polar", "cmc_wind_300_2010052400_p012.grib"),
 ];
+
+/// NetCDF fixtures, relative to `crates/`.
+const NC: &str = "fieldglass-netcdf/tests/fixtures/";
+
+/// The variable-addressed subjects (#679), with how many variables each offers
+/// to slice.
+///
+/// One per backing, because the two reach a variable by entirely different
+/// code: a classic header states every offset, and an HDF5 file is an object
+/// graph walked to find one. Both are `time × level × lat × lon`, so a slice
+/// holds two axes fixed rather than none, and both offer two variables, so a
+/// host that ignored `variable` would answer the wrong field for one of them.
+const SUBJECTS_NC: &[(&str, &str, u32)] = &[
+    // Classic CDF-1: `float`, land masked by `_FillValue`, and latitude stored
+    // south to north, which is a row order a host has to read off the georef
+    // rather than assume.
+    ("ersst", "ersst_v5_187001_cdf1.nc", 2),
+    // NetCDF-4 / HDF5, chunked and deflated, and packed: `int16` with
+    // `scale_factor` and `add_offset`, so the slice crosses in physical units
+    // only if the CF rule ran. Its two variables mask different cells.
+    ("oisst", "oisst_avhrr_v2.nc", 2),
+];
+
+/// The arguments of one slice: `variable` on its `lat × lon` plane, which is
+/// positions 2 and 3 of both NetCDF subjects' axes, standing at `indices`.
+///
+/// The axes are stated rather than read from the file, because `cases` does no
+/// I/O. The `variables` case of each subject records the detected axes, so a
+/// detection that moved disagrees there first.
+fn slice(variable: u32, indices: Vec<u32>) -> Args {
+    Args {
+        dtype: Some(Dtype::Auto),
+        variable: Some(variable),
+        y_dim: Some(2),
+        x_dim: Some(3),
+        slice_indices: Some(indices),
+        ..Args::default()
+    }
+}
 
 /// The four geographic points every field is probed at.
 ///
@@ -524,6 +583,33 @@ pub fn cases() -> Vec<Case> {
         }
     }
 
+    // ---- The variable-addressed subjects (#679) ----------------------------
+    //
+    // `open` records `addressing`, `variables` and `dimensions` are the listing
+    // a host builds its picker from, and one slice per variable is the field it
+    // then decodes: first time step, first level, the whole `lat × lon` plane.
+    for (tag, file, variables) in SUBJECTS_NC {
+        let fixture = format!("{NC}{file}");
+        let mut push = |suffix: &str, op: Op, args: Args| {
+            out.push(Case {
+                id: format!("{tag}/{suffix}"),
+                fixture: fixture.clone(),
+                op,
+                args,
+            });
+        };
+        push("open", Op::Open, Args::default());
+        push("variables", Op::Variables, Args::default());
+        push("dimensions", Op::Dimensions, Args::default());
+        for variable in 0..*variables {
+            push(
+                &format!("decode_slice/{variable}"),
+                Op::DecodeSlice,
+                slice(variable, vec![0, 0, 0, 0]),
+            );
+        }
+    }
+
     // ---- The error cases, one per `Error` code -----------------------------
     //
     // Every code in `Suite::error_codes` has to be reachable through a call a
@@ -598,6 +684,46 @@ pub fn cases() -> Vec<Case> {
         },
     });
 
+    // The two addressing modes refuse each other's questions by naming the call
+    // to make instead, rather than failing on the number they were given. Both
+    // directions, because a host that routed only one would pass half.
+    let ersst = format!("{NC}ersst_v5_187001_cdf1.nc");
+    out.push(Case {
+        // The message question, asked of a variable container.
+        id: "error/wrong_addressing".to_string(),
+        fixture: ersst.clone(),
+        op: Op::Decode,
+        args: Args {
+            dtype: Some(Dtype::Auto),
+            ..Args::default()
+        },
+    });
+    out.push(Case {
+        // The variable question, asked of a message stream.
+        id: "latlon/decode_slice".to_string(),
+        fixture: latlon,
+        op: Op::DecodeSlice,
+        args: slice(0, vec![0, 0]),
+    });
+
+    // The two ways a slice request is refused on a file that has the variable
+    // mode. One position per dimension, always: a short list is refused rather
+    // than padded with zeros, which is how a viewer shows the first time step
+    // and labels it the last. And a variable index past the list is the same
+    // `no_such_message` a message index past the stream is.
+    out.push(Case {
+        id: "ersst/decode_slice/short_slice_indices".to_string(),
+        fixture: ersst.clone(),
+        op: Op::DecodeSlice,
+        args: slice(0, vec![0, 0]),
+    });
+    out.push(Case {
+        id: "ersst/decode_slice/no_such_variable".to_string(),
+        fixture: ersst,
+        op: Op::DecodeSlice,
+        args: slice(99, vec![0, 0, 0, 0]),
+    });
+
     out
 }
 
@@ -614,6 +740,7 @@ pub fn error_codes() -> Vec<String> {
         "no_such_message",
         "unsupported",
         "unsupported_format",
+        "wrong_addressing",
     ]
     .iter()
     .map(|s| (*s).to_string())
@@ -793,6 +920,9 @@ fn run(bytes: &[u8], case: &Case) -> Result<Value, Error> {
         Op::Open => json!({
             "format": value_of(&session.format()),
             "count": session.count(),
+            // The first question a host asks, since it decides which of the
+            // two call sets reaches a field at all.
+            "addressing": value_of(&session.addressing()),
         }),
         Op::Message => {
             let info = session.message(case.args.index)?;
@@ -923,6 +1053,29 @@ fn run(bytes: &[u8], case: &Case) -> Result<Value, Error> {
                     .map(|l| count(l.segments.len()))
                     .collect::<Vec<_>>(),
             })
+        }
+        Op::Variables => value_of(&session.variables()),
+        Op::Dimensions => value_of(&session.dimensions()),
+        Op::DecodeSlice => {
+            // Missing rather than defaulted, for the reason `combine_op` is: a
+            // slice case that lost an axis would otherwise record a real field
+            // for a different question.
+            let missing = || Error::InvalidOption {
+                detail: "a decode_slice case states its variable, axes and slice indices"
+                    .to_string(),
+            };
+            let args = &case.args;
+            let variable = args.variable.ok_or_else(missing)?;
+            let y_dim = args.y_dim.ok_or_else(missing)?;
+            let x_dim = args.x_dim.ok_or_else(missing)?;
+            let indices = args.slice_indices.as_deref().ok_or_else(missing)?;
+            field_value(&session.decode_slice(
+                variable,
+                y_dim,
+                x_dim,
+                indices,
+                &decode_options(args),
+            )?)
         }
     };
     Ok(value)

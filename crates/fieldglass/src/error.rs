@@ -109,17 +109,55 @@ impl From<FieldglassError> for Error {
 mod tests {
     use super::*;
 
-    /// The serde tag and `code()` are the same string by contract — a host
-    /// that reads the JSON and one that calls the method must branch alike.
-    #[test]
-    fn the_serde_tag_is_the_code() {
-        for e in [
+    /// One of every variant.
+    ///
+    /// The `match` below names each variant with no wildcard. Inside this crate
+    /// `#[non_exhaustive]` does not apply, so a variant added to `Error` fails
+    /// to compile here until it is named, and the list it has to join is the
+    /// one directly above. `api_rules` cannot do this from outside the crate,
+    /// which is how `WrongAddressing` went unpinned by the conformance suite
+    /// from #662 until #679.
+    fn one_of_each() -> Vec<Error> {
+        let all = vec![
             Error::UnsupportedFormat { detail: "x".into() },
             Error::Decode { detail: "x".into() },
             Error::NoSuchMessage { index: 3, count: 1 },
             Error::Unsupported { detail: "x".into() },
+            Error::WrongAddressing {
+                expected: "variables".into(),
+                detail: "x".into(),
+            },
             Error::InvalidOption { detail: "x".into() },
-        ] {
+        ];
+        for e in &all {
+            match e {
+                Error::UnsupportedFormat { .. }
+                | Error::Decode { .. }
+                | Error::NoSuchMessage { .. }
+                | Error::Unsupported { .. }
+                | Error::WrongAddressing { .. }
+                | Error::InvalidOption { .. } => {}
+            }
+        }
+        all
+    }
+
+    /// Every code this build can report is one the conformance suite pins, and
+    /// the suite pins no code this build cannot report.
+    #[cfg(feature = "conformance")]
+    #[test]
+    fn every_code_is_pinned_by_the_conformance_suite() {
+        let mut codes: Vec<String> = one_of_each().iter().map(|e| e.code().to_string()).collect();
+        codes.sort();
+        codes.dedup();
+        assert_eq!(codes, crate::conformance::error_codes());
+    }
+
+    /// The serde tag and `code()` are the same string by contract — a host
+    /// that reads the JSON and one that calls the method must branch alike.
+    #[test]
+    fn the_serde_tag_is_the_code() {
+        for e in one_of_each() {
             let json: serde_json::Value = serde_json::to_value(&e).expect("serialise");
             assert_eq!(
                 json.get("code").and_then(|c| c.as_str()),

@@ -20,7 +20,26 @@
 //! | `open` | `Grib1Handle::from_bytes` / `Grib2Handle::from_bytes`, `messages()` | which format accepted the bytes, and the message count |
 //! | `decode` | `decode_grid(i)` | raster shape, value count, mask sum, the sampled cells |
 //! | `render` | `render_grid(i, …)` with `projection: "source"` | raster shape, RGBA length, opaque count, the sampled pixels |
+//! | `variables` | `NetcdfHandle::variables()` | each variable's name, axes, element type and detected image axes, in order |
+//! | `dimensions` | `NetcdfHandle::metadata().dimensions` | every dimension's name and length |
+//! | `decode_slice` | `NetcdfHandle::render_slice(…)` with `projection: "source"` | the slice's raster shape and how many of its cells are present |
 //! | the error cases | the same calls | that the call fails, and on the same input |
+//!
+//! The variable ops (#679) reach NetCDF through the handle the extension uses
+//! for it, which answers in its own shape, so two things the API answers are
+//! left out, each on purpose:
+//!
+//! * a variable's `units` — this host typesets them for display (ADR-0007) and
+//!   the API hands over the file's own spelling, so the two differ by design;
+//! * a variable's `index` — this host numbers variables by their place in the
+//!   file, the API by their place in the list it offers. Both lists are
+//!   compared in order, so the list position is checked anyway.
+//!
+//! And `decode_slice` is compared through a render because this host has no
+//! call that hands back a slice's values: in the source projection a present
+//! cell paints one opaque pixel and a masked one paints none, so the raster
+//! shape and the opaque count are the slice's shape and presence, and nothing
+//! about the numbers in it. The characterisation golden pins those.
 //!
 //! The `decode` row is the one that has caught a real host divergence:
 //! `decode_grid` used to take the raw path while every other call on the
@@ -76,7 +95,14 @@ const THE_NAPI_ERROR_MAPPING_LOSES_THE_CODE: &str =
 ///
 /// Every op in the suite must appear in exactly one of the two lists, which is
 /// what stops an op quietly falling out of coverage.
-const COMPARED: &[Op] = &[Op::Open, Op::Decode, Op::Render];
+const COMPARED: &[Op] = &[
+    Op::Open,
+    Op::Decode,
+    Op::Render,
+    Op::Variables,
+    Op::Dimensions,
+    Op::DecodeSlice,
+];
 
 /// Skipped ops and why — see the module docs for the long form.
 const SKIPPED: &[(Op, &str)] = &[
@@ -108,12 +134,15 @@ fn read(fixture: &str) -> Vec<u8> {
 enum Handle {
     Grib1(Grib1Handle),
     Grib2(Grib2Handle),
+    // Boxed: a NetCDF handle carries its dataset view and two caches, several
+    // times the size of a GRIB one.
+    Netcdf(Box<NetcdfHandle>),
 }
 
 impl Handle {
-    /// Open exactly the way the extension does: try the edition the bytes
-    /// declare, and report a failure rather than falling through to the other
-    /// reader.
+    /// Open exactly the way the extension does: take the handle for the format
+    /// the bytes declare, and report a failure rather than falling through to
+    /// another reader.
     fn open(bytes: &[u8]) -> Result<(Self, &'static str), String> {
         match fieldglass_core::detect_from_bytes(bytes) {
             fieldglass_core::Format::Grib1 => Grib1Handle::from_bytes(bytes.to_vec().into())
@@ -122,14 +151,30 @@ impl Handle {
             fieldglass_core::Format::Grib2 => Grib2Handle::from_bytes(bytes.to_vec().into())
                 .map(|h| (Self::Grib2(h), "grib2"))
                 .map_err(|e| e.to_string()),
-            other => Err(format!("not a GRIB container: {other:?}")),
+            fieldglass_core::Format::NetCdf => NetcdfHandle::from_bytes(bytes.to_vec().into())
+                .map(|h| (Self::Netcdf(Box::new(h)), "netcdf"))
+                .map_err(|e| e.to_string()),
+            other => Err(format!("not a container this host opens: {other:?}")),
         }
     }
 
-    fn count(&self) -> usize {
+    /// How many messages the file holds. `None` for NetCDF: this host opens
+    /// it with a handle that has no message list at all, rather than one that
+    /// answers zero, so there is no count to compare.
+    fn count(&self) -> Option<usize> {
         match self {
-            Self::Grib1(h) => h.messages().len(),
-            Self::Grib2(h) => h.messages().len(),
+            Self::Grib1(h) => Some(h.messages().len()),
+            Self::Grib2(h) => Some(h.messages().len()),
+            Self::Netcdf(_) => None,
+        }
+    }
+
+    /// Which of the two ways the file is addressed. On this host that is which
+    /// handle opened it, which is exactly the choice the extension routes on.
+    fn addressing(&self) -> &'static str {
+        match self {
+            Self::Grib1(_) | Self::Grib2(_) => "messages",
+            Self::Netcdf(_) => "variables",
         }
     }
 
@@ -137,6 +182,7 @@ impl Handle {
         match self {
             Self::Grib1(h) => h.decode_grid(index),
             Self::Grib2(h) => h.decode_grid(index),
+            Self::Netcdf(_) => Err(no_messages()),
         }
     }
 
@@ -144,8 +190,21 @@ impl Handle {
         match self {
             Self::Grib1(h) => h.render_grid(index, options),
             Self::Grib2(h) => h.render_grid(index, options),
+            Self::Netcdf(_) => Err(no_messages()),
         }
     }
+}
+
+/// What asking a message question of the NetCDF handle comes to on this host:
+/// it has no such call, so the question fails, which is what the API's
+/// `wrong_addressing` says too.
+fn no_messages() -> napi::Error {
+    napi::Error::from_reason("a NetCDF handle holds variables, not messages")
+}
+
+/// Asking a variable question of a GRIB handle, the other way round.
+fn no_variables() -> Value {
+    failed()
 }
 
 /// The suite's palette knobs, as this host's `RenderOptions` states them.
@@ -197,7 +256,13 @@ fn observe(case: &Case, expect: &Value) -> Option<Value> {
     };
 
     match case.op {
-        Op::Open => Some(json!({ "format": format, "count": handle.count() })),
+        Op::Open => {
+            let mut open = json!({ "format": format, "addressing": handle.addressing() });
+            if let Some(count) = handle.count() {
+                open["count"] = json!(count);
+            }
+            Some(open)
+        }
         Op::Decode => {
             let Ok(grid) = handle.decode_grid(case.args.index) else {
                 return Some(failed());
@@ -242,11 +307,94 @@ fn observe(case: &Case, expect: &Value) -> Option<Value> {
                 "pixels": pixels,
             }))
         }
+        Op::Variables => {
+            let Handle::Netcdf(h) = &handle else {
+                return Some(no_variables());
+            };
+            let variables: Vec<Value> = h
+                .variables()
+                .iter()
+                .map(|v| {
+                    json!({
+                        "name": v.name,
+                        "dims": axes(v.dims.iter().map(|d| (d.name.as_str(), d.length))),
+                        "dtype": v.nc_type,
+                        "detectedYDim": v.detected_y_dim,
+                        "detectedXDim": v.detected_x_dim,
+                    })
+                })
+                .collect();
+            Some(Value::Array(variables))
+        }
+        Op::Dimensions => {
+            let Handle::Netcdf(h) = &handle else {
+                return Some(no_variables());
+            };
+            let meta = h.metadata();
+            Some(axes(
+                meta.dimensions.iter().map(|d| (d.name.as_str(), d.length)),
+            ))
+        }
+        Op::DecodeSlice => {
+            let Handle::Netcdf(h) = &handle else {
+                return Some(no_variables());
+            };
+            let args = &case.args;
+            let (Some(position), Some(y_dim), Some(x_dim), Some(indices)) = (
+                args.variable,
+                args.y_dim,
+                args.x_dim,
+                args.slice_indices.clone(),
+            ) else {
+                return Some(failed());
+            };
+            // The API's `variable` is a position in the list it offers; this
+            // host's `render_slice` takes the variable's place in the file.
+            // The two lists are the same variables in the same order (the
+            // `variables` cases check that), so the position translates.
+            let Some(variable) = h
+                .variables()
+                .get(position as usize)
+                .map(|v| v.variable_index)
+            else {
+                return Some(failed());
+            };
+            let Ok(raster) = h.render_slice(
+                u32::try_from(variable).unwrap_or(u32::MAX),
+                y_dim,
+                x_dim,
+                indices,
+                render_options(args),
+            ) else {
+                return Some(failed());
+            };
+            let rgba: &[u8] = &raster.rgba;
+            Some(json!({
+                "ni": raster.width,
+                "nj": raster.height,
+                "len": rgba.len() / 4,
+                // Source projection, nearest resampling: one pixel per cell,
+                // opaque exactly where the cell is present.
+                "maskOnes": rgba.as_chunks::<4>().0.iter().filter(|p| p[3] == 255).count(),
+            }))
+        }
         // `COMPARED` gates the entry, so nothing else reaches here. Written as
         // an explicit arm rather than a wildcard so that adding an op to
         // `COMPARED` without adding its adapter fails to compile.
         Op::Message | Op::Warp | Op::Palette | Op::Probe | Op::Contours | Op::Combine => None,
     }
+}
+
+/// A list of named axes in the shape `DimensionInfo` serialises to.
+///
+/// This host carries a length as `f64`, because napi hands JavaScript a number;
+/// the suite compares a length as an integer, so it crosses back as one. A
+/// length here is a dimension's size, never fractional and far below 2^53.
+fn axes<'a>(axes: impl Iterator<Item = (&'a str, f64)>) -> Value {
+    Value::Array(
+        axes.map(|(name, length)| json!({ "name": name, "length": length as u64 }))
+            .collect(),
+    )
 }
 
 /// Whether this host's call is an answer to the *same question* the case asks.
@@ -283,20 +431,30 @@ fn failed() -> Value {
 /// An error observation on either side collapses to [`failed`]. Everything else
 /// is projected key by key — a key this host does not answer is dropped, and a
 /// key it answers that the reference does not is a *failure*, not a skip.
+///
+/// Recursive, and through arrays element by element: a variable list is an
+/// array of objects, and this host answers fewer keys on each element than the
+/// API does (see the module docs). Arrays of different lengths are left whole,
+/// so the comparison reports the length rather than a projection of it.
 fn projected(reference: &Value, observed: &Value) -> Value {
     if reference.get("error").is_some() {
         return failed();
     }
-    let (Some(r), Some(o)) = (reference.as_object(), observed.as_object()) else {
-        return reference.clone();
-    };
-    let mut out = serde_json::Map::new();
-    for key in o.keys() {
-        if let Some(v) = r.get(key) {
-            out.insert(key.clone(), v.clone());
+    match (reference, observed) {
+        (Value::Array(r), Value::Array(o)) if r.len() == o.len() => {
+            Value::Array(r.iter().zip(o).map(|(r, o)| projected(r, o)).collect())
         }
+        (Value::Object(r), Value::Object(o)) => {
+            let mut out = serde_json::Map::new();
+            for (key, observed) in o {
+                if let Some(v) = r.get(key) {
+                    out.insert(key.clone(), projected(v, observed));
+                }
+            }
+            Value::Object(out)
+        }
+        _ => reference.clone(),
     }
-    Value::Object(out)
 }
 
 /// Every comparable case, through this host's own binding.
@@ -400,4 +558,32 @@ fn the_projection_keeps_what_both_hosts_answer() {
     let errored = json!({"error": {"code": "unsupported", "hasMessage": true}});
     assert_eq!(projected(&errored, &observed), failed());
     assert!(!conformance::compare(&failed(), &observed, Tolerance::default()).is_empty());
+
+    // Through an array of objects, element by element: the unshared key goes,
+    // a moved shared value still fails, and a list of a different length is
+    // not projected down to agreement.
+    let reference = json!([{"name": "sst", "units": "K"}, {"name": "ice", "units": "%"}]);
+    let observed = json!([{"name": "sst"}, {"name": "ice"}]);
+    assert_eq!(projected(&reference, &observed), observed);
+    let renamed = json!([{"name": "sst"}, {"name": "ssta"}]);
+    assert_eq!(
+        conformance::compare(
+            &projected(&reference, &renamed),
+            &renamed,
+            Tolerance::default()
+        )
+        .len(),
+        1,
+        "a moved element value must be a disagreement"
+    );
+    let shorter = json!([{"name": "sst"}]);
+    assert!(
+        !conformance::compare(
+            &projected(&reference, &shorter),
+            &shorter,
+            Tolerance::default()
+        )
+        .is_empty(),
+        "a shorter list must not project down to agreement"
+    );
 }

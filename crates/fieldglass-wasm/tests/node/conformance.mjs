@@ -186,12 +186,30 @@ function withHandle(caseSpec, handle) {
   const { op, args } = caseSpec;
 
   if (op === 'open') {
-    return { format: handle.format(), count: handle.count() };
+    return { format: handle.format(), count: handle.count(), addressing: handle.addressing() };
   }
   if (op === 'message') {
     const info = nulled(handle.message(args.index));
     if (info.grid) info.grid = georef(info.grid);
     return info;
+  }
+  // The variable addressing mode (#679): a listing, and a slice of a variable
+  // rather than a message decoded by index.
+  if (op === 'variables') return nulled(handle.variables());
+  if (op === 'dimensions') return nulled(handle.dimensions());
+  if (op === 'decodeSlice') {
+    const slice = handle.decodeSlice(
+      args.variable,
+      args.yDim,
+      args.xDim,
+      new Uint32Array(args.sliceIndices ?? []),
+      decodeOptions(args),
+    );
+    try {
+      return fieldObservation(slice);
+    } finally {
+      slice.free();
+    }
   }
 
   // Everything else decodes first. The field is owned by this side, so it is
