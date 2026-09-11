@@ -1,10 +1,47 @@
 //! Fetch planning, with the tables a planner is not allowed to link.
 //!
-//! [`fieldglass_fetchplan`] reads a cloud-native sidecar and returns byte
-//! ranges. It depends on no format crate on purpose — a planner that linked a
+//! [`fieldglass_fetchplan`] reads a cloud-native manifest and returns a chunk
+//! plan: which bytes to fetch, and which chunk or message each range is. It
+//! answers in two addressing shapes, and both are reachable from here:
+//!
+//! * **A query over messages.** A GRIB sidecar — a wgrib2 `.idx` or an ECMWF
+//!   `.index` — lists the messages of one object, and a request is "which
+//!   field" ([`MessageManifest::select`] with a [`Query`]).
+//! * **A chunk index over an array.** A kerchunk reference document maps the
+//!   chunks of Zarr arrays onto byte ranges of other objects, and a request is
+//!   "which chunk" ([`KerchunkRefs::chunk_at`], through the array's
+//!   [`ArrayMetadata`] and its [`ChunkGrid`]).
+//!
+//! ```
+//! use fieldglass::fetchplan::{Address, ChunkGrid, KerchunkRefs, Manifest};
+//!
+//! let doc = r#"{
+//!   "version": 1,
+//!   "templates": {"u": "s3://bucket/archive.nc"},
+//!   "refs": {
+//!     "temp/.zarray": "{\"zarr_format\":2,\"shape\":[4,6],\"chunks\":[2,3],\"dtype\":\"<f4\"}",
+//!     "temp/1.1": ["{{u}}", 4096, 24]
+//!   }
+//! }"#;
+//! let refs = KerchunkRefs::parse(doc)?;
+//! let meta = refs.array("temp")?;
+//! let grid: &ChunkGrid = meta.grid();
+//! assert_eq!(grid.grid_shape(), vec![2, 2]);
+//!
+//! let item = refs.chunk_at("temp", &meta, &[1, 1])?.expect("the document addresses it");
+//! assert_eq!(item.key, "s3://bucket/archive.nc");
+//! assert_eq!(item.range.http_range_header().as_deref(), Some("bytes=4096-4119"));
+//! assert_eq!(item.address, Address::Chunk { array: "temp".into(), index: vec![1, 1] });
+//!
+//! // The same chunk is the whole of the plan the document states.
+//! assert_eq!(refs.items(), vec![item]);
+//! # Ok::<(), fieldglass::fetchplan::FetchPlanError>(())
+//! ```
+//!
+//! The planner depends on no format crate on purpose — a planner that linked a
 //! decoder would drag GRIB2's four codecs into a host that only wanted to know
-//! which bytes to ask for — so the two things that *do* need a decoder live
-//! here, where one already is:
+//! which bytes to ask for — so the two things the message half needs a decoder
+//! for live here, where one already is:
 //!
 //! * [`TableResolver`] resolves a sidecar's `TMP` / `2 m above ground` to WMO
 //!   codes through the GRIB2 parameter tables (#426), so a request stored as
@@ -42,6 +79,14 @@ pub use fieldglass_fetchplan::{
     Address, Candidate, Dialect, EcmwfIndex, Expect, FetchPlanError, LevelSpec, Manifest,
     MessageManifest, Mismatch, NoResolver, ParameterId, ParameterResolver, PlanItem, PlanRange,
     Query, SourceSpec, Surface, Wgrib2Idx, candidates, parse_ecmwf_level, parse_ncep_level,
+};
+// The chunk half (#687): the reference-document dialect, the one reader of an
+// array's metadata, and the chunk-grid arithmetic it spells keys with. The last
+// three are `fieldglass-core`'s and `fieldglass-zarr`'s, taken through the
+// planner rather than directly, so a host naming them here names the very types
+// the planner's own signatures carry.
+pub use fieldglass_fetchplan::{
+    ArrayError, ArrayMetadata, ChunkGrid, ChunkKeyEncoding, KerchunkRefs,
 };
 
 use crate::api::MessageInfo;
