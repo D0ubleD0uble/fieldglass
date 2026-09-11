@@ -40,9 +40,22 @@ pub use fieldglass_core::{GridGeometry, Scan};
 // the seam is unusable from outside if its two types cannot be named.
 pub use fieldglass_core::{ByteRange, ByteSource, FieldglassError};
 pub use geometry::{
-    AxisKind, CurvilinearCoords, DatasetView, DimView, RenderableVariable, SliceGeometry, VarView,
+    AxisKind, CurvilinearCoords, DatasetView, RenderableVariable, SliceGeometry, VarView,
     corner_and_regularity, detect_axis, extract_plane, synthesize_geometry,
 };
+
+/// `fieldglass-core`'s array model, which a [`DatasetView`] is made of (#684).
+///
+/// Re-exported as a module rather than name by name at the crate root, because
+/// two of its names are taken there: [`Attribute`] and [`Dimension`] are the
+/// classic header's own records. Under `array::` they read as they do in
+/// `fieldglass-core`, and a consumer of this crate alone can still name every
+/// type a view hands back.
+pub mod array {
+    pub use fieldglass_core::array::{
+        ArrayDescription, Attribute, AttributeValue, Dimension, ElementType, Group,
+    };
+}
 pub use hdf5::attribute::{Hdf5Attribute, RawAttribute, list_attributes, raw_attribute};
 pub use hdf5::dataset::{DatasetShape, describe as describe_dataset};
 pub use hdf5::dataspace::Dataspace;

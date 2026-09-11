@@ -2656,16 +2656,9 @@ impl NetcdfHandle {
                 detected_x_dim: v.detected_x_dim.map(|p| p as i32),
                 units: self
                     .view
-                    .vars
-                    .iter()
-                    .find(|source| source.decode_index == v.decode_index)
-                    .and_then(|source| {
-                        source
-                            .attrs
-                            .iter()
-                            .find(|(name, _)| name == "units")
-                            .map(|(_, value)| normalize_units(value).into_owned())
-                    })
+                    .var(v.decode_index)
+                    .and_then(|source| source.units())
+                    .map(|units| normalize_units(units).into_owned())
                     .unwrap_or_default(),
             })
             .collect()
@@ -3085,15 +3078,9 @@ impl NetcdfHandle {
 
         let units = self
             .view
-            .vars
-            .iter()
-            .find(|v| v.decode_index == var.decode_index)
-            .and_then(|v| {
-                v.attrs
-                    .iter()
-                    .find(|(n, _)| n == "units")
-                    .map(|(_, val)| val.clone())
-            })
+            .var(var.decode_index)
+            .and_then(|v| v.units())
+            .map(str::to_string)
             .unwrap_or_default();
         let (ni, nj) = (x_axis.length as u32, y_axis.length as u32);
 
@@ -3164,7 +3151,7 @@ impl NetcdfHandle {
             .view
             .vars
             .iter()
-            .find(|v| v.name == y_axis.name)
+            .find(|v| v.array.name == y_axis.name)
             .and_then(fieldglass_netcdf::detect_axis)
             == Some(fieldglass_netcdf::AxisKind::Latitude);
 

@@ -40,7 +40,7 @@ fn temp_decodes_raw_then_unpacks_to_physical_units() {
     let temp = view
         .vars
         .iter()
-        .find(|v| v.name == "temp")
+        .find(|v| v.name() == "temp")
         .expect("temp variable present");
 
     let oracle: Value = serde_json::from_str(ORACLE).unwrap();
@@ -55,7 +55,7 @@ fn temp_decodes_raw_then_unpacks_to_physical_units() {
 
     // Stage 2: unpacking masks valid_range (in packed units) and applies
     // scale_factor/add_offset — exactly libnetcdf's auto mask+scale.
-    let physical = unpack_cf_data(&decoded, &temp.attrs);
+    let physical = unpack_cf_data(&decoded, &temp.array.attributes);
     assert_eq!(physical, expected_physical, "CF physical units");
 
     // Same two stages, one call — the reader reaches the variable's own
@@ -80,10 +80,10 @@ fn decode_plane_reaches_the_same_physical_values() {
     let temp = view
         .vars
         .iter()
-        .find(|v| v.name == "temp")
+        .find(|v| v.name() == "temp")
         .expect("temp variable present");
     assert_eq!(
-        temp.dim_names,
+        temp.array.dimensions,
         vec!["lat".to_string(), "lon".to_string()],
         "the fixture's temp is temp(lat, lon)"
     );

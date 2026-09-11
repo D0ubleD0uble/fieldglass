@@ -9,6 +9,7 @@
 
 use fieldglass_core::projection::GridGeometry;
 use fieldglass_netcdf::NetcdfReader;
+use fieldglass_netcdf::array::Attribute;
 use fieldglass_netcdf::resolve::{CfMapping, SOURCE_ONLY, classify_grid_mapping};
 
 const WRF_LAMBERT: &[u8] = include_bytes!("fixtures/wrf_lambert.nc");
@@ -98,7 +99,7 @@ fn a_projected_domain_never_resolves_to_latlon() {
 /// refused, because falling through reads projected `x`/`y` as degrees.
 #[test]
 fn an_unknown_grid_mapping_is_refused_not_assumed_geographic() {
-    let named = |n: &str| vec![("grid_mapping_name".to_string(), n.to_string())];
+    let named = |n: &str| vec![Attribute::text("grid_mapping_name", n)];
     assert_eq!(
         classify_grid_mapping(&named("geostationary")),
         CfMapping::Geostationary

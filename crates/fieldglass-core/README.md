@@ -16,14 +16,16 @@ the three grids that arrive as something other than a rectangle of values —
 `sht`, `matrix` and `healpix` — with `global_grid`, the lat/lon grid the first
 and last of those are synthesized onto, and `spatial_index`, which
 `fieldglass-netcdf` builds over a swath's 2-D coordinate arrays so a grid that
-is a list of cell centres can be placed like any other.
+is a list of cell centres can be placed like any other, and `array`, the dataset
+structure (dimensions, attributes, array descriptions) `fieldglass-netcdf`
+describes a file in.
 <!-- /parsing-surface -->
 
 On top of that sits an optional viewer layer (warp, overlay, colormap) used by
 the rendering front end, and an analysis layer (contours, CSV, field
-arithmetic). Three further modules are ungated but are not part of the parsing
-surface, because no format crate uses them: format detection, the spatial index,
-and unit conversion.
+arithmetic). Two further modules are ungated but are not part of the parsing
+surface, because no format crate uses them: format detection and unit
+conversion.
 
 The readers themselves are concrete types in their own crates, not
 implementations of a trait declared here. What is a trait here is a choice made

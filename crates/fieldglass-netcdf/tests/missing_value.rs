@@ -18,7 +18,7 @@ fn decode_temp(bytes: &[u8]) -> Vec<Option<f64>> {
     let idx = view
         .vars
         .iter()
-        .find(|v| v.name == "temp")
+        .find(|v| v.name() == "temp")
         .expect("temp present")
         .decode_index;
     reader.decode_variable_raw(idx).expect("decode")

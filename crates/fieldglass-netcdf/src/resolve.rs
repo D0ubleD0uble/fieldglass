@@ -34,6 +34,7 @@
 //! is what [`CfMapping::Unsupported`] exists to express.
 
 use fieldglass_core::FieldglassError;
+use fieldglass_core::array::{Attribute, AttributeValue, attribute};
 use fieldglass_core::projection::{GridGeometry, LatLonParams, Scan};
 use fieldglass_core::spatial_index::SpatialIndex;
 
@@ -64,11 +65,10 @@ pub enum CfMapping {
 /// because CF requires a projected CRS to state its name — a file that omits it
 /// is asserting it has nothing to state.
 #[must_use]
-pub fn classify_grid_mapping(attrs: &[(String, String)]) -> CfMapping {
-    match attrs
-        .iter()
-        .find(|(n, _)| n == "grid_mapping_name")
-        .map(|(_, v)| v.trim())
+pub fn classify_grid_mapping(attrs: &[Attribute]) -> CfMapping {
+    match attribute(attrs, "grid_mapping_name")
+        .and_then(AttributeValue::text)
+        .map(str::trim)
     {
         Some("geostationary") => CfMapping::Geostationary,
         Some("latitude_longitude") | None => CfMapping::LatLon,
@@ -186,12 +186,12 @@ impl NetcdfReader {
 
         // (3) CF `grid_mapping`.
         if let Some(gm_attrs) = grid_mapping_attrs(view, var) {
-            match classify_grid_mapping(&gm_attrs) {
+            match classify_grid_mapping(gm_attrs) {
                 CfMapping::Geostationary => {
                     let x = self.coordinate_values_for_dim(view, &x_axis.name)?;
                     let y = self.coordinate_values_for_dim(view, &y_axis.name)?;
                     return Ok(unordered(match (x, y) {
-                        (Some(x), Some(y)) => resolve_cf_geostationary(&gm_attrs, &x, &y)
+                        (Some(x), Some(y)) => resolve_cf_geostationary(gm_attrs, &x, &y)
                             .as_ref()
                             .map_or_else(source_only, GridGeometry::from),
                         _ => source_only(),
@@ -291,8 +291,8 @@ impl NetcdfReader {
         // The corner reads below index `(0, 0)` of a plane whose last two axes
         // must be the ones being placed; a file whose `XLAT` is shaped
         // differently is not the domain this variable lives on.
-        if !dims_end_with(&xlat.dim_names, y_name, x_name)
-            || !dims_end_with(&xlong.dim_names, y_name, x_name)
+        if !dims_end_with(&xlat.array.dimensions, y_name, x_name)
+            || !dims_end_with(&xlong.array.dimensions, y_name, x_name)
         {
             return Ok(None);
         }
@@ -344,28 +344,21 @@ impl NetcdfReader {
 }
 
 /// The attributes of the `grid_mapping` variable a data variable points at.
-fn grid_mapping_attrs(
-    view: &DatasetView,
+fn grid_mapping_attrs<'a>(
+    view: &'a DatasetView,
     var: &RenderableVariable,
-) -> Option<Vec<(String, String)>> {
+) -> Option<&'a [Attribute]> {
     let gm_name = view
-        .vars
-        .iter()
-        .find(|v| v.decode_index == var.decode_index)?
-        .attrs
-        .iter()
-        .find(|(n, _)| n == "grid_mapping")
-        .map(|(_, v)| v.clone())?;
-    view.vars
-        .iter()
-        .find(|v| v.name == gm_name)
-        .map(|gm| gm.attrs.clone())
+        .var(var.decode_index)?
+        .attribute("grid_mapping")?
+        .text()?;
+    var_named(view, gm_name).map(|gm| gm.array.attributes.as_slice())
 }
 
 /// Any variable by name — including the 2-D `XLAT`/`XLONG` and the scalar
 /// `grid_mapping` carriers, which are not renderable.
 fn var_named<'a>(view: &'a DatasetView, name: &str) -> Option<&'a VarView> {
-    view.vars.iter().find(|v| v.name == name)
+    view.vars.iter().find(|v| v.array.name == name)
 }
 
 /// Whether a variable's last two dimensions are `y` then `x`.
@@ -407,7 +400,7 @@ impl NetcdfReader {
             .collect::<Result<_, _>>()?;
         Ok(crate::projection::apply_scale_offset(
             &raw,
-            &attrs_of(view, index),
+            attrs_of(view, index),
         ))
     }
 
@@ -445,7 +438,7 @@ impl NetcdfReader {
             .collect();
         Ok(crate::projection::apply_scale_offset(
             &raw,
-            &attrs_of(view, index),
+            attrs_of(view, index),
         ))
     }
 
@@ -469,7 +462,7 @@ impl NetcdfReader {
             .ok_or_else(|| {
                 FieldglassError::Parse(format!("{name}[{flat_index}] is missing or masked"))
             })?;
-        let (scale, offset) = crate::projection::cf_scale_offset(&attrs_of(view, var.decode_index));
+        let (scale, offset) = crate::projection::cf_scale_offset(attrs_of(view, var.decode_index));
         Ok(raw * scale + offset)
     }
 
@@ -491,10 +484,7 @@ impl NetcdfReader {
 }
 
 /// A variable's attributes by decode index, empty when it is not in the view.
-fn attrs_of(view: &DatasetView, index: usize) -> Vec<(String, String)> {
-    view.vars
-        .iter()
-        .find(|v| v.decode_index == index)
-        .map(|v| v.attrs.clone())
-        .unwrap_or_default()
+fn attrs_of(view: &DatasetView, index: usize) -> &[Attribute] {
+    view.var(index)
+        .map_or(&[], |v| v.array.attributes.as_slice())
 }

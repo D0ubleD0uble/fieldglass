@@ -25,20 +25,18 @@
 //! unrecognised mapping or a missing required parameter returns `None`, leaving
 //! the caller to fall back to the regular lat/lon path or source projection.
 
-/// Look up an attribute's display value by name.
-fn attr<'a>(attrs: &'a [(String, String)], name: &str) -> Option<&'a str> {
-    attrs
-        .iter()
-        .find(|(n, _)| n == name)
-        .map(|(_, v)| v.as_str())
+use fieldglass_core::array::{Attribute, AttributeValue, CfUnpacking, attribute};
+
+/// A text attribute by name. A number stored under the name is not text.
+fn attr<'a>(attrs: &'a [Attribute], name: &str) -> Option<&'a str> {
+    attribute(attrs, name).and_then(AttributeValue::text)
 }
 
-/// Look up a scalar numeric attribute. NetCDF attribute values reach this layer
-/// as display strings (a comma-separated list for arrays); take the first token,
-/// which is the scalar these projection parameters always are.
-fn attr_f64(attrs: &[(String, String)], name: &str) -> Option<f64> {
-    let raw = attr(attrs, name)?;
-    raw.split(',').next()?.trim().parse::<f64>().ok()
+/// A scalar numeric attribute by name: its first number, which is the scalar
+/// these projection parameters always are. Text under the name is not a
+/// number, however it reads — CF and WRF both store these as numbers.
+fn attr_f64(attrs: &[Attribute], name: &str) -> Option<f64> {
+    attribute(attrs, name).and_then(AttributeValue::number)
 }
 
 /// First value and the uniform step of a coordinate axis, as `(first, step)`.
@@ -95,7 +93,7 @@ pub struct GeostationaryGrid {
 /// `int16`). Returns `None` when the mapping is not geostationary or a required
 /// parameter is missing.
 pub fn resolve_cf_geostationary(
-    gm_attrs: &[(String, String)],
+    gm_attrs: &[Attribute],
     x: &[f64],
     y: &[f64],
 ) -> Option<GeostationaryGrid> {
@@ -190,7 +188,7 @@ pub enum WrfMapProj {
 /// (lat-lon) maps to [`WrfMapProj::LatLon`], but only its *unrotated* aspect
 /// resolves to a grid — [`resolve_wrf_latlon`] applies that gate, and a rotated
 /// domain falls back to source projection (decision 0004 guardrail).
-pub fn wrf_map_proj(global: &[(String, String)]) -> Option<WrfMapProj> {
+pub fn wrf_map_proj(global: &[Attribute]) -> Option<WrfMapProj> {
     let code = attr_f64(global, "MAP_PROJ")?;
     if code == 1.0 {
         Some(WrfMapProj::Lambert)
@@ -210,7 +208,7 @@ pub fn wrf_map_proj(global: &[(String, String)]) -> Option<WrfMapProj> {
 /// the GRIB planar grids, so a degenerate spacing falls back to source
 /// projection instead of advertising a reprojection that every warp would
 /// reject.
-fn wrf_grid_spacing(global: &[(String, String)]) -> Option<(f64, f64)> {
+fn wrf_grid_spacing(global: &[Attribute]) -> Option<(f64, f64)> {
     let dx = attr_f64(global, "DX")?;
     let dy = attr_f64(global, "DY")?;
     if !dx.is_finite() || !dy.is_finite() || dx == 0.0 || dy == 0.0 {
@@ -225,7 +223,7 @@ fn wrf_grid_spacing(global: &[(String, String)]) -> Option<(f64, f64)> {
 /// attributes are all present. The polar stereographic and Mercator variants
 /// have their own resolvers below.
 pub fn resolve_wrf_lambert(
-    global: &[(String, String)],
+    global: &[Attribute],
     lat_first: f64,
     lon_first: f64,
     ni: u32,
@@ -291,7 +289,7 @@ pub struct WrfPolarStereoGrid {
 /// Snyder form the core projector implements, with the pole scale factor
 /// `k₀ = (1 + sin|TRUELAT1|)/2`, so `lad = TRUELAT1` is exact.
 pub fn resolve_wrf_polar_stereo(
-    global: &[(String, String)],
+    global: &[Attribute],
     lat_first: f64,
     lon_first: f64,
     ni: u32,
@@ -344,7 +342,7 @@ pub struct WrfMercatorGrid {
 /// first, so only a Mercator file pays for — or can fail on — the far corner).
 /// Returns `None` unless `MAP_PROJ == 3`.
 pub fn resolve_wrf_mercator(
-    global: &[(String, String)],
+    global: &[Attribute],
     lat_first: f64,
     lon_first: f64,
     lat_last: f64,
@@ -400,7 +398,7 @@ pub struct WrfLatLonGrid {
 /// (`POLE_LAT != 90`) is *not* rectilinear in geographic coordinates; there is
 /// no cleanly documented mapping from WRF's `(POLE_LAT, POLE_LON, STAND_LON)`
 /// onto the GRIB2 §3.1 rotated-pole convention, so it stays source-only.
-fn wrf_latlon_is_unrotated(global: &[(String, String)]) -> bool {
+fn wrf_latlon_is_unrotated(global: &[Attribute]) -> bool {
     let pole_lat = attr_f64(global, "POLE_LAT").unwrap_or(90.0);
     let pole_lon = attr_f64(global, "POLE_LON").unwrap_or(0.0);
     // Fold POLE_LON onto [-180, 180] so 0 and 360 both read as unrotated.
@@ -415,7 +413,7 @@ fn wrf_latlon_is_unrotated(global: &[(String, String)]) -> bool {
 /// unrotated (see `wrf_latlon_is_unrotated`); a rotated-pole domain resolves
 /// to nothing and stays source-only.
 pub fn resolve_wrf_latlon(
-    global: &[(String, String)],
+    global: &[Attribute],
     lat_first: f64,
     lon_first: f64,
     lat_last: f64,
@@ -440,17 +438,17 @@ pub fn resolve_wrf_latlon(
 /// `(scale, offset)`, defaulting to the identity `(1, 0)` when absent. Packed
 /// integer coordinates (real GOES stores `x`/`y` as scaled `int16`) decode to
 /// physical units via `physical = packed · scale + offset`; see
-/// [`apply_scale_offset`].
-pub fn cf_scale_offset(attrs: &[(String, String)]) -> (f64, f64) {
-    let scale = attr_f64(attrs, "scale_factor").unwrap_or(1.0);
-    let offset = attr_f64(attrs, "add_offset").unwrap_or(0.0);
-    (scale, offset)
+/// [`apply_scale_offset`]. Read by core's [`CfUnpacking`], so the defaults are
+/// the ones the data path applies.
+pub fn cf_scale_offset(attrs: &[Attribute]) -> (f64, f64) {
+    let cf = CfUnpacking::from_attributes(attrs);
+    (cf.scale(), cf.offset())
 }
 
 /// Apply CF `scale_factor` / `add_offset` to raw decoded values. A no-op when
 /// the attributes are absent (`scale = 1`, `offset = 0`). Used for coordinate
 /// arrays, which are never masked; data planes go through [`unpack_cf_data`].
-pub fn apply_scale_offset(raw: &[f64], attrs: &[(String, String)]) -> Vec<f64> {
+pub fn apply_scale_offset(raw: &[f64], attrs: &[Attribute]) -> Vec<f64> {
     let (scale, offset) = cf_scale_offset(attrs);
     if scale == 1.0 && offset == 0.0 {
         return raw.to_vec();
@@ -458,52 +456,24 @@ pub fn apply_scale_offset(raw: &[f64], attrs: &[(String, String)]) -> Vec<f64> {
     raw.iter().map(|v| v * scale + offset).collect()
 }
 
-/// CF valid-range bounds of a variable as inclusive **packed-domain** bounds
-/// `(min, max)`, either side `None` when unspecified. A *well-formed*
-/// two-element `valid_range` takes precedence over the scalar `valid_min` /
-/// `valid_max` pair (CF Conventions §2.5.1); a reversed `valid_range` is
-/// normalised. A malformed `valid_range` (not two parseable numbers — a file
-/// libnetcdf would itself reject) is ignored, falling back to
-/// `valid_min`/`valid_max` rather than failing the render. The bounds describe
-/// the *stored* (packed) values, so [`unpack_cf_data`] compares them before
-/// applying `scale_factor` / `add_offset`.
-fn cf_valid_bounds(attrs: &[(String, String)]) -> (Option<f64>, Option<f64>) {
-    if let Some(s) = attr(attrs, "valid_range") {
-        let mut it = s.split(',').filter_map(|t| t.trim().parse::<f64>().ok());
-        if let (Some(a), Some(b)) = (it.next(), it.next()) {
-            return (Some(a.min(b)), Some(a.max(b)));
-        }
-    }
-    (attr_f64(attrs, "valid_min"), attr_f64(attrs, "valid_max"))
-}
-
-/// Unpack a decoded **data** plane to physical units per the CF conventions:
-/// drop values outside `valid_range` / `valid_min` / `valid_max` (compared in
-/// packed units, inclusive), then map the survivors through `scale_factor` /
-/// `add_offset`. Points already masked at decode (`_FillValue`) stay masked.
+/// Unpack a decoded **data** plane to physical units per the CF conventions, by
+/// core's [`CfUnpacking`] — the rule stated once for every reader (#678): mask
+/// the declared sentinels, drop values outside `valid_range` / `valid_min` /
+/// `valid_max` (compared in packed units, inclusive), then map the survivors
+/// through `scale_factor` / `add_offset`.
 ///
-/// Mirrors libnetcdf's auto mask+scale and how [`apply_scale_offset`] unpacks
-/// coordinate arrays, but over `Option<f64>` so missing data is preserved. The
-/// common unscaled, unbounded case returns the plane untouched. A `NaN` packed
-/// value survives the range test (both comparisons are false for `NaN`) and
-/// stays `NaN`, matching libnetcdf, which masks only `_FillValue` /
-/// `missing_value`.
-pub fn unpack_cf_data(plane: &[Option<f64>], attrs: &[(String, String)]) -> Vec<Option<f64>> {
-    let (scale, offset) = cf_scale_offset(attrs);
-    let (lo, hi) = cf_valid_bounds(attrs);
-    if scale == 1.0 && offset == 0.0 && lo.is_none() && hi.is_none() {
-        return plane.to_vec();
-    }
-    plane
-        .iter()
-        .map(|&packed| {
-            let v = packed?;
-            if lo.is_some_and(|lo| v < lo) || hi.is_some_and(|hi| v > hi) {
-                return None;
-            }
-            Some(v * scale + offset)
-        })
-        .collect()
+/// Decode has already masked the first `_FillValue` and the first
+/// `missing_value`, so on this crate's own output the sentinel step adds only
+/// the further values of a multi-valued one, which decode leaves standing as
+/// ordinary numbers. Points already masked stay masked. A two-element
+/// `valid_range` wins over `valid_min` / `valid_max` and may be stated either
+/// way round; one that is not two numbers is ignored in favour of them rather
+/// than failing the render. A plane with nothing to scale, bound or mask
+/// comes back untouched. A `NaN` packed value survives the range test (both
+/// comparisons are false for `NaN`) and stays `NaN`, matching libnetcdf, which
+/// masks only `_FillValue` / `missing_value`.
+pub fn unpack_cf_data(plane: &[Option<f64>], attrs: &[Attribute]) -> Vec<Option<f64>> {
+    CfUnpacking::from_attributes(attrs).apply(plane)
 }
 
 // ── Into `core`'s one geometry type ──────────────────────────────────────────
@@ -598,10 +568,19 @@ impl From<&GeostationaryGrid> for GridGeometry {
 mod tests {
     use super::*;
 
-    fn attrs(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
+    /// Attributes the way a reader types them: a value that reads as a list of
+    /// numbers is numbers, and anything else is text.
+    fn attrs(pairs: &[(&str, &str)]) -> Vec<Attribute> {
         pairs
             .iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .map(|&(name, value)| {
+                let numbers: Result<Vec<f64>, _> =
+                    value.split(',').map(|t| t.trim().parse::<f64>()).collect();
+                match numbers {
+                    Ok(numbers) => Attribute::numbers(name, numbers),
+                    Err(_) => Attribute::text(name, value),
+                }
+            })
             .collect()
     }
 
@@ -968,6 +947,28 @@ mod tests {
         let plane = [Some(1.0), None, Some(3.0)];
         let none = attrs(&[("units", "K")]);
         assert_eq!(unpack_cf_data(&plane, &none), plane.to_vec());
+    }
+
+    /// Decode masks only the first value of a sentinel; the unpack masks every
+    /// one, so a `missing_value` declaring two codes leaves neither in the field.
+    #[test]
+    fn unpack_masks_every_value_of_a_multi_valued_sentinel() {
+        let plane = [Some(-1.0), Some(-2.0), Some(3.0), None];
+        let a = attrs(&[("missing_value", "-1, -2")]);
+        assert_eq!(
+            unpack_cf_data(&plane, &a),
+            vec![None, None, Some(3.0), None]
+        );
+    }
+
+    /// A number stored as text is not a number: the lookups take the file at
+    /// its word about what an attribute holds.
+    #[test]
+    fn a_numeric_parameter_stored_as_text_is_not_read() {
+        let global = vec![Attribute::text("MAP_PROJ", "1")];
+        assert_eq!(wrf_map_proj(&global), None);
+        let scaled = vec![Attribute::text("scale_factor", "0.5")];
+        assert_eq!(cf_scale_offset(&scaled), (1.0, 0.0));
     }
 
     #[test]

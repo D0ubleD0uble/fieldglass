@@ -41,7 +41,7 @@ fn view(bytes: &[u8]) -> (NetcdfReader, DatasetView) {
 fn var<'a>(view: &'a DatasetView, name: &str) -> &'a fieldglass_netcdf::VarView {
     view.vars
         .iter()
-        .find(|v| v.name == name)
+        .find(|v| v.name() == name)
         .unwrap_or_else(|| panic!("{name} present"))
 }
 
@@ -70,8 +70,7 @@ fn dimensions_and_variables_match_the_real_file() {
         let want = oracle["dimensions"][&d.name].as_u64().unwrap();
         assert_eq!(d.length, want, "dim {} length", d.name);
     }
-    let names: std::collections::BTreeSet<&str> =
-        view.vars.iter().map(|v| v.name.as_str()).collect();
+    let names: std::collections::BTreeSet<&str> = view.vars.iter().map(|v| v.name()).collect();
     for v in oracle["variables"].as_array().unwrap() {
         let want = v.as_str().unwrap();
         assert!(names.contains(want), "variable {want} present in view");
@@ -79,13 +78,8 @@ fn dimensions_and_variables_match_the_real_file() {
 
     // CMI carries the real CF data-packing attributes, surfaced for the viewer.
     let cmi = var(&view, "CMI");
-    assert_eq!(cmi.nc_type, fieldglass_netcdf::NcType::Short);
-    let attr = |n: &str| {
-        cmi.attrs
-            .iter()
-            .find(|(k, _)| k == n)
-            .map(|(_, v)| v.as_str())
-    };
+    assert_eq!(cmi.nc_type(), Some(fieldglass_netcdf::NcType::Short));
+    let attr = |n: &str| cmi.attribute(n).and_then(|a| a.text());
     assert_eq!(attr("units"), Some("K"));
     assert_eq!(attr("grid_mapping"), Some("goes_imager_projection"));
 }
@@ -98,13 +92,16 @@ fn geostationary_projection_reproduces_oracle_geolocation() {
     let (reader, view) = view(GOES);
     let oracle: Value = serde_json::from_str(ORACLE).unwrap();
 
-    let gm_attrs = var(&view, "goes_imager_projection").attrs.clone();
+    let gm_attrs = var(&view, "goes_imager_projection")
+        .array
+        .attributes
+        .clone();
     let read_scaled = |name: &str| {
         let raw: Vec<f64> = decode_plane(&reader, &view, name)
             .into_iter()
             .flatten()
             .collect();
-        apply_scale_offset(&raw, &var(&view, name).attrs)
+        apply_scale_offset(&raw, &var(&view, name).array.attributes)
     };
     let x = read_scaled("x");
     let y = read_scaled("y");
@@ -166,7 +163,7 @@ fn cmi_chunked_deflate_field_decodes_to_brightness_temperature() {
     let raw = decode_plane(&reader, &view, "CMI");
     assert_eq!(raw.len(), 24 * 24, "full window decoded");
 
-    let unpacked = unpack_cf_data(&raw, &var(&view, "CMI").attrs);
+    let unpacked = unpack_cf_data(&raw, &var(&view, "CMI").array.attributes);
     let present: Vec<f64> = unpacked.iter().flatten().copied().collect();
     assert_eq!(
         present.len() as u64,

@@ -574,10 +574,19 @@ class TheRepoItselfPasses(unittest.TestCase):
                 "TransverseMercatorParams",
             },
             "fieldglass-netcdf": {
+                # The array model a `DatasetView` is made of (#684), re-exported
+                # as `fieldglass_netcdf::array` because the classic header's
+                # own `Attribute` and `Dimension` hold those names at the root.
+                "ArrayDescription",
+                "Attribute",
+                "AttributeValue",
                 "ByteRange",
                 "ByteSource",
+                "Dimension",
+                "ElementType",
                 "FieldglassError",
                 "GridGeometry",
+                "Group",
                 "Scan",
             },
         }

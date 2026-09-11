@@ -57,10 +57,8 @@ fn distinct_units() -> BTreeSet<String> {
         };
         files += 1;
         for var in &view.vars {
-            for (name, value) in &var.attrs {
-                if name == "units" && !value.is_empty() {
-                    units.insert(value.clone());
-                }
+            if let Some(value) = var.units().filter(|u| !u.is_empty()) {
+                units.insert(value.to_string());
             }
         }
     }

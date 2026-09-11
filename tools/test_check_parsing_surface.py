@@ -347,7 +347,7 @@ class TheRepoItselfPasses(unittest.TestCase):
     def test_the_documented_surface_is_the_one_in_use(self):
         self.assertEqual(chk.check(), [])
 
-    def test_the_surface_is_the_twelve_modules_measured(self):
+    def test_the_surface_is_the_thirteen_modules_measured(self):
         # Pinned so that widening the surface comes past a reviewer here as well
         # as in the two doc regions.
         lib = (chk.CORE / "src" / "lib.rs").read_text(encoding="utf-8")
@@ -356,6 +356,7 @@ class TheRepoItselfPasses(unittest.TestCase):
         self.assertEqual(
             listed,
             [
+                "array",
                 "bits",
                 "bytes",
                 "cct_tables",
@@ -372,22 +373,17 @@ class TheRepoItselfPasses(unittest.TestCase):
         )
 
     def test_the_ungated_modules_left_out_are_left_out_on_purpose(self):
-        # `detect`, `units` and `array` are ungated and unused by any format
-        # crate library. If one of them starts being used, the gate above
-        # fires; this asserts the reason the doc gives for excluding them.
-        # `spatial_index` was on this list until #549 gave `fieldglass-netcdf`
-        # a swath to index.
-        #
-        # `array` is the shared array model (#677, ADR-0010). Its consumers
-        # today are `fieldglass-fetchplan` and `fieldglass-zarr`, neither of
-        # which is one of the three crates this gate watches; it joins the
-        # documented surface when a format crate reads its container into the
-        # model (#684 rebuilds `fieldglass-netcdf`'s view on it).
+        # `detect` and `units` are ungated and unused by any format crate
+        # library. If one of them starts being used, the gate above fires; this
+        # asserts the reason the doc gives for excluding them. `spatial_index`
+        # was on this list until #549 gave `fieldglass-netcdf` a swath to
+        # index, and `array`, the shared array model (#677, #678, ADR-0010),
+        # until #684 built that crate's dataset view on it.
         lib = (chk.CORE / "src" / "lib.rs").read_text(encoding="utf-8")
         modules = chk.core_modules(lib)
         ungated = {m for m, feature in modules.items() if feature is None}
         listed = {n for n in chk.documented_surface(lib) if n in modules}
-        self.assertEqual(sorted(ungated - listed), ["array", "detect", "units"])
+        self.assertEqual(sorted(ungated - listed), ["detect", "units"])
 
 
 if __name__ == "__main__":

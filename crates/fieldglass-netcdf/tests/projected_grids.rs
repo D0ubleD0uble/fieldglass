@@ -41,7 +41,7 @@ fn decode_named(reader: &NetcdfReader, view: &DatasetView, name: &str) -> Vec<f6
     let idx = view
         .vars
         .iter()
-        .find(|v| v.name == name)
+        .find(|v| v.name() == name)
         .unwrap_or_else(|| panic!("{name} present"))
         .decode_index;
     reader
@@ -215,14 +215,15 @@ fn goes_geostationary_grid_reproduces_oracle_geolocation() {
     let gm_attrs = view
         .vars
         .iter()
-        .find(|v| v.name == "goes_imager_projection")
+        .find(|v| v.name() == "goes_imager_projection")
         .expect("grid_mapping var")
-        .attrs
+        .array
+        .attributes
         .clone();
     let read_scaled = |name: &str| {
-        let var = view.vars.iter().find(|v| v.name == name).unwrap();
+        let var = view.vars.iter().find(|v| v.name() == name).unwrap();
         let raw = decode_named(&reader, &view, name);
-        apply_scale_offset(&raw, &var.attrs)
+        apply_scale_offset(&raw, &var.array.attributes)
     };
     let x = read_scaled("x");
     let y = read_scaled("y");

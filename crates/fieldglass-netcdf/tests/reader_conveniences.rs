@@ -62,7 +62,7 @@ fn physical_decode_equals_decode_then_unpack_for_every_variable() {
         let numeric: Vec<_> = view
             .vars
             .iter()
-            .filter(|v| v.nc_type != NcType::Char)
+            .filter(|v| v.nc_type() != Some(NcType::Char))
             .collect();
         assert!(
             !numeric.is_empty(),
@@ -71,14 +71,14 @@ fn physical_decode_equals_decode_then_unpack_for_every_variable() {
         for var in numeric {
             let raw = reader
                 .decode_variable_raw(var.decode_index)
-                .unwrap_or_else(|e| panic!("{label}: {} decodes: {e}", var.name));
+                .unwrap_or_else(|e| panic!("{label}: {} decodes: {e}", var.name()));
             assert_eq!(
                 reader
                     .decode_variable_physical(var.decode_index)
-                    .unwrap_or_else(|e| panic!("{label}: {} unpacks: {e}", var.name)),
-                unpack_cf_data(&raw, &var.attrs),
+                    .unwrap_or_else(|e| panic!("{label}: {} unpacks: {e}", var.name())),
+                unpack_cf_data(&raw, &var.array.attributes),
                 "{label}: {}",
-                var.name
+                var.name()
             );
         }
     }
@@ -94,10 +94,10 @@ fn decode_plane_equals_the_three_steps_run_by_hand() {
     let sst = view
         .vars
         .iter()
-        .find(|v| v.name == "sst")
+        .find(|v| v.name() == "sst")
         .expect("ERSST has an sst variable");
     // sst(time, lev, lat, lon) — hold the leading axes, image axes lat × lon.
-    assert_eq!(sst.dim_names.len(), 4, "sst is 4-D");
+    assert_eq!(sst.array.dimensions.len(), 4, "sst is 4-D");
     let shape = reader.variable_shape(sst.decode_index).expect("shape");
     let raw = reader
         .decode_variable_raw(sst.decode_index)
@@ -105,7 +105,7 @@ fn decode_plane_equals_the_three_steps_run_by_hand() {
 
     let by_hand = unpack_cf_data(
         &extract_plane(&raw, &shape, 2, 3, &[0, 0, 0, 0]).expect("plane"),
-        &sst.attrs,
+        &sst.array.attributes,
     );
     assert_eq!(
         reader
@@ -119,7 +119,7 @@ fn decode_plane_equals_the_three_steps_run_by_hand() {
     assert_eq!(
         by_hand,
         extract_plane(
-            &unpack_cf_data(&raw, &sst.attrs),
+            &unpack_cf_data(&raw, &sst.array.attributes),
             &shape,
             2,
             3,

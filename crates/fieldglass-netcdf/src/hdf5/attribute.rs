@@ -43,10 +43,18 @@ pub struct Hdf5Attribute {
     /// Display value: UTF-8 text for strings, comma-separated decimals for
     /// numeric types (matching the classic NetCDF render path).
     pub value: String,
-    /// Typed first element, widened to `f64`, for numeric attributes; `None` for
-    /// strings. Mirrors the classic `Attribute::first_value` so value decode can
-    /// read a `_FillValue` without a lossy round-trip through the display text.
-    pub first_value: Option<f64>,
+    /// Every element widened to `f64`, for numeric attributes; empty for
+    /// strings. Mirrors the classic [`crate::classic::Attribute::values`], so
+    /// value decode and the CF unpack read numbers rather than the display text.
+    pub values: Vec<f64>,
+}
+
+impl Hdf5Attribute {
+    /// The first element, widened to `f64`: how a scalar such as `_FillValue`
+    /// is read. `None` for a string and for an empty value.
+    pub fn first_value(&self) -> Option<f64> {
+        self.values.first().copied()
+    }
 }
 
 /// A raw, undecoded attribute: its name plus the still-encoded datatype message
@@ -247,16 +255,15 @@ fn parse_attribute_message(body: &[u8], length_size: u8) -> Result<Hdf5Attribute
     let split = split_attribute_message(body)?;
     let datatype = datatype::decode(split.datatype_bytes)?;
     let dataspace = dataspace::decode(split.dataspace_bytes, length_size)?;
-    let value = render_value(split.data, &datatype, &dataspace)?;
-    // Typed first element (numeric only), straight from the raw bytes — value
-    // decode masks `_FillValue` against this rather than the rounded display text.
-    let first_value = datatype.read_element_f64(split.data);
+    // The numbers come straight from the raw bytes, beside the display text:
+    // value decode masks `_FillValue` against them rather than the rounded text.
+    let (value, values) = render_value(split.data, &datatype, &dataspace)?;
     Ok(Hdf5Attribute {
         name: split.name,
         datatype,
         dataspace,
         value,
-        first_value,
+        values,
     })
 }
 
@@ -274,11 +281,11 @@ fn render_value(
     data: &[u8],
     datatype: &Datatype,
     dataspace: &Dataspace,
-) -> Result<String, FieldglassError> {
+) -> Result<(String, Vec<f64>), FieldglassError> {
     match datatype.class {
         DatatypeClass::FixedLengthString => {
             let len = (datatype.size as usize).min(data.len());
-            Ok(decode_name(&data[..len]))
+            Ok((decode_name(&data[..len]), Vec::new()))
         }
         DatatypeClass::FixedPoint | DatatypeClass::FloatingPoint => {
             let elem = datatype.size as usize;
@@ -298,9 +305,11 @@ fn render_value(
             } else {
                 raw.to_vec()
             };
-            Ok(classic::render_numeric_values(
-                &normalized,
-                datatype.nc_type,
+            // Both from the one bounds-checked slice, so the text and the
+            // numbers cannot disagree about how many elements there are.
+            Ok((
+                classic::render_numeric_values(&normalized, datatype.nc_type),
+                classic::decode_elements_f64(&normalized, datatype.nc_type),
             ))
         }
     }

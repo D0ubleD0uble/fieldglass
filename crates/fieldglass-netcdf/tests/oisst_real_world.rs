@@ -41,7 +41,7 @@ fn view(bytes: &[u8]) -> (NetcdfReader, DatasetView) {
 fn var<'a>(view: &'a DatasetView, name: &str) -> &'a fieldglass_netcdf::VarView {
     view.vars
         .iter()
-        .find(|v| v.name == name)
+        .find(|v| v.name() == name)
         .unwrap_or_else(|| panic!("{name} present"))
 }
 
@@ -70,8 +70,8 @@ fn oisst_real_file_is_hdf5_backed_with_dense_global_attrs() {
         let got = view
             .global_attrs
             .iter()
-            .find(|(name, _)| name == k)
-            .map(|(_, val)| val.as_str());
+            .find(|a| a.name == *k)
+            .and_then(|a| a.value.text());
         assert_eq!(got, v.as_str(), "global attr {k}");
     }
 }
@@ -90,24 +90,19 @@ fn dimensions_and_variables_match_the_real_file() {
         let want = oracle["dimensions"][&d.name].as_u64().unwrap();
         assert_eq!(d.length, want, "dim {} length", d.name);
     }
-    let names: std::collections::BTreeSet<&str> =
-        view.vars.iter().map(|v| v.name.as_str()).collect();
+    let names: std::collections::BTreeSet<&str> = view.vars.iter().map(|v| v.name()).collect();
     for v in oracle["variables"].as_array().unwrap() {
         let want = v.as_str().unwrap();
         assert!(names.contains(want), "variable {want} present in view");
     }
 
     let sst = var(&view, "sst");
-    assert_eq!(sst.nc_type, fieldglass_netcdf::NcType::Short);
-    let attr = |n: &str| {
-        sst.attrs
-            .iter()
-            .find(|(k, _)| k == n)
-            .map(|(_, v)| v.as_str())
-    };
+    assert_eq!(sst.nc_type(), Some(fieldglass_netcdf::NcType::Short));
+    let attr = |n: &str| sst.attribute(n).and_then(|a| a.text());
     assert_eq!(attr("units"), oracle["sst"]["units"].as_str());
     assert_eq!(attr("long_name"), oracle["sst"]["long_name"].as_str());
-    // The CF packing attributes the unpack path keys on are all present.
+    // The CF packing attributes the unpack path keys on are all present, and
+    // as numbers: the unpack reads them as numbers and never as text.
     for k in [
         "scale_factor",
         "add_offset",
@@ -115,7 +110,10 @@ fn dimensions_and_variables_match_the_real_file() {
         "valid_min",
         "valid_max",
     ] {
-        assert!(attr(k).is_some(), "sst carries {k}");
+        let value = sst
+            .attribute(k)
+            .unwrap_or_else(|| panic!("sst carries {k}"));
+        assert!(value.number().is_some(), "{k} is numeric");
     }
 }
 
@@ -178,7 +176,7 @@ fn packed_fields_decode_and_cf_unpack_to_oracle() {
         let raw = decode_plane(&reader, &view, name);
         assert_eq!(raw.len(), 32 * 32, "{name}: full window decoded");
 
-        let unpacked = unpack_cf_data(&raw, &var(&view, name).attrs);
+        let unpacked = unpack_cf_data(&raw, &var(&view, name).array.attributes);
         let present: Vec<f64> = unpacked.iter().flatten().copied().collect();
         assert_eq!(
             present.len() as u64,
