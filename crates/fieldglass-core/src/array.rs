@@ -430,11 +430,11 @@ impl ChunkGrid {
 
 // ── The dataset structure a container of named arrays has ───────────────────
 //
-// `fieldglass-netcdf` carries `DimView`, `VarView` and `DatasetView` as its
-// private neutral view, the umbrella carries `DimensionInfo` and `VariableInfo`
-// as wire types, and a Zarr store walker needs a third copy. These are the one
-// set (#678, ADR-0010 decision 1): plain structs, no dependency, on the parsing
-// surface where `GridGeometry` already is.
+// The one set (#678, ADR-0010 decision 1): plain structs, no dependency, on the
+// parsing surface where `GridGeometry` already is. `fieldglass-netcdf` builds
+// its `DatasetView` out of them (#684) and a Zarr store walker reads into the
+// same ones; the umbrella's `DimensionInfo` and `VariableInfo` are the wire
+// form a host receives, not a second description.
 
 /// One named axis, and how long it is.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -578,7 +578,9 @@ pub struct ArrayDescription {
     /// Its own attributes.
     pub attributes: Vec<Attribute>,
     /// How it is chunked, when the container chunks it. `None` for a container
-    /// that stores an array contiguously.
+    /// that stores an array contiguously, and for a reader that describes an
+    /// array without reading its storage layout — the NetCDF view, which
+    /// learns the layout only when it decodes.
     pub chunk_grid: Option<ChunkGrid>,
 }
 
@@ -607,9 +609,10 @@ impl Group {
     /// Every array in the tree, with its path-qualified name, depth first.
     ///
     /// The qualification is `outer/inner/array`, with the root contributing no
-    /// segment — the spelling `fieldglass-netcdf` already uses for a nested
-    /// group, so a host that walks a NetCDF-4 file and one that walks a Zarr
-    /// store see names of the same shape.
+    /// segment. A reader that flattens its container into the root group keeps
+    /// whatever spelling it put in [`ArrayDescription::name`]: the NetCDF view
+    /// does that, and a nested NetCDF-4 name comes back with the leading `/`
+    /// its HDF5 path has (`/PRODUCT/latitude`).
     pub fn arrays_qualified(&self) -> Vec<(String, &ArrayDescription)> {
         let mut out = Vec::new();
         self.walk(&mut String::new(), &mut out);

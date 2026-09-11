@@ -44,8 +44,10 @@ that publishes the module whole.
 Accepted limitations, in the shape `check_architecture_diagrams.py` documents
 its own:
 
-  * Matching is by *base name*. A local type sharing a name with a core one
-    would be reported; there is none today.
+  * Matching is by *base name*, per file. `fieldglass-netcdf`'s own
+    `classic::Attribute` and `classic::Dimension` share names with core's
+    array model; that is sound only because no file imports both, which the
+    compiler enforces for any one scope.
   * A signature spread through a macro body is invisible to a regex. Say so
     here rather than reaching for a real parser.
   * Module visibility is traced through `mod` / `pub mod` declarations in

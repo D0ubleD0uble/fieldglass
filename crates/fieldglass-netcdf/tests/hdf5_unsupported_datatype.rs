@@ -161,10 +161,7 @@ fn a_skipped_dataset_does_not_shift_the_decode_indices_after_it() {
 fn the_dataset_view_carries_the_report() {
     let view = reader().view().expect("view resolves");
     assert_eq!(
-        view.vars
-            .iter()
-            .map(|v| v.name.as_str())
-            .collect::<Vec<_>>(),
+        view.vars.iter().map(|v| v.name()).collect::<Vec<_>>(),
         ["temperature", "time"]
     );
     assert_eq!(

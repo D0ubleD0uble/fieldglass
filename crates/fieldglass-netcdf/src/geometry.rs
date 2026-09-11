@@ -13,7 +13,10 @@
 //!
 //! The logic is backing-agnostic: it operates on a neutral [`DatasetView`] so the
 //! classic and NetCDF-4 / HDF5 backings share one implementation (built by
-//! [`DatasetView::from_classic`] / [`DatasetView::from_hdf5`]).
+//! [`DatasetView::from_classic`] / [`DatasetView::from_hdf5`]). The view is
+//! made of `fieldglass-core`'s array model — the one description every
+//! container of named arrays reads into (ADR-0010) — so nothing here is
+//! specific to how either backing stores it.
 //! The first pass handles **regular 1-D lat/lon grids only**; curvilinear (2-D
 //! coordinate) and projected grids are tracked separately (decision 0002,
 //! *Out of scope*).
@@ -21,6 +24,9 @@
 use crate::classic::{ClassicHeader, NcType};
 use crate::hdf5::dimensions::{Hdf5Metadata, UnsupportedVariable};
 use fieldglass_core::FieldglassError;
+use fieldglass_core::array::{
+    ArrayDescription, Attribute, AttributeValue, Dimension, Group, attribute,
+};
 use fieldglass_core::bytes::checked_usize;
 
 /// The horizontal axis a coordinate variable represents.
@@ -32,75 +38,89 @@ pub enum AxisKind {
     Longitude,
 }
 
-/// One dimension in the neutral view.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DimView {
-    /// The dimension's name, as both backings report it.
-    pub name: String,
-    /// The dimension's runtime length; the record dimension resolves to its
-    /// count rather than the on-disk zero.
-    pub length: u64,
-}
-
-/// The value stored in the neutral view for an attribute, preserving full `f64`
-/// precision for a **scalar numeric** attribute. The human-facing display string
-/// rounds small magnitudes lossily (a GOES `scale_factor` ≈ 6.7e-7 prints as
-/// `"0.000001"`), which would mis-scale the `x`/`y` scan-angle coordinates the
-/// geostationary resolver reads. Multi-valued (comma-bearing) and string
-/// attributes keep their display string. `format!("{n}")` is the shortest
-/// round-trippable representation.
-fn attr_value(display: &str, first_value: Option<f64>) -> String {
-    match first_value {
-        Some(n) if !display.contains(',') => format!("{n}"),
-        _ => display.to_string(),
+/// One attribute in core's model, from what either backing decoded.
+///
+/// Text stays text, and a numeric attribute keeps every element as the `f64`
+/// its reader decoded, so nothing downstream reads a number back out of a
+/// display string (#678). That round trip was a real hazard rather than a
+/// theoretical one: a GOES `scale_factor` near 6.7e-7 prints as `0.000001`
+/// under any rounding format, and the display text of a `float` is its 32-bit
+/// shortest form, which is not the value the data is compared against once
+/// widened.
+fn model_attribute(name: &str, nc_type: NcType, text: &str, values: &[f64]) -> Attribute {
+    if nc_type == NcType::Char {
+        Attribute::text(name, text)
+    } else {
+        Attribute::numbers(name, values.to_vec())
     }
 }
 
-/// One variable in the neutral view, carrying just what axis detection and the
-/// slice picker need. `decode_index` is the index
-/// [`crate::NetcdfReader::decode_variable_raw`] uses, so a chosen variable
-/// maps straight back to its data.
+/// One variable in the view: core's description of it, and the index that
+/// reaches its data.
+///
+/// The description is what every container of named arrays has — a name, an
+/// element type, axes, attributes — and it is all that axis detection, the
+/// slice picker and the CF unpacking read. `decode_index` is the part only
+/// this reader has. It sits beside the description rather than in a table of
+/// its own, so a variable is never handed over without its way back to its
+/// data.
 #[derive(Debug, Clone, PartialEq)]
 pub struct VarView {
     /// Index [`crate::NetcdfReader::decode_variable_raw`] takes, so a
     /// chosen variable maps straight back to its data.
     pub decode_index: usize,
-    /// The variable's name.
-    pub name: String,
-    /// The variable's element type, mapped onto the classic vocabulary for
-    /// both backings.
-    pub nc_type: NcType,
-    /// Ordered dimension names.
-    pub dim_names: Vec<String>,
-    /// Attributes as `(name, display_value)`. Axis detection reads the CF axis
-    /// attributes (`units`, `standard_name`, `axis`); [`VarView::unpack`] reads
-    /// the mask-and-scale ones (`scale_factor`, `add_offset`, `valid_range`,
-    /// `valid_min`, `valid_max`) back out of the same strings, so the values
-    /// here have to stay numerically faithful — see [`DatasetView::from_hdf5`].
-    pub attrs: Vec<(String, String)>,
+    /// The variable in core's array model. Its element type is the NetCDF type
+    /// as [`NcType::element_type`] maps it, and its
+    /// [`chunk_grid`](ArrayDescription::chunk_grid) is `None`: the view
+    /// describes names and axes, and the storage layout is read when the
+    /// variable is decoded.
+    pub array: ArrayDescription,
 }
 
 impl VarView {
-    fn attr(&self, name: &str) -> Option<&str> {
-        self.attrs
-            .iter()
-            .find(|(n, _)| n == name)
-            .map(|(_, v)| v.as_str())
+    /// The variable's name, path-qualified when it lives in a nested group.
+    pub fn name(&self) -> &str {
+        &self.array.name
+    }
+
+    /// One of the variable's own attributes, by name.
+    pub fn attribute(&self, name: &str) -> Option<&AttributeValue> {
+        attribute(&self.array.attributes, name)
+    }
+
+    /// A text attribute. A number stored under the name is not text, however
+    /// it would print; the CF axis attributes this reads are text by
+    /// definition.
+    fn text(&self, name: &str) -> Option<&str> {
+        self.attribute(name).and_then(AttributeValue::text)
+    }
+
+    /// The CF `units`, as the file spells them, when the variable declares any.
+    pub fn units(&self) -> Option<&str> {
+        self.text("units")
+    }
+
+    /// The variable's NetCDF type. `None` only for a description built by hand
+    /// with an element type NetCDF has no name for; neither backing makes one.
+    pub fn nc_type(&self) -> Option<NcType> {
+        NcType::from_element_type(&self.array.element_type)
     }
 
     /// A coordinate variable is 1-D and shares its name with its single
     /// dimension (a `lat(lat)` variable).
     fn is_coordinate(&self) -> bool {
-        self.dim_names.len() == 1 && self.dim_names[0] == self.name
+        let dims = &self.array.dimensions;
+        dims.len() == 1 && dims[0] == self.array.name
     }
 
-    fn is_numeric(&self) -> bool {
-        self.nc_type != NcType::Char
+    /// The NetCDF type, when it is one value decode turns into numbers.
+    fn numeric_type(&self) -> Option<NcType> {
+        self.nc_type().filter(|t| *t != NcType::Char)
     }
 
     /// Apply the CF mask-and-scale this variable's own attributes call for to
-    /// values already decoded for it — [`crate::unpack_cf_data`] with
-    /// [`VarView::attrs`], which is the only correct attribute set for them.
+    /// values already decoded for it — [`crate::unpack_cf_data`] with this
+    /// variable's attributes, which are the only correct set for them.
     ///
     /// The decode ([`crate::NetcdfReader::decode_variable_raw`]) returns raw
     /// on-disk codes with only the fill / missing sentinels masked; this is the
@@ -109,11 +129,14 @@ impl VarView {
     /// or [`crate::NetcdfReader::decode_plane`] instead; this method is for a
     /// host that caches the raw decode per variable and re-slices it.
     pub fn unpack(&self, raw: &[Option<f64>]) -> Vec<Option<f64>> {
-        crate::projection::unpack_cf_data(raw, &self.attrs)
+        crate::projection::unpack_cf_data(raw, &self.array.attributes)
     }
 }
 
-/// A neutral, backing-agnostic view of a dataset's dimensions and variables.
+/// A neutral, backing-agnostic view of a dataset's dimensions and variables,
+/// made of `fieldglass-core`'s array model: [`Dimension`]s, [`Attribute`]s and,
+/// per variable, an [`ArrayDescription`] (#684). [`Self::group`] hands the same
+/// thing over as the [`Group`] a host walks for any container of named arrays.
 ///
 /// [`Default`] is the empty view — no dimensions, no variables, no global
 /// attributes. It is what a host falls back to when
@@ -124,15 +147,16 @@ impl VarView {
 /// [`DatasetView::unsupported`] instead (#550).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct DatasetView {
-    /// Every dimension in the dataset, in declared order.
-    pub dims: Vec<DimView>,
+    /// Every dimension in the dataset, in declared order. The record dimension
+    /// reports its record count rather than the on-disk zero.
+    pub dims: Vec<Dimension>,
     /// Every variable in the dataset, in decode order — coordinate variables
     /// included, unlike [`DatasetView::renderable_variables`].
     pub vars: Vec<VarView>,
-    /// Global (root-group) attributes as `(name, display_value)`. Carries the
-    /// non-CF projection metadata WRF stores at the file level (`MAP_PROJ`,
-    /// `TRUELAT1`, …); see [`crate::projection`].
-    pub global_attrs: Vec<(String, String)>,
+    /// Global (root-group) attributes. Carries the non-CF projection metadata
+    /// WRF stores at the file level (`MAP_PROJ`, `TRUELAT1`, …); see
+    /// [`crate::projection`].
+    pub global_attrs: Vec<Attribute>,
     /// The datasets left out of `vars` because their datatype is outside the
     /// decoded subset, and why (#550). Always empty for a classic backing,
     /// which has no such types. A host that lists variables should say these
@@ -146,10 +170,13 @@ impl DatasetView {
     /// runtime length is taken from `numrecs`; all variables (coordinate
     /// variables included) keep their header order, which is the decode order.
     pub fn from_classic(header: &ClassicHeader) -> Self {
-        let dims: Vec<DimView> = header
+        let attribute = |a: &crate::classic::Attribute| {
+            model_attribute(&a.name, a.nc_type, &a.value, &a.values)
+        };
+        let dims: Vec<Dimension> = header
             .dimensions
             .iter()
-            .map(|d| DimView {
+            .map(|d| Dimension {
                 name: d.name.clone(),
                 length: if d.is_record {
                     header.numrecs.unwrap_or(0)
@@ -164,29 +191,24 @@ impl DatasetView {
             .enumerate()
             .map(|(i, v)| VarView {
                 decode_index: i,
-                name: v.name.clone(),
-                nc_type: v.nc_type,
-                dim_names: v
-                    .dim_ids
-                    .iter()
-                    .map(|&id| {
-                        dims.get(id as usize)
-                            .map(|d| d.name.clone())
-                            .unwrap_or_else(|| format!("dim#{id}"))
-                    })
-                    .collect(),
-                attrs: v
-                    .attributes
-                    .iter()
-                    .map(|a| (a.name.clone(), attr_value(&a.value, a.first_value)))
-                    .collect(),
+                array: ArrayDescription {
+                    name: v.name.clone(),
+                    element_type: v.nc_type.element_type(),
+                    dimensions: v
+                        .dim_ids
+                        .iter()
+                        .map(|&id| {
+                            dims.get(id as usize)
+                                .map(|d| d.name.clone())
+                                .unwrap_or_else(|| format!("dim#{id}"))
+                        })
+                        .collect(),
+                    attributes: v.attributes.iter().map(attribute).collect(),
+                    chunk_grid: None,
+                },
             })
             .collect();
-        let global_attrs = header
-            .global_attributes
-            .iter()
-            .map(|a| (a.name.clone(), attr_value(&a.value, a.first_value)))
-            .collect();
+        let global_attrs = header.global_attributes.iter().map(attribute).collect();
         Self {
             dims,
             vars,
@@ -202,18 +224,19 @@ impl DatasetView {
     /// [`crate::hdf5::dimensions::VariableInfo::decode_index`], which already
     /// accounts for the pure-dimension datasets the classic backing never has.
     ///
-    /// Attribute values are taken as display strings, but they are **not** only
-    /// read for display: [`VarView::unpack`] parses `scale_factor`,
-    /// `add_offset` and `valid_range` back out of them, which is why a scalar
-    /// numeric attribute keeps its full `f64` precision here (see `attr_value`)
-    /// rather than the rounded form the metadata panel shows. Making that
-    /// formatter lossier silently mis-scales every packed field on this
-    /// backing.
+    /// A numeric attribute carries the numbers the attribute reader decoded,
+    /// not its display text: [`VarView::unpack`] reads `scale_factor`,
+    /// `add_offset` and `valid_range` from them, and the geostationary
+    /// resolver reads a GOES scale factor small enough that any rounded
+    /// rendering of it would mis-scale the whole grid.
     pub fn from_hdf5(meta: &Hdf5Metadata) -> Self {
+        let attribute = |a: &crate::hdf5::attribute::Hdf5Attribute| {
+            model_attribute(&a.name, a.datatype.nc_type, &a.value, &a.values)
+        };
         let dims = meta
             .dimensions
             .iter()
-            .map(|d| DimView {
+            .map(|d| Dimension {
                 name: d.name.clone(),
                 length: d.length,
             })
@@ -223,26 +246,40 @@ impl DatasetView {
             .iter()
             .map(|v| VarView {
                 decode_index: v.decode_index,
-                name: v.name.clone(),
-                nc_type: v.nc_type,
-                dim_names: v.dimensions.clone(),
-                attrs: v
-                    .attributes
-                    .iter()
-                    .map(|a| (a.name.clone(), attr_value(&a.value, a.first_value)))
-                    .collect(),
+                array: ArrayDescription {
+                    name: v.name.clone(),
+                    element_type: v.nc_type.element_type(),
+                    dimensions: v.dimensions.clone(),
+                    attributes: v.attributes.iter().map(attribute).collect(),
+                    chunk_grid: None,
+                },
             })
             .collect();
-        let global_attrs = meta
-            .global_attributes
-            .iter()
-            .map(|a| (a.name.clone(), attr_value(&a.value, a.first_value)))
-            .collect();
+        let global_attrs = meta.global_attributes.iter().map(attribute).collect();
         Self {
             dims,
             vars,
             global_attrs,
             unsupported: meta.unsupported.clone(),
+        }
+    }
+
+    /// The dataset as core's [`Group`]: the tree a host walks the same way for
+    /// every container of named arrays (ADR-0010 decision 3).
+    ///
+    /// One root group, holding every dimension and variable under the names
+    /// both backings already resolve — a variable in a nested NetCDF-4 group
+    /// keeps its HDF5 path, `/PRODUCT/latitude` — so
+    /// [`Group::arrays_qualified`] and [`Group::dimensions_qualified`] give back
+    /// exactly the names in this view. A nested group's own attributes are not
+    /// in it, because neither backing reads them.
+    pub fn group(&self) -> Group {
+        Group {
+            name: String::new(),
+            attributes: self.global_attrs.clone(),
+            dimensions: self.dims.clone(),
+            arrays: self.vars.iter().map(|v| v.array.clone()).collect(),
+            groups: Vec::new(),
         }
     }
 
@@ -266,7 +303,7 @@ impl DatasetView {
     pub fn coordinate_index(&self, dim_name: &str) -> Option<usize> {
         self.vars
             .iter()
-            .find(|v| v.is_coordinate() && v.name == dim_name)
+            .find(|v| v.is_coordinate() && v.array.name == dim_name)
             .map(|v| v.decode_index)
     }
 
@@ -277,7 +314,7 @@ impl DatasetView {
         self.vars
             .iter()
             .filter(|v| v.is_coordinate())
-            .filter_map(|v| detect_axis(v).map(|kind| (v.name.clone(), kind)))
+            .filter_map(|v| detect_axis(v).map(|kind| (v.array.name.clone(), kind)))
             .collect()
     }
 
@@ -311,24 +348,25 @@ impl DatasetView {
 
         self.vars
             .iter()
-            .filter(|v| {
-                v.is_numeric()
-                    && v.dim_names.len() >= 2
+            .filter_map(|v| {
+                let nc_type = v.numeric_type()?;
+                let dim_names = &v.array.dimensions;
+                let renderable = dim_names.len() >= 2
                     && !v.is_coordinate()
-                    && !coordinate_planes.contains(&v.decode_index)
+                    && !coordinate_planes.contains(&v.decode_index);
+                renderable.then_some((v, nc_type, dim_names))
             })
-            .map(|v| {
+            .map(|(v, nc_type, dim_names)| {
                 let position =
-                    |dim: Option<&str>| dim.and_then(|d| v.dim_names.iter().position(|n| n == d));
+                    |dim: Option<&str>| dim.and_then(|d| dim_names.iter().position(|n| n == d));
                 let curvilinear = self.curvilinear_axes(v);
                 RenderableVariable {
                     decode_index: v.decode_index,
-                    name: v.name.clone(),
-                    nc_type: v.nc_type,
-                    dims: v
-                        .dim_names
+                    name: v.array.name.clone(),
+                    nc_type,
+                    dims: dim_names
                         .iter()
-                        .map(|n| DimView {
+                        .map(|n| Dimension {
                             name: n.clone(),
                             length: self.dim_length(n).unwrap_or(0),
                         })
@@ -371,7 +409,8 @@ impl DatasetView {
     }
 
     /// Which of `var`'s dimensions are its image axes, when its position comes
-    /// from 2-D coordinates — as `(y, x)` positions in `var.dim_names` (#218).
+    /// from 2-D coordinates — as `(y, x)` positions in the variable's own
+    /// dimensions (#218).
     ///
     /// A curvilinear variable has no 1-D coordinate variable to detect an axis
     /// from, so the slice picker had nothing to pre-select and fell back to the
@@ -383,7 +422,7 @@ impl DatasetView {
     /// two dimensions that are the image, in that order.
     pub fn curvilinear_axes(&self, var: &VarView) -> Option<(usize, usize)> {
         let (_, y_dim, x_dim) = self.resolve_curvilinear(var)?;
-        let position = |name: &str| var.dim_names.iter().position(|d| d == name);
+        let position = |name: &str| var.array.dimensions.iter().position(|d| d == name);
         Some((position(&y_dim)?, position(&x_dim)?))
     }
 
@@ -405,23 +444,19 @@ impl DatasetView {
     /// guessing would put the field somewhere wrong rather than leaving it in
     /// the source projection where the user can see it is unplaced.
     fn resolve_curvilinear(&self, var: &VarView) -> Option<(CurvilinearCoords, String, String)> {
-        let named = var.attr("coordinates")?;
+        let named = var.text("coordinates")?;
         let (mut lat, mut lon) = (None, None);
         for name in named.split_whitespace() {
-            let Some(candidate) = self.vars.iter().find(|v| v.name == name) else {
+            let Some(candidate) = self.vars.iter().find(|v| v.array.name == name) else {
                 continue;
             };
             // Two dimensions, both the variable's own: a `coordinates` list may
             // name a 1-D time axis alongside the spatial pair.
-            if candidate.dim_names.len() != 2
-                || !candidate
-                    .dim_names
-                    .iter()
-                    .all(|d| var.dim_names.contains(d))
-            {
+            let dims = &candidate.array.dimensions;
+            if dims.len() != 2 || !dims.iter().all(|d| var.array.dimensions.contains(d)) {
                 continue;
             }
-            let entry = Some((candidate.decode_index, candidate.dim_names.clone()));
+            let entry = Some((candidate.decode_index, dims.clone()));
             match detect_axis(candidate) {
                 Some(AxisKind::Latitude) if lat.is_none() => lat = entry,
                 Some(AxisKind::Longitude) if lon.is_none() => lon = entry,
@@ -479,7 +514,7 @@ pub struct RenderableVariable {
     pub nc_type: NcType,
     /// The variable's axes in declared (C) order — the order `detected_y_dim`
     /// and `detected_x_dim` index into.
-    pub dims: Vec<DimView>,
+    pub dims: Vec<Dimension>,
     /// Position (axis index) of the latitude dimension within `dims`.
     pub detected_y_dim: Option<usize>,
     /// Position (axis index) of the longitude dimension within `dims`.
@@ -490,24 +525,24 @@ pub struct RenderableVariable {
 /// `units` → `standard_name` → `axis` → a name heuristic. Returns `None` for a
 /// coordinate variable that matches none (e.g. a vertical or time axis).
 pub fn detect_axis(var: &VarView) -> Option<AxisKind> {
-    if let Some(units) = var.attr("units")
+    if let Some(units) = var.units()
         && let Some(kind) = axis_from_units(units)
     {
         return Some(kind);
     }
-    if let Some(std) = var.attr("standard_name") {
+    if let Some(std) = var.text("standard_name") {
         match std.trim() {
             "latitude" => return Some(AxisKind::Latitude),
             "longitude" => return Some(AxisKind::Longitude),
             _ => {}
         }
     }
-    match var.attr("axis").map(str::trim) {
+    match var.text("axis").map(str::trim) {
         Some("Y") => return Some(AxisKind::Latitude),
         Some("X") => return Some(AxisKind::Longitude),
         _ => {}
     }
-    axis_from_name(&var.name)
+    axis_from_name(var.name())
 }
 
 /// CF latitude/longitude `units` test. Accepts the canonical `degrees_north` /

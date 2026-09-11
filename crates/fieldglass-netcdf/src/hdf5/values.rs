@@ -1151,7 +1151,8 @@ fn fill_value_default(body: &[u8]) -> Result<Option<Vec<u8>>, FieldglassError> {
 /// ([`crate::classic::Variable::missing_sentinels`]): only explicit attributes
 /// mask (the HDF5 storage fill default does not), `libnetcdf` masks a point
 /// equal to either, and a multi-valued `missing_value` contributes only its
-/// first element.
+/// first element here; the CF unpack that follows ([`crate::unpack_cf_data`])
+/// masks the rest.
 fn missing_sentinels<S: ByteSource + ?Sized>(
     source: &S,
     object_header_address: u64,
@@ -1164,6 +1165,6 @@ fn missing_sentinels<S: ByteSource + ?Sized>(
     Ok(["_FillValue", "missing_value"]
         .into_iter()
         .filter_map(|name| attrs.iter().find(|a| a.name == name))
-        .filter_map(|a| a.first_value)
+        .filter_map(|a| a.first_value())
         .collect())
 }

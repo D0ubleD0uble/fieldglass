@@ -157,7 +157,7 @@ classDiagram
     Group *-- ArrayDescription
     Group *-- Dimension
     class DatasetView {
-        <<shipped, crate fieldglass-netcdf; rebuilt on the model in #684>>
+        <<shipped, crate fieldglass-netcdf; built on the model since #684>>
     }
     DatasetView ..> Group
 ```

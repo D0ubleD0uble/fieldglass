@@ -45,15 +45,12 @@ fn view(bytes: &[u8]) -> (NetcdfReader, DatasetView) {
 fn var<'a>(view: &'a DatasetView, name: &str) -> &'a VarView {
     view.vars
         .iter()
-        .find(|v| v.name == name)
+        .find(|v| v.name() == name)
         .unwrap_or_else(|| panic!("{name} is present"))
 }
 
 fn attr<'a>(v: &'a VarView, name: &str) -> Option<&'a str> {
-    v.attrs
-        .iter()
-        .find(|(n, _)| n == name)
-        .map(|(_, value)| value.as_str())
+    v.attribute(name).and_then(|value| value.text())
 }
 
 /// Both files parse and enumerate the variables they carry.
@@ -72,10 +69,10 @@ fn both_fixtures_parse_and_list_their_variables() {
         "ice_temperature",
     ] {
         let v = var(&tripolar, name);
-        assert!(!v.dim_names.is_empty(), "{name} has dimensions");
+        assert!(!v.array.dimensions.is_empty(), "{name} has dimensions");
     }
     assert_eq!(
-        var(&tripolar, "ice_thickness").dim_names,
+        var(&tripolar, "ice_thickness").array.dimensions,
         ["MT", "Y", "X"],
         "the field is time × row × column"
     );
@@ -83,10 +80,10 @@ fn both_fixtures_parse_and_list_their_variables() {
     let (_, swath) = view(SWATH);
     for name in ["Latitude", "Longitude", "TPW", "RR", "SIce", "TSkin"] {
         let v = var(&swath, name);
-        assert!(!v.dim_names.is_empty(), "{name} has dimensions");
+        assert!(!v.array.dimensions.is_empty(), "{name} has dimensions");
     }
     assert_eq!(
-        var(&swath, "TPW").dim_names,
+        var(&swath, "TPW").array.dimensions,
         ["Scanline", "Field_of_view"],
         "the field is scanline × field of view"
     );
@@ -122,7 +119,10 @@ fn the_cf_coordinates_attribute_names_two_dimensional_lat_lon() {
     ] {
         for name in ["Latitude", "Longitude"] {
             let v = var(view_, name);
-            assert_eq!(v.dim_names, dims, "{label}: {name} is 2-D over the field");
+            assert_eq!(
+                v.array.dimensions, dims,
+                "{label}: {name} is 2-D over the field"
+            );
         }
     }
 }
@@ -154,7 +154,8 @@ fn the_two_dimensional_coordinates_resolve_and_are_told_apart() {
                 "{label}: {name} is classifiable on its own attributes"
             );
             assert_ne!(
-                v.dim_names[0], v.name,
+                v.array.dimensions[0],
+                v.name(),
                 "{label}: {name} is not a CF coordinate variable, so the 1-D \
                  path never sees it"
             );
@@ -217,7 +218,7 @@ fn a_curvilinear_variable_pre_selects_its_real_image_axes() {
     // The tripolar case is the one the old fallback got wrong: not (0, 1).
     let (_, view_) = view(TRIPOLAR);
     let ice = var(&view_, "ice_thickness");
-    assert_eq!(ice.dim_names, ["MT", "Y", "X"]);
+    assert_eq!(ice.array.dimensions, ["MT", "Y", "X"]);
     assert_ne!(
         view_.curvilinear_axes(ice),
         Some((0, 1)),
@@ -265,7 +266,7 @@ fn a_two_dimensional_coordinate_is_not_offered_as_a_field() {
         );
         // They are still present as variables — only the *picker* excludes them,
         // because the geolocation reads them by name.
-        assert!(view_.vars.iter().any(|v| v.name == "Latitude"), "{label}");
+        assert!(view_.vars.iter().any(|v| v.name() == "Latitude"), "{label}");
     }
 }
 
@@ -296,7 +297,7 @@ fn a_regular_grid_still_detects_its_own_axes() {
     let source = view_
         .vars
         .iter()
-        .find(|v| v.name == "sst")
+        .find(|v| v.name() == "sst")
         .expect("the variable");
     assert_eq!(
         view_.curvilinear_axes(source),
@@ -318,9 +319,9 @@ fn the_two_coordinates_must_agree_on_their_dimensions() {
         ("swath", SWATH, ["Scanline", "Field_of_view"]),
     ] {
         let (_, view_) = view(bytes);
-        assert_eq!(var(&view_, "Latitude").dim_names, dims, "{label}");
+        assert_eq!(var(&view_, "Latitude").array.dimensions, dims, "{label}");
         assert_eq!(
-            var(&view_, "Longitude").dim_names,
+            var(&view_, "Longitude").array.dimensions,
             dims,
             "{label}: the pair agrees, which is what makes the raster single"
         );
@@ -340,7 +341,7 @@ fn a_non_spatial_name_in_the_coordinates_attribute_is_ignored() {
     assert_eq!(named.split_whitespace().count(), 3, "three names");
     assert!(named.split_whitespace().any(|n| n == "Date"));
     assert_eq!(
-        var(&view_, "Date").dim_names,
+        var(&view_, "Date").array.dimensions,
         ["MT"],
         "Date is 1-D over time, so the shape filter drops it"
     );

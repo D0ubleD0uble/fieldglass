@@ -20,7 +20,8 @@ use fieldglass_grib2::{
     FieldglassError as Grib2Error, Grib2Reader, GridGeometry as Grib2Geometry, GridTemplate,
 };
 use fieldglass_netcdf::{
-    ByteRange, ByteSource, FieldglassError as NetcdfError, NetcdfBacking, NetcdfReader, classic,
+    ByteRange, ByteSource, FieldglassError as NetcdfError, NetcdfBacking, NetcdfReader, array,
+    classic,
 };
 use fieldglass_zarr::{ChunkDecoder, FieldglassError as ZarrError};
 
@@ -333,6 +334,36 @@ fn netcdf_classic_decodes_through_a_caller_supplied_byte_source() {
     // The reader's own backing is reachable without naming a core type.
     let reader = NetcdfReader::from_bytes(bytes).expect("the fixture parses");
     assert!(matches!(reader.backing, NetcdfBacking::Classic(_)));
+}
+
+/// The dataset view is made of core's array model (#684), and every type it
+/// hands back can be named through `fieldglass_netcdf::array`.
+#[test]
+fn netcdf_view_names_the_array_model_through_the_format_crate() {
+    let bytes = fixture("crates/fieldglass-netcdf/tests/fixtures/ersst_v5_187001_cdf1.nc");
+    let view = NetcdfReader::from_bytes(bytes)
+        .expect("the fixture parses")
+        .view()
+        .expect("a classic file always has a view");
+
+    let group: array::Group = view.group();
+    let dimensions: &[array::Dimension] = &view.dims;
+    assert_eq!(group.dimensions, dimensions);
+
+    let sst: &array::ArrayDescription = &view
+        .vars
+        .iter()
+        .find(|v| v.name() == "sst")
+        .expect("the fixture declares an `sst` variable")
+        .array;
+    assert_eq!(sst.element_type, array::ElementType::Float(32));
+
+    let title: &array::Attribute = view
+        .global_attrs
+        .iter()
+        .find(|a| a.name == "title")
+        .expect("the fixture carries a title");
+    assert!(matches!(title.value, array::AttributeValue::Text(_)));
 }
 
 // ── Zarr ─────────────────────────────────────────────────────────────────────

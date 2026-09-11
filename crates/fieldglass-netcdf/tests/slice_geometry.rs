@@ -3,8 +3,9 @@
 //! plane extraction. The committed ERSST classic fixture anchors the
 //! end-to-end view assertions; the unit cases pin the CF-conventions table.
 
+use fieldglass_netcdf::array::{ArrayDescription, Attribute, Dimension};
 use fieldglass_netcdf::geometry::{
-    AxisKind, DatasetView, DimView, VarView, corner_and_regularity, detect_axis, extract_plane,
+    AxisKind, DatasetView, VarView, corner_and_regularity, detect_axis, extract_plane,
     synthesize_geometry,
 };
 use fieldglass_netcdf::{ClassicHeader, NcType, NetcdfBacking, NetcdfReader};
@@ -21,11 +22,20 @@ fn classic_header(reader: &NetcdfReader) -> &ClassicHeader {
 fn coord_var(name: &str, units: &str) -> VarView {
     VarView {
         decode_index: 0,
-        name: name.to_string(),
-        nc_type: NcType::Double,
-        dim_names: vec![name.to_string()],
-        attrs: vec![("units".to_string(), units.to_string())],
+        array: ArrayDescription {
+            name: name.to_string(),
+            element_type: NcType::Double.element_type(),
+            dimensions: vec![name.to_string()],
+            attributes: vec![Attribute::text("units", units)],
+            chunk_grid: None,
+        },
     }
+}
+
+/// The same variable with its attributes replaced.
+fn with_attributes(mut var: VarView, attributes: Vec<Attribute>) -> VarView {
+    var.array.attributes = attributes;
+    var
 }
 
 // ---------------------------------------------------------------------------
@@ -83,16 +93,13 @@ fn non_horizontal_units_are_not_an_axis() {
 
 #[test]
 fn standard_name_and_axis_attrs_classify() {
-    let by_std = VarView {
-        attrs: vec![("standard_name".to_string(), "latitude".to_string())],
-        ..coord_var("rlat", "1")
-    };
+    let by_std = with_attributes(
+        coord_var("rlat", "1"),
+        vec![Attribute::text("standard_name", "latitude")],
+    );
     assert_eq!(detect_axis(&by_std), Some(AxisKind::Latitude));
 
-    let by_axis = VarView {
-        attrs: vec![("axis".to_string(), "X".to_string())],
-        ..coord_var("rlon", "1")
-    };
+    let by_axis = with_attributes(coord_var("rlon", "1"), vec![Attribute::text("axis", "X")]);
     assert_eq!(detect_axis(&by_axis), Some(AxisKind::Longitude));
 }
 
@@ -105,15 +112,9 @@ fn units_win_over_a_misleading_name() {
 
 #[test]
 fn name_heuristic_is_the_last_resort() {
-    let no_attrs = VarView {
-        attrs: vec![],
-        ..coord_var("latitude", "")
-    };
+    let no_attrs = with_attributes(coord_var("latitude", ""), vec![]);
     assert_eq!(detect_axis(&no_attrs), Some(AxisKind::Latitude));
-    let lon = VarView {
-        attrs: vec![],
-        ..coord_var("lon", "")
-    };
+    let lon = with_attributes(coord_var("lon", ""), vec![]);
     assert_eq!(detect_axis(&lon), Some(AxisKind::Longitude));
 }
 
@@ -297,10 +298,10 @@ fn ersst_geometry_matches_the_coordinate_arrays() {
 }
 
 #[test]
-fn ersst_dimview_lengths_resolve() {
+fn ersst_dimension_lengths_resolve() {
     let reader = NetcdfReader::from_bytes(ERSST_CDF1.to_vec()).unwrap();
     let view = DatasetView::from_classic(classic_header(&reader));
-    let by_name: std::collections::HashMap<&str, &DimView> =
+    let by_name: std::collections::HashMap<&str, &Dimension> =
         view.dims.iter().map(|d| (d.name.as_str(), d)).collect();
     assert_eq!(by_name["lat"].length, 89);
     assert_eq!(by_name["lon"].length, 180);

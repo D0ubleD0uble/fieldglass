@@ -628,15 +628,9 @@ impl Session {
                         dtype: format!("{:?}", v.nc_type).to_lowercase(),
                         units: b
                             .1
-                            .vars
-                            .iter()
-                            .find(|s| s.decode_index == v.decode_index)
-                            .and_then(|s| {
-                                s.attrs
-                                    .iter()
-                                    .find(|(n, _)| n == "units")
-                                    .map(|(_, val)| val.clone())
-                            })
+                            .var(v.decode_index)
+                            .and_then(|s| s.units())
+                            .map(str::to_string)
                             .unwrap_or_default(),
                         detected_y_dim: v.detected_y_dim.and_then(|d| u32::try_from(d).ok()),
                         detected_x_dim: v.detected_x_dim.and_then(|d| u32::try_from(d).ok()),
@@ -733,12 +727,7 @@ impl Session {
                 let placement = reader.slice_placement(view, var, y, x)?;
                 let ni = u32::try_from(var.dims[x].length).unwrap_or(u32::MAX);
                 let nj = u32::try_from(var.dims[y].length).unwrap_or(u32::MAX);
-                let units = source
-                    .attrs
-                    .iter()
-                    .find(|(n, _)| n == "units")
-                    .map(|(_, v)| v.clone())
-                    .unwrap_or_default();
+                let units = source.units().map(str::to_string).unwrap_or_default();
                 let declared = placement.geometry.label().to_string();
                 Ok(build_field(
                     &values,

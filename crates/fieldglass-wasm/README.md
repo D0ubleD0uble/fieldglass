@@ -177,12 +177,16 @@ within the gate's tolerance, and the figures above are re-recorded anyway — a
 documented size that is merely *close* measures the next change against a
 generous number instead of the real one.
 
+Building the NetCDF view from core's array model (#684) took about 17,600 raw
+bytes out (1.4%, and 2.9% gzipped), measured against a build of the commit
+before it on the same machine.
+
 <!-- checked by tools/check_wasm_bundle_size.py -->
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
-| baseline | 1,298,728 | 515,251 |
-| `+simd128` | 1,287,002 | 512,157 |
+| baseline | 1,281,424 | 500,536 |
+| `+simd128` | 1,269,668 | 497,518 |
 
 The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
 build drifts more than 5% from these figures in either direction, so a change

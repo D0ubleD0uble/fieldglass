@@ -290,7 +290,7 @@ fn describe<S: ByteSource + ?Sized>(
             length: shape.dataspace.dims.first().copied().unwrap_or(0),
             is_unlimited: shape.dataspace.max_dims.iter().any(Option::is_none),
             dimid: attr("_Netcdf4Dimid")
-                .and_then(|a| a.first_value)
+                .and_then(|a| a.first_value())
                 .map(|v| v as i64),
             has_coordinate_values: !placeholder,
         }

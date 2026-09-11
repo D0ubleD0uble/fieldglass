@@ -122,6 +122,46 @@ impl NcType {
         }
     }
 
+    /// This type in `fieldglass-core`'s array model. One to one: `Char` is
+    /// text, and every numeric type is its signedness and width.
+    pub fn element_type(self) -> fieldglass_core::array::ElementType {
+        use fieldglass_core::array::ElementType;
+        match self {
+            Self::Byte => ElementType::Int(8),
+            Self::Char => ElementType::Text,
+            Self::Short => ElementType::Int(16),
+            Self::Int => ElementType::Int(32),
+            Self::Float => ElementType::Float(32),
+            Self::Double => ElementType::Float(64),
+            Self::UByte => ElementType::Uint(8),
+            Self::UShort => ElementType::Uint(16),
+            Self::UInt => ElementType::Uint(32),
+            Self::Int64 => ElementType::Int(64),
+            Self::UInt64 => ElementType::Uint(64),
+        }
+    }
+
+    /// The NetCDF type an array-model element type is: the inverse of
+    /// [`Self::element_type`]. `None` for one NetCDF has no name for — a width
+    /// it does not define, or a type the model keeps only as a spelling.
+    pub fn from_element_type(element_type: &fieldglass_core::array::ElementType) -> Option<Self> {
+        use fieldglass_core::array::ElementType;
+        Some(match element_type {
+            ElementType::Int(8) => Self::Byte,
+            ElementType::Text => Self::Char,
+            ElementType::Int(16) => Self::Short,
+            ElementType::Int(32) => Self::Int,
+            ElementType::Float(32) => Self::Float,
+            ElementType::Float(64) => Self::Double,
+            ElementType::Uint(8) => Self::UByte,
+            ElementType::Uint(16) => Self::UShort,
+            ElementType::Uint(32) => Self::UInt,
+            ElementType::Int(64) => Self::Int64,
+            ElementType::Uint(64) => Self::UInt64,
+            _ => return None,
+        })
+    }
+
     /// Short canonical name used in attribute / variable display.
     pub fn name(self) -> &'static str {
         match self {
@@ -177,11 +217,23 @@ pub struct Attribute {
     pub nelems: u64,
     /// Display value: UTF-8 for `Char`, decimal list for numeric types.
     pub value: String,
-    /// First element decoded to `f64` in native domain (`None` for `Char`
-    /// attributes and empty values). Kept alongside the display string so
-    /// value decode can read a typed `_FillValue` without a lossy round-trip
-    /// through the rendered decimal text.
-    pub first_value: Option<f64>,
+    /// Every element decoded to `f64` in native domain, in file order. Empty
+    /// for `Char` attributes and for a numeric attribute that declares no
+    /// elements. Kept alongside the display string so nothing that computes
+    /// with an attribute — value decode reading a typed `_FillValue`, the CF
+    /// unpack reading `valid_range` — parses it back out of the rendered
+    /// decimal text, which for a `float` is the shortest form at 32-bit
+    /// precision and so not the value the data is compared against once
+    /// widened.
+    pub values: Vec<f64>,
+}
+
+impl Attribute {
+    /// The first element, widened to `f64`: how a scalar such as `_FillValue`
+    /// is read. `None` for text and for an empty value.
+    pub fn first_value(&self) -> Option<f64> {
+        self.values.first().copied()
+    }
 }
 
 /// A NetCDF variable. Attribute decoding is shared with global attributes.
@@ -215,7 +267,7 @@ impl Variable {
         self.attributes
             .iter()
             .find(|a| a.name == "_FillValue")
-            .and_then(|a| a.first_value)
+            .and_then(Attribute::first_value)
     }
 
     /// Typed sentinel values that value-decode masks to `None`: the `_FillValue`
@@ -223,13 +275,14 @@ impl Variable {
     /// element, in that order. `libnetcdf` masks a point equal to either. A
     /// multi-valued `missing_value` masks only its first entry — the same
     /// first-element limit [`fill_value`](Self::fill_value) already carries (a
-    /// scalar `missing_value` is the common form). Empty when the variable
+    /// scalar `missing_value` is the common form); the CF unpack that follows
+    /// ([`crate::unpack_cf_data`]) masks the rest. Empty when the variable
     /// declares neither, the unmasked fast path.
     pub fn missing_sentinels(&self) -> Vec<f64> {
         ["_FillValue", "missing_value"]
             .into_iter()
             .filter_map(|name| self.attributes.iter().find(|a| a.name == name))
-            .filter_map(|a| a.first_value)
+            .filter_map(Attribute::first_value)
             .collect()
     }
 }
@@ -833,13 +886,13 @@ impl<'a> Parser<'a> {
             _ => render_numeric_values(raw, nc_type),
         };
 
-        // Typed first element, used by value decode to recognise `_FillValue`.
-        // Skipped for `Char` (text, not a number); an empty value falls out on
-        // its own, because a slice too short for one element decodes to `None`
-        // rather than being sliced to a width it does not have.
-        let first_value = match nc_type {
-            NcType::Char => None,
-            _ => decode_element_f64(raw, nc_type),
+        // Every element typed, for whatever computes with the attribute rather
+        // than showing it: value decode recognising `_FillValue`, the CF unpack
+        // reading `valid_range`. Skipped for `Char` (text, not numbers); an
+        // empty value falls out on its own, since no whole element fits in it.
+        let values = match nc_type {
+            NcType::Char => Vec::new(),
+            _ => decode_elements_f64(raw, nc_type),
         };
 
         Ok(Attribute {
@@ -847,7 +900,7 @@ impl<'a> Parser<'a> {
             nc_type,
             nelems,
             value,
-            first_value,
+            values,
         })
     }
 
@@ -911,6 +964,19 @@ impl<'a> Parser<'a> {
 /// chunk of `element_size` bytes is decoded according to `nc_type`. Truncated
 /// trailing bytes are silently ignored — the caller has already verified the
 /// length matches `nelems * element_size`.
+/// Every whole element of `nc_type` in `raw`, widened to `f64`: the numbers
+/// [`render_numeric_values`] prints, before they are printed. A trailing
+/// partial element is dropped, as it is there.
+pub(crate) fn decode_elements_f64(raw: &[u8], nc_type: NcType) -> Vec<f64> {
+    let elem = nc_type.element_size();
+    if elem == 0 {
+        return Vec::new();
+    }
+    raw.chunks_exact(elem)
+        .filter_map(|chunk| decode_element_f64(chunk, nc_type))
+        .collect()
+}
+
 pub(crate) fn render_numeric_values(raw: &[u8], nc_type: NcType) -> String {
     let elem = nc_type.element_size();
     if elem == 0 {
@@ -1077,7 +1143,67 @@ mod tests {
         assert_eq!(att.name, "none");
         assert_eq!(att.nelems, 0);
         assert_eq!(att.value, "");
-        assert_eq!(att.first_value, None);
+        assert!(att.values.is_empty());
+        assert_eq!(att.first_value(), None);
+    }
+
+    /// Every element of a numeric attribute is kept, at the precision it was
+    /// stored in. The display text is not that: a `float` prints in its
+    /// shortest 32-bit form, which parses back to a different `f64` than the
+    /// stored value widened — and widened is what the data is compared with.
+    #[test]
+    fn a_numeric_attribute_keeps_every_element_at_its_stored_precision() {
+        let (low, high) = (0.1f32, 6.7e-7f32);
+        let mut v = Vec::new();
+        v.extend_from_slice(b"CDF\x01");
+        v.extend_from_slice(&0u32.to_be_bytes()); // numrecs
+        v.extend_from_slice(&0u32.to_be_bytes()); // dim_list ABSENT tag
+        v.extend_from_slice(&0u32.to_be_bytes()); // dim_list count 0
+        v.extend_from_slice(&NC_ATTRIBUTE.to_be_bytes()); // gatt_list
+        v.extend_from_slice(&1u32.to_be_bytes()); // one attribute
+        v.extend_from_slice(&11u32.to_be_bytes()); // name length
+        v.extend_from_slice(b"valid_range\0"); // name, padded to a word
+        v.extend_from_slice(&5u32.to_be_bytes()); // nc_type = NC_FLOAT
+        v.extend_from_slice(&2u32.to_be_bytes()); // nelems = 2
+        v.extend_from_slice(&low.to_be_bytes());
+        v.extend_from_slice(&high.to_be_bytes());
+        v.extend_from_slice(&0u32.to_be_bytes()); // var_list ABSENT tag
+        v.extend_from_slice(&0u32.to_be_bytes()); // var_list count 0
+
+        let h = parse_header(&v).unwrap();
+        let att = &h.global_attributes[0];
+        assert_eq!(att.values, vec![f64::from(low), f64::from(high)]);
+        assert_eq!(att.first_value(), Some(f64::from(low)));
+        assert_eq!(att.value, format!("{low}, {high}"));
+        assert_ne!(
+            format!("{low}").parse::<f64>().unwrap(),
+            f64::from(low),
+            "the display text is not the stored value"
+        );
+    }
+
+    #[test]
+    fn every_nc_type_maps_to_an_element_type_and_back() {
+        for nc_type in [
+            NcType::Byte,
+            NcType::Char,
+            NcType::Short,
+            NcType::Int,
+            NcType::Float,
+            NcType::Double,
+            NcType::UByte,
+            NcType::UShort,
+            NcType::UInt,
+            NcType::Int64,
+            NcType::UInt64,
+        ] {
+            assert_eq!(
+                NcType::from_element_type(&nc_type.element_type()),
+                Some(nc_type)
+            );
+        }
+        let odd_width = fieldglass_core::array::ElementType::Int(24);
+        assert_eq!(NcType::from_element_type(&odd_width), None);
     }
 
     #[test]
@@ -1154,7 +1280,7 @@ mod tests {
             nc_type,
             nelems: 1,
             value: value.to_string(),
-            first_value: Some(value),
+            values: vec![value],
         }
     }
 
