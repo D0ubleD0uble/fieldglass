@@ -317,6 +317,20 @@ jobs:
       - name: Verify native artifact exists
         run: test -f extension/bin/fieldglass.linux-x64-gnu.node
 
+      # `extension/src/native.ts` declares the native module's shapes by hand and
+      # napi-rs generates the same shapes into `extension/bin/index.d.ts`. Two
+      # statements of one interface, and nothing compared them: #659 added four
+      # methods to `ZarrHandle` and declared none of them, and the omission
+      # surfaced only because a throwaway check was written for another reason.
+      #
+      # Here rather than in pre-commit because it needs the generated file, which
+      # only exists after the build above. The checker *errors* when that file is
+      # absent rather than skipping — a gate that passes when its input is missing
+      # is worse than no gate — so it could not live at the commit stage without
+      # failing open (#574).
+      - name: native.ts matches the generated declarations
+        run: python3 tools/check_native_declarations.py
+
       - name: Run extension tests (mocha + @vscode/test-electron, under xvfb)
         run: xvfb-run -a npm test
         working-directory: extension
