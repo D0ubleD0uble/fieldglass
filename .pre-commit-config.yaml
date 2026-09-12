@@ -206,6 +206,26 @@ repos:
         entry: python3 tools/check_host_types.py
         pass_filenames: false
 
+      - id: host-dependencies
+        name: no host crate names a format crate
+        language: system
+        # ADR-0006 decision 1: a host is a binding over `fieldglass`, so the
+        # umbrella is what decides the surface a host may use. A host that also
+        # depends on a decoder directly has two routes to one reader, and the two
+        # hosts drift — which is what #662 found, with the browser bundle reaching
+        # NetCDF through `fieldglass` and the addon reaching it twice over.
+        #
+        # A **ratchet**: the remaining edges are listed in the checker with a
+        # reason each, and it fails both when a host gains an unlisted edge and
+        # when a listed one is gone. The second half is what stops an entry
+        # outliving the dependency it excuses.
+        #
+        # Manifests only — an edge that arrives transitively through `fieldglass`
+        # is what the rule wants, and is indistinguishable in the resolved graph.
+        files: ^(crates/[^/]+/Cargo\.toml|tools/check_host_dependencies\.py)$
+        entry: python3 tools/check_host_dependencies.py
+        pass_filenames: false
+
       - id: unused-dependencies
         name: no package declares a dependency it never names
         language: system
@@ -336,6 +356,17 @@ repos:
         language: system
         files: ^tools/(check_host_types|test_check_host_types)\.py$
         entry: python3 tools/test_check_host_types.py
+        pass_filenames: false
+
+      - id: host-dependencies-selftest
+        name: host-dependency checker self-test
+        stages: [pre-push]
+        language: system
+        # The manifests are in the pattern because one test pins the set of edges
+        # still to move, by name: an edge the transition removes has to be seen
+        # here rather than on some later edit to the checker.
+        files: ^(tools/(check_host_dependencies|test_check_host_dependencies)\.py|crates/[^/]+/Cargo\.toml)$
+        entry: python3 tools/test_check_host_dependencies.py
         pass_filenames: false
 
       - id: unused-dependencies-selftest

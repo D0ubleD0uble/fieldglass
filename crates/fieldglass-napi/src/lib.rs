@@ -5,6 +5,10 @@
 //! carry, and every function is a thin call through. Decode, projection and
 //! paint logic belongs in those crates, never in this one (ADR-0006).
 
+use fieldglass::netcdf::{
+    DatasetView, Hdf5Attribute, Hdf5Metadata, NetcdfBacking, NetcdfReader, RenderableVariable,
+    extract_plane,
+};
 use fieldglass::render::{Projected, ResolvedOptions};
 use fieldglass_core::{
     CornerPair, Format, GaussianParams, GeostationaryParams, GlobalGrid, LambertAzimuthalParams,
@@ -22,10 +26,6 @@ use fieldglass_grib1::{Grib1Reader, tables::lookup_parameter, tables_cct::lookup
 use fieldglass_grib2::{
     Grib2Reader, ProductDefinitionSection, lookup_centre as lookup_grib2_centre, lookup_discipline,
     lookup_parameter as lookup_grib2_parameter, lookup_production_status,
-};
-use fieldglass_netcdf::{
-    DatasetView, Hdf5Attribute, Hdf5Metadata, NetcdfBacking, NetcdfReader, RenderableVariable,
-    extract_plane,
 };
 use napi_derive::napi;
 use std::sync::Mutex;
@@ -3155,8 +3155,8 @@ impl NetcdfHandle {
             .vars
             .iter()
             .find(|v| v.array.name == y_axis.name)
-            .and_then(fieldglass_netcdf::detect_axis)
-            == Some(fieldglass_netcdf::AxisKind::Latitude);
+            .and_then(fieldglass::netcdf::detect_axis)
+            == Some(fieldglass::netcdf::AxisKind::Latitude);
 
         Ok(meta_from_placement(
             &var.name,
@@ -3347,7 +3347,7 @@ fn meta_from_placement(
     units: &str,
     ni: u32,
     nj: u32,
-    placement: &fieldglass_netcdf::resolve::SlicePlacement,
+    placement: &fieldglass::netcdf::resolve::SlicePlacement,
     y_is_latitude: bool,
 ) -> MessageMeta {
     let (ni, nj) = (ni as i32, nj as i32);
@@ -3444,7 +3444,7 @@ fn synth_latlon_meta(
     units: &str,
     ni: i32,
     nj: i32,
-    geometry: Option<fieldglass_netcdf::SliceGeometry>,
+    geometry: Option<fieldglass::netcdf::SliceGeometry>,
     // Whether the Y axis is a latitude, so "north-up" means something. False
     // for a cross-section against level or time, where the raster is left in
     // storage order because there is no north to face.
@@ -4616,8 +4616,8 @@ mod planar_offer_needs_a_placeable_projection_tests {
         GridGeometry, MessageMeta, Scan, build_grib1_message_meta, gate_reprojection,
         meta_from_placement,
     };
-    use fieldglass_netcdf::resolve::SlicePlacement;
-    use fieldglass_netcdf::{GeostationaryGrid, WrfLambertGrid, WrfPolarStereoGrid};
+    use fieldglass::netcdf::resolve::SlicePlacement;
+    use fieldglass::netcdf::{GeostationaryGrid, WrfLambertGrid, WrfPolarStereoGrid};
 
     /// The meta a resolved grid of this family produces, which is what these
     /// cases are really about: `gate_reprojection`'s verdict per family. Since
@@ -5685,7 +5685,7 @@ mod netcdf_slice_tests {
     /// coordinate arrays it degrades to a source-only assumed grid.
     #[test]
     fn synth_meta_is_latlon_and_reprojectable_with_geometry() {
-        let geom = fieldglass_netcdf::SliceGeometry {
+        let geom = fieldglass::netcdf::SliceGeometry {
             ni: 180,
             nj: 89,
             lat_first: 88.0,
@@ -5712,7 +5712,7 @@ mod netcdf_slice_tests {
     fn global_grids_sample_periodically_regional_grids_do_not() {
         // 0..358° over 180 columns (2° step): one more step wraps to the
         // first column, so the warp may sample across the seam.
-        let global = fieldglass_netcdf::SliceGeometry {
+        let global = fieldglass::netcdf::SliceGeometry {
             ni: 180,
             nj: 89,
             lat_first: 88.0,
@@ -5727,7 +5727,7 @@ mod netcdf_slice_tests {
         assert!(meta_geometry(&meta).is_periodic_x());
 
         // A 90°-wide regional window is not periodic.
-        let regional = fieldglass_netcdf::SliceGeometry {
+        let regional = fieldglass::netcdf::SliceGeometry {
             lon_first: 0.0,
             lon_last: 90.0,
             ni: 10,

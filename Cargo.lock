@@ -156,7 +156,6 @@ dependencies = [
  "fieldglass-core",
  "fieldglass-grib1",
  "fieldglass-grib2",
- "fieldglass-netcdf",
  "napi",
  "napi-build",
  "napi-derive",

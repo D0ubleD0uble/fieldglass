@@ -37,7 +37,6 @@ flowchart TD
     napi --> fieldglass
     napi --> grib1
     napi --> grib2
-    napi --> netcdf
     napi --> core
     fetchplan --> core
     fetchplan --> zarr
@@ -46,6 +45,19 @@ flowchart TD
     grib2 --> core
     netcdf --> core
 ```
+
+**The two `napi --> grib*` edges are the transition, not the design.** A host is a
+binding over `fieldglass` (ADR-0006 decision 1), so the umbrella is what decides
+the surface a host may use — and `fieldglass-wasm` already has no edge to a
+decoder at all. `fieldglass-napi` had three, and reached NetCDF twice over: once
+through the umbrella and once directly, which is the divergence #662 named. The
+NetCDF edge is gone; what a host needs beyond `Session` comes through
+`fieldglass::netcdf`. The two GRIB edges remain because those handles hold a
+reader and read the WMO tables, and moving them is a decision about where a
+host's memo lives rather than a re-export. `tools/check_host_dependencies.py`
+holds the list and fails both when a host gains an unlisted edge and when a
+listed one is gone, so this drawing cannot drift from the manifests in either
+direction.
 
 **Why it stays decoupled:** no format crate depends on another, and nothing
 below a host depends on a host. A new decode path lands inside one format crate
