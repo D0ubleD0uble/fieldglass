@@ -195,7 +195,7 @@ class TestSupportExclusion(unittest.TestCase):
         # Pinned for the same reason the file list is: excluding a type from the
         # source-of-truth scan should come past a reviewer.
         self.assertEqual(
-            sorted(chk.UNDIAGRAMMED_IMPL_TYPES), ["Box", "ShortServing"]
+            sorted(chk.UNDIAGRAMMED_IMPL_TYPES), ["Arc", "Box", "ShortServing"]
         )
 
     def test_an_excluded_impl_type_is_dropped_from_the_realizations(self):

@@ -506,7 +506,7 @@ fn for_each_visit(mut f: impl FnMut(String, Visit<'_>)) {
         for path in fixtures(CORPUS[0].1, extension) {
             let file = format!("grib1/{}", stem(&path));
             let bytes = std::fs::read(&path).expect("fixture bytes");
-            let Ok(reader) = Grib1Reader::from_bytes(bytes) else {
+            let Ok(handle) = Grib1Handle::from_vec(bytes) else {
                 f(
                     file,
                     Visit::File {
@@ -516,7 +516,7 @@ fn for_each_visit(mut f: impl FnMut(String, Visit<'_>)) {
                 );
                 continue;
             };
-            let count = reader.messages.len();
+            let count = handle.stream.session.count() as usize;
             f(
                 file.clone(),
                 Visit::File {
@@ -524,11 +524,6 @@ fn for_each_visit(mut f: impl FnMut(String, Visit<'_>)) {
                     fields: count,
                 },
             );
-            let handle = Grib1Handle {
-                reader,
-                decoded: Mutex::new(std::collections::HashMap::new()),
-                synthesized: Mutex::new(std::collections::HashMap::new()),
-            };
             for i in 0..count {
                 f(
                     format!("{file}#{i:02}"),
@@ -540,7 +535,7 @@ fn for_each_visit(mut f: impl FnMut(String, Visit<'_>)) {
     for path in fixtures(CORPUS[1].1, CORPUS[1].2[0]) {
         let file = format!("grib2/{}", stem(&path));
         let bytes = std::fs::read(&path).expect("fixture bytes");
-        let Ok(reader) = Grib2Reader::from_bytes(bytes) else {
+        let Ok(handle) = Grib2Handle::from_vec(bytes) else {
             f(
                 file,
                 Visit::File {
@@ -550,7 +545,7 @@ fn for_each_visit(mut f: impl FnMut(String, Visit<'_>)) {
             );
             continue;
         };
-        let count = reader.messages.len();
+        let count = handle.stream.session.count() as usize;
         f(
             file.clone(),
             Visit::File {
@@ -558,11 +553,6 @@ fn for_each_visit(mut f: impl FnMut(String, Visit<'_>)) {
                 fields: count,
             },
         );
-        let handle = Grib2Handle {
-            reader,
-            decoded: Mutex::new(std::collections::HashMap::new()),
-            synthesized: Mutex::new(std::collections::HashMap::new()),
-        };
         for i in 0..count {
             f(
                 format!("{file}#{i:02}"),

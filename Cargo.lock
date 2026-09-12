@@ -154,8 +154,6 @@ version = "0.5.0"
 dependencies = [
  "fieldglass",
  "fieldglass-core",
- "fieldglass-grib1",
- "fieldglass-grib2",
  "napi",
  "napi-build",
  "napi-derive",

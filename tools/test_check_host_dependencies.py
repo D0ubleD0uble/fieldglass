@@ -80,14 +80,21 @@ class TheRepoItselfPasses(unittest.TestCase):
     def test_the_remaining_edges_are_the_ones_named(self):
         # Pinned so that each edge the transition removes — and each one it
         # somehow adds — comes past a reviewer here as well as in the manifest.
+        # Empty since #726: the transition is finished, so an entry reappearing
+        # here is an exception being argued for, and should read as one.
         self.assertEqual(
             {host: sorted(crates) for host, crates in chk.ALLOWED_DIRECT.items()},
-            {"fieldglass-napi": ["fieldglass-grib1", "fieldglass-grib2"]},
+            {},
         )
 
     def test_every_listed_host_is_a_host(self):
         for host in chk.ALLOWED_DIRECT:
             self.assertIn(host, chk.HOSTS)
+
+    def test_the_node_host_names_no_decoder(self):
+        # The one #662 and #726 moved: it named three format crates directly,
+        # alongside the umbrella, and now reaches all of them through it.
+        self.assertEqual(chk.direct_format_dependencies()["fieldglass-napi"], set())
 
     def test_the_browser_host_names_no_decoder(self):
         # The one that was already right, and the reason #662 could be stated as
