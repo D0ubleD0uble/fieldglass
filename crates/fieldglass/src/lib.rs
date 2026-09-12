@@ -134,13 +134,31 @@ pub use api::{CombineOpInfo, Isoline};
 #[cfg(feature = "analysis")]
 pub use combine::{CombineOp, aligned, combine_ops, combine_values, op_from_wire};
 pub use error::Error;
+// The placement a host paints with (#659), beside the `Session` that hands it
+// over. Not in `api`: it carries a `GridGeometry`, which is the engine's own
+// shape rather than anything a host serialises.
 pub use render::Source;
 #[cfg(feature = "render")]
 pub use render::{PixelProbe, Projected, RenderOptions, ResolvedOptions, TargetKind, WarpTarget};
+pub use session::PlacedSlice;
 pub use session::{DecodeOptions, Session};
 #[cfg(feature = "render")]
 pub use session::{PaletteOptions, Raster, WarpOptions};
 
+// The seams a **host** implements, and the error they return. `Session::open`
+// takes bytes and `Session::open_store` takes an `impl ObjectSource`, so a host
+// that brings its own — the addon reading a directory (#659), a browser filling
+// one from a bucket — has to be able to name the trait. Re-exported for the
+// reason a format crate re-exports the `core` names in its signatures (#583):
+// depending on `fieldglass` alone has to be enough to use it, and
+// `fieldglass-wasm` depends on nothing else.
+//
+// `MemoryObjects` comes with them because it is the implementation a host that
+// has already fetched everything wants, and `FieldglassError` because it is what
+// every method of both traits returns. Ungated: a host implements the seam
+// whether or not it paints.
+pub use fieldglass_core::FieldglassError;
+pub use fieldglass_core::bytes::{ByteSource, MemoryObjects, ObjectSource};
 /// `core`'s colour type, re-exported: a host consumes the painter's own table
 /// rather than implementing a second colour path (ADR-0006 decision 3).
 #[cfg(feature = "render")]

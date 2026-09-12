@@ -34,6 +34,7 @@ use std::sync::Mutex;
 // only: it replays the display path over the committed fixture corpus.
 #[cfg(test)]
 mod characterisation;
+mod directory_store;
 
 // This host, run through the ADR-0006 conformance suite that ships in
 // `fieldglass` (#573). Test only, and the second runner of one set of
@@ -3570,13 +3571,186 @@ fn rows_run_south_to_north(index: &SpatialIndex) -> Option<bool> {
     Some(row_mean(0)? < row_mean(nj - 1)?)
 }
 
-/// Whether the source view has to flip its rows, asked of `core`'s
-/// [`Scan`] rather than of the flag this DTO happens to carry (#571).
+/// A Zarr store, opened from a directory (#659).
 ///
-/// `MessageMeta` carries only the one direction bit the display needs, and a
-/// message with no scan flag at all (a predefined GRIB1 grid, a NetCDF variable
-/// whose Y axis is not a latitude) reads as north-down, which is
-/// [`Scan::north_down`].
+/// **The first handle in this binding built entirely over
+/// [`fieldglass::Session`]**, and the shape the rest is moving toward: it holds a
+/// session and nothing else — no reader, no `MessageMeta`, no per-container
+/// metadata object. A variable list is `Session::variables`, a slice is
+/// `Session::decode_slice`, and the placement a raster needs rides on the decoded
+/// field's `georef`. Adding a container to this binding should cost this much.
+///
+/// It reuses [`NetcdfVariableMeta`] for the picker because a store answers the
+/// same question a NetCDF file does — the extension's slice picker is written
+/// against that shape, and two shapes for one question is how the hosts drifted
+/// apart in the first place (#662).
+#[derive(Debug)]
+#[napi]
+pub struct ZarrHandle {
+    session: fieldglass::Session,
+}
+
+#[napi]
+impl ZarrHandle {
+    /// Open the store rooted at `path`.
+    ///
+    /// # Errors
+    ///
+    /// A directory holding none of `zarr.json`, `.zmetadata`, `.zgroup` or
+    /// `.zarray`, which is reported as *not a store* rather than as an empty one —
+    /// the difference between telling a user they picked the wrong folder and
+    /// opening a blank editor.
+    #[napi(factory)]
+    pub fn from_directory(path: String) -> napi::Result<Self> {
+        let root = std::path::PathBuf::from(&path);
+        if !directory_store::is_store_root(&root) {
+            return Err(napi::Error::from_reason(format!(
+                "{path} is not a Zarr store: it holds none of {}. A store is a \
+                 directory of metadata documents and chunks; the `.zarr` suffix is \
+                 a convention and not what this checks.",
+                directory_store::ROOT_MARKERS.join(", ")
+            )));
+        }
+        let session = fieldglass::Session::open_store(directory_store::DirectoryObjects::new(root))
+            .map_err(|e| napi::Error::from_reason(e.message()))?;
+        Ok(Self { session })
+    }
+
+    /// Whether a directory looks like a Zarr store, without opening it.
+    ///
+    /// The extension asks before it offers to open, so a folder picker can
+    /// refuse in its own words.
+    #[napi]
+    pub fn is_store(path: String) -> bool {
+        directory_store::is_store_root(std::path::Path::new(&path))
+    }
+
+    /// The variables a slice can be drawn from, in the shape the picker reads.
+    #[napi]
+    pub fn variables(&self) -> Vec<NetcdfVariableMeta> {
+        self.session
+            .variables()
+            .into_iter()
+            .map(|v| NetcdfVariableMeta {
+                variable_index: v.index as i32,
+                name: v.name,
+                nc_type: v.dtype,
+                dims: v
+                    .dims
+                    .iter()
+                    .map(|d| NetcdfAxis {
+                        name: d.name.clone(),
+                        // `f64` because a dimension length is a `u64` and napi
+                        // has no 64-bit integer a JS number can hold exactly;
+                        // the same choice `NetcdfHandle` makes.
+                        length: d.length as f64,
+                    })
+                    .collect(),
+                detected_y_dim: v.detected_y_dim.map(|d| d as i32),
+                detected_x_dim: v.detected_x_dim.map(|d| d as i32),
+                units: v.units,
+            })
+            .collect()
+    }
+
+    /// The arrays the store holds and this build will not read, each with why.
+    ///
+    /// Shown beside the variable list so a user sees why a name is absent rather
+    /// than wondering whether the store has it (#709).
+    #[napi]
+    pub fn left_out(&self) -> Vec<ZarrLeftOut> {
+        self.session
+            .left_out()
+            .into_iter()
+            .map(|l| ZarrLeftOut {
+                name: l.name,
+                reason: l.reason,
+            })
+            .collect()
+    }
+
+    /// Paint one slice, through the same pipeline every other handle paints
+    /// through.
+    ///
+    /// `y_dim` / `x_dim` are the image axes and `slice_indices` fixes the rest,
+    /// exactly as [`NetcdfHandle::render_slice`] takes them.
+    #[napi]
+    pub fn render_slice(
+        &self,
+        variable_index: u32,
+        y_dim: u32,
+        x_dim: u32,
+        slice_indices: Vec<u32>,
+        options: RenderOptions,
+    ) -> napi::Result<RenderedGrid> {
+        let field = self
+            .session
+            .decode_slice(
+                variable_index,
+                y_dim,
+                x_dim,
+                &slice_indices,
+                &fieldglass::DecodeOptions::default(),
+            )
+            .map_err(|e| napi::Error::from_reason(e.message()))?;
+        // The placement rides on the decoded field: `georef` carries the whole
+        // `GridGeometry` along with the scan and the family, so there is nothing
+        // to assemble and no metadata object to fill in.
+        let source = fieldglass::Source {
+            geometry: Ok(&field.georef.geometry),
+            ni: field.ni,
+            nj: field.nj,
+            scan: field.georef.scan,
+            family: &field.georef.label,
+        };
+        let values = field_values(&field);
+        render_from_source(&source, &values, &options)
+    }
+}
+
+/// One array a store holds and this build will not read.
+#[derive(Debug)]
+#[napi(object)]
+pub struct ZarrLeftOut {
+    /// The array's name, spelled as a readable one would be.
+    pub name: String,
+    /// Why, as the reader phrased it.
+    pub reason: String,
+}
+
+/// A decoded field's values as the engine's own `Option<f64>` per cell.
+///
+/// `Field` splits them into a dense `values` and a `mask` for the wire, because a
+/// `Vec<Option<f64>>` has no efficient JSON form; the engine takes them back
+/// together. One place, so a host cannot rejoin them two ways.
+fn field_values(field: &fieldglass::Field) -> Vec<Option<f64>> {
+    let dense: Vec<f64> = match &field.values {
+        fieldglass::Values::F64(v) => v.clone(),
+        fieldglass::Values::F32(v) => v.iter().map(|x| f64::from(*x)).collect(),
+        // `Values` is `#[non_exhaustive]`; a width added later must be handled
+        // rather than silently read as nothing.
+        other => {
+            debug_assert!(false, "a values width this host does not rejoin: {other:?}");
+            Vec::new()
+        }
+    };
+    field
+        .mask
+        .iter()
+        .zip(dense)
+        .map(|(&present, value)| (present == 1).then_some(value))
+        .collect()
+}
+
+/// The row-flip decision from a `MessageMeta`, for the tests that state their
+/// input that way.
+///
+/// **Production does not use this.** Since #659 the renderer takes a
+/// `fieldglass::Source`, which carries the `Scan` this rebuilt — so the one
+/// remaining reason it exists is that several tests describe a grid as a
+/// `MessageMeta` and want the same answer without resolving one.
+/// `the_source_scan_orients_south_to_north_grids` is the test of the real seam.
+#[cfg(test)]
 fn source_flip_y(meta: &MessageMeta, flip_y: bool) -> bool {
     Scan::new(false, meta.j_scans_positive.unwrap_or(false), false).flips_source_rows(flip_y)
 }
@@ -3653,9 +3827,29 @@ fn render_with_options(
     // lives in; `None` for every family whose geometry is a formula (#445).
     lookup: Option<&GridGeometry>,
 ) -> napi::Result<RenderedGrid> {
+    let source = RenderSource::resolve(meta, lookup)?;
+    render_from_source(&source.as_source(), raw, options)
+}
+
+/// Paint a field the caller has already placed.
+///
+/// The half of [`render_with_options`] that needs no `MessageMeta`: given the
+/// projection pipeline's own [`Source`](fieldglass::Source), everything from here
+/// down is the engine's and this host's paint step. `ZarrHandle` renders through
+/// this and holds no metadata object at all (#659), which is the shape the rest
+/// of this binding is moving toward (#574 deletes `MessageMeta`, and one consumer
+/// fewer is one less thing for it to rewrite).
+///
+/// The row-flip decision comes from the `Source`'s own scan rather than from a
+/// metadata field, which is where it always came from — `source_flip_y` read
+/// `j_scans_positive` and rebuilt a `Scan` to ask it the same question.
+fn render_from_source(
+    source: &fieldglass::Source<'_>,
+    raw: &[Option<f64>],
+    options: &RenderOptions,
+) -> napi::Result<RenderedGrid> {
     let engine = engine_options(options);
     let resolved = ResolvedOptions::parse(&engine).into_napi()?;
-    let source = RenderSource::resolve(meta, lookup)?;
     let Projected {
         values,
         mask,
@@ -3664,9 +3858,9 @@ fn render_with_options(
         bounds: used_bounds,
         summary,
         ..
-    } = fieldglass::render::project(&source.as_source(), raw, &engine).into_napi()?;
+    } = fieldglass::render::project(source, raw, &engine).into_napi()?;
     let flip_y = if resolved.paints_the_source() {
-        source_flip_y(meta, resolved.flip_y)
+        source.scan.flips_source_rows(resolved.flip_y)
     } else {
         resolved.flip_y
     };
@@ -5298,26 +5492,198 @@ mod overlay_projection_tests {
         }
     }
 
+    /// The row-flip decision, asked of the `Source`'s own scan.
+    ///
+    /// It was a one-line wrapper over `MessageMeta.j_scans_positive` that
+    /// rebuilt a `Scan` to ask `core` this very question; #659 made the renderer
+    /// take a `Source`, which already carries the `Scan`, so the wrapper had
+    /// nothing left to do. What is asserted is unchanged — the same three cases,
+    /// at the seam that now answers them.
     #[test]
-    fn source_flip_y_orients_south_to_north_grids() {
-        let mut meta = global_latlon_meta();
+    fn the_source_scan_orients_south_to_north_grids() {
+        let flips = |j_scans_positive: Option<bool>, toggle: bool| {
+            let meta = MessageMeta {
+                j_scans_positive,
+                ..global_latlon_meta()
+            };
+            let source = RenderSource::resolve(&meta, None).expect("a placed grid");
+            source.as_source().scan.flips_source_rows(toggle)
+        };
 
         // North→south scan (jScansPositively = 0): row 0 is already north, so
         // the source view needs no intrinsic flip; the user toggle passes through.
-        meta.j_scans_positive = Some(false);
-        assert!(!source_flip_y(&meta, false));
-        assert!(source_flip_y(&meta, true));
+        assert!(!flips(Some(false), false));
+        assert!(flips(Some(false), true));
 
         // South→north scan (NBM): row 0 is south, so the source view flips by
         // default and the user toggle rides on top of that.
-        meta.j_scans_positive = Some(true);
-        assert!(source_flip_y(&meta, false));
-        assert!(!source_flip_y(&meta, true));
+        assert!(flips(Some(true), false));
+        assert!(!flips(Some(true), true));
 
         // No scan flag (predefined GRIB1, NetCDF): treated as no intrinsic flip.
-        meta.j_scans_positive = None;
-        assert!(!source_flip_y(&meta, false));
-        assert!(source_flip_y(&meta, true));
+        assert!(!flips(None, false));
+        assert!(flips(None, true));
+    }
+}
+
+#[cfg(test)]
+mod zarr_handle_tests {
+    use super::*;
+
+    const STORE: &str = "../fieldglass-zarr/tests/fixtures/stores/cf_v3";
+
+    fn opts() -> RenderOptions {
+        RenderOptions {
+            projection: "equirectangular".to_string(),
+            projection_preset: None,
+            center_lat: None,
+            center_lon: None,
+            resampling: "nearest".to_string(),
+            flip_y: false,
+            range_min: None,
+            range_max: None,
+            bounds_lat_min: None,
+            bounds_lat_max: None,
+            bounds_lon_min: None,
+            bounds_lon_max: None,
+            colormap: Some("viridis".to_string()),
+            reverse_colormap: None,
+            scale_mode: None,
+            width: None,
+            height: None,
+        }
+    }
+
+    /// A directory opens, lists its variables and paints a slice — through a
+    /// handle that holds a `Session` and nothing else.
+    #[test]
+    fn a_store_directory_opens_lists_and_renders() {
+        let handle = ZarrHandle::from_directory(STORE.to_string()).expect("the fixture is a store");
+
+        let vars = handle.variables();
+        assert!(!vars.is_empty(), "the store lists variables");
+        let t = vars
+            .iter()
+            .find(|v| v.name == "t")
+            .expect("the packed array");
+        assert!(t.dims.len() >= 2, "a drawable array has two axes at least");
+        let (y, x) = (
+            t.detected_y_dim.expect("a latitude axis") as u32,
+            t.detected_x_dim.expect("a longitude axis") as u32,
+        );
+
+        let grid = handle
+            // One index per axis; the two horizontal ones are ignored.
+            .render_slice(t.variable_index as u32, y, x, vec![0; t.dims.len()], opts())
+            .expect("renders");
+        assert!(grid.width > 0 && grid.height > 0);
+        assert_eq!(
+            grid.rgba.len(),
+            grid.width as usize * grid.height as usize * 4,
+            "the buffer is its stated size"
+        );
+        // Painted, not blank: a uniform buffer would mean the values never
+        // reached the colormap.
+        let (pixels, _) = grid.rgba.as_chunks::<4>();
+        let first = pixels.first().expect("a painted raster has pixels");
+        assert!(
+            pixels.iter().any(|px| px != first),
+            "the raster is uniform, so nothing was painted"
+        );
+        assert!(grid.used_max > grid.used_min, "a real range was resolved");
+        // Nothing was left out of this store, and the accessor says so.
+        assert!(handle.left_out().is_empty());
+    }
+
+    /// A directory that is not a store is refused in words a user can act on,
+    /// rather than opening an empty editor.
+    #[test]
+    fn a_directory_that_is_not_a_store_is_refused_by_name() {
+        let err = ZarrHandle::from_directory("../fieldglass-zarr/tests/fixtures".to_string())
+            .expect_err("not a store");
+        let message = err.to_string();
+        for marker in directory_store::ROOT_MARKERS {
+            assert!(
+                message.contains(marker),
+                "the refusal should name {marker}: {message}"
+            );
+        }
+        assert!(
+            message.contains("convention"),
+            "and say the `.zarr` suffix is not what it checks: {message}"
+        );
+
+        // The cheap question the folder picker asks first agrees with it.
+        assert!(!ZarrHandle::is_store(
+            "../fieldglass-zarr/tests/fixtures".to_string()
+        ));
+        assert!(ZarrHandle::is_store(STORE.to_string()));
+        assert!(!ZarrHandle::is_store("../nowhere-at-all".to_string()));
+    }
+
+    /// The store renders the same picture the NetCDF twin does.
+    ///
+    /// The strongest claim available for "a new decode path needs no render
+    /// changes": one dataset written both ways, painted through two handles, and
+    /// the RGBA compared byte for byte. `ZarrHandle` goes through `Session` and
+    /// `NetcdfHandle` through its own reader and `MessageMeta`, so agreement here
+    /// means the two routes really do meet.
+    #[test]
+    fn the_store_paints_what_its_netcdf_twin_paints() {
+        let zarr = ZarrHandle::from_directory(
+            "../fieldglass-zarr/tests/fixtures/stores/cf_v3".to_string(),
+        )
+        .expect("the store opens");
+        let twin = std::fs::read("../fieldglass-zarr/tests/fixtures/cf_twin.nc").expect("the twin");
+        let netcdf = NetcdfHandle::from_bytes(twin.into()).expect("the twin opens");
+
+        let zv = zarr.variables();
+        let nv = netcdf.variables();
+        let zt = zv.iter().find(|v| v.name == "t").expect("t in the store");
+        let nt = nv.iter().find(|v| v.name == "t").expect("t in the file");
+
+        let (zy, zx) = (
+            zt.detected_y_dim.unwrap() as u32,
+            zt.detected_x_dim.unwrap() as u32,
+        );
+        let (ny, nx) = (
+            nt.detected_y_dim.unwrap() as u32,
+            nt.detected_x_dim.unwrap() as u32,
+        );
+        assert_eq!((zy, zx), (ny, nx), "the two agree on which axes are which");
+
+        let a = zarr
+            .render_slice(
+                zt.variable_index as u32,
+                zy,
+                zx,
+                vec![0; zt.dims.len()],
+                opts(),
+            )
+            .expect("the store renders");
+        let b = netcdf
+            .render_slice(
+                nt.variable_index as u32,
+                ny,
+                nx,
+                vec![0; nt.dims.len()],
+                opts(),
+            )
+            .expect("the file renders");
+
+        assert_eq!(
+            (a.width, a.height),
+            (b.width, b.height),
+            "different rasters"
+        );
+        assert_eq!(a.used_min, b.used_min, "different range floor");
+        assert_eq!(a.used_max, b.used_max, "different range ceiling");
+        assert_eq!(a.projection_summary, b.projection_summary);
+        assert_eq!(
+            a.rgba.as_ref(),
+            b.rgba.as_ref(),
+            "the store and its twin painted different pictures"
+        );
     }
 }
 
