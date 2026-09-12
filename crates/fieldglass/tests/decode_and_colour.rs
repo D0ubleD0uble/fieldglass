@@ -524,13 +524,7 @@ fn render_and_the_pixel_probe_agree_about_which_row_a_pixel_is() {
         let cells: Vec<Option<f64>> = (0..field.mask.len())
             .map(|k| (field.mask[k] == 1).then(|| field.values.get(k)).flatten())
             .collect();
-        let source = fieldglass::Source {
-            geometry: Ok(&field.georef.geometry),
-            ni: field.ni,
-            nj: field.nj,
-            scan: field.georef.scan,
-            family: &field.georef.kind,
-        };
+        let source = field.source();
         let probe = fieldglass::render::probe_pixel(
             &source,
             &cells,
@@ -568,13 +562,7 @@ fn every_session_render_method_forwards_to_its_free_function() {
     let cells: Vec<Option<f64>> = (0..field.mask.len())
         .map(|k| (field.mask[k] == 1).then(|| field.values.get(k)).flatten())
         .collect();
-    let source = fieldglass::Source {
-        geometry: Ok(&field.georef.geometry),
-        ni: field.ni,
-        nj: field.nj,
-        scan: field.georef.scan,
-        family: &field.georef.kind,
-    };
+    let source = field.source();
     let options = RenderOptions::new("equirectangular", "nearest");
 
     let free = fieldglass::render::project(&source, &cells, &options).expect("projects");

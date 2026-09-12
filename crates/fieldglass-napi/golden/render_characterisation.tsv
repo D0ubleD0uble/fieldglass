@@ -656,7 +656,7 @@ grib2/octahedral_gaussian_o32.grib2#00	combine/ratio/render/source/nearest	ok w=
 grib2/octahedral_gaussian_o32.grib2#00	contours/equirectangular/auto	ok runs=32898 points=65796	3f7bf78682b52fbc
 grib2/octahedral_gaussian_o32.grib2#00	contours/mollweide/auto	ok runs=32880 points=65760	027c79ed44b3e6d9
 grib2/octahedral_gaussian_o32.grib2#00	contours/source/auto	ok runs=32898 points=65796	7e2211e9afdf27ab
-grib2/octahedral_gaussian_o32.grib2#00	csv/long	ok lines=9217	30e6480439b6b84b
+grib2/octahedral_gaussian_o32.grib2#00	csv/long	ok lines=5249	94d711de4a2aeb9b
 grib2/octahedral_gaussian_o32.grib2#00	csv/matrix	ok lines=64	909d7876b98569ce
 grib2/octahedral_gaussian_o32.grib2#00	meta	family=reduced_gaussian ni=144 nj=64 reprojectable=true	e0f5136cbbf5cb6e
 grib2/octahedral_gaussian_o32.grib2#00	probe/equirectangular/0,0	hit cell=0,0 geo=yes value=yes	b32523c658bd1c17

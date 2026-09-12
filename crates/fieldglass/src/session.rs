@@ -554,6 +554,7 @@ impl PlacedSlice {
             nj: self.nj,
             scan: self.scan(),
             family: self.family(),
+            points_per_row: None,
         }
     }
 }
@@ -941,6 +942,23 @@ impl Session {
         u32::try_from(n).unwrap_or(u32::MAX)
     }
 
+    /// Message `i`'s points per row, when its grid is reduced (#244).
+    #[cfg(any(feature = "grib1", feature = "grib2"))]
+    fn message_points_per_row(&self, i: usize) -> Option<Vec<u32>> {
+        match &self.reader {
+            #[cfg(feature = "grib1")]
+            Reader::Grib1(r) => r.messages[i]
+                .gds
+                .as_ref()
+                .and_then(|g| g.points_per_row())
+                .map(<[u32]>::to_vec),
+            #[cfg(feature = "grib2")]
+            Reader::Grib2(r) => r.messages[i].gds.points_per_row().map(<[u32]>::to_vec),
+            #[cfg(any(feature = "netcdf", feature = "zarr"))]
+            Reader::Arrays(_) => None,
+        }
+    }
+
     // Only a message container range-checks an index; a build with no GRIB
     // decoder never reaches one.
     #[cfg(any(feature = "grib1", feature = "grib2"))]
@@ -1044,6 +1062,7 @@ impl Session {
                     ));
                 }
             };
+            let was_synthesised = synthesised.is_some();
             let (parameter, units) = match &self.reader {
                 #[cfg(feature = "grib1")]
                 Reader::Grib1(r) => {
@@ -1137,9 +1156,17 @@ impl Session {
                     ),
                 });
             }
-            Ok(build_field(
+            let mut field = build_field(
                 &raw, ni, nj, &geometry, scan, &declared, parameter, units, options,
-            ))
+            );
+            // A reduced grid's values arrive widened to its widest row, and the
+            // field has to say how many of each row's cells are the file's own
+            // (#244). A synthesised grid is not reduced whatever the message
+            // declared, so it states none.
+            if !was_synthesised {
+                field.georef.points_per_row = self.message_points_per_row(i);
+            }
+            Ok(field)
         }
         // As in `message`: with no GRIB decoder compiled there is no
         // message path, and the guard above has already answered.
@@ -1538,7 +1565,8 @@ impl Session {
                         grib1_scan(msg),
                         gds.grid_type_name(),
                         gds.raster_bounds(),
-                    ))
+                    )
+                    .with_points_per_row(gds.points_per_row()))
                 }
                 #[cfg(feature = "grib2")]
                 Reader::Grib2(r) => {
@@ -1548,7 +1576,8 @@ impl Session {
                         grib2_scan(msg),
                         &msg.gds.template_name(),
                         msg.gds.raster_bounds(),
-                    ))
+                    )
+                    .with_points_per_row(msg.gds.points_per_row()))
                 }
                 #[cfg(any(feature = "netcdf", feature = "zarr"))]
                 Reader::Arrays(_) => Err(wrong_addressing(
@@ -1945,6 +1974,7 @@ fn grib1_message(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) ->
             gds.grid_type_name(),
             gds.bounds(),
         )
+        .with_points_per_row(gds.points_per_row())
     });
     let (abbreviation, parameter, units) = grib1_parameter(msg);
     MessageInfo {
@@ -2051,12 +2081,15 @@ fn grib2_message(reader: &fieldglass_grib2::Grib2Reader<Bytes>, index: usize) ->
             .map(fieldglass_grib2::forecast_display)
             .unwrap_or_else(|| "—".to_string()),
         packing: msg.drs.template_name(),
-        grid: Some(Georef::from_declared_corners(
-            &GridGeometry::from(&msg.gds),
-            grib2_scan(msg),
-            &msg.gds.template_name(),
-            msg.gds.bounds(),
-        )),
+        grid: Some(
+            Georef::from_declared_corners(
+                &GridGeometry::from(&msg.gds),
+                grib2_scan(msg),
+                &msg.gds.template_name(),
+                msg.gds.bounds(),
+            )
+            .with_points_per_row(msg.gds.points_per_row()),
+        ),
         size_label: msg.gds.size_label(),
         forecast_hours: common.and_then(fieldglass_grib2::forecast_hours),
         // A GRIB1 octet, and edition 2 does not have it.

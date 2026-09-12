@@ -173,13 +173,7 @@ fn a_field_alone_is_enough_to_project() {
             .expect("decodes");
 
         // Built from the field, with nothing else in hand.
-        let source = fieldglass::render::Source {
-            geometry: Ok(&field.georef.geometry),
-            ni: field.ni,
-            nj: field.nj,
-            scan: field.georef.scan,
-            family: &field.georef.label,
-        };
+        let source = field.source();
         let values: Vec<Option<f64>> = field
             .mask
             .iter()

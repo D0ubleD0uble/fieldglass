@@ -221,12 +221,16 @@ Carrying a placement's corner pair (#726) added 2,916 raw bytes and 1,223
 gzipped, 0.2%: two accessors in `core` that place a grid's first and last points,
 and one more field on every `Georef` the browser hands back.
 
+Exporting a reduced grid's own points rather than its widened raster (#244) added
+1,374 raw bytes and 585 gzipped, 0.1%: the per-row geolocation in the long CSV,
+and the row counts every `Georef` for a reduced grid now carries.
+
 <!-- checked by tools/check_wasm_bundle_size.py -->
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
-| baseline | 1,339,417 | 524,204 |
-| `+simd128` | 1,324,078 | 520,074 |
+| baseline | 1,340,791 | 524,789 |
+| `+simd128` | 1,325,412 | 520,779 |
 
 The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
 build drifts more than 5% from these figures in either direction, so a change

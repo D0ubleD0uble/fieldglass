@@ -370,13 +370,7 @@ pub(crate) fn combine_api_fields(a: &Field, b: &Field, op: CombineOp) -> Result<
 /// family the file declared, the way `fieldglass-napi`'s does from
 /// `MessageMeta::grid_type`.
 fn source_of(f: &Field) -> Source<'_> {
-    Source {
-        geometry: Ok(&f.georef.geometry),
-        ni: f.ni,
-        nj: f.nj,
-        scan: f.georef.scan,
-        family: &f.georef.label,
-    }
+    f.source()
 }
 
 #[cfg(test)]
@@ -446,6 +440,7 @@ mod tests {
             nj,
             scan,
             family,
+            points_per_row: None,
         }
     }
 
@@ -589,6 +584,7 @@ mod tests {
             nj: 4,
             scan,
             family: "latlon",
+            points_per_row: None,
         };
         let no_spacing = unplaceable("dx is zero");
         assert!(aligned(&no_spacing, &unplaceable("dx is zero")).is_ok());

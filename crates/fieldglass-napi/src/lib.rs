@@ -1230,6 +1230,15 @@ impl MessageStream {
         Ok((values, meta, placed.ni, placed.nj))
     }
 
+    /// Message `index`'s points per row, when its grid is reduced (#244).
+    ///
+    /// From the placement, which is where values land: a reduced grid's are
+    /// widened to its widest row, and this is how many of each row's cells are
+    /// the file's own.
+    fn points_per_row(&self, index: u32) -> Option<Vec<u32>> {
+        self.session.place_message(index).ok()?.points_per_row
+    }
+
     /// Get-or-decode message `index`'s values.
     ///
     /// `Dtype::Auto` because it is the one setting that never loses precision:
@@ -1331,7 +1340,8 @@ impl Grib1Handle {
         format: String,
     ) -> napi::Result<napi::bindgen_prelude::Buffer> {
         let (raw, meta, ni, nj) = self.resolved(message_index)?;
-        field_csv(&raw, &meta, ni, nj, &format, None).map(csv_buffer)
+        let points_per_row = self.stream.points_per_row(message_index);
+        field_csv(&raw, &meta, ni, nj, &format, None, points_per_row).map(csv_buffer)
     }
 
     /// Patch the PDS `p1` (forecast period) octet of one message and
@@ -1603,7 +1613,8 @@ impl Grib2Handle {
         format: String,
     ) -> napi::Result<napi::bindgen_prelude::Buffer> {
         let (raw, meta, ni, nj) = self.resolved(message_index)?;
-        field_csv(&raw, &meta, ni, nj, &format, None).map(csv_buffer)
+        let points_per_row = self.stream.points_per_row(message_index);
+        field_csv(&raw, &meta, ni, nj, &format, None, points_per_row).map(csv_buffer)
     }
 
     /// Decode one message and paint it into a raster under `options`. A
@@ -2048,7 +2059,7 @@ impl NetcdfHandle {
             .ok_or_else(|| napi::Error::from_reason("slice has no y-axis size".to_string()))?
             as u32;
         let index = self.curvilinear_index(&var, y, x)?;
-        field_csv(&plane, &meta, ni, nj, &format, index.as_deref()).map(csv_buffer)
+        field_csv(&plane, &meta, ni, nj, &format, index.as_deref(), None).map(csv_buffer)
     }
 
     /// Render one slice combined element-wise with a second slice under `op`
@@ -2932,7 +2943,7 @@ impl ZarrHandle {
         options: RenderOptions,
     ) -> napi::Result<RenderedGrid> {
         let (field, values) = self.slice(variable_index, y_dim, x_dim, &slice_indices)?;
-        render_from_source(&field_source(&field), &values, &options)
+        render_from_source(&field.source(), &values, &options)
     }
 
     /// Geographic polylines projected onto this slice's raster.
@@ -2973,7 +2984,7 @@ impl ZarrHandle {
         let (field, values) = self.slice(variable_index, y_dim, x_dim, &slice_indices)?;
         let engine = engine_options(&options);
         ResolvedOptions::parse(&engine).into_napi()?;
-        fieldglass::render::contour_polylines(&field_source(&field), &values, &engine, interval)
+        fieldglass::render::contour_polylines(&field.source(), &values, &engine, interval)
             .into_napi()
             .map(ProjectedOverlay::from_polylines)
     }
@@ -2994,7 +3005,7 @@ impl ZarrHandle {
         py: u32,
     ) -> napi::Result<Option<ProbeResult>> {
         let (field, values) = self.slice(variable_index, y_dim, x_dim, &slice_indices)?;
-        probe_from_source(&field_source(&field), &values, &options, px, py)
+        probe_from_source(&field.source(), &values, &options, px, py)
     }
 
     /// Render one slice combined element-wise with a second under `op` (#239).
@@ -3024,7 +3035,7 @@ impl ZarrHandle {
             &slice_indices_b,
             &op,
         )?;
-        render_from_source(&field_source(&combined), &values, &options)
+        render_from_source(&combined.source(), &values, &options)
     }
 
     /// Probe the combined field, so the readout matches the displayed map
@@ -3053,7 +3064,7 @@ impl ZarrHandle {
             &slice_indices_b,
             &op,
         )?;
-        probe_from_source(&field_source(&combined), &values, &options, px, py)
+        probe_from_source(&combined.source(), &values, &options, px, py)
     }
 
     /// Contour the combined field, for the same reason (#329).
@@ -3082,7 +3093,7 @@ impl ZarrHandle {
         )?;
         let engine = engine_options(&options);
         ResolvedOptions::parse(&engine).into_napi()?;
-        fieldglass::render::contour_polylines(&field_source(&combined), &values, &engine, interval)
+        fieldglass::render::contour_polylines(&combined.source(), &values, &engine, interval)
             .into_napi()
             .map(ProjectedOverlay::from_polylines)
     }
@@ -3100,7 +3111,7 @@ impl ZarrHandle {
         let (field, values) = self.slice(variable_index, y_dim, x_dim, &slice_indices)?;
         let text = self
             .session
-            .field_csv(&field_source(&field), &values, &format)
+            .field_csv(&field.source(), &values, &format)
             .map_err(|e| napi::Error::from_reason(e.message()))?;
         Ok(text.into_bytes().into())
     }
@@ -3166,21 +3177,6 @@ impl ZarrHandle {
         self.session
             .place_slice(variable_index, y_dim, x_dim)
             .map_err(|e| napi::Error::from_reason(e.message()))
-    }
-}
-
-/// A decoded field as the projection pipeline's input.
-///
-/// `Field::georef` carries the whole `GridGeometry` along with the scan and the
-/// family, so a host that has decoded a slice has already been handed everything
-/// the pipeline takes — no metadata object, and no second placement call.
-fn field_source(field: &fieldglass::Field) -> fieldglass::Source<'_> {
-    fieldglass::Source {
-        geometry: Ok(&field.georef.geometry),
-        ni: field.ni,
-        nj: field.nj,
-        scan: field.georef.scan,
-        family: &field.georef.label,
     }
 }
 
@@ -3563,6 +3559,9 @@ struct RenderSource<'a> {
     nj: u32,
     scan: Scan,
     family: String,
+    /// A reduced grid's points per row, which `MessageMeta` does not carry — so
+    /// the one caller that needs it, the GRIB long CSV, hands it in (#244).
+    points_per_row: Option<Vec<u32>>,
 }
 
 impl<'a> RenderSource<'a> {
@@ -3588,6 +3587,7 @@ impl<'a> RenderSource<'a> {
             // north-down, which is `Scan::north_down` (#571).
             scan: Scan::new(false, meta.j_scans_positive.unwrap_or(false), false),
             family: meta.grid_type.clone().unwrap_or_default(),
+            points_per_row: None,
         }
     }
 
@@ -3602,6 +3602,7 @@ impl<'a> RenderSource<'a> {
             nj: self.nj,
             scan: self.scan,
             family: &self.family,
+            points_per_row: self.points_per_row.as_deref(),
         }
     }
 }
@@ -3663,11 +3664,15 @@ fn field_csv(
     // The `GridGeometry::Lookup` a `"curvilinear"` slice's cell-centre index
     // lives in; `None` for every family whose geometry is a formula (#445).
     lookup: Option<&GridGeometry>,
+    // A reduced grid's points per row, so the long layout exports the points the
+    // file holds rather than every widened cell (#244); `None` otherwise.
+    points_per_row: Option<Vec<u32>>,
 ) -> napi::Result<String> {
     // The handle states the dimensions here — a spectral message renders onto a
     // synthesised raster whose size is not the one its meta declares — so this
     // is the one entry point that does not read them back off the meta.
-    let source = RenderSource::sized(meta, ni, nj, lookup);
+    let mut source = RenderSource::sized(meta, ni, nj, lookup);
+    source.points_per_row = points_per_row;
     fieldglass::render::field_csv(&source.as_source(), values, format).into_napi()
 }
 
@@ -7356,7 +7361,7 @@ mod planar_geolocation_tests {
                 "{family}: the warp still accepted a collapsed plane"
             );
             assert!(
-                field_csv(&values, &meta, ni, nj, "long", None).is_err(),
+                field_csv(&values, &meta, ni, nj, "long", None, None).is_err(),
                 "{family}: the long CSV still exported coordinates"
             );
         }
@@ -7804,6 +7809,43 @@ mod reduced_grid_render_tests {
             "a global temperature field has isolines"
         );
     }
+
+    /// The extension's own export path emits the points a reduced grid holds
+    /// (#244), not the widened raster's every cell.
+    ///
+    /// The umbrella's `reduced_grid_long_csv.rs` holds the export to eccodes
+    /// point by point. This is the other half: that the handle actually hands the
+    /// row structure to it. `MessageMeta` carries no `points_per_row`, so a
+    /// handle that forgot to pass it would compile, and every widened copy would
+    /// come back — 8,192 rows for this file's 6,114 — with nothing to say so.
+    #[test]
+    fn the_handles_long_csv_exports_the_points_a_reduced_grid_holds() {
+        for (label, bytes, points) in [
+            (
+                "grib1 reduced_gg_n32",
+                include_bytes!("../../fieldglass-grib1/tests/fixtures/reduced_gg_n32.grib1")
+                    .as_slice(),
+                6_114usize,
+            ),
+            (
+                "grib2 octahedral_gaussian_o32",
+                include_bytes!(
+                    "../../fieldglass-grib2/tests/fixtures/octahedral_gaussian_o32.grib2"
+                )
+                .as_slice(),
+                5_248,
+            ),
+        ] {
+            let csv = if label.starts_with("grib1") {
+                grib1_handle(bytes).export_csv(0, "long".to_string())
+            } else {
+                grib2_handle(bytes).export_csv(0, "long".to_string())
+            }
+            .unwrap_or_else(|e| panic!("{label}: long CSV exports: {e}"));
+            let rows = std::str::from_utf8(&csv).expect("UTF-8").lines().count() - 1;
+            assert_eq!(rows, points, "{label}: one row per point the file holds");
+        }
+    }
 }
 
 /// Curvilinear grids reach the map through their own cell centres (#445).
@@ -8029,6 +8071,7 @@ mod curvilinear_render_tests {
                 rows as u32,
                 "long",
                 Some(index.as_ref()),
+                None,
             )
             .unwrap_or_else(|e| panic!("{label}: long CSV needs a forward map: {e}"));
             let csv_rows: Vec<&str> = csv.lines().skip(1).collect();
