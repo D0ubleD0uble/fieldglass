@@ -18,10 +18,17 @@ crate-type = ["cdylib"]
 # The host-neutral API this binding is a binding *over* (ADR-0006). `schema` is
 # off: the JSON Schema is what a declaration generator reads (#574), not what
 # the addon needs at runtime, and `schemars` has no business in a `.node`.
-# The four it does name were unconditional in the umbrella until #552 made them
-# features; the addon opens both GRIB editions and owns the VS Code panel, so it
-# takes every one of them.
-fieldglass         = { path = "../fieldglass",        version = "=0.5.0", default-features = false, features = ["grib1", "grib2", "render", "analysis"] }
+# The five it does name were unconditional in the umbrella until #552 made them
+# features; the addon opens all three containers and owns the VS Code panel, so
+# it takes every one of them.
+#
+# `netcdf` is named **here** and not left to the `conformance` dev-dependency
+# below, which also forwards it. That is the trap #662 walked into: `cargo test`
+# unifies a dev-dependency's features into the library build, so the NetCDF path
+# compiled under every Rust gate and failed only in the release `.node` build,
+# which has no dev-dependencies. A feature the shipped addon needs is a feature
+# the shipped addon asks for.
+fieldglass         = { path = "../fieldglass",        version = "=0.5.0", default-features = false, features = ["grib1", "grib2", "netcdf", "render", "analysis"] }
 fieldglass-core   = { path = "../fieldglass-core",   version = "=0.5.0", features = ["render", "analysis"] }
 fieldglass-grib1  = { path = "../fieldglass-grib1",  version = "=0.5.0" }
 fieldglass-grib2  = { path = "../fieldglass-grib2",  version = "=0.5.0" }
@@ -32,13 +39,9 @@ napi-derive = "3"
 # The conformance suite (ADR-0006 decision 3, #573): the shipped addon does not
 # run it, so it is asked for here rather than above. `conformance_host` drives
 # this crate's own handles through it and checks they agree with `Session`.
-# The umbrella, and for NetCDF the *only* route to the reader (#662). This crate
-# used to depend on `fieldglass-netcdf` alongside it and build its NetCDF path
-# against the reader directly, so the two hosts had diverged: the browser bundle
-# reached the reader through `fieldglass`, the addon reached it twice over by two
-# routes. What `Session` does not answer — the backing's own attributes, the
-# geometry a host's cache is keyed on — comes through `fieldglass::netcdf`, so
-# one place decides the surface a host may use.
+#
+# It forwards `netcdf`, which is why the library entry above must name that
+# feature itself — see the note there.
 fieldglass = { path = "../fieldglass", version = "=0.5.0", default-features = false, features = ["conformance"] }
 serde_json = { workspace = true }
 
