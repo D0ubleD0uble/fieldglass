@@ -8,6 +8,8 @@ Versioning is plain [Semantic Versioning](https://semver.org/spec/v2.0.0.html), 
 
 ### Added
 
+- **Rewriting a GRIB1 message's forecast time is available from the library.** `fieldglass::grib1::with_p1_octet` takes a file's bytes and gives back a copy with one message's `P1` octet changed, which is what a metadata editor needs to re-stamp a lead time. Only that octet changes, so everything else in the file stays where it was. Part of #726.
+
 - **A placement says where its first and last grid points are.** `Georef` now carries the corner pair — `[lat_first, lon_first, lat_last, lon_last]` — as the container reports it, so a host can caption a grid's extent without re-deriving it. `GridGeometry` also gains `first_point` and `corner_pair`, which answer for every family including the projected ones that state only a first corner. Part of #726.
 
 - **Internal: one message-metadata builder, proven against the two it will replace.** The Node.js binding built its message table metadata twice, once per GRIB edition, reading each format crate's own grid templates — about 450 lines that exist only because the binding held its own readers. A single builder over the library API's message and placement types now reproduces both, field for field, across every message of every GRIB fixture, with five fields recorded as not yet reproducible and why. Nothing user-visible changes. Part of #726.
