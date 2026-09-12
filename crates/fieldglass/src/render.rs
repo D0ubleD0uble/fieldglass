@@ -1491,23 +1491,41 @@ fn reduced_point(
     j: usize,
 ) -> Option<(f64, f64)> {
     let len = *points_per_row.get(j)? as usize;
+    let q = reduced_source_point(i, len, ni)?;
+    // Column 0 of every row is the row's first point, so its position gives the
+    // row's latitude and the longitude the circle starts from.
+    let (lat, lon_first) = geo(0, u32::try_from(j).ok()?)?;
+    Some((lat, lon_first + q as f64 * 360.0 / len as f64))
+}
+
+/// Which of a reduced row's own points column `i` of its widened raster is the
+/// **first** to hold — or `None` for a column that repeats one (#244, #240).
+///
+/// A row of `len` points widened to `ni` columns gives column `i` the source
+/// point `(i·len + ni/2) / ni mod len`: the nearest by longitude, so a short
+/// row's points are each repeated across adjacent columns. Before any wrap that
+/// quotient rises monotonically by at most one per column (`len ≤ ni`), so every
+/// source point is some column's quotient and the first column reaching it holds
+/// its value exactly. Later columns with the same quotient are repeats, and the
+/// tail whose quotient reaches `len` is the antimeridian wrap onto point 0.
+///
+/// One rule for every consumer that wants the file's points rather than the
+/// widened cells — the long CSV places them, the zonal mean averages them — so
+/// the two cannot disagree about which cells are real.
+#[cfg(feature = "analysis")]
+fn reduced_source_point(i: usize, len: usize, ni: usize) -> Option<usize> {
     if len == 0 || ni == 0 {
         return None;
     }
     let point = |col: usize| (col * len + ni / 2) / ni;
     let q = point(i);
-    // The wrap onto point 0, which column 0 already emitted.
     if q >= len {
         return None;
     }
-    // A repeat of the point the previous column already emitted.
     if i > 0 && point(i - 1) == q {
         return None;
     }
-    // Column 0 of every row is the row's first point, so its position gives the
-    // row's latitude and the longitude the circle starts from.
-    let (lat, lon_first) = geo(0, u32::try_from(j).ok()?)?;
-    Some((lat, lon_first + q as f64 * 360.0 / len as f64))
+    Some(q)
 }
 
 /// The forward map, or the caller's own refusal for a family that has none.
@@ -1892,6 +1910,106 @@ pub fn probe_pixel(
 // CSV
 // ---------------------------------------------------------------------------
 
+/// The mean over longitude of each row of a field — value against latitude
+/// (#240).
+///
+/// Panoply's one-click diagnostic: a map collapsed to how the field varies with
+/// latitude. Returned as a [`crate::Line`] along `latitude`, so a host plots it
+/// with whatever it already draws a profile with.
+///
+/// **Only grids whose rows are circles of latitude**, since a zonal mean is a
+/// mean along one: regular lat/lon, Gaussian and Mercator — and the reduced
+/// families, which reach here as their regular siblings. A rotated grid's rows
+/// cross latitudes, and a projected grid's do too; averaging along them would
+/// label a number with a latitude it does not belong to, so they are refused.
+///
+/// A row with no present value is a gap, not a zero. A **reduced** row averages
+/// only the points the file stores, through [`Source::points_per_row`]: its
+/// widened cells repeat short rows' points unevenly, and a plain mean over them
+/// would weight each point by how many columns it was copied into.
+///
+/// Not area-weighted, and not a meridional mean — #240 leaves both out.
+///
+/// # Errors
+///
+/// [`Error::Unsupported`] for a family whose rows are not latitude circles or a
+/// source with no geometry, and [`Error::InvalidOption`] for values that are not
+/// `ni · nj` long.
+#[cfg(feature = "analysis")]
+pub fn zonal_mean(
+    source: &Source<'_>,
+    values: &[Option<f64>],
+    variable: &str,
+    units: &str,
+) -> Result<crate::Line, Error> {
+    let geometry = source.geometry.as_ref().map_err(Clone::clone)?;
+    match geometry {
+        GridGeometry::LatLon(_) | GridGeometry::Gaussian(_) | GridGeometry::Mercator(_) => {}
+        _ => {
+            return Err(Error::Unsupported {
+                detail: format!(
+                    "a zonal mean needs rows that are circles of latitude, which grid type \
+                     {:?} does not have (only regular lat/lon, Gaussian, Mercator and their \
+                     reduced forms)",
+                    source.family
+                ),
+            });
+        }
+    }
+    let (ni, nj) = (source.ni as usize, source.nj as usize);
+    if values.len() != ni.saturating_mul(nj) {
+        return Err(Error::InvalidOption {
+            detail: format!(
+                "a {ni}×{nj} grid has {} cells, and {} values were given",
+                ni.saturating_mul(nj),
+                values.len()
+            ),
+        });
+    }
+    let reduced = source.points_per_row.filter(|pl| pl.len() == nj);
+    let place = geometry.forward_at();
+    let mut means = Vec::with_capacity(nj);
+    let mut latitudes = Vec::with_capacity(nj);
+    for j in 0..nj {
+        // Every point on a row shares its latitude, so the first names it.
+        let Some((lat, _)) = place(0, u32::try_from(j).unwrap_or(u32::MAX)) else {
+            return Err(Error::Unsupported {
+                detail: format!("row {j} of this grid has no latitude to report"),
+            });
+        };
+        latitudes.push(lat);
+        let row = &values[j * ni..(j + 1) * ni];
+        let mut sum = 0.0;
+        let mut count = 0u32;
+        for (i, cell) in row.iter().enumerate() {
+            if let Some(pl) = reduced
+                && reduced_source_point(i, pl[j] as usize, ni).is_none()
+            {
+                continue;
+            }
+            if let Some(v) = cell
+                && v.is_finite()
+            {
+                sum += v;
+                count += 1;
+            }
+        }
+        means.push((count > 0).then(|| sum / f64::from(count)));
+    }
+    let (values, mask, stats) =
+        crate::session::pack_values(&means, &crate::DecodeOptions::new(crate::Dtype::F64));
+    Ok(crate::Line {
+        values,
+        mask,
+        stats,
+        variable: variable.to_string(),
+        units: units.to_string(),
+        dimension: "latitude".to_string(),
+        coordinates: Some(latitudes),
+        coordinate_units: Some("degrees_north".to_string()),
+    })
+}
+
 /// Format a decoded field as CSV. The `"long"` (`lat,lon,value`) format needs
 /// the family's forward map, so it inherits that gate — space view and an
 /// unmodelled family are refused, and the message reads out what is left; the
@@ -2000,6 +2118,18 @@ impl crate::Session {
         format: &str,
     ) -> Result<String, Error> {
         field_csv(source, values, format)
+    }
+
+    /// Each row's mean over longitude, as a line against latitude — see
+    /// [`zonal_mean`].
+    pub fn zonal_mean(
+        &self,
+        source: &Source<'_>,
+        values: &[Option<f64>],
+        variable: &str,
+        units: &str,
+    ) -> Result<crate::Line, Error> {
+        zonal_mean(source, values, variable, units)
     }
 }
 

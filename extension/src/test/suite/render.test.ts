@@ -1037,6 +1037,9 @@ suite("render-panel HTML", () => {
     const sliceHtml = renderImagePanelHtml({ cspSource: "" } as unknown as vscode.Webview, fakeMeta(), "summary", registry(), combineOps(), slice);
     assert.ok(/id="line-panel"/.test(sliceHtml), "the slice panel carries the line plot (#172)");
     assert.ok(/id="line-axis"/.test(sliceHtml), "and its axis picker");
+    for (const [label, html] of [["message", renderImagePanelHtml({ cspSource: "" } as unknown as vscode.Webview, fakeMeta(), "summary", registry(), combineOps())], ["slice", sliceHtml]] as const) {
+      assert.ok(/id="zonal-toggle"/.test(html), `the ${label} panel offers the zonal average (#240)`);
+    }
   });
 
   test("a spectral message is offered the reprojection targets (#303)", () => {
@@ -1468,6 +1471,53 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     assert.ok(native, "native module must load");
     return native.NetcdfHandle.fromBytes(fs.readFileSync(fixturePath("netcdf4_dimscale.nc")));
   }
+
+  // --- Zonal average (#240) ---------------------------------------------------
+
+  test("zonalMean averages each GRIB row as eccodes does (#240)", () => {
+    const native = loadNative();
+    assert.ok(native, "native module must load");
+    const handle = native.Grib2Handle.fromBytes(fs.readFileSync(fixturePath("regular_latlon_surface.grib2")));
+    const zonal = handle.zonalMean(0);
+    assert.strictEqual(zonal.dimension, "latitude");
+    assert.strictEqual(zonal.coordinateUnits, "degrees_north");
+    assert.strictEqual(zonal.values.length, 31, "one point per row");
+    // eccodes 2.34.1, `grib_get_data -L "%.9f %.9f"` grouped by latitude.
+    for (const [row, lat, mean] of [
+      [0, 60, 275.48492431812497],
+      [15, 30, 291.54675292875],
+      [30, 0, 301.342529296875],
+    ] as const) {
+      assert.ok(zonal.coordinates, "latitudes are stated");
+      assert.ok(Math.abs(zonal.coordinates[row] - lat) < 1e-6, `row ${row} at ${zonal.coordinates[row]}`);
+      assert.ok(
+        Math.abs(zonal.values[row] - mean) <= 1e-8 * mean,
+        `row ${row}: ${zonal.values[row]} where eccodes says ${mean}`,
+      );
+    }
+  });
+
+  test("zonalMean refuses a projected grid, and says why (#240)", () => {
+    const native = loadNative();
+    assert.ok(native, "native module must load");
+    const handle = native.Grib2Handle.fromBytes(fs.readFileSync(fixturePath("eta_lambert_msg0.grib2")));
+    assert.throws(() => handle.zonalMean(0), /circles of latitude/);
+  });
+
+  test("zonalMean on a NetCDF slice runs along its latitude rows (#240)", () => {
+    const handle = netcdfHandle();
+    const sst = handle.variables().find((v) => v.name === "sst");
+    assert.ok(sst);
+    const [y, x] = [sst.detectedYDim ?? 2, sst.detectedXDim ?? 3];
+    const zonal = handle.zonalMean(sst.variableIndex, y, x, sst.dims.map(() => 0));
+    assert.strictEqual(zonal.values.length, sst.dims[y].length, "one point per latitude row");
+    assert.ok(zonal.coordinates && zonal.coordinates.length === zonal.values.length);
+    // ERSST masks land, so a row can be a gap; the ocean rows are sea
+    // temperatures in the ordinary range.
+    const present = zonal.values.filter((_, i) => zonal.mask[i] === 1);
+    assert.ok(present.length > 0, "some rows hold ocean");
+    assert.ok(present.every((v) => v > -5 && v < 35), `SST row means ${Math.min(...present)}..${Math.max(...present)}`);
+  });
 
   test("line reads a time series through a NetCDF cell (#172)", () => {
     // `temperature(time=2, lat=3, lon=4)` holds `t·12 + j·4 + i`, so every

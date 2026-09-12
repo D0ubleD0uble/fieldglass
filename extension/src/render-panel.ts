@@ -752,8 +752,10 @@ export function renderImagePanelHtml(
           // The old probe readout referred to the previous field; clear it.
           const probeEl = document.getElementById('probe');
           if (probeEl) probeEl.textContent = '';
-          // And the line through the probed cell, for the same reason (#172).
-          hideLine();
+          // And the line through the probed cell, for the same reason (#172) —
+          // unless a zonal mean is on, which describes the new field and is
+          // asked for again (#240).
+          if (zonalOn()) requestZonal(); else hideLine();
           // Reproject the overlay only when the raster *geometry* changed
           // (projection / preset / flip-y / bounds). A range- or resampling-
           // only render leaves the geometry — and the existing overlay — valid,
@@ -1120,6 +1122,10 @@ export function renderImagePanelHtml(
             .join('');
           if (axes.some((d) => String(d.i) === previous)) sel.value = previous;
           lineCell = { gridI: r.gridI, gridJ: r.gridJ };
+          // A click asks for this cell's line, which replaces a zonal mean.
+          const toggle = document.getElementById('zonal-toggle');
+          if (toggle) toggle.checked = false;
+          setAxisPickerHidden(false);
           requestLine();
         }
 
@@ -1147,15 +1153,64 @@ export function renderImagePanelHtml(
           return el;
         }
 
+        function setAxisPickerHidden(hidden) {
+          const label = document.getElementById('line-axis-label');
+          if (label) label.hidden = hidden;
+        }
+
         function handleLineResult(msg) {
+          if (!lineCell) return;
+          const alongDim = Number(document.getElementById('line-axis').value);
+          const here = sliceState ? sliceState.sliceIndices[alongDim] : null;
+          drawLine(msg.result, here, 'No line through this cell.');
+        }
+
+        // --- Zonal average (#240) --------------------------------------------
+        // Each row's mean over longitude, drawn with the same plot as a cell's
+        // line. It describes the whole field, so it has no cell and no axis to
+        // pick, and a re-render asks for it again rather than clearing it.
+        function zonalOn() {
+          const toggle = document.getElementById('zonal-toggle');
+          return !!(toggle && toggle.checked);
+        }
+
+        function requestZonal() {
+          vscode.postMessage(Object.assign({ type: 'zonalRequest' }, sliceFields()));
+        }
+
+        {
+          const toggle = document.getElementById('zonal-toggle');
+          if (toggle) toggle.addEventListener('change', () => {
+            if (toggle.checked) {
+              lineCell = null;
+              setAxisPickerHidden(true);
+              requestZonal();
+            } else {
+              hideLine();
+            }
+          });
+        }
+
+        function handleZonalResult(msg) {
+          if (!zonalOn()) return;
+          setAxisPickerHidden(true);
+          // A refusal says why — a rotated or projected grid has no latitude
+          // circles to average along — rather than leaving an empty plot.
+          const reason = msg.error ? 'No zonal average: ' + msg.error : 'No zonal average for this field.';
+          drawLine(msg.result, null, reason);
+        }
+
+        // Draw one line into the panel: a cell's profile or a field's zonal mean.
+        // markIndex is the point to rule a dashed line through — where the
+        // slice on screen sits — or null for none.
+        function drawLine(line, markIndex, emptyText) {
           const panel = document.getElementById('line-panel');
           const svg = document.getElementById('line-plot');
           const caption = document.getElementById('line-caption');
-          if (!panel || !svg || !caption || !lineCell) return;
-          const line = msg.result;
+          if (!panel || !svg || !caption) return;
           panel.hidden = false;
           while (svg.firstChild) svg.removeChild(svg.firstChild);
-          if (!line) { caption.textContent = 'No line through this cell.'; return; }
+          if (!line) { caption.textContent = emptyText; return; }
 
           const n = line.values.length;
           // Position each point by its coordinate when the axis has one, and by
@@ -1192,8 +1247,7 @@ export function renderImagePanelHtml(
           const py = (y) => pad.t + (1 - (y - ymin) / (ymax - ymin)) * (height - pad.t - pad.b);
 
           // The slice on screen, marked where it sits along this axis.
-          const alongDim = Number(document.getElementById('line-axis').value);
-          const here = sliceState && sliceState.sliceIndices[alongDim];
+          const here = markIndex;
           if (here != null && here < n) {
             const x = px(xs[here]);
             svg.appendChild(svgEl('line', { class: 'rule', x1: x, x2: x, y1: pad.t, y2: height - pad.b }));
@@ -1768,6 +1822,7 @@ export function renderImagePanelHtml(
           else if (msg.type === 'contourReady') handleContourReady(msg);
           else if (msg.type === 'probeResult') handleProbeResult(msg);
           else if (msg.type === 'lineResult') handleLineResult(msg);
+          else if (msg.type === 'zonalResult') handleZonalResult(msg);
           else if (msg.type === 'contourError') handleContourError(msg);
           else if (msg.type === 'exportPngDone') handleExportPngDone(msg);
         });
@@ -1815,6 +1870,7 @@ export function renderImagePanelHtml(
       margin-bottom: 0.5rem;
       color: var(--vscode-descriptionForeground, inherit);
     }
+    .zonal-toggle { display: inline-block; font-size: 0.85rem; margin-bottom: 0.35rem; color: var(--vscode-descriptionForeground, inherit); }
     .line-panel { margin: 0 0 0.75rem; }
     .line-axis { font-size: 0.85rem; color: var(--vscode-descriptionForeground, inherit); }
     .line-plot {
@@ -2103,8 +2159,9 @@ ${slice ? netcdfCompareFieldsetHtml(combineOps) : gribCompareFieldsetHtml(compar
   <div id="status">Rendering…</div>
   <div id="contour-status" class="contour-status" aria-live="polite"></div>
   <div id="probe" class="probe-readout" aria-live="polite"></div>
+  <label class="zonal-toggle"><input type="checkbox" id="zonal-toggle"> Zonal average</label>
   <div id="line-panel" class="line-panel" hidden>
-    <label class="line-axis">Plot along <select id="line-axis"></select></label>
+    <label class="line-axis" id="line-axis-label">Plot along <select id="line-axis"></select></label>
     <svg id="line-plot" class="line-plot" role="img" aria-label="The variable through the probed cell"></svg>
     <div id="line-caption" class="line-caption"></div>
   </div>
