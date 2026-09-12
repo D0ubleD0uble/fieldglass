@@ -1441,6 +1441,127 @@ impl Session {
         }
     }
 
+    /// Where a message's values will land, without decoding them.
+    ///
+    /// The message-side mirror of [`place_slice`](Self::place_slice), and for
+    /// the same reason: **what this buys is not decoding.** An overlay, a
+    /// caption, or a decision about whether a message can be drawn wants the
+    /// resolved geometry, and decoding is the expensive half — for a spectral
+    /// message it is an inverse spherical-harmonic transform, which is seconds
+    /// rather than milliseconds.
+    ///
+    /// **Resolved, not declared**, which is the difference from
+    /// [`message`](Self::message)'s [`MessageInfo::grid`]. A family that carries
+    /// no raster of its own — spectral coefficients, HEALPix pixels — declares a
+    /// grid nothing can place a point on, and its values land on the synthesised
+    /// global lat/lon raster instead. This reports the raster: the same
+    /// [`Georef`] [`decode`](Self::decode) puts on the field, so a host that
+    /// paints an overlay before decoding cannot disagree with the field it later
+    /// draws. `place_message_agrees_with_decode.rs` holds the two to that over
+    /// the whole fixture corpus — geometry, family, dimensions, scan and bounds.
+    ///
+    /// **A grid can be real where a single 2-D field is not.** A message whose
+    /// values are not one scalar per grid point — the GRIB1 true
+    /// `matrixOfValues` form, GRIB2 bi-Fourier coefficients — has a genuine
+    /// grid, so this succeeds, while `decode` refuses and names the call that
+    /// reads them. That is not the two disagreeing: this answers about the
+    /// grid, `decode` about a field of scalars. A host deciding whether it can
+    /// *draw* a message therefore needs `decode`'s answer and not only this
+    /// one. The corpus test pins that set by packing family so a new member has
+    /// to be acknowledged.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::WrongAddressing`] for a container of arrays, which has slices to
+    /// place rather than messages; [`Error::NoSuchMessage`] for an index outside
+    /// [`count`](Self::count); and [`Error::Unsupported`] for a GRIB1 message
+    /// that carries no grid description, which is the same refusal `decode`
+    /// gives it.
+    pub fn place_message(&self, index: u32) -> Result<Georef, Error> {
+        // Before the range check, for the reason `message` explains.
+        #[cfg(any(feature = "netcdf", feature = "zarr"))]
+        if matches!(self.reader, Reader::Arrays(_)) {
+            return Err(wrong_addressing(
+                Addressing::Variables,
+                "place_message",
+                "place_slice",
+            ));
+        }
+        #[cfg(any(feature = "grib1", feature = "grib2"))]
+        {
+            let i = self.check_index(index)?;
+            // The grid a synthesised family lands on, asked of the format crate
+            // as metadata — this reads the GDS, where `decode`'s
+            // `synthesize_message_global` runs the transform. The two answer the
+            // same question and the corpus test holds them to it.
+            let synthesis = match &self.reader {
+                #[cfg(feature = "grib1")]
+                Reader::Grib1(r) => r.synthesis_grid(i),
+                #[cfg(feature = "grib2")]
+                Reader::Grib2(r) => r.synthesis_grid(i),
+                #[cfg(any(feature = "netcdf", feature = "zarr"))]
+                Reader::Arrays(_) => {
+                    return Err(wrong_addressing(
+                        Addressing::Variables,
+                        "place_message",
+                        "place_slice",
+                    ));
+                }
+            };
+            if let Some(grid) = synthesis {
+                // The same three the synthesised arm of `decode` builds: nothing
+                // of the source layout survives an inverse transform, so the
+                // scan is north-down and the family is the geometry's own.
+                let geometry = GridGeometry::LatLon(grid.into());
+                let declared = geometry.label().to_string();
+                return Ok(Georef::from_declared(
+                    &geometry,
+                    Scan::north_down(),
+                    &declared,
+                ));
+            }
+            match &self.reader {
+                #[cfg(feature = "grib1")]
+                Reader::Grib1(r) => {
+                    let msg = &r.messages[i];
+                    let gds = msg.gds.as_ref().ok_or_else(|| Error::Unsupported {
+                        detail: "the message carries no grid description".to_string(),
+                    })?;
+                    Ok(Georef::from_declared(
+                        &GridGeometry::from(gds),
+                        grib1_scan(msg),
+                        gds.grid_type_name(),
+                    ))
+                }
+                #[cfg(feature = "grib2")]
+                Reader::Grib2(r) => {
+                    let msg = &r.messages[i];
+                    Ok(Georef::from_declared(
+                        &GridGeometry::from(&msg.gds),
+                        grib2_scan(msg),
+                        &msg.gds.template_name(),
+                    ))
+                }
+                #[cfg(any(feature = "netcdf", feature = "zarr"))]
+                Reader::Arrays(_) => Err(wrong_addressing(
+                    Addressing::Variables,
+                    "place_message",
+                    "place_slice",
+                )),
+            }
+        }
+        // No GRIB decoder, so no message to place — the mirror of `message`.
+        #[cfg(not(any(feature = "grib1", feature = "grib2")))]
+        {
+            let _ = index;
+            Err(wrong_addressing(
+                Addressing::Variables,
+                "place_message",
+                "place_slice",
+            ))
+        }
+    }
+
     /// Resample a field onto a geographic box, without painting it.
     ///
     /// This is the render pipeline split at the paint step: a GPU host wants
