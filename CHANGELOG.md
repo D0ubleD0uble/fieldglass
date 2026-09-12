@@ -8,6 +8,8 @@ Versioning is plain [Semantic Versioning](https://semver.org/spec/v2.0.0.html), 
 
 ### Added
 
+- **A placement says where its first and last grid points are.** `Georef` now carries the corner pair — `[lat_first, lon_first, lat_last, lon_last]` — as the container reports it, so a host can caption a grid's extent without re-deriving it. `GridGeometry` also gains `first_point` and `corner_pair`, which answer for every family including the projected ones that state only a first corner. Part of #726.
+
 - **Internal: one message-metadata builder, proven against the two it will replace.** The Node.js binding built its message table metadata twice, once per GRIB edition, reading each format crate's own grid templates — about 450 lines that exist only because the binding held its own readers. A single builder over the library API's message and placement types now reproduces both, field for field, across every message of every GRIB fixture, with five fields recorded as not yet reproducible and why. Nothing user-visible changes. Part of #726.
 
 - **A host can ask where a message's values will land without decoding them.** `Session::place_message` reports the grid, dimensions, row order and bounds a message resolves to — including the synthesised global grid a spectral or HEALPix message lands on, which is not the grid it declares. Drawing an overlay or a caption previously meant decoding first, and for a spectral field that is an inverse spherical-harmonic transform: seconds of work for an answer the file already states. On the committed spectral fixture, placing reads no bytes at all where decoding reads 8,334. Part of #726.

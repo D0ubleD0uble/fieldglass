@@ -1514,6 +1514,9 @@ impl Session {
                 // scan is north-down and the family is the geometry's own.
                 let geometry = GridGeometry::LatLon(grid.into());
                 let declared = geometry.label().to_string();
+                // A synthesised raster is built here rather than stated by the
+                // file, so its corners are the geometry's — there is no
+                // container value to prefer.
                 return Ok(Georef::from_declared(
                     &geometry,
                     Scan::north_down(),
@@ -1527,19 +1530,24 @@ impl Session {
                     let gds = msg.gds.as_ref().ok_or_else(|| Error::Unsupported {
                         detail: "the message carries no grid description".to_string(),
                     })?;
-                    Ok(Georef::from_declared(
+                    // `raster_bounds`, not `bounds`: this is where the values
+                    // land, and a reduced grid's values land on the widened
+                    // raster.
+                    Ok(Georef::from_declared_corners(
                         &GridGeometry::from(gds),
                         grib1_scan(msg),
                         gds.grid_type_name(),
+                        gds.raster_bounds(),
                     ))
                 }
                 #[cfg(feature = "grib2")]
                 Reader::Grib2(r) => {
                     let msg = &r.messages[i];
-                    Ok(Georef::from_declared(
+                    Ok(Georef::from_declared_corners(
                         &GridGeometry::from(&msg.gds),
                         grib2_scan(msg),
                         &msg.gds.template_name(),
+                        msg.gds.raster_bounds(),
                     ))
                 }
                 #[cfg(any(feature = "netcdf", feature = "zarr"))]
@@ -1929,10 +1937,13 @@ fn grib1_parameter(msg: &fieldglass_grib1::Grib1Message) -> (String, String, Str
 fn grib1_message(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) -> MessageInfo {
     let msg = &reader.messages[index];
     let grid = msg.gds.as_ref().map(|gds| {
-        Georef::from_declared(
+        // `bounds`, not `raster_bounds`: this is what the message *declares*,
+        // and a reduced grid declares the corner of the grid it really is.
+        Georef::from_declared_corners(
             &GridGeometry::from(gds),
             grib1_scan(msg),
             gds.grid_type_name(),
+            gds.bounds(),
         )
     });
     let (abbreviation, parameter, units) = grib1_parameter(msg);
@@ -2040,10 +2051,11 @@ fn grib2_message(reader: &fieldglass_grib2::Grib2Reader<Bytes>, index: usize) ->
             .map(fieldglass_grib2::forecast_display)
             .unwrap_or_else(|| "—".to_string()),
         packing: msg.drs.template_name(),
-        grid: Some(Georef::from_declared(
+        grid: Some(Georef::from_declared_corners(
             &GridGeometry::from(&msg.gds),
             grib2_scan(msg),
             &msg.gds.template_name(),
+            msg.gds.bounds(),
         )),
         size_label: msg.gds.size_label(),
         forecast_hours: common.and_then(fieldglass_grib2::forecast_hours),

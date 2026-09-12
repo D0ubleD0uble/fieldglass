@@ -18,7 +18,7 @@
 //! * **`#[non_exhaustive]`, serde derives, and (under the `schema` feature) a
 //!   JSON Schema**, which is what a host's declarations are generated from.
 
-use fieldglass_core::{GridGeometry, LonLatBox, PlaneUnits};
+use fieldglass_core::{CornerPair, GridGeometry, LonLatBox, PlaneUnits};
 
 /// Scan order of the decoded raster, as the message's own flags state it.
 ///
@@ -267,6 +267,19 @@ api_type! {
         /// spanning the antimeridian; do not normalise it into range without
         /// collapsing the span.
         pub bounds_lonlat: Option<[f64; 4]>,
+        /// The first and last scanned grid points, as
+        /// `[lat_first, lon_first, lat_last, lon_last]` (#726).
+        ///
+        /// The corner pair a message list shows, and **not** a bounding box:
+        /// these are two diagonally opposite grid points in scan order, so
+        /// `lat_last` may be less or greater than `lat_first`.
+        /// [`bounds_lonlat`](Self::bounds_lonlat) is the extent.
+        ///
+        /// An array for the reason `bounds_lonlat` is one, and in the order the
+        /// name states. `None` when the family has no raster, or when the
+        /// projection cannot place its far corner — reported absent rather than
+        /// clamped, so a host shows nothing instead of a plausible fiction.
+        pub corners: Option<[f64; 4]>,
         /// A PROJ string for the grid's own plane, for a map library that
         /// takes one. `None` for a family this build does not name a CRS for.
         pub proj4: Option<String>,
@@ -643,6 +656,50 @@ impl Georef {
         Self::from_declared(geom, scan, geom.label())
     }
 
+    /// As [`from_declared`](Self::from_declared), but with the corner pair the
+    /// **container** reports rather than one recomputed from the geometry.
+    ///
+    /// Use this wherever the container states its corners, which is every GRIB
+    /// message with a §2 or §3. Recomputing them instead is measurably not the
+    /// same answer, and a message table shows the file's:
+    ///
+    /// - A projected family's far corner comes back in a different longitude
+    ///   normalisation — a CMC polar-stereographic grid states
+    ///   `-31.886937598141174`, and projecting the last grid point through
+    ///   `core` gives `328.1130624018588`, the same meridian written the other
+    ///   way.
+    /// - A global lat/lon grid's far corner accumulates past the antimeridian
+    ///   rather than wrapping: `539.75` for a grid whose file says `179.75`.
+    ///   Continuous longitude is what the warp wants and not what a caption
+    ///   does.
+    /// - A **reduced** grid states the corner of the grid it really is, where
+    ///   the geometry has already been widened onto its regular sibling:
+    ///   `357.188` against a computed `357.1875`.
+    ///
+    /// [`corners`](Self::corners) therefore means "the corner pair this
+    /// container reports", and falls back to the geometry only for a container
+    /// that reports none.
+    pub fn from_declared_corners(
+        geom: &GridGeometry,
+        scan: Scan,
+        declared: &str,
+        corners: Option<CornerPair>,
+    ) -> Self {
+        let computed = Self::from_declared(geom, scan, declared);
+        Self {
+            // `.or`, not a plain assignment: naming the field in a struct
+            // update replaces what `from_declared` computed, so a container
+            // that reports no corners would lose them entirely rather than
+            // fall back. §3.12 transverse Mercator is exactly that container —
+            // `bounds()` reports `None` for it by design — and it is how this
+            // bug was found.
+            corners: corners
+                .map(|c| [c.lat_first, c.lon_first, c.lat_last, c.lon_last])
+                .or(computed.corners),
+            ..computed
+        }
+    }
+
     /// As [`from_geometry`](Self::from_geometry), but with the family name the
     /// **message** declares rather than the one the geometry reports.
     ///
@@ -680,6 +737,9 @@ impl Georef {
             ni,
             nj,
             bounds_lonlat: geom.lonlat_bbox().map(LonLatBox::to_array),
+            corners: geom
+                .corner_pair()
+                .map(|c| [c.lat_first, c.lon_first, c.lat_last, c.lon_last]),
             proj4: geom.proj4(),
             axis_units,
             x0,

@@ -89,41 +89,28 @@ pub(crate) fn meta_from_session(
     // `Some(0)` here would tell a message table a spectral field is zero cells
     // wide, where the handles have always left all three absent.
     let placed = georef.geometry.dims().is_some();
+    // The corner pair, once, from the placement rather than per family. Every
+    // arm below used to restate `lat_first`/`lon_first`/`lat_last`/`lon_last`
+    // out of its own parameters, which is why a `PolarStereo` — defined by its
+    // first corner plus spacing — reported no far corner at all (#726).
+    let corners = georef.corners;
     let named = MessageMeta {
         grid_type: Some(georef.label.clone()),
         grid_ni: placed.then(|| i32::try_from(georef.ni).unwrap_or(i32::MAX)),
         grid_nj: placed.then(|| i32::try_from(georef.nj).unwrap_or(i32::MAX)),
         j_scans_positive: placed.then_some(georef.scan.j_positive),
+        lat_first: corners.map(|c| c[0]),
+        lon_first: corners.map(|c| c[1]),
+        lat_last: corners.map(|c| c[2]),
+        lon_last: corners.map(|c| c[3]),
         ..base
     };
     let meta = match &georef.geometry {
-        GridGeometry::LatLon(g) => MessageMeta {
-            lat_first: Some(g.lat_first),
-            lon_first: Some(g.lon_first),
-            lat_last: Some(g.lat_last),
-            lon_last: Some(g.lon_last),
-            ..named
-        },
         GridGeometry::Gaussian(g) => MessageMeta {
-            lat_first: Some(g.lat_first),
-            lon_first: Some(g.lon_first),
-            lat_last: Some(g.lat_last),
-            lon_last: Some(g.lon_last),
             gaussian_n_parallels: Some(i32::try_from(g.n_parallels).unwrap_or(i32::MAX)),
             ..named
         },
-        GridGeometry::Mercator(g) => MessageMeta {
-            lat_first: Some(g.lat_first),
-            lon_first: Some(g.lon_first),
-            lat_last: Some(g.lat_last),
-            lon_last: Some(g.lon_last),
-            ..named
-        },
         GridGeometry::RotatedLatLon(g) => MessageMeta {
-            lat_first: Some(g.lat_first),
-            lon_first: Some(g.lon_first),
-            lat_last: Some(g.lat_last),
-            lon_last: Some(g.lon_last),
             rotated_south_pole_lat: Some(g.south_pole_lat),
             rotated_south_pole_lon: Some(g.south_pole_lon),
             rotated_angle_of_rotation: Some(g.angle_of_rotation),
@@ -131,8 +118,6 @@ pub(crate) fn meta_from_session(
         },
         GridGeometry::Lambert(g) => MessageMeta {
             earth_radius_metres: Some(g.earth_radius_m),
-            lat_first: Some(g.lat_first),
-            lon_first: Some(g.lon_first),
             lambert_lad: Some(g.lad),
             lambert_lov: Some(g.lov),
             lambert_dx_metres: Some(g.dx_metres),
@@ -143,8 +128,6 @@ pub(crate) fn meta_from_session(
         },
         GridGeometry::PolarStereo(g) => MessageMeta {
             earth_radius_metres: Some(g.earth_radius_m),
-            lat_first: Some(g.lat_first),
-            lon_first: Some(g.lon_first),
             polar_stereo_lov: Some(g.lov),
             polar_stereo_lad: Some(g.lad),
             polar_stereo_dx_metres: Some(g.dx_metres),
@@ -169,8 +152,6 @@ pub(crate) fn meta_from_session(
         GridGeometry::LambertAzimuthal(g) => MessageMeta {
             lambert_azimuthal_semi_major_metres: Some(g.semi_major_m),
             lambert_azimuthal_semi_minor_metres: Some(g.semi_minor_m),
-            lat_first: Some(g.lat_first),
-            lon_first: Some(g.lon_first),
             lambert_azimuthal_standard_parallel: Some(g.standard_parallel),
             lambert_azimuthal_central_longitude: Some(g.central_longitude),
             lambert_azimuthal_dx_metres: Some(g.dx_metres),
@@ -189,10 +170,15 @@ pub(crate) fn meta_from_session(
             geos_dy_rad: Some(g.dy_rad),
             ..named
         },
-        // A family with no placement of its own: spectral coefficients before
-        // synthesis, HEALPix pixels, a cell list. The name is still reported —
-        // it is what a message table shows — and no coordinates are, because
-        // there are none to report.
+        // Everything with nothing to add beyond the corners and dimensions
+        // already in `named`: a plain lat/lon or Mercator grid, and the
+        // families with no placement of their own — spectral coefficients
+        // before synthesis, HEALPix pixels, a cell list. For those last the
+        // name is still reported, because it is what a message table shows,
+        // and no coordinates are, because there are none.
+        //
+        // The lat/lon and Mercator arms were separate until the corner pair
+        // moved into `named`; with that gone they said nothing this does.
         _ => named,
     };
     gate_reprojection(meta, georef.scan)
