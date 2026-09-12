@@ -122,6 +122,11 @@ const SKIPPED: &[(Op, &str)] = &[
         "napi has no combine-without-render operation; `renderGridCombined` \
          paints in the same call (#574)",
     ),
+    (
+        Op::DecodeLine,
+        "the handles gain a line read with the render panel's line plot, the \
+         second half of #172; until then the library and browser runners hold it",
+    ),
 ];
 
 /// Read a fixture the way the suite names one: relative to `crates/`.
@@ -381,7 +386,13 @@ fn observe(case: &Case, expect: &Value) -> Option<Value> {
         // `COMPARED` gates the entry, so nothing else reaches here. Written as
         // an explicit arm rather than a wildcard so that adding an op to
         // `COMPARED` without adding its adapter fails to compile.
-        Op::Message | Op::Warp | Op::Palette | Op::Probe | Op::Contours | Op::Combine => None,
+        Op::Message
+        | Op::Warp
+        | Op::Palette
+        | Op::Probe
+        | Op::Contours
+        | Op::Combine
+        | Op::DecodeLine => None,
     }
 }
 

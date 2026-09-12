@@ -191,8 +191,14 @@ const CASES_THAT_RECORD_A_FAILURE: &[&str] = &[
     "error/unsupported",
     "error/unsupported_format",
     "error/wrong_addressing",
+    // A line's refusals (#172): the three a slice has, plus an axis to read
+    // along that the variable does not have.
+    "ersst/decode_line/no_such_axis",
+    "ersst/decode_line/no_such_variable",
+    "ersst/decode_line/short_slice_indices",
     "ersst/decode_slice/no_such_variable",
     "ersst/decode_slice/short_slice_indices",
+    "latlon/decode_line",
     "latlon/decode_slice",
 ];
 

@@ -177,6 +177,40 @@ impl Handle {
         Ok(WasmField { field })
     }
 
+    /// One line through a variable: its values along `alongDim`, every other
+    /// axis held at `sliceIndices` (#172). `options` is `{ dtype?: "auto" | "f32"
+    /// | "f64" }`.
+    ///
+    /// The profile or time series a viewer plots beside a map when a user clicks
+    /// a cell. `sliceIndices` names a position on every axis, the one being read
+    /// along included and ignored — so a page passes the vector it already holds
+    /// for the slice on screen, with the clicked cell written into its two
+    /// horizontal positions.
+    ///
+    /// Returned as a plain object rather than a class with typed-array accessors,
+    /// as `decodeSlice`'s field is: a line is one axis long, so there is no large
+    /// buffer to hand over without copying. `values` is `{ dtype, data }`, read
+    /// `mask` before a value, and `coordinates` is absent when the axis has none.
+    ///
+    /// Throws `wrong_addressing` for a message stream, `no_such_message` for a
+    /// variable past the list, and `invalid_option` for an axis the variable does
+    /// not have, a `sliceIndices` of the wrong length, or an index past its axis.
+    #[wasm_bindgen(js_name = decodeLine)]
+    pub fn decode_line(
+        &self,
+        variable: u32,
+        along_dim: u32,
+        slice_indices: &[u32],
+        options: JsValue,
+    ) -> Result<JsValue, JsValue> {
+        let options: DecodeOptions = from_js(options)?;
+        let line = self
+            .session
+            .decode_line(variable, along_dim, slice_indices, &options)
+            .map_err(throw)?;
+        to_js(&line)
+    }
+
     /// One message's metadata, built on demand.
     ///
     /// Lazy on purpose: a thousand-message file should not serialise a thousand

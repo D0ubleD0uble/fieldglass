@@ -39,7 +39,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "addressing": "messages",
@@ -73,7 +74,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "abbreviation": "TMP",
@@ -155,7 +157,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -257,7 +260,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -359,7 +363,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f64",
@@ -461,7 +466,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -529,7 +535,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -602,7 +609,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -670,7 +678,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -743,7 +752,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -811,7 +821,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "lutLen": 1024,
@@ -874,7 +885,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "lutLen": 1024,
@@ -937,7 +949,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "height": 31,
@@ -1019,7 +1032,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "height": 31,
@@ -1101,7 +1115,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "i": 0.0,
@@ -1137,7 +1152,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": null
     },
@@ -1167,7 +1183,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": null
     },
@@ -1197,7 +1214,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": null
     },
@@ -1227,7 +1245,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "levelCount": 8,
@@ -1283,7 +1302,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "levelCount": 3,
@@ -1325,7 +1345,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -1427,7 +1448,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -1529,7 +1551,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -1631,7 +1654,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -1733,7 +1757,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -1835,7 +1860,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "addressing": "messages",
@@ -1869,7 +1895,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "abbreviation": "TMP",
@@ -1951,7 +1978,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -2053,7 +2081,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -2155,7 +2184,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f64",
@@ -2257,7 +2287,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -2325,7 +2356,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -2398,7 +2430,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -2466,7 +2499,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -2539,7 +2573,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -2607,7 +2642,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "lutLen": 1024,
@@ -2670,7 +2706,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "lutLen": 1024,
@@ -2733,7 +2770,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "height": 64,
@@ -2815,7 +2853,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "height": 64,
@@ -2897,7 +2936,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "i": 0.0,
@@ -2933,7 +2973,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "i": 92.44444444444444,
@@ -2969,7 +3010,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": null
     },
@@ -2999,7 +3041,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": null
     },
@@ -3029,7 +3072,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "levelCount": 0,
@@ -3067,7 +3111,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "levelCount": 3,
@@ -3109,7 +3154,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -3211,7 +3257,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -3313,7 +3360,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -3415,7 +3463,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -3517,7 +3566,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -3619,7 +3669,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "addressing": "messages",
@@ -3653,7 +3704,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "abbreviation": "TMP",
@@ -3800,7 +3852,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -3967,7 +4020,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -4134,7 +4188,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f64",
@@ -4301,7 +4356,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -4369,7 +4425,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -4442,7 +4499,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -4510,7 +4568,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -4583,7 +4642,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -4651,7 +4711,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "lutLen": 1024,
@@ -4714,7 +4775,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "lutLen": 1024,
@@ -4777,7 +4839,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "height": 64,
@@ -4859,7 +4922,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "height": 64,
@@ -4941,7 +5005,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "i": 0.0,
@@ -4977,7 +5042,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "i": 92.44444444444444,
@@ -5013,7 +5079,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": null
     },
@@ -5043,7 +5110,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": null
     },
@@ -5073,7 +5141,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "levelCount": 8,
@@ -5129,7 +5198,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "levelCount": 3,
@@ -5171,7 +5241,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -5338,7 +5409,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -5505,7 +5577,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -5672,7 +5745,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -5839,7 +5913,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -6006,7 +6081,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "addressing": "messages",
@@ -6040,7 +6116,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "abbreviation": "MSLET",
@@ -6122,7 +6199,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -6224,7 +6302,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -6326,7 +6405,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f64",
@@ -6428,7 +6508,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -6496,7 +6577,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -6569,7 +6651,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -6637,7 +6720,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -6710,7 +6794,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -6778,7 +6863,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "lutLen": 1024,
@@ -6841,7 +6927,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "lutLen": 1024,
@@ -6904,7 +6991,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "height": 65,
@@ -6986,7 +7074,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "height": 65,
@@ -7068,7 +7157,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": null
     },
@@ -7098,7 +7188,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "i": 46.83247311335374,
@@ -7134,7 +7225,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": null
     },
@@ -7164,7 +7256,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": null
     },
@@ -7194,7 +7287,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "levelCount": 11,
@@ -7256,7 +7350,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "levelCount": 3,
@@ -7298,7 +7393,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -7400,7 +7496,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -7502,7 +7599,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -7604,7 +7702,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -7706,7 +7805,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -7808,7 +7908,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "addressing": "messages",
@@ -7842,7 +7943,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "abbreviation": "TMP",
@@ -7924,7 +8026,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -8026,7 +8129,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -8128,7 +8232,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f64",
@@ -8230,7 +8335,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -8298,7 +8404,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -8371,7 +8478,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -8439,7 +8547,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -8512,7 +8621,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -8580,7 +8690,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "lutLen": 1024,
@@ -8643,7 +8754,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "lutLen": 1024,
@@ -8706,7 +8818,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "height": 30,
@@ -8788,7 +8901,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "height": 30,
@@ -8870,7 +8984,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": null
     },
@@ -8900,7 +9015,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": null
     },
@@ -8930,7 +9046,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": null
     },
@@ -8960,7 +9077,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": null
     },
@@ -8990,7 +9108,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "levelCount": 10,
@@ -9050,7 +9169,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "levelCount": 3,
@@ -9092,7 +9212,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -9194,7 +9315,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -9296,7 +9418,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -9398,7 +9521,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -9500,7 +9624,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -9602,7 +9727,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "addressing": "messages",
@@ -9636,7 +9762,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "abbreviation": "TMP",
@@ -9718,7 +9845,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -9820,7 +9948,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -9922,7 +10051,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f64",
@@ -10024,7 +10154,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -10092,7 +10223,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -10165,7 +10297,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -10233,7 +10366,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -10306,7 +10440,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -10374,7 +10509,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "lutLen": 1024,
@@ -10437,7 +10573,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "lutLen": 1024,
@@ -10500,7 +10637,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "height": 31,
@@ -10582,7 +10720,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "height": 31,
@@ -10664,7 +10803,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": null
     },
@@ -10694,7 +10834,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": null
     },
@@ -10724,7 +10865,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": null
     },
@@ -10754,7 +10896,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": null
     },
@@ -10784,7 +10927,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "levelCount": 0,
@@ -10822,7 +10966,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "levelCount": 3,
@@ -10864,7 +11009,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -10966,7 +11112,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -11068,7 +11215,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -11170,7 +11318,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -11272,7 +11421,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -11374,7 +11524,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "addressing": "messages",
@@ -11408,7 +11559,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "abbreviation": "TMP",
@@ -11485,7 +11637,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -11577,7 +11730,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -11669,7 +11823,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f64",
@@ -11761,7 +11916,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "error": {
@@ -11796,7 +11952,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "error": {
@@ -11836,7 +11993,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -11904,7 +12062,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "error": {
@@ -11944,7 +12103,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -12012,7 +12172,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "lutLen": 1024,
@@ -12075,7 +12236,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "lutLen": 1024,
@@ -12138,7 +12300,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "height": 31,
@@ -12220,7 +12383,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "height": 31,
@@ -12302,7 +12466,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": null
     },
@@ -12332,7 +12497,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": null
     },
@@ -12362,7 +12528,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": null
     },
@@ -12392,7 +12559,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": null
     },
@@ -12422,7 +12590,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "levelCount": 0,
@@ -12460,7 +12629,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "levelCount": 3,
@@ -12502,7 +12672,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -12594,7 +12765,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -12686,7 +12858,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -12778,7 +12951,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -12870,7 +13044,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -12962,7 +13137,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "addressing": "messages",
@@ -12996,7 +13172,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "abbreviation": "TMP",
@@ -13068,7 +13245,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f64",
@@ -13170,7 +13348,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -13272,7 +13451,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f64",
@@ -13374,7 +13554,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -13442,7 +13623,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -13515,7 +13697,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -13583,7 +13766,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -13656,7 +13840,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -13724,7 +13909,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "lutLen": 1024,
@@ -13787,7 +13973,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "lutLen": 1024,
@@ -13850,7 +14037,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "height": 361,
@@ -13932,7 +14120,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "height": 361,
@@ -14014,7 +14203,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "i": 0.0,
@@ -14050,7 +14240,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "i": 520.0,
@@ -14086,7 +14277,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "i": 20.0,
@@ -14122,7 +14314,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "i": 380.0,
@@ -14158,7 +14351,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "levelCount": 8,
@@ -14214,7 +14408,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "levelCount": 3,
@@ -14256,7 +14451,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -14358,7 +14554,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -14460,7 +14657,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f64",
@@ -14562,7 +14760,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f64",
@@ -14664,7 +14863,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -14766,7 +14966,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "addressing": "messages",
@@ -14800,7 +15001,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "abbreviation": "TMP",
@@ -14872,7 +15074,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -14974,7 +15177,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -15076,7 +15280,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f64",
@@ -15178,7 +15383,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -15246,7 +15452,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -15319,7 +15526,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -15387,7 +15595,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -15460,7 +15669,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -15528,7 +15738,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "lutLen": 1024,
@@ -15591,7 +15802,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "lutLen": 1024,
@@ -15654,7 +15866,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "height": 14,
@@ -15736,7 +15949,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "height": 14,
@@ -15818,7 +16032,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "i": 0.0,
@@ -15854,7 +16069,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "i": 18.77777777777778,
@@ -15890,7 +16106,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "i": 0.7222222222222223,
@@ -15926,7 +16143,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "i": 13.722222222222223,
@@ -15962,7 +16180,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "levelCount": 9,
@@ -16020,7 +16239,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "levelCount": 3,
@@ -16062,7 +16282,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -16164,7 +16385,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -16266,7 +16488,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -16368,7 +16591,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -16470,7 +16694,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -16572,7 +16797,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "addressing": "messages",
@@ -16606,7 +16832,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "abbreviation": "2t",
@@ -16688,7 +16915,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -16790,7 +17018,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -16892,7 +17121,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f64",
@@ -16994,7 +17224,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -17062,7 +17293,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -17135,7 +17367,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -17203,7 +17436,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -17276,7 +17510,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -17344,7 +17579,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "lutLen": 1024,
@@ -17407,7 +17643,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "lutLen": 1024,
@@ -17470,7 +17707,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "height": 5,
@@ -17552,7 +17790,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "height": 5,
@@ -17634,7 +17873,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": null
     },
@@ -17664,7 +17904,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": null
     },
@@ -17694,7 +17935,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": null
     },
@@ -17724,7 +17966,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": null
     },
@@ -17754,7 +17997,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "levelCount": 9,
@@ -17812,7 +18056,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "levelCount": 3,
@@ -17854,7 +18099,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -17956,7 +18202,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -18058,7 +18305,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -18160,7 +18408,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -18262,7 +18511,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -18364,7 +18614,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "addressing": "messages",
@@ -18398,7 +18649,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "abbreviation": "WIND",
@@ -18480,7 +18732,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f64",
@@ -18582,7 +18835,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -18684,7 +18938,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f64",
@@ -18786,7 +19041,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -18854,7 +19110,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -18927,7 +19184,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -18995,7 +19253,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -19068,7 +19327,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "bounds": [
@@ -19136,7 +19396,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "lutLen": 1024,
@@ -19199,7 +19460,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "lutLen": 1024,
@@ -19262,7 +19524,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "height": 95,
@@ -19344,7 +19607,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "height": 95,
@@ -19426,7 +19690,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": null
     },
@@ -19456,7 +19721,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "i": 65.22455255090016,
@@ -19492,7 +19758,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": null
     },
@@ -19522,7 +19789,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": null
     },
@@ -19552,7 +19820,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "levelCount": 7,
@@ -19606,7 +19875,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "levelCount": 3,
@@ -19648,7 +19918,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -19750,7 +20021,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -19852,7 +20124,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f64",
@@ -19954,7 +20227,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f64",
@@ -20056,7 +20330,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -20158,7 +20433,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "addressing": "variables",
@@ -20192,7 +20468,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": [
         {
@@ -20275,7 +20552,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": [
         {
@@ -20327,7 +20605,8 @@
           0,
           0,
           0
-        ]
+        ],
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -20404,6 +20683,238 @@
       }
     },
     {
+      "id": "ersst/decode_line/0",
+      "fixture": "fieldglass-netcdf/tests/fixtures/ersst_v5_187001_cdf1.nc",
+      "op": "decodeLine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": 0,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "alongDim": 2
+      },
+      "expect": {
+        "coordinateUnits": "degrees_north",
+        "coordinates": [
+          -88.0,
+          -86.0,
+          -84.0,
+          -82.0,
+          -80.0,
+          -78.0,
+          -76.0,
+          -74.0,
+          -72.0,
+          -70.0,
+          -68.0,
+          -66.0,
+          -64.0,
+          -62.0,
+          -60.0,
+          -58.0,
+          -56.0,
+          -54.0,
+          -52.0,
+          -50.0,
+          -48.0,
+          -46.0,
+          -44.0,
+          -42.0,
+          -40.0,
+          -38.0,
+          -36.0,
+          -34.0,
+          -32.0,
+          -30.0,
+          -28.0,
+          -26.0,
+          -24.0,
+          -22.0,
+          -20.0,
+          -18.0,
+          -16.0,
+          -14.0,
+          -12.0,
+          -10.0,
+          -8.0,
+          -6.0,
+          -4.0,
+          -2.0,
+          0.0,
+          2.0,
+          4.0,
+          6.0,
+          8.0,
+          10.0,
+          12.0,
+          14.0,
+          16.0,
+          18.0,
+          20.0,
+          22.0,
+          24.0,
+          26.0,
+          28.0,
+          30.0,
+          32.0,
+          34.0,
+          36.0,
+          38.0,
+          40.0,
+          42.0,
+          44.0,
+          46.0,
+          48.0,
+          50.0,
+          52.0,
+          54.0,
+          56.0,
+          58.0,
+          60.0,
+          62.0,
+          64.0,
+          66.0,
+          68.0,
+          70.0,
+          72.0,
+          74.0,
+          76.0,
+          78.0,
+          80.0,
+          82.0,
+          84.0,
+          86.0,
+          88.0
+        ],
+        "dimension": "lat",
+        "dtype": "f32",
+        "len": 89,
+        "maskLen": 89,
+        "maskOnes": 58,
+        "points": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          -1.5294137001037598,
+          -0.41114163398742676,
+          -0.20157694816589355,
+          -0.09295600652694702,
+          -1.0642280578613281,
+          0.1874561905860901,
+          0.7301008701324463,
+          1.115742802619934,
+          2.031541347503662,
+          3.5074520111083984,
+          5.141221046447754,
+          6.964341163635254,
+          8.971285820007324,
+          11.09872817993164,
+          13.402127265930176,
+          15.84278678894043,
+          17.99399757385254,
+          19.479726791381836,
+          20.382020950317383,
+          20.94868278503418,
+          21.34425163269043,
+          21.538278579711914,
+          21.589603424072266,
+          21.56108856201172,
+          21.648664474487305,
+          21.936500549316406,
+          22.37609100341797,
+          22.970935821533203,
+          23.75403594970703,
+          24.737890243530273,
+          25.866796493530273,
+          26.796857833862305,
+          27.225635528564453,
+          27.40943145751953,
+          27.822486877441406,
+          28.496192932128906,
+          28.685380935668945,
+          28.554393768310547,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          12.944341659545898,
+          12.43048095703125,
+          null,
+          null,
+          null,
+          null,
+          null,
+          9.145596504211426,
+          null,
+          7.721019268035889,
+          7.888688087463379,
+          7.944145202636719,
+          7.197274208068848,
+          5.928691387176514,
+          5.032432556152344,
+          4.477114677429199,
+          3.5194003582000732,
+          1.698670506477356,
+          0.19822299480438232,
+          -0.061660587787628174,
+          -0.39052656292915344,
+          -1.7999999523162842,
+          -1.7999999523162842,
+          -1.7999999523162842,
+          -1.7999999523162842,
+          -1.7999999523162842
+        ],
+        "stats": {
+          "max": 28.685380935668945,
+          "min": -1.7999999523162842,
+          "validCount": 58
+        },
+        "units": "degree_C",
+        "variable": "sst"
+      }
+    },
+    {
       "id": "ersst/decode_slice/1",
       "fixture": "fieldglass-netcdf/tests/fixtures/ersst_v5_187001_cdf1.nc",
       "op": "decodeSlice",
@@ -20434,7 +20945,8 @@
           0,
           0,
           0
-        ]
+        ],
+        "alongDim": null
       },
       "expect": {
         "dtype": "f32",
@@ -20511,6 +21023,238 @@
       }
     },
     {
+      "id": "ersst/decode_line/1",
+      "fixture": "fieldglass-netcdf/tests/fixtures/ersst_v5_187001_cdf1.nc",
+      "op": "decodeLine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": 1,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "alongDim": 2
+      },
+      "expect": {
+        "coordinateUnits": "degrees_north",
+        "coordinates": [
+          -88.0,
+          -86.0,
+          -84.0,
+          -82.0,
+          -80.0,
+          -78.0,
+          -76.0,
+          -74.0,
+          -72.0,
+          -70.0,
+          -68.0,
+          -66.0,
+          -64.0,
+          -62.0,
+          -60.0,
+          -58.0,
+          -56.0,
+          -54.0,
+          -52.0,
+          -50.0,
+          -48.0,
+          -46.0,
+          -44.0,
+          -42.0,
+          -40.0,
+          -38.0,
+          -36.0,
+          -34.0,
+          -32.0,
+          -30.0,
+          -28.0,
+          -26.0,
+          -24.0,
+          -22.0,
+          -20.0,
+          -18.0,
+          -16.0,
+          -14.0,
+          -12.0,
+          -10.0,
+          -8.0,
+          -6.0,
+          -4.0,
+          -2.0,
+          0.0,
+          2.0,
+          4.0,
+          6.0,
+          8.0,
+          10.0,
+          12.0,
+          14.0,
+          16.0,
+          18.0,
+          20.0,
+          22.0,
+          24.0,
+          26.0,
+          28.0,
+          30.0,
+          32.0,
+          34.0,
+          36.0,
+          38.0,
+          40.0,
+          42.0,
+          44.0,
+          46.0,
+          48.0,
+          50.0,
+          52.0,
+          54.0,
+          56.0,
+          58.0,
+          60.0,
+          62.0,
+          64.0,
+          66.0,
+          68.0,
+          70.0,
+          72.0,
+          74.0,
+          76.0,
+          78.0,
+          80.0,
+          82.0,
+          84.0,
+          86.0,
+          88.0
+        ],
+        "dimension": "lat",
+        "dtype": "f32",
+        "len": 89,
+        "maskLen": 89,
+        "maskOnes": 58,
+        "points": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          -1.5420942306518555,
+          -0.8005791306495667,
+          -0.6938061118125916,
+          -0.5494351387023926,
+          -1.5608530044555664,
+          -0.4678146243095398,
+          -0.18827414512634277,
+          -0.38148629665374756,
+          -0.6417920589447021,
+          -0.8164234161376953,
+          -0.9684042930603027,
+          -1.0155129432678223,
+          -1.0374231338500977,
+          -1.022085189819336,
+          -0.8954982757568359,
+          -0.6916103363037109,
+          -0.5648365020751953,
+          -0.632232666015625,
+          -0.8468132019042969,
+          -1.0554008483886719,
+          -1.1047687530517578,
+          -1.0469074249267578,
+          -0.9379177093505859,
+          -0.8946819305419922,
+          -0.8569393157958984,
+          -0.7723102569580078,
+          -0.6868476867675781,
+          -0.6238555908203125,
+          -0.542236328125,
+          -0.3721923828125,
+          -0.077056884765625,
+          0.1726093292236328,
+          0.18761444091796875,
+          0.02984619140625,
+          -0.04795074462890625,
+          0.26490020751953125,
+          0.5343456268310547,
+          0.6196537017822266,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          -1.5621585845947266,
+          -1.7241296768188477,
+          null,
+          null,
+          null,
+          null,
+          null,
+          1.0723876953125,
+          null,
+          0.4900836944580078,
+          0.24166011810302734,
+          0.04589557647705078,
+          -0.3635387420654297,
+          -0.758725643157959,
+          -0.8408799171447754,
+          -0.7378020286560059,
+          -0.4401204586029053,
+          -0.3270796537399292,
+          -0.4977978467941284,
+          -0.6237022876739502,
+          -0.7020890712738037,
+          -1.0550833940505981,
+          -0.2052919864654541,
+          -0.0005838871002197266,
+          -4.76837158203125e-7,
+          -4.76837158203125e-7
+        ],
+        "stats": {
+          "max": 1.0723876953125,
+          "min": -1.7241296768188477,
+          "validCount": 58
+        },
+        "units": "degree_C",
+        "variable": "ssta"
+      }
+    },
+    {
       "id": "oisst/open",
       "fixture": "fieldglass-netcdf/tests/fixtures/oisst_avhrr_v2.nc",
       "op": "open",
@@ -20536,7 +21280,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "addressing": "variables",
@@ -20570,7 +21315,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": [
         {
@@ -20653,7 +21399,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": [
         {
@@ -20705,7 +21452,8 @@
           0,
           0,
           0
-        ]
+        ],
+        "alongDim": null
       },
       "expect": {
         "dtype": "f64",
@@ -20782,6 +21530,124 @@
       }
     },
     {
+      "id": "oisst/decode_line/0",
+      "fixture": "fieldglass-netcdf/tests/fixtures/oisst_avhrr_v2.nc",
+      "op": "decodeLine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": 0,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "alongDim": 2
+      },
+      "expect": {
+        "coordinateUnits": "degrees_north",
+        "coordinates": [
+          58.125,
+          58.375,
+          58.625,
+          58.875,
+          59.125,
+          59.375,
+          59.625,
+          59.875,
+          60.125,
+          60.375,
+          60.625,
+          60.875,
+          61.125,
+          61.375,
+          61.625,
+          61.875,
+          62.125,
+          62.375,
+          62.625,
+          62.875,
+          63.125,
+          63.375,
+          63.625,
+          63.875,
+          64.125,
+          64.375,
+          64.625,
+          64.875,
+          65.125,
+          65.375,
+          65.625,
+          65.875
+        ],
+        "dimension": "lat",
+        "dtype": "f64",
+        "len": 32,
+        "maskLen": 32,
+        "maskOnes": 26,
+        "points": [
+          null,
+          null,
+          null,
+          0.20999999530613422,
+          0.23999999463558197,
+          0.3299999926239252,
+          0.36999999172985554,
+          0.3999999910593033,
+          0.42999999038875103,
+          0.46999998949468136,
+          0.47999998927116394,
+          0.4899999890476465,
+          0.5399999879300594,
+          0.5999999865889549,
+          0.6099999863654375,
+          0.6399999856948853,
+          0.6799999848008156,
+          0.7399999834597111,
+          0.8199999816715717,
+          0.8399999812245369,
+          0.8199999816715717,
+          0.8399999812245369,
+          0.8499999810010195,
+          null,
+          null,
+          null,
+          0.7499999832361937,
+          0.8599999807775021,
+          0.9399999789893627,
+          0.979999978095293,
+          0.979999978095293,
+          0.9899999778717756
+        ],
+        "stats": {
+          "max": 0.9899999778717756,
+          "min": 0.20999999530613422,
+          "validCount": 26
+        },
+        "units": "%",
+        "variable": "ice"
+      }
+    },
+    {
       "id": "oisst/decode_slice/1",
       "fixture": "fieldglass-netcdf/tests/fixtures/oisst_avhrr_v2.nc",
       "op": "decodeSlice",
@@ -20812,7 +21678,8 @@
           0,
           0,
           0
-        ]
+        ],
+        "alongDim": null
       },
       "expect": {
         "dtype": "f64",
@@ -20889,6 +21756,124 @@
       }
     },
     {
+      "id": "oisst/decode_line/1",
+      "fixture": "fieldglass-netcdf/tests/fixtures/oisst_avhrr_v2.nc",
+      "op": "decodeLine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": 1,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "alongDim": 2
+      },
+      "expect": {
+        "coordinateUnits": "degrees_north",
+        "coordinates": [
+          58.125,
+          58.375,
+          58.625,
+          58.875,
+          59.125,
+          59.375,
+          59.625,
+          59.875,
+          60.125,
+          60.375,
+          60.625,
+          60.875,
+          61.125,
+          61.375,
+          61.625,
+          61.875,
+          62.125,
+          62.375,
+          62.625,
+          62.875,
+          63.125,
+          63.375,
+          63.625,
+          63.875,
+          64.125,
+          64.375,
+          64.625,
+          64.875,
+          65.125,
+          65.375,
+          65.625,
+          65.875
+        ],
+        "dimension": "lat",
+        "dtype": "f64",
+        "len": 32,
+        "maskLen": 32,
+        "maskOnes": 29,
+        "points": [
+          -1.0699999760836363,
+          -1.2099999729543924,
+          -1.269999971613288,
+          -1.3699999693781137,
+          -1.3799999691545963,
+          -1.3499999698251486,
+          -1.3299999702721834,
+          -1.2999999709427357,
+          -1.2599999718368053,
+          -1.1899999734014273,
+          -1.1899999734014273,
+          -1.2299999725073576,
+          -1.269999971613288,
+          -1.289999971166253,
+          -1.3199999704957008,
+          -1.3499999698251486,
+          -1.3799999691545963,
+          -1.4299999680370092,
+          -1.4899999666959047,
+          -1.50999996624887,
+          -1.50999996624887,
+          -1.5199999660253525,
+          -1.529999965801835,
+          null,
+          null,
+          null,
+          -1.409999968484044,
+          -1.4799999669194221,
+          -1.529999965801835,
+          -1.5599999651312828,
+          -1.5499999653548002,
+          -1.5199999660253525
+        ],
+        "stats": {
+          "max": -1.0699999760836363,
+          "min": -1.5599999651312828,
+          "validCount": 29
+        },
+        "units": "Celsius",
+        "variable": "sst"
+      }
+    },
+    {
       "id": "error/unsupported_format",
       "fixture": "fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
       "op": "open",
@@ -20914,7 +21899,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "error": {
@@ -20949,7 +21935,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "error": {
@@ -20984,7 +21971,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "error": {
@@ -21019,7 +22007,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "error": {
@@ -21054,7 +22043,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "error": {
@@ -21089,7 +22079,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "error": {
@@ -21124,7 +22115,8 @@
         "variable": null,
         "yDim": null,
         "xDim": null,
-        "sliceIndices": null
+        "sliceIndices": null,
+        "alongDim": null
       },
       "expect": {
         "error": {
@@ -21162,7 +22154,8 @@
         "sliceIndices": [
           0,
           0
-        ]
+        ],
+        "alongDim": null
       },
       "expect": {
         "error": {
@@ -21200,7 +22193,8 @@
         "sliceIndices": [
           0,
           0
-        ]
+        ],
+        "alongDim": null
       },
       "expect": {
         "error": {
@@ -21240,7 +22234,168 @@
           0,
           0,
           0
-        ]
+        ],
+        "alongDim": null
+      },
+      "expect": {
+        "error": {
+          "code": "no_such_message",
+          "hasMessage": true
+        }
+      }
+    },
+    {
+      "id": "latlon/decode_line",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
+      "op": "decodeLine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": 0,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": [
+          0,
+          0
+        ],
+        "alongDim": 0
+      },
+      "expect": {
+        "error": {
+          "code": "wrong_addressing",
+          "hasMessage": true
+        }
+      }
+    },
+    {
+      "id": "ersst/decode_line/short_slice_indices",
+      "fixture": "fieldglass-netcdf/tests/fixtures/ersst_v5_187001_cdf1.nc",
+      "op": "decodeLine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": 0,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": [
+          0,
+          0
+        ],
+        "alongDim": 2
+      },
+      "expect": {
+        "error": {
+          "code": "invalid_option",
+          "hasMessage": true
+        }
+      }
+    },
+    {
+      "id": "ersst/decode_line/no_such_axis",
+      "fixture": "fieldglass-netcdf/tests/fixtures/ersst_v5_187001_cdf1.nc",
+      "op": "decodeLine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": 0,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "alongDim": 9
+      },
+      "expect": {
+        "error": {
+          "code": "invalid_option",
+          "hasMessage": true
+        }
+      }
+    },
+    {
+      "id": "ersst/decode_line/no_such_variable",
+      "fixture": "fieldglass-netcdf/tests/fixtures/ersst_v5_187001_cdf1.nc",
+      "op": "decodeLine",
+      "args": {
+        "index": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": 99,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "alongDim": 2
       },
       "expect": {
         "error": {

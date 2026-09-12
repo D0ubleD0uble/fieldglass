@@ -121,6 +121,28 @@ function decodeOptions(args) {
   return { dtype: args.dtype ?? 'auto' };
 }
 
+/** What a line contributes to an observation —
+ *  `fieldglass::conformance::line_value` (#172). Every point, not a sample: a
+ *  line is one axis long. A plain object rather than a class, so its `mask` may
+ *  arrive as an array or a typed array; `Array.from` reads either. */
+function lineObservation(line) {
+  const values = Array.from(line.values.data);
+  const mask = Array.from(line.mask);
+  return {
+    dtype: line.values.dtype,
+    len: values.length,
+    maskLen: mask.length,
+    maskOnes: mask.reduce((n, m) => n + (m === 1 ? 1 : 0), 0),
+    variable: line.variable,
+    units: line.units,
+    dimension: line.dimension,
+    coordinates: line.coordinates ? Array.from(line.coordinates).map(real) : null,
+    coordinateUnits: line.coordinateUnits ?? null,
+    stats: nulled(line.stats),
+    points: values.map((v, i) => (mask[i] === 1 ? real(v) : null)),
+  };
+}
+
 /** What a decoded field contributes to an observation —
  *  `fieldglass::conformance::field_value`. Shared by `decode` and `combine`,
  *  which record the same shape because `combine` answers a `Field` too. */
@@ -230,6 +252,16 @@ function withHandle(caseSpec, handle) {
     } finally {
       slice.free();
     }
+  }
+  if (op === 'decodeLine') {
+    return lineObservation(
+      handle.decodeLine(
+        args.variable,
+        args.alongDim,
+        new Uint32Array(args.sliceIndices ?? []),
+        decodeOptions(args),
+      ),
+    );
   }
 
   // Everything else decodes first. The field is owned by this side, so it is

@@ -225,12 +225,16 @@ Exporting a reduced grid's own points rather than its widened raster (#244) adde
 1,374 raw bytes and 585 gzipped, 0.1%: the per-row geolocation in the long CSV,
 and the row counts every `Georef` for a reduced grid now carries.
 
+Reading a line through a variable (#172) added 5,683 raw bytes and 2,503
+gzipped, 0.5%: the `decodeLine` binding, the region read and CF unpacking behind
+it, and the serialisation of the `Line` it returns.
+
 <!-- checked by tools/check_wasm_bundle_size.py -->
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
-| baseline | 1,340,791 | 524,789 |
-| `+simd128` | 1,325,412 | 520,779 |
+| baseline | 1,346,474 | 527,292 |
+| `+simd128` | 1,331,043 | 522,490 |
 
 The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
 build drifts more than 5% from these figures in either direction, so a change

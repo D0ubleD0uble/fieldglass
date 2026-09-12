@@ -66,7 +66,7 @@ use fieldglass_core::FieldglassError;
 use fieldglass_core::bytes::{ByteRange, ByteSource};
 use std::borrow::Cow;
 
-use crate::api::{Dtype, Field};
+use crate::api::{Dtype, Field, Line};
 use crate::error::Error;
 use crate::session::{DecodeOptions, PaletteOptions, Session, WarpOptions};
 
@@ -140,6 +140,9 @@ pub enum Op {
     /// [`Session::decode_slice`], with [`Args::variable`], [`Args::y_dim`],
     /// [`Args::x_dim`] and [`Args::slice_indices`].
     DecodeSlice,
+    /// [`Session::decode_line`], with [`Args::variable`], [`Args::along_dim`]
+    /// and [`Args::slice_indices`] (#172).
+    DecodeLine,
 }
 
 /// Everything a runner needs to reproduce one call.
@@ -221,7 +224,13 @@ pub struct Args {
     /// One position per dimension of the variable, in its declared order, the
     /// two horizontal entries ignored. Never shortened to the held axes alone:
     /// a short list is a case of its own, because it is refused.
+    ///
+    /// [`Op::DecodeLine`] reads the same list, ignoring the one entry for the
+    /// axis it reads along.
     pub slice_indices: Option<Vec<u32>>,
+    /// The axis [`Op::DecodeLine`] reads along, as a position in the variable's
+    /// own dimensions (#172).
+    pub along_dim: Option<u32>,
 }
 
 /// One case: an operation on a fixture, and what it produced.
@@ -386,6 +395,18 @@ fn slice(variable: u32, indices: Vec<u32>) -> Args {
         variable: Some(variable),
         y_dim: Some(2),
         x_dim: Some(3),
+        slice_indices: Some(indices),
+        ..Args::default()
+    }
+}
+
+/// The arguments of one line: `variable` read along its dimension `along`,
+/// standing at `indices` everywhere else (#172).
+fn line(variable: u32, along: u32, indices: Vec<u32>) -> Args {
+    Args {
+        dtype: Some(Dtype::Auto),
+        variable: Some(variable),
+        along_dim: Some(along),
         slice_indices: Some(indices),
         ..Args::default()
     }
@@ -623,6 +644,14 @@ pub fn cases() -> Vec<Case> {
                 Op::DecodeSlice,
                 slice(variable, vec![0, 0, 0, 0]),
             );
+            // Along latitude, position 2 of both subjects' axes: the one axis
+            // long enough in both files to make a line worth the name, where
+            // `time` and `lev` are a single step.
+            push(
+                &format!("decode_line/{variable}"),
+                Op::DecodeLine,
+                line(variable, 2, vec![0, 0, 0, 0]),
+            );
         }
     }
 
@@ -750,9 +779,37 @@ pub fn cases() -> Vec<Case> {
     });
     out.push(Case {
         id: "ersst/decode_slice/no_such_variable".to_string(),
-        fixture: ersst,
+        fixture: ersst.clone(),
         op: Op::DecodeSlice,
         args: slice(99, vec![0, 0, 0, 0]),
+    });
+
+    // The same refusals for a line, and the one a line adds: an axis to read
+    // along that the variable does not have. A message stream refuses before
+    // any of those are looked at.
+    out.push(Case {
+        id: "latlon/decode_line".to_string(),
+        fixture: format!("{G2}regular_latlon_surface.grib2"),
+        op: Op::DecodeLine,
+        args: line(0, 0, vec![0, 0]),
+    });
+    out.push(Case {
+        id: "ersst/decode_line/short_slice_indices".to_string(),
+        fixture: ersst.clone(),
+        op: Op::DecodeLine,
+        args: line(0, 2, vec![0, 0]),
+    });
+    out.push(Case {
+        id: "ersst/decode_line/no_such_axis".to_string(),
+        fixture: ersst.clone(),
+        op: Op::DecodeLine,
+        args: line(0, 9, vec![0, 0, 0, 0]),
+    });
+    out.push(Case {
+        id: "ersst/decode_line/no_such_variable".to_string(),
+        fixture: ersst,
+        op: Op::DecodeLine,
+        args: line(99, 2, vec![0, 0, 0, 0]),
     });
 
     out
@@ -893,6 +950,42 @@ fn field_value(field: &Field) -> Value {
         "stats": value_of(&field.stats),
         "georef": georef_value(&field.georef),
         "samples": samples,
+    })
+}
+
+/// The observation for a line, in the portable spelling [`field_value`] uses
+/// (#172): masked points as `null`, counts as integers, and the coordinates
+/// through [`real`] so a non-finite one is named rather than silently nulled.
+///
+/// Every point is recorded, not a sample. A line is one axis long, and the
+/// question it answers — "what is the value at each step" — is exactly the one a
+/// sample would leave half-asked.
+fn line_value(line: &Line) -> Value {
+    let values = line.values.to_f64();
+    let points: Vec<Value> = values
+        .iter()
+        .enumerate()
+        .map(|(i, &v)| real((line.mask.get(i).copied().unwrap_or(0) == 1).then_some(v)))
+        .collect();
+    json!({
+        "dtype": match line.values.dtype() {
+            Dtype::F32 => "f32",
+            Dtype::F64 => "f64",
+            Dtype::Auto => "auto",
+        },
+        "len": count(values.len()),
+        "maskLen": count(line.mask.len()),
+        "maskOnes": count(line.mask.iter().filter(|&&m| m == 1).count()),
+        "variable": line.variable,
+        "units": line.units,
+        "dimension": line.dimension,
+        "coordinates": line
+            .coordinates
+            .as_ref()
+            .map(|c| c.iter().map(|&x| real(Some(x))).collect::<Vec<_>>()),
+        "coordinateUnits": line.coordinate_units,
+        "stats": value_of(&line.stats),
+        "points": points,
     })
 }
 
@@ -1142,6 +1235,17 @@ fn run(bytes: &[u8], case: &Case) -> Result<Value, Error> {
                 indices,
                 &decode_options(args),
             )?)
+        }
+        Op::DecodeLine => {
+            let missing = || Error::InvalidOption {
+                detail: "a decode_line case states its variable, axis and slice indices"
+                    .to_string(),
+            };
+            let args = &case.args;
+            let variable = args.variable.ok_or_else(missing)?;
+            let along = args.along_dim.ok_or_else(missing)?;
+            let indices = args.slice_indices.as_deref().ok_or_else(missing)?;
+            line_value(&session.decode_line(variable, along, indices, &decode_options(args))?)
         }
     };
     Ok(value)

@@ -35,7 +35,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use fieldglass::{
     Addressing, AxisUnits, CombineOpInfo, DecodeOptions, DimensionInfo, Dtype, Error, Field,
-    Georef, Isoline, LeftOutArray, MessageInfo, PaletteOptions, PixelProbe, Probe, Projected,
+    Georef, Isoline, LeftOutArray, Line, MessageInfo, PaletteOptions, PixelProbe, Probe, Projected,
     Raster, RenderOptions, ResolvedOptions, SourceFormat, Stats, TargetKind, Values, VariableInfo,
     WarpOptions, WarpTarget, Warped,
 };
@@ -92,6 +92,8 @@ const CLASSIFICATION: &[(&str, Class, &str)] = &[
     ("Values", Class::Wire, ""),
     ("Stats", Class::Wire, ""),
     ("Field", Class::Wire, ""),
+    // A line through an array (#172): a profile or time series at a cell.
+    ("Line", Class::Wire, ""),
     ("MessageInfo", Class::Wire, ""),
     // The second addressing mode (#662): how a container is addressed, and the
     // variables and dimensions that addressing names.
@@ -386,6 +388,7 @@ fn every_wire_type_round_trips_through_json() {
     // `GEOREF` stands in for the nested document, so the one `Georef` spelling
     // above is the only place its field names are written out.
     round_trip::<Field>("Field", &FIELD_JSON.replace("GEOREF", GEOREF_JSON));
+    round_trip::<Line>("Line", LINE_JSON);
     round_trip::<MessageInfo>(
         "MessageInfo",
         &MESSAGE_INFO_JSON.replace("GEOREF", GEOREF_JSON),
@@ -412,6 +415,7 @@ fn every_wire_type_round_trips_through_json() {
 const GEOREF_JSON: &str = r#"{"geometry":{"kind":"unsupported","label":"whatever"},"kind":"latlon","label":"latlon","ni":2,"nj":2,"boundsLonlat":[-1.0,1.0,-2.0,2.0],"corners":[1.0,-1.0,-2.0,2.0],"pointsPerRow":null,"proj4":"+proj=longlat","axisUnits":"degrees","x0":0.0,"y0":1.0,"dx":1.0,"dy":-1.0,"periodicX":false,"scan":{"iNegative":false,"jPositive":true,"jConsecutive":false}}"#;
 
 /// A `Field`, with the smallest raster that still has a mask and statistics.
+const LINE_JSON: &str = r#"{"values":{"dtype":"f64","data":[6.0,18.0]},"mask":[1,1],"stats":{"min":6.0,"max":18.0,"validCount":2},"variable":"temperature","units":"K","dimension":"time","coordinates":[0.0,6.0],"coordinateUnits":"hours since 2020-01-01 00:00:00"}"#;
 const FIELD_JSON: &str = r#"{"values":{"dtype":"f32","data":[1.0,2.0,3.0,4.0]},"mask":[1,1,1,0],"ni":2,"nj":2,"georef":GEOREF,"stats":{"min":1.0,"max":3.0,"validCount":3},"parameter":"Temperature","units":"K"}"#;
 
 /// A `MessageInfo` with every optional field present, so none of them is pinned
@@ -441,6 +445,7 @@ const ROUND_TRIPPED: &[&str] = &[
     "PaletteOptions",
     "Georef",
     "Field",
+    "Line",
     "MessageInfo",
     "CombineOpInfo",
     "RenderOptions",
@@ -1220,6 +1225,7 @@ fn no_wire_schema_hides_an_optional_element_array() {
 
     check_schema::<Georef>("Georef");
     check_schema::<Field>("Field");
+    check_schema::<Line>("Line");
     check_schema::<MessageInfo>("MessageInfo");
     check_schema::<CombineOpInfo>("CombineOpInfo");
     check_schema::<Warped>("Warped");
@@ -1251,6 +1257,7 @@ fn no_wire_schema_hides_an_optional_element_array() {
 const SCHEMA_CHECKED: &[&str] = &[
     "Georef",
     "Field",
+    "Line",
     "MessageInfo",
     "CombineOpInfo",
     "Warped",
