@@ -1,4 +1,6 @@
-use crate::bds::{BdsHeader, decode_values, parse_bds_header};
+use crate::bds::{
+    BDS_HEADER_PREFIX, BdsHeader, decode_values, parse_bds_header, parse_bds_header_prefix,
+};
 use crate::bms::{Bitmap, parse_bitmap};
 use crate::gds::{GridDescription, parse_grid_description};
 use crate::is::{IndicatorSection, parse_indicator};
@@ -209,15 +211,35 @@ impl<S: ByteSource> Grib1Reader<S> {
     }
 
     /// eccodes-style `packingType` label for one message's BDS, or `None` if
-    /// the index is out of range or the BDS header can't be parsed. This is
-    /// metadata only — it parses the 11-byte BDS header and never decodes
-    /// values, so it stays cheap to call for every message in a file.
+    /// the index is out of range or the BDS header can't be parsed.
+    ///
+    /// Metadata only, and **bounded**: it reads at most
+    /// [`BDS_HEADER_PREFIX`](crate::bds::BDS_HEADER_PREFIX) bytes of the section
+    /// and never the packed data. It used to prefetch and read the whole BDS to
+    /// parse eleven bytes of it, which over a buffer is free and over a transport
+    /// downloads the field to answer a metadata question — once per message in a
+    /// listing (#709).
     pub fn packing_label(&self, message_index: usize) -> Option<&'static str> {
-        let range = self.messages.get(message_index)?.bds_range;
-        let bytes = self.prefetch_then_read(&[range]).ok()?;
-        parse_bds_header(&bytes)
-            .ok()
-            .map(|header| header.packing_type_label())
+        let header = self.bds_header_prefix(message_index).ok()?;
+        Some(header.1.packing_type_label())
+    }
+
+    /// One message's BDS header, from a bounded prefix of the section.
+    ///
+    /// Returns the prefix alongside the header because the matrix check needs
+    /// the bytes as well as the parse. The read is clamped to the section, so a
+    /// BDS shorter than the prefix is read whole rather than refused.
+    fn bds_header_prefix(&self, message_index: usize) -> Result<(u64, BdsHeader), FieldglassError> {
+        let range = self
+            .messages
+            .get(message_index)
+            .ok_or_else(|| FieldglassError::Parse(format!("no message at index {message_index}")))?
+            .bds_range;
+        let want = range.len.min(BDS_HEADER_PREFIX as u64);
+        let prefix = ByteRange::new(range.start, want);
+        let bytes = self.prefetch_then_read(&[prefix])?;
+        let header = parse_bds_header_prefix(&bytes)?;
+        Ok((range.len, header))
     }
 
     /// Which decode method applies to one message — see [`Grib1MessageKind`].
@@ -241,6 +263,20 @@ impl<S: ByteSource> Grib1Reader<S> {
             None | Some(GridDescription::Unsupported { .. }) => Grib1MessageKind::Unsupported,
             Some(GridDescription::SphericalHarmonic(_)) => Grib1MessageKind::Spectral,
             Some(_) => {
+                let Ok((_, header)) = self.bds_header_prefix(message_index) else {
+                    return Grib1MessageKind::Unsupported;
+                };
+                // The matrix sub-header sits past the prefix and its length
+                // depends on the coefficient lists, so the only way to ask
+                // `is_matrix_of_values` is with the section in hand. The flag
+                // octet gates it: `matrixOfValues` cannot be set without the
+                // extra-flags bit, so a message without that bit is a grid on
+                // the strength of the prefix alone — which is every message in
+                // an ordinary file. Only the rare extra-flags message pays for
+                // the whole section (#709).
+                if !header.has_extra_flags {
+                    return Grib1MessageKind::Grid;
+                }
                 let Ok(bds) = self.prefetch_then_read(&[msg.bds_range]) else {
                     return Grib1MessageKind::Unsupported;
                 };

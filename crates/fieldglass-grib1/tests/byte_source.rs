@@ -116,6 +116,67 @@ fn leading_garbage_costs_windows_not_bytes() {
     assert!(reads <= 40, "{reads} reads to step over 1 MiB of garbage");
 }
 
+/// A metadata question reads a bounded prefix of the BDS, not the field.
+///
+/// `packing_label` and `message_kind` parse an 11-byte header and used to
+/// prefetch and read the *whole* data section to get at it. Over a buffer that
+/// is free; over a transport it downloads the field to answer a metadata
+/// question, once per message in a listing — which is the shape a host builds a
+/// file's message table with (#709).
+///
+/// What is asserted is the bytes, not the answers: both calls must still agree
+/// with what they said before, and neither may read more than
+/// `BDS_HEADER_PREFIX` from any message whose kind is decided by the header
+/// alone. A message with the extra-flags bit set is exempt and says so — the
+/// matrix sub-header's length depends on its coefficient lists, so that check
+/// needs the section.
+#[test]
+fn a_metadata_question_reads_the_header_prefix_and_not_the_field() {
+    const PREFIX: u64 = 18; // `fieldglass_grib1::bds::BDS_HEADER_PREFIX`
+    let mut checked = 0usize;
+    let mut exempt = 0usize;
+    for (name, bytes) in corpus() {
+        let recording = Recording::new(&bytes);
+        let reader = Grib1Reader::from_source(&recording).expect("fixture scans");
+        let whole = Grib1Reader::from_bytes(bytes.clone()).expect("buffer scan");
+
+        for i in 0..reader.message_count() {
+            let bds_len = reader.messages[i].bds_range.len;
+
+            recording.clear();
+            let label = reader.packing_label(i);
+            assert_eq!(label, whole.packing_label(i), "{name}[{i}]: label changed");
+            let read: u64 = recording.reads().iter().map(|r| r.len).sum();
+            assert!(
+                read <= PREFIX.min(bds_len),
+                "{name}[{i}]: packing_label read {read} bytes of a {bds_len}-byte BDS"
+            );
+
+            recording.clear();
+            let kind = reader.message_kind(i);
+            assert_eq!(kind, whole.message_kind(i), "{name}[{i}]: kind changed");
+            let read: u64 = recording.reads().iter().map(|r| r.len).sum();
+            if read > PREFIX.min(bds_len) {
+                // Only the extra-flags path may exceed it, and only to the
+                // section it needs.
+                assert!(
+                    read <= PREFIX + bds_len,
+                    "{name}[{i}]: message_kind read {read} bytes of a {bds_len}-byte BDS"
+                );
+                exempt += 1;
+            }
+            checked += 1;
+        }
+    }
+    assert!(checked > 10, "only {checked} messages measured");
+    // The corpus has to contain some ordinary messages, or the bound above is
+    // vacuous — every one of them could have been taking the exempt path.
+    assert!(
+        exempt < checked,
+        "every one of {checked} messages took the whole-section path"
+    );
+}
+
 /// The sections a message's decode reads: the BMS when there is one, then the
 /// BDS.
 fn plan(m: &Grib1Message) -> Vec<ByteRange> {
@@ -133,12 +194,33 @@ fn a_decode_prefetches_its_sections_once_then_reads_exactly_them() {
         let reader = Grib1Reader::from_source(&recording).expect("fixture scans");
         for (i, m) in reader.messages.iter().enumerate() {
             // Routing a gridded message reads the BDS header too, and is held
-            // to the same rule. A spectral one is decided by the GDS alone.
+            // to the same rule — one batch, and it reads exactly that. What it
+            // asks for is a **bounded prefix** of the BDS since #709, not the
+            // whole section: eleven bytes of header decide a grid, and fetching
+            // the field to read them is what that issue removed. A matrix
+            // message is the exception and needs the section, because the
+            // sub-header's length depends on its coefficient lists.
             recording.clear();
             let kind = reader.message_kind(i);
             if matches!(kind, Grib1MessageKind::Grid | Grib1MessageKind::Matrix) {
-                assert_eq!(recording.prefetches(), vec![vec![m.bds_range]]);
-                assert_eq!(recording.reads(), vec![m.bds_range]);
+                let prefix = ByteRange::new(m.bds_range.start, m.bds_range.len.min(18));
+                // Two legal shapes, and the flag octet decides which. Without
+                // the extra-flags bit the prefix settles it — one batch of at
+                // most eighteen bytes. With it, the matrix sub-header has to be
+                // read, so the section follows in a second batch; second-order
+                // packing sets that bit too, so a `Grid` can take either path.
+                let whole = vec![vec![prefix], vec![m.bds_range]];
+                assert!(
+                    recording.prefetches() == vec![vec![prefix]] || recording.prefetches() == whole,
+                    "{name}[{i}]: routing asked for {:?}",
+                    recording.prefetches()
+                );
+                // Whichever it asked for, it read exactly that and nothing else.
+                assert_eq!(
+                    recording.reads(),
+                    recording.prefetches().concat(),
+                    "{name}[{i}]: routing read something it did not prefetch"
+                );
             }
 
             recording.clear();
