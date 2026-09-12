@@ -1830,6 +1830,26 @@ fn grib1_message(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) ->
         packing: reader.packing_label(index).unwrap_or("unknown").to_string(),
         size_label: msg.gds.as_ref().and_then(|g| g.size_label()),
         grid,
+        forecast_hours: fieldglass_grib1::forecast_hours(&msg.pds),
+        // Time range 10 spends `P1` as the high octet of a two-octet value, so
+        // reporting it as a lead time there would be reporting half a number.
+        p1_octet: (msg.pds.time_range != 10).then_some(i32::from(msg.pds.p1)),
+        originating_centre: fieldglass_grib1::tables_cct::lookup_centre(msg.pds.originating_centre)
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("Centre {}", msg.pds.originating_centre)),
+        sub_centre: fieldglass_core::cct_tables::lookup_sub_centre(
+            msg.pds.originating_centre.into(),
+            msg.pds.sub_centre.into(),
+        )
+        .map(str::to_string),
+        edition: Some(1),
+        // GRIB1 has no discipline, production status or data type: these are
+        // §1 fields that arrived with edition 2. `None` is the answer, not a
+        // gap — see the field docs on `MessageInfo`.
+        discipline: None,
+        total_length_bytes: Some(u64::from(msg.is.total_length)),
+        production_status: None,
+        data_type: None,
     }
 }
 
@@ -1905,6 +1925,24 @@ fn grib2_message(reader: &fieldglass_grib2::Grib2Reader<Bytes>, index: usize) ->
             &msg.gds.template_name(),
         )),
         size_label: msg.gds.size_label(),
+        forecast_hours: common.and_then(fieldglass_grib2::forecast_hours),
+        // A GRIB1 octet, and edition 2 does not have it.
+        p1_octet: None,
+        originating_centre: fieldglass_grib2::tables_cct::lookup_centre(msg.ids.centre)
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("Centre {}", msg.ids.centre)),
+        sub_centre: fieldglass_core::cct_tables::lookup_sub_centre(
+            msg.ids.centre,
+            msg.ids.sub_centre,
+        )
+        .map(str::to_string),
+        edition: Some(i32::from(msg.is.edition)),
+        discipline: Some(fieldglass_grib2::lookup_discipline(msg.is.discipline).to_string()),
+        total_length_bytes: Some(msg.is.total_length),
+        production_status: Some(
+            fieldglass_grib2::lookup_production_status(msg.ids.production_status).to_string(),
+        ),
+        data_type: Some(fieldglass_grib2::lookup_data_type(msg.ids.data_type).to_string()),
     }
 }
 

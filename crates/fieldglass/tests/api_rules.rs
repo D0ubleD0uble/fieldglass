@@ -416,7 +416,7 @@ const FIELD_JSON: &str = r#"{"values":{"dtype":"f32","data":[1.0,2.0,3.0,4.0]},"
 
 /// A `MessageInfo` with every optional field present, so none of them is pinned
 /// only in its absent form.
-const MESSAGE_INFO_JSON: &str = r#"{"index":0,"offsetBytes":0,"parameter":"Temperature","abbreviation":"2t","units":"K","level":"2 m above ground","levelType":"heightAboveGround","referenceTime":"2026-01-01T00:00:00Z","forecast":"+6h","packing":"grid_simple","grid":GEOREF,"sizeLabel":"N32"}"#;
+const MESSAGE_INFO_JSON: &str = r#"{"index":0,"offsetBytes":0,"parameter":"Temperature","abbreviation":"2t","units":"K","level":"2 m above ground","levelType":"heightAboveGround","referenceTime":"2026-01-01T00:00:00Z","forecast":"+6h","packing":"grid_simple","grid":GEOREF,"sizeLabel":"N32","forecastHours":6,"p1Octet":null,"originatingCentre":"Centre 98","subCentre":null,"edition":2,"discipline":"Meteorological products","totalLengthBytes":1234,"productionStatus":"Operational products","dataType":"Analysis and forecast products"}"#;
 
 /// A `RenderOptions` with every field stated. `width`/`height` carry real
 /// numbers rather than `null`, so the document pins them as JSON *integers*: a
