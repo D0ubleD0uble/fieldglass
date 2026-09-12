@@ -233,8 +233,8 @@ it, and the serialisation of the `Line` it returns.
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
-| baseline | 1,346,474 | 527,292 |
-| `+simd128` | 1,331,043 | 522,490 |
+| baseline | 1,347,404 | 527,588 |
+| `+simd128` | 1,331,957 | 522,969 |
 
 The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
 build drifts more than 5% from these figures in either direction, so a change
