@@ -59,6 +59,11 @@ fieldglass-zarr = { path = "../fieldglass-zarr", version = "=0.5.0", default-fea
 # this is why that check is `cargo tree -p fieldglass-fetchplan` and not a
 # `--all-targets` build.
 fieldglass-zarr = { path = "../fieldglass-zarr", version = "=0.5.0" }
+# The transport-shaped sources (#708): `Recording` to say which ranges a read
+# through a reference document asked for, and `OneRange` for the host that
+# fetched exactly one of them. A dev-dependency feature, so the library's tree
+# stays what the `cargo tree` note above claims.
+fieldglass-core = { path = "../fieldglass-core", version = "=0.5.0", default-features = false, features = ["testing"] }
 
 [lints]
 workspace = true

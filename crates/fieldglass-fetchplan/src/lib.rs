@@ -107,6 +107,7 @@ mod discovery;
 mod ecmwf;
 mod error;
 mod kerchunk;
+mod kerchunk_objects;
 mod level;
 mod manifest;
 mod plan;
@@ -116,6 +117,7 @@ pub use discovery::{Candidate, SourceSpec, candidates};
 pub use ecmwf::EcmwfIndex;
 pub use error::{Dialect, FetchPlanError, Mismatch};
 pub use kerchunk::KerchunkRefs;
+pub use kerchunk_objects::KerchunkObjects;
 pub use level::{LevelSpec, Surface, parse_ecmwf_level, parse_ncep_level};
 pub use manifest::{Manifest, MessageManifest, NoResolver, ParameterResolver, Query};
 pub use plan::{Address, Expect, ParameterId, PlanItem, PlanRange};
@@ -124,6 +126,9 @@ pub use wgrib2::Wgrib2Idx;
 // array-model vocabulary, and a caller holding one from a store walker must be
 // able to hand it to this crate (ADR-0010 decision 2).
 pub use fieldglass_core::array::{ArrayError, ChunkGrid, ChunkKeyEncoding};
+// The keyed seam `KerchunkObjects` presents, so a caller reading a reference
+// document through it needs no `fieldglass-core` line of its own.
+pub use fieldglass_core::bytes::{ByteSource, ObjectSource};
 // The one reader of an array's metadata document lives in `fieldglass-zarr`
 // (#686), taken here without its codecs. Re-exported so a caller planning a
 // fetch needs no second manifest line to name what it planned against.

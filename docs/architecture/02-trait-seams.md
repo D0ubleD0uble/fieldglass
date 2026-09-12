@@ -118,6 +118,24 @@ written out for itself. `tests/object_source.rs` asserts through it that a walk
 lists, prefetches **once**, and then reads, which is the property a test that
 only checked the values would miss and the one an implementation loses first.
 
+`KerchunkObjects` is the second implementation, and the one that shows why the
+seam is shaped this way (#705). A kerchunk reference document maps Zarr keys onto
+bytes written inline, whole objects, or `[url, offset, length]` ranges of archives
+nobody rewrote. Paired with one `ByteSource` per URL — which is what a host
+already holds under ADR-0005 — that *is* an `ObjectSource`, so `ZarrStore` reads a
+NetCDF archive or a GRIB collection described by kerchunk **with no reader
+change**. Nothing in `fieldglass-zarr` knows what a reference document is, which
+is what ADR-0010 means by "planned and decoded with no reader change" and why the
+#658 amendment puts Zarr at the IO level rather than beside the format crates.
+
+A source per URL rather than whole objects keyed by URL, because the other way
+defeats the point: a reference document exists so a reader can take a
+twenty-four-byte chunk out of a multi-gigabyte archive without holding the
+archive. A key whose object the host did not bring is an **error naming the
+range**, never `None` — absence on this seam means a sparse array's fill value,
+and answering that for a chunk somebody failed to fetch would put fill values on
+a screen and call them data.
+
 `ArraySource` is the rung above both (#658, ADR-0010's amendment to decision
 3). The byte seams answer "give me these bytes"; this answers "give me this
 array's values": a container's `Group` tree and a raw region read, with the CF
@@ -161,6 +179,7 @@ classDiagram
 
     ByteSource <|.. Vec
     ObjectSource <|.. MemoryObjects
+    ObjectSource <|.. KerchunkObjects
     ArraySource <|.. ZarrStore
     ArraySource <|.. NetcdfArrays
     ZarrStore ..> ObjectSource : reads through
