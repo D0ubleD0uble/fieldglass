@@ -17,6 +17,11 @@ use fieldglass_core::bytes::ObjectSource;
 use fieldglass_core::bytes::{ByteSource, read_up_to};
 #[cfg(any(feature = "grib1", feature = "grib2"))]
 use fieldglass_core::units::normalize_units;
+use std::sync::Arc;
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+use std::{collections::HashMap, sync::Mutex};
+
+use fieldglass_core::cf::SlicePlacement;
 use fieldglass_core::{Format as CoreFormat, GridGeometry, detect_from_bytes};
 #[cfg(feature = "render")]
 use fieldglass_core::{
@@ -27,7 +32,7 @@ use fieldglass_core::{
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
 use fieldglass_core::{
     array::{ArraySource, AttributeValue, CfUnpacking, ElementType, attribute},
-    cf::{renderable_arrays, slice_placement},
+    cf::{RenderableArray, curvilinear_pair, renderable_arrays, slice_placement},
 };
 #[cfg(feature = "analysis")]
 use fieldglass_core::{contour_segments, contour_segments_global, nice_levels};
@@ -269,6 +274,48 @@ struct Arrays {
     source: Box<dyn ArraySource>,
     /// What [`Session::format`] reports.
     format: SourceFormat,
+    /// Slice placements already derived, keyed by what determines them
+    /// (ADR-0011).
+    ///
+    /// A placement is a pure function of the container's metadata and its
+    /// coordinate arrays, both fixed for the session's lifetime, so serving a
+    /// second identical question from here is unobservable except in time. It
+    /// is memoised rather than left to each host because *every* host needs
+    /// it and only one had it: `fieldglass-napi` cached the curvilinear index
+    /// for NetCDF, did not for Zarr — `ZarrHandle` re-derived it on every
+    /// repaint — and the browser host cached neither.
+    placements: Mutex<HashMap<PlacementKey, Arc<SlicePlacement>>>,
+}
+
+/// What a slice placement is determined by, and so what the memo is keyed on.
+///
+/// Two shapes because the expensive placement is not per-slice. Keeping one
+/// key per *slice* would rebuild a whole-mesh index once per field, which is
+/// the cost this memo exists to remove.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum PlacementKey {
+    /// A slice placed by a 2-D coordinate pair, keyed on that pair.
+    ///
+    /// One file's fields share one mesh: every RTOFS ice field sits on the
+    /// same tripolar grid, so keying on the field would pay an `O(n log n)`
+    /// build and the tree's whole footprint again for an identical answer.
+    /// The names are group-qualified, so two groups each holding a `lat` and
+    /// a `lon` stay distinct.
+    ///
+    /// Used **only** when the pair spans exactly the axes asked for. A
+    /// cross-section through a curvilinear array — time against X, say — is
+    /// not placed by the pair at all, and must not be handed the pair's
+    /// answer.
+    Coordinates { lat: String, lon: String },
+    /// Every other placement, keyed on the array and the two axes.
+    ///
+    /// These are the cheap families — 1-D lat/lon, a WRF or CF projected
+    /// domain, or nothing placed it — whose values are a handful of
+    /// parameters. Memoised all the same, because deriving them re-reads the
+    /// coordinate arrays, which on a chunked backing is a chunk read and a
+    /// decompress per repaint.
+    Axes { array: String, y: usize, x: usize },
 }
 
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
@@ -279,7 +326,88 @@ impl std::fmt::Debug for Arrays {
         f.debug_struct("Arrays")
             .field("format", &self.format)
             .field("arrays", &self.source.group().arrays_qualified().len())
+            // How much the memo is holding, which is the one part of a session
+            // that grows with use. A poisoned lock prints nothing rather than
+            // panicking inside a formatter.
+            .field("placements", &self.placements.lock().map(|p| p.len()).ok())
             .finish()
+    }
+}
+
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+impl Arrays {
+    /// A container of arrays with an empty memo, which is how every arm that
+    /// opens one starts.
+    fn new(source: Box<dyn ArraySource>, format: SourceFormat) -> Self {
+        Self {
+            source,
+            format,
+            placements: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Where a slice sits on the Earth, derived once per thing that determines
+    /// it (ADR-0011).
+    ///
+    /// The single call to [`slice_placement`] in this crate, so
+    /// [`Session::decode_slice`] and [`Session::place_slice`] cannot disagree
+    /// about a slice's geometry — they already shared the derivation, and now
+    /// share the memo of it too.
+    ///
+    /// A poisoned lock is treated as a miss and the placement rebuilt. A memo
+    /// can always recompute, so there is nothing here worth panicking over:
+    /// the failure is slower answers, not wrong ones.
+    fn placement(
+        &self,
+        var: &RenderableArray,
+        y: usize,
+        x: usize,
+    ) -> Result<Arc<SlicePlacement>, fieldglass_core::FieldglassError> {
+        let key = self.placement_key(var, y, x);
+        if let Some(hit) = self
+            .placements
+            .lock()
+            .ok()
+            .and_then(|p| p.get(&key).cloned())
+        {
+            return Ok(hit);
+        }
+        let built = Arc::new(slice_placement(self.source.as_ref(), &var.name, y, x)?);
+        if let Ok(mut p) = self.placements.lock() {
+            p.insert(key, Arc::clone(&built));
+        }
+        Ok(built)
+    }
+
+    /// What this slice's placement is determined by — see [`PlacementKey`].
+    ///
+    /// Metadata only: [`curvilinear_pair`] reads the `coordinates` attribute
+    /// and never a coordinate's values, so deriving the key costs nothing the
+    /// memo is there to avoid.
+    fn placement_key(&self, var: &RenderableArray, y: usize, x: usize) -> PlacementKey {
+        // The guard on sharing across fields: the pair may only answer for the
+        // axes it spans. Written as the pair's axis *names*, in order, because
+        // that is exactly the test `slice_placement` applies before it reaches
+        // for the pair — so the key cannot disagree with the placement about
+        // whether this slice is placed by the pair at all. Restating it
+        // positionally would: an array declaring one dimension name twice
+        // resolves both positions to the first, and the key would then say "not
+        // the pair" for a slice the placement does place by it.
+        if let (Some(y_axis), Some(x_axis)) = (var.dims.get(y), var.dims.get(x))
+            && let Some(pair) = curvilinear_pair(self.source.group(), &var.name)
+            && pair.y_dim == y_axis.name
+            && pair.x_dim == x_axis.name
+        {
+            return PlacementKey::Coordinates {
+                lat: pair.lat,
+                lon: pair.lon,
+            };
+        }
+        PlacementKey::Axes {
+            array: var.name.clone(),
+            y,
+            x,
+        }
     }
 }
 
@@ -364,24 +492,33 @@ const DETECT_PREFIX: usize = 8;
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct PlacedSlice {
-    geometry: GridGeometry,
-    scan: Scan,
+    /// The memoised placement, shared rather than copied.
+    ///
+    /// Every accessor below borrows out of this. Holding the `Arc` is what
+    /// makes placing a curvilinear slice twice actually cheap: the cached
+    /// value is a [`GridGeometry::Lookup`] over every cell — 28 bytes of
+    /// index per cell, ~400 MB on a global ocean mesh — so returning it *by
+    /// value* would pay an `O(n)` copy on each call and give back most of what
+    /// the memo saves (ADR-0011).
+    ///
+    /// Private, and the type is `#[non_exhaustive]`, so this is a
+    /// representation change rather than an API one.
+    placement: Arc<SlicePlacement>,
     ni: u32,
     nj: u32,
-    family: String,
 }
 
 impl PlacedSlice {
     /// Where the cells are.
     pub fn geometry(&self) -> &GridGeometry {
-        &self.geometry
+        &self.placement.geometry
     }
 
     /// The storage order, defaulted to north-down where the container states
     /// none — see [`fieldglass_core::cf::SlicePlacement::scan`] for why that is
     /// a different answer from "the container said north-down".
     pub fn scan(&self) -> Scan {
-        self.scan
+        self.placement.scan.unwrap_or_else(Scan::north_down)
     }
 
     /// Raster columns.
@@ -396,7 +533,7 @@ impl PlacedSlice {
 
     /// What to call the family in a picker caption or a refusal.
     pub fn family(&self) -> &str {
-        &self.family
+        self.placement.geometry.label()
     }
 
     /// This placement as the projection pipeline's input.
@@ -412,11 +549,11 @@ impl PlacedSlice {
     #[cfg(any(feature = "render", feature = "analysis"))]
     pub fn source(&self) -> crate::render::Source<'_> {
         crate::render::Source {
-            geometry: Ok(&self.geometry),
+            geometry: Ok(&self.placement.geometry),
             ni: self.ni,
             nj: self.nj,
-            scan: self.scan,
-            family: &self.family,
+            scan: self.scan(),
+            family: self.family(),
         }
     }
 }
@@ -593,10 +730,10 @@ impl Session {
                 let reader = fieldglass_netcdf::NetcdfReader::from_bytes(bytes)?;
                 // The view is resolved here, so a variable list costs one walk
                 // per file rather than one per question.
-                Reader::Arrays(Box::new(Arrays {
-                    source: Box::new(fieldglass_netcdf::NetcdfArrays::open(reader)?),
-                    format: SourceFormat::NetCdf,
-                }))
+                Reader::Arrays(Box::new(Arrays::new(
+                    Box::new(fieldglass_netcdf::NetcdfArrays::open(reader)?),
+                    SourceFormat::NetCdf,
+                )))
             }
             #[cfg(not(feature = "netcdf"))]
             CoreFormat::NetCdf => {
@@ -752,10 +889,7 @@ impl Session {
     pub fn open_store<O: ObjectSource + 'static>(objects: O) -> Result<Self, Error> {
         let store = fieldglass_zarr::ZarrStore::open(objects)?;
         Ok(Self {
-            reader: Reader::Arrays(Box::new(Arrays {
-                source: Box::new(store),
-                format: SourceFormat::Zarr,
-            })),
+            reader: Reader::Arrays(Box::new(Arrays::new(Box::new(store), SourceFormat::Zarr))),
         })
     }
 
@@ -1208,7 +1342,7 @@ impl Session {
                     .map(|d| d.attributes.as_slice())
                     .unwrap_or_default();
                 let values = CfUnpacking::from_attributes(attributes).apply(&plane);
-                let placement = slice_placement(source, &var.name, y, x)?;
+                let placement = a.placement(var, y, x)?;
                 let ni = u32::try_from(var.dims[x].length).unwrap_or(u32::MAX);
                 let nj = u32::try_from(var.dims[y].length).unwrap_or(u32::MAX);
                 let units = array_units(source, &var.name);
@@ -1296,12 +1430,10 @@ impl Session {
                     });
                 }
                 // The same call `decode_slice` makes, so the geometry a host
-                // paints with cannot disagree with the one the field reports.
-                let placement = slice_placement(source, &var.name, y, x)?;
+                // paints with cannot disagree with the one the field reports —
+                // and the same memo, so the second ask is free (ADR-0011).
                 Ok(PlacedSlice {
-                    family: placement.geometry.label().to_string(),
-                    geometry: placement.geometry,
-                    scan: placement.scan.unwrap_or_else(Scan::north_down),
+                    placement: a.placement(var, y, x)?,
                     ni: u32::try_from(var.dims[x].length).unwrap_or(u32::MAX),
                     nj: u32::try_from(var.dims[y].length).unwrap_or(u32::MAX),
                 })
@@ -1945,6 +2077,160 @@ mod tests {
             "the bounded march must draw fewer segments than the unwrapped one, \
              or this test cannot tell them apart: {bounded} vs {unwrapped}"
         );
+    }
+
+    /// The swath fixture: four variables, all placed by one 2-D coordinate
+    /// pair. Reached from a unit test rather than `tests/` because what is
+    /// being asserted is the memo's *keying*, which is private — an
+    /// integration test can only see that the answers agree, not that they
+    /// came from one entry.
+    #[cfg(feature = "netcdf")]
+    const SWATH: &[u8] = include_bytes!("../../fieldglass-netcdf/tests/fixtures/mirs_swath_n21.nc");
+
+    /// A real tripolar ocean mesh, whose fields carry a third axis — so a
+    /// cross-section through one is a slice its 2-D coordinates do not span.
+    #[cfg(feature = "netcdf")]
+    const TRIPOLAR: &[u8] =
+        include_bytes!("../../fieldglass-netcdf/tests/fixtures/rtofs_tripolar_arctic.nc");
+
+    /// The memo a session is holding, panicking if the session is not one that
+    /// holds arrays.
+    #[cfg(feature = "netcdf")]
+    fn memo(session: &Session) -> Vec<PlacementKey> {
+        let Reader::Arrays(a) = &session.reader else {
+            panic!("this fixture is a container of arrays");
+        };
+        let mut keys: Vec<_> = a
+            .placements
+            .lock()
+            .expect("not poisoned")
+            .keys()
+            .cloned()
+            .collect();
+        keys.sort_by_key(|k| format!("{k:?}"));
+        keys
+    }
+
+    /// Every field on one mesh shares one cached index (ADR-0011).
+    ///
+    /// This is the property the whole memo turns on, and the reason the key is
+    /// the coordinate pair rather than the field: the four swath variables are
+    /// on the same lat/lon pair, so placing all four must leave **one** entry.
+    /// Keyed per field it would leave four, and a global ocean grid would pay
+    /// its `O(n log n)` build and its whole footprint once per variable.
+    #[cfg(feature = "netcdf")]
+    #[test]
+    fn one_coordinate_pair_serves_every_field_on_it() {
+        let session = Session::open(SWATH.to_vec()).expect("the swath opens");
+        let vars = session.variables();
+        assert_eq!(vars.len(), 4, "the fixture's four swath variables");
+
+        for (i, v) in vars.iter().enumerate() {
+            let (Some(y), Some(x)) = (v.detected_y_dim, v.detected_x_dim) else {
+                panic!("{}: a swath variable has detected axes", v.name);
+            };
+            let placed = session
+                .place_slice(i as u32, y, x)
+                .unwrap_or_else(|e| panic!("{}: {e}", v.name));
+            assert_eq!(placed.family(), "lookup", "{} is curvilinear", v.name);
+        }
+
+        let keys = memo(&session);
+        assert_eq!(keys.len(), 1, "four fields, one mesh, one entry: {keys:?}");
+        let PlacementKey::Coordinates { lat, lon } = &keys[0] else {
+            panic!("a curvilinear slice is keyed on its coordinate pair: {keys:?}");
+        };
+        assert!(
+            lat.contains("Latitude") && lon.contains("Longitude"),
+            "keyed on the pair that built it, qualified: {lat:?} {lon:?}"
+        );
+    }
+
+    /// The guard on sharing: a cross-section is not placed by the pair, so it
+    /// must not be served the pair's answer.
+    ///
+    /// The failure this rules out is the one coordinate-keying invites. Asking
+    /// for a *different* axis pair on a curvilinear array — here the swath's
+    /// scan-line axis against its channel axis — is a slice the 2-D
+    /// coordinates do not span. If the key ignored the axes, the second call
+    /// would hit the first call's entry and report a lookup geometry for a
+    /// slice that has none, placing the raster on the wrong cells entirely.
+    #[cfg(feature = "netcdf")]
+    #[test]
+    fn a_slice_the_pair_does_not_span_is_keyed_and_placed_on_its_own() {
+        let session = Session::open(TRIPOLAR.to_vec()).expect("the mesh opens");
+        let vars = session.variables();
+        let (index, var) = vars
+            .iter()
+            .enumerate()
+            .find(|(_, v)| v.dims.len() > 2 && v.detected_y_dim.is_some())
+            .map(|(i, v)| (i as u32, v))
+            .expect("a variable with a third axis to cut against");
+        let (y, x) = (
+            var.detected_y_dim.expect("a detected Y"),
+            var.detected_x_dim.expect("a detected X"),
+        );
+        let other = (0..var.dims.len() as u32)
+            .find(|d| *d != y && *d != x)
+            .expect("a third axis");
+
+        let image = session.place_slice(index, y, x).expect("the image slice");
+        assert_eq!(image.family(), "lookup");
+
+        // The same array, cut the other way: the third axis against X.
+        let cross = session
+            .place_slice(index, other, x)
+            .expect("the cross-section places");
+        assert_ne!(
+            cross.family(),
+            "lookup",
+            "the coordinate pair does not span these axes, so it cannot place them"
+        );
+
+        let keys = memo(&session);
+        assert_eq!(
+            keys.len(),
+            2,
+            "two distinct questions, two entries: {keys:?}"
+        );
+        assert!(
+            keys.iter()
+                .any(|k| matches!(k, PlacementKey::Coordinates { .. })),
+            "the image slice keyed on its pair: {keys:?}"
+        );
+        assert!(
+            keys.iter().any(|k| matches!(
+                k,
+                PlacementKey::Axes { array, y: ky, x: kx }
+                    if array == &var.name
+                        && *ky == other as usize
+                        && *kx == x as usize
+            )),
+            "the cross-section keyed on its own array and axes: {keys:?}"
+        );
+    }
+
+    /// A second ask returns the same placement, not merely an equal one.
+    ///
+    /// `Arc::ptr_eq` on what the two calls borrow is the only assertion that
+    /// distinguishes "memoised" from "rebuilt and happened to agree", and it
+    /// does it without timing anything.
+    #[cfg(feature = "netcdf")]
+    #[test]
+    fn the_second_ask_borrows_the_first_answer() {
+        let session = Session::open(SWATH.to_vec()).expect("the swath opens");
+        let v = &session.variables()[0];
+        let (y, x) = (
+            v.detected_y_dim.expect("a detected Y"),
+            v.detected_x_dim.expect("a detected X"),
+        );
+        let first = session.place_slice(0, y, x).expect("places");
+        let second = session.place_slice(0, y, x).expect("places again");
+        assert!(
+            Arc::ptr_eq(&first.placement, &second.placement),
+            "the second call served the cached placement"
+        );
+        assert_eq!(memo(&session).len(), 1);
     }
 }
 
