@@ -208,6 +208,104 @@ fn report(wrong: &[String]) {
     );
 }
 
+/// Every field of `MessageMeta`, as `Debug`, so a whole-struct comparison names
+/// the fields that differ instead of printing two seventy-two-field blobs.
+///
+/// Parsed out of the derived `Debug` rather than listed by hand: a field added
+/// to `MessageMeta` then enters this comparison automatically, where a hand-kept
+/// list would silently stop covering it.
+fn fields(meta: &MessageMeta) -> std::collections::BTreeMap<String, String> {
+    let text = format!("{meta:#?}");
+    let mut out = std::collections::BTreeMap::new();
+    let mut current: Option<(String, String)> = None;
+    for line in text.lines() {
+        let line = line.trim();
+        // Pretty `Debug` wraps a value across lines — `Some(`, the value, `)` —
+        // so a continuation has to join the field it belongs to. Splitting per
+        // line without this compares every wrapped value as the literal
+        // `"Some("`, which sees a present/absent difference but never a wrong
+        // number. It did exactly that until the corpus made it obvious.
+        match line.split_once(": ") {
+            Some((k, v)) if !k.contains(' ') && !k.contains('(') => {
+                if let Some((key, value)) = current.take() {
+                    out.insert(key, value);
+                }
+                current = Some((k.to_string(), v.trim_end_matches(',').to_string()));
+            }
+            _ => {
+                if let Some((_, value)) = current.as_mut() {
+                    value.push_str(line.trim_end_matches(','));
+                }
+            }
+        }
+    }
+    if let Some((key, value)) = current {
+        out.insert(key, value);
+    }
+    out
+}
+
+/// The whole `MessageMeta` the unified builder produces against the one a
+/// hand-written builder does, appended to `wrong`.
+///
+/// This is the claim #726's handle migration rests on: that one builder over
+/// `Session`'s DTOs reproduces both per-edition builders exactly. Compared as a
+/// whole struct rather than a chosen list, so a field nobody thought about is
+/// still covered.
+fn compare_whole_meta(
+    what: &str,
+    file: &str,
+    index: u32,
+    from_handle: &MessageMeta,
+    from_session: &MessageMeta,
+    wrong: &mut Vec<String>,
+    known: &mut Vec<String>,
+) {
+    let (a, b) = (fields(from_handle), fields(from_session));
+    for (field, handle) in &a {
+        let session = b.get(field).map(String::as_str).unwrap_or("<absent>");
+        if handle == session {
+            continue;
+        }
+        let line = format!("  {file}#{index} {what} {field}: handle {handle} vs session {session}");
+        if KNOWN_GAPS.contains(&field.as_str()) {
+            known.push(line);
+        } else {
+            wrong.push(line);
+        }
+    }
+}
+
+/// The fields one builder over `Session`'s DTOs cannot yet reproduce, and why.
+///
+/// **Corner coordinates** (`lat_first`, `lon_first`, `lat_last`, `lon_last`).
+/// The per-edition builders read them from the format crate's own
+/// `bounds()`, which for a projected family *computes* the far corner by
+/// projecting the last grid point, and for a reduced grid reports the
+/// **declared** octet rather than the widened raster's. `GridGeometry` carries
+/// neither: a `PolarStereo` is defined by its first corner plus spacing, so it
+/// has no `lat_last` to read, and a widened reduced grid's computed corner
+/// differs from the declared one in the fifth decimal (357.1875 against the
+/// file's 357.188).
+///
+/// **Row order for a family with no conventional raster** (`j_scans_positive`).
+/// The handles report `Some(false)` for HEALPix and nothing for a synthesised
+/// spectral grid; going through `Georef` gives the opposite on both, because a
+/// synthesised raster genuinely is north-down and a HEALPix pixel list genuinely
+/// has no rows.
+///
+/// Both are recorded rather than papered over: closing them means `Georef`
+/// carrying the format's own corner pair, which is a DTO addition with its own
+/// justification, not something to slip into a refactor. Until then this test
+/// says exactly how far one builder gets, which is the useful fact for #726.
+const KNOWN_GAPS: [&str; 5] = [
+    "lat_first",
+    "lon_first",
+    "lat_last",
+    "lon_last",
+    "j_scans_positive",
+];
+
 /// Every GRIB1 fixture, every message.
 #[test]
 fn the_session_answers_what_grib1_handles_answer() {
@@ -289,4 +387,152 @@ fn the_session_answers_what_grib2_handles_answer() {
     );
     report(&wrong);
     eprintln!("grib2: {files} files, {messages} messages agree");
+}
+
+/// One builder over `Session`'s DTOs reproduces both per-edition builders,
+/// field for field, for every message of every GRIB fixture.
+///
+/// Two placements are checked per message, because which `Georef` the builder
+/// is given is the only difference between the three metas the handles build
+/// today:
+///
+/// - **declared** — `message().grid` against the handle's `message_meta`.
+/// - **resolved** — `place_message()` against the handle's `resolved_meta`,
+///   which is the spectral synthesis grid where there is one and the declared
+///   raster otherwise.
+#[test]
+fn one_builder_reproduces_both_per_edition_builders() {
+    let mut wrong = Vec::new();
+    let mut known = Vec::new();
+    let (mut checked, mut resolved_differed) = (0, 0);
+
+    for extension in CORPUS[0].2 {
+        for path in fixtures(CORPUS[0].1, extension) {
+            let file = format!("grib1/{}", stem(&path));
+            let bytes = std::fs::read(&path).expect("fixture bytes");
+            let Ok(reader) = Grib1Reader::from_bytes(bytes.clone()) else {
+                continue;
+            };
+            let count = reader.messages.len() as u32;
+            let handle = Grib1Handle {
+                reader,
+                decoded: Mutex::new(std::collections::HashMap::new()),
+                synthesized: Mutex::new(std::collections::HashMap::new()),
+            };
+            let session = fieldglass::Session::open(bytes).expect("opens");
+            for i in 0..count {
+                checked += 1;
+                let info = session.message(i).expect("the session's message");
+                compare_whole_meta(
+                    "declared",
+                    &file,
+                    i,
+                    &handle.message_meta(i).expect("the handle's declared meta"),
+                    &crate::session_meta::meta_from_session(&info, info.grid.as_ref(), "grib1"),
+                    &mut wrong,
+                    &mut known,
+                );
+                // A message `place_message` refuses has no resolved placement to
+                // compare, and the handle refuses it too — `place_slice`'s own
+                // corpus test in the umbrella is what holds those two together.
+                if let (Ok(placed), Ok(handle_resolved)) =
+                    (session.place_message(i), handle.resolved_meta(i))
+                {
+                    if placed.label
+                        != info
+                            .grid
+                            .as_ref()
+                            .map(|g| g.label.clone())
+                            .unwrap_or_default()
+                    {
+                        resolved_differed += 1;
+                    }
+                    compare_whole_meta(
+                        "resolved",
+                        &file,
+                        i,
+                        &handle_resolved,
+                        &crate::session_meta::meta_from_session(&info, Some(&placed), "grib1"),
+                        &mut wrong,
+                        &mut known,
+                    );
+                }
+            }
+        }
+    }
+
+    for path in fixtures(CORPUS[1].1, CORPUS[1].2[0]) {
+        let file = format!("grib2/{}", stem(&path));
+        let bytes = std::fs::read(&path).expect("fixture bytes");
+        let Ok(reader) = Grib2Reader::from_bytes(bytes.clone()) else {
+            continue;
+        };
+        let count = reader.messages.len() as u32;
+        let handle = Grib2Handle {
+            reader,
+            decoded: Mutex::new(std::collections::HashMap::new()),
+            synthesized: Mutex::new(std::collections::HashMap::new()),
+        };
+        let session = fieldglass::Session::open(bytes).expect("opens");
+        for i in 0..count {
+            checked += 1;
+            let info = session.message(i).expect("the session's message");
+            compare_whole_meta(
+                "declared",
+                &file,
+                i,
+                &handle.message_meta(i).expect("the handle's declared meta"),
+                &crate::session_meta::meta_from_session(&info, info.grid.as_ref(), "grib2"),
+                &mut wrong,
+                &mut known,
+            );
+            if let (Ok(placed), Ok(handle_resolved)) =
+                (session.place_message(i), handle.resolved_meta(i))
+            {
+                if placed.label
+                    != info
+                        .grid
+                        .as_ref()
+                        .map(|g| g.label.clone())
+                        .unwrap_or_default()
+                {
+                    resolved_differed += 1;
+                }
+                compare_whole_meta(
+                    "resolved",
+                    &file,
+                    i,
+                    &handle_resolved,
+                    &crate::session_meta::meta_from_session(&info, Some(&placed), "grib2"),
+                    &mut wrong,
+                    &mut known,
+                );
+            }
+        }
+    }
+
+    report(&wrong);
+    assert!(checked > 0, "the GRIB corpus is present");
+    // The other direction: if the recorded gaps stopped appearing, `KNOWN_GAPS`
+    // is excusing nothing and the entries should go rather than stand as a
+    // permanent apology.
+    assert!(
+        !known.is_empty(),
+        "KNOWN_GAPS lists fields that no longer differ — remove them"
+    );
+    // The resolved comparison is only worth anything where resolving actually
+    // changes the answer — a synthesised family. Asserted so a corpus that lost
+    // its spectral fixtures could not turn half this test into a duplicate of
+    // the other half.
+    assert!(
+        resolved_differed > 0,
+        "the corpus must still hold a message whose resolved placement differs \
+         from its declared one"
+    );
+    eprintln!(
+        "{checked} messages: one builder reproduces both on every field outside \
+         KNOWN_GAPS ({resolved_differed} resolved differently from declared, \
+         {} recorded gaps)",
+        known.len()
+    );
 }
