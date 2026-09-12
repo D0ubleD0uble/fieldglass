@@ -148,8 +148,9 @@ pub(crate) fn present_count(bitmap: Option<&[bool]>, expected_count: usize) -> u
 /// reconstructed integer grid `x` in storage order, scale it by
 /// `(R + x·2^E) / 10^D`, undo boustrophedonic run ordering (odd runs stored
 /// right-to-left) if `boustrophedonic` is set, then interleave `None` at any
-/// bitmap-masked points. Used by both [`second_order`] and
-/// [`second_order_classic`].
+/// bitmap-masked points. Used by [`second_order`] and by every
+/// [`second_order_classic`] layout except `row_by_row`, which goes through
+/// [`finalize_stored_order`] because its values are never reversed.
 ///
 /// `runs` is [`StoredRuns::Uniform`] for a rectangle and [`StoredRuns::Ragged`]
 /// for a reduced grid, whose rows differ in width and used to be handed a `0`
@@ -179,6 +180,32 @@ pub(crate) fn finalize_second_order(
     let boustrophedonic = header
         .complex_extended
         .is_some_and(|ext| ext.boustrophedonic());
+    finalize_stored_order(
+        x,
+        header,
+        decimal_scale,
+        boustrophedonic.then_some(runs),
+        bitmap,
+        expected_count,
+    )
+}
+
+/// [`finalize_second_order`] for a layout whose values come out of the section
+/// in grid order whatever octet 14 says, reversing the runs in `undo` only when
+/// it is given.
+///
+/// `grid_second_order_row_by_row` is that layout: its eccodes data definition
+/// is the one second-order definition with no `data_apply_boustrophedonic`
+/// wrapper, so eccodes decodes a message with the zig-zag bit set exactly as it
+/// decodes the same message with the bit clear (#611).
+pub(crate) fn finalize_stored_order(
+    x: Vec<i64>,
+    header: &BdsHeader,
+    decimal_scale: i16,
+    undo: Option<StoredRuns<'_>>,
+    bitmap: Option<&[bool]>,
+    expected_count: usize,
+) -> Result<Vec<Option<f64>>, FieldglassError> {
     let two_pow_e = 2f64.powi(header.binary_scale_factor as i32);
     let d_scale = 10f64.powi(-(decimal_scale as i32));
     let r = header.reference_value;
@@ -188,7 +215,7 @@ pub(crate) fn finalize_second_order(
         .map(|v| (r + (*v as f64) * two_pow_e) * d_scale)
         .collect();
 
-    if boustrophedonic {
+    if let Some(runs) = undo {
         fieldglass_core::reverse_alternate_runs(&mut scaled, runs);
     }
 

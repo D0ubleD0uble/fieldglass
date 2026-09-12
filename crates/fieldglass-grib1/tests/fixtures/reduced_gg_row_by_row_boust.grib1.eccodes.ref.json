@@ -1,0 +1,202 @@
+{
+  "messages": [
+    {
+      "editionNumber": 1,
+      "table2Version": 128,
+      "centre": 98,
+      "subCentre": 0,
+      "generatingProcessIdentifier": 137,
+      "indicatorOfParameter": 130,
+      "indicatorOfTypeOfLevel": 100,
+      "level": 1000,
+      "timeRangeIndicator": 0,
+      "dataDate": 20100912,
+      "dataTime": 1200,
+      "decimalScaleFactor": 0,
+      "GDSPresent": 1,
+      "bitmapPresent": 0,
+      "gridType": "reduced_gg",
+      "Ni": null,
+      "Nj": 64,
+      "Nx": null,
+      "Ny": 64,
+      "numberOfDataPoints": 6114,
+      "latitudeOfFirstGridPointInDegrees": 87.864,
+      "longitudeOfFirstGridPointInDegrees": 0,
+      "latitudeOfLastGridPointInDegrees": -87.864,
+      "longitudeOfLastGridPointInDegrees": 357.188,
+      "iDirectionIncrementInDegrees": null,
+      "earthIsOblate": 0,
+      "uvRelativeToGrid": 0,
+      "iScansNegatively": 0,
+      "jScansPositively": 0,
+      "jPointsAreConsecutive": 0,
+      "N": 32,
+      "pl": [
+        20,
+        27,
+        36,
+        40,
+        45,
+        50,
+        60,
+        64,
+        72,
+        75,
+        80,
+        90,
+        90,
+        96,
+        100,
+        108,
+        108,
+        120,
+        120,
+        120,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        120,
+        120,
+        120,
+        108,
+        108,
+        100,
+        96,
+        90,
+        90,
+        80,
+        75,
+        72,
+        64,
+        60,
+        50,
+        45,
+        40,
+        36,
+        27,
+        20
+      ],
+      "packingType": "grid_second_order_row_by_row",
+      "sphericalHarmonics": 0,
+      "complexPacking": 1,
+      "integerPointValues": 0,
+      "additionalFlagPresent": 1,
+      "bitsPerValue": 10,
+      "widthOfFirstOrderValues": 9,
+      "binaryScaleFactor": -4,
+      "referenceValue": 247,
+      "matrixOfValues": 0,
+      "secondaryBitmapPresent": 0,
+      "secondOrderOfDifferentWidth": 1,
+      "generalExtended2ordr": 0,
+      "boustrophedonicOrdering": 1,
+      "twoOrdersOfSPD": 0,
+      "plusOneinOrdersOfSPD": 0
+    }
+  ],
+  "values": [
+    {
+      "count": 6114,
+      "numberOfMissing": 0,
+      "minimum": 247.375,
+      "maximum": 298,
+      "average": 272.128,
+      "sample": [
+        [
+          0,
+          248.062
+        ],
+        [
+          382,
+          257.5
+        ],
+        [
+          764,
+          269.125
+        ],
+        [
+          1146,
+          262.062
+        ],
+        [
+          1528,
+          282.062
+        ],
+        [
+          1910,
+          285.812
+        ],
+        [
+          2292,
+          288
+        ],
+        [
+          2674,
+          288.375
+        ],
+        [
+          3056,
+          287
+        ],
+        [
+          3438,
+          284.5
+        ],
+        [
+          3820,
+          280.625
+        ],
+        [
+          4202,
+          275.688
+        ],
+        [
+          4584,
+          268.25
+        ],
+        [
+          4966,
+          276.5
+        ],
+        [
+          5348,
+          258.5
+        ],
+        [
+          5730,
+          251.25
+        ],
+        [
+          6112,
+          247.688
+        ],
+        [
+          6113,
+          247.812
+        ]
+      ]
+    }
+  ]
+}

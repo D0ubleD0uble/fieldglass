@@ -142,6 +142,16 @@ grib1/reduced_gg_n32_smooth.grib1#00	combine/a_minus_b/render/source/nearest	ok 
 grib1/reduced_gg_n32_smooth.grib1#00	meta	family=reduced_gaussian ni=128 nj=64 reprojectable=true	5da70dd7c6aef57f
 grib1/reduced_gg_n32_smooth.grib1#00	render/equirectangular/nearest	ok w=720 h=360 opaque=259200	0836806ae2c89804
 grib1/reduced_gg_n32_smooth.grib1#00	render/source/nearest	ok w=128 h=64 opaque=8192	5fe292891fbf6ebf
+grib1/reduced_gg_row_by_row.grib1	file	parsed=true fields=1	fc2e3f9795c31b44
+grib1/reduced_gg_row_by_row.grib1#00	combine/a_minus_b/render/source/nearest	ok w=128 h=64 opaque=8192	f70792deaabf1a4e
+grib1/reduced_gg_row_by_row.grib1#00	meta	family=reduced_gaussian ni=128 nj=64 reprojectable=true	5da70dd7c6aef57f
+grib1/reduced_gg_row_by_row.grib1#00	render/equirectangular/nearest	ok w=720 h=360 opaque=259200	38db0c019894d6eb
+grib1/reduced_gg_row_by_row.grib1#00	render/source/nearest	ok w=128 h=64 opaque=8192	001e6d6235b99386
+grib1/reduced_gg_row_by_row_boust.grib1	file	parsed=true fields=1	fc2e3f9795c31b44
+grib1/reduced_gg_row_by_row_boust.grib1#00	combine/a_minus_b/render/source/nearest	ok w=128 h=64 opaque=8192	f70792deaabf1a4e
+grib1/reduced_gg_row_by_row_boust.grib1#00	meta	family=reduced_gaussian ni=128 nj=64 reprojectable=true	5da70dd7c6aef57f
+grib1/reduced_gg_row_by_row_boust.grib1#00	render/equirectangular/nearest	ok w=720 h=360 opaque=259200	38db0c019894d6eb
+grib1/reduced_gg_row_by_row_boust.grib1#00	render/source/nearest	ok w=128 h=64 opaque=8192	001e6d6235b99386
 grib1/reduced_gg_second_order.grib1	file	parsed=true fields=1	fc2e3f9795c31b44
 grib1/reduced_gg_second_order.grib1#00	combine/a_minus_b/render/source/nearest	ok w=128 h=64 opaque=8192	f70792deaabf1a4e
 grib1/reduced_gg_second_order.grib1#00	meta	family=reduced_gaussian ni=128 nj=64 reprojectable=true	5da70dd7c6aef57f

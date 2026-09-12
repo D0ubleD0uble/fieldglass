@@ -208,6 +208,15 @@ fn expand_group(
 /// `grid_second_order_row_by_row` (implied secondary bitmap: one group per
 /// row, `numberOfGroups == numberOfRows`; per-group widths). No SPD, no stored
 /// secondary bitmap.
+///
+/// Group `j` holds row `j`'s points: the column count on a regular grid,
+/// `pl[j]` on a reduced one — eccodes' `numbersPerRow` in
+/// `DataG1SecondOrderRowByRowPacking::unpack`.
+///
+/// The values are returned in stored order even when octet 14's zig-zag bit is
+/// set. eccodes' data definition for this packing is the one second-order
+/// definition with no `data_apply_boustrophedonic` wrapper, so it ignores the
+/// bit, where this decoder used to reverse the odd rows anyway (#611).
 pub fn decode_row_by_row(
     bds: &[u8],
     header: &BdsHeader,
@@ -216,43 +225,17 @@ pub fn decode_row_by_row(
     expected_count: usize,
     runs: StoredRuns<'_>,
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
-    // Presence, not the value: the zig-zag bit is read where it is used, in
-    // `finalize_second_order`. This decoder still refuses a section that has no
-    // extended flags at all.
     header.complex_extended.ok_or_else(|| {
         FieldglassError::Parse("row_by_row decoder without complex_extended".into())
     })?;
     let ClassicHeader {
         num_groups,
         width_of_first,
-        // P2 is unused here: the point count is derived from rows × columns.
+        // P2 is unused here: the point count is derived from the rows.
         ..
     } = common_header(bds, header, expected_count)?;
 
-    // One group per row ⇒ numberOfGroups rows of `cols` points each. A reduced
-    // grid has no single width, and eccodes' row-by-row accessor sizes group
-    // `j` by `pl[j]` for one — but nothing here can check that against an
-    // oracle, since eccodes 2.34.1 cannot encode this packing and no committed
-    // fixture pairs it with a reduced grid. Say so and refuse, rather than
-    // guess a layout (#605).
-    let Some(cols) = runs.uniform_width() else {
-        return Err(FieldglassError::UnsupportedSection(
-            "BDS uses `grid_second_order_row_by_row` on a reduced grid, whose rows \
-             differ in width; this decoder sizes its groups by a single column count"
-                .into(),
-        ));
-    };
-    if cols == 0 {
-        return Err(FieldglassError::Parse(
-            "row_by_row needs a non-zero column count".into(),
-        ));
-    }
-    if num_groups.checked_mul(cols) != Some(expected_count) {
-        return Err(FieldglassError::Parse(format!(
-            "row_by_row: numberOfGroups {num_groups} × cols {cols} != {expected_count} points"
-        )));
-    }
-
+    let row_lengths = row_lengths(runs, num_groups, expected_count)?;
     let (group_widths, fo_start) = read_group_widths(bds, num_groups, "row_by_row")?;
 
     // offsetBeforeData = 21 + numberOfGroups: first-order values, then the
@@ -267,11 +250,45 @@ pub fn decode_row_by_row(
 
     let mut so = BitReader::new(&bds[x_start..]);
     let mut x: Vec<i64> = Vec::with_capacity(expected_count);
-    for (&w, &ref_raw) in group_widths.iter().zip(&first_order) {
-        expand_group(&mut x, &mut so, w, cols, ref_raw as i64)?;
+    for ((&w, &ref_raw), len) in group_widths.iter().zip(&first_order).zip(row_lengths) {
+        expand_group(&mut x, &mut so, w, len, ref_raw as i64)?;
     }
 
-    super::finalize_second_order(x, header, decimal_scale, runs, bitmap, expected_count)
+    super::finalize_stored_order(x, header, decimal_scale, None, bitmap, expected_count)
+}
+
+/// The length of each of `row_by_row`'s `num_groups` groups, one per row,
+/// checked to cover exactly `expected_count` points.
+fn row_lengths(
+    runs: StoredRuns<'_>,
+    num_groups: usize,
+    expected_count: usize,
+) -> Result<Vec<usize>, FieldglassError> {
+    let lengths: Vec<usize> = match runs {
+        StoredRuns::Uniform(0) => {
+            return Err(FieldglassError::Parse(
+                "row_by_row needs a non-zero column count".into(),
+            ));
+        }
+        StoredRuns::Uniform(cols) => vec![cols; num_groups],
+        StoredRuns::Ragged(pl) if pl.len() != num_groups => {
+            return Err(FieldglassError::Parse(format!(
+                "row_by_row: numberOfGroups {num_groups} != {} rows in PL",
+                pl.len()
+            )));
+        }
+        StoredRuns::Ragged(pl) => pl.iter().map(|&n| n as usize).collect(),
+    };
+    let total = lengths
+        .iter()
+        .try_fold(0usize, |sum, &n| sum.checked_add(n));
+    if total != Some(expected_count) {
+        return Err(FieldglassError::Parse(format!(
+            "row_by_row: {num_groups} rows hold {} points, not {expected_count}",
+            total.map_or_else(|| "more than usize::MAX".to_string(), |t| t.to_string())
+        )));
+    }
+    Ok(lengths)
 }
 
 /// `grid_second_order_constant_width` — an explicit secondary bitmap (P2 bits,
@@ -432,15 +449,25 @@ mod tests {
     use super::*;
     use crate::bds::ComplexExtendedHeader;
 
-    /// A 22-octet `row_by_row` section: two groups, 8-bit first-order values,
-    /// and nothing after the header. Enough to reach the layout check and no
-    /// further, which is what these two assertions are about.
-    fn stub_row_by_row() -> (Vec<u8>, BdsHeader) {
-        let mut bds = vec![0u8; 22];
-        bds[0..3].copy_from_slice(&[0, 0, 22]);
+    /// A `row_by_row` section of two groups over six points: 8-bit first-order
+    /// values 5 and 10, group widths 0 and 3, and the second group's residuals
+    /// 0, 1, 2, 3. Laid out as a two-row reduced grid of 2 and 4 points, it
+    /// decodes to `5 5 10 11 12 13`; `extended_flag` is octet 14.
+    fn stub_row_by_row(extended_flag: u8) -> (Vec<u8>, BdsHeader) {
+        let mut bds = vec![0u8; 23 + 2 + 2];
+        let len = bds.len() as u8;
+        bds[0..3].copy_from_slice(&[0, 0, len]);
         bds[17] = 2; // codedNumberOfGroups = 2
+        bds[19] = 6; // numberOfSecondOrderPackedValues
+        bds[21] = 0; // groupWidths
+        bds[22] = 3;
+        bds[23] = 5; // firstOrderValues
+        bds[24] = 10;
+        // Residuals 0, 1, 2, 3 at 3 bits: 000 001 010 011, then padding.
+        bds[25] = 0b0000_0101;
+        bds[26] = 0b0011_0000;
         let header = BdsHeader {
-            section_len: 22,
+            section_len: u32::from(len),
             is_spherical_harmonic: false,
             is_complex_packing: true,
             is_integer_data: false,
@@ -451,45 +478,65 @@ mod tests {
             bits_per_value: 8,
             spherical_extended: None,
             complex_extended: Some(ComplexExtendedHeader {
-                n1: 0,
-                // secondOrderOfDifferentWidth, no secondary bitmap, no
-                // general-extended: `grid_second_order_row_by_row`.
-                extended_flag: 0x10,
+                n1: 24,
+                extended_flag,
             }),
         };
         (bds, header)
     }
 
-    /// `row_by_row` sizes its groups by one column count, so a reduced grid —
-    /// whose rows differ in width — is refused by name rather than decoded on a
-    /// guessed layout. eccodes sizes group `j` by `pl[j]` for one, but it
-    /// cannot encode this packing, so there is no oracle here to check that
-    /// against; #611 tracks closing the gap with a hand-built fixture.
-    #[test]
-    fn row_by_row_refuses_a_reduced_grid() {
-        let (bds, header) = stub_row_by_row();
-        let err = decode_row_by_row(&bds, &header, 0, None, 6, StoredRuns::Ragged(&[2, 4]))
-            .expect_err("a reduced grid has no single column count");
-        match err {
-            FieldglassError::UnsupportedSection(msg) => assert!(
-                msg.contains("row_by_row") && msg.contains("reduced grid"),
-                "error should name the packing and the grid, got: {msg}"
-            ),
-            other => panic!("expected UnsupportedSection, got {other:?}"),
-        }
+    /// secondOrderOfDifferentWidth, no secondary bitmap, no general-extended:
+    /// `grid_second_order_row_by_row`.
+    const ROW_BY_ROW: u8 = 0x10;
+    const ZIGZAG: u8 = 0x04;
+
+    fn present(values: Vec<Option<f64>>) -> Vec<f64> {
+        values.into_iter().map(|v| v.expect("no bit-map")).collect()
     }
 
-    /// The same stub with a uniform layout gets *past* that check and fails
-    /// later, on group descriptors the section does not carry — so the refusal
-    /// above is about the grid's shape, not about the stub being a stub.
+    /// A reduced grid's group `j` holds `pl[j]` points. A decoder that sized
+    /// both groups by one width would put three points in each and read the
+    /// second group's residuals from the wrong row.
     #[test]
-    fn the_same_section_with_a_uniform_layout_reaches_the_group_descriptors() {
-        let (bds, header) = stub_row_by_row();
-        let err = decode_row_by_row(&bds, &header, 0, None, 6, StoredRuns::Uniform(3))
-            .expect_err("the stub carries no group widths");
-        assert!(
-            matches!(err, FieldglassError::Parse(_)),
-            "expected a Parse error past the layout check, got {err:?}"
-        );
+    fn row_by_row_sizes_each_group_by_its_rows_points() {
+        let (bds, header) = stub_row_by_row(ROW_BY_ROW);
+        let values = decode_row_by_row(&bds, &header, 0, None, 6, StoredRuns::Ragged(&[2, 4]))
+            .expect("a two-row reduced grid decodes");
+        assert_eq!(present(values), [5.0, 5.0, 10.0, 11.0, 12.0, 13.0]);
+    }
+
+    /// eccodes' row-by-row data definition has no boustrophedonic wrapper, so
+    /// the zig-zag bit leaves the values in stored order. Reversing the second
+    /// row would give `13 12 11 10`.
+    #[test]
+    fn row_by_row_ignores_the_zigzag_bit() {
+        let (bds, header) = stub_row_by_row(ROW_BY_ROW | ZIGZAG);
+        assert_eq!(header.packing_type_label(), "grid_second_order_row_by_row");
+        let values = decode_row_by_row(&bds, &header, 0, None, 6, StoredRuns::Ragged(&[2, 4]))
+            .expect("decodes");
+        assert_eq!(present(values), [5.0, 5.0, 10.0, 11.0, 12.0, 13.0]);
+    }
+
+    /// The row count must be the group count, and the rows must hold every
+    /// point; either mismatch is refused rather than read off the end.
+    #[test]
+    fn row_by_row_refuses_rows_that_do_not_match_the_section() {
+        let (bds, header) = stub_row_by_row(ROW_BY_ROW);
+        for (runs, what) in [
+            (StoredRuns::Ragged(&[6]), "one row for two groups"),
+            (StoredRuns::Ragged(&[2, 3]), "rows short of the point count"),
+            (
+                StoredRuns::Ragged(&[u32::MAX, u32::MAX]),
+                "rows past the point count",
+            ),
+            (StoredRuns::Uniform(2), "columns short of the point count"),
+            (StoredRuns::Uniform(0), "no column count"),
+        ] {
+            let err = decode_row_by_row(&bds, &header, 0, None, 6, runs).expect_err(what);
+            assert!(
+                matches!(&err, FieldglassError::Parse(msg) if msg.contains("row_by_row")),
+                "{what}: expected a row_by_row Parse error, got {err:?}"
+            );
+        }
     }
 }

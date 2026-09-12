@@ -41,20 +41,6 @@ pub enum StoredRuns<'a> {
     Ragged(&'a [u32]),
 }
 
-impl StoredRuns<'_> {
-    /// The width every run shares, or `None` for a ragged layout.
-    ///
-    /// For callers that need a run length *before* seeing the field — GRIB1's
-    /// `row_by_row` second-order packing sizes its groups by it — rather than
-    /// to walk one, which [`reverse_alternate_runs`] does without asking.
-    pub fn uniform_width(&self) -> Option<usize> {
-        match self {
-            Self::Uniform(width) => Some(*width),
-            Self::Ragged(_) => None,
-        }
-    }
-}
-
 /// Reverse every second stored run in place, undoing boustrophedonic ordering.
 ///
 /// Run 0 scans in the nominal direction, so the odd-indexed runs (1, 3, 5, …)
@@ -248,14 +234,6 @@ mod tests {
         assert_eq!(v, field(3));
         reverse_alternate_runs(&mut v, StoredRuns::Uniform(usize::MAX / 2 + 1));
         assert_eq!(v, field(3));
-    }
-
-    /// Only the uniform shape can name a width; a reduced grid has none, which
-    /// is exactly what its callers must branch on.
-    #[test]
-    fn only_a_uniform_layout_has_one_width() {
-        assert_eq!(StoredRuns::Uniform(7).uniform_width(), Some(7));
-        assert_eq!(StoredRuns::Ragged(&[2, 3]).uniform_width(), None);
     }
 
     /// `ni = 2`, `nj = 3`: the stored columns `[0,1,2]` and `[3,4,5]` become
