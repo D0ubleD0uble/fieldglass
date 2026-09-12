@@ -209,12 +209,20 @@ this build carries because it opens NetCDF. It buys the browser the cache it had
 no version of: a curvilinear field's spatial index is now built once per open
 file rather than once per repaint.
 
+Answering a message's identification in `Session` (#726) added 32,875 raw bytes
+and 14,768 gzipped, 2.9%. That is string tables, not code: the browser now
+resolves the originating centre and sub-centre from the CCT common code tables
+and the GRIB2 discipline, production status and data type from their WMO tables,
+where before it reported none of them. The alternative — hand a host the raw
+code numbers and let it name them — is what the conventions rule out, since it
+puts WMO table maintenance at each binding layer.
+
 <!-- checked by tools/check_wasm_bundle_size.py -->
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
-| baseline | 1,303,626 | 508,213 |
-| `+simd128` | 1,288,395 | 503,441 |
+| baseline | 1,336,501 | 522,981 |
+| `+simd128` | 1,321,270 | 519,618 |
 
 The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
 build drifts more than 5% from these figures in either direction, so a change

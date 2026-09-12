@@ -36,6 +36,12 @@ use std::sync::Mutex;
 mod characterisation;
 mod directory_store;
 
+// What `Session` answers about a message, against what this binding answers for
+// itself (#726). Test only: it is the oracle for moving the handles onto
+// `Session`, not a code path the addon runs.
+#[cfg(test)]
+mod session_parity;
+
 // This host, run through the ADR-0006 conformance suite that ships in
 // `fieldglass` (#573). Test only, and the second runner of one set of
 // expectations — the browser host's Node runner is the third.

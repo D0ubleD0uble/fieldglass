@@ -445,7 +445,7 @@ impl Subject<'_> {
 /// it. Without that, a fixture added as `.grb2`, `.nc4` or `.hdf5` would simply
 /// never enter the recording, and nothing would say so — the same fail-open as
 /// a `samples/`-keyed golden, arriving by a different door.
-const CORPUS: [CorpusDir; 3] = [
+pub(crate) const CORPUS: [CorpusDir; 3] = [
     (
         "grib1",
         "../fieldglass-grib1/tests/fixtures",
@@ -467,7 +467,7 @@ const CORPUS: [CorpusDir; 3] = [
 ];
 
 /// Fixture files of one extension in one crate's corpus, in path order.
-fn fixtures(dir: &str, extension: &str) -> Vec<std::path::PathBuf> {
+pub(crate) fn fixtures(dir: &str, extension: &str) -> Vec<std::path::PathBuf> {
     let mut paths: Vec<std::path::PathBuf> = std::fs::read_dir(dir)
         .unwrap_or_else(|e| panic!("{dir} is the committed fixture corpus: {e}"))
         .map(|entry| entry.expect("directory entry").path())
@@ -478,7 +478,7 @@ fn fixtures(dir: &str, extension: &str) -> Vec<std::path::PathBuf> {
 }
 
 /// The file's name, for the field id.
-fn stem(path: &std::path::Path) -> String {
+pub(crate) fn stem(path: &std::path::Path) -> String {
     path.file_name()
         .expect("fixture file name")
         .to_string_lossy()

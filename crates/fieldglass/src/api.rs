@@ -432,6 +432,46 @@ api_type! {
         /// How the file names its own grid where `Ni × Nj` is not how it is
         /// described — `N32`, `O1280`, `T639`.
         pub size_label: Option<String>,
+
+        // The identification a message list shows beside the parameter. These
+        // are file facts rather than derived ones, and every one of them needed
+        // a WMO or CCT table lookup that a host was doing for itself (#726) —
+        // which the conventions put in the Rust tables, not at the binding
+        // layer. Resolved here so each host reads a string rather than a code.
+        /// Forecast lead time in whole hours, `None` for a template that states
+        /// none.
+        ///
+        /// [`forecast`](Self::forecast) is the same fact rendered for display
+        /// ("+6 h", an averaging interval, "analysis"); this is the number, for
+        /// a host that sorts or animates by it.
+        pub forecast_hours: Option<i32>,
+        /// GRIB1's `P1` octet, when the time-range indicator is one that makes
+        /// it a lead time rather than the second half of an interval.
+        ///
+        /// `None` for GRIB2, which has no such octet, and for GRIB1 time range
+        /// 10, where `P1` is a two-octet value and not this field.
+        pub p1_octet: Option<i32>,
+        /// The originating centre, named from the CCT common code table, or
+        /// `Centre <n>` when the table has no entry.
+        pub originating_centre: String,
+        /// The sub-centre, named from the originating centre's own table, and
+        /// `None` when there is no entry — which is the common case.
+        pub sub_centre: Option<String>,
+        /// The GRIB edition: 1 or 2.
+        pub edition: Option<i32>,
+        /// The GRIB2 discipline, named. `None` for GRIB1, which has no
+        /// discipline.
+        pub discipline: Option<String>,
+        /// The length the message declares for itself, in bytes.
+        ///
+        /// Distinct from [`offset_bytes`](Self::offset_bytes), which says where
+        /// it starts. Together they are the range a host would re-fetch.
+        pub total_length_bytes: Option<u64>,
+        /// The GRIB2 production status, named. `None` for GRIB1.
+        pub production_status: Option<String>,
+        /// The GRIB2 data type — analysis, forecast, reanalysis — named. `None`
+        /// for GRIB1.
+        pub data_type: Option<String>,
     }
 
     /// A resampled raster: [`crate::Session::warp`] without the paint step.

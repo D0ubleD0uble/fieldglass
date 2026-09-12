@@ -381,6 +381,19 @@ mod tests {
             packing: "grid_simple".into(),
             grid: None,
             size_label: None,
+            // Identification this helper's caller does not look at: these tests
+            // are about matching a sidecar's promise against a decoded
+            // message's parameter and level, which is the whole of
+            // `verify_message`.
+            forecast_hours: None,
+            p1_octet: None,
+            originating_centre: String::new(),
+            sub_centre: None,
+            edition: None,
+            discipline: None,
+            total_length_bytes: None,
+            production_status: None,
+            data_type: None,
         }
     }
 
