@@ -752,6 +752,8 @@ export function renderImagePanelHtml(
           // The old probe readout referred to the previous field; clear it.
           const probeEl = document.getElementById('probe');
           if (probeEl) probeEl.textContent = '';
+          // And the line through the probed cell, for the same reason (#172).
+          hideLine();
           // Reproject the overlay only when the raster *geometry* changed
           // (projection / preset / flip-y / bounds). A range- or resampling-
           // only render leaves the geometry — and the existing overlay — valid,
@@ -1077,6 +1079,153 @@ export function renderImagePanelHtml(
           const grid = (r.gridI != null && r.gridJ != null)
             ? ' · grid ' + r.gridI + ',' + r.gridJ : '';
           el.textContent = (coord ? coord + ' · ' : '') + value + grid;
+          offerLine(r);
+        }
+
+        // --- Line through the probed cell (#172) -----------------------------
+        // A slice panel only: a GRIB message has no axis to read along. The cell
+        // a probe resolved is remembered, so picking another axis re-reads the
+        // same cell rather than asking for a new click.
+        let lineCell = null;
+
+        function hideLine() {
+          lineCell = null;
+          const panel = document.getElementById('line-panel');
+          if (panel) panel.hidden = true;
+        }
+
+        // Every axis with more than one step. A non-horizontal one first — a
+        // time series or a vertical profile, which is what the plot is for — but
+        // the horizontal axes too, where a line is a transect through the cell.
+        function lineAxes() {
+          if (!sliceState) return [];
+          const v = sliceVariable(sliceState.variableIndex);
+          if (!v) return [];
+          const axes = v.dims
+            .map((d, i) => ({ i: i, name: d.name, length: d.length }))
+            .filter((d) => d.length > 1);
+          const held = axes.filter((d) => d.i !== sliceState.yDim && d.i !== sliceState.xDim);
+          const horizontal = axes.filter((d) => d.i === sliceState.yDim || d.i === sliceState.xDim);
+          return held.concat(horizontal);
+        }
+
+        function offerLine(r) {
+          if (!SLICE || r.gridI == null || r.gridJ == null) { hideLine(); return; }
+          const axes = lineAxes();
+          const sel = document.getElementById('line-axis');
+          if (!axes.length || !sel) { hideLine(); return; }
+          const previous = sel.value;
+          sel.innerHTML = axes
+            .map((d) => '<option value="' + d.i + '">' + escapeAttr(d.name) + '</option>')
+            .join('');
+          if (axes.some((d) => String(d.i) === previous)) sel.value = previous;
+          lineCell = { gridI: r.gridI, gridJ: r.gridJ };
+          requestLine();
+        }
+
+        function requestLine() {
+          const sel = document.getElementById('line-axis');
+          if (!lineCell || !sel || sel.value === '') return;
+          vscode.postMessage({
+            type: 'lineRequest',
+            alongDim: Number(sel.value),
+            gridI: lineCell.gridI,
+            gridJ: lineCell.gridJ,
+            slice: sliceState,
+          });
+        }
+
+        {
+          const sel = document.getElementById('line-axis');
+          if (sel) sel.addEventListener('change', requestLine);
+        }
+
+        const SVG_NS = 'http://www.w3.org/2000/svg';
+        function svgEl(tag, attrs) {
+          const el = document.createElementNS(SVG_NS, tag);
+          for (const k in attrs) el.setAttribute(k, String(attrs[k]));
+          return el;
+        }
+
+        function handleLineResult(msg) {
+          const panel = document.getElementById('line-panel');
+          const svg = document.getElementById('line-plot');
+          const caption = document.getElementById('line-caption');
+          if (!panel || !svg || !caption || !lineCell) return;
+          const line = msg.result;
+          panel.hidden = false;
+          while (svg.firstChild) svg.removeChild(svg.firstChild);
+          if (!line) { caption.textContent = 'No line through this cell.'; return; }
+
+          const n = line.values.length;
+          // Position each point by its coordinate when the axis has one, and by
+          // its index otherwise — an axis with a hole in its coordinates arrives
+          // without them, rather than with a gap to invent across.
+          const xs = line.coordinates && line.coordinates.length === n
+            ? line.coordinates
+            : line.values.map((_, i) => i);
+          const present = [];
+          for (let i = 0; i < n; i++) {
+            if (line.mask[i] === 1 && Number.isFinite(line.values[i])) present.push(i);
+          }
+          const units = line.units ? ' ' + line.units : '';
+          const along = line.dimension + (line.coordinateUnits ? ' (' + line.coordinateUnits + ')' : '');
+          if (!present.length) {
+            caption.textContent = line.variable + ' along ' + along + ': no data at this cell.';
+            return;
+          }
+
+          const width = svg.clientWidth || 400;
+          const height = svg.clientHeight || 160;
+          svg.setAttribute('viewBox', '0 0 ' + width + ' ' + height);
+          const pad = { l: 8, r: 8, t: 10, b: 16 };
+          let xmin = Math.min.apply(null, xs), xmax = Math.max.apply(null, xs);
+          let ymin = line.min, ymax = line.max;
+          if (!(Number.isFinite(ymin) && Number.isFinite(ymax))) {
+            ymin = Math.min.apply(null, present.map((i) => line.values[i]));
+            ymax = Math.max.apply(null, present.map((i) => line.values[i]));
+          }
+          // A flat line or a single point still needs a span to draw into.
+          if (xmax === xmin) { xmin -= 0.5; xmax += 0.5; }
+          if (ymax === ymin) { ymin -= 0.5; ymax += 0.5; }
+          const px = (x) => pad.l + (x - xmin) / (xmax - xmin) * (width - pad.l - pad.r);
+          const py = (y) => pad.t + (1 - (y - ymin) / (ymax - ymin)) * (height - pad.t - pad.b);
+
+          // The slice on screen, marked where it sits along this axis.
+          const alongDim = Number(document.getElementById('line-axis').value);
+          const here = sliceState && sliceState.sliceIndices[alongDim];
+          if (here != null && here < n) {
+            const x = px(xs[here]);
+            svg.appendChild(svgEl('line', { class: 'rule', x1: x, x2: x, y1: pad.t, y2: height - pad.b }));
+          }
+
+          // Broken at a masked point: a gap in the data is a gap in the line,
+          // not a straight stroke drawn across it.
+          let d = '';
+          let open = false;
+          for (let i = 0; i < n; i++) {
+            if (line.mask[i] !== 1 || !Number.isFinite(line.values[i])) { open = false; continue; }
+            d += (open ? ' L ' : ' M ') + px(xs[i]).toFixed(1) + ' ' + py(line.values[i]).toFixed(1);
+            open = true;
+          }
+          svg.appendChild(svgEl('path', {
+            d: d.trim(), fill: 'none', stroke: 'currentColor', 'stroke-width': 1.5,
+            'vector-effect': 'non-scaling-stroke',
+          }));
+          // Points too, when there are few enough to see: a two-step axis is
+          // otherwise a bare segment with no sign of where the samples are.
+          if (present.length <= 60) {
+            present.forEach((i) => svg.appendChild(svgEl('circle', {
+              cx: px(xs[i]).toFixed(1), cy: py(line.values[i]).toFixed(1), r: 2.5, fill: 'currentColor',
+            })));
+          }
+          const axisLabel = svgEl('text', { class: 'axis-label', x: pad.l, y: height - 4 });
+          axisLabel.textContent = String(xs[0]) + ' … ' + String(xs[n - 1]);
+          svg.appendChild(axisLabel);
+
+          caption.textContent = line.variable + ' along ' + along + ' · ' +
+            Number(ymin).toPrecision(5) + '–' + Number(ymax).toPrecision(5) + units +
+            ' · ' + present.length + ' of ' + n + ' points';
         }
 
         // Stroke the projected runs onto the overlay canvas. The overlay's
@@ -1618,6 +1767,7 @@ export function renderImagePanelHtml(
           else if (msg.type === 'overlayError') handleOverlayError(msg);
           else if (msg.type === 'contourReady') handleContourReady(msg);
           else if (msg.type === 'probeResult') handleProbeResult(msg);
+          else if (msg.type === 'lineResult') handleLineResult(msg);
           else if (msg.type === 'contourError') handleContourError(msg);
           else if (msg.type === 'exportPngDone') handleExportPngDone(msg);
         });
@@ -1664,6 +1814,24 @@ export function renderImagePanelHtml(
       margin-top: -0.5rem;
       margin-bottom: 0.5rem;
       color: var(--vscode-descriptionForeground, inherit);
+    }
+    .line-panel { margin: 0 0 0.75rem; }
+    .line-axis { font-size: 0.85rem; color: var(--vscode-descriptionForeground, inherit); }
+    .line-plot {
+      display: block;
+      width: 100%;
+      height: 160px;
+      margin-top: 0.35rem;
+      border: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
+      color: var(--vscode-charts-blue, var(--vscode-foreground));
+    }
+    .line-plot .rule { stroke: var(--vscode-descriptionForeground, currentColor); stroke-dasharray: 3 3; opacity: 0.7; }
+    .line-plot .axis-label { fill: var(--vscode-descriptionForeground, currentColor); font-size: 10px; }
+    .line-caption {
+      font-size: 0.8rem;
+      font-variant-numeric: tabular-nums;
+      color: var(--vscode-descriptionForeground, inherit);
+      margin-top: 0.2rem;
     }
     .canvas-wrap { cursor: crosshair; }
     .render-area {
@@ -1935,6 +2103,11 @@ ${slice ? netcdfCompareFieldsetHtml(combineOps) : gribCompareFieldsetHtml(compar
   <div id="status">Rendering…</div>
   <div id="contour-status" class="contour-status" aria-live="polite"></div>
   <div id="probe" class="probe-readout" aria-live="polite"></div>
+  <div id="line-panel" class="line-panel" hidden>
+    <label class="line-axis">Plot along <select id="line-axis"></select></label>
+    <svg id="line-plot" class="line-plot" role="img" aria-label="The variable through the probed cell"></svg>
+    <div id="line-caption" class="line-caption"></div>
+  </div>
   <div class="render-area">
     <div class="canvas-wrap">
       <canvas id="canvas" width="320" height="320"></canvas>

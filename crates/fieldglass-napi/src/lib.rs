@@ -2029,6 +2029,41 @@ impl NetcdfHandle {
         render_with_options(&meta, &plane, &options, index.as_deref())
     }
 
+    /// One line through a variable: its values along `along_dim`, every other
+    /// axis held at `slice_indices` (#172).
+    ///
+    /// `variable_index` is the file's own numbering, as every method on this
+    /// handle takes. `slice_indices` names a position on every axis, the one read
+    /// along included and ignored, so the panel passes the vector it holds for
+    /// the slice on screen with the probed cell written into its two horizontal
+    /// positions.
+    ///
+    /// Read through `fieldglass::line_through` over this handle's own reader and
+    /// view, so the line has one implementation for every host rather than one
+    /// here as well — the conformance runner holds it to the library's.
+    #[napi]
+    pub fn line(
+        &self,
+        variable_index: u32,
+        along_dim: u32,
+        slice_indices: Vec<u32>,
+    ) -> napi::Result<LineResult> {
+        let var = self.renderable(variable_index)?;
+        let arrays = fieldglass::netcdf::NetcdfArrays::new(&self.reader, &self.view);
+        // The array model names a variable without the leading `/` a NetCDF-4
+        // group path carries in the view.
+        let name = var.name.strip_prefix('/').unwrap_or(&var.name);
+        fieldglass::line_through(
+            &arrays,
+            name,
+            along_dim,
+            &slice_indices,
+            &fieldglass::DecodeOptions::new(fieldglass::Dtype::Auto),
+        )
+        .map(LineResult::from)
+        .into_napi()
+    }
+
     /// Serialize one decoded slice as CSV — `"matrix"` (a 2-D grid of values) or
     /// `"long"` (a `lat,lon,value` table), missing points as empty value cells.
     /// The slice is picked exactly like [`render_slice`](Self::render_slice)
@@ -3098,6 +3133,26 @@ impl ZarrHandle {
             .map(ProjectedOverlay::from_polylines)
     }
 
+    /// One line through a variable — see `NetcdfHandle::line`; the same
+    /// arguments, read through this handle's session (#172).
+    #[napi]
+    pub fn line(
+        &self,
+        variable_index: u32,
+        along_dim: u32,
+        slice_indices: Vec<u32>,
+    ) -> napi::Result<LineResult> {
+        self.session
+            .decode_line(
+                variable_index,
+                along_dim,
+                &slice_indices,
+                &fieldglass::DecodeOptions::new(fieldglass::Dtype::Auto),
+            )
+            .map(LineResult::from)
+            .into_napi()
+    }
+
     /// One decoded slice as CSV — `"matrix"` or `"long"` (`lat,lon,value`).
     #[napi]
     pub fn export_csv(
@@ -3691,6 +3746,56 @@ fn project_contours_impl(
     let engine = engine_options(options);
     let source = RenderSource::resolve(meta, lookup)?;
     fieldglass::render::contour_polylines(&source.as_source(), raw, &engine, interval).into_napi()
+}
+
+/// One line through a variable — a profile or a time series at a cell (#172).
+///
+/// The napi spelling of `fieldglass::Line`: `values` beside a `mask` the way
+/// [`DecodedGrid`] carries them, with `NaN` at a masked point, so read `mask`
+/// first. A line is one axis long, so plain arrays rather than typed ones.
+#[napi(object)]
+#[derive(Debug)]
+pub struct LineResult {
+    /// The values along the axis, in index order. `NaN` where `mask` is `0`.
+    pub values: Vec<f64>,
+    /// One byte per point: `1` present, `0` absent.
+    pub mask: Vec<u8>,
+    /// Smallest present value, absent when no point is present.
+    pub min: Option<f64>,
+    /// Largest present value, absent when no point is present.
+    pub max: Option<f64>,
+    /// The variable's name.
+    pub variable: String,
+    /// The variable's units.
+    pub units: String,
+    /// The axis the line runs along.
+    pub dimension: String,
+    /// The axis's coordinate values, in index order — absent when the axis has
+    /// no coordinate array, or when one of its values is.
+    pub coordinates: Option<Vec<f64>>,
+    /// The coordinate array's units, when there are coordinates.
+    pub coordinate_units: Option<String>,
+}
+
+impl From<fieldglass::Line> for LineResult {
+    fn from(line: fieldglass::Line) -> Self {
+        let present = line.values.to_f64();
+        Self {
+            values: present
+                .iter()
+                .zip(&line.mask)
+                .map(|(&v, &m)| if m == 1 { v } else { f64::NAN })
+                .collect(),
+            mask: line.mask,
+            min: line.stats.min,
+            max: line.stats.max,
+            variable: line.variable,
+            units: line.units,
+            dimension: line.dimension,
+            coordinates: line.coordinates,
+            coordinate_units: line.coordinate_units,
+        }
+    }
 }
 
 /// The result of probing one output pixel (#172): the geographic point under

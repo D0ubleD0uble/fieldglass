@@ -257,6 +257,23 @@ export interface ProbeResult {
   gridJ?: number;
 }
 
+/** One line through a variable — a vertical profile or a time series at a cell
+ *  (#172). `values` holds `NaN` where `mask` is 0, so read `mask` first. Absent
+ *  optional fields arrive as `undefined`, never `null` (#288). */
+export interface LineResult {
+  values: number[];
+  mask: number[];
+  min?: number;
+  max?: number;
+  variable: string;
+  units: string;
+  dimension: string;
+  /** The axis's coordinate values, in index order; absent when the axis has no
+   *  coordinate array, or when one of its values is. Fall back to indices. */
+  coordinates?: number[];
+  coordinateUnits?: string;
+}
+
 /** Element-wise combine operation on two aligned fields (#239). `aMinusB` is
  *  the difference / anomaly map. The tags mirror `CombineOp` in
  *  `fieldglass-core`; the runtime op list (picker + validation) comes from
@@ -498,6 +515,9 @@ export interface NetcdfHandle {
     px: number,
     py: number,
   ): ProbeResult | null;
+  /** One line along `alongDim`, every other axis held at `sliceIndices` — the
+   *  entry for `alongDim` is ignored (#172). */
+  line(variableIndex: number, alongDim: number, sliceIndices: number[]): LineResult;
   /** Probe a NetCDF difference/sum/… map (#329): reads the combined field of
    *  slice A and slice B, so the readout matches the displayed map, not A. */
   probeSliceCombined(
@@ -582,6 +602,9 @@ export interface SlicePanelHandle {
     px: number,
     py: number,
   ): ProbeResult | null;
+  /** One line along `alongDim`, every other axis held at `sliceIndices` — the
+   *  entry for `alongDim` is ignored (#172). */
+  line(variableIndex: number, alongDim: number, sliceIndices: number[]): LineResult;
   renderSliceCombined(
     variableIndexA: number,
     yDim: number,

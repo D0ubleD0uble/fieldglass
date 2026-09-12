@@ -32,6 +32,11 @@
 //! [`Session::decode_slice`]: crate::Session::decode_slice
 //! [ADR-0006]: https://github.com/D0ubleD0uble/fieldglass/blob/master/docs/decisions/0006-one-umbrella-crate-and-host-bindings-over-it.md
 
+/// The file's variables as an `ArraySource`, over a reader and view a host
+/// already holds — borrowed, so nothing is rebuilt. What lets a host that keeps
+/// its own `NetcdfReader` reach an operation written against the array model,
+/// such as `crate::line_through` (#172), without a second implementation of it.
+pub use fieldglass_netcdf::NetcdfArrays;
 /// The file's structure as the reader resolved it, and the variables in it.
 ///
 /// A host shows more of a NetCDF file than `Session` describes — the backing's

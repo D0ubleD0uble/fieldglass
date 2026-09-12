@@ -1281,6 +1281,27 @@ export class FieldglassEditorProvider
       }
     };
 
+    // The line through the probed cell, along the axis the panel picked (#172).
+    // A failure answers with no line rather than an error toast: the plot is
+    // a companion to the readout, and a variable with no axis to read along is
+    // an ordinary state, not something the user did wrong.
+    const line = (req: LineRequest) => {
+      const docHandle = subject.handle();
+      if (!docHandle) return;
+      const spec = req.slice ?? initial;
+      const indices = lineIndices(spec, req.gridI, req.gridJ);
+      if (!indices || !isNonNegativeInt(req.alongDim)) {
+        panel.webview.postMessage({ type: "lineResult", messageIndex: spec.variableIndex, result: null });
+        return;
+      }
+      try {
+        const result = docHandle.line(spec.variableIndex, req.alongDim, indices);
+        panel.webview.postMessage({ type: "lineResult", messageIndex: spec.variableIndex, result });
+      } catch {
+        panel.webview.postMessage({ type: "lineResult", messageIndex: spec.variableIndex, result: null });
+      }
+    };
+
     // Point-probe readout for the current slice (#172).
     const probe = (req: ProbeRequest) => {
       const docHandle = subject.handle();
@@ -1331,6 +1352,10 @@ export class FieldglassEditorProvider
         }
         if (m.type === "probeRequest") {
           probe(m as ProbeRequest & { slice?: SliceSpec });
+          return;
+        }
+        if (m.type === "lineRequest") {
+          line(m as LineRequest);
           return;
         }
         if (m.type === "exportSliceCsv") {
@@ -1437,6 +1462,32 @@ export interface ProbeRequest {
   py: number;
   options?: Partial<RenderOptions>;
   slice?: SliceSpec;
+}
+
+/** `lineRequest` posted by the render panel once a probe has resolved a cell
+ *  (#172): plot the variable through that cell along `alongDim`. */
+export interface LineRequest {
+  type: "lineRequest";
+  alongDim: number;
+  gridI: number;
+  gridJ: number;
+  slice?: SliceSpec;
+}
+
+/** The indices a line is read at: the slice on screen, with the probed cell
+ *  written into its two horizontal positions (#172).
+ *
+ *  `null` when the request cannot name a cell on this slice — an axis or cell
+ *  that is not a non-negative integer, or indices too short to hold the
+ *  horizontal axes — rather than a line through some other cell. The entry for
+ *  `alongDim` is left as it is: the native call ignores it. */
+export function lineIndices(spec: SliceSpec, gridI: unknown, gridJ: unknown): number[] | null {
+  if (!isNonNegativeInt(gridI) || !isNonNegativeInt(gridJ)) return null;
+  if (spec.yDim >= spec.sliceIndices.length || spec.xDim >= spec.sliceIndices.length) return null;
+  const indices = spec.sliceIndices.slice();
+  indices[spec.yDim] = gridJ;
+  indices[spec.xDim] = gridI;
+  return indices;
 }
 
 /** Sanitise the webview's contour interval into a positive number or
