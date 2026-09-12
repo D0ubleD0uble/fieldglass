@@ -3732,6 +3732,9 @@ impl ZarrHandle {
 
     /// Sample the field under one output pixel.
     #[napi]
+    // The argument list is the picker's, not a design choice: the same shape
+    // `NetcdfHandle::probe` takes, which carries the same allow.
+    #[allow(clippy::too_many_arguments)]
     pub fn probe(
         &self,
         variable_index: u32,
@@ -3744,6 +3747,96 @@ impl ZarrHandle {
     ) -> napi::Result<Option<ProbeResult>> {
         let (field, values) = self.slice(variable_index, y_dim, x_dim, &slice_indices)?;
         probe_from_source(&field_source(&field), &values, &options, px, py)
+    }
+
+    /// Render one slice combined element-wise with a second under `op` (#239).
+    ///
+    /// `Session::combine` runs the alignment gate and the arithmetic, so the
+    /// combined field arrives as a `Field` like any other — same placement, same
+    /// render path. A store gets difference maps for free.
+    #[napi]
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_slice_combined(
+        &self,
+        variable_index_a: u32,
+        y_dim: u32,
+        x_dim: u32,
+        slice_indices_a: Vec<u32>,
+        variable_index_b: u32,
+        slice_indices_b: Vec<u32>,
+        op: String,
+        options: RenderOptions,
+    ) -> napi::Result<RenderedGrid> {
+        let (combined, values) = self.combined(
+            variable_index_a,
+            y_dim,
+            x_dim,
+            &slice_indices_a,
+            variable_index_b,
+            &slice_indices_b,
+            &op,
+        )?;
+        render_from_source(&field_source(&combined), &values, &options)
+    }
+
+    /// Probe the combined field, so the readout matches the displayed map
+    /// rather than slice A (#329).
+    #[napi]
+    #[allow(clippy::too_many_arguments)]
+    pub fn probe_slice_combined(
+        &self,
+        variable_index_a: u32,
+        y_dim: u32,
+        x_dim: u32,
+        slice_indices_a: Vec<u32>,
+        variable_index_b: u32,
+        slice_indices_b: Vec<u32>,
+        op: String,
+        options: RenderOptions,
+        px: u32,
+        py: u32,
+    ) -> napi::Result<Option<ProbeResult>> {
+        let (combined, values) = self.combined(
+            variable_index_a,
+            y_dim,
+            x_dim,
+            &slice_indices_a,
+            variable_index_b,
+            &slice_indices_b,
+            &op,
+        )?;
+        probe_from_source(&field_source(&combined), &values, &options, px, py)
+    }
+
+    /// Contour the combined field, for the same reason (#329).
+    #[napi]
+    #[allow(clippy::too_many_arguments)]
+    pub fn project_contours_slice_combined(
+        &self,
+        variable_index_a: u32,
+        y_dim: u32,
+        x_dim: u32,
+        slice_indices_a: Vec<u32>,
+        variable_index_b: u32,
+        slice_indices_b: Vec<u32>,
+        op: String,
+        options: RenderOptions,
+        interval: Option<f64>,
+    ) -> napi::Result<ProjectedOverlay> {
+        let (combined, values) = self.combined(
+            variable_index_a,
+            y_dim,
+            x_dim,
+            &slice_indices_a,
+            variable_index_b,
+            &slice_indices_b,
+            &op,
+        )?;
+        let engine = engine_options(&options);
+        ResolvedOptions::parse(&engine).into_napi()?;
+        fieldglass::render::contour_polylines(&field_source(&combined), &values, &engine, interval)
+            .into_napi()
+            .map(ProjectedOverlay::from_polylines)
     }
 
     /// One decoded slice as CSV — `"matrix"` or `"long"` (`lat,lon,value`).
@@ -3786,6 +3879,33 @@ impl ZarrHandle {
             .map_err(|e| napi::Error::from_reason(e.message()))?;
         let values = field_values(&field);
         Ok((field, values))
+    }
+
+    /// Two slices combined under a wire-tag op, as one field.
+    ///
+    /// The alignment gate and the arithmetic are `Session::combine`'s, so a
+    /// mismatched pair is refused there in the words every host reports rather
+    /// than compared field by field here.
+    #[allow(clippy::too_many_arguments)]
+    fn combined(
+        &self,
+        variable_index_a: u32,
+        y_dim: u32,
+        x_dim: u32,
+        slice_indices_a: &[u32],
+        variable_index_b: u32,
+        slice_indices_b: &[u32],
+        op: &str,
+    ) -> napi::Result<(fieldglass::Field, Vec<Option<f64>>)> {
+        let op = fieldglass::op_from_wire(op).into_napi()?;
+        let (a, _) = self.slice(variable_index_a, y_dim, x_dim, slice_indices_a)?;
+        let (b, _) = self.slice(variable_index_b, y_dim, x_dim, slice_indices_b)?;
+        let combined = self
+            .session
+            .combine(&a, &b, op)
+            .map_err(|e| napi::Error::from_reason(e.message()))?;
+        let values = field_values(&combined);
+        Ok((combined, values))
     }
 
     /// Where one slice sits, without decoding it.
@@ -4357,7 +4477,7 @@ fn probe_impl(
     // Picker state before message state — see `project_overlay_impl`.
     ResolvedOptions::parse(&engine).into_napi()?;
     let source = RenderSource::resolve(meta, lookup)?;
-    return probe_from_source(&source.as_source(), raw, options, px, py);
+    probe_from_source(&source.as_source(), raw, options, px, py)
 }
 
 /// [`probe_impl`] for a caller that has already placed its field (#659).

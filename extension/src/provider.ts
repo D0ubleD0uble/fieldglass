@@ -14,6 +14,8 @@ import {
   type MessageMeta,
   type NetcdfHandle,
   type NetcdfVariableMeta,
+  type SlicePanelHandle,
+  type ZarrHandle,
   type RenderedGrid,
   type RenderOptions,
 } from "./native";
@@ -128,6 +130,21 @@ export type PngExportOutcome =
   | { status: "cancelled" }
   | { status: "failed"; reason: string };
 
+/** What the slice panel needs besides the handle itself (#659).
+ *
+ * A NetCDF panel is keyed by a document and a Zarr panel by a store path, and
+ * neither fact belongs inside the panel. What it actually needs is: how to
+ * re-fetch the handle (one can be disposed while the panel lives), where an
+ * export should start, what to caption the geometry, and what to say when the
+ * handle has gone.
+ */
+interface SlicePanelSubject {
+  handle(): SlicePanelHandle | undefined;
+  gone: string;
+  exportDir: vscode.Uri;
+  caption: string;
+}
+
 export class FieldglassEditorProvider
   implements vscode.CustomEditorProvider<FieldglassDocument>
 {
@@ -146,8 +163,91 @@ export class FieldglassEditorProvider
         vscode.window.registerCustomEditorProvider(FieldglassEditorProvider.viewType, provider, opts),
         vscode.window.registerCustomEditorProvider(FieldglassEditorProvider.viewTypeAny, provider, opts),
         provider._onDidChangeCustomDocument,
+        // The one command this extension contributes (#659). A Zarr store is a
+        // *directory*, and `registerCustomEditorProvider` binds to file patterns
+        // — so there is no editor path a folder can arrive by, and the entry
+        // point has to be a command.
+        vscode.commands.registerCommand(FieldglassEditorProvider.openStoreCommand, () =>
+          provider.promptOpenZarrStore(),
+        ),
       ],
     };
+  }
+
+  /** The command id, in one place so `package.json` and the registration cannot
+   *  disagree — `extension.test.ts` asserts they match. */
+  public static readonly openStoreCommand = "fieldglass.openZarrStore";
+
+  /** Ask for a folder, and open it if it is a Zarr store.
+   *
+   * Detection is by the presence of a root metadata document, **not** by the
+   * `.zarr` suffix, which is a convention and not a guarantee. A folder that is
+   * not a store is reported as such rather than opening as an empty editor,
+   * which is the acceptance criterion behind this whole entry point.
+   */
+  public async promptOpenZarrStore(): Promise<void> {
+    const native = loadNative();
+    if (!native) {
+      void vscode.window.showErrorMessage(
+        `Fieldglass: native module ${nativeBinaryName()} not loaded.`,
+      );
+      return;
+    }
+    const picked = await vscode.window.showOpenDialog({
+      canSelectFiles: false,
+      canSelectFolders: true,
+      canSelectMany: false,
+      openLabel: "Open Zarr Store",
+      title: "Select a Zarr store directory",
+    });
+    const storeUri = picked?.[0];
+    if (!storeUri) return;
+    this.openZarrStore(storeUri);
+  }
+
+  /** Open a store the caller has already chosen.
+   *
+   * Separate from the picker so a test can drive it without a modal dialog, which
+   * `@vscode/test-electron` cannot dismiss.
+   */
+  public openZarrStore(storeUri: vscode.Uri): void {
+    const native = loadNative();
+    if (!native) return;
+    if (!native.ZarrHandle.isStore(storeUri.fsPath)) {
+      void vscode.window.showErrorMessage(
+        `Fieldglass: ${storeUri.fsPath} is not a Zarr store — it holds no ` +
+          "zarr.json, .zmetadata, .zgroup or .zarray. A store is a directory of " +
+          "metadata documents and chunks; the .zarr suffix is a convention, not " +
+          "what this checks.",
+      );
+      return;
+    }
+    let handle: ZarrHandle;
+    try {
+      handle = native.ZarrHandle.fromDirectory(storeUri.fsPath);
+    } catch (err) {
+      void vscode.window.showErrorMessage(
+        `Fieldglass: could not open ${storeUri.fsPath}: ${err instanceof Error ? err.message : err}`,
+      );
+      return;
+    }
+    const variables = handle.variables();
+    if (variables.length === 0) {
+      // A store that opened but holds nothing drawable. `leftOut` is why, and
+      // saying so beats a panel with an empty picker.
+      const why = handle
+        .leftOut()
+        .map((l) => `${l.name} (${l.reason})`)
+        .join("; ");
+      void vscode.window.showWarningMessage(
+        why
+          ? `Fieldglass: that store holds no variable this build can draw. Left out: ${why}`
+          : "Fieldglass: that store holds no variable this build can draw.",
+      );
+      return;
+    }
+    this._zarrHandlesByStore.set(storeUri.toString(), handle);
+    this.openZarrRenderPanel(storeUri, variables[0].variableIndex);
   }
 
   private readonly _onDidChangeCustomDocument =
@@ -167,6 +267,11 @@ export class FieldglassEditorProvider
   // `messages()` / `renderGrid()`). Built lazily when a NetCDF file is opened
   // and dropped with the last panel (see `trackPanel`).
   private readonly _netcdfHandlesByDoc = new Map<string, NetcdfHandle>();
+  /** Zarr store handles, keyed by the store directory's URI (#659).
+   *
+   * Not by document, because a store has none: a custom editor cannot bind to a
+   * directory, so a store arrives from the "Open Zarr Store…" command. */
+  private readonly _zarrHandlesByStore = new Map<string, ZarrHandle>();
 
   // -------------------------------------------------------------------------
   // CustomEditorProvider lifecycle
@@ -464,13 +569,13 @@ export class FieldglassEditorProvider
   /** Export the currently-viewed NetCDF slice as CSV (from the render panel's
    *  "Export CSV…" button). `spec` is the live slice the panel drives. */
   public async handleExportSliceCsv(
-    document: FieldglassDocument,
+    subject: SlicePanelSubject,
     spec: { variableIndex: number; yDim: number; xDim: number; sliceIndices: number[] }
   ): Promise<void> {
-    const handle = this._netcdfHandlesByDoc.get(document.uri.toString());
+    const handle = subject.handle();
     if (!handle) {
       void vscode.window.showErrorMessage(
-        "Fieldglass: CSV export is available only for an open NetCDF slice."
+        "Fieldglass: CSV export is available only for an open slice."
       );
       return;
     }
@@ -507,7 +612,10 @@ export class FieldglassEditorProvider
    *  this side — so without a reply that status sits there for good, reading
    *  as a still-running export even after a save or a cancel. */
   public async handleExportPng(
-    document: FieldglassDocument,
+    // The directory a "Save as…" dialog starts in. A document panel passes its
+    // file's parent; a Zarr panel passes the store, because a store *is* a
+    // directory and that is where a user expects an export to land.
+    exportDir: vscode.Uri,
     msg: { dataUrl?: unknown; defaultName?: unknown }
   ): Promise<PngExportOutcome> {
     const prefix = "data:image/png;base64,";
@@ -528,7 +636,7 @@ export class FieldglassEditorProvider
       typeof msg.defaultName === "string" ? msg.defaultName : "render.png"
     );
     const dest = await vscode.window.showSaveDialog({
-      defaultUri: vscode.Uri.joinPath(document.uri, "..", name),
+      defaultUri: vscode.Uri.joinPath(exportDir, name),
       filters: { "PNG image": ["png"] },
       saveLabel: "Export PNG",
     });
@@ -761,7 +869,7 @@ export class FieldglassEditorProvider
           // field the composited image went nowhere: no save dialog, and no
           // reply to resolve the panel's "Exporting PNG…" status.
           void this.handleExportPng(
-            document,
+            vscode.Uri.joinPath(document.uri, ".."),
             m as { dataUrl?: unknown; defaultName?: unknown },
           ).then((outcome) => {
             panel.webview.postMessage({ type: "exportPngDone", outcome });
@@ -969,12 +1077,62 @@ export class FieldglassEditorProvider
    * plane via `handle.renderSlice(...)`, and the picker (variable / axis / index
    * controls) flows its {@link SliceSpec} back on each `rerenderRequest`.
    */
+  /** Open the slice panel for a NetCDF document. */
   private openNetcdfRenderPanel(
     document: FieldglassDocument,
     variableIndex: number,
   ): void {
     const handle = this.openOrReuseNetcdfHandle(document);
     if (!handle) return;
+    this.openSliceRenderPanel(
+      {
+        // Re-fetched rather than captured: a document can close under a panel
+        // that is still open, and the handle goes with it.
+        handle: () => this._netcdfHandlesByDoc.get(document.uri.toString()),
+        gone: "NetCDF handle was disposed",
+        exportDir: vscode.Uri.joinPath(document.uri, ".."),
+        caption: "NetCDF slice — latlon (synthesised geometry)",
+      },
+      handle,
+      variableIndex,
+    );
+  }
+
+  /** Open the slice panel for a Zarr store directory (#659).
+   *
+   * A store has no `FieldglassDocument` — a custom editor cannot bind to a
+   * directory, which is why this arrives from a command instead — so the subject
+   * is keyed by the store's path. */
+  public openZarrRenderPanel(storeUri: vscode.Uri, variableIndex: number): void {
+    const key = storeUri.toString();
+    const handle = this._zarrHandlesByStore.get(key);
+    if (!handle) return;
+    this.openSliceRenderPanel(
+      {
+        handle: () => this._zarrHandlesByStore.get(key),
+        gone: "Zarr store handle was disposed",
+        // Inside the store, not beside it: a store *is* a directory, so its own
+        // folder is where a user expects an export to land.
+        exportDir: storeUri,
+        caption: "Zarr slice — latlon (from the store's coordinates)",
+      },
+      handle,
+      variableIndex,
+    );
+  }
+
+  /** The slice panel, over whichever container answered.
+   *
+   * Both handles satisfy `SlicePanelHandle` with identical signatures, so nothing
+   * below this line knows which one it has (#659). What differs is in the
+   * `subject`: how to re-fetch the handle, where an export starts, and the
+   * caption.
+   */
+  private openSliceRenderPanel(
+    subject: SlicePanelSubject,
+    handle: SlicePanelHandle,
+    variableIndex: number,
+  ): void {
     const variables = handle.variables();
     const initialVar =
       variables.find((v) => v.variableIndex === variableIndex) ?? variables[0];
@@ -993,7 +1151,7 @@ export class FieldglassEditorProvider
     panel.webview.html = renderImagePanelHtml(
       panel.webview,
       meta,
-      "NetCDF slice — latlon (synthesised geometry)",
+      subject.caption,
       colormapRegistry(),
       combineOpRegistry(),
       slice,
@@ -1007,12 +1165,12 @@ export class FieldglassEditorProvider
       variables.find((v) => v.variableIndex === spec.variableIndex) ?? initialVar;
 
     const paint = (options: RenderOptions, spec: SliceSpec, compare?: NetcdfCompare) => {
-      const docHandle = this._netcdfHandlesByDoc.get(document.uri.toString());
+      const docHandle = subject.handle();
       if (!docHandle) {
         panel.webview.postMessage({
           type: "gridError",
           messageIndex: spec.variableIndex,
-          error: "NetCDF handle was disposed",
+          error: subject.gone,
         });
         return;
       }
@@ -1051,7 +1209,7 @@ export class FieldglassEditorProvider
     };
 
     const projectOverlay = (req: OverlayRequest & { slice?: SliceSpec }) => {
-      const docHandle = this._netcdfHandlesByDoc.get(document.uri.toString());
+      const docHandle = subject.handle();
       if (!docHandle) return;
       const spec = req.slice ?? initial;
       const options = resolveRerenderOptions(req.options ?? {});
@@ -1092,7 +1250,7 @@ export class FieldglassEditorProvider
 
     // Contour isolines for the current slice, projected onto its raster (#238).
     const projectContours = (req: ContourRequest) => {
-      const docHandle = this._netcdfHandlesByDoc.get(document.uri.toString());
+      const docHandle = subject.handle();
       if (!docHandle) return;
       const spec = req.slice ?? initial;
       const options = resolveRerenderOptions(req.options ?? {});
@@ -1125,7 +1283,7 @@ export class FieldglassEditorProvider
 
     // Point-probe readout for the current slice (#172).
     const probe = (req: ProbeRequest) => {
-      const docHandle = this._netcdfHandlesByDoc.get(document.uri.toString());
+      const docHandle = subject.handle();
       if (!docHandle) return;
       const spec = req.slice ?? initial;
       const options = resolveRerenderOptions(req.options ?? {});
@@ -1185,12 +1343,12 @@ export class FieldglassEditorProvider
             Array.isArray(spec.sliceIndices) &&
             spec.sliceIndices.every((n) => isNonNegativeInt(n))
           ) {
-            void this.handleExportSliceCsv(document, spec);
+            void this.handleExportSliceCsv(subject, spec);
           }
         }
         if (m.type === "exportPng") {
           void this.handleExportPng(
-            document,
+            subject.exportDir,
             m as { dataUrl?: unknown; defaultName?: unknown },
           ).then((outcome) => {
             // Close the loop the panel opened with "Exporting PNG…". Without

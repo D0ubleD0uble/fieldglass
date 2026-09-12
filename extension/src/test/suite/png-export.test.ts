@@ -81,7 +81,7 @@ suite("Export PNG", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (vscode.window as any).showInformationMessage = () => Promise.resolve(undefined);
     try {
-      await provider.handleExportPng(doc, {
+      await provider.handleExportPng(vscode.Uri.joinPath(doc.uri, ".."), {
         dataUrl: "data:image/png;base64," + PNG_B64,
         defaultName: "field.png",
       });
@@ -113,7 +113,7 @@ suite("Export PNG", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (vscode.window as any).showInformationMessage = () => Promise.resolve(undefined);
     try {
-      const outcome = await provider.handleExportPng(doc, {
+      const outcome = await provider.handleExportPng(vscode.Uri.joinPath(doc.uri, ".."), {
         dataUrl: "data:image/png;base64," + PNG_B64,
         defaultName: "field.png",
       });
@@ -143,7 +143,7 @@ suite("Export PNG", () => {
       return Promise.resolve(undefined);
     };
     try {
-      const outcome = await provider.handleExportPng(doc, {
+      const outcome = await provider.handleExportPng(vscode.Uri.joinPath(doc.uri, ".."), {
         dataUrl: "data:image/png;base64," + PNG_B64,
       });
       assert.strictEqual(outcome.status, "cancelled");
@@ -160,7 +160,7 @@ suite("Export PNG", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (vscode.window as any).showErrorMessage = () => Promise.resolve(undefined);
     try {
-      const outcome = await provider.handleExportPng(doc, { dataUrl: "not a data url" });
+      const outcome = await provider.handleExportPng(vscode.Uri.joinPath(doc.uri, ".."), { dataUrl: "not a data url" });
       assert.strictEqual(outcome.status, "failed");
       assert.ok(
         outcome.status === "failed" && outcome.reason.length > 0,
@@ -289,7 +289,7 @@ suite("Export PNG", () => {
       return Promise.resolve(undefined);
     };
     try {
-      await provider.handleExportPng(doc, { dataUrl: "not a data url" });
+      await provider.handleExportPng(vscode.Uri.joinPath(doc.uri, ".."), { dataUrl: "not a data url" });
     } finally {
       vscode.window.showErrorMessage = origErr;
       vscode.window.showSaveDialog = origSave;

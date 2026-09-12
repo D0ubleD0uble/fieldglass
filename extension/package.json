@@ -119,6 +119,13 @@
         ],
         "priority": "option"
       }
+    ],
+    "commands": [
+      {
+        "command": "fieldglass.openZarrStore",
+        "title": "Open Zarr Store\u2026",
+        "category": "Fieldglass"
+      }
     ]
   },
   "scripts": {
