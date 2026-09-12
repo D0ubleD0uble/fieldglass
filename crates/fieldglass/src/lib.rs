@@ -145,6 +145,10 @@ pub use render::Source;
 #[cfg(feature = "render")]
 pub use render::{PixelProbe, Projected, RenderOptions, ResolvedOptions, TargetKind, WarpTarget};
 pub use session::PlacedSlice;
+/// One line through a named array, for a host that holds an `ArraySource`
+/// rather than a `Session` (#172).
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+pub use session::line_through;
 pub use session::{DecodeOptions, Session};
 #[cfg(feature = "render")]
 pub use session::{PaletteOptions, Raster, WarpOptions};

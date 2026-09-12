@@ -102,6 +102,7 @@ const COMPARED: &[Op] = &[
     Op::Variables,
     Op::Dimensions,
     Op::DecodeSlice,
+    Op::DecodeLine,
 ];
 
 /// Skipped ops and why — see the module docs for the long form.
@@ -121,11 +122,6 @@ const SKIPPED: &[(Op, &str)] = &[
         Op::Combine,
         "napi has no combine-without-render operation; `renderGridCombined` \
          paints in the same call (#574)",
-    ),
-    (
-        Op::DecodeLine,
-        "the handles gain a line read with the render panel's line plot, the \
-         second half of #172; until then the library and browser runners hold it",
     ),
 ];
 
@@ -383,16 +379,66 @@ fn observe(case: &Case, expect: &Value) -> Option<Value> {
                 "maskOnes": rgba.as_chunks::<4>().0.iter().filter(|p| p[3] == 255).count(),
             }))
         }
+        Op::DecodeLine => {
+            let Handle::Netcdf(h) = &handle else {
+                return Some(no_variables());
+            };
+            let args = &case.args;
+            let (Some(position), Some(along), Some(indices)) =
+                (args.variable, args.along_dim, args.slice_indices.clone())
+            else {
+                return Some(failed());
+            };
+            // A position in the API's list, as for `DecodeSlice`; this handle
+            // takes the variable's place in the file.
+            let Some(variable) = h
+                .variables()
+                .get(position as usize)
+                .map(|v| v.variable_index)
+            else {
+                return Some(failed());
+            };
+            let Ok(line) = h.line(u32::try_from(variable).unwrap_or(u32::MAX), along, indices)
+            else {
+                return Some(failed());
+            };
+            // `fieldglass::conformance::line_value`, less `dtype`: the handle
+            // hands every line back as `f64` and reports no width, so it has no
+            // honest answer to give — the same omission `DecodeSlice` makes. The
+            // library and browser runners still hold `dtype` to the recording.
+            // Every other field is compared, values and coordinates included.
+            let real = |v: Option<f64>| match v {
+                None => Value::Null,
+                Some(x) if x.is_finite() => json!(x),
+                Some(_) => json!("nonFinite"),
+            };
+            let points: Vec<Value> = line
+                .values
+                .iter()
+                .zip(&line.mask)
+                .map(|(&v, &m)| real((m == 1).then_some(v)))
+                .collect();
+            let valid = line.mask.iter().filter(|&&m| m == 1).count();
+            Some(json!({
+                "len": line.values.len(),
+                "maskLen": line.mask.len(),
+                "maskOnes": valid,
+                "variable": line.variable,
+                "units": line.units,
+                "dimension": line.dimension,
+                "coordinates": line
+                    .coordinates
+                    .as_ref()
+                    .map(|c| c.iter().map(|&x| real(Some(x))).collect::<Vec<_>>()),
+                "coordinateUnits": line.coordinate_units,
+                "stats": { "min": line.min, "max": line.max, "validCount": valid },
+                "points": points,
+            }))
+        }
         // `COMPARED` gates the entry, so nothing else reaches here. Written as
         // an explicit arm rather than a wildcard so that adding an op to
         // `COMPARED` without adding its adapter fails to compile.
-        Op::Message
-        | Op::Warp
-        | Op::Palette
-        | Op::Probe
-        | Op::Contours
-        | Op::Combine
-        | Op::DecodeLine => None,
+        Op::Message | Op::Warp | Op::Palette | Op::Probe | Op::Contours | Op::Combine => None,
     }
 }
 

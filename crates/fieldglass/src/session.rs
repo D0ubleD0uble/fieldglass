@@ -651,6 +651,101 @@ fn dtype_name(element_type: &ElementType) -> String {
     }
 }
 
+/// One line through the array named `array` in `source` — the implementation
+/// behind [`Session::decode_line`], for a host that holds an [`ArraySource`]
+/// rather than a `Session` (#172).
+///
+/// Keyed by the array's **name** rather than a position in a variable list,
+/// because the two kinds of caller number variables differently: `Session`
+/// counts positions in [`Session::variables`], while a host that built its own
+/// listing — `fieldglass-napi`'s NetCDF handle numbers by the file's decode
+/// index — has only the name in common with it. One implementation keyed on the
+/// thing both have is what stops a line from having two definitions.
+///
+/// See [`Session::decode_line`] for the meaning of every argument and the
+/// errors, with one difference: an array this source does not list as renderable
+/// is [`Error::NoSuchMessage`] with `index` 0, since there is no position to
+/// report.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+pub fn line_through(
+    source: &dyn ArraySource,
+    array: &str,
+    along_dim: u32,
+    indices: &[u32],
+    options: &DecodeOptions,
+) -> Result<Line, Error> {
+    let vars = renderable_arrays(source.group());
+    let var = vars
+        .iter()
+        .find(|v| v.name == array)
+        .ok_or(Error::NoSuchMessage {
+            index: 0,
+            count: u32::try_from(vars.len()).unwrap_or(u32::MAX),
+        })?;
+    let rank = var.dims.len();
+    let along = along_dim as usize;
+    if along >= rank {
+        return Err(Error::InvalidOption {
+            detail: format!(
+                "`{}` has {rank} dimensions, so along_dim {along} is outside them",
+                var.name
+            ),
+        });
+    }
+    if indices.len() != rank {
+        return Err(Error::InvalidOption {
+            detail: format!(
+                "`{}` has {rank} dimensions, so `indices` needs {rank} entries \
+                 (the one being read along is ignored); {} were given",
+                var.name,
+                indices.len()
+            ),
+        });
+    }
+    let mut region = Vec::with_capacity(rank);
+    for (d, dim) in var.dims.iter().enumerate() {
+        if d == along {
+            region.push(0..dim.length);
+            continue;
+        }
+        let at = u64::from(indices[d]);
+        if at >= dim.length {
+            return Err(Error::InvalidOption {
+                detail: format!(
+                    "index {at} is past the end of `{}`'s dimension {d} \
+                     (`{}`, length {})",
+                    var.name, dim.name, dim.length
+                ),
+            });
+        }
+        region.push(at..at + 1);
+    }
+    // A region with every axis but one a single index comes back as
+    // exactly the points on the line, in index order.
+    let raw = source.read_region(&var.name, &region)?;
+    let attributes = source
+        .array(&var.name)
+        .map(|d| d.attributes.as_slice())
+        .unwrap_or_default();
+    let physical = CfUnpacking::from_attributes(attributes).apply(&raw);
+    let (values, mask, stats) = pack_values(&physical, options);
+    let dimension = var.dims[along].name.clone();
+    let coordinates = axis_coordinates(source, &dimension, var.dims[along].length);
+    Ok(Line {
+        values,
+        mask,
+        stats,
+        variable: var.name.clone(),
+        units: array_units(source, &var.name),
+        coordinate_units: coordinates
+            .as_ref()
+            .map(|_| array_units(source, &dimension))
+            .filter(|u| !u.is_empty()),
+        coordinates,
+        dimension,
+    })
+}
+
 /// The coordinate values of an axis, from the 1-D array CF names after it
 /// (#172).
 ///
@@ -1484,68 +1579,7 @@ impl Session {
                     index: variable,
                     count: u32::try_from(vars.len()).unwrap_or(u32::MAX),
                 })?;
-                let rank = var.dims.len();
-                let along = along_dim as usize;
-                if along >= rank {
-                    return Err(Error::InvalidOption {
-                        detail: format!(
-                            "`{}` has {rank} dimensions, so along_dim {along} is outside them",
-                            var.name
-                        ),
-                    });
-                }
-                if indices.len() != rank {
-                    return Err(Error::InvalidOption {
-                        detail: format!(
-                            "`{}` has {rank} dimensions, so `indices` needs {rank} entries \
-                             (the one being read along is ignored); {} were given",
-                            var.name,
-                            indices.len()
-                        ),
-                    });
-                }
-                let mut region = Vec::with_capacity(rank);
-                for (d, dim) in var.dims.iter().enumerate() {
-                    if d == along {
-                        region.push(0..dim.length);
-                        continue;
-                    }
-                    let at = u64::from(indices[d]);
-                    if at >= dim.length {
-                        return Err(Error::InvalidOption {
-                            detail: format!(
-                                "index {at} is past the end of `{}`'s dimension {d} \
-                                 (`{}`, length {})",
-                                var.name, dim.name, dim.length
-                            ),
-                        });
-                    }
-                    region.push(at..at + 1);
-                }
-                // A region with every axis but one a single index comes back as
-                // exactly the points on the line, in index order.
-                let raw = source.read_region(&var.name, &region)?;
-                let attributes = source
-                    .array(&var.name)
-                    .map(|d| d.attributes.as_slice())
-                    .unwrap_or_default();
-                let physical = CfUnpacking::from_attributes(attributes).apply(&raw);
-                let (values, mask, stats) = pack_values(&physical, options);
-                let dimension = var.dims[along].name.clone();
-                let coordinates = axis_coordinates(source, &dimension, var.dims[along].length);
-                Ok(Line {
-                    values,
-                    mask,
-                    stats,
-                    variable: var.name.clone(),
-                    units: array_units(source, &var.name),
-                    coordinate_units: coordinates
-                        .as_ref()
-                        .map(|_| array_units(source, &dimension))
-                        .filter(|u| !u.is_empty()),
-                    coordinates,
-                    dimension,
-                })
+                line_through(source, &var.name, along_dim, indices, options)
             }
         }
     }

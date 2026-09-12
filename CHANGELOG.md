@@ -8,6 +8,8 @@ Versioning is plain [Semantic Versioning](https://semver.org/spec/v2.0.0.html), 
 
 ### Added
 
+- **Click a cell in a NetCDF or Zarr panel to plot the variable through it.** After a click reads the value under the pointer, a small line plot appears beneath the readout, showing the variable along an axis you choose. That's a time series or a vertical profile at that point, or a transect along the grid. Points are placed by the axis's own coordinates and labelled with their units, gaps in the data stay gaps rather than being drawn across, and a dashed rule marks where the slice on screen sits. Closes #172.
+
 - **The library API can read a line through a variable: a vertical profile or a time series at a grid point.** `Session::decode_line` reads a variable's values along one axis, with every other axis held where the slice on screen already stands, along with that axis's coordinate values and units to label a plot against. The browser binding exposes it as `decodeLine`. On a Zarr store it fetches only the chunks the line crosses. A NetCDF variable is still decoded whole underneath, which costs one decode per click. This is the data half of plotting a line beside the map. The plot in the editor comes next. Part of #172.
 
 - **Rewriting a GRIB1 message's forecast time is available from the library.** `fieldglass::grib1::with_p1_octet` takes a file's bytes and gives back a copy with one message's `P1` octet changed, which is what a metadata editor needs to re-stamp a lead time. Only that octet changes, so everything else in the file stays where it was. Part of #726.

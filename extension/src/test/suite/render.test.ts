@@ -29,6 +29,7 @@ import {
   renderHtml,
   syntheticNetcdfMeta,
   gribFieldLabel,
+  lineIndices,
   resolveGribCompare,
   resolveInterval,
   resolveNetcdfCompare,
@@ -1011,6 +1012,33 @@ suite("render-panel HTML", () => {
     );
   });
 
+  test("the render panel's script parses, for a message and for a slice panel", () => {
+    // The panel's behaviour lives in a template string, which neither tsc nor
+    // eslint reads — a syntax error there shows up only as a panel that paints
+    // nothing, at runtime. `new Function` parses the body without running it,
+    // so this is the gate the rest of the toolchain does not provide.
+    const native = loadNative();
+    assert.ok(native, "native module must load");
+    const handle = native.NetcdfHandle.fromBytes(fs.readFileSync(fixturePath("netcdf4_dimscale.nc")));
+    const slice: SlicePanelData = {
+      variables: handle.variables(),
+      initial: { variableIndex: handle.variables()[0].variableIndex, yDim: 1, xDim: 2, sliceIndices: [0, 0, 0] },
+    };
+    for (const [label, html] of [
+      ["message", renderImagePanelHtml({ cspSource: "" } as unknown as vscode.Webview, fakeMeta(), "summary", registry(), combineOps())],
+      ["slice", renderImagePanelHtml({ cspSource: "" } as unknown as vscode.Webview, fakeMeta(), "summary", registry(), combineOps(), slice)],
+    ] as const) {
+      const scripts = [...html.matchAll(/<script nonce="[^"]*">([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+      assert.ok(scripts.length > 0, `${label}: the panel has an inline script`);
+      for (const body of scripts) {
+        assert.doesNotThrow(() => new Function(body), `${label} panel script must parse`);
+      }
+    }
+    const sliceHtml = renderImagePanelHtml({ cspSource: "" } as unknown as vscode.Webview, fakeMeta(), "summary", registry(), combineOps(), slice);
+    assert.ok(/id="line-panel"/.test(sliceHtml), "the slice panel carries the line plot (#172)");
+    assert.ok(/id="line-axis"/.test(sliceHtml), "and its axis picker");
+  });
+
   test("a spectral message is offered the reprojection targets (#303)", () => {
     // A spherical-harmonic message has no grid of its own, so `reprojectable`
     // arrives false — but `renderGrid` synthesizes a regular lat/lon grid and
@@ -1431,6 +1459,60 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
       null,
       "off-raster returns null",
     );
+  });
+
+  // --- The line through a probed cell (#172) ---------------------------------
+
+  function dimscaleHandle() {
+    const native = loadNative();
+    assert.ok(native, "native module must load");
+    return native.NetcdfHandle.fromBytes(fs.readFileSync(fixturePath("netcdf4_dimscale.nc")));
+  }
+
+  test("line reads a time series through a NetCDF cell (#172)", () => {
+    // `temperature(time=2, lat=3, lon=4)` holds `t·12 + j·4 + i`, so every
+    // value states its own position. Reference values from netCDF4-python:
+    // `ds['temperature'][:, 1, 2]` and `ds['time'][:]`.
+    const handle = dimscaleHandle();
+    const t = handle.variables().find((v) => v.name === "temperature");
+    assert.ok(t, "the fixture's 3-D variable");
+    const line = handle.line(t.variableIndex, 0, [0, 1, 2]);
+    assert.deepStrictEqual(line.values, [6, 18]);
+    assert.deepStrictEqual(line.mask, [1, 1]);
+    assert.strictEqual(line.dimension, "time");
+    assert.strictEqual(line.units, "K");
+    assert.deepStrictEqual(line.coordinates, [0, 6]);
+    assert.strictEqual(line.coordinateUnits, "hours since 2020-01-01 00:00:00");
+    assert.strictEqual(line.min, 6);
+    assert.strictEqual(line.max, 18);
+  });
+
+  test("line reads along a horizontal axis too, and ignores that axis's index", () => {
+    const handle = dimscaleHandle();
+    const t = handle.variables().find((v) => v.name === "temperature");
+    assert.ok(t);
+    // `ds['temperature'][1, 2, :]` → [20, 21, 22, 23].
+    const line = handle.line(t.variableIndex, 2, [1, 2, 0]);
+    assert.deepStrictEqual(line.values, [20, 21, 22, 23]);
+    assert.deepStrictEqual(handle.line(t.variableIndex, 2, [1, 2, 3]).values, line.values);
+  });
+
+  test("line refuses an axis the variable does not have", () => {
+    const handle = dimscaleHandle();
+    const t = handle.variables().find((v) => v.name === "temperature");
+    assert.ok(t);
+    assert.throws(() => handle.line(t.variableIndex, 9, [0, 0, 0]), /along_dim 9/);
+  });
+
+  test("lineIndices writes the probed cell into the slice on screen (#172)", () => {
+    const spec = { variableIndex: 0, yDim: 1, xDim: 2, sliceIndices: [5, 0, 0] };
+    assert.deepStrictEqual(lineIndices(spec, 3, 1), [5, 1, 3], "row into yDim, column into xDim");
+    assert.deepStrictEqual(spec.sliceIndices, [5, 0, 0], "the slice on screen is not mutated");
+    // A request that cannot name a cell reads nothing rather than some other cell.
+    assert.strictEqual(lineIndices(spec, -1, 0), null);
+    assert.strictEqual(lineIndices(spec, 1.5, 0), null);
+    assert.strictEqual(lineIndices(spec, "3", 1), null);
+    assert.strictEqual(lineIndices({ ...spec, sliceIndices: [0] }, 0, 0), null);
   });
 
   test("projectOverlay maps a coastline onto the synthesised lat/lon grid", () => {
