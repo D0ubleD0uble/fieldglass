@@ -42,7 +42,7 @@ use crate::api::Isoline;
 #[cfg(feature = "render")]
 use crate::api::Warped;
 use crate::api::{
-    Addressing, DimensionInfo, Dtype, Field, Georef, LeftOutArray, MessageInfo, Probe, Scan,
+    Addressing, DimensionInfo, Dtype, Field, Georef, LeftOutArray, Line, MessageInfo, Probe, Scan,
     SourceFormat, Stats, Values, VariableInfo,
 };
 #[cfg(feature = "analysis")]
@@ -411,6 +411,48 @@ impl Arrays {
     }
 }
 
+/// What counts as a value, decided once: mask the absent and the non-finite
+/// cells, range the rest, and pack them at the requested width.
+///
+/// Shared by every decode that hands back values — a field (message or slice)
+/// and a line (#172) — so a line through a field cannot disagree with the field
+/// about which of its cells are masked.
+fn pack_values(raw: &[Option<f64>], options: &DecodeOptions) -> (Values, Vec<u8>, Stats) {
+    let mut values = Vec::with_capacity(raw.len());
+    let mut mask = Vec::with_capacity(raw.len());
+    let mut min = f64::INFINITY;
+    let mut max = f64::NEG_INFINITY;
+    let mut valid_count = 0u32;
+    for cell in raw {
+        match cell {
+            // A non-finite decoded value is not a value: it cannot be ranged,
+            // coloured, or interpolated, so it joins the masked cells rather
+            // than poisoning the min / max.
+            Some(v) if v.is_finite() => {
+                values.push(*v);
+                mask.push(1);
+                min = min.min(*v);
+                max = max.max(*v);
+                valid_count += 1;
+            }
+            _ => {
+                values.push(0.0);
+                mask.push(0);
+            }
+        }
+    }
+    let stats = Stats {
+        min: (valid_count > 0).then_some(min),
+        max: (valid_count > 0).then_some(max),
+        valid_count,
+    };
+    (
+        Values::build(values, &mask, options.dtype.clone()),
+        mask,
+        stats,
+    )
+}
+
 /// The half of a decode that is the same whichever way the container was
 /// addressed: mask the absent cells, range the present ones, and pack.
 ///
@@ -430,36 +472,9 @@ fn build_field(
     units: String,
     options: &DecodeOptions,
 ) -> Field {
-    let mut values = Vec::with_capacity(raw.len());
-    let mut mask = Vec::with_capacity(raw.len());
-    let mut min = f64::INFINITY;
-    let mut max = f64::NEG_INFINITY;
-    let mut valid_count = 0u32;
-    for cell in raw {
-        match cell {
-            // A non-finite decoded value is not a value: it cannot be ranged,
-            // coloured, or interpolated, so it joins the masked cells rather
-            // than poisoning the field's min / max.
-            Some(v) if v.is_finite() => {
-                values.push(*v);
-                mask.push(1);
-                min = min.min(*v);
-                max = max.max(*v);
-                valid_count += 1;
-            }
-            _ => {
-                values.push(0.0);
-                mask.push(0);
-            }
-        }
-    }
-    let stats = Stats {
-        min: (valid_count > 0).then_some(min),
-        max: (valid_count > 0).then_some(max),
-        valid_count,
-    };
+    let (values, mask, stats) = pack_values(raw, options);
     Field {
-        values: Values::build(values, &mask, options.dtype.clone()),
+        values,
         mask,
         ni,
         nj,
@@ -634,6 +649,29 @@ fn dtype_name(element_type: &ElementType) -> String {
         ElementType::Other(name) => name.clone(),
         other => format!("{other:?}").to_lowercase(),
     }
+}
+
+/// The coordinate values of an axis, from the 1-D array CF names after it
+/// (#172).
+///
+/// `None` unless that array exists, spans exactly this axis, and has a value at
+/// every position — a coordinate with a hole has no position to plot its point
+/// at, and a host is better served falling back to indices than handed a gap
+/// to invent across.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+fn axis_coordinates(source: &dyn ArraySource, dimension: &str, length: u64) -> Option<Vec<f64>> {
+    let array = source.array(dimension)?;
+    if array.dimensions.len() != 1 || array.dimensions[0] != dimension {
+        return None;
+    }
+    // A one-axis region, the whole axis. Spelled through `from_ref` because
+    // `&[0..length]` reads to clippy as a mistyped `[0; length]`.
+    let whole = 0..length;
+    let raw = source
+        .read_region(dimension, std::slice::from_ref(&whole))
+        .ok()?;
+    let physical = CfUnpacking::from_attributes(&array.attributes).apply(&raw);
+    physical.into_iter().collect()
 }
 
 /// An array's `units`, as the container spells them, or empty.
@@ -1385,6 +1423,129 @@ impl Session {
                     units,
                     options,
                 ))
+            }
+        }
+    }
+
+    /// One line through a variable: its values along `along_dim`, with every
+    /// other axis held at `indices` (#172).
+    ///
+    /// The profile or time series a viewer plots when a user clicks a cell. The
+    /// click has already been resolved to a cell by a probe; this reads the
+    /// variable through that cell along the axis the user picked, with the
+    /// axis's coordinate values to label it against.
+    ///
+    /// `indices` names a position on **every** axis, the one being read along
+    /// included — its entry is ignored, the way `decode_slice` ignores the two
+    /// horizontal ones — so a host passes the same vector it already holds for
+    /// the slice on screen, with the clicked cell written into its two
+    /// horizontal positions.
+    ///
+    /// **One region read**, of exactly the points on the line. On a Zarr store
+    /// that fetches only the chunks the line crosses. A NetCDF variable is still
+    /// decoded whole underneath — `NetcdfArrays::read_region` does not yet read a
+    /// sub-region — which is one decode for one click rather than per frame, but
+    /// is worth knowing before calling this in a loop.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::WrongAddressing`] for a message stream, which has no axes to read
+    /// along; [`Error::NoSuchMessage`] for a variable index outside
+    /// [`variables`](Self::variables); [`Error::InvalidOption`] for an axis
+    /// outside the variable's rank, an `indices` of the wrong length, or an index
+    /// past the end of its axis; and a decode failure from the container.
+    pub fn decode_line(
+        &self,
+        variable: u32,
+        along_dim: u32,
+        indices: &[u32],
+        options: &DecodeOptions,
+    ) -> Result<Line, Error> {
+        #[cfg(not(any(feature = "netcdf", feature = "zarr")))]
+        let _ = (variable, along_dim, indices, options);
+        match &self.reader {
+            #[cfg(feature = "grib1")]
+            Reader::Grib1(_) => Err(wrong_addressing(
+                Addressing::Messages,
+                "decode_line",
+                "decode",
+            )),
+            #[cfg(feature = "grib2")]
+            Reader::Grib2(_) => Err(wrong_addressing(
+                Addressing::Messages,
+                "decode_line",
+                "decode",
+            )),
+            #[cfg(any(feature = "netcdf", feature = "zarr"))]
+            Reader::Arrays(a) => {
+                let source = a.source.as_ref();
+                let vars = renderable_arrays(source.group());
+                let var = vars.get(variable as usize).ok_or(Error::NoSuchMessage {
+                    index: variable,
+                    count: u32::try_from(vars.len()).unwrap_or(u32::MAX),
+                })?;
+                let rank = var.dims.len();
+                let along = along_dim as usize;
+                if along >= rank {
+                    return Err(Error::InvalidOption {
+                        detail: format!(
+                            "`{}` has {rank} dimensions, so along_dim {along} is outside them",
+                            var.name
+                        ),
+                    });
+                }
+                if indices.len() != rank {
+                    return Err(Error::InvalidOption {
+                        detail: format!(
+                            "`{}` has {rank} dimensions, so `indices` needs {rank} entries \
+                             (the one being read along is ignored); {} were given",
+                            var.name,
+                            indices.len()
+                        ),
+                    });
+                }
+                let mut region = Vec::with_capacity(rank);
+                for (d, dim) in var.dims.iter().enumerate() {
+                    if d == along {
+                        region.push(0..dim.length);
+                        continue;
+                    }
+                    let at = u64::from(indices[d]);
+                    if at >= dim.length {
+                        return Err(Error::InvalidOption {
+                            detail: format!(
+                                "index {at} is past the end of `{}`'s dimension {d} \
+                                 (`{}`, length {})",
+                                var.name, dim.name, dim.length
+                            ),
+                        });
+                    }
+                    region.push(at..at + 1);
+                }
+                // A region with every axis but one a single index comes back as
+                // exactly the points on the line, in index order.
+                let raw = source.read_region(&var.name, &region)?;
+                let attributes = source
+                    .array(&var.name)
+                    .map(|d| d.attributes.as_slice())
+                    .unwrap_or_default();
+                let physical = CfUnpacking::from_attributes(attributes).apply(&raw);
+                let (values, mask, stats) = pack_values(&physical, options);
+                let dimension = var.dims[along].name.clone();
+                let coordinates = axis_coordinates(source, &dimension, var.dims[along].length);
+                Ok(Line {
+                    values,
+                    mask,
+                    stats,
+                    variable: var.name.clone(),
+                    units: array_units(source, &var.name),
+                    coordinate_units: coordinates
+                        .as_ref()
+                        .map(|_| array_units(source, &dimension))
+                        .filter(|u| !u.is_empty()),
+                    coordinates,
+                    dimension,
+                })
             }
         }
     }

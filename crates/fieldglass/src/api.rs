@@ -347,6 +347,41 @@ api_type! {
         pub valid_count: u32,
     }
 
+    /// One line through an array: its values along one axis, every other axis
+    /// held at an index (#172).
+    ///
+    /// A vertical profile or a time series at a grid point — the plot a viewer
+    /// draws beside a map when a user clicks a cell. The values are what
+    /// [`crate::Session::decode_slice`] would report at that cell on each slice
+    /// along the axis, and a test holds the two to that.
+    #[serde(rename_all = "camelCase")]
+    #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
+    pub struct Line {
+        /// The values along the axis, in index order. Read `mask` before a
+        /// value: an absent point still occupies its slot.
+        pub values: Values,
+        /// One byte per point: `1` present, `0` absent. Same length as `values`.
+        pub mask: Vec<u8>,
+        /// Range and count over the present points.
+        pub stats: Stats,
+        /// The array's name.
+        pub variable: String,
+        /// The array's units, as its attributes state them.
+        pub units: String,
+        /// The axis the line runs along, named as the array names it.
+        pub dimension: String,
+        /// The axis's coordinate values, in index order — the times or levels to
+        /// label the line against.
+        ///
+        /// `None` when the axis has no 1-D coordinate array of its own name, or
+        /// when one of its values is absent: a coordinate with a hole has no
+        /// honest position to plot that point at, so the host falls back to
+        /// indices rather than being handed a gap it would have to invent across.
+        pub coordinates: Option<Vec<f64>>,
+        /// The coordinate array's units, when there are coordinates.
+        pub coordinate_units: Option<String>,
+    }
+
     /// One decoded field: the values, where they sit, and what they are.
     ///
     /// The host owns this. The façade keeps no decode cache — linear memory
