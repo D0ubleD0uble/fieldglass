@@ -203,12 +203,18 @@ smaller and the gzipped size 419 bytes larger (under 0.1% either way). The
 browser build reads GRIB only, so the new code it carries is the array helpers
 core now shares with the NetCDF and Zarr readers.
 
+Memoising slice placement (#662, ADR-0011) added 4,984 raw bytes and 2,086
+gzipped, 0.4% either way — a `HashMap` and its key type on the array path, which
+this build carries because it opens NetCDF. It buys the browser the cache it had
+no version of: a curvilinear field's spatial index is now built once per open
+file rather than once per repaint.
+
 <!-- checked by tools/check_wasm_bundle_size.py -->
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
-| baseline | 1,298,642 | 506,127 |
-| `+simd128` | 1,283,500 | 501,229 |
+| baseline | 1,303,626 | 508,213 |
+| `+simd128` | 1,288,395 | 503,441 |
 
 The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
 build drifts more than 5% from these figures in either direction, so a change
