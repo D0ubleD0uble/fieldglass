@@ -42,6 +42,16 @@ mod directory_store;
 #[cfg(test)]
 mod session_parity;
 
+// One `MessageMeta` builder over what `Session` reports, which will replace the
+// per-edition pair that reads the format crates directly (#726).
+//
+// Test-gated on purpose: it is written and proven against both builders over the
+// whole corpus before anything depends on it, and wiring it up is the handle
+// migration itself. Shipping it unused in the addon would be dead code in a
+// `.node`.
+#[cfg(test)]
+mod session_meta;
+
 // This host, run through the ADR-0006 conformance suite that ships in
 // `fieldglass` (#573). Test only, and the second runner of one set of
 // expectations — the browser host's Node runner is the third.
@@ -103,8 +113,13 @@ mod into_napi_tests {
 type ResolvedField = (std::sync::Arc<Vec<Option<f64>>>, MessageMeta, u32, u32);
 
 /// A single message's metadata, exposed to Node.js.
+///
+/// `Default` is derived so a builder states the fields its family actually has
+/// and leaves the rest absent, rather than writing out seventy-two of them to
+/// say "not this one" (#726). Every field is either an `Option`, a `String`, a
+/// number or a `bool`, so the derived value is the all-absent meta.
 #[napi(object)]
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct MessageMeta {
     /// Position of the message in the file, and the handle every other call
     /// takes.
