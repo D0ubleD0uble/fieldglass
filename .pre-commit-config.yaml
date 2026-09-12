@@ -358,6 +358,18 @@ repos:
         entry: python3 tools/test_check_host_types.py
         pass_filenames: false
 
+      - id: native-declarations-selftest
+        name: native-declaration checker self-test
+        stages: [pre-push]
+        language: system
+        # The checker itself runs in CI's extension job, after `napi build` —
+        # it needs the generated `index.d.ts` and errors rather than skipping when
+        # that is absent. Its *self-test* runs here, over synthetic file pairs, so
+        # the four failure directions are checked on the commit that changes them.
+        files: ^(tools/(check_native_declarations|test_check_native_declarations)\.py|extension/src/native\.ts)$
+        entry: python3 tools/test_check_native_declarations.py
+        pass_filenames: false
+
       - id: host-dependencies-selftest
         name: host-dependency checker self-test
         stages: [pre-push]
