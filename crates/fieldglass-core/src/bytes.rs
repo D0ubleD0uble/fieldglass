@@ -885,6 +885,35 @@ impl ByteSource for Vec<u8> {
     }
 }
 
+/// So an *owned, type-erased* source is a source: `Box<dyn ByteSource>` is what
+/// lets one reader instantiation serve every host (#709).
+///
+/// Without it a caller that does not know the source's type at compile time has
+/// to be generic all the way up, which for [`Session`] would mean a type
+/// parameter on the whole API — or a second monomorphisation of every reader per
+/// source type, which is bundle weight the browser build pays for.
+///
+/// `?Sized` so `Box<dyn ByteSource>` is covered and not only `Box<Concrete>`.
+///
+/// [`Session`]: https://docs.rs/fieldglass/latest/fieldglass/struct.Session.html
+impl<S: ByteSource + ?Sized> ByteSource for Box<S> {
+    fn size(&self) -> u64 {
+        (**self).size()
+    }
+
+    fn identity(&self) -> Option<SourceIdentity> {
+        (**self).identity()
+    }
+
+    fn prefetch(&self, ranges: &[ByteRange]) -> Result<(), FieldglassError> {
+        (**self).prefetch(ranges)
+    }
+
+    fn read(&self, range: ByteRange) -> Result<Cow<'_, [u8]>, FieldglassError> {
+        (**self).read(range)
+    }
+}
+
 /// So a caller holding `&S` can pass it where a `ByteSource` is wanted, which
 /// is what lets a reader borrow its source rather than own it.
 impl<S: ByteSource + ?Sized> ByteSource for &S {

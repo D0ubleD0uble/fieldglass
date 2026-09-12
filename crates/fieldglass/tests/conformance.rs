@@ -184,6 +184,10 @@ const CASES_THAT_RECORD_A_FAILURE: &[&str] = &[
     "error/decode",
     "error/invalid_option",
     "error/no_such_message",
+    // A truncated transfer, which is a different answer from a truncated file
+    // (`error/decode` above) and the one a host can retry (#707). Reachable only
+    // through `Session::open_source`, which is why it arrived with #709.
+    "error/short_read",
     "error/unsupported",
     "error/unsupported_format",
     "error/wrong_addressing",

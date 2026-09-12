@@ -601,6 +601,11 @@ class TheRepoItselfPasses(unittest.TestCase):
                 "FileCursor",
                 "GridGeometry",
                 "Group",
+                # The one shape a container states an array it left out in
+                # (#709), replacing this crate's own `UnsupportedVariable` on the
+                # `ArraySource` seam. Zarr's `problems()` stated the same fact as
+                # a tuple of two strings.
+                "LeftOut",
                 "SlicePlacement",
             },
         }

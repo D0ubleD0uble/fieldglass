@@ -694,7 +694,7 @@ impl Group {
     /// fetch one array's CF attributes (#709). This allocates nothing and stops
     /// at the first match.
     ///
-    /// It mirrors [`walk`](Self::walk) segment for segment, including that an
+    /// It mirrors the private `walk` segment for segment, including that an
     /// unnamed group contributes no segment — so a name either function produces
     /// is a name the other resolves, which
     /// `array_lookup_agrees_with_listing_on_every_fixture` checks over every
@@ -768,6 +768,30 @@ fn qualify(prefix: &str, name: &str) -> String {
     }
 }
 
+/// An array a container holds but this build will not read, and why.
+///
+/// Two containers had two spellings of this: `ZarrStore::problems()` returned
+/// `&[(String, String)]` and NetCDF's view an `unsupported: Vec<UnsupportedVariable>`.
+/// Once both sit behind [`ArraySource`] a host wants one answer to show, and a
+/// tuple of two strings does not say which is which (#709).
+///
+/// **Not an error.** A container whose every array is readable reports none, and
+/// one array being unreadable never fails the container — that is the rule
+/// [`ArraySource::read_region`] states and this is how a caller sees the
+/// consequence. A genuine parse failure still fails the open, so "not
+/// implemented" and "corrupt" stay distinguishable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct LeftOut {
+    /// The array's path-qualified name, spelled as
+    /// [`Group::arrays_qualified`] would have spelled it had it been readable —
+    /// so a host can match it against the list it *did* get.
+    pub name: String,
+    /// Why, as the reader phrased it: a document that does not parse, a type
+    /// this build does not read, a dimension given two lengths.
+    pub reason: String,
+}
+
 /// Where a container's arrays are read from: the array-level IO seam (#658).
 ///
 /// One rung above [`ByteSource`](crate::bytes::ByteSource) and
@@ -817,6 +841,18 @@ pub trait ArraySource {
         array: &str,
         region: &[Range<u64>],
     ) -> Result<Vec<Option<f64>>, crate::FieldglassError>;
+
+    /// The arrays this container holds and this build will not read, each with
+    /// why — see [`LeftOut`].
+    ///
+    /// Empty by default, which is the honest answer for a container that reads
+    /// everything it can describe. An implementation that leaves arrays out
+    /// overrides it; a host shows the list beside
+    /// [`Group::arrays_qualified`] rather than wondering why a name is missing
+    /// from it.
+    fn left_out(&self) -> Vec<LeftOut> {
+        Vec::new()
+    }
 
     /// One array's description, by its path-qualified name.
     ///

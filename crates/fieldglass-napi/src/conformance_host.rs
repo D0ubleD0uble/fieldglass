@@ -399,7 +399,19 @@ fn axes<'a>(axes: impl Iterator<Item = (&'a str, f64)>) -> Value {
 
 /// Whether this host's call is an answer to the *same question* the case asks.
 ///
-/// One case, and it is a real difference in surface rather than in numbers:
+/// Two, and both are real differences in surface rather than in numbers.
+///
+/// **A short-serving source (#707, #709).** A case with `short_read` set opens
+/// through `Session::open_source` over a source that serves fewer bytes than it
+/// was asked for. This host's handles take a JS `Buffer` — the addon reads the
+/// file itself — so it has no transport and cannot be in a truncated-transfer
+/// state at all; asking it that question would compare a whole-file decode with
+/// a truncated one and call the difference a divergence. The same reason
+/// `short_read` was unreachable through `Session` before #709 gave it a
+/// source-taking constructor. When this host gains one (#659's directory store,
+/// #114's large files), the case becomes comparable and this arm should go.
+///
+/// **A narrowed decode.** A real difference in surface too:
 /// `decode_grid` has no `dtype` knob and always answers `Float64Array`, while
 /// the suite's `decode` cases ask for each of `auto`, `f32` and `f64`. Where
 /// the API narrowed to `f32`, the two calls decoded the same field to different
@@ -410,6 +422,9 @@ fn axes<'a>(axes: impl Iterator<Item = (&'a str, f64)>) -> Value {
 /// every `dtype: "f64"` case and every `auto` case over a field that did not
 /// narrow — or when it failed, where the width never arose.
 fn asks_the_same_question(case: &Case, expect: &Value) -> bool {
+    if case.args.short_read.is_some() {
+        return false;
+    }
     if case.op != Op::Decode {
         return true;
     }

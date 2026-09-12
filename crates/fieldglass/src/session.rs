@@ -14,6 +14,8 @@
 #[cfg(feature = "zarr")]
 use fieldglass_core::bytes::ObjectSource;
 #[cfg(any(feature = "grib1", feature = "grib2"))]
+use fieldglass_core::bytes::{ByteSource, read_up_to};
+#[cfg(any(feature = "grib1", feature = "grib2"))]
 use fieldglass_core::units::normalize_units;
 use fieldglass_core::{Format as CoreFormat, GridGeometry, detect_from_bytes};
 #[cfg(feature = "render")]
@@ -35,8 +37,8 @@ use crate::api::Isoline;
 #[cfg(feature = "render")]
 use crate::api::Warped;
 use crate::api::{
-    Addressing, DimensionInfo, Dtype, Field, Georef, MessageInfo, Probe, Scan, SourceFormat, Stats,
-    Values, VariableInfo,
+    Addressing, DimensionInfo, Dtype, Field, Georef, LeftOutArray, MessageInfo, Probe, Scan,
+    SourceFormat, Stats, Values, VariableInfo,
 };
 #[cfg(feature = "analysis")]
 use crate::combine::CombineOp;
@@ -209,18 +211,53 @@ pub struct Session {
 /// One variant per format feature (#552). `lib.rs` refuses a build with none of
 /// them, so this enum always has at least one variant and every `match` on it
 /// below stays exhaustive with its arms gated the same way.
-#[derive(Debug)]
+/// The bytes a message-addressed reader reads, type-erased.
+///
+/// One instantiation of each GRIB reader in this crate rather than one per source
+/// type (#709). `Session::open` boxes the buffer it was handed and
+/// `Session::open_source` boxes whatever the host brought, so both arrive here as
+/// the same type and the readers are monomorphised once — which is what keeps a
+/// source-taking constructor from costing the browser bundle a second copy of
+/// every decode path. The cost is a virtual call per `read`, against a decode
+/// that does far more work per slab than that.
+#[cfg(any(feature = "grib1", feature = "grib2"))]
+type Bytes = Box<dyn ByteSource>;
+
 enum Reader {
     #[cfg(feature = "grib1")]
-    Grib1(Box<fieldglass_grib1::Grib1Reader>),
+    Grib1(Box<fieldglass_grib1::Grib1Reader<Bytes>>),
     #[cfg(feature = "grib2")]
-    Grib2(Box<fieldglass_grib2::Grib2Reader>),
+    Grib2(Box<fieldglass_grib2::Grib2Reader<Bytes>>),
     /// A container of named arrays — a NetCDF file or a Zarr store — held as
     /// the [`ArraySource`] its reader presents (#704). One arm for every such
     /// container: the variable list, the slice and its placement are core's CF
     /// rules over that seam, so a second container needs no second copy of them.
     #[cfg(any(feature = "netcdf", feature = "zarr"))]
     Arrays(Box<Arrays>),
+}
+
+/// Written rather than derived: the bytes behind a message reader are a
+/// `dyn ByteSource` the host brought, and a trait object cannot describe itself.
+/// Requiring `Debug` of every host source to satisfy a derive would be the tail
+/// wagging the dog, and the variant plus the message count is what a reader of
+/// this actually wants.
+impl std::fmt::Debug for Reader {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            #[cfg(feature = "grib1")]
+            Self::Grib1(r) => f
+                .debug_struct("Grib1")
+                .field("messages", &r.messages.len())
+                .finish(),
+            #[cfg(feature = "grib2")]
+            Self::Grib2(r) => f
+                .debug_struct("Grib2")
+                .field("messages", &r.messages.len())
+                .finish(),
+            #[cfg(any(feature = "netcdf", feature = "zarr"))]
+            Self::Arrays(a) => f.debug_struct("Arrays").field("format", &a.format).finish(),
+        }
+    }
 }
 
 /// A container of named arrays, and which one it is.
@@ -303,6 +340,39 @@ fn build_field(
         parameter,
         units,
     }
+}
+
+/// Everything [`detect_from_bytes`] looks at: `"GRIB"` plus the edition octet,
+/// `CDF\x01`, or the HDF5 signature. Opening from a source reads this much and
+/// not the file (#709).
+#[cfg(any(feature = "grib1", feature = "grib2"))]
+const DETECT_PREFIX: usize = 8;
+
+/// The refusal a source-taking constructor gives a container that is not a
+/// message stream, naming the call to make instead.
+///
+/// One place, so `open_source` and `open_message_at` cannot word it differently,
+/// and so each answer says *why* rather than only "no": NetCDF because its
+/// reader holds a buffer rather than reading through the seam, Zarr because it is
+/// keyed rather than ranged.
+#[cfg(any(feature = "grib1", feature = "grib2"))]
+fn not_a_message_stream(format: CoreFormat, called: &str) -> Error {
+    let detail = match format {
+        CoreFormat::NetCdf => format!(
+            "`{called}` opens a message stream, and these bytes are NetCDF, whose reader holds \
+             its file as a buffer rather than reading through a source; call `Session::open` \
+             with the bytes instead"
+        ),
+        CoreFormat::Unknown => format!(
+            "`{called}` found no container this build knows in the bytes at the offset it was \
+             given"
+        ),
+        other => format!(
+            "`{called}` opens a message stream, and these bytes are {other:?}; a keyed store \
+             opens with `Session::open_store`"
+        ),
+    };
+    Error::UnsupportedFormat { detail }
 }
 
 /// The refusal a message call gets from a variable dataset, and vice versa.
@@ -424,9 +494,9 @@ impl Session {
     pub fn open(bytes: Vec<u8>) -> Result<Self, Error> {
         let reader = match detect_from_bytes(&bytes) {
             #[cfg(feature = "grib1")]
-            CoreFormat::Grib1 => {
-                Reader::Grib1(Box::new(fieldglass_grib1::Grib1Reader::from_bytes(bytes)?))
-            }
+            CoreFormat::Grib1 => Reader::Grib1(Box::new(
+                fieldglass_grib1::Grib1Reader::from_source(Box::new(bytes) as Bytes)?,
+            )),
             #[cfg(not(feature = "grib1"))]
             CoreFormat::Grib1 => {
                 return Err(Error::UnsupportedFormat {
@@ -435,9 +505,9 @@ impl Session {
                 });
             }
             #[cfg(feature = "grib2")]
-            CoreFormat::Grib2 => {
-                Reader::Grib2(Box::new(fieldglass_grib2::Grib2Reader::from_bytes(bytes)?))
-            }
+            CoreFormat::Grib2 => Reader::Grib2(Box::new(
+                fieldglass_grib2::Grib2Reader::from_source(Box::new(bytes) as Bytes)?,
+            )),
             #[cfg(not(feature = "grib2"))]
             CoreFormat::Grib2 => {
                 return Err(Error::UnsupportedFormat {
@@ -467,6 +537,126 @@ impl Session {
                     detail: "the bytes match no container this build knows".to_string(),
                 });
             }
+        };
+        Ok(Self { reader })
+    }
+
+    /// The reader a detected format asks for, over a source.
+    ///
+    /// Shared by [`Session::open_source`] and, through it, the feature-gating
+    /// refusals — so a build without an edition says the same thing here as
+    /// [`Session::open`] says.
+    #[cfg(any(feature = "grib1", feature = "grib2"))]
+    fn from_detected(format: CoreFormat, source: Bytes) -> Result<Self, Error> {
+        let reader = match format {
+            #[cfg(feature = "grib1")]
+            CoreFormat::Grib1 => Reader::Grib1(Box::new(
+                fieldglass_grib1::Grib1Reader::from_source(source)?,
+            )),
+            #[cfg(not(feature = "grib1"))]
+            CoreFormat::Grib1 => {
+                return Err(Error::UnsupportedFormat {
+                    detail: "GRIB1; this build was compiled without the `grib1` feature"
+                        .to_string(),
+                });
+            }
+            #[cfg(feature = "grib2")]
+            CoreFormat::Grib2 => Reader::Grib2(Box::new(
+                fieldglass_grib2::Grib2Reader::from_source(source)?,
+            )),
+            #[cfg(not(feature = "grib2"))]
+            CoreFormat::Grib2 => {
+                return Err(Error::UnsupportedFormat {
+                    detail: "GRIB2; this build was compiled without the `grib2` feature"
+                        .to_string(),
+                });
+            }
+            other => return Err(not_a_message_stream(other, "open_source")),
+        };
+        Ok(Self { reader })
+    }
+
+    /// Open a message stream from a source the host reads through, rather than
+    /// from a buffer it has all of (#709).
+    ///
+    /// [`Session::open`] takes the whole file. That is the right shape when the
+    /// host has it — and the wrong one for the work ADR-0005 exists for: a file
+    /// too large to hold (#114), an archive reached over HTTP range requests
+    /// (#247), an object in a bucket (#252). Those hosts have a
+    /// [`ByteSource`], and until now reaching a reader with one meant going
+    /// around this crate to `Grib1Reader::from_source` — the host divergence
+    /// [ADR-0006] exists to prevent.
+    ///
+    /// The format is detected from the first eight bytes, which is all
+    /// [`detect_from_bytes`] reads, so opening costs one small read and not the
+    /// file.
+    ///
+    /// # Only message streams
+    ///
+    /// A GRIB file, of either edition. **Not NetCDF**: `NetcdfReader` holds its
+    /// bytes as a buffer rather than reading through the seam, so there is
+    /// nothing for this to hand it — the error says so and names
+    /// [`Session::open`]. A Zarr store is keyed rather than ranged and has
+    /// `Session::open_store` — named rather than linked, because that one is
+    /// behind the `zarr` feature and this is not. Both refusals name the call to
+    /// make instead rather than only saying no.
+    ///
+    /// # Errors
+    ///
+    /// A source whose leading bytes match no container this build opens, a
+    /// container that is not a message stream, and any failure of the source or
+    /// of the scan.
+    ///
+    /// [ADR-0006]: https://github.com/D0ubleD0uble/fieldglass/blob/master/docs/decisions/0006-one-umbrella-crate-and-host-bindings-over-it.md
+    #[cfg(any(feature = "grib1", feature = "grib2"))]
+    pub fn open_source<S: ByteSource + 'static>(source: S) -> Result<Self, Error> {
+        let source: Bytes = Box::new(source);
+        // Eight bytes is everything `detect_from_bytes` looks at: "GRIB" plus
+        // the edition octet, `CDF\x01`, or the HDF5 signature. `read_up_to`
+        // rather than a fixed read, so a source shorter than that says "no
+        // container" instead of "short read".
+        let head = read_up_to(&source, 0, DETECT_PREFIX)?;
+        let format = detect_from_bytes(&head);
+        drop(head);
+        Self::from_detected(format, source)
+    }
+
+    /// Open the single message at `offset` in `source`, without scanning for it.
+    ///
+    /// What a host does with a sidecar index (#685): the index says where a
+    /// message begins, so there is no reason to walk the file to find it — and
+    /// over a transport that walk is the whole point of having the index. The
+    /// session holds exactly that one message, so its
+    /// [`count`](Session::count) is 1 and the message is index 0 whatever its
+    /// place in the file.
+    ///
+    /// The source need hold nothing but that message's range. It still has to
+    /// report the whole file's [`size`](ByteSource::size), because the message's
+    /// own length is read from its indicator section.
+    ///
+    /// # Errors
+    ///
+    /// Bytes at `offset` that are not the start of a GRIB message of an edition
+    /// this build decodes, and any failure of the source.
+    #[cfg(any(feature = "grib1", feature = "grib2"))]
+    pub fn open_message_at<S: ByteSource + 'static>(source: S, offset: u64) -> Result<Self, Error> {
+        let source: Bytes = Box::new(source);
+        // Detected *at the offset*, not at the start of the file: a sidecar
+        // index points into an archive whose first bytes may be another
+        // message, another edition, or not a message at all.
+        let head = read_up_to(&source, offset, DETECT_PREFIX)?;
+        let format = detect_from_bytes(&head);
+        drop(head);
+        let reader = match format {
+            #[cfg(feature = "grib1")]
+            CoreFormat::Grib1 => Reader::Grib1(Box::new(
+                fieldglass_grib1::Grib1Reader::from_message_at(source, offset)?,
+            )),
+            #[cfg(feature = "grib2")]
+            CoreFormat::Grib2 => Reader::Grib2(Box::new(
+                fieldglass_grib2::Grib2Reader::from_message_at(source, offset)?,
+            )),
+            other => return Err(not_a_message_stream(other, "open_message_at")),
         };
         Ok(Self { reader })
     }
@@ -779,6 +969,37 @@ impl Session {
                 .map(|(name, d)| DimensionInfo {
                     name,
                     length: d.length,
+                })
+                .collect(),
+        }
+    }
+
+    /// The arrays this container holds and this build will not read, each with
+    /// why.
+    ///
+    /// One answer for every container (#709). A NetCDF file and a Zarr store used
+    /// to state this in two different shapes — a named struct behind one reader
+    /// and a tuple of two strings behind the other — so a host reading both had
+    /// to know which was which. Names are spelled as [`Session::variables`]
+    /// spells a readable one, so a caller can match the two lists.
+    ///
+    /// Empty for a message stream, which has no arrays to leave out, and for a
+    /// container that reads everything it can describe. **Never an error**: one
+    /// unreadable array does not fail a container.
+    pub fn left_out(&self) -> Vec<LeftOutArray> {
+        match &self.reader {
+            #[cfg(feature = "grib1")]
+            Reader::Grib1(_) => Vec::new(),
+            #[cfg(feature = "grib2")]
+            Reader::Grib2(_) => Vec::new(),
+            #[cfg(any(feature = "netcdf", feature = "zarr"))]
+            Reader::Arrays(a) => a
+                .source
+                .left_out()
+                .into_iter()
+                .map(|l| LeftOutArray {
+                    name: l.name,
+                    reason: l.reason,
                 })
                 .collect(),
         }
@@ -1298,7 +1519,7 @@ fn grib1_parameter(msg: &fieldglass_grib1::Grib1Message) -> (String, String, Str
 }
 
 #[cfg(feature = "grib1")]
-fn grib1_message(reader: &fieldglass_grib1::Grib1Reader, index: usize) -> MessageInfo {
+fn grib1_message(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) -> MessageInfo {
     let msg = &reader.messages[index];
     let grid = msg.gds.as_ref().map(|gds| {
         Georef::from_declared(
@@ -1364,7 +1585,7 @@ fn grib2_parameter(msg: &fieldglass_grib2::Grib2Message) -> (String, String, Str
 }
 
 #[cfg(feature = "grib2")]
-fn grib2_message(reader: &fieldglass_grib2::Grib2Reader, index: usize) -> MessageInfo {
+fn grib2_message(reader: &fieldglass_grib2::Grib2Reader<Bytes>, index: usize) -> MessageInfo {
     let msg = &reader.messages[index];
     let common = msg.pds.common();
     let (abbreviation, parameter, units) = grib2_parameter(msg);
@@ -1457,10 +1678,10 @@ mod tests {
     fn grib2_session() -> Session {
         Session {
             reader: Reader::Grib2(Box::new(
-                fieldglass_grib2::Grib2Reader::from_bytes(
+                fieldglass_grib2::Grib2Reader::from_source(Box::new(
                     std::fs::read("../fieldglass-grib2/tests/fixtures/gfs_c255_latlon.grib2")
                         .expect("fixture"),
-                )
+                ) as Bytes)
                 .expect("parse"),
             )),
         }

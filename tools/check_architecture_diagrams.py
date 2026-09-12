@@ -64,6 +64,21 @@ TEST_SUPPORT_FILES: set[str] = {
     "fieldglass-core/src/testing.rs",
 }
 
+# Types that implement a first-party trait and are not seams a diagram should
+# name. Two kinds only, and each entry says which:
+#
+#  * a **forwarding wrapper** — `&S`, `Box<S>` — which exists so a caller can pass
+#    what it holds where the trait is wanted. Diagramming it would put `Box` in
+#    the class diagram beside the readers, which tells a reader nothing about the
+#    architecture and hides the implementors that matter.
+#  * a **test source that cannot live behind a feature**, because the module it
+#    sits in ships. `fieldglass_core::testing` is excluded by file above; this is
+#    for the one in the conformance suite, which is a shipped surface.
+UNDIAGRAMMED_IMPL_TYPES: set[str] = {
+    "Box",  # forwarding wrapper for ByteSource / ObjectSource (#709)
+    "ShortServing",  # the conformance suite's own short-serving source (#707)
+}
+
 # Mermaid keywords that could appear where a type node is expected. The current
 # regexes structurally can't capture these (keywords and quoted cardinality fall
 # outside the capture groups), so this is belt-and-suspenders against a future
@@ -302,7 +317,7 @@ def source_realizations(traits: set[str]) -> set[tuple[str, str]]:
     out: set[tuple[str, str]] = set()
     for p in rust_sources():
         out |= impl_pairs_from_text(_read(p), traits)
-    return out
+    return {(trait, ty) for (trait, ty) in out if ty not in UNDIAGRAMMED_IMPL_TYPES}
 
 
 def diagram_realizations() -> set[tuple[str, str]]:

@@ -122,8 +122,8 @@ pub mod shader;
 #[cfg(feature = "render")]
 pub use api::Warped;
 pub use api::{
-    Addressing, AxisUnits, DimensionInfo, Dtype, Field, Georef, MessageInfo, Probe, Scan,
-    SourceFormat, Stats, Values, VariableInfo,
+    Addressing, AxisUnits, DimensionInfo, Dtype, Field, Georef, LeftOutArray, MessageInfo, Probe,
+    Scan, SourceFormat, Stats, Values, VariableInfo,
 };
 #[cfg(feature = "analysis")]
 pub use api::{CombineOpInfo, Isoline};

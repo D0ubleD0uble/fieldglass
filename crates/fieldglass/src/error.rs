@@ -49,6 +49,21 @@ pub enum Error {
         /// Which call was made, and what to call instead.
         detail: String,
     },
+    /// A source served fewer bytes than it was asked for.
+    ///
+    /// Its own code, not [`Self::Decode`], because the two call for opposite
+    /// responses: a truncated transfer is worth retrying and a corrupt file is
+    /// not. A buffer cannot produce this — the reader bounds-checks a range
+    /// against the source's own size — so it means the host's transport came back
+    /// short, which is the one failure the host can do something about (#707).
+    ShortRead {
+        /// Offset in the source the read began at.
+        at: u64,
+        /// How many bytes came back.
+        got: u64,
+        /// How many were asked for.
+        wanted: u64,
+    },
     /// A caller-supplied option is out of range or self-contradictory.
     InvalidOption {
         /// Which option, and what it would have had to be.
@@ -66,6 +81,7 @@ impl Error {
             Self::NoSuchMessage { .. } => "no_such_message",
             Self::Unsupported { .. } => "unsupported",
             Self::WrongAddressing { .. } => "wrong_addressing",
+            Self::ShortRead { .. } => "short_read",
             Self::InvalidOption { .. } => "invalid_option",
         }
     }
@@ -77,6 +93,9 @@ impl Error {
                 format!("not a container this build can open: {detail}")
             }
             Self::Decode { detail } => detail.clone(),
+            Self::ShortRead { at, got, wanted } => {
+                format!("the source served {got} of {wanted} bytes at {at}; the transfer was short")
+            }
             Self::NoSuchMessage { index, count } => {
                 format!("message {index} is out of range; the file holds {count}")
             }
@@ -99,8 +118,15 @@ impl std::error::Error for Error {}
 
 impl From<FieldglassError> for Error {
     fn from(e: FieldglassError) -> Self {
-        Self::Decode {
-            detail: e.to_string(),
+        // A short read keeps its shape across the boundary. Folding it into
+        // `Decode` — which is what happened before #707 gave it a variant — told
+        // a host its file was corrupt when its transfer was truncated, and those
+        // call for opposite responses. Everything else is still the long tail.
+        match e {
+            FieldglassError::ShortRead { at, got, wanted } => Self::ShortRead { at, got, wanted },
+            other => Self::Decode {
+                detail: other.to_string(),
+            },
         }
     }
 }
@@ -123,6 +149,11 @@ mod tests {
             Error::Decode { detail: "x".into() },
             Error::NoSuchMessage { index: 3, count: 1 },
             Error::Unsupported { detail: "x".into() },
+            Error::ShortRead {
+                at: 4,
+                got: 7,
+                wanted: 8,
+            },
             Error::WrongAddressing {
                 expected: "variables".into(),
                 detail: "x".into(),
@@ -136,6 +167,7 @@ mod tests {
                 | Error::NoSuchMessage { .. }
                 | Error::Unsupported { .. }
                 | Error::WrongAddressing { .. }
+                | Error::ShortRead { .. }
                 | Error::InvalidOption { .. } => {}
             }
         }

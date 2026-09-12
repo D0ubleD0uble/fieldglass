@@ -35,8 +35,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use fieldglass::{
     Addressing, AxisUnits, CombineOpInfo, DecodeOptions, DimensionInfo, Dtype, Error, Field,
-    Georef, Isoline, MessageInfo, PaletteOptions, PixelProbe, Probe, Projected, Raster,
-    RenderOptions, ResolvedOptions, SourceFormat, Stats, TargetKind, Values, VariableInfo,
+    Georef, Isoline, LeftOutArray, MessageInfo, PaletteOptions, PixelProbe, Probe, Projected,
+    Raster, RenderOptions, ResolvedOptions, SourceFormat, Stats, TargetKind, Values, VariableInfo,
     WarpOptions, WarpTarget, Warped,
 };
 
@@ -98,6 +98,9 @@ const CLASSIFICATION: &[(&str, Class, &str)] = &[
     ("Addressing", Class::Wire, ""),
     ("DimensionInfo", Class::Wire, ""),
     ("VariableInfo", Class::Wire, ""),
+    // The arrays a container holds and would not read, one shape for every
+    // container (#709).
+    ("LeftOutArray", Class::Wire, ""),
     ("CombineOpInfo", Class::Wire, ""),
     ("Warped", Class::Wire, ""),
     ("Probe", Class::Wire, ""),
@@ -359,6 +362,10 @@ fn every_wire_type_round_trips_through_json() {
         "VariableInfo",
         r#"{"index":0,"name":"/g/sst","dims":[{"name":"lat","length":2}],"dtype":"float","units":"K","detectedYDim":0,"detectedXDim":1}"#,
     );
+    round_trip::<LeftOutArray>(
+        "LeftOutArray",
+        r#"{"name":"PRODUCT/sst","reason":"unsupported section: codec bz2"}"#,
+    );
     round_trip::<RenderOptions>("RenderOptions", RENDER_OPTIONS_JSON);
 
     assert_covers_every_wire_type("every_wire_type_round_trips_through_json", ROUND_TRIPPED);
@@ -405,6 +412,7 @@ const ROUND_TRIPPED: &[&str] = &[
     "Addressing",
     "DimensionInfo",
     "VariableInfo",
+    "LeftOutArray",
 ];
 
 /// Fail unless `covered` is exactly the `Class::Wire` half of
@@ -449,6 +457,11 @@ fn the_error_codes_are_the_ones_the_suite_pins() {
             expected: String::new(),
             detail: String::new(),
         },
+        Error::ShortRead {
+            at: 0,
+            got: 0,
+            wanted: 0,
+        },
         Error::InvalidOption {
             detail: String::new(),
         },
@@ -477,6 +490,7 @@ fn the_error_codes_are_the_ones_the_suite_pins() {
                 | Error::NoSuchMessage { .. }
                 | Error::Unsupported { .. }
                 | Error::WrongAddressing { .. }
+                | Error::ShortRead { .. }
                 | Error::InvalidOption { .. }
         );
         assert!(named, "an Error variant this test does not name: {e:?}");
@@ -1190,6 +1204,7 @@ fn no_wire_schema_hides_an_optional_element_array() {
     check_schema::<Addressing>("Addressing");
     check_schema::<DimensionInfo>("DimensionInfo");
     check_schema::<VariableInfo>("VariableInfo");
+    check_schema::<LeftOutArray>("LeftOutArray");
 
     assert_covers_every_wire_type(
         "no_wire_schema_hides_an_optional_element_array",
@@ -1220,6 +1235,7 @@ const SCHEMA_CHECKED: &[&str] = &[
     "Addressing",
     "DimensionInfo",
     "VariableInfo",
+    "LeftOutArray",
 ];
 
 /// A type that carries the engine's own `Vec<Option<f64>>` across the seam.

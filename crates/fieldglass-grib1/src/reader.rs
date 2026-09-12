@@ -214,7 +214,7 @@ impl<S: ByteSource> Grib1Reader<S> {
     /// the index is out of range or the BDS header can't be parsed.
     ///
     /// Metadata only, and **bounded**: it reads at most
-    /// [`BDS_HEADER_PREFIX`](crate::bds::BDS_HEADER_PREFIX) bytes of the section
+    /// [`crate::bds::BDS_HEADER_PREFIX`] bytes of the section
     /// and never the packed data. It used to prefetch and read the whole BDS to
     /// parse eleven bytes of it, which over a buffer is free and over a transport
     /// downloads the field to answer a metadata question — once per message in a

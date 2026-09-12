@@ -62,6 +62,10 @@
 
 use serde_json::{Value, json};
 
+use fieldglass_core::FieldglassError;
+use fieldglass_core::bytes::{ByteRange, ByteSource};
+use std::borrow::Cow;
+
 use crate::api::{Dtype, Field};
 use crate::error::Error;
 use crate::session::{DecodeOptions, PaletteOptions, Session, WarpOptions};
@@ -151,6 +155,18 @@ pub struct Args {
     /// `None` opens the whole file. The corrupt-input cases use it, so the
     /// suite needs no committed broken fixture.
     pub truncate: Option<usize>,
+    /// Open through a source that serves one byte fewer than it was asked for,
+    /// for every read at or after this offset — a truncated *transfer*, as
+    /// against `truncate`'s truncated *file* (#707).
+    ///
+    /// The two are genuinely different answers and that is the point: a short
+    /// file is `decode`, because the bytes that are there are malformed, and a
+    /// short transfer is `short_read`, because the bytes are fine and there are
+    /// fewer of them than were asked for. A host retries one and reports the
+    /// other. Only a source can produce the second, which is why this arrives
+    /// through `Session::open_source` and why the code was unreachable until
+    /// that existed (#709).
+    pub short_read: Option<u64>,
     /// Which width to decode into. Typed rather than a loose string so a typo
     /// in a case fails to *parse* the suite; a runner input that came back as
     /// `Error::InvalidOption` would be indistinguishable from the API refusing
@@ -651,6 +667,21 @@ pub fn cases() -> Vec<Case> {
         },
     });
     out.push(Case {
+        // A truncated *transfer*, not a truncated file. The source serves one
+        // byte fewer than asked for every read past the indicator section, so
+        // the message is found and its data section comes back short - which is
+        // a thing only a transport can do, and the reason this case opens
+        // through `Session::open_source` (#707, #709).
+        id: "error/short_read".to_string(),
+        fixture: latlon.clone(),
+        op: Op::Decode,
+        args: Args {
+            short_read: Some(16),
+            dtype: Some(Dtype::Auto),
+            ..Args::default()
+        },
+    });
+    out.push(Case {
         id: "error/invalid_option".to_string(),
         fixture: latlon.clone(),
         op: Op::Palette,
@@ -738,6 +769,7 @@ pub fn error_codes() -> Vec<String> {
         "decode",
         "invalid_option",
         "no_such_message",
+        "short_read",
         "unsupported",
         "unsupported_format",
         "wrong_addressing",
@@ -904,6 +936,34 @@ pub fn observe(bytes: &[u8], case: &Case) -> Value {
     }
 }
 
+/// A source that serves one byte fewer than it was asked for, past an offset.
+///
+/// The suite's own rather than `fieldglass_core::testing::Short`: that module is
+/// behind a dev-only feature, and `conformance` ships. A buffer cannot serve
+/// short, so without something like this no case could reach the `short_read`
+/// code and the suite's claim that every code is reachable would be about an
+/// enum rather than about the API.
+#[derive(Debug)]
+struct ShortServing {
+    bytes: Vec<u8>,
+    from: u64,
+}
+
+impl ByteSource for ShortServing {
+    fn size(&self) -> u64 {
+        self.bytes.len() as u64
+    }
+
+    fn read(&self, range: ByteRange) -> Result<Cow<'_, [u8]>, FieldglassError> {
+        let full = self.bytes.read(range)?;
+        if range.start < self.from || full.is_empty() {
+            return Ok(full);
+        }
+        let keep = full.len() - 1;
+        Ok(Cow::Owned(full[..keep].to_vec()))
+    }
+}
+
 /// [`observe`]'s body, written with `?` so every operation's failure funnels
 /// into the same observation.
 fn run(bytes: &[u8], case: &Case) -> Result<Value, Error> {
@@ -911,7 +971,13 @@ fn run(bytes: &[u8], case: &Case) -> Result<Value, Error> {
         Some(n) => &bytes[..n.min(bytes.len())],
         None => bytes,
     };
-    let session = Session::open(truncated.to_vec())?;
+    let session = match case.args.short_read {
+        Some(from) => Session::open_source(ShortServing {
+            bytes: truncated.to_vec(),
+            from,
+        })?,
+        None => Session::open(truncated.to_vec())?,
+    };
 
     let field =
         |index: u32| -> Result<Field, Error> { session.decode(index, &decode_options(&case.args)) };

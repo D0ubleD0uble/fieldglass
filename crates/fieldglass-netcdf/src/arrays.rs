@@ -20,7 +20,7 @@ use std::borrow::Borrow;
 use std::ops::Range;
 
 use fieldglass_core::FieldglassError;
-use fieldglass_core::array::{ArraySource, Group, copy_block};
+use fieldglass_core::array::{ArraySource, Group, LeftOut, copy_block};
 use fieldglass_core::bytes::checked_usize;
 
 use crate::geometry::DatasetView;
@@ -91,6 +91,22 @@ impl<R: Borrow<NetcdfReader>, V: Borrow<DatasetView>> NetcdfArrays<R, V> {
 impl<R: Borrow<NetcdfReader>, V: Borrow<DatasetView>> ArraySource for NetcdfArrays<R, V> {
     fn group(&self) -> &Group {
         &self.group
+    }
+
+    /// The view's `unsupported` list, in the shape every container states it
+    /// (#709), with names spelled the way this seam spells a *readable* array's —
+    /// `PRODUCT/sub` and not `/PRODUCT/sub`. Without that a host could not match
+    /// a left-out name against the list it did get, which is the whole point of
+    /// having one.
+    fn left_out(&self) -> Vec<LeftOut> {
+        self.view()
+            .unsupported
+            .iter()
+            .map(|v| LeftOut {
+                name: presented(&v.name).to_string(),
+                reason: v.reason.clone(),
+            })
+            .collect()
     }
 
     /// Decodes the whole variable and cuts the region out of it, which is what
