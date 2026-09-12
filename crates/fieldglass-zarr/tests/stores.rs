@@ -359,6 +359,40 @@ fn physical_reads_match_xarray() {
     assert_eq!(compared, 8, "physical arrays compared");
 }
 
+/// Looking an array up by name finds what listing the tree finds, for every
+/// name in every committed store.
+///
+/// `Group::array_qualified` descends by path segment where `arrays_qualified`
+/// builds the whole list, and the two have to agree exactly or a cheap lookup is
+/// a wrong lookup (#709). Equality is checked **by address**, not by value: two
+/// arrays in one store can describe the same shape, dtype and attributes, and a
+/// descent that landed on the wrong one of those would compare equal.
+#[test]
+fn array_lookup_agrees_with_listing_on_every_fixture() {
+    let mut checked = 0usize;
+    for (name, objects, _) in stores() {
+        let store = ZarrStore::open(&objects).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let group = store.group();
+        let listed = group.arrays_qualified();
+        assert!(!listed.is_empty(), "{name} lists no arrays");
+        for (qualified, array) in &listed {
+            let found = group.array_qualified(qualified).unwrap_or_else(|| {
+                panic!("{name}: listing spells {qualified:?}, lookup misses it")
+            });
+            assert!(
+                std::ptr::eq(found, *array),
+                "{name}: {qualified:?} resolved to a different array than the listing names"
+            );
+            checked += 1;
+        }
+        // A name no listing produced resolves to nothing, rather than to
+        // whatever the descent bumped into on the way.
+        assert!(group.array_qualified("no/such/array").is_none(), "{name}");
+        assert!(group.array_qualified("").is_none(), "{name}");
+    }
+    assert!(checked > 10, "only {checked} names compared");
+}
+
 /// The region cap is core's field cap, and it is one element wide.
 ///
 /// Three crates used to state this number and two of them disagreed while their
