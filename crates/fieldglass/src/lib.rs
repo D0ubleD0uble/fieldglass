@@ -114,6 +114,10 @@ pub mod conformance;
 pub mod error;
 #[cfg(feature = "fetchplan")]
 pub mod fetchplan;
+// The GRIB1 surface a host needs beyond `Session`: the `P1` edit, which a
+// read-only session has no shape for (#726). Gated with the decoder it uses.
+#[cfg(feature = "grib1")]
+pub mod grib1;
 // The NetCDF surface a host needs beyond `Session`, so no host names a format
 // crate in its manifest (#662). Gated with the decoder it re-exports.
 #[cfg(feature = "netcdf")]
