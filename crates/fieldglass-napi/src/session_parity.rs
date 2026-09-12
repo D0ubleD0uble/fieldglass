@@ -267,6 +267,9 @@ fn compare_whole_meta(
         if handle == session {
             continue;
         }
+        if TOLERATED_FLOATS.contains(&field.as_str()) && agrees_numerically(handle, session) {
+            continue;
+        }
         let line = format!("  {file}#{index} {what} {field}: handle {handle} vs session {session}");
         if KNOWN_GAPS.contains(&field.as_str()) {
             known.push(line);
@@ -276,35 +279,67 @@ fn compare_whole_meta(
     }
 }
 
+/// Whether two `Debug`-rendered values are the same number to within the
+/// tolerance ADR-0009 sets for this workspace.
+///
+/// Needed because the two sides reach a projected corner by different
+/// composition of the same projector, and floating-point addition is not
+/// associative. §3.12 transverse Mercator is the one family in the corpus where
+/// that shows: the binding computes `-13.611297212366168` where going through
+/// `Georef` gives `-13.611297212366173`. Five parts in 10^15 — about 60
+/// nanometres on the ground, and eleven digits below anything a message table
+/// prints.
+///
+/// ADR-0009 already settled that this workspace compares floats with a
+/// tolerance rather than bit-exactly, because `wasm32` links its own `libm`
+/// and computes projected coordinates an ULP away. Listing the family as an
+/// unreproducible gap instead would be recording a rounding difference as a
+/// design problem.
+///
+/// `1e-9` relative: six orders of magnitude above what was measured, and still
+/// far below a degree's worth of display precision. Only applied when both
+/// sides are a bare `Some(<float>)`, so a `None`-against-a-value difference
+/// stays a difference.
+/// Fields the tolerance applies to: projected coordinates, and nothing else.
+///
+/// Deliberately not every `f64` field. `offset_bytes` and `total_length_bytes`
+/// are counts that reach JavaScript as doubles, and a *relative* tolerance on a
+/// gigabyte offset is a whole byte — so a real difference in either would have
+/// been excused. They are exact quantities and are compared exactly.
+const TOLERATED_FLOATS: [&str; 4] = ["lat_first", "lon_first", "lat_last", "lon_last"];
+
+fn agrees_numerically(a: &str, b: &str) -> bool {
+    fn number(text: &str) -> Option<f64> {
+        text.strip_prefix("Some(")?
+            .strip_suffix(')')?
+            .parse::<f64>()
+            .ok()
+    }
+    let (Some(a), Some(b)) = (number(a), number(b)) else {
+        return false;
+    };
+    if a == b {
+        return true;
+    }
+    let scale = a.abs().max(b.abs()).max(1.0);
+    (a - b).abs() / scale < 1e-9
+}
+
 /// The fields one builder over `Session`'s DTOs cannot yet reproduce, and why.
 ///
-/// **Corner coordinates** (`lat_first`, `lon_first`, `lat_last`, `lon_last`).
-/// The per-edition builders read them from the format crate's own
-/// `bounds()`, which for a projected family *computes* the far corner by
-/// projecting the last grid point, and for a reduced grid reports the
-/// **declared** octet rather than the widened raster's. `GridGeometry` carries
-/// neither: a `PolarStereo` is defined by its first corner plus spacing, so it
-/// has no `lat_last` to read, and a widened reduced grid's computed corner
-/// differs from the declared one in the fifth decimal (357.1875 against the
-/// file's 357.188).
+/// **Row order for a family with no conventional raster**, and only that.
 ///
-/// **Row order for a family with no conventional raster** (`j_scans_positive`).
 /// The handles report `Some(false)` for HEALPix and nothing for a synthesised
-/// spectral grid; going through `Georef` gives the opposite on both, because a
-/// synthesised raster genuinely is north-down and a HEALPix pixel list genuinely
-/// has no rows.
+/// spectral grid. Going through `Georef` gives the opposite on both, and
+/// arguably the better answer each time: a synthesised raster genuinely is
+/// north-down, and a HEALPix pixel list genuinely has no rows to order. Which
+/// one a message table should show is a decision, not a defect, so it is
+/// recorded here rather than silently changed.
 ///
-/// Both are recorded rather than papered over: closing them means `Georef`
-/// carrying the format's own corner pair, which is a DTO addition with its own
-/// justification, not something to slip into a refactor. Until then this test
-/// says exactly how far one builder gets, which is the useful fact for #726.
-const KNOWN_GAPS: [&str; 5] = [
-    "lat_first",
-    "lon_first",
-    "lat_last",
-    "lon_last",
-    "j_scans_positive",
-];
+/// The corner coordinates used to be listed here too. They are not any more:
+/// `Georef` now carries the corner pair the **container** reports
+/// (`Georef::from_declared_corners`), which is what closed them.
+const KNOWN_GAPS: [&str; 1] = ["j_scans_positive"];
 
 /// Every GRIB1 fixture, every message.
 #[test]

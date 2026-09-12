@@ -1049,6 +1049,63 @@ impl GridGeometry {
         }
     }
 
+    /// The first and last scanned grid points, as the corner pair a message
+    /// list shows (#726).
+    ///
+    /// Computed by placing grid points `(0, 0)` and `(ni-1, nj-1)`, which is
+    /// what makes it answer for **every** family rather than only the ones
+    /// whose parameters happen to carry a far corner. A `PolarStereo` is defined
+    /// by its first corner plus spacing and states no `lat_last`; projecting the
+    /// last point gives one, and gives the same one the format crates' own
+    /// `bounds()` computes, because both project through this module.
+    ///
+    /// `None` when the family has no raster (spectral coefficients before
+    /// synthesis, a cell list) or when the projection cannot place a point —
+    /// a disc-based projection whose far corner falls off the disc reports
+    /// nothing rather than a clamped fiction.
+    ///
+    /// **Not a bounding box**: these are two diagonally opposite grid points in
+    /// scan order, so `lat_last` may be less *or* greater than `lat_first`.
+    /// [`lonlat_bbox`](Self::lonlat_bbox) is the extent.
+    pub fn corner_pair(&self) -> Option<CornerPair> {
+        let (ni, nj) = self.dims()?;
+        let (lat_first, lon_first) = self.first_point()?;
+        let (lat_last, lon_last) = self.forward(ni.checked_sub(1)?, nj.checked_sub(1)?)?;
+        Some(CornerPair::new(lat_first, lon_first, lat_last, lon_last))
+    }
+
+    /// The first scanned grid point, `(lat, lon)` in degrees.
+    ///
+    /// **Read where the family declares it, projected only where it does not.**
+    /// Every family with a raster but two states its own first corner, and that
+    /// value is the file's: projecting grid point `(0, 0)` instead round-trips
+    /// it through the projection and back, which for a polar-stereographic grid
+    /// turns a declared 27.203° into 27.202999999999992°. Eight parts in 10^15
+    /// is nothing to a renderer and everything to a message table, which shows
+    /// the number the file states.
+    ///
+    /// The two exceptions are the families that pin their grid by something
+    /// other than a corner — a transverse Mercator by a reference point and a
+    /// false easting, a geostationary grid by scan angles from the sub-satellite
+    /// point — where the first corner really is derived, and
+    /// [`forward`](Self::forward) is how it is derived.
+    pub fn first_point(&self) -> Option<(f64, f64)> {
+        match self {
+            Self::LatLon(p) => Some((p.lat_first, p.lon_first)),
+            Self::Gaussian(p) => Some((p.lat_first, p.lon_first)),
+            Self::Mercator(p) => Some((p.lat_first, p.lon_first)),
+            Self::RotatedLatLon(p) => Some((p.lat_first, p.lon_first)),
+            Self::Lambert(p) => Some((p.lat_first, p.lon_first)),
+            Self::PolarStereo(p) => Some((p.lat_first, p.lon_first)),
+            Self::LambertAzimuthal(p) => Some((p.lat_first, p.lon_first)),
+            // Derived, so projected — see the note above.
+            Self::TransverseMercator(_) | Self::Geostationary(_) => self.forward(0, 0),
+            // No raster, so no first point: spectral coefficients before
+            // synthesis, a cell list, a family this build cannot place.
+            Self::Lookup(_) | Self::Unsupported { .. } => None,
+        }
+    }
+
     /// Grid point `(i, j)` → `(lat, lon)` in degrees, or `None` when the index
     /// is off the grid or the family cannot be placed.
     pub fn forward(&self, i: u32, j: u32) -> Option<(f64, f64)> {
