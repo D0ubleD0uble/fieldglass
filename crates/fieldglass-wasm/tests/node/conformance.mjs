@@ -151,6 +151,26 @@ function fieldObservation(field) {
 /** What the browser host answers for one case. Failures become the same
  *  `{ error: { code, hasMessage } }` shape the Rust runner records — and the
  *  code is really there, because `throw()` sets it on the JS `Error`. */
+/** Error codes only a *transport* can produce, which this binding does not have.
+ *
+ *  `wasm.open` takes a `Uint8Array` the page already fetched, so the host holds
+ *  every byte before it opens anything. A short read means a source that served
+ *  fewer bytes than it was asked for, which is a thing only an incremental
+ *  transport can do — the same reason `short_read` was unreachable through
+ *  `Session` at all until #709 gave it `open_source`.
+ *
+ *  So these codes are proved reachable through the *library* and not through
+ *  this binding, and the list is named here rather than inferred so it cannot
+ *  quietly grow: every other code still has to come out of a real call. When the
+ *  browser façade gains a source-taking open (#114's large files, #247's range
+ *  requests), the entry goes and the case starts comparing. */
+const CODES_NEEDING_A_TRANSPORT = new Set(['short_read']);
+
+/** Whether this binding can pose the question a case asks at all. */
+function comparable(caseSpec) {
+  return caseSpec.args.shortRead === null || caseSpec.args.shortRead === undefined;
+}
+
 function observe(caseSpec) {
   const path = join(repoRoot, 'crates', caseSpec.fixture);
   let bytes = readFileSync(path);
@@ -363,8 +383,15 @@ if (!Array.isArray(suite.cases) || suite.cases.length === 0) {
 
 let failures = 0;
 const codesSeen = new Set();
+let notComparable = 0;
 for (const entry of suite.cases) {
   const { expect, ...caseSpec } = entry;
+  if (!comparable(caseSpec)) {
+    // Not a divergence: a question this binding cannot pose. See
+    // `CODES_NEEDING_A_TRANSPORT`.
+    notComparable += 1;
+    continue;
+  }
   const observed = observe(caseSpec);
   if (observed && observed.error && typeof observed.error.code === 'string') {
     codesSeen.add(observed.error.code);
@@ -381,13 +408,17 @@ for (const entry of suite.cases) {
 // `Error::code()` is the stable half of the contract and this host is the one
 // that actually exposes it (`throw()` sets `e.code`). So the browser runner is
 // where "the codes are reachable through a binding" is really proved.
-const missingCodes = suite.errorCodes.filter((c) => !codesSeen.has(c));
+const missingCodes = suite.errorCodes.filter(
+  (c) => !codesSeen.has(c) && !CODES_NEEDING_A_TRANSPORT.has(c),
+);
 if (missingCodes.length) {
   failures += 1;
   console.error(`FAIL error codes never reached through this binding: ${missingCodes.join(', ')}`);
 }
 
-const label = `${suite.cases.length} cases, ${suite.errorCodes.length} error codes`;
+const label =
+  `${suite.cases.length} cases, ${suite.errorCodes.length} error codes` +
+  (notComparable ? `, ${notComparable} needing a transport this binding has not` : '');
 if (failures) {
   console.error(`\nbrowser host (${pkgDir}): ${failures} conformance failure(s) over ${label}`);
   process.exit(1);
