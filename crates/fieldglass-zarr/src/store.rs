@@ -59,7 +59,7 @@ use std::ops::Range;
 use fieldglass_core::FieldglassError;
 use fieldglass_core::array::{
     ArrayDescription, ArraySource, Attribute, AttributeValue, Dimension, ElementType, Group,
-    PhonyDimensions,
+    LeftOut, PhonyDimensions,
 };
 use fieldglass_core::bytes::ObjectSource;
 use serde_json::{Map, Value};
@@ -203,6 +203,20 @@ impl<O: ObjectSource> ZarrStore<O> {
 impl<O: ObjectSource> ArraySource for ZarrStore<O> {
     fn group(&self) -> &Group {
         &self.root
+    }
+
+    /// What [`Self::problems`] holds, in the shape every container states it
+    /// (#709). The two used to be different types — a tuple here and a named
+    /// struct in `fieldglass-netcdf` — which left a host reading both to guess
+    /// which string was which.
+    fn left_out(&self) -> Vec<LeftOut> {
+        self.problems
+            .iter()
+            .map(|(name, reason)| LeftOut {
+                name: name.clone(),
+                reason: reason.clone(),
+            })
+            .collect()
     }
 
     fn read_region(

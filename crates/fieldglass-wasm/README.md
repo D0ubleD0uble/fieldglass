@@ -177,6 +177,18 @@ within the gate's tolerance, and the figures above are re-recorded anyway — a
 documented size that is merely *close* measures the next change against a
 generous number instead of the real one.
 
+Opening a session over a `ByteSource` (#709) took about 8,900 raw bytes, 0.7%,
+and 2,800 gzipped. It was expected to *shrink*: the GRIB readers used to be
+monomorphised over their source type and are now instantiated once behind
+`Box<dyn ByteSource>`, which is the opposite of the second copy of every decode
+path the issue warned a source-taking constructor might add. It grew because the
+same change adds what a source is for — `Session::open_source`,
+`open_message_at`, the detection prefix read — plus `left_out`, `LeftOutArray`,
+`Error::ShortRead` and its rendering, and the vtables the erasure needs. Measured
+against binaryen 132 as CI pins it, and re-recorded: 0.7% is comfortably inside
+the gate, and leaving a generous number in this table would measure the next
+change against it rather than against the real one.
+
 Building the NetCDF view from core's array model (#684) took about 17,600 raw
 bytes out (1.4%, and 2.9% gzipped), measured against a build of the commit
 before it on the same machine.
@@ -195,8 +207,8 @@ core now shares with the NetCDF and Zarr readers.
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
-| baseline | 1,289,711 | 503,358 |
-| `+simd128` | 1,277,468 | 499,933 |
+| baseline | 1,298,642 | 506,127 |
+| `+simd128` | 1,283,500 | 501,229 |
 
 The table **is** the gate: `python3 tools/check_wasm_bundle_size.py` fails when a
 build drifts more than 5% from these figures in either direction, so a change

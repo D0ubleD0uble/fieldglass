@@ -51,6 +51,11 @@ schemars = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 
 [dev-dependencies]
+# The transport-shaped sources the seam tests need (#708): `OneRange`, for the
+# source that holds nothing but the message a sidecar index named, which is what
+# `Session::open_message_at` is measured against (#709). A dev-dependency
+# feature, so nothing a host links carries it.
+fieldglass-core = { path = "../fieldglass-core", version = "=0.5.0", default-features = false, features = ["serde", "testing"] }
 serde_json = { workspace = true }
 
 [features]

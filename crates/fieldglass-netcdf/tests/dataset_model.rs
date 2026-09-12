@@ -19,6 +19,51 @@ fn view(bytes: &[u8]) -> DatasetView {
         .expect("the fixture has a view")
 }
 
+/// Looking an array up by name finds what listing the tree finds, on every
+/// fixture — including the nested NetCDF-4 groups, which are where a descent by
+/// path segment can go wrong.
+///
+/// `Group::array_qualified` descends where `arrays_qualified` builds the whole
+/// list, and they have to agree exactly or a cheap lookup is a wrong lookup
+/// (#709). A NetCDF root group is *unnamed*, and `walk` contributes no path
+/// segment for one — so the descent must not either, which is the case this
+/// fixture set exercises and a synthetic tree would not.
+///
+/// Equality by address, not by value: two variables can describe the same shape,
+/// type and attributes, and a descent landing on the wrong one would compare
+/// equal.
+#[test]
+fn array_lookup_agrees_with_listing_on_every_fixture() {
+    use fieldglass_netcdf::array::ArraySource;
+
+    let mut checked = 0usize;
+    for (name, bytes) in [("ersst", ERSST), ("grouped", GROUPED), ("goes", GOES)] {
+        let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("parses");
+        let arrays = fieldglass_netcdf::NetcdfArrays::open(reader).expect("a view");
+        let group = arrays.group();
+        let listed = group.arrays_qualified();
+        assert!(!listed.is_empty(), "{name} lists no arrays");
+        for (qualified, array) in &listed {
+            let found = group.array_qualified(qualified).unwrap_or_else(|| {
+                panic!("{name}: listing spells {qualified:?}, lookup misses it")
+            });
+            assert!(
+                std::ptr::eq(found, *array),
+                "{name}: {qualified:?} resolved to a different array than the listing names"
+            );
+            // And the seam's own accessor, which is what `read_region_physical`
+            // calls, agrees with both.
+            assert!(
+                std::ptr::eq(arrays.array(qualified).expect("through the trait"), *array),
+                "{name}: ArraySource::array disagrees for {qualified:?}"
+            );
+            checked += 1;
+        }
+        assert!(group.array_qualified("no/such/array").is_none(), "{name}");
+    }
+    assert!(checked > 10, "only {checked} names compared");
+}
+
 /// The group a host walks names exactly what the view holds, on both backings
 /// and through a nested NetCDF-4 group.
 #[test]

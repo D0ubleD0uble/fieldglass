@@ -685,6 +685,39 @@ impl Group {
         out
     }
 
+    /// One array by the path-qualified name [`arrays_qualified`] spells, found
+    /// by descending rather than by listing.
+    ///
+    /// The same answer as searching [`arrays_qualified`], without building it:
+    /// that allocates a `Vec` and a `String` per array in the whole tree, and
+    /// [`ArraySource::read_region_physical`] used to do it on every read to
+    /// fetch one array's CF attributes (#709). This allocates nothing and stops
+    /// at the first match.
+    ///
+    /// It mirrors the private `walk` segment for segment, including that an
+    /// unnamed group contributes no segment — so a name either function produces
+    /// is a name the other resolves, which
+    /// `array_lookup_agrees_with_listing_on_every_fixture` checks over every
+    /// committed store and file.
+    ///
+    /// [`arrays_qualified`]: Self::arrays_qualified
+    pub fn array_qualified(&self, name: &str) -> Option<&ArrayDescription> {
+        if let Some(array) = self.arrays.iter().find(|array| array.name == name) {
+            return Some(array);
+        }
+        self.groups.iter().find_map(|group| {
+            if group.name.is_empty() {
+                // `walk` pushes no prefix segment for an unnamed group, so the
+                // name to look for below it is the whole of what is left.
+                group.array_qualified(name)
+            } else {
+                name.strip_prefix(group.name.as_str())
+                    .and_then(|rest| rest.strip_prefix('/'))
+                    .and_then(|rest| group.array_qualified(rest))
+            }
+        })
+    }
+
     fn walk<'a>(&'a self, prefix: &mut String, out: &mut Vec<(String, &'a ArrayDescription)>) {
         for array in &self.arrays {
             out.push((qualify(prefix, &array.name), array));
@@ -733,6 +766,30 @@ fn qualify(prefix: &str, name: &str) -> String {
     } else {
         format!("{prefix}/{name}")
     }
+}
+
+/// An array a container holds but this build will not read, and why.
+///
+/// Two containers had two spellings of this: `ZarrStore::problems()` returned
+/// `&[(String, String)]` and NetCDF's view an `unsupported: Vec<UnsupportedVariable>`.
+/// Once both sit behind [`ArraySource`] a host wants one answer to show, and a
+/// tuple of two strings does not say which is which (#709).
+///
+/// **Not an error.** A container whose every array is readable reports none, and
+/// one array being unreadable never fails the container — that is the rule
+/// [`ArraySource::read_region`] states and this is how a caller sees the
+/// consequence. A genuine parse failure still fails the open, so "not
+/// implemented" and "corrupt" stay distinguishable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct LeftOut {
+    /// The array's path-qualified name, spelled as
+    /// [`Group::arrays_qualified`] would have spelled it had it been readable —
+    /// so a host can match it against the list it *did* get.
+    pub name: String,
+    /// Why, as the reader phrased it: a document that does not parse, a type
+    /// this build does not read, a dimension given two lengths.
+    pub reason: String,
 }
 
 /// Where a container's arrays are read from: the array-level IO seam (#658).
@@ -785,12 +842,28 @@ pub trait ArraySource {
         region: &[Range<u64>],
     ) -> Result<Vec<Option<f64>>, crate::FieldglassError>;
 
+    /// The arrays this container holds and this build will not read, each with
+    /// why — see [`LeftOut`].
+    ///
+    /// Empty by default, which is the honest answer for a container that reads
+    /// everything it can describe. An implementation that leaves arrays out
+    /// overrides it; a host shows the list beside
+    /// [`Group::arrays_qualified`] rather than wondering why a name is missing
+    /// from it.
+    fn left_out(&self) -> Vec<LeftOut> {
+        Vec::new()
+    }
+
     /// One array's description, by its path-qualified name.
+    ///
+    /// The default descends the tree through [`Group::array_qualified`] and
+    /// allocates nothing, so an implementation has no reason to override it.
+    /// It used to build [`Group::arrays_qualified`] — a `Vec` and a `String` per
+    /// array in the container — and [`read_region_physical`](Self::read_region_physical)
+    /// called it on every read, which made a NetCDF file with fifty variables pay
+    /// for all fifty names to fetch one array's CF rule (#709).
     fn array(&self, name: &str) -> Option<&ArrayDescription> {
-        self.group()
-            .arrays_qualified()
-            .into_iter()
-            .find_map(|(qualified, array)| (qualified == name).then_some(array))
+        self.group().array_qualified(name)
     }
 
     /// [`read_region`](Self::read_region) with the array's CF mask-and-scale

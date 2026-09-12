@@ -122,6 +122,21 @@ api_type! {
         pub length: u64,
     }
 
+    /// One array a container holds and this build will not read, and why.
+    ///
+    /// Beside [`crate::Session::variables`] rather than inside it: a host shows
+    /// these so a user can see *why* a name is absent from the list, instead of
+    /// wondering whether the file has it. Not an error — a container reads every
+    /// array it can and leaves the rest here (#709).
+    #[serde(rename_all = "camelCase")]
+    pub struct LeftOutArray {
+        /// The array's name, spelled as a readable one would be, so a host can
+        /// match it against the list it did get.
+        pub name: String,
+        /// Why, as the reader phrased it.
+        pub reason: String,
+    }
+
     /// One renderable variable of an array dataset.
     #[serde(rename_all = "camelCase")]
     pub struct VariableInfo {

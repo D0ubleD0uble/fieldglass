@@ -114,6 +114,67 @@ fn a_cf_zarr_store_and_its_netcdf_twin_read_the_same() {
     }
 }
 
+/// Both containers report the arrays they left out in one shape (#709).
+///
+/// `ZarrStore` used to return `&[(String, String)]` and NetCDF's view a
+/// `Vec<UnsupportedVariable>` — two spellings of the same fact, so a host reading
+/// both had to know which string was which. `Session::left_out` is the one
+/// answer, and what is checked is that it answers *in the same shape* for both
+/// containers and that the names are spelled the way `variables()` spells a
+/// readable one — otherwise a caller could not match the two lists, which is the
+/// only reason to have the list at all.
+///
+/// The Zarr store used is `v2_problems`, whose whole purpose is to hold arrays
+/// this build declines: one with an undecodable codec, one whose dimension is
+/// given two lengths. A container that leaves nothing out reports an empty list,
+/// and both twins do — which is the other half of the claim.
+#[test]
+fn both_containers_report_what_they_left_out_in_one_shape() {
+    // A store built to have problems: the names are what it declines, and the
+    // reasons are its own words.
+    let problems = Session::open_store(load(&format!("{FIXTURES}/stores/v2_problems")))
+        .expect("the store opens even so");
+    let left = problems.left_out();
+    assert!(
+        left.len() >= 2,
+        "v2_problems exists to leave arrays out: {left:?}"
+    );
+    for entry in &left {
+        assert!(!entry.name.is_empty(), "a left-out array must be named");
+        assert!(!entry.reason.is_empty(), "{}: and say why", entry.name);
+        // Not in the readable list, or it was not left out.
+        assert!(
+            !problems.variables().iter().any(|v| v.name == entry.name),
+            "{} is reported both readable and left out",
+            entry.name
+        );
+        // Spelled as a readable name would be: no leading slash, which is the
+        // difference that used to make the two containers disagree.
+        assert!(
+            !entry.name.starts_with('/'),
+            "{} is spelled unlike a readable array",
+            entry.name
+        );
+    }
+
+    // And a container with nothing to leave out says so, in both shapes, rather
+    // than a host having to treat "empty" and "unsupported" differently.
+    let zarr = Session::open_store(load(&format!("{FIXTURES}/stores/cf_v3"))).expect("opens");
+    let netcdf = Session::open(std::fs::read(format!("{FIXTURES}/cf_twin.nc")).expect("the twin"))
+        .expect("opens");
+    assert!(zarr.left_out().is_empty(), "{:?}", zarr.left_out());
+    assert!(netcdf.left_out().is_empty(), "{:?}", netcdf.left_out());
+
+    // A message stream has no arrays to leave out, and answers the same way
+    // rather than refusing the question.
+    let grib = Session::open(
+        std::fs::read("../fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2")
+            .expect("a GRIB2 fixture"),
+    )
+    .expect("opens");
+    assert!(grib.left_out().is_empty());
+}
+
 /// The slice itself is right, not only the same: the packed `t` decodes to the
 /// physical values the dataset was written from, with its NaN masked, on the
 /// lat/lon grid its coordinates state.

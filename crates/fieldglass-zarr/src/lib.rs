@@ -130,6 +130,10 @@ pub use metadata::{ArrayMetadata, CodecSource, ElementOrder};
 /// The shared allocation cap this crate's own cap is built from (#707), so a
 /// consumer of this crate alone can name the bar every reader is held to
 /// without a `fieldglass-core` line of its own.
+/// The shape a container states an array it left out in (#709), so a consumer of
+/// this crate alone can read `ArraySource::left_out` without a
+/// `fieldglass-core` line of its own.
+pub use fieldglass_core::LeftOut;
 pub use fieldglass_core::MAX_FIELD_POINTS;
 pub use fieldglass_core::array::{ArrayError, ChunkGrid, ChunkKeyEncoding};
 // What `ZarrStore` is read through and what it reads into, so a consumer holding

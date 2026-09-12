@@ -191,6 +191,24 @@ class TestSupportExclusion(unittest.TestCase):
             sorted(chk.TEST_SUPPORT_FILES), ["fieldglass-core/src/testing.rs"]
         )
 
+    def test_the_excluded_impl_types_are_the_ones_named(self):
+        # Pinned for the same reason the file list is: excluding a type from the
+        # source-of-truth scan should come past a reviewer.
+        self.assertEqual(
+            sorted(chk.UNDIAGRAMMED_IMPL_TYPES), ["Box", "ShortServing"]
+        )
+
+    def test_an_excluded_impl_type_is_dropped_from_the_realizations(self):
+        # The exclusion has to act on the scan, not merely exist. `&S` is not in
+        # the set and is dropped by the regex; `Box` is in it and must be dropped
+        # by the filter, which this asserts by looking for it in the real scan.
+        traits = {"ByteSource"}
+        pairs = chk.source_realizations(traits)
+        self.assertNotIn(("ByteSource", "Box"), pairs)
+        # And something that *is* a seam still comes through, or the filter would
+        # be hiding everything.
+        self.assertIn(("ByteSource", "Vec"), pairs)
+
     def test_every_excluded_file_exists_and_is_left_out_of_the_scan(self):
         # An entry that has been renamed away silently stops excluding
         # anything, and the check would start demanding diagram edges for

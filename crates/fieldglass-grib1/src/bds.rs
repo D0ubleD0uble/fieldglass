@@ -152,6 +152,45 @@ pub const COMPLEX_EXTENDED_LEN: usize = 14;
 
 /// Parse the 11-byte BDS header. `bytes` should begin at the start of the BDS.
 pub fn parse_bds_header(bytes: &[u8]) -> Result<BdsHeader, FieldglassError> {
+    let header = parse_bds_header_prefix(bytes)?;
+    // The whole-section check, which is a *decode* precondition and not a header
+    // one: every caller of this function goes on to read packed data out of
+    // `bytes`, so a section claiming more than arrived is a malformed message.
+    // `parse_bds_header_prefix` leaves it out so a metadata-only caller can
+    // answer from a bounded prefix instead of fetching the field (#709).
+    if bytes.len() < header.section_len as usize {
+        return Err(FieldglassError::Parse(format!(
+            "BDS section_len {} exceeds available bytes {}",
+            header.section_len,
+            bytes.len()
+        )));
+    }
+    Ok(header)
+}
+
+/// The most bytes of a BDS any header variant reads.
+///
+/// `parse_bds_header_prefix` never looks past this, whichever packing the flag
+/// octet names, so a caller that wants the header and nothing else reads exactly
+/// this much — 18 bytes rather than a whole field, which over a transport is the
+/// difference between a metadata listing and downloading the file
+/// (#709). `bds_header_prefix_covers_every_variant` pins it.
+pub const BDS_HEADER_PREFIX: usize = SPECTRAL_COMPLEX_DATA_OFFSET;
+
+/// [`parse_bds_header`] without the whole-section requirement.
+///
+/// The header fields live in the first [`BDS_HEADER_PREFIX`] octets; the packed
+/// data after them is the decoder's business. Splitting the two is what lets
+/// `packing_label` and `message_kind` answer from a bounded read instead of
+/// prefetching the entire data section to parse eleven bytes of it (#709).
+///
+/// # Errors
+///
+/// Too few bytes for the variant the flag octet names, or a `section_len` below
+/// the minimum. Note that it does **not** check `section_len` against what
+/// arrived — that is [`parse_bds_header`]'s, for callers that go on to read the
+/// data.
+pub fn parse_bds_header_prefix(bytes: &[u8]) -> Result<BdsHeader, FieldglassError> {
     if bytes.len() < BDS_DATA_OFFSET {
         return Err(FieldglassError::Parse(format!(
             "BDS header requires {BDS_DATA_OFFSET} bytes, got {}",
@@ -163,12 +202,6 @@ pub fn parse_bds_header(bytes: &[u8]) -> Result<BdsHeader, FieldglassError> {
     if (section_len as usize) < BDS_DATA_OFFSET {
         return Err(FieldglassError::Parse(format!(
             "BDS section_len {section_len} below minimum of {BDS_DATA_OFFSET}"
-        )));
-    }
-    if bytes.len() < section_len as usize {
-        return Err(FieldglassError::Parse(format!(
-            "BDS section_len {section_len} exceeds available bytes {}",
-            bytes.len()
         )));
     }
 
@@ -361,6 +394,26 @@ fn read_u24(b: &[u8]) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The prefix covers every header variant, so a bounded read is never short
+    /// for a reason the flag octet could have predicted (#709).
+    #[test]
+    fn bds_header_prefix_covers_every_variant() {
+        assert_eq!(
+            BDS_HEADER_PREFIX,
+            [
+                BDS_DATA_OFFSET,
+                SPECTRAL_SIMPLE_DATA_OFFSET,
+                SPECTRAL_COMPLEX_DATA_OFFSET,
+                // The non-spherical complex arm reads octets 12-14, index 13.
+                14,
+            ]
+            .into_iter()
+            .max()
+            .expect("a non-empty list"),
+            "the prefix must be the widest header any variant reads"
+        );
+    }
 
     /// A real `grid_second_order_row_by_row` BDS (240×121, no bit-map) that
     /// decodes correctly on its own — reused here to prove that *adding* a

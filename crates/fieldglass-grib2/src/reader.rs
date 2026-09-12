@@ -698,7 +698,25 @@ impl<S: ByteSource> Grib2Reader<S> {
         // 1..=254 name a bitmap held somewhere else (a predefined table, the
         // previous message), which `decode_message_values` declines outright and
         // which is no more reducible than an inline one.
-        let bms = self.prefetch_then_read(&[msg.bms_range, msg.ds_range])?;
+        //
+        // **A bounded §6, and §7 still in the batch.** The read wants the section
+        // header and the indicator octet — `BMS_INDICATOR_OFFSET + 1` bytes — and
+        // used to fetch the whole of §6, which for a message that *does* carry a
+        // bitmap is one flag per full-resolution point: megabytes downloaded to
+        // read one byte and refuse (#709).
+        //
+        // §7 stays in the same batch deliberately, and that is the trade the
+        // issue asks to be stated rather than fixed. Asking §6 first and §7 only
+        // on success would spare the data section on the refusal path and cost a
+        // second round trip on the *success* path, which is the common one. One
+        // batch of a six-byte prefix plus §7 is strictly better than the two
+        // whole sections this used to fetch, and no worse than the split when the
+        // request is granted.
+        let bms_prefix = ByteRange::new(
+            msg.bms_range.start,
+            msg.bms_range.len.min(BMS_INDICATOR_OFFSET as u64 + 1),
+        );
+        let bms = self.prefetch_then_read(&[bms_prefix, msg.ds_range])?;
         let bms_header = parse_section_header(&bms)?;
         if bms_header.number != BMS_SECTION_NUMBER {
             return Err(FieldglassError::Parse(format!(
