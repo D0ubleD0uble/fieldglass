@@ -113,6 +113,14 @@ const CLASSIFICATION: &[(&str, Class, &str)] = &[
     ("PaletteOptions", Class::Wire, ""),
     ("Raster", Class::Wire, ""),
     (
+        "PlacedSlice",
+        Class::Engine,
+        "where one slice sits, for a host that paints it itself (#659); it \
+         carries a `GridGeometry`, which is the engine's own shape rather than \
+         anything a host serialises — placement reaches the wire as \
+         `Field::georef`",
+    ),
+    (
         "Session",
         Class::Handle,
         "owns the parsed message index; a host holds it, never sends it",
@@ -198,6 +206,33 @@ const FOREIGN_REEXPORTS: &[(&str, Class, &str)] = &[
         Class::Engine,
         "the closed combine vocabulary; a host names one by the string in \
          `CombineOpInfo::value` and never receives the enum",
+    ),
+    // The seams a host *implements*, rather than receives (#659). A host brings
+    // its own `ObjectSource` — the addon reading a directory, a browser filling
+    // one from a bucket — so it has to be able to name the trait, and
+    // `fieldglass-wasm` depends on nothing else it could name it from.
+    (
+        "ObjectSource",
+        Class::Engine,
+        "the keyed-object seam `Session::open_store` takes; a host implements it \
+         and never serialises one",
+    ),
+    (
+        "ByteSource",
+        Class::Engine,
+        "the ranged seam `Session::open_source` takes, for the same reason",
+    ),
+    (
+        "MemoryObjects",
+        Class::Engine,
+        "the `ObjectSource` a host that has already fetched everything wants; \
+         built in Rust and handed to `Session::open_store`",
+    ),
+    (
+        "FieldglassError",
+        Class::Engine,
+        "what every method of both seams returns, so a host implementing one has \
+         to be able to name it; `Error` is what a host *receives*",
     ),
 ];
 

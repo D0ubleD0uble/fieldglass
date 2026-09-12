@@ -348,6 +348,79 @@ fn build_field(
 #[cfg(any(feature = "grib1", feature = "grib2"))]
 const DETECT_PREFIX: usize = 8;
 
+/// One slice's placement: the grid, its storage order, and its raster shape.
+///
+/// What [`Session::place_slice`] hands back, and what
+/// `source()` turns into the projection pipeline's own input — named rather than
+/// linked, because that method is behind `render`/`analysis` and this type is
+/// not. Owned
+/// rather than borrowed because the geometry is *derived* — a 2-D coordinate pair
+/// becomes a cell-centre lookup, a CF `grid_mapping` becomes a projection — so
+/// there is nothing inside the container to borrow it from.
+///
+/// Not a wire type: it carries a [`GridGeometry`], which is the engine's own
+/// shape rather than anything a host serialises. A host reports placement to its
+/// UI from [`Field::georef`](crate::api::Field), and paints with this.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct PlacedSlice {
+    geometry: GridGeometry,
+    scan: Scan,
+    ni: u32,
+    nj: u32,
+    family: String,
+}
+
+impl PlacedSlice {
+    /// Where the cells are.
+    pub fn geometry(&self) -> &GridGeometry {
+        &self.geometry
+    }
+
+    /// The storage order, defaulted to north-down where the container states
+    /// none — see [`fieldglass_core::cf::SlicePlacement::scan`] for why that is
+    /// a different answer from "the container said north-down".
+    pub fn scan(&self) -> Scan {
+        self.scan
+    }
+
+    /// Raster columns.
+    pub fn ni(&self) -> u32 {
+        self.ni
+    }
+
+    /// Raster rows.
+    pub fn nj(&self) -> u32 {
+        self.nj
+    }
+
+    /// What to call the family in a picker caption or a refusal.
+    pub fn family(&self) -> &str {
+        &self.family
+    }
+
+    /// This placement as the projection pipeline's input.
+    ///
+    /// The one call that makes a host able to paint a container it has never
+    /// heard of: hand it to `Session::project`, `probe_pixel`,
+    /// `overlay_polylines` or `field_csv` beside the values
+    /// [`Session::decode_slice`] returned.
+    ///
+    /// Those four are named rather than linked because they do not share a gate
+    /// — three are behind `render` and `field_csv` behind `analysis` — and a doc
+    /// link only resolves in a build where both ends are compiled.
+    #[cfg(any(feature = "render", feature = "analysis"))]
+    pub fn source(&self) -> crate::render::Source<'_> {
+        crate::render::Source {
+            geometry: Ok(&self.geometry),
+            ni: self.ni,
+            nj: self.nj,
+            scan: self.scan,
+            family: &self.family,
+        }
+    }
+}
+
 /// The refusal a source-taking constructor gives a container that is not a
 /// message stream, naming the call to make instead.
 ///
@@ -1151,6 +1224,87 @@ impl Session {
                     units,
                     options,
                 ))
+            }
+        }
+    }
+
+    /// Where one slice of a variable sits on the Earth, for a host that paints
+    /// it itself.
+    ///
+    /// **This is for placing a slice you are not decoding.** A host that has
+    /// decoded one already has the answer:
+    /// [`Field::georef`](crate::api::Field::georef) carries the whole
+    /// [`GridGeometry`] along with the scan and the family, so
+    /// `Source { geometry: Ok(&field.georef.geometry), ni: field.ni, nj: field.nj,
+    /// scan: field.georef.scan, family: &field.georef.label }` projects without
+    /// any of this — and `place_slice.rs` checks the two give pixel-identical
+    /// rasters, so neither is a second opinion.
+    ///
+    /// What this buys is *not decoding*. A picker drawing a caption, or deciding
+    /// whether a variable can be drawn at all, wants where the cells are and not
+    /// the values in them — and decoding a variable is the expensive half. On a
+    /// NetCDF file that is a whole-variable read; on a Zarr store it is every
+    /// chunk the slice covers.
+    ///
+    /// `PlacedSlice::source()` then hands the projection pipeline its own input,
+    /// so a host never assembles one by hand (#659). Named rather than linked:
+    /// that method is behind `render`/`analysis`, and this one is not.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::WrongAddressing`] for a message stream, which has variables to
+    /// slice; [`Error::NoSuchMessage`] for a variable index outside
+    /// [`variables`](Self::variables); [`Error::InvalidOption`] when the two
+    /// axes are the same or outside the variable's rank; and a decode failure
+    /// when the container cannot say where the cells are.
+    pub fn place_slice(&self, variable: u32, y_dim: u32, x_dim: u32) -> Result<PlacedSlice, Error> {
+        // With no array container compiled there is no slice to place, and every
+        // arm below refuses — so the arguments are genuinely unused in that build.
+        // The same shape `decode` uses for the mirror case.
+        #[cfg(not(any(feature = "netcdf", feature = "zarr")))]
+        let _ = (variable, y_dim, x_dim);
+        match &self.reader {
+            #[cfg(feature = "grib1")]
+            Reader::Grib1(_) => Err(wrong_addressing(
+                Addressing::Messages,
+                "place_slice",
+                "message",
+            )),
+            #[cfg(feature = "grib2")]
+            Reader::Grib2(_) => Err(wrong_addressing(
+                Addressing::Messages,
+                "place_slice",
+                "message",
+            )),
+            #[cfg(any(feature = "netcdf", feature = "zarr"))]
+            Reader::Arrays(a) => {
+                let source = a.source.as_ref();
+                let vars = renderable_arrays(source.group());
+                let var = vars.get(variable as usize).ok_or(Error::NoSuchMessage {
+                    index: variable,
+                    count: u32::try_from(vars.len()).unwrap_or(u32::MAX),
+                })?;
+                let (y, x) = (y_dim as usize, x_dim as usize);
+                if y == x || y >= var.dims.len() || x >= var.dims.len() {
+                    return Err(Error::InvalidOption {
+                        detail: format!(
+                            "`{}` has {} dimensions; y_dim {y} and x_dim {x} must be \
+                             different and within them",
+                            var.name,
+                            var.dims.len()
+                        ),
+                    });
+                }
+                // The same call `decode_slice` makes, so the geometry a host
+                // paints with cannot disagree with the one the field reports.
+                let placement = slice_placement(source, &var.name, y, x)?;
+                Ok(PlacedSlice {
+                    family: placement.geometry.label().to_string(),
+                    geometry: placement.geometry,
+                    scan: placement.scan.unwrap_or_else(Scan::north_down),
+                    ni: u32::try_from(var.dims[x].length).unwrap_or(u32::MAX),
+                    nj: u32::try_from(var.dims[y].length).unwrap_or(u32::MAX),
+                })
             }
         }
     }

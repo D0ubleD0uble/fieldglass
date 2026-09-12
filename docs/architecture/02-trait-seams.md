@@ -136,6 +136,15 @@ range**, never `None` — absence on this seam means a sparse array's fill value
 and answering that for a chunk somebody failed to fetch would put fill values on
 a screen and call them data.
 
+`DirectoryObjects` is the third, and it is the **host's** (#659,
+`fieldglass-napi`). A Zarr store is a directory, so the addon reads one itself —
+which ADR-0005 decision 1 puts on the host deliberately. It is lazy rather than
+slurped, because a store's chunks are the bulk of it and a viewer looks at one
+slice, and it overrides `list_children` so opening reads the directories the
+groups live in and never enumerates a chunk. A key cannot escape the root: keys
+come out of documents somebody else wrote, so `..` in one is refused by never
+building the path.
+
 `ArraySource` is the rung above both (#658, ADR-0010's amendment to decision
 3). The byte seams answer "give me these bytes"; this answers "give me this
 array's values": a container's `Group` tree and a raw region read, with the CF
@@ -180,6 +189,7 @@ classDiagram
     ByteSource <|.. Vec
     ObjectSource <|.. MemoryObjects
     ObjectSource <|.. KerchunkObjects
+    ObjectSource <|.. DirectoryObjects
     ArraySource <|.. ZarrStore
     ArraySource <|.. NetcdfArrays
     ZarrStore ..> ObjectSource : reads through
