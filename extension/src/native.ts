@@ -530,6 +530,42 @@ export interface NetcdfHandleCtor {
   fromBytes(bytes: Uint8Array): NetcdfHandle;
 }
 
+/** One array a store holds that this build will not read, and why (#709). */
+export interface ZarrLeftOut {
+  name: string;
+  reason: string;
+}
+
+/** A Zarr store, opened from a directory (#659).
+ *
+ *  A store is a folder rather than a file, so this is the one handle that takes
+ *  a path instead of bytes. It reuses {@link NetcdfVariableMeta} because a store
+ *  answers the same question a NetCDF file does, which is what lets the existing
+ *  slice picker drive it unchanged. */
+export interface ZarrHandle {
+  variables(): NetcdfVariableMeta[];
+  /** The arrays the store holds and this build will not read. Shown beside the
+   *  variable list so a user sees *why* a name is absent. */
+  leftOut(): ZarrLeftOut[];
+  renderSlice(
+    variableIndex: number,
+    yDim: number,
+    xDim: number,
+    sliceIndices: number[],
+    options: RenderOptions,
+  ): RenderedGrid;
+}
+
+export interface ZarrHandleCtor {
+  /** Open the store rooted at `path`. Throws when the directory holds none of
+   *  `zarr.json`, `.zmetadata`, `.zgroup` or `.zarray`. */
+  fromDirectory(path: string): ZarrHandle;
+  /** Whether a directory looks like a store, without opening it — what the
+   *  folder picker asks so it can refuse in its own words. The `.zarr` suffix is
+   *  a convention and is **not** what this checks. */
+  isStore(path: string): boolean;
+}
+
 // ---------------------------------------------------------------------------
 // Native module loader
 // ---------------------------------------------------------------------------
@@ -544,6 +580,7 @@ export interface FieldglassNative {
   Grib1Handle: Grib1HandleCtor;
   Grib2Handle: Grib2HandleCtor;
   NetcdfHandle: NetcdfHandleCtor;
+  ZarrHandle: ZarrHandleCtor;
 }
 
 let cached: FieldglassNative | undefined;

@@ -3683,28 +3683,136 @@ impl ZarrHandle {
         slice_indices: Vec<u32>,
         options: RenderOptions,
     ) -> napi::Result<RenderedGrid> {
+        let (field, values) = self.slice(variable_index, y_dim, x_dim, &slice_indices)?;
+        render_from_source(&field_source(&field), &values, &options)
+    }
+
+    /// Geographic polylines projected onto this slice's raster.
+    #[napi]
+    pub fn project_overlay(
+        &self,
+        variable_index: u32,
+        y_dim: u32,
+        x_dim: u32,
+        options: RenderOptions,
+        latlon: napi::bindgen_prelude::Float64Array,
+        ring_lengths: napi::bindgen_prelude::Uint32Array,
+    ) -> napi::Result<ProjectedOverlay> {
+        // The placement alone, with no values: an overlay projects geography
+        // onto the raster and never reads a cell, so this is what
+        // `Session::place_slice` is for (#659).
+        let placed = self.place(variable_index, y_dim, x_dim)?;
+        overlay_from_source(
+            &placed.source(),
+            &options,
+            latlon.as_ref(),
+            ring_lengths.as_ref(),
+        )
+        .map(ProjectedOverlay::from_polylines)
+    }
+
+    /// Isolines of this slice, projected onto its raster.
+    #[napi]
+    pub fn project_contours(
+        &self,
+        variable_index: u32,
+        y_dim: u32,
+        x_dim: u32,
+        slice_indices: Vec<u32>,
+        options: RenderOptions,
+        interval: Option<f64>,
+    ) -> napi::Result<ProjectedOverlay> {
+        let (field, values) = self.slice(variable_index, y_dim, x_dim, &slice_indices)?;
+        let engine = engine_options(&options);
+        ResolvedOptions::parse(&engine).into_napi()?;
+        fieldglass::render::contour_polylines(&field_source(&field), &values, &engine, interval)
+            .into_napi()
+            .map(ProjectedOverlay::from_polylines)
+    }
+
+    /// Sample the field under one output pixel.
+    #[napi]
+    pub fn probe(
+        &self,
+        variable_index: u32,
+        y_dim: u32,
+        x_dim: u32,
+        slice_indices: Vec<u32>,
+        options: RenderOptions,
+        px: u32,
+        py: u32,
+    ) -> napi::Result<Option<ProbeResult>> {
+        let (field, values) = self.slice(variable_index, y_dim, x_dim, &slice_indices)?;
+        probe_from_source(&field_source(&field), &values, &options, px, py)
+    }
+
+    /// One decoded slice as CSV — `"matrix"` or `"long"` (`lat,lon,value`).
+    #[napi]
+    pub fn export_csv(
+        &self,
+        variable_index: u32,
+        y_dim: u32,
+        x_dim: u32,
+        slice_indices: Vec<u32>,
+        format: String,
+    ) -> napi::Result<napi::bindgen_prelude::Buffer> {
+        let (field, values) = self.slice(variable_index, y_dim, x_dim, &slice_indices)?;
+        let text = self
+            .session
+            .field_csv(&field_source(&field), &values, &format)
+            .map_err(|e| napi::Error::from_reason(e.message()))?;
+        Ok(text.into_bytes().into())
+    }
+}
+
+impl ZarrHandle {
+    /// One slice, decoded, with its values rejoined.
+    fn slice(
+        &self,
+        variable_index: u32,
+        y_dim: u32,
+        x_dim: u32,
+        slice_indices: &[u32],
+    ) -> napi::Result<(fieldglass::Field, Vec<Option<f64>>)> {
         let field = self
             .session
             .decode_slice(
                 variable_index,
                 y_dim,
                 x_dim,
-                &slice_indices,
+                slice_indices,
                 &fieldglass::DecodeOptions::default(),
             )
             .map_err(|e| napi::Error::from_reason(e.message()))?;
-        // The placement rides on the decoded field: `georef` carries the whole
-        // `GridGeometry` along with the scan and the family, so there is nothing
-        // to assemble and no metadata object to fill in.
-        let source = fieldglass::Source {
-            geometry: Ok(&field.georef.geometry),
-            ni: field.ni,
-            nj: field.nj,
-            scan: field.georef.scan,
-            family: &field.georef.label,
-        };
         let values = field_values(&field);
-        render_from_source(&source, &values, &options)
+        Ok((field, values))
+    }
+
+    /// Where one slice sits, without decoding it.
+    fn place(
+        &self,
+        variable_index: u32,
+        y_dim: u32,
+        x_dim: u32,
+    ) -> napi::Result<fieldglass::PlacedSlice> {
+        self.session
+            .place_slice(variable_index, y_dim, x_dim)
+            .map_err(|e| napi::Error::from_reason(e.message()))
+    }
+}
+
+/// A decoded field as the projection pipeline's input.
+///
+/// `Field::georef` carries the whole `GridGeometry` along with the scan and the
+/// family, so a host that has decoded a slice has already been handed everything
+/// the pipeline takes — no metadata object, and no second placement call.
+fn field_source(field: &fieldglass::Field) -> fieldglass::Source<'_> {
+    fieldglass::Source {
+        geometry: Ok(&field.georef.geometry),
+        ni: field.ni,
+        nj: field.nj,
+        scan: field.georef.scan,
+        family: &field.georef.label,
     }
 }
 
@@ -4149,8 +4257,20 @@ fn project_overlay_impl(
     // between the two.
     ResolvedOptions::parse(&engine).into_napi()?;
     let source = RenderSource::resolve(meta, lookup)?;
-    fieldglass::render::overlay_polylines(&source.as_source(), &engine, latlon, ring_lengths)
-        .into_napi()
+    overlay_from_source(&source.as_source(), options, latlon, ring_lengths)
+}
+
+/// [`project_overlay_impl`] for a caller that has already placed its field —
+/// see [`render_from_source`] for why the split exists (#659).
+fn overlay_from_source(
+    source: &fieldglass::Source<'_>,
+    options: &RenderOptions,
+    latlon: &[f64],
+    ring_lengths: &[u32],
+) -> napi::Result<ProjectedPolylines> {
+    let engine = engine_options(options);
+    ResolvedOptions::parse(&engine).into_napi()?;
+    fieldglass::render::overlay_polylines(source, &engine, latlon, ring_lengths).into_napi()
 }
 
 /// Hand the CSV text to Node as a `Buffer` (its UTF-8 bytes, moved not copied).
@@ -4237,8 +4357,20 @@ fn probe_impl(
     // Picker state before message state — see `project_overlay_impl`.
     ResolvedOptions::parse(&engine).into_napi()?;
     let source = RenderSource::resolve(meta, lookup)?;
-    let probed =
-        fieldglass::render::probe_pixel(&source.as_source(), raw, &engine, px, py).into_napi()?;
+    return probe_from_source(&source.as_source(), raw, options, px, py);
+}
+
+/// [`probe_impl`] for a caller that has already placed its field (#659).
+fn probe_from_source(
+    source: &fieldglass::Source<'_>,
+    raw: &[Option<f64>],
+    options: &RenderOptions,
+    px: u32,
+    py: u32,
+) -> napi::Result<Option<ProbeResult>> {
+    let engine = engine_options(options);
+    ResolvedOptions::parse(&engine).into_napi()?;
+    let probed = fieldglass::render::probe_pixel(source, raw, &engine, px, py).into_napi()?;
     Ok(probed.map(|p| ProbeResult {
         lat: p.lat,
         lon: p.lon,
