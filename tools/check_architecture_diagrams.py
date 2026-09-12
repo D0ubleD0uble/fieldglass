@@ -67,7 +67,7 @@ TEST_SUPPORT_FILES: set[str] = {
 # Types that implement a first-party trait and are not seams a diagram should
 # name. Two kinds only, and each entry says which:
 #
-#  * a **forwarding wrapper** — `&S`, `Box<S>` — which exists so a caller can pass
+#  * a **forwarding wrapper** — `&S`, `Box<S>`, `Arc<S>` — which exists so a caller can pass
 #    what it holds where the trait is wanted. Diagramming it would put `Box` in
 #    the class diagram beside the readers, which tells a reader nothing about the
 #    architecture and hides the implementors that matter.
@@ -76,6 +76,7 @@ TEST_SUPPORT_FILES: set[str] = {
 #    for the one in the conformance suite, which is a shipped surface.
 UNDIAGRAMMED_IMPL_TYPES: set[str] = {
     "Box",  # forwarding wrapper for ByteSource / ObjectSource (#709)
+    "Arc",  # forwarding wrapper for ByteSource, so a host and its session share one file (#726)
     "ShortServing",  # the conformance suite's own short-serving source (#707)
 }
 

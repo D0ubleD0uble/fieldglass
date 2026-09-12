@@ -914,6 +914,34 @@ impl<S: ByteSource + ?Sized> ByteSource for Box<S> {
     }
 }
 
+/// So one allocation can back a reader and a caller at once (#726).
+///
+/// `&S` lets a reader *borrow* its source, but only for a lifetime, and a
+/// `Session` holds its source for as long as it lives — so a host that also
+/// needs the bytes itself had to keep a second copy of the file. The GRIB1
+/// handle is exactly that host: it reads through a session and edits the file's
+/// `P1` octet, which needs the whole buffer. `Arc<[u8]>` gives both one shared
+/// allocation, which is what #411 removed a copy to save.
+///
+/// `?Sized` for the reason `Box`'s impl is, so `Arc<[u8]>` is covered.
+impl<S: ByteSource + ?Sized> ByteSource for std::sync::Arc<S> {
+    fn size(&self) -> u64 {
+        (**self).size()
+    }
+
+    fn identity(&self) -> Option<SourceIdentity> {
+        (**self).identity()
+    }
+
+    fn prefetch(&self, ranges: &[ByteRange]) -> Result<(), FieldglassError> {
+        (**self).prefetch(ranges)
+    }
+
+    fn read(&self, range: ByteRange) -> Result<Cow<'_, [u8]>, FieldglassError> {
+        (**self).read(range)
+    }
+}
+
 /// So a caller holding `&S` can pass it where a `ByteSource` is wanted, which
 /// is what lets a reader borrow its source rather than own it.
 impl<S: ByteSource + ?Sized> ByteSource for &S {

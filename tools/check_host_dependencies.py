@@ -44,22 +44,15 @@ FORMAT_CRATES = {
     "fieldglass-zarr",
 }
 
-# Host -> the format crates it still names, and why. Shrinks as the transition
-# proceeds; an entry removed from here must be removed from the manifest in the
-# same commit, and the reverse.
-ALLOWED_DIRECT: dict[str, dict[str, str]] = {
-    "fieldglass-napi": {
-        "fieldglass-grib1": (
-            "the GRIB1 handle still holds a `Grib1Reader` and reads the parameter "
-            "and centre tables directly; #662 moved the NetCDF half and this is "
-            "the rest of it"
-        ),
-        "fieldglass-grib2": (
-            "as GRIB1: the handle holds a `Grib2Reader` and reads the WMO tables, "
-            "the product-definition section and the centre/discipline lookups"
-        ),
-    },
-}
+# Host -> the format crates it still names, and why. Empty since #726: every
+# host reaches the decoders through `fieldglass` alone, which is ADR-0006
+# decision 1 met rather than approached.
+#
+# Kept as a structure rather than deleted, because an entry is how an exception
+# would have to be argued for — added here with its reason, in the same commit
+# as the manifest edge, where a reviewer sees both. The check still fails for an
+# unlisted edge, so an empty table is the strictest setting, not a disabled one.
+ALLOWED_DIRECT: dict[str, dict[str, str]] = {}
 
 
 def direct_format_dependencies() -> dict[str, set[str]]:

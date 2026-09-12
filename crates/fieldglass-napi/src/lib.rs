@@ -11,21 +11,13 @@ use fieldglass::netcdf::{
 };
 use fieldglass::render::{Projected, ResolvedOptions};
 use fieldglass_core::{
-    CornerPair, Format, GaussianParams, GeostationaryParams, GlobalGrid, LambertAzimuthalParams,
-    LambertParams, LatLonParams, LonLatBox, MercatorParams, PlanarGridProjector, PolarStereoParams,
-    ProjectedPolylines, RotatedLatLonParams, Scan, SpatialIndex, TransverseMercatorParams,
-    TransverseMercatorProjector,
-    cct_tables::lookup_sub_centre,
+    Format, GaussianParams, GeostationaryParams, LambertAzimuthalParams, LambertParams,
+    LatLonParams, LonLatBox, MercatorParams, PolarStereoParams, ProjectedPolylines,
+    RotatedLatLonParams, Scan, SpatialIndex, TransverseMercatorParams,
     colormap::{ScaleMode, min_max_ignoring_mask, paint_grid_rgba},
-    detect_from_bytes, normalise_lon, plane_spans_a_grid_cell,
+    detect_from_bytes, plane_spans_a_grid_cell,
     projection::GridGeometry,
-    signed_grid_increments,
     units::normalize_units,
-};
-use fieldglass_grib1::{Grib1Reader, tables::lookup_parameter, tables_cct::lookup_centre};
-use fieldglass_grib2::{
-    Grib2Reader, ProductDefinitionSection, lookup_centre as lookup_grib2_centre, lookup_discipline,
-    lookup_parameter as lookup_grib2_parameter, lookup_production_status,
 };
 use napi_derive::napi;
 use std::sync::Mutex;
@@ -36,20 +28,8 @@ use std::sync::Mutex;
 mod characterisation;
 mod directory_store;
 
-// What `Session` answers about a message, against what this binding answers for
-// itself (#726). Test only: it is the oracle for moving the handles onto
-// `Session`, not a code path the addon runs.
-#[cfg(test)]
-mod session_parity;
-
-// One `MessageMeta` builder over what `Session` reports, which will replace the
-// per-edition pair that reads the format crates directly (#726).
-//
-// Test-gated on purpose: it is written and proven against both builders over the
-// whole corpus before anything depends on it, and wiring it up is the handle
-// migration itself. Shipping it unused in the addon would be dead code in a
-// `.node`.
-#[cfg(test)]
+// The one `MessageMeta` builder for a GRIB message, over what `Session` reports
+// (#726). It replaced a per-edition pair that read the format crates directly.
 mod session_meta;
 
 // This host, run through the ADR-0006 conformance suite that ships in
@@ -471,552 +451,6 @@ pub fn detect_bytes(bytes: napi::bindgen_prelude::Buffer) -> String {
         Format::NetCdf => "netcdf".to_string(),
         Format::Unknown => "unknown".to_string(),
     }
-}
-
-/// Build the `MessageMeta` payload for a single GRIB1 message. Used by
-/// [`Grib1Handle::messages`].
-fn build_grib1_message_meta(
-    msg: &fieldglass_grib1::Grib1Message,
-    packing: Option<String>,
-) -> MessageMeta {
-    // `(abbreviation, name, units)`, resolved or under the unresolved-parameter
-    // contract. The format crate owns the fallback rendering, so this seam and
-    // the umbrella's cannot disagree about it (#633).
-    let (param_abbreviation, param_name, param_units) = match lookup_parameter(
-        msg.pds.parameter_id,
-        msg.pds.table_version,
-        msg.pds.originating_centre,
-    ) {
-        // Same display-seam normalisation the GRIB2 side gets (#432). The GRIB1
-        // tables carry a third notation on top of WMO's: the ECMWF local tables
-        // are generated from eccodes, which writes exponents Fortran-style
-        // (`kg m**-2`), and ON388 chains solidi (`kg/m2/s`). Normalising here
-        // rather than in the tables keeps both generated files reproducible
-        // from their upstream, and makes the units column read the same
-        // whichever edition the file is (#441).
-        Some(p) => (
-            p.abbreviation.to_string(),
-            p.name.to_string(),
-            normalize_units(p.units).into_owned(),
-        ),
-        None => (
-            String::new(),
-            fieldglass_grib1::tables::unresolved_parameter(
-                msg.pds.originating_centre,
-                msg.pds.table_version,
-                msg.pds.parameter_id,
-            ),
-            String::new(),
-        ),
-    };
-    let (grid_type, grid_ni, grid_nj, grid_size_label, lat_first, lon_first, lat_last, lon_last) =
-        match &msg.gds {
-            Some(gds) => {
-                let dims = gds.dimensions();
-                let bounds = gds.bounds();
-                // The first point comes from `first_point`, which survives a
-                // projection too degenerate to place the far corner — `bounds`
-                // reports a pair, so it has to give up both (#472).
-                let first = gds.first_point();
-                (
-                    Some(gds.grid_type_name().to_string()),
-                    dims.map(|(ni, _)| ni as i32),
-                    dims.map(|(_, nj)| nj as i32),
-                    gds.size_label(),
-                    first.map(|(la1, _)| la1),
-                    first.map(|(_, lo1)| lo1),
-                    bounds.map(|c| c.lat_last),
-                    bounds.map(|c| c.lon_last),
-                )
-            }
-            None => (None, None, None, None, None, None, None, None),
-        };
-    let lambert = match &msg.gds {
-        Some(fieldglass_grib1::GridDescription::LambertConformal(g)) => Some(g),
-        _ => None,
-    };
-    let lambert_lad = lambert.map(|g| g.latin1);
-    let lambert_lov = lambert.map(|g| g.lov);
-    // GRIB1 stores Dx/Dy as unsigned magnitudes; the grid bakes the scan sign
-    // in so the Lambert warp walks the grid's actual scan.
-    let lambert_inc = lambert.map(|g| g.signed_increments());
-    let lambert_dx_metres = lambert_inc.map(|(dx, _)| dx);
-    let lambert_dy_metres = lambert_inc.map(|(_, dy)| dy);
-    let lambert_latin1 = lambert.map(|g| g.latin1);
-    let lambert_latin2 = lambert.map(|g| g.latin2);
-    let gaussian_n_parallels = match &msg.gds {
-        Some(fieldglass_grib1::GridDescription::Gaussian(g)) => Some(g.n_gaussians as i32),
-        Some(fieldglass_grib1::GridDescription::ReducedGaussian(g)) => Some(g.n_gaussians as i32),
-        _ => None,
-    };
-    let polar_stereo = match &msg.gds {
-        Some(fieldglass_grib1::GridDescription::PolarStereographic(g)) => Some(g),
-        _ => None,
-    };
-    // The earth shape is declared per-message (GDS octet 17). Only the planar
-    // projections consume it; a lat/lon or Gaussian grid needs no radius.
-    let earth_radius_metres = lambert
-        .map(|g| g.resolution_flags.earth_radius_m())
-        .or_else(|| polar_stereo.map(|g| g.resolution_flags.earth_radius_m()));
-    let polar_stereo_lov = polar_stereo.map(|g| g.lov);
-    // GRIB1 has no LaD field — its latitude of true scale is fixed at ±60°,
-    // and Dx/Dy are unsigned magnitudes whose sign is the scanning mode. Both
-    // are the grid's own rules, so both come from it.
-    let polar_stereo_lad = polar_stereo.map(|g| g.lad());
-    let polar_stereo_inc = polar_stereo.map(|g| g.signed_increments());
-    let polar_stereo_dx_metres = polar_stereo_inc.map(|(dx, _)| dx);
-    let polar_stereo_dy_metres = polar_stereo_inc.map(|(_, dy)| dy);
-    let polar_stereo_south_pole = polar_stereo.map(|g| g.south_pole);
-    let rotated = match &msg.gds {
-        Some(fieldglass_grib1::GridDescription::RotatedLatLon(g)) => Some(g),
-        _ => None,
-    };
-    let rotated_south_pole_lat = rotated.map(|g| g.south_pole_lat);
-    let rotated_south_pole_lon = rotated.map(|g| g.south_pole_lon);
-    let rotated_angle_of_rotation = rotated.map(|g| g.angle_of_rotation);
-    // The scan flags of whichever grid family this is; `None` for a message
-    // with no raster (spectral, unsupported) or no resolvable GDS at all.
-    // (Predefined no-GDS grids have no flag and all scan west-to-east.)
-    let scan = msg.gds.as_ref().and_then(|gds| gds.scanning_mode());
-    // South→north row scan, so the source render can orient the raster (#286).
-    let j_scans_positive = scan.map(|sm| sm.j_positive);
-    // `core`'s scan type, which is what decides reprojection eligibility for the
-    // corner-pinned families: their inverse maps assume columns run west to
-    // east. A message with no GDS states no scan, and the predefined grids all
-    // scan west-to-east, so it reads as the operational default.
-    let scan_flags = scan.map_or_else(Scan::north_down, |sm| {
-        Scan::new(sm.i_negative, sm.j_positive, sm.j_consecutive)
-    });
-    gate_reprojection(
-        MessageMeta {
-            // Position in the reader's own message vector, so the narrowing to the
-            // JS-facing `i32` cannot wrap for any file that fits in memory.
-            message_index: msg.message_index as i32,
-            offset_bytes: msg.byte_offset as f64,
-            parameter_name: param_name,
-            parameter_units: param_units,
-            parameter_abbreviation: param_abbreviation,
-            level: fieldglass_grib1::level_value_str(&msg.pds),
-            level_type: fieldglass_grib1::level_type_str(&msg.pds),
-            reference_time: fieldglass_grib1::reference_time(&msg.pds),
-            // `None` is a unit with no fixed length in hours (a monthly mean, say).
-            // 0 is the same convention the GRIB2 side uses for that case: there is
-            // no hours value to show, and `forecast_display` carries the truth.
-            forecast_hours: fieldglass_grib1::forecast_hours(&msg.pds).unwrap_or(0),
-            p1_octet: (msg.pds.time_range != 10).then_some(msg.pds.p1 as i32),
-            forecast_display: fieldglass_grib1::forecast_display(&msg.pds),
-            originating_centre: lookup_centre(msg.pds.originating_centre)
-                .map(str::to_string)
-                .unwrap_or_else(|| format!("Centre {}", msg.pds.originating_centre)),
-            sub_centre: lookup_sub_centre(
-                msg.pds.originating_centre.into(),
-                msg.pds.sub_centre.into(),
-            )
-            .map(str::to_string),
-            grid_type,
-            grid_ni,
-            grid_nj,
-            grid_size_label,
-            lat_first,
-            lon_first,
-            lat_last,
-            lon_last,
-            format: "grib1".to_string(),
-            edition: Some(1),
-            discipline: None,
-            total_length_bytes: Some(msg.is.total_length as f64),
-            production_status: None,
-            data_type: None,
-            earth_radius_metres,
-            lambert_lad,
-            lambert_lov,
-            lambert_dx_metres,
-            lambert_dy_metres,
-            lambert_latin1,
-            lambert_latin2,
-            gaussian_n_parallels,
-            polar_stereo_lov,
-            polar_stereo_lad,
-            polar_stereo_dx_metres,
-            polar_stereo_dy_metres,
-            polar_stereo_south_pole,
-            lambert_azimuthal_semi_major_metres: None,
-            lambert_azimuthal_semi_minor_metres: None,
-            lambert_azimuthal_standard_parallel: None,
-            lambert_azimuthal_central_longitude: None,
-            lambert_azimuthal_dx_metres: None,
-            lambert_azimuthal_dy_metres: None,
-            transverse_mercator_semi_major_metres: None,
-            transverse_mercator_semi_minor_metres: None,
-            transverse_mercator_lat_ref: None,
-            transverse_mercator_lon_ref: None,
-            transverse_mercator_scale_factor: None,
-            transverse_mercator_false_easting_metres: None,
-            transverse_mercator_false_northing_metres: None,
-            transverse_mercator_x1_metres: None,
-            transverse_mercator_y1_metres: None,
-            transverse_mercator_dx_metres: None,
-            transverse_mercator_dy_metres: None,
-            rotated_south_pole_lat,
-            rotated_south_pole_lon,
-            rotated_angle_of_rotation,
-            geos_sub_lon: None,
-            geos_height: None,
-            geos_r_eq: None,
-            geos_r_pol: None,
-            geos_sweep_x: None,
-            geos_x0: None,
-            geos_dx_rad: None,
-            geos_y0: None,
-            geos_dy_rad: None,
-            packing,
-            // Answered by `gate_reprojection` below, from the geometry; stated here
-            // because the struct has no default and a `false` that survived would be
-            // a visible bug rather than a compile error.
-            reprojectable: false,
-            j_scans_positive,
-        },
-        scan_flags,
-    )
-}
-
-/// Render the §4 product fields into the flat (`parameter_*`, `level`,
-/// `forecast_*`) shape the JS layer consumes. Splitting the rendering out
-/// of [`open_grib2`] keeps the loop body short and lets future templates
-/// reuse the same projection.
-fn grib2_product_fields(
-    originator: fieldglass_grib2::Originator,
-    discipline: u8,
-    pds: &ProductDefinitionSection,
-) -> Grib2ProductFields {
-    let Some(common) = pds.common() else {
-        return Grib2ProductFields::placeholder();
-    };
-    let (abbreviation, name, units) = match lookup_grib2_parameter(
-        originator,
-        discipline,
-        common.parameter_category,
-        common.parameter_number,
-    ) {
-        // Units are normalised here rather than in the table: the WMO master
-        // entries are generated byte-for-byte from a pinned upstream tag and
-        // carry WMO's own ASCII (`m/s`, `kg m-2`), while the curated ones are
-        // already typeset. Normalising at the display seam makes the column
-        // read consistently without touching the generated file (#432).
-        Some((abbr, long, units)) => (
-            abbr.to_string(),
-            long.to_string(),
-            normalize_units(units).into_owned(),
-        ),
-        // The format crate owns the fallback rendering, so this seam and the
-        // umbrella's cannot disagree about it (#633).
-        None => (
-            String::new(),
-            fieldglass_grib2::unresolved_parameter(
-                discipline,
-                common.parameter_category,
-                common.parameter_number,
-            ),
-            String::new(),
-        ),
-    };
-
-    Grib2ProductFields {
-        parameter_name: name,
-        parameter_units: units,
-        parameter_abbreviation: abbreviation,
-        level: fieldglass_grib2::level_value_str(common),
-        level_type: fieldglass_grib2::level_type_str(common),
-        // `None` — a unit with no fixed length in hours — keeps 0, since there
-        // is no hours value to show and `forecast_display` carries the truth.
-        forecast_hours: fieldglass_grib2::forecast_hours(common).unwrap_or(0),
-        forecast_display: fieldglass_grib2::forecast_display(common),
-    }
-}
-
-struct Grib2ProductFields {
-    parameter_name: String,
-    parameter_units: String,
-    parameter_abbreviation: String,
-    level: String,
-    level_type: String,
-    forecast_hours: i32,
-    forecast_display: String,
-}
-
-impl Grib2ProductFields {
-    fn placeholder() -> Self {
-        Self {
-            parameter_name: String::new(),
-            parameter_units: String::new(),
-            parameter_abbreviation: String::new(),
-            level: "—".to_string(),
-            level_type: "—".to_string(),
-            forecast_hours: 0,
-            forecast_display: "—".to_string(),
-        }
-    }
-}
-
-/// Parse a GRIB2 file from raw bytes and return per-message metadata.
-/// Surfaces §0 + §1 + §3 + §4 fields (edition, discipline, centre, ref-time,
-/// parameter triple, level + level type, forecast time, production status,
-/// data type, grid template, dimensions, corner coords); §5+ columns remain
-/// placeholders until the data-representation / data parsers land.
-///
-/// Shared by [`open_grib2`] and the new [`Grib2Handle::messages`] method.
-fn build_grib2_message_meta(msg: &fieldglass_grib2::Grib2Message) -> MessageMeta {
-    let centre = lookup_grib2_centre(msg.ids.centre)
-        .map(str::to_string)
-        .unwrap_or_else(|| format!("Centre {}", msg.ids.centre));
-    let dims = msg.gds.dimensions();
-    let bounds = msg.gds.bounds();
-    let product = grib2_product_fields(msg.ids.originator(), msg.is.discipline, &msg.pds);
-
-    let lambert = match &msg.gds.template {
-        fieldglass_grib2::GridTemplate::Lambert(t) => Some(t),
-        _ => None,
-    };
-
-    let lambert_azimuthal = match &msg.gds.template {
-        fieldglass_grib2::GridTemplate::LambertAzimuthal(t) => Some(t),
-        _ => None,
-    };
-    // §3.140 stores Dx/Dy as unsigned magnitudes, like the other planar
-    // templates; the scan direction is in the flags.
-    let lambert_azimuthal_inc = lambert_azimuthal.map(|t| {
-        signed_grid_increments(
-            t.dx_metres,
-            t.dy_metres,
-            t.scanning_mode & 0x80 != 0,
-            t.scanning_mode & 0x40 != 0,
-        )
-    });
-
-    let transverse_mercator = match &msg.gds.template {
-        fieldglass_grib2::GridTemplate::TransverseMercator(t) => Some(t),
-        _ => None,
-    };
-    // §3.12 stores Di/Dj as unsigned magnitudes like the other planar
-    // templates, so the scan sign goes in the same way — but its origin is
-    // `X1`/`Y1` in the projection plane, not a corner latitude, so there is no
-    // forward projection between the message and the projector.
-    let transverse_mercator_inc = transverse_mercator.map(|t| {
-        signed_grid_increments(
-            t.di_metres,
-            t.dj_metres,
-            t.scanning_mode & 0x80 != 0,
-            t.scanning_mode & 0x40 != 0,
-        )
-    });
-    // `GridDefinitionSection::bounds` reports `None` for §3.12 because the
-    // template has no corner latitudes to report. The message table still
-    // wants them, and here they are computable: invert the first and last
-    // scanned points through the projection. Skipped for a grid the projector
-    // rejects, which would otherwise report `NaN` corners.
-    let transverse_mercator_corners =
-        transverse_mercator
-            .zip(transverse_mercator_inc)
-            .and_then(|(t, (dx, dy))| {
-                let projector = TransverseMercatorProjector::new(TransverseMercatorParams {
-                    semi_major_m: t.earth_major_m,
-                    semi_minor_m: t.earth_minor_m,
-                    ni: t.ni,
-                    nj: t.nj,
-                    lat_ref: t.lat_ref,
-                    lon_ref: t.lon_ref,
-                    scale_factor: t.scale_factor,
-                    false_easting_m: t.false_easting_m,
-                    false_northing_m: t.false_northing_m,
-                    x1_metres: t.x1_metres,
-                    y1_metres: t.y1_metres,
-                    dx_metres: dx,
-                    dy_metres: dy,
-                });
-                if !projector.is_well_defined() {
-                    return None;
-                }
-                let (lat_first, lon_first) = projector.grid_point_lonlat(0, 0);
-                let (lat_last, lon_last) = projector.last_grid_point_lonlat();
-                Some(CornerPair::new(
-                    lat_first,
-                    normalise_lon(lon_first),
-                    lat_last,
-                    normalise_lon(lon_last),
-                ))
-            });
-    let lambert_lad = lambert.map(|t| t.lad);
-    let lambert_lov = lambert.map(|t| t.lov);
-    // GRIB2 §3.30 stores Dx/Dy as unsigned magnitudes; bake the scan sign in
-    // so the Lambert warp walks the grid's actual scan.
-    let lambert_inc = lambert.map(|t| {
-        signed_grid_increments(
-            t.dx_metres,
-            t.dy_metres,
-            t.scanning_mode & 0x80 != 0,
-            t.scanning_mode & 0x40 != 0,
-        )
-    });
-    let lambert_dx_metres = lambert_inc.map(|(dx, _)| dx);
-    let lambert_dy_metres = lambert_inc.map(|(_, dy)| dy);
-    let lambert_latin1 = lambert.map(|t| t.latin1);
-    let lambert_latin2 = lambert.map(|t| t.latin2);
-    let gaussian_n_parallels = match &msg.gds.template {
-        fieldglass_grib2::GridTemplate::Gaussian(t) => Some(t.n_parallels as i32),
-        _ => None,
-    };
-    let polar_stereo = match &msg.gds.template {
-        fieldglass_grib2::GridTemplate::PolarStereographic(t) => Some(t),
-        _ => None,
-    };
-    // GRIB2 §3.20 stores Dx/Dy as unsigned magnitudes; the scan direction
-    // lives in the scanning-mode flags. Bake the sign in so the projector's
-    // origin-relative index advances along the grid's actual scan.
-    let polar_stereo_inc = polar_stereo.map(|t| {
-        signed_grid_increments(
-            t.dx_metres,
-            t.dy_metres,
-            t.scanning_mode & 0x80 != 0,
-            t.scanning_mode & 0x40 != 0,
-        )
-    });
-
-    // §3.1 carries the rotated-pole position and rotation angle alongside a
-    // §3.0-style lat/lon layout; the warp uses them to rotate a geographic
-    // query into the grid's rotated frame.
-    let rotated = match &msg.gds.template {
-        fieldglass_grib2::GridTemplate::RotatedLatLon(t) => Some(t),
-        _ => None,
-    };
-    let rotated_south_pole_lat = rotated.map(|t| t.south_pole_lat);
-    let rotated_south_pole_lon = rotated.map(|t| t.south_pole_lon);
-    let rotated_angle_of_rotation = rotated.map(|t| t.angle_of_rotation);
-
-    // §3.90 space view: reconstruct the scan-angle grid for the geostationary
-    // warp (sub-satellite point, ellipsoid, camera height, scan increments).
-    // The scan-angle grid is derived from §3.90's apparent Earth diameter and
-    // camera altitude, and `fieldglass-grib2` is what derives it — read here
-    // rather than repeated, so a standalone consumer of that crate and this
-    // host cannot disagree about where a pixel points.
-    let space_view = match &msg.gds.template {
-        fieldglass_grib2::GridTemplate::SpaceView(t) => t.scan_grid(),
-        _ => None,
-    };
-
-    let grid_type = msg.gds.template_name();
-    // Earth shape, declared per-message in §3 (`shapeOfTheEarth`). Only the
-    // planar projections consume it.
-    let earth_radius_metres = match &msg.gds.template {
-        fieldglass_grib2::GridTemplate::Lambert(t) => Some(t.earth_radius_m),
-        fieldglass_grib2::GridTemplate::PolarStereographic(t) => Some(t.earth_radius_m),
-        _ => None,
-    };
-    // `core`'s scan type. §3 states the same three flag bits ON388 does, in the
-    // same order; a template with no scanning mode at all (§3.50 spherical
-    // harmonics, §3.51 bi-Fourier) has no raster to scan and reads as the
-    // operational default.
-    let scan_flags = msg.gds.scanning_mode().map_or_else(Scan::north_down, |sm| {
-        Scan::new(sm & 0x80 != 0, sm & 0x40 != 0, sm & 0x20 != 0)
-    });
-
-    gate_reprojection(
-        MessageMeta {
-            // GRIB2 has no P1 octet — the lead time lives in the product template.
-            p1_octet: None,
-            // Same in-memory bound as the GRIB1 side.
-            message_index: msg.message_index as i32,
-            offset_bytes: msg.byte_offset as f64,
-            parameter_name: product.parameter_name,
-            parameter_units: product.parameter_units,
-            parameter_abbreviation: product.parameter_abbreviation,
-            level: product.level,
-            level_type: product.level_type,
-            reference_time: msg.ids.reference_time_iso8601(),
-            forecast_hours: product.forecast_hours,
-            forecast_display: product.forecast_display,
-            originating_centre: centre,
-            sub_centre: lookup_sub_centre(msg.ids.centre, msg.ids.sub_centre).map(str::to_string),
-            grid_type: Some(grid_type),
-            grid_ni: dims.map(|(ni, _)| ni as i32),
-            grid_nj: dims.map(|(_, nj)| nj as i32),
-            grid_size_label: msg.gds.size_label(),
-            // The declared first point comes from `first_point`, not from
-            // `bounds`: a grid whose projection is too degenerate to place its far
-            // corner has no corner *pair* to report, but it still states where it
-            // starts, and dropping that would lose a fact the message spells out
-            // (#472).
-            lat_first: transverse_mercator_corners
-                .map(|c| c.lat_first)
-                .or_else(|| msg.gds.first_point().map(|(la1, _)| la1)),
-            lon_first: transverse_mercator_corners
-                .map(|c| c.lon_first)
-                .or_else(|| msg.gds.first_point().map(|(_, lo1)| lo1)),
-            lat_last: transverse_mercator_corners
-                .map(|c| c.lat_last)
-                .or_else(|| bounds.map(|c| c.lat_last)),
-            lon_last: transverse_mercator_corners
-                .map(|c| c.lon_last)
-                .or_else(|| bounds.map(|c| c.lon_last)),
-            format: "grib2".to_string(),
-            edition: Some(i32::from(msg.is.edition)),
-            discipline: Some(lookup_discipline(msg.is.discipline).to_string()),
-            total_length_bytes: Some(msg.is.total_length as f64),
-            production_status: Some(
-                lookup_production_status(msg.ids.production_status).to_string(),
-            ),
-            data_type: Some(fieldglass_grib2::lookup_data_type(msg.ids.data_type).to_string()),
-            earth_radius_metres,
-            lambert_lad,
-            lambert_lov,
-            lambert_dx_metres,
-            lambert_dy_metres,
-            lambert_latin1,
-            lambert_latin2,
-            gaussian_n_parallels,
-            polar_stereo_lov: polar_stereo.map(|t| t.lov),
-            polar_stereo_lad: polar_stereo.map(|t| t.lad),
-            polar_stereo_dx_metres: polar_stereo_inc.map(|(dx, _)| dx),
-            polar_stereo_dy_metres: polar_stereo_inc.map(|(_, dy)| dy),
-            polar_stereo_south_pole: polar_stereo.map(|t| t.south_pole),
-            lambert_azimuthal_semi_major_metres: lambert_azimuthal.map(|t| t.earth_major_m),
-            lambert_azimuthal_semi_minor_metres: lambert_azimuthal.map(|t| t.earth_minor_m),
-            lambert_azimuthal_standard_parallel: lambert_azimuthal.map(|t| t.standard_parallel),
-            lambert_azimuthal_central_longitude: lambert_azimuthal.map(|t| t.central_longitude),
-            lambert_azimuthal_dx_metres: lambert_azimuthal_inc.map(|(dx, _)| dx),
-            lambert_azimuthal_dy_metres: lambert_azimuthal_inc.map(|(_, dy)| dy),
-            transverse_mercator_semi_major_metres: transverse_mercator.map(|t| t.earth_major_m),
-            transverse_mercator_semi_minor_metres: transverse_mercator.map(|t| t.earth_minor_m),
-            transverse_mercator_lat_ref: transverse_mercator.map(|t| t.lat_ref),
-            transverse_mercator_lon_ref: transverse_mercator.map(|t| t.lon_ref),
-            transverse_mercator_scale_factor: transverse_mercator.map(|t| t.scale_factor),
-            transverse_mercator_false_easting_metres: transverse_mercator
-                .map(|t| t.false_easting_m),
-            transverse_mercator_false_northing_metres: transverse_mercator
-                .map(|t| t.false_northing_m),
-            transverse_mercator_x1_metres: transverse_mercator.map(|t| t.x1_metres),
-            transverse_mercator_y1_metres: transverse_mercator.map(|t| t.y1_metres),
-            transverse_mercator_dx_metres: transverse_mercator_inc.map(|(dx, _)| dx),
-            transverse_mercator_dy_metres: transverse_mercator_inc.map(|(_, dy)| dy),
-            rotated_south_pole_lat,
-            rotated_south_pole_lon,
-            rotated_angle_of_rotation,
-            geos_sub_lon: space_view.map(|g| g.sub_lon_deg),
-            geos_height: space_view.map(|g| g.h_metres),
-            geos_r_eq: space_view.map(|g| g.r_eq),
-            geos_r_pol: space_view.map(|g| g.r_pol),
-            geos_sweep_x: space_view.map(|g| g.sweep_x),
-            geos_x0: space_view.map(|g| g.x0),
-            geos_dx_rad: space_view.map(|g| g.dx_rad),
-            geos_y0: space_view.map(|g| g.y0),
-            geos_dy_rad: space_view.map(|g| g.dy_rad),
-            packing: Some(friendly_packing(&msg.drs.template_name())),
-            // Answered by `gate_reprojection` below; see the GRIB1 sibling.
-            reprojectable: false,
-            // GRIB2 §3 Flag Table 3.4 bit 2 (0x40): rows scan south→north (#286).
-            j_scans_positive: msg.gds.scanning_mode().map(|sm| sm & 0x40 != 0),
-        },
-        scan_flags,
-    )
 }
 
 // ---------------------------------------------------------------------------
@@ -1691,72 +1125,179 @@ impl std::fmt::Debug for DecodedGrid {
     }
 }
 
-/// Persistent GRIB1 reader handle held across napi calls. Replaces the
-/// `open_grib1` → buffer-clone → re-parse round-trip per call.
+/// A GRIB message stream opened through `fieldglass::Session`, and the one memo a
+/// display host keeps over it (#726).
 ///
-/// `bytes` is kept around because [`Self::set_p1`] hands a freshly-edited
-/// buffer back to the JS caller; [`Grib2Handle`] doesn't need this because
-/// GRIB2 has no edit path yet (general PDS-field editing is the metadata-
-/// editing track, separate from this PR). The asymmetry is intentional —
-/// not an oversight.
+/// Both GRIB handles are this plus a name. They used to hold their own format
+/// readers and two value caches each — `decoded` for a raster, `synthesized` for
+/// a spectral or HEALPix field — and build `MessageMeta` through per-edition
+/// mappings that read the format crates directly. `Session` already resolves
+/// which families are synthesised and onto what grid, so a handle over it needs
+/// one cache, not two, and no branch on the family at all.
 ///
-/// `decoded` caches per-message decode output (raw `Vec<Option<f64>>`)
-/// so repeat `render_grid` calls with different `RenderOptions` skip the
-/// bit-unpack + bitmap-merge step every time the user wiggles a picker.
+/// **What is cached, and why here.** Decoded values, keyed by message index,
+/// because repainting a field must not decode it again and ADR-0011 leaves value
+/// retention to the host. The *placement* is not cached here: `Session` memoises
+/// that itself, for every host at once.
+#[derive(Debug)]
+struct MessageStream {
+    session: fieldglass::Session,
+    /// `"grib1"` or `"grib2"`, for `MessageMeta::format`.
+    format: &'static str,
+    values: Mutex<std::collections::HashMap<u32, std::sync::Arc<Vec<Option<f64>>>>>,
+}
+
+impl MessageStream {
+    fn new(session: fieldglass::Session, format: &'static str) -> Self {
+        Self {
+            session,
+            format,
+            values: Mutex::new(std::collections::HashMap::new()),
+        }
+    }
+
+    /// Every message's declared metadata, in file order.
+    fn messages(&self) -> Vec<MessageMeta> {
+        (0..self.session.count())
+            // Cannot fail: the index is inside `count`, and a GRIB session is
+            // message-addressed, which are the only two things `message` checks.
+            .filter_map(|i| self.message_meta(i).ok())
+            .collect()
+    }
+
+    /// What message `index` declares — its grid as the file names it.
+    fn message_meta(&self, index: u32) -> napi::Result<MessageMeta> {
+        let info = self.session.message(index).into_napi()?;
+        Ok(session_meta::meta_from_session(
+            &info,
+            info.grid.as_ref(),
+            self.format,
+        ))
+    }
+
+    /// Where message `index`'s values land, without decoding it.
+    ///
+    /// The synthesis grid for a spectral or HEALPix message and the declared
+    /// raster otherwise, carrying the corner pair the container reports (#730) —
+    /// which is why this asks `place_message` rather than reading the decoded
+    /// field's georef, whose corners are recomputed from the geometry.
+    fn resolved_meta(&self, index: u32) -> napi::Result<MessageMeta> {
+        let info = self.session.message(index).into_napi()?;
+        let placed = self.placed(index)?;
+        Ok(session_meta::meta_from_session(
+            &info,
+            Some(&placed),
+            self.format,
+        ))
+    }
+
+    /// Message `index`'s placement, refused when it has no raster to display.
+    ///
+    /// `Session::place_message` succeeds for a message whose grid is real but
+    /// whose values are not one scalar per point — GRIB2 bi-Fourier
+    /// coefficients — because it answers about the grid (#728). A **display**
+    /// placement is a narrower thing: every entry point on this handle paints,
+    /// probes or overlays a raster, and a grid with no dimensions gives none of
+    /// them anything to work on. The handles refused these before #726 and the
+    /// characterisation golden recorded the refusal, so the check stays here,
+    /// where the question is a display one, rather than moving into `Session`.
+    ///
+    /// **The geometry path only.** [`resolved`](Self::resolved) decodes first and
+    /// lets the decoder refuse, because its reason is the more useful one.
+    fn placed(&self, index: u32) -> napi::Result<fieldglass::Georef> {
+        let placed = self.session.place_message(index).into_napi()?;
+        if placed.geometry.dims().is_none() {
+            return Err(napi::Error::from_reason(
+                "grid has no declared dimensions".to_string(),
+            ));
+        }
+        Ok(placed)
+    }
+
+    /// Values, resolved metadata and raster dimensions — what every display
+    /// entry point on a GRIB handle works from.
+    fn resolved(&self, index: u32) -> napi::Result<ResolvedField> {
+        // Values first, and that order is load-bearing. A message that cannot be
+        // drawn is refused by the decoder with a reason that names the call that
+        // *does* read it — bi-Fourier coefficients point at
+        // `decode_bifourier_message` — and placing it first would pre-empt that
+        // with `placed`'s generic "no dimensions". A decodable message always
+        // places with dimensions, so nothing needs checking after.
+        let values = self.values(index)?;
+        let placed = self.session.place_message(index).into_napi()?;
+        let info = self.session.message(index).into_napi()?;
+        let meta = session_meta::meta_from_session(&info, Some(&placed), self.format);
+        Ok((values, meta, placed.ni, placed.nj))
+    }
+
+    /// Get-or-decode message `index`'s values.
+    ///
+    /// `Dtype::Auto` because it is the one setting that never loses precision:
+    /// a GRIB field reconstructs to `f64`, and narrowing it on the way through
+    /// would move every CSV export and probe readout the extension shows.
+    fn values(&self, index: u32) -> napi::Result<std::sync::Arc<Vec<Option<f64>>>> {
+        if let Some(hit) = self
+            .values
+            .lock()
+            .expect("value cache mutex poisoned")
+            .get(&index)
+        {
+            return Ok(std::sync::Arc::clone(hit));
+        }
+        let field = self
+            .session
+            .decode(
+                index,
+                &fieldglass::DecodeOptions::new(fieldglass::Dtype::Auto),
+            )
+            .into_napi()?;
+        let values = std::sync::Arc::new(field_values(&field));
+        self.values
+            .lock()
+            .expect("value cache mutex poisoned")
+            .insert(index, std::sync::Arc::clone(&values));
+        Ok(values)
+    }
+}
+
+/// A GRIB1 file held open across napi calls, read through `fieldglass::Session`.
 ///
-/// The handle holds the file exactly once, inside the reader. It used to keep
-/// its own `Vec` alongside it as well, so opening a GRIB1 file cost two full
-/// copies on top of the buffer JS already holds; the one place that needed the
-/// original octets (the P1 edit) now borrows them from the reader and copies
-/// only when it is actually invoked (#411).
+/// A `MessageStream` plus the file's bytes. Every display entry point below
+/// resolves a message through the stream, which is where decoding, synthesis of
+/// a spectral field onto its global grid, and the one value memo all live —
+/// shared with [`Grib2Handle`], which is the same stream without the bytes.
 ///
-/// The cache is wrapped in a `Mutex` not because we expect contention
-/// — napi-rs runs class methods on the Node main thread — but because
-/// `#[napi]` requires the class to be `Send`. `RefCell` would be the
-/// natural single-threaded fit but its `!Send` rules it out. Lock /
-/// unlock overhead at zero contention is negligible (single atomic
-/// CAS per render).
+/// `bytes` is kept because [`Self::set_p1`] hands a freshly edited file back to
+/// JavaScript and a session returns no bytes. It is the *same* allocation the
+/// session reads through (`Arc<[u8]>`), so opening a file still costs one copy
+/// on top of the buffer JavaScript holds — the saving #411 made, kept. GRIB2 has
+/// no edit path, which is the whole of the asymmetry.
 #[napi]
 #[derive(Debug)]
 pub struct Grib1Handle {
-    reader: Grib1Reader,
-    decoded: Mutex<std::collections::HashMap<u32, std::sync::Arc<Vec<Option<f64>>>>>,
-    /// Synthesized spectral fields, keyed by message index — the output of the
-    /// (expensive) inverse spherical-harmonic transform, so a knob change
-    /// repaints from cache instead of re-running the synthesis (#334). Same
-    /// drop-invalidation as `decoded`.
-    synthesized: Mutex<std::collections::HashMap<u32, std::sync::Arc<Vec<Option<f64>>>>>,
+    /// The file, shared with the session reading it rather than copied.
+    ///
+    /// Kept because the `P1` edit returns a whole new file, and a session hands
+    /// no bytes back. `Arc<[u8]>` so this and the session are one allocation —
+    /// the copy #411 removed to save memory stays removed.
+    bytes: std::sync::Arc<[u8]>,
+    stream: MessageStream,
 }
 
 #[napi]
 impl Grib1Handle {
-    /// Parse the supplied buffer once; the handle keeps the parsed
-    /// reader alive for the lifetime of the JS object.
+    /// Open the supplied buffer once; the handle keeps the session alive for
+    /// the lifetime of the JS object.
     #[napi(factory)]
     pub fn from_bytes(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<Self> {
-        let reader = Grib1Reader::from_bytes(bytes.to_vec()).into_napi()?;
-        Ok(Self {
-            reader,
-            decoded: Mutex::new(std::collections::HashMap::new()),
-            synthesized: Mutex::new(std::collections::HashMap::new()),
-        })
+        Self::from_vec(bytes.to_vec())
     }
 
     /// Metadata for every message in the file, in file order. Built on each
     /// call; a caller that needs it repeatedly should hold the result.
     #[napi]
     pub fn messages(&self) -> Vec<MessageMeta> {
-        self.reader
-            .messages
-            .iter()
-            .map(|msg| {
-                let packing = self
-                    .reader
-                    .packing_label(msg.message_index)
-                    .map(friendly_packing);
-                build_grib1_message_meta(msg, packing)
-            })
-            .collect()
+        self.stream.messages()
     }
 
     /// Decode one message into a `(values, mask)` typed-array pair. NaN
@@ -1814,28 +1355,7 @@ impl Grib1Handle {
     /// Editing is rare and already allocates a whole new file either way, so
     /// this costs the same as before while the handle costs a file less.
     fn patched_p1_bytes(&self, message_index: u32, value: u32) -> napi::Result<Vec<u8>> {
-        if value > u8::MAX as u32 {
-            return Err(napi::Error::from_reason(format!(
-                "p1 must fit in a u8 (0..=255), got {value}"
-            )));
-        }
-        let msg = self
-            .reader
-            .messages
-            .get(message_index as usize)
-            .ok_or_else(|| {
-                napi::Error::from_reason(format!(
-                    "message index {message_index} out of range (have {})",
-                    self.reader.messages.len()
-                ))
-            })?;
-        // A file offset, so `u64`; this reader's bytes are a buffer it already
-        // indexed, so it fits.
-        let off = fieldglass_core::bytes::checked_usize(msg.pds_p1_offset(), "PDS P1 offset")
-            .into_napi()?;
-        let mut out = self.reader.bytes().to_vec();
-        out[off] = value as u8;
-        Ok(out)
+        fieldglass::grib1::with_p1_octet(&self.bytes, message_index, value).into_napi()
     }
 
     /// Compose decode + reprojection warp + viridis colormap into a
@@ -2000,197 +1520,56 @@ impl Grib1Handle {
 }
 
 impl Grib1Handle {
-    /// Build one message's [`MessageMeta`], or an out-of-range error. The one
-    /// place `render_grid` / `render_grid_combined` / `project_overlay` get a
-    /// message's geometry, so they can't disagree.
+    /// A handle over `bytes`, for callers that are not JavaScript.
+    pub(crate) fn from_vec(bytes: Vec<u8>) -> napi::Result<Self> {
+        let bytes: std::sync::Arc<[u8]> = bytes.into();
+        let session =
+            fieldglass::Session::open_source(std::sync::Arc::clone(&bytes)).into_napi()?;
+        Ok(Self {
+            bytes,
+            stream: MessageStream::new(session, "grib1"),
+        })
+    }
+
+    #[cfg(test)]
     fn message_meta(&self, message_index: u32) -> napi::Result<MessageMeta> {
-        self.reader
-            .messages
-            .get(message_index as usize)
-            .map(|msg| {
-                let packing = self
-                    .reader
-                    .packing_label(message_index as usize)
-                    .map(friendly_packing);
-                build_grib1_message_meta(msg, packing)
-            })
-            .ok_or_else(|| {
-                napi::Error::from_reason(format!("message index {message_index} out of range"))
-            })
+        self.stream.message_meta(message_index)
     }
 
-    /// Resolve a message to a renderable field with its geometry (#330). A
-    /// spectral message is synthesized onto a global lat/lon grid (cached) and
-    /// gets that grid's meta; everything else is decoded on its declared grid.
-    /// Returns `(field, meta, ni, nj)` so render, combine, probe, contours,
-    /// overlay, and CSV all run the same resolved field with no per-feature
-    /// spectral branch.
-    ///
-    /// Which families have no raster of their own, and what grid each lands on,
-    /// is [`Grib1Reader::synthesis_grid`]'s answer rather than one this crate
-    /// re-derives — the same seam `fieldglass::Session::decode` resolves
-    /// through (#580).
-    ///
-    /// [`Grib1Reader::synthesis_grid`]: fieldglass_grib1::Grib1Reader::synthesis_grid
     fn resolved(&self, message_index: u32) -> napi::Result<ResolvedField> {
-        if let Some(grid) = self.reader.synthesis_grid(message_index as usize) {
-            let raw = self.cached_synthesize(message_index)?;
-            let meta = spectral_render_meta_from(self.message_meta(message_index)?, grid);
-            // Synthesis-grid dimensions, bounded well inside `u32`.
-            Ok((raw, meta, grid.ni as u32, grid.nj as u32))
-        } else {
-            let raw = self.cached_decode(message_index)?;
-            let (ni, nj) = grib1_dimensions(&self.reader, message_index as usize)?;
-            let meta = self.grid_meta(message_index)?;
-            Ok((raw, meta, ni, nj))
-        }
+        self.stream.resolved(message_index)
     }
 
-    /// The declared meta, with the geometry replaced by the raster the values
-    /// are decoded onto (see [`raster_render_meta`]).
-    fn grid_meta(&self, message_index: u32) -> napi::Result<MessageMeta> {
-        let meta = self.message_meta(message_index)?;
-        let raster_bounds = self
-            .reader
-            .messages
-            .get(message_index as usize)
-            .and_then(|m| m.gds.as_ref())
-            .and_then(|gds| gds.raster_bounds());
-        Ok(raster_render_meta(meta, raster_bounds))
-    }
-
-    /// Just the resolved geometry of a message (#330) — the spectral synthesis
-    /// grid's meta for a spectral message, the declared meta otherwise — without
-    /// decoding or synthesizing any values. For the geometry-only overlay path.
     fn resolved_meta(&self, message_index: u32) -> napi::Result<MessageMeta> {
-        if let Some(grid) = self.reader.synthesis_grid(message_index as usize) {
-            Ok(spectral_render_meta_from(
-                self.message_meta(message_index)?,
-                grid,
-            ))
-        } else {
-            // Kept as a check, not for its value: an overlay has nothing to
-            // project onto if the message declares no raster, and this is the
-            // error that says so.
-            grib1_dimensions(&self.reader, message_index as usize)?;
-            self.grid_meta(message_index)
-        }
-    }
-
-    /// Get-or-build the synthesized field for `message_index` — the inverse
-    /// spherical-harmonic transform is the expensive step, so caching its
-    /// output turns a knob change from seconds of stall into a cache read.
-    /// Same drop-invalidation as [`cached_decode`](Self::cached_decode).
-    ///
-    /// Only called behind a `synthesis_grid` hit, so the reader's `Ok(None)` —
-    /// "this message has a raster of its own" — is a caller bug rather than a
-    /// user-facing condition. It is still reported rather than unwrapped: a
-    /// panic here aborts the Node process.
-    fn cached_synthesize(
-        &self,
-        message_index: u32,
-    ) -> napi::Result<std::sync::Arc<Vec<Option<f64>>>> {
-        if let Some(hit) = self
-            .synthesized
-            .lock()
-            .expect("synthesis cache mutex poisoned")
-            .get(&message_index)
-        {
-            return Ok(std::sync::Arc::clone(hit));
-        }
-        // The grid comes back with the field rather than being chosen here, so
-        // there is one construction of it rather than two (#546); the reader
-        // holds it against the one `resolved` sizes the meta from (#580).
-        let (_grid, values) = self
-            .reader
-            .synthesize_message_global(message_index as usize)
-            .into_napi()?
-            .ok_or_else(|| {
-                napi::Error::from_reason(format!(
-                    "message {message_index} carries a raster of its own and is not synthesised"
-                ))
-            })?;
-        let arc = std::sync::Arc::new(values);
-        self.synthesized
-            .lock()
-            .expect("synthesis cache mutex poisoned")
-            .insert(message_index, std::sync::Arc::clone(&arc));
-        Ok(arc)
-    }
-
-    /// Get-or-build the decoded values for `message_index`. The cache is
-    /// invalidated implicitly when the handle is dropped (which happens
-    /// in `provider.ts` as soon as the document bytes change via setP1
-    /// or the document closes), so we never have to worry about it
-    /// going stale.
-    fn cached_decode(&self, message_index: u32) -> napi::Result<std::sync::Arc<Vec<Option<f64>>>> {
-        if let Some(hit) = self
-            .decoded
-            .lock()
-            .expect("decode cache mutex poisoned")
-            .get(&message_index)
-        {
-            return Ok(std::sync::Arc::clone(hit));
-        }
-        // A reduced grid's rows are widened to `max(PL)` inside
-        // `decode_message_raster` (#543), so what comes back already satisfies
-        // the `width·height == len` invariant every downstream path
-        // (decode_grid, render, overlay) addresses the field by.
-        let raw = self
-            .reader
-            .decode_message_raster(message_index as usize)
-            .into_napi()?;
-        let arc = std::sync::Arc::new(raw);
-        self.decoded
-            .lock()
-            .expect("decode cache mutex poisoned")
-            .insert(message_index, std::sync::Arc::clone(&arc));
-        Ok(arc)
+        self.stream.resolved_meta(message_index)
     }
 }
 
-/// Persistent GRIB2 reader handle, sibling to [`Grib1Handle`].
+/// A GRIB2 file held open across napi calls, read through `fieldglass::Session`.
 ///
-/// Unlike `Grib1Handle`, this struct doesn't store the original bytes —
-/// GRIB2 has no in-place edit path yet (the metadata-editing track is a
-/// separate workstream). The `decoded` cache mirrors `Grib1Handle`'s
-/// rationale: subsequent `render_grid` calls with different
-/// `RenderOptions` re-paint without re-running the bit-unpack +
-/// bitmap-merge step.
+/// [`Grib1Handle`] without the bytes: GRIB2 has no edit path, so nothing needs
+/// the file back once the session has it. Decoding, synthesis and the value memo
+/// are the shared `MessageStream`'s.
 #[napi]
 #[derive(Debug)]
 pub struct Grib2Handle {
-    reader: Grib2Reader,
-    decoded: Mutex<std::collections::HashMap<u32, std::sync::Arc<Vec<Option<f64>>>>>,
-    /// Synthesized spectral fields, keyed by message index (see
-    /// [`Grib1Handle::synthesized`]) — the inverse spherical-harmonic transform
-    /// output, cached so a repaint skips re-running it (#334).
-    synthesized: Mutex<std::collections::HashMap<u32, std::sync::Arc<Vec<Option<f64>>>>>,
+    stream: MessageStream,
 }
 
 #[napi]
 impl Grib2Handle {
-    /// Parse a GRIB2 file's bytes and keep the reader alive behind the handle,
-    /// so later calls index the file rather than re-parsing it.
+    /// Open a GRIB2 file's bytes and keep the session behind the handle, so
+    /// later calls index the file rather than re-parsing it.
     #[napi(factory)]
     pub fn from_bytes(bytes: napi::bindgen_prelude::Buffer) -> napi::Result<Self> {
-        let reader = Grib2Reader::from_bytes(bytes.to_vec()).into_napi()?;
-        Ok(Self {
-            reader,
-            decoded: Mutex::new(std::collections::HashMap::new()),
-            synthesized: Mutex::new(std::collections::HashMap::new()),
-        })
+        Self::from_vec(bytes.to_vec())
     }
 
     /// Metadata for every message in the file, in file order. Built on each
     /// call; a caller that needs it repeatedly should hold the result.
     #[napi]
     pub fn messages(&self) -> Vec<MessageMeta> {
-        self.reader
-            .messages
-            .iter()
-            .map(build_grib2_message_meta)
-            .collect()
+        self.stream.messages()
     }
 
     /// Decode one message's values and mask, without painting them. Errors
@@ -2383,141 +1762,69 @@ impl Grib2Handle {
 }
 
 impl Grib2Handle {
-    /// Build one message's [`MessageMeta`], or an out-of-range error — the
-    /// single geometry source for `render_grid` / `render_grid_combined`.
+    /// A handle over `bytes`, for callers that are not JavaScript.
+    pub(crate) fn from_vec(bytes: Vec<u8>) -> napi::Result<Self> {
+        let session = fieldglass::Session::open(bytes).into_napi()?;
+        Ok(Self {
+            stream: MessageStream::new(session, "grib2"),
+        })
+    }
+
+    #[cfg(test)]
     fn message_meta(&self, message_index: u32) -> napi::Result<MessageMeta> {
-        self.reader
-            .messages
-            .get(message_index as usize)
-            .map(build_grib2_message_meta)
-            .ok_or_else(|| {
-                napi::Error::from_reason(format!("message index {message_index} out of range"))
-            })
+        self.stream.message_meta(message_index)
     }
 
-    /// Resolve a message to a renderable field + geometry (#330) — sibling to
-    /// [`Grib1Handle::resolved`]. Spectral messages are synthesized onto a
-    /// global lat/lon grid (cached) and get that grid's meta; a HEALPix message
-    /// is resampled onto one the same way, for the same reason — neither has a
-    /// raster shape of its own, so everything downstream would need a special
-    /// case otherwise.
-    ///
-    /// Which families those are, and what grid each lands on, is
-    /// [`Grib2Reader::synthesis_grid`]'s answer rather than one this crate
-    /// re-derives — the same seam `fieldglass::Session::decode` resolves
-    /// through (#580).
-    ///
-    /// [`Grib2Reader::synthesis_grid`]: fieldglass_grib2::Grib2Reader::synthesis_grid
     fn resolved(&self, message_index: u32) -> napi::Result<ResolvedField> {
-        if let Some(grid) = self.reader.synthesis_grid(message_index as usize) {
-            let raw = self.cached_synthesize(message_index)?;
-            let meta = spectral_render_meta_from(self.message_meta(message_index)?, grid);
-            // Synthesis-grid dimensions, bounded well inside `u32`: the
-            // spectral rule pins 720×361 and the HEALPix one caps there too.
-            Ok((raw, meta, grid.ni as u32, grid.nj as u32))
-        } else {
-            let raw = self.cached_decode(message_index)?;
-            let (meta, ni, nj) = self.grid_meta(message_index)?;
-            Ok((raw, meta, ni, nj))
-        }
+        self.stream.resolved(message_index)
     }
 
-    /// The declared meta plus the raster shape, with the geometry replaced by
-    /// the raster the values are decoded onto (see [`raster_render_meta`]).
-    fn grid_meta(&self, message_index: u32) -> napi::Result<(MessageMeta, u32, u32)> {
-        let meta = self.message_meta(message_index)?;
-        let gds = &self
-            .reader
-            .messages
-            .get(message_index as usize)
-            .ok_or_else(|| napi::Error::from_reason("message index out of range".to_string()))?
-            .gds;
-        let (ni, nj) = gds.dimensions().ok_or_else(|| {
-            napi::Error::from_reason("grid has no declared dimensions".to_string())
-        })?;
-        Ok((raster_render_meta(meta, gds.raster_bounds()), ni, nj))
-    }
-
-    /// Resolved geometry only (#330), no decode/synthesis — sibling to
-    /// [`Grib1Handle::resolved_meta`]. For the geometry-only overlay path.
     fn resolved_meta(&self, message_index: u32) -> napi::Result<MessageMeta> {
-        if let Some(grid) = self.reader.synthesis_grid(message_index as usize) {
-            Ok(spectral_render_meta_from(
-                self.message_meta(message_index)?,
-                grid,
-            ))
-        } else {
-            Ok(self.grid_meta(message_index)?.0)
-        }
+        self.stream.resolved_meta(message_index)
     }
+}
 
-    /// Get-or-build the synthesized field for `message_index` (see
-    /// [`Grib1Handle::cached_synthesize`]) — caches the inverse spherical-
-    /// harmonic transform, or the HEALPix resample, so a repaint doesn't re-run
-    /// it (#334). One cache for both: each answers "the renderable field for
-    /// this message", and a message is one family or the other, never both.
-    ///
-    /// Only called behind a `synthesis_grid` hit, so the reader's `Ok(None)` —
-    /// "this message has a raster of its own" — is a caller bug rather than a
-    /// user-facing condition. It is still reported rather than unwrapped: a
-    /// panic here aborts the Node process.
-    fn cached_synthesize(
-        &self,
-        message_index: u32,
-    ) -> napi::Result<std::sync::Arc<Vec<Option<f64>>>> {
-        if let Some(hit) = self
-            .synthesized
-            .lock()
-            .expect("synthesis cache mutex poisoned")
-            .get(&message_index)
-        {
-            return Ok(std::sync::Arc::clone(hit));
+/// A `MessageInfo` with every identification field empty, for a test that is
+/// about one half of `meta_from_session` and nothing else.
+///
+/// Deserialised rather than written as a literal: the type is
+/// `#[non_exhaustive]`, so this crate cannot construct it, and its wire form is
+/// exactly how a host receives one anyway. `overrides` is merged on top, so a
+/// test names only the fields it is about.
+#[cfg(test)]
+pub(crate) fn message_info_with(overrides: serde_json::Value) -> fieldglass::MessageInfo {
+    let mut base = serde_json::json!({
+        "index": 0,
+        "offsetBytes": 0,
+        "parameter": "",
+        "abbreviation": "",
+        "units": "",
+        "level": "",
+        "levelType": "",
+        "forecast": "",
+        "packing": "",
+        "originatingCentre": "",
+    });
+    if let (Some(base), Some(extra)) = (base.as_object_mut(), overrides.as_object()) {
+        for (k, v) in extra {
+            base.insert(k.clone(), v.clone());
         }
-        // The grid comes back with the field rather than being chosen here, so
-        // there is one construction of it rather than two (#546); the reader
-        // holds it against the one `resolved` sizes the meta from (#580).
-        let (_grid, values) = self
-            .reader
-            .synthesize_message_global(message_index as usize)
-            .into_napi()?
-            .ok_or_else(|| {
-                napi::Error::from_reason(format!(
-                    "message {message_index} carries a raster of its own and is not synthesised"
-                ))
-            })?;
-        let arc = std::sync::Arc::new(values);
-        self.synthesized
-            .lock()
-            .expect("synthesis cache mutex poisoned")
-            .insert(message_index, std::sync::Arc::clone(&arc));
-        Ok(arc)
     }
+    serde_json::from_value(base).expect("a MessageInfo in its wire form")
+}
 
-    fn cached_decode(&self, message_index: u32) -> napi::Result<std::sync::Arc<Vec<Option<f64>>>> {
-        if let Some(hit) = self
-            .decoded
-            .lock()
-            .expect("decode cache mutex poisoned")
-            .get(&message_index)
-        {
-            return Ok(std::sync::Arc::clone(hit));
-        }
-        // Alternate-row (boustrophedon) scanning is undone inside
-        // `decode_message_values` (#541) and a reduced grid's rows are widened
-        // to `max(PL)` inside `decode_message_raster` (#543), so what comes
-        // back is already the regular Ni·Nj row order every downstream path
-        // (decode_grid, render, overlay) addresses as `raw[j·ni + i]`.
-        let raw = self
-            .reader
-            .decode_message_raster(message_index as usize)
-            .into_napi()?;
-        let arc = std::sync::Arc::new(raw);
-        self.decoded
-            .lock()
-            .expect("decode cache mutex poisoned")
-            .insert(message_index, std::sync::Arc::clone(&arc));
-        Ok(arc)
-    }
+/// The metadata a synthesised global grid renders under — what
+/// `Session::place_message` resolves a spectral or HEALPix message to, built
+/// the way it builds it.
+#[cfg(test)]
+pub(crate) fn synthesised_meta(grid: fieldglass_core::GlobalGrid) -> MessageMeta {
+    let geometry = GridGeometry::LatLon(grid.into());
+    let placed = fieldglass::Georef::from_declared(&geometry, Scan::north_down(), geometry.label());
+    session_meta::meta_from_session(
+        &message_info_with(serde_json::json!({})),
+        Some(&placed),
+        "grib2",
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -3285,72 +2592,6 @@ fn base_netcdf_meta(name: &str, units: &str, ni: i32, nj: i32) -> MessageMeta {
     }
 }
 
-/// The `"latlon"` render meta for a field put onto the global synthesis
-/// `grid`: `base`'s parameter/level/time with that grid's geometry.
-///
-/// Two families need it, for the same reason — neither has a raster shape of
-/// its own: spectral fields, synthesized by the inverse transform (GRIB1 and
-/// GRIB2 both), and HEALPix fields, resampled pixel by pixel (#443). The name
-/// is historical; what it builds is not spectral-specific.
-///
-/// Every coordinate comes from [`GlobalGrid`] rather than being spelled out
-/// here, so the corners this declares are the ones the field was evaluated at
-/// (#546).
-fn spectral_render_meta_from(base: MessageMeta, grid: GlobalGrid) -> MessageMeta {
-    let params = fieldglass_core::LatLonParams::from(grid);
-    gate_reprojection(
-        MessageMeta {
-            grid_type: Some("latlon".to_string()),
-            // The synthesis grids are capped far below `i32::MAX`; the cast is
-            // saturating so an absurd one clamps rather than wraps.
-            grid_ni: Some(i32::try_from(params.ni).unwrap_or(i32::MAX)),
-            grid_nj: Some(i32::try_from(params.nj).unwrap_or(i32::MAX)),
-            lat_first: Some(params.lat_first),
-            lon_first: Some(params.lon_first),
-            lat_last: Some(params.lat_last),
-            lon_last: Some(params.lon_last),
-            // Answered from the geometry, like every other builder. The grid
-            // this synthesises is one we chose, so the answer is not in doubt —
-            // but a second spelling of it here is a second place for the rule to
-            // live, which is the thing #571 removed.
-            reprojectable: false,
-            ..base
-        },
-        // A synthesised grid runs west-to-east from 0° and north-down from the
-        // pole, whatever the message it came from scanned like: nothing of the
-        // source raster survives an inverse transform or a HEALPix resample.
-        Scan::north_down(),
-    )
-}
-
-/// The render geometry of a decoded field: the extent of the raster
-/// `cached_decode` hands back, which is the grid's own for every family except
-/// a reduced one (#503, #543).
-///
-/// `bounds` is the format crate's `raster_bounds()` — [`MessageMeta`] already
-/// carries the declared corners, and this replaces them with the raster's. The
-/// two differ only in the eastern corner, and only for a reduced grid: its rows
-/// expand to `max(PL)` columns, while the file's `lo2` describes the narrower
-/// `4N` reference grid. `None` (a template that states no corners, such as
-/// §3.12, whose meta derives them through its projector instead) leaves the
-/// meta alone.
-///
-/// The same override the spectral and HEALPix paths make for the same reason:
-/// the message table keeps showing what the file says, and only the render
-/// geometry is derived.
-fn raster_render_meta(base: MessageMeta, bounds: Option<CornerPair>) -> MessageMeta {
-    let Some(corners) = bounds else {
-        return base;
-    };
-    MessageMeta {
-        lat_first: Some(corners.lat_first),
-        lon_first: Some(corners.lon_first),
-        lat_last: Some(corners.lat_last),
-        lon_last: Some(corners.lon_last),
-        ..base
-    }
-}
-
 /// Build a synthesised `"latlon"` [`MessageMeta`] for a NetCDF slice. Only the
 /// geometry the warp reads (`grid_type`, corner coordinates) is populated. When
 /// `geometry` is `None` (no coordinate variables) the corners are absent and the
@@ -3502,20 +2743,6 @@ fn synth_latlon_meta(
             false,
         ),
     )
-}
-
-fn grib1_dimensions(reader: &Grib1Reader, message_index: usize) -> napi::Result<(u32, u32)> {
-    let msg = reader
-        .messages
-        .get(message_index)
-        .ok_or_else(|| napi::Error::from_reason("message index out of range".to_string()))?;
-    let gds = msg.gds.as_ref().ok_or_else(|| {
-        napi::Error::from_reason(
-            "message has no GDS and its grid number is not a known predefined grid".to_string(),
-        )
-    })?;
-    gds.dimensions()
-        .ok_or_else(|| napi::Error::from_reason("grid type has no declared dimensions".to_string()))
 }
 
 /// Repack the decoder's `Vec<Option<f64>>` into the typed-array pair
@@ -5051,22 +4278,22 @@ mod meta_geometry_tests {
     fn signed_grid_increments_encode_scan_direction() {
         // Default scan (i: W→E, j: S→N) keeps positive magnitudes.
         assert_eq!(
-            signed_grid_increments(5000.0, 5000.0, false, true),
+            fieldglass_core::signed_grid_increments(5000.0, 5000.0, false, true),
             (5000.0, 5000.0)
         );
         // j scans north→south ⇒ dy negative.
         assert_eq!(
-            signed_grid_increments(5000.0, 5000.0, false, false),
+            fieldglass_core::signed_grid_increments(5000.0, 5000.0, false, false),
             (5000.0, -5000.0)
         );
         // i scans east→west ⇒ dx negative.
         assert_eq!(
-            signed_grid_increments(5000.0, 5000.0, true, true),
+            fieldglass_core::signed_grid_increments(5000.0, 5000.0, true, true),
             (-5000.0, 5000.0)
         );
         // Operates on magnitude, so it is idempotent on already-signed input.
         assert_eq!(
-            signed_grid_increments(-5000.0, -5000.0, false, true),
+            fieldglass_core::signed_grid_increments(-5000.0, -5000.0, false, true),
             (5000.0, 5000.0)
         );
     }
@@ -5080,8 +4307,7 @@ mod meta_geometry_tests {
 #[cfg(test)]
 mod planar_offer_needs_a_placeable_projection_tests {
     use super::{
-        GridGeometry, MessageMeta, Scan, build_grib1_message_meta, gate_reprojection,
-        meta_from_placement,
+        Grib1Handle, GridGeometry, MessageMeta, Scan, gate_reprojection, meta_from_placement,
     };
     use fieldglass::netcdf::resolve::SlicePlacement;
     use fieldglass::netcdf::{GeostationaryGrid, WrfLambertGrid, WrfPolarStereoGrid};
@@ -5272,7 +4498,7 @@ mod planar_offer_needs_a_placeable_projection_tests {
     ///
     /// Metadata only. The BDS is twelve zero bytes against a GDS that declares
     /// hundreds of thousands of points, so anything that actually decodes this
-    /// message will fail — `build_grib1_message_meta` reads §1 and §2 alone.
+    /// message will fail — the message list reads §1 and §2 alone.
     fn grib1_message_with_gds(grid_type: u8, body: &[u8]) -> Vec<u8> {
         const BDS_LEN: usize = 12;
         let gds_len = 6 + body.len();
@@ -5359,11 +4585,13 @@ mod planar_offer_needs_a_placeable_projection_tests {
         body
     }
 
+    /// Through the handle, so the verdict is the one the extension actually
+    /// receives rather than the one a mapping would give in isolation.
     fn grib1_reprojectable(grid_type: u8, body: &[u8]) -> bool {
-        let reader =
-            fieldglass_grib1::Grib1Reader::from_bytes(grib1_message_with_gds(grid_type, body))
-                .expect("synthetic GRIB1 message parses");
-        build_grib1_message_meta(&reader.messages[0], None).reprojectable
+        Grib1Handle::from_vec(grib1_message_with_gds(grid_type, body))
+            .expect("synthetic GRIB1 message opens")
+            .messages()[0]
+            .reprojectable
     }
 
     #[test]
@@ -5991,11 +5219,7 @@ mod netcdf_slice_tests {
         include_bytes!("../../fieldglass-grib1/tests/fixtures/spectral_simple_t63.grib1");
 
     fn grib2_handle(bytes: &[u8]) -> Grib2Handle {
-        Grib2Handle {
-            reader: Grib2Reader::from_bytes(bytes.to_vec()).unwrap(),
-            decoded: Mutex::new(std::collections::HashMap::new()),
-            synthesized: Mutex::new(std::collections::HashMap::new()),
-        }
+        Grib2Handle::from_vec(bytes.to_vec()).unwrap()
     }
 
     /// The P1 edit is the only caller that needs the file's original octets,
@@ -6015,7 +5239,14 @@ mod netcdf_slice_tests {
         let differing: Vec<usize> = (0..original.len())
             .filter(|&i| patched[i] != original[i])
             .collect();
-        let offset = handle.reader.messages[0].pds_p1_offset() as usize;
+        // Located by diffing against the untouched file rather than asked of a
+        // reader: the handle holds none any more, and the umbrella's own test
+        // pins the offset (`grib1_p1_edit.rs`).
+        let offset = patched
+            .iter()
+            .zip(handle.bytes.iter())
+            .position(|(a, b)| a != b)
+            .expect("the edit changed an octet");
         assert_eq!(
             differing,
             vec![offset],
@@ -6042,37 +5273,7 @@ mod netcdf_slice_tests {
     }
 
     fn grib1_handle(bytes: &[u8]) -> Grib1Handle {
-        Grib1Handle {
-            reader: Grib1Reader::from_bytes(bytes.to_vec()).unwrap(),
-            decoded: Mutex::new(std::collections::HashMap::new()),
-            synthesized: Mutex::new(std::collections::HashMap::new()),
-        }
-    }
-
-    #[test]
-    fn grib1_and_grib2_matrix_decodes_agree() {
-        // The same logical field (16×31, NR=1/NC=2, all-present, value k%256)
-        // encoded in both editions decodes identically through the two
-        // independent readers — a cross-edition check on the shared matrix
-        // reshape, the closest thing to an oracle for a variant eccodes crashes
-        // on.
-        let g1 = Grib1Reader::from_bytes(
-            include_bytes!("../../fieldglass-grib1/tests/fixtures/hand_matrix_of_values.grib1")
-                .to_vec(),
-        )
-        .expect("grib1 parse");
-        let g2 = Grib2Reader::from_bytes(
-            include_bytes!("../../fieldglass-grib2/tests/fixtures/matrix_reshape_16x31.grib2")
-                .to_vec(),
-        )
-        .expect("grib2 parse");
-        let f1 = g1.decode_matrix_message(0).expect("grib1 matrix decode");
-        let f2 = g2.decode_matrix_message(0).expect("grib2 matrix decode");
-        assert_eq!((f1.ni, f1.nj, f1.nr, f1.nc), (f2.ni, f2.nj, f2.nr, f2.nc));
-        assert_eq!(
-            f1.values, f2.values,
-            "GRIB1 and GRIB2 matrix decodes of the same field agree"
-        );
+        Grib1Handle::from_vec(bytes.to_vec()).unwrap()
     }
 
     #[test]
@@ -6158,57 +5359,36 @@ mod netcdf_slice_tests {
         assert_eq!(m.forecast_display, "+204h");
 
         // A unit with no hours value must reach the column as 0 rather than as
-        // anything the crate's `Option` could be read into. This is the only
-        // cover for the `unwrap_or(0)` at this seam: the corpus has no message
-        // stating a calendar unit, and the crate-side test asserts `None`,
-        // which is the other half of the same wire.
-        let month = fieldglass_grib2::ProductDefinitionSection {
-            section_length: 34,
-            num_coordinate_values: 0,
-            template_number: 0,
-            template: fieldglass_grib2::ProductTemplate::HorizontalAnalysisForecast(
-                fieldglass_grib2::Template40 {
-                    common: fieldglass_grib2::HorizontalProductCommon {
-                        parameter_category: 0,
-                        parameter_number: 0,
-                        generating_process_type: 2,
-                        background_process_id: 0,
-                        forecast_process_id: 0,
-                        obs_cutoff_hours: 0,
-                        obs_cutoff_minutes: 0,
-                        forecast_time_unit: 3, // month
-                        forecast_time: 6,
-                        first_surface: fieldglass_grib2::FixedSurface {
-                            surface_type: 1,
-                            scale_factor: None,
-                            scaled_value: None,
-                        },
-                        second_surface: fieldglass_grib2::FixedSurface {
-                            surface_type: 255,
-                            scale_factor: None,
-                            scaled_value: None,
-                        },
-                    },
-                },
-            ),
-        };
-        let fields = grib2_product_fields(fieldglass_grib2::Originator::new(7, 0, 0), 0, &month);
+        // anything the `Option` could be read into. The crate reports `None` for
+        // a calendar unit and the umbrella carries that through; this seam is
+        // where the display default is applied, and the display string is where
+        // the six months survive. The corpus has no message stating a calendar
+        // unit, so this is the only cover for the `unwrap_or(0)`.
+        let month = crate::message_info_with(serde_json::json!({
+            "forecastHours": null,
+            "forecast": "+6 Month",
+        }));
+        let meta = crate::session_meta::meta_from_session(&month, None, "grib2");
         assert_eq!(
-            fields.forecast_hours, 0,
+            meta.forecast_hours, 0,
             "no hours value reaches the column as 0"
         );
-        assert_eq!(
-            fields.forecast_display, "+6 Month",
-            "and the display string is where the six months survive"
-        );
+        assert_eq!(meta.forecast_display, "+6 Month");
 
         // A template with no horizontal product common has none of the four to
-        // render, and says so rather than inventing a zero-hour analysis.
-        let placeholder = Grib2ProductFields::placeholder();
-        assert_eq!(placeholder.level, "—");
-        assert_eq!(placeholder.level_type, "—");
-        assert_eq!(placeholder.forecast_hours, 0);
-        assert_eq!(placeholder.forecast_display, "—");
+        // render. The umbrella says so with a dash rather than inventing a
+        // zero-hour analysis, and this seam must pass the dash through rather
+        // than substitute its own default.
+        let placeholder = crate::message_info_with(serde_json::json!({
+            "level": "—",
+            "levelType": "—",
+            "forecast": "—",
+        }));
+        let meta = crate::session_meta::meta_from_session(&placeholder, None, "grib2");
+        assert_eq!(meta.level, "—");
+        assert_eq!(meta.level_type, "—");
+        assert_eq!(meta.forecast_hours, 0);
+        assert_eq!(meta.forecast_display, "—");
     }
 
     #[test]
@@ -6239,14 +5419,14 @@ mod netcdf_slice_tests {
         // the cached field and paints the identical image (#334).
         let h = grib2_handle(SPECTRAL_T63);
         assert!(
-            h.synthesized.lock().unwrap().is_empty(),
+            h.stream.values.lock().unwrap().is_empty(),
             "nothing synthesized before the first render"
         );
         let a = h
             .render_grid(0, opts("source"))
             .expect("first spectral render");
         assert!(
-            h.synthesized.lock().unwrap().contains_key(&0),
+            h.stream.values.lock().unwrap().contains_key(&0),
             "the synthesized field is cached after the first render"
         );
         let b = h
@@ -6760,7 +5940,7 @@ mod netcdf_slice_tests {
     #[test]
     fn contour_and_probe_agree_on_periodicity_for_the_families_contours_wrap() {
         for family in ["latlon", "mercator", "gaussian"] {
-            let global = GlobalGrid::new(8, 4).lon_last();
+            let global = fieldglass_core::GlobalGrid::new(8, 4).lon_last();
             for (lon_last, want) in [(global, true), (40.0, false)] {
                 let mut meta = as_family(global_latlon_meta(8, 4), family);
                 meta.lon_last = Some(lon_last);
@@ -6780,7 +5960,7 @@ mod netcdf_slice_tests {
     fn global_latlon_meta(ni: i32, nj: i32) -> MessageMeta {
         let mut meta = latlon_meta(ni, nj);
         meta.lon_first = Some(0.0);
-        meta.lon_last = Some(GlobalGrid::new(ni as usize, nj as usize).lon_last());
+        meta.lon_last = Some(fieldglass_core::GlobalGrid::new(ni as usize, nj as usize).lon_last());
         meta
     }
 
@@ -7434,37 +6614,43 @@ mod netcdf_slice_tests {
 #[cfg(test)]
 mod space_view_geos_tests {
     use super::*;
-    use fieldglass_grib2::SpaceViewTemplate;
-
-    /// A minimal §3.90 template: an 11×11 central crop of a disk that is 15
-    /// grid lengths across, GRS80 ellipsoid, sub-satellite point at grid
-    /// centre, GOES-East longitude, default (i+, j-) scan.
-    fn space_view_template() -> SpaceViewTemplate {
-        SpaceViewTemplate {
-            shape_of_earth: 5,
+    /// The geostationary grid these tests warp: an 11×11 central crop of a disk
+    /// that is 15 grid lengths across, GRS80 ellipsoid, sub-satellite point at
+    /// grid centre, GOES-East longitude, default (i+, j-) scan.
+    ///
+    /// **Stated as parameters rather than built from a §3.90 template**, which is
+    /// what these tests did until #726. The template is a `fieldglass-grib2`
+    /// type, and this crate no longer names any format crate in its manifest —
+    /// not even as a dev-dependency, which the host-dependency check counts
+    /// alike. What the tests are about is the warp and the render window for a
+    /// geostationary grid, not the conversion from §3.90, and that conversion is
+    /// `fieldglass-grib2`'s own to test.
+    ///
+    /// The values are exactly what `SpaceViewTemplate::scan_grid` produced for
+    /// that template — `shape_of_earth 5, r_eq 6378137, r_pol 6356752.314, nx/ny
+    /// 11, lap 0, lop -75, dx/dy 15, xp/yp 5, nr 6610710` — printed with
+    /// round-trip precision, so the inputs are bit-identical to before and the
+    /// assertions below did not need to move.
+    fn space_view_params() -> fieldglass_core::GeostationaryParams {
+        fieldglass_core::GeostationaryParams {
+            ni: 11,
+            nj: 11,
+            h_metres: 42_164_014.047_27,
             r_eq: 6_378_137.0,
             r_pol: 6_356_752.314,
-            nx: 11,
-            ny: 11,
-            lap: 0.0,
-            lop: -75.0,
-            dx: 15,
-            dy: 15,
-            xp: 5.0,
-            yp: 5.0,
-            orientation: 0.0,
-            nr: Some(6_610_710),
-            xo: 0,
-            yo: 0,
-            resolution_flags: 0,
-            scanning_mode: 0,
+            sub_lon_deg: -75.0,
+            sweep_x: true,
+            x0: -0.101_235_073_274_024_35,
+            dx_rad: 0.020_247_014_654_804_87,
+            y0: 0.100_895_651_236_813_17,
+            dy_rad: -0.020_179_130_247_362_634,
         }
     }
 
     /// A space-view `MessageMeta` with only the fields the warp consults set;
     /// every other slot is left empty so the synthetic stays minimal.
     fn space_view_meta() -> MessageMeta {
-        let g = space_view_template().scan_grid().unwrap();
+        let g = space_view_params();
         MessageMeta {
             p1_octet: None,
             earth_radius_metres: None,
@@ -7702,19 +6888,11 @@ mod planar_geolocation_tests {
         include_bytes!("../../fieldglass-grib1/tests/fixtures/cmc_wind_300_2010052400_p012.grib");
 
     fn grib2_handle(bytes: &[u8]) -> Grib2Handle {
-        Grib2Handle {
-            reader: Grib2Reader::from_bytes(bytes.to_vec()).expect("grib2 parse"),
-            decoded: Mutex::new(std::collections::HashMap::new()),
-            synthesized: Mutex::new(std::collections::HashMap::new()),
-        }
+        Grib2Handle::from_vec(bytes.to_vec()).expect("grib2 parse")
     }
 
     fn grib1_handle(bytes: &[u8]) -> Grib1Handle {
-        Grib1Handle {
-            reader: Grib1Reader::from_bytes(bytes.to_vec()).expect("grib1 parse"),
-            decoded: Mutex::new(std::collections::HashMap::new()),
-            synthesized: Mutex::new(std::collections::HashMap::new()),
-        }
+        Grib1Handle::from_vec(bytes.to_vec()).expect("grib1 parse")
     }
 
     /// `(meta, ni, nj)` for message 0 of a GRIB2 fixture.
@@ -7777,7 +6955,16 @@ mod planar_geolocation_tests {
                 | GridGeometry::LambertAzimuthal(_)
         );
         move |i, j| {
-            place(i, j).map(|(lat, lon)| (lat, if planar { normalise_lon(lon) } else { lon }))
+            place(i, j).map(|(lat, lon)| {
+                (
+                    lat,
+                    if planar {
+                        fieldglass_core::normalise_lon(lon)
+                    } else {
+                        lon
+                    },
+                )
+            })
         }
     }
 
@@ -8421,19 +7608,11 @@ mod reduced_grid_render_tests {
         include_bytes!("../../fieldglass-grib2/tests/fixtures/octahedral_gaussian_o32.grib2");
 
     fn grib2_handle(bytes: &[u8]) -> Grib2Handle {
-        Grib2Handle {
-            reader: Grib2Reader::from_bytes(bytes.to_vec()).expect("grib2 parse"),
-            decoded: Mutex::new(std::collections::HashMap::new()),
-            synthesized: Mutex::new(std::collections::HashMap::new()),
-        }
+        Grib2Handle::from_vec(bytes.to_vec()).expect("grib2 parse")
     }
 
     fn grib1_handle(bytes: &[u8]) -> Grib1Handle {
-        Grib1Handle {
-            reader: Grib1Reader::from_bytes(bytes.to_vec()).expect("grib1 parse"),
-            decoded: Mutex::new(std::collections::HashMap::new()),
-            synthesized: Mutex::new(std::collections::HashMap::new()),
-        }
+        Grib1Handle::from_vec(bytes.to_vec()).expect("grib1 parse")
     }
 
     fn options(projection: &str) -> RenderOptions {
@@ -9123,15 +8302,7 @@ mod healpix_render_tests {
     #[test]
     fn the_render_meta_is_a_reprojectable_global_latlon_grid() {
         let grid = healpix_render_grid(16);
-        // `MessageMeta` has no `Default` (every field is spelled out at each
-        // construction site on purpose), so borrow the polar-stereo test's
-        // helper and overwrite the two fields this is about.
-        let base = MessageMeta {
-            grid_type: Some("healpix".to_string()),
-            reprojectable: false,
-            ..crate::meta_geometry_tests::cmc_polar_meta()
-        };
-        let meta = spectral_render_meta_from(base, grid);
+        let meta = crate::synthesised_meta(grid);
         assert_eq!(meta.grid_type.as_deref(), Some("latlon"));
         assert!(
             meta.reprojectable,
@@ -9150,12 +8321,7 @@ mod healpix_render_tests {
     /// resamples to 26 × 14, which is correct for its pixel scale and far too
     /// coarse to draw a projection at.
     fn nside4_render_meta() -> MessageMeta {
-        let base = MessageMeta {
-            grid_type: Some("healpix".to_string()),
-            reprojectable: false,
-            ..crate::meta_geometry_tests::cmc_polar_meta()
-        };
-        spectral_render_meta_from(base, healpix_render_grid(4))
+        crate::synthesised_meta(healpix_render_grid(4))
     }
 
     /// Every reprojection of a coarse grid is drawn at display scale, so the
@@ -9303,169 +8469,52 @@ mod unresolved_parameter_tests {
         out
     }
 
-    /// What `fieldglass::Session` — and therefore the wasm binding, which
-    /// returns `Field::parameter` verbatim — shows for message 0.
-    fn umbrella_parameter(bytes: Vec<u8>) -> String {
-        fieldglass::Session::open(bytes)
-            .expect("the patched message still parses")
-            .message(0)
-            .expect("message 0")
-            .parameter
-    }
+    // These asserted that this crate and the umbrella agreed, back when this
+    // crate built the name itself (#633). It no longer does — the message list
+    // is the umbrella's `MessageInfo` mapped for display (#726) — so agreement
+    // is structural and what is left worth pinning is the contract itself: what
+    // the extension shows for a parameter no table defines.
 
     #[test]
-    fn grib2_agrees_with_the_umbrella() {
+    fn an_unresolved_grib2_parameter_is_named_by_its_codes() {
         // Discipline 209: a local NSSL/MRMS assignment no table here defines.
-        let bytes = patched(GRIB2, GRIB2_DISCIPLINE, 209);
-        let reader = Grib2Reader::from_bytes(bytes.clone()).expect("grib2 parse");
-        let meta = build_grib2_message_meta(&reader.messages[0]);
+        let meta = &Grib2Handle::from_vec(patched(GRIB2, GRIB2_DISCIPLINE, 209))
+            .expect("the patched message still opens")
+            .messages()[0];
         assert_eq!(meta.parameter_name, "Parameter 209/0/0");
-        assert_eq!(meta.parameter_name, umbrella_parameter(bytes));
         assert_eq!(meta.parameter_abbreviation, "");
         assert_eq!(meta.parameter_units, "");
     }
 
     #[test]
-    fn grib1_agrees_with_the_umbrella() {
+    fn an_unresolved_grib1_parameter_is_named_by_its_codes() {
         // Id 0 is undefined in ECMWF local table 128, which this file declares.
-        let bytes = patched(GRIB1, GRIB1_PARAMETER_ID, 0);
-        let reader = Grib1Reader::from_bytes(bytes.clone()).expect("grib1 parse");
-        let meta = build_grib1_message_meta(&reader.messages[0], None);
+        let meta = &Grib1Handle::from_vec(patched(GRIB1, GRIB1_PARAMETER_ID, 0))
+            .expect("the patched message still opens")
+            .messages()[0];
         assert_eq!(meta.parameter_name, "Parameter 98/128/0");
-        assert_eq!(meta.parameter_name, umbrella_parameter(bytes));
         assert_eq!(meta.parameter_abbreviation, "");
         assert_eq!(meta.parameter_units, "");
     }
 
-    /// The two hosts have to agree about a *resolved* parameter too, or the
-    /// tests above would pass with the fallback firing unconditionally.
+    /// A *resolved* parameter too, or the tests above would pass with the
+    /// fallback firing unconditionally.
     #[test]
-    fn a_resolved_parameter_agrees_with_the_umbrella() {
-        let g2 = Grib2Reader::from_bytes(GRIB2.to_vec()).expect("grib2 parse");
-        let meta2 = build_grib2_message_meta(&g2.messages[0]);
-        assert_eq!(meta2.parameter_name, "Temperature");
-        assert_eq!(meta2.parameter_name, umbrella_parameter(GRIB2.to_vec()));
-
-        let g1 = Grib1Reader::from_bytes(GRIB1.to_vec()).expect("grib1 parse");
-        let meta1 = build_grib1_message_meta(&g1.messages[0], None);
-        assert_eq!(meta1.parameter_name, "2 metre temperature");
-        assert_eq!(meta1.parameter_name, umbrella_parameter(GRIB1.to_vec()));
+    fn a_resolved_parameter_is_named_by_its_table() {
+        let g2 = Grib2Handle::from_vec(GRIB2.to_vec()).expect("opens");
+        assert_eq!(g2.messages()[0].parameter_name, "Temperature");
+        let g1 = Grib1Handle::from_vec(GRIB1.to_vec()).expect("opens");
+        assert_eq!(g1.messages()[0].parameter_name, "2 metre temperature");
     }
 }
 
-/// The two hosts name a message's grid family the same way (#645).
-///
-/// This crate never lost the name: `MessageMeta::grid_type` is
-/// `GridDescription::grid_type_name` / `GridDefinitionSection::template_name`
-/// read straight off the decoder. The umbrella re-derived it from the
-/// `GridGeometry` the decoder converts to, and that conversion deliberately
-/// collapses a reduced grid onto its regular sibling's raster — so a
-/// `reduced_gg` message read `reduced_gaussian` in the extension's grid-type
-/// column and `gaussian` in the umbrella, and therefore in the browser host.
-///
-/// The conformance suite cannot catch that from this side: this crate's runner
-/// drives only `Op::Decode` and `Op::Render`, and `DecodedGrid` carries no
-/// georef for the comparator to project. (`crates/fieldglass/conformance`
-/// *does* now gate it for the umbrella and the wasm host, which do run
-/// `Op::Message`.) So the two seams are compared here directly, over the whole
-/// committed corpus rather than a named pair — the defect was a seam quietly
-/// re-deriving a string the decoder owns, so what is worth pinning is that no
-/// message anywhere disagrees.
-///
-/// Delete this with `unresolved_parameter_tests` when #574 lands and this
-/// crate's message view is generated from the umbrella's schema.
-#[cfg(test)]
-mod declared_grid_family_tests {
-    use super::*;
-
-    /// The committed fixture directories, relative to this crate's directory,
-    /// and the extensions each holds.
-    const CORPORA: &[(&str, &[&str])] = &[
-        ("../fieldglass-grib1/tests/fixtures", &["grib1", "grib"]),
-        ("../fieldglass-grib2/tests/fixtures", &["grib2"]),
-    ];
-
-    /// What the umbrella reports for every message of a file: the same list
-    /// this crate's `grid_type` is checked against.
-    fn umbrella_families(bytes: Vec<u8>) -> Vec<Option<String>> {
-        let session = fieldglass::Session::open(bytes).expect("the fixture opens");
-        (0..session.count())
-            .map(|i| {
-                session
-                    .message(i)
-                    .expect("a message the session counted")
-                    .grid
-                    .map(|g| g.label)
-            })
-            .collect()
-    }
-
-    #[test]
-    fn every_committed_message_names_its_grid_the_same_way_in_both_hosts() {
-        let mut files = 0usize;
-        let mut checked = 0usize;
-        let mut families = std::collections::BTreeSet::new();
-
-        for (dir, exts) in CORPORA {
-            let entries = std::fs::read_dir(dir).unwrap_or_else(|e| panic!("{dir}: {e}"));
-            let mut paths: Vec<_> = entries
-                .map(|e| e.expect("a readable directory entry").path())
-                .filter(|p| {
-                    p.extension()
-                        .and_then(|e| e.to_str())
-                        .is_some_and(|e| exts.contains(&e))
-                })
-                .collect();
-            paths.sort();
-
-            for path in paths {
-                let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("{path:?}: {e}"));
-                // Branch on the *file's* extension, not on the corpus's list:
-                // a `.grib2` fixture landing in the GRIB1 directory would
-                // otherwise feed every `.grib1` beside it to `Grib2Reader` and
-                // die on the parse rather than report a name mismatch.
-                let is_grib2 = path
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .is_some_and(|e| e == "grib2");
-                let mine: Vec<Option<String>> = if is_grib2 {
-                    Grib2Reader::from_bytes(bytes.clone())
-                        .expect("grib2 parse")
-                        .messages
-                        .iter()
-                        .map(|m| build_grib2_message_meta(m).grid_type)
-                        .collect()
-                } else {
-                    Grib1Reader::from_bytes(bytes.clone())
-                        .expect("grib1 parse")
-                        .messages
-                        .iter()
-                        .map(|m| build_grib1_message_meta(m, None).grid_type)
-                        .collect()
-                };
-                let theirs = umbrella_families(bytes);
-                assert_eq!(theirs, mine, "{path:?}: the two hosts name the grid apart");
-                for name in mine.into_iter().flatten() {
-                    families.insert(name);
-                }
-                checked += theirs.len();
-                files += 1;
-            }
-        }
-
-        // A corpus check can pass by walking nothing, so what it walked is
-        // asserted as well as what it found. Generous bounds: this guards
-        // against a walk that found nothing, not against the corpus shrinking.
-        assert!(files >= 40, "only {files} fixtures walked");
-        assert!(checked >= 50, "only {checked} messages compared");
-        assert!(
-            families.contains("reduced_gaussian"),
-            "no committed fixture declares a reduced Gaussian grid any more, \
-             so the case this test exists for is no longer covered; \
-             families seen: {families:?}",
-        );
-    }
-}
+// `declared_grid_family_tests` stood here (#645): it held this crate's
+// `grid_type` to the umbrella's `Georef::label` for every committed message,
+// because the two hosts had disagreed in public about a reduced grid's name.
+// Since #726 the message list *is* the umbrella's `MessageInfo` mapped for
+// display, so `grid_type` is `Georef::label` by construction and the test would
+// compare a value with itself. The disagreement it guarded against can no longer
+// be written without reintroducing a second path.
 
 /// The caller-named output raster (#465) crossing *this* binding.
 ///
@@ -9491,11 +8540,7 @@ mod sized_output_raster_tests {
         include_bytes!("../../fieldglass-grib2/tests/fixtures/gfs_c255_latlon.grib2");
 
     fn handle() -> Grib2Handle {
-        Grib2Handle {
-            reader: Grib2Reader::from_bytes(GFS_C255.to_vec()).expect("grib2 parse"),
-            decoded: Mutex::new(std::collections::HashMap::new()),
-            synthesized: Mutex::new(std::collections::HashMap::new()),
-        }
+        Grib2Handle::from_vec(GFS_C255.to_vec()).expect("grib2 parse")
     }
 
     /// A CONUS window, optionally at a named size.

@@ -15,7 +15,10 @@ repository.workspace   = true
 crate-type = ["cdylib"]
 
 [dependencies]
-# The host-neutral API this binding is a binding *over* (ADR-0006). `schema` is
+# The host-neutral API this binding is a binding *over* (ADR-0006), and since
+# #726 the only workspace crate below `core` it names: no format crate appears
+# here or among the dev-dependencies, which `tools/check_host_dependencies.py`
+# enforces. `schema` is
 # off: the JSON Schema is what a declaration generator reads (#574), not what
 # the addon needs at runtime, and `schemars` has no business in a `.node`.
 # The six it does name were unconditional in the umbrella until #552 made them
@@ -31,8 +34,6 @@ crate-type = ["cdylib"]
 # the shipped addon asks for.
 fieldglass         = { path = "../fieldglass",        version = "=0.5.0", default-features = false, features = ["grib1", "grib2", "netcdf", "zarr", "render", "analysis"] }
 fieldglass-core   = { path = "../fieldglass-core",   version = "=0.5.0", features = ["render", "analysis"] }
-fieldglass-grib1  = { path = "../fieldglass-grib1",  version = "=0.5.0" }
-fieldglass-grib2  = { path = "../fieldglass-grib2",  version = "=0.5.0" }
 napi = { version = "3", features = ["napi6"] }
 napi-derive = "3"
 
