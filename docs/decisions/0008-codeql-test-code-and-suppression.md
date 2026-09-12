@@ -231,9 +231,23 @@ early on failure; a type-tag check; then the dereference. The pointer is read
 only after Node has reported success, and the same expansion exists in every
 `#[napi]` struct of every napi-rs project.
 
-If one of the three structs moves, GitHub may raise the alert again at the new
-line. The answer is the same dismissal with the same comment; nothing about the
-code will have changed.
+If one of these structs moves, GitHub may raise the alert again at the new line.
+The answer is the same dismissal with the same comment; nothing about the code
+will have changed.
+
+**A new `#[napi]` struct raises a new one, and that is expected.** #659 added
+`ZarrHandle`, the fourth, and CodeQL reported it as "1 new alert including 1 high
+severity security vulnerability" — which is the scanner working: the expansion is
+new code, even though it is the same expansion. Alert #132 was dismissed on
+2026-09-12 with the same comment. So the count in this record is a count of
+`#[napi]` structs and not a fixed number; expect one per handle until
+github/codeql#21638 makes inline suppression possible.
+
+**Read the alert before matching the pattern.** The dismissal is only right
+because the flagged line is a `#[napi]` struct attribute and the crate has zero
+hand-written `unsafe`. #659 also added a hand-written path-traversal guard in
+`directory_store.rs`; had CodeQL flagged *that*, the answer would have been to fix
+the code, not to dismiss the finding.
 
 **5. The CodeQL bundle is not pinned.** A new bundle bringing a batch of
 findings is triage, and triage is the cost of a scanner that improves.
