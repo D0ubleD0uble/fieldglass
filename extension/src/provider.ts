@@ -807,6 +807,25 @@ export class FieldglassEditorProvider
     };
 
     // Read the field under a clicked pixel and post the readout back (#172).
+    // The field's zonal mean (#240). A refusal travels with the reply, because
+    // the reason — a rotated or projected grid has no latitude circles to average
+    // along — is what the panel should say instead of an empty plot.
+    const zonal = () => {
+      const docHandle = this._handlesByDoc.get(document.uri.toString());
+      if (!docHandle) return;
+      try {
+        const result = docHandle.zonalMean(meta.messageIndex);
+        panel.webview.postMessage({ type: "zonalResult", messageIndex: meta.messageIndex, result, error: null });
+      } catch (err) {
+        panel.webview.postMessage({
+          type: "zonalResult",
+          messageIndex: meta.messageIndex,
+          result: null,
+          error: `${err}`.replace(/^Error:\s*/, ""),
+        });
+      }
+    };
+
     const probe = (req: ProbeRequest) => {
       const docHandle = this._handlesByDoc.get(document.uri.toString());
       if (!docHandle) return;
@@ -860,6 +879,10 @@ export class FieldglassEditorProvider
         }
         if (m.type === "probeRequest") {
           probe(m as ProbeRequest);
+          return;
+        }
+        if (m.type === "zonalRequest") {
+          zonal();
           return;
         }
         if (m.type === "exportPng") {
@@ -1281,6 +1304,25 @@ export class FieldglassEditorProvider
       }
     };
 
+    // The slice's zonal mean (#240), with the refusal passed through as on the
+    // GRIB panel.
+    const zonal = (req: { slice?: SliceSpec }) => {
+      const docHandle = subject.handle();
+      if (!docHandle) return;
+      const spec = req.slice ?? initial;
+      try {
+        const result = docHandle.zonalMean(spec.variableIndex, spec.yDim, spec.xDim, spec.sliceIndices);
+        panel.webview.postMessage({ type: "zonalResult", messageIndex: spec.variableIndex, result, error: null });
+      } catch (err) {
+        panel.webview.postMessage({
+          type: "zonalResult",
+          messageIndex: spec.variableIndex,
+          result: null,
+          error: `${err}`.replace(/^Error:\s*/, ""),
+        });
+      }
+    };
+
     // The line through the probed cell, along the axis the panel picked (#172).
     // A failure answers with no line rather than an error toast: the plot is
     // a companion to the readout, and a variable with no axis to read along is
@@ -1356,6 +1398,10 @@ export class FieldglassEditorProvider
         }
         if (m.type === "lineRequest") {
           line(m as LineRequest);
+          return;
+        }
+        if (m.type === "zonalRequest") {
+          zonal(m as { slice?: SliceSpec });
           return;
         }
         if (m.type === "exportSliceCsv") {

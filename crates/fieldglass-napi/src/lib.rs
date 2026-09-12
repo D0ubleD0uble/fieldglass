@@ -1344,6 +1344,16 @@ impl Grib1Handle {
         field_csv(&raw, &meta, ni, nj, &format, None, points_per_row).map(csv_buffer)
     }
 
+    /// Each row's mean over longitude, against latitude (#240) — see
+    /// `fieldglass::render::zonal_mean`. Refused for a grid whose rows are not
+    /// circles of latitude.
+    #[napi]
+    pub fn zonal_mean(&self, message_index: u32) -> napi::Result<LineResult> {
+        let (raw, meta, ni, nj) = self.resolved(message_index)?;
+        let points_per_row = self.stream.points_per_row(message_index);
+        zonal_mean_of(&raw, &meta, ni, nj, points_per_row)
+    }
+
     /// Patch the PDS `p1` (forecast period) octet of one message and
     /// return a fresh byte buffer. Callers reconstruct a new
     /// [`Grib1Handle`] from those bytes — handle state is immutable
@@ -1615,6 +1625,16 @@ impl Grib2Handle {
         let (raw, meta, ni, nj) = self.resolved(message_index)?;
         let points_per_row = self.stream.points_per_row(message_index);
         field_csv(&raw, &meta, ni, nj, &format, None, points_per_row).map(csv_buffer)
+    }
+
+    /// Each row's mean over longitude, against latitude (#240) — see
+    /// `fieldglass::render::zonal_mean`. Refused for a grid whose rows are not
+    /// circles of latitude.
+    #[napi]
+    pub fn zonal_mean(&self, message_index: u32) -> napi::Result<LineResult> {
+        let (raw, meta, ni, nj) = self.resolved(message_index)?;
+        let points_per_row = self.stream.points_per_row(message_index);
+        zonal_mean_of(&raw, &meta, ni, nj, points_per_row)
     }
 
     /// Decode one message and paint it into a raster under `options`. A
@@ -2062,6 +2082,27 @@ impl NetcdfHandle {
         )
         .map(LineResult::from)
         .into_napi()
+    }
+
+    /// The slice's zonal mean, against latitude (#240) — see
+    /// `fieldglass::render::zonal_mean`. The same arguments as `render_slice`.
+    #[napi]
+    pub fn zonal_mean(
+        &self,
+        variable_index: u32,
+        y_dim: u32,
+        x_dim: u32,
+        slice_indices: Vec<u32>,
+    ) -> napi::Result<LineResult> {
+        let var = self.renderable(variable_index)?;
+        let (y, x) = (y_dim as usize, x_dim as usize);
+        let plane = self.slice_plane(&var, y, x, &slice_indices)?;
+        let meta = self.slice_meta(&var, y, x)?;
+        let (ni, nj) = (
+            u32::try_from(meta.grid_ni.unwrap_or(0)).unwrap_or(0),
+            u32::try_from(meta.grid_nj.unwrap_or(0)).unwrap_or(0),
+        );
+        zonal_mean_of(&plane, &meta, ni, nj, None)
     }
 
     /// Serialize one decoded slice as CSV — `"matrix"` (a 2-D grid of values) or
@@ -3153,6 +3194,32 @@ impl ZarrHandle {
             .into_napi()
     }
 
+    /// The slice's zonal mean — see `NetcdfHandle::zonal_mean`; the same
+    /// arguments, read through this handle's session (#240).
+    #[napi]
+    pub fn zonal_mean(
+        &self,
+        variable_index: u32,
+        y_dim: u32,
+        x_dim: u32,
+        slice_indices: Vec<u32>,
+    ) -> napi::Result<LineResult> {
+        let field = self
+            .session
+            .decode_slice(
+                variable_index,
+                y_dim,
+                x_dim,
+                &slice_indices,
+                &fieldglass::DecodeOptions::new(fieldglass::Dtype::Auto),
+            )
+            .into_napi()?;
+        let values = field_values(&field);
+        fieldglass::render::zonal_mean(&field.source(), &values, &field.parameter, &field.units)
+            .map(LineResult::from)
+            .into_napi()
+    }
+
     /// One decoded slice as CSV — `"matrix"` or `"long"` (`lat,lon,value`).
     #[napi]
     pub fn export_csv(
@@ -3704,6 +3771,28 @@ fn overlay_from_source(
 /// transient memory of a large export (#341).
 fn csv_buffer(csv: String) -> napi::bindgen_prelude::Buffer {
     csv.into_bytes().into()
+}
+
+/// A field's zonal mean — `fieldglass::render::zonal_mean` over this host's DTO
+/// (#240). Shaped like [`field_csv`]: the handle states the dimensions, and a
+/// reduced grid's points per row so the mean covers the file's own points.
+fn zonal_mean_of(
+    values: &[Option<f64>],
+    meta: &MessageMeta,
+    ni: u32,
+    nj: u32,
+    points_per_row: Option<Vec<u32>>,
+) -> napi::Result<LineResult> {
+    let mut source = RenderSource::sized(meta, ni, nj, None);
+    source.points_per_row = points_per_row;
+    fieldglass::render::zonal_mean(
+        &source.as_source(),
+        values,
+        &meta.parameter_name,
+        &meta.parameter_units,
+    )
+    .map(LineResult::from)
+    .into_napi()
 }
 
 /// Format a decoded field as CSV — `fieldglass::render::field_csv`, over this

@@ -301,6 +301,9 @@ export interface Grib1Handle {
    *  points are empty value cells. The long format needs per-point
    *  coordinates, so it covers the same grids as `projectContours`. */
   exportCsv(messageIndex: number, format: string): Buffer;
+  /** Each row's mean over longitude, against latitude (#240). Throws for a grid
+   *  whose rows are not circles of latitude (rotated, projected, curvilinear). */
+  zonalMean(messageIndex: number): LineResult;
   setP1(messageIndex: number, value: number): Buffer;
   renderGrid(messageIndex: number, options: RenderOptions): RenderedGrid;
   /** Render message A combined element-wise with message B under `op`. Both
@@ -363,6 +366,9 @@ export interface Grib2Handle {
   decodeGrid(messageIndex: number): DecodedGrid;
   /** Sibling to {@link Grib1Handle.exportCsv}. */
   exportCsv(messageIndex: number, format: string): Buffer;
+  /** Each row's mean over longitude, against latitude (#240). Throws for a grid
+   *  whose rows are not circles of latitude (rotated, projected, curvilinear). */
+  zonalMean(messageIndex: number): LineResult;
   renderGrid(messageIndex: number, options: RenderOptions): RenderedGrid;
   /** Sibling to {@link Grib1Handle.renderGridCombined}. */
   renderGridCombined(
@@ -518,6 +524,9 @@ export interface NetcdfHandle {
   /** One line along `alongDim`, every other axis held at `sliceIndices` — the
    *  entry for `alongDim` is ignored (#172). */
   line(variableIndex: number, alongDim: number, sliceIndices: number[]): LineResult;
+  /** The slice's zonal mean, against latitude (#240). Throws for a slice whose
+   *  rows are not circles of latitude. */
+  zonalMean(variableIndex: number, yDim: number, xDim: number, sliceIndices: number[]): LineResult;
   /** Probe a NetCDF difference/sum/… map (#329): reads the combined field of
    *  slice A and slice B, so the readout matches the displayed map, not A. */
   probeSliceCombined(
@@ -605,6 +614,9 @@ export interface SlicePanelHandle {
   /** One line along `alongDim`, every other axis held at `sliceIndices` — the
    *  entry for `alongDim` is ignored (#172). */
   line(variableIndex: number, alongDim: number, sliceIndices: number[]): LineResult;
+  /** The slice's zonal mean, against latitude (#240). Throws for a slice whose
+   *  rows are not circles of latitude. */
+  zonalMean(variableIndex: number, yDim: number, xDim: number, sliceIndices: number[]): LineResult;
   renderSliceCombined(
     variableIndexA: number,
     yDim: number,

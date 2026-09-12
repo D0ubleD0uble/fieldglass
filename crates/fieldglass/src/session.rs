@@ -417,7 +417,10 @@ impl Arrays {
 /// Shared by every decode that hands back values — a field (message or slice)
 /// and a line (#172) — so a line through a field cannot disagree with the field
 /// about which of its cells are masked.
-fn pack_values(raw: &[Option<f64>], options: &DecodeOptions) -> (Values, Vec<u8>, Stats) {
+pub(crate) fn pack_values(
+    raw: &[Option<f64>],
+    options: &DecodeOptions,
+) -> (Values, Vec<u8>, Stats) {
     let mut values = Vec::with_capacity(raw.len());
     let mut mask = Vec::with_capacity(raw.len());
     let mut min = f64::INFINITY;
